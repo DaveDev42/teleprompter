@@ -62,8 +62,8 @@ export class RelayClient {
   async connect(): Promise<void> {
     if (this.disposed) return;
 
-    // Derive session keys if not done yet
-    if (!this.sessionKeys) {
+    // Derive session keys if not done yet and frontend pubkey is available
+    if (!this.sessionKeys && !isZeroKey(this.config.frontendPublicKey)) {
       this.sessionKeys = await deriveSessionKeys(
         this.config.keyPair,
         this.config.frontendPublicKey,
@@ -256,4 +256,21 @@ export class RelayClient {
   isConnected(): boolean {
     return this.authenticated;
   }
+
+  /**
+   * Set the frontend public key after pairing completes.
+   * This enables E2EE for subsequent messages.
+   */
+  async setFrontendPublicKey(pubkey: Uint8Array): Promise<void> {
+    this.config.frontendPublicKey = pubkey;
+    this.sessionKeys = await deriveSessionKeys(
+      this.config.keyPair,
+      pubkey,
+      "daemon",
+    );
+  }
+}
+
+function isZeroKey(key: Uint8Array): boolean {
+  return key.every((b) => b === 0);
 }

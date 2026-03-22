@@ -82,12 +82,12 @@
 - [x] Zustand 스토어 설계 (SessionStore, UIStore)
 
 ### Terminal 탭
-- [ ] xterm.js 웹 렌더링 컴포넌트 (PTY raw bytes → xterm.js.write() — ANSI 완벽 재현)
-- [ ] WebSocket으로 Daemon 연결 (localhost, 평문)
-- [ ] io Record → xterm.js.write() 파이프
-- [ ] 키보드 입력 → Daemon 전달 (in.term)
-- [ ] 터미널 리사이즈 처리
-- [ ] **리스크: xterm.js + Expo Web 통합 spike 필요** ⚠️
+- [x] xterm.js 웹 렌더링 컴포넌트 (PTY raw bytes → xterm.js.write() — ANSI 완벽 재현)
+- [x] WebSocket으로 Daemon 연결 (localhost, 평문)
+- [x] io Record → xterm.js.write() 파이프
+- [x] 키보드 입력 → Daemon 전달 (in.term)
+- [x] 터미널 리사이즈 처리
+- [x] ~~**리스크: xterm.js + Expo Web 통합 spike 필요**~~ ✅ 해결 — dynamic import + FitAddon
 
 ### Chat 탭
 - [ ] hooks event → 메시지 카드 렌더러

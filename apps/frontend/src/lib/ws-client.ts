@@ -16,6 +16,8 @@ export type WsEventHandler = {
   onOpen?: () => void;
   onClose?: () => void;
   onError?: (error: string) => void;
+  onWorktreeList?: (worktrees: any[]) => void;
+  onWorktreeCreated?: (info: any, sid?: string) => void;
 };
 
 export class DaemonWsClient {
@@ -25,6 +27,11 @@ export class DaemonWsClient {
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
+
+  /** Track attached session and last seq for auto-resume on reconnect */
+  private attachedSid: string | null = null;
+  private lastSeq = 0;
+  private hasConnectedBefore = false;
 
   constructor(url: string = DEFAULT_URL, handlers: WsEventHandler = {}) {
     this.url = url;
@@ -67,12 +74,19 @@ export class DaemonWsClient {
     switch (msg.t) {
       case "hello":
         this.handlers.onSessionList?.(msg.d.sessions);
+        // Auto-resume if we were previously attached
+        if (this.hasConnectedBefore && this.attachedSid) {
+          this.resume(this.attachedSid, this.lastSeq);
+        }
+        this.hasConnectedBefore = true;
         break;
       case "rec":
+        this.trackSeq(msg.seq);
         this.handlers.onRec?.(msg);
         break;
       case "batch":
         for (const rec of msg.d) {
+          this.trackSeq(rec.seq);
           this.handlers.onRec?.(rec);
         }
         break;
@@ -84,6 +98,18 @@ export class DaemonWsClient {
       case "err":
         this.handlers.onError?.(msg.m ?? msg.e);
         break;
+      case "worktree.list":
+        this.handlers.onWorktreeList?.((msg as any).d);
+        break;
+      case "worktree.created":
+        this.handlers.onWorktreeCreated?.((msg as any).d, (msg as any).sid);
+        break;
+    }
+  }
+
+  private trackSeq(seq: number) {
+    if (seq > this.lastSeq) {
+      this.lastSeq = seq;
     }
   }
 
@@ -94,14 +120,19 @@ export class DaemonWsClient {
   }
 
   attach(sid: string) {
+    this.attachedSid = sid;
     this.send({ t: "attach", sid });
   }
 
   detach(sid: string) {
+    if (this.attachedSid === sid) {
+      this.attachedSid = null;
+    }
     this.send({ t: "detach", sid });
   }
 
   resume(sid: string, cursor: number) {
+    this.attachedSid = sid;
     this.send({ t: "resume", sid, c: cursor });
   }
 
@@ -110,8 +141,34 @@ export class DaemonWsClient {
   }
 
   sendTermInput(sid: string, data: string) {
-    // data should be base64 encoded
     this.send({ t: "in.term", sid, d: data });
+  }
+
+  // ── Worktree / Session management ──
+
+  requestWorktreeList() {
+    this.send({ t: "worktree.list" } as WsClientMessage);
+  }
+
+  createWorktree(branch: string, baseBranch?: string, path?: string) {
+    this.send({
+      t: "worktree.create",
+      branch,
+      baseBranch,
+      path,
+    } as WsClientMessage);
+  }
+
+  removeWorktree(path: string, force?: boolean) {
+    this.send({ t: "worktree.remove", path, force } as WsClientMessage);
+  }
+
+  createSession(cwd: string, sid?: string) {
+    this.send({ t: "session.create", cwd, sid } as WsClientMessage);
+  }
+
+  stopSession(sid: string) {
+    this.send({ t: "session.stop", sid } as WsClientMessage);
   }
 
   private scheduleReconnect() {

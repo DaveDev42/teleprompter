@@ -33,6 +33,7 @@ export type {
   WsBatch,
   WsPong,
   WsErr,
+  WsResize,
   WsWorktreeCreate,
   WsWorktreeRemove,
   WsWorktreeList,

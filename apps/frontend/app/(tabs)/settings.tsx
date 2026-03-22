@@ -197,6 +197,6 @@ export default function SettingsScreen() {
           Teleprompter v0.1.0
         </Text>
       </View>
-    </View>
+    </ScrollView>
   );
 }

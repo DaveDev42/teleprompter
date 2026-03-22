@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useSessionStore } from "../stores/session-store";
+import { useOfflineStore } from "../stores/offline-store";
 import { DaemonWsClient } from "../lib/ws-client";
 import type { WsRec, WsSessionMeta } from "@teleprompter/protocol";
 
@@ -23,6 +24,7 @@ export function useDaemon(url?: string) {
       updateSession,
       dispatchRec,
     } = useSessionStore.getState();
+    const { cacheFrame, updateState } = useOfflineStore.getState();
 
     const client = new DaemonWsClient(url, {
       onOpen: () => setConnected(true),
@@ -45,10 +47,12 @@ export function useDaemon(url?: string) {
         if (seq > useSessionStore.getState().lastSeq) {
           setLastSeq(seq);
         }
+        cacheFrame(rec);
         dispatchRec(rec);
       },
       onState: (sid: string, meta: WsSessionMeta) => {
         updateSession(sid, meta);
+        updateState(sid, meta.state);
       },
     });
 

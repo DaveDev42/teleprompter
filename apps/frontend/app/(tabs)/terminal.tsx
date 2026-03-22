@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { View, Text, Platform } from "react-native";
 import { useSessionStore } from "../../src/stores/session-store";
 import { getDaemonClient } from "../../src/hooks/use-daemon";
+import { setGlobalTermRef } from "../../src/stores/voice-store";
 import type { WsRec } from "@teleprompter/protocol";
 
 // Platform-specific terminal component
@@ -18,6 +19,12 @@ export default function TerminalScreen() {
   const addRecHandler = useSessionStore((s) => s.addRecHandler);
   const removeRecHandler = useSessionStore((s) => s.removeRecHandler);
   const termRef = useRef<any>(null);
+
+  // Expose terminal ref globally for voice context
+  useEffect(() => {
+    setGlobalTermRef(termRef.current);
+    return () => setGlobalTermRef(null);
+  });
 
   // Wire io records to xterm
   useEffect(() => {

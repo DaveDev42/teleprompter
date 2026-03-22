@@ -61,11 +61,15 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 ### Tier 1: Unit Tests
 외부 의존성 없이 빠르게 실행.
 - `packages/protocol/src/codec.test.ts` — framed JSON encode/decode
+- `packages/protocol/src/codec-edge.test.ts` — partial frames, unicode, 100KB payloads
 - `packages/protocol/src/queued-writer.test.ts` — backpressure queue
-- `packages/protocol/src/crypto.test.ts` — E2EE encrypt/decrypt, key exchange
+- `packages/protocol/src/crypto.test.ts` — E2EE encrypt/decrypt, key exchange, ratchet
+- `packages/protocol/src/crypto-edge.test.ts` — empty/large payloads, tampered ciphertext
 - `packages/protocol/src/pairing.test.ts` — QR pairing bundle, encode/decode
 - `apps/daemon/src/vault/vault.test.ts` — append-only Record 저장
 - `apps/daemon/src/transport/client-registry.test.ts` — WS client 추적
+- `apps/daemon/src/session/session-manager.test.ts` — register/unregister, spawn, kill
+- `apps/daemon/src/ipc/server.test.ts` — connection lifecycle, framed messaging, findBySid
 - `apps/runner/src/hooks/settings-builder.test.ts` — settings merge
 - `apps/cli/src/args.test.ts` — `--tp-*` 인자 분리
 
@@ -76,7 +80,10 @@ Stub 프로세스로 전체 파이프라인 검증.
 - `apps/daemon/src/transport/ws-server.test.ts` — WebSocket 서버 동작
 - `apps/daemon/src/transport/relay-client.test.ts` — Daemon→Relay E2E with encryption
 - `apps/relay/src/relay-server.test.ts` — Relay auth, routing, caching, presence
+- `apps/relay/src/relay-edge.test.ts` — malformed JSON, multi-frontend, unsubscribe
 - `apps/daemon/src/worktree/worktree-manager.test.ts` — git worktree add/remove/list
+- `apps/daemon/src/worktree-ws.test.ts` — worktree/session WS protocol handlers
+- `apps/cli/src/relay.test.ts` — relay CLI integration
 - `packages/protocol/src/pairing-e2e.test.ts` — full QR pairing → ratchet → E2E encrypt
 
 ### Tier 3: Real E2E Tests (requires claude CLI)

@@ -136,7 +136,7 @@
 
 ### QR 페어링
 - [x] Daemon: pairing secret + pubkey + relay URL + daemon ID 생성
-- [ ] Daemon: QR 코드 표시 (터미널 또는 웹 UI) — `tp pair` CLI 커맨드
+- [x] Daemon: QR 코드 표시 (터미널 또는 웹 UI) — `tp pair` CLI 커맨드 + qrcode-terminal
 - [x] Frontend: QR 스캔 (expo-camera 또는 expo-barcode-scanner) — scan.tsx + manual paste fallback
 - [x] Frontend: 자체 키쌍 생성 → relay 경유 키 교환 — PairingStore + FrontendRelayClient
 - [x] 페어링 완료 → 암호화 통신 시작 — auto-connect on paired state

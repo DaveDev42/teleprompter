@@ -2,11 +2,12 @@ import { daemonCommand } from "./commands/daemon";
 import { runCommand } from "./commands/run";
 import { relayCommand } from "./commands/relay";
 import { versionCommand } from "./commands/version";
+import { pairCommand } from "./commands/pair";
 import { passthroughCommand } from "./commands/passthrough";
 
 const command = process.argv[2];
 
-const SUBCOMMANDS = new Set(["daemon", "run", "relay", "version"]);
+const SUBCOMMANDS = new Set(["daemon", "run", "relay", "pair", "version"]);
 
 switch (command) {
   case "daemon":
@@ -17,6 +18,9 @@ switch (command) {
     break;
   case "relay":
     relayCommand(process.argv.slice(3));
+    break;
+  case "pair":
+    await pairCommand(process.argv.slice(3));
     break;
   case "version":
   case "--version":
@@ -43,7 +47,8 @@ Usage:
   tp [--tp-*] <claude args>           Run claude through teleprompter (default)
   tp daemon start [--ws-port 7080]    Start the daemon service
   tp run --sid X --cwd Y              Start a runner (used by daemon internally)
-  tp relay start [--port 8080]        Start a relay server
+  tp relay start [--port 7090]        Start a relay server
+  tp pair [--relay URL] [--daemon-id] Generate QR pairing data
   tp version                          Print version information
 
 Passthrough mode (default):

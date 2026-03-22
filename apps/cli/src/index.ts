@@ -45,7 +45,13 @@ tp — Teleprompter CLI
 
 Usage:
   tp [--tp-*] <claude args>           Run claude through teleprompter (default)
-  tp daemon start [--ws-port 7080]    Start the daemon service
+  tp daemon start [options]            Start the daemon service
+    --ws-port 7080                     WebSocket port for local frontends
+    --repo-root /path                  Enable worktree management
+    --relay-url URL                    Connect to relay server
+    --relay-token TOKEN                Relay auth token (from tp pair)
+    --daemon-id ID                     Daemon identifier
+    --spawn --sid X --cwd Y            Auto-create a session on start
   tp run --sid X --cwd Y              Start a runner (used by daemon internally)
   tp relay start [--port 7090]        Start a relay server
   tp pair [--relay URL] [--daemon-id] Generate QR pairing data

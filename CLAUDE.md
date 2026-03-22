@@ -76,6 +76,8 @@ Stub 프로세스로 전체 파이프라인 검증.
 - `apps/daemon/src/transport/ws-server.test.ts` — WebSocket 서버 동작
 - `apps/daemon/src/transport/relay-client.test.ts` — Daemon→Relay E2E with encryption
 - `apps/relay/src/relay-server.test.ts` — Relay auth, routing, caching, presence
+- `apps/daemon/src/worktree/worktree-manager.test.ts` — git worktree add/remove/list
+- `packages/protocol/src/pairing-e2e.test.ts` — full QR pairing → ratchet → E2E encrypt
 
 ### Tier 3: Real E2E Tests (requires claude CLI)
 실제 claude PTY를 통한 전체 tp 파이프라인. `claude`가 PATH에 없으면 skip.

@@ -31,6 +31,7 @@ export async function daemonCommand(argv: string[]): Promise<void> {
       "relay-token": { type: "string" },
       "daemon-id": { type: "string" },
       "frontend-pubkey": { type: "string" },
+      "web-dir": { type: "string" },
     },
     strict: false,
   });
@@ -43,6 +44,12 @@ export async function daemonCommand(argv: string[]): Promise<void> {
 
   const wsPort = parseInt(values["ws-port"] as string, 10);
   daemon.startWs(wsPort);
+
+  // Serve frontend web build if specified
+  if (values["web-dir"]) {
+    daemon.setWebDir(values["web-dir"] as string);
+    console.log(`[Daemon] serving frontend from ${values["web-dir"]}`);
+  }
 
   // Enable worktree management if repo root is specified
   if (values["repo-root"]) {

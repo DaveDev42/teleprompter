@@ -1,3 +1,5 @@
+import { existsSync } from "fs";
+import { join, extname } from "path";
 import type { WsClientMessage } from "@teleprompter/protocol";
 import { ClientRegistry, createClient, type WsClient } from "./client-registry";
 
@@ -20,14 +22,36 @@ export interface WsServerEvents {
   onSessionStop?(client: WsClient, sid: string): void;
 }
 
+const MIME_TYPES: Record<string, string> = {
+  ".html": "text/html",
+  ".js": "application/javascript",
+  ".css": "text/css",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
+  ".map": "application/json",
+};
+
 export class WsServer {
   private server: ReturnType<typeof Bun.serve<WsData>> | null = null;
   readonly registry: ClientRegistry;
   private events: WsServerEvents;
+  private webDir: string | null = null;
 
   constructor(registry: ClientRegistry, events: WsServerEvents) {
     this.registry = registry;
     this.events = events;
+  }
+
+  /**
+   * Set the directory for serving the frontend web build.
+   * If set, non-WebSocket HTTP requests serve static files from this dir.
+   */
+  setWebDir(dir: string): void {
+    this.webDir = dir;
   }
 
   start(port: number): void {
@@ -39,7 +63,30 @@ export class WsServer {
         if (server.upgrade(req, { data: { client: null as unknown as WsClient } })) {
           return;
         }
-        return new Response("WebSocket upgrade required", { status: 426 });
+
+        // Serve static frontend files if webDir is set
+        if (self.webDir) {
+          const url = new URL(req.url);
+          let filePath = join(self.webDir, url.pathname === "/" ? "index.html" : url.pathname);
+
+          // SPA fallback: if file doesn't exist and no extension, serve index.html
+          if (!existsSync(filePath) && !extname(filePath)) {
+            filePath = join(self.webDir, "index.html");
+          }
+
+          if (existsSync(filePath)) {
+            const file = Bun.file(filePath);
+            const ext = extname(filePath);
+            return new Response(file, {
+              headers: {
+                "Content-Type": MIME_TYPES[ext] ?? "application/octet-stream",
+                "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=31536000",
+              },
+            });
+          }
+        }
+
+        return new Response("Teleprompter Daemon", { status: 200 });
       },
       websocket: {
         open(ws) {

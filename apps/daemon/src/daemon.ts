@@ -107,6 +107,14 @@ export class Daemon {
   }
 
   /**
+   * Set the directory for serving the frontend web build.
+   * Enables accessing the frontend at http://localhost:<ws-port>/
+   */
+  setWebDir(dir: string): void {
+    this.wsServer.setWebDir(dir);
+  }
+
+  /**
    * Connect to a Relay server for remote frontend access.
    * Multiple relays can be connected simultaneously.
    */

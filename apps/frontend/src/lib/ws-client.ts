@@ -32,6 +32,9 @@ export class DaemonWsClient {
   private attachedSid: string | null = null;
   private lastSeq = 0;
   private hasConnectedBefore = false;
+  private pingStart = 0;
+  /** Last measured round-trip time in ms */
+  rtt = -1;
 
   constructor(url: string = DEFAULT_URL, handlers: WsEventHandler = {}) {
     this.url = url;
@@ -94,6 +97,10 @@ export class DaemonWsClient {
         this.handlers.onState?.(msg.sid, msg.d);
         break;
       case "pong":
+        if (this.pingStart > 0) {
+          this.rtt = Date.now() - this.pingStart;
+          this.pingStart = 0;
+        }
         break;
       case "err":
         this.handlers.onError?.(msg.m ?? msg.e);
@@ -142,6 +149,17 @@ export class DaemonWsClient {
 
   sendTermInput(sid: string, data: string) {
     this.send({ t: "in.term", sid, d: data });
+  }
+
+  /** Send ping and measure RTT on pong */
+  ping() {
+    this.pingStart = Date.now();
+    this.send({ t: "ping" });
+  }
+
+  /** Get the last measured RTT in ms (-1 if not measured) */
+  getRtt(): number {
+    return this.rtt;
   }
 
   // ── Worktree / Session management ──

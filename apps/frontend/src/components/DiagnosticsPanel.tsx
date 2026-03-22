@@ -1,5 +1,7 @@
-import { View, Text, ScrollView } from "react-native";
+import { useState, useEffect } from "react";
+import { View, Text, ScrollView, Pressable } from "react-native";
 import { useSessionStore } from "../stores/session-store";
+import { getDaemonClient } from "../hooks/use-daemon";
 import type { WsSessionMeta } from "@teleprompter/protocol";
 
 function MetricRow({ label, value }: { label: string; value: string }) {
@@ -41,6 +43,15 @@ export function DiagnosticsPanel() {
   const lastSeq = useSessionStore((s) => s.lastSeq);
   const sid = useSessionStore((s) => s.sid);
   const sessions = useSessionStore((s) => s.sessions);
+  const [rtt, setRtt] = useState(-1);
+
+  const handlePing = () => {
+    const client = getDaemonClient();
+    if (client) {
+      client.ping();
+      setTimeout(() => setRtt(client.getRtt()), 500);
+    }
+  };
 
   return (
     <ScrollView className="flex-1 bg-black px-4 pt-4">
@@ -57,6 +68,20 @@ export function DiagnosticsPanel() {
         />
         <MetricRow label="Active Session" value={sid ?? "none"} />
         <MetricRow label="Last Seq" value={String(lastSeq)} />
+        <View className="flex-row justify-between items-center py-1">
+          <Text className="text-gray-500 text-xs">RTT</Text>
+          <View className="flex-row items-center gap-2">
+            <Text className="text-gray-300 text-xs font-mono">
+              {rtt >= 0 ? `${rtt}ms` : "—"}
+            </Text>
+            <Pressable
+              onPress={handlePing}
+              className="bg-zinc-800 px-2 py-0.5 rounded"
+            >
+              <Text className="text-gray-400 text-xs">Ping</Text>
+            </Pressable>
+          </View>
+        </View>
       </View>
 
       {/* Sessions */}

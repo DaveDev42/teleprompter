@@ -125,12 +125,12 @@
 - [x] ciphertext frame 중계 (내용 접근 불가)
 
 ### E2EE (libsodium)
-- [ ] libsodium-wrappers 통합 (Daemon + Relay: Bun 환경)
+- [x] libsodium-wrappers 통합 (Daemon + Relay: Bun 환경) — libsodium-wrappers-sumo
 - [ ] libsodium-wrappers 통합 (Frontend: Expo Web)
-- [ ] X25519 키쌍 생성
-- [ ] ECDH → shared secret → HKDF session key 유도
-- [ ] AES-256-GCM 프레임 암호화/복호화
-- [ ] nonce 관리 (단조 증가 또는 random)
+- [x] X25519 키쌍 생성
+- [x] ECDH → shared secret → HKDF session key 유도
+- [x] AES-256-GCM 프레임 암호화/복호화 — XChaCha20-Poly1305 (더 범용적)
+- [x] nonce 관리 (단조 증가 또는 random) — random 24-byte nonce per frame
 - [ ] ephemeral key ratchet (Session 시작마다)
 - [ ] **리스크: Hermes(iOS/Android)에서 WASM 미지원 → react-native-libsodium 대안 spike 필요** ⚠️
 

@@ -12,8 +12,12 @@
     "test": "bun test",
     "type-check": "tsc --noEmit"
   },
+  "dependencies": {
+    "libsodium-wrappers-sumo": "^0.7.15"
+  },
   "devDependencies": {
     "@teleprompter/tsconfig": "workspace:*",
+    "@types/libsodium-wrappers-sumo": "^0.7.8",
     "bun-types": "^1.2.15",
     "typescript": "^5.8.3"
   }

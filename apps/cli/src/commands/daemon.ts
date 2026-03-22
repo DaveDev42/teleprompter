@@ -72,9 +72,9 @@ export async function daemonCommand(argv: string[]): Promise<void> {
 
       // Frontend public key is optional — if not provided, E2EE won't work
       // but the relay connection will still be established for presence
-      let frontendPublicKey = new Uint8Array(32);
+      let frontendPublicKey: Uint8Array = new Uint8Array(32);
       if (values["frontend-pubkey"]) {
-        frontendPublicKey = await fromBase64(values["frontend-pubkey"] as string);
+        frontendPublicKey = new Uint8Array(await fromBase64(values["frontend-pubkey"] as string));
       }
 
       await daemon.connectRelay({

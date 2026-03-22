@@ -15,3 +15,10 @@ export {
   toHex,
 } from "./crypto";
 export type { KeyPair, SessionKeys } from "./crypto";
+export {
+  createPairingBundle,
+  encodePairingData,
+  decodePairingData,
+  parsePairingForFrontend,
+} from "./pairing";
+export type { PairingData, PairingBundle } from "./pairing";

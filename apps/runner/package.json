@@ -1,0 +1,19 @@
+{
+  "name": "@teleprompter/runner",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "test": "bun test",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@teleprompter/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@teleprompter/tsconfig": "workspace:*",
+    "bun-types": "^1.2.15",
+    "typescript": "^5.8.3"
+  }
+}

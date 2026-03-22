@@ -65,6 +65,12 @@
 - [x] 로컬 컴파일 테스트 (self-spawn 검증)
 - [x] 기존 테스트 통과 확인
 
+### 패스스루 모드
+- [x] `--tp-*` 인자 분리 로직 (`args.ts`)
+- [x] 패스스루 명령어 — 서브커맨드 없이 `tp <claude args>` 실행
+- [x] `Vault` barrel export 추가
+- [x] 실제 `claude` CLI E2E 테스트 (PTY ANSI output, hooks 이벤트, WS 스트리밍, resume)
+
 ---
 
 ## Stage 1: Local UI

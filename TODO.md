@@ -158,9 +158,9 @@
 ## Stage 3: Worktree + Session 관리
 
 ### Worktree 관리
-- [ ] Daemon: git worktree add 실행
-- [ ] Daemon: git worktree remove 실행
-- [ ] Daemon: git worktree list 파싱
+- [x] Daemon: git worktree add 실행
+- [x] Daemon: git worktree remove 실행
+- [x] Daemon: git worktree list 파싱
 - [ ] Frontend → Daemon: worktree 생성 요청 (디렉토리 + 브랜치 지정)
 - [ ] worktree 생성 후 자동 Session 시작
 

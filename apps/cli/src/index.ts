@@ -51,6 +51,7 @@ Usage:
     --relay-url URL                    Connect to relay server
     --relay-token TOKEN                Relay auth token (from tp pair)
     --daemon-id ID                     Daemon identifier
+    --web-dir /path                    Serve frontend web build at WS port
     --spawn --sid X --cwd Y            Auto-create a session on start
   tp run --sid X --cwd Y              Start a runner (used by daemon internally)
   tp relay start [--port 7090]        Start a relay server

@@ -142,16 +142,16 @@
 - [ ] 페어링 완료 → 암호화 통신 시작
 
 ### 다중 Relay
-- [ ] Daemon: 여러 relay 동시 연결 관리
+- [x] Daemon: 여러 relay 동시 연결 관리 — `Daemon.connectRelay()` 배열 관리
 - [ ] Frontend: relay 목록 설정 UI
 - [ ] relay 선택/추가/삭제 UI
 - [ ] failover 또는 세션별 라우팅 정책
 
 ### Stage 2 검증
-- [ ] Relay 경유 원격 통신 (서로 다른 네트워크)
-- [ ] E2EE 암호화/복호화 정상 동작
+- [x] Relay 경유 원격 통신 (서로 다른 네트워크) — E2E 테스트: Daemon→Relay→Frontend
+- [x] E2EE 암호화/복호화 정상 동작 — 양방향 encrypt/decrypt 검증
 - [ ] QR 한 번으로 페어링 완료
-- [ ] Relay에서 평문 접근 불가 확인
+- [x] Relay에서 평문 접근 불가 확인 — ciphertext-only 테스트 통과
 
 ---
 

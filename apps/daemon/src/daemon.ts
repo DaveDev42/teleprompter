@@ -3,6 +3,7 @@ import { Vault } from "./vault";
 import { SessionManager, type SpawnRunnerOptions } from "./session/session-manager";
 import { ClientRegistry } from "./transport/client-registry";
 import { WsServer } from "./transport/ws-server";
+import { RelayClient, type RelayClientConfig } from "./transport/relay-client";
 import type {
   IpcHello,
   IpcRec,
@@ -22,6 +23,7 @@ export class Daemon {
   private sessionManager = new SessionManager();
   private clientRegistry = new ClientRegistry();
   private wsServer: WsServer;
+  private relayClients: RelayClient[] = [];
 
   constructor(vaultDir?: string) {
     this.vault = new Vault(vaultDir);
@@ -81,6 +83,38 @@ export class Daemon {
     this.wsServer.start(port);
   }
 
+  /**
+   * Connect to a Relay server for remote frontend access.
+   * Multiple relays can be connected simultaneously.
+   */
+  async connectRelay(config: RelayClientConfig): Promise<RelayClient> {
+    const client = new RelayClient(config, {
+      onInput: (_sid, data) => {
+        // Relay input from remote frontend → runner
+        // data is base64 encoded
+        const runner = this.ipcServer.findRunnerBySid(_sid);
+        if (runner) {
+          this.ipcServer.send(runner, { t: "input", sid: _sid, data });
+        }
+      },
+      onRecord: (_rec) => {
+        // Remote frontend sends records (unusual but possible)
+      },
+    });
+
+    await client.connect();
+
+    // Subscribe to all existing sessions
+    for (const meta of this.vault.listSessions()) {
+      if (meta.state === "running") {
+        client.subscribe(meta.sid);
+      }
+    }
+
+    this.relayClients.push(client);
+    return client;
+  }
+
   createSession(
     sid: string,
     cwd: string,
@@ -127,6 +161,11 @@ export class Daemon {
       msg.claudeVersion,
     );
     console.log(`[Daemon] session created sid=${msg.sid}`);
+
+    // Subscribe relay clients to the new session
+    for (const relay of this.relayClients) {
+      relay.subscribe(msg.sid);
+    }
 
     // Notify WS clients of new session
     const meta = this.vault.getSession(msg.sid);
@@ -175,6 +214,11 @@ export class Daemon {
       ts: msg.ts,
     };
     this.clientRegistry.broadcast(msg.sid, wsRec);
+
+    // Also publish to relay(s) for remote frontends
+    for (const relay of this.relayClients) {
+      relay.publishRecord(wsRec).catch(() => {});
+    }
   }
 
   private handleBye(msg: IpcBye): void {
@@ -229,6 +273,10 @@ export class Daemon {
   }
 
   stop(): void {
+    for (const relay of this.relayClients) {
+      relay.dispose();
+    }
+    this.relayClients = [];
     this.wsServer.stop();
     this.ipcServer.stop();
     this.vault.close();

@@ -171,9 +171,9 @@
 - [x] Session 종료 UI — session.stop → SessionManager.killRunner()
 
 ### Session 복구
-- [ ] Frontend resume (마지막 seq 기준)
-- [ ] Vault에서 backlog 전송 (batch)
-- [ ] 네트워크 단절 후 자동 재연결
+- [x] Frontend resume (마지막 seq 기준) — auto-resume on reconnect with lastSeq tracking
+- [x] Vault에서 backlog 전송 (batch) — Daemon handleResume → batch from vault (Stage 0)
+- [x] 네트워크 단절 후 자동 재연결 — exponential backoff reconnect in DaemonWsClient
 
 ### Stage 3 검증
 - [ ] worktree 생성/삭제/목록 동작

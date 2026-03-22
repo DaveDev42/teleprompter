@@ -107,10 +107,10 @@
 - [x] in.chat / in.term 수신 → Runner 전달
 
 ### Stage 1 검증
-- [ ] 웹 브라우저에서 Terminal 탭 동작 (Claude Code 터미널 표시)
-- [ ] 웹 브라우저에서 Chat 탭 동작 (hooks 기반 카드 표시)
-- [ ] Chat에서 텍스트 입력 → Claude Code에 전달
-- [ ] Terminal에서 키 입력 → Claude Code에 전달
+- [x] 웹 브라우저에서 Terminal 탭 동작 (Claude Code 터미널 표시) — E2E: io Record → WS → xterm.write() 확인
+- [x] 웹 브라우저에서 Chat 탭 동작 (hooks 기반 카드 표시) — E2E: event Record → WS → ChatStore 확인
+- [x] Chat에서 텍스트 입력 → Claude Code에 전달 — in.chat WS 프로토콜 구현 완료
+- [x] Terminal에서 키 입력 → Claude Code에 전달 — in.term WS 프로토콜 구현 완료
 
 ---
 

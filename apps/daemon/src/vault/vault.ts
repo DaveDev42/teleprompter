@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { join } from "path";
+import { unlinkSync, existsSync, mkdirSync } from "fs";
 import { SESSIONS_DDL, PRAGMAS } from "./schema";
 import { SessionDb } from "./session-db";
 import { getVaultDir } from "./config";
@@ -29,6 +30,7 @@ export class Vault {
 
   constructor(vaultDir?: string) {
     this.vaultDir = vaultDir ?? getVaultDir();
+    mkdirSync(join(this.vaultDir, "sessions"), { recursive: true });
     this.metaDb = new Database(join(this.vaultDir, "sessions.sqlite"));
 
     for (const pragma of PRAGMAS) {
@@ -106,6 +108,50 @@ export class Vault {
 
   listSessions(): SessionMeta[] {
     return this.listSessionsStmt.all() as SessionMeta[];
+  }
+
+  /**
+   * Delete a session and its record database.
+   */
+  deleteSession(sid: SID): void {
+    // Close session db if open
+    const db = this.sessionDbs.get(sid);
+    if (db) {
+      db.close();
+      this.sessionDbs.delete(sid);
+    }
+
+    // Delete metadata
+    this.metaDb.run("DELETE FROM sessions WHERE sid = ?", [sid]);
+
+    // Delete session database file
+    const dbPath = join(this.vaultDir, "sessions", `${sid}.sqlite`);
+    if (existsSync(dbPath)) {
+      unlinkSync(dbPath);
+    }
+    // Also remove WAL/SHM files
+    for (const suffix of ["-wal", "-shm"]) {
+      const walPath = dbPath + suffix;
+      if (existsSync(walPath)) unlinkSync(walPath);
+    }
+  }
+
+  /**
+   * Delete all stopped/error sessions older than the given age (ms).
+   * Returns the number of sessions pruned.
+   */
+  pruneOldSessions(maxAgeMs: number): number {
+    const cutoff = Date.now() - maxAgeMs;
+    const old = this.metaDb
+      .prepare(
+        "SELECT sid FROM sessions WHERE state != 'running' AND updated_at < ?",
+      )
+      .all(cutoff) as { sid: string }[];
+
+    for (const { sid } of old) {
+      this.deleteSession(sid);
+    }
+    return old.length;
   }
 
   close(): void {

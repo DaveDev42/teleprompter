@@ -5,6 +5,9 @@ import type {
 } from "@teleprompter/protocol";
 
 const MAX_RECENT_FRAMES = 10;
+const RATE_LIMIT_WINDOW_MS = 1000;
+const RATE_LIMIT_MAX_MESSAGES = 100;
+const MAX_SUBSCRIPTIONS_PER_CLIENT = 50;
 
 interface CachedFrame {
   sid: string;
@@ -13,12 +16,19 @@ interface CachedFrame {
   from: "daemon" | "frontend";
 }
 
+interface RateLimiter {
+  count: number;
+  windowStart: number;
+}
+
 interface ConnectedClient {
   ws: any; // Bun ServerWebSocket
   role: "daemon" | "frontend";
   daemonId: string;
   /** Session IDs this client is subscribed to */
   subscriptions: Set<string>;
+  /** Rate limiter state */
+  rateLimiter: RateLimiter;
 }
 
 interface DaemonState {
@@ -115,6 +125,19 @@ export class RelayServer {
       return;
     }
 
+    // Rate limiting for authenticated clients
+    const client = this.clients.get(ws);
+    if (client && msg.t !== "relay.ping") {
+      if (!this.checkRateLimit(client)) {
+        this.send(ws, {
+          t: "relay.err",
+          e: "RATE_LIMITED",
+          m: "Too many messages. Slow down.",
+        });
+        return;
+      }
+    }
+
     switch (msg.t) {
       case "relay.auth":
         this.handleAuth(ws, msg);
@@ -154,6 +177,7 @@ export class RelayServer {
       ws,
       role: msg.role,
       daemonId: msg.daemonId,
+      rateLimiter: { count: 0, windowStart: Date.now() },
       subscriptions: new Set(),
     };
     this.clients.set(ws, client);
@@ -256,6 +280,16 @@ export class RelayServer {
       return;
     }
 
+    // Enforce subscription limit
+    if (client.subscriptions.size >= MAX_SUBSCRIPTIONS_PER_CLIENT) {
+      this.send(ws, {
+        t: "relay.err",
+        e: "TOO_MANY_SUBS",
+        m: `Max ${MAX_SUBSCRIPTIONS_PER_CLIENT} subscriptions per client`,
+      });
+      return;
+    }
+
     client.subscriptions.add(msg.sid);
 
     // Send cached recent frames if requested
@@ -313,6 +347,21 @@ export class RelayServer {
     console.log(
       `[Relay] ${client.role} disconnected from daemon ${client.daemonId}`,
     );
+  }
+
+  private checkRateLimit(client: ConnectedClient): boolean {
+    const now = Date.now();
+    const rl = client.rateLimiter;
+
+    if (now - rl.windowStart > RATE_LIMIT_WINDOW_MS) {
+      // New window
+      rl.count = 1;
+      rl.windowStart = now;
+      return true;
+    }
+
+    rl.count++;
+    return rl.count <= RATE_LIMIT_MAX_MESSAGES;
   }
 
   private broadcastPresence(daemonId: string) {

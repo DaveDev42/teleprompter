@@ -9,9 +9,10 @@
   },
   "dependencies": {
     "@teleprompter/daemon": "workspace:*",
-    "@teleprompter/runner": "workspace:*",
     "@teleprompter/protocol": "workspace:*",
-    "@teleprompter/relay": "workspace:*"
+    "@teleprompter/relay": "workspace:*",
+    "@teleprompter/runner": "workspace:*",
+    "qrcode-terminal": "^0.12.0"
   },
   "devDependencies": {
     "@teleprompter/tsconfig": "workspace:*",

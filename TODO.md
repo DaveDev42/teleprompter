@@ -145,7 +145,7 @@
 - [x] Daemon: 여러 relay 동시 연결 관리 — `Daemon.connectRelay()` 배열 관리
 - [x] Frontend: relay 목록 설정 UI — RelaySettingsStore + Settings section
 - [x] relay 선택/추가/삭제 UI — toggle active, remove, add with URL input
-- [ ] failover 또는 세션별 라우팅 정책
+- [x] failover 또는 세션별 라우팅 정책 — RelayPool (frontend failover) + Daemon fan-out to all relays
 
 ### Stage 2 검증
 - [x] Relay 경유 원격 통신 (서로 다른 네트워크) — E2E 테스트: Daemon→Relay→Frontend

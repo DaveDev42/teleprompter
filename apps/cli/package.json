@@ -10,7 +10,8 @@
   "dependencies": {
     "@teleprompter/daemon": "workspace:*",
     "@teleprompter/runner": "workspace:*",
-    "@teleprompter/protocol": "workspace:*"
+    "@teleprompter/protocol": "workspace:*",
+    "@teleprompter/relay": "workspace:*"
   },
   "devDependencies": {
     "@teleprompter/tsconfig": "workspace:*",

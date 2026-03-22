@@ -90,14 +90,14 @@
 - [x] ~~**리스크: xterm.js + Expo Web 통합 spike 필요**~~ ✅ 해결 — dynamic import + FitAddon
 
 ### Chat 탭
-- [ ] hooks event → 메시지 카드 렌더러
-- [ ] UserPromptSubmit → user message 카드
-- [ ] Stop → assistant final message 카드
-- [ ] PreToolUse / PostToolUse → tool 카드
-- [ ] PermissionRequest → 승인 요청 카드
-- [ ] Elicitation → 입력 요청 카드
-- [ ] PTY output 파싱 → 스트리밍 Chat 버블
-- [ ] Chat 입력 UI (텍스트 입력 → in.chat)
+- [x] hooks event → 메시지 카드 렌더러
+- [x] UserPromptSubmit → user message 카드
+- [x] Stop → assistant final message 카드
+- [x] PreToolUse / PostToolUse → tool 카드
+- [x] PermissionRequest → 승인 요청 카드
+- [x] Elicitation → 입력 요청 카드
+- [x] PTY output 파싱 → 스트리밍 Chat 버블
+- [x] Chat 입력 UI (텍스트 입력 → in.chat)
 
 ### Daemon WebSocket 서버
 - [x] Frontend용 WebSocket 서버 (localhost)

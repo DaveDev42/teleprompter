@@ -16,6 +16,8 @@ import {
 } from "../../src/stores/chat-store";
 import { getDaemonClient } from "../../src/hooks/use-daemon";
 import { ChatCard } from "../../src/components/ChatCard";
+import { VoiceButton } from "../../src/components/VoiceButton";
+import { useVoiceStore } from "../../src/stores/voice-store";
 import type { WsRec } from "@teleprompter/protocol";
 
 export default function ChatScreen() {
@@ -26,8 +28,20 @@ export default function ChatScreen() {
   const messages = useChatStore((s) => s.messages);
   const streamingText = useChatStore((s) => s.streamingText);
   const appendStreaming = useChatStore((s) => s.appendStreaming);
+  const setOnPromptReady = useVoiceStore((s) => s.setOnPromptReady);
   const flatListRef = useRef<FlatList>(null);
   const [input, setInput] = useState("");
+
+  // Wire voice prompt to chat send
+  useEffect(() => {
+    setOnPromptReady((prompt: string) => {
+      const client = getDaemonClient();
+      if (sid && client) {
+        client.sendChat(sid, prompt);
+      }
+    });
+    return () => setOnPromptReady(null);
+  }, [sid, setOnPromptReady]);
 
   // Wire records to chat store
   useEffect(() => {
@@ -131,6 +145,7 @@ export default function ChatScreen() {
 
       {/* Input */}
       <View className="flex-row items-end px-3 py-2 bg-zinc-900 border-t border-zinc-800">
+        <VoiceButton />
         <TextInput
           className="flex-1 bg-zinc-800 text-white rounded-2xl px-4 py-2 mr-2 max-h-24"
           placeholder="Send a message..."

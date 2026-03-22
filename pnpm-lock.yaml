@@ -20,6 +20,9 @@ importers:
       '@teleprompter/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@teleprompter/relay':
+        specifier: workspace:*
+        version: link:../relay
       '@teleprompter/runner':
         specifier: workspace:*
         version: link:../runner

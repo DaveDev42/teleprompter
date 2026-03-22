@@ -4,6 +4,8 @@
   "packageManager": "pnpm@10.8.1",
   "scripts": {
     "build": "turbo run build",
+    "build:cli": "bun run scripts/build.ts --all",
+    "build:cli:local": "bun run scripts/build.ts",
     "dev": "turbo run dev",
     "test": "turbo run test",
     "lint": "turbo run lint",

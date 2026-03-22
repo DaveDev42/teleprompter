@@ -22,6 +22,13 @@ export interface SpawnRunnerOptions {
 export class SessionManager {
   private runners = new Map<string, RunnerInfo>();
 
+  // Allows CLI to inject a custom runner spawn command (e.g., ["./tp", "run"])
+  private static runnerCommand: string[] | null = null;
+
+  static setRunnerCommand(cmd: string[]): void {
+    SessionManager.runnerCommand = cmd;
+  }
+
   registerRunner(
     sid: string,
     pid: number,
@@ -59,7 +66,7 @@ export class SessionManager {
     return this.runners.size;
   }
 
-  spawnRunner(sid: string, cwd: string, opts?: SpawnRunnerOptions): Subprocess {
+  private defaultRunnerCommand(): string[] {
     const runnerEntry = resolve(
       import.meta.dir,
       "..",
@@ -69,8 +76,12 @@ export class SessionManager {
       "src",
       "index.ts",
     );
+    return ["bun", "run", runnerEntry];
+  }
 
-    const args = ["bun", "run", runnerEntry, "--sid", sid, "--cwd", cwd];
+  spawnRunner(sid: string, cwd: string, opts?: SpawnRunnerOptions): Subprocess {
+    const baseCmd = SessionManager.runnerCommand ?? this.defaultRunnerCommand();
+    const args = [...baseCmd, "--sid", sid, "--cwd", cwd];
 
     if (opts?.socketPath) {
       args.push("--socket-path", opts.socketPath);

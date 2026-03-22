@@ -31,16 +31,28 @@ tp --tp-sid my-session -p "fix the login bug"
 ### Full Setup
 
 ```bash
-# 1. Start daemon (manages sessions, vault, worktrees)
-tp daemon start --ws-port 7080 --repo-root /path/to/repo
+# 1. Build the frontend web app
+cd apps/frontend && npx expo export --platform web --output-dir ../../dist/web && cd ../..
 
-# 2. Start relay (optional, for remote access)
+# 2. Start daemon with built-in frontend serving
+tp daemon start --ws-port 7080 --repo-root /path/to/repo --web-dir dist/web
+
+# 3. Open http://localhost:7080 in your browser — done!
+
+# Optional: Start relay for remote access
 tp relay start --port 7090
 
-# 3. Generate pairing data (for E2EE remote connection)
+# Optional: Generate pairing data for E2EE
 tp pair --relay ws://relay.example.com
+```
 
-# 4. Start frontend
+### Development Mode
+
+```bash
+# Start daemon
+tp daemon start --ws-port 7080
+
+# Start frontend dev server (hot reload)
 cd apps/frontend && npx expo start --web
 ```
 
@@ -62,6 +74,7 @@ cd apps/frontend && npx expo start --web
 --relay-url URL       Connect to relay server
 --relay-token TOKEN   Relay auth token (from tp pair)
 --daemon-id ID        Daemon identifier
+--web-dir /path       Serve frontend web build at WS port
 --spawn --sid X       Auto-create a session on start
 --cwd /path           Working directory for session
 ```

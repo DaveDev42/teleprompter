@@ -4,10 +4,12 @@ import { useSessionStore } from "../../src/stores/session-store";
 import { getDaemonClient } from "../../src/hooks/use-daemon";
 import type { WsRec } from "@teleprompter/protocol";
 
-// Conditionally import XTermWeb only on web
-let XTermWeb: any = null;
+// Platform-specific terminal component
+let TerminalComponent: any = null;
 if (Platform.OS === "web") {
-  XTermWeb = require("../../src/components/XTermWeb").XTermWeb;
+  TerminalComponent = require("../../src/components/XTermWeb").XTermWeb;
+} else {
+  TerminalComponent = require("../../src/components/XTermNative").XTermNative;
 }
 
 export default function TerminalScreen() {
@@ -53,17 +55,6 @@ export default function TerminalScreen() {
     [],
   );
 
-  if (Platform.OS !== "web") {
-    return (
-      <View className="flex-1 bg-black items-center justify-center">
-        <Text className="text-white text-xl">Terminal</Text>
-        <Text className="text-gray-400 mt-2">
-          Native terminal requires WebView (Stage 5)
-        </Text>
-      </View>
-    );
-  }
-
   return (
     <View className="flex-1 bg-black">
       <View className="flex-row items-center px-3 py-2 bg-zinc-900 border-b border-zinc-800">
@@ -75,11 +66,13 @@ export default function TerminalScreen() {
         </Text>
       </View>
       <View style={{ flex: 1 }}>
-        <XTermWeb
-          onData={handleData}
-          onResize={handleResize}
-          termRef={termRef}
-        />
+        {TerminalComponent && (
+          <TerminalComponent
+            onData={handleData}
+            onResize={handleResize}
+            termRef={termRef}
+          />
+        )}
       </View>
     </View>
   );

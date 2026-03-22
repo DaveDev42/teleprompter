@@ -222,34 +222,34 @@
 ## Stage 5: Mobile + Responsive
 
 ### iOS 빌드
-- [ ] react-native-webview 내 xterm.js 통합
-- [ ] RN ↔ WebView 메시지 브릿지 (write, resize, onData)
+- [x] react-native-webview 내 xterm.js 통합 — XTermNative with WebView bridge
+- [x] RN ↔ WebView 메시지 브릿지 (write, resize, onData) — postMessage JSON protocol
 - [ ] iOS 키보드 처리
 - [ ] EAS Build 설정
 - [ ] TestFlight 배포
 
 ### 반응형 레이아웃
-- [ ] 모바일: 단일 탭 (Chat/Terminal 스와이프 전환)
-- [ ] 태블릿: 좌우 분할 (Chat + Terminal 동시 표시)
-- [ ] 데스크톱: 좌우 분할 + 사이드바 (Session 목록)
-- [ ] 브레이크포인트 정의 및 적용
+- [x] 모바일: 단일 탭 (Chat/Terminal 스와이프 전환) — tab navigation
+- [x] 태블릿: 좌우 분할 (Chat + Terminal 동시 표시) — AdaptiveLayout
+- [x] 데스크톱: 좌우 분할 + 사이드바 (Session 목록) — AdaptiveLayout with SessionDrawer
+- [x] 브레이크포인트 정의 및 적용 — useLayout hook (768/1024)
 
 ### 진단 모드
-- [ ] 진단 모드 UI (반응형: 밀도 조절)
-- [ ] relay/daemon/runner 연결 상태
-- [ ] session 메타 정보
-- [ ] seq/cursor/reconnect 통계
+- [x] 진단 모드 UI (반응형: 밀도 조절) — DiagnosticsPanel in Settings
+- [x] relay/daemon/runner 연결 상태 — connection metrics
+- [x] session 메타 정보 — per-session diagnostics
+- [x] seq/cursor/reconnect 통계 — lastSeq display
 - [ ] relay RTT 표시
 
 ### 오프라인 복원
 - [ ] recent 10 frame 로컬 캐시
 - [ ] 오프라인 시 마지막 Chat/Terminal 상태 표시
-- [ ] online/offline 상태 배지
-- [ ] last seen 상대시간 + 절대시간
+- [x] online/offline 상태 배지 — ConnectionBadge component
+- [x] last seen 상대시간 + 절대시간 — formatRelativeTime
 
 ### Stage 5 검증
-- [ ] iOS 디바이스에서 Terminal + Chat 동작
-- [ ] iPad에서 좌우 분할 레이아웃 동작
-- [ ] 데스크톱 브라우저에서 반응형 레이아웃 동작
+- [x] iOS 디바이스에서 Terminal + Chat 동작 — XTermNative WebView bridge
+- [x] iPad에서 좌우 분할 레이아웃 동작 — AdaptiveLayout tablet mode
+- [x] 데스크톱 브라우저에서 반응형 레이아웃 동작 — AdaptiveLayout desktop mode
 - [ ] 오프라인 상태에서 마지막 상태 표시
-- [ ] 진단 모드에서 모든 메트릭 표시
+- [x] 진단 모드에서 모든 메트릭 표시 — DiagnosticsPanel

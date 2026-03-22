@@ -143,8 +143,8 @@
 
 ### 다중 Relay
 - [x] Daemon: 여러 relay 동시 연결 관리 — `Daemon.connectRelay()` 배열 관리
-- [ ] Frontend: relay 목록 설정 UI
-- [ ] relay 선택/추가/삭제 UI
+- [x] Frontend: relay 목록 설정 UI — RelaySettingsStore + Settings section
+- [x] relay 선택/추가/삭제 UI — toggle active, remove, add with URL input
 - [ ] failover 또는 세션별 라우팅 정책
 
 ### Stage 2 검증
@@ -206,8 +206,8 @@
 
 ### API Key 관리
 - [x] OpenAI API key 입력 UI — Settings tab with secure input
-- [ ] iOS: Keychain 저장 — needs expo-secure-store (Stage 5)
-- [ ] Android: Keystore 저장 — needs expo-secure-store (Stage 5)
+- [x] iOS: Keychain 저장 — expo-secure-store via secureStorage abstraction
+- [x] Android: Keystore 저장 — expo-secure-store via secureStorage abstraction
 - [x] 웹: 암호화 저장 (IndexedDB + Web Crypto API) — in-memory for now
 - [x] 세션 동안 잠금 해제 유지 — Zustand store persists in session
 
@@ -239,7 +239,7 @@
 - [x] relay/daemon/runner 연결 상태 — connection metrics
 - [x] session 메타 정보 — per-session diagnostics
 - [x] seq/cursor/reconnect 통계 — lastSeq display
-- [ ] relay RTT 표시
+- [x] relay RTT 표시 — ping/pong RTT measurement in DiagnosticsPanel
 
 ### 오프라인 복원
 - [x] recent 10 frame 로컬 캐시 — OfflineStore with per-session ring buffer

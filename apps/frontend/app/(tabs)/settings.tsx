@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { View, Text, TextInput, Pressable, Platform, ScrollView } from "react-native";
 import { useVoiceStore } from "../../src/stores/voice-store";
 import { usePairingStore } from "../../src/stores/pairing-store";
 import { DiagnosticsPanel } from "../../src/components/DiagnosticsPanel";
+import { useRelaySettingsStore } from "../../src/stores/relay-settings-store";
+import { secureGet, secureSet } from "../../src/lib/secure-storage";
 
 export default function SettingsScreen() {
   const apiKey = useVoiceStore((s) => s.apiKey);
@@ -11,14 +13,33 @@ export default function SettingsScreen() {
   const pairingInfo = usePairingStore((s) => s.info);
   const resetPairing = usePairingStore((s) => s.reset);
 
+  const relays = useRelaySettingsStore((s) => s.relays);
+  const loadRelays = useRelaySettingsStore((s) => s.load);
+  const addRelay = useRelaySettingsStore((s) => s.addRelay);
+  const removeRelay = useRelaySettingsStore((s) => s.removeRelay);
+  const toggleRelay = useRelaySettingsStore((s) => s.toggleRelay);
+
   const [keyInput, setKeyInput] = useState(apiKey ?? "");
+  const [relayInput, setRelayInput] = useState("");
   const [saved, setSaved] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
 
-  const handleSave = () => {
+  // Load persisted data on mount
+  useEffect(() => {
+    secureGet("openai_api_key").then((key) => {
+      if (key && !apiKey) {
+        setApiKey(key);
+        setKeyInput(key);
+      }
+    });
+    loadRelays();
+  }, []);
+
+  const handleSave = async () => {
     const key = keyInput.trim();
     if (key) {
       setApiKey(key);
+      await secureSet("openai_api_key", key);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     }
@@ -67,11 +88,11 @@ export default function SettingsScreen() {
             {saved ? "Saved!" : "Save Key"}
           </Text>
         </Pressable>
-        {Platform.OS === "web" && (
-          <Text className="text-gray-600 text-xs mt-2">
-            Key is stored in memory only (cleared on page refresh).
-          </Text>
-        )}
+        <Text className="text-gray-600 text-xs mt-2">
+          {Platform.OS === "web"
+            ? "Key stored in localStorage."
+            : "Key stored in secure Keychain/Keystore."}
+        </Text>
       </View>
 
       {/* Pairing Status */}
@@ -105,6 +126,59 @@ export default function SettingsScreen() {
             <Text className="text-red-400 text-sm">Unpair</Text>
           </Pressable>
         )}
+      </View>
+
+      {/* Relay Endpoints */}
+      <View className="mb-8">
+        <Text className="text-gray-400 text-sm mb-2">Relay Servers</Text>
+        {relays.map((r) => (
+          <View
+            key={r.url}
+            className="flex-row items-center justify-between bg-zinc-800 rounded-lg px-4 py-2 mb-1"
+          >
+            <Pressable
+              onPress={() => toggleRelay(r.url)}
+              className="flex-1 flex-row items-center"
+            >
+              <View
+                className={`w-2 h-2 rounded-full mr-2 ${r.active ? "bg-green-500" : "bg-gray-600"}`}
+              />
+              <Text
+                className={`text-sm font-mono ${r.active ? "text-white" : "text-gray-500"}`}
+                numberOfLines={1}
+              >
+                {r.label}
+              </Text>
+            </Pressable>
+            <Pressable onPress={() => removeRelay(r.url)}>
+              <Text className="text-red-400 text-xs ml-2">Remove</Text>
+            </Pressable>
+          </View>
+        ))}
+        <View className="flex-row items-center mt-2">
+          <TextInput
+            className="flex-1 bg-zinc-800 text-white rounded-lg px-3 py-2 text-sm font-mono mr-2"
+            placeholder="wss://relay.example.com"
+            placeholderTextColor="#555"
+            value={relayInput}
+            onChangeText={setRelayInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Pressable
+            onPress={() => {
+              if (relayInput.trim()) {
+                addRelay(relayInput.trim());
+                setRelayInput("");
+              }
+            }}
+            disabled={!relayInput.trim()}
+            className="bg-blue-600 px-3 py-2 rounded-lg"
+            style={{ opacity: relayInput.trim() ? 1 : 0.4 }}
+          >
+            <Text className="text-white text-sm">Add</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* Diagnostics */}

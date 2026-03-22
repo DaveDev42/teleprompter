@@ -62,6 +62,8 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 외부 의존성 없이 빠르게 실행.
 - `packages/protocol/src/codec.test.ts` — framed JSON encode/decode
 - `packages/protocol/src/queued-writer.test.ts` — backpressure queue
+- `packages/protocol/src/crypto.test.ts` — E2EE encrypt/decrypt, key exchange
+- `packages/protocol/src/pairing.test.ts` — QR pairing bundle, encode/decode
 - `apps/daemon/src/vault/vault.test.ts` — append-only Record 저장
 - `apps/daemon/src/transport/client-registry.test.ts` — WS client 추적
 - `apps/runner/src/hooks/settings-builder.test.ts` — settings merge
@@ -72,6 +74,8 @@ Stub 프로세스로 전체 파이프라인 검증.
 - `apps/daemon/src/integration.test.ts` — IPC 파이프라인 (mock Runner→Daemon→Vault)
 - `apps/daemon/src/e2e.test.ts` — 동시 세션, crash, resume, streaming, input relay
 - `apps/daemon/src/transport/ws-server.test.ts` — WebSocket 서버 동작
+- `apps/daemon/src/transport/relay-client.test.ts` — Daemon→Relay E2E with encryption
+- `apps/relay/src/relay-server.test.ts` — Relay auth, routing, caching, presence
 
 ### Tier 3: Real E2E Tests (requires claude CLI)
 실제 claude PTY를 통한 전체 tp 파이프라인. `claude`가 PATH에 없으면 skip.

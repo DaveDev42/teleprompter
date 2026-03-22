@@ -51,12 +51,23 @@ teleprompter/
 │   │   │   └── collector/     # io/event Record 생성
 │   │   └── package.json
 │   │
-│   └── relay/                 # Bun WebSocket 중계
+│   ├── relay/                 # Bun WebSocket 중계
+│   │   ├── src/
+│   │   │   ├── server/        # WebSocket 서버
+│   │   │   ├── session/       # 세션별 상태 (recent 10)
+│   │   │   └── auth/          # 연결 인증 (ciphertext 레벨)
+│   │   └── package.json
+│   │
+│   └── cli/                   # 통합 CLI (`tp` 바이너리)
 │       ├── src/
-│       │   ├── server/        # WebSocket 서버
-│       │   ├── session/       # 세션별 상태 (recent 10)
-│       │   └── auth/          # 연결 인증 (ciphertext 레벨)
+│       │   ├── index.ts       # 서브커맨드 라우터
+│       │   ├── spawn.ts       # self-spawn 유틸 (compiled vs dev)
+│       │   └── commands/      # daemon, run, relay, version
 │       └── package.json
+│
+├── scripts/
+│   ├── build.ts               # 멀티 플랫폼 bun build --compile
+│   └── install.sh             # curl-pipe-sh 설치 스크립트
 │
 ├── packages/
 │   ├── protocol/              # @teleprompter/protocol
@@ -468,17 +479,35 @@ exit 0
 
 ## 10. 배포
 
-### 10.1 Daemon + Runner 바이너리
+### 10.1 통합 `tp` CLI 바이너리
+
+Runner, Daemon, Relay가 하나의 `tp` 바이너리로 통합된다. 서브커맨드로 역할을 구분한다.
 
 ```bash
-# 빌드
-bun build ./apps/daemon/src/index.ts --compile --outfile teleprompter-daemon
-bun build ./apps/runner/src/index.ts --compile --outfile teleprompter-runner
+# 서브커맨드 구조
+tp daemon start [--ws-port 7080] [--spawn --sid X --cwd Y]
+tp run --sid X --cwd Y [--socket-path P]    # daemon이 내부적으로 호출
+tp relay start [--port 8080]                 # placeholder
+tp version
 
-# 크로스 컴파일
-bun build --compile --target=bun-linux-x64 ...
-bun build --compile --target=bun-darwin-arm64 ...
-bun build --compile --target=bun-windows-x64 ...
+# 로컬 빌드 (현재 플랫폼)
+bun run build:cli:local   # → dist/tp
+
+# 멀티 플랫폼 빌드
+bun run build:cli          # → dist/tp-{darwin_arm64,darwin_x64,linux_x64,linux_arm64}
+
+# Self-spawn 메커니즘
+# compiled 바이너리: tp daemon start → tp run (같은 바이너리로 Runner spawn)
+# dev 모드: bun run apps/cli/src/index.ts daemon start → bun run ... run (fallback)
+```
+
+### GitHub Release
+
+`v*` 태그 push 시 GitHub Actions가 4개 플랫폼 바이너리를 자동 빌드하여 Release에 업로드.
+
+```bash
+# 설치 (curl-pipe-sh)
+curl -fsSL https://raw.githubusercontent.com/<owner>/teleprompter/main/scripts/install.sh | bash
 ```
 
 ### 10.2 Relay 서버

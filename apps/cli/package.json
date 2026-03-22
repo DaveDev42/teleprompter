@@ -1,18 +1,15 @@
 {
-  "name": "@teleprompter/runner",
+  "name": "@teleprompter/cli",
   "version": "0.1.0",
   "private": true,
-  "main": "./src/lib.ts",
-  "exports": {
-    ".": "./src/lib.ts"
-  },
   "scripts": {
-    "dev": "bun run --watch src/index.ts",
+    "dev": "bun run src/index.ts",
     "start": "bun run src/index.ts",
-    "test": "bun test",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@teleprompter/daemon": "workspace:*",
+    "@teleprompter/runner": "workspace:*",
     "@teleprompter/protocol": "workspace:*"
   },
   "devDependencies": {

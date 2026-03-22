@@ -141,8 +141,8 @@ describe("IpcServer", () => {
     const decoder = new FrameDecoder();
     const received: any[] = [];
 
-    client.on("data", (data) => {
-      const msgs = decoder.decode(new Uint8Array(data));
+    client.on("data", (data: Buffer) => {
+      const msgs = decoder.decode(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
       received.push(...msgs);
     });
 

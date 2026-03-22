@@ -82,7 +82,7 @@ Stub 프로세스로 전체 파이프라인 검증.
 
 ### 명령어
 ```bash
-bun test packages/protocol apps/daemon apps/runner apps/cli  # 전체 Tier 1-3
+bun test packages/protocol apps/daemon apps/runner apps/cli apps/relay  # 전체 Tier 1-3
 npx tsc --noEmit -p apps/daemon/tsconfig.json                # 타입 체크
 npx tsc --noEmit -p apps/cli/tsconfig.json
 ```

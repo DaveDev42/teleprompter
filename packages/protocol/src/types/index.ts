@@ -35,3 +35,18 @@ export type {
   WsErr,
   WsServerMessage,
 } from "./ws";
+export type {
+  RelayAuth,
+  RelayPublish,
+  RelaySubscribe,
+  RelayUnsubscribe,
+  RelayPing,
+  RelayClientMessage,
+  RelayAuthOk,
+  RelayAuthErr,
+  RelayFrame,
+  RelayPresence,
+  RelayPong,
+  RelayError,
+  RelayServerMessage,
+} from "./relay";

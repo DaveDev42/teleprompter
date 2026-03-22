@@ -117,12 +117,12 @@
 ## Stage 2: Relay + E2EE
 
 ### Relay 서버 (apps/relay)
-- [ ] Bun WebSocket 서버 기본 구조
-- [ ] 세션별 상태 관리 (recent 10 ciphertext frame)
-- [ ] online/offline 상태 추적
-- [ ] Daemon 연결 핸들링
-- [ ] Frontend 연결 핸들링
-- [ ] ciphertext frame 중계 (내용 접근 불가)
+- [x] Bun WebSocket 서버 기본 구조
+- [x] 세션별 상태 관리 (recent 10 ciphertext frame)
+- [x] online/offline 상태 추적
+- [x] Daemon 연결 핸들링
+- [x] Frontend 연결 핸들링
+- [x] ciphertext frame 중계 (내용 접근 불가)
 
 ### E2EE (libsodium)
 - [ ] libsodium-wrappers 통합 (Daemon + Relay: Bun 환경)

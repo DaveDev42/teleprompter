@@ -67,7 +67,7 @@ export class Runner {
       const hookSocketPath = this.hookReceiver.start();
 
       // Build settings with hook capture commands
-      const settingsJson = buildSettings(hookSocketPath);
+      const settingsJson = buildSettings(hookSocketPath, this.opts.cwd);
 
       // Spawn Claude Code in PTY
       const claudeCmd = [

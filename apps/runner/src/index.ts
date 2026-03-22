@@ -1,7 +1,7 @@
 import { parseArgs } from "util";
 import { Runner } from "./runner";
 
-const { values } = parseArgs({
+const { values, positionals } = parseArgs({
   args: Bun.argv.slice(2),
   options: {
     sid: { type: "string" },
@@ -17,6 +17,7 @@ const { values } = parseArgs({
 const sid = values.sid ?? `session-${Date.now()}`;
 const cwd = values.cwd!;
 
+// Everything after "--" becomes claudeArgs via positionals
 const runner = new Runner({
   sid,
   cwd,
@@ -24,15 +25,7 @@ const runner = new Runner({
   socketPath: values["socket-path"],
   cols: parseInt(values.cols!, 10),
   rows: parseInt(values.rows!, 10),
-  claudeArgs: Bun.argv.slice(2).filter(
-    (arg) =>
-      !arg.startsWith("--sid") &&
-      !arg.startsWith("--cwd") &&
-      !arg.startsWith("--worktree-path") &&
-      !arg.startsWith("--socket-path") &&
-      !arg.startsWith("--cols") &&
-      !arg.startsWith("--rows"),
-  ),
+  claudeArgs: positionals,
 });
 
 // Graceful shutdown

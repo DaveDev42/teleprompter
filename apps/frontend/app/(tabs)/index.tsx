@@ -8,14 +8,14 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { useSessionStore } from "../src/stores/session-store";
+import { useSessionStore } from "../../src/stores/session-store";
 import {
   useChatStore,
   processHookEvent,
   type ChatMessage,
-} from "../src/stores/chat-store";
-import { getDaemonClient } from "../src/hooks/use-daemon";
-import { ChatCard } from "../src/components/ChatCard";
+} from "../../src/stores/chat-store";
+import { getDaemonClient } from "../../src/hooks/use-daemon";
+import { ChatCard } from "../../src/components/ChatCard";
 import type { WsRec } from "@teleprompter/protocol";
 
 export default function ChatScreen() {

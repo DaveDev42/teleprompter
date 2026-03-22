@@ -75,11 +75,9 @@ describe("HookReceiver", () => {
 
     await Bun.sleep(150);
     expect(receivedEvents.length).toBe(3);
-    expect(receivedEvents.map((e) => e.hook_event_name)).toEqual([
-      "Event0",
-      "Event1",
-      "Event2",
-    ]);
+    expect(receivedEvents.map((e) => e.hook_event_name)).toEqual(
+      ["Event0", "Event1", "Event2"] as any,
+    );
   });
 
   test("defaultSocketPath generates valid path", () => {

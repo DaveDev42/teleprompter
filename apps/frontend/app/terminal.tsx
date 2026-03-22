@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { View, Text, Platform } from "react-native";
 import { useSessionStore } from "../src/stores/session-store";
-import { useDaemon } from "../src/hooks/use-daemon";
+import { getDaemonClient } from "../src/hooks/use-daemon";
 import type { WsRec } from "@teleprompter/protocol";
 
 // Conditionally import XTermWeb only on web
@@ -13,35 +13,34 @@ if (Platform.OS === "web") {
 export default function TerminalScreen() {
   const connected = useSessionStore((s) => s.connected);
   const sid = useSessionStore((s) => s.sid);
-  const setOnRec = useSessionStore((s) => s.setOnRec);
-  const clientRef = useDaemon();
+  const addRecHandler = useSessionStore((s) => s.addRecHandler);
+  const removeRecHandler = useSessionStore((s) => s.removeRecHandler);
   const termRef = useRef<any>(null);
 
-  // Wire records to xterm
+  // Wire io records to xterm
   useEffect(() => {
     const handler = (rec: WsRec) => {
       if (rec.k !== "io") return;
       const term = termRef.current;
       if (!term) return;
-      // Decode base64 payload and write to terminal
       try {
         const bytes = atob(rec.d);
         term.write(bytes);
       } catch {
-        // fallback: write as-is
         term.write(rec.d);
       }
     };
 
-    setOnRec(handler);
-    return () => setOnRec(null);
-  }, [setOnRec]);
+    addRecHandler(handler);
+    return () => removeRecHandler(handler);
+  }, [addRecHandler, removeRecHandler]);
 
   // Handle keyboard input → Daemon
   const handleData = useCallback(
     (data: string) => {
-      if (!sid || !clientRef.current) return;
-      clientRef.current.sendTermInput(sid, btoa(data));
+      const client = getDaemonClient();
+      if (!sid || !client) return;
+      client.sendTermInput(sid, btoa(data));
     },
     [sid],
   );

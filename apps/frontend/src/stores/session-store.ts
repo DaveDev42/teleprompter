@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import type { WsRec } from "@teleprompter/protocol";
 
+export type RecHandler = (rec: WsRec) => void;
+
 export interface SessionState {
   /** Current session ID */
   sid: string | null;
@@ -8,26 +10,39 @@ export interface SessionState {
   connected: boolean;
   /** Last received sequence number */
   lastSeq: number;
-  /** Record callback (set by terminal/chat consumers) */
-  _onRec: ((rec: WsRec) => void) | null;
+  /** Record handlers (multiple consumers: terminal, chat) */
+  _recHandlers: Set<RecHandler>;
 
   // Actions
   setSid: (sid: string | null) => void;
   setConnected: (connected: boolean) => void;
   setLastSeq: (seq: number) => void;
-  setOnRec: (fn: ((rec: WsRec) => void) | null) => void;
+  addRecHandler: (fn: RecHandler) => void;
+  removeRecHandler: (fn: RecHandler) => void;
+  dispatchRec: (rec: WsRec) => void;
   reset: () => void;
 }
 
-export const useSessionStore = create<SessionState>((set) => ({
+export const useSessionStore = create<SessionState>((set, get) => ({
   sid: null,
   connected: false,
   lastSeq: 0,
-  _onRec: null,
+  _recHandlers: new Set(),
 
   setSid: (sid) => set({ sid }),
   setConnected: (connected) => set({ connected }),
   setLastSeq: (seq) => set({ lastSeq: seq }),
-  setOnRec: (fn) => set({ _onRec: fn }),
-  reset: () => set({ sid: null, connected: false, lastSeq: 0, _onRec: null }),
+  addRecHandler: (fn) => {
+    get()._recHandlers.add(fn);
+  },
+  removeRecHandler: (fn) => {
+    get()._recHandlers.delete(fn);
+  },
+  dispatchRec: (rec) => {
+    for (const fn of get()._recHandlers) {
+      fn(rec);
+    }
+  },
+  reset: () =>
+    set({ sid: null, connected: false, lastSeq: 0, _recHandlers: new Set() }),
 }));

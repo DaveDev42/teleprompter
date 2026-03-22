@@ -5,7 +5,7 @@ import type {
   WsRec,
 } from "@teleprompter/protocol";
 
-const DEFAULT_URL = "ws://localhost:7070";
+const DEFAULT_URL = "ws://localhost:7080";
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 

@@ -19,6 +19,7 @@ Teleprompter is a remote Claude Code session controller. An Expo frontend (React
 
 ```
 apps/
+  cli/         # @teleprompter/cli — unified `tp` binary (subcommand router)
   frontend/    # Expo app (iOS > Web > Android)
   daemon/      # Bun long-running service (session mgmt, vault, E2EE, worktree)
   runner/      # Bun per-session process (PTY via Bun.spawn terminal, hooks collection)
@@ -27,6 +28,9 @@ packages/
   protocol/    # @teleprompter/protocol — shared types, framed JSON codec, envelope types
   tsconfig/    # Shared TS configs (base.json, bun.json, expo.json)
   eslint-config/
+scripts/
+  build.ts     # Multi-platform `bun build --compile` script
+  install.sh   # curl-pipe-sh installer for GitHub Releases
 ```
 
 ## Architecture
@@ -47,7 +51,13 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - Worktree management is done directly by Daemon (`git worktree add/remove/list`), no external tool dependency. N:1 relationship — multiple sessions per worktree allowed.
 - E2EE pairing via QR code containing pairing secret + daemon pubkey + relay URL. ECDH → HKDF → AES-256-GCM.
 - Platform priority: iOS > Web > Android. Responsive layout required for mobile/tablet/desktop.
-- Deployment: `bun build --compile` for single binary (Daemon, Runner, Relay).
+- Deployment: `bun build --compile` for single `tp` binary with subcommands (daemon, run, relay).
+
+## Documentation Maintenance
+
+CLAUDE.md, PRD.md, TODO.md, ARCHITECTURE.md must always be kept up to date.
+When implementing features, fixing bugs, or making architectural changes,
+update the relevant documentation files in the same commit.
 
 ## Language
 

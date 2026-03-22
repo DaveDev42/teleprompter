@@ -51,6 +51,22 @@
 
 ---
 
+## Stage 0.5: CLI + Release
+
+### 통합 CLI 바이너리
+- [x] apps/daemon barrel export (`lib.ts`)
+- [x] apps/runner barrel export (`lib.ts`)
+- [x] `SessionManager.setRunnerCommand()` self-spawn 메커니즘
+- [x] `apps/cli/` 서브커맨드 라우터 (daemon, run, relay, version)
+- [x] Compiled vs dev 모드 자동 감지 (`spawn.ts`)
+- [x] 멀티 플랫폼 빌드 스크립트 (`scripts/build.ts`)
+- [x] curl-pipe-sh 설치 스크립트 (`scripts/install.sh`)
+- [x] GitHub Actions release workflow (`.github/workflows/release.yml`)
+- [ ] 로컬 컴파일 테스트 (self-spawn 검증)
+- [ ] 기존 테스트 통과 확인
+
+---
+
 ## Stage 1: Local UI
 
 ### Expo 프로젝트
@@ -78,11 +94,11 @@
 - [ ] Chat 입력 UI (텍스트 입력 → in.chat)
 
 ### Daemon WebSocket 서버
-- [ ] Frontend용 WebSocket 서버 (localhost)
-- [ ] hello / attach / detach / resume 핸들러
-- [ ] rec / batch 전송
-- [ ] state 스냅샷 전송
-- [ ] in.chat / in.term 수신 → Runner 전달
+- [x] Frontend용 WebSocket 서버 (localhost)
+- [x] hello / attach / detach / resume 핸들러
+- [x] rec / batch 전송
+- [x] state 스냅샷 전송
+- [x] in.chat / in.term 수신 → Runner 전달
 
 ### Stage 1 검증
 - [ ] 웹 브라우저에서 Terminal 탭 동작 (Claude Code 터미널 표시)

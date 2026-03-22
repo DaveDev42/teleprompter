@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-darwin:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        target: [bun-darwin-arm64, bun-darwin-x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - run: pnpm install --frozen-lockfile
+      - name: Build
+        run: |
+          SUFFIX=$(echo "${{ matrix.target }}" | sed 's/bun-//' | sed 's/-/_/')
+          bun build apps/cli/src/index.ts --compile --target=${{ matrix.target }} --outfile dist/tp-${SUFFIX}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/tp-*
+
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [bun-linux-x64, bun-linux-arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - run: pnpm install --frozen-lockfile
+      - name: Build
+        run: |
+          SUFFIX=$(echo "${{ matrix.target }}" | sed 's/bun-//' | sed 's/-/_/')
+          bun build apps/cli/src/index.ts --compile --target=${{ matrix.target }} --outfile dist/tp-${SUFFIX}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/tp-*
+
+  release:
+    needs: [build-darwin, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: List artifacts
+        run: ls -la artifacts/
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/tp-*
+          generate_release_notes: true

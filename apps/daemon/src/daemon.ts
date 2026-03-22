@@ -70,6 +70,12 @@ export class Daemon {
       onInTerm: (client, sid, data) => {
         this.handleWsInput(client, sid, data);
       },
+      onResize: (_client, sid, cols, rows) => {
+        const runner = this.ipcServer.findRunnerBySid(sid);
+        if (runner) {
+          this.ipcServer.send(runner, { t: "resize", sid, cols, rows });
+        }
+      },
       onWorktreeCreate: (client, msg) => {
         this.handleWorktreeCreate(client, msg.branch, msg.baseBranch, msg.path);
       },

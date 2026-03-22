@@ -51,6 +51,13 @@ export interface WsPing {
   t: "ping";
 }
 
+export interface WsResize {
+  t: "resize";
+  sid: string;
+  cols: number;
+  rows: number;
+}
+
 export interface WsWorktreeCreate {
   t: "worktree.create";
   branch: string;
@@ -90,6 +97,7 @@ export type WsClientMessage =
   | WsResume
   | WsInChat
   | WsInTerm
+  | WsResize
   | WsPing
   | WsWorktreeCreate
   | WsWorktreeRemove

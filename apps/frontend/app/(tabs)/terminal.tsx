@@ -54,12 +54,15 @@ export default function TerminalScreen() {
     [sid],
   );
 
-  // Handle resize
+  // Handle resize → send to daemon
   const handleResize = useCallback(
-    (_cols: number, _rows: number) => {
-      // TODO: send resize to daemon when protocol supports it
+    (cols: number, rows: number) => {
+      const client = getDaemonClient();
+      if (sid && client) {
+        client.send({ t: "resize", sid, cols, rows } as any);
+      }
     },
-    [],
+    [sid],
   );
 
   return (

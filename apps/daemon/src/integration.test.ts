@@ -1,8 +1,9 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync } from "fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { Daemon } from "./daemon";
+import { SessionManager } from "./session/session-manager";
 import { HookReceiver } from "../../runner/src/hooks/hook-receiver";
 import {
   encodeFrame,
@@ -220,5 +221,101 @@ describe("Integration", () => {
     expect((receivedEvents[0] as { hook_event_name: string }).hook_event_name).toBe("Stop");
 
     receiver.stop();
+  });
+
+  test("self-spawn: daemon.createSession() spawns stub runner via setRunnerCommand", async () => {
+    const sid = "test-self-spawn";
+
+    // Write a stub runner script that mimics the real runner's CLI interface
+    // but only sends hello → rec → bye over IPC and exits
+    const stubPath = join(tmpDir, "stub-runner.ts");
+    const protocolPath = join(__dirname, "..", "..", "..", "packages", "protocol", "src", "index.ts");
+    writeFileSync(
+      stubPath,
+      `
+import { parseArgs } from "util";
+import { encodeFrame, QueuedWriter } from "${protocolPath}";
+
+const { values } = parseArgs({
+  args: Bun.argv.slice(2),
+  options: {
+    sid: { type: "string" },
+    cwd: { type: "string" },
+    "socket-path": { type: "string" },
+  },
+  strict: false,
+});
+
+const sid = values.sid!;
+const socketPath = values["socket-path"]!;
+const writer = new QueuedWriter();
+
+const socket = await Bun.connect({
+  unix: socketPath,
+  socket: {
+    data() {},
+    drain(s) { writer.drain(s); },
+    open(s) {
+      // hello
+      writer.write(s, encodeFrame({ t: "hello", sid, cwd: "/tmp/stub", pid: process.pid }));
+
+      // record
+      setTimeout(() => {
+        writer.write(s, encodeFrame({
+          t: "rec", sid, kind: "io", ts: Date.now(),
+          payload: Buffer.from("stub-output").toString("base64"),
+        }));
+
+        // bye
+        setTimeout(() => {
+          writer.write(s, encodeFrame({ t: "bye", sid, exitCode: 0 }));
+          setTimeout(() => s.end(), 50);
+        }, 50);
+      }, 50);
+    },
+    close() {},
+    error() {},
+  },
+});
+`,
+    );
+
+    // Inject stub as the runner command
+    SessionManager.setRunnerCommand(["bun", "run", stubPath]);
+
+    try {
+      // This triggers spawnRunner internally
+      daemon.createSession(sid, tmpDir);
+
+      // Poll vault until session is stopped or timeout
+      const vault = new Vault(vaultDir);
+      let stopped = false;
+      for (let i = 0; i < 50; i++) {
+        await Bun.sleep(100);
+        const session = vault.getSession(sid);
+        if (session?.state === "stopped") {
+          stopped = true;
+          break;
+        }
+      }
+
+      expect(stopped).toBe(true);
+
+      const session = vault.getSession(sid);
+      expect(session).toBeDefined();
+      expect(session!.state).toBe("stopped");
+      expect(session!.last_seq).toBe(1);
+
+      const db = vault.getSessionDb(sid);
+      expect(db).toBeDefined();
+      const records = db!.getRecordsFrom(0);
+      expect(records.length).toBe(1);
+      expect(records[0]!.kind).toBe("io");
+
+      vault.close();
+    } finally {
+      // Reset runner command for other tests
+      SessionManager.setRunnerCommand(null as any);
+    }
   });
 });

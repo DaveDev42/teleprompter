@@ -41,7 +41,7 @@
 - [x] Runner 프로세스 관리 (spawn, monitor, restart)
 - [x] Vault 기본 구현 (append-only Record 저장)
 - [x] seq 관리 (단조 증가)
-- [ ] **리스크: burst 조건에서 IPC 데이터 유실 없음 검증** ⚠️
+- [x] **리스크: burst 조건에서 IPC 데이터 유실 없음 검증** ⚠️
 
 ### Stage 0 검증
 - [x] Runner가 Claude Code를 PTY에서 실행
@@ -62,8 +62,8 @@
 - [x] 멀티 플랫폼 빌드 스크립트 (`scripts/build.ts`)
 - [x] curl-pipe-sh 설치 스크립트 (`scripts/install.sh`)
 - [x] GitHub Actions release workflow (`.github/workflows/release.yml`)
-- [ ] 로컬 컴파일 테스트 (self-spawn 검증)
-- [ ] 기존 테스트 통과 확인
+- [x] 로컬 컴파일 테스트 (self-spawn 검증)
+- [x] 기존 테스트 통과 확인
 
 ---
 

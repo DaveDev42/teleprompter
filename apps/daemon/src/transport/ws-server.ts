@@ -12,6 +12,7 @@ export interface WsServerEvents {
   onResume(client: WsClient, sid: string, cursor: number): void;
   onInChat(client: WsClient, sid: string, text: string): void;
   onInTerm(client: WsClient, sid: string, data: string): void;
+  onResize?(client: WsClient, sid: string, cols: number, rows: number): void;
   onWorktreeCreate?(client: WsClient, msg: WsClientMessage & { t: "worktree.create" }): void;
   onWorktreeRemove?(client: WsClient, msg: WsClientMessage & { t: "worktree.remove" }): void;
   onWorktreeList?(client: WsClient): void;
@@ -89,6 +90,9 @@ export class WsServer {
         break;
       case "in.term":
         this.events.onInTerm(client, msg.sid, msg.d);
+        break;
+      case "resize":
+        this.events.onResize?.(client, msg.sid, msg.cols, msg.rows);
         break;
       case "ping":
         this.registry.send(client, { t: "pong" });

@@ -3,51 +3,51 @@
 ## Stage 0: Foundation
 
 ### 모노레포 설정
-- [ ] pnpm + Turborepo 초기화
-- [ ] pnpm-workspace.yaml 작성 (apps/*, packages/*)
-- [ ] .npmrc 설정 (node-linker=hoisted — Expo Metro 심링크 호환)
-- [ ] turbo.json 파이프라인 설정 (build, dev, test, lint, type-check)
-- [ ] packages/tsconfig 생성 (base.json, bun.json, expo.json)
-- [ ] packages/eslint-config 생성
-- [ ] 루트 package.json 스크립트 설정
+- [x] pnpm + Turborepo 초기화
+- [x] pnpm-workspace.yaml 작성 (apps/*, packages/*)
+- [x] .npmrc 설정 (node-linker=hoisted — Expo Metro 심링크 호환)
+- [x] turbo.json 파이프라인 설정 (build, dev, test, lint, type-check)
+- [x] packages/tsconfig 생성 (base.json, bun.json, expo.json)
+- [x] packages/eslint-config 생성
+- [x] 루트 package.json 스크립트 설정
 
 ### @teleprompter/protocol
-- [ ] Record 타입 정의 (sid, seq, kind, ts, payload)
-- [ ] RecordKind enum (io, event, meta)
-- [ ] Envelope 타입 정의 (t, sid, seq, k, ns, n, d, c, ts, e, m)
-- [ ] FrameType enum (hello, attach, detach, resume, rec, batch, in.chat, in.term, state, ping, pong, err)
-- [ ] framed JSON 인코더/디코더 (u32_be length prefix)
-- [ ] Session 타입 (SID, SessionState)
-- [ ] Claude hook event 타입 정의
-- [ ] 패키지 빌드 및 export 설정
+- [x] Record 타입 정의 (sid, seq, kind, ts, payload)
+- [x] RecordKind enum (io, event, meta)
+- [x] Envelope 타입 정의 (t, sid, seq, k, ns, n, d, c, ts, e, m)
+- [x] FrameType enum (hello, attach, detach, resume, rec, batch, in.chat, in.term, state, ping, pong, err)
+- [x] framed JSON 인코더/디코더 (u32_be length prefix)
+- [x] Session 타입 (SID, SessionState)
+- [x] Claude hook event 타입 정의
+- [x] 패키지 빌드 및 export 설정
 
 ### Runner (apps/runner)
 - [x] ~~Bun.spawn terminal 동작 검증~~ ✅ spike 완료
 - [x] ~~terminal.write() 입력 전달 검증~~ ✅ spike 완료
 - [x] ~~hooks 수집 검증 (--settings 주입)~~ ✅ spike 완료
-- [ ] Bun.spawn({ terminal }) PTY 래퍼 구현
-- [ ] PTY io → Record { kind: "io" } 변환
-- [ ] claude --settings <json>으로 hooks 인라인 주입
-- [ ] 기존 .claude/settings.local.json hooks와 merge 로직
-- [ ] hooks capture 스크립트 (Bun 원라이너 → Daemon IPC 전송)
-- [ ] hooks stdin JSON → Record { kind: "event" } 변환
-- [ ] Daemon IPC 클라이언트 (Unix domain socket)
-- [ ] **IPC write queue + drain 기반 backpressure 처리** ⚠️
+- [x] Bun.spawn({ terminal }) PTY 래퍼 구현
+- [x] PTY io → Record { kind: "io" } 변환
+- [x] claude --settings <json>으로 hooks 인라인 주입
+- [x] 기존 .claude/settings.local.json hooks와 merge 로직
+- [x] hooks capture 스크립트 (Bun 원라이너 → Daemon IPC 전송)
+- [x] hooks stdin JSON → Record { kind: "event" } 변환
+- [x] Daemon IPC 클라이언트 (Unix domain socket)
+- [x] **IPC write queue + drain 기반 backpressure 처리** ⚠️
 
 ### Daemon (apps/daemon)
-- [ ] IPC 서버 구현 (Unix domain socket / named pipe)
-- [ ] IPC 서버 backpressure 처리 (drain 콜백 지원)
-- [ ] Session 관리 (생성, 종료, 목록)
-- [ ] Runner 프로세스 관리 (spawn, monitor, restart)
-- [ ] Vault 기본 구현 (append-only Record 저장)
-- [ ] seq 관리 (단조 증가)
+- [x] IPC 서버 구현 (Unix domain socket / named pipe)
+- [x] IPC 서버 backpressure 처리 (drain 콜백 지원)
+- [x] Session 관리 (생성, 종료, 목록)
+- [x] Runner 프로세스 관리 (spawn, monitor, restart)
+- [x] Vault 기본 구현 (append-only Record 저장)
+- [x] seq 관리 (단조 증가)
 - [ ] **리스크: burst 조건에서 IPC 데이터 유실 없음 검증** ⚠️
 
 ### Stage 0 검증
-- [ ] Runner가 Claude Code를 PTY에서 실행
-- [ ] hooks 이벤트가 Daemon까지 전달
-- [ ] io 스트림이 Daemon까지 전달
-- [ ] Vault에 Record 저장/조회
+- [x] Runner가 Claude Code를 PTY에서 실행
+- [x] hooks 이벤트가 Daemon까지 전달
+- [x] io 스트림이 Daemon까지 전달
+- [x] Vault에 Record 저장/조회
 
 ---
 

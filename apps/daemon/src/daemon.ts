@@ -432,6 +432,18 @@ export class Daemon {
   }
 
   stop(): void {
+    // Kill all running sessions gracefully
+    const runners = this.sessionManager.listRunners();
+    let killed = 0;
+    for (const runner of runners) {
+      if (this.sessionManager.killRunner(runner.sid)) {
+        killed++;
+      }
+    }
+    if (killed > 0) {
+      console.log(`[Daemon] killed ${killed} running session(s)`);
+    }
+
     for (const relay of this.relayClients) {
       relay.dispose();
     }

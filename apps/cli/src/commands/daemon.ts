@@ -1,12 +1,19 @@
 import { parseArgs } from "util";
 import { Daemon, SessionManager } from "@teleprompter/daemon";
+import {
+  createPairingBundle,
+  deriveRelayToken,
+  fromBase64,
+} from "@teleprompter/protocol";
 import { resolveRunnerCommand } from "../spawn";
 
 export async function daemonCommand(argv: string[]): Promise<void> {
   const subcommand = argv[0];
 
   if (subcommand !== "start") {
-    console.error(`Usage: tp daemon start [--ws-port 7080] [--spawn --sid X --cwd Y]`);
+    console.error(
+      `Usage: tp daemon start [--ws-port 7080] [--repo-root /path] [--relay-url URL --relay-token TOKEN --daemon-id ID] [--spawn --sid X --cwd Y]`,
+    );
     process.exit(1);
   }
 
@@ -18,6 +25,11 @@ export async function daemonCommand(argv: string[]): Promise<void> {
       cwd: { type: "string" },
       "worktree-path": { type: "string" },
       "ws-port": { type: "string", default: "7080" },
+      "repo-root": { type: "string" },
+      "relay-url": { type: "string" },
+      "relay-token": { type: "string" },
+      "daemon-id": { type: "string" },
+      "frontend-pubkey": { type: "string" },
     },
     strict: false,
   });
@@ -30,6 +42,38 @@ export async function daemonCommand(argv: string[]): Promise<void> {
 
   const wsPort = parseInt(values["ws-port"] as string, 10);
   daemon.startWs(wsPort);
+
+  // Enable worktree management if repo root is specified
+  if (values["repo-root"]) {
+    daemon.setRepoRoot(values["repo-root"] as string);
+    console.log(`[Daemon] worktree management enabled for ${values["repo-root"]}`);
+  }
+
+  // Connect to relay if configured
+  if (values["relay-url"] && values["relay-token"] && values["daemon-id"]) {
+    try {
+      const { generateKeyPair } = await import("@teleprompter/protocol");
+      const keyPair = await generateKeyPair();
+
+      // Frontend public key is optional — if not provided, E2EE won't work
+      // but the relay connection will still be established for presence
+      let frontendPublicKey = new Uint8Array(32);
+      if (values["frontend-pubkey"]) {
+        frontendPublicKey = await fromBase64(values["frontend-pubkey"] as string);
+      }
+
+      await daemon.connectRelay({
+        relayUrl: values["relay-url"] as string,
+        daemonId: values["daemon-id"] as string,
+        token: values["relay-token"] as string,
+        keyPair,
+        frontendPublicKey,
+      });
+      console.log(`[Daemon] connected to relay ${values["relay-url"]}`);
+    } catch (err) {
+      console.error(`[Daemon] relay connection failed:`, err);
+    }
+  }
 
   console.log(`[Daemon] listening on ${socketPath}`);
   console.log("[Daemon] press Ctrl+C to stop");

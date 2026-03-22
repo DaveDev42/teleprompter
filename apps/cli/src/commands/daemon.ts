@@ -32,6 +32,7 @@ export async function daemonCommand(argv: string[]): Promise<void> {
       "daemon-id": { type: "string" },
       "frontend-pubkey": { type: "string" },
       "web-dir": { type: "string" },
+      prune: { type: "string" },
     },
     strict: false,
   });
@@ -44,6 +45,15 @@ export async function daemonCommand(argv: string[]): Promise<void> {
 
   const wsPort = parseInt(values["ws-port"] as string, 10);
   daemon.startWs(wsPort);
+
+  // Prune old sessions on startup
+  if (values.prune) {
+    const hours = parseInt(values.prune as string, 10) || 24;
+    const pruned = daemon.pruneOldSessions(hours * 60 * 60 * 1000);
+    if (pruned > 0) {
+      console.log(`[Daemon] pruned ${pruned} old session(s) (>${hours}h)`);
+    }
+  }
 
   // Serve frontend web build if specified
   if (values["web-dir"]) {

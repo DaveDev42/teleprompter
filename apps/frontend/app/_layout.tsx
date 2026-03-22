@@ -1,6 +1,7 @@
 import "../global.css";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useDaemon } from "../src/hooks/use-daemon";
 
 export default function RootLayout() {
@@ -8,7 +9,7 @@ export default function RootLayout() {
   useDaemon();
 
   return (
-    <>
+    <SafeAreaProvider>
       <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
@@ -21,6 +22,6 @@ export default function RootLayout() {
           options={{ presentation: "fullScreenModal" }}
         />
       </Stack>
-    </>
+    </SafeAreaProvider>
   );
 }

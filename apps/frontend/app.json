@@ -14,7 +14,11 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.teleprompter.app"
+      "bundleIdentifier": "com.teleprompter.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Camera is used to scan QR codes for daemon pairing.",
+        "NSMicrophoneUsageDescription": "Microphone is used for voice commands to control Claude Code."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -23,7 +27,11 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.teleprompter.app"
+      "package": "com.teleprompter.app",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -32,7 +40,26 @@
     "plugins": [
       "expo-router",
       "expo-barcode-scanner",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "15.1",
+            "newArchEnabled": true
+          },
+          "android": {
+            "minSdkVersion": 24,
+            "newArchEnabled": true
+          }
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Camera is used to scan QR codes for daemon pairing."
+        }
+      ]
     ]
   }
 }

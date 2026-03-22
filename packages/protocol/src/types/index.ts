@@ -17,3 +17,21 @@ export type {
   IpcResize,
   IpcMessage,
 } from "./ipc";
+export type {
+  WsSessionMeta,
+  WsHello,
+  WsAttach,
+  WsDetach,
+  WsResume,
+  WsInChat,
+  WsInTerm,
+  WsPing,
+  WsClientMessage,
+  WsHelloReply,
+  WsState,
+  WsRec,
+  WsBatch,
+  WsPong,
+  WsErr,
+  WsServerMessage,
+} from "./ws";

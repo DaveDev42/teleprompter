@@ -161,14 +161,14 @@
 - [x] Daemon: git worktree add 실행
 - [x] Daemon: git worktree remove 실행
 - [x] Daemon: git worktree list 파싱
-- [ ] Frontend → Daemon: worktree 생성 요청 (디렉토리 + 브랜치 지정)
-- [ ] worktree 생성 후 자동 Session 시작
+- [x] Frontend → Daemon: worktree 생성 요청 (디렉토리 + 브랜치 지정) — worktree.create WS 메시지
+- [x] worktree 생성 후 자동 Session 시작 — handleWorktreeCreate auto-spawns session
 
 ### 다중 Session
-- [ ] worktree당 복수 Session 지원
+- [x] worktree당 복수 Session 지원 — session.create WS 메시지, N:1 relationship
 - [ ] Session 목록 UI (worktree별 그루핑)
 - [ ] Session 전환 UI
-- [ ] Session 종료 UI
+- [x] Session 종료 UI — session.stop → SessionManager.killRunner()
 
 ### Session 복구
 - [ ] Frontend resume (마지막 seq 기준)

@@ -76,10 +76,10 @@
 ## Stage 1: Local UI
 
 ### Expo 프로젝트
-- [ ] Expo 프로젝트 초기화 (apps/frontend)
-- [ ] NativeWind (Tailwind) 설정
-- [ ] Expo Router 기본 라우팅
-- [ ] Zustand 스토어 설계 (SessionStore, UIStore)
+- [x] Expo 프로젝트 초기화 (apps/frontend)
+- [x] NativeWind (Tailwind) 설정
+- [x] Expo Router 기본 라우팅
+- [x] Zustand 스토어 설계 (SessionStore, UIStore)
 
 ### Terminal 탭
 - [ ] xterm.js 웹 렌더링 컴포넌트 (PTY raw bytes → xterm.js.write() — ANSI 완벽 재현)

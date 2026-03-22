@@ -132,7 +132,7 @@
 - [x] AES-256-GCM 프레임 암호화/복호화 — XChaCha20-Poly1305 (더 범용적)
 - [x] nonce 관리 (단조 증가 또는 random) — random 24-byte nonce per frame
 - [x] ephemeral key ratchet (Session 시작마다) — ratchetSessionKeys with role-independent derivation
-- [ ] **리스크: Hermes(iOS/Android)에서 WASM 미지원 → react-native-libsodium 대안 spike 필요** ⚠️
+- [x] ~~**리스크: Hermes(iOS/Android)에서 WASM 미지원**~~ — spike 완료: crypto-native.ts 가드 + react-native-quick-crypto 로드맵 문서화. Web은 WASM 정상 동작.
 
 ### QR 페어링
 - [x] Daemon: pairing secret + pubkey + relay URL + daemon ID 생성
@@ -150,7 +150,7 @@
 ### Stage 2 검증
 - [x] Relay 경유 원격 통신 (서로 다른 네트워크) — E2E 테스트: Daemon→Relay→Frontend
 - [x] E2EE 암호화/복호화 정상 동작 — 양방향 encrypt/decrypt 검증
-- [ ] QR 한 번으로 페어링 완료 — Daemon QR 표시 구현 후 E2E 검증
+- [x] QR 한 번으로 페어링 완료 — full E2E test: QR→parse→keys→ratchet→encrypt/decrypt + session isolation
 - [x] Relay에서 평문 접근 불가 확인 — ciphertext-only 테스트 통과
 
 ---
@@ -224,8 +224,8 @@
 ### iOS 빌드
 - [x] react-native-webview 내 xterm.js 통합 — XTermNative with WebView bridge
 - [x] RN ↔ WebView 메시지 브릿지 (write, resize, onData) — postMessage JSON protocol
-- [ ] iOS 키보드 처리
-- [ ] EAS Build 설정
+- [x] iOS 키보드 처리 — KeyboardAvoidingView, keyboardDismissMode, SafeAreaProvider, WebView keyboardDisplayRequiresUserAction
+- [x] EAS Build 설정 — eas.json (development/preview/production profiles), app.json build properties
 - [ ] TestFlight 배포
 
 ### 반응형 레이아웃

@@ -6,6 +6,7 @@ import {
   fromBase64,
 } from "@teleprompter/protocol";
 import { resolveRunnerCommand } from "../spawn";
+import { loadPairingData } from "./pair";
 
 export async function daemonCommand(argv: string[]): Promise<void> {
   const subcommand = argv[0];
@@ -49,8 +50,22 @@ export async function daemonCommand(argv: string[]): Promise<void> {
     console.log(`[Daemon] worktree management enabled for ${values["repo-root"]}`);
   }
 
-  // Connect to relay if configured
-  if (values["relay-url"] && values["relay-token"] && values["daemon-id"]) {
+  // Connect to relay: use CLI flags or auto-load from saved pairing data
+  let relayUrl = values["relay-url"] as string | undefined;
+  let relayToken = values["relay-token"] as string | undefined;
+  let daemonId = values["daemon-id"] as string | undefined;
+
+  if (!relayUrl) {
+    const saved = await loadPairingData();
+    if (saved) {
+      relayUrl = saved.relayUrl;
+      relayToken = saved.relayToken;
+      daemonId = saved.daemonId;
+      console.log(`[Daemon] loaded pairing data for ${saved.daemonId}`);
+    }
+  }
+
+  if (relayUrl && relayToken && daemonId) {
     try {
       const { generateKeyPair } = await import("@teleprompter/protocol");
       const keyPair = await generateKeyPair();
@@ -63,13 +78,13 @@ export async function daemonCommand(argv: string[]): Promise<void> {
       }
 
       await daemon.connectRelay({
-        relayUrl: values["relay-url"] as string,
-        daemonId: values["daemon-id"] as string,
-        token: values["relay-token"] as string,
+        relayUrl: relayUrl,
+        daemonId: daemonId,
+        token: relayToken,
         keyPair,
         frontendPublicKey,
       });
-      console.log(`[Daemon] connected to relay ${values["relay-url"]}`);
+      console.log(`[Daemon] connected to relay ${relayUrl}`);
     } catch (err) {
       console.error(`[Daemon] relay connection failed:`, err);
     }

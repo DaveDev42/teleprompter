@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - run: pnpm install --frozen-lockfile
+      - name: Type check
+        run: |
+          npx tsc --noEmit -p apps/daemon/tsconfig.json
+          npx tsc --noEmit -p apps/cli/tsconfig.json
+          npx tsc --noEmit -p apps/relay/tsconfig.json
+          npx tsc --noEmit -p apps/runner/tsconfig.json
+      - name: Test
+        run: bun test packages/protocol apps/daemon apps/runner apps/cli apps/relay
+      - name: Build CLI
+        run: bun build apps/cli/src/index.ts --compile --outfile dist/tp
+      - name: Smoke test
+        run: ./dist/tp version

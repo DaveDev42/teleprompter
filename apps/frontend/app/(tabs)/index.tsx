@@ -6,6 +6,7 @@ import {
   TextInput,
   Pressable,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
 } from "react-native";
 import { useSessionStore } from "../../src/stores/session-store";
@@ -108,8 +109,8 @@ export default function ChatScreen() {
   return (
     <KeyboardAvoidingView
       className="flex-1 bg-black"
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={80}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
       {/* Header */}
       <View className="flex-row items-center px-3 py-2 bg-zinc-900 border-b border-zinc-800">
@@ -132,6 +133,9 @@ export default function ChatScreen() {
         )}
         className="flex-1"
         contentContainerStyle={{ paddingVertical: 8 }}
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled"
+        onScrollBeginDrag={() => Keyboard.dismiss()}
         ListEmptyComponent={
           <View className="flex-1 items-center justify-center pt-20">
             <Text className="text-gray-500">

@@ -6,7 +6,7 @@ set -euo pipefail
 #   curl -fsSL https://raw.githubusercontent.com/<owner>/teleprompter/main/scripts/install.sh | bash
 #   VERSION=v0.1.0 curl -fsSL ... | bash
 
-REPO="teleprompter/teleprompter"
+REPO="DaveDev42/teleprompter"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 BIN_NAME="tp"
 
@@ -42,10 +42,20 @@ echo "Installing ${BIN_NAME} ${VERSION} (${OS}/${ARCH})..."
 DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET_NAME}"
 
 mkdir -p "${INSTALL_DIR}"
+
+# Install tp CLI
 curl -fsSL "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/${BIN_NAME}"
 chmod +x "${INSTALL_DIR}/${BIN_NAME}"
-
 echo "Installed ${BIN_NAME} to ${INSTALL_DIR}/${BIN_NAME}"
+
+# Also install tp-relay if available
+RELAY_NAME="tp-relay-${OS}_${ARCH}"
+RELAY_URL="https://github.com/${REPO}/releases/download/${VERSION}/${RELAY_NAME}"
+if curl -fsSL --head "${RELAY_URL}" >/dev/null 2>&1; then
+  curl -fsSL "${RELAY_URL}" -o "${INSTALL_DIR}/tp-relay"
+  chmod +x "${INSTALL_DIR}/tp-relay"
+  echo "Installed tp-relay to ${INSTALL_DIR}/tp-relay"
+fi
 
 # Check if INSTALL_DIR is in PATH
 if ! echo "$PATH" | tr ':' '\n' | grep -qx "${INSTALL_DIR}"; then

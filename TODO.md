@@ -135,10 +135,10 @@
 - [ ] **리스크: Hermes(iOS/Android)에서 WASM 미지원 → react-native-libsodium 대안 spike 필요** ⚠️
 
 ### QR 페어링
-- [ ] Daemon: pairing secret + pubkey + relay URL + daemon ID 생성
+- [x] Daemon: pairing secret + pubkey + relay URL + daemon ID 생성
 - [ ] Daemon: QR 코드 표시 (터미널 또는 웹 UI)
 - [ ] Frontend: QR 스캔 (expo-camera 또는 expo-barcode-scanner)
-- [ ] Frontend: 자체 키쌍 생성 → relay 경유 키 교환
+- [x] Frontend: 자체 키쌍 생성 → relay 경유 키 교환 — parsePairingForFrontend + deriveSessionKeys
 - [ ] 페어링 완료 → 암호화 통신 시작
 
 ### 다중 Relay

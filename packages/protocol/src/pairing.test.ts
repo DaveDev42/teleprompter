@@ -1,0 +1,95 @@
+import { describe, test, expect } from "bun:test";
+import {
+  createPairingBundle,
+  encodePairingData,
+  decodePairingData,
+  parsePairingForFrontend,
+} from "./pairing";
+import {
+  generateKeyPair,
+  deriveSessionKeys,
+  encrypt,
+  decrypt,
+  deriveRelayToken,
+} from "./crypto";
+
+describe("pairing", () => {
+  test("creates pairing bundle with all required fields", async () => {
+    const bundle = await createPairingBundle(
+      "wss://relay.example.com",
+      "daemon-123",
+    );
+
+    expect(bundle.qrData.v).toBe(1);
+    expect(bundle.qrData.relay).toBe("wss://relay.example.com");
+    expect(bundle.qrData.did).toBe("daemon-123");
+    expect(bundle.qrData.ps).toBeTruthy();
+    expect(bundle.qrData.pk).toBeTruthy();
+    expect(bundle.keyPair.publicKey.length).toBe(32);
+    expect(bundle.keyPair.secretKey.length).toBe(32);
+    expect(bundle.pairingSecret.length).toBe(32);
+    expect(bundle.relayToken.length).toBe(64);
+  });
+
+  test("encode/decode pairing data round-trip", async () => {
+    const bundle = await createPairingBundle("wss://relay.test", "d1");
+    const encoded = encodePairingData(bundle.qrData);
+    const decoded = decodePairingData(encoded);
+
+    expect(decoded.ps).toBe(bundle.qrData.ps);
+    expect(decoded.pk).toBe(bundle.qrData.pk);
+    expect(decoded.relay).toBe(bundle.qrData.relay);
+    expect(decoded.did).toBe(bundle.qrData.did);
+    expect(decoded.v).toBe(1);
+  });
+
+  test("decodePairingData rejects invalid format", () => {
+    expect(() => decodePairingData('{"foo":1}')).toThrow(
+      "Invalid pairing data format",
+    );
+  });
+
+  test("full pairing flow: daemon creates, frontend parses, keys match", async () => {
+    // Step 1: Daemon creates pairing bundle
+    const bundle = await createPairingBundle("wss://relay.test", "d1");
+
+    // Step 2: QR code contains encoded pairing data
+    const qrString = encodePairingData(bundle.qrData);
+
+    // Step 3: Frontend scans QR and parses
+    const scanned = decodePairingData(qrString);
+    const frontendParsed = await parsePairingForFrontend(scanned);
+
+    // Both sides derive the same relay token
+    expect(frontendParsed.relayToken).toBe(bundle.relayToken);
+    expect(frontendParsed.daemonId).toBe("d1");
+    expect(frontendParsed.relayUrl).toBe("wss://relay.test");
+
+    // Step 4: Frontend generates its own key pair
+    const frontendKp = await generateKeyPair();
+
+    // Step 5: Both sides derive session keys
+    const daemonKeys = await deriveSessionKeys(
+      bundle.keyPair,
+      frontendKp.publicKey,
+      "daemon",
+    );
+    const frontendKeys = await deriveSessionKeys(
+      frontendKp,
+      frontendParsed.daemonPublicKey,
+      "frontend",
+    );
+
+    // Step 6: Verify encryption works end-to-end
+    const message = new TextEncoder().encode("Hello from daemon!");
+    const ct = await encrypt(message, daemonKeys.tx);
+    const pt = await decrypt(ct, frontendKeys.rx);
+    expect(new TextDecoder().decode(pt)).toBe("Hello from daemon!");
+
+    // Reverse direction too
+    const reply = new TextEncoder().encode("Reply from frontend!");
+    const ct2 = await encrypt(reply, frontendKeys.tx);
+    const pt2 = await decrypt(ct2, daemonKeys.rx);
+    expect(new TextDecoder().decode(pt2)).toBe("Reply from frontend!");
+  });
+});

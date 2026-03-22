@@ -2,8 +2,11 @@ import { daemonCommand } from "./commands/daemon";
 import { runCommand } from "./commands/run";
 import { relayCommand } from "./commands/relay";
 import { versionCommand } from "./commands/version";
+import { passthroughCommand } from "./commands/passthrough";
 
 const command = process.argv[2];
+
+const SUBCOMMANDS = new Set(["daemon", "run", "relay", "version"]);
 
 switch (command) {
   case "daemon":
@@ -20,9 +23,16 @@ switch (command) {
   case "-v":
     versionCommand();
     break;
-  default:
+  case "--help":
+  case "-h":
+  case undefined:
     printUsage();
-    process.exit(command ? 1 : 0);
+    break;
+  default:
+    // No recognized subcommand → passthrough to claude
+    // Pass all args from argv[2] onward (including the unrecognized "command")
+    await passthroughCommand(process.argv.slice(2));
+    break;
 }
 
 function printUsage(): void {
@@ -30,15 +40,18 @@ function printUsage(): void {
 tp — Teleprompter CLI
 
 Usage:
-  tp daemon start [--ws-port 7080] [--spawn --sid X --cwd Y]
-  tp run --sid X --cwd Y [--socket-path P]
-  tp relay start [--port 8080]
-  tp version
+  tp [--tp-*] <claude args>           Run claude through teleprompter (default)
+  tp daemon start [--ws-port 7080]    Start the daemon service
+  tp run --sid X --cwd Y              Start a runner (used by daemon internally)
+  tp relay start [--port 8080]        Start a relay server
+  tp version                          Print version information
 
-Commands:
-  daemon    Start the Teleprompter daemon
-  run       Start a runner (typically called by the daemon)
-  relay     Start a relay server (not yet implemented)
-  version   Print version information
+Passthrough mode (default):
+  tp -p "explain this code"           Run claude with teleprompter recording
+  tp --tp-sid my-session -p "hello"   Specify session ID
+  tp --tp-cwd /path/to/project        Specify working directory
+  tp --tp-ws-port 9090                Specify WebSocket port
+
+  --tp-* flags are consumed by tp; everything else is passed to claude.
 `);
 }

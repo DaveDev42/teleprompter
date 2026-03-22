@@ -52,6 +52,7 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - E2EE pairing via QR code containing pairing secret + daemon pubkey + relay URL. ECDH → HKDF → AES-256-GCM.
 - Platform priority: iOS > Web > Android. Responsive layout required for mobile/tablet/desktop.
 - Deployment: `bun build --compile` for single `tp` binary with subcommands (daemon, run, relay).
+- Passthrough mode: `tp <claude args>` runs claude directly through tp pipeline. `--tp-*` flags are consumed by tp, rest forwarded to claude.
 
 ## Documentation Maintenance
 

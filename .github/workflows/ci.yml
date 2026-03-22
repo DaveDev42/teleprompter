@@ -28,3 +28,5 @@ jobs:
         run: bun build apps/cli/src/index.ts --compile --outfile dist/tp
       - name: Smoke test
         run: ./dist/tp version
+      - name: Build web frontend
+        run: cd apps/frontend && npx expo export --platform web

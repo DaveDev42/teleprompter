@@ -5,7 +5,23 @@ import type {
   WsRec,
 } from "@teleprompter/protocol";
 
-const DEFAULT_URL = "ws://localhost:7080";
+/**
+ * Auto-detect WS URL: if the frontend is served by the daemon,
+ * connect to the same host. Otherwise, fall back to localhost.
+ */
+function getDefaultUrl(): string {
+  if (typeof window !== "undefined" && window.location) {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const host = window.location.host;
+    // If served from the daemon, WS is on the same port
+    if (host && !host.includes("localhost:8081") && !host.includes("localhost:19006")) {
+      return `${proto}//${host}`;
+    }
+  }
+  return "ws://localhost:7080";
+}
+
+const DEFAULT_URL = getDefaultUrl();
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 

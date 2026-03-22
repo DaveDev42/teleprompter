@@ -12,6 +12,11 @@ export interface WsServerEvents {
   onResume(client: WsClient, sid: string, cursor: number): void;
   onInChat(client: WsClient, sid: string, text: string): void;
   onInTerm(client: WsClient, sid: string, data: string): void;
+  onWorktreeCreate?(client: WsClient, msg: WsClientMessage & { t: "worktree.create" }): void;
+  onWorktreeRemove?(client: WsClient, msg: WsClientMessage & { t: "worktree.remove" }): void;
+  onWorktreeList?(client: WsClient): void;
+  onSessionCreate?(client: WsClient, msg: WsClientMessage & { t: "session.create" }): void;
+  onSessionStop?(client: WsClient, sid: string): void;
 }
 
 export class WsServer {
@@ -87,6 +92,21 @@ export class WsServer {
         break;
       case "ping":
         this.registry.send(client, { t: "pong" });
+        break;
+      case "worktree.create":
+        this.events.onWorktreeCreate?.(client, msg);
+        break;
+      case "worktree.remove":
+        this.events.onWorktreeRemove?.(client, msg);
+        break;
+      case "worktree.list":
+        this.events.onWorktreeList?.(client);
+        break;
+      case "session.create":
+        this.events.onSessionCreate?.(client, msg);
+        break;
+      case "session.stop":
+        this.events.onSessionStop?.(client, msg.sid);
         break;
       default:
         this.registry.send(client, { t: "err", e: "UNKNOWN_TYPE", m: `Unknown message type` });

@@ -51,6 +51,38 @@ export interface WsPing {
   t: "ping";
 }
 
+export interface WsWorktreeCreate {
+  t: "worktree.create";
+  branch: string;
+  /** Optional base branch */
+  baseBranch?: string;
+  /** Optional custom path (relative to repo root) */
+  path?: string;
+}
+
+export interface WsWorktreeRemove {
+  t: "worktree.remove";
+  path: string;
+  force?: boolean;
+}
+
+export interface WsWorktreeList {
+  t: "worktree.list";
+}
+
+export interface WsSessionCreate {
+  t: "session.create";
+  /** Worktree path to run in */
+  cwd: string;
+  /** Optional session ID (auto-generated if omitted) */
+  sid?: string;
+}
+
+export interface WsSessionStop {
+  t: "session.stop";
+  sid: string;
+}
+
 export type WsClientMessage =
   | WsHello
   | WsAttach
@@ -58,7 +90,12 @@ export type WsClientMessage =
   | WsResume
   | WsInChat
   | WsInTerm
-  | WsPing;
+  | WsPing
+  | WsWorktreeCreate
+  | WsWorktreeRemove
+  | WsWorktreeList
+  | WsSessionCreate
+  | WsSessionStop;
 
 // ── Daemon → Frontend ──
 
@@ -100,10 +137,37 @@ export interface WsErr {
   m?: string;
 }
 
+export interface WsWorktreeInfo {
+  path: string;
+  branch: string;
+  head: string;
+  isMain: boolean;
+}
+
+export interface WsWorktreeListReply {
+  t: "worktree.list";
+  d: WsWorktreeInfo[];
+}
+
+export interface WsWorktreeCreated {
+  t: "worktree.created";
+  d: WsWorktreeInfo;
+  /** Auto-created session ID (if worktree was created with auto-session) */
+  sid?: string;
+}
+
+export interface WsWorktreeRemoved {
+  t: "worktree.removed";
+  path: string;
+}
+
 export type WsServerMessage =
   | WsHelloReply
   | WsState
   | WsRec
   | WsBatch
   | WsPong
-  | WsErr;
+  | WsErr
+  | WsWorktreeListReply
+  | WsWorktreeCreated
+  | WsWorktreeRemoved;

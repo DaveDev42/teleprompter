@@ -33,6 +33,15 @@ export type {
   WsBatch,
   WsPong,
   WsErr,
+  WsWorktreeCreate,
+  WsWorktreeRemove,
+  WsWorktreeList,
+  WsSessionCreate,
+  WsSessionStop,
+  WsWorktreeInfo,
+  WsWorktreeListReply,
+  WsWorktreeCreated,
+  WsWorktreeRemoved,
   WsServerMessage,
 } from "./ws";
 export type {

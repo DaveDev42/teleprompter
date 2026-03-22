@@ -4,6 +4,7 @@ import { SessionManager, type SpawnRunnerOptions } from "./session/session-manag
 import { ClientRegistry } from "./transport/client-registry";
 import { WsServer } from "./transport/ws-server";
 import { RelayClient, type RelayClientConfig } from "./transport/relay-client";
+import { WorktreeManager } from "./worktree/worktree-manager";
 import type {
   IpcHello,
   IpcRec,
@@ -24,6 +25,7 @@ export class Daemon {
   private clientRegistry = new ClientRegistry();
   private wsServer: WsServer;
   private relayClients: RelayClient[] = [];
+  private worktreeManager: WorktreeManager | null = null;
 
   constructor(vaultDir?: string) {
     this.vault = new Vault(vaultDir);
@@ -67,6 +69,21 @@ export class Daemon {
       },
       onInTerm: (client, sid, data) => {
         this.handleWsInput(client, sid, data);
+      },
+      onWorktreeCreate: (client, msg) => {
+        this.handleWorktreeCreate(client, msg.branch, msg.baseBranch, msg.path);
+      },
+      onWorktreeRemove: (client, msg) => {
+        this.handleWorktreeRemove(client, msg.path, msg.force);
+      },
+      onWorktreeList: (client) => {
+        this.handleWorktreeList(client);
+      },
+      onSessionCreate: (client, msg) => {
+        this.handleSessionCreate(client, msg.cwd, msg.sid);
+      },
+      onSessionStop: (client, sid) => {
+        this.handleSessionStop(client, sid);
       },
     });
   }
@@ -270,6 +287,134 @@ export class Daemon {
       sid,
       data: base64Data,
     });
+  }
+
+  /**
+   * Set the repository root for worktree management.
+   */
+  setRepoRoot(repoRoot: string): void {
+    this.worktreeManager = new WorktreeManager(repoRoot);
+  }
+
+  private async handleWorktreeList(client: WsClient): Promise<void> {
+    if (!this.worktreeManager) {
+      this.clientRegistry.send(client, {
+        t: "err",
+        e: "NO_REPO",
+        m: "No repository configured for worktree management",
+      });
+      return;
+    }
+
+    try {
+      const worktrees = await this.worktreeManager.list();
+      this.clientRegistry.send(client, {
+        t: "worktree.list",
+        d: worktrees,
+      });
+    } catch (err) {
+      this.clientRegistry.send(client, {
+        t: "err",
+        e: "WORKTREE_ERROR",
+        m: err instanceof Error ? err.message : "Failed to list worktrees",
+      });
+    }
+  }
+
+  private async handleWorktreeCreate(
+    client: WsClient,
+    branch: string,
+    baseBranch?: string,
+    path?: string,
+  ): Promise<void> {
+    if (!this.worktreeManager) {
+      this.clientRegistry.send(client, {
+        t: "err",
+        e: "NO_REPO",
+        m: "No repository configured",
+      });
+      return;
+    }
+
+    try {
+      const wtPath =
+        path ?? `${branch}-${Date.now().toString(36)}`;
+      const wt = await this.worktreeManager.add(wtPath, branch, baseBranch);
+
+      // Auto-create a session in the new worktree
+      const sid = `${branch}-${Date.now().toString(36)}`;
+      this.createSession(sid, wt.path, { worktreePath: wt.path });
+
+      this.clientRegistry.send(client, {
+        t: "worktree.created",
+        d: wt,
+        sid,
+      });
+    } catch (err) {
+      this.clientRegistry.send(client, {
+        t: "err",
+        e: "WORKTREE_ERROR",
+        m: err instanceof Error ? err.message : "Failed to create worktree",
+      });
+    }
+  }
+
+  private async handleWorktreeRemove(
+    client: WsClient,
+    path: string,
+    force?: boolean,
+  ): Promise<void> {
+    if (!this.worktreeManager) {
+      this.clientRegistry.send(client, {
+        t: "err",
+        e: "NO_REPO",
+        m: "No repository configured",
+      });
+      return;
+    }
+
+    try {
+      await this.worktreeManager.remove(path, force);
+      this.clientRegistry.send(client, {
+        t: "worktree.removed",
+        path,
+      });
+    } catch (err) {
+      this.clientRegistry.send(client, {
+        t: "err",
+        e: "WORKTREE_ERROR",
+        m: err instanceof Error ? err.message : "Failed to remove worktree",
+      });
+    }
+  }
+
+  private handleSessionCreate(
+    client: WsClient,
+    cwd: string,
+    sid?: string,
+  ): void {
+    const sessionId = sid ?? `session-${Date.now().toString(36)}`;
+    try {
+      this.createSession(sessionId, cwd);
+      // Session state will be broadcast via handleHello when runner connects
+    } catch (err) {
+      this.clientRegistry.send(client, {
+        t: "err",
+        e: "SESSION_ERROR",
+        m: err instanceof Error ? err.message : "Failed to create session",
+      });
+    }
+  }
+
+  private handleSessionStop(client: WsClient, sid: string): void {
+    if (!this.sessionManager.killRunner(sid)) {
+      this.clientRegistry.send(client, {
+        t: "err",
+        e: "NO_RUNNER",
+        m: `No runner for session ${sid}`,
+      });
+    }
+    // Session end will be handled by handleBye when the process exits
   }
 
   stop(): void {

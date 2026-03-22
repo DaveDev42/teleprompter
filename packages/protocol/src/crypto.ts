@@ -127,6 +127,65 @@ export async function decrypt(
   );
 }
 
+// ── Ephemeral Key Ratchet ──
+
+/**
+ * Derive ephemeral session keys for a specific session.
+ * Each session gets unique keys by mixing the base session keys
+ * with the session ID via HKDF (BLAKE2b).
+ *
+ * Uses a role-independent derivation: both sides compute the same
+ * two key materials (k_a, k_b), then assign tx/rx based on role.
+ * k_a = H(min(base_tx, base_rx) || sid || "a")
+ * k_b = H(max(base_tx, base_rx) || sid || "b")
+ * daemon: tx=k_a, rx=k_b. frontend: tx=k_b, rx=k_a.
+ */
+export async function ratchetSessionKeys(
+  baseKeys: SessionKeys,
+  sessionId: string,
+  role: "daemon" | "frontend" = "daemon",
+): Promise<SessionKeys> {
+  const sodium = await ensureSodium();
+  const sidBytes = sodium.from_string(sessionId);
+
+  // Canonicalize: sort the two base keys to ensure both sides
+  // use the same inputs regardless of tx/rx assignment
+  const keyA =
+    compareBytes(baseKeys.tx, baseKeys.rx) <= 0
+      ? baseKeys.tx
+      : baseKeys.rx;
+  const keyB =
+    compareBytes(baseKeys.tx, baseKeys.rx) <= 0
+      ? baseKeys.rx
+      : baseKeys.tx;
+
+  // Derive two independent keys
+  const inputA = new Uint8Array(keyA.length + sidBytes.length + 1);
+  inputA.set(keyA);
+  inputA.set(sidBytes, keyA.length);
+  inputA.set(sodium.from_string("a"), keyA.length + sidBytes.length);
+  const kA = sodium.crypto_generichash(32, inputA);
+
+  const inputB = new Uint8Array(keyB.length + sidBytes.length + 1);
+  inputB.set(keyB);
+  inputB.set(sidBytes, keyB.length);
+  inputB.set(sodium.from_string("b"), keyB.length + sidBytes.length);
+  const kB = sodium.crypto_generichash(32, inputB);
+
+  // Assign based on role: daemon tx=kA, rx=kB; frontend tx=kB, rx=kA
+  return role === "daemon"
+    ? { tx: kA, rx: kB }
+    : { tx: kB, rx: kA };
+}
+
+function compareBytes(a: Uint8Array, b: Uint8Array): number {
+  const len = Math.min(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return a.length - b.length;
+}
+
 // ── Pairing Secret ──
 
 /**

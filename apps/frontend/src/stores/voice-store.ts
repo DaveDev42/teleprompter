@@ -1,6 +1,16 @@
 import { create } from "zustand";
 import { Platform } from "react-native";
 import { RealtimeClient } from "../voice/realtime-client";
+import { formatTerminalContext } from "../voice/terminal-context";
+
+/** Global terminal ref — set by the Terminal screen */
+let globalTermRef: any = null;
+export function setGlobalTermRef(ref: any) {
+  globalTermRef = ref;
+}
+export function getGlobalTermRef(): any {
+  return globalTermRef;
+}
 
 export type VoiceState = "idle" | "connecting" | "listening" | "processing";
 
@@ -46,8 +56,12 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
     set({ state: "connecting", transcript: "", refinedPrompt: "" });
 
-    // Build system prompt with optional context
-    let systemPrompt = buildSystemPrompt(includeTerminal);
+    // Build system prompt with optional terminal context
+    let termContext = "";
+    if (includeTerminal && globalTermRef) {
+      termContext = formatTerminalContext(globalTermRef);
+    }
+    let systemPrompt = buildSystemPrompt(includeTerminal) + termContext;
 
     realtimeClient = new RealtimeClient(
       { apiKey, systemPrompt },

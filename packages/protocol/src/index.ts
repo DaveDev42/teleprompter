@@ -10,6 +10,7 @@ export {
   decrypt,
   generatePairingSecret,
   deriveRelayToken,
+  ratchetSessionKeys,
   toBase64,
   fromBase64,
   toHex,

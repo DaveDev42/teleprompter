@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   generateKeyPair,
   deriveSessionKeys,
+  ratchetSessionKeys,
   encrypt,
   decrypt,
   generatePairingSecret,
@@ -141,5 +142,58 @@ describe("crypto", () => {
     const data = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
     const hex = await toHex(data);
     expect(hex).toBe("deadbeef");
+  });
+
+  test("ratchetSessionKeys produces different keys per session", async () => {
+    const daemonKp = await generateKeyPair();
+    const frontendKp = await generateKeyPair();
+    const baseKeys = await deriveSessionKeys(
+      daemonKp,
+      frontendKp.publicKey,
+      "daemon",
+    );
+
+    const keys1 = await ratchetSessionKeys(baseKeys, "session-1", "daemon");
+    const keys2 = await ratchetSessionKeys(baseKeys, "session-2", "daemon");
+
+    // Different sessions produce different keys
+    expect(keys1.tx).not.toEqual(keys2.tx);
+    expect(keys1.rx).not.toEqual(keys2.rx);
+
+    // Same session produces same keys (deterministic)
+    const keys1b = await ratchetSessionKeys(baseKeys, "session-1", "daemon");
+    expect(keys1.tx).toEqual(keys1b.tx);
+    expect(keys1.rx).toEqual(keys1b.rx);
+  });
+
+  test("ratcheted keys work for encrypt/decrypt across roles", async () => {
+    const daemonKp = await generateKeyPair();
+    const frontendKp = await generateKeyPair();
+
+    const daemonBase = await deriveSessionKeys(
+      daemonKp,
+      frontendKp.publicKey,
+      "daemon",
+    );
+    const frontendBase = await deriveSessionKeys(
+      frontendKp,
+      daemonKp.publicKey,
+      "frontend",
+    );
+
+    const daemonKeys = await ratchetSessionKeys(daemonBase, "s1", "daemon");
+    const frontendKeys = await ratchetSessionKeys(frontendBase, "s1", "frontend");
+
+    // daemon tx → frontend rx
+    const plaintext = new TextEncoder().encode("ratcheted message");
+    const ct = await encrypt(plaintext, daemonKeys.tx);
+    const pt = await decrypt(ct, frontendKeys.rx);
+    expect(new TextDecoder().decode(pt)).toBe("ratcheted message");
+
+    // frontend tx → daemon rx
+    const reply = new TextEncoder().encode("reply");
+    const ct2 = await encrypt(reply, frontendKeys.tx);
+    const pt2 = await decrypt(ct2, daemonKeys.rx);
+    expect(new TextDecoder().decode(pt2)).toBe("reply");
   });
 });

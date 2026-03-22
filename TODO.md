@@ -131,7 +131,7 @@
 - [x] ECDH → shared secret → HKDF session key 유도
 - [x] AES-256-GCM 프레임 암호화/복호화 — XChaCha20-Poly1305 (더 범용적)
 - [x] nonce 관리 (단조 증가 또는 random) — random 24-byte nonce per frame
-- [ ] ephemeral key ratchet (Session 시작마다)
+- [x] ephemeral key ratchet (Session 시작마다) — ratchetSessionKeys with role-independent derivation
 - [ ] **리스크: Hermes(iOS/Android)에서 WASM 미지원 → react-native-libsodium 대안 spike 필요** ⚠️
 
 ### QR 페어링
@@ -200,7 +200,7 @@
 
 ### 컨텍스트 주입
 - [x] 최근 Chat 요약 생성 — system prompt includes context description
-- [ ] Terminal 현재 상태 캡처 — needs xterm buffer access
+- [x] Terminal 현재 상태 캡처 — getTerminalLines + formatTerminalContext + global termRef
 - [x] Realtime API system prompt에 주입 — updateSystemPrompt method
 - [x] Terminal 참조 토글 (기본 OFF) — includeTerminal toggle in VoiceStore
 
@@ -242,8 +242,8 @@
 - [ ] relay RTT 표시
 
 ### 오프라인 복원
-- [ ] recent 10 frame 로컬 캐시
-- [ ] 오프라인 시 마지막 Chat/Terminal 상태 표시
+- [x] recent 10 frame 로컬 캐시 — OfflineStore with per-session ring buffer
+- [x] 오프라인 시 마지막 Chat/Terminal 상태 표시 — cached frames + lastStates
 - [x] online/offline 상태 배지 — ConnectionBadge component
 - [x] last seen 상대시간 + 절대시간 — formatRelativeTime
 
@@ -251,5 +251,5 @@
 - [x] iOS 디바이스에서 Terminal + Chat 동작 — XTermNative WebView bridge
 - [x] iPad에서 좌우 분할 레이아웃 동작 — AdaptiveLayout tablet mode
 - [x] 데스크톱 브라우저에서 반응형 레이아웃 동작 — AdaptiveLayout desktop mode
-- [ ] 오프라인 상태에서 마지막 상태 표시
+- [x] 오프라인 상태에서 마지막 상태 표시 — OfflineStore + ConnectionBadge
 - [x] 진단 모드에서 모든 메트릭 표시 — DiagnosticsPanel

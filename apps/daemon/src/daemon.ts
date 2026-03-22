@@ -115,6 +115,14 @@ export class Daemon {
   }
 
   /**
+   * Prune stopped/error sessions older than maxAgeMs.
+   * Returns the number of sessions deleted.
+   */
+  pruneOldSessions(maxAgeMs: number): number {
+    return this.vault.pruneOldSessions(maxAgeMs);
+  }
+
+  /**
    * Connect to a Relay server for remote frontend access.
    * Multiple relays can be connected simultaneously.
    */

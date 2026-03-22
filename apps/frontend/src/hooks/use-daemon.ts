@@ -15,18 +15,29 @@ export function useDaemon(url?: string) {
   const clientRef = useRef<DaemonWsClient | null>(null);
 
   useEffect(() => {
-    const { setConnected, setSid, setLastSeq, dispatchRec } =
-      useSessionStore.getState();
+    const {
+      setConnected,
+      setSid,
+      setLastSeq,
+      setSessions,
+      updateSession,
+      dispatchRec,
+    } = useSessionStore.getState();
 
     const client = new DaemonWsClient(url, {
       onOpen: () => setConnected(true),
       onClose: () => setConnected(false),
       onSessionList: (sessions: WsSessionMeta[]) => {
-        const active = sessions.find((s) => s.state === "running");
-        if (active) {
-          client.attach(active.sid);
-          setSid(active.sid);
-          setLastSeq(active.lastSeq);
+        setSessions(sessions);
+        // Auto-attach to the first active session if none selected
+        const currentSid = useSessionStore.getState().sid;
+        if (!currentSid) {
+          const active = sessions.find((s) => s.state === "running");
+          if (active) {
+            client.attach(active.sid);
+            setSid(active.sid);
+            setLastSeq(active.lastSeq);
+          }
         }
       },
       onRec: (rec: WsRec) => {
@@ -36,9 +47,8 @@ export function useDaemon(url?: string) {
         }
         dispatchRec(rec);
       },
-      onState: (_sid: string, meta: WsSessionMeta) => {
-        setSid(meta.sid);
-        setLastSeq(meta.lastSeq);
+      onState: (sid: string, meta: WsSessionMeta) => {
+        updateSession(sid, meta);
       },
     });
 

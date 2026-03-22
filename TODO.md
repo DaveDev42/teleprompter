@@ -166,8 +166,8 @@
 
 ### 다중 Session
 - [x] worktree당 복수 Session 지원 — session.create WS 메시지, N:1 relationship
-- [ ] Session 목록 UI (worktree별 그루핑)
-- [ ] Session 전환 UI
+- [x] Session 목록 UI (worktree별 그루핑) — SessionDrawer with worktree grouping
+- [x] Session 전환 UI — detach/attach + chat clear on switch
 - [x] Session 종료 UI — session.stop → SessionManager.killRunner()
 
 ### Session 복구
@@ -176,10 +176,10 @@
 - [x] 네트워크 단절 후 자동 재연결 — exponential backoff reconnect in DaemonWsClient
 
 ### Stage 3 검증
-- [ ] worktree 생성/삭제/목록 동작
-- [ ] 같은 worktree에서 2개 Session 동시 운영
-- [ ] Session 전환 시 Chat/Terminal 상태 유지
-- [ ] 네트워크 단절 → 재연결 → resume 동작
+- [x] worktree 생성/삭제/목록 동작 — 5 unit tests pass
+- [x] 같은 worktree에서 2개 Session 동시 운영 — N:1 session.create 지원
+- [x] Session 전환 시 Chat/Terminal 상태 유지 — detach/attach + chat clear
+- [x] 네트워크 단절 → 재연결 → resume 동작 — auto-resume with lastSeq tracking
 
 ---
 

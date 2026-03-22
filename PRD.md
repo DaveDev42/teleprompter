@@ -141,6 +141,7 @@ teleprompter/
 
 6.2 Terminal UI 목표
 	•	실제 Claude Code CLI와 가능한 한 동일한 경험 제공
+	•	PTY raw bytes를 그대로 xterm.js에 전달하여 ANSI escape 시퀀스(색상, 커서, 대체 화면 버퍼 등) 완벽 재현
 	•	slash command, /effort, /config, 자동완성, 히스토리, 키 입력 등은 Claude Code 자체 동작을 그대로 따른다
 	•	Teleprompter는 원격 PTY 경험을 충실하게 전달하는 데 집중한다
 
@@ -187,7 +188,8 @@ Daemon
 Runner
 	•	Session당 하나의 Claude Code 프로세스 실행
 	•	Bun.spawn({ terminal }) 기반 PTY 생성 및 io 수집
-	•	Claude Code hooks 원본 이벤트 수집
+	•	claude --settings <json> 플래그로 hooks 설정을 CLI 인라인 주입 (settings.local.json 수정 불필요)
+	•	Claude Code hooks 원본 이벤트 수집 (stdin JSON → event Record)
 	•	worktree별 실행 컨텍스트 적용
 	•	Daemon과 로컬 IPC 통신 (Unix domain socket / named pipe)
 
@@ -218,6 +220,7 @@ Relay Server
 	•	cross-platform local socket abstraction 사용
 	•	macOS/Linux: Unix domain socket
 	•	Windows: named pipe
+	•	backpressure 처리 필수: Bun socket.write()가 버퍼 가득 시 0을 반환하며 데이터를 버림 → write queue + drain 기반 flow control 구현
 
 8.4 Relay 상태 모델
 
@@ -299,13 +302,17 @@ length-prefixed framed JSON protocol 사용
 Chat UI의 데이터 소스는 두 가지를 병행한다.
 
 	•	Primary: Claude Code hooks 기반 구조화 이벤트 → 메시지 카드로 렌더링
-	•	Secondary: PTY output 파싱 → 스트리밍 텍스트를 Chat 버블로 렌더링
+	•	Secondary: PTY output 파싱 → ANSI 스트리핑 후 순수 텍스트를 Chat 버블로 렌더링
 
 동작 흐름:
 	1.	hooks 이벤트가 도착하면 구조화된 메시지 카드로 즉시 렌더링
-	2.	hooks 이벤트 사이 구간에서 PTY output을 파싱해 스트리밍 텍스트를 Chat 버블로 표시
-	3.	hooks Stop 이벤트가 도착하면 해당 응답을 최종 확정
+	2.	hooks 이벤트 사이 구간에서 PTY output을 ANSI 스트리핑 → 순수 텍스트로 Chat 버블 표시
+	3.	hooks Stop 이벤트가 도착하면 해당 응답을 최종 확정 (last_assistant_message 필드 활용)
 	4.	구조화가 불충분한 상호작용은 Terminal fallback으로 처리
+
+ANSI 처리 원칙:
+	•	Terminal 탭: PTY raw bytes를 xterm.js에 그대로 전달 (ANSI 완벽 재현)
+	•	Chat 탭: strip-ansi 등으로 ANSI 제거 후 순수 텍스트만 표시
 
 11.2 Chat 재구성 매핑
 	•	UserPromptSubmit → user message
@@ -322,6 +329,11 @@ Chat UI의 데이터 소스는 두 가지를 병행한다.
 	•	질문형/선택지형 응답은 hook 타입 + 텍스트 휴리스틱으로 카드화
 	•	구조화가 부족한 경우 Terminal 탭으로 이관
 	•	Claude Code 버전별 hooks API 변경이 있을 경우 버전 기반 분기로 대응
+
+11.4 Hooks 주입 전략
+	•	Runner는 claude --settings <json> 플래그로 hooks를 CLI 인라인 주입
+	•	--settings는 프로젝트 레벨 hooks를 대체할 수 있으므로, Runner 시작 시 기존 .claude/settings.local.json의 hooks를 읽어 merge한 후 주입
+	•	hook 스크립트의 IPC 전송은 Bun 원라이너 또는 컴파일된 Bun 바이너리 사용 (nc/socat 같은 플랫폼 의존 도구 회피)
 
 ⸻
 
@@ -626,6 +638,18 @@ Stage 5: Mobile + Responsive
 ⸻
 
 23. 남은 오픈 질문
+
+검증 완료:
+	•	[해결] Bun PTY로 Claude Code 실행 — 정상 동작 확인 (spike)
+	•	[해결] terminal.write() 인터랙티브 입력 — 정상 동작 확인 (spike)
+	•	[해결] hooks 수집 — --settings 플래그로 인라인 주입 가능 확인 (spike)
+	•	[해결] ANSI escape 시퀀스 — xterm.js가 네이티브 처리, Chat은 strip-ansi
+
+미해결:
+	•	Bun Unix socket backpressure — write queue + drain flow control 구현 및 burst 테스트 필요
+	•	--settings hooks merge 전략 — 사용자 기존 hooks와의 병합 방식 확정 필요
+	•	hook 스크립트 IPC 전송 — Bun 원라이너 vs 컴파일된 바이너리 결정
+	•	Hermes(iOS/Android)에서 libsodium-wrappers WASM 미지원 — react-native-libsodium 대안 검증 필요
 	•	웹 환경 API key 암호화 저장의 구체 암호화 방식 (IndexedDB + Web Crypto API 조합 등)
 	•	음성 입력 모드에서 토글/옵션의 최종 레이아웃
 	•	모바일/태블릿/PC 반응형에서 디버그 패널 정보 밀도 상세 설계

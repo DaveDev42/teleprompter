@@ -1,5 +1,5 @@
 /**
- * Multi-platform build script for the `tp` CLI binary.
+ * Multi-platform build script for the `tp` CLI and `tp-relay` binaries.
  *
  * Usage:
  *   bun run scripts/build.ts              # Build for current platform
@@ -13,9 +13,12 @@ import { $ } from "bun";
 import { parseArgs } from "util";
 import { mkdirSync } from "fs";
 
-const ENTRY = "apps/cli/src/index.ts";
+const BINARIES = [
+  { entry: "apps/cli/src/index.ts", name: "tp" },
+  { entry: "apps/relay/src/index.ts", name: "tp-relay" },
+];
+
 const OUT_DIR = "dist";
-const BIN_NAME = "tp";
 
 const TARGETS = [
   "bun-darwin-arm64",
@@ -26,9 +29,9 @@ const TARGETS = [
 
 type Target = (typeof TARGETS)[number];
 
-function outFile(target: Target): string {
+function outFile(name: string, target: Target): string {
   const suffix = target.replace("bun-", "").replace("-", "_");
-  return `${OUT_DIR}/${BIN_NAME}-${suffix}`;
+  return `${OUT_DIR}/${name}-${suffix}`;
 }
 
 const { values } = parseArgs({
@@ -44,9 +47,11 @@ mkdirSync(OUT_DIR, { recursive: true });
 if (values.all) {
   console.log("Building for all platforms...\n");
   for (const target of TARGETS) {
-    const out = outFile(target);
-    console.log(`  ${target} → ${out}`);
-    await $`bun build ${ENTRY} --compile --target=${target} --outfile ${out}`;
+    for (const bin of BINARIES) {
+      const out = outFile(bin.name, target);
+      console.log(`  ${bin.name} ${target} → ${out}`);
+      await $`bun build ${bin.entry} --compile --target=${target} --outfile ${out}`;
+    }
   }
   console.log("\nDone. Binaries in dist/");
 } else if (values.target) {
@@ -56,13 +61,17 @@ if (values.all) {
     console.error(`Available: ${TARGETS.join(", ")}`);
     process.exit(1);
   }
-  const out = outFile(target);
-  console.log(`Building ${target} → ${out}`);
-  await $`bun build ${ENTRY} --compile --target=${target} --outfile ${out}`;
+  for (const bin of BINARIES) {
+    const out = outFile(bin.name, target);
+    console.log(`Building ${bin.name} ${target} → ${out}`);
+    await $`bun build ${bin.entry} --compile --target=${target} --outfile ${out}`;
+  }
 } else {
   // Local build for current platform
-  const out = `${OUT_DIR}/${BIN_NAME}`;
-  console.log(`Building for current platform → ${out}`);
-  await $`bun build ${ENTRY} --compile --outfile ${out}`;
+  for (const bin of BINARIES) {
+    const out = `${OUT_DIR}/${bin.name}`;
+    console.log(`Building for current platform → ${out}`);
+    await $`bun build ${bin.entry} --compile --outfile ${out}`;
+  }
   console.log("Done.");
 }

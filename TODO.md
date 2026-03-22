@@ -126,7 +126,7 @@
 
 ### E2EE (libsodium)
 - [x] libsodium-wrappers 통합 (Daemon + Relay: Bun 환경) — libsodium-wrappers-sumo
-- [ ] libsodium-wrappers 통합 (Frontend: Expo Web)
+- [x] libsodium-wrappers 통합 (Frontend: Expo Web) — @teleprompter/protocol crypto 모듈 공유
 - [x] X25519 키쌍 생성
 - [x] ECDH → shared secret → HKDF session key 유도
 - [x] AES-256-GCM 프레임 암호화/복호화 — XChaCha20-Poly1305 (더 범용적)
@@ -136,10 +136,10 @@
 
 ### QR 페어링
 - [x] Daemon: pairing secret + pubkey + relay URL + daemon ID 생성
-- [ ] Daemon: QR 코드 표시 (터미널 또는 웹 UI)
-- [ ] Frontend: QR 스캔 (expo-camera 또는 expo-barcode-scanner)
-- [x] Frontend: 자체 키쌍 생성 → relay 경유 키 교환 — parsePairingForFrontend + deriveSessionKeys
-- [ ] 페어링 완료 → 암호화 통신 시작
+- [ ] Daemon: QR 코드 표시 (터미널 또는 웹 UI) — `tp pair` CLI 커맨드
+- [x] Frontend: QR 스캔 (expo-camera 또는 expo-barcode-scanner) — scan.tsx + manual paste fallback
+- [x] Frontend: 자체 키쌍 생성 → relay 경유 키 교환 — PairingStore + FrontendRelayClient
+- [x] 페어링 완료 → 암호화 통신 시작 — auto-connect on paired state
 
 ### 다중 Relay
 - [x] Daemon: 여러 relay 동시 연결 관리 — `Daemon.connectRelay()` 배열 관리
@@ -150,7 +150,7 @@
 ### Stage 2 검증
 - [x] Relay 경유 원격 통신 (서로 다른 네트워크) — E2E 테스트: Daemon→Relay→Frontend
 - [x] E2EE 암호화/복호화 정상 동작 — 양방향 encrypt/decrypt 검증
-- [ ] QR 한 번으로 페어링 완료
+- [ ] QR 한 번으로 페어링 완료 — Daemon QR 표시 구현 후 E2E 검증
 - [x] Relay에서 평문 접근 불가 확인 — ciphertext-only 테스트 통과
 
 ---

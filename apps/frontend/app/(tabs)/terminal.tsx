@@ -1,13 +1,13 @@
 import { useEffect, useRef, useCallback } from "react";
 import { View, Text, Platform } from "react-native";
-import { useSessionStore } from "../src/stores/session-store";
-import { getDaemonClient } from "../src/hooks/use-daemon";
+import { useSessionStore } from "../../src/stores/session-store";
+import { getDaemonClient } from "../../src/hooks/use-daemon";
 import type { WsRec } from "@teleprompter/protocol";
 
 // Conditionally import XTermWeb only on web
 let XTermWeb: any = null;
 if (Platform.OS === "web") {
-  XTermWeb = require("../src/components/XTermWeb").XTermWeb;
+  XTermWeb = require("../../src/components/XTermWeb").XTermWeb;
 }
 
 export default function TerminalScreen() {

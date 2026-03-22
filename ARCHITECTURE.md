@@ -113,8 +113,8 @@ Bun.spawn({ terminal })     Runner 프로세스
     │                              ▼
     │                         Frontend (E2EE decrypt)
     │                              │
-    │                              ├── Terminal 탭: xterm.js.write(data)
-    │                              └── Chat 탭: PTY 파싱 → 스트리밍 버블
+    │                              ├── Terminal 탭: xterm.js.write(rawBytes) — ANSI 완벽 재현
+    │                              └── Chat 탭: strip-ansi → 순수 텍스트 스트리밍 버블
     │
     ◀── terminal.write(input) ◀── Frontend 입력 (역방향)
 ```
@@ -261,22 +261,31 @@ Relay는 이 암호화된 blob만 중계한다. 내용을 알 수 없다.
 
 ### 6.1 Bun.spawn PTY (macOS/Linux)
 
+Runner는 `claude --settings <json>` 플래그로 hooks 설정을 인라인 주입한다.
+`.claude/settings.local.json`을 수정하지 않으므로 사용자 설정과 충돌하지 않는다.
+
 ```typescript
-const proc = Bun.spawn(["claude", "--session", sid], {
+// hooks 설정을 JSON으로 구성
+const hooksSettings = JSON.stringify({
+  hooks: {
+    SessionStart: [{ matcher: "", hooks: [{ type: "command", command: captureScript }] }],
+    Stop:         [{ matcher: "", hooks: [{ type: "command", command: captureScript }] }],
+    PreToolUse:   [{ matcher: "", hooks: [{ type: "command", command: captureScript }] }],
+    PostToolUse:  [{ matcher: "", hooks: [{ type: "command", command: captureScript }] }],
+    // ... 모든 이벤트 등록
+  },
+});
+
+const proc = Bun.spawn(["claude", "--settings", hooksSettings], {
   cwd: worktreePath,
   terminal: {
     cols: 80,
     rows: 24,
     name: "xterm-256color",
     data: (term, data) => {
-      // io Record 생성 → Daemon에 IPC 전송
+      // io Record 생성 → Daemon에 IPC 전송 (raw bytes 그대로)
       sendToDaemon({ kind: "io", payload: data });
     },
-  },
-  env: {
-    ...process.env,
-    // Claude Code hooks 설정
-    CLAUDE_CODE_HOOKS_DIR: hooksDir,
   },
 });
 ```
@@ -284,19 +293,32 @@ const proc = Bun.spawn(["claude", "--session", sid], {
 ### 6.2 Hooks 수집
 
 Claude Code hooks는 특정 이벤트 발생 시 지정된 스크립트를 실행한다.
-Runner는 hooks 디렉토리에 수집 스크립트를 배치하고, stdin으로 전달되는 JSON을 파싱하여 event Record를 생성한다.
+hook 스크립트는 stdin으로 JSON을 받아 파싱한 후, IPC를 통해 Daemon에 event Record를 전달한다.
 
 ```typescript
-// hooks/PreToolUse.sh → hooks/PreToolUse.ts (bun)
-// stdin: { tool_name, tool_input, ... }
+// capture-hook.sh — 모든 이벤트를 공통으로 수집하는 단일 스크립트
+// stdin JSON 필드: session_id, hook_event_name, cwd, ...
+// Stop 이벤트: last_assistant_message 필드 포함
+// PreToolUse: tool_name, tool_input 필드 포함
 const hookData = await Bun.stdin.json();
 sendToDaemon({
   kind: "event",
   ns: "claude",
-  name: "PreToolUse",
+  name: hookData.hook_event_name,
   payload: hookData,
 });
 ```
+
+### 6.3 ANSI 처리 전략
+
+PTY에서 나오는 raw bytes는 ANSI escape 시퀀스(색상, 커서 이동, 대체 화면 버퍼 등)를 포함한다.
+
+```
+Terminal 탭: raw bytes → xterm.js.write(data) — ANSI 완벽 재현, 직접 파싱 불필요
+Chat 탭:    raw bytes → strip-ansi → 순수 텍스트 → Chat 버블 렌더링
+```
+
+xterm.js는 VS Code 터미널과 동일한 라이브러리로, Claude Code의 rich TUI를 완벽하게 렌더링한다.
 
 ## 7. Frontend 아키텍처
 
@@ -338,17 +360,17 @@ iOS/Android:
 ### 7.3 Chat UI 렌더링 파이프라인
 
 ```
-hooks events ──┐
-               ├──▶ Chat 렌더러
-PTY parsing ───┘
-                     │
-                     ├── user message 카드 (UserPromptSubmit)
-                     ├── assistant streaming 버블 (PTY 파싱, 진행 중)
-                     ├── assistant final 카드 (Stop)
-                     ├── tool pending/result 카드 (PreToolUse/PostToolUse)
-                     ├── permission 카드 (PermissionRequest)
-                     ├── elicitation 카드 (Elicitation)
-                     └── activity badge (기타 이벤트)
+hooks events ──────┐
+                   ├──▶ Chat 렌더러
+PTY raw bytes ─────┘
+  └─ strip-ansi        │
+                        ├── user message 카드 (UserPromptSubmit: prompt 필드)
+                        ├── assistant streaming 버블 (PTY → strip-ansi → 순수 텍스트)
+                        ├── assistant final 카드 (Stop: last_assistant_message 필드)
+                        ├── tool pending/result 카드 (PreToolUse/PostToolUse)
+                        ├── permission 카드 (PermissionRequest)
+                        ├── elicitation 카드 (Elicitation)
+                        └── activity badge (기타 이벤트)
 ```
 
 ## 8. 음성 UX 아키텍처
@@ -395,6 +417,54 @@ Windows: Named pipe
 
 Runner와 Daemon 간 IPC도 동일한 framed JSON protocol을 사용한다.
 Runner는 시작 시 Daemon에 hello 프레임을 보내고, SID를 등록한다.
+
+### 9.3 Backpressure 처리
+
+Bun의 `socket.write()`는 내부 버퍼가 가득 차면 `0`을 반환하고 데이터를 버린다.
+PTY 출력 burst 시 데이터 유실을 방지하기 위해 write queue + drain 기반 flow control을 구현한다.
+
+```typescript
+class QueuedWriter {
+  private queue: Buffer[] = [];
+  private draining = false;
+
+  write(socket: Socket, data: Buffer) {
+    if (this.queue.length > 0 || socket.write(data) === 0) {
+      this.queue.push(data);
+    }
+  }
+
+  onDrain(socket: Socket) {
+    while (this.queue.length > 0) {
+      const chunk = this.queue[0];
+      if (socket.write(chunk) === 0) return; // 다시 drain 대기
+      this.queue.shift();
+    }
+  }
+}
+```
+
+### 9.4 Hook 스크립트 IPC
+
+Hook 스크립트는 Claude Code가 별도 프로세스로 실행하므로, Daemon의 IPC 소켓에 직접 연결해야 한다.
+플랫폼 의존 도구(nc, socat)를 피하고 Bun을 사용한다:
+
+```bash
+#!/bin/bash
+# capture-hook.sh — Bun 원라이너로 Daemon에 전송
+INPUT=$(cat)
+echo "$INPUT" | bun -e "
+  const data = await Bun.stdin.text();
+  const sock = await Bun.connect({
+    unix: '/tmp/teleprompter-\$(id -u)/daemon.sock',
+    socket: {
+      data() {},
+      open(socket) { socket.write(data); socket.end(); },
+    },
+  });
+"
+exit 0
+```
 
 ## 10. 배포
 

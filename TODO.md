@@ -5,6 +5,7 @@
 ### 모노레포 설정
 - [ ] pnpm + Turborepo 초기화
 - [ ] pnpm-workspace.yaml 작성 (apps/*, packages/*)
+- [ ] .npmrc 설정 (node-linker=hoisted — Expo Metro 심링크 호환)
 - [ ] turbo.json 파이프라인 설정 (build, dev, test, lint, type-check)
 - [ ] packages/tsconfig 생성 (base.json, bun.json, expo.json)
 - [ ] packages/eslint-config 생성
@@ -21,20 +22,26 @@
 - [ ] 패키지 빌드 및 export 설정
 
 ### Runner (apps/runner)
+- [x] ~~Bun.spawn terminal 동작 검증~~ ✅ spike 완료
+- [x] ~~terminal.write() 입력 전달 검증~~ ✅ spike 완료
+- [x] ~~hooks 수집 검증 (--settings 주입)~~ ✅ spike 완료
 - [ ] Bun.spawn({ terminal }) PTY 래퍼 구현
 - [ ] PTY io → Record { kind: "io" } 변환
-- [ ] Claude Code hooks 수집 스크립트 생성 (각 hook event별)
+- [ ] claude --settings <json>으로 hooks 인라인 주입
+- [ ] 기존 .claude/settings.local.json hooks와 merge 로직
+- [ ] hooks capture 스크립트 (Bun 원라이너 → Daemon IPC 전송)
 - [ ] hooks stdin JSON → Record { kind: "event" } 변환
 - [ ] Daemon IPC 클라이언트 (Unix domain socket)
-- [ ] **리스크: Bun.spawn terminal 동작 검증** ⚠️
+- [ ] **IPC write queue + drain 기반 backpressure 처리** ⚠️
 
 ### Daemon (apps/daemon)
 - [ ] IPC 서버 구현 (Unix domain socket / named pipe)
+- [ ] IPC 서버 backpressure 처리 (drain 콜백 지원)
 - [ ] Session 관리 (생성, 종료, 목록)
 - [ ] Runner 프로세스 관리 (spawn, monitor, restart)
 - [ ] Vault 기본 구현 (append-only Record 저장)
 - [ ] seq 관리 (단조 증가)
-- [ ] **리스크: Runner ↔ Daemon IPC 안정성 검증** ⚠️
+- [ ] **리스크: burst 조건에서 IPC 데이터 유실 없음 검증** ⚠️
 
 ### Stage 0 검증
 - [ ] Runner가 Claude Code를 PTY에서 실행
@@ -53,12 +60,12 @@
 - [ ] Zustand 스토어 설계 (SessionStore, UIStore)
 
 ### Terminal 탭
-- [ ] xterm.js 웹 렌더링 컴포넌트
+- [ ] xterm.js 웹 렌더링 컴포넌트 (PTY raw bytes → xterm.js.write() — ANSI 완벽 재현)
 - [ ] WebSocket으로 Daemon 연결 (localhost, 평문)
 - [ ] io Record → xterm.js.write() 파이프
 - [ ] 키보드 입력 → Daemon 전달 (in.term)
 - [ ] 터미널 리사이즈 처리
-- [ ] **리스크: xterm.js + Expo Web 통합** ⚠️
+- [ ] **리스크: xterm.js + Expo Web 통합 spike 필요** ⚠️
 
 ### Chat 탭
 - [ ] hooks event → 메시지 카드 렌더러
@@ -96,13 +103,14 @@
 - [ ] ciphertext frame 중계 (내용 접근 불가)
 
 ### E2EE (libsodium)
-- [ ] libsodium-wrappers 통합 (Daemon + Frontend)
+- [ ] libsodium-wrappers 통합 (Daemon + Relay: Bun 환경)
+- [ ] libsodium-wrappers 통합 (Frontend: Expo Web)
 - [ ] X25519 키쌍 생성
 - [ ] ECDH → shared secret → HKDF session key 유도
 - [ ] AES-256-GCM 프레임 암호화/복호화
 - [ ] nonce 관리 (단조 증가 또는 random)
 - [ ] ephemeral key ratchet (Session 시작마다)
-- [ ] **리스크: libsodium-wrappers Expo 호환성** ⚠️
+- [ ] **리스크: Hermes(iOS/Android)에서 WASM 미지원 → react-native-libsodium 대안 spike 필요** ⚠️
 
 ### QR 페어링
 - [ ] Daemon: pairing secret + pubkey + relay URL + daemon ID 생성

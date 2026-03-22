@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { View, Text, TextInput, Pressable, Platform } from "react-native";
+import { View, Text, TextInput, Pressable, Platform, ScrollView } from "react-native";
 import { useVoiceStore } from "../../src/stores/voice-store";
 import { usePairingStore } from "../../src/stores/pairing-store";
+import { DiagnosticsPanel } from "../../src/components/DiagnosticsPanel";
 
 export default function SettingsScreen() {
   const apiKey = useVoiceStore((s) => s.apiKey);
@@ -12,6 +13,7 @@ export default function SettingsScreen() {
 
   const [keyInput, setKeyInput] = useState(apiKey ?? "");
   const [saved, setSaved] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   const handleSave = () => {
     const key = keyInput.trim();
@@ -22,8 +24,22 @@ export default function SettingsScreen() {
     }
   };
 
+  if (showDiagnostics) {
+    return (
+      <View className="flex-1 bg-black">
+        <View className="flex-row items-center justify-between px-6 pt-10 pb-4">
+          <Text className="text-white text-2xl font-bold">Diagnostics</Text>
+          <Pressable onPress={() => setShowDiagnostics(false)}>
+            <Text className="text-blue-400">Done</Text>
+          </Pressable>
+        </View>
+        <DiagnosticsPanel />
+      </View>
+    );
+  }
+
   return (
-    <View className="flex-1 bg-black px-6 pt-10">
+    <ScrollView className="flex-1 bg-black px-6 pt-10">
       <Text className="text-white text-2xl font-bold mb-8">Settings</Text>
 
       {/* Voice API Key */}
@@ -91,8 +107,18 @@ export default function SettingsScreen() {
         )}
       </View>
 
+      {/* Diagnostics */}
+      <View className="mb-8">
+        <Pressable
+          onPress={() => setShowDiagnostics(true)}
+          className="border border-zinc-700 rounded-lg py-3 items-center"
+        >
+          <Text className="text-gray-300 text-sm">Diagnostics</Text>
+        </Pressable>
+      </View>
+
       {/* Version */}
-      <View>
+      <View className="mb-10">
         <Text className="text-gray-600 text-xs">
           Teleprompter v0.1.0
         </Text>

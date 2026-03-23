@@ -91,6 +91,41 @@ export class RelayServer {
           });
         }
 
+        // Admin dashboard
+        if (url.pathname === "/admin") {
+          const daemons = [...self.daemonStates.entries()].map(([id, s]) => ({
+            id,
+            online: s.online,
+            sessions: [...s.sessions],
+            lastSeen: new Date(s.lastSeen).toISOString(),
+          }));
+          const html = `<!DOCTYPE html>
+<html><head><title>Teleprompter Relay</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<style>body{font-family:system-ui;background:#111;color:#eee;padding:2rem;max-width:800px;margin:0 auto}
+h1{color:#fff;font-size:1.5rem}table{width:100%;border-collapse:collapse;margin:1rem 0}
+td,th{padding:.5rem;text-align:left;border-bottom:1px solid #333}
+th{color:#888;font-size:.75rem;text-transform:uppercase}.ok{color:#4ade80}.off{color:#666}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem}
+.badge-on{background:#166534;color:#4ade80}.badge-off{background:#333;color:#888}
+#refresh{color:#60a5fa;cursor:pointer;font-size:.75rem}</style></head>
+<body><h1>Teleprompter Relay</h1>
+<p>Clients: <b>${self.clients.size}</b> | Uptime: <b>${Math.floor(process.uptime())}s</b>
+<span id="refresh" onclick="location.reload()"> ↻ refresh</span></p>
+<h2 style="font-size:1rem;color:#888">Daemons (${daemons.length})</h2>
+${daemons.length === 0 ? '<p style="color:#666">No daemons connected</p>' : `
+<table><tr><th>ID</th><th>Status</th><th>Sessions</th><th>Last Seen</th></tr>
+${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.id}</td>
+<td><span class="badge ${d.online ? 'badge-on' : 'badge-off'}">${d.online ? 'online' : 'offline'}</span></td>
+<td>${d.sessions.length > 0 ? d.sessions.join(', ') : '—'}</td>
+<td style="color:#888;font-size:.85rem">${d.lastSeen}</td></tr>`).join('')}
+</table>`}
+</body></html>`;
+          return new Response(html, {
+            headers: { "Content-Type": "text/html" },
+          });
+        }
+
         return new Response("Teleprompter Relay", { status: 200 });
       },
       websocket: {

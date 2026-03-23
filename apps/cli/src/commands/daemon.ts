@@ -4,6 +4,7 @@ import {
   createPairingBundle,
   deriveRelayToken,
   fromBase64,
+  setLogLevel,
 } from "@teleprompter/protocol";
 import { resolveRunnerCommand } from "../spawn";
 import { loadPairingData } from "./pair";
@@ -33,9 +34,15 @@ export async function daemonCommand(argv: string[]): Promise<void> {
       "frontend-pubkey": { type: "string" },
       "web-dir": { type: "string" },
       prune: { type: "string" },
+      verbose: { type: "boolean", default: false },
+      quiet: { type: "boolean", default: false },
     },
     strict: false,
   });
+
+  // Set log level
+  if (values.verbose) setLogLevel("debug");
+  else if (values.quiet) setLogLevel("error");
 
   // Inject self-spawn runner command so SessionManager uses `tp run` instead of relative path
   SessionManager.setRunnerCommand(resolveRunnerCommand());

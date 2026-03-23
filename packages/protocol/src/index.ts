@@ -25,3 +25,9 @@ export {
 export type { PairingData, PairingBundle } from "./pairing";
 export { createLogger, setLogLevel } from "./logger";
 export type { LogLevel } from "./logger";
+export {
+  MIN_CLAUDE_VERSION,
+  PROTOCOL_VERSION,
+  parseVersion,
+  checkClaudeVersion,
+} from "./compat";

@@ -32,6 +32,10 @@
         "CAMERA",
         "RECORD_AUDIO",
         "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ]
     },
@@ -69,6 +73,12 @@
         "projectId": "d10223aa-49ba-4dd6-8025-f7f6d723f6bf"
       }
     },
-    "owner": "davedev42"
+    "owner": "davedev42",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/d10223aa-49ba-4dd6-8025-f7f6d723f6bf"
+    }
   }
 }

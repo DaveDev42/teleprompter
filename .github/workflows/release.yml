@@ -23,7 +23,7 @@ jobs:
         run: |
           SUFFIX=$(echo "${{ matrix.target }}" | sed 's/bun-//' | sed 's/-/_/')
           bun build apps/cli/src/index.ts --compile --target=${{ matrix.target }} --outfile dist/tp-${SUFFIX}
-          bun build apps/relay/src/index.ts --compile --target=${{ matrix.target }} --outfile dist/tp-relay-${SUFFIX}
+          bun build packages/relay/src/index.ts --compile --target=${{ matrix.target }} --outfile dist/tp-relay-${SUFFIX}
       - uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.target }}
@@ -43,7 +43,7 @@ jobs:
         run: |
           SUFFIX=$(echo "${{ matrix.target }}" | sed 's/bun-//' | sed 's/-/_/')
           bun build apps/cli/src/index.ts --compile --target=${{ matrix.target }} --outfile dist/tp-${SUFFIX}
-          bun build apps/relay/src/index.ts --compile --target=${{ matrix.target }} --outfile dist/tp-relay-${SUFFIX}
+          bun build packages/relay/src/index.ts --compile --target=${{ matrix.target }} --outfile dist/tp-relay-${SUFFIX}
       - uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.target }}

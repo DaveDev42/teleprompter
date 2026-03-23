@@ -178,8 +178,18 @@ export function processHookEvent(event: HookEventBase) {
       });
       break;
     }
+    case "Notification": {
+      store.addMessage({
+        id: makeId(),
+        type: "system",
+        event: name,
+        text: (event as any).message ?? (event as any).title ?? "Notification",
+        ts: Date.now(),
+      });
+      break;
+    }
     default: {
-      // Other events: SessionStart, SessionEnd, Notification, etc.
+      // Other events: SessionStart, SessionEnd, SubagentStart, etc.
       store.addMessage({
         id: makeId(),
         type: "system",

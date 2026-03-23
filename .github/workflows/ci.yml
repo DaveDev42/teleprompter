@@ -30,6 +30,7 @@ jobs:
           npx tsc --noEmit -p apps/cli/tsconfig.json
           npx tsc --noEmit -p apps/relay/tsconfig.json
           npx tsc --noEmit -p apps/runner/tsconfig.json
+          cd apps/frontend && npx tsc --noEmit && cd ../..
 
       - name: Test
         run: bun test packages/protocol apps/daemon apps/runner apps/cli apps/relay

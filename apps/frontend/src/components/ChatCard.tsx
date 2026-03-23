@@ -39,14 +39,14 @@ function ToolCard({ msg }: { msg: ChatMessage }) {
           {isResult ? "✓" : "▶"} {msg.toolName}
         </Text>
       </View>
-      {msg.toolInput && !isResult && (
+      {msg.toolInput != null && !isResult && (
         <Text className="text-gray-500 text-xs font-mono mt-1" numberOfLines={3} selectable>
           {typeof msg.toolInput === "string"
             ? msg.toolInput
             : JSON.stringify(msg.toolInput, null, 2)}
         </Text>
       )}
-      {msg.toolResult && isResult && (
+      {msg.toolResult != null && isResult && (
         <Text className="text-gray-400 text-xs font-mono mt-1" numberOfLines={5} selectable>
           {typeof msg.toolResult === "string"
             ? msg.toolResult

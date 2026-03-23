@@ -25,6 +25,7 @@ import type { WsRec } from "@teleprompter/protocol/client";
 export default function ChatScreen() {
   const connected = useSessionStore((s) => s.connected);
   const sid = useSessionStore((s) => s.sid);
+  const reconnectCount = useSessionStore((s) => s.reconnectCount);
   const addRecHandler = useSessionStore((s) => s.addRecHandler);
   const removeRecHandler = useSessionStore((s) => s.removeRecHandler);
   const messages = useChatStore((s) => s.messages);
@@ -166,11 +167,18 @@ export default function ChatScreen() {
           <View className="flex-1 items-center justify-center pt-20">
             <Text className="text-gray-500" style={{ color: "#6b7280" }}>
               {!connected
-                ? "Connecting to Daemon..."
+                ? reconnectCount > 0
+                  ? `Reconnecting... (attempt ${reconnectCount})`
+                  : "Connecting to Daemon..."
                 : !sid
                   ? "Waiting for session..."
                   : "Listening to Claude Code..."}
             </Text>
+            {!connected && reconnectCount > 3 && (
+              <Text className="text-gray-600 text-xs mt-2" style={{ color: "#4b5563", fontSize: 11, marginTop: 8, textAlign: "center" }}>
+                Check that daemon is running:{"\n"}tp daemon start --ws-port 7080
+              </Text>
+            )}
             {sid && connected && (
               <Text className="text-gray-600 text-xs mt-2" style={{ color: "#4b5563", fontSize: 12, marginTop: 8 }}>
                 PTY output will appear here as streaming text.{"\n"}

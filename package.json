@@ -10,6 +10,7 @@
     "dev": "turbo run dev",
     "dev:app": "cd apps/app && npx expo start --web",
     "test": "bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay",
+    "test:e2e": "npx playwright test",
     "test:turbo": "turbo run test",
     "type-check": "turbo run type-check",
     "type-check:all": "npx tsc --noEmit -p packages/daemon/tsconfig.json && npx tsc --noEmit -p apps/cli/tsconfig.json && npx tsc --noEmit -p packages/relay/tsconfig.json && npx tsc --noEmit -p packages/runner/tsconfig.json && cd apps/app && npx tsc --noEmit",

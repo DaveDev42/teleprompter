@@ -1,22 +1,25 @@
 import type { WsServerMessage, WsSessionMeta } from "@teleprompter/protocol";
+import { ensureDaemon } from "../lib/ensure-daemon";
 
 /**
  * tp status — shows the current daemon state.
- * Connects to the daemon WS, gets session list, and displays it.
+ * Auto-starts daemon if not running.
  */
 export async function statusCommand(argv: string[]): Promise<void> {
-  const port = argv[0] ?? "7080";
+  const port = parseInt(argv[0] ?? "7080", 10);
   const url = `ws://localhost:${port}`;
 
-  console.log(`Connecting to daemon at ${url}...`);
+  const running = await ensureDaemon(port);
+  if (!running) {
+    process.exit(1);
+  }
 
   const ws = new WebSocket(url);
 
   const timeout = setTimeout(() => {
-    console.error("Connection timed out. Is the daemon running?");
-    console.error(`  Start with: tp daemon start --ws-port ${port}`);
+    console.error("Connection timed out.");
     process.exit(1);
-  }, 3000);
+  }, 5000);
 
   ws.onopen = () => {
     ws.send(JSON.stringify({ t: "hello" }));
@@ -25,7 +28,6 @@ export async function statusCommand(argv: string[]): Promise<void> {
   ws.onerror = () => {
     clearTimeout(timeout);
     console.error(`Cannot connect to daemon at ${url}`);
-    console.error(`  Start with: tp daemon start --ws-port ${port}`);
     process.exit(1);
   };
 
@@ -56,7 +58,6 @@ function displayStatus(sessions: WsSessionMeta[]): void {
     return;
   }
 
-  // Group by worktree
   const groups = new Map<string, WsSessionMeta[]>();
   for (const s of sessions) {
     const key = s.worktreePath ?? s.cwd;

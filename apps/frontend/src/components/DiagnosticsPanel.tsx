@@ -1,6 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { View, Text, ScrollView, Pressable } from "react-native";
 import { useSessionStore } from "../stores/session-store";
+import { useOfflineStore } from "../stores/offline-store";
+import { usePairingStore } from "../stores/pairing-store";
 import { getDaemonClient } from "../hooks/use-daemon";
 import type { WsSessionMeta } from "@teleprompter/protocol";
 
@@ -13,7 +15,18 @@ function MetricRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <View className="bg-zinc-900 rounded-lg px-3 py-2 mb-4">
+      <Text className="text-gray-400 text-xs font-bold mb-1">{title}</Text>
+      {children}
+    </View>
+  );
+}
+
 function SessionDiagnostics({ session }: { session: WsSessionMeta }) {
+  const offlineFrames = useOfflineStore((s) => s.getRecentFrames(session.sid));
+
   return (
     <View className="bg-zinc-900 rounded-lg px-3 py-2 mb-2">
       <Text className="text-white text-sm font-mono mb-1">{session.sid}</Text>
@@ -23,9 +36,10 @@ function SessionDiagnostics({ session }: { session: WsSessionMeta }) {
         <MetricRow label="Worktree" value={session.worktreePath} />
       )}
       {session.claudeVersion && (
-        <MetricRow label="Claude" value={session.claudeVersion} />
+        <MetricRow label="Claude Version" value={session.claudeVersion} />
       )}
       <MetricRow label="Last Seq" value={String(session.lastSeq)} />
+      <MetricRow label="Cached Frames" value={String(offlineFrames.length)} />
       <MetricRow
         label="Created"
         value={new Date(session.createdAt).toLocaleString()}
@@ -43,6 +57,8 @@ export function DiagnosticsPanel() {
   const lastSeq = useSessionStore((s) => s.lastSeq);
   const sid = useSessionStore((s) => s.sid);
   const sessions = useSessionStore((s) => s.sessions);
+  const pairingState = usePairingStore((s) => s.state);
+  const pairingInfo = usePairingStore((s) => s.info);
   const [rtt, setRtt] = useState(-1);
 
   const handlePing = () => {
@@ -53,21 +69,23 @@ export function DiagnosticsPanel() {
     }
   };
 
+  const runningSessions = sessions.filter((s) => s.state === "running").length;
+  const stoppedSessions = sessions.filter((s) => s.state === "stopped").length;
+  const errorSessions = sessions.filter((s) => s.state === "error").length;
+  const worktrees = new Set(sessions.map((s) => s.worktreePath).filter(Boolean));
+
   return (
     <ScrollView className="flex-1 bg-black px-4 pt-4">
       <Text className="text-white text-lg font-bold mb-4">Diagnostics</Text>
 
       {/* Connection */}
-      <View className="bg-zinc-900 rounded-lg px-3 py-2 mb-4">
-        <Text className="text-gray-400 text-xs font-bold mb-1">
-          CONNECTION
-        </Text>
+      <Section title="CONNECTION">
         <MetricRow
           label="Daemon WS"
           value={connected ? "Connected" : "Disconnected"}
         />
         <MetricRow label="Active Session" value={sid ?? "none"} />
-        <MetricRow label="Last Seq" value={String(lastSeq)} />
+        <MetricRow label="Last Seq (cursor)" value={String(lastSeq)} />
         <View className="flex-row justify-between items-center py-1">
           <Text className="text-gray-500 text-xs">RTT</Text>
           <View className="flex-row items-center gap-2">
@@ -82,9 +100,29 @@ export function DiagnosticsPanel() {
             </Pressable>
           </View>
         </View>
-      </View>
+      </Section>
 
-      {/* Sessions */}
+      {/* Relay / Pairing */}
+      <Section title="RELAY / PAIRING">
+        <MetricRow label="Pairing" value={pairingState} />
+        {pairingInfo && (
+          <>
+            <MetricRow label="Daemon ID" value={pairingInfo.daemonId} />
+            <MetricRow label="Relay URL" value={pairingInfo.relayUrl} />
+          </>
+        )}
+      </Section>
+
+      {/* Session Summary */}
+      <Section title="SESSION SUMMARY">
+        <MetricRow label="Total" value={String(sessions.length)} />
+        <MetricRow label="Running" value={String(runningSessions)} />
+        <MetricRow label="Stopped" value={String(stoppedSessions)} />
+        <MetricRow label="Error" value={String(errorSessions)} />
+        <MetricRow label="Worktrees" value={String(worktrees.size)} />
+      </Section>
+
+      {/* Sessions Detail */}
       <Text className="text-gray-400 text-xs font-bold mb-2">
         SESSIONS ({sessions.length})
       </Text>
@@ -92,7 +130,7 @@ export function DiagnosticsPanel() {
         <SessionDiagnostics key={s.sid} session={s} />
       ))}
       {sessions.length === 0 && (
-        <Text className="text-gray-600 text-xs">No sessions</Text>
+        <Text className="text-gray-600 text-xs mb-4">No sessions</Text>
       )}
     </ScrollView>
   );

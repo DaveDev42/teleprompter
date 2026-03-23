@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.1.1
+
+### New Commands
+- `tp doctor` — environment diagnostics (Bun, Node, pnpm, Claude CLI, Git, daemon, vault)
+- `tp init` — quick project setup guide with detected configuration
+
+### UX Improvements
+- Theme toggle (dark/light/system) in Settings
+- Session search/filter by sid, cwd, worktree, state
+- Chat message copy (long-press) and selectable text
+- Terminal scrollback search via @xterm/addon-search
+
+### Reliability
+- Relay `/health` JSON endpoint and `/admin` HTML dashboard
+- WebSocket heartbeat (30s interval) for stale connection detection
+- Daemon `--watch` flag for auto-restart on uncaught exceptions
+- Session state persistence across daemon restart (stale sessions marked stopped)
+- MIT LICENSE file
+
+---
+
 ## v0.1.0 — Initial Release
 
 ### Core Architecture

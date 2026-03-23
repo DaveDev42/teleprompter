@@ -4,6 +4,7 @@ import { useVoiceStore } from "../../src/stores/voice-store";
 import { usePairingStore } from "../../src/stores/pairing-store";
 import { DiagnosticsPanel } from "../../src/components/DiagnosticsPanel";
 import { useRelaySettingsStore } from "../../src/stores/relay-settings-store";
+import { useThemeStore, type Theme } from "../../src/stores/theme-store";
 import { secureGet, secureSet } from "../../src/lib/secure-storage";
 
 export default function SettingsScreen() {
@@ -12,6 +13,9 @@ export default function SettingsScreen() {
   const pairingState = usePairingStore((s) => s.state);
   const pairingInfo = usePairingStore((s) => s.info);
   const resetPairing = usePairingStore((s) => s.reset);
+
+  const theme = useThemeStore((s) => s.theme);
+  const setTheme = useThemeStore((s) => s.setTheme);
 
   const relays = useRelaySettingsStore((s) => s.relays);
   const loadRelays = useRelaySettingsStore((s) => s.load);
@@ -93,6 +97,24 @@ export default function SettingsScreen() {
             ? "Key stored in localStorage."
             : "Key stored in secure Keychain/Keystore."}
         </Text>
+      </View>
+
+      {/* Theme */}
+      <View className="mb-8">
+        <Text className="text-gray-400 text-sm mb-2">Theme</Text>
+        <View className="flex-row gap-2">
+          {(["dark", "light", "system"] as Theme[]).map((t) => (
+            <Pressable
+              key={t}
+              onPress={() => setTheme(t)}
+              className={`flex-1 py-2 rounded-lg items-center ${theme === t ? "bg-blue-600" : "bg-zinc-800"}`}
+            >
+              <Text className={`text-sm ${theme === t ? "text-white" : "text-gray-400"}`}>
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
       </View>
 
       {/* Pairing Status */}

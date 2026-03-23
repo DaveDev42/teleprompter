@@ -6,11 +6,12 @@ import { pairCommand } from "./commands/pair";
 import { statusCommand } from "./commands/status";
 import { logsCommand } from "./commands/logs";
 import { doctorCommand } from "./commands/doctor";
+import { initCommand } from "./commands/init";
 import { passthroughCommand } from "./commands/passthrough";
 
 const command = process.argv[2];
 
-const SUBCOMMANDS = new Set(["daemon", "run", "relay", "pair", "status", "logs", "doctor", "version"]);
+const SUBCOMMANDS = new Set(["daemon", "run", "relay", "pair", "status", "logs", "doctor", "init", "version"]);
 
 switch (command) {
   case "daemon":
@@ -33,6 +34,9 @@ switch (command) {
     break;
   case "doctor":
     await doctorCommand();
+    break;
+  case "init":
+    await initCommand();
     break;
   case "version":
   case "--version":
@@ -71,6 +75,7 @@ Usage:
   tp status [port]                    Show daemon status and sessions
   tp logs [sid] [--port 7080]         Tail live session records
   tp doctor                           Diagnose environment
+  tp init                             Quick project setup guide
   tp version                          Print version information
 
 Passthrough mode (default):

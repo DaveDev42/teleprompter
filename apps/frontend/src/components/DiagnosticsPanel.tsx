@@ -25,7 +25,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function SessionDiagnostics({ session }: { session: WsSessionMeta }) {
-  const offlineFrames = useOfflineStore((s) => s.getRecentFrames(session.sid));
+  const offlineFrames = useOfflineStore((s) => s.recentFrames.get(session.sid)) ?? [];
 
   return (
     <View className="bg-zinc-900 rounded-lg px-3 py-2 mb-2">

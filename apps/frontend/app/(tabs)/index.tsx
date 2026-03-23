@@ -16,6 +16,7 @@ import {
   type ChatMessage,
 } from "../../src/stores/chat-store";
 import { getDaemonClient } from "../../src/hooks/use-daemon";
+import { useRouter } from "expo-router";
 import { ChatCard } from "../../src/components/ChatCard";
 import { VoiceButton } from "../../src/components/VoiceButton";
 import { useVoiceStore } from "../../src/stores/voice-store";
@@ -28,7 +29,10 @@ export default function ChatScreen() {
   const removeRecHandler = useSessionStore((s) => s.removeRecHandler);
   const messages = useChatStore((s) => s.messages);
   const streamingText = useChatStore((s) => s.streamingText);
+  const showTerminalFallback = useChatStore((s) => s.showTerminalFallback);
+  const dismissTerminalFallback = useChatStore((s) => s.dismissTerminalFallback);
   const appendStreaming = useChatStore((s) => s.appendStreaming);
+  const router = useRouter();
   const setOnPromptReady = useVoiceStore((s) => s.setOnPromptReady);
   const flatListRef = useRef<FlatList>(null);
   const [input, setInput] = useState("");
@@ -146,6 +150,30 @@ export default function ChatScreen() {
           </View>
         }
       />
+
+      {/* Terminal fallback banner */}
+      {showTerminalFallback && (
+        <View className="flex-row items-center justify-between px-3 py-2 bg-amber-900/50 border-t border-amber-700">
+          <Text className="text-amber-200 text-xs flex-1">
+            This interaction may work better in the Terminal tab.
+          </Text>
+          <Pressable
+            onPress={() => {
+              dismissTerminalFallback();
+              router.push("/terminal");
+            }}
+            className="bg-amber-700 px-3 py-1 rounded ml-2"
+          >
+            <Text className="text-white text-xs">Switch</Text>
+          </Pressable>
+          <Pressable
+            onPress={dismissTerminalFallback}
+            className="ml-2"
+          >
+            <Text className="text-amber-400 text-xs">Dismiss</Text>
+          </Pressable>
+        </View>
+      )}
 
       {/* Input */}
       <View className="flex-row items-end px-3 py-2 bg-zinc-900 border-t border-zinc-800">

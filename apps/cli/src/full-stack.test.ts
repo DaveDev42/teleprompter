@@ -1,0 +1,322 @@
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { Daemon, SessionManager } from "@teleprompter/daemon";
+import { RelayServer } from "@teleprompter/relay";
+import {
+  createPairingBundle,
+  encodePairingData,
+  decodePairingData,
+  parsePairingForFrontend,
+  generateKeyPair,
+  deriveSessionKeys,
+  encrypt,
+  decrypt,
+  encodeFrame,
+  FrameDecoder,
+  type WsServerMessage,
+  type WsRec,
+  type RelayServerMessage,
+  type IpcHello,
+  type IpcRec,
+} from "@teleprompter/protocol";
+import { connect } from "net";
+
+/**
+ * Full-stack integration test:
+ *
+ * 1. Start Relay server
+ * 2. Start Daemon with relay connection
+ * 3. Simulate a Runner sending records via IPC
+ * 4. Verify records arrive at a local WS client (frontend)
+ * 5. Verify records arrive at a remote encrypted relay client (frontend)
+ * 6. Send input from remote frontend via relay back to runner
+ */
+describe("Full-stack E2E", () => {
+  let relay: RelayServer;
+  let daemon: Daemon;
+  let relayPort: number;
+  let wsPort: number;
+
+  beforeEach(async () => {
+    SessionManager.setRunnerCommand(["true"]);
+
+    // 1. Start relay
+    relay = new RelayServer();
+    relayPort = relay.start(0);
+
+    // 2. Start daemon
+    daemon = new Daemon();
+    daemon.start();
+    daemon.startWs(0);
+    wsPort = (daemon as any).wsServer.port;
+  });
+
+  afterEach(() => {
+    daemon.stop();
+    relay.stop();
+  });
+
+  test("local WS: daemon → frontend record flow", async () => {
+    // Connect local frontend WS
+    const ws = new WebSocket(`ws://localhost:${wsPort}`);
+    await new Promise<void>((r) => { ws.onopen = () => r(); });
+
+    ws.send(JSON.stringify({ t: "hello" }));
+
+    // Wait for hello reply
+    const helloReply = await waitWsMsg(ws, (m) => m.t === "hello");
+    expect(helloReply.t).toBe("hello");
+
+    // Simulate runner connecting via IPC
+    const socketPath = (daemon as any).socketPath;
+    const ipc = connect(socketPath);
+    await new Promise<void>((r) => { ipc.on("connect", () => r()); });
+
+    const hello: IpcHello = {
+      t: "hello",
+      sid: "full-e2e-local",
+      cwd: "/tmp",
+      pid: process.pid,
+    };
+    ipc.write(Buffer.from(encodeFrame(hello)));
+    await Bun.sleep(100);
+
+    // Attach frontend to session
+    ws.send(JSON.stringify({ t: "attach", sid: "full-e2e-local" }));
+    await Bun.sleep(50);
+
+    // Runner sends a record
+    const rec: IpcRec = {
+      t: "rec",
+      sid: "full-e2e-local",
+      kind: "io",
+      payload: Buffer.from("Hello from runner!").toString("base64"),
+      ts: Date.now(),
+    };
+    ipc.write(Buffer.from(encodeFrame(rec)));
+
+    // Frontend receives it
+    const wsRec = await waitWsMsg(ws, (m) => m.t === "rec");
+    expect(wsRec.t).toBe("rec");
+    expect((wsRec as WsRec).sid).toBe("full-e2e-local");
+    expect(
+      Buffer.from((wsRec as WsRec).d, "base64").toString(),
+    ).toBe("Hello from runner!");
+
+    ipc.end();
+    ws.close();
+  });
+
+  test("relay E2E: daemon → relay → encrypted frontend", async () => {
+    // Create pairing
+    const bundle = await createPairingBundle(
+      `ws://localhost:${relayPort}`,
+      "e2e-daemon",
+    );
+    relay.registerToken(bundle.relayToken, "e2e-daemon");
+
+    // Connect daemon to relay
+    const frontendKp = await generateKeyPair();
+    await daemon.connectRelay({
+      relayUrl: `ws://localhost:${relayPort}`,
+      daemonId: "e2e-daemon",
+      token: bundle.relayToken,
+      keyPair: bundle.keyPair,
+      frontendPublicKey: frontendKp.publicKey,
+    });
+    await Bun.sleep(200);
+
+    // Connect frontend to relay
+    const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
+    await new Promise<void>((r) => { frontendWs.onopen = () => r(); });
+
+    frontendWs.send(
+      JSON.stringify({
+        t: "relay.auth",
+        role: "frontend",
+        daemonId: "e2e-daemon",
+        token: bundle.relayToken,
+      }),
+    );
+    await waitRelayMsg(frontendWs, (m) => m.t === "relay.auth.ok");
+
+    // Subscribe to session
+    frontendWs.send(
+      JSON.stringify({ t: "relay.sub", sid: "full-e2e-relay" }),
+    );
+    await Bun.sleep(50);
+
+    // Simulate runner sending record via IPC
+    const socketPath = (daemon as any).socketPath;
+    const ipc = connect(socketPath);
+    await new Promise<void>((r) => { ipc.on("connect", () => r()); });
+
+    ipc.write(
+      Buffer.from(
+        encodeFrame({
+          t: "hello",
+          sid: "full-e2e-relay",
+          cwd: "/tmp",
+          pid: process.pid,
+        }),
+      ),
+    );
+    await Bun.sleep(100);
+
+    ipc.write(
+      Buffer.from(
+        encodeFrame({
+          t: "rec",
+          sid: "full-e2e-relay",
+          kind: "event",
+          payload: Buffer.from(
+            JSON.stringify({
+              hook_event_name: "Stop",
+              last_assistant_message: "Task complete!",
+            }),
+          ).toString("base64"),
+          ts: Date.now(),
+        }),
+      ),
+    );
+
+    // Frontend receives encrypted frame from relay
+    const frame = await waitRelayMsg(
+      frontendWs,
+      (m) => m.t === "relay.frame",
+    );
+    expect(frame.t).toBe("relay.frame");
+
+    // Decrypt it
+    const frontendKeys = await deriveSessionKeys(
+      frontendKp,
+      bundle.keyPair.publicKey,
+      "frontend",
+    );
+    const plaintext = await decrypt(
+      (frame as any).ct,
+      frontendKeys.rx,
+    );
+    const decrypted = JSON.parse(new TextDecoder().decode(plaintext));
+    expect(decrypted.t).toBe("rec");
+    expect(decrypted.sid).toBe("full-e2e-relay");
+
+    // Verify the relay cannot see plaintext
+    expect((frame as any).ct).not.toContain("Task complete!");
+
+    ipc.end();
+    frontendWs.close();
+  });
+
+  test("bidirectional: frontend input → relay → daemon → runner", async () => {
+    const bundle = await createPairingBundle(
+      `ws://localhost:${relayPort}`,
+      "e2e-bidir",
+    );
+    relay.registerToken(bundle.relayToken, "e2e-bidir");
+
+    const frontendKp = await generateKeyPair();
+    await daemon.connectRelay({
+      relayUrl: `ws://localhost:${relayPort}`,
+      daemonId: "e2e-bidir",
+      token: bundle.relayToken,
+      keyPair: bundle.keyPair,
+      frontendPublicKey: frontendKp.publicKey,
+    });
+    await Bun.sleep(200);
+
+    // Connect runner via IPC
+    const socketPath = (daemon as any).socketPath;
+    const ipc = connect(socketPath);
+    await new Promise<void>((r) => { ipc.on("connect", () => r()); });
+
+    ipc.write(
+      Buffer.from(
+        encodeFrame({
+          t: "hello",
+          sid: "bidir-session",
+          cwd: "/tmp",
+          pid: process.pid,
+        }),
+      ),
+    );
+    await Bun.sleep(100);
+
+    // Collect IPC messages received by runner
+    const decoder = new FrameDecoder();
+    const ipcMessages: any[] = [];
+    ipc.on("data", (data: Buffer) => {
+      const msgs = decoder.decode(
+        new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+      );
+      ipcMessages.push(...msgs);
+    });
+
+    // Also connect local WS frontend and send input
+    const localWs = new WebSocket(`ws://localhost:${wsPort}`);
+    await new Promise<void>((r) => { localWs.onopen = () => r(); });
+    localWs.send(JSON.stringify({ t: "hello" }));
+    await waitWsMsg(localWs, (m) => m.t === "hello");
+
+    localWs.send(
+      JSON.stringify({
+        t: "in.chat",
+        sid: "bidir-session",
+        d: "Fix the login bug",
+      }),
+    );
+    await Bun.sleep(200);
+
+    // Runner should have received the input
+    const inputMsg = ipcMessages.find((m) => m.t === "input");
+    expect(inputMsg).toBeDefined();
+    expect(inputMsg.sid).toBe("bidir-session");
+    expect(
+      Buffer.from(inputMsg.data, "base64").toString(),
+    ).toBe("Fix the login bug\n");
+
+    ipc.end();
+    localWs.close();
+  });
+});
+
+// Helpers
+
+function waitWsMsg(
+  ws: WebSocket,
+  pred: (m: WsServerMessage) => boolean,
+): Promise<WsServerMessage> {
+  return new Promise((resolve, reject) => {
+    const handler = (e: MessageEvent) => {
+      const msg = JSON.parse(e.data as string);
+      if (pred(msg)) {
+        ws.removeEventListener("message", handler);
+        resolve(msg);
+      }
+    };
+    ws.addEventListener("message", handler);
+    setTimeout(() => {
+      ws.removeEventListener("message", handler);
+      reject(new Error("waitWsMsg timeout"));
+    }, 5000);
+  });
+}
+
+function waitRelayMsg(
+  ws: WebSocket,
+  pred: (m: RelayServerMessage) => boolean,
+): Promise<RelayServerMessage> {
+  return new Promise((resolve, reject) => {
+    const handler = (e: MessageEvent) => {
+      const msg = JSON.parse(e.data as string);
+      if (pred(msg)) {
+        ws.removeEventListener("message", handler);
+        resolve(msg);
+      }
+    };
+    ws.addEventListener("message", handler);
+    setTimeout(() => {
+      ws.removeEventListener("message", handler);
+      reject(new Error("waitRelayMsg timeout"));
+    }, 5000);
+  });
+}

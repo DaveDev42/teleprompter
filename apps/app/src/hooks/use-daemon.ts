@@ -31,15 +31,22 @@ export function useDaemon(url?: string) {
       onClose: () => setConnected(false),
       onSessionList: (sessions: WsSessionMeta[]) => {
         setSessions(sessions);
+        const running = sessions.filter((s) => s.state === "running");
         // Auto-attach to the first active session if none selected
         const currentSid = useSessionStore.getState().sid;
-        if (!currentSid) {
-          const active = sessions.find((s) => s.state === "running");
-          if (active) {
-            client.attach(active.sid);
-            setSid(active.sid);
-            setLastSeq(active.lastSeq);
-          }
+        if (!currentSid && running.length > 0) {
+          const active = running[0];
+          client.attach(active.sid);
+          setSid(active.sid);
+          setLastSeq(active.lastSeq);
+        } else if (!currentSid && running.length === 0 && sessions.length > 0) {
+          // No running sessions yet — daemon may still be spawning.
+          // Re-send hello after a delay to get updated session list.
+          setTimeout(() => {
+            if (!useSessionStore.getState().sid) {
+              client.send({ t: "hello" });
+            }
+          }, 3000);
         }
       },
       onRec: (rec: WsRec) => {
@@ -53,6 +60,13 @@ export function useDaemon(url?: string) {
       onState: (sid: string, meta: WsSessionMeta) => {
         updateSession(sid, meta);
         updateState(sid, meta.state);
+        // Auto-attach to new running session if none selected
+        const currentSid = useSessionStore.getState().sid;
+        if (!currentSid && meta.state === "running") {
+          client.attach(sid);
+          setSid(sid);
+          setLastSeq(meta.lastSeq);
+        }
       },
     });
 

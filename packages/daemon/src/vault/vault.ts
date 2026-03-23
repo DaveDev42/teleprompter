@@ -39,7 +39,7 @@ export class Vault {
     this.metaDb.run(SESSIONS_DDL);
 
     this.createStmt = this.metaDb.prepare(
-      "INSERT INTO sessions (sid, state, worktree_path, cwd, created_at, updated_at, claude_version, last_seq) VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+      "INSERT OR REPLACE INTO sessions (sid, state, worktree_path, cwd, created_at, updated_at, claude_version, last_seq) VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
     );
     this.updateStateStmt = this.metaDb.prepare(
       "UPDATE sessions SET state = ?, updated_at = ? WHERE sid = ?",

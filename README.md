@@ -110,7 +110,7 @@ packages/
 ```bash
 pnpm install
 
-# Run tests (109 tests)
+# Run tests (193 tests)
 bun test packages/protocol apps/daemon apps/runner apps/cli apps/relay
 
 # Type check
@@ -141,6 +141,10 @@ cd apps/frontend && npx expo start --web
 - Per-session ephemeral key ratchet
 - Relay sees only ciphertext (zero-trust)
 - API keys stored in OS Keychain/Keystore (native) or localStorage (web)
+
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for release notes.
 
 ## License
 

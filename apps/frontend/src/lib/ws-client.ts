@@ -6,18 +6,56 @@ import type {
 } from "@teleprompter/protocol/client";
 
 /**
- * Auto-detect WS URL: if the frontend is served by the daemon,
- * connect to the same host. Otherwise, fall back to localhost.
+ * Auto-detect WS URL.
+ * - Web served by daemon: use same host/port
+ * - React Native (Expo Go): extract Metro host IP, use port 7080
+ * - Web dev (Metro): fall back to localhost:7080
  */
 function getDefaultUrl(): string {
+  // Web environment
   if (typeof window !== "undefined" && window.location) {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.host;
-    // If served from the daemon, WS is on the same port
-    if (host && !host.includes("localhost:8081") && !host.includes("localhost:19006")) {
+    // Expo web dev server — fall back to localhost daemon
+    if (host?.includes("localhost:8081") || host?.includes("localhost:19006")) {
+      return "ws://localhost:7080";
+    }
+    // Daemon-served web build — same host
+    if (host) {
       return `${proto}//${host}`;
     }
   }
+
+  // React Native: extract host from Expo's __DEV__ source URL or Constants
+  try {
+    const Constants = require("expo-constants").default;
+    // SDK 55: hostUri is in expoConfig or expoGoConfig
+    const hostUri =
+      Constants?.expoGoConfig?.debuggerHost ??
+      Constants?.expoConfig?.hostUri ??
+      Constants?.manifest?.debuggerHost ??
+      Constants?.manifest2?.extra?.expoGo?.debuggerHost;
+    if (hostUri) {
+      const host = hostUri.split(":")[0];
+      if (host && host !== "localhost") {
+        return `ws://${host}:7080`;
+      }
+    }
+  } catch {
+    // expo-constants not available
+  }
+
+  // Last resort: try to get from the RN source URL
+  try {
+    const sourceUrl = (globalThis as any).__expo_source_url;
+    if (sourceUrl) {
+      const match = sourceUrl.match(/\/\/([^:\/]+)/);
+      if (match?.[1] && match[1] !== "localhost") {
+        return `ws://${match[1]}:7080`;
+      }
+    }
+  } catch {}
+
   return "ws://localhost:7080";
 }
 

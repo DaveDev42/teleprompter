@@ -7,6 +7,6 @@ export function versionCommand(): void {
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
     console.log(`tp v${pkg.version}`);
   } catch {
-    console.log("tp v0.1.3");
+    console.log("tp v0.1.4");
   }
 }

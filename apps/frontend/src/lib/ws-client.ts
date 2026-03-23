@@ -16,11 +16,12 @@ function getDefaultUrl(): string {
   if (typeof window !== "undefined" && window.location) {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.host;
-    // Expo web dev server — fall back to localhost daemon
-    if (host?.includes("localhost:8081") || host?.includes("localhost:19006")) {
-      return "ws://localhost:7080";
+    // Dev server (Metro) — extract host, use daemon port
+    if (host?.includes(":8081") || host?.includes(":19006")) {
+      const devHost = host.split(":")[0];
+      return `ws://${devHost}:7080`;
     }
-    // Daemon-served web build — same host
+    // Daemon-served web build — same host and port
     if (host) {
       return `${proto}//${host}`;
     }
@@ -60,6 +61,8 @@ function getDefaultUrl(): string {
 }
 
 const DEFAULT_URL = getDefaultUrl();
+/** Exposed for debugging */
+export const resolvedWsUrl = DEFAULT_URL;
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 

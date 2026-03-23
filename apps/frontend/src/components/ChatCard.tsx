@@ -73,6 +73,43 @@ function StreamingCard({ msg }: { msg: ChatMessage }) {
   );
 }
 
+function ElicitationCard({ msg }: { msg: ChatMessage }) {
+  return (
+    <View className="self-start bg-indigo-900/50 border border-indigo-600 rounded-xl px-4 py-3 max-w-[85%]">
+      <Text className="text-indigo-300 text-xs font-bold mb-1">Input Requested</Text>
+      <Text className="text-white text-sm" selectable>{msg.text}</Text>
+      {msg.choices && msg.choices.length > 0 && (
+        <View className="mt-2 gap-1">
+          {msg.choices.map((choice, i) => (
+            <View key={i} className="bg-indigo-800/50 rounded-lg px-3 py-1.5">
+              <Text className="text-indigo-200 text-sm">{choice}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function PermissionCard({ msg }: { msg: ChatMessage }) {
+  return (
+    <View className="self-start bg-amber-900/50 border border-amber-600 rounded-xl px-4 py-3 max-w-[85%]">
+      <Text className="text-amber-300 text-xs font-bold mb-1">Permission Required</Text>
+      <Text className="text-white text-sm">{msg.text}</Text>
+      {msg.permissionTool && (
+        <Text className="text-amber-400 text-xs font-mono mt-1">{msg.permissionTool}</Text>
+      )}
+      {msg.toolInput != null && (
+        <Text className="text-gray-500 text-xs font-mono mt-1" numberOfLines={3}>
+          {typeof msg.toolInput === "string"
+            ? msg.toolInput
+            : JSON.stringify(msg.toolInput, null, 2)}
+        </Text>
+      )}
+    </View>
+  );
+}
+
 export function ChatCard({ msg }: { msg: ChatMessage }) {
   switch (msg.type) {
     case "user":
@@ -81,6 +118,10 @@ export function ChatCard({ msg }: { msg: ChatMessage }) {
       return <AssistantCard msg={msg} />;
     case "tool":
       return <ToolCard msg={msg} />;
+    case "elicitation":
+      return <ElicitationCard msg={msg} />;
+    case "permission":
+      return <PermissionCard msg={msg} />;
     case "system":
       return <SystemCard msg={msg} />;
     case "streaming":

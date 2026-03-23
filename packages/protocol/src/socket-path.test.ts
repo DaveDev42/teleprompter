@@ -13,8 +13,9 @@ describe("getSocketPath", () => {
     expect(path1).toBe(path2);
   });
 
-  test("includes teleprompter in the path", () => {
+  test("path contains expected directory structure", () => {
     const path = getSocketPath();
-    expect(path).toContain("teleprompter");
+    // Either XDG_RUNTIME_DIR or /tmp/teleprompter-{uid}
+    expect(path).toMatch(/teleprompter|daemon\.sock/);
   });
 });

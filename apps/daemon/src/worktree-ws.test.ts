@@ -44,7 +44,7 @@ describe("Daemon worktree WS protocol", () => {
   beforeEach(async () => {
     // Create a temp git repo
     repoDir = await mkdtemp(join(tmpdir(), "tp-wt-ws-"));
-    await $`git -C ${repoDir} init`.quiet();
+    await $`git -C ${repoDir} init -b main`.quiet();
     await $`git -C ${repoDir} config user.email "test@test.com"`.quiet();
     await $`git -C ${repoDir} config user.name "Test"`.quiet();
     await $`git -C ${repoDir} config commit.gpgsign false`.quiet();

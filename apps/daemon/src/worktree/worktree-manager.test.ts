@@ -12,7 +12,7 @@ describe("WorktreeManager", () => {
   beforeEach(async () => {
     // Create a temp git repo
     repoDir = await mkdtemp(join(tmpdir(), "tp-wt-test-"));
-    await $`git -C ${repoDir} init`.quiet();
+    await $`git -C ${repoDir} init -b main`.quiet();
     await $`git -C ${repoDir} config user.email "test@test.com"`.quiet();
     await $`git -C ${repoDir} config user.name "Test"`.quiet();
     await $`git -C ${repoDir} config commit.gpgsign false`.quiet();
@@ -65,7 +65,7 @@ describe("WorktreeManager", () => {
     await $`touch ${repoDir}/dev.txt`.quiet();
     await $`git -C ${repoDir} add .`.quiet();
     await $`git -C ${repoDir} commit -m "dev commit"`.quiet();
-    await $`git -C ${repoDir} checkout main`.quiet();
+    await $`git -C ${repoDir} checkout -`.quiet();
 
     const wtPath = join(repoDir, "..", "wt-from-develop");
     const wt = await manager.add(wtPath, "feature-from-dev", "develop");

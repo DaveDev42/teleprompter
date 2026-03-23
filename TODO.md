@@ -253,3 +253,32 @@
 - [x] 데스크톱 브라우저에서 반응형 레이아웃 동작 — AdaptiveLayout desktop mode
 - [x] 오프라인 상태에서 마지막 상태 표시 — OfflineStore + ConnectionBadge
 - [x] 진단 모드에서 모든 메트릭 표시 — DiagnosticsPanel
+
+---
+
+## v0.2.0 Roadmap
+
+### Native Crypto
+- [ ] react-native-quick-crypto 통합 (Hermes WASM 대체)
+- [ ] iOS/Android에서 E2EE relay 연결 검증
+
+### iOS Distribution
+- [ ] TestFlight 배포
+- [ ] App Store 제출 준비
+
+### UX Improvements
+- [ ] 다크/라이트 테마 전환
+- [ ] 세션 검색/필터
+- [ ] Chat 메시지 복사/공유
+- [ ] Terminal 스크롤백 검색
+
+### Reliability
+- [ ] Relay 서버 health check endpoint
+- [ ] Daemon auto-restart on crash
+- [ ] Session state persistence across daemon restart
+- [ ] WebSocket ping/pong heartbeat with configurable interval
+
+### Developer Experience
+- [ ] `tp init` — 프로젝트 초기 설정 (pairing + daemon config)
+- [ ] `tp doctor` — 환경 진단 (bun version, claude CLI, permissions)
+- [ ] Relay dashboard (admin UI)

@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.1.4
+
+### iOS / Expo Go Support
+- Full E2E pipeline verified on iOS simulator via Expo Go
+- Protocol client entrypoint (`@teleprompter/protocol/client`) without Node.js deps
+- Lazy libsodium loading for React Native compatibility
+- Auto-detect daemon host from Metro dev server URL
+- Dark theme with inline style fallbacks for native
+- NativeWind babel preset configuration
+- EAS project linked, Expo Go v55.0.27
+
+### Verified on iOS
+- Chat tab: real-time Claude PTY output as streaming bubbles
+- Session ID display in header
+- Dark theme rendering
+- WebSocket connection to daemon via auto-detected host IP
+- Full pipeline: Claude Code → Runner → Daemon → WS → Expo Go
+
+---
+
 ## v0.1.3
 
 ### PRD Alignment

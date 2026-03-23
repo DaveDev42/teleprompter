@@ -20,7 +20,7 @@ import { useRouter } from "expo-router";
 import { ChatCard } from "../../src/components/ChatCard";
 import { VoiceButton } from "../../src/components/VoiceButton";
 import { useVoiceStore } from "../../src/stores/voice-store";
-import type { WsRec } from "@teleprompter/protocol";
+import type { WsRec } from "@teleprompter/protocol/client";
 
 export default function ChatScreen() {
   const connected = useSessionStore((s) => s.connected);

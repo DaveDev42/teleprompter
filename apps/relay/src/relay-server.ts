@@ -3,6 +3,9 @@ import type {
   RelayServerMessage,
   RelayFrame,
 } from "@teleprompter/protocol";
+import { createLogger } from "@teleprompter/protocol";
+
+const log = createLogger("Relay");
 
 const MAX_RECENT_FRAMES = 10;
 const RATE_LIMIT_WINDOW_MS = 1000;
@@ -89,7 +92,7 @@ export class RelayServer {
     });
 
     this.port = this.server.port;
-    console.log(`[Relay] listening on ws://localhost:${this.port}`);
+    log.info(`listening on ws://localhost:${this.port}`);
     return this.port;
   }
 
@@ -99,7 +102,7 @@ export class RelayServer {
     this.daemonGroups.clear();
     this.daemonStates.clear();
     this.recentFrames.clear();
-    console.log("[Relay] stopped");
+    log.info("stopped");
   }
 
   getPort(): number {
@@ -198,9 +201,7 @@ export class RelayServer {
     }
 
     this.send(ws, { t: "relay.auth.ok", daemonId: msg.daemonId });
-    console.log(
-      `[Relay] ${msg.role} authenticated for daemon ${msg.daemonId}`,
-    );
+    log.info(`${msg.role} authenticated for daemon ${msg.daemonId}`);
 
     // Send presence to frontends
     this.broadcastPresence(msg.daemonId);
@@ -344,9 +345,7 @@ export class RelayServer {
       this.broadcastPresence(client.daemonId);
     }
 
-    console.log(
-      `[Relay] ${client.role} disconnected from daemon ${client.daemonId}`,
-    );
+    log.info(`${client.role} disconnected from daemon ${client.daemonId}`);
   }
 
   private checkRateLimit(client: ConnectedClient): boolean {

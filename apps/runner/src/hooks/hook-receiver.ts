@@ -1,6 +1,8 @@
 import { unlinkSync, existsSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
-import type { HookEventBase } from "@teleprompter/protocol";
+import { createLogger, type HookEventBase } from "@teleprompter/protocol";
+
+const log = createLogger("HookReceiver");
 
 export type HookEventHandler = (event: HookEventBase) => void;
 
@@ -31,13 +33,13 @@ export class HookReceiver {
             const event = JSON.parse(text) as HookEventBase;
             self.onEvent(event);
           } catch (err) {
-            console.error("[HookReceiver] parse error:", err);
+            log.error("parse error:", err);
           }
         },
         open() {},
         close() {},
         error(_socket, err) {
-          console.error("[HookReceiver] socket error:", err.message);
+          log.error("socket error:", err.message);
         },
       },
     });

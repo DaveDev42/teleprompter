@@ -6,6 +6,9 @@
  */
 
 import { $ } from "bun";
+import { createLogger } from "@teleprompter/protocol";
+
+const log = createLogger("WorktreeManager");
 
 export interface WorktreeInfo {
   path: string;
@@ -89,7 +92,7 @@ export class WorktreeManager {
       await $`git -C ${this.repoRoot} worktree add -b ${branch} ${path}`;
     }
 
-    console.log(`[WorktreeManager] added worktree at ${path} (${branch})`);
+    log.info(`added worktree at ${path} (${branch})`);
 
     // Get HEAD of the new worktree
     const head = (
@@ -105,7 +108,7 @@ export class WorktreeManager {
   async remove(path: string, force = false): Promise<void> {
     const args = force ? ["--force"] : [];
     await $`git -C ${this.repoRoot} worktree remove ${path} ${args}`;
-    console.log(`[WorktreeManager] removed worktree at ${path}`);
+    log.info(`removed worktree at ${path}`);
   }
 
   /**

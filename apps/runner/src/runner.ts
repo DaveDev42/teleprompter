@@ -3,7 +3,9 @@ import { IpcClient } from "./ipc/client";
 import { HookReceiver } from "./hooks/hook-receiver";
 import { buildSettings } from "./hooks/settings-builder";
 import { Collector } from "./collector";
-import type { IpcAck, IpcInput, IpcResize } from "@teleprompter/protocol";
+import { createLogger, type IpcAck, type IpcInput, type IpcResize } from "@teleprompter/protocol";
+
+const log = createLogger("Runner");
 
 type RunnerState =
   | "created"
@@ -93,9 +95,7 @@ export class Runner {
       });
 
       this.state = "running";
-      console.log(
-        `[Runner] started sid=${this.opts.sid} pid=${this.pty.pid}`,
-      );
+      log.info(`started sid=${this.opts.sid} pid=${this.pty.pid}`);
     } catch (err) {
       this.state = "stopped";
       throw err;
@@ -106,9 +106,7 @@ export class Runner {
     if (this.state === "stopping" || this.state === "stopped") return;
     this.state = "stopping";
 
-    console.log(
-      `[Runner] stopping sid=${this.opts.sid} exitCode=${exitCode}`,
-    );
+    log.info(`stopping sid=${this.opts.sid} exitCode=${exitCode}`);
 
     // Send bye to daemon
     this.ipc.send({

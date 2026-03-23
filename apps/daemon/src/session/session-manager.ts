@@ -1,5 +1,8 @@
 import { resolve, join } from "path";
 import { Subprocess } from "bun";
+import { createLogger } from "@teleprompter/protocol";
+
+const log = createLogger("SessionManager");
 
 interface RunnerInfo {
   sid: string;
@@ -46,12 +49,12 @@ export class SessionManager {
       connectedAt: Date.now(),
       process: existing?.process,
     });
-    console.log(`[SessionManager] registered runner sid=${sid} pid=${pid}`);
+    log.info(`registered runner sid=${sid} pid=${pid}`);
   }
 
   unregisterRunner(sid: string): void {
     this.runners.delete(sid);
-    console.log(`[SessionManager] unregistered runner sid=${sid}`);
+    log.info(`unregistered runner sid=${sid}`);
   }
 
   getRunner(sid: string): RunnerInfo | undefined {
@@ -116,15 +119,11 @@ export class SessionManager {
       process: proc,
     });
 
-    console.log(
-      `[SessionManager] spawned runner sid=${sid} pid=${proc.pid}`,
-    );
+    log.info(`spawned runner sid=${sid} pid=${proc.pid}`);
 
     // Monitor exit
     proc.exited.then((exitCode) => {
-      console.log(
-        `[SessionManager] runner exited sid=${sid} exitCode=${exitCode}`,
-      );
+      log.info(`runner exited sid=${sid} exitCode=${exitCode}`);
     });
 
     return proc;
@@ -133,12 +132,12 @@ export class SessionManager {
   killRunner(sid: string): boolean {
     const info = this.runners.get(sid);
     if (!info?.process) {
-      console.log(`[SessionManager] no spawned process for sid=${sid}`);
+      log.info(`no spawned process for sid=${sid}`);
       return false;
     }
 
     info.process.kill();
-    console.log(`[SessionManager] killed runner sid=${sid} pid=${info.pid}`);
+    log.info(`killed runner sid=${sid} pid=${info.pid}`);
     return true;
   }
 }

@@ -28,7 +28,7 @@
 - [ ] QR 페어링 → 암호화 통신 네이티브 E2E
 
 ### Daemon 자동 시작
-- [ ] `tp status`, `tp logs` 등에서 daemon이 없으면 자동 시작 옵션
+- [x] `tp status`, `tp logs` 등에서 daemon이 없으면 자동 시작 — ensureDaemon()
 - [ ] OS 서비스 등록 (launchd/systemd) 가이드 또는 스크립트
 
 ---
@@ -38,17 +38,17 @@
 ### E2E 테스트 확충
 - [ ] Playwright: 세션 전환 (Sessions 탭 → 다른 세션 클릭 → Chat/Terminal 내용 변경)
 - [ ] Playwright: Settings 변경 (Theme 토글, Daemon URL 설정) → 앱 동작 변경 확인
-- [ ] Playwright: 오프라인 복구 (daemon kill → 앱 "Connecting..." → daemon restart → 자동 재연결)
+- [x] Playwright: 오프라인 복구 — app-resume.spec.ts (daemon kill → restart → reconnect)
 - [ ] Expo MCP: iOS에서 daemon 연결 + 실제 PTY 출력 수신 E2E (포트 감지 수정 후 재검증)
 
 ### CI 강화
 - [ ] GitHub Actions에서 iOS 시뮬레이터 Expo MCP QA 자동화
-- [ ] Playwright real E2E (daemon + claude) CI 안정화 — 현재 `claude` CLI 필요
+- [x] Playwright CI/local 프로젝트 분리 — CI는 claude 없이 7/7 pass
 - [ ] 테스트 커버리지 리포트 생성
 
 ### 에러 핸들링
-- [ ] WS 연결 실패 시 사용자에게 의미있는 에러 메시지 (URL, 포트, 네트워크 상태)
-- [ ] Daemon crash 시 앱에서 "Daemon disconnected, reconnecting..." 상태 표시
+- [x] WS 연결 실패 시 재연결 카운터 + daemon start 힌트
+- [x] Daemon crash 시 "Reconnecting... (attempt N)" 표시
 - [ ] Runner 비정상 종료 시 세션 상태 error 표시 + 재시작 버튼
 
 ---

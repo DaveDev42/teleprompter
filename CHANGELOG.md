@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.1.3
+
+### PRD Alignment
+- Elicitation cards with parsed choice options (indigo theme)
+- Permission request cards with tool name and input preview (amber theme)
+- Notification events rendered with message text
+- Terminal fallback banner for complex interactions (Switch to Terminal / Dismiss)
+- Claude version displayed in session list
+- TP-namespace internal event system (Collector.tpEvent, Daemon.emitTpEvent)
+
+### Enhanced Diagnostics (PRD Section 18)
+- Relay/pairing status section
+- Session summary (running/stopped/error counts, worktrees)
+- Per-session cached frames count
+- Relay attached frontend tracking per session
+
+### Other
+- Version compatibility checking (MIN_CLAUDE_VERSION, PROTOCOL_VERSION)
+- Performance benchmarks: 10K rec/s pipeline, 476K codec, 62K crypto
+- 203 tests across 41 files
+
+---
+
 ## v0.1.2
 
 ### Improvements

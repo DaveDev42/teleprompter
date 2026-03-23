@@ -36,6 +36,7 @@ export async function daemonCommand(argv: string[]): Promise<void> {
       prune: { type: "string" },
       verbose: { type: "boolean", default: false },
       quiet: { type: "boolean", default: false },
+      watch: { type: "boolean", default: false },
     },
     strict: false,
   });
@@ -125,7 +126,10 @@ export async function daemonCommand(argv: string[]): Promise<void> {
     });
   }
 
+  let shuttingDown = false;
   function shutdown() {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log("\n[Daemon] shutting down...");
     daemon.stop();
     process.exit(0);
@@ -133,4 +137,21 @@ export async function daemonCommand(argv: string[]): Promise<void> {
 
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+
+  // Auto-restart on crash (--watch mode)
+  if (values.watch) {
+    process.on("uncaughtException", (err) => {
+      console.error("[Daemon] uncaught exception:", err.message);
+      console.error("[Daemon] restarting in 3s...");
+      daemon.stop();
+      setTimeout(() => {
+        daemonCommand(argv);
+      }, 3000);
+    });
+
+    process.on("unhandledRejection", (err: any) => {
+      console.error("[Daemon] unhandled rejection:", err?.message ?? err);
+      // Don't restart for rejections — they're usually non-fatal
+    });
+  }
 }

@@ -6,7 +6,9 @@ export type ChatMessageType =
   | "assistant"
   | "tool"
   | "system"
-  | "streaming";
+  | "streaming"
+  | "elicitation"
+  | "permission";
 
 export interface ChatMessage {
   id: string;
@@ -16,6 +18,10 @@ export interface ChatMessage {
   toolName?: string;
   toolInput?: unknown;
   toolResult?: unknown;
+  /** For elicitation: parsed choices from the message */
+  choices?: string[];
+  /** For permission: the tool requesting permission */
+  permissionTool?: string;
   ts: number;
 }
 
@@ -136,20 +142,26 @@ export function processHookEvent(event: HookEventBase) {
       store.finalizeStreaming();
       store.addMessage({
         id: makeId(),
-        type: "system",
+        type: "permission",
         event: name,
         text: `Permission requested: ${(event as any).tool_name ?? "unknown"}`,
+        permissionTool: (event as any).tool_name,
+        toolInput: (event as any).tool_input,
         ts: Date.now(),
       });
       break;
     }
     case "Elicitation": {
       store.finalizeStreaming();
+      const message = (event as any).message ?? "Input requested";
+      // Parse choices from message text (e.g., "A) Yes  B) No" patterns)
+      const choices = parseChoices(message);
       store.addMessage({
         id: makeId(),
-        type: "system",
+        type: "elicitation",
         event: name,
-        text: (event as any).message ?? "Input requested",
+        text: message,
+        choices: choices.length > 0 ? choices : undefined,
         ts: Date.now(),
       });
       break;
@@ -166,4 +178,25 @@ export function processHookEvent(event: HookEventBase) {
       break;
     }
   }
+}
+
+/**
+ * Parse choices from elicitation text using heuristics.
+ * Matches patterns like: "1) Option A  2) Option B" or "A. Yes  B. No"
+ */
+function parseChoices(text: string): string[] {
+  // Pattern: numbered or lettered options separated by newlines or double spaces
+  const patterns = [
+    /(?:^|\n)\s*(?:\d+|[A-Za-z])[.)]\s*(.+)/g, // "1) Yes" or "A. No"
+    /(?:^|\n)\s*[-•]\s*(.+)/g, // "- Option" or "• Option"
+  ];
+
+  for (const pattern of patterns) {
+    const matches = [...text.matchAll(pattern)];
+    if (matches.length >= 2) {
+      return matches.map((m) => m[1].trim());
+    }
+  }
+
+  return [];
 }

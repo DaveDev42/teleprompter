@@ -270,6 +270,28 @@ export class Daemon {
     }
   }
 
+  /**
+   * Emit a teleprompter-internal event (tp namespace).
+   * Stored in vault and broadcast to WS/relay clients.
+   */
+  private emitTpEvent(sid: string, name: string, data: unknown): void {
+    const db = this.vault.getSessionDb(sid);
+    if (!db) return;
+
+    const payload = Buffer.from(JSON.stringify(data)).toString("base64");
+    const seq = db.append("event" as RecordKind, Date.now(), Buffer.from(payload), "tp" as Namespace, name);
+    this.vault.updateLastSeq(sid, seq);
+
+    const wsRec: WsRec = {
+      t: "rec", sid, seq, k: "event" as RecordKind,
+      ns: "tp" as Namespace, n: name, d: payload, ts: Date.now(),
+    };
+    this.clientRegistry.broadcast(sid, wsRec);
+    for (const relay of this.relayClients) {
+      relay.publishRecord(wsRec).catch(() => {});
+    }
+  }
+
   private handleBye(msg: IpcBye): void {
     const state = msg.exitCode === 0 ? "stopped" : "error";
     this.vault.updateSessionState(msg.sid, state);

@@ -43,6 +43,11 @@ function SessionItem({
                 wt: {session.worktreePath}
               </Text>
             )}
+            {session.claudeVersion && (
+              <Text className="text-gray-600 text-xs">
+                claude {session.claudeVersion}
+              </Text>
+            )}
           </View>
         </View>
         {session.state === "running" && (

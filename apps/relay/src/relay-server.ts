@@ -38,6 +38,8 @@ interface DaemonState {
   online: boolean;
   sessions: Set<string>;
   lastSeen: number;
+  /** Number of frontends attached per session */
+  attached: Map<string, number>;
 }
 
 export class RelayServer {
@@ -87,6 +89,8 @@ export class RelayServer {
               .filter(([, s]) => s.online).length,
             sessions: [...self.daemonStates.values()]
               .reduce((sum, s) => sum + s.sessions.size, 0),
+            attached: [...self.daemonStates.values()]
+              .reduce((sum, s) => sum + s.attached.size, 0),
             uptime: Math.floor(process.uptime()),
           });
         }
@@ -247,6 +251,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
         online: true,
         sessions: new Set(),
         lastSeen: Date.now(),
+        attached: new Map(),
       });
     }
 
@@ -343,6 +348,14 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
 
     client.subscriptions.add(msg.sid);
 
+    // Track attached frontends per session
+    if (client.role === "frontend") {
+      const state = this.daemonStates.get(client.daemonId);
+      if (state) {
+        state.attached.set(msg.sid, (state.attached.get(msg.sid) ?? 0) + 1);
+      }
+    }
+
     // Send cached recent frames if requested
     if (msg.after !== undefined) {
       const key = `${client.daemonId}:${msg.sid}`;
@@ -368,6 +381,16 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
     const client = this.clients.get(ws);
     if (!client) return;
     client.subscriptions.delete(msg.sid);
+
+    // Update attached count
+    if (client.role === "frontend") {
+      const state = this.daemonStates.get(client.daemonId);
+      if (state) {
+        const count = (state.attached.get(msg.sid) ?? 1) - 1;
+        if (count <= 0) state.attached.delete(msg.sid);
+        else state.attached.set(msg.sid, count);
+      }
+    }
   }
 
   private handleClose(ws: any) {

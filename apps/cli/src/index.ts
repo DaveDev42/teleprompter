@@ -5,11 +5,12 @@ import { versionCommand } from "./commands/version";
 import { pairCommand } from "./commands/pair";
 import { statusCommand } from "./commands/status";
 import { logsCommand } from "./commands/logs";
+import { doctorCommand } from "./commands/doctor";
 import { passthroughCommand } from "./commands/passthrough";
 
 const command = process.argv[2];
 
-const SUBCOMMANDS = new Set(["daemon", "run", "relay", "pair", "status", "logs", "version"]);
+const SUBCOMMANDS = new Set(["daemon", "run", "relay", "pair", "status", "logs", "doctor", "version"]);
 
 switch (command) {
   case "daemon":
@@ -29,6 +30,9 @@ switch (command) {
     break;
   case "logs":
     await logsCommand(process.argv.slice(3));
+    break;
+  case "doctor":
+    await doctorCommand();
     break;
   case "version":
   case "--version":
@@ -66,6 +70,7 @@ Usage:
   tp pair [--relay URL] [--daemon-id] Generate QR pairing data
   tp status [port]                    Show daemon status and sessions
   tp logs [sid] [--port 7080]         Tail live session records
+  tp doctor                           Diagnose environment
   tp version                          Print version information
 
 Passthrough mode (default):

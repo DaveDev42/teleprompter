@@ -1,4 +1,5 @@
-import { View, Text, Pressable, FlatList } from "react-native";
+import { useState, useMemo } from "react";
+import { View, Text, TextInput, Pressable, FlatList } from "react-native";
 import { useSessionStore } from "../stores/session-store";
 import { getDaemonClient } from "../hooks/use-daemon";
 import { useChatStore } from "../stores/chat-store";
@@ -64,6 +65,20 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
   const sessions = useSessionStore((s) => s.sessions);
   const currentSid = useSessionStore((s) => s.sid);
   const setSid = useSessionStore((s) => s.setSid);
+  const [filter, setFilter] = useState("");
+
+  // Filter sessions by search term
+  const filteredSessions = useMemo(() => {
+    if (!filter.trim()) return sessions;
+    const q = filter.toLowerCase();
+    return sessions.filter(
+      (s) =>
+        s.sid.toLowerCase().includes(q) ||
+        s.cwd.toLowerCase().includes(q) ||
+        s.worktreePath?.toLowerCase().includes(q) ||
+        s.state.toLowerCase().includes(q),
+    );
+  }, [sessions, filter]);
 
   const switchSession = (sid: string) => {
     const client = getDaemonClient();
@@ -90,7 +105,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
 
   // Group by worktree
   const grouped = new Map<string, WsSessionMeta[]>();
-  for (const s of sessions) {
+  for (const s of filteredSessions) {
     const key = s.worktreePath ?? s.cwd;
     if (!grouped.has(key)) grouped.set(key, []);
     grouped.get(key)!.push(s);
@@ -110,11 +125,23 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
 
   return (
     <View className="flex-1 bg-zinc-900">
-      <View className="flex-row items-center justify-between px-4 py-3 border-b border-zinc-700">
-        <Text className="text-white font-bold">Sessions</Text>
-        <Text className="text-gray-500 text-xs">
-          {sessions.length} session{sessions.length !== 1 ? "s" : ""}
-        </Text>
+      <View className="px-4 py-3 border-b border-zinc-700">
+        <View className="flex-row items-center justify-between mb-2">
+          <Text className="text-white font-bold">Sessions</Text>
+          <Text className="text-gray-500 text-xs">
+            {filteredSessions.length}/{sessions.length}
+          </Text>
+        </View>
+        {sessions.length > 3 && (
+          <TextInput
+            className="bg-zinc-800 text-white rounded-lg px-3 py-1.5 text-sm"
+            placeholder="Search sessions..."
+            placeholderTextColor="#555"
+            value={filter}
+            onChangeText={setFilter}
+            autoCapitalize="none"
+          />
+        )}
       </View>
 
       <FlatList

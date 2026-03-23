@@ -2,7 +2,7 @@
   "expo": {
     "name": "Teleprompter",
     "slug": "teleprompter",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "scheme": "teleprompter",
     "orientation": "default",
     "icon": "./assets/icon.png",

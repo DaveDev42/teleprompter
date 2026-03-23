@@ -48,7 +48,21 @@ export default function ChatScreen() {
     return () => setOnPromptReady(null);
   }, [sid, setOnPromptReady]);
 
-  // Wire records to chat store
+  // When Chat mounts with a session, request record replay from daemon
+  // This ensures events that arrived before handler registration are processed
+  useEffect(() => {
+    if (!sid) return;
+    const client = getDaemonClient();
+    if (client) {
+      // Small delay to ensure handler is registered first
+      const timer = setTimeout(() => {
+        client.resume(sid, 0);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [sid]);
+
+  // Wire records to chat store (live data)
   useEffect(() => {
     const handler = (rec: WsRec) => {
       if (rec.k === "event") {

@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.2
+
+### Improvements
+- Configurable daemon URL in Settings (auto-detect or manual override)
+- Frontend type checking added to CI (all 5 packages now checked)
+- Turbo caching optimized with proper input definitions
+- Root pnpm scripts for common workflows (test, type-check:all, build:web)
+
+---
+
 ## v0.1.1
 
 ### New Commands

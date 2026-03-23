@@ -32,7 +32,7 @@ tp --tp-sid my-session -p "fix the login bug"
 
 ```bash
 # 1. Build the frontend web app
-cd apps/frontend && npx expo export --platform web --output-dir ../../dist/web && cd ../..
+cd apps/app && npx expo export --platform web --output-dir ../../dist/web && cd ../..
 
 # 2. Start daemon with built-in frontend serving
 tp daemon start --ws-port 7080 --repo-root /path/to/repo --web-dir dist/web
@@ -53,7 +53,7 @@ tp pair --relay ws://relay.example.com
 tp daemon start --ws-port 7080
 
 # Start frontend dev server (hot reload)
-cd apps/frontend && npx expo start --web
+cd apps/app && npx expo start --web
 ```
 
 ### CLI Commands

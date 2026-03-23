@@ -15,7 +15,7 @@ import { mkdirSync } from "fs";
 
 const BINARIES = [
   { entry: "apps/cli/src/index.ts", name: "tp" },
-  { entry: "apps/relay/src/index.ts", name: "tp-relay" },
+  { entry: "packages/relay/src/index.ts", name: "tp-relay" },
 ];
 
 const OUT_DIR = "dist";

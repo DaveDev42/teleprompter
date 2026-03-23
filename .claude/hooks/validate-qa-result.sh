@@ -9,9 +9,9 @@ INPUT=$(cat)
 SUBAGENT_TYPE=$(echo "$INPUT" | jq -r '.subagent_type // empty')
 RESULT=$(echo "$INPUT" | jq -r '.result // empty')
 
-# Only validate frontend-qa agent
+# Only validate app-ios-qa agent
 case "$SUBAGENT_TYPE" in
-  frontend-qa) ;;
+  app-ios-qa) ;;
   *) exit 0 ;;
 esac
 

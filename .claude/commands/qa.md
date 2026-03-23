@@ -33,7 +33,7 @@ QA agent에 위임하기 전에, **변경된 코드를 분석하여 구체적인
 
 **Step 3: Frontend QA**
 
-`frontend-qa` agent에게 **테스트 시나리오와 함께** 위임:
+`app-ios-qa` agent에게 **테스트 시나리오와 함께** 위임:
 
 - QA agent에게 전달할 프롬프트에 반드시 포함:
   1. 변경된 파일 목록
@@ -58,7 +58,7 @@ QA agent 결과 수신 후:
 
 1. `git diff --name-only main`으로 변경된 파일 확인
 2. 변경된 앱 감지:
-   - `apps/frontend/` 변경 → frontend-qa 필요
-   - `packages/` 변경 → frontend-qa 포함 관련 앱 QA 모두 필요
-   - `apps/frontend/` 변경 없음 (백엔드만 변경) → QA skip, 단위/통합 테스트로 대체
-3. frontend-qa agent에게 위임
+   - `apps/app/` 변경 → app-ios-qa 필요
+   - `packages/` 변경 → app-ios-qa 포함 관련 앱 QA 모두 필요
+   - `apps/app/` 변경 없음 (백엔드만 변경) → QA skip, 단위/통합 테스트로 대체
+3. app-ios-qa agent에게 위임

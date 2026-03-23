@@ -515,11 +515,11 @@ curl -fsSL https://raw.githubusercontent.com/<owner>/teleprompter/main/scripts/i
 
 ```bash
 # 단일 바이너리 또는 Docker
-bun build ./apps/relay/src/index.ts --compile --outfile teleprompter-relay
+bun build ./packages/relay/src/index.ts --compile --outfile teleprompter-relay
 
 # Docker
 FROM oven/bun:latest
-COPY apps/relay/ .
+COPY packages/relay/ .
 CMD ["bun", "run", "src/index.ts"]
 ```
 

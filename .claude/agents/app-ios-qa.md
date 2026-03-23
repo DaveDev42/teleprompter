@@ -1,13 +1,13 @@
 ---
-name: frontend-qa
-description: Frontend QA 전문가. apps/frontend/ 테스트 시 사용.
+name: app-ios-qa
+description: App iOS QA 전문가. apps/app/ 테스트 시 사용.
 model: haiku
 tools: Read, Glob, Grep, mcp__expo__get_session_status, mcp__expo__start_session, mcp__expo__stop_session, mcp__expo__reload_app, mcp__expo__list_devices, mcp__expo__get_logs, mcp__expo__take_screenshot, mcp__expo__tap_on, mcp__expo__input_text, mcp__expo__back, mcp__expo__inspect_view_hierarchy, mcp__expo__run_maestro_flow, mcp__expo__run_maestro_flow_files
 ---
 
 ## 역할
 
-apps/frontend/ 앱의 품질 보증 담당
+apps/app/ 앱의 품질 보증 담당
 
 ## 사용하는 MCP 서버
 

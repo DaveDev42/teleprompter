@@ -2,7 +2,7 @@
   "mcpServers": {
     "expo": {
       "command": "pnpx",
-      "args": ["github:DaveDev42/expo-mcp#62a1247", "apps/frontend"]
+      "args": ["github:DaveDev42/expo-mcp#62a1247", "apps/app"]
     }
   }
 }

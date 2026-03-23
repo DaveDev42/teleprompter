@@ -21,7 +21,7 @@
 - [x] Claude hook event 타입 정의
 - [x] 패키지 빌드 및 export 설정
 
-### Runner (apps/runner)
+### Runner (packages/runner)
 - [x] ~~Bun.spawn terminal 동작 검증~~ ✅ spike 완료
 - [x] ~~terminal.write() 입력 전달 검증~~ ✅ spike 완료
 - [x] ~~hooks 수집 검증 (--settings 주입)~~ ✅ spike 완료
@@ -34,7 +34,7 @@
 - [x] Daemon IPC 클라이언트 (Unix domain socket)
 - [x] **IPC write queue + drain 기반 backpressure 처리** ⚠️
 
-### Daemon (apps/daemon)
+### Daemon (packages/daemon)
 - [x] IPC 서버 구현 (Unix domain socket / named pipe)
 - [x] IPC 서버 backpressure 처리 (drain 콜백 지원)
 - [x] Session 관리 (생성, 종료, 목록)
@@ -54,8 +54,8 @@
 ## Stage 0.5: CLI + Release
 
 ### 통합 CLI 바이너리
-- [x] apps/daemon barrel export (`lib.ts`)
-- [x] apps/runner barrel export (`lib.ts`)
+- [x] packages/daemon barrel export (`lib.ts`)
+- [x] packages/runner barrel export (`lib.ts`)
 - [x] `SessionManager.setRunnerCommand()` self-spawn 메커니즘
 - [x] `apps/cli/` 서브커맨드 라우터 (daemon, run, relay, version)
 - [x] Compiled vs dev 모드 자동 감지 (`spawn.ts`)
@@ -76,7 +76,7 @@
 ## Stage 1: Local UI
 
 ### Expo 프로젝트
-- [x] Expo 프로젝트 초기화 (apps/frontend)
+- [x] Expo 프로젝트 초기화 (apps/app)
 - [x] NativeWind (Tailwind) 설정
 - [x] Expo Router 기본 라우팅
 - [x] Zustand 스토어 설계 (SessionStore, UIStore)
@@ -116,7 +116,7 @@
 
 ## Stage 2: Relay + E2EE
 
-### Relay 서버 (apps/relay)
+### Relay 서버 (packages/relay)
 - [x] Bun WebSocket 서버 기본 구조
 - [x] 세션별 상태 관리 (recent 10 ciphertext frame)
 - [x] online/offline 상태 추적

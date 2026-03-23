@@ -13,6 +13,7 @@ export function XTermWeb({
   onData?: (data: string) => void;
   onResize?: (cols: number, rows: number) => void;
   termRef?: React.MutableRefObject<any>;
+  /** Enable search addon — expose findNext/findPrevious via termRef */
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<any>(null);
@@ -27,6 +28,7 @@ export function XTermWeb({
       const { Terminal } = await import("@xterm/xterm");
       const { FitAddon } = await import("@xterm/addon-fit");
       const { WebLinksAddon } = await import("@xterm/addon-web-links");
+      const { SearchAddon } = await import("@xterm/addon-search");
 
       // Dynamic CSS import for xterm
       if (!document.querySelector('link[data-xterm-css]')) {
@@ -53,14 +55,20 @@ export function XTermWeb({
         convertEol: false,
       });
 
+      const searchAddon = new SearchAddon();
       term.loadAddon(fitAddon);
       term.loadAddon(new WebLinksAddon());
+      term.loadAddon(searchAddon);
       term.open(containerRef.current);
       fitAddon.fit();
 
       xtermRef.current = term;
       fitAddonRef.current = fitAddon;
-      if (termRef) termRef.current = term;
+      if (termRef) {
+        termRef.current = term;
+        // Expose search methods
+        (term as any).searchAddon = searchAddon;
+      }
 
       term.onData((data: string) => {
         onData?.(data);

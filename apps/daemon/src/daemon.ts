@@ -100,6 +100,13 @@ export class Daemon {
   private socketPath: string = "";
 
   start(socketPath?: string): string {
+    // Mark stale "running" sessions as stopped (from previous daemon run)
+    const stale = this.vault.listSessions().filter((s) => s.state === "running");
+    for (const s of stale) {
+      this.vault.updateSessionState(s.sid, "stopped");
+      log.info(`marked stale session as stopped: ${s.sid}`);
+    }
+
     this.socketPath = this.ipcServer.start(socketPath);
     log.info("started");
     return this.socketPath;

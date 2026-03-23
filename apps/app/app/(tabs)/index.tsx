@@ -64,12 +64,15 @@ export default function ChatScreen() {
           // Decode base64 → UTF-8 properly (atob breaks multi-byte chars)
           const bytes = Uint8Array.from(atob(rec.d), (c) => c.charCodeAt(0));
           const text = new TextDecoder("utf-8").decode(bytes);
-          // Strip ANSI escape sequences for chat display
-          const clean = text.replace(
-            // eslint-disable-next-line no-control-regex
-            /\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\[.*?[A-Za-z]|\x1b[^[].?/g,
-            "",
-          );
+          // Strip ANSI escape sequences + control chars for chat display
+          const clean = text
+            .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "")   // CSI sequences
+            .replace(/\x1b\][^\x07]*\x07/g, "")        // OSC sequences
+            .replace(/\x1b[()][A-Z0-9]/g, "")          // Character set
+            .replace(/\x1b[>=<]/g, "")                  // Mode switches
+            .replace(/\x1b\x1b/g, "")                   // Double escape
+            .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "") // Control chars (keep \n \r \t)
+            .replace(/\r\n?/g, "\n");                   // Normalize line endings
           if (clean.trim()) {
             appendStreaming(clean);
           }
@@ -147,11 +150,19 @@ export default function ChatScreen() {
         onScrollBeginDrag={() => Keyboard.dismiss()}
         ListEmptyComponent={
           <View className="flex-1 items-center justify-center pt-20">
-            <Text className="text-gray-500">
-              {connected
-                ? "Waiting for session..."
-                : "Connecting to Daemon..."}
+            <Text className="text-gray-500" style={{ color: "#6b7280" }}>
+              {!connected
+                ? "Connecting to Daemon..."
+                : !sid
+                  ? "Waiting for session..."
+                  : "Listening to Claude Code..."}
             </Text>
+            {sid && connected && (
+              <Text className="text-gray-600 text-xs mt-2" style={{ color: "#4b5563", fontSize: 12, marginTop: 8 }}>
+                PTY output will appear here as streaming text.{"\n"}
+                Hooks events (Stop, ToolUse) will appear as cards.
+              </Text>
+            )}
           </View>
         }
       />

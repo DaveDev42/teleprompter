@@ -113,15 +113,17 @@ export default function ChatScreen() {
   return (
     <KeyboardAvoidingView
       className="flex-1 bg-black"
+      style={{ flex: 1, backgroundColor: "#000" }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
       {/* Header */}
-      <View className="flex-row items-center px-3 py-2 bg-zinc-900 border-b border-zinc-800">
+      <View className="flex-row items-center px-3 py-2 bg-zinc-900 border-b border-zinc-800" style={{ backgroundColor: "#18181b", paddingHorizontal: 12, paddingVertical: 8 }}>
         <View
           className={`w-2 h-2 rounded-full mr-2 ${connected ? "bg-green-500" : "bg-red-500"}`}
+          style={{ width: 8, height: 8, borderRadius: 4, marginRight: 8, backgroundColor: connected ? "#22c55e" : "#ef4444" }}
         />
-        <Text className="text-white font-bold">Teleprompter</Text>
+        <Text className="text-white font-bold" style={{ color: "#fff", fontWeight: "bold" }}>Teleprompter</Text>
         {sid && <Text className="text-gray-500 text-xs ml-2">{sid}</Text>}
       </View>
 

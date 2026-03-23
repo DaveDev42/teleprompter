@@ -30,7 +30,9 @@
       "package": "com.teleprompter.app",
       "permissions": [
         "CAMERA",
-        "RECORD_AUDIO"
+        "RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -60,6 +62,13 @@
           "cameraPermission": "Camera is used to scan QR codes for daemon pairing."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d10223aa-49ba-4dd6-8025-f7f6d723f6bf"
+      }
+    },
+    "owner": "davedev42"
   }
 }

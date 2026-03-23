@@ -1,19 +1,32 @@
-import { View, Text } from "react-native";
+import { View, Text, Pressable, Platform } from "react-native";
 import type { ChatMessage } from "../stores/chat-store";
+
+async function copyText(text: string) {
+  if (Platform.OS === "web" && navigator.clipboard) {
+    await navigator.clipboard.writeText(text);
+  }
+  // Native: would use expo-clipboard
+}
 
 function UserCard({ msg }: { msg: ChatMessage }) {
   return (
-    <View className="self-end bg-blue-600 rounded-2xl rounded-br-sm px-4 py-2 max-w-[80%]">
-      <Text className="text-white">{msg.text}</Text>
-    </View>
+    <Pressable
+      className="self-end bg-blue-600 rounded-2xl rounded-br-sm px-4 py-2 max-w-[80%]"
+      onLongPress={() => copyText(msg.text)}
+    >
+      <Text className="text-white" selectable>{msg.text}</Text>
+    </Pressable>
   );
 }
 
 function AssistantCard({ msg }: { msg: ChatMessage }) {
   return (
-    <View className="self-start bg-zinc-800 rounded-2xl rounded-bl-sm px-4 py-2 max-w-[80%]">
-      <Text className="text-gray-100">{msg.text}</Text>
-    </View>
+    <Pressable
+      className="self-start bg-zinc-800 rounded-2xl rounded-bl-sm px-4 py-2 max-w-[80%]"
+      onLongPress={() => copyText(msg.text)}
+    >
+      <Text className="text-gray-100" selectable>{msg.text}</Text>
+    </Pressable>
   );
 }
 
@@ -27,14 +40,14 @@ function ToolCard({ msg }: { msg: ChatMessage }) {
         </Text>
       </View>
       {msg.toolInput && !isResult && (
-        <Text className="text-gray-500 text-xs font-mono mt-1" numberOfLines={3}>
+        <Text className="text-gray-500 text-xs font-mono mt-1" numberOfLines={3} selectable>
           {typeof msg.toolInput === "string"
             ? msg.toolInput
             : JSON.stringify(msg.toolInput, null, 2)}
         </Text>
       )}
       {msg.toolResult && isResult && (
-        <Text className="text-gray-400 text-xs font-mono mt-1" numberOfLines={5}>
+        <Text className="text-gray-400 text-xs font-mono mt-1" numberOfLines={5} selectable>
           {typeof msg.toolResult === "string"
             ? msg.toolResult
             : JSON.stringify(msg.toolResult, null, 2)}
@@ -55,7 +68,7 @@ function SystemCard({ msg }: { msg: ChatMessage }) {
 function StreamingCard({ msg }: { msg: ChatMessage }) {
   return (
     <View className="self-start bg-zinc-800 rounded-2xl rounded-bl-sm px-4 py-2 max-w-[80%] opacity-70">
-      <Text className="text-gray-300 italic">{msg.text}</Text>
+      <Text className="text-gray-300 italic" selectable>{msg.text}</Text>
     </View>
   );
 }

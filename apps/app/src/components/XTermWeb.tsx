@@ -9,11 +9,12 @@ export function XTermWeb({
   onData,
   onResize,
   termRef,
+  onReady,
 }: {
   onData?: (data: string) => void;
   onResize?: (cols: number, rows: number) => void;
   termRef?: React.MutableRefObject<any>;
-  /** Enable search addon — expose findNext/findPrevious via termRef */
+  onReady?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<any>(null);
@@ -66,9 +67,11 @@ export function XTermWeb({
       fitAddonRef.current = fitAddon;
       if (termRef) {
         termRef.current = term;
-        // Expose search methods
         (term as any).searchAddon = searchAddon;
       }
+
+      // Signal ready — triggers resume/replay in terminal screen
+      onReady?.();
 
       term.onData((data: string) => {
         onData?.(data);

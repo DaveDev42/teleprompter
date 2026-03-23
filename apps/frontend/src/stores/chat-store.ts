@@ -29,11 +29,14 @@ export interface ChatState {
   messages: ChatMessage[];
   /** Partial streaming text from PTY output (between events) */
   streamingText: string;
+  /** Show terminal fallback banner when chat can't handle the interaction */
+  showTerminalFallback: boolean;
 
   // Actions
   addMessage: (msg: ChatMessage) => void;
   appendStreaming: (text: string) => void;
   finalizeStreaming: () => void;
+  dismissTerminalFallback: () => void;
   clear: () => void;
 }
 
@@ -45,9 +48,16 @@ export function makeId(): string {
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   streamingText: "",
+  showTerminalFallback: false,
 
-  addMessage: (msg) =>
-    set((s) => ({ messages: [...s.messages, msg] })),
+  addMessage: (msg) => {
+    // Show terminal fallback for elicitation/permission (complex interactions)
+    if (msg.type === "elicitation" || msg.type === "permission") {
+      set((s) => ({ messages: [...s.messages, msg], showTerminalFallback: true }));
+    } else {
+      set((s) => ({ messages: [...s.messages, msg] }));
+    }
+  },
 
   appendStreaming: (text) =>
     set((s) => ({ streamingText: s.streamingText + text })),
@@ -72,7 +82,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  clear: () => set({ messages: [], streamingText: "" }),
+  dismissTerminalFallback: () => set({ showTerminalFallback: false }),
+
+  clear: () => set({ messages: [], streamingText: "", showTerminalFallback: false }),
 }));
 
 /**

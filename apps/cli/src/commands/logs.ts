@@ -1,10 +1,11 @@
 import type { WsServerMessage, WsRec } from "@teleprompter/protocol";
+import { ensureDaemon } from "../lib/ensure-daemon";
 
 /**
  * tp logs [sid] [--port 7080]
  *
  * Tails live records from a session. If no SID is given,
- * attaches to the first running session.
+ * attaches to the first running session. Auto-starts daemon if needed.
  */
 export async function logsCommand(argv: string[]): Promise<void> {
   let sid: string | undefined;
@@ -19,7 +20,13 @@ export async function logsCommand(argv: string[]): Promise<void> {
     }
   }
 
+  const portNum = parseInt(port, 10);
   const url = `ws://localhost:${port}`;
+
+  const running = await ensureDaemon(portNum);
+  if (!running) {
+    process.exit(1);
+  }
 
   const ws = new WebSocket(url);
 

@@ -274,7 +274,7 @@
 
 ### Reliability
 - [x] Relay 서버 health check endpoint — `/health` JSON endpoint
-- [ ] Daemon auto-restart on crash
+- [x] Daemon auto-restart on crash — `--watch` flag with uncaughtException handler
 - [x] Session state persistence across daemon restart — stale sessions marked stopped on startup
 - [x] WebSocket ping/pong heartbeat with configurable interval — 30s heartbeat
 

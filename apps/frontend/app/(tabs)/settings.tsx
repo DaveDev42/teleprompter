@@ -5,6 +5,7 @@ import { usePairingStore } from "../../src/stores/pairing-store";
 import { DiagnosticsPanel } from "../../src/components/DiagnosticsPanel";
 import { useRelaySettingsStore } from "../../src/stores/relay-settings-store";
 import { useThemeStore, type Theme } from "../../src/stores/theme-store";
+import { useConnectionStore } from "../../src/stores/connection-store";
 import { secureGet, secureSet } from "../../src/lib/secure-storage";
 
 export default function SettingsScreen() {
@@ -23,7 +24,11 @@ export default function SettingsScreen() {
   const removeRelay = useRelaySettingsStore((s) => s.removeRelay);
   const toggleRelay = useRelaySettingsStore((s) => s.toggleRelay);
 
+  const daemonUrl = useConnectionStore((s) => s.daemonUrl);
+  const setDaemonUrl = useConnectionStore((s) => s.setDaemonUrl);
+
   const [keyInput, setKeyInput] = useState(apiKey ?? "");
+  const [daemonUrlInput, setDaemonUrlInput] = useState(daemonUrl ?? "");
   const [relayInput, setRelayInput] = useState("");
   const [saved, setSaved] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
@@ -66,6 +71,38 @@ export default function SettingsScreen() {
   return (
     <ScrollView className="flex-1 bg-black px-6 pt-10">
       <Text className="text-white text-2xl font-bold mb-8">Settings</Text>
+
+      {/* Daemon Connection */}
+      <View className="mb-8">
+        <Text className="text-gray-400 text-sm mb-2">
+          Daemon URL
+        </Text>
+        <View className="flex-row items-center gap-2">
+          <TextInput
+            className="flex-1 bg-zinc-800 text-white rounded-lg px-4 py-3 font-mono text-sm"
+            placeholder="Auto-detect (ws://localhost:7080)"
+            placeholderTextColor="#555"
+            value={daemonUrlInput}
+            onChangeText={setDaemonUrlInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <Pressable
+            onPress={async () => {
+              const url = daemonUrlInput.trim() || null;
+              await setDaemonUrl(url);
+              setSaved(true);
+              setTimeout(() => setSaved(false), 2000);
+            }}
+            className="bg-blue-600 px-3 py-3 rounded-lg"
+          >
+            <Text className="text-white text-sm">Set</Text>
+          </Pressable>
+        </View>
+        <Text className="text-gray-600 text-xs mt-1">
+          Leave empty for auto-detection. Set manually for remote daemons.
+        </Text>
+      </View>
 
       {/* Voice API Key */}
       <View className="mb-8">

@@ -19,6 +19,9 @@ import {
   type IpcRec,
 } from "@teleprompter/protocol";
 import { connect } from "net";
+import { mkdtemp, rm } from "fs/promises";
+import { join } from "path";
+import { tmpdir } from "os";
 
 /**
  * Full-stack integration test:
@@ -35,24 +38,27 @@ describe("Full-stack E2E", () => {
   let daemon: Daemon;
   let relayPort: number;
   let wsPort: number;
+  let tmpDir: string;
 
   beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "tp-fullstack-"));
     SessionManager.setRunnerCommand(["true"]);
 
     // 1. Start relay
     relay = new RelayServer();
     relayPort = relay.start(0);
 
-    // 2. Start daemon
-    daemon = new Daemon();
-    daemon.start();
+    // 2. Start daemon with isolated vault
+    daemon = new Daemon(tmpDir);
+    daemon.start(join(tmpDir, "daemon.sock"));
     daemon.startWs(0);
     wsPort = (daemon as any).wsServer.port;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     daemon.stop();
     relay.stop();
+    await rm(tmpDir, { recursive: true, force: true });
   });
 
   test("local WS: daemon → frontend record flow", async () => {

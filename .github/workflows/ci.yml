@@ -12,21 +12,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
       - uses: pnpm/action-setup@v4
         with:
           version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
       - run: pnpm install --frozen-lockfile
+
       - name: Type check
         run: |
           npx tsc --noEmit -p apps/daemon/tsconfig.json
           npx tsc --noEmit -p apps/cli/tsconfig.json
           npx tsc --noEmit -p apps/relay/tsconfig.json
           npx tsc --noEmit -p apps/runner/tsconfig.json
+
       - name: Test
         run: bun test packages/protocol apps/daemon apps/runner apps/cli apps/relay
+
       - name: Build CLI
-        run: bun build apps/cli/src/index.ts --compile --outfile dist/tp
+        run: bun run scripts/build.ts
+
       - name: Smoke test
-        run: ./dist/tp version
+        run: |
+          ./dist/tp version
+          ./dist/tp --help
+
       - name: Build web frontend
         run: cd apps/frontend && npx expo export --platform web

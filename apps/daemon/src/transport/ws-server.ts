@@ -1,7 +1,9 @@
 import { existsSync } from "fs";
 import { join, extname } from "path";
-import type { WsClientMessage } from "@teleprompter/protocol";
+import { createLogger, type WsClientMessage } from "@teleprompter/protocol";
 import { ClientRegistry, createClient, type WsClient } from "./client-registry";
+
+const log = createLogger("WsServer");
 
 interface WsData {
   client: WsClient;
@@ -93,7 +95,7 @@ export class WsServer {
           const client = createClient(ws as unknown as WsClient["ws"]);
           ws.data.client = client;
           self.registry.add(client);
-          console.log(`[WsServer] client connected id=${client.id}`);
+          log.info(`client connected id=${client.id}`);
         },
         message(ws, message) {
           const client = ws.data.client;
@@ -110,12 +112,12 @@ export class WsServer {
         close(ws) {
           const client = ws.data.client;
           self.registry.remove(client);
-          console.log(`[WsServer] client disconnected id=${client.id}`);
+          log.info(`client disconnected id=${client.id}`);
         },
       },
     });
 
-    console.log(`[WsServer] listening on ws://localhost:${port}`);
+    log.info(`listening on ws://localhost:${port}`);
   }
 
   private dispatch(client: WsClient, msg: WsClientMessage): void {

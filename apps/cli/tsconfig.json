@@ -6,10 +6,10 @@
     "paths": {
       "@teleprompter/protocol": ["../../packages/protocol/src"],
       "@teleprompter/protocol/*": ["../../packages/protocol/src/*"],
-      "@teleprompter/daemon": ["../daemon/src/lib"],
-      "@teleprompter/daemon/*": ["../daemon/src/*"],
-      "@teleprompter/runner": ["../runner/src/lib"],
-      "@teleprompter/runner/*": ["../runner/src/*"]
+      "@teleprompter/daemon": ["../../packages/daemon/src/lib"],
+      "@teleprompter/daemon/*": ["../../packages/daemon/src/*"],
+      "@teleprompter/runner": ["../../packages/runner/src/lib"],
+      "@teleprompter/runner/*": ["../../packages/runner/src/*"]
     }
   }
 }

@@ -26,14 +26,14 @@ jobs:
 
       - name: Type check
         run: |
-          npx tsc --noEmit -p apps/daemon/tsconfig.json
+          npx tsc --noEmit -p packages/daemon/tsconfig.json
           npx tsc --noEmit -p apps/cli/tsconfig.json
-          npx tsc --noEmit -p apps/relay/tsconfig.json
-          npx tsc --noEmit -p apps/runner/tsconfig.json
-          cd apps/frontend && npx tsc --noEmit && cd ../..
+          npx tsc --noEmit -p packages/relay/tsconfig.json
+          npx tsc --noEmit -p packages/runner/tsconfig.json
+          cd apps/app && npx tsc --noEmit && cd ../..
 
       - name: Test
-        run: bun test packages/protocol apps/daemon apps/runner apps/cli apps/relay
+        run: bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay
 
       - name: Build CLI
         run: bun run scripts/build.ts
@@ -44,4 +44,4 @@ jobs:
           ./dist/tp --help
 
       - name: Build web frontend
-        run: cd apps/frontend && npx expo export --platform web
+        run: cd apps/app && npx expo export --platform web

@@ -66,16 +66,16 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - `packages/protocol/src/crypto.test.ts` — E2EE encrypt/decrypt, key exchange, ratchet
 - `packages/protocol/src/crypto-edge.test.ts` — empty/large payloads, tampered ciphertext
 - `packages/protocol/src/pairing.test.ts` — QR pairing bundle, encode/decode
-- `apps/daemon/src/vault/vault.test.ts` — append-only Record 저장
-- `apps/daemon/src/transport/client-registry.test.ts` — WS client 추적
-- `apps/daemon/src/session/session-manager.test.ts` — register/unregister, spawn, kill
-- `apps/daemon/src/ipc/server.test.ts` — connection lifecycle, framed messaging, findBySid
-- `apps/runner/src/hooks/settings-builder.test.ts` — settings merge
-- `apps/runner/src/hooks/hook-receiver.test.ts` — unix socket event reception
-- `apps/runner/src/hooks/capture-hook.test.ts` — hook command generation
-- `apps/runner/src/collector.test.ts` — io/event/meta record creation
-- `apps/daemon/src/vault/session-db.test.ts` — append, cursor, payloads
-- `apps/daemon/src/vault/vault-cleanup.test.ts` — deleteSession, pruneOldSessions
+- `packages/daemon/src/vault/vault.test.ts` — append-only Record 저장
+- `packages/daemon/src/transport/client-registry.test.ts` — WS client 추적
+- `packages/daemon/src/session/session-manager.test.ts` — register/unregister, spawn, kill
+- `packages/daemon/src/ipc/server.test.ts` — connection lifecycle, framed messaging, findBySid
+- `packages/runner/src/hooks/settings-builder.test.ts` — settings merge
+- `packages/runner/src/hooks/hook-receiver.test.ts` — unix socket event reception
+- `packages/runner/src/hooks/capture-hook.test.ts` — hook command generation
+- `packages/runner/src/collector.test.ts` — io/event/meta record creation
+- `packages/daemon/src/vault/session-db.test.ts` — append, cursor, payloads
+- `packages/daemon/src/vault/vault-cleanup.test.ts` — deleteSession, pruneOldSessions
 - `packages/protocol/src/socket-path.test.ts` — path format
 - `packages/protocol/src/logger.test.ts` — level filtering, prefix formatting
 - `apps/cli/src/args.test.ts` — `--tp-*` 인자 분리
@@ -87,14 +87,14 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 
 ### Tier 2: Integration Tests (stub runner)
 Stub 프로세스로 전체 파이프라인 검증.
-- `apps/daemon/src/integration.test.ts` — IPC 파이프라인 (mock Runner→Daemon→Vault)
-- `apps/daemon/src/e2e.test.ts` — 동시 세션, crash, resume, streaming, input relay
-- `apps/daemon/src/transport/ws-server.test.ts` — WebSocket 서버 동작
-- `apps/daemon/src/transport/relay-client.test.ts` — Daemon→Relay E2E with encryption
-- `apps/relay/src/relay-server.test.ts` — Relay auth, routing, caching, presence
-- `apps/relay/src/relay-edge.test.ts` — malformed JSON, multi-frontend, unsubscribe
-- `apps/daemon/src/worktree/worktree-manager.test.ts` — git worktree add/remove/list
-- `apps/daemon/src/worktree-ws.test.ts` — worktree/session WS protocol handlers
+- `packages/daemon/src/integration.test.ts` — IPC 파이프라인 (mock Runner→Daemon→Vault)
+- `packages/daemon/src/e2e.test.ts` — 동시 세션, crash, resume, streaming, input relay
+- `packages/daemon/src/transport/ws-server.test.ts` — WebSocket 서버 동작
+- `packages/daemon/src/transport/relay-client.test.ts` — Daemon→Relay E2E with encryption
+- `packages/relay/src/relay-server.test.ts` — Relay auth, routing, caching, presence
+- `packages/relay/src/relay-edge.test.ts` — malformed JSON, multi-frontend, unsubscribe
+- `packages/daemon/src/worktree/worktree-manager.test.ts` — git worktree add/remove/list
+- `packages/daemon/src/worktree-ws.test.ts` — worktree/session WS protocol handlers
 - `apps/cli/src/relay.test.ts` — relay CLI integration
 - `packages/protocol/src/pairing-e2e.test.ts` — full QR pairing → ratchet → E2E encrypt
 - `apps/cli/src/full-stack.test.ts` — Runner→Daemon→Relay→Frontend complete pipeline
@@ -108,8 +108,8 @@ Stub 프로세스로 전체 파이프라인 검증.
 
 ### 명령어
 ```bash
-bun test packages/protocol apps/daemon apps/runner apps/cli apps/relay  # 전체 Tier 1-3
-npx tsc --noEmit -p apps/daemon/tsconfig.json                # 타입 체크
+bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay  # 전체 Tier 1-3
+npx tsc --noEmit -p packages/daemon/tsconfig.json                # 타입 체크
 npx tsc --noEmit -p apps/cli/tsconfig.json
 ```
 

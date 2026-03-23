@@ -1,5 +1,5 @@
 {
-  "name": "@teleprompter/frontend",
+  "name": "@teleprompter/app",
   "version": "0.1.4",
   "private": true,
   "main": "index.ts",

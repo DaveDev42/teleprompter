@@ -16,8 +16,10 @@ function getDefaultUrl(): string {
   if (typeof window !== "undefined" && window.location) {
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = window.location.host;
-    // Dev server (Metro) — extract host, use daemon port
-    if (host?.includes(":8081") || host?.includes(":19006")) {
+    // Dev server (Metro/Expo) — extract host, use daemon port
+    // Metro uses 8081 by default, but Expo MCP may use 8082+ if 8081 is busy
+    const port = parseInt(host?.split(":")[1] ?? "0", 10);
+    if (port >= 8081 && port <= 8099 || host?.includes(":19006")) {
       const devHost = host.split(":")[0];
       return `ws://${devHost}:7080`;
     }

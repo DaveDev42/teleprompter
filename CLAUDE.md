@@ -104,7 +104,10 @@ Stub 프로세스로 전체 파이프라인 검증.
 - `apps/cli/src/e2e.test.ts` — PTY ANSI output, hooks 이벤트, WS 스트리밍, resume
 
 ### Tier 4: QA Agent Tests (Expo MCP)
-`/qa` 커맨드로 `frontend-qa` agent에 위임. 실제 iOS Simulator에서 앱 구동 + UI 인터랙션.
+`/qa` 커맨드로 QA agent에 위임:
+- `app-ios-qa` — iOS Simulator (Expo MCP + Maestro)
+- `app-web-qa` — React Native Web (Playwright)
+- Playwright E2E: `pnpm test:e2e` (e2e/app-web.spec.ts)
 
 ### 명령어
 ```bash

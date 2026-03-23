@@ -82,26 +82,26 @@ cd apps/app && npx expo start --web
 ## Architecture
 
 ```
-Runner → Daemon → Relay → Frontend
+Runner → Daemon → Relay → App
  (PTY)   (Vault)  (E2EE)  (Expo)
 ```
 
 - **Runner**: Spawns Claude Code in a PTY, collects io streams and hooks events
 - **Daemon**: Manages sessions, stores records in Vault, encrypts with libsodium
 - **Relay**: Stateless ciphertext forwarder (zero-trust, recent 10 frames cache)
-- **Frontend**: Expo app (iOS/Web/Android) with Chat + Terminal + Voice UI
+- **App**: Expo app (iOS/Web/Android) with Chat + Terminal + Voice UI
 
 ## Monorepo Structure
 
 ```
 apps/
   cli/         # Unified `tp` binary
-  daemon/      # Session management, vault, E2EE
-  runner/      # PTY management, hooks collection
-  relay/       # WebSocket ciphertext relay
-  frontend/    # Expo app (React Native + Web)
+  app/         # Expo app (iOS + Web + Android)
 packages/
   protocol/    # Shared types, codec, crypto, pairing
+  daemon/      # Session management, vault, WS server
+  relay/       # WebSocket ciphertext relay
+  runner/      # PTY management, hooks collection
   tsconfig/    # Shared TypeScript configs
 ```
 
@@ -110,7 +110,7 @@ packages/
 ```bash
 pnpm install
 
-# Run all tests (193 tests)
+# Run all tests (203 unit/integration + 5 Playwright E2E)
 pnpm test
 
 # Type check all 5 packages

@@ -263,8 +263,7 @@
 - [ ] iOS/Android에서 E2EE relay 연결 검증
 
 ### iOS Distribution
-- [ ] TestFlight 배포
-- [ ] App Store 제출 준비
+- [ ] App Store 제출 준비 (TestFlight는 Stage 5에 포함)
 
 ### UX Improvements
 - [x] 다크/라이트 테마 전환 — ThemeStore with dark/light/system toggle
@@ -281,4 +280,4 @@
 ### Developer Experience
 - [x] `tp init` — 프로젝트 초기 설정 (pairing + daemon config)
 - [x] `tp doctor` — 환경 진단 (bun version, claude CLI, permissions)
-- [ ] Relay dashboard (admin UI)
+- [x] Relay dashboard (admin UI) — `/admin` HTML page with daemon/session status

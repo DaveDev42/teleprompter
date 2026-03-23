@@ -53,18 +53,21 @@ export default function ChatScreen() {
     const handler = (rec: WsRec) => {
       if (rec.k === "event") {
         try {
-          const event = JSON.parse(atob(rec.d));
+          const eventBytes = Uint8Array.from(atob(rec.d), (c) => c.charCodeAt(0));
+          const event = JSON.parse(new TextDecoder("utf-8").decode(eventBytes));
           processHookEvent(event);
         } catch {
           // ignore malformed events
         }
       } else if (rec.k === "io") {
         try {
-          const text = atob(rec.d);
+          // Decode base64 → UTF-8 properly (atob breaks multi-byte chars)
+          const bytes = Uint8Array.from(atob(rec.d), (c) => c.charCodeAt(0));
+          const text = new TextDecoder("utf-8").decode(bytes);
           // Strip ANSI escape sequences for chat display
           const clean = text.replace(
             // eslint-disable-next-line no-control-regex
-            /\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\[.*?[A-Za-z]/g,
+            /\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\[.*?[A-Za-z]|\x1b[^[].?/g,
             "",
           );
           if (clean.trim()) {

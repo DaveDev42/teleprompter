@@ -35,7 +35,10 @@ export default function TerminalScreen() {
       const term = termRef.current;
       if (!term) return;
       try {
-        const bytes = atob(rec.d);
+        // Decode base64 → binary bytes for xterm (preserves ANSI sequences)
+        const binary = atob(rec.d);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
         term.write(bytes);
       } catch {
         term.write(rec.d);

@@ -16,4 +16,14 @@ export default defineConfig({
     timeout: 60_000,
     reuseExistingServer: true,
   },
+  projects: [
+    {
+      name: "ci",
+      testMatch: ["app-web.spec.ts", "app-daemon.spec.ts"],
+    },
+    {
+      name: "local",
+      testMatch: ["*.spec.ts"],
+    },
+  ],
 });

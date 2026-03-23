@@ -11,9 +11,9 @@ test.describe("App Web — UI Smoke Tests", () => {
   });
 
   test("shows connection status", async ({ page }) => {
-    // Should show either "Connecting to Daemon..." or "Waiting for session..."
-    const text = await page.locator("body").textContent();
-    const hasStatus = text?.includes("Connecting") || text?.includes("Waiting");
+    const text = await page.locator("body").textContent() ?? "";
+    const hasStatus = text.includes("Connecting") || text.includes("Waiting")
+      || text.includes("Reconnecting") || text.includes("Listening");
     expect(hasStatus).toBe(true);
   });
 

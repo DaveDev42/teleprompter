@@ -1,0 +1,49 @@
+# Changelog
+
+## v0.1.0 — Initial Release
+
+### Core Architecture
+- **Runner**: PTY spawn via `Bun.spawn({ terminal })`, hooks collection, IPC client
+- **Daemon**: Session manager, Vault (SQLite append-only), IPC server, WebSocket server, relay client, worktree manager, static web serving, graceful shutdown, session pruning
+- **Relay**: Token-based auth, bidirectional ciphertext frame routing, session caching (recent 10), online/offline presence, rate limiting (100 msg/sec)
+- **Protocol**: Framed JSON codec (u32_be + UTF-8), shared types (IPC/WS/Relay), level-based logger
+
+### E2EE
+- X25519 key exchange (ECDH)
+- XChaCha20-Poly1305 AEAD encryption
+- Per-session ephemeral key ratchet
+- QR-based pairing with BLAKE2b-derived relay tokens
+- Zero-trust: relay sees only ciphertext
+
+### Frontend (Expo)
+- **Chat tab**: Hook event cards (UserPromptSubmit, Stop, PreToolUse, PostToolUse, PermissionRequest, Elicitation), PTY streaming bubbles, chat input
+- **Terminal tab**: xterm.js (web), WebView bridge (native), terminal resize forwarding
+- **Sessions tab**: Worktree-grouped session list, session switching, stop button
+- **Settings tab**: OpenAI API key (secure storage), relay endpoint management, diagnostics panel with RTT
+- **Voice**: OpenAI Realtime API (STT + TTS + prompt refinement), terminal context injection
+- **Responsive**: Mobile (tabs), tablet (split), desktop (sidebar + split)
+- **QR pairing**: Camera scan (native) + manual paste (web)
+- **Offline**: Recent 10 frame cache, connection badge with relative time
+
+### CLI (`tp` binary)
+- `tp <claude args>` — Passthrough mode (default)
+- `tp daemon start` — Full-featured daemon with `--ws-port`, `--repo-root`, `--relay-url`, `--web-dir`, `--prune`, `--verbose`/`--quiet`
+- `tp relay start` — Relay server
+- `tp pair` — QR pairing data generation with terminal QR display
+- `tp status` — Daemon status and session overview
+- `tp logs` — Live session record tailing
+- `tp version` — Version info
+
+### Infrastructure
+- Turborepo + pnpm monorepo
+- GitHub Actions CI (type-check, test, build, web export)
+- GitHub Actions release (4-platform binary: darwin arm64/x64, linux x64/arm64)
+- Relay Dockerfile + docker-compose
+- curl-pipe-sh installer (`install.sh`)
+- EAS Build configuration (iOS/Android)
+
+### Testing
+- 193 tests across 38 files
+- Full-stack E2E: Runner → IPC → Daemon → WS/Relay → Frontend
+- Crypto E2E: QR pairing → key exchange → ratchet → encrypt/decrypt
+- Edge cases: partial frames, unicode, 1MB payloads, tampered ciphertext, rate limiting

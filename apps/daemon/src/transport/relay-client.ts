@@ -13,7 +13,9 @@ import type {
   SessionKeys,
   KeyPair,
 } from "@teleprompter/protocol";
-import { encrypt, decrypt, deriveSessionKeys } from "@teleprompter/protocol";
+import { encrypt, decrypt, deriveSessionKeys, createLogger } from "@teleprompter/protocol";
+
+const log = createLogger("RelayClient");
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
@@ -115,11 +117,11 @@ export class RelayClient {
         for (const sid of this.subscribedSessions) {
           this.send({ t: "relay.sub", sid });
         }
-        console.log(`[RelayClient] authenticated to relay`);
+        log.info(`authenticated to relay`);
         break;
 
       case "relay.auth.err":
-        console.error(`[RelayClient] auth failed: ${msg.e}`);
+        log.error(`auth failed: ${msg.e}`);
         break;
 
       case "relay.frame":
@@ -134,7 +136,7 @@ export class RelayClient {
         break;
 
       case "relay.err":
-        console.error(`[RelayClient] relay error: ${msg.m ?? msg.e}`);
+        log.error(`relay error: ${msg.m ?? msg.e}`);
         break;
     }
   }
@@ -154,7 +156,7 @@ export class RelayClient {
         this.events.onInput?.(msg.sid, msg.d);
       }
     } catch (err) {
-      console.error(`[RelayClient] decrypt/parse failed:`, err);
+      log.error(`decrypt/parse failed:`, err);
     }
   }
 

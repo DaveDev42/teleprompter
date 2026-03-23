@@ -3,11 +3,14 @@ import {
   FrameDecoder,
   QueuedWriter,
   getSocketPath,
+  createLogger,
   type IpcMessage,
   type IpcAck,
   type IpcInput,
   type IpcResize,
 } from "@teleprompter/protocol";
+
+const log = createLogger("IpcClient");
 
 type IncomingMessage = IpcAck | IpcInput | IpcResize;
 type MessageHandler = (msg: IncomingMessage) => void;
@@ -41,10 +44,10 @@ export class IpcClient {
           self.writer.drain(socket);
         },
         error(_socket, err) {
-          console.error("[IpcClient] socket error:", err.message);
+          log.error("socket error:", err.message);
         },
         close() {
-          console.log("[IpcClient] disconnected");
+          log.info("disconnected");
         },
       },
     });

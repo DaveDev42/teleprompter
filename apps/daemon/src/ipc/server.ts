@@ -1,5 +1,6 @@
 import { unlinkSync, existsSync } from "fs";
 import {
+  createLogger,
   encodeFrame,
   FrameDecoder,
   QueuedWriter,
@@ -24,6 +25,8 @@ export interface IpcServerEvents {
   onConnect: (runner: ConnectedRunner) => void;
   onDisconnect: (runner: ConnectedRunner) => void;
 }
+
+const log = createLogger("IpcServer");
 
 export class IpcServer {
   private server: ReturnType<typeof Bun.listen> | null = null;
@@ -81,12 +84,12 @@ export class IpcServer {
           self.events.onDisconnect(runner);
         },
         error(_socket, err) {
-          console.error("[IpcServer] socket error:", err.message);
+          log.error("socket error:", err.message);
         },
       },
     });
 
-    console.log(`[IpcServer] listening on ${path}`);
+    log.info(`listening on ${path}`);
     return path;
   }
 

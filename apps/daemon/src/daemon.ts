@@ -5,6 +5,7 @@ import { ClientRegistry } from "./transport/client-registry";
 import { WsServer } from "./transport/ws-server";
 import { RelayClient, type RelayClientConfig } from "./transport/relay-client";
 import { WorktreeManager } from "./worktree/worktree-manager";
+import { createLogger } from "@teleprompter/protocol";
 import type {
   IpcHello,
   IpcRec,
@@ -17,6 +18,8 @@ import type {
 import type { SessionMeta } from "./vault/vault";
 import type { StoredRecord } from "./vault/session-db";
 import type { WsClient } from "./transport/client-registry";
+
+const log = createLogger("Daemon");
 
 export class Daemon {
   private ipcServer: IpcServer;
@@ -32,11 +35,11 @@ export class Daemon {
 
     this.ipcServer = new IpcServer({
       onConnect: (_runner) => {
-        console.log("[Daemon] runner connected");
+        log.info("runner connected");
       },
       onDisconnect: (runner) => {
         if (runner.sid) {
-          console.log(`[Daemon] runner disconnected sid=${runner.sid}`);
+          log.info(`runner disconnected sid=${runner.sid}`);
         }
       },
       onMessage: (runner, msg) => {
@@ -98,7 +101,7 @@ export class Daemon {
 
   start(socketPath?: string): string {
     this.socketPath = this.ipcServer.start(socketPath);
-    console.log(`[Daemon] started`);
+    log.info("started");
     return this.socketPath;
   }
 
@@ -199,7 +202,7 @@ export class Daemon {
       msg.worktreePath,
       msg.claudeVersion,
     );
-    console.log(`[Daemon] session created sid=${msg.sid}`);
+    log.info(`session created sid=${msg.sid}`);
 
     // Subscribe relay clients to the new session
     for (const relay of this.relayClients) {
@@ -219,7 +222,7 @@ export class Daemon {
   ): void {
     const db = this.vault.getSessionDb(msg.sid);
     if (!db) {
-      console.error(`[Daemon] unknown session sid=${msg.sid}`);
+      log.error(`unknown session sid=${msg.sid}`);
       return;
     }
 
@@ -264,9 +267,7 @@ export class Daemon {
     const state = msg.exitCode === 0 ? "stopped" : "error";
     this.vault.updateSessionState(msg.sid, state);
     this.sessionManager.unregisterRunner(msg.sid);
-    console.log(
-      `[Daemon] session ended sid=${msg.sid} exitCode=${msg.exitCode} state=${state}`,
-    );
+    log.info(`session ended sid=${msg.sid} exitCode=${msg.exitCode} state=${state}`);
 
     // Notify WS clients of session state change
     const meta = this.vault.getSession(msg.sid);
@@ -449,7 +450,7 @@ export class Daemon {
       }
     }
     if (killed > 0) {
-      console.log(`[Daemon] killed ${killed} running session(s)`);
+      log.info(`killed ${killed} running session(s)`);
     }
 
     for (const relay of this.relayClients) {
@@ -459,7 +460,7 @@ export class Daemon {
     this.wsServer.stop();
     this.ipcServer.stop();
     this.vault.close();
-    console.log("[Daemon] stopped");
+    log.info("stopped");
   }
 }
 

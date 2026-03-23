@@ -23,3 +23,5 @@ export {
   parsePairingForFrontend,
 } from "./pairing";
 export type { PairingData, PairingBundle } from "./pairing";
+export { createLogger, setLogLevel } from "./logger";
+export type { LogLevel } from "./logger";

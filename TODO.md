@@ -270,12 +270,12 @@
 - [x] 다크/라이트 테마 전환 — ThemeStore with dark/light/system toggle
 - [x] 세션 검색/필터 — SessionDrawer search by sid/cwd/worktree/state
 - [x] Chat 메시지 복사/공유 — long-press to copy, selectable text
-- [ ] Terminal 스크롤백 검색
+- [x] Terminal 스크롤백 검색 — @xterm/addon-search with search bar UI
 
 ### Reliability
 - [x] Relay 서버 health check endpoint — `/health` JSON endpoint
 - [ ] Daemon auto-restart on crash
-- [ ] Session state persistence across daemon restart
+- [x] Session state persistence across daemon restart — stale sessions marked stopped on startup
 - [x] WebSocket ping/pong heartbeat with configurable interval — 30s heartbeat
 
 ### Developer Experience

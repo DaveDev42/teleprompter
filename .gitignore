@@ -7,3 +7,26 @@ dist/
 .turbo/
 .env
 .env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Expo
+.expo/
+apps/frontend/dist/
+apps/frontend/.expo/
+apps/frontend/ios/
+apps/frontend/android/
+
+# Build artifacts
+*.tsbuildinfo
+
+# Pairing data (contains secrets)
+.config/teleprompter/

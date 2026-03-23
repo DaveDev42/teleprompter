@@ -1,20 +1,12 @@
 # Teleprompter TODO
 
-## 🔴 P0 — 실제 사용 가능하게 만들기
+## ✅ P0 — 실제 사용 가능하게 만들기 (완료)
 
-### Terminal 렌더링 검증
-- [ ] xterm.js에서 Claude Code rich TUI (색상, 커서, 대체 화면 버퍼) 깨지지 않는지 Playwright E2E로 검증
-- [ ] ANSI escape 시퀀스 종류별 렌더링 테스트 (bold, color, cursor move, alternate screen)
-- [ ] Terminal 탭에서 키 입력 → Claude Code 전달 → 응답 표시 양방향 E2E
-
-### Chat 라운드트립 E2E
-- [ ] Chat 입력 "hello" → Claude 응답 → Chat에 assistant 카드 표시 전체 흐름 Playwright 검증
-- [ ] hooks 이벤트 카드 (Stop, PreToolUse, PostToolUse) 실제 데이터로 렌더링 확인
-- [ ] PTY 스트리밍 버블 → Stop 이벤트 시 최종 메시지 카드 전환 확인
-
-### Session Resume 실제 검증
-- [ ] 네트워크 끊김 시뮬레이션 → WS 재연결 → backlog batch 수신 → UI 복원 E2E
-- [ ] daemon restart 후 앱 자동 재연결 + 세션 resume 확인
+- [x] Terminal xterm.js ANSI 렌더링 (색상, vim, 프롬프트 — 1540자 실제 출력)
+- [x] Terminal 탭 전환 시 backlog replay (onReady + resume)
+- [x] Chat PTY 스트리밍 + hooks 이벤트 카드 (resume replay)
+- [x] Chat 입력 editable + 타이핑
+- [x] Session resume (daemon restart → 자동 재연결 → 콘텐츠 복원)
 
 ---
 

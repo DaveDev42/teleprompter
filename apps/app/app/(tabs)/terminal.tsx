@@ -28,7 +28,18 @@ export default function TerminalScreen() {
     return () => setGlobalTermRef(null);
   });
 
-  // Wire io records to xterm
+  // When xterm is ready, request full backlog from daemon
+  const handleTermReady = useCallback(() => {
+    if (!sid) return;
+    const client = getDaemonClient();
+    if (client) {
+      // Resume from seq 0 = get all records. The io handler (below)
+      // will write them to xterm as they arrive via batch.
+      client.resume(sid, 0);
+    }
+  }, [sid]);
+
+  // Wire io records to xterm (live data)
   useEffect(() => {
     const handler = (rec: WsRec) => {
       if (rec.k !== "io") return;
@@ -126,6 +137,7 @@ export default function TerminalScreen() {
             onData={handleData}
             onResize={handleResize}
             termRef={termRef}
+            onReady={handleTermReady}
           />
         )}
       </View>

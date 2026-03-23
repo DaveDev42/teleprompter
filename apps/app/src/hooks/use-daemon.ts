@@ -23,12 +23,14 @@ export function useDaemon(url?: string) {
       setSessions,
       updateSession,
       dispatchRec,
+      setError,
+      incrementReconnect,
     } = useSessionStore.getState();
     const { cacheFrame, updateState } = useOfflineStore.getState();
 
     const client = new DaemonWsClient(url, {
-      onOpen: () => setConnected(true),
-      onClose: () => setConnected(false),
+      onOpen: () => { setConnected(true); setError(null); },
+      onClose: () => { setConnected(false); incrementReconnect(); },
       onSessionList: (sessions: WsSessionMeta[]) => {
         setSessions(sessions);
         const running = sessions.filter((s) => s.state === "running");

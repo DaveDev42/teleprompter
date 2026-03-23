@@ -6,10 +6,16 @@
     "build": "turbo run build",
     "build:cli": "bun run scripts/build.ts --all",
     "build:cli:local": "bun run scripts/build.ts",
+    "build:web": "cd apps/frontend && npx expo export --platform web",
     "dev": "turbo run dev",
-    "test": "turbo run test",
+    "dev:frontend": "cd apps/frontend && npx expo start --web",
+    "test": "bun test packages/protocol apps/daemon apps/runner apps/cli apps/relay",
+    "test:turbo": "turbo run test",
+    "type-check": "turbo run type-check",
+    "type-check:all": "npx tsc --noEmit -p apps/daemon/tsconfig.json && npx tsc --noEmit -p apps/cli/tsconfig.json && npx tsc --noEmit -p apps/relay/tsconfig.json && npx tsc --noEmit -p apps/runner/tsconfig.json && cd apps/frontend && npx tsc --noEmit",
     "lint": "turbo run lint",
-    "type-check": "turbo run type-check"
+    "doctor": "bun run apps/cli/src/index.ts doctor",
+    "status": "bun run apps/cli/src/index.ts status"
   },
   "devDependencies": {
     "turbo": "^2.5.4"

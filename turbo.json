@@ -10,11 +10,17 @@
       "persistent": true
     },
     "test": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "*.test.ts"],
+      "outputs": []
     },
-    "lint": {},
+    "lint": {
+      "inputs": ["src/**"]
+    },
     "type-check": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      "inputs": ["src/**", "tsconfig.json"],
+      "outputs": []
     }
   }
 }

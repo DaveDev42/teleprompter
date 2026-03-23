@@ -7,11 +7,25 @@ import { statusCommand } from "./commands/status";
 import { logsCommand } from "./commands/logs";
 import { doctorCommand } from "./commands/doctor";
 import { initCommand } from "./commands/init";
+import { upgradeCommand, checkForUpdates } from "./commands/upgrade";
+import { completionsCommand } from "./commands/completions";
 import { passthroughCommand } from "./commands/passthrough";
 
 const command = process.argv[2];
 
-const SUBCOMMANDS = new Set(["daemon", "run", "relay", "pair", "status", "logs", "doctor", "init", "version"]);
+const SUBCOMMANDS = new Set([
+  "daemon", "run", "relay", "pair", "status", "logs",
+  "doctor", "init", "upgrade", "completions", "version",
+]);
+
+// Background version check (non-blocking, only for passthrough mode)
+if (!SUBCOMMANDS.has(command ?? "") && command !== "--help" && command !== "-h" && command !== undefined) {
+  checkForUpdates().then((newVersion) => {
+    if (newVersion) {
+      console.error(`\x1b[33m[tp] New version available: ${newVersion}. Run 'tp upgrade' to update.\x1b[0m`);
+    }
+  });
+}
 
 switch (command) {
   case "daemon":
@@ -38,6 +52,12 @@ switch (command) {
   case "init":
     await initCommand();
     break;
+  case "upgrade":
+    await upgradeCommand();
+    break;
+  case "completions":
+    completionsCommand(process.argv.slice(3));
+    break;
   case "version":
   case "--version":
   case "-v":
@@ -50,7 +70,6 @@ switch (command) {
     break;
   default:
     // No recognized subcommand → passthrough to claude
-    // Pass all args from argv[2] onward (including the unrecognized "command")
     await passthroughCommand(process.argv.slice(2));
     break;
 }
@@ -65,25 +84,28 @@ Usage:
     --ws-port 7080                     WebSocket port for local frontends
     --repo-root /path                  Enable worktree management
     --relay-url URL                    Connect to relay server
-    --relay-token TOKEN                Relay auth token (from tp pair)
-    --daemon-id ID                     Daemon identifier
     --web-dir /path                    Serve frontend web build at WS port
     --spawn --sid X --cwd Y            Auto-create a session on start
-  tp run --sid X --cwd Y              Start a runner (used by daemon internally)
+    --verbose / --quiet                Log level control
+    --watch                            Auto-restart on crash
+    --prune <hours>                    Clean old sessions on startup
   tp relay start [--port 7090]        Start a relay server
-  tp pair [--relay URL] [--daemon-id] Generate QR pairing data
+  tp pair [--relay URL]               Generate QR pairing data
   tp status [port]                    Show daemon status and sessions
   tp logs [sid] [--port 7080]         Tail live session records
+  tp upgrade                          Upgrade tp + Claude Code
   tp doctor                           Diagnose environment
   tp init                             Quick project setup guide
+  tp completions <bash|zsh|fish>      Generate shell completions
   tp version                          Print version information
 
 Passthrough mode (default):
   tp -p "explain this code"           Run claude with teleprompter recording
   tp --tp-sid my-session -p "hello"   Specify session ID
   tp --tp-cwd /path/to/project        Specify working directory
-  tp --tp-ws-port 9090                Specify WebSocket port
 
-  --tp-* flags are consumed by tp; everything else is passed to claude.
+Setup shell completions:
+  eval "$(tp completions bash)"       # add to ~/.bashrc
+  eval "$(tp completions zsh)"        # add to ~/.zshrc
 `);
 }

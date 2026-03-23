@@ -71,7 +71,19 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - `apps/daemon/src/session/session-manager.test.ts` — register/unregister, spawn, kill
 - `apps/daemon/src/ipc/server.test.ts` — connection lifecycle, framed messaging, findBySid
 - `apps/runner/src/hooks/settings-builder.test.ts` — settings merge
+- `apps/runner/src/hooks/hook-receiver.test.ts` — unix socket event reception
+- `apps/runner/src/hooks/capture-hook.test.ts` — hook command generation
+- `apps/runner/src/collector.test.ts` — io/event/meta record creation
+- `apps/daemon/src/vault/session-db.test.ts` — append, cursor, payloads
+- `apps/daemon/src/vault/vault-cleanup.test.ts` — deleteSession, pruneOldSessions
+- `packages/protocol/src/socket-path.test.ts` — path format
+- `packages/protocol/src/logger.test.ts` — level filtering, prefix formatting
 - `apps/cli/src/args.test.ts` — `--tp-*` 인자 분리
+- `apps/cli/src/spawn.test.ts` — runner command resolution
+- `apps/cli/src/commands/version.test.ts` — version output
+- `apps/cli/src/commands/status.test.ts` — daemon status display
+- `apps/cli/src/commands/pair.test.ts` — pairing data generation
+- `apps/cli/src/commands/passthrough.test.ts` — arg splitting
 
 ### Tier 2: Integration Tests (stub runner)
 Stub 프로세스로 전체 파이프라인 검증.
@@ -85,6 +97,7 @@ Stub 프로세스로 전체 파이프라인 검증.
 - `apps/daemon/src/worktree-ws.test.ts` — worktree/session WS protocol handlers
 - `apps/cli/src/relay.test.ts` — relay CLI integration
 - `packages/protocol/src/pairing-e2e.test.ts` — full QR pairing → ratchet → E2E encrypt
+- `apps/cli/src/full-stack.test.ts` — Runner→Daemon→Relay→Frontend complete pipeline
 
 ### Tier 3: Real E2E Tests (requires claude CLI)
 실제 claude PTY를 통한 전체 tp 파이프라인. `claude`가 PATH에 없으면 skip.

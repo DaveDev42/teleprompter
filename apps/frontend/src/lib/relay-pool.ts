@@ -12,7 +12,7 @@ import {
   type FrontendRelayEvents,
 } from "./relay-client";
 import type { RelayEndpoint } from "../stores/relay-settings-store";
-import type { KeyPair } from "@teleprompter/protocol";
+import type { KeyPair } from "@teleprompter/protocol/client";
 
 const FAILOVER_DELAY_MS = 2000;
 

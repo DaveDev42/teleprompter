@@ -9,15 +9,13 @@
  * - Nonce: random per frame (safe with XChaCha20's 24-byte nonce)
  */
 
-// Use require() to avoid ESM relative import issues in pnpm hoisted monorepo
-const _sodium = require("libsodium-wrappers-sumo") as typeof import("libsodium-wrappers-sumo");
-
-let ready = false;
+let _sodium: typeof import("libsodium-wrappers-sumo") | null = null;
 
 export async function ensureSodium() {
-  if (!ready) {
+  if (!_sodium) {
+    // Lazy load to avoid top-level require that breaks React Native
+    _sodium = require("libsodium-wrappers-sumo") as typeof import("libsodium-wrappers-sumo");
     await _sodium.ready;
-    ready = true;
   }
   return _sodium;
 }

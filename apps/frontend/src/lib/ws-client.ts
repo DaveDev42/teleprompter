@@ -3,7 +3,7 @@ import type {
   WsServerMessage,
   WsSessionMeta,
   WsRec,
-} from "@teleprompter/protocol";
+} from "@teleprompter/protocol/client";
 
 /**
  * Auto-detect WS URL: if the frontend is served by the daemon,

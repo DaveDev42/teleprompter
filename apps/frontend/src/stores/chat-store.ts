@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { HookEventBase } from "@teleprompter/protocol";
+import type { HookEventBase } from "@teleprompter/protocol/client";
 
 export type ChatMessageType =
   | "user"

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { WsRec } from "@teleprompter/protocol";
+import type { WsRec } from "@teleprompter/protocol/client";
 
 const MAX_CACHED_FRAMES = 10;
 

@@ -13,13 +13,13 @@ import type {
   WsServerMessage,
   SessionKeys,
   KeyPair,
-} from "@teleprompter/protocol";
+} from "@teleprompter/protocol/client";
 import {
   encrypt,
   decrypt,
   deriveSessionKeys,
   generateKeyPair,
-} from "@teleprompter/protocol";
+} from "@teleprompter/protocol/client";
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;

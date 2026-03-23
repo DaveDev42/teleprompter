@@ -4,7 +4,7 @@ import { useSessionStore } from "../stores/session-store";
 import { useOfflineStore } from "../stores/offline-store";
 import { usePairingStore } from "../stores/pairing-store";
 import { getDaemonClient } from "../hooks/use-daemon";
-import type { WsSessionMeta } from "@teleprompter/protocol";
+import type { WsSessionMeta } from "@teleprompter/protocol/client";
 
 function MetricRow({ label, value }: { label: string; value: string }) {
   return (

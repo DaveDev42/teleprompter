@@ -45,3 +45,9 @@ jobs:
 
       - name: Build web frontend
         run: cd apps/app && npx expo export --platform web
+
+      - name: Install Playwright
+        run: npx playwright install chromium
+
+      - name: Playwright E2E
+        run: npx playwright test

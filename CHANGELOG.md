@@ -1,5 +1,42 @@
 # Changelog
 
+## v0.1.5
+
+### Monorepo Restructure
+- daemon/relay/runner moved to `packages/` (libraries bundled into CLI)
+- `apps/frontend` renamed to `apps/app`
+- Removed Docker files (relay deployment via binary on Hetzner/OCI)
+
+### Critical Bug Fixes
+- **Terminal empty screen**: backlog replay via `onReady` + `resume(sid, 0)` on tab switch
+- **Chat missing events**: record replay via `resume` on Chat mount (catches pre-handler batch)
+- **UTF-8 decoding**: `atob()` → `Uint8Array` + `TextDecoder` for PTY output
+- **Vault UNIQUE constraint**: `INSERT OR REPLACE` for session re-create
+- **Metro port detection**: 8081-8099 range for Expo MCP compatibility
+- **DiagnosticsPanel infinite loop**: fixed `useOfflineStore` selector
+
+### New Features
+- `tp upgrade` — check + download latest release + claude update
+- `tp completions <bash|zsh|fish>` — shell completion scripts
+- Version check on startup (passthrough mode)
+- Auto-start daemon when `tp status` / `tp logs` is called
+- Reconnect counter + daemon start hint in Chat UI
+- Improved Chat empty state: "Listening to Claude Code..."
+- Improved ANSI stripping (CSI, OSC, charset, control chars)
+
+### Testing
+- Playwright E2E: 16 tests (smoke, daemon-connected, real PTY, resume)
+- CI/local project split (CI runs without `claude` CLI)
+- QA agents: `app-ios-qa` (Expo MCP), `app-web-qa` (Playwright)
+- P0 fully verified: Terminal ANSI rendering, Chat streaming, Session resume
+
+### Verified via Playwright Screenshots
+- Terminal: Claude Code rich TUI (colors, vim, prompt) — 1540 chars
+- Chat: PTY streaming + SessionStart card
+- Session resume: daemon restart → auto-reconnect → content restored
+
+---
+
 ## v0.1.4
 
 ### iOS / Expo Go Support

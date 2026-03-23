@@ -3,7 +3,7 @@ import { View, Text, TextInput, Pressable, FlatList } from "react-native";
 import { useSessionStore } from "../stores/session-store";
 import { getDaemonClient } from "../hooks/use-daemon";
 import { useChatStore } from "../stores/chat-store";
-import type { WsSessionMeta } from "@teleprompter/protocol";
+import type { WsSessionMeta } from "@teleprompter/protocol/client";
 
 function SessionItem({
   session,

@@ -3,7 +3,7 @@ import { View, Text, TextInput, Pressable, Platform } from "react-native";
 import { useSessionStore } from "../../src/stores/session-store";
 import { getDaemonClient } from "../../src/hooks/use-daemon";
 import { setGlobalTermRef } from "../../src/stores/voice-store";
-import type { WsRec } from "@teleprompter/protocol";
+import type { WsRec } from "@teleprompter/protocol/client";
 
 // Platform-specific terminal component
 let TerminalComponent: any = null;

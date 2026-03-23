@@ -6,7 +6,7 @@ import {
   deriveRelayToken,
   type KeyPair,
   type PairingData,
-} from "@teleprompter/protocol";
+} from "@teleprompter/protocol/client";
 
 export type PairingState = "unpaired" | "pairing" | "paired";
 

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { WsRec, WsSessionMeta } from "@teleprompter/protocol";
+import type { WsRec, WsSessionMeta } from "@teleprompter/protocol/client";
 
 export type RecHandler = (rec: WsRec) => void;
 

@@ -110,19 +110,24 @@ packages/
 ```bash
 pnpm install
 
-# Run tests (193 tests)
-bun test packages/protocol apps/daemon apps/runner apps/cli apps/relay
+# Run all tests (193 tests)
+pnpm test
 
-# Type check
-npx tsc --noEmit -p apps/daemon/tsconfig.json
-npx tsc --noEmit -p apps/cli/tsconfig.json
+# Type check all 5 packages
+pnpm type-check:all
 
-# Build CLI
-bun run build:cli:local    # current platform
-bun run build:cli          # all platforms
+# Build CLI binaries (tp + tp-relay)
+pnpm build:cli:local    # current platform
+pnpm build:cli          # all 4 platforms
 
-# Frontend dev
-cd apps/frontend && npx expo start --web
+# Frontend dev server
+pnpm dev:frontend
+
+# Build frontend for production
+pnpm build:web
+
+# Environment diagnostics
+pnpm doctor
 ```
 
 ## Key Technologies

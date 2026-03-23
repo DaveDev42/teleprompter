@@ -37,11 +37,14 @@ const MIME_TYPES: Record<string, string> = {
   ".map": "application/json",
 };
 
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
 export class WsServer {
   private server: ReturnType<typeof Bun.serve<WsData>> | null = null;
   readonly registry: ClientRegistry;
   private events: WsServerEvents;
   private webDir: string | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(registry: ClientRegistry, events: WsServerEvents) {
     this.registry = registry;
@@ -118,6 +121,11 @@ export class WsServer {
     });
 
     log.info(`listening on ws://localhost:${port}`);
+
+    // Start heartbeat
+    this.heartbeatTimer = setInterval(() => {
+      this.registry.sendAll({ t: "pong" } as any);
+    }, HEARTBEAT_INTERVAL_MS);
   }
 
   private dispatch(client: WsClient, msg: WsClientMessage): void {
@@ -167,6 +175,10 @@ export class WsServer {
   }
 
   stop(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
     this.server?.stop();
     this.server = null;
   }

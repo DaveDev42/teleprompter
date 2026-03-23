@@ -76,6 +76,21 @@ export class RelayServer {
       port,
       fetch(req, server) {
         if (server.upgrade(req)) return undefined;
+
+        // Health check endpoint
+        const url = new URL(req.url);
+        if (url.pathname === "/health") {
+          return Response.json({
+            status: "ok",
+            clients: self.clients.size,
+            daemons: [...self.daemonStates.entries()]
+              .filter(([, s]) => s.online).length,
+            sessions: [...self.daemonStates.values()]
+              .reduce((sum, s) => sum + s.sessions.size, 0),
+            uptime: Math.floor(process.uptime()),
+          });
+        }
+
         return new Response("Teleprompter Relay", { status: 200 });
       },
       websocket: {

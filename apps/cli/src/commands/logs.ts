@@ -36,7 +36,7 @@ export async function logsCommand(argv: string[]): Promise<void> {
   }, 5000);
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({ t: "hello" }));
+    ws.send(JSON.stringify({ t: "hello", v: 1 }));
   };
 
   ws.onerror = () => {

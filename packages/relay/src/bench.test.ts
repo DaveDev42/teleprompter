@@ -17,13 +17,13 @@ describe("Relay Performance", () => {
     const daemon = new WebSocket(`ws://localhost:${port}`);
     await new Promise<void>((r) => { daemon.onopen = () => r(); });
     daemon.send(JSON.stringify({
-      t: "relay.auth", role: "daemon", daemonId: "bench-daemon", token: "bench-token",
+      t: "relay.auth", v: 1, role: "daemon", daemonId: "bench-daemon", token: "bench-token",
     }));
 
     const frontend = new WebSocket(`ws://localhost:${port}`);
     await new Promise<void>((r) => { frontend.onopen = () => r(); });
     frontend.send(JSON.stringify({
-      t: "relay.auth", role: "frontend", daemonId: "bench-daemon", token: "bench-token",
+      t: "relay.auth", v: 1, role: "frontend", daemonId: "bench-daemon", token: "bench-token",
     }));
     await Bun.sleep(100);
 

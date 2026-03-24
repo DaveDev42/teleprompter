@@ -28,6 +28,9 @@ export type { LogLevel } from "./logger";
 export {
   MIN_CLAUDE_VERSION,
   PROTOCOL_VERSION,
+  RELAY_PROTOCOL_VERSION,
+  IPC_PROTOCOL_VERSION,
+  WS_PROTOCOL_VERSION,
   parseVersion,
   checkClaudeVersion,
 } from "./compat";

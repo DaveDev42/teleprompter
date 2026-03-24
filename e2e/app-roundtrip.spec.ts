@@ -30,7 +30,7 @@ test.describe("P0 — Full Roundtrip", () => {
         out += d.toString();
         if (out.includes("session created")) {
           const ws = new WebSocket("ws://localhost:7080");
-          ws.onopen = () => ws.send(JSON.stringify({ t: "hello" }));
+          ws.onopen = () => ws.send(JSON.stringify({ t: "hello", v: 1 }));
           ws.onmessage = (e) => {
             const msg = JSON.parse(e.data as string);
             if (msg.t === "hello" && msg.d.sessions.some((s: any) => s.sid === "roundtrip" && s.state === "running")) {

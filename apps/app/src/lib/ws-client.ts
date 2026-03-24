@@ -110,7 +110,7 @@ export class DaemonWsClient {
     ws.onopen = () => {
       this.reconnectAttempt = 0;
       this.handlers.onOpen?.();
-      this.send({ t: "hello" });
+      this.send({ t: "hello", v: 1 });
     };
 
     ws.onmessage = (event) => {

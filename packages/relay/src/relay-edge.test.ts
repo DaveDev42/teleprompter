@@ -47,7 +47,7 @@ describe("RelayServer edge cases", () => {
     const ws = await connectWs(port);
     ws.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "daemon",
         daemonId: "wrong-daemon",
         token: "token-1",
@@ -71,7 +71,7 @@ describe("RelayServer edge cases", () => {
     const ws = await connectWs(port);
     ws.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "frontend",
         daemonId: "daemon-1",
         token: "token-1",
@@ -98,7 +98,7 @@ describe("RelayServer edge cases", () => {
     ] as const) {
       ws.send(
         JSON.stringify({
-          t: "relay.auth",
+          t: "relay.auth", v: 1,
           role,
           daemonId: "daemon-1",
           token: "token-1",
@@ -134,7 +134,7 @@ describe("RelayServer edge cases", () => {
 
     daemon.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "daemon",
         daemonId: "daemon-1",
         token: "token-1",
@@ -144,7 +144,7 @@ describe("RelayServer edge cases", () => {
 
     frontend.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "frontend",
         daemonId: "daemon-1",
         token: "token-1",

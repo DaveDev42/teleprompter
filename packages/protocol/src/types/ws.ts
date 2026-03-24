@@ -17,6 +17,8 @@ export interface WsSessionMeta {
 
 export interface WsHello {
   t: "hello";
+  /** Protocol version */
+  v: number;
 }
 
 export interface WsAttach {
@@ -109,6 +111,7 @@ export type WsClientMessage =
 
 export interface WsHelloReply {
   t: "hello";
+  v: number;
   d: { sessions: WsSessionMeta[] };
 }
 

@@ -92,7 +92,7 @@ describe("RelayClient (Daemon → Relay → Frontend E2E)", () => {
     // Auth frontend
     frontendWs.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: relayToken,
@@ -181,7 +181,7 @@ describe("RelayClient (Daemon → Relay → Frontend E2E)", () => {
 
     frontendWs.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: relayToken,
@@ -245,7 +245,7 @@ describe("RelayClient (Daemon → Relay → Frontend E2E)", () => {
     });
     frontendWs.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: relayToken,

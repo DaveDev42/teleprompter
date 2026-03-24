@@ -85,6 +85,7 @@ export class FrontendRelayClient {
         role: "frontend",
         daemonId: this.config.daemonId,
         token: this.config.token,
+        v: 1,
       });
     };
 

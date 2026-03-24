@@ -158,7 +158,7 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     await waitForWsOpen(ws);
 
     const helloReply = waitForWsMessage(ws);
-    ws.send(JSON.stringify({ t: "hello" }));
+    ws.send(JSON.stringify({ t: "hello", v: 1 }));
     await helloReply;
 
     // Attach to session before it starts
@@ -222,7 +222,7 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     await waitForWsOpen(ws);
 
     const helloReply = waitForWsMessage(ws);
-    ws.send(JSON.stringify({ t: "hello" }));
+    ws.send(JSON.stringify({ t: "hello", v: 1 }));
     const hello = (await helloReply) as any;
 
     // Session should appear in the session list

@@ -76,7 +76,7 @@ describe("WsServer", () => {
     await waitForOpen(ws);
 
     const msgPromise = waitForMessage(ws);
-    ws.send(JSON.stringify({ t: "hello" }));
+    ws.send(JSON.stringify({ t: "hello", v: 1 }));
     const reply = await msgPromise;
 
     expect(reply).toEqual({ t: "hello", d: { sessions: [] } });

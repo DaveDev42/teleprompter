@@ -45,7 +45,7 @@ describe("tp relay (integration)", () => {
 
     ws.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "daemon",
         daemonId: "test-daemon",
         token,

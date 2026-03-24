@@ -66,7 +66,7 @@ describe("Full-stack E2E", () => {
     const ws = new WebSocket(`ws://localhost:${wsPort}`);
     await new Promise<void>((r) => { ws.onopen = () => r(); });
 
-    ws.send(JSON.stringify({ t: "hello" }));
+    ws.send(JSON.stringify({ t: "hello", v: 1 }));
 
     // Wait for hello reply
     const helloReply = await waitWsMsg(ws, (m) => m.t === "hello");
@@ -137,7 +137,7 @@ describe("Full-stack E2E", () => {
 
     frontendWs.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "frontend",
         daemonId: "e2e-daemon",
         token: bundle.relayToken,
@@ -260,7 +260,7 @@ describe("Full-stack E2E", () => {
     // Also connect local WS frontend and send input
     const localWs = new WebSocket(`ws://localhost:${wsPort}`);
     await new Promise<void>((r) => { localWs.onopen = () => r(); });
-    localWs.send(JSON.stringify({ t: "hello" }));
+    localWs.send(JSON.stringify({ t: "hello", v: 1 }));
     await waitWsMsg(localWs, (m) => m.t === "hello");
 
     localWs.send(

@@ -16,6 +16,8 @@ export interface RelayAuth {
   daemonId: string;
   /** Pairing token for authentication */
   token: string;
+  /** Protocol version (required since v1 — relay rejects clients without version) */
+  v: number;
 }
 
 export interface RelayPublish {

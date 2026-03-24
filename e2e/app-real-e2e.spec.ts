@@ -28,7 +28,7 @@ test.describe("Real E2E — Claude PTY → Browser", () => {
         if (output.includes("session created")) {
           // Verify session is visible via WS before proceeding
           const ws = new WebSocket("ws://localhost:7080");
-          ws.onopen = () => ws.send(JSON.stringify({ t: "hello" }));
+          ws.onopen = () => ws.send(JSON.stringify({ t: "hello", v: 1 }));
           ws.onmessage = (e) => {
             const msg = JSON.parse(e.data as string);
             if (msg.t === "hello") {

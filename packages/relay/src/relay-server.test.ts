@@ -86,7 +86,7 @@ describe("RelayServer", () => {
     const daemon = await connectWs(port);
     daemon.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "daemon",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -102,7 +102,7 @@ describe("RelayServer", () => {
     const ws = await connectWs(port);
     ws.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: "wrong-token",
@@ -120,7 +120,7 @@ describe("RelayServer", () => {
     // Auth both
     daemon.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "daemon",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -130,7 +130,7 @@ describe("RelayServer", () => {
 
     frontend.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -174,7 +174,7 @@ describe("RelayServer", () => {
     // Auth both
     daemon.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "daemon",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -184,7 +184,7 @@ describe("RelayServer", () => {
 
     frontend.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -221,7 +221,7 @@ describe("RelayServer", () => {
     // Auth both
     daemon.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "daemon",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -231,7 +231,7 @@ describe("RelayServer", () => {
 
     frontend.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -281,7 +281,7 @@ describe("RelayServer", () => {
 
     daemon.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "daemon",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -306,7 +306,7 @@ describe("RelayServer", () => {
     const frontend = await connectWs(port);
     frontend.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -335,7 +335,7 @@ describe("RelayServer", () => {
     // Auth both
     daemon.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "daemon",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -345,7 +345,7 @@ describe("RelayServer", () => {
 
     frontend.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -372,7 +372,7 @@ describe("RelayServer", () => {
     const ws = await connectWs(port);
     ws.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -391,7 +391,7 @@ describe("RelayServer", () => {
 
     daemon.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "daemon",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -416,7 +416,7 @@ describe("RelayServer", () => {
     const frontend = await connectWs(port);
     frontend.send(
       JSON.stringify({
-        t: "relay.auth",
+        t: "relay.auth", v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,

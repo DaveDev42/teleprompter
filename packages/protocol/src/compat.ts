@@ -12,6 +12,27 @@ export const MIN_CLAUDE_VERSION = "1.0.0";
 export const PROTOCOL_VERSION = 1;
 
 /**
+ * Relay protocol version.
+ * Sent in relay.auth as optional `v` field.
+ * Old clients (v < 1) omit this field — relay must handle gracefully.
+ */
+export const RELAY_PROTOCOL_VERSION = 1;
+
+/**
+ * IPC protocol version (Runner ↔ Daemon).
+ * Runner and Daemon are always deployed together (same tp binary),
+ * so this is for documentation, not runtime checking.
+ */
+export const IPC_PROTOCOL_VERSION = 1;
+
+/**
+ * WS protocol version (Daemon ↔ App).
+ * App may be an older version (App Store update delay).
+ * New optional fields are always safe. New message types are ignored by old apps.
+ */
+export const WS_PROTOCOL_VERSION = 1;
+
+/**
  * Parse a semver-like version string into components.
  */
 export function parseVersion(v: string): { major: number; minor: number; patch: number } | null {

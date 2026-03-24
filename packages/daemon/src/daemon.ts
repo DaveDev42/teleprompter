@@ -50,7 +50,7 @@ export class Daemon {
     this.wsServer = new WsServer(this.clientRegistry, {
       onHello: (client) => {
         const sessions = this.vault.listSessions().map(toWsSessionMeta);
-        this.clientRegistry.send(client, { t: "hello", d: { sessions } });
+        this.clientRegistry.send(client, { t: "hello", v: 1, d: { sessions } });
       },
       onAttach: (client, sid) => {
         this.clientRegistry.attach(client, sid);

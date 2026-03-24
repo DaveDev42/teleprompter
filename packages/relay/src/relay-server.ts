@@ -84,6 +84,8 @@ export class RelayServer {
         if (url.pathname === "/health") {
           return Response.json({
             status: "ok",
+            version: "0.1.5",
+            protocolVersion: 1,
             clients: self.clients.size,
             daemons: [...self.daemonStates.entries()]
               .filter(([, s]) => s.online).length,

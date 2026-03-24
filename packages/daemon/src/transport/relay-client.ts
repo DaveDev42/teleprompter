@@ -85,6 +85,7 @@ export class RelayClient {
         role: "daemon",
         daemonId: this.config.daemonId,
         token: this.config.token,
+        v: 1,
       });
     };
 

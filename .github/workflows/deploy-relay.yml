@@ -1,0 +1,66 @@
+name: Deploy Relay
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag to deploy (e.g. v0.1.5)"
+        required: false
+        default: "latest"
+  release:
+    types: [published]
+
+env:
+  RELAY_HOST: ${{ secrets.RELAY_HOST }}
+  RELAY_PORT: "7090"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: env.RELAY_HOST != ''
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.RELAY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${RELAY_HOST} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Download relay binary
+        run: |
+          if [ "${{ github.event.inputs.version }}" = "latest" ] || [ -z "${{ github.event.inputs.version }}" ]; then
+            TAG=$(gh release view --repo ${{ github.repository }} --json tagName -q '.tagName')
+          else
+            TAG="${{ github.event.inputs.version }}"
+          fi
+          echo "Deploying $TAG"
+
+          # Detect server arch
+          ARCH=$(ssh -o StrictHostKeyChecking=no ${{ secrets.RELAY_USER }}@${RELAY_HOST} "uname -m")
+          case "$ARCH" in
+            aarch64|arm64) ASSET="tp-relay-linux_arm64" ;;
+            x86_64|amd64)  ASSET="tp-relay-linux_x64" ;;
+          esac
+
+          gh release download "$TAG" --repo ${{ github.repository }} --pattern "$ASSET" --dir /tmp
+          mv "/tmp/$ASSET" /tmp/tp-relay
+          chmod +x /tmp/tp-relay
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy to server
+        run: |
+          scp -o StrictHostKeyChecking=no /tmp/tp-relay ${{ secrets.RELAY_USER }}@${RELAY_HOST}:/usr/local/bin/tp-relay
+          ssh -o StrictHostKeyChecking=no ${{ secrets.RELAY_USER }}@${RELAY_HOST} "systemctl restart tp-relay"
+
+      - name: Health check
+        run: |
+          sleep 3
+          STATUS=$(curl -sf "http://${RELAY_HOST}:${RELAY_PORT}/health" | jq -r '.status')
+          echo "Health: $STATUS"
+          [ "$STATUS" = "ok" ] || exit 1
+
+      - name: Summary
+        run: |
+          echo "✅ Relay deployed to ${RELAY_HOST}:${RELAY_PORT}"
+          curl -sf "http://${RELAY_HOST}:${RELAY_PORT}/health" | jq .

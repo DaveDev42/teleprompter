@@ -78,8 +78,8 @@ jobs:
 
       - name: Deploy to server
         run: |
-          scp -o StrictHostKeyChecking=no /tmp/tp-relay ${{ secrets.RELAY_USER }}@${RELAY_HOST}:/usr/local/bin/tp-relay
-          ssh -o StrictHostKeyChecking=no ${{ secrets.RELAY_USER }}@${RELAY_HOST} "systemctl restart tp-relay"
+          scp -o StrictHostKeyChecking=no /tmp/tp-relay ${{ secrets.RELAY_USER }}@${RELAY_HOST}:/tmp/tp-relay
+          ssh -o StrictHostKeyChecking=no ${{ secrets.RELAY_USER }}@${RELAY_HOST} "sudo mv /tmp/tp-relay /usr/local/bin/tp-relay && sudo chmod +x /usr/local/bin/tp-relay && sudo systemctl restart tp-relay"
 
       - name: Health check
         run: |

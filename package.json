@@ -1,5 +1,6 @@
 {
   "name": "teleprompter",
+  "version": "0.0.1",
   "private": true,
   "packageManager": "pnpm@10.8.1",
   "scripts": {

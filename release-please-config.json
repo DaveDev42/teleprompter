@@ -1,0 +1,15 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "tag-prefix": "release/v",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "apps/app/app.json",
+          "jsonpath": "$.expo.version"
+        }
+      ]
+    }
+  }
+}

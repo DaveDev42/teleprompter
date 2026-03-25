@@ -46,7 +46,7 @@ export function useDaemon(url?: string) {
           // Re-send hello after a delay to get updated session list.
           setTimeout(() => {
             if (!useSessionStore.getState().sid) {
-              client.send({ t: "hello" });
+              client.send({ t: "hello", v: 1 });
             }
           }, 3000);
         }

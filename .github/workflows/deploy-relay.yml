@@ -24,7 +24,6 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: env.RELAY_HOST != ''
     steps:
       - uses: actions/checkout@v4
 

@@ -9,13 +9,6 @@ on:
       - "packages/daemon/**"
       - "pnpm-lock.yaml"
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Release tag to deploy (e.g. v0.1.5), or 'build' to build from source"
-        required: false
-        default: "build"
-  release:
-    types: [published]
 
 env:
   RELAY_HOST: ${{ secrets.RELAY_HOST }}
@@ -44,37 +37,11 @@ jobs:
           esac
           echo "Server arch: $ARCH"
 
-      - name: Build from source
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.version == 'build')
-        uses: oven-sh/setup-bun@v2
-      - name: Install dependencies
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.version == 'build')
-        run: bun install --frozen-lockfile
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
       - name: Compile relay binary
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.version == 'build')
         run: |
           bun build packages/relay/src/index.ts --compile --target=${{ steps.arch.outputs.target }} --outfile /tmp/tp-relay
-
-      - name: Download from release
-        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.version != 'build')
-        run: |
-          if [ "${{ github.event.inputs.version }}" = "latest" ] || [ -z "${{ github.event.inputs.version }}" ]; then
-            TAG=$(gh release view --repo ${{ github.repository }} --json tagName -q '.tagName')
-          else
-            TAG="${{ github.event.inputs.version }}"
-          fi
-          echo "Deploying $TAG"
-
-          case "${{ steps.arch.outputs.target }}" in
-            bun-linux-arm64) ASSET="tp-relay-linux_arm64" ;;
-            bun-linux-x64)   ASSET="tp-relay-linux_x64" ;;
-          esac
-
-          gh release download "$TAG" --repo ${{ github.repository }} --pattern "$ASSET" --dir /tmp
-          mv "/tmp/$ASSET" /tmp/tp-relay
-          chmod +x /tmp/tp-relay
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Deploy to server
         run: |

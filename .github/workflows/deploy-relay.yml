@@ -24,7 +24,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: ${{ vars.RELAY_HOST != '' || secrets.RELAY_HOST != '' }}
+    if: env.RELAY_HOST != ''
     steps:
       - uses: actions/checkout@v4
 

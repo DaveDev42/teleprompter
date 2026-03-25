@@ -5,8 +5,8 @@
   "main": "index.ts",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
     "type-check": "tsc --noEmit"
   },
@@ -17,9 +17,8 @@
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",
     "expo": "~55.0.8",
-    "expo-barcode-scanner": "^13.0.1",
     "expo-build-properties": "~55.0.10",
-    "expo-camera": "~55.0.10",
+    "expo-camera": "~55.0.11",
     "expo-constants": "~55.0.9",
     "expo-linking": "~55.0.8",
     "expo-router": "~55.0.7",

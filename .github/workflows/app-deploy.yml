@@ -53,6 +53,8 @@ jobs:
 
       - name: Build
         working-directory: apps/app
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           eas build \
             --platform ${{ inputs.platform || 'all' }} \
@@ -62,6 +64,8 @@ jobs:
       - name: Submit
         if: inputs.submit != 'false'
         working-directory: apps/app
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           eas submit \
             --platform ${{ inputs.platform || 'all' }} \

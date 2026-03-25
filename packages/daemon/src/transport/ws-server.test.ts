@@ -17,7 +17,7 @@ describe("WsServer", () => {
     server = new WsServer(registry, {
       onHello: (client) => {
         events.push({ name: "hello", args: [client.id] });
-        registry.send(client, { t: "hello", d: { sessions: [] } });
+        registry.send(client, { t: "hello", v: 1, d: { sessions: [] } });
       },
       onAttach: (client, sid) => {
         events.push({ name: "attach", args: [client.id, sid] });

@@ -79,7 +79,7 @@ describe("WsServer", () => {
     ws.send(JSON.stringify({ t: "hello", v: 1 }));
     const reply = await msgPromise;
 
-    expect(reply).toEqual({ t: "hello", d: { sessions: [] } });
+    expect(reply).toEqual({ t: "hello", v: 1, d: { sessions: [] } });
     expect(events).toHaveLength(1);
     expect(events[0].name).toBe("hello");
 

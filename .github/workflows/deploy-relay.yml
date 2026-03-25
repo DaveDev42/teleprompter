@@ -1,12 +1,19 @@
 name: Deploy Relay
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/relay/**"
+      - "packages/protocol/**"
+      - "packages/daemon/**"
+      - "pnpm-lock.yaml"
   workflow_dispatch:
     inputs:
       version:
-        description: "Release tag to deploy (e.g. v0.1.5)"
+        description: "Release tag to deploy (e.g. v0.1.5), or 'build' to build from source"
         required: false
-        default: "latest"
+        default: "build"
   release:
     types: [published]
 
@@ -17,8 +24,10 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: env.RELAY_HOST != ''
+    if: ${{ vars.RELAY_HOST != '' || secrets.RELAY_HOST != '' }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
@@ -26,7 +35,26 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H ${RELAY_HOST} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Download relay binary
+      - name: Detect server arch
+        id: arch
+        run: |
+          ARCH=$(ssh -o StrictHostKeyChecking=no ${{ secrets.RELAY_USER }}@${RELAY_HOST} "uname -m")
+          case "$ARCH" in
+            aarch64|arm64) echo "target=bun-linux-arm64" >> $GITHUB_OUTPUT ;;
+            x86_64|amd64)  echo "target=bun-linux-x64" >> $GITHUB_OUTPUT ;;
+          esac
+          echo "Server arch: $ARCH"
+
+      - name: Build from source
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.version == 'build')
+        uses: oven-sh/setup-bun@v2
+      - name: Compile relay binary
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.version == 'build')
+        run: |
+          bun build packages/relay/src/index.ts --compile --target=${{ steps.arch.outputs.target }} --outfile /tmp/tp-relay
+
+      - name: Download from release
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.version != 'build')
         run: |
           if [ "${{ github.event.inputs.version }}" = "latest" ] || [ -z "${{ github.event.inputs.version }}" ]; then
             TAG=$(gh release view --repo ${{ github.repository }} --json tagName -q '.tagName')
@@ -35,11 +63,9 @@ jobs:
           fi
           echo "Deploying $TAG"
 
-          # Detect server arch
-          ARCH=$(ssh -o StrictHostKeyChecking=no ${{ secrets.RELAY_USER }}@${RELAY_HOST} "uname -m")
-          case "$ARCH" in
-            aarch64|arm64) ASSET="tp-relay-linux_arm64" ;;
-            x86_64|amd64)  ASSET="tp-relay-linux_x64" ;;
+          case "${{ steps.arch.outputs.target }}" in
+            bun-linux-arm64) ASSET="tp-relay-linux_arm64" ;;
+            bun-linux-x64)   ASSET="tp-relay-linux_x64" ;;
           esac
 
           gh release download "$TAG" --repo ${{ github.repository }} --pattern "$ASSET" --dir /tmp
@@ -62,5 +88,5 @@ jobs:
 
       - name: Summary
         run: |
-          echo "✅ Relay deployed to ${RELAY_HOST}:${RELAY_PORT}"
+          echo "Relay deployed to ${RELAY_HOST}:${RELAY_PORT}"
           curl -sf "http://${RELAY_HOST}:${RELAY_PORT}/health" | jq .

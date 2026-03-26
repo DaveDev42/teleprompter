@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { View, Text, TextInput, Pressable, Platform, ScrollView } from "react-native";
+import { useRouter } from "expo-router";
 import { useVoiceStore } from "../../src/stores/voice-store";
 import { usePairingStore } from "../../src/stores/pairing-store";
 import { DiagnosticsPanel } from "../../src/components/DiagnosticsPanel";
@@ -9,6 +10,7 @@ import { useConnectionStore } from "../../src/stores/connection-store";
 import { secureGet, secureSet } from "../../src/lib/secure-storage";
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const apiKey = useVoiceStore((s) => s.apiKey);
   const setApiKey = useVoiceStore((s) => s.setApiKey);
   const pairingState = usePairingStore((s) => s.state);
@@ -177,6 +179,14 @@ export default function SettingsScreen() {
             </>
           )}
         </View>
+        {pairingState !== "paired" && (
+          <Pressable
+            onPress={() => router.push("/pairing")}
+            className="mt-2 bg-blue-600 rounded-lg py-2 items-center"
+          >
+            <Text className="text-white text-sm">Pair with Daemon</Text>
+          </Pressable>
+        )}
         {pairingState === "paired" && (
           <Pressable
             onPress={resetPairing}

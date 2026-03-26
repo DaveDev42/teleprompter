@@ -22,11 +22,12 @@ export async function relayCommand(argv: string[]): Promise<void> {
   }
 }
 
-function startRelay(argv: string[]): void {
+async function startRelay(argv: string[]): Promise<void> {
   const { values } = parseArgs({
     args: argv,
     options: {
       port: { type: "string", default: "7090" },
+      "register-pairing": { type: "boolean", default: false },
     },
     strict: false,
   });
@@ -34,6 +35,17 @@ function startRelay(argv: string[]): void {
   const port = parseInt(values.port as string, 10);
   const relay = new RelayServer();
   relay.start(port);
+
+  // Auto-register pairing token from saved pairing data
+  if (values["register-pairing"]) {
+    const pairing = await loadPairingData();
+    if (pairing) {
+      relay.registerToken(pairing.relayToken, pairing.daemonId);
+      console.log(`[Relay] registered token for daemon ${pairing.daemonId}`);
+    } else {
+      console.warn("[Relay] --register-pairing: no pairing data found (run `tp pair` first)");
+    }
+  }
 
   console.log("[Relay] press Ctrl+C to stop");
 

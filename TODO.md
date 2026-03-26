@@ -46,6 +46,9 @@
 - [x] Playwright CI/local 프로젝트 분리 — CI는 claude 없이 7/7 pass
 - [ ] 테스트 커버리지 리포트 생성
 
+### 리팩터링
+- [ ] Vault → Store 리네이밍 (클래스, 파일, 디렉터리, 테스트, 문서 — 17파일 212개소)
+
 ### 에러 핸들링
 - [x] WS 연결 실패 시 재연결 카운터 + daemon start 힌트
 - [x] Daemon crash 시 "Reconnecting... (attempt N)" 표시

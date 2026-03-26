@@ -18,7 +18,7 @@ export async function pairCommand(argv: string[]): Promise<void> {
   const { values } = parseArgs({
     args: argv,
     options: {
-      relay: { type: "string", default: "ws://localhost:7090" },
+      relay: { type: "string", default: "wss://relay.tpmt.dev" },
       "daemon-id": { type: "string" },
       save: { type: "boolean", default: true },
     },

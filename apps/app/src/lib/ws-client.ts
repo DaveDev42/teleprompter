@@ -5,11 +5,14 @@ import type {
   WsRec,
 } from "@teleprompter/protocol/client";
 
+/** Production relay URL */
+const PRODUCTION_RELAY_URL = "wss://relay.tpmt.dev";
+
 /**
  * Auto-detect WS URL.
- * - Web served by daemon: use same host/port
- * - React Native (Expo Go): extract Metro host IP, use port 7080
- * - Web dev (Metro): fall back to localhost:7080
+ * - Dev: Metro/Expo Go → local daemon (ws://host:7080)
+ * - Dev: Daemon-served web → same host
+ * - Production: wss://relay.tpmt.dev
  */
 function getDefaultUrl(): string {
   // Web environment
@@ -24,42 +27,42 @@ function getDefaultUrl(): string {
       return `ws://${devHost}:7080`;
     }
     // Daemon-served web build — same host and port
-    if (host) {
+    if (host && !host.includes("tpmt.dev")) {
       return `${proto}//${host}`;
     }
   }
 
-  // React Native: extract host from Expo's __DEV__ source URL or Constants
-  try {
-    const Constants = require("expo-constants").default;
-    // SDK 55: hostUri is in expoConfig or expoGoConfig
-    const hostUri =
-      Constants?.expoGoConfig?.debuggerHost ??
-      Constants?.expoConfig?.hostUri ??
-      Constants?.manifest?.debuggerHost ??
-      Constants?.manifest2?.extra?.expoGo?.debuggerHost;
-    if (hostUri) {
-      const host = hostUri.split(":")[0];
-      if (host && host !== "localhost") {
-        return `ws://${host}:7080`;
+  // React Native dev: extract host from Expo's __DEV__ source URL or Constants
+  if (__DEV__) {
+    try {
+      const Constants = require("expo-constants").default;
+      const hostUri =
+        Constants?.expoGoConfig?.debuggerHost ??
+        Constants?.expoConfig?.hostUri ??
+        Constants?.manifest?.debuggerHost ??
+        Constants?.manifest2?.extra?.expoGo?.debuggerHost;
+      if (hostUri) {
+        const host = hostUri.split(":")[0];
+        if (host && host !== "localhost") {
+          return `ws://${host}:7080`;
+        }
       }
-    }
-  } catch {
-    // expo-constants not available
+    } catch {}
+
+    try {
+      const sourceUrl = (globalThis as any).__expo_source_url;
+      if (sourceUrl) {
+        const match = sourceUrl.match(/\/\/([^:\/]+)/);
+        if (match?.[1] && match[1] !== "localhost") {
+          return `ws://${match[1]}:7080`;
+        }
+      }
+    } catch {}
+
+    return "ws://localhost:7080";
   }
 
-  // Last resort: try to get from the RN source URL
-  try {
-    const sourceUrl = (globalThis as any).__expo_source_url;
-    if (sourceUrl) {
-      const match = sourceUrl.match(/\/\/([^:\/]+)/);
-      if (match?.[1] && match[1] !== "localhost") {
-        return `ws://${match[1]}:7080`;
-      }
-    }
-  } catch {}
-
-  return "ws://localhost:7080";
+  return PRODUCTION_RELAY_URL;
 }
 
 const DEFAULT_URL = getDefaultUrl();

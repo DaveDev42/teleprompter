@@ -1,4 +1,4 @@
-Teleprompter PRD (v0.1.0)
+Teleprompter PRD
 
 1. 제품 개요
 
@@ -32,7 +32,7 @@ Teleprompter는 다음을 제공한다.
 	•	원격 Claude Code Session을 쉽게 시작, 복구, 전환할 수 있다
 	•	좌측 Chat / 우측 Terminal 구조의 일관된 UX를 제공한다
 	•	git worktree를 1st-class로 통합한다 (Daemon이 직접 관리)
-	•	zero-trust E2EE를 제공한다 (libsodium 기반 X25519 + AES-256-GCM)
+	•	zero-trust E2EE를 제공한다 (libsodium 기반 X25519 + XChaCha20-Poly1305)
 	•	relay 교체 및 다중 relay 사용이 가능하다 (공식 호스팅 + 셀프 호스팅)
 	•	Expo 기반으로 모바일, 태블릿, 웹을 지원한다
 	•	Chat UI에서 음성 입력과 음성 요약 출력을 지원한다 (OpenAI Realtime API)
@@ -97,7 +97,7 @@ Teleprompter는 다음을 제공한다.
 
 5.4.2 PTY
 	•	macOS/Linux: Bun.spawn({ terminal }) — Bun v1.3.5+ 네이티브 PTY
-	•	Windows: bun-pty 라이브러리 (Rust FFI 기반)
+	•	Windows: 미지원 (향후 bun-pty 라이브러리 Rust FFI 기반 지원 예정)
 
 5.4.3 Frontend 기술
 	•	상태 관리: Zustand
@@ -105,7 +105,7 @@ Teleprompter는 다음을 제공한다.
 	•	터미널 렌더링: xterm.js (웹 네이티브, iOS/Android는 WebView 브릿지)
 
 5.4.4 암호화
-	•	libsodium (X25519 키 교환 + AES-256-GCM 대칭 암호화)
+	•	libsodium (X25519 키 교환 + XChaCha20-Poly1305 대칭 암호화)
 
 5.4.5 모노레포
 	•	도구: Turborepo + pnpm
@@ -113,11 +113,12 @@ Teleprompter는 다음을 제공한다.
 
 teleprompter/
 ├── apps/
-│   ├── frontend/     # Expo (RN + Web)
-│   ├── daemon/       # Bun 장기 실행 서비스
-│   ├── runner/       # Bun PTY 관리
-│   └── relay/        # Bun WebSocket 중계
+│   ├── app/          # @teleprompter/app — Expo (RN + Web)
+│   └── cli/          # @teleprompter/cli — 통합 CLI (`tp` 바이너리)
 ├── packages/
+│   ├── daemon/       # @teleprompter/daemon — Bun 장기 실행 서비스
+│   ├── runner/       # @teleprompter/runner — Bun PTY 관리
+│   ├── relay/        # @teleprompter/relay — Bun WebSocket 중계
 │   ├── protocol/     # @teleprompter/protocol — 공유 타입 + framed JSON 프로토콜
 │   ├── tsconfig/     # 공유 TS 설정
 │   └── eslint-config/
@@ -191,7 +192,7 @@ Runner
 	•	claude --settings <json> 플래그로 hooks 설정을 CLI 인라인 주입 (settings.local.json 수정 불필요)
 	•	Claude Code hooks 원본 이벤트 수집 (stdin JSON → event Record)
 	•	worktree별 실행 컨텍스트 적용
-	•	Daemon과 로컬 IPC 통신 (Unix domain socket / named pipe)
+	•	Daemon과 로컬 IPC 통신 (Unix domain socket)
 
 Relay Server
 	•	암호화된 데이터 중계
@@ -219,7 +220,7 @@ Relay Server
 8.3 Runner ↔ Daemon IPC
 	•	cross-platform local socket abstraction 사용
 	•	macOS/Linux: Unix domain socket
-	•	Windows: named pipe
+	•	Windows: 미지원 (향후 named pipe 예정)
 	•	backpressure 처리 필수: Bun socket.write()가 버퍼 가득 시 0을 반환하며 데이터를 버림 → write queue + drain 기반 flow control 구현
 
 8.4 Relay 상태 모델
@@ -244,7 +245,7 @@ Relay는 세션별로 아래를 유지한다.
 seq는 Session 내에서 io, event, meta 전체를 통틀어 단일 증가값으로 관리한다.
 
 9.2 저장 원칙
-	•	Daemon이 Vault에 append-only 방식으로 저장
+	•	Daemon이 Vault에 append-only 방식으로 저장 (세션 단위 삭제/정리는 가능)
 	•	Frontend는 마지막 seq 기준으로 resume
 	•	Relay는 source of truth가 아니며 recent 10만 캐시
 
@@ -312,7 +313,7 @@ Chat UI의 데이터 소스는 두 가지를 병행한다.
 
 ANSI 처리 원칙:
 	•	Terminal 탭: PTY raw bytes를 xterm.js에 그대로 전달 (ANSI 완벽 재현)
-	•	Chat 탭: strip-ansi 등으로 ANSI 제거 후 순수 텍스트만 표시
+	•	Chat 탭: ANSI escape regex로 제거 후 순수 텍스트만 표시
 
 11.2 Chat 재구성 매핑
 	•	UserPromptSubmit → user message
@@ -397,11 +398,13 @@ QR 기반 E2EE 페어링 흐름은 다음과 같다.
 		•	Daemon public key (32B)
 		•	relay endpoint URL
 		•	Daemon ID
-	3.	Frontend가 QR 스캔 → 자체 X25519 키쌍 생성
-	4.	pairing secret을 auth token으로 사용해 relay 경유 키 교환 수행
-	5.	ECDH(X25519) → shared secret → HKDF로 session key 유도
-	6.	모든 프레임을 AES-256-GCM으로 암호화
-	7.	키 로테이션: 각 Session 시작 시 새로운 ephemeral key ratchet 수행
+	3.	Frontend가 QR 스캔 → Daemon pubkey를 offline으로 획득 → 자체 X25519 키쌍 생성
+	4.	pairing secret에서 relay token 파생 (BLAKE2b), relay를 경유해 Frontend pubkey를 Daemon에게 전달
+	5.	양쪽 ECDH (X25519 `crypto_kx`) → session keys (tx/rx) 유도
+	6.	모든 프레임을 XChaCha20-Poly1305로 암호화
+	7.	키 로테이션: 각 Session 시작 시 새로운 ephemeral key ratchet 수행 (BLAKE2b 기반)
+
+Note: Daemon pubkey는 QR 코드(offline)로 전달, Frontend pubkey는 relay 경유. Relay는 pairing secret 파생 token으로 세션 라우팅 접근 제어만 수행하며, 암호학적 인증의 주체가 아님.
 
 14.2.1 페어링 정책
 	•	새 Daemon 추가 시마다 QR 페어링
@@ -410,7 +413,7 @@ QR 기반 E2EE 페어링 흐름은 다음과 같다.
 	•	기존 신뢰 기기를 모두 잃으면 복구 불가
 
 14.2.2 암호화 라이브러리
-	•	libsodium 사용 (X25519 + AES-256-GCM)
+	•	libsodium 사용 (X25519 + XChaCha20-Poly1305)
 	•	Bun 환경: libsodium-wrappers
 	•	Expo 환경: libsodium-wrappers 또는 react-native-libsodium
 
@@ -588,7 +591,7 @@ Stage 0: Foundation
 	•	packages/protocol: 공유 타입 + framed JSON 프로토콜 정의
 	•	Runner: Bun.spawn({ terminal }) 기반 PTY 실행, io/hooks 이벤트 수집
 	•	Daemon 기본 구조: Runner IPC 연결, Vault 저장, Session 관리
-	•	Runner ↔ Daemon Unix domain socket / named pipe IPC
+	•	Runner ↔ Daemon Unix domain socket IPC
 
 Stage 1: Local UI
 	•	Expo 프로젝트 초기화 (React Native + RN Web)
@@ -599,7 +602,7 @@ Stage 1: Local UI
 
 Stage 2: Relay + E2EE
 	•	Relay 서버 구현 (Bun WebSocket, ciphertext-only 중계)
-	•	X25519 + AES-256-GCM E2EE 구현 (libsodium)
+	•	X25519 + XChaCha20-Poly1305 E2EE 구현 (libsodium)
 	•	QR 기반 페어링 프로토콜 구현
 	•	다중 relay 설정/선택 UI
 	•	공식 호스팅 relay + 셀프 호스팅 + 동시 다중 relay 사용
@@ -643,20 +646,22 @@ Stage 5: Mobile + Responsive
 	•	[해결] Bun PTY로 Claude Code 실행 — 정상 동작 확인 (spike)
 	•	[해결] terminal.write() 인터랙티브 입력 — 정상 동작 확인 (spike)
 	•	[해결] hooks 수집 — --settings 플래그로 인라인 주입 가능 확인 (spike)
-	•	[해결] ANSI escape 시퀀스 — xterm.js가 네이티브 처리, Chat은 strip-ansi
+	•	[해결] ANSI escape 시퀀스 — xterm.js가 네이티브 처리, Chat은 regex 기반 ANSI strip
+
+추가 해결:
+	•	[해결] Bun Unix socket backpressure — QueuedWriter 구현 (packages/protocol/src/queued-writer.ts)
+	•	[해결] --settings hooks merge 전략 — settings-builder.ts에서 기존 hooks와 merge 후 주입
+	•	[해결] hook 스크립트 IPC 전송 — Bun 원라이너 방식 채택 (capture-hook.ts)
+	•	[해결] framed JSON protocol 최종 필드 스펙 — Envelope 타입 확정 (packages/protocol/src/types/envelope.ts)
+	•	[해결] key ratchet 프로토콜 — ephemeral per-session, BLAKE2b 기반 (crypto.ts ratchetSessionKeys)
+	•	[해결] 자동 업데이트 — `tp upgrade` 명령어 구현
 
 미해결:
-	•	Bun Unix socket backpressure — write queue + drain flow control 구현 및 burst 테스트 필요
-	•	--settings hooks merge 전략 — 사용자 기존 hooks와의 병합 방식 확정 필요
-	•	hook 스크립트 IPC 전송 — Bun 원라이너 vs 컴파일된 바이너리 결정
 	•	Hermes(iOS/Android)에서 libsodium-wrappers WASM 미지원 — react-native-libsodium 대안 검증 필요
 	•	웹 환경 API key 암호화 저장의 구체 암호화 방식 (IndexedDB + Web Crypto API 조합 등)
 	•	음성 입력 모드에서 토글/옵션의 최종 레이아웃
 	•	모바일/태블릿/PC 반응형에서 디버그 패널 정보 밀도 상세 설계
 	•	hook 기반 카드 휴리스틱의 실제 규칙 테이블
-	•	framed JSON protocol의 최종 필드 스펙과 에러 코드 체계
 	•	PTY output 파싱 규칙의 Claude Code 버전별 분기 전략 상세
 	•	xterm.js WebView 브릿지의 iOS/Android 성능 최적화 방안
-	•	key ratchet 프로토콜의 상세 스펙 (Double Ratchet 수준 vs ephemeral per-session)
-	•	bun build --compile 바이너리의 자동 업데이트 메커니즘
 	•	공식 호스팅 relay의 운영 정책 (SLA, 리전, 요금)

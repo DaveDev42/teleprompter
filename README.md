@@ -64,6 +64,12 @@ cd apps/app && npx expo start --web
 | `tp daemon start [opts]` | Start the daemon service |
 | `tp relay start [--port]` | Start a relay server |
 | `tp pair [--relay URL]` | Generate QR pairing data |
+| `tp status` | Show daemon status and sessions |
+| `tp logs` | Tail live session records |
+| `tp doctor` | Environment diagnostics |
+| `tp init` | Project setup guide |
+| `tp upgrade` | Check and install latest release |
+| `tp completions <shell>` | Generate shell completions (bash/zsh/fish) |
 | `tp version` | Print version |
 
 ### Daemon Options
@@ -77,6 +83,9 @@ cd apps/app && npx expo start --web
 --web-dir /path       Serve frontend web build at WS port
 --spawn --sid X       Auto-create a session on start
 --cwd /path           Working directory for session
+--prune               Prune old sessions on start
+--verbose / --quiet   Log level control
+--watch               Auto-restart on uncaught exceptions
 ```
 
 ## Architecture
@@ -95,14 +104,18 @@ Runner → Daemon → Relay → App
 
 ```
 apps/
-  cli/         # Unified `tp` binary
-  app/         # Expo app (iOS + Web + Android)
+  cli/            # Unified `tp` binary
+  app/            # Expo app (iOS + Web + Android)
 packages/
-  protocol/    # Shared types, codec, crypto, pairing
-  daemon/      # Session management, vault, WS server
-  relay/       # WebSocket ciphertext relay
-  runner/      # PTY management, hooks collection
-  tsconfig/    # Shared TypeScript configs
+  daemon/         # Session management, vault, WS server
+  runner/         # PTY management, hooks collection
+  relay/          # WebSocket ciphertext relay
+  protocol/       # Shared types, codec, crypto, pairing
+  tsconfig/       # Shared TypeScript configs
+  eslint-config/  # Shared ESLint configuration
+scripts/
+  build.ts        # Multi-platform bun build --compile
+  install.sh      # curl-pipe-sh installer
 ```
 
 ## Development
@@ -110,7 +123,7 @@ packages/
 ```bash
 pnpm install
 
-# Run all tests (203 unit/integration + 5 Playwright E2E)
+# Run all tests (unit/integration across 41 test files + 6 Playwright E2E specs)
 pnpm test
 
 # Type check all 5 packages
@@ -121,7 +134,7 @@ pnpm build:cli:local    # current platform
 pnpm build:cli          # all 4 platforms
 
 # Frontend dev server
-pnpm dev:frontend
+pnpm dev:app
 
 # Build frontend for production
 pnpm build:web
@@ -135,7 +148,7 @@ pnpm doctor
 - **TypeScript** — single stack across all components
 - **Bun** — runtime for Runner, Daemon, Relay
 - **Expo** — React Native + Web frontend
-- **libsodium** — X25519 key exchange + XChaCha20-Poly1305 encryption
+- **libsodium** — X25519 key exchange + XChaCha20-Poly1305 AEAD encryption
 - **xterm.js** — terminal rendering (Web + native WebView bridge)
 - **OpenAI Realtime API** — voice input/output with STT + TTS
 

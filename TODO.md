@@ -13,7 +13,7 @@
 ## 🟡 P1 — 사용성
 
 ### Relay 원격 배포
-- [ ] Hetzner 또는 Oracle Cloud에 relay 서버 배포
+- [x] Hetzner 또는 Oracle Cloud에 relay 서버 배포 — deploy-relay.yml + SSH binary deploy
 - [ ] 실제 다른 네트워크에서 E2EE relay 통신 검증
 - [ ] relay RTT 측정 및 성능 확인
 

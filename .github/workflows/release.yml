@@ -89,3 +89,10 @@ jobs:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           eas build --platform all --profile production --non-interactive --no-wait
+      - name: Publish OTA update
+        working-directory: apps/app
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          VERSION=${GITHUB_REF_NAME#release/v}
+          eas update --channel production --message "v${VERSION}" --non-interactive

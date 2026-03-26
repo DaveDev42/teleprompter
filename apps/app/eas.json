@@ -12,7 +12,7 @@
       }
     },
     "preview": {
-      "distribution": "internal",
+      "distribution": "store",
       "channel": "preview",
       "autoIncrement": true
     },

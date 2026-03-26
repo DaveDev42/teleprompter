@@ -14,8 +14,8 @@
 
 ### Relay 원격 배포
 - [x] Hetzner 또는 Oracle Cloud에 relay 서버 배포 — deploy-relay.yml + SSH binary deploy
-- [ ] 실제 다른 네트워크에서 E2EE relay 통신 검증
-- [ ] relay RTT 측정 및 성능 확인
+- [x] 실제 다른 네트워크에서 E2EE relay 통신 검증 — `tp relay ping --verify-e2ee`
+- [x] relay RTT 측정 및 성능 확인 — `tp relay ping --count N` (min/avg/max/p95)
 
 ### iOS Native Build
 - [ ] Apple Developer 계정으로 TestFlight 배포
@@ -23,13 +23,13 @@
 - [ ] App Store 제출 준비
 
 ### Native E2EE
-- [ ] react-native-quick-crypto 통합 (Hermes WASM 대체)
-- [ ] iOS/Android에서 E2EE relay 연결 검증
+- [x] libsodium asm.js fallback 활성화 (Expo Go 호환, 네이티브 모듈 불필요)
+- [ ] iOS/Android에서 E2EE relay 연결 검증 (Expo Go 실기기 테스트)
 - [ ] QR 페어링 → 암호화 통신 네이티브 E2E
 
 ### Daemon 자동 시작
 - [x] `tp status`, `tp logs` 등에서 daemon이 없으면 자동 시작 — ensureDaemon()
-- [ ] OS 서비스 등록 (launchd/systemd) 가이드 또는 스크립트
+- [x] OS 서비스 등록 — `tp daemon install/uninstall` (macOS launchd, Linux systemd)
 
 ---
 

@@ -45,6 +45,8 @@ export interface RelayUnsubscribe {
 
 export interface RelayPing {
   t: "relay.ping";
+  /** Client timestamp for RTT measurement */
+  ts?: number;
 }
 
 export type RelayClientMessage =
@@ -87,6 +89,8 @@ export interface RelayPresence {
 
 export interface RelayPong {
   t: "relay.pong";
+  /** Echoed client timestamp */
+  ts?: number;
 }
 
 export interface RelayError {

@@ -86,6 +86,7 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - `apps/cli/src/commands/passthrough.test.ts` — arg splitting
 - `packages/protocol/src/compat.test.ts` — protocol version compatibility
 - `packages/runner/src/pty/pty-manager.test.ts` — PTY spawn, resize, lifecycle
+- `apps/cli/src/lib/service.test.ts` — OS service plist/unit generation
 
 ### Tier 2: Integration Tests (stub runner)
 Stub 프로세스로 전체 파이프라인 검증.
@@ -195,6 +196,31 @@ update the relevant documentation files in the same commit.
 ### EAS Credentials (Expo 서버 저장)
 - iOS: Distribution Certificate + App Store Connect API Key (ascAppId: 6761056150)
 - Android: Keystore + Google Play Service Account Key
+
+## Expo Go Compatibility
+
+앱은 Expo Go에서 구동 가능해야 하므로 커스텀 네이티브 모듈 사용 불가.
+- ✗ react-native-quick-crypto (JSI 네이티브 모듈)
+- ✗ react-native-libsodium (Rust FFI)
+- ✓ libsodium-wrappers-sumo (WASM on Web/Bun, asm.js fallback on Hermes)
+- ✓ expo-crypto (Expo SDK 내장)
+- ✓ 순수 JavaScript 라이브러리
+
+## CLI Commands
+
+```bash
+tp daemon start          # Daemon 포그라운드 실행
+tp daemon install        # OS 서비스 등록 (macOS: launchd, Linux: systemd)
+tp daemon uninstall      # OS 서비스 해제
+tp relay start           # Relay 서버 실행
+tp relay ping            # Relay RTT 측정 + E2EE 검증
+  --relay-url URL        #   relay 주소 (기본: 저장된 pairing 데이터)
+  --count N              #   ping 횟수 (기본: 10)
+  --verify-e2ee          #   E2EE encrypt/decrypt round-trip 검증
+tp pair                  # QR 페어링 데이터 생성
+tp status                # Daemon 상태 확인 (자동 시작)
+tp run                   # Runner 프로세스 실행
+```
 
 ## Language
 

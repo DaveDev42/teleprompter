@@ -35,7 +35,7 @@ switch (command) {
     await runCommand(process.argv.slice(3));
     break;
   case "relay":
-    relayCommand(process.argv.slice(3));
+    await relayCommand(process.argv.slice(3));
     break;
   case "pair":
     await pairCommand(process.argv.slice(3));

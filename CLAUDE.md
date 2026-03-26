@@ -142,13 +142,59 @@ update the relevant documentation files in the same commit.
 - 깨진 코드나 미완성 코드를 커밋하지 않음
 - 문서 업데이트(CLAUDE.md, TODO.md 등)는 해당 코드 변경과 같은 커밋에 포함
 
-## Web Deployment
+## Deployment Pipeline
 
-- **Platform**: Vercel (static export)
-- **Domain**: tpmt.dev
-- **Build**: `npx expo export --platform web` → `apps/app/dist/`
-- **Config**: `vercel.json` at repo root (SPA rewrites, static asset caching)
-- **Privacy Policy**: `apps/app/public/privacy-policy.html` → `https://tpmt.dev/privacy-policy`
+### main push
+| Target | Workflow | Condition |
+|--------|----------|-----------|
+| CI | GitHub Actions `ci.yml` | 항상 |
+| Relay | GitHub Actions `deploy-relay.yml` | packages/relay,protocol,daemon 변경 시 |
+| Web | Vercel (자동) | 항상 → `tpmt.dev` |
+| iOS TestFlight | EAS Workflow `preview.yaml` | apps/app, packages/protocol 변경 시 |
+| Android Internal | EAS Workflow `preview.yaml` | apps/app, packages/protocol 변경 시 |
+
+### release/v* 태그 (Release Please PR merge)
+| Target | Workflow | 설명 |
+|--------|----------|------|
+| tp + tp-relay 바이너리 | GitHub Actions `release.yml` | 4 플랫폼 빌드 → GitHub Release |
+| iOS App Store | EAS Workflow `production.yaml` | Fingerprint → 빌드/OTA → 제출 |
+| Android Play Store | EAS Workflow `production.yaml` | Fingerprint → 빌드/OTA → 제출 |
+
+### 수동
+| Workflow | 역할 |
+|----------|------|
+| `release-please.yml` (dispatch) | Release PR 생성 (version bump + CHANGELOG) |
+| `deploy-relay.yml` (dispatch) | 수동 relay 배포 |
+
+### EAS 빌드 최적화
+- **Fingerprint**: 네이티브 코드 해시로 기존 빌드 재사용 여부 판단
+- **JS만 변경**: OTA 업데이트 발행 (~2분, 빌드 비용 $0)
+- **네이티브 변경**: 풀빌드 + 스토어 제출
+- **paths 필터**: 앱 무관한 변경 시 EAS 트리거 안 됨
+
+### 릴리즈 절차
+```bash
+# 1. 개발: main에 Conventional Commits로 push (자동 배포)
+# 2. 릴리즈 준비: GitHub Actions > Release Please > Run workflow
+# 3. 릴리즈: Release PR merge → release/v0.0.1 태그 자동 생성
+```
+
+### Infrastructure
+- **Relay**: Vultr Seoul `158.247.193.109:7090` (systemd: `tp-relay`)
+- **Web**: Vercel → `tpmt.dev`
+- **App**: EAS Build → TestFlight / Google Internal / App Store / Play Store
+- **CLI**: GitHub Releases → `bun build --compile` (darwin/linux × arm64/x64)
+
+### GitHub Secrets
+| Secret | 용도 |
+|--------|------|
+| `RELAY_HOST` | Relay 서버 IP |
+| `RELAY_USER` | Relay SSH 사용자 |
+| `RELAY_SSH_KEY` | Relay SSH 키 |
+
+### EAS Credentials (Expo 서버 저장)
+- iOS: Distribution Certificate + App Store Connect API Key (ascAppId: 6761056150)
+- Android: Keystore + Google Play Service Account Key
 
 ## Language
 

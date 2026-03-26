@@ -38,7 +38,7 @@ export interface FrontendRelayEvents {
   /** Decrypted record from daemon */
   onRecord?: (rec: WsRec) => void;
   /** Decrypted state from daemon */
-  onState?: (msg: any) => void;
+  onState?: (msg: unknown) => void;
   /** Connection state */
   onConnected?: () => void;
   onDisconnected?: () => void;

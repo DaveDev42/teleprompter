@@ -4,7 +4,6 @@ import { useSessionStore } from "../stores/session-store";
 import { useOfflineStore } from "../stores/offline-store";
 import { usePairingStore } from "../stores/pairing-store";
 import { getDaemonClient } from "../hooks/use-daemon";
-import { getRelayClient } from "../hooks/use-relay";
 import { checkCryptoAvailability } from "../lib/crypto-native";
 import type { WsSessionMeta } from "@teleprompter/protocol/client";
 
@@ -102,7 +101,7 @@ export function DiagnosticsPanel() {
     }
 
     // 2. Key generation
-    const { generateKeyPair, encrypt, decrypt } = await import(
+    const { generateKeyPair, encrypt, decrypt, deriveSessionKeys } = await import(
       "@teleprompter/protocol/client"
     );
     t0 = Date.now();
@@ -116,7 +115,6 @@ export function DiagnosticsPanel() {
     // 3. Encrypt/decrypt round-trip (using derived session keys)
     t0 = Date.now();
     try {
-      const { deriveSessionKeys } = await import("@teleprompter/protocol/client");
       const kpA = await generateKeyPair();
       const kpB = await generateKeyPair();
       const keysA = await deriveSessionKeys(kpA, kpB.publicKey, "daemon");
@@ -175,11 +173,11 @@ export function DiagnosticsPanel() {
             <MetricRow label="Relay URL" value={pairingInfo.relayUrl} />
             <MetricRow
               label="Relay WS"
-              value={getRelayClient()?.isConnected() ? "Connected" : "Disconnected"}
+              value={connected ? "Connected" : "Disconnected"}
             />
             <MetricRow
               label="E2EE"
-              value={getRelayClient()?.isConnected() ? "Active" : "Inactive"}
+              value={connected ? "Active" : "Inactive"}
             />
           </>
         )}

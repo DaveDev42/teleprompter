@@ -13,8 +13,8 @@ import { getRandomValues } from "expo-crypto";
 
 const g = globalThis as any;
 
-// libsodium checks: `typeof window ? window : self`, then `.crypto.getRandomValues`
-// On Hermes, `window` is undefined (typeof === 'string'), so it falls to `self`.
+// libsodium checks: `typeof window === 'object' ? window : self`, then `.crypto.getRandomValues`
+// On Hermes, `window` is not defined, so it falls through to `self`.
 // We ensure `self.crypto.getRandomValues` exists.
 if (typeof g.self === "undefined") {
   g.self = g;

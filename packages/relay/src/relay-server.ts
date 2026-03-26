@@ -211,7 +211,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
         this.handleUnsubscribe(ws, msg);
         break;
       case "relay.ping":
-        this.send(ws, { t: "relay.pong" });
+        this.send(ws, { t: "relay.pong", ts: msg.ts });
         break;
       default:
         this.send(ws, {

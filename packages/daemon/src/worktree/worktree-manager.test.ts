@@ -1,9 +1,18 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { WorktreeManager } from "./worktree-manager";
-import { mkdtemp, rm } from "fs/promises";
-import { join } from "path";
+import { mkdtemp, rm, writeFile, readdir } from "fs/promises";
+import { join, dirname, basename } from "path";
 import { tmpdir } from "os";
-import { $ } from "bun";
+
+/** Run git with explicit stdout pipe (Bun.$ doesn't capture stdout reliably in test runner) */
+async function gitRun(args: string[], cwd: string): Promise<void> {
+  const proc = Bun.spawn(["git", ...args], { cwd, stdout: "ignore", stderr: "pipe" });
+  const exit = await proc.exited;
+  if (exit !== 0) {
+    const err = await new Response(proc.stderr).text();
+    throw new Error(`git ${args[0]} failed: ${err}`);
+  }
+}
 
 describe("WorktreeManager", () => {
   let repoDir: string;
@@ -12,14 +21,14 @@ describe("WorktreeManager", () => {
   beforeEach(async () => {
     // Create a temp git repo
     repoDir = await mkdtemp(join(tmpdir(), "tp-wt-test-"));
-    await $`git -C ${repoDir} init -b main`.quiet();
-    await $`git -C ${repoDir} config user.email "test@test.com"`.quiet();
-    await $`git -C ${repoDir} config user.name "Test"`.quiet();
-    await $`git -C ${repoDir} config commit.gpgsign false`.quiet();
+    await gitRun(["init", "-b", "main"], repoDir);
+    await gitRun(["config", "user.email", "test@test.com"], repoDir);
+    await gitRun(["config", "user.name", "Test"], repoDir);
+    await gitRun(["config", "commit.gpgsign", "false"], repoDir);
     // Create an initial commit (required for worktrees)
-    await $`touch ${repoDir}/README.md`.quiet();
-    await $`git -C ${repoDir} add .`.quiet();
-    await $`git -C ${repoDir} commit -m "init"`.quiet();
+    await writeFile(join(repoDir, "README.md"), "");
+    await gitRun(["add", "."], repoDir);
+    await gitRun(["commit", "-m", "init"], repoDir);
 
     manager = new WorktreeManager(repoDir);
   });
@@ -34,7 +43,18 @@ describe("WorktreeManager", () => {
         }
       }
     } catch {}
+    // Remove repo dir and any sibling worktree dirs (repoDir + "-wt-*")
     await rm(repoDir, { recursive: true, force: true });
+    const parent = dirname(repoDir);
+    const prefix = basename(repoDir);
+    try {
+      const entries = await readdir(parent);
+      for (const entry of entries) {
+        if (entry.startsWith(prefix + "-wt-")) {
+          await rm(join(parent, entry), { recursive: true, force: true });
+        }
+      }
+    } catch {}
   });
 
   test("list returns main worktree", async () => {
@@ -47,7 +67,7 @@ describe("WorktreeManager", () => {
   });
 
   test("add creates a new worktree with new branch", async () => {
-    const wtPath = join(repoDir, "..", "wt-feature");
+    const wtPath = repoDir + "-wt-feature";
     const wt = await manager.add(wtPath, "feature-1");
 
     expect(wt.path).toBe(wtPath);
@@ -61,24 +81,24 @@ describe("WorktreeManager", () => {
 
   test("add creates worktree from base branch", async () => {
     // Create a base branch with a commit
-    await $`git -C ${repoDir} checkout -b develop`.quiet();
-    await $`touch ${repoDir}/dev.txt`.quiet();
-    await $`git -C ${repoDir} add .`.quiet();
-    await $`git -C ${repoDir} commit -m "dev commit"`.quiet();
-    await $`git -C ${repoDir} checkout -`.quiet();
+    await gitRun(["checkout", "-b", "develop"], repoDir);
+    await writeFile(join(repoDir, "dev.txt"), "");
+    await gitRun(["add", "."], repoDir);
+    await gitRun(["commit", "-m", "dev commit"], repoDir);
+    await gitRun(["checkout", "-"], repoDir);
 
-    const wtPath = join(repoDir, "..", "wt-from-develop");
+    const wtPath = repoDir + "-wt-from-develop";
     const wt = await manager.add(wtPath, "feature-from-dev", "develop");
 
     expect(wt.branch).toBe("feature-from-dev");
 
     // Verify it has the dev commit
-    const files = await $`ls ${wtPath}`.text();
-    expect(files).toContain("dev.txt");
+    const entries = await readdir(wtPath);
+    expect(entries).toContain("dev.txt");
   });
 
   test("remove deletes a worktree", async () => {
-    const wtPath = join(repoDir, "..", "wt-to-remove");
+    const wtPath = repoDir + "-wt-to-remove";
     await manager.add(wtPath, "to-remove");
 
     let worktrees = await manager.list();
@@ -91,8 +111,8 @@ describe("WorktreeManager", () => {
   });
 
   test("list shows multiple worktrees with correct branches", async () => {
-    const wt1Path = join(repoDir, "..", "wt-a");
-    const wt2Path = join(repoDir, "..", "wt-b");
+    const wt1Path = repoDir + "-wt-a";
+    const wt2Path = repoDir + "-wt-b";
 
     await manager.add(wt1Path, "branch-a");
     await manager.add(wt2Path, "branch-b");

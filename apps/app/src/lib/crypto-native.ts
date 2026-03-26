@@ -1,43 +1,50 @@
 /**
- * Native crypto fallback for Hermes (iOS/Android).
+ * Native crypto availability for all platforms.
  *
- * Hermes doesn't support WASM, so libsodium-wrappers won't work
- * on native platforms. This module provides a fallback strategy:
+ * libsodium-wrappers-sumo includes a JS-based WebAssembly polyfill
+ * (asm.js fallback) that works on Hermes without native WASM support.
+ * This means E2EE crypto is available on all platforms including
+ * iOS/Android via Expo Go — no custom native modules required.
  *
- * Option 1 (current): Use Expo Crypto + WebCrypto polyfill
- * Option 2 (future): Use react-native-libsodium (Rust FFI)
- * Option 3 (future): Use react-native-quick-crypto (JSI)
- *
- * For now, the crypto module from @teleprompter/protocol works on:
- * - Web: libsodium-wrappers uses WASM ✓
- * - Bun: libsodium-wrappers uses WASM ✓
- * - Hermes: needs one of the alternatives below
- *
- * Strategy: On native platforms, we import react-native-quick-crypto
- * which provides a JSI-based crypto implementation that's compatible
- * with the Node.js crypto API. We can use it for:
- * - X25519 key exchange
- * - AES-256-GCM / ChaCha20-Poly1305 encryption
- * - BLAKE2b hashing
- *
- * Until react-native-quick-crypto or react-native-libsodium is
- * integrated, native crypto operations will throw an error directing
- * the user to use the web version.
+ * Platform behavior:
+ * - Web: libsodium uses WASM (fast)
+ * - Bun: libsodium uses WASM (fast)
+ * - Hermes (iOS/Android): libsodium uses asm.js polyfill (slower but functional)
  */
 
-import { Platform } from "react-native";
+let _cryptoChecked = false;
+let _cryptoAvailable = false;
 
-export function isNativeCryptoAvailable(): boolean {
-  // TODO: Check for react-native-quick-crypto or react-native-libsodium
-  return Platform.OS === "web";
+/**
+ * Check whether libsodium can initialize on the current platform.
+ * Caches the result after first call. Must be called with `await` before
+ * using E2EE functions.
+ */
+export async function checkCryptoAvailability(): Promise<boolean> {
+  if (_cryptoChecked) return _cryptoAvailable;
+  _cryptoChecked = true;
+
+  try {
+    const { ensureSodium } = await import("@teleprompter/protocol/client");
+    await ensureSodium();
+    _cryptoAvailable = true;
+  } catch {
+    _cryptoAvailable = false;
+  }
+  return _cryptoAvailable;
 }
 
-export function assertCryptoAvailable(): void {
-  if (!isNativeCryptoAvailable()) {
+export function isNativeCryptoAvailable(): boolean {
+  return _cryptoAvailable;
+}
+
+export async function assertCryptoAvailable(): Promise<void> {
+  const available = await checkCryptoAvailability();
+  if (!available) {
     throw new Error(
-      "E2EE is not yet available on native platforms. " +
-        "Please use the web version for encrypted relay connections. " +
-        "Native crypto support (via react-native-quick-crypto) is planned.",
+      "E2EE crypto failed to initialize on this platform. " +
+        "libsodium asm.js fallback may not be supported on this runtime. " +
+        "Please use the web version for encrypted relay connections.",
     );
   }
 }

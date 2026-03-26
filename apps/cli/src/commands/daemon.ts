@@ -12,11 +12,25 @@ import { loadPairingData } from "./pair";
 export async function daemonCommand(argv: string[]): Promise<void> {
   const subcommand = argv[0];
 
-  if (subcommand !== "start") {
-    console.error(
-      `Usage: tp daemon start [--ws-port 7080] [--repo-root /path] [--relay-url URL --relay-token TOKEN --daemon-id ID] [--spawn --sid X --cwd Y]`,
-    );
-    process.exit(1);
+  switch (subcommand) {
+    case "start":
+      break; // fall through to existing start logic
+    case "install": {
+      const { installService } = await import("../lib/service");
+      return installService();
+    }
+    case "uninstall": {
+      const { uninstallService } = await import("../lib/service");
+      return uninstallService();
+    }
+    default:
+      console.error(
+        `Usage: tp daemon <start|install|uninstall> [options]\n` +
+        `  start      Start daemon in foreground\n` +
+        `  install    Register as OS service (launchd/systemd)\n` +
+        `  uninstall  Remove OS service registration`,
+      );
+      process.exit(1);
   }
 
   const { values } = parseArgs({

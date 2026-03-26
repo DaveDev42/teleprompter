@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { View, Text, ScrollView, Pressable } from "react-native";
 import { useSessionStore } from "../stores/session-store";
 import { useOfflineStore } from "../stores/offline-store";
 import { usePairingStore } from "../stores/pairing-store";
 import { getDaemonClient } from "../hooks/use-daemon";
+import { getRelayClient } from "../hooks/use-relay";
+import { checkCryptoAvailability } from "../lib/crypto-native";
 import type { WsSessionMeta } from "@teleprompter/protocol/client";
 
 function MetricRow({ label, value }: { label: string; value: string }) {
@@ -60,6 +62,13 @@ export function DiagnosticsPanel() {
   const pairingState = usePairingStore((s) => s.state);
   const pairingInfo = usePairingStore((s) => s.info);
   const [rtt, setRtt] = useState(-1);
+  const [cryptoTest, setCryptoTest] = useState<{
+    running: boolean;
+    sodiumInit?: { ok: boolean; ms: number };
+    keyGen?: { ok: boolean; ms: number };
+    encDec?: { ok: boolean; ms: number };
+    platform?: string;
+  }>({ running: false });
 
   const handlePing = () => {
     const client = getDaemonClient();
@@ -68,6 +77,61 @@ export function DiagnosticsPanel() {
       setTimeout(() => setRtt(client.getRtt()), 500);
     }
   };
+
+  const handleCryptoTest = useCallback(async () => {
+    setCryptoTest({ running: true });
+    const result: typeof cryptoTest = { running: false };
+
+    // Detect platform
+    if (typeof (globalThis as any).HermesInternal !== "undefined") result.platform = "hermes";
+    else if (typeof document !== "undefined") result.platform = "web";
+    else result.platform = "unknown";
+
+    // 1. Sodium init
+    let t0 = Date.now();
+    try {
+      const ok = await checkCryptoAvailability();
+      result.sodiumInit = { ok, ms: Date.now() - t0 };
+    } catch {
+      result.sodiumInit = { ok: false, ms: Date.now() - t0 };
+    }
+
+    if (!result.sodiumInit.ok) {
+      setCryptoTest(result);
+      return;
+    }
+
+    // 2. Key generation
+    const { generateKeyPair, encrypt, decrypt } = await import(
+      "@teleprompter/protocol/client"
+    );
+    t0 = Date.now();
+    try {
+      await generateKeyPair();
+      result.keyGen = { ok: true, ms: Date.now() - t0 };
+    } catch {
+      result.keyGen = { ok: false, ms: Date.now() - t0 };
+    }
+
+    // 3. Encrypt/decrypt round-trip (using derived session keys)
+    t0 = Date.now();
+    try {
+      const { deriveSessionKeys } = await import("@teleprompter/protocol/client");
+      const kpA = await generateKeyPair();
+      const kpB = await generateKeyPair();
+      const keysA = await deriveSessionKeys(kpA, kpB.publicKey, "daemon");
+      const keysB = await deriveSessionKeys(kpB, kpA.publicKey, "frontend");
+      const plaintext = new TextEncoder().encode("E2EE self-test payload");
+      const ct = await encrypt(plaintext, keysA.tx);
+      const decrypted = await decrypt(ct, keysB.rx);
+      const ok = new TextDecoder().decode(decrypted) === "E2EE self-test payload";
+      result.encDec = { ok, ms: Date.now() - t0 };
+    } catch {
+      result.encDec = { ok: false, ms: Date.now() - t0 };
+    }
+
+    setCryptoTest(result);
+  }, []);
 
   const runningSessions = sessions.filter((s) => s.state === "running").length;
   const stoppedSessions = sessions.filter((s) => s.state === "stopped").length;
@@ -109,8 +173,58 @@ export function DiagnosticsPanel() {
           <>
             <MetricRow label="Daemon ID" value={pairingInfo.daemonId} />
             <MetricRow label="Relay URL" value={pairingInfo.relayUrl} />
+            <MetricRow
+              label="Relay WS"
+              value={getRelayClient()?.isConnected() ? "Connected" : "Disconnected"}
+            />
+            <MetricRow
+              label="E2EE"
+              value={getRelayClient()?.isConnected() ? "Active" : "Inactive"}
+            />
           </>
         )}
+      </Section>
+
+      {/* E2EE Crypto Self-Test */}
+      <Section title="E2EE CRYPTO">
+        {cryptoTest.platform && (
+          <MetricRow label="Platform" value={cryptoTest.platform} />
+        )}
+        <MetricRow
+          label="Sodium Init"
+          value={
+            cryptoTest.sodiumInit
+              ? `${cryptoTest.sodiumInit.ok ? "OK" : "FAIL"} (${cryptoTest.sodiumInit.ms}ms)`
+              : "—"
+          }
+        />
+        <MetricRow
+          label="Key Gen"
+          value={
+            cryptoTest.keyGen
+              ? `${cryptoTest.keyGen.ok ? "OK" : "FAIL"} (${cryptoTest.keyGen.ms}ms)`
+              : "—"
+          }
+        />
+        <MetricRow
+          label="Encrypt/Decrypt"
+          value={
+            cryptoTest.encDec
+              ? `${cryptoTest.encDec.ok ? "OK" : "FAIL"} (${cryptoTest.encDec.ms}ms)`
+              : "—"
+          }
+        />
+        <View className="flex-row justify-end py-1">
+          <Pressable
+            onPress={handleCryptoTest}
+            disabled={cryptoTest.running}
+            className="bg-zinc-800 px-3 py-1 rounded"
+          >
+            <Text className="text-gray-400 text-xs">
+              {cryptoTest.running ? "Running..." : "Run Self-Test"}
+            </Text>
+          </Pressable>
+        </View>
       </Section>
 
       {/* Session Summary */}

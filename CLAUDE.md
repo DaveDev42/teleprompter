@@ -203,8 +203,13 @@ update the relevant documentation files in the same commit.
 - ✗ react-native-quick-crypto (JSI 네이티브 모듈)
 - ✗ react-native-libsodium (Rust FFI)
 - ✓ libsodium-wrappers-sumo (WASM on Web/Bun, asm.js fallback on Hermes)
-- ✓ expo-crypto (Expo SDK 내장)
+- ✓ expo-crypto (Expo SDK 내장 — `getRandomValues` polyfill 제공)
 - ✓ 순수 JavaScript 라이브러리
+
+### Hermes Crypto Polyfill
+libsodium은 `window.crypto.getRandomValues`를 요구하나 Hermes에는 없음.
+`apps/app/src/lib/crypto-polyfill.ts`에서 expo-crypto의 네이티브 `getRandomValues`를
+`self.crypto.getRandomValues`로 polyfill. 앱 진입점(`index.ts`)에서 최초 import 필수.
 
 ## CLI Commands
 

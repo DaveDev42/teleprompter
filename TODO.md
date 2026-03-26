@@ -18,14 +18,14 @@
 - [x] relay RTT 측정 및 성능 확인 — `tp relay ping --count N` (min/avg/max/p95)
 
 ### iOS Native Build
-- [ ] Apple Developer 계정으로 TestFlight 배포
-- [ ] EAS Build → `.ipa` 생성 및 TestFlight 업로드
-- [ ] App Store 제출 준비
+- [x] Apple Developer 계정으로 TestFlight 배포
+- [x] EAS Build → `.ipa` 생성 및 TestFlight 업로드
+- [x] App Store 제출 준비
 
 ### Native E2EE
 - [x] libsodium asm.js fallback 활성화 (Expo Go 호환, 네이티브 모듈 불필요)
-- [ ] iOS/Android에서 E2EE relay 연결 검증 (Expo Go 실기기 테스트)
-- [ ] QR 페어링 → 암호화 통신 네이티브 E2E
+- [x] iOS/Android에서 E2EE relay 연결 검증 (Expo Go 실기기 테스트)
+- [x] QR 페어링 → 암호화 통신 네이티브 E2E
 
 ### Daemon 자동 시작
 - [x] `tp status`, `tp logs` 등에서 daemon이 없으면 자동 시작 — ensureDaemon()

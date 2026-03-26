@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy — Teleprompter</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      color: #e5e5e5;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.7;
+      padding: 2rem 1.5rem;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+    h1 { color: #fff; font-size: 1.75rem; margin-bottom: 0.25rem; }
+    h2 { color: #fff; font-size: 1.15rem; margin-top: 2rem; margin-bottom: 0.5rem; }
+    p, li { margin-bottom: 0.75rem; }
+    ul { padding-left: 1.25rem; }
+    .subtle { color: #888; font-size: 0.875rem; }
+    a { color: #60a5fa; }
+  </style>
+</head>
+<body>
+  <h1>Privacy Policy</h1>
+  <p class="subtle">Effective date: March 26, 2026</p>
+
+  <p>This Privacy Policy describes how Teleprompter ("the App"), developed by tpmt.dev, handles your information. Teleprompter is a remote session controller for Claude Code that connects to a daemon service via an encrypted relay.</p>
+
+  <h2>Information We Collect</h2>
+  <p>The App does not collect, store, or transmit personal information to any server. All session data remains end-to-end encrypted and is never accessible to us.</p>
+
+  <h2>Camera</h2>
+  <p>The App uses your device camera solely to scan QR codes during device pairing. No images or video are stored, transmitted, or processed beyond the QR code content.</p>
+
+  <h2>Microphone</h2>
+  <p>The App uses your device microphone for voice commands to control Claude Code sessions. Audio is streamed directly to the OpenAI Realtime API for processing and is not stored by the App. Please refer to <a href="https://openai.com/policies/privacy-policy" target="_blank" rel="noopener">OpenAI's Privacy Policy</a> for their data handling practices.</p>
+
+  <h2>End-to-End Encryption</h2>
+  <p>All communication between the App and your daemon is end-to-end encrypted using X25519 key exchange and XChaCha20-Poly1305 authenticated encryption. Pairing keys are exchanged offline via QR code. Relay servers only forward ciphertext and cannot decrypt any content.</p>
+
+  <h2>Local Storage</h2>
+  <p>Pairing keys and connection settings are stored locally on your device using platform-provided secure storage (Keychain on iOS, Keystore on Android, browser storage on web). No account or login is required.</p>
+
+  <h2>Third-Party Services</h2>
+  <ul>
+    <li><strong>OpenAI Realtime API</strong> — Used for voice command processing when the voice feature is active.</li>
+    <li><strong>Expo Updates</strong> — Used for over-the-air app updates. May collect basic device information as described in <a href="https://expo.dev/privacy" target="_blank" rel="noopener">Expo's Privacy Policy</a>.</li>
+  </ul>
+
+  <h2>Data Retention</h2>
+  <p>No user data is collected on our servers. Relay servers hold only the most recent encrypted frames (up to 10 per session) transiently in memory for delivery purposes. These are discarded when the session ends.</p>
+
+  <h2>Analytics and Tracking</h2>
+  <p>The App does not include any analytics SDKs, advertising frameworks, or user tracking mechanisms.</p>
+
+  <h2>Children's Privacy</h2>
+  <p>The App is not directed at children under the age of 13. We do not knowingly collect information from children.</p>
+
+  <h2>Changes to This Policy</h2>
+  <p>We may update this Privacy Policy from time to time. Changes will be reflected on this page with an updated effective date.</p>
+
+  <h2>Contact</h2>
+  <p>If you have questions about this Privacy Policy, please contact us at <a href="mailto:dave.dev@icloud.com">dave.dev@icloud.com</a>.</p>
+</body>
+</html>

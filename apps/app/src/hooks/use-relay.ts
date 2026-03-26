@@ -3,7 +3,7 @@ import { useSessionStore } from "../stores/session-store";
 import { useOfflineStore } from "../stores/offline-store";
 import { usePairingStore } from "../stores/pairing-store";
 import { FrontendRelayClient } from "../lib/relay-client";
-import type { WsRec } from "@teleprompter/protocol/client";
+import type { WsRec, WsState, WsHelloReply } from "@teleprompter/protocol/client";
 
 /** Singleton relay client ref shared across the app */
 let globalRelayClient: FrontendRelayClient | null = null;
@@ -65,31 +65,37 @@ export function useRelay() {
           cacheFrame(rec);
           dispatchRec(rec);
         },
-        onState: (msg: any) => {
-          if (msg.sid && msg.meta) {
-            updateSession(msg.sid, msg.meta);
-            updateState(msg.sid, msg.meta.state);
-            const currentSid = useSessionStore.getState().sid;
-            if (!currentSid && msg.meta.state === "running") {
-              client.subscribe(msg.sid);
-              setSid(msg.sid);
-              setLastSeq(msg.meta.lastSeq);
+        onState: (msg: unknown) => {
+          // State update: { t: "state", sid, d: WsSessionMeta }
+          if (msg && typeof msg === "object" && "t" in msg) {
+            const m = msg as Record<string, unknown>;
+            if (m.t === "state" && typeof m.sid === "string" && m.d) {
+              const state = m as unknown as WsState;
+              updateSession(state.sid, state.d);
+              updateState(state.sid, state.d.state);
+              const currentSid = useSessionStore.getState().sid;
+              if (!currentSid && state.d.state === "running") {
+                client.subscribe(state.sid);
+                setSid(state.sid);
+                setLastSeq(state.d.lastSeq);
+              }
             }
-          }
-          if (msg.sessions) {
-            setSessions(msg.sessions);
+            // Hello reply with session list: { t: "hello", d: { sessions } }
+            if (m.t === "hello" && m.d && typeof m.d === "object") {
+              const hello = m as unknown as WsHelloReply;
+              setSessions(hello.d.sessions);
+            }
           }
         },
         onPresence: (online: boolean, sessions: string[]) => {
           if (online && sessions.length > 0) {
-            // Auto-subscribe to all daemon sessions
             for (const sid of sessions) {
               client.subscribe(sid);
             }
-            // Auto-attach to first session if none selected
             const currentSid = useSessionStore.getState().sid;
             if (!currentSid) {
               setSid(sessions[0]);
+              setLastSeq(0);
             }
           }
         },

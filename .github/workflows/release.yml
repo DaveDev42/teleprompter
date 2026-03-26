@@ -67,32 +67,3 @@ jobs:
           files: |
             artifacts/tp-*
           generate_release_notes: true
-
-  app-production:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-      - name: Build production app
-        working-directory: apps/app
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: |
-          eas build --platform all --profile production --non-interactive --no-wait
-      - name: Publish OTA update
-        working-directory: apps/app
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: |
-          VERSION=${GITHUB_REF_NAME#release/v}
-          eas update --channel production --message "v${VERSION}" --non-interactive

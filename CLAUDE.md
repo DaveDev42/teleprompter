@@ -142,6 +142,14 @@ update the relevant documentation files in the same commit.
 - 깨진 코드나 미완성 코드를 커밋하지 않음
 - 문서 업데이트(CLAUDE.md, TODO.md 등)는 해당 코드 변경과 같은 커밋에 포함
 
+## Web Deployment
+
+- **Platform**: Vercel (static export)
+- **Domain**: tpmt.dev
+- **Build**: `npx expo export --platform web` → `apps/app/dist/`
+- **Config**: `vercel.json` at repo root (SPA rewrites, static asset caching)
+- **Privacy Policy**: `apps/app/public/privacy-policy.html` → `https://tpmt.dev/privacy-policy`
+
 ## Language
 
 PRD and internal docs are written in Korean. Code, comments, and commit messages should be in English.

@@ -51,11 +51,11 @@ jobs:
       - name: Health check
         run: |
           sleep 3
-          STATUS=$(curl -sf "http://${RELAY_HOST}:${RELAY_PORT}/health" | jq -r '.status')
+          STATUS=$(curl -sf "https://relay.tpmt.dev/health" | jq -r '.status')
           echo "Health: $STATUS"
           [ "$STATUS" = "ok" ] || exit 1
 
       - name: Summary
         run: |
-          echo "Relay deployed to ${RELAY_HOST}:${RELAY_PORT}"
-          curl -sf "http://${RELAY_HOST}:${RELAY_PORT}/health" | jq .
+          echo "Relay deployed to relay.tpmt.dev"
+          curl -sf "https://relay.tpmt.dev/health" | jq .

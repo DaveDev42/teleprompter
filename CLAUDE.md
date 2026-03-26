@@ -12,7 +12,7 @@ Teleprompter is a remote Claude Code session controller. An Expo frontend (React
 - **Runtime**: Bun v1.3.5+ (Runner, Daemon, Relay), Expo (Frontend)
 - **Monorepo**: Turborepo + pnpm
 - **Frontend**: Expo (React Native + RN Web), Zustand, NativeWind (Tailwind), xterm.js
-- **Encryption**: libsodium (X25519 + AES-256-GCM)
+- **Encryption**: libsodium (X25519 + XChaCha20-Poly1305)
 - **Voice**: OpenAI Realtime API
 
 ## Monorepo Layout
@@ -20,13 +20,13 @@ Teleprompter is a remote Claude Code session controller. An Expo frontend (React
 ```
 apps/
   cli/         # @teleprompter/cli — unified `tp` binary (subcommand router)
-  frontend/    # Expo app (iOS > Web > Android)
-  daemon/      # Bun long-running service (session mgmt, vault, E2EE, worktree)
-  runner/      # Bun per-session process (PTY via Bun.spawn terminal, hooks collection)
-  relay/       # Bun WebSocket ciphertext-only relay server
+  app/         # @teleprompter/app — Expo app (iOS > Web > Android)
 packages/
+  daemon/      # @teleprompter/daemon — Bun long-running service (session mgmt, vault, E2EE, worktree)
+  runner/      # @teleprompter/runner — Bun per-session process (PTY via Bun.spawn terminal, hooks collection)
+  relay/       # @teleprompter/relay — Bun WebSocket ciphertext-only relay server
   protocol/    # @teleprompter/protocol — shared types, framed JSON codec, envelope types
-  tsconfig/    # Shared TS configs (base.json, bun.json, expo.json)
+  tsconfig/    # Shared TS configs (base.json, bun.json)
   eslint-config/
 scripts/
   build.ts     # Multi-platform `bun build --compile` script
@@ -36,7 +36,7 @@ scripts/
 ## Architecture
 
 - **Runner** spawns Claude Code in a PTY (`Bun.spawn({ terminal })`), collects io streams and hooks events, sends Records to Daemon via Unix domain socket IPC
-- **Daemon** manages sessions, stores Records in Vault (append-only), encrypts with libsodium, connects to Relay(s)
+- **Daemon** manages sessions, stores Records in Vault (append-only per session, with session delete/prune support), encrypts with libsodium, connects to Relay(s)
 - **Relay** is a stateless ciphertext forwarder — holds only recent 10 encrypted frames per session
 - **Frontend** decrypts and renders: Terminal tab (xterm.js) + Chat tab (hooks events + PTY parsing hybrid)
 - Data flow: Runner → Daemon → Relay → Frontend (and reverse for input)
@@ -49,9 +49,9 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 
 - Chat UI uses **hybrid** data: hooks events for structured cards (primary) + PTY output parsing for streaming text (secondary). hooks Stop event finalizes responses.
 - Worktree management is done directly by Daemon (`git worktree add/remove/list`), no external tool dependency. N:1 relationship — multiple sessions per worktree allowed.
-- E2EE pairing via QR code containing pairing secret + daemon pubkey + relay URL. ECDH → HKDF → AES-256-GCM.
+- E2EE pairing via QR code containing pairing secret + daemon pubkey + relay URL + daemon ID. Daemon pubkey is delivered offline via QR; Frontend pubkey is exchanged via relay. Both sides perform ECDH (X25519 `crypto_kx`) → session keys → XChaCha20-Poly1305 encryption. Relay token is derived from pairing secret (BLAKE2b) for session routing access control only.
 - Platform priority: iOS > Web > Android. Responsive layout required for mobile/tablet/desktop.
-- Deployment: `bun build --compile` for single `tp` binary with subcommands (daemon, run, relay).
+- Deployment: `bun build --compile` for `tp` binary (subcommands: daemon, run, relay) and separate `tp-relay` binary for standalone relay deployment.
 - Passthrough mode: `tp <claude args>` runs claude directly through tp pipeline. `--tp-*` flags are consumed by tp, rest forwarded to claude.
 
 ## Testing Strategy
@@ -84,6 +84,8 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - `apps/cli/src/commands/status.test.ts` — daemon status display
 - `apps/cli/src/commands/pair.test.ts` — pairing data generation
 - `apps/cli/src/commands/passthrough.test.ts` — arg splitting
+- `packages/protocol/src/compat.test.ts` — protocol version compatibility
+- `packages/runner/src/pty/pty-manager.test.ts` — PTY spawn, resize, lifecycle
 
 ### Tier 2: Integration Tests (stub runner)
 Stub 프로세스로 전체 파이프라인 검증.
@@ -97,23 +99,33 @@ Stub 프로세스로 전체 파이프라인 검증.
 - `packages/daemon/src/worktree-ws.test.ts` — worktree/session WS protocol handlers
 - `apps/cli/src/relay.test.ts` — relay CLI integration
 - `packages/protocol/src/pairing-e2e.test.ts` — full QR pairing → ratchet → E2E encrypt
+- `packages/runner/src/ipc/client.test.ts` — Runner↔Daemon IPC client connection
 - `apps/cli/src/full-stack.test.ts` — Runner→Daemon→Relay→Frontend complete pipeline
 
 ### Tier 3: Real E2E Tests (requires claude CLI)
 실제 claude PTY를 통한 전체 tp 파이프라인. `claude`가 PATH에 없으면 skip.
 - `apps/cli/src/e2e.test.ts` — PTY ANSI output, hooks 이벤트, WS 스트리밍, resume
 
+### Benchmarks
+- `packages/daemon/src/bench.test.ts` — pipeline throughput benchmark
+- `packages/relay/src/bench.test.ts` — relay throughput benchmark
+
 ### Tier 4: QA Agent Tests (Expo MCP)
 `/qa` 커맨드로 QA agent에 위임:
 - `app-ios-qa` — iOS Simulator (Expo MCP + Maestro)
 - `app-web-qa` — React Native Web (Playwright)
-- Playwright E2E: `pnpm test:e2e` (e2e/app-web.spec.ts)
+- Playwright E2E: `pnpm test:e2e`
+  - `e2e/app-web.spec.ts` — smoke tests
+  - `e2e/app-roundtrip.spec.ts` — input/output roundtrip
+  - `e2e/app-resume.spec.ts` — daemon restart recovery
+  - `e2e/app-real-e2e.spec.ts` — real Claude PTY E2E
+  - `e2e/app-daemon.spec.ts` — daemon-connected tests
+  - `e2e/app-chat-roundtrip.spec.ts` — chat input/output roundtrip
 
 ### 명령어
 ```bash
 bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay  # 전체 Tier 1-3
-npx tsc --noEmit -p packages/daemon/tsconfig.json                # 타입 체크
-npx tsc --noEmit -p apps/cli/tsconfig.json
+pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner, app)
 ```
 
 ## Documentation Maintenance

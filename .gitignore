@@ -20,10 +20,11 @@ Thumbs.db
 
 # Expo
 .expo/
-apps/frontend/dist/
-apps/frontend/.expo/
-apps/frontend/ios/
-apps/frontend/android/
+/app.json
+apps/app/dist/
+apps/app/.expo/
+apps/app/ios/
+apps/app/android/
 
 # Build artifacts
 *.tsbuildinfo

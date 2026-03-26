@@ -2,10 +2,9 @@
  * E2EE crypto module using libsodium.
  *
  * - Key exchange: X25519 (crypto_kx)
- * - Encryption: AES-256-GCM (via secretbox with XSalsa20-Poly1305 as
- *   libsodium's crypto_aead_xchacha20poly1305_ietf is more portable
- *   than AES-256-GCM which requires hardware support)
- * - Key derivation: crypto_kdf from shared secret
+ * - Encryption: XChaCha20-Poly1305 (crypto_aead_xchacha20poly1305_ietf)
+ *   — more portable than AES-256-GCM (no hardware AES-NI requirement)
+ * - Key derivation: crypto_kx for session keys, BLAKE2b (crypto_generichash) for ratchet
  * - Nonce: random per frame (safe with XChaCha20's 24-byte nonce)
  */
 

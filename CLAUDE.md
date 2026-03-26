@@ -180,7 +180,7 @@ update the relevant documentation files in the same commit.
 ```
 
 ### Infrastructure
-- **Relay**: Vultr Seoul `158.247.193.109:7090` (systemd: `tp-relay`)
+- **Relay**: Vultr Seoul `relay.tpmt.dev` (wss://, Caddy TLS + systemd: `tp-relay`)
 - **Web**: Vercel → `tpmt.dev`
 - **App**: EAS Build → TestFlight / Google Internal / App Store / Play Store
 - **CLI**: GitHub Releases → `bun build --compile` (darwin/linux × arm64/x64)

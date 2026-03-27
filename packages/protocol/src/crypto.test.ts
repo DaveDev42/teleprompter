@@ -7,6 +7,8 @@ import {
   decrypt,
   generatePairingSecret,
   deriveRelayToken,
+  deriveKxKey,
+  deriveRegistrationProof,
   toBase64,
   fromBase64,
   toHex,
@@ -195,5 +197,77 @@ describe("crypto", () => {
     const ct2 = await encrypt(reply, frontendKeys.tx);
     const pt2 = await decrypt(ct2, daemonKeys.rx);
     expect(new TextDecoder().decode(pt2)).toBe("reply");
+  });
+
+  test("deriveKxKey produces deterministic 32-byte key", async () => {
+    const secret = await generatePairingSecret();
+    const key1 = await deriveKxKey(secret);
+    const key2 = await deriveKxKey(secret);
+
+    expect(key1.length).toBe(32);
+    expect(key1).toEqual(key2); // deterministic
+  });
+
+  test("deriveKxKey differs from deriveRelayToken for same secret", async () => {
+    const secret = await generatePairingSecret();
+    const kxKey = await deriveKxKey(secret);
+    const token = await deriveRelayToken(secret);
+
+    // kxKey is Uint8Array(32), token is hex string — compare as hex
+    const kxHex = await toHex(kxKey);
+    expect(kxHex).not.toBe(token);
+  });
+
+  test("deriveKxKey differs for different secrets", async () => {
+    const secretA = await generatePairingSecret();
+    const secretB = await generatePairingSecret();
+    const keyA = await deriveKxKey(secretA);
+    const keyB = await deriveKxKey(secretB);
+
+    expect(keyA).not.toEqual(keyB);
+  });
+
+  test("deriveKxKey can encrypt/decrypt key exchange envelopes", async () => {
+    const secret = await generatePairingSecret();
+    const kxKey = await deriveKxKey(secret);
+
+    const payload = new TextEncoder().encode(JSON.stringify({
+      pk: "test-public-key-base64",
+      frontendId: "frontend-123",
+      role: "frontend",
+    }));
+
+    const ct = await encrypt(payload, kxKey);
+    const pt = await decrypt(ct, kxKey);
+    const parsed = JSON.parse(new TextDecoder().decode(pt));
+    expect(parsed.frontendId).toBe("frontend-123");
+  });
+
+  test("deriveRegistrationProof produces deterministic hex string", async () => {
+    const secret = await generatePairingSecret();
+    const proof1 = await deriveRegistrationProof(secret);
+    const proof2 = await deriveRegistrationProof(secret);
+
+    expect(proof1).toBe(proof2); // deterministic
+    expect(proof1.length).toBe(64); // 32 bytes as hex
+    expect(/^[0-9a-f]+$/.test(proof1)).toBe(true); // valid hex
+  });
+
+  test("deriveRegistrationProof differs for different secrets", async () => {
+    const secretA = await generatePairingSecret();
+    const secretB = await generatePairingSecret();
+
+    expect(await deriveRegistrationProof(secretA))
+      .not.toBe(await deriveRegistrationProof(secretB));
+  });
+
+  test("deriveRegistrationProof differs from relay token and kx key", async () => {
+    const secret = await generatePairingSecret();
+    const proof = await deriveRegistrationProof(secret);
+    const token = await deriveRelayToken(secret);
+    const kxHex = await toHex(await deriveKxKey(secret));
+
+    expect(proof).not.toBe(token);
+    expect(proof).not.toBe(kxHex);
   });
 });

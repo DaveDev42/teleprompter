@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useSessionStore } from "../stores/session-store";
 import { useOfflineStore } from "../stores/offline-store";
-import { usePairingStore, type PairingInfo } from "../stores/pairing-store";
+import { usePairingStore } from "../stores/pairing-store";
 import { FrontendRelayClient } from "../lib/relay-client";
 import type { WsRec, WsState, WsHelloReply } from "@teleprompter/protocol/client";
 
@@ -15,7 +15,6 @@ const relayClients = new Map<string, FrontendRelayClient>();
 export function useRelay() {
   const pairings = usePairingStore((s) => s.pairings);
   const pairingState = usePairingStore((s) => s.state);
-  const prevPairingsRef = useRef<Map<string, PairingInfo>>(new Map());
 
   useEffect(() => {
     if (pairingState !== "paired" || pairings.size === 0) {
@@ -116,14 +115,15 @@ export function useRelay() {
         relayClients.delete(daemonId);
       }
     }
+  }, [pairingState, pairings]);
 
-    prevPairingsRef.current = pairings;
-
+  // Cleanup on unmount only
+  useEffect(() => {
     return () => {
       for (const client of relayClients.values()) client.dispose();
       relayClients.clear();
     };
-  }, [pairingState, pairings]);
+  }, []);
 }
 
 /** Get a relay client for a specific daemon */

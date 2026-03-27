@@ -215,6 +215,11 @@ update the relevant documentation files in the same commit.
 - ✓ expo-crypto (Expo SDK 내장 — `getRandomValues` polyfill 제공)
 - ✓ 순수 JavaScript 라이브러리
 
+### Key Storage Security
+- **Daemon vault** (`~/.local/share/teleprompter/vault/sessions.sqlite`): pairing secret key, daemon private key stored as plaintext BLOBs. Protected by filesystem permissions only (similar to `~/.ssh/`).
+- **App (iOS/Android)**: pairing keys stored in Keychain/Keystore via expo-secure-store.
+- **App (Web)**: pairing keys in localStorage (prefixed `tp_`). Known limitation — no hardware-backed secure storage on web.
+
 ### Hermes Crypto Polyfill
 libsodium은 `window.crypto.getRandomValues`를 요구하나 Hermes에는 없음.
 `apps/app/src/lib/crypto-polyfill.ts`에서 expo-crypto의 네이티브 `getRandomValues`를

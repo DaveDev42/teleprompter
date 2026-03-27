@@ -10,11 +10,13 @@ function SessionItem({
   isActive,
   onPress,
   onStop,
+  onRestart,
 }: {
   session: WsSessionMeta;
   isActive: boolean;
   onPress: () => void;
   onStop: () => void;
+  onRestart: () => void;
 }) {
   const stateColor =
     session.state === "running"
@@ -59,6 +61,17 @@ function SessionItem({
             className="bg-red-900/50 px-2 py-1 rounded"
           >
             <Text className="text-red-300 text-xs">Stop</Text>
+          </Pressable>
+        )}
+        {session.state === "error" && (
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation?.();
+              onRestart();
+            }}
+            className="bg-orange-900/50 px-2 py-1 rounded"
+          >
+            <Text className="text-orange-300 text-xs">Restart</Text>
           </Pressable>
         )}
       </View>
@@ -106,6 +119,10 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
 
   const stopSession = (sid: string) => {
     getDaemonClient()?.stopSession(sid);
+  };
+
+  const restartSession = (sid: string) => {
+    getDaemonClient()?.restartSession(sid);
   };
 
   // Group by worktree
@@ -170,6 +187,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
               isActive={item.session.sid === currentSid}
               onPress={() => switchSession(item.session.sid)}
               onStop={() => stopSession(item.session.sid)}
+              onRestart={() => restartSession(item.session.sid)}
             />
           );
         }}

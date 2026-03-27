@@ -251,6 +251,10 @@ export class DaemonWsClient {
     this.send({ t: "session.stop", sid } as WsClientMessage);
   }
 
+  restartSession(sid: string) {
+    this.send({ t: "session.restart", sid } as WsClientMessage);
+  }
+
   private scheduleReconnect() {
     if (this.disposed) return;
     const delay = Math.min(

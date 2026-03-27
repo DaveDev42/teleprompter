@@ -92,6 +92,11 @@ export interface WsSessionStop {
   sid: string;
 }
 
+export interface WsSessionRestart {
+  t: "session.restart";
+  sid: string;
+}
+
 export type WsClientMessage =
   | WsHello
   | WsAttach
@@ -105,7 +110,8 @@ export type WsClientMessage =
   | WsWorktreeRemove
   | WsWorktreeList
   | WsSessionCreate
-  | WsSessionStop;
+  | WsSessionStop
+  | WsSessionRestart;
 
 // ── Daemon → Frontend ──
 

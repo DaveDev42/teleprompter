@@ -32,8 +32,8 @@ jobs:
           npx tsc --noEmit -p packages/runner/tsconfig.json
           cd apps/app && npx tsc --noEmit && cd ../..
 
-      - name: Test
-        run: bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay
+      - name: Test with coverage
+        run: bun test --coverage packages/protocol packages/daemon packages/runner apps/cli packages/relay
 
       - name: Build CLI
         run: bun run scripts/build.ts

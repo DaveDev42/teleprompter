@@ -22,6 +22,7 @@ export interface WsServerEvents {
   onWorktreeList?(client: WsClient): void;
   onSessionCreate?(client: WsClient, msg: WsClientMessage & { t: "session.create" }): void;
   onSessionStop?(client: WsClient, sid: string): void;
+  onSessionRestart?(client: WsClient, sid: string): void;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -168,6 +169,9 @@ export class WsServer {
         break;
       case "session.stop":
         this.events.onSessionStop?.(client, msg.sid);
+        break;
+      case "session.restart":
+        this.events.onSessionRestart?.(client, msg.sid);
         break;
       default:
         this.registry.send(client, { t: "err", e: "UNKNOWN_TYPE", m: `Unknown message type` });

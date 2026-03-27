@@ -32,8 +32,9 @@ Teleprompter는 다음을 제공한다.
 	•	원격 Claude Code Session을 쉽게 시작, 복구, 전환할 수 있다
 	•	좌측 Chat / 우측 Terminal 구조의 일관된 UX를 제공한다
 	•	git worktree를 1st-class로 통합한다 (Daemon이 직접 관리)
-	•	zero-trust E2EE를 제공한다 (libsodium 기반 X25519 + XChaCha20-Poly1305)
-	•	relay 교체 및 다중 relay 사용이 가능하다 (공식 호스팅 + 셀프 호스팅)
+	•	zero-trust E2EE를 제공한다 (libsodium 기반 X25519 + XChaCha20-Poly1305, per-frontend 독립 세션 키)
+	•	N:N 연결을 지원한다 — 하나의 앱이 여러 Daemon에, 하나의 Daemon이 여러 앱에 동시 연결 (relay protocol v2, frontendId 기반 멀티플렉싱)
+	•	relay 교체 및 다중 relay 사용이 가능하다 (공식 호스팅 + 셀프 호스팅, self-registration)
 	•	Expo 기반으로 모바일, 태블릿, 웹을 지원한다
 	•	Chat UI에서 음성 입력과 음성 요약 출력을 지원한다 (OpenAI Realtime API)
 

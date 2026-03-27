@@ -1,9 +1,14 @@
 /**
- * Relay protocol types.
+ * Relay protocol types (v2).
  *
  * The Relay is a stateless ciphertext forwarder. It routes opaque
  * encrypted frames between Daemon and Frontend connections.
- * The Relay never sees plaintext — all `d` payloads are ciphertext.
+ * The Relay never sees plaintext — all `ct` payloads are ciphertext.
+ *
+ * v2 additions:
+ * - Self-registration (relay.register) — daemon registers its own token
+ * - Key exchange (relay.kx) — in-band pubkey exchange via pairing-secret-encrypted envelopes
+ * - frontendId — per-frontend identity for N:N daemon↔frontend multiplexing
  */
 
 // ── Client → Relay (both Daemon and Frontend) ──
@@ -16,8 +21,30 @@ export interface RelayAuth {
   daemonId: string;
   /** Pairing token for authentication */
   token: string;
-  /** Protocol version (required since v1 — relay rejects clients without version) */
+  /** Protocol version */
   v: number;
+  /** Unique frontend identifier (role=frontend only). Enables N:N multiplexing. */
+  frontendId?: string;
+}
+
+export interface RelayRegister {
+  t: "relay.register";
+  /** Daemon ID to register */
+  daemonId: string;
+  /** BLAKE2b(pairingSecret || "relay-register") — proves knowledge of pairing secret */
+  proof: string;
+  /** Relay token to register for this daemonId */
+  token: string;
+  /** Protocol version */
+  v: number;
+}
+
+export interface RelayKeyExchange {
+  t: "relay.kx";
+  /** Public key encrypted with kxKey (derived from pairing secret) */
+  ct: string;
+  /** Sender role */
+  role: "daemon" | "frontend";
 }
 
 export interface RelayPublish {
@@ -51,6 +78,8 @@ export interface RelayPing {
 
 export type RelayClientMessage =
   | RelayAuth
+  | RelayRegister
+  | RelayKeyExchange
   | RelayPublish
   | RelaySubscribe
   | RelayUnsubscribe
@@ -68,11 +97,31 @@ export interface RelayAuthErr {
   e: string;
 }
 
+export interface RelayRegisterOk {
+  t: "relay.register.ok";
+  daemonId: string;
+}
+
+export interface RelayRegisterErr {
+  t: "relay.register.err";
+  e: string;
+}
+
 export interface RelayFrame {
   t: "relay.frame";
   sid: string;
   ct: string;
   seq: number;
+  from: "daemon" | "frontend";
+  /** Frontend identifier (present when from=frontend) */
+  frontendId?: string;
+}
+
+export interface RelayKeyExchangeFrame {
+  t: "relay.kx.frame";
+  /** Encrypted public key data */
+  ct: string;
+  /** Sender role */
   from: "daemon" | "frontend";
 }
 
@@ -102,7 +151,10 @@ export interface RelayError {
 export type RelayServerMessage =
   | RelayAuthOk
   | RelayAuthErr
+  | RelayRegisterOk
+  | RelayRegisterErr
   | RelayFrame
+  | RelayKeyExchangeFrame
   | RelayPresence
   | RelayPong
   | RelayError;

@@ -47,6 +47,8 @@ export type {
 } from "./ws";
 export type {
   RelayAuth,
+  RelayRegister,
+  RelayKeyExchange,
   RelayPublish,
   RelaySubscribe,
   RelayUnsubscribe,
@@ -54,7 +56,10 @@ export type {
   RelayClientMessage,
   RelayAuthOk,
   RelayAuthErr,
+  RelayRegisterOk,
+  RelayRegisterErr,
   RelayFrame,
+  RelayKeyExchangeFrame,
   RelayPresence,
   RelayPong,
   RelayError,

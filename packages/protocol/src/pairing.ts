@@ -14,6 +14,8 @@ import {
   generateKeyPair,
   generatePairingSecret,
   deriveRelayToken,
+  deriveRegistrationProof,
+  deriveKxKey,
   toBase64,
   fromBase64,
   type KeyPair,
@@ -41,6 +43,8 @@ export interface PairingBundle {
   pairingSecret: Uint8Array;
   /** Derived relay auth token */
   relayToken: string;
+  /** Registration proof for relay self-registration */
+  registrationProof: string;
 }
 
 /**
@@ -53,6 +57,7 @@ export async function createPairingBundle(
   const keyPair = await generateKeyPair();
   const pairingSecret = await generatePairingSecret();
   const relayToken = await deriveRelayToken(pairingSecret);
+  const registrationProof = await deriveRegistrationProof(pairingSecret);
 
   const qrData: PairingData = {
     ps: await toBase64(pairingSecret),
@@ -62,7 +67,7 @@ export async function createPairingBundle(
     v: 1,
   };
 
-  return { qrData, keyPair, pairingSecret, relayToken };
+  return { qrData, keyPair, pairingSecret, relayToken, registrationProof };
 }
 
 /**
@@ -97,11 +102,13 @@ export async function parsePairingForFrontend(data: PairingData) {
   const pairingSecret = await fromBase64(data.ps);
   const daemonPublicKey = await fromBase64(data.pk);
   const relayToken = await deriveRelayToken(pairingSecret);
+  const registrationProof = await deriveRegistrationProof(pairingSecret);
 
   return {
     daemonPublicKey,
     pairingSecret,
     relayToken,
+    registrationProof,
     relayUrl: data.relay,
     daemonId: data.did,
   };

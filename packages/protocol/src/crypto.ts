@@ -209,6 +209,41 @@ export async function deriveRelayToken(
   return sodium.to_hex(hash);
 }
 
+// ── Key Exchange Envelope ──
+
+/**
+ * Derive a symmetric key for encrypting key-exchange envelopes.
+ * Both daemon and frontend derive the same key from the shared pairing secret.
+ * H(pairing_secret || "kx-envelope")
+ */
+export async function deriveKxKey(
+  pairingSecret: Uint8Array,
+): Promise<Uint8Array> {
+  const sodium = await ensureSodium();
+  const context = sodium.from_string("kx-envelope");
+  const input = new Uint8Array(pairingSecret.length + context.length);
+  input.set(pairingSecret);
+  input.set(context, pairingSecret.length);
+  return sodium.crypto_generichash(32, input);
+}
+
+/**
+ * Derive a registration proof for relay self-registration.
+ * Proves knowledge of the pairing secret without exposing it.
+ * H(pairing_secret || "relay-register")
+ */
+export async function deriveRegistrationProof(
+  pairingSecret: Uint8Array,
+): Promise<string> {
+  const sodium = await ensureSodium();
+  const context = sodium.from_string("relay-register");
+  const input = new Uint8Array(pairingSecret.length + context.length);
+  input.set(pairingSecret);
+  input.set(context, pairingSecret.length);
+  const hash = sodium.crypto_generichash(32, input);
+  return sodium.to_hex(hash);
+}
+
 // ── Helpers ──
 
 export async function toBase64(data: Uint8Array): Promise<string> {

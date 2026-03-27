@@ -89,27 +89,17 @@ export async function daemonCommand(argv: string[]): Promise<void> {
     console.log(`[Daemon] worktree management enabled for ${values["repo-root"]}`);
   }
 
-  // Connect to relay: use CLI flags or auto-load from saved pairing data
+  // Relay connection: CLI flags take priority, then vault DB, then pairing.json
   let relayUrl = values["relay-url"] as string | undefined;
   let relayToken = values["relay-token"] as string | undefined;
   let daemonId = values["daemon-id"] as string | undefined;
 
-  if (!relayUrl) {
-    const saved = await loadPairingData();
-    if (saved) {
-      relayUrl = saved.relayUrl;
-      relayToken = saved.relayToken;
-      daemonId = saved.daemonId;
-      console.log(`[Daemon] loaded pairing data for ${saved.daemonId}`);
-    }
-  }
-
   if (relayUrl && relayToken && daemonId) {
+    // Explicit CLI flags — connect to specified relay
     try {
       const saved = await loadPairingData();
       const { generateKeyPair, deriveRegistrationProof, fromBase64: fb64 } = await import("@teleprompter/protocol");
 
-      // Use saved key pair if available, otherwise generate new one
       let keyPair;
       let pairingSecret: Uint8Array;
       let registrationProof: string;
@@ -122,7 +112,6 @@ export async function daemonCommand(argv: string[]): Promise<void> {
         pairingSecret = await fb64(saved.qrData.ps);
         registrationProof = await deriveRegistrationProof(pairingSecret);
       } else {
-        // Fallback: generate new keys (won't match QR pairing)
         keyPair = await generateKeyPair();
         pairingSecret = new Uint8Array(32);
         registrationProof = "";
@@ -130,8 +119,8 @@ export async function daemonCommand(argv: string[]): Promise<void> {
       }
 
       await daemon.connectRelay({
-        relayUrl: relayUrl,
-        daemonId: daemonId,
+        relayUrl,
+        daemonId,
         token: relayToken,
         registrationProof,
         keyPair,
@@ -140,6 +129,35 @@ export async function daemonCommand(argv: string[]): Promise<void> {
       console.log(`[Daemon] connected to relay ${relayUrl}`);
     } catch (err) {
       console.error(`[Daemon] relay connection failed:`, err);
+    }
+  } else {
+    // No CLI flags — reconnect from saved pairings in vault DB
+    const count = await daemon.reconnectSavedRelays();
+    if (count > 0) {
+      console.log(`[Daemon] reconnected to ${count} saved relay(s)`);
+    } else {
+      // Fallback: try pairing.json file
+      const saved = await loadPairingData();
+      if (saved?.qrData?.ps) {
+        try {
+          const { deriveRegistrationProof, fromBase64: fb64 } = await import("@teleprompter/protocol");
+          const pairingSecret = await fb64(saved.qrData.ps);
+          await daemon.connectRelay({
+            relayUrl: saved.relayUrl,
+            daemonId: saved.daemonId,
+            token: saved.relayToken,
+            registrationProof: await deriveRegistrationProof(pairingSecret),
+            keyPair: {
+              publicKey: await fb64(saved.publicKey),
+              secretKey: await fb64(saved.secretKey),
+            },
+            pairingSecret,
+          });
+          console.log(`[Daemon] connected to relay ${saved.relayUrl} (from pairing.json)`);
+        } catch (err) {
+          console.error(`[Daemon] relay connection failed:`, err);
+        }
+      }
     }
   }
 

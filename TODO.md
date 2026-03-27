@@ -76,7 +76,7 @@
 - [x] Multi-daemon pairing store — Map<daemonId, PairingInfo> + secure storage 영속화
 - [x] Multi-client relay hook — per-daemon FrontendRelayClient 관리
 - [x] Direct WS + relay 병렬 실행 (상호 배제 제거)
-- [ ] Daemon pairing persistence (vault DB) — 재시작 시 relay 자동 재연결
+- [x] Daemon pairing persistence (vault DB) — 재시작 시 relay 자동 재연결
 - [ ] 멀티 디바이스 E2E 테스트 (2개 앱 동시 연결 + 독립 E2EE)
 - [ ] 디바이스 간 세션 전환 UX
 

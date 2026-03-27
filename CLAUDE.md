@@ -36,7 +36,7 @@ scripts/
 ## Architecture
 
 - **Runner** spawns Claude Code in a PTY (`Bun.spawn({ terminal })`), collects io streams and hooks events, sends Records to Daemon via Unix domain socket IPC
-- **Daemon** manages sessions, stores Records in Vault (append-only per session, with session delete/prune support), encrypts with libsodium, connects to Relay(s)
+- **Daemon** manages sessions, stores Records in Vault (append-only per session, with session delete/prune support), persists pairings in vault DB for auto-reconnect, encrypts with libsodium per-frontend keys, connects to Relay(s)
 - **Relay** is a stateless ciphertext forwarder — holds only recent 10 encrypted frames per session
 - **Frontend** decrypts and renders: Terminal tab (xterm.js) + Chat tab (hooks events + PTY parsing hybrid)
 - Data flow: Runner → Daemon → Relay → Frontend (and reverse for input)
@@ -71,7 +71,7 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - `packages/protocol/src/codec.test.ts` — framed JSON encode/decode
 - `packages/protocol/src/codec-edge.test.ts` — partial frames, unicode, 100KB payloads
 - `packages/protocol/src/queued-writer.test.ts` — backpressure queue
-- `packages/protocol/src/crypto.test.ts` — E2EE encrypt/decrypt, key exchange, ratchet
+- `packages/protocol/src/crypto.test.ts` — E2EE encrypt/decrypt, key exchange, ratchet, kxKey/registrationProof derivation
 - `packages/protocol/src/crypto-edge.test.ts` — empty/large payloads, tampered ciphertext
 - `packages/protocol/src/pairing.test.ts` — QR pairing bundle, encode/decode
 - `packages/daemon/src/vault/vault.test.ts` — append-only Record 저장
@@ -101,7 +101,7 @@ Stub 프로세스로 전체 파이프라인 검증.
 - `packages/daemon/src/integration.test.ts` — IPC 파이프라인 (mock Runner→Daemon→Vault)
 - `packages/daemon/src/e2e.test.ts` — 동시 세션, crash, resume, streaming, input relay
 - `packages/daemon/src/transport/ws-server.test.ts` — WebSocket 서버 동작
-- `packages/daemon/src/transport/relay-client.test.ts` — Daemon→Relay E2E with encryption
+- `packages/daemon/src/transport/relay-client.test.ts` — Daemon→Relay E2E with v2 self-registration + key exchange
 - `packages/relay/src/relay-server.test.ts` — Relay auth, routing, caching, presence
 - `packages/relay/src/relay-edge.test.ts` — malformed JSON, multi-frontend, unsubscribe
 - `packages/daemon/src/worktree/worktree-manager.test.ts` — git worktree add/remove/list

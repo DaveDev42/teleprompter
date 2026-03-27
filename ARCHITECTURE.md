@@ -10,7 +10,11 @@
 │ Bun PTY     │     │ Vault       │     │ 공식/셀프    │     │ xterm.js    │
 │ hooks 수집   │     │ E2EE        │     │ hosted      │     │ Chat UI     │
 │             │     │ worktree    │     │             │     │ Voice       │
-└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
+└─────────────┘     └──────┬──────┘     └─────────────┘     └──────┬──────┘
+                           │                                       │
+                     N:N 지원: 하나의 Daemon이 여러 Frontend에        │
+                     독립 E2EE 세션 키로 동시 서비스.               N:N 지원: 하나의 App이
+                     per-frontend sessionKeys via frontendId.     여러 Daemon에 동시 연결.
 ```
 
 ## 2. 모노레포 구조
@@ -234,44 +238,88 @@ Daemon → Frontend:
   batch     복수 Record (resume 응답)
   pong      keepalive 응답
   err       에러
+
+Relay Protocol v2 (Daemon/Frontend ↔ Relay):
+  relay.register   Daemon token self-registration (proof 기반)
+  relay.auth       인증 (frontendId 포함)
+  relay.kx         in-band pubkey 교환 (kxKey로 암호화)
+  relay.pub        암호화 데이터 publish
+  relay.sub/unsub  세션 구독/해제
+  relay.frame      암호화 데이터 수신 (frontendId 포함)
+  relay.kx.frame   pubkey 교환 수신
+  relay.presence   Daemon online/offline + 세션 목록
+  relay.ping/pong  keepalive
 ```
 
-## 5. E2EE 아키텍처
+## 5. E2EE 아키텍처 (Relay Protocol v2)
 
-### 5.1 페어링 시퀀스
+### 5.1 키 파생 체계
+
+하나의 pairing secret에서 3개의 독립적인 키가 파생된다:
 
 ```
-Daemon                          Frontend
-  │                                │
-  ├── X25519 keypair 생성           │
-  ├── pairing secret 생성 (32B)     │
-  ├── relay token 파생              │
-  │   BLAKE2b(secret‖"relay-auth") │
-  │                                │
-  ├── QR 표시 ◀─────────────────── QR 스캔 (offline, 단방향)
-  │   (secret + daemon_pk +        │
-  │    relay URL + daemon ID)      │
-  │                                ├── X25519 keypair 생성
-  │                                ├── relay token 파생 (동일)
-  │                                │
-  │   relay 경유 (token으로 라우팅)  │
-  ◀─────── Frontend pubkey ────────┤  (relay는 ciphertext만 중계)
-  │                                │
-  ├── crypto_kx_server(            │
-  │     daemon_pk, daemon_sk,      │
-  │     frontend_pk)               │
-  │   = {tx, rx} session keys      │
-  │                                ├── crypto_kx_client(
-  │                                │     frontend_pk, frontend_sk,
-  │                                │     daemon_pk)
-  │                                │   = {tx, rx} session keys
-  │                                │
-  ◀═══ XChaCha20-Poly1305 통신 ═══▶
+pairing_secret (32B, QR 코드로 공유)
+  │
+  ├── BLAKE2b(secret‖"relay-auth")     → relay token (인증용, hex)
+  ├── BLAKE2b(secret‖"relay-register") → registration proof (self-registration용, hex)
+  └── BLAKE2b(secret‖"kx-envelope")   → kxKey (key exchange 암호화용, 32B)
 ```
 
-Note: Daemon pubkey는 QR 코드(offline)로 전달, Frontend pubkey는 relay를 경유해 전달.
-Relay는 pairing secret에서 파생된 token으로 세션 라우팅 접근 제어만 수행하며,
-암호학적 인증의 주체가 아님. E2EE 상호 인증은 Daemon ↔ Frontend 간 ECDH로 완성.
+### 5.2 페어링 + 연결 시퀀스
+
+```
+Daemon                     Relay                     Frontend
+  │                          │                          │
+  ├── X25519 keypair 생성     │                          │
+  ├── pairing secret (32B)   │                          │
+  ├── relay token 파생        │                          │
+  ├── registration proof 파생 │                          │
+  ├── kxKey 파생              │                          │
+  │                          │                          │
+  ├── QR 표시 ◀──────────────┼────────────────────────── QR 스캔 (offline)
+  │   {secret, pk, relay, id}│                          │
+  │                          │                          ├── X25519 keypair 생성
+  │                          │                          ├── frontendId 생성
+  │                          │                          ├── relay token 파생 (동일)
+  │                          │                          ├── kxKey 파생 (동일)
+  │                          │                          │
+  ├── relay.register ────────▶ token→daemonId 등록       │
+  ◀── relay.register.ok ─────┤                          │
+  ├── relay.auth (daemon) ──▶│ daemon 인증               │
+  ◀── relay.auth.ok ─────────┤                          │
+  │                          │                          │
+  ├── relay.kx ──────────────▶ 반대 role에 forwarding ──▶│ (daemon pubkey, kxKey로 암호화)
+  │   (daemon pk broadcast)  │                          │
+  │                          │                          ├── relay.auth (frontend, frontendId)
+  │                          │◀── relay.auth ────────────┤
+  │                          ├── relay.auth.ok ─────────▶│
+  │                          │                          │
+  │                          │◀── relay.kx ─────────────┤ (frontend pk + frontendId, kxKey로 암호화)
+  ◀──────── relay.kx.frame ──┤   반대 role에 forwarding  │
+  │                          │                          │
+  ├── kxKey로 복호화           │                          │
+  ├── frontend pk 추출        │                          │
+  ├── per-frontend session   │                          │
+  │   keys 파생 (ECDH)       │                          │
+  │                          │                          │
+  ◀════ E2EE (per-frontend XChaCha20-Poly1305) ════════▶
+```
+
+### 5.3 N:N 멀티플렉싱
+
+- **하나의 Daemon ↔ N개 Frontend**: Daemon은 `peers: Map<frontendId, SessionKeys>`로
+  frontend별 독립 E2EE 세션 키를 관리. `publishRecord()` 시 각 peer에게 별도 암호화.
+- **하나의 App ↔ N개 Daemon**: App은 `pairings: Map<daemonId, PairingInfo>`로
+  daemon별 독립 `FrontendRelayClient` 인스턴스를 관리. 각각 독립 relay 연결.
+- **Relay 라우팅**: `RelayFrame.frontendId`로 daemon이 O(1) peer lookup.
+  Relay는 daemonId별 그룹 내에서 frame을 forwarding.
+
+### 5.4 Pairing 영속화
+
+- **Daemon**: vault SQLite의 `pairings` 테이블에 key pair + pairing secret 저장.
+  재시작 시 `reconnectSavedRelays()`로 자동 재연결.
+- **Frontend**: expo-secure-store (iOS: Keychain, Android: Keystore, Web: localStorage)에
+  `Map<daemonId, PairingInfo>`를 base64-serialized JSON으로 저장.
 
 ### 5.2 암호화 프레임 구조
 

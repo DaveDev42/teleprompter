@@ -106,22 +106,36 @@ export async function daemonCommand(argv: string[]): Promise<void> {
 
   if (relayUrl && relayToken && daemonId) {
     try {
-      const { generateKeyPair } = await import("@teleprompter/protocol");
-      const keyPair = await generateKeyPair();
+      const saved = await loadPairingData();
+      const { generateKeyPair, deriveRegistrationProof, fromBase64: fb64 } = await import("@teleprompter/protocol");
 
-      // Frontend public key is optional — if not provided, E2EE won't work
-      // but the relay connection will still be established for presence
-      let frontendPublicKey: Uint8Array = new Uint8Array(32);
-      if (values["frontend-pubkey"]) {
-        frontendPublicKey = new Uint8Array(await fromBase64(values["frontend-pubkey"] as string));
+      // Use saved key pair if available, otherwise generate new one
+      let keyPair;
+      let pairingSecret: Uint8Array;
+      let registrationProof: string;
+
+      if (saved?.publicKey && saved?.secretKey && saved?.qrData?.ps) {
+        keyPair = {
+          publicKey: await fb64(saved.publicKey),
+          secretKey: await fb64(saved.secretKey),
+        };
+        pairingSecret = await fb64(saved.qrData.ps);
+        registrationProof = await deriveRegistrationProof(pairingSecret);
+      } else {
+        // Fallback: generate new keys (won't match QR pairing)
+        keyPair = await generateKeyPair();
+        pairingSecret = new Uint8Array(32);
+        registrationProof = "";
+        console.warn("[Daemon] no saved pairing data — E2EE key exchange will not work");
       }
 
       await daemon.connectRelay({
         relayUrl: relayUrl,
         daemonId: daemonId,
         token: relayToken,
+        registrationProof,
         keyPair,
-        frontendPublicKey,
+        pairingSecret,
       });
       console.log(`[Daemon] connected to relay ${relayUrl}`);
     } catch (err) {

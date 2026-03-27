@@ -140,14 +140,10 @@ export class Daemon {
     const client = new RelayClient(config, {
       onInput: (_sid, data) => {
         // Relay input from remote frontend → runner
-        // data is base64 encoded
         const runner = this.ipcServer.findRunnerBySid(_sid);
         if (runner) {
           this.ipcServer.send(runner, { t: "input", sid: _sid, data });
         }
-      },
-      onRecord: (_rec) => {
-        // Remote frontend sends records (unusual but possible)
       },
     });
 

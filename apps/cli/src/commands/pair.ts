@@ -77,6 +77,7 @@ export async function loadPairingData(): Promise<{
   relayToken: string;
   publicKey: string;
   secretKey: string;
+  qrData?: { ps: string; pk: string; relay: string; did: string; v: number };
 } | null> {
   try {
     const pairingFile = join(PAIRING_DIR, "pairing.json");

@@ -59,7 +59,9 @@ export function DiagnosticsPanel() {
   const sid = useSessionStore((s) => s.sid);
   const sessions = useSessionStore((s) => s.sessions);
   const pairingState = usePairingStore((s) => s.state);
-  const pairingInfo = usePairingStore((s) => s.info);
+  const pairings = usePairingStore((s) => s.pairings);
+  const activeDaemonId = usePairingStore((s) => s.activeDaemonId);
+  const pairingInfo = activeDaemonId ? pairings.get(activeDaemonId) : pairings.values().next().value ?? null;
   const [rtt, setRtt] = useState(-1);
   const [cryptoTest, setCryptoTest] = useState<{
     running: boolean;

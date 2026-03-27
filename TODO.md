@@ -67,9 +67,17 @@
 - [ ] Android 키보드 + WebView xterm.js 동작 확인
 - [ ] EAS Build Android → Google Play 준비
 
-### 멀티 디바이스
-- [ ] 하나의 daemon에 여러 프론트엔드 동시 연결 테스트
-- [ ] 동시 연결 시 record broadcast 정합성 확인
+### N:N Relay (프로토콜 v2)
+- [x] Relay self-registration (relay.register) — daemon이 token 자동 등록
+- [x] In-band key exchange (relay.kx) — pairing secret 기반 pubkey 교환
+- [x] frontendId — per-frontend E2EE session key 분리
+- [x] Daemon multi-peer relay client — N개 frontend에 독립 E2EE
+- [x] Frontend relay client v2 — kx + frontendId + pairingSecret
+- [x] Multi-daemon pairing store — Map<daemonId, PairingInfo> + secure storage 영속화
+- [x] Multi-client relay hook — per-daemon FrontendRelayClient 관리
+- [x] Direct WS + relay 병렬 실행 (상호 배제 제거)
+- [ ] Daemon pairing persistence (vault DB) — 재시작 시 relay 자동 재연결
+- [ ] 멀티 디바이스 E2E 테스트 (2개 앱 동시 연결 + 독립 E2EE)
 - [ ] 디바이스 간 세션 전환 UX
 
 ### 추가 기능

@@ -1,5 +1,5 @@
 import { IpcServer } from "./ipc/server";
-import { Vault } from "./vault";
+import { Store } from "./store";
 import { SessionManager, type SpawnRunnerOptions } from "./session/session-manager";
 import { ClientRegistry } from "./transport/client-registry";
 import { WsServer } from "./transport/ws-server";
@@ -15,23 +15,23 @@ import type {
   WsSessionMeta,
   WsRec,
 } from "@teleprompter/protocol";
-import type { SessionMeta } from "./vault/vault";
-import type { StoredRecord } from "./vault/session-db";
+import type { SessionMeta } from "./store/store";
+import type { StoredRecord } from "./store/session-db";
 import type { WsClient } from "./transport/client-registry";
 
 const log = createLogger("Daemon");
 
 export class Daemon {
   private ipcServer: IpcServer;
-  private vault: Vault;
+  private store: Store;
   private sessionManager = new SessionManager();
   private clientRegistry = new ClientRegistry();
   private wsServer: WsServer;
   private relayClients: RelayClient[] = [];
   private worktreeManager: WorktreeManager | null = null;
 
-  constructor(vaultDir?: string) {
-    this.vault = new Vault(vaultDir);
+  constructor(storeDir?: string) {
+    this.store = new Store(storeDir);
 
     this.ipcServer = new IpcServer({
       onConnect: (_runner) => {
@@ -49,12 +49,12 @@ export class Daemon {
 
     this.wsServer = new WsServer(this.clientRegistry, {
       onHello: (client) => {
-        const sessions = this.vault.listSessions().map(toWsSessionMeta);
+        const sessions = this.store.listSessions().map(toWsSessionMeta);
         this.clientRegistry.send(client, { t: "hello", v: 1, d: { sessions } });
       },
       onAttach: (client, sid) => {
         this.clientRegistry.attach(client, sid);
-        const meta = this.vault.getSession(sid);
+        const meta = this.store.getSession(sid);
         if (meta) {
           this.clientRegistry.send(client, { t: "state", sid, d: toWsSessionMeta(meta) });
         } else {
@@ -104,9 +104,9 @@ export class Daemon {
 
   start(socketPath?: string): string {
     // Mark stale "running" sessions as stopped (from previous daemon run)
-    const stale = this.vault.listSessions().filter((s) => s.state === "running");
+    const stale = this.store.listSessions().filter((s) => s.state === "running");
     for (const s of stale) {
-      this.vault.updateSessionState(s.sid, "stopped");
+      this.store.updateSessionState(s.sid, "stopped");
       log.info(`marked stale session as stopped: ${s.sid}`);
     }
 
@@ -132,7 +132,7 @@ export class Daemon {
    * Returns the number of sessions deleted.
    */
   pruneOldSessions(maxAgeMs: number): number {
-    return this.vault.pruneOldSessions(maxAgeMs);
+    return this.store.pruneOldSessions(maxAgeMs);
   }
 
   /**
@@ -154,14 +154,14 @@ export class Daemon {
     await client.connect();
 
     // Subscribe to all existing sessions
-    for (const meta of this.vault.listSessions()) {
+    for (const meta of this.store.listSessions()) {
       if (meta.state === "running") {
         client.subscribe(meta.sid);
       }
     }
 
     // Persist pairing data for auto-reconnect on daemon restart
-    this.vault.savePairing({
+    this.store.savePairing({
       daemonId: config.daemonId,
       relayUrl: config.relayUrl,
       relayToken: config.token,
@@ -180,7 +180,7 @@ export class Daemon {
    * Called on daemon startup to restore relay connections.
    */
   async reconnectSavedRelays(): Promise<number> {
-    const pairings = this.vault.loadPairings();
+    const pairings = this.store.loadPairings();
     let count = 0;
     for (const p of pairings) {
       try {
@@ -233,7 +233,7 @@ export class Daemon {
     _runner: unknown,
     msg: IpcHello,
   ): void {
-    this.vault.createSession(
+    this.store.createSession(
       msg.sid,
       msg.cwd,
       msg.worktreePath,
@@ -254,7 +254,7 @@ export class Daemon {
     }
 
     // Notify WS clients of new session
-    const meta = this.vault.getSession(msg.sid);
+    const meta = this.store.getSession(msg.sid);
     if (meta) {
       this.clientRegistry.sendAll({ t: "state", sid: msg.sid, d: toWsSessionMeta(meta) });
     }
@@ -264,7 +264,7 @@ export class Daemon {
     runner: Parameters<IpcServer["send"]>[0],
     msg: IpcRec,
   ): void {
-    const db = this.vault.getSessionDb(msg.sid);
+    const db = this.store.getSessionDb(msg.sid);
     if (!db) {
       log.error(`unknown session sid=${msg.sid}`);
       return;
@@ -279,7 +279,7 @@ export class Daemon {
       msg.name,
     );
 
-    this.vault.updateLastSeq(msg.sid, seq);
+    this.store.updateLastSeq(msg.sid, seq);
 
     // Send ack (informational, non-blocking)
     this.ipcServer.send(runner, {
@@ -312,12 +312,12 @@ export class Daemon {
    * Stored in vault and broadcast to WS/relay clients.
    */
   private emitTpEvent(sid: string, name: string, data: unknown): void {
-    const db = this.vault.getSessionDb(sid);
+    const db = this.store.getSessionDb(sid);
     if (!db) return;
 
     const payload = Buffer.from(JSON.stringify(data)).toString("base64");
     const seq = db.append("event" as RecordKind, Date.now(), Buffer.from(payload), "tp" as Namespace, name);
-    this.vault.updateLastSeq(sid, seq);
+    this.store.updateLastSeq(sid, seq);
 
     const wsRec: WsRec = {
       t: "rec", sid, seq, k: "event" as RecordKind,
@@ -331,19 +331,19 @@ export class Daemon {
 
   private handleBye(msg: IpcBye): void {
     const state = msg.exitCode === 0 ? "stopped" : "error";
-    this.vault.updateSessionState(msg.sid, state);
+    this.store.updateSessionState(msg.sid, state);
     this.sessionManager.unregisterRunner(msg.sid);
     log.info(`session ended sid=${msg.sid} exitCode=${msg.exitCode} state=${state}`);
 
     // Notify WS clients of session state change
-    const meta = this.vault.getSession(msg.sid);
+    const meta = this.store.getSession(msg.sid);
     if (meta) {
       this.clientRegistry.sendAll({ t: "state", sid: msg.sid, d: toWsSessionMeta(meta) });
     }
   }
 
   private handleResume(client: WsClient, sid: string, cursor: number): void {
-    const db = this.vault.getSessionDb(sid);
+    const db = this.store.getSessionDb(sid);
     if (!db) {
       this.clientRegistry.send(client, { t: "err", e: "NOT_FOUND", m: `Session ${sid} not found` });
       return;
@@ -507,7 +507,7 @@ export class Daemon {
   }
 
   private handleSessionRestart(client: WsClient, sid: string): void {
-    const session = this.vault.getSession(sid);
+    const session = this.store.getSession(sid);
     if (!session) {
       this.clientRegistry.send(client, {
         t: "err",
@@ -554,7 +554,7 @@ export class Daemon {
     this.relayClients = [];
     this.wsServer.stop();
     this.ipcServer.stop();
-    this.vault.close();
+    this.store.close();
     log.info("stopped");
   }
 }

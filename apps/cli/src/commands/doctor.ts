@@ -76,13 +76,13 @@ export async function doctorCommand(): Promise<void> {
   }
 
   // Vault directory
-  const vaultDir = join(
+  const storeDir = join(
     process.env.XDG_DATA_HOME ?? join(process.env.HOME ?? "/tmp", ".local", "share"),
     "teleprompter",
     "vault",
   );
-  if (existsSync(vaultDir)) {
-    check("Vault", vaultDir, true);
+  if (existsSync(storeDir)) {
+    check("Vault", storeDir, true);
   } else {
     check("Vault", "not created yet (starts on first daemon run)", false);
   }

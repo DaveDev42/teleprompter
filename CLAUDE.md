@@ -36,7 +36,7 @@ scripts/
 ## Architecture
 
 - **Runner** spawns Claude Code in a PTY (`Bun.spawn({ terminal })`), collects io streams and hooks events, sends Records to Daemon via Unix domain socket IPC
-- **Daemon** manages sessions, stores Records in Vault (append-only per session, with session delete/prune support), persists pairings in vault DB for auto-reconnect, encrypts with libsodium per-frontend keys, connects to Relay(s)
+- **Daemon** manages sessions, stores Records in Store (append-only per session, with session delete/prune support), persists pairings in store DB for auto-reconnect, encrypts with libsodium per-frontend keys, connects to Relay(s)
 - **Relay** is a stateless ciphertext forwarder — holds only recent 10 encrypted frames per session
 - **Frontend** decrypts and renders: Terminal tab (xterm.js) + Chat tab (hooks events + PTY parsing hybrid)
 - Data flow: Runner → Daemon → Relay → Frontend (and reverse for input)
@@ -74,7 +74,7 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - `packages/protocol/src/crypto.test.ts` — E2EE encrypt/decrypt, key exchange, ratchet, kxKey/registrationProof derivation
 - `packages/protocol/src/crypto-edge.test.ts` — empty/large payloads, tampered ciphertext
 - `packages/protocol/src/pairing.test.ts` — QR pairing bundle, encode/decode
-- `packages/daemon/src/vault/vault.test.ts` — append-only Record 저장
+- `packages/daemon/src/store/store.test.ts` — append-only Record 저장
 - `packages/daemon/src/transport/client-registry.test.ts` — WS client 추적
 - `packages/daemon/src/session/session-manager.test.ts` — register/unregister, spawn, kill
 - `packages/daemon/src/ipc/server.test.ts` — connection lifecycle, framed messaging, findBySid
@@ -82,8 +82,8 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - `packages/runner/src/hooks/hook-receiver.test.ts` — unix socket event reception
 - `packages/runner/src/hooks/capture-hook.test.ts` — hook command generation
 - `packages/runner/src/collector.test.ts` — io/event/meta record creation
-- `packages/daemon/src/vault/session-db.test.ts` — append, cursor, payloads
-- `packages/daemon/src/vault/vault-cleanup.test.ts` — deleteSession, pruneOldSessions
+- `packages/daemon/src/store/session-db.test.ts` — append, cursor, payloads
+- `packages/daemon/src/store/store-cleanup.test.ts` — deleteSession, pruneOldSessions
 - `packages/protocol/src/socket-path.test.ts` — path format
 - `packages/protocol/src/logger.test.ts` — level filtering, prefix formatting
 - `apps/cli/src/args.test.ts` — `--tp-*` 인자 분리
@@ -98,7 +98,7 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 
 ### Tier 2: Integration Tests (stub runner)
 Stub 프로세스로 전체 파이프라인 검증.
-- `packages/daemon/src/integration.test.ts` — IPC 파이프라인 (mock Runner→Daemon→Vault)
+- `packages/daemon/src/integration.test.ts` — IPC 파이프라인 (mock Runner→Daemon→Store)
 - `packages/daemon/src/e2e.test.ts` — 동시 세션, crash, resume, streaming, input relay
 - `packages/daemon/src/transport/ws-server.test.ts` — WebSocket 서버 동작
 - `packages/daemon/src/transport/relay-client.test.ts` — Daemon→Relay E2E with v2 self-registration + key exchange
@@ -216,7 +216,7 @@ update the relevant documentation files in the same commit.
 - ✓ 순수 JavaScript 라이브러리
 
 ### Key Storage Security
-- **Daemon vault** (`~/.local/share/teleprompter/vault/sessions.sqlite`): pairing secret key, daemon private key stored as plaintext BLOBs. Protected by filesystem permissions only (similar to `~/.ssh/`).
+- **Daemon vault** (`~/.local/share/teleprompter/store/sessions.sqlite`): pairing secret key, daemon private key stored as plaintext BLOBs. Protected by filesystem permissions only (similar to `~/.ssh/`).
 - **App (iOS/Android)**: pairing keys stored in Keychain/Keystore via expo-secure-store.
 - **App (Web)**: pairing keys in localStorage (prefixed `tp_`). Known limitation — no hardware-backed secure storage on web.
 

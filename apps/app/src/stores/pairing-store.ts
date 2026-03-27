@@ -68,10 +68,6 @@ export interface PairingStore {
   setActiveDaemon: (daemonId: string | null) => void;
   /** Reset all pairings */
   reset: () => Promise<void>;
-
-  // Legacy compat getters
-  /** @deprecated Use pairings map instead */
-  info: PairingInfo | null;
 }
 
 async function serializePairings(
@@ -129,15 +125,6 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
   activeDaemonId: null,
   error: null,
   loaded: false,
-
-  // Legacy compat
-  get info() {
-    const { activeDaemonId, pairings } = get();
-    if (activeDaemonId) return pairings.get(activeDaemonId) ?? null;
-    // Fallback: return first pairing
-    const first = pairings.values().next();
-    return first.done ? null : first.value;
-  },
 
   load: async () => {
     try {

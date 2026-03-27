@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { join } from "path";
 import { unlinkSync, existsSync, mkdirSync } from "fs";
-import { SESSIONS_DDL, PRAGMAS } from "./schema";
+import { SESSIONS_DDL, PAIRINGS_DDL, PRAGMAS } from "./schema";
 import { SessionDb } from "./session-db";
 import { getVaultDir } from "./config";
 import type { SessionState, SID } from "@teleprompter/protocol";
@@ -37,6 +37,7 @@ export class Vault {
       this.metaDb.run(pragma);
     }
     this.metaDb.run(SESSIONS_DDL);
+    this.metaDb.run(PAIRINGS_DDL);
 
     this.createStmt = this.metaDb.prepare(
       "INSERT OR REPLACE INTO sessions (sid, state, worktree_path, cwd, created_at, updated_at, claude_version, last_seq) VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
@@ -152,6 +153,72 @@ export class Vault {
       this.deleteSession(sid);
     }
     return old.length;
+  }
+
+  // ── Pairing Persistence ──
+
+  savePairing(data: {
+    daemonId: string;
+    relayUrl: string;
+    relayToken: string;
+    registrationProof: string;
+    publicKey: Uint8Array;
+    secretKey: Uint8Array;
+    pairingSecret: Uint8Array;
+  }): void {
+    this.metaDb
+      .prepare(
+        `INSERT OR REPLACE INTO pairings
+         (daemon_id, relay_url, relay_token, registration_proof, public_key, secret_key, pairing_secret, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        data.daemonId,
+        data.relayUrl,
+        data.relayToken,
+        data.registrationProof,
+        data.publicKey,
+        data.secretKey,
+        data.pairingSecret,
+        Date.now(),
+      );
+  }
+
+  loadPairings(): Array<{
+    daemonId: string;
+    relayUrl: string;
+    relayToken: string;
+    registrationProof: string;
+    publicKey: Uint8Array;
+    secretKey: Uint8Array;
+    pairingSecret: Uint8Array;
+  }> {
+    const rows = this.metaDb
+      .prepare("SELECT * FROM pairings ORDER BY created_at ASC")
+      .all() as Array<{
+        daemon_id: string;
+        relay_url: string;
+        relay_token: string;
+        registration_proof: string;
+        public_key: Buffer;
+        secret_key: Buffer;
+        pairing_secret: Buffer;
+        created_at: number;
+      }>;
+
+    return rows.map((r) => ({
+      daemonId: r.daemon_id,
+      relayUrl: r.relay_url,
+      relayToken: r.relay_token,
+      registrationProof: r.registration_proof,
+      publicKey: new Uint8Array(r.public_key),
+      secretKey: new Uint8Array(r.secret_key),
+      pairingSecret: new Uint8Array(r.pairing_secret),
+    }));
+  }
+
+  deletePairing(daemonId: string): void {
+    this.metaDb.run("DELETE FROM pairings WHERE daemon_id = ?", [daemonId]);
   }
 
   close(): void {

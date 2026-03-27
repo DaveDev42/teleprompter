@@ -22,6 +22,19 @@ CREATE TABLE IF NOT EXISTS records (
 );
 `;
 
+export const PAIRINGS_DDL = `
+CREATE TABLE IF NOT EXISTS pairings (
+  daemon_id TEXT PRIMARY KEY,
+  relay_url TEXT NOT NULL,
+  relay_token TEXT NOT NULL,
+  registration_proof TEXT NOT NULL,
+  public_key BLOB NOT NULL,
+  secret_key BLOB NOT NULL,
+  pairing_secret BLOB NOT NULL,
+  created_at INTEGER NOT NULL
+);
+`;
+
 export const PRAGMAS = [
   "PRAGMA journal_mode = WAL;",
   "PRAGMA synchronous = NORMAL;",

@@ -135,6 +135,7 @@ export class Daemon {
   /**
    * Connect to a Relay server for remote frontend access.
    * Multiple relays can be connected simultaneously.
+   * Pairing data is persisted to vault for auto-reconnect on restart.
    */
   async connectRelay(config: RelayClientConfig): Promise<RelayClient> {
     const client = new RelayClient(config, {
@@ -156,8 +157,45 @@ export class Daemon {
       }
     }
 
+    // Persist pairing data for auto-reconnect on daemon restart
+    this.vault.savePairing({
+      daemonId: config.daemonId,
+      relayUrl: config.relayUrl,
+      relayToken: config.token,
+      registrationProof: config.registrationProof,
+      publicKey: config.keyPair.publicKey,
+      secretKey: config.keyPair.secretKey,
+      pairingSecret: config.pairingSecret,
+    });
+
     this.relayClients.push(client);
     return client;
+  }
+
+  /**
+   * Reconnect to all saved relay pairings from vault.
+   * Called on daemon startup to restore relay connections.
+   */
+  async reconnectSavedRelays(): Promise<number> {
+    const pairings = this.vault.loadPairings();
+    let count = 0;
+    for (const p of pairings) {
+      try {
+        await this.connectRelay({
+          relayUrl: p.relayUrl,
+          daemonId: p.daemonId,
+          token: p.relayToken,
+          registrationProof: p.registrationProof,
+          keyPair: { publicKey: p.publicKey, secretKey: p.secretKey },
+          pairingSecret: p.pairingSecret,
+        });
+        count++;
+        log.info(`reconnected to relay ${p.relayUrl} (daemon ${p.daemonId})`);
+      } catch (err) {
+        log.error(`failed to reconnect to relay ${p.relayUrl}:`, err);
+      }
+    }
+    return count;
   }
 
   createSession(

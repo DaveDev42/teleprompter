@@ -10,7 +10,7 @@
 
 ---
 
-## 🟡 P1 — 사용성
+## ✅ P1 — 사용성 (완료)
 
 ### Relay 원격 배포
 - [x] Hetzner 또는 Oracle Cloud에 relay 서버 배포 — deploy-relay.yml + SSH binary deploy
@@ -24,8 +24,10 @@
 
 ### Native E2EE
 - [x] libsodium asm.js fallback 활성화 (Expo Go 호환, 네이티브 모듈 불필요)
+- [x] Hermes crypto polyfill — expo-crypto `getRandomValues` → `self.crypto` (libsodium 초기화 필수)
 - [x] iOS/Android에서 E2EE relay 연결 검증 (Expo Go 실기기 테스트)
 - [x] QR 페어링 → 암호화 통신 네이티브 E2E
+- [x] DiagnosticsPanel E2EE self-test (Sodium Init / Key Gen / Encrypt-Decrypt, 플랫폼 감지)
 
 ### Daemon 자동 시작
 - [x] `tp status`, `tp logs` 등에서 daemon이 없으면 자동 시작 — ensureDaemon()
@@ -67,18 +69,21 @@
 - [ ] Android 키보드 + WebView xterm.js 동작 확인
 - [ ] EAS Build Android → Google Play 준비
 
-### N:N Relay (프로토콜 v2)
-- [x] Relay self-registration (relay.register) — daemon이 token 자동 등록
-- [x] In-band key exchange (relay.kx) — pairing secret 기반 pubkey 교환
-- [x] frontendId — per-frontend E2EE session key 분리
-- [x] Daemon multi-peer relay client — N개 frontend에 독립 E2EE
-- [x] Frontend relay client v2 — kx + frontendId + pairingSecret
-- [x] Multi-daemon pairing store — Map<daemonId, PairingInfo> + secure storage 영속화
-- [x] Multi-client relay hook — per-daemon FrontendRelayClient 관리
+### N:N Relay (프로토콜 v2) ✅
+- [x] Relay protocol v2 types — relay.register, relay.kx, frontendId
+- [x] Crypto: deriveKxKey, deriveRegistrationProof + unit tests (domain separation, determinism)
+- [x] Relay self-registration (relay.register) — daemon이 token 자동 등록 (proof 기반, pre-registration 불필요)
+- [x] In-band key exchange (relay.kx) — pairing secret에서 파생된 kxKey로 pubkey 암호화 교환
+- [x] frontendId — per-frontend E2EE session key 분리 (RelayAuth, RelayFrame에 포함)
+- [x] Daemon multi-peer relay client — peers Map<frontendId, SessionKeys>, fan-out encryption
+- [x] Frontend relay client v2 — auth 후 relay.kx로 pubkey 전송, kxKey로 envelope 암호화
+- [x] Multi-daemon pairing store — Map<daemonId, PairingInfo> + expo-secure-store 영속화
+- [x] Multi-client relay hook — per-daemon FrontendRelayClient 관리 (incremental add/remove)
 - [x] Direct WS + relay 병렬 실행 (상호 배제 제거)
-- [x] Daemon pairing persistence (vault DB) — 재시작 시 relay 자동 재연결
-- [x] 멀티 디바이스 E2E 테스트 (2개 앱 동시 연결 + 독립 E2EE)
-- [x] 디바이스 간 세션 전환 UX
+- [x] Daemon pairing persistence (vault DB pairings 테이블) — 재시작 시 reconnectSavedRelays()
+- [x] 멀티 디바이스 E2E 테스트 — multi-frontend.test.ts (2 frontends, 독립 E2EE, cross-decrypt 거부)
+- [x] 디바이스 간 세션 전환 UX — Settings에서 active daemon 선택, 연결 상태 표시
+- [x] Settings "Pair with Daemon" 버튼 + 다중 pairing 목록 UI
 
 ### 추가 기능
 - [ ] Chat에서 코드 블록 syntax highlighting

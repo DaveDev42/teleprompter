@@ -77,8 +77,8 @@
 - [x] Multi-client relay hook — per-daemon FrontendRelayClient 관리
 - [x] Direct WS + relay 병렬 실행 (상호 배제 제거)
 - [x] Daemon pairing persistence (vault DB) — 재시작 시 relay 자동 재연결
-- [ ] 멀티 디바이스 E2E 테스트 (2개 앱 동시 연결 + 독립 E2EE)
-- [ ] 디바이스 간 세션 전환 UX
+- [x] 멀티 디바이스 E2E 테스트 (2개 앱 동시 연결 + 독립 E2EE)
+- [x] 디바이스 간 세션 전환 UX
 
 ### 추가 기능
 - [ ] Chat에서 코드 블록 syntax highlighting

@@ -110,6 +110,7 @@ Stub 프로세스로 전체 파이프라인 검증.
 - `packages/protocol/src/pairing-e2e.test.ts` — full QR pairing → ratchet → E2E encrypt
 - `packages/runner/src/ipc/client.test.ts` — Runner↔Daemon IPC client connection
 - `apps/cli/src/full-stack.test.ts` — Runner→Daemon→Relay→Frontend complete pipeline
+- `apps/cli/src/multi-frontend.test.ts` — N:N multi-frontend E2EE (2 frontends, independent keys, cross-decrypt rejection)
 
 ### Tier 3: Real E2E Tests (requires claude CLI)
 실제 claude PTY를 통한 전체 tp 파이프라인. `claude`가 PATH에 없으면 skip.

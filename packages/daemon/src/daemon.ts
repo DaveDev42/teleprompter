@@ -94,6 +94,9 @@ export class Daemon {
       onSessionStop: (client, sid) => {
         this.handleSessionStop(client, sid);
       },
+      onSessionRestart: (client, sid) => {
+        this.handleSessionRestart(client, sid);
+      },
     });
   }
 
@@ -501,6 +504,35 @@ export class Daemon {
       });
     }
     // Session end will be handled by handleBye when the process exits
+  }
+
+  private handleSessionRestart(client: WsClient, sid: string): void {
+    const session = this.vault.getSession(sid);
+    if (!session) {
+      this.clientRegistry.send(client, {
+        t: "err",
+        e: "NOT_FOUND",
+        m: `Session ${sid} not found`,
+      });
+      return;
+    }
+
+    // Kill existing runner if still running
+    this.sessionManager.killRunner(sid);
+
+    // Re-create the session with the same cwd and worktree
+    try {
+      this.createSession(sid, session.cwd, {
+        worktreePath: session.worktree_path ?? undefined,
+      });
+      log.info(`restarted session ${sid}`);
+    } catch (err) {
+      this.clientRegistry.send(client, {
+        t: "err",
+        e: "SESSION_ERROR",
+        m: err instanceof Error ? err.message : "Failed to restart session",
+      });
+    }
   }
 
   stop(): void {

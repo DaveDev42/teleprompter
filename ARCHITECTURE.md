@@ -7,7 +7,7 @@
 │   Runner    │────▶│   Daemon    │◀───▶│   Relay     │◀───▶│  Frontend   │
 │  (per-session)│  IPC │ (long-running)│  WS  │  (ciphertext) │  WS  │ (Expo app)  │
 │             │     │             │     │             │     │             │
-│ Bun PTY     │     │ Vault       │     │ 공식/셀프    │     │ xterm.js    │
+│ Bun PTY     │     │ Store       │     │ 공식/셀프    │     │ xterm.js    │
 │ hooks 수집   │     │ E2EE        │     │ hosted      │     │ Chat UI     │
 │             │     │ worktree    │     │             │     │ Voice       │
 └─────────────┘     └──────┬──────┘     └─────────────┘     └──────┬──────┘
@@ -46,7 +46,7 @@ teleprompter/
 │   ├── daemon/                # @teleprompter/daemon — Bun 장기 실행 서비스
 │   │   ├── src/
 │   │   │   ├── session/       # Session 관리
-│   │   │   ├── vault/         # 로컬 저장소
+│   │   │   ├── store/         # 로컬 저장소
 │   │   │   ├── transport/     # WS server, relay client, client registry
 │   │   │   ├── worktree/      # git worktree 관리
 │   │   │   └── ipc/           # Runner IPC 서버
@@ -125,7 +125,7 @@ Bun.spawn({ terminal })     Runner 프로세스
     │                              ▼
     │                         Daemon (IPC)
     │                              │
-    │                              ├── Vault에 append
+    │                              ├── Store에 append
     │                              │
     │                              ▼
     │                         E2EE encrypt
@@ -154,7 +154,7 @@ Runner: hooks 수집 스크립트
 Record { kind: "event", ns: "claude", name: hook_event_name, payload: stdin_json }
     │
     ▼
-Daemon (IPC) → Vault append → E2EE encrypt → Relay → Frontend
+Daemon (IPC) → Store append → E2EE encrypt → Relay → Frontend
     │
     ▼
 Frontend Chat 탭:
@@ -371,7 +371,7 @@ const proc = Bun.spawn(["claude", "--settings", hooksSettings], {
 
 Claude Code hooks는 특정 이벤트 발생 시 지정된 스크립트를 실행한다.
 hook 스크립트는 stdin으로 JSON을 받아 파싱한 후, Runner의 HookReceiver에 전달한다.
-HookReceiver → Runner → Daemon (IPC) → Vault 순서로 event Record가 전파된다.
+HookReceiver → Runner → Daemon (IPC) → Store 순서로 event Record가 전파된다.
 
 ```typescript
 // 개념 설명용 간소화. 실제 구현: packages/runner/src/hooks/capture-hook.ts

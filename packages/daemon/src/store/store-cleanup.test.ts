@@ -1,22 +1,22 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { Vault } from "./vault";
+import { Store } from "./store";
 import { mkdtemp, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { existsSync } from "fs";
 
-describe("Vault session cleanup", () => {
-  let vault: Vault;
-  let vaultDir: string;
+describe("Store session cleanup", () => {
+  let vault: Store;
+  let storeDir: string;
 
   beforeEach(async () => {
-    vaultDir = await mkdtemp(join(tmpdir(), "tp-vault-cleanup-"));
-    vault = new Vault(vaultDir);
+    storeDir = await mkdtemp(join(tmpdir(), "tp-vault-cleanup-"));
+    vault = new Store(storeDir);
   });
 
   afterEach(async () => {
     vault.close();
-    await rm(vaultDir, { recursive: true, force: true });
+    await rm(storeDir, { recursive: true, force: true });
   });
 
   test("deleteSession removes metadata and db file", () => {
@@ -25,7 +25,7 @@ describe("Vault session cleanup", () => {
     db!.append("io", Date.now(), Buffer.from("test"));
 
     expect(vault.getSession("s1")).toBeDefined();
-    const dbPath = join(vaultDir, "sessions", "s1.sqlite");
+    const dbPath = join(storeDir, "sessions", "s1.sqlite");
     expect(existsSync(dbPath)).toBe(true);
 
     vault.deleteSession("s1");

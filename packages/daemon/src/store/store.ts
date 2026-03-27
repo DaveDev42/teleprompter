@@ -3,7 +3,7 @@ import { join } from "path";
 import { unlinkSync, existsSync, mkdirSync } from "fs";
 import { SESSIONS_DDL, PAIRINGS_DDL, PRAGMAS } from "./schema";
 import { SessionDb } from "./session-db";
-import { getVaultDir } from "./config";
+import { getStoreDir } from "./config";
 import type { SessionState, SID } from "@teleprompter/protocol";
 
 export interface SessionMeta {
@@ -17,10 +17,10 @@ export interface SessionMeta {
   last_seq: number;
 }
 
-export class Vault {
+export class Store {
   private metaDb: Database;
   private sessionDbs = new Map<string, SessionDb>();
-  private vaultDir: string;
+  private storeDir: string;
 
   private createStmt: ReturnType<Database["prepare"]>;
   private updateStateStmt: ReturnType<Database["prepare"]>;
@@ -28,10 +28,10 @@ export class Vault {
   private getSessionStmt: ReturnType<Database["prepare"]>;
   private listSessionsStmt: ReturnType<Database["prepare"]>;
 
-  constructor(vaultDir?: string) {
-    this.vaultDir = vaultDir ?? getVaultDir();
-    mkdirSync(join(this.vaultDir, "sessions"), { recursive: true });
-    this.metaDb = new Database(join(this.vaultDir, "sessions.sqlite"));
+  constructor(storeDir?: string) {
+    this.storeDir = storeDir ?? getStoreDir();
+    mkdirSync(join(this.storeDir, "sessions"), { recursive: true });
+    this.metaDb = new Database(join(this.storeDir, "sessions.sqlite"));
 
     for (const pragma of PRAGMAS) {
       this.metaDb.run(pragma);
@@ -73,7 +73,7 @@ export class Vault {
       claudeVersion ?? null,
     );
 
-    const dbPath = join(this.vaultDir, "sessions", `${sid}.sqlite`);
+    const dbPath = join(this.storeDir, "sessions", `${sid}.sqlite`);
     const sessionDb = new SessionDb(dbPath);
     this.sessionDbs.set(sid, sessionDb);
     return sessionDb;
@@ -85,7 +85,7 @@ export class Vault {
     }
 
     // Try opening existing db
-    const dbPath = join(this.vaultDir, "sessions", `${sid}.sqlite`);
+    const dbPath = join(this.storeDir, "sessions", `${sid}.sqlite`);
     try {
       const sessionDb = new SessionDb(dbPath);
       this.sessionDbs.set(sid, sessionDb);
@@ -126,7 +126,7 @@ export class Vault {
     this.metaDb.run("DELETE FROM sessions WHERE sid = ?", [sid]);
 
     // Delete session database file
-    const dbPath = join(this.vaultDir, "sessions", `${sid}.sqlite`);
+    const dbPath = join(this.storeDir, "sessions", `${sid}.sqlite`);
     if (existsSync(dbPath)) {
       unlinkSync(dbPath);
     }

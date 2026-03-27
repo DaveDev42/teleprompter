@@ -13,7 +13,7 @@ import { join, resolve } from "path";
 import { tmpdir } from "os";
 import { Daemon } from "./daemon";
 import { SessionManager } from "./session/session-manager";
-import { Vault } from "./vault";
+import { Store } from "./store";
 
 const protocolSrc = resolve(
   __dirname,
@@ -69,17 +69,17 @@ async function waitFor(
 
 describe("E2E flow", () => {
   let tmpDir: string;
-  let vaultDir: string;
+  let storeDir: string;
   let socketPath: string;
   let daemon: Daemon;
   let wsPort: number;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "tp-e2e-"));
-    vaultDir = join(tmpDir, "vault");
-    mkdirSync(join(vaultDir, "sessions"), { recursive: true });
+    storeDir = join(tmpDir, "vault");
+    mkdirSync(join(storeDir, "sessions"), { recursive: true });
     socketPath = join(tmpDir, "daemon.sock");
-    daemon = new Daemon(vaultDir);
+    daemon = new Daemon(storeDir);
     daemon.start(socketPath);
     daemon.startWs(0);
     // Extract the actual port from the WS server
@@ -189,14 +189,14 @@ await Bun.connect({
     // Wait for session to stop
     await waitFor(() => wsMessages.some((m) => m.t === "state" && m.d.state === "stopped"));
 
-    // Verify vault
-    const vault = new Vault(vaultDir);
-    const session = vault.getSession(sid);
+    // Verify store
+    const store = new Store(storeDir);
+    const session = store.getSession(sid);
     expect(session).toBeDefined();
     expect(session!.state).toBe("stopped");
     expect(session!.last_seq).toBe(2);
 
-    const db = vault.getSessionDb(sid);
+    const db = store.getSessionDb(sid);
     const records = db!.getRecordsFrom(0);
     expect(records.length).toBe(2);
     expect(records[0]!.kind).toBe("io");
@@ -207,7 +207,7 @@ await Bun.connect({
     const stateMessages = wsMessages.filter((m: any) => m.t === "state");
     expect(stateMessages.length).toBeGreaterThanOrEqual(2); // running + stopped
 
-    vault.close();
+    store.close();
     ws.close();
     await waitForWsClose(ws);
   });
@@ -273,10 +273,10 @@ await Bun.connect({
     daemon.createSession(sid, tmpDir);
 
     // Wait for session to finish
-    const vault = new Vault(vaultDir);
-    await waitFor(() => vault.getSession(sid)?.state === "stopped");
-    expect(vault.getSession(sid)!.last_seq).toBe(5);
-    vault.close();
+    const store = new Store(storeDir);
+    await waitFor(() => store.getSession(sid)?.state === "stopped");
+    expect(store.getSession(sid)!.last_seq).toBe(5);
+    store.close();
 
     // Now simulate a "new" WS client connecting and resuming from cursor 3
     const ws = new WebSocket(`ws://localhost:${wsPort}`);
@@ -369,15 +369,15 @@ await Bun.connect({
     daemon.createSession(sid2, tmpDir);
 
     // Wait for both to finish
-    const vault = new Vault(vaultDir);
+    const store = new Store(storeDir);
     await waitFor(
       () =>
-        vault.getSession(sid1)?.state === "stopped" &&
-        vault.getSession(sid2)?.state === "stopped",
+        store.getSession(sid1)?.state === "stopped" &&
+        store.getSession(sid2)?.state === "stopped",
     );
 
     // Verify session 1
-    const db1 = vault.getSessionDb(sid1);
+    const db1 = store.getSessionDb(sid1);
     expect(db1).toBeDefined();
     const records1 = db1!.getRecordsFrom(0);
     expect(records1.length).toBe(3);
@@ -387,7 +387,7 @@ await Bun.connect({
     }
 
     // Verify session 2
-    const db2 = vault.getSessionDb(sid2);
+    const db2 = store.getSessionDb(sid2);
     expect(db2).toBeDefined();
     const records2 = db2!.getRecordsFrom(0);
     expect(records2.length).toBe(3);
@@ -397,9 +397,9 @@ await Bun.connect({
     }
 
     // Verify sessions are independent
-    expect(vault.listSessions().length).toBe(2);
+    expect(store.listSessions().length).toBe(2);
 
-    vault.close();
+    store.close();
   });
 
   // ─── 4. Runner crashes mid-stream (non-zero exit) ───
@@ -461,22 +461,22 @@ await Bun.connect({
     SessionManager.setRunnerCommand(["bun", "run", stubPath]);
     daemon.createSession(sid, tmpDir);
 
-    const vault = new Vault(vaultDir);
+    const store = new Store(storeDir);
     await waitFor(() => {
-      const s = vault.getSession(sid);
+      const s = store.getSession(sid);
       return s?.state === "error" || s?.state === "stopped";
     });
 
-    const session = vault.getSession(sid);
+    const session = store.getSession(sid);
     expect(session!.state).toBe("error");
     expect(session!.last_seq).toBe(1);
 
     // Record before crash should still be persisted
-    const db = vault.getSessionDb(sid);
+    const db = store.getSessionDb(sid);
     const records = db!.getRecordsFrom(0);
     expect(records.length).toBe(1);
 
-    vault.close();
+    store.close();
   });
 
   // ─── 5. WS client broadcast: records stream in real-time ───
@@ -651,8 +651,8 @@ setTimeout(() => {
     daemon.createSession(sid, tmpDir);
 
     // Wait for session to be created (hello processed)
-    const vault = new Vault(vaultDir);
-    await waitFor(() => vault.getSession(sid)?.state === "running");
+    const store = new Store(storeDir);
+    await waitFor(() => store.getSession(sid)?.state === "running");
 
     // Connect WS client and send terminal input
     const ws = new WebSocket(`ws://localhost:${wsPort}`);
@@ -670,16 +670,16 @@ setTimeout(() => {
     ws.send(JSON.stringify({ t: "in.term", sid, d: inputData }));
 
     // Wait for the runner to echo it back and session to stop
-    await waitFor(() => vault.getSession(sid)?.state === "stopped");
+    await waitFor(() => store.getSession(sid)?.state === "stopped");
 
     // Verify the echoed record
-    const db = vault.getSessionDb(sid);
+    const db = store.getSessionDb(sid);
     const records = db!.getRecordsFrom(0);
     expect(records.length).toBe(1);
     const payload = Buffer.from(records[0]!.payload).toString("utf-8");
     expect(payload).toBe("echo:user-typed-text\n");
 
-    vault.close();
+    store.close();
     ws.close();
     await waitForWsClose(ws);
   });
@@ -744,8 +744,8 @@ await Bun.connect({
     await Bun.sleep(500);
 
     // The record before crash should be persisted
-    const vault = new Vault(vaultDir);
-    const db = vault.getSessionDb(sid);
+    const store = new Store(storeDir);
+    const db = store.getSessionDb(sid);
     if (db) {
       const records = db.getRecordsFrom(0);
       expect(records.length).toBe(1);
@@ -755,10 +755,10 @@ await Bun.connect({
 
     // Session state should still be "running" since no bye was sent
     // (daemon doesn't auto-detect runner crashes without bye)
-    const session = vault.getSession(sid);
+    const session = store.getSession(sid);
     expect(session).toBeDefined();
     expect(session!.state).toBe("running");
 
-    vault.close();
+    store.close();
   });
 });

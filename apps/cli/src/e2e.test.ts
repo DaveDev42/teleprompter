@@ -3,7 +3,7 @@
  *
  * These tests require `claude` to be installed and available in PATH.
  * They exercise the complete flow:
- *   tp CLI → Daemon → Runner → claude PTY → ANSI output → IPC → Vault → WS
+ *   tp CLI → Daemon → Runner → claude PTY → ANSI output → IPC → Store → WS
  *
  * Uses `claude -p` (non-interactive/print mode) for deterministic testing.
  */
@@ -11,7 +11,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { Daemon, SessionManager, Vault } from "@teleprompter/daemon";
+import { Daemon, SessionManager, Store } from "@teleprompter/daemon";
 import { resolveRunnerCommand } from "./spawn";
 
 // Skip entire suite if claude is not installed
@@ -52,17 +52,17 @@ function waitForWsClose(ws: WebSocket): Promise<void> {
 
 describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
   let tmpDir: string;
-  let vaultDir: string;
+  let storeDir: string;
   let socketPath: string;
   let daemon: Daemon;
   let wsPort: number;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "tp-real-e2e-"));
-    vaultDir = join(tmpDir, "vault");
-    mkdirSync(join(vaultDir, "sessions"), { recursive: true });
+    storeDir = join(tmpDir, "vault");
+    mkdirSync(join(storeDir, "sessions"), { recursive: true });
     socketPath = join(tmpDir, "daemon.sock");
-    daemon = new Daemon(vaultDir);
+    daemon = new Daemon(storeDir);
     daemon.start(socketPath);
     daemon.startWs(0);
     wsPort = (daemon as any).wsServer.port!;
@@ -84,20 +84,20 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
       claudeArgs: ["-p", "say exactly: TELEPROMPTER_TEST_OK"],
     });
 
-    const vault = new Vault(vaultDir);
+    const store = new Store(storeDir);
 
     await waitFor(() => {
-      const s = vault.getSession(sid);
+      const s = store.getSession(sid);
       return s?.state === "stopped" || s?.state === "error";
     }, 60000);
 
-    const session = vault.getSession(sid);
+    const session = store.getSession(sid);
     expect(session).toBeDefined();
     expect(session!.state).toBe("stopped");
     expect(session!.last_seq).toBeGreaterThanOrEqual(1);
 
     // Read all io records and concatenate payloads
-    const db = vault.getSessionDb(sid);
+    const db = store.getSessionDb(sid);
     expect(db).toBeDefined();
     const records = db!.getRecordsFrom(0);
     const ioRecords = records.filter((r) => r.kind === "io");
@@ -114,7 +114,7 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     // Verify it's actually PTY output (likely contains ANSI escape sequences or newlines)
     expect(fullOutput).toMatch(/[\r\n]/);
 
-    vault.close();
+    store.close();
   }, 60000);
 
   test("claude args are passed through correctly", async () => {
@@ -125,17 +125,17 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
       claudeArgs: ["--version"],
     });
 
-    const vault = new Vault(vaultDir);
+    const store = new Store(storeDir);
 
     await waitFor(() => {
-      const s = vault.getSession(sid);
+      const s = store.getSession(sid);
       return s?.state === "stopped" || s?.state === "error";
     }, 15000);
 
-    const session = vault.getSession(sid);
+    const session = store.getSession(sid);
     expect(session).toBeDefined();
 
-    const db = vault.getSessionDb(sid);
+    const db = store.getSessionDb(sid);
     const records = db!.getRecordsFrom(0);
     const ioRecords = records.filter((r) => r.kind === "io");
 
@@ -147,7 +147,7 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     expect(fullOutput).toMatch(/\d+\.\d+\.\d+/);
     expect(fullOutput).toContain("Claude Code");
 
-    vault.close();
+    store.close();
   }, 15000);
 
   test("WS client receives real-time records from real claude session", async () => {
@@ -206,16 +206,16 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
       claudeArgs: ["--version"],
     });
 
-    const vault = new Vault(vaultDir);
+    const store = new Store(storeDir);
 
     await waitFor(() => {
-      const s = vault.getSession(sid);
+      const s = store.getSession(sid);
       return s?.state === "stopped";
     }, 15000);
 
-    const totalSeq = vault.getSession(sid)!.last_seq;
+    const totalSeq = store.getSession(sid)!.last_seq;
     expect(totalSeq).toBeGreaterThanOrEqual(1);
-    vault.close();
+    store.close();
 
     // Connect a "late" WS client and resume from cursor 0 (get all records)
     const ws = new WebSocket(`ws://localhost:${wsPort}`);
@@ -256,14 +256,14 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
       claudeArgs: ["-p", "say hi"],
     });
 
-    const vault = new Vault(vaultDir);
+    const store = new Store(storeDir);
 
     await waitFor(() => {
-      const s = vault.getSession(sid);
+      const s = store.getSession(sid);
       return s?.state === "stopped" || s?.state === "error";
     }, 60000);
 
-    const db = vault.getSessionDb(sid);
+    const db = store.getSessionDb(sid);
     expect(db).toBeDefined();
     const records = db!.getRecordsFrom(0);
 
@@ -287,6 +287,6 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     const stopEvents = eventRecords.filter((r) => r.name === "Stop");
     expect(stopEvents.length).toBeGreaterThanOrEqual(1);
 
-    vault.close();
+    store.close();
   }, 60000);
 });

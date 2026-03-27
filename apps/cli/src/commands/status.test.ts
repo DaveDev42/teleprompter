@@ -52,7 +52,7 @@ describe("tp status", () => {
 
   test("sessions have expected fields", async () => {
     const msg = await getDaemonStatus();
-    // Sessions from vault may exist from previous test runs
+    // Sessions from store may exist from previous test runs
     if (msg.d.sessions.length > 0) {
       const session = msg.d.sessions[0];
       expect(session.sid).toBeString();

@@ -89,7 +89,7 @@ export async function daemonCommand(argv: string[]): Promise<void> {
     console.log(`[Daemon] worktree management enabled for ${values["repo-root"]}`);
   }
 
-  // Relay connection: CLI flags take priority, then vault DB, then pairing.json
+  // Relay connection: CLI flags take priority, then store DB, then pairing.json
   let relayUrl = values["relay-url"] as string | undefined;
   let relayToken = values["relay-token"] as string | undefined;
   let daemonId = values["daemon-id"] as string | undefined;
@@ -131,7 +131,7 @@ export async function daemonCommand(argv: string[]): Promise<void> {
       console.error(`[Daemon] relay connection failed:`, err);
     }
   } else {
-    // No CLI flags — reconnect from saved pairings in vault DB
+    // No CLI flags — reconnect from saved pairings in store DB
     const count = await daemon.reconnectSavedRelays();
     if (count > 0) {
       console.log(`[Daemon] reconnected to ${count} saved relay(s)`);

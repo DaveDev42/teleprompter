@@ -2,23 +2,23 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { Vault } from "./vault";
+import { Store } from "./store";
 
-describe("Vault", () => {
-  let vaultDir: string;
-  let vault: Vault;
+describe("Store", () => {
+  let storeDir: string;
+  let vault: Store;
 
   beforeEach(() => {
-    vaultDir = mkdtempSync(join(tmpdir(), "tp-vault-test-"));
+    storeDir = mkdtempSync(join(tmpdir(), "tp-vault-test-"));
     // Create sessions subdirectory
     const { mkdirSync } = require("fs");
-    mkdirSync(join(vaultDir, "sessions"), { recursive: true });
-    vault = new Vault(vaultDir);
+    mkdirSync(join(storeDir, "sessions"), { recursive: true });
+    vault = new Store(storeDir);
   });
 
   afterEach(() => {
     vault.close();
-    rmSync(vaultDir, { recursive: true, force: true });
+    rmSync(storeDir, { recursive: true, force: true });
   });
 
   test("createSession and getSession", () => {
@@ -97,7 +97,7 @@ describe("Vault", () => {
 
     // Close and reopen
     vault.close();
-    vault = new Vault(vaultDir);
+    vault = new Store(storeDir);
 
     const db2 = vault.getSessionDb("s9");
     expect(db2).toBeDefined();

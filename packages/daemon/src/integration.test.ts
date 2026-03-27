@@ -13,20 +13,20 @@ import {
   type IpcBye,
   type IpcAck,
 } from "@teleprompter/protocol";
-import { Vault } from "./vault";
+import { Store } from "./store";
 
 describe("Integration", () => {
   let tmpDir: string;
-  let vaultDir: string;
+  let storeDir: string;
   let socketPath: string;
   let daemon: Daemon;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "tp-integration-"));
-    vaultDir = join(tmpDir, "vault");
-    mkdirSync(join(vaultDir, "sessions"), { recursive: true });
+    storeDir = join(tmpDir, "vault");
+    mkdirSync(join(storeDir, "sessions"), { recursive: true });
     socketPath = join(tmpDir, "daemon.sock");
-    daemon = new Daemon(vaultDir);
+    daemon = new Daemon(storeDir);
     daemon.start(socketPath);
   });
 
@@ -35,7 +35,7 @@ describe("Integration", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  test("mock runner pipeline: hello → rec → bye → vault verify", async () => {
+  test("mock runner pipeline: hello → rec → bye → store verify", async () => {
     const sid = "test-session-1";
     const decoder = new FrameDecoder();
     const acks: IpcAck[] = [];
@@ -98,14 +98,14 @@ describe("Integration", () => {
 
     await Bun.sleep(100);
 
-    // Verify vault
-    const vault = new Vault(vaultDir);
-    const session = vault.getSession(sid);
+    // Verify store
+    const store = new Store(storeDir);
+    const session = store.getSession(sid);
     expect(session).toBeDefined();
     expect(session!.state).toBe("stopped");
     expect(session!.last_seq).toBe(2);
 
-    const db = vault.getSessionDb(sid);
+    const db = store.getSessionDb(sid);
     expect(db).toBeDefined();
     const records = db!.getRecordsFrom(0);
     expect(records.length).toBe(2);
@@ -119,7 +119,7 @@ describe("Integration", () => {
     expect(acks[0]!.seq).toBe(1);
     expect(acks[1]!.seq).toBe(2);
 
-    vault.close();
+    store.close();
   });
 
   test("backpressure: 10000 records burst", async () => {
@@ -164,7 +164,7 @@ describe("Integration", () => {
     // Wait for processing — drain + server-side sqlite writes
     for (let i = 0; i < 50; i++) {
       await Bun.sleep(100);
-      const v = new Vault(vaultDir);
+      const v = new Store(storeDir);
       const db = v.getSessionDb(sid);
       if (db && db.getLastSeq() >= total) {
         v.close();
@@ -178,11 +178,11 @@ describe("Integration", () => {
     await Bun.sleep(100);
 
     // Verify all records stored
-    const vault = new Vault(vaultDir);
-    const db = vault.getSessionDb(sid);
+    const store = new Store(storeDir);
+    const db = store.getSessionDb(sid);
     expect(db).toBeDefined();
     expect(db!.getLastSeq()).toBe(total);
-    vault.close();
+    store.close();
   });
 
   test("hook receiver: JSON event → onEvent callback", async () => {
@@ -288,11 +288,11 @@ const socket = await Bun.connect({
       daemon.createSession(sid, tmpDir);
 
       // Poll vault until session is stopped or timeout
-      const vault = new Vault(vaultDir);
+      const store = new Store(storeDir);
       let stopped = false;
       for (let i = 0; i < 50; i++) {
         await Bun.sleep(100);
-        const session = vault.getSession(sid);
+        const session = store.getSession(sid);
         if (session?.state === "stopped") {
           stopped = true;
           break;
@@ -301,18 +301,18 @@ const socket = await Bun.connect({
 
       expect(stopped).toBe(true);
 
-      const session = vault.getSession(sid);
+      const session = store.getSession(sid);
       expect(session).toBeDefined();
       expect(session!.state).toBe("stopped");
       expect(session!.last_seq).toBe(1);
 
-      const db = vault.getSessionDb(sid);
+      const db = store.getSessionDb(sid);
       expect(db).toBeDefined();
       const records = db!.getRecordsFrom(0);
       expect(records.length).toBe(1);
       expect(records[0]!.kind).toBe("io");
 
-      vault.close();
+      store.close();
     } finally {
       // Reset runner command for other tests
       SessionManager.setRunnerCommand(null as any);

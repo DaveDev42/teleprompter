@@ -1,8 +1,9 @@
 /**
- * Frontend-side Relay client.
+ * Frontend-side Relay client (v2).
  *
  * Connects to a Relay server via the pairing data obtained from QR scan.
- * Encrypts outgoing input and decrypts incoming records using E2EE.
+ * Performs in-band key exchange to deliver the frontend's public key
+ * to the daemon. Encrypts outgoing input and decrypts incoming records.
  */
 
 import type {
@@ -10,7 +11,6 @@ import type {
   RelayServerMessage,
   RelayFrame,
   WsRec,
-  WsServerMessage,
   SessionKeys,
   KeyPair,
 } from "@teleprompter/protocol/client";
@@ -18,7 +18,8 @@ import {
   encrypt,
   decrypt,
   deriveSessionKeys,
-  generateKeyPair,
+  deriveKxKey,
+  toBase64,
 } from "@teleprompter/protocol/client";
 
 const RECONNECT_BASE_MS = 1000;
@@ -32,6 +33,10 @@ export interface FrontendRelayConfig {
   keyPair: KeyPair;
   /** Daemon public key (from QR pairing data) */
   daemonPublicKey: Uint8Array;
+  /** Raw pairing secret (for kx envelope encryption) */
+  pairingSecret: Uint8Array;
+  /** Unique frontend identifier for N:N multiplexing */
+  frontendId: string;
 }
 
 export interface FrontendRelayEvents {
@@ -51,6 +56,7 @@ export class FrontendRelayClient {
   private config: FrontendRelayConfig;
   private events: FrontendRelayEvents;
   private sessionKeys: SessionKeys | null = null;
+  private kxKey: Uint8Array | null = null;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
@@ -65,12 +71,18 @@ export class FrontendRelayClient {
   async connect(): Promise<void> {
     if (this.disposed) return;
 
+    // Derive session keys from daemon's public key (from QR)
     if (!this.sessionKeys) {
       this.sessionKeys = await deriveSessionKeys(
         this.config.keyPair,
         this.config.daemonPublicKey,
         "frontend",
       );
+    }
+
+    // Derive kx key for key exchange envelope
+    if (!this.kxKey) {
+      this.kxKey = await deriveKxKey(this.config.pairingSecret);
     }
 
     this.cleanup();
@@ -85,7 +97,8 @@ export class FrontendRelayClient {
         role: "frontend",
         daemonId: this.config.daemonId,
         token: this.config.token,
-        v: 1,
+        frontendId: this.config.frontendId,
+        v: 2,
       });
     };
 
@@ -112,13 +125,20 @@ export class FrontendRelayClient {
       case "relay.auth.ok":
         this.authenticated = true;
         this.events.onConnected?.();
+        // Re-subscribe to all sessions
         for (const sid of this.subscribedSessions) {
           this.send({ t: "relay.sub", sid });
         }
+        // Send key exchange: deliver frontend's public key to daemon
+        await this.sendKeyExchange();
         break;
 
       case "relay.auth.err":
         console.error(`[FrontendRelay] auth failed: ${msg.e}`);
+        break;
+
+      case "relay.kx.frame":
+        // Daemon sent its public key (confirmation). We already have it from QR.
         break;
 
       case "relay.frame":
@@ -138,6 +158,25 @@ export class FrontendRelayClient {
     }
   }
 
+  /**
+   * Send the frontend's public key to the daemon via relay key exchange.
+   * Encrypted with kxKey so only pairing secret holders can read it.
+   */
+  private async sendKeyExchange(): Promise<void> {
+    if (!this.kxKey) return;
+
+    const payload = JSON.stringify({
+      pk: await toBase64(this.config.keyPair.publicKey),
+      frontendId: this.config.frontendId,
+      role: "frontend",
+    });
+    const ct = await encrypt(
+      new TextEncoder().encode(payload),
+      this.kxKey,
+    );
+    this.send({ t: "relay.kx", ct, role: "frontend" });
+  }
+
   private async handleFrame(frame: RelayFrame): Promise<void> {
     if (frame.from !== "daemon") return;
     if (!this.sessionKeys) return;
@@ -152,7 +191,7 @@ export class FrontendRelayClient {
       } else if (msg.t === "state") {
         this.events.onState?.(msg);
       }
-    } catch (err) {
+    } catch {
       console.error(`[FrontendRelay] decrypt failed`);
     }
   }

@@ -14,7 +14,8 @@ export default function SettingsScreen() {
   const apiKey = useVoiceStore((s) => s.apiKey);
   const setApiKey = useVoiceStore((s) => s.setApiKey);
   const pairingState = usePairingStore((s) => s.state);
-  const pairingInfo = usePairingStore((s) => s.info);
+  const pairings = usePairingStore((s) => s.pairings);
+  const removePairing = usePairingStore((s) => s.removePairing);
   const resetPairing = usePairingStore((s) => s.reset);
 
   const theme = useThemeStore((s) => s.theme);
@@ -156,45 +157,35 @@ export default function SettingsScreen() {
         </View>
       </View>
 
-      {/* Pairing Status */}
+      {/* Paired Daemons */}
       <View className="mb-8">
-        <Text className="text-gray-400 text-sm mb-2">Daemon Pairing</Text>
-        <View className="bg-zinc-800 rounded-lg px-4 py-3">
-          <View className="flex-row items-center">
-            <View
-              className={`w-2 h-2 rounded-full mr-2 ${pairingState === "paired" ? "bg-green-500" : "bg-gray-500"}`}
-            />
-            <Text className="text-white text-sm">
-              {pairingState === "paired" ? "Paired" : "Not paired"}
-            </Text>
+        <Text className="text-gray-400 text-sm mb-2">
+          Paired Daemons ({pairings.size})
+        </Text>
+        {[...pairings.values()].map((info) => (
+          <View
+            key={info.daemonId}
+            className="flex-row items-center justify-between bg-zinc-800 rounded-lg px-4 py-2 mb-1"
+          >
+            <View className="flex-1">
+              <Text className="text-white text-sm font-mono" numberOfLines={1}>
+                {info.daemonId}
+              </Text>
+              <Text className="text-gray-500 text-xs font-mono" numberOfLines={1}>
+                {info.relayUrl}
+              </Text>
+            </View>
+            <Pressable onPress={() => removePairing(info.daemonId)}>
+              <Text className="text-red-400 text-xs ml-2">Unpair</Text>
+            </Pressable>
           </View>
-          {pairingInfo && (
-            <>
-              <Text className="text-gray-500 text-xs mt-1 font-mono">
-                Daemon: {pairingInfo.daemonId}
-              </Text>
-              <Text className="text-gray-500 text-xs font-mono">
-                Relay: {pairingInfo.relayUrl}
-              </Text>
-            </>
-          )}
-        </View>
-        {pairingState !== "paired" && (
-          <Pressable
-            onPress={() => router.push("/pairing")}
-            className="mt-2 bg-blue-600 rounded-lg py-2 items-center"
-          >
-            <Text className="text-white text-sm">Pair with Daemon</Text>
-          </Pressable>
-        )}
-        {pairingState === "paired" && (
-          <Pressable
-            onPress={resetPairing}
-            className="mt-2 border border-red-800 rounded-lg py-2 items-center"
-          >
-            <Text className="text-red-400 text-sm">Unpair</Text>
-          </Pressable>
-        )}
+        ))}
+        <Pressable
+          onPress={() => router.push("/pairing")}
+          className="mt-2 bg-blue-600 rounded-lg py-2 items-center"
+        >
+          <Text className="text-white text-sm">Pair with Daemon</Text>
+        </Pressable>
       </View>
 
       {/* Relay Endpoints */}

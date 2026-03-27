@@ -21,6 +21,8 @@ export interface RelayPoolConfig {
   token: string;
   keyPair: KeyPair;
   daemonPublicKey: Uint8Array;
+  pairingSecret: Uint8Array;
+  frontendId: string;
 }
 
 export interface RelayPoolEvents extends FrontendRelayEvents {
@@ -80,6 +82,8 @@ export class RelayPool {
         token: this.config.token,
         keyPair: this.config.keyPair,
         daemonPublicKey: this.config.daemonPublicKey,
+        pairingSecret: this.config.pairingSecret,
+        frontendId: this.config.frontendId,
       },
       {
         onRecord: this.events.onRecord,

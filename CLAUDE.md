@@ -45,11 +45,19 @@ scripts/
 
 All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON payload`. The Envelope type has fields: `t` (frame type), `sid`, `seq`, `k` (io|event|meta), `ns`, `n`, `d`, `c`, `ts`, `e`, `m`.
 
+### Relay Protocol v2
+- `relay.register` — daemon self-registers token+proof (derived from pairing secret)
+- `relay.auth` — authenticate with token, includes `frontendId` for frontend role
+- `relay.kx` / `relay.kx.frame` — in-band pubkey exchange (encrypted with `deriveKxKey(pairingSecret)`)
+- `relay.pub` / `relay.frame` — encrypted data frames, includes `frontendId` for N:N routing
+- `relay.presence` — daemon online/offline with session list
+- Connection flow: daemon `register → auth → broadcast pubkey via kx`; frontend `auth → send pubkey via kx → subscribe`
+
 ## Key Design Decisions
 
 - Chat UI uses **hybrid** data: hooks events for structured cards (primary) + PTY output parsing for streaming text (secondary). hooks Stop event finalizes responses.
 - Worktree management is done directly by Daemon (`git worktree add/remove/list`), no external tool dependency. N:1 relationship — multiple sessions per worktree allowed.
-- E2EE pairing via QR code containing pairing secret + daemon pubkey + relay URL + daemon ID. Daemon pubkey is delivered offline via QR; Frontend pubkey is exchanged via relay. Both sides perform ECDH (X25519 `crypto_kx`) → session keys → XChaCha20-Poly1305 encryption. Relay token is derived from pairing secret (BLAKE2b) for session routing access control only.
+- E2EE pairing via QR code containing pairing secret + daemon pubkey + relay URL + daemon ID. Daemon pubkey is delivered offline via QR; Frontend pubkey is exchanged in-band via `relay.kx` (encrypted with kxKey derived from pairing secret). Both sides perform ECDH (X25519 `crypto_kx`) → per-frontend session keys → XChaCha20-Poly1305 encryption. Relay token is self-registered via `relay.register` (proof-based, no pre-registration needed). N:N supported — one app connects to multiple daemons, one daemon serves multiple frontends, each with independent E2EE keys identified by `frontendId`.
 - Platform priority: iOS > Web > Android. Responsive layout required for mobile/tablet/desktop.
 - Deployment: `bun build --compile` for `tp` binary (subcommands: daemon, run, relay) and separate `tp-relay` binary for standalone relay deployment.
 - Passthrough mode: `tp <claude args>` runs claude directly through tp pipeline. `--tp-*` flags are consumed by tp, rest forwarded to claude.

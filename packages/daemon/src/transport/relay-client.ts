@@ -1,24 +1,40 @@
 /**
- * Daemon-side Relay client.
+ * Daemon-side Relay client (v2).
  *
- * Connects to a Relay server, authenticates, subscribes to sessions,
- * and encrypts/decrypts frames using E2EE session keys.
+ * Connects to a Relay server with self-registration, authenticates,
+ * performs in-band key exchange with frontends, and manages per-frontend
+ * E2EE session keys for N:N multiplexing.
  */
 
 import type {
   RelayClientMessage,
   RelayServerMessage,
   RelayFrame,
+  RelayKeyExchangeFrame,
   WsRec,
   SessionKeys,
   KeyPair,
 } from "@teleprompter/protocol";
-import { encrypt, decrypt, deriveSessionKeys, createLogger } from "@teleprompter/protocol";
+import {
+  encrypt,
+  decrypt,
+  deriveSessionKeys,
+  deriveKxKey,
+  toBase64,
+  fromBase64,
+  createLogger,
+} from "@teleprompter/protocol";
 
 const log = createLogger("RelayClient");
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
+
+interface FrontendPeer {
+  frontendId: string;
+  publicKey: Uint8Array;
+  sessionKeys: SessionKeys;
+}
 
 export interface RelayClientConfig {
   /** Relay server URL (e.g., wss://relay.example.com) */
@@ -27,32 +43,38 @@ export interface RelayClientConfig {
   daemonId: string;
   /** Relay auth token (derived from pairing secret) */
   token: string;
+  /** Registration proof for relay self-registration */
+  registrationProof: string;
   /** Daemon key pair for E2EE */
   keyPair: KeyPair;
-  /** Frontend public key (from pairing) */
-  frontendPublicKey: Uint8Array;
+  /** Raw pairing secret (for kx envelope encryption) */
+  pairingSecret: Uint8Array;
 }
 
 export interface RelayClientEvents {
-  /** Called when a decrypted record arrives from the frontend via relay */
-  onRecord?: (rec: WsRec) => void;
-  /** Called when a decrypted input arrives from the frontend via relay */
-  onInput?: (sid: string, data: string) => void;
+  /** Called when a decrypted input arrives from a frontend via relay */
+  onInput?: (sid: string, data: string, frontendId?: string) => void;
   /** Called when relay connection state changes */
   onConnected?: () => void;
   onDisconnected?: () => void;
   /** Called when relay reports presence */
   onPresence?: (online: boolean) => void;
+  /** Called when a new frontend completes key exchange */
+  onFrontendJoined?: (frontendId: string) => void;
 }
 
 export class RelayClient {
   private ws: WebSocket | null = null;
   private config: RelayClientConfig;
   private events: RelayClientEvents;
-  private sessionKeys: SessionKeys | null = null;
+  /** Per-frontend E2EE peers */
+  private peers = new Map<string, FrontendPeer>();
+  /** Symmetric key for key-exchange envelopes (from pairing secret) */
+  private kxKey: Uint8Array | null = null;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
+  private registered = false;
   private authenticated = false;
   private subscribedSessions = new Set<string>();
 
@@ -64,13 +86,9 @@ export class RelayClient {
   async connect(): Promise<void> {
     if (this.disposed) return;
 
-    // Derive session keys if not done yet and frontend pubkey is available
-    if (!this.sessionKeys && !isZeroKey(this.config.frontendPublicKey)) {
-      this.sessionKeys = await deriveSessionKeys(
-        this.config.keyPair,
-        this.config.frontendPublicKey,
-        "daemon",
-      );
+    // Derive kx key from pairing secret (for key exchange envelopes)
+    if (!this.kxKey) {
+      this.kxKey = await deriveKxKey(this.config.pairingSecret);
     }
 
     this.cleanup();
@@ -80,12 +98,13 @@ export class RelayClient {
 
     ws.onopen = () => {
       this.reconnectAttempt = 0;
+      // Step 1: Self-register token
       this.send({
-        t: "relay.auth",
-        role: "daemon",
+        t: "relay.register",
         daemonId: this.config.daemonId,
+        proof: this.config.registrationProof,
         token: this.config.token,
-        v: 1,
+        v: 2,
       });
     };
 
@@ -100,6 +119,7 @@ export class RelayClient {
 
     ws.onclose = () => {
       this.authenticated = false;
+      this.registered = false;
       this.events.onDisconnected?.();
       this.scheduleReconnect();
     };
@@ -111,6 +131,22 @@ export class RelayClient {
 
   private async handleMessage(msg: RelayServerMessage): Promise<void> {
     switch (msg.t) {
+      case "relay.register.ok":
+        this.registered = true;
+        // Step 2: Authenticate
+        this.send({
+          t: "relay.auth",
+          role: "daemon",
+          daemonId: this.config.daemonId,
+          token: this.config.token,
+          v: 2,
+        });
+        break;
+
+      case "relay.register.err":
+        log.error(`registration failed: ${msg.e}`);
+        break;
+
       case "relay.auth.ok":
         this.authenticated = true;
         this.events.onConnected?.();
@@ -118,11 +154,17 @@ export class RelayClient {
         for (const sid of this.subscribedSessions) {
           this.send({ t: "relay.sub", sid });
         }
+        // Step 3: Broadcast daemon's public key for key exchange
+        await this.broadcastDaemonPublicKey();
         log.info(`authenticated to relay`);
         break;
 
       case "relay.auth.err":
         log.error(`auth failed: ${msg.e}`);
+        break;
+
+      case "relay.kx.frame":
+        await this.handleKxFrame(msg);
         break;
 
       case "relay.frame":
@@ -142,62 +184,142 @@ export class RelayClient {
     }
   }
 
-  private async handleFrame(frame: RelayFrame): Promise<void> {
-    if (frame.from !== "frontend") return; // Only process frontend frames
-    if (!this.sessionKeys) return;
+  /**
+   * Broadcast the daemon's public key to all connected frontends.
+   * Encrypted with kxKey so only holders of the pairing secret can read it.
+   */
+  private async broadcastDaemonPublicKey(): Promise<void> {
+    if (!this.kxKey) return;
+
+    const payload = JSON.stringify({
+      pk: await toBase64(this.config.keyPair.publicKey),
+      role: "daemon",
+    });
+    const ct = await encrypt(
+      new TextEncoder().encode(payload),
+      this.kxKey,
+    );
+    this.send({ t: "relay.kx", ct, role: "daemon" });
+  }
+
+  /**
+   * Handle a key exchange frame from a frontend.
+   * Decrypts the frontend's public key and derives per-frontend session keys.
+   */
+  private async handleKxFrame(frame: RelayKeyExchangeFrame): Promise<void> {
+    if (frame.from !== "frontend") return;
+    if (!this.kxKey) return;
 
     try {
-      const plaintext = await decrypt(frame.ct, this.sessionKeys.rx);
-      const text = new TextDecoder().decode(plaintext);
-      const msg = JSON.parse(text);
+      const plaintext = await decrypt(frame.ct, this.kxKey);
+      const data = JSON.parse(new TextDecoder().decode(plaintext));
+      // data = { pk: base64, frontendId: string, role: "frontend" }
 
-      if (msg.t === "rec") {
-        this.events.onRecord?.(msg as WsRec);
-      } else if (msg.t === "in.chat" || msg.t === "in.term") {
-        this.events.onInput?.(msg.sid, msg.d);
+      if (!data.pk || !data.frontendId) {
+        log.error("kx frame missing pk or frontendId");
+        return;
       }
+
+      const frontendPubKey = await fromBase64(data.pk);
+      const sessionKeys = await deriveSessionKeys(
+        this.config.keyPair,
+        frontendPubKey,
+        "daemon",
+      );
+
+      this.peers.set(data.frontendId, {
+        frontendId: data.frontendId,
+        publicKey: frontendPubKey,
+        sessionKeys,
+      });
+
+      log.info(`key exchange completed with frontend ${data.frontendId}`);
+      this.events.onFrontendJoined?.(data.frontendId);
     } catch (err) {
-      log.error(`decrypt/parse failed:`, err);
+      log.error("kx frame decrypt/parse failed:", err);
+    }
+  }
+
+  private async handleFrame(frame: RelayFrame): Promise<void> {
+    if (frame.from !== "frontend") return;
+
+    // Try frontendId-based lookup first (O(1))
+    if (frame.frontendId) {
+      const peer = this.peers.get(frame.frontendId);
+      if (peer) {
+        await this.decryptAndDispatch(frame, peer);
+        return;
+      }
+    }
+
+    // Fallback: try all peers (for backward compat)
+    for (const peer of this.peers.values()) {
+      try {
+        await this.decryptAndDispatch(frame, peer);
+        return;
+      } catch {
+        continue;
+      }
+    }
+
+    if (this.peers.size === 0) {
+      log.error("no frontend peers for decryption (key exchange not completed)");
+    }
+  }
+
+  private async decryptAndDispatch(
+    frame: RelayFrame,
+    peer: FrontendPeer,
+  ): Promise<void> {
+    const plaintext = await decrypt(frame.ct, peer.sessionKeys.rx);
+    const text = new TextDecoder().decode(plaintext);
+    const msg = JSON.parse(text);
+
+    if (msg.t === "in.chat" || msg.t === "in.term") {
+      this.events.onInput?.(msg.sid, msg.d, peer.frontendId);
     }
   }
 
   /**
-   * Encrypt and publish a WS record to the relay.
+   * Encrypt and publish a WS record to all connected frontends via relay.
    */
   async publishRecord(rec: WsRec): Promise<void> {
-    if (!this.authenticated || !this.sessionKeys) return;
+    if (!this.authenticated || this.peers.size === 0) return;
 
-    const plaintext = new TextEncoder().encode(JSON.stringify(rec));
-    const ct = await encrypt(plaintext, this.sessionKeys.tx);
+    const json = JSON.stringify(rec);
+    const plaintext = new TextEncoder().encode(json);
 
-    this.send({
-      t: "relay.pub",
-      sid: rec.sid,
-      ct,
-      seq: rec.seq,
-    });
+    for (const peer of this.peers.values()) {
+      const ct = await encrypt(plaintext, peer.sessionKeys.tx);
+      this.send({
+        t: "relay.pub",
+        sid: rec.sid,
+        ct,
+        seq: rec.seq,
+      });
+    }
   }
 
   /**
-   * Encrypt and publish a state update to the relay.
+   * Encrypt and publish a state update to all connected frontends via relay.
    */
   async publishState(sid: string, stateMsg: unknown): Promise<void> {
-    if (!this.authenticated || !this.sessionKeys) return;
+    if (!this.authenticated || this.peers.size === 0) return;
 
-    const plaintext = new TextEncoder().encode(JSON.stringify(stateMsg));
-    const ct = await encrypt(plaintext, this.sessionKeys.tx);
+    const json = JSON.stringify(stateMsg);
+    const plaintext = new TextEncoder().encode(json);
 
-    this.send({
-      t: "relay.pub",
-      sid,
-      ct,
-      seq: 0, // state messages don't have seq
-    });
+    for (const peer of this.peers.values()) {
+      const ct = await encrypt(plaintext, peer.sessionKeys.tx);
+      this.send({
+        t: "relay.pub",
+        sid,
+        ct,
+        seq: 0,
+      });
+    }
   }
 
-  /**
-   * Subscribe to a session on the relay.
-   */
   subscribe(sid: string): void {
     this.subscribedSessions.add(sid);
     if (this.authenticated) {
@@ -205,9 +327,6 @@ export class RelayClient {
     }
   }
 
-  /**
-   * Unsubscribe from a session.
-   */
   unsubscribe(sid: string): void {
     this.subscribedSessions.delete(sid);
     if (this.authenticated) {
@@ -260,20 +379,7 @@ export class RelayClient {
     return this.authenticated;
   }
 
-  /**
-   * Set the frontend public key after pairing completes.
-   * This enables E2EE for subsequent messages.
-   */
-  async setFrontendPublicKey(pubkey: Uint8Array): Promise<void> {
-    this.config.frontendPublicKey = pubkey;
-    this.sessionKeys = await deriveSessionKeys(
-      this.config.keyPair,
-      pubkey,
-      "daemon",
-    );
+  getPeerCount(): number {
+    return this.peers.size;
   }
-}
-
-function isZeroKey(key: Uint8Array): boolean {
-  return key.every((b) => b === 0);
 }

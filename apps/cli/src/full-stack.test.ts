@@ -8,8 +8,10 @@ import {
   parsePairingForFrontend,
   generateKeyPair,
   deriveSessionKeys,
+  deriveKxKey,
   encrypt,
   decrypt,
+  toBase64,
   encodeFrame,
   FrameDecoder,
   type WsServerMessage,
@@ -112,24 +114,27 @@ describe("Full-stack E2E", () => {
     ws.close();
   });
 
-  test("relay E2E: daemon → relay → encrypted frontend", async () => {
-    // Create pairing
+  test("relay E2E: daemon → relay → encrypted frontend (v2 with kx)", async () => {
     const bundle = await createPairingBundle(
       `ws://localhost:${relayPort}`,
       "e2e-daemon",
     );
-    relay.registerToken(bundle.relayToken, "e2e-daemon");
+    // No registerToken() — daemon self-registers via relay.register
 
-    // Connect daemon to relay
     const frontendKp = await generateKeyPair();
+    const frontendId = "e2e-frontend-1";
+    const kxKey = await deriveKxKey(bundle.pairingSecret);
+
+    // Connect daemon to relay (self-registers)
     await daemon.connectRelay({
       relayUrl: `ws://localhost:${relayPort}`,
       daemonId: "e2e-daemon",
       token: bundle.relayToken,
+      registrationProof: bundle.registrationProof,
       keyPair: bundle.keyPair,
-      frontendPublicKey: frontendKp.publicKey,
+      pairingSecret: bundle.pairingSecret,
     });
-    await Bun.sleep(200);
+    await Bun.sleep(300);
 
     // Connect frontend to relay
     const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
@@ -137,13 +142,24 @@ describe("Full-stack E2E", () => {
 
     frontendWs.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth", v: 2,
         role: "frontend",
         daemonId: "e2e-daemon",
         token: bundle.relayToken,
+        frontendId,
       }),
     );
     await waitRelayMsg(frontendWs, (m) => m.t === "relay.auth.ok");
+
+    // Frontend performs key exchange
+    const kxPayload = JSON.stringify({
+      pk: await toBase64(frontendKp.publicKey),
+      frontendId,
+      role: "frontend",
+    });
+    const kxCt = await encrypt(new TextEncoder().encode(kxPayload), kxKey);
+    frontendWs.send(JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }));
+    await Bun.sleep(300);
 
     // Subscribe to session
     frontendWs.send(
@@ -192,7 +208,7 @@ describe("Full-stack E2E", () => {
     );
     expect(frame.t).toBe("relay.frame");
 
-    // Decrypt it
+    // Decrypt with derived session keys
     const frontendKeys = await deriveSessionKeys(
       frontendKp,
       bundle.keyPair.publicKey,
@@ -205,30 +221,31 @@ describe("Full-stack E2E", () => {
     const decrypted = JSON.parse(new TextDecoder().decode(plaintext));
     expect(decrypted.t).toBe("rec");
     expect(decrypted.sid).toBe("full-e2e-relay");
-
-    // Verify the relay cannot see plaintext
     expect((frame as any).ct).not.toContain("Task complete!");
 
     ipc.end();
     frontendWs.close();
   });
 
-  test("bidirectional: frontend input → relay → daemon → runner", async () => {
+  test("bidirectional: frontend input → relay → daemon → runner (v2)", async () => {
     const bundle = await createPairingBundle(
       `ws://localhost:${relayPort}`,
       "e2e-bidir",
     );
-    relay.registerToken(bundle.relayToken, "e2e-bidir");
 
     const frontendKp = await generateKeyPair();
+    const frontendId = "e2e-bidir-frontend";
+    const kxKey = await deriveKxKey(bundle.pairingSecret);
+
     await daemon.connectRelay({
       relayUrl: `ws://localhost:${relayPort}`,
       daemonId: "e2e-bidir",
       token: bundle.relayToken,
+      registrationProof: bundle.registrationProof,
       keyPair: bundle.keyPair,
-      frontendPublicKey: frontendKp.publicKey,
+      pairingSecret: bundle.pairingSecret,
     });
-    await Bun.sleep(200);
+    await Bun.sleep(300);
 
     // Connect runner via IPC
     const socketPath = (daemon as any).socketPath;

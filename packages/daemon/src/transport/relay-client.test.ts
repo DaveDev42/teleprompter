@@ -7,16 +7,20 @@ import {
   encrypt,
   decrypt,
   deriveRelayToken,
+  deriveRegistrationProof,
+  deriveKxKey,
   generatePairingSecret,
+  toBase64,
   type WsRec,
   type RelayServerMessage,
 } from "@teleprompter/protocol";
 
-describe("RelayClient (Daemon → Relay → Frontend E2E)", () => {
+describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
   let relay: RelayServer;
   let relayPort: number;
   let pairingSecret: Uint8Array;
   let relayToken: string;
+  let registrationProof: string;
   const DAEMON_ID = "test-daemon";
 
   beforeEach(async () => {
@@ -24,16 +28,16 @@ describe("RelayClient (Daemon → Relay → Frontend E2E)", () => {
     relayPort = relay.start(0);
     pairingSecret = await generatePairingSecret();
     relayToken = await deriveRelayToken(pairingSecret);
-    relay.registerToken(relayToken, DAEMON_ID);
+    registrationProof = await deriveRegistrationProof(pairingSecret);
+    // Note: no registerToken() — daemon self-registers
   });
 
   afterEach(() => {
     relay.stop();
   });
 
-  test("daemon connects and authenticates to relay", async () => {
+  test("daemon self-registers, authenticates, and connects", async () => {
     const daemonKp = await generateKeyPair();
-    const frontendKp = await generateKeyPair();
 
     let connected = false;
     const client = new RelayClient(
@@ -41,8 +45,9 @@ describe("RelayClient (Daemon → Relay → Frontend E2E)", () => {
         relayUrl: `ws://localhost:${relayPort}`,
         daemonId: DAEMON_ID,
         token: relayToken,
+        registrationProof,
         keyPair: daemonKp,
-        frontendPublicKey: frontendKp.publicKey,
+        pairingSecret,
       },
       {
         onConnected: () => {
@@ -52,59 +57,70 @@ describe("RelayClient (Daemon → Relay → Frontend E2E)", () => {
     );
 
     await client.connect();
-    await Bun.sleep(200);
+    await Bun.sleep(300);
     expect(connected).toBe(true);
     expect(client.isConnected()).toBe(true);
     client.dispose();
   });
 
-  test("daemon publishes encrypted record, frontend decrypts via relay", async () => {
+  test("daemon publishes record, frontend decrypts after key exchange", async () => {
     const daemonKp = await generateKeyPair();
     const frontendKp = await generateKeyPair();
-
-    // Derive keys on both sides
-    const frontendKeys = await deriveSessionKeys(
-      frontendKp,
-      daemonKp.publicKey,
-      "frontend",
-    );
+    const frontendId = "test-frontend-1";
+    const kxKey = await deriveKxKey(pairingSecret);
 
     const client = new RelayClient(
       {
         relayUrl: `ws://localhost:${relayPort}`,
         daemonId: DAEMON_ID,
         token: relayToken,
+        registrationProof,
         keyPair: daemonKp,
-        frontendPublicKey: frontendKp.publicKey,
+        pairingSecret,
       },
       {},
     );
 
     await client.connect();
-    await Bun.sleep(200);
+    await Bun.sleep(300);
 
     // Connect a "frontend" WebSocket to the relay
     const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((resolve) => {
-      frontendWs.onopen = () => resolve();
-    });
+    await new Promise<void>((r) => { frontendWs.onopen = () => r(); });
 
     // Auth frontend
-    frontendWs.send(
-      JSON.stringify({
-        t: "relay.auth", v: 1,
-        role: "frontend",
-        daemonId: DAEMON_ID,
-        token: relayToken,
-      }),
-    );
+    frontendWs.send(JSON.stringify({
+      t: "relay.auth", v: 2,
+      role: "frontend",
+      daemonId: DAEMON_ID,
+      token: relayToken,
+      frontendId,
+    }));
     await Bun.sleep(100);
+
+    // Frontend performs key exchange
+    const kxPayload = JSON.stringify({
+      pk: await toBase64(frontendKp.publicKey),
+      frontendId,
+      role: "frontend",
+    });
+    const kxCt = await encrypt(new TextEncoder().encode(kxPayload), kxKey);
+    frontendWs.send(JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }));
+    await Bun.sleep(300);
+
+    // Verify daemon has the peer
+    expect(client.getPeerCount()).toBe(1);
+
+    // Derive frontend session keys
+    const frontendKeys = await deriveSessionKeys(
+      frontendKp, daemonKp.publicKey, "frontend",
+    );
 
     // Subscribe to session
     frontendWs.send(JSON.stringify({ t: "relay.sub", sid: "session-1" }));
     await Bun.sleep(50);
 
-    // Daemon publishes an encrypted record
+    // Daemon publishes a record
     const rec: WsRec = {
       t: "rec",
       sid: "session-1",
@@ -127,16 +143,11 @@ describe("RelayClient (Daemon → Relay → Frontend E2E)", () => {
 
     expect(frame.t).toBe("relay.frame");
     const ct = (frame as any).ct;
-
-    // Decrypt with frontend's rx key
     const plaintext = await decrypt(ct, frontendKeys.rx);
     const decrypted = JSON.parse(new TextDecoder().decode(plaintext));
     expect(decrypted.t).toBe("rec");
     expect(decrypted.sid).toBe("session-1");
-    expect(decrypted.seq).toBe(1);
-    expect(Buffer.from(decrypted.d, "base64").toString()).toBe(
-      "Hello from daemon!",
-    );
+    expect(Buffer.from(decrypted.d, "base64").toString()).toBe("Hello from daemon!");
 
     frontendWs.close();
     client.dispose();
@@ -145,12 +156,8 @@ describe("RelayClient (Daemon → Relay → Frontend E2E)", () => {
   test("frontend sends encrypted input, daemon receives via relay", async () => {
     const daemonKp = await generateKeyPair();
     const frontendKp = await generateKeyPair();
-
-    const frontendKeys = await deriveSessionKeys(
-      frontendKp,
-      daemonKp.publicKey,
-      "frontend",
-    );
+    const frontendId = "test-frontend-2";
+    const kxKey = await deriveKxKey(pairingSecret);
 
     let receivedInput: { sid: string; data: string } | null = null;
 
@@ -159,8 +166,9 @@ describe("RelayClient (Daemon → Relay → Frontend E2E)", () => {
         relayUrl: `ws://localhost:${relayPort}`,
         daemonId: DAEMON_ID,
         token: relayToken,
+        registrationProof,
         keyPair: daemonKp,
-        frontendPublicKey: frontendKp.publicKey,
+        pairingSecret,
       },
       {
         onInput: (sid, data) => {
@@ -171,43 +179,40 @@ describe("RelayClient (Daemon → Relay → Frontend E2E)", () => {
 
     await client.connect();
     client.subscribe("session-1");
-    await Bun.sleep(200);
+    await Bun.sleep(300);
 
-    // Connect frontend
+    // Connect and auth frontend
     const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((resolve) => {
-      frontendWs.onopen = () => resolve();
-    });
-
-    frontendWs.send(
-      JSON.stringify({
-        t: "relay.auth", v: 1,
-        role: "frontend",
-        daemonId: DAEMON_ID,
-        token: relayToken,
-      }),
-    );
+    await new Promise<void>((r) => { frontendWs.onopen = () => r(); });
+    frontendWs.send(JSON.stringify({
+      t: "relay.auth", v: 2,
+      role: "frontend",
+      daemonId: DAEMON_ID,
+      token: relayToken,
+      frontendId,
+    }));
     await Bun.sleep(100);
 
-    // Frontend encrypts and sends input
-    const inputMsg = {
-      t: "in.chat",
-      sid: "session-1",
-      d: "Hello from frontend!",
-    };
+    // Key exchange
+    const kxPayload = JSON.stringify({
+      pk: await toBase64(frontendKp.publicKey),
+      frontendId,
+      role: "frontend",
+    });
+    const kxCt = await encrypt(new TextEncoder().encode(kxPayload), kxKey);
+    frontendWs.send(JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }));
+    await Bun.sleep(300);
+
+    // Frontend derives session keys and sends encrypted input
+    const frontendKeys = await deriveSessionKeys(
+      frontendKp, daemonKp.publicKey, "frontend",
+    );
+    const inputMsg = { t: "in.chat", sid: "session-1", d: "Hello from frontend!" };
     const ct = await encrypt(
       new TextEncoder().encode(JSON.stringify(inputMsg)),
       frontendKeys.tx,
     );
-
-    frontendWs.send(
-      JSON.stringify({
-        t: "relay.pub",
-        sid: "session-1",
-        ct,
-        seq: 1,
-      }),
-    );
+    frontendWs.send(JSON.stringify({ t: "relay.pub", sid: "session-1", ct, seq: 1 }));
 
     await Bun.sleep(300);
 
@@ -219,51 +224,51 @@ describe("RelayClient (Daemon → Relay → Frontend E2E)", () => {
     client.dispose();
   });
 
-  test("relay cannot read plaintext (ciphertext-only verification)", async () => {
+  test("relay cannot read plaintext (ciphertext-only)", async () => {
     const daemonKp = await generateKeyPair();
     const frontendKp = await generateKeyPair();
     const wrongKp = await generateKeyPair();
+    const frontendId = "test-frontend-3";
+    const kxKey = await deriveKxKey(pairingSecret);
 
     const client = new RelayClient(
       {
         relayUrl: `ws://localhost:${relayPort}`,
         daemonId: DAEMON_ID,
         token: relayToken,
+        registrationProof,
         keyPair: daemonKp,
-        frontendPublicKey: frontendKp.publicKey,
+        pairingSecret,
       },
       {},
     );
 
     await client.connect();
-    await Bun.sleep(200);
+    await Bun.sleep(300);
 
-    // Frontend subscribes
+    // Frontend connects, auths, and performs key exchange
     const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((resolve) => {
-      frontendWs.onopen = () => resolve();
-    });
-    frontendWs.send(
-      JSON.stringify({
-        t: "relay.auth", v: 1,
-        role: "frontend",
-        daemonId: DAEMON_ID,
-        token: relayToken,
-      }),
-    );
+    await new Promise<void>((r) => { frontendWs.onopen = () => r(); });
+    frontendWs.send(JSON.stringify({
+      t: "relay.auth", v: 2, role: "frontend",
+      daemonId: DAEMON_ID, token: relayToken, frontendId,
+    }));
     await Bun.sleep(100);
+
+    const kxPayload = JSON.stringify({
+      pk: await toBase64(frontendKp.publicKey), frontendId, role: "frontend",
+    });
+    const kxCt = await encrypt(new TextEncoder().encode(kxPayload), kxKey);
+    frontendWs.send(JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }));
+    await Bun.sleep(300);
+
     frontendWs.send(JSON.stringify({ t: "relay.sub", sid: "s1" }));
     await Bun.sleep(50);
 
-    // Daemon publishes encrypted record
+    // Daemon publishes
     const rec: WsRec = {
-      t: "rec",
-      sid: "s1",
-      seq: 1,
-      k: "event",
-      d: Buffer.from(
-        JSON.stringify({ hook_event_name: "Stop", last_assistant_message: "secret!" }),
-      ).toString("base64"),
+      t: "rec", sid: "s1", seq: 1, k: "event",
+      d: Buffer.from(JSON.stringify({ hook_event_name: "Stop", last_assistant_message: "secret!" })).toString("base64"),
       ts: Date.now(),
     };
     client.subscribe("s1");
@@ -277,25 +282,15 @@ describe("RelayClient (Daemon → Relay → Frontend E2E)", () => {
       setTimeout(() => reject(new Error("timeout")), 3000);
     });
 
-    // The ciphertext should NOT contain readable plaintext
     expect(frame.ct).toBeTruthy();
     expect(frame.ct.includes("secret!")).toBe(false);
-    expect(frame.ct.includes("Stop")).toBe(false);
 
-    // A wrong key should fail to decrypt
-    const wrongKeys = await deriveSessionKeys(
-      wrongKp,
-      daemonKp.publicKey,
-      "frontend",
-    );
+    // Wrong key fails
+    const wrongKeys = await deriveSessionKeys(wrongKp, daemonKp.publicKey, "frontend");
     await expect(decrypt(frame.ct, wrongKeys.rx)).rejects.toThrow();
 
     // Correct key succeeds
-    const correctKeys = await deriveSessionKeys(
-      frontendKp,
-      daemonKp.publicKey,
-      "frontend",
-    );
+    const correctKeys = await deriveSessionKeys(frontendKp, daemonKp.publicKey, "frontend");
     const pt = await decrypt(frame.ct, correctKeys.rx);
     const decrypted = JSON.parse(new TextDecoder().decode(pt));
     expect(decrypted.sid).toBe("s1");

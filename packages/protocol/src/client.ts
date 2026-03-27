@@ -12,6 +12,8 @@ export {
   decrypt,
   generatePairingSecret,
   deriveRelayToken,
+  deriveKxKey,
+  deriveRegistrationProof,
   ratchetSessionKeys,
   toBase64,
   fromBase64,

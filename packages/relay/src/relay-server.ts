@@ -2,6 +2,7 @@ import type {
   RelayClientMessage,
   RelayServerMessage,
   RelayFrame,
+  RelayKeyExchangeFrame,
 } from "@teleprompter/protocol";
 import { createLogger } from "@teleprompter/protocol";
 
@@ -17,6 +18,7 @@ interface CachedFrame {
   ct: string;
   seq: number;
   from: "daemon" | "frontend";
+  frontendId?: string;
 }
 
 interface RateLimiter {
@@ -28,6 +30,8 @@ interface ConnectedClient {
   ws: any; // Bun ServerWebSocket
   role: "daemon" | "frontend";
   daemonId: string;
+  /** Unique frontend identifier (frontend only) */
+  frontendId?: string;
   /** Session IDs this client is subscribed to */
   subscriptions: Set<string>;
   /** Rate limiter state */
@@ -55,8 +59,11 @@ export class RelayServer {
   /** "daemonId:sid" → recent ciphertext frames (ring buffer) */
   private recentFrames = new Map<string, CachedFrame[]>();
 
-  /** Token → daemonId mapping (set during pairing) */
+  /** Token → daemonId mapping */
   private validTokens = new Map<string, string>();
+
+  /** daemonId → { token, proof } for self-registration */
+  private registrations = new Map<string, { token: string; proof: string }>();
 
   /** Port the server is listening on */
   private port = 0;
@@ -64,8 +71,7 @@ export class RelayServer {
 
   /**
    * Register a valid pairing token for a daemon.
-   * In production, this would come from the pairing flow.
-   * For now, tokens are pre-registered.
+   * Used by tests and the --register-pairing CLI flag.
    */
   registerToken(token: string, daemonId: string) {
     this.validTokens.set(token, daemonId);
@@ -85,7 +91,7 @@ export class RelayServer {
           return Response.json({
             status: "ok",
             version: "0.1.5",
-            protocolVersion: 1,
+            protocolVersion: 2,
             clients: self.clients.size,
             daemons: [...self.daemonStates.entries()]
               .filter(([, s]) => s.online).length,
@@ -136,7 +142,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
       },
       websocket: {
         open(ws) {
-          // Wait for auth message
+          // Wait for auth or register message
         },
         message(ws, message) {
           self.handleMessage(ws, message);
@@ -198,8 +204,14 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
     }
 
     switch (msg.t) {
+      case "relay.register":
+        this.handleRegister(ws, msg);
+        break;
       case "relay.auth":
         this.handleAuth(ws, msg);
+        break;
+      case "relay.kx":
+        this.handleKeyExchange(ws, msg);
         break;
       case "relay.pub":
         this.handlePublish(ws, msg);
@@ -222,6 +234,30 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
     }
   }
 
+  private handleRegister(
+    ws: any,
+    msg: RelayClientMessage & { t: "relay.register" },
+  ) {
+    // Check if daemonId is already registered with a different proof
+    const existing = this.registrations.get(msg.daemonId);
+    if (existing && existing.proof !== msg.proof) {
+      this.send(ws, {
+        t: "relay.register.err",
+        e: "Daemon ID already registered with different credentials",
+      });
+      return;
+    }
+
+    // Register token → daemonId mapping
+    this.validTokens.set(msg.token, msg.daemonId);
+    this.registrations.set(msg.daemonId, {
+      token: msg.token,
+      proof: msg.proof,
+    });
+
+    this.send(ws, { t: "relay.register.ok", daemonId: msg.daemonId });
+  }
+
   private handleAuth(ws: any, msg: RelayClientMessage & { t: "relay.auth" }) {
     const expectedDaemonId = this.validTokens.get(msg.token);
     if (!expectedDaemonId || expectedDaemonId !== msg.daemonId) {
@@ -236,6 +272,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
       ws,
       role: msg.role,
       daemonId: msg.daemonId,
+      frontendId: msg.frontendId,
       rateLimiter: { count: 0, windowStart: Date.now() },
       subscriptions: new Set(),
     };
@@ -262,6 +299,40 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
 
     // Send presence to frontends
     this.broadcastPresence(msg.daemonId);
+  }
+
+  private handleKeyExchange(
+    ws: any,
+    msg: RelayClientMessage & { t: "relay.kx" },
+  ) {
+    const client = this.clients.get(ws);
+    if (!client) {
+      this.send(ws, {
+        t: "relay.err",
+        e: "NOT_AUTHENTICATED",
+        m: "Send relay.auth first",
+      });
+      return;
+    }
+
+    const group = this.daemonGroups.get(client.daemonId);
+    if (!group) return;
+
+    const frame: RelayKeyExchangeFrame = {
+      t: "relay.kx.frame",
+      ct: msg.ct,
+      from: client.role,
+    };
+
+    // Forward to all peers of opposite role in the daemon group
+    for (const peerWs of group) {
+      if (peerWs === ws) continue;
+      const peer = this.clients.get(peerWs);
+      if (!peer) continue;
+      if (peer.role !== client.role) {
+        this.send(peerWs, frame);
+      }
+    }
   }
 
   private handlePublish(
@@ -297,6 +368,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
       ct: msg.ct,
       seq: msg.seq,
       from: client.role,
+      frontendId: client.frontendId,
     };
     frames.push(frame);
     if (frames.length > MAX_RECENT_FRAMES) {
@@ -313,6 +385,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
       ct: msg.ct,
       seq: msg.seq,
       from: client.role,
+      frontendId: client.frontendId,
     };
 
     for (const peerWs of group) {
@@ -370,6 +443,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
             ct: frame.ct,
             seq: frame.seq,
             from: frame.from,
+            frontendId: frame.frontendId,
           });
         }
       }

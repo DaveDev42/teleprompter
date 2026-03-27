@@ -38,20 +38,10 @@ test.describe("App Web — Session Switching", () => {
     await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
     await page.waitForTimeout(3000);
 
-    // Click Sessions tab
-    const sessionsTab = page.locator("text=Sessions");
-    if (await sessionsTab.isVisible()) {
-      await sessionsTab.click();
-      await page.waitForTimeout(500);
-
-      // Should show session ID
-      const body = await page.locator("body").textContent();
-      expect(body).toContain("session-alpha");
-    } else {
-      // On desktop layout, sessions may be in a sidebar
-      const body = await page.locator("body").textContent();
-      expect(body).toContain("session-alpha");
-    }
+    // The daemon spawns a session — it should appear in the app
+    // Either via Sessions tab or sidebar, depending on viewport
+    const body = await page.locator("body").textContent();
+    expect(body).toContain("session-alpha");
   });
 
   test("clicking a session switches the active session", async ({ page }) => {

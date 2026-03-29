@@ -25,11 +25,17 @@
     "preview": {
       "ios": {
         "ascAppId": "6761056150"
+      },
+      "android": {
+        "track": "internal"
       }
     },
     "production": {
       "ios": {
         "ascAppId": "6761056150"
+      },
+      "android": {
+        "track": "production"
       }
     }
   }

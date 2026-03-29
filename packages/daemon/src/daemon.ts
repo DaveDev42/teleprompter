@@ -97,6 +97,9 @@ export class Daemon {
       onSessionRestart: (client, sid) => {
         this.handleSessionRestart(client, sid);
       },
+      onSessionExport: (client, sid, format) => {
+        this.handleSessionExport(client, sid, format);
+      },
     });
   }
 
@@ -554,6 +557,74 @@ export class Daemon {
         e: "SESSION_ERROR",
         m: err instanceof Error ? err.message : "Failed to restart session",
       });
+    }
+  }
+
+  private handleSessionExport(client: WsClient, sid: string, format?: string): void {
+    const session = this.store.getSession(sid);
+    if (!session) {
+      this.clientRegistry.send(client, {
+        t: "err",
+        e: "NOT_FOUND",
+        m: `Session ${sid} not found`,
+      });
+      return;
+    }
+
+    const db = this.store.getSessionDb(sid);
+    if (!db) {
+      this.clientRegistry.send(client, {
+        t: "err",
+        e: "NOT_FOUND",
+        m: `Session DB for ${sid} not found`,
+      });
+      return;
+    }
+
+    const records = db.getRecordsFrom(0, 10000);
+    const meta = toWsSessionMeta(session);
+
+    if (format === "markdown") {
+      const lines: string[] = [];
+      lines.push(`# Session: ${sid}`);
+      lines.push(`- CWD: ${meta.cwd}`);
+      lines.push(`- State: ${meta.state}`);
+      lines.push(`- Created: ${new Date(meta.createdAt).toISOString()}`);
+      lines.push("");
+
+      for (const rec of records) {
+        const payload = Buffer.from(rec.payload).toString("utf-8");
+        if (rec.kind === "event" && rec.name) {
+          lines.push(`## ${rec.name}`);
+          try {
+            const data = JSON.parse(Buffer.from(payload, "base64").toString());
+            if (data.last_assistant_message) {
+              lines.push(data.last_assistant_message);
+            } else if (data.prompt) {
+              lines.push(`> ${data.prompt}`);
+            } else {
+              lines.push("```json\n" + JSON.stringify(data, null, 2) + "\n```");
+            }
+          } catch {
+            lines.push(payload);
+          }
+          lines.push("");
+        }
+      }
+
+      this.clientRegistry.send(client, {
+        t: "session.exported",
+        sid,
+        format: "markdown",
+        d: lines.join("\n"),
+      } as any);
+    } else {
+      this.clientRegistry.send(client, {
+        t: "session.exported",
+        sid,
+        format: "json",
+        d: JSON.stringify({ meta, records }),
+      } as any);
     }
   }
 

@@ -255,6 +255,10 @@ export class DaemonWsClient {
     this.send({ t: "session.restart", sid } as WsClientMessage);
   }
 
+  exportSession(sid: string, format: "json" | "markdown" = "markdown") {
+    this.send({ t: "session.export", sid, format } as WsClientMessage);
+  }
+
   private scheduleReconnect() {
     if (this.disposed) return;
     const delay = Math.min(

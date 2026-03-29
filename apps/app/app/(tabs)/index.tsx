@@ -134,17 +134,15 @@ export default function ChatScreen() {
   return (
     <KeyboardAvoidingView
       className="flex-1 bg-black"
-      style={{ flex: 1, backgroundColor: "#000" }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
       {/* Header */}
-      <View className="flex-row items-center px-3 py-2 bg-zinc-900 border-b border-zinc-800" style={{ backgroundColor: "#18181b", paddingHorizontal: 12, paddingVertical: 8 }}>
+      <View className="flex-row items-center px-3 py-2 bg-zinc-900 border-b border-zinc-800">
         <View
           className={`w-2 h-2 rounded-full mr-2 ${connected ? "bg-green-500" : "bg-red-500"}`}
-          style={{ width: 8, height: 8, borderRadius: 4, marginRight: 8, backgroundColor: connected ? "#22c55e" : "#ef4444" }}
         />
-        <Text className="text-white font-bold" style={{ color: "#fff", fontWeight: "bold" }}>Teleprompter</Text>
+        <Text className="text-white font-bold">Teleprompter</Text>
         {sid && <Text className="text-gray-500 text-xs ml-2">{sid}</Text>}
       </View>
 
@@ -165,7 +163,7 @@ export default function ChatScreen() {
         onScrollBeginDrag={() => Keyboard.dismiss()}
         ListEmptyComponent={
           <View className="flex-1 items-center justify-center pt-20">
-            <Text className="text-gray-500" style={{ color: "#6b7280" }}>
+            <Text className="text-gray-500">
               {!connected
                 ? reconnectCount > 0
                   ? `Reconnecting... (attempt ${reconnectCount})`
@@ -175,12 +173,12 @@ export default function ChatScreen() {
                   : "Listening to Claude Code..."}
             </Text>
             {!connected && reconnectCount > 3 && (
-              <Text className="text-gray-600 text-xs mt-2" style={{ color: "#4b5563", fontSize: 11, marginTop: 8, textAlign: "center" }}>
+              <Text className="text-gray-600 text-xs mt-2 text-center">
                 Check that daemon is running:{"\n"}tp daemon start --ws-port 7080
               </Text>
             )}
             {sid && connected && (
-              <Text className="text-gray-600 text-xs mt-2" style={{ color: "#4b5563", fontSize: 12, marginTop: 8 }}>
+              <Text className="text-gray-600 text-xs mt-2">
                 PTY output will appear here as streaming text.{"\n"}
                 Hooks events (Stop, ToolUse) will appear as cards.
               </Text>

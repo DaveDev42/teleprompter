@@ -21,7 +21,7 @@ export function AdaptiveLayout({
     return (
       <View className="flex-1 flex-row bg-black">
         {/* Sidebar - Sessions */}
-        <View style={{ width: 280 }} className="border-r border-zinc-800">
+        <View className="w-[280px] border-r border-zinc-800">
           <SessionDrawer />
         </View>
         {/* Chat */}

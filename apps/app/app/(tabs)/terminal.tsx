@@ -82,8 +82,8 @@ export default function TerminalScreen() {
   );
 
   return (
-    <View className="flex-1 bg-black" style={{ flex: 1, backgroundColor: "#000" }}>
-      <View className="flex-row items-center justify-between px-3 py-2 bg-zinc-900 border-b border-zinc-800" style={{ backgroundColor: "#18181b" }}>
+    <View className="flex-1 bg-black">
+      <View className="flex-row items-center justify-between px-3 py-2 bg-zinc-900 border-b border-zinc-800">
         <View className="flex-row items-center">
           <View
             className={`w-2 h-2 rounded-full mr-2 ${connected ? "bg-green-500" : "bg-red-500"}`}
@@ -131,7 +131,7 @@ export default function TerminalScreen() {
           </Pressable>
         </View>
       )}
-      <View style={{ flex: 1 }}>
+      <View className="flex-1">
         {TerminalComponent && (
           <TerminalComponent
             onData={handleData}

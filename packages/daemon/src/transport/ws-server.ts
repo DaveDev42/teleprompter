@@ -23,6 +23,7 @@ export interface WsServerEvents {
   onSessionCreate?(client: WsClient, msg: WsClientMessage & { t: "session.create" }): void;
   onSessionStop?(client: WsClient, sid: string): void;
   onSessionRestart?(client: WsClient, sid: string): void;
+  onSessionExport?(client: WsClient, sid: string, format?: string): void;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -172,6 +173,9 @@ export class WsServer {
         break;
       case "session.restart":
         this.events.onSessionRestart?.(client, msg.sid);
+        break;
+      case "session.export":
+        this.events.onSessionExport?.(client, msg.sid, (msg as any).format);
         break;
       default:
         this.registry.send(client, { t: "err", e: "UNKNOWN_TYPE", m: `Unknown message type` });

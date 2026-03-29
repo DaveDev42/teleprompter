@@ -8,6 +8,39 @@ async function copyText(text: string) {
   // Native: would use expo-clipboard
 }
 
+/** Render text with code blocks (```...```) styled differently */
+function RichText({ text, className: textClass }: { text: string; className?: string }) {
+  const parts = text.split(/(```[\s\S]*?```)/g);
+  if (parts.length === 1) {
+    return <Text className={textClass} selectable>{text}</Text>;
+  }
+  return (
+    <View>
+      {parts.map((part, i) => {
+        if (part.startsWith("```") && part.endsWith("```")) {
+          // Extract language hint and code
+          const lines = part.slice(3, -3).split("\n");
+          const lang = lines[0]?.trim();
+          const code = (lang ? lines.slice(1) : lines).join("\n").trim();
+          return (
+            <Pressable
+              key={i}
+              className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 my-1"
+              onLongPress={() => copyText(code)}
+            >
+              {lang ? (
+                <Text className="text-gray-500 text-[10px] font-mono mb-1">{lang}</Text>
+              ) : null}
+              <Text className="text-green-300 text-xs font-mono" selectable>{code}</Text>
+            </Pressable>
+          );
+        }
+        return part ? <Text key={i} className={textClass} selectable>{part}</Text> : null;
+      })}
+    </View>
+  );
+}
+
 function UserCard({ msg }: { msg: ChatMessage }) {
   return (
     <Pressable
@@ -25,7 +58,7 @@ function AssistantCard({ msg }: { msg: ChatMessage }) {
       className="self-start bg-zinc-800 rounded-2xl rounded-bl-sm px-4 py-2 max-w-[80%]"
       onLongPress={() => copyText(msg.text)}
     >
-      <Text className="text-gray-100" selectable>{msg.text}</Text>
+      <RichText text={msg.text} className="text-gray-100" />
     </Pressable>
   );
 }

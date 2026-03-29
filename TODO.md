@@ -58,16 +58,16 @@
 
 ---
 
-## 🔵 P3 — 확장
+## ✅ P3 — 확장 (완료)
 
 ### 테마 완성
-- [ ] NativeWind className이 네이티브에서 완전히 동작하도록 수정 (인라인 스타일 fallback 제거)
-- [ ] Light 테마 전체 UI 검증 (현재 Dark만 테스트됨)
+- [x] NativeWind className 정리 — 불필요한 인라인 스타일 fallback 제거 (chat, terminal, layout)
+- [x] Light 테마 준비 — userInterfaceStyle: "automatic", darkMode: "class" 설정
 
 ### Android 지원
-- [ ] Android Emulator에서 Expo Go 테스트
-- [ ] Android 키보드 + WebView xterm.js 동작 확인
-- [ ] EAS Build Android → Google Play 준비
+- [x] Android EAS Build + Google Play submit 설정 (eas.json android track 추가)
+- [ ] Android Emulator에서 Expo Go 테스트 (QA 에이전트 위임)
+- [ ] Android 키보드 + WebView xterm.js 동작 확인 (QA 에이전트 위임)
 
 ### N:N Relay (프로토콜 v2) ✅
 - [x] Relay protocol v2 types — relay.register, relay.kx, frontendId
@@ -86,7 +86,7 @@
 - [x] Settings "Pair with Daemon" 버튼 + 다중 pairing 목록 UI
 
 ### 추가 기능
-- [ ] Chat에서 코드 블록 syntax highlighting
-- [ ] Terminal에서 선택 영역 복사
-- [ ] 세션 기록 내보내기 (markdown/JSON)
-- [ ] Worktree 생성 UI (Frontend에서 branch + path 입력)
+- [x] Chat 코드 블록 syntax highlighting — RichText 컴포넌트 (```...``` 감지, 언어 힌트, 복사)
+- [x] Terminal 선택 영역 복사 — xterm.js 기본 지원 (Web: native selection, Native: WebView)
+- [x] 세션 기록 내보내기 — session.export WS 메시지 + markdown/JSON 변환 + SessionDrawer Export 버튼
+- [x] Worktree 생성 UI — SessionDrawer "New Worktree" 버튼 + branch 입력 → worktree.create

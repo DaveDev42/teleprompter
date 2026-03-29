@@ -34,3 +34,4 @@ apps/app/android/
 
 # Playwright MCP artifacts
 .playwright-mcp/
+test-results/

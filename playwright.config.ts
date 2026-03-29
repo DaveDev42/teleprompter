@@ -19,7 +19,7 @@ export default defineConfig({
   projects: [
     {
       name: "ci",
-      testMatch: ["app-web.spec.ts", "app-daemon.spec.ts", "app-settings.spec.ts", "app-session-switch.spec.ts", "app-resume.spec.ts"],
+      testMatch: ["app-web.spec.ts", "app-daemon.spec.ts", "app-settings.spec.ts", "app-session-switch.spec.ts", "app-resume.spec.ts", "app-relay-e2e.spec.ts"],
     },
     {
       name: "local",

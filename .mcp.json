@@ -1,8 +1,12 @@
 {
   "mcpServers": {
     "expo": {
-      "command": "pnpx",
-      "args": ["github:DaveDev42/expo-mcp#62a1247", "apps/app"]
+      "command": "npx",
+      "args": ["expo-mcp", "apps/app"]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp", "--headless"]
     }
   }
 }

@@ -9,9 +9,9 @@ INPUT=$(cat)
 SUBAGENT_TYPE=$(echo "$INPUT" | jq -r '.subagent_type // empty')
 RESULT=$(echo "$INPUT" | jq -r '.result // empty')
 
-# Only validate app-ios-qa agent
+# Only validate QA agents
 case "$SUBAGENT_TYPE" in
-  app-ios-qa) ;;
+  app-ios-qa|app-web-qa) ;;
   *) exit 0 ;;
 esac
 
@@ -21,23 +21,39 @@ if ! echo "$RESULT" | grep -qiE '판정.*PASS|PASS'; then
   exit 0
 fi
 
-# Check for required tool call evidence
+# Check for required tool call evidence based on agent type
 MISSING=()
 
-# App launch evidence
-if ! echo "$RESULT" | grep -qiE 'start_session|launch_expo'; then
-  MISSING+=("앱 실행 도구 호출")
-fi
-
-# UI verification evidence
-if ! echo "$RESULT" | grep -qiE 'inspect_view_hierarchy|snapshot|take_screenshot'; then
-  MISSING+=("UI 확인 도구 호출")
-fi
-
-# Interaction evidence
-if ! echo "$RESULT" | grep -qiE 'tap_on|input_text|mcp__expo__back|run_maestro'; then
-  MISSING+=("실제 인터랙션 도구 호출")
-fi
+case "$SUBAGENT_TYPE" in
+  app-ios-qa)
+    # App launch evidence
+    if ! echo "$RESULT" | grep -qiE 'start_session|launch_expo'; then
+      MISSING+=("앱 실행 도구 호출")
+    fi
+    # UI verification evidence
+    if ! echo "$RESULT" | grep -qiE 'inspect_view_hierarchy|snapshot|take_screenshot'; then
+      MISSING+=("UI 확인 도구 호출")
+    fi
+    # Interaction evidence
+    if ! echo "$RESULT" | grep -qiE 'tap_on|input_text|mcp__expo__back|run_maestro'; then
+      MISSING+=("실제 인터랙션 도구 호출")
+    fi
+    ;;
+  app-web-qa)
+    # App launch evidence (MCP navigate or Playwright test execution)
+    if ! echo "$RESULT" | grep -qiE 'browser_navigate|playwright test'; then
+      MISSING+=("앱 실행 도구 호출")
+    fi
+    # UI verification evidence
+    if ! echo "$RESULT" | grep -qiE 'browser_snapshot|browser_take_screenshot|playwright test'; then
+      MISSING+=("UI 확인 도구 호출")
+    fi
+    # Interaction evidence
+    if ! echo "$RESULT" | grep -qiE 'browser_click|browser_type|browser_press_key|browser_select_option|playwright test'; then
+      MISSING+=("실제 인터랙션 도구 호출")
+    fi
+    ;;
+esac
 
 if [ ${#MISSING[@]} -gt 0 ]; then
   MISSING_LIST=$(printf ", %s" "${MISSING[@]}")

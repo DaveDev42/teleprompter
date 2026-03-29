@@ -21,7 +21,9 @@
     "status": "bun run apps/cli/src/index.ts status"
   },
   "devDependencies": {
+    "@playwright/mcp": "^0.0.68",
     "@playwright/test": "^1.58.2",
+    "expo-mcp": "github:DaveDev42/expo-mcp",
     "turbo": "^2.5.4"
   }
 }

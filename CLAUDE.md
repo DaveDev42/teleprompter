@@ -120,10 +120,10 @@ Stub 프로세스로 전체 파이프라인 검증.
 - `packages/daemon/src/bench.test.ts` — pipeline throughput benchmark
 - `packages/relay/src/bench.test.ts` — relay throughput benchmark
 
-### Tier 4: QA Agent Tests (Expo MCP)
+### Tier 4: QA Agent Tests (Expo MCP + Playwright MCP)
 `/qa` 커맨드로 QA agent에 위임:
 - `app-ios-qa` — iOS Simulator (Expo MCP + Maestro)
-- `app-web-qa` — React Native Web (Playwright)
+- `app-web-qa` — React Native Web (Playwright MCP + Playwright Test)
 - Playwright E2E: `pnpm test:e2e`
   - `e2e/app-web.spec.ts` — smoke tests
   - `e2e/app-roundtrip.spec.ts` — input/output roundtrip

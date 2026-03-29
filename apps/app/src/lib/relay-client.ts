@@ -125,6 +125,8 @@ export class FrontendRelayClient {
       case "relay.auth.ok":
         this.authenticated = true;
         this.events.onConnected?.();
+        // Subscribe to meta channel for session list / state updates
+        this.send({ t: "relay.sub", sid: "__meta__" });
         // Re-subscribe to all sessions
         for (const sid of this.subscribedSessions) {
           this.send({ t: "relay.sub", sid });
@@ -188,7 +190,7 @@ export class FrontendRelayClient {
 
       if (msg.t === "rec") {
         this.events.onRecord?.(msg as WsRec);
-      } else if (msg.t === "state") {
+      } else if (msg.t === "state" || msg.t === "hello") {
         this.events.onState?.(msg);
       }
     } catch {

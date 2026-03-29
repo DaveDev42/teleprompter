@@ -131,6 +131,7 @@ Stub 프로세스로 전체 파이프라인 검증.
   - `e2e/app-real-e2e.spec.ts` — real Claude PTY E2E
   - `e2e/app-daemon.spec.ts` — daemon-connected tests
   - `e2e/app-chat-roundtrip.spec.ts` — chat input/output roundtrip
+  - `e2e/app-relay-e2e.spec.ts` — full relay pipeline (pair → relay → daemon → E2EE)
 
 ### 명령어
 ```bash

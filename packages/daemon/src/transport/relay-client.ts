@@ -58,7 +58,7 @@ export interface RelayClientEvents {
   onConnected?: () => void;
   onDisconnected?: () => void;
   /** Called when relay reports presence */
-  onPresence?: (online: boolean) => void;
+  onPresence?: (online: boolean, sessions?: string[]) => void;
   /** Called when a new frontend completes key exchange */
   onFrontendJoined?: (frontendId: string) => void;
 }
@@ -172,7 +172,7 @@ export class RelayClient {
         break;
 
       case "relay.presence":
-        this.events.onPresence?.(msg.online);
+        this.events.onPresence?.(msg.online, msg.sessions);
         break;
 
       case "relay.pong":
@@ -318,6 +318,24 @@ export class RelayClient {
         seq: 0,
       });
     }
+  }
+
+  /**
+   * Encrypt and publish a message to a specific frontend peer.
+   * Used for sending session list (hello) to a newly connected frontend.
+   */
+  async publishToPeer(
+    frontendId: string,
+    sid: string,
+    msg: unknown,
+  ): Promise<void> {
+    if (!this.authenticated) return;
+    const peer = this.peers.get(frontendId);
+    if (!peer) return;
+
+    const plaintext = new TextEncoder().encode(JSON.stringify(msg));
+    const ct = await encrypt(plaintext, peer.sessionKeys.tx);
+    this.send({ t: "relay.pub", sid, ct, seq: 0 });
   }
 
   subscribe(sid: string): void {

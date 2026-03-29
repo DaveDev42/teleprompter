@@ -149,11 +149,25 @@ export class Daemon {
           this.ipcServer.send(runner, { t: "input", sid: _sid, data });
         }
       },
+      onFrontendJoined: (frontendId) => {
+        // Send session list to newly connected frontend (like WS hello)
+        const sessions = this.store.listSessions().map(toWsSessionMeta);
+        const helloMsg = { t: "hello", v: 1, d: { sessions } };
+        client.publishToPeer(frontendId, "__meta__", helloMsg).catch(() => {});
+
+        // Subscribe all running sessions so the frontend gets records
+        for (const s of sessions) {
+          if (s.state === "running") {
+            client.subscribe(s.sid);
+          }
+        }
+      },
     });
 
     await client.connect();
 
-    // Subscribe to all existing sessions
+    // Subscribe to meta channel and all existing sessions
+    client.subscribe("__meta__");
     for (const meta of this.store.listSessions()) {
       if (meta.state === "running") {
         client.subscribe(meta.sid);
@@ -253,10 +267,14 @@ export class Daemon {
       relay.subscribe(msg.sid);
     }
 
-    // Notify WS clients of new session
+    // Notify WS clients + relay of new session
     const meta = this.store.getSession(msg.sid);
     if (meta) {
-      this.clientRegistry.sendAll({ t: "state", sid: msg.sid, d: toWsSessionMeta(meta) });
+      const stateMsg = { t: "state" as const, sid: msg.sid, d: toWsSessionMeta(meta) };
+      this.clientRegistry.sendAll(stateMsg);
+      for (const relay of this.relayClients) {
+        relay.publishState("__meta__", stateMsg).catch(() => {});
+      }
     }
   }
 
@@ -335,10 +353,14 @@ export class Daemon {
     this.sessionManager.unregisterRunner(msg.sid);
     log.info(`session ended sid=${msg.sid} exitCode=${msg.exitCode} state=${state}`);
 
-    // Notify WS clients of session state change
+    // Notify WS clients + relay of session state change
     const meta = this.store.getSession(msg.sid);
     if (meta) {
-      this.clientRegistry.sendAll({ t: "state", sid: msg.sid, d: toWsSessionMeta(meta) });
+      const stateMsg = { t: "state" as const, sid: msg.sid, d: toWsSessionMeta(meta) };
+      this.clientRegistry.sendAll(stateMsg);
+      for (const relay of this.relayClients) {
+        relay.publishState("__meta__", stateMsg).catch(() => {});
+      }
     }
   }
 

@@ -44,7 +44,7 @@
 - [x] Expo MCP: iOS에서 E2EE self-test 검증 (Sodium Init/Key Gen/Encrypt-Decrypt OK on hermes)
 
 ### CI 강화
-- [x] CI QA 자동화 — Playwright CI 15개 테스트 (smoke, daemon, settings, session switch, resume)
+- [x] CI QA 자동화 — Playwright CI 18개 테스트 (smoke, daemon, settings, session switch, resume, relay E2E + N:N)
 - [x] Playwright CI/local 프로젝트 분리 — CI는 claude 없이 7/7 pass
 - [x] 테스트 커버리지 리포트 생성 — `bun test --coverage` (CI에 적용)
 

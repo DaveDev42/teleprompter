@@ -6,7 +6,7 @@
     },
     "playwright": {
       "command": "npx",
-      "args": ["@playwright/mcp", "--headless"]
+      "args": ["@playwright/mcp", "--headless", "--output-dir", ".playwright-mcp"]
     }
   }
 }

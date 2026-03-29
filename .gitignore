@@ -31,3 +31,6 @@ apps/app/android/
 
 # Pairing data (contains secrets)
 .config/teleprompter/
+
+# Playwright MCP artifacts
+.playwright-mcp/

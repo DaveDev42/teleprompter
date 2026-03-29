@@ -97,6 +97,12 @@ export interface WsSessionRestart {
   sid: string;
 }
 
+export interface WsSessionExport {
+  t: "session.export";
+  sid: string;
+  format?: "json" | "markdown";
+}
+
 export type WsClientMessage =
   | WsHello
   | WsAttach
@@ -111,7 +117,8 @@ export type WsClientMessage =
   | WsWorktreeList
   | WsSessionCreate
   | WsSessionStop
-  | WsSessionRestart;
+  | WsSessionRestart
+  | WsSessionExport;
 
 // ── Daemon → Frontend ──
 

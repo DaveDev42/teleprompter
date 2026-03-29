@@ -3,7 +3,7 @@ import { View, Text, TextInput, Pressable, FlatList } from "react-native";
 import { useSessionStore } from "../stores/session-store";
 import { getDaemonClient } from "../hooks/use-daemon";
 import { useChatStore } from "../stores/chat-store";
-import type { WsSessionMeta } from "@teleprompter/protocol/client";
+import type { WsSessionMeta, WsClientMessage } from "@teleprompter/protocol/client";
 
 function SessionItem({
   session,
@@ -17,6 +17,7 @@ function SessionItem({
   onPress: () => void;
   onStop: () => void;
   onRestart: () => void;
+  onExport: () => void;
 }) {
   const stateColor =
     session.state === "running"
@@ -74,6 +75,17 @@ function SessionItem({
             <Text className="text-orange-300 text-xs">Restart</Text>
           </Pressable>
         )}
+        {session.state === "stopped" && (
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation?.();
+              onExport();
+            }}
+            className="bg-zinc-700/50 px-2 py-1 rounded"
+          >
+            <Text className="text-gray-300 text-xs">Export</Text>
+          </Pressable>
+        )}
       </View>
     </Pressable>
   );
@@ -84,6 +96,8 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
   const currentSid = useSessionStore((s) => s.sid);
   const setSid = useSessionStore((s) => s.setSid);
   const [filter, setFilter] = useState("");
+  const [showWorktreeForm, setShowWorktreeForm] = useState(false);
+  const [branchInput, setBranchInput] = useState("");
 
   // Filter sessions by search term
   const filteredSessions = useMemo(() => {
@@ -123,6 +137,20 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
 
   const restartSession = (sid: string) => {
     getDaemonClient()?.restartSession(sid);
+  };
+
+  const exportSession = (sid: string) => {
+    getDaemonClient()?.exportSession(sid, "markdown");
+  };
+
+  const createWorktree = () => {
+    const branch = branchInput.trim();
+    if (!branch) return;
+    const client = getDaemonClient();
+    if (!client) return;
+    client.send({ t: "worktree.create", branch } as WsClientMessage);
+    setBranchInput("");
+    setShowWorktreeForm(false);
   };
 
   // Group by worktree
@@ -188,6 +216,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
               onPress={() => switchSession(item.session.sid)}
               onStop={() => stopSession(item.session.sid)}
               onRestart={() => restartSession(item.session.sid)}
+              onExport={() => exportSession(item.session.sid)}
             />
           );
         }}
@@ -197,6 +226,41 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
           </View>
         }
       />
+
+      {/* Worktree Creation */}
+      <View className="px-4 py-3 border-t border-zinc-700">
+        {showWorktreeForm ? (
+          <View className="flex-row items-center gap-2">
+            <TextInput
+              className="flex-1 bg-zinc-800 text-white rounded-lg px-3 py-1.5 text-sm font-mono"
+              placeholder="branch-name"
+              placeholderTextColor="#555"
+              value={branchInput}
+              onChangeText={setBranchInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Pressable
+              onPress={createWorktree}
+              disabled={!branchInput.trim()}
+              className="bg-blue-600 px-3 py-1.5 rounded-lg"
+              style={{ opacity: branchInput.trim() ? 1 : 0.4 }}
+            >
+              <Text className="text-white text-xs">Create</Text>
+            </Pressable>
+            <Pressable onPress={() => setShowWorktreeForm(false)}>
+              <Text className="text-gray-500 text-xs">Cancel</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable
+            onPress={() => setShowWorktreeForm(true)}
+            className="border border-zinc-600 rounded-lg py-2 items-center"
+          >
+            <Text className="text-gray-400 text-xs">New Worktree</Text>
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }

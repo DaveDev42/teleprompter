@@ -86,12 +86,13 @@ test.describe("P0 — Session Resume", () => {
       setTimeout(resolve, 15000);
     });
 
-    // 6. App should auto-reconnect
+    // 6. App should auto-reconnect — check for session sid reappearing
     let reconnected = false;
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 30; i++) {
       await page.waitForTimeout(1000);
       const text = await page.locator("body").textContent() ?? "";
-      if (!text.includes("Connecting to Daemon")) {
+      // Consider reconnected if we see session content and no "Connecting" banner
+      if (text.includes("resume-test") && !text.includes("Connecting to Daemon")) {
         reconnected = true;
         break;
       }

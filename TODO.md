@@ -90,3 +90,9 @@
 - [x] Terminal 선택 영역 복사 — xterm.js 기본 지원 (Web: native selection, Native: WebView)
 - [x] 세션 기록 내보내기 — session.export WS 메시지 + markdown/JSON 변환 + SessionDrawer Export 버튼
 - [x] Worktree 생성 UI — SessionDrawer "New Worktree" 버튼 + branch 입력 → worktree.create
+
+---
+
+## Future
+
+- [ ] Claude Code channels 양방향(output 구독) 지원 시 Chat UI 통합 재검토

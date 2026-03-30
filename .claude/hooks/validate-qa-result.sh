@@ -11,7 +11,7 @@ RESULT=$(echo "$INPUT" | jq -r '.result // empty')
 
 # Only validate QA agents
 case "$SUBAGENT_TYPE" in
-  app-ios-qa|app-web-qa) ;;
+  app-mobile-qa|app-web-qa) ;;
   *) exit 0 ;;
 esac
 
@@ -25,7 +25,7 @@ fi
 MISSING=()
 
 case "$SUBAGENT_TYPE" in
-  app-ios-qa)
+  app-mobile-qa)
     # App launch evidence
     if ! echo "$RESULT" | grep -qiE 'start_session|launch_expo'; then
       MISSING+=("앱 실행 도구 호출")

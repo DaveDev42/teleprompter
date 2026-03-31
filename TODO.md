@@ -66,8 +66,8 @@
 
 ### Android 지원
 - [x] Android EAS Build + Google Play submit 설정 (eas.json android track 추가)
-- [ ] Android Emulator에서 Expo Go 테스트 (QA 에이전트 위임)
-- [ ] Android 키보드 + WebView xterm.js 동작 확인 (QA 에이전트 위임)
+- [x] Android Emulator에서 Expo Go 테스트 — Pixel_8 AVD, 앱 로드/연결/세션/Diagnostics 전체 PASS
+- [x] Android 키보드 + WebView xterm.js 동작 확인 — 키보드 입력 정상, xterm.js WebView 로드 확인
 
 ### N:N Relay (프로토콜 v2) ✅
 - [x] Relay protocol v2 types — relay.register, relay.kx, frontendId

@@ -1,0 +1,13 @@
+# .cwshare - Files to copy to new worktrees
+#
+# Files listed here will be automatically copied when you run 'cw new'.
+# Useful for environment files and local configs not tracked in git.
+#
+# Format:
+#   - One file/directory path per line (relative to repo root)
+#   - Lines starting with # are comments
+#   - Empty lines are ignored
+
+.env
+.env.local
+

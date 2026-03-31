@@ -8,14 +8,33 @@
  */
 
 const SUBCOMMANDS = [
-  "daemon", "relay", "pair", "status", "logs",
-  "doctor", "init", "upgrade", "completions", "version",
+  "daemon",
+  "relay",
+  "pair",
+  "status",
+  "logs",
+  "doctor",
+  "init",
+  "upgrade",
+  "completions",
+  "version",
 ];
 
 const DAEMON_FLAGS = [
-  "--ws-port", "--repo-root", "--relay-url", "--relay-token",
-  "--daemon-id", "--web-dir", "--prune", "--spawn", "--sid",
-  "--cwd", "--worktree-path", "--verbose", "--quiet", "--watch",
+  "--ws-port",
+  "--repo-root",
+  "--relay-url",
+  "--relay-token",
+  "--daemon-id",
+  "--web-dir",
+  "--prune",
+  "--spawn",
+  "--sid",
+  "--cwd",
+  "--worktree-path",
+  "--verbose",
+  "--quiet",
+  "--watch",
 ];
 
 export function completionsCommand(argv: string[]): void {
@@ -46,10 +65,10 @@ _tp_completions() {
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
   commands="${SUBCOMMANDS.join(" ")}"
 
-  if [ "\$COMP_CWORD" -eq 1 ]; then
-    COMPREPLY=( $(compgen -W "\$commands" -- "\$cur") )
-  elif [ "\${COMP_WORDS[1]}" = "daemon" ] && [ "\$COMP_CWORD" -ge 3 ]; then
-    COMPREPLY=( $(compgen -W "${DAEMON_FLAGS.join(" ")}" -- "\$cur") )
+  if [ "$COMP_CWORD" -eq 1 ]; then
+    COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
+  elif [ "\${COMP_WORDS[1]}" = "daemon" ] && [ "$COMP_CWORD" -ge 3 ]; then
+    COMPREPLY=( $(compgen -W "${DAEMON_FLAGS.join(" ")}" -- "$cur") )
   fi
 }
 complete -F _tp_completions tp`;

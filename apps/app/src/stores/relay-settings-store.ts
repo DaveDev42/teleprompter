@@ -38,10 +38,7 @@ export const useRelaySettingsStore = create<RelaySettingsStore>((set, get) => ({
   addRelay: async (url: string, label?: string) => {
     const existing = get().relays;
     if (existing.some((r) => r.url === url)) return;
-    const next = [
-      ...existing,
-      { url, label: label ?? url, active: true },
-    ];
+    const next = [...existing, { url, label: label ?? url, active: true }];
     set({ relays: next });
     await secureSet(STORAGE_KEY, JSON.stringify(next));
   },

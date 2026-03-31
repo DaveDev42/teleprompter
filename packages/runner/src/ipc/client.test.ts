@@ -1,18 +1,24 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { IpcClient } from "./client";
-import { IpcServer } from "../../../daemon/src/ipc/server";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import type {
+  IpcAck,
+  IpcBye,
+  IpcInput,
+  IpcMessage,
+  IpcRec,
+} from "@teleprompter/protocol";
 import { mkdtemp, rm } from "fs/promises";
-import { join } from "path";
 import { tmpdir } from "os";
-import type { IpcAck, IpcInput } from "@teleprompter/protocol";
+import { join } from "path";
+import { IpcServer } from "../../../daemon/src/ipc/server";
+import { IpcClient } from "./client";
 
 describe("IpcClient", () => {
   let server: IpcServer;
   let client: IpcClient;
   let socketPath: string;
   let tmpDir: string;
-  let serverMessages: any[];
-  let clientMessages: any[];
+  let serverMessages: IpcMessage[];
+  let clientMessages: IpcMessage[];
 
   beforeEach(async () => {
     tmpDir = await mkdtemp(join(tmpdir(), "tp-ipc-client-"));
@@ -70,7 +76,8 @@ describe("IpcClient", () => {
 
     expect(serverMessages.length).toBe(2);
     expect(serverMessages[1].t).toBe("rec");
-    expect(serverMessages[1].kind).toBe("io");
+    const rec = serverMessages[1] as IpcRec;
+    expect(rec.kind).toBe("io");
   });
 
   test("receives ack from server", async () => {
@@ -82,7 +89,8 @@ describe("IpcClient", () => {
     });
     await Bun.sleep(50);
 
-    const runner = server.findRunnerBySid("ack-client")!;
+    const runner = server.findRunnerBySid("ack-client");
+    if (!runner) throw new Error("expected runner for ack-client");
     expect(runner).toBeDefined();
 
     server.send(runner, { t: "ack", sid: "ack-client", seq: 99 });
@@ -102,7 +110,8 @@ describe("IpcClient", () => {
     });
     await Bun.sleep(50);
 
-    const runner = server.findRunnerBySid("input-client")!;
+    const runner = server.findRunnerBySid("input-client");
+    if (!runner) throw new Error("expected runner for input-client");
     server.send(runner, {
       t: "input",
       sid: "input-client",
@@ -129,6 +138,6 @@ describe("IpcClient", () => {
 
     expect(serverMessages.length).toBe(2);
     expect(serverMessages[1].t).toBe("bye");
-    expect(serverMessages[1].exitCode).toBe(0);
+    expect((serverMessages[1] as IpcBye).exitCode).toBe(0);
   });
 });

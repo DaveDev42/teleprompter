@@ -33,7 +33,7 @@ export function splitArgs(argv: string[]): SplitResult {
 
   let i = 0;
   while (i < argv.length) {
-    const arg = argv[i]!;
+    const arg = argv[i] as string;
 
     if (TP_VALUE_FLAGS.has(arg)) {
       const value = argv[i + 1];

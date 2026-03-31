@@ -1,9 +1,12 @@
-import { useState, useMemo } from "react";
-import { View, Text, TextInput, Pressable, FlatList } from "react-native";
-import { useSessionStore } from "../stores/session-store";
+import type {
+  WsClientMessage,
+  WsSessionMeta,
+} from "@teleprompter/protocol/client";
+import { useMemo, useState } from "react";
+import { FlatList, Pressable, Text, TextInput, View } from "react-native";
 import { getDaemonClient } from "../hooks/use-daemon";
 import { useChatStore } from "../stores/chat-store";
-import type { WsSessionMeta, WsClientMessage } from "@teleprompter/protocol/client";
+import { useSessionStore } from "../stores/session-store";
 
 function SessionItem({
   session,
@@ -159,7 +162,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
   for (const s of filteredSessions) {
     const key = s.worktreePath ?? s.cwd;
     if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key)!.push(s);
+    grouped.get(key)?.push(s);
   }
 
   const flatData: (
@@ -197,7 +200,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
 
       <FlatList
         data={flatData}
-        keyExtractor={(item, i) =>
+        keyExtractor={(item, _i) =>
           item.type === "header" ? `h-${item.key}` : `s-${item.session.sid}`
         }
         renderItem={({ item }) => {

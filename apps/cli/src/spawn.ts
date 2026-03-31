@@ -20,5 +20,7 @@ export function resolveRunnerCommand(): string[] {
 function isCompiled(): boolean {
   // In compiled mode, process.execPath points to the binary itself,
   // not to a bun runtime executable
-  return !process.execPath.endsWith("/bun") && process.argv[0] === process.execPath;
+  return (
+    !process.execPath.endsWith("/bun") && process.argv[0] === process.execPath
+  );
 }

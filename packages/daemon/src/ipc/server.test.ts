@@ -1,23 +1,24 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { IpcServer } from "./server";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   encodeFrame,
   FrameDecoder,
-  type IpcHello,
-  type IpcRec,
-  type IpcBye,
   type IpcAck,
+  type IpcBye,
+  type IpcHello,
+  type IpcMessage,
+  type IpcRec,
 } from "@teleprompter/protocol";
-import { connect } from "net";
 import { mkdtemp, rm } from "fs/promises";
-import { join } from "path";
+import { connect } from "net";
 import { tmpdir } from "os";
+import { join } from "path";
+import { IpcServer } from "./server";
 
 describe("IpcServer", () => {
   let server: IpcServer;
   let socketPath: string;
   let tmpDir: string;
-  let receivedMessages: any[] = [];
+  let receivedMessages: IpcMessage[] = [];
   let connectedCount = 0;
   let disconnectedCount = 0;
 
@@ -128,7 +129,7 @@ describe("IpcServer", () => {
 
     const found = server.findRunnerBySid("find-me");
     expect(found).toBeDefined();
-    expect(found!.sid).toBe("find-me");
+    expect(found?.sid).toBe("find-me");
 
     const notFound = server.findRunnerBySid("no-such");
     expect(notFound).toBeUndefined();
@@ -139,10 +140,12 @@ describe("IpcServer", () => {
   test("sends ack back to runner", async () => {
     const client = await connectClient();
     const decoder = new FrameDecoder();
-    const received: any[] = [];
+    const received: unknown[] = [];
 
     client.on("data", (data: Buffer) => {
-      const msgs = decoder.decode(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+      const msgs = decoder.decode(
+        new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+      );
       received.push(...msgs);
     });
 
@@ -155,7 +158,8 @@ describe("IpcServer", () => {
     client.write(Buffer.from(encodeFrame(hello)));
     await Bun.sleep(50);
 
-    const runner = server.findRunnerBySid("ack-test")!;
+    const runner = server.findRunnerBySid("ack-test");
+    if (!runner) throw new Error("Expected runner to be registered");
     const ack: IpcAck = { t: "ack", sid: "ack-test", seq: 42 };
     server.send(runner, ack);
 

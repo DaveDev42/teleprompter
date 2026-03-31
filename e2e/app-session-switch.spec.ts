@@ -1,20 +1,31 @@
-import { test, expect } from "@playwright/test";
-import { spawn, type ChildProcess } from "child_process";
+import { expect, test } from "@playwright/test";
+import { type ChildProcess, spawn } from "child_process";
 
 let daemon: ChildProcess;
 
 test.describe("App Web — Session Switching", () => {
   test.beforeAll(async () => {
     // Start daemon with two sessions
-    daemon = spawn("bun", [
-      "run", "apps/cli/src/index.ts",
-      "daemon", "start",
-      "--ws-port", "7080",
-      "--spawn", "--sid", "session-alpha", "--cwd", "/tmp",
-    ], {
-      stdio: "pipe",
-      env: { ...process.env, LOG_LEVEL: "error" },
-    });
+    daemon = spawn(
+      "bun",
+      [
+        "run",
+        "apps/cli/src/index.ts",
+        "daemon",
+        "start",
+        "--ws-port",
+        "7080",
+        "--spawn",
+        "--sid",
+        "session-alpha",
+        "--cwd",
+        "/tmp",
+      ],
+      {
+        stdio: "pipe",
+        env: { ...process.env, LOG_LEVEL: "error" },
+      },
+    );
 
     // Wait for daemon ready
     await new Promise<void>((resolve) => {

@@ -7,10 +7,10 @@
  * Instead of the real `claude` CLI, we use a stub script that spawns a simple
  * process in a PTY and generates both io output and hook events.
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "fs";
-import { join, resolve } from "path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
+import { join, resolve } from "path";
 import { Daemon } from "./daemon";
 import { SessionManager } from "./session/session-manager";
 import { Store } from "./store";
@@ -83,11 +83,13 @@ describe("E2E flow", () => {
     daemon.start(socketPath);
     daemon.startWs(0);
     // Extract the actual port from the WS server
-    wsPort = daemon.wsPort!;
+    const port = daemon.wsPort;
+    if (!port) throw new Error("expected wsPort");
+    wsPort = port;
   });
 
   afterEach(() => {
-    SessionManager.setRunnerCommand(null as any);
+    SessionManager.setRunnerCommand(null as unknown as string[]);
     daemon.stop();
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -171,7 +173,7 @@ await Bun.connect({
     await helloReply;
 
     // Collect all subsequent messages
-    const wsMessages: any[] = [];
+    const wsMessages: unknown[] = [];
     collectWsMessages(ws, wsMessages);
 
     // Now spawn the runner
@@ -180,31 +182,53 @@ await Bun.connect({
     // Wait until we get the "state" messages and "rec" messages via WS
     // The WS client needs to attach first to get rec broadcasts.
     // But state messages go to all clients via sendAll.
-    await waitFor(() => wsMessages.some((m) => m.t === "state" && m.d.state === "running"));
+    await waitFor(() =>
+      wsMessages.some((m) => {
+        const msg = m as Record<string, unknown>;
+        return (
+          msg.t === "state" &&
+          (msg.d as Record<string, unknown>)?.state === "running"
+        );
+      }),
+    );
 
     // Attach to session to receive rec broadcasts
     ws.send(JSON.stringify({ t: "attach", sid }));
     await Bun.sleep(50);
 
     // Wait for session to stop
-    await waitFor(() => wsMessages.some((m) => m.t === "state" && m.d.state === "stopped"));
+    await waitFor(() =>
+      wsMessages.some((m) => {
+        const msg = m as Record<string, unknown>;
+        return (
+          msg.t === "state" &&
+          (msg.d as Record<string, unknown>)?.state === "stopped"
+        );
+      }),
+    );
 
     // Verify store
     const store = new Store(storeDir);
     const session = store.getSession(sid);
-    expect(session).toBeDefined();
-    expect(session!.state).toBe("stopped");
-    expect(session!.last_seq).toBe(2);
+    if (!session) throw new Error("expected session");
+    expect(session.state).toBe("stopped");
+    expect(session.last_seq).toBe(2);
 
     const db = store.getSessionDb(sid);
-    const records = db!.getRecordsFrom(0);
+    if (!db) throw new Error("expected db");
+    const records = db.getRecordsFrom(0);
     expect(records.length).toBe(2);
-    expect(records[0]!.kind).toBe("io");
-    expect(records[1]!.kind).toBe("event");
-    expect(records[1]!.name).toBe("Stop");
+    const rec0 = records[0];
+    const rec1 = records[1];
+    if (!rec0 || !rec1) throw new Error("expected records");
+    expect(rec0.kind).toBe("io");
+    expect(rec1.kind).toBe("event");
+    expect(rec1.name).toBe("Stop");
 
     // Verify WS client received state updates
-    const stateMessages = wsMessages.filter((m: any) => m.t === "state");
+    const stateMessages = wsMessages.filter(
+      (m) => (m as Record<string, unknown>).t === "state",
+    );
     expect(stateMessages.length).toBeGreaterThanOrEqual(2); // running + stopped
 
     store.close();
@@ -275,7 +299,9 @@ await Bun.connect({
     // Wait for session to finish
     const store = new Store(storeDir);
     await waitFor(() => store.getSession(sid)?.state === "stopped");
-    expect(store.getSession(sid)!.last_seq).toBe(5);
+    const resumeSession = store.getSession(sid);
+    if (!resumeSession) throw new Error("expected session");
+    expect(resumeSession.last_seq).toBe(5);
     store.close();
 
     // Now simulate a "new" WS client connecting and resuming from cursor 3
@@ -284,21 +310,23 @@ await Bun.connect({
 
     const helloReply = waitForWsMessage(ws);
     ws.send(JSON.stringify({ t: "hello" }));
-    const hello = (await helloReply) as any;
+    const hello = (await helloReply) as Record<string, unknown>;
     expect(hello.t).toBe("hello");
-    expect(hello.d.sessions.length).toBe(1);
-    expect(hello.d.sessions[0].sid).toBe(sid);
+    const helloData = hello.d as { sessions: Array<{ sid: string }> };
+    expect(helloData.sessions.length).toBe(1);
+    expect(helloData.sessions[0].sid).toBe(sid);
 
     // Resume from cursor 3 → should get records 4 and 5
     const batchReply = waitForWsMessage(ws);
     ws.send(JSON.stringify({ t: "resume", sid, c: 3 }));
-    const batch = (await batchReply) as any;
+    const batch = (await batchReply) as Record<string, unknown>;
 
     expect(batch.t).toBe("batch");
     expect(batch.sid).toBe(sid);
-    expect(batch.d.length).toBe(2);
-    expect(batch.d[0].seq).toBe(4);
-    expect(batch.d[1].seq).toBe(5);
+    const batchData = batch.d as Array<{ seq: number }>;
+    expect(batchData.length).toBe(2);
+    expect(batchData[0].seq).toBe(4);
+    expect(batchData[1].seq).toBe(5);
 
     ws.close();
     await waitForWsClose(ws);
@@ -378,8 +406,8 @@ await Bun.connect({
 
     // Verify session 1
     const db1 = store.getSessionDb(sid1);
-    expect(db1).toBeDefined();
-    const records1 = db1!.getRecordsFrom(0);
+    if (!db1) throw new Error("expected db1");
+    const records1 = db1.getRecordsFrom(0);
     expect(records1.length).toBe(3);
     for (const rec of records1) {
       const payload = Buffer.from(rec.payload).toString("utf-8");
@@ -388,8 +416,8 @@ await Bun.connect({
 
     // Verify session 2
     const db2 = store.getSessionDb(sid2);
-    expect(db2).toBeDefined();
-    const records2 = db2!.getRecordsFrom(0);
+    if (!db2) throw new Error("expected db2");
+    const records2 = db2.getRecordsFrom(0);
     expect(records2.length).toBe(3);
     for (const rec of records2) {
       const payload = Buffer.from(rec.payload).toString("utf-8");
@@ -468,12 +496,14 @@ await Bun.connect({
     });
 
     const session = store.getSession(sid);
-    expect(session!.state).toBe("error");
-    expect(session!.last_seq).toBe(1);
+    if (!session) throw new Error("expected session");
+    expect(session.state).toBe("error");
+    expect(session.last_seq).toBe(1);
 
     // Record before crash should still be persisted
     const db = store.getSessionDb(sid);
-    const records = db!.getRecordsFrom(0);
+    if (!db) throw new Error("expected db");
+    const records = db.getRecordsFrom(0);
     expect(records.length).toBe(1);
 
     store.close();
@@ -553,17 +583,28 @@ await Bun.connect({
     ws.send(JSON.stringify({ t: "attach", sid }));
     await Bun.sleep(50);
 
-    const wsMessages: any[] = [];
+    const wsMessages: unknown[] = [];
     collectWsMessages(ws, wsMessages);
 
     // Now spawn runner
     daemon.createSession(sid, tmpDir);
 
     // Wait for session to complete
-    await waitFor(() => wsMessages.some((m) => m.t === "state" && m.d?.state === "stopped"));
+    await waitFor(() =>
+      wsMessages.some((m) => {
+        const msg = m as Record<string, unknown>;
+        return (
+          msg.t === "state" &&
+          (msg.d as Record<string, unknown>)?.state === "stopped"
+        );
+      }),
+    );
 
     // Verify we received the rec broadcasts
-    const recMessages = wsMessages.filter((m: any) => m.t === "rec" && m.sid === sid);
+    const recMessages = wsMessages.filter((m) => {
+      const msg = m as Record<string, unknown>;
+      return msg.t === "rec" && msg.sid === sid;
+    }) as Array<Record<string, unknown>>;
     expect(recMessages.length).toBe(3);
     expect(recMessages[0].seq).toBe(1);
     expect(recMessages[1].seq).toBe(2);
@@ -571,7 +612,10 @@ await Bun.connect({
 
     // Verify ordering
     for (let i = 0; i < recMessages.length; i++) {
-      const payload = Buffer.from(recMessages[i].d, "base64").toString("utf-8");
+      const payload = Buffer.from(
+        recMessages[i].d as string,
+        "base64",
+      ).toString("utf-8");
       expect(payload).toBe(`chunk-${i}`);
     }
 
@@ -674,9 +718,12 @@ setTimeout(() => {
 
     // Verify the echoed record
     const db = store.getSessionDb(sid);
-    const records = db!.getRecordsFrom(0);
+    if (!db) throw new Error("expected db");
+    const records = db.getRecordsFrom(0);
     expect(records.length).toBe(1);
-    const payload = Buffer.from(records[0]!.payload).toString("utf-8");
+    const inputRec = records[0];
+    if (!inputRec) throw new Error("expected record");
+    const payload = Buffer.from(inputRec.payload).toString("utf-8");
     expect(payload).toBe("echo:user-typed-text\n");
 
     store.close();
@@ -749,15 +796,17 @@ await Bun.connect({
     if (db) {
       const records = db.getRecordsFrom(0);
       expect(records.length).toBe(1);
-      const payload = Buffer.from(records[0]!.payload).toString("utf-8");
+      const abruptRec = records[0];
+      if (!abruptRec) throw new Error("expected record");
+      const payload = Buffer.from(abruptRec.payload).toString("utf-8");
       expect(payload).toBe("before-crash");
     }
 
     // Session state should still be "running" since no bye was sent
     // (daemon doesn't auto-detect runner crashes without bye)
     const session = store.getSession(sid);
-    expect(session).toBeDefined();
-    expect(session!.state).toBe("running");
+    if (!session) throw new Error("expected session");
+    expect(session.state).toBe("running");
 
     store.close();
   });

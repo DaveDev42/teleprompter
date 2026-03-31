@@ -1,4 +1,4 @@
-import type { RecordKind, Namespace } from "./record";
+import type { Namespace, RecordKind } from "./record";
 
 export type FrameType =
   | "hello"

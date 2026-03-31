@@ -1,5 +1,5 @@
-import { test, expect } from "@playwright/test";
-import { spawn, execSync, type ChildProcess } from "child_process";
+import { expect, test } from "@playwright/test";
+import { type ChildProcess, execSync, spawn } from "child_process";
 
 /**
  * P0: Session resume after daemon restart
@@ -12,19 +12,33 @@ import { spawn, execSync, type ChildProcess } from "child_process";
 let daemon: ChildProcess;
 
 function startDaemon(): ChildProcess {
-  return spawn("bun", [
-    "run", "apps/cli/src/index.ts",
-    "daemon", "start", "--ws-port", "7080",
-    "--spawn", "--sid", "resume-test", "--cwd", "/tmp",
-  ], {
-    stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, LOG_LEVEL: "error" },
-  });
+  return spawn(
+    "bun",
+    [
+      "run",
+      "apps/cli/src/index.ts",
+      "daemon",
+      "start",
+      "--ws-port",
+      "7080",
+      "--spawn",
+      "--sid",
+      "resume-test",
+      "--cwd",
+      "/tmp",
+    ],
+    {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, LOG_LEVEL: "error" },
+    },
+  );
 }
 
 test.describe("P0 — Session Resume", () => {
   test.beforeAll(async () => {
-    try { execSync("pkill -f 'daemon start'", { stdio: "ignore" }); } catch {}
+    try {
+      execSync("pkill -f 'daemon start'", { stdio: "ignore" });
+    } catch {}
     await new Promise((r) => setTimeout(r, 2000));
   });
 
@@ -54,7 +68,7 @@ test.describe("P0 — Session Resume", () => {
     let connected = false;
     for (let i = 0; i < 15; i++) {
       await page.waitForTimeout(1000);
-      const text = await page.locator("body").textContent() ?? "";
+      const text = (await page.locator("body").textContent()) ?? "";
       if (!text.includes("Connecting to Daemon")) {
         connected = true;
         break;
@@ -70,10 +84,12 @@ test.describe("P0 — Session Resume", () => {
 
     // 4. App should show disconnected
     await page.waitForTimeout(2000);
-    const bodyAfterKill = await page.locator("body").textContent() ?? "";
+    const bodyAfterKill = (await page.locator("body").textContent()) ?? "";
     await page.screenshot({ path: "/tmp/pw-resume-2-disconnected.png" });
 
-    console.log(`After kill: ${bodyAfterKill.includes("Connecting") ? "Disconnected (reconnecting)" : "Still shows content"}`);
+    console.log(
+      `After kill: ${bodyAfterKill.includes("Connecting") ? "Disconnected (reconnecting)" : "Still shows content"}`,
+    );
 
     // 5. Restart daemon
     daemon = startDaemon();
@@ -90,9 +106,12 @@ test.describe("P0 — Session Resume", () => {
     let reconnected = false;
     for (let i = 0; i < 30; i++) {
       await page.waitForTimeout(1000);
-      const text = await page.locator("body").textContent() ?? "";
+      const text = (await page.locator("body").textContent()) ?? "";
       // Consider reconnected if we see session content and no "Connecting" banner
-      if (text.includes("resume-test") && !text.includes("Connecting to Daemon")) {
+      if (
+        text.includes("resume-test") &&
+        !text.includes("Connecting to Daemon")
+      ) {
         reconnected = true;
         break;
       }

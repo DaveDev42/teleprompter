@@ -15,7 +15,7 @@ const { values, positionals } = parseArgs({
 });
 
 const sid = values.sid ?? `session-${Date.now()}`;
-const cwd = values.cwd!;
+const cwd = values.cwd ?? process.cwd();
 
 // Everything after "--" becomes claudeArgs via positionals
 const runner = new Runner({
@@ -23,8 +23,8 @@ const runner = new Runner({
   cwd,
   worktreePath: values["worktree-path"],
   socketPath: values["socket-path"],
-  cols: parseInt(values.cols!, 10),
-  rows: parseInt(values.rows!, 10),
+  cols: parseInt(values.cols ?? "120", 10),
+  rows: parseInt(values.rows ?? "40", 10),
   claudeArgs: positionals,
 });
 

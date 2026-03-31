@@ -1,5 +1,10 @@
+import type {
+  HookEventBase,
+  PostToolUseEvent,
+  PreToolUseEvent,
+  StopEvent,
+} from "@teleprompter/protocol/client";
 import { create } from "zustand";
-import type { HookEventBase } from "@teleprompter/protocol/client";
 
 export type ChatMessageType =
   | "user"
@@ -53,7 +58,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   addMessage: (msg) => {
     // Show terminal fallback for elicitation/permission (complex interactions)
     if (msg.type === "elicitation" || msg.type === "permission") {
-      set((s) => ({ messages: [...s.messages, msg], showTerminalFallback: true }));
+      set((s) => ({
+        messages: [...s.messages, msg],
+        showTerminalFallback: true,
+      }));
     } else {
       set((s) => ({ messages: [...s.messages, msg] }));
     }
@@ -84,7 +92,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   dismissTerminalFallback: () => set({ showTerminalFallback: false }),
 
-  clear: () => set({ messages: [], streamingText: "", showTerminalFallback: false }),
+  clear: () =>
+    set({ messages: [], streamingText: "", showTerminalFallback: false }),
 }));
 
 /**
@@ -102,7 +111,7 @@ export function processHookEvent(event: HookEventBase) {
         id: makeId(),
         type: "user",
         event: name,
-        text: (event as any).user_prompt ?? (event as any).prompt ?? "",
+        text: (event.user_prompt as string) ?? (event.prompt as string) ?? "",
         ts: Date.now(),
       });
       break;
@@ -110,7 +119,8 @@ export function processHookEvent(event: HookEventBase) {
     case "Stop": {
       // Finalize streaming text as assistant message
       store.finalizeStreaming();
-      const lastMsg = (event as any).last_assistant_message;
+      const stopEvent = event as StopEvent;
+      const lastMsg = stopEvent.last_assistant_message;
       if (lastMsg) {
         store.addMessage({
           id: makeId(),
@@ -124,7 +134,7 @@ export function processHookEvent(event: HookEventBase) {
     }
     case "PreToolUse": {
       store.finalizeStreaming();
-      const toolEvent = event as any;
+      const toolEvent = event as PreToolUseEvent;
       store.addMessage({
         id: makeId(),
         type: "tool",
@@ -137,7 +147,7 @@ export function processHookEvent(event: HookEventBase) {
       break;
     }
     case "PostToolUse": {
-      const toolEvent = event as any;
+      const toolEvent = event as PostToolUseEvent;
       store.addMessage({
         id: makeId(),
         type: "tool",
@@ -156,16 +166,16 @@ export function processHookEvent(event: HookEventBase) {
         id: makeId(),
         type: "permission",
         event: name,
-        text: `Permission requested: ${(event as any).tool_name ?? "unknown"}`,
-        permissionTool: (event as any).tool_name,
-        toolInput: (event as any).tool_input,
+        text: `Permission requested: ${(event.tool_name as string) ?? "unknown"}`,
+        permissionTool: event.tool_name as string,
+        toolInput: event.tool_input,
         ts: Date.now(),
       });
       break;
     }
     case "Elicitation": {
       store.finalizeStreaming();
-      const message = (event as any).message ?? "Input requested";
+      const message = (event.message as string) ?? "Input requested";
       // Parse choices from message text (e.g., "A) Yes  B) No" patterns)
       const choices = parseChoices(message);
       store.addMessage({
@@ -183,7 +193,10 @@ export function processHookEvent(event: HookEventBase) {
         id: makeId(),
         type: "system",
         event: name,
-        text: (event as any).message ?? (event as any).title ?? "Notification",
+        text:
+          (event.message as string) ??
+          (event.title as string) ??
+          "Notification",
         ts: Date.now(),
       });
       break;

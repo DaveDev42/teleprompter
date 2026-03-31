@@ -1,10 +1,13 @@
 import type {
   RelayClientMessage,
-  RelayServerMessage,
   RelayFrame,
   RelayKeyExchangeFrame,
+  RelayServerMessage,
 } from "@teleprompter/protocol";
 import { createLogger } from "@teleprompter/protocol";
+
+type ServerWebSocket = Bun.ServerWebSocket<unknown>;
+type BunServer = ReturnType<typeof Bun.serve>;
 
 const log = createLogger("Relay");
 
@@ -27,7 +30,7 @@ interface RateLimiter {
 }
 
 interface ConnectedClient {
-  ws: any; // Bun ServerWebSocket
+  ws: ServerWebSocket; // Bun ServerWebSocket
   role: "daemon" | "frontend";
   daemonId: string;
   /** Unique frontend identifier (frontend only) */
@@ -48,10 +51,10 @@ interface DaemonState {
 
 export class RelayServer {
   /** All authenticated clients */
-  private clients = new Map<any, ConnectedClient>();
+  private clients = new Map<ServerWebSocket, ConnectedClient>();
 
   /** daemonId → set of connected clients (both daemon and frontend) */
-  private daemonGroups = new Map<string, Set<any>>();
+  private daemonGroups = new Map<string, Set<ServerWebSocket>>();
 
   /** daemonId → daemon presence state */
   private daemonStates = new Map<string, DaemonState>();
@@ -67,7 +70,7 @@ export class RelayServer {
 
   /** Port the server is listening on */
   private port = 0;
-  private server: any = null;
+  private server: BunServer | null = null;
 
   /**
    * Register a valid pairing token for a daemon.
@@ -83,7 +86,7 @@ export class RelayServer {
     this.server = Bun.serve({
       port,
       fetch(req, server) {
-        if (server.upgrade(req)) return undefined;
+        if (server.upgrade(req, { data: undefined })) return undefined;
 
         // Health check endpoint
         const url = new URL(req.url);
@@ -93,12 +96,17 @@ export class RelayServer {
             version: "0.1.5",
             protocolVersion: 2,
             clients: self.clients.size,
-            daemons: [...self.daemonStates.entries()]
-              .filter(([, s]) => s.online).length,
-            sessions: [...self.daemonStates.values()]
-              .reduce((sum, s) => sum + s.sessions.size, 0),
-            attached: [...self.daemonStates.values()]
-              .reduce((sum, s) => sum + s.attached.size, 0),
+            daemons: [...self.daemonStates.entries()].filter(
+              ([, s]) => s.online,
+            ).length,
+            sessions: [...self.daemonStates.values()].reduce(
+              (sum, s) => sum + s.sessions.size,
+              0,
+            ),
+            attached: [...self.daemonStates.values()].reduce(
+              (sum, s) => sum + s.attached.size,
+              0,
+            ),
             uptime: Math.floor(process.uptime()),
           });
         }
@@ -125,13 +133,21 @@ th{color:#888;font-size:.75rem;text-transform:uppercase}.ok{color:#4ade80}.off{c
 <p>Clients: <b>${self.clients.size}</b> | Uptime: <b>${Math.floor(process.uptime())}s</b>
 <span id="refresh" onclick="location.reload()"> ↻ refresh</span></p>
 <h2 style="font-size:1rem;color:#888">Daemons (${daemons.length})</h2>
-${daemons.length === 0 ? '<p style="color:#666">No daemons connected</p>' : `
+${
+  daemons.length === 0
+    ? '<p style="color:#666">No daemons connected</p>'
+    : `
 <table><tr><th>ID</th><th>Status</th><th>Sessions</th><th>Last Seen</th></tr>
-${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.id}</td>
-<td><span class="badge ${d.online ? 'badge-on' : 'badge-off'}">${d.online ? 'online' : 'offline'}</span></td>
-<td>${d.sessions.length > 0 ? d.sessions.join(', ') : '—'}</td>
-<td style="color:#888;font-size:.85rem">${d.lastSeen}</td></tr>`).join('')}
-</table>`}
+${daemons
+  .map(
+    (d) => `<tr><td style="font-family:monospace;font-size:.85rem">${d.id}</td>
+<td><span class="badge ${d.online ? "badge-on" : "badge-off"}">${d.online ? "online" : "offline"}</span></td>
+<td>${d.sessions.length > 0 ? d.sessions.join(", ") : "—"}</td>
+<td style="color:#888;font-size:.85rem">${d.lastSeen}</td></tr>`,
+  )
+  .join("")}
+</table>`
+}
 </body></html>`;
           return new Response(html, {
             headers: { "Content-Type": "text/html" },
@@ -141,7 +157,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
         return new Response("Teleprompter Relay", { status: 200 });
       },
       websocket: {
-        open(ws) {
+        open(_ws) {
           // Wait for auth or register message
         },
         message(ws, message) {
@@ -153,7 +169,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
       },
     });
 
-    this.port = this.server.port;
+    this.port = this.server.port ?? 0;
     log.info(`listening on ws://localhost:${this.port}`);
     return this.port;
   }
@@ -171,7 +187,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
     return this.port;
   }
 
-  private send(ws: any, msg: RelayServerMessage) {
+  private send(ws: ServerWebSocket, msg: RelayServerMessage) {
     try {
       ws.send(JSON.stringify(msg));
     } catch {
@@ -179,7 +195,10 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
     }
   }
 
-  private handleMessage(ws: any, raw: string | Buffer | ArrayBuffer) {
+  private handleMessage(
+    ws: ServerWebSocket,
+    raw: string | Buffer | ArrayBuffer,
+  ) {
     let msg: RelayClientMessage;
     try {
       const text =
@@ -229,13 +248,13 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
         this.send(ws, {
           t: "relay.err",
           e: "UNKNOWN_TYPE",
-          m: `Unknown message type: ${(msg as any).t}`,
+          m: `Unknown message type: ${(msg as RelayClientMessage).t}`,
         });
     }
   }
 
   private handleRegister(
-    ws: any,
+    ws: ServerWebSocket,
     msg: RelayClientMessage & { t: "relay.register" },
   ) {
     // Check if daemonId is already registered with a different proof
@@ -258,7 +277,10 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
     this.send(ws, { t: "relay.register.ok", daemonId: msg.daemonId });
   }
 
-  private handleAuth(ws: any, msg: RelayClientMessage & { t: "relay.auth" }) {
+  private handleAuth(
+    ws: ServerWebSocket,
+    msg: RelayClientMessage & { t: "relay.auth" },
+  ) {
     const expectedDaemonId = this.validTokens.get(msg.token);
     if (!expectedDaemonId || expectedDaemonId !== msg.daemonId) {
       this.send(ws, {
@@ -282,7 +304,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
     if (!this.daemonGroups.has(msg.daemonId)) {
       this.daemonGroups.set(msg.daemonId, new Set());
     }
-    this.daemonGroups.get(msg.daemonId)!.add(ws);
+    this.daemonGroups.get(msg.daemonId)?.add(ws);
 
     // Update daemon state
     if (msg.role === "daemon") {
@@ -302,7 +324,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
   }
 
   private handleKeyExchange(
-    ws: any,
+    ws: ServerWebSocket,
     msg: RelayClientMessage & { t: "relay.kx" },
   ) {
     const client = this.clients.get(ws);
@@ -336,7 +358,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
   }
 
   private handlePublish(
-    ws: any,
+    ws: ServerWebSocket,
     msg: RelayClientMessage & { t: "relay.pub" },
   ) {
     const client = this.clients.get(ws);
@@ -362,7 +384,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
     if (!this.recentFrames.has(key)) {
       this.recentFrames.set(key, []);
     }
-    const frames = this.recentFrames.get(key)!;
+    const frames = this.recentFrames.get(key) ?? [];
     const frame: CachedFrame = {
       sid: msg.sid,
       ct: msg.ct,
@@ -399,7 +421,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
   }
 
   private handleSubscribe(
-    ws: any,
+    ws: ServerWebSocket,
     msg: RelayClientMessage & { t: "relay.sub" },
   ) {
     const client = this.clients.get(ws);
@@ -451,7 +473,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
   }
 
   private handleUnsubscribe(
-    ws: any,
+    ws: ServerWebSocket,
     msg: RelayClientMessage & { t: "relay.unsub" },
   ) {
     const client = this.clients.get(ws);
@@ -469,7 +491,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
     }
   }
 
-  private handleClose(ws: any) {
+  private handleClose(ws: ServerWebSocket) {
     const client = this.clients.get(ws);
     if (!client) return;
 

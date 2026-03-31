@@ -1,6 +1,6 @@
+import { createLogger } from "@teleprompter/protocol";
 import { parseArgs } from "util";
 import { Daemon } from "./daemon";
-import { createLogger } from "@teleprompter/protocol";
 
 const log = createLogger("Daemon");
 

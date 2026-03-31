@@ -13,12 +13,35 @@
 const REALTIME_URL = "wss://api.openai.com/v1/realtime";
 const MODEL = "gpt-4o-realtime-preview";
 
+/** Minimal shape for OpenAI Realtime API server events */
+interface RealtimeServerEvent {
+  type: string;
+  transcript?: string;
+  delta?: string;
+  text?: string;
+  response?: {
+    output?: Array<{
+      type: string;
+      content?: Array<{ type: string; text?: string }>;
+    }>;
+  };
+  error?: { message?: string };
+}
+
 export interface RealtimeConfig {
   apiKey: string;
   /** System prompt for context injection */
   systemPrompt?: string;
   /** Voice for TTS output */
-  voice?: "alloy" | "echo" | "shimmer" | "ash" | "ballad" | "coral" | "sage" | "verse";
+  voice?:
+    | "alloy"
+    | "echo"
+    | "shimmer"
+    | "ash"
+    | "ballad"
+    | "coral"
+    | "sage"
+    | "verse";
 }
 
 export interface RealtimeEvents {
@@ -123,7 +146,7 @@ When the user gives a coding instruction, output it as a clean prompt. For examp
 - Refined prompt: "Fix the bug in the login page that causes a crash"`;
   }
 
-  private handleMessage(msg: any): void {
+  private handleMessage(msg: RealtimeServerEvent): void {
     switch (msg.type) {
       case "session.created":
       case "session.updated":
@@ -176,9 +199,7 @@ When the user gives a coding instruction, output it as a clean prompt. For examp
         break;
 
       case "error":
-        this.events.onError?.(
-          msg.error?.message ?? "Realtime API error",
-        );
+        this.events.onError?.(msg.error?.message ?? "Realtime API error");
         break;
     }
   }

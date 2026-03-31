@@ -11,14 +11,13 @@
  */
 
 import {
+  deriveRegistrationProof,
+  deriveRelayToken,
+  fromBase64,
   generateKeyPair,
   generatePairingSecret,
-  deriveRelayToken,
-  deriveRegistrationProof,
-  deriveKxKey,
-  toBase64,
-  fromBase64,
   type KeyPair,
+  toBase64,
 } from "./crypto";
 
 export interface PairingData {

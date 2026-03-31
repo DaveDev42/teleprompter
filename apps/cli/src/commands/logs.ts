@@ -1,4 +1,4 @@
-import type { WsServerMessage, WsRec } from "@teleprompter/protocol";
+import type { WsRec, WsServerMessage } from "@teleprompter/protocol";
 import { ensureDaemon } from "../lib/ensure-daemon";
 
 /**
@@ -57,7 +57,9 @@ export async function logsCommand(argv: string[]): Promise<void> {
           : sessions.find((s) => s.state === "running");
 
         if (!target) {
-          console.error(sid ? `Session ${sid} not found.` : "No running sessions.");
+          console.error(
+            sid ? `Session ${sid} not found.` : "No running sessions.",
+          );
           if (sessions.length > 0) {
             console.error("Available sessions:");
             for (const s of sessions) {
@@ -74,7 +76,9 @@ export async function logsCommand(argv: string[]): Promise<void> {
 
         ws.send(JSON.stringify({ t: "attach", sid: target.sid }));
         // Also resume from current seq to get future records
-        ws.send(JSON.stringify({ t: "resume", sid: target.sid, c: target.lastSeq }));
+        ws.send(
+          JSON.stringify({ t: "resume", sid: target.sid, c: target.lastSeq }),
+        );
         break;
       }
 

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 test.describe("App Web — UI Smoke Tests", () => {
   test.beforeEach(async ({ page }) => {
@@ -11,9 +11,12 @@ test.describe("App Web — UI Smoke Tests", () => {
   });
 
   test("shows connection status", async ({ page }) => {
-    const text = await page.locator("body").textContent() ?? "";
-    const hasStatus = text.includes("Connecting") || text.includes("Waiting")
-      || text.includes("Reconnecting") || text.includes("Listening");
+    const text = (await page.locator("body").textContent()) ?? "";
+    const hasStatus =
+      text.includes("Connecting") ||
+      text.includes("Waiting") ||
+      text.includes("Reconnecting") ||
+      text.includes("Listening");
     expect(hasStatus).toBe(true);
   });
 
@@ -33,7 +36,9 @@ test.describe("App Web — UI Smoke Tests", () => {
     // If we got this far without error, the page rendered.
     // The screenshot from CI shows black background already.
     // Just verify the page has loaded and is not blank white.
-    const bodyBg = await page.evaluate(() => document.body.style.backgroundColor || "none");
+    const _bodyBg = await page.evaluate(
+      () => document.body.style.backgroundColor || "none",
+    );
     // Expo sets background via nested views, not body directly — just check page rendered
     expect(screenshot.length).toBeGreaterThan(1000);
   });

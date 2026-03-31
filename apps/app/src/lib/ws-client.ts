@@ -1,8 +1,9 @@
 import type {
   WsClientMessage,
+  WsRec,
   WsServerMessage,
   WsSessionMeta,
-  WsRec,
+  WsWorktreeInfo,
 } from "@teleprompter/protocol/client";
 
 /** Production relay URL */
@@ -22,7 +23,7 @@ function getDefaultUrl(): string {
     // Dev server (Metro/Expo) — extract host, use daemon port
     // Metro uses 8081 by default, but Expo MCP may use 8082+ if 8081 is busy
     const port = parseInt(host?.split(":")[1] ?? "0", 10);
-    if (port >= 8081 && port <= 8099 || host?.includes(":19006")) {
+    if ((port >= 8081 && port <= 8099) || host?.includes(":19006")) {
       const devHost = host.split(":")[0];
       return `ws://${devHost}:7080`;
     }
@@ -50,9 +51,10 @@ function getDefaultUrl(): string {
     } catch {}
 
     try {
-      const sourceUrl = (globalThis as any).__expo_source_url;
+      const sourceUrl = (globalThis as Record<string, unknown>)
+        .__expo_source_url as string | undefined;
       if (sourceUrl) {
-        const match = sourceUrl.match(/\/\/([^:\/]+)/);
+        const match = sourceUrl.match(/\/\/([^:/]+)/);
         if (match?.[1] && match[1] !== "localhost") {
           return `ws://${match[1]}:7080`;
         }
@@ -78,8 +80,8 @@ export type WsEventHandler = {
   onOpen?: () => void;
   onClose?: () => void;
   onError?: (error: string) => void;
-  onWorktreeList?: (worktrees: any[]) => void;
-  onWorktreeCreated?: (info: any, sid?: string) => void;
+  onWorktreeList?: (worktrees: WsWorktreeInfo[]) => void;
+  onWorktreeCreated?: (info: WsWorktreeInfo, sid?: string) => void;
 };
 
 export class DaemonWsClient {

@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { splitArgs } from "./args";
 
 describe("splitArgs", () => {
@@ -34,11 +34,16 @@ describe("splitArgs", () => {
 
   test("multiple --tp-* flags mixed with claude args", () => {
     const result = splitArgs([
-      "--tp-sid", "s1",
-      "-p", "hello",
-      "--tp-cwd", "/tmp",
-      "--model", "opus",
-      "--tp-ws-port", "8080",
+      "--tp-sid",
+      "s1",
+      "-p",
+      "hello",
+      "--tp-cwd",
+      "/tmp",
+      "--model",
+      "opus",
+      "--tp-ws-port",
+      "8080",
     ]);
     expect(result.tpArgs).toEqual({
       sid: "s1",
@@ -67,13 +72,20 @@ describe("splitArgs", () => {
 
   test("preserves argument order for claude", () => {
     const result = splitArgs([
-      "--allowedTools", "Bash", "Edit",
-      "--tp-sid", "x",
-      "-p", "do something",
+      "--allowedTools",
+      "Bash",
+      "Edit",
+      "--tp-sid",
+      "x",
+      "-p",
+      "do something",
     ]);
     expect(result.claudeArgs).toEqual([
-      "--allowedTools", "Bash", "Edit",
-      "-p", "do something",
+      "--allowedTools",
+      "Bash",
+      "Edit",
+      "-p",
+      "do something",
     ]);
   });
 });

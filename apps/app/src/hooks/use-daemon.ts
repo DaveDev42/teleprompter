@@ -1,8 +1,8 @@
-import { useEffect, useRef } from "react";
-import { useSessionStore } from "../stores/session-store";
-import { useOfflineStore } from "../stores/offline-store";
-import { DaemonWsClient } from "../lib/ws-client";
 import type { WsRec, WsSessionMeta } from "@teleprompter/protocol/client";
+import { useEffect, useRef } from "react";
+import { DaemonWsClient } from "../lib/ws-client";
+import { useOfflineStore } from "../stores/offline-store";
+import { useSessionStore } from "../stores/session-store";
 
 /** Singleton client ref shared across the app */
 let globalClient: DaemonWsClient | null = null;
@@ -29,8 +29,14 @@ export function useDaemon(url?: string) {
     const { cacheFrame, updateState } = useOfflineStore.getState();
 
     const client = new DaemonWsClient(url, {
-      onOpen: () => { setConnected(true); setError(null); },
-      onClose: () => { setConnected(false); incrementReconnect(); },
+      onOpen: () => {
+        setConnected(true);
+        setError(null);
+      },
+      onClose: () => {
+        setConnected(false);
+        incrementReconnect();
+      },
       onSessionList: (sessions: WsSessionMeta[]) => {
         setSessions(sessions);
         const running = sessions.filter((s) => s.state === "running");

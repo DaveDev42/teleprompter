@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Daemon, SessionManager } from "@teleprompter/daemon";
 import type { WsServerMessage } from "@teleprompter/protocol";
 
@@ -11,7 +11,9 @@ describe("tp status", () => {
     daemon = new Daemon();
     daemon.start();
     daemon.startWs(0);
-    wsPort = daemon.wsPort!;
+    const port = daemon.wsPort;
+    if (!port) throw new Error("expected wsPort");
+    wsPort = port;
   });
 
   afterEach(() => {

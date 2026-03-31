@@ -1,5 +1,14 @@
+import type { FitAddon } from "@xterm/addon-fit";
+import type { SearchAddon } from "@xterm/addon-search";
+import type { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
+
+/** Terminal handle with optional searchAddon for in-terminal search */
+export interface TermHandle {
+  write: (data: string | Uint8Array) => void;
+  searchAddon?: SearchAddon;
+}
 
 /**
  * xterm.js terminal component for Expo Web.
@@ -13,12 +22,12 @@ export function XTermWeb({
 }: {
   onData?: (data: string) => void;
   onResize?: (cols: number, rows: number) => void;
-  termRef?: React.MutableRefObject<any>;
+  termRef?: React.MutableRefObject<TermHandle | null>;
   onReady?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const xtermRef = useRef<any>(null);
-  const fitAddonRef = useRef<any>(null);
+  const xtermRef = useRef<Terminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
 
   useEffect(() => {
     if (Platform.OS !== "web") return;
@@ -32,10 +41,11 @@ export function XTermWeb({
       const { SearchAddon } = await import("@xterm/addon-search");
 
       // Dynamic CSS import for xterm
-      if (!document.querySelector('link[data-xterm-css]')) {
+      if (!document.querySelector("link[data-xterm-css]")) {
         const link = document.createElement("link");
         link.rel = "stylesheet";
-        link.href = "https://cdn.jsdelivr.net/npm/@xterm/xterm@6/css/xterm.min.css";
+        link.href =
+          "https://cdn.jsdelivr.net/npm/@xterm/xterm@6/css/xterm.min.css";
         link.setAttribute("data-xterm-css", "true");
         document.head.appendChild(link);
       }
@@ -66,8 +76,9 @@ export function XTermWeb({
       xtermRef.current = term;
       fitAddonRef.current = fitAddon;
       if (termRef) {
-        termRef.current = term;
-        (term as any).searchAddon = searchAddon;
+        const handle = term as TermHandle;
+        handle.searchAddon = searchAddon;
+        termRef.current = handle;
       }
 
       // Signal ready — triggers resume/replay in terminal screen
@@ -100,14 +111,14 @@ export function XTermWeb({
       xtermRef.current?.dispose();
       xtermRef.current = null;
     };
-  }, []);
+  }, [
+    termRef,
+    onResize, // Signal ready — triggers resume/replay in terminal screen
+    onReady,
+    onData,
+  ]);
 
   if (Platform.OS !== "web") return null;
 
-  return (
-    <div
-      ref={containerRef}
-      className="w-full h-full bg-black"
-    />
-  );
+  return <div ref={containerRef} className="w-full h-full bg-black" />;
 }

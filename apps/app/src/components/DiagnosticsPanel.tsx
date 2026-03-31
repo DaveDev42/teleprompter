@@ -1,12 +1,12 @@
-import { useState, useCallback } from "react";
-import { View, Text, ScrollView, Pressable } from "react-native";
-import { useSessionStore } from "../stores/session-store";
+import type { WsSessionMeta } from "@teleprompter/protocol/client";
+import { useCallback, useState } from "react";
+import { Pressable, ScrollView, Text, View } from "react-native";
+import { getDaemonClient } from "../hooks/use-daemon";
+import { useRelayConnectionStore } from "../hooks/use-relay";
+import { checkCryptoAvailability } from "../lib/crypto-native";
 import { useOfflineStore } from "../stores/offline-store";
 import { usePairingStore } from "../stores/pairing-store";
-import { useRelayConnectionStore } from "../hooks/use-relay";
-import { getDaemonClient } from "../hooks/use-daemon";
-import { checkCryptoAvailability } from "../lib/crypto-native";
-import type { WsSessionMeta } from "@teleprompter/protocol/client";
+import { useSessionStore } from "../stores/session-store";
 
 function MetricRow({ label, value }: { label: string; value: string }) {
   return (
@@ -17,7 +17,13 @@ function MetricRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <View className="bg-zinc-900 rounded-lg px-3 py-2 mb-4">
       <Text className="text-gray-400 text-xs font-bold mb-1">{title}</Text>
@@ -27,7 +33,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function SessionDiagnostics({ session }: { session: WsSessionMeta }) {
-  const offlineFrames = useOfflineStore((s) => s.recentFrames.get(session.sid)) ?? [];
+  const offlineFrames =
+    useOfflineStore((s) => s.recentFrames.get(session.sid)) ?? [];
 
   return (
     <View className="bg-zinc-900 rounded-lg px-3 py-2 mb-2">
@@ -62,9 +69,13 @@ export function DiagnosticsPanel() {
   const pairingState = usePairingStore((s) => s.state);
   const pairings = usePairingStore((s) => s.pairings);
   const activeDaemonId = usePairingStore((s) => s.activeDaemonId);
-  const pairingInfo = activeDaemonId ? pairings.get(activeDaemonId) : pairings.values().next().value ?? null;
+  const pairingInfo = activeDaemonId
+    ? pairings.get(activeDaemonId)
+    : (pairings.values().next().value ?? null);
   const relayConnections = useRelayConnectionStore((s) => s.connections);
-  const relayConnected = activeDaemonId ? (relayConnections.get(activeDaemonId) ?? false) : false;
+  const relayConnected = activeDaemonId
+    ? (relayConnections.get(activeDaemonId) ?? false)
+    : false;
   const [rtt, setRtt] = useState(-1);
   const [cryptoTest, setCryptoTest] = useState<{
     running: boolean;
@@ -87,7 +98,11 @@ export function DiagnosticsPanel() {
     const result: typeof cryptoTest = { running: false };
 
     // Detect platform
-    if (typeof (globalThis as any).HermesInternal !== "undefined") result.platform = "hermes";
+    if (
+      typeof (globalThis as Record<string, unknown>).HermesInternal !==
+      "undefined"
+    )
+      result.platform = "hermes";
     else if (typeof document !== "undefined") result.platform = "web";
     else result.platform = "unknown";
 
@@ -106,9 +121,8 @@ export function DiagnosticsPanel() {
     }
 
     // 2. Key generation
-    const { generateKeyPair, encrypt, decrypt, deriveSessionKeys } = await import(
-      "@teleprompter/protocol/client"
-    );
+    const { generateKeyPair, encrypt, decrypt, deriveSessionKeys } =
+      await import("@teleprompter/protocol/client");
     t0 = Date.now();
     try {
       await generateKeyPair();
@@ -127,7 +141,8 @@ export function DiagnosticsPanel() {
       const plaintext = new TextEncoder().encode("E2EE self-test payload");
       const ct = await encrypt(plaintext, keysA.tx);
       const decrypted = await decrypt(ct, keysB.rx);
-      const ok = new TextDecoder().decode(decrypted) === "E2EE self-test payload";
+      const ok =
+        new TextDecoder().decode(decrypted) === "E2EE self-test payload";
       result.encDec = { ok, ms: Date.now() - t0 };
     } catch {
       result.encDec = { ok: false, ms: Date.now() - t0 };
@@ -139,7 +154,9 @@ export function DiagnosticsPanel() {
   const runningSessions = sessions.filter((s) => s.state === "running").length;
   const stoppedSessions = sessions.filter((s) => s.state === "stopped").length;
   const errorSessions = sessions.filter((s) => s.state === "error").length;
-  const worktrees = new Set(sessions.map((s) => s.worktreePath).filter(Boolean));
+  const worktrees = new Set(
+    sessions.map((s) => s.worktreePath).filter(Boolean),
+  );
 
   return (
     <ScrollView className="flex-1 bg-black px-4 pt-4">

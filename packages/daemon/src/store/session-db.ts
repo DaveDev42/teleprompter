@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
-import { RECORDS_DDL, PRAGMAS } from "./schema";
-import type { RecordKind, Namespace } from "@teleprompter/protocol";
+import type { Namespace, RecordKind } from "@teleprompter/protocol";
+import { PRAGMAS, RECORDS_DDL } from "./schema";
 
 export interface StoredRecord {
   seq: number;
@@ -42,7 +42,13 @@ export class SessionDb {
     ns?: Namespace,
     name?: string,
   ): number {
-    const result = this.insertStmt.run(kind, ts, ns ?? null, name ?? null, payload);
+    const result = this.insertStmt.run(
+      kind,
+      ts,
+      ns ?? null,
+      name ?? null,
+      payload,
+    );
     return Number(result.lastInsertRowid);
   }
 

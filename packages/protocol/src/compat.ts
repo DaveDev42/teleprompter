@@ -35,7 +35,9 @@ export const WS_PROTOCOL_VERSION = 1;
 /**
  * Parse a semver-like version string into components.
  */
-export function parseVersion(v: string): { major: number; minor: number; patch: number } | null {
+export function parseVersion(
+  v: string,
+): { major: number; minor: number; patch: number } | null {
   const match = v.match(/(\d+)\.(\d+)\.(\d+)/);
   if (!match) return null;
   return {
@@ -53,8 +55,12 @@ export function checkClaudeVersion(version: string): string | null {
   const parsed = parseVersion(version);
   if (!parsed) return `Unknown Claude version format: ${version}`;
 
-  const min = parseVersion(MIN_CLAUDE_VERSION)!;
-  if (parsed.major < min.major || (parsed.major === min.major && parsed.minor < min.minor)) {
+  const min = parseVersion(MIN_CLAUDE_VERSION);
+  if (!min) return `Invalid MIN_CLAUDE_VERSION: ${MIN_CLAUDE_VERSION}`;
+  if (
+    parsed.major < min.major ||
+    (parsed.major === min.major && parsed.minor < min.minor)
+  ) {
     return `Claude ${version} may be too old. Minimum recommended: ${MIN_CLAUDE_VERSION}`;
   }
 

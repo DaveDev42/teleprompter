@@ -1,15 +1,15 @@
-import { unlinkSync, existsSync } from "fs";
 import {
   createLogger,
   encodeFrame,
   FrameDecoder,
-  QueuedWriter,
   getSocketPath,
-  type IpcMessage,
-  type IpcHello,
-  type IpcRec,
   type IpcBye,
+  type IpcHello,
+  type IpcMessage,
+  type IpcRec,
+  QueuedWriter,
 } from "@teleprompter/protocol";
+import { existsSync, unlinkSync } from "fs";
 
 type IncomingMessage = IpcHello | IpcRec | IpcBye;
 
@@ -95,7 +95,10 @@ export class IpcServer {
 
   send(runner: ConnectedRunner, msg: IpcMessage): void {
     const frame = encodeFrame(msg);
-    runner.writer.write(runner.socket as Parameters<QueuedWriter["write"]>[0], frame);
+    runner.writer.write(
+      runner.socket as Parameters<QueuedWriter["write"]>[0],
+      frame,
+    );
   }
 
   findRunnerBySid(sid: string): ConnectedRunner | undefined {

@@ -1,8 +1,8 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { SessionDb } from "./session-db";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "fs/promises";
-import { join } from "path";
 import { tmpdir } from "os";
+import { join } from "path";
+import { SessionDb } from "./session-db";
 
 describe("SessionDb", () => {
   let db: SessionDb;

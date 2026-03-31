@@ -1,4 +1,4 @@
-import type { RecordKind, Namespace } from "./record";
+import type { Namespace, RecordKind } from "./record";
 
 export interface IpcHello {
   t: "hello";
@@ -44,4 +44,10 @@ export interface IpcResize {
   rows: number;
 }
 
-export type IpcMessage = IpcHello | IpcRec | IpcBye | IpcAck | IpcInput | IpcResize;
+export type IpcMessage =
+  | IpcHello
+  | IpcRec
+  | IpcBye
+  | IpcAck
+  | IpcInput
+  | IpcResize;

@@ -30,7 +30,10 @@ export async function initCommand(): Promise<void> {
   // Check for Claude CLI
   let hasClaude = false;
   try {
-    const proc = Bun.spawn(["claude", "--version"], { stdout: "pipe", stderr: "pipe" });
+    const proc = Bun.spawn(["claude", "--version"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     await proc.exited;
     hasClaude = proc.exitCode === 0;
   } catch {}
@@ -38,7 +41,9 @@ export async function initCommand(): Promise<void> {
   console.log("Environment:");
   console.log(`  Git repo:     ${isGitRepo ? "yes" : "no"}`);
   console.log(`  Claude CLI:   ${hasClaude ? "yes" : "not found"}`);
-  console.log(`  Pairing:      ${hasPairing ? "configured" : "not configured"}`);
+  console.log(
+    `  Pairing:      ${hasPairing ? "configured" : "not configured"}`,
+  );
   console.log("");
 
   if (!hasClaude) {

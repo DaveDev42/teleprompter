@@ -1,23 +1,27 @@
-import { IpcServer } from "./ipc/server";
-import { Store } from "./store";
-import { SessionManager, type SpawnRunnerOptions, type RunnerInfo } from "./session/session-manager";
-import { ClientRegistry } from "./transport/client-registry";
-import { WsServer } from "./transport/ws-server";
-import { RelayClient, type RelayClientConfig } from "./transport/relay-client";
-import { WorktreeManager } from "./worktree/worktree-manager";
-import { createLogger } from "@teleprompter/protocol";
 import type {
+  IpcBye,
   IpcHello,
   IpcRec,
-  IpcBye,
   Namespace,
   RecordKind,
-  WsSessionMeta,
   WsRec,
+  WsSessionMeta,
 } from "@teleprompter/protocol";
-import type { SessionMeta } from "./store/store";
+import { createLogger } from "@teleprompter/protocol";
+import { IpcServer } from "./ipc/server";
+import {
+  type RunnerInfo,
+  SessionManager,
+  type SpawnRunnerOptions,
+} from "./session/session-manager";
+import { Store } from "./store";
 import type { StoredRecord } from "./store/session-db";
+import type { SessionMeta } from "./store/store";
 import type { WsClient } from "./transport/client-registry";
+import { ClientRegistry } from "./transport/client-registry";
+import { RelayClient, type RelayClientConfig } from "./transport/relay-client";
+import { WsServer } from "./transport/ws-server";
+import { WorktreeManager } from "./worktree/worktree-manager";
 
 const log = createLogger("Daemon");
 
@@ -56,9 +60,17 @@ export class Daemon {
         this.clientRegistry.attach(client, sid);
         const meta = this.store.getSession(sid);
         if (meta) {
-          this.clientRegistry.send(client, { t: "state", sid, d: toWsSessionMeta(meta) });
+          this.clientRegistry.send(client, {
+            t: "state",
+            sid,
+            d: toWsSessionMeta(meta),
+          });
         } else {
-          this.clientRegistry.send(client, { t: "err", e: "NOT_FOUND", m: `Session ${sid} not found` });
+          this.clientRegistry.send(client, {
+            t: "err",
+            e: "NOT_FOUND",
+            m: `Session ${sid} not found`,
+          });
         }
       },
       onDetach: (client, sid) => {
@@ -68,7 +80,11 @@ export class Daemon {
         this.handleResume(client, sid, cursor);
       },
       onInChat: (client, sid, text) => {
-        this.handleWsInput(client, sid, Buffer.from(text + "\n").toString("base64"));
+        this.handleWsInput(
+          client,
+          sid,
+          Buffer.from(`${text}\n`).toString("base64"),
+        );
       },
       onInTerm: (client, sid, data) => {
         this.handleWsInput(client, sid, data);
@@ -107,7 +123,9 @@ export class Daemon {
 
   start(socketPath?: string): string {
     // Mark stale "running" sessions as stopped (from previous daemon run)
-    const stale = this.store.listSessions().filter((s) => s.state === "running");
+    const stale = this.store
+      .listSessions()
+      .filter((s) => s.state === "running");
     for (const s of stale) {
       this.store.updateSessionState(s.sid, "stopped");
       log.info(`marked stale session as stopped: ${s.sid}`);
@@ -218,11 +236,7 @@ export class Daemon {
     return count;
   }
 
-  createSession(
-    sid: string,
-    cwd: string,
-    opts?: SpawnRunnerOptions,
-  ): void {
+  createSession(sid: string, cwd: string, opts?: SpawnRunnerOptions): void {
     this.sessionManager.spawnRunner(sid, cwd, {
       ...opts,
       socketPath: this.socketPath,
@@ -246,10 +260,7 @@ export class Daemon {
     }
   }
 
-  private handleHello(
-    _runner: unknown,
-    msg: IpcHello,
-  ): void {
+  private handleHello(_runner: unknown, msg: IpcHello): void {
     this.store.createSession(
       msg.sid,
       msg.cwd,
@@ -273,7 +284,11 @@ export class Daemon {
     // Notify WS clients + relay of new session
     const meta = this.store.getSession(msg.sid);
     if (meta) {
-      const stateMsg = { t: "state" as const, sid: msg.sid, d: toWsSessionMeta(meta) };
+      const stateMsg = {
+        t: "state" as const,
+        sid: msg.sid,
+        d: toWsSessionMeta(meta),
+      };
       this.clientRegistry.sendAll(stateMsg);
       for (const relay of this.relayClients) {
         relay.publishState("__meta__", stateMsg).catch(() => {});
@@ -328,38 +343,22 @@ export class Daemon {
     }
   }
 
-  /**
-   * Emit a teleprompter-internal event (tp namespace).
-   * Stored in store DB and broadcast to WS/relay clients.
-   */
-  private emitTpEvent(sid: string, name: string, data: unknown): void {
-    const db = this.store.getSessionDb(sid);
-    if (!db) return;
-
-    const payload = Buffer.from(JSON.stringify(data)).toString("base64");
-    const seq = db.append("event" as RecordKind, Date.now(), Buffer.from(payload), "tp" as Namespace, name);
-    this.store.updateLastSeq(sid, seq);
-
-    const wsRec: WsRec = {
-      t: "rec", sid, seq, k: "event" as RecordKind,
-      ns: "tp" as Namespace, n: name, d: payload, ts: Date.now(),
-    };
-    this.clientRegistry.broadcast(sid, wsRec);
-    for (const relay of this.relayClients) {
-      relay.publishRecord(wsRec).catch(() => {});
-    }
-  }
-
   private handleBye(msg: IpcBye): void {
     const state = msg.exitCode === 0 ? "stopped" : "error";
     this.store.updateSessionState(msg.sid, state);
     this.sessionManager.unregisterRunner(msg.sid);
-    log.info(`session ended sid=${msg.sid} exitCode=${msg.exitCode} state=${state}`);
+    log.info(
+      `session ended sid=${msg.sid} exitCode=${msg.exitCode} state=${state}`,
+    );
 
     // Notify WS clients + relay of session state change
     const meta = this.store.getSession(msg.sid);
     if (meta) {
-      const stateMsg = { t: "state" as const, sid: msg.sid, d: toWsSessionMeta(meta) };
+      const stateMsg = {
+        t: "state" as const,
+        sid: msg.sid,
+        d: toWsSessionMeta(meta),
+      };
       this.clientRegistry.sendAll(stateMsg);
       for (const relay of this.relayClients) {
         relay.publishState("__meta__", stateMsg).catch(() => {});
@@ -370,7 +369,11 @@ export class Daemon {
   private handleResume(client: WsClient, sid: string, cursor: number): void {
     const db = this.store.getSessionDb(sid);
     if (!db) {
-      this.clientRegistry.send(client, { t: "err", e: "NOT_FOUND", m: `Session ${sid} not found` });
+      this.clientRegistry.send(client, {
+        t: "err",
+        e: "NOT_FOUND",
+        m: `Session ${sid} not found`,
+      });
       return;
     }
 
@@ -389,10 +392,18 @@ export class Daemon {
     this.clientRegistry.send(client, { t: "batch", sid, d: wsRecs });
   }
 
-  private handleWsInput(client: WsClient, sid: string, base64Data: string): void {
+  private handleWsInput(
+    client: WsClient,
+    sid: string,
+    base64Data: string,
+  ): void {
     const runner = this.ipcServer.findRunnerBySid(sid);
     if (!runner) {
-      this.clientRegistry.send(client, { t: "err", e: "NO_RUNNER", m: `No runner for session ${sid}` });
+      this.clientRegistry.send(client, {
+        t: "err",
+        e: "NO_RUNNER",
+        m: `No runner for session ${sid}`,
+      });
       return;
     }
 
@@ -451,8 +462,7 @@ export class Daemon {
     }
 
     try {
-      const wtPath =
-        path ?? `${branch}-${Date.now().toString(36)}`;
+      const wtPath = path ?? `${branch}-${Date.now().toString(36)}`;
       const wt = await this.worktreeManager.add(wtPath, branch, baseBranch);
 
       // Auto-create a session in the new worktree
@@ -560,7 +570,11 @@ export class Daemon {
     }
   }
 
-  private handleSessionExport(client: WsClient, sid: string, format?: string): void {
+  private handleSessionExport(
+    client: WsClient,
+    sid: string,
+    format?: string,
+  ): void {
     const session = this.store.getSession(sid);
     if (!session) {
       this.clientRegistry.send(client, {
@@ -603,7 +617,9 @@ export class Daemon {
             } else if (data.prompt) {
               lines.push(`> ${data.prompt}`);
             } else {
-              lines.push("```json\n" + JSON.stringify(data, null, 2) + "\n```");
+              lines.push(
+                `\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``,
+              );
             }
           } catch {
             lines.push(payload);

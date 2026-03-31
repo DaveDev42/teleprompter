@@ -1,9 +1,9 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { Store } from "./store";
-import { mkdtemp, rm } from "fs/promises";
-import { join } from "path";
-import { tmpdir } from "os";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync } from "fs";
+import { mkdtemp, rm } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
+import { Store } from "./store";
 
 describe("Store session cleanup", () => {
   let vault: Store;
@@ -22,7 +22,7 @@ describe("Store session cleanup", () => {
   test("deleteSession removes metadata and db file", () => {
     vault.createSession("s1", "/tmp");
     const db = vault.getSessionDb("s1");
-    db!.append("io", Date.now(), Buffer.from("test"));
+    db?.append("io", Date.now(), Buffer.from("test"));
 
     expect(vault.getSession("s1")).toBeDefined();
     const dbPath = join(storeDir, "sessions", "s1.sqlite");
@@ -49,8 +49,15 @@ describe("Store session cleanup", () => {
 
     // Backdate old sessions (simulate 2 hours ago)
     const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
-    const metaDb = (vault as any).metaDb;
-    metaDb.run("UPDATE sessions SET updated_at = ? WHERE sid IN ('old-1', 'old-2')", [twoHoursAgo]);
+    const metaDb = (
+      vault as unknown as {
+        metaDb: { run: (sql: string, params: unknown[]) => void };
+      }
+    ).metaDb;
+    metaDb.run(
+      "UPDATE sessions SET updated_at = ? WHERE sid IN ('old-1', 'old-2')",
+      [twoHoursAgo],
+    );
 
     // Prune sessions older than 1 hour
     const pruned = vault.pruneOldSessions(60 * 60 * 1000);

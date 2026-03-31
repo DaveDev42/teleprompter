@@ -11,7 +11,7 @@ describe("tp status", () => {
     daemon = new Daemon();
     daemon.start();
     daemon.startWs(0);
-    wsPort = (daemon as any).wsServer.port;
+    wsPort = daemon.wsPort!;
   });
 
   afterEach(() => {

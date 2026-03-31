@@ -1,6 +1,6 @@
 import { IpcServer } from "./ipc/server";
 import { Store } from "./store";
-import { SessionManager, type SpawnRunnerOptions } from "./session/session-manager";
+import { SessionManager, type SpawnRunnerOptions, type RunnerInfo } from "./session/session-manager";
 import { ClientRegistry } from "./transport/client-registry";
 import { WsServer } from "./transport/ws-server";
 import { RelayClient, type RelayClientConfig } from "./transport/relay-client";
@@ -634,7 +634,7 @@ export class Daemon {
   }
 
   /** Get a runner by session ID (for passthrough mode) */
-  getRunner(sid: string) {
+  getRunner(sid: string): RunnerInfo | undefined {
     return this.sessionManager.getRunner(sid);
   }
 

@@ -65,7 +65,7 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     daemon = new Daemon(storeDir);
     daemon.start(socketPath);
     daemon.startWs(0);
-    wsPort = (daemon as any).wsServer.port!;
+    wsPort = daemon.wsPort!;
 
     SessionManager.setRunnerCommand(resolveRunnerCommand());
   });

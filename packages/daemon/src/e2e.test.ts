@@ -83,7 +83,7 @@ describe("E2E flow", () => {
     daemon.start(socketPath);
     daemon.startWs(0);
     // Extract the actual port from the WS server
-    wsPort = (daemon as any).wsServer.port!;
+    wsPort = daemon.wsPort!;
   });
 
   afterEach(() => {

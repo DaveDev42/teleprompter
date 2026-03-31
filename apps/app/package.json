@@ -11,6 +11,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@expo/metro-runtime": "~55.0.7",
     "@teleprompter/protocol": "workspace:*",
     "expo": "~55.0.9",
     "expo-build-properties": "~55.0.10",
@@ -24,20 +25,20 @@
     "expo-updates": "~55.0.16",
     "ghostty-web": "^0.4.0",
     "nativewind": "^4.1.23",
-    "react": "19.2.0",
-    "react-dom": "19.2.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
     "react-native": "0.83.4",
-    "react-native-keyboard-controller": "1.20.7",
+    "react-native-keyboard-controller": "1.21.3",
     "react-native-safe-area-context": "~5.6.2",
-    "react-native-screens": "~4.23.0",
+    "react-native-screens": "~4.24.0",
     "react-native-web": "~0.21.2",
-    "react-native-webview": "13.16.0",
+    "react-native-webview": "13.16.1",
     "tailwindcss": "^3.4.17",
     "zustand": "^5.0.5"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
-    "@types/react-dom": "~19.1.11",
+    "@types/react-dom": "~19.2.3",
     "typescript": "~5.9.2"
   }
 }

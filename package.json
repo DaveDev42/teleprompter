@@ -22,9 +22,14 @@
     "doctor": "bun run apps/cli/src/index.ts doctor",
     "status": "bun run apps/cli/src/index.ts status"
   },
+  "expo": {
+    "install": {
+      "exclude": ["expo-mcp"]
+    }
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.4.10",
-    "@playwright/mcp": "^0.0.68",
+    "@playwright/mcp": "^0.0.69",
     "@playwright/test": "^1.58.2",
     "expo-mcp": "github:DaveDev42/expo-mcp",
     "turbo": "^2.5.4"

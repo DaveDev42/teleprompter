@@ -1,4 +1,4 @@
-import { Platform, Pressable, Text, View } from "react-native";
+import { View, Text, Pressable, Platform } from "react-native";
 import type { ChatMessage } from "../stores/chat-store";
 
 async function copyText(text: string) {
@@ -9,53 +9,32 @@ async function copyText(text: string) {
 }
 
 /** Render text with code blocks (```...```) styled differently */
-function RichText({
-  text,
-  className: textClass,
-}: {
-  text: string;
-  className?: string;
-}) {
+function RichText({ text, className: textClass }: { text: string; className?: string }) {
   const parts = text.split(/(```[\s\S]*?```)/g);
   if (parts.length === 1) {
-    return (
-      <Text className={textClass} selectable>
-        {text}
-      </Text>
-    );
+    return <Text className={textClass} selectable>{text}</Text>;
   }
   return (
     <View>
       {parts.map((part, i) => {
         if (part.startsWith("```") && part.endsWith("```")) {
-          // Extract language hint and code
           const lines = part.slice(3, -3).split("\n");
           const lang = lines[0]?.trim();
           const code = (lang ? lines.slice(1) : lines).join("\n").trim();
           return (
             <Pressable
-              // biome-ignore lint/suspicious/noArrayIndexKey: text fragments from split have no stable ID
               key={i}
-              className="bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 my-1"
+              className="bg-tp-bg border border-tp-border rounded-lg px-3 py-2 my-1"
               onLongPress={() => copyText(code)}
             >
               {lang ? (
-                <Text className="text-gray-500 text-[10px] font-mono mb-1">
-                  {lang}
-                </Text>
+                <Text className="text-tp-text-tertiary text-[10px] mb-1">{lang}</Text>
               ) : null}
-              <Text className="text-green-300 text-xs font-mono" selectable>
-                {code}
-              </Text>
+              <Text className="text-tp-success text-xs" selectable>{code}</Text>
             </Pressable>
           );
         }
-        return part ? (
-          // biome-ignore lint/suspicious/noArrayIndexKey: text fragments from split have no stable ID
-          <Text key={i} className={textClass} selectable>
-            {part}
-          </Text>
-        ) : null;
+        return part ? <Text key={i} className={textClass} selectable>{part}</Text> : null;
       })}
     </View>
   );
@@ -64,12 +43,10 @@ function RichText({
 function UserCard({ msg }: { msg: ChatMessage }) {
   return (
     <Pressable
-      className="self-end bg-blue-600 rounded-2xl rounded-br-sm px-4 py-2 max-w-[80%]"
+      className="self-end bg-tp-user-bubble rounded-bubble rounded-br-sm px-4 py-2.5 max-w-[80%]"
       onLongPress={() => copyText(msg.text)}
     >
-      <Text className="text-white" selectable>
-        {msg.text}
-      </Text>
+      <Text className="text-white text-[15px] leading-[22px]" selectable>{msg.text}</Text>
     </Pressable>
   );
 }
@@ -77,10 +54,10 @@ function UserCard({ msg }: { msg: ChatMessage }) {
 function AssistantCard({ msg }: { msg: ChatMessage }) {
   return (
     <Pressable
-      className="self-start bg-zinc-800 rounded-2xl rounded-bl-sm px-4 py-2 max-w-[80%]"
+      className="self-start bg-tp-assistant-bubble rounded-bubble rounded-tl-sm px-4 py-2.5 max-w-[80%]"
       onLongPress={() => copyText(msg.text)}
     >
-      <RichText text={msg.text} className="text-gray-100" />
+      <RichText text={msg.text} className="text-tp-text-primary text-[15px] leading-[22px]" />
     </Pressable>
   );
 }
@@ -88,29 +65,29 @@ function AssistantCard({ msg }: { msg: ChatMessage }) {
 function ToolCard({ msg }: { msg: ChatMessage }) {
   const isResult = msg.event === "PostToolUse";
   return (
-    <View className="self-start bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-2 max-w-[90%]">
-      <View className="flex-row items-center gap-2">
-        <Text className="text-yellow-400 text-xs font-mono">
-          {isResult ? "✓" : "▶"} {msg.toolName}
+    <View className="self-stretch bg-tp-surface border border-tp-border rounded-card px-3.5 py-2.5">
+      <View className="flex-row items-center justify-between">
+        <View className="flex-row items-center flex-1">
+          <Text className="text-tp-text-tertiary text-xs mr-1.5">
+            {isResult ? "▾" : "▸"}
+          </Text>
+          <Text className="text-tp-text-primary text-[13px] font-medium" numberOfLines={1}>
+            {msg.toolName}
+          </Text>
+        </View>
+        <Text className={`text-[11px] ${isResult ? "text-tp-success" : "text-tp-warning"}`}>
+          {isResult ? "Done" : "Running"}
         </Text>
       </View>
       {msg.toolInput != null && !isResult && (
-        <Text
-          className="text-gray-500 text-xs font-mono mt-1"
-          numberOfLines={3}
-          selectable
-        >
+        <Text className="text-tp-text-tertiary text-xs mt-1.5" numberOfLines={3} selectable>
           {typeof msg.toolInput === "string"
             ? msg.toolInput
             : JSON.stringify(msg.toolInput, null, 2)}
         </Text>
       )}
       {msg.toolResult != null && isResult && (
-        <Text
-          className="text-gray-400 text-xs font-mono mt-1"
-          numberOfLines={5}
-          selectable
-        >
+        <Text className="text-tp-text-secondary text-xs mt-1.5" numberOfLines={5} selectable>
           {typeof msg.toolResult === "string"
             ? msg.toolResult
             : JSON.stringify(msg.toolResult, null, 2)}
@@ -123,34 +100,27 @@ function ToolCard({ msg }: { msg: ChatMessage }) {
 function SystemCard({ msg }: { msg: ChatMessage }) {
   return (
     <View className="self-center py-1">
-      <Text className="text-gray-500 text-xs">{msg.text}</Text>
+      <Text className="text-tp-text-tertiary text-xs">{msg.text}</Text>
     </View>
   );
 }
 
 function StreamingCard({ msg }: { msg: ChatMessage }) {
   return (
-    <View className="self-start bg-zinc-800 rounded-2xl rounded-bl-sm px-4 py-2 max-w-[80%] opacity-70">
-      <Text className="text-gray-300 italic" selectable>
-        {msg.text}
-      </Text>
+    <View className="self-start bg-tp-assistant-bubble rounded-bubble rounded-tl-sm px-4 py-2.5 max-w-[80%] opacity-70">
+      <Text className="text-tp-text-secondary italic text-[15px]" selectable>{msg.text}</Text>
     </View>
   );
 }
 
 function ElicitationCard({ msg }: { msg: ChatMessage }) {
   return (
-    <View className="self-start bg-indigo-900/50 border border-indigo-600 rounded-xl px-4 py-3 max-w-[85%]">
-      <Text className="text-indigo-300 text-xs font-bold mb-1">
-        Input Requested
-      </Text>
-      <Text className="text-white text-sm" selectable>
-        {msg.text}
-      </Text>
+    <View className="self-start bg-indigo-900/50 border border-indigo-600 rounded-card px-4 py-3 max-w-[85%]">
+      <Text className="text-indigo-300 text-xs font-bold mb-1">Input Requested</Text>
+      <Text className="text-tp-text-primary text-sm" selectable>{msg.text}</Text>
       {msg.choices && msg.choices.length > 0 && (
         <View className="mt-2 gap-1">
           {msg.choices.map((choice, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: choices are plain strings with no stable ID
             <View key={i} className="bg-indigo-800/50 rounded-lg px-3 py-1.5">
               <Text className="text-indigo-200 text-sm">{choice}</Text>
             </View>
@@ -163,21 +133,14 @@ function ElicitationCard({ msg }: { msg: ChatMessage }) {
 
 function PermissionCard({ msg }: { msg: ChatMessage }) {
   return (
-    <View className="self-start bg-amber-900/50 border border-amber-600 rounded-xl px-4 py-3 max-w-[85%]">
-      <Text className="text-amber-300 text-xs font-bold mb-1">
-        Permission Required
-      </Text>
-      <Text className="text-white text-sm">{msg.text}</Text>
+    <View className="self-start bg-amber-900/50 border border-amber-600 rounded-card px-4 py-3 max-w-[85%]">
+      <Text className="text-amber-300 text-xs font-bold mb-1">Permission Required</Text>
+      <Text className="text-tp-text-primary text-sm">{msg.text}</Text>
       {msg.permissionTool && (
-        <Text className="text-amber-400 text-xs font-mono mt-1">
-          {msg.permissionTool}
-        </Text>
+        <Text className="text-amber-400 text-xs mt-1">{msg.permissionTool}</Text>
       )}
       {msg.toolInput != null && (
-        <Text
-          className="text-gray-500 text-xs font-mono mt-1"
-          numberOfLines={3}
-        >
+        <Text className="text-tp-text-tertiary text-xs mt-1" numberOfLines={3}>
           {typeof msg.toolInput === "string"
             ? msg.toolInput
             : JSON.stringify(msg.toolInput, null, 2)}

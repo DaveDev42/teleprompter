@@ -25,33 +25,33 @@ function SessionItem({
 }) {
   const stateColor =
     session.state === "running"
-      ? "bg-green-500"
+      ? "bg-tp-success"
       : session.state === "stopped"
-        ? "bg-gray-500"
-        : "bg-red-500";
+        ? "bg-tp-text-tertiary"
+        : "bg-tp-error";
 
   return (
     <Pressable
       onPress={onPress}
-      className={`px-4 py-3 border-b border-zinc-800 ${isActive ? "bg-zinc-800" : ""}`}
+      className={`px-4 py-3 border-b border-tp-border ${isActive ? "bg-tp-surface-active" : ""}`}
     >
       <View className="flex-row items-center justify-between">
         <View className="flex-row items-center flex-1">
           <View className={`w-2 h-2 rounded-full ${stateColor} mr-2`} />
           <View className="flex-1">
-            <Text className="text-white text-sm font-mono" numberOfLines={1}>
+            <Text className="text-tp-text-primary text-sm font-mono" numberOfLines={1}>
               {session.sid}
             </Text>
-            <Text className="text-gray-500 text-xs" numberOfLines={1}>
+            <Text className="text-tp-text-secondary text-xs" numberOfLines={1}>
               {session.cwd}
             </Text>
             {session.worktreePath && (
-              <Text className="text-gray-600 text-xs" numberOfLines={1}>
+              <Text className="text-tp-text-tertiary text-xs" numberOfLines={1}>
                 wt: {session.worktreePath}
               </Text>
             )}
             {session.claudeVersion && (
-              <Text className="text-gray-600 text-xs">
+              <Text className="text-tp-text-tertiary text-xs">
                 claude {session.claudeVersion}
               </Text>
             )}
@@ -178,17 +178,17 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
   }
 
   return (
-    <View className="flex-1 bg-zinc-900">
-      <View className="px-4 py-3 border-b border-zinc-700">
+    <View className="flex-1 bg-tp-bg-secondary">
+      <View className="px-4 py-3 border-b border-tp-border">
         <View className="flex-row items-center justify-between mb-2">
-          <Text className="text-white font-bold">Sessions</Text>
-          <Text className="text-gray-500 text-xs">
+          <Text className="text-tp-text-primary font-bold">Sessions</Text>
+          <Text className="text-tp-text-secondary text-xs">
             {filteredSessions.length}/{sessions.length}
           </Text>
         </View>
         {sessions.length > 3 && (
           <TextInput
-            className="bg-zinc-800 text-white rounded-lg px-3 py-1.5 text-sm"
+            className="bg-tp-bg-tertiary text-tp-text-primary rounded-lg px-3 py-1.5 text-sm"
             placeholder="Search sessions..."
             placeholderTextColor="#555"
             value={filter}
@@ -206,8 +206,8 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
         renderItem={({ item }) => {
           if (item.type === "header") {
             return (
-              <View className="px-4 py-2 bg-zinc-950">
-                <Text className="text-gray-400 text-xs font-mono">
+              <View className="px-4 py-2 bg-tp-bg">
+                <Text className="text-tp-text-tertiary text-xs font-mono">
                   {item.key}
                 </Text>
               </View>
@@ -226,17 +226,17 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
         }}
         ListEmptyComponent={
           <View className="p-8 items-center">
-            <Text className="text-gray-500">No sessions yet</Text>
+            <Text className="text-tp-text-secondary">No sessions yet</Text>
           </View>
         }
       />
 
       {/* Worktree Creation */}
-      <View className="px-4 py-3 border-t border-zinc-700">
+      <View className="px-4 py-3 border-t border-tp-border">
         {showWorktreeForm ? (
           <View className="flex-row items-center gap-2">
             <TextInput
-              className="flex-1 bg-zinc-800 text-white rounded-lg px-3 py-1.5 text-sm font-mono"
+              className="flex-1 bg-tp-bg-tertiary text-tp-text-primary rounded-lg px-3 py-1.5 text-sm font-mono"
               placeholder="branch-name"
               placeholderTextColor="#555"
               value={branchInput}
@@ -247,21 +247,21 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
             <Pressable
               onPress={createWorktree}
               disabled={!branchInput.trim()}
-              className="bg-blue-600 px-3 py-1.5 rounded-lg"
+              className="bg-tp-accent px-3 py-1.5 rounded-lg"
               style={{ opacity: branchInput.trim() ? 1 : 0.4 }}
             >
-              <Text className="text-white text-xs">Create</Text>
+              <Text className="text-tp-text-primary text-xs">Create</Text>
             </Pressable>
             <Pressable onPress={() => setShowWorktreeForm(false)}>
-              <Text className="text-gray-500 text-xs">Cancel</Text>
+              <Text className="text-tp-text-secondary text-xs">Cancel</Text>
             </Pressable>
           </View>
         ) : (
           <Pressable
             onPress={() => setShowWorktreeForm(true)}
-            className="border border-zinc-600 rounded-lg py-2 items-center"
+            className="border border-tp-border rounded-lg py-2 items-center"
           >
-            <Text className="text-gray-400 text-xs">New Worktree</Text>
+            <Text className="text-tp-text-tertiary text-xs">New Worktree</Text>
           </Pressable>
         )}
       </View>

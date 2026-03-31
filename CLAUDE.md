@@ -206,14 +206,15 @@ update the relevant documentation files in the same commit.
 - iOS: Distribution Certificate + App Store Connect API Key (ascAppId: 6761056150)
 - Android: Keystore + Google Play Service Account Key
 
-## Expo Go Compatibility
+## Native Build (Expo Go 드롭 예정)
 
-앱은 Expo Go에서 구동 가능해야 하므로 커스텀 네이티브 모듈 사용 불가.
-- ✗ react-native-quick-crypto (JSI 네이티브 모듈)
-- ✗ react-native-libsodium (Rust FFI)
+향후 Apple Watch 앱, 네이티브 libghostty 터미널 등을 위해 Expo Go 호환성 제약을 해제할 예정.
+현재는 WASM/asm.js 기반으로 동작하지만, development build 전환 후 네이티브 모듈 사용 가능:
 - ✓ libsodium-wrappers-sumo (WASM on Web/Bun, asm.js fallback on Hermes)
 - ✓ expo-crypto (Expo SDK 내장 — `getRandomValues` polyfill 제공)
-- ✓ 순수 JavaScript 라이브러리
+- ✓ ghostty-web (libghostty WASM — Canvas 2D 터미널 렌더링)
+- 🔜 react-native-quick-crypto (JSI — development build 전환 후)
+- 🔜 libghostty 네이티브 RN 모듈 (Metal/OpenGL GPU 렌더링 — development build 전환 후)
 
 ### Key Storage Security
 - **Daemon vault** (`~/.local/share/teleprompter/store/sessions.sqlite`): pairing secret key, daemon private key stored as plaintext BLOBs. Protected by filesystem permissions only (similar to `~/.ssh/`).

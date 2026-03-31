@@ -106,7 +106,9 @@ test.describe("Real E2E — Claude PTY → Browser", () => {
     expect(hasSession).toBe(true);
   });
 
-  test("Terminal tab shows xterm.js with session header", async ({ page }) => {
+  test("Terminal tab shows ghostty-web with session header", async ({
+    page,
+  }) => {
     await page.goto("/");
     await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
 
@@ -128,15 +130,16 @@ test.describe("Real E2E — Claude PTY → Browser", () => {
 
     await page.screenshot({ path: "/tmp/pw-terminal-session.png" });
 
-    const xtermVisible = await page
-      .locator(".xterm")
+    // ghostty-web renders to canvas, not DOM elements
+    const canvasVisible = await page
+      .locator("canvas")
       .isVisible()
       .catch(() => false);
     const hasHeader = await page
       .locator("text=real-test")
       .isVisible()
       .catch(() => false);
-    expect(xtermVisible || hasHeader).toBe(true);
+    expect(canvasVisible || hasHeader).toBe(true);
   });
 
   test("Chat input is editable when connected", async ({ page }) => {

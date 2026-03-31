@@ -106,23 +106,29 @@ describe("Integration", () => {
     // Verify store
     const store = new Store(storeDir);
     const session = store.getSession(sid);
-    expect(session).toBeDefined();
-    expect(session!.state).toBe("stopped");
-    expect(session!.last_seq).toBe(2);
+    if (!session) throw new Error("expected session");
+    expect(session.state).toBe("stopped");
+    expect(session.last_seq).toBe(2);
 
     const db = store.getSessionDb(sid);
-    expect(db).toBeDefined();
-    const records = db!.getRecordsFrom(0);
+    if (!db) throw new Error("expected db");
+    const records = db.getRecordsFrom(0);
     expect(records.length).toBe(2);
-    expect(records[0]!.kind).toBe("io");
-    expect(records[1]!.kind).toBe("event");
-    expect(records[1]!.name).toBe("Stop");
+    const storedRec0 = records[0];
+    const storedRec1 = records[1];
+    if (!storedRec0 || !storedRec1) throw new Error("expected records");
+    expect(storedRec0.kind).toBe("io");
+    expect(storedRec1.kind).toBe("event");
+    expect(storedRec1.name).toBe("Stop");
 
     // Verify acks received
     expect(acks.length).toBe(2);
-    expect(acks[0]!.t).toBe("ack");
-    expect(acks[0]!.seq).toBe(1);
-    expect(acks[1]!.seq).toBe(2);
+    const ack0 = acks[0];
+    const ack1 = acks[1];
+    if (!ack0 || !ack1) throw new Error("expected acks");
+    expect(ack0.t).toBe("ack");
+    expect(ack0.seq).toBe(1);
+    expect(ack1.seq).toBe(2);
 
     store.close();
   });
@@ -193,8 +199,8 @@ describe("Integration", () => {
     // Verify all records stored
     const store = new Store(storeDir);
     const db = store.getSessionDb(sid);
-    expect(db).toBeDefined();
-    expect(db!.getLastSeq()).toBe(total);
+    if (!db) throw new Error("expected db");
+    expect(db.getLastSeq()).toBe(total);
     store.close();
   });
 
@@ -326,15 +332,17 @@ const socket = await Bun.connect({
       expect(stopped).toBe(true);
 
       const session = store.getSession(sid);
-      expect(session).toBeDefined();
-      expect(session!.state).toBe("stopped");
-      expect(session!.last_seq).toBe(1);
+      if (!session) throw new Error("expected session");
+      expect(session.state).toBe("stopped");
+      expect(session.last_seq).toBe(1);
 
       const db = store.getSessionDb(sid);
-      expect(db).toBeDefined();
-      const records = db!.getRecordsFrom(0);
+      if (!db) throw new Error("expected db");
+      const records = db.getRecordsFrom(0);
       expect(records.length).toBe(1);
-      expect(records[0]!.kind).toBe("io");
+      const rec0 = records[0];
+      if (!rec0) throw new Error("expected record");
+      expect(rec0.kind).toBe("io");
 
       store.close();
     } finally {

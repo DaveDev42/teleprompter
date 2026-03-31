@@ -242,9 +242,10 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
 
     await Bun.sleep(300);
 
-    expect(receivedInput).not.toBeNull();
-    expect(receivedInput!.sid).toBe("session-1");
-    expect(receivedInput!.data).toBe("Hello from frontend!");
+    const input = receivedInput as { sid: string; data: string } | null;
+    if (!input) throw new Error("expected receivedInput");
+    expect(input.sid).toBe("session-1");
+    expect(input.data).toBe("Hello from frontend!");
 
     frontendWs.close();
     client.dispose();

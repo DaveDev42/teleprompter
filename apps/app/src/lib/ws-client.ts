@@ -3,9 +3,7 @@ import type {
   WsRec,
   WsServerMessage,
   WsSessionMeta,
-  WsWorktreeCreated,
   WsWorktreeInfo,
-  WsWorktreeListReply,
 } from "@teleprompter/protocol/client";
 
 /** Production relay URL */

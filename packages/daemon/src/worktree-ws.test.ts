@@ -60,7 +60,9 @@ describe("Daemon worktree WS protocol", () => {
     daemon.startWs(0);
     daemon.setRepoRoot(repoDir);
 
-    wsPort = daemon.wsPort!;
+    const port = daemon.wsPort;
+    if (!port) throw new Error("expected wsPort");
+    wsPort = port;
   });
 
   afterEach(async () => {
@@ -113,7 +115,8 @@ describe("Daemon worktree WS protocol", () => {
     const d2 = new Daemon();
     d2.start();
     d2.startWs(0);
-    const p2 = d2.wsPort!;
+    const p2 = d2.wsPort;
+    if (!p2) throw new Error("expected wsPort");
 
     const ws = await connectWs(p2);
     ws.send(JSON.stringify({ t: "hello" }));

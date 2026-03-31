@@ -71,7 +71,9 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     daemon = new Daemon(storeDir);
     daemon.start(socketPath);
     daemon.startWs(0);
-    wsPort = daemon.wsPort!;
+    const port = daemon.wsPort;
+    if (!port) throw new Error("expected wsPort");
+    wsPort = port;
 
     SessionManager.setRunnerCommand(resolveRunnerCommand());
   });
@@ -98,14 +100,14 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     }, 60000);
 
     const session = store.getSession(sid);
-    expect(session).toBeDefined();
-    expect(session!.state).toBe("stopped");
-    expect(session!.last_seq).toBeGreaterThanOrEqual(1);
+    if (!session) throw new Error("expected session");
+    expect(session.state).toBe("stopped");
+    expect(session.last_seq).toBeGreaterThanOrEqual(1);
 
     // Read all io records and concatenate payloads
     const db = store.getSessionDb(sid);
-    expect(db).toBeDefined();
-    const records = db!.getRecordsFrom(0);
+    if (!db) throw new Error("expected db");
+    const records = db.getRecordsFrom(0);
     const ioRecords = records.filter((r) => r.kind === "io");
     expect(ioRecords.length).toBeGreaterThanOrEqual(1);
 
@@ -142,7 +144,8 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     expect(session).toBeDefined();
 
     const db = store.getSessionDb(sid);
-    const records = db!.getRecordsFrom(0);
+    if (!db) throw new Error("expected db");
+    const records = db.getRecordsFrom(0);
     const ioRecords = records.filter((r) => r.kind === "io");
 
     const fullOutput = ioRecords
@@ -219,7 +222,9 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
       return s?.state === "stopped";
     }, 15000);
 
-    const totalSeq = store.getSession(sid)!.last_seq;
+    const resumeSession = store.getSession(sid);
+    if (!resumeSession) throw new Error("expected session");
+    const totalSeq = resumeSession.last_seq;
     expect(totalSeq).toBeGreaterThanOrEqual(1);
     store.close();
 
@@ -270,8 +275,8 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     }, 60000);
 
     const db = store.getSessionDb(sid);
-    expect(db).toBeDefined();
-    const records = db!.getRecordsFrom(0);
+    if (!db) throw new Error("expected db");
+    const records = db.getRecordsFrom(0);
 
     // Should have both io and event records
     const ioRecords = records.filter((r) => r.kind === "io");

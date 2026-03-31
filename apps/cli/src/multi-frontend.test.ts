@@ -330,8 +330,8 @@ describe("Multi-Frontend N:N E2E", () => {
 
     // Runner should receive the input
     const inputIpc = ipcMessages.find((m) => m.t === "input");
-    expect(inputIpc).toBeDefined();
-    expect(inputIpc!.sid).toBe("input-session");
+    if (!inputIpc) throw new Error("expected inputIpc");
+    expect(inputIpc.sid).toBe("input-session");
 
     ipc.end();
     ws.close();

@@ -53,7 +53,9 @@ describe("Full-stack E2E", () => {
     daemon = new Daemon(tmpDir);
     daemon.start(join(tmpDir, "daemon.sock"));
     daemon.startWs(0);
-    wsPort = daemon.wsPort!;
+    const port = daemon.wsPort;
+    if (!port) throw new Error("expected wsPort");
+    wsPort = port;
   });
 
   afterEach(async () => {
@@ -298,9 +300,9 @@ describe("Full-stack E2E", () => {
 
     // Runner should have received the input
     const inputMsg = ipcMessages.find((m): m is IpcInput => m.t === "input");
-    expect(inputMsg).toBeDefined();
-    expect(inputMsg!.sid).toBe("bidir-session");
-    expect(Buffer.from(inputMsg!.data, "base64").toString()).toBe(
+    if (!inputMsg) throw new Error("expected inputMsg");
+    expect(inputMsg.sid).toBe("bidir-session");
+    expect(Buffer.from(inputMsg.data, "base64").toString()).toBe(
       "Fix the login bug\n",
     );
 

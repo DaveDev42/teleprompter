@@ -11,7 +11,9 @@ describe("tp status", () => {
     daemon = new Daemon();
     daemon.start();
     daemon.startWs(0);
-    wsPort = daemon.wsPort!;
+    const port = daemon.wsPort;
+    if (!port) throw new Error("expected wsPort");
+    wsPort = port;
   });
 
   afterEach(() => {

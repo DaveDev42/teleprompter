@@ -25,13 +25,13 @@ describe("Store", () => {
     vault.createSession("s1", "/tmp/project", "/tmp/wt", "1.0.0");
 
     const session = vault.getSession("s1");
-    expect(session).toBeDefined();
-    expect(session!.sid).toBe("s1");
-    expect(session!.state).toBe("running");
-    expect(session!.cwd).toBe("/tmp/project");
-    expect(session!.worktree_path).toBe("/tmp/wt");
-    expect(session!.claude_version).toBe("1.0.0");
-    expect(session!.last_seq).toBe(0);
+    if (!session) throw new Error("expected session");
+    expect(session.sid).toBe("s1");
+    expect(session.state).toBe("running");
+    expect(session.cwd).toBe("/tmp/project");
+    expect(session.worktree_path).toBe("/tmp/wt");
+    expect(session.claude_version).toBe("1.0.0");
+    expect(session.last_seq).toBe(0);
   });
 
   test("append records and retrieve", () => {
@@ -48,10 +48,13 @@ describe("Store", () => {
 
     const records = db.getRecordsFrom(0);
     expect(records.length).toBe(2);
-    expect(records[0]!.kind).toBe("io");
-    expect(records[1]!.kind).toBe("event");
-    expect(records[1]!.ns).toBe("claude");
-    expect(records[1]!.name).toBe("Stop");
+    const rec0 = records[0];
+    const rec1 = records[1];
+    if (!rec0 || !rec1) throw new Error("expected records");
+    expect(rec0.kind).toBe("io");
+    expect(rec1.kind).toBe("event");
+    expect(rec1.ns).toBe("claude");
+    expect(rec1.name).toBe("Stop");
   });
 
   test("getLastSeq", () => {
@@ -71,7 +74,8 @@ describe("Store", () => {
     vault.updateSessionState("s4", "stopped");
 
     const session = vault.getSession("s4");
-    expect(session!.state).toBe("stopped");
+    if (!session) throw new Error("expected session");
+    expect(session.state).toBe("stopped");
   });
 
   test("updateLastSeq", () => {
@@ -79,7 +83,8 @@ describe("Store", () => {
     vault.updateLastSeq("s5", 42);
 
     const session = vault.getSession("s5");
-    expect(session!.last_seq).toBe(42);
+    if (!session) throw new Error("expected session");
+    expect(session.last_seq).toBe(42);
   });
 
   test("listSessions", () => {
@@ -100,8 +105,8 @@ describe("Store", () => {
     vault = new Store(storeDir);
 
     const db2 = vault.getSessionDb("s9");
-    expect(db2).toBeDefined();
-    const records = db2!.getRecordsFrom(0);
+    if (!db2) throw new Error("expected db2");
+    const records = db2.getRecordsFrom(0);
     expect(records.length).toBe(1);
   });
 

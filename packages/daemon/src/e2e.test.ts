@@ -83,7 +83,9 @@ describe("E2E flow", () => {
     daemon.start(socketPath);
     daemon.startWs(0);
     // Extract the actual port from the WS server
-    wsPort = daemon.wsPort!;
+    const port = daemon.wsPort;
+    if (!port) throw new Error("expected wsPort");
+    wsPort = port;
   });
 
   afterEach(() => {
@@ -208,16 +210,20 @@ await Bun.connect({
     // Verify store
     const store = new Store(storeDir);
     const session = store.getSession(sid);
-    expect(session).toBeDefined();
-    expect(session!.state).toBe("stopped");
-    expect(session!.last_seq).toBe(2);
+    if (!session) throw new Error("expected session");
+    expect(session.state).toBe("stopped");
+    expect(session.last_seq).toBe(2);
 
     const db = store.getSessionDb(sid);
-    const records = db!.getRecordsFrom(0);
+    if (!db) throw new Error("expected db");
+    const records = db.getRecordsFrom(0);
     expect(records.length).toBe(2);
-    expect(records[0]!.kind).toBe("io");
-    expect(records[1]!.kind).toBe("event");
-    expect(records[1]!.name).toBe("Stop");
+    const rec0 = records[0];
+    const rec1 = records[1];
+    if (!rec0 || !rec1) throw new Error("expected records");
+    expect(rec0.kind).toBe("io");
+    expect(rec1.kind).toBe("event");
+    expect(rec1.name).toBe("Stop");
 
     // Verify WS client received state updates
     const stateMessages = wsMessages.filter(
@@ -293,7 +299,9 @@ await Bun.connect({
     // Wait for session to finish
     const store = new Store(storeDir);
     await waitFor(() => store.getSession(sid)?.state === "stopped");
-    expect(store.getSession(sid)!.last_seq).toBe(5);
+    const resumeSession = store.getSession(sid);
+    if (!resumeSession) throw new Error("expected session");
+    expect(resumeSession.last_seq).toBe(5);
     store.close();
 
     // Now simulate a "new" WS client connecting and resuming from cursor 3
@@ -398,8 +406,8 @@ await Bun.connect({
 
     // Verify session 1
     const db1 = store.getSessionDb(sid1);
-    expect(db1).toBeDefined();
-    const records1 = db1!.getRecordsFrom(0);
+    if (!db1) throw new Error("expected db1");
+    const records1 = db1.getRecordsFrom(0);
     expect(records1.length).toBe(3);
     for (const rec of records1) {
       const payload = Buffer.from(rec.payload).toString("utf-8");
@@ -408,8 +416,8 @@ await Bun.connect({
 
     // Verify session 2
     const db2 = store.getSessionDb(sid2);
-    expect(db2).toBeDefined();
-    const records2 = db2!.getRecordsFrom(0);
+    if (!db2) throw new Error("expected db2");
+    const records2 = db2.getRecordsFrom(0);
     expect(records2.length).toBe(3);
     for (const rec of records2) {
       const payload = Buffer.from(rec.payload).toString("utf-8");
@@ -488,12 +496,14 @@ await Bun.connect({
     });
 
     const session = store.getSession(sid);
-    expect(session!.state).toBe("error");
-    expect(session!.last_seq).toBe(1);
+    if (!session) throw new Error("expected session");
+    expect(session.state).toBe("error");
+    expect(session.last_seq).toBe(1);
 
     // Record before crash should still be persisted
     const db = store.getSessionDb(sid);
-    const records = db!.getRecordsFrom(0);
+    if (!db) throw new Error("expected db");
+    const records = db.getRecordsFrom(0);
     expect(records.length).toBe(1);
 
     store.close();
@@ -708,9 +718,12 @@ setTimeout(() => {
 
     // Verify the echoed record
     const db = store.getSessionDb(sid);
-    const records = db!.getRecordsFrom(0);
+    if (!db) throw new Error("expected db");
+    const records = db.getRecordsFrom(0);
     expect(records.length).toBe(1);
-    const payload = Buffer.from(records[0]!.payload).toString("utf-8");
+    const inputRec = records[0];
+    if (!inputRec) throw new Error("expected record");
+    const payload = Buffer.from(inputRec.payload).toString("utf-8");
     expect(payload).toBe("echo:user-typed-text\n");
 
     store.close();
@@ -783,15 +796,17 @@ await Bun.connect({
     if (db) {
       const records = db.getRecordsFrom(0);
       expect(records.length).toBe(1);
-      const payload = Buffer.from(records[0]!.payload).toString("utf-8");
+      const abruptRec = records[0];
+      if (!abruptRec) throw new Error("expected record");
+      const payload = Buffer.from(abruptRec.payload).toString("utf-8");
       expect(payload).toBe("before-crash");
     }
 
     // Session state should still be "running" since no bye was sent
     // (daemon doesn't auto-detect runner crashes without bye)
     const session = store.getSession(sid);
-    expect(session).toBeDefined();
-    expect(session!.state).toBe("running");
+    if (!session) throw new Error("expected session");
+    expect(session.state).toBe("running");
 
     store.close();
   });

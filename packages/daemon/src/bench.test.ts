@@ -19,7 +19,8 @@ describe("Performance", () => {
     const daemon = new Daemon(tmpDir);
     daemon.start(join(tmpDir, "daemon.sock"));
     daemon.startWs(0);
-    const wsPort = daemon.wsPort!;
+    const wsPort = daemon.wsPort;
+    if (!wsPort) throw new Error("expected wsPort");
 
     // Connect WS client
     const ws = new WebSocket(`ws://localhost:${wsPort}`);

@@ -3,6 +3,7 @@ import { View, Text, ScrollView, Pressable } from "react-native";
 import { useSessionStore } from "../stores/session-store";
 import { useOfflineStore } from "../stores/offline-store";
 import { usePairingStore } from "../stores/pairing-store";
+import { useRelayConnectionStore } from "../hooks/use-relay";
 import { getDaemonClient } from "../hooks/use-daemon";
 import { checkCryptoAvailability } from "../lib/crypto-native";
 import type { WsSessionMeta } from "@teleprompter/protocol/client";
@@ -62,6 +63,8 @@ export function DiagnosticsPanel() {
   const pairings = usePairingStore((s) => s.pairings);
   const activeDaemonId = usePairingStore((s) => s.activeDaemonId);
   const pairingInfo = activeDaemonId ? pairings.get(activeDaemonId) : pairings.values().next().value ?? null;
+  const relayConnections = useRelayConnectionStore((s) => s.connections);
+  const relayConnected = activeDaemonId ? (relayConnections.get(activeDaemonId) ?? false) : false;
   const [rtt, setRtt] = useState(-1);
   const [cryptoTest, setCryptoTest] = useState<{
     running: boolean;
@@ -175,11 +178,11 @@ export function DiagnosticsPanel() {
             <MetricRow label="Relay URL" value={pairingInfo.relayUrl} />
             <MetricRow
               label="Relay WS"
-              value={connected ? "Connected" : "Disconnected"}
+              value={relayConnected ? "Connected" : "Disconnected"}
             />
             <MetricRow
               label="E2EE"
-              value={connected ? "Active" : "Inactive"}
+              value={relayConnected ? "Active" : "Inactive"}
             />
           </>
         )}

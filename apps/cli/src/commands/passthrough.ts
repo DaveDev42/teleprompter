@@ -34,7 +34,7 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
   process.on("SIGTERM", shutdown);
 
   // Wait for the runner process to exit
-  const runner = (daemon as any).sessionManager.getRunner(sid);
+  const runner = daemon.getRunner(sid);
   if (runner?.process) {
     const exitCode = await runner.process.exited;
     daemon.stop();

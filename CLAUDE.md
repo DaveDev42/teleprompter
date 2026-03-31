@@ -27,7 +27,6 @@ packages/
   relay/       # @teleprompter/relay — Bun WebSocket ciphertext-only relay server
   protocol/    # @teleprompter/protocol — shared types, framed JSON codec, envelope types
   tsconfig/    # Shared TS configs (base.json, bun.json)
-  eslint-config/
 scripts/
   build.ts     # Multi-platform `bun build --compile` script
   install.sh   # curl-pipe-sh installer for GitHub Releases
@@ -187,7 +186,7 @@ update the relevant documentation files in the same commit.
 ```bash
 # 1. 개발: main에 Conventional Commits로 push (자동 배포)
 # 2. 릴리즈 준비: GitHub Actions > Release Please > Run workflow
-# 3. 릴리즈: Release PR merge → release/v0.0.1 태그 자동 생성
+# 3. 릴리즈: Release PR merge → release/vX.Y.Z 태그 자동 생성
 ```
 
 ### Infrastructure

@@ -1,5 +1,8 @@
 import { parseArgs } from "util";
 import { Daemon } from "./daemon";
+import { createLogger } from "@teleprompter/protocol";
+
+const log = createLogger("Daemon");
 
 const { values } = parseArgs({
   args: Bun.argv.slice(2),
@@ -19,8 +22,8 @@ const socketPath = daemon.start();
 const wsPort = parseInt(values["ws-port"] as string, 10);
 daemon.startWs(wsPort);
 
-console.log(`[Daemon] listening on ${socketPath}`);
-console.log("[Daemon] press Ctrl+C to stop");
+log.info(`listening on ${socketPath}`);
+log.info("press Ctrl+C to stop");
 
 // If --spawn is provided, create a session immediately
 if (values.spawn) {
@@ -32,7 +35,7 @@ if (values.spawn) {
 }
 
 function shutdown() {
-  console.log("\n[Daemon] shutting down...");
+  log.info("shutting down...");
   daemon.stop();
   process.exit(0);
 }

@@ -141,7 +141,7 @@ export class Daemon {
   /**
    * Connect to a Relay server for remote frontend access.
    * Multiple relays can be connected simultaneously.
-   * Pairing data is persisted to vault for auto-reconnect on restart.
+   * Pairing data is persisted to store for auto-reconnect on restart.
    */
   async connectRelay(config: RelayClientConfig): Promise<RelayClient> {
     const client = new RelayClient(config, {
@@ -193,7 +193,7 @@ export class Daemon {
   }
 
   /**
-   * Reconnect to all saved relay pairings from vault.
+   * Reconnect to all saved relay pairings from store.
    * Called on daemon startup to restore relay connections.
    */
   async reconnectSavedRelays(): Promise<number> {
@@ -330,7 +330,7 @@ export class Daemon {
 
   /**
    * Emit a teleprompter-internal event (tp namespace).
-   * Stored in vault and broadcast to WS/relay clients.
+   * Stored in store DB and broadcast to WS/relay clients.
    */
   private emitTpEvent(sid: string, name: string, data: unknown): void {
     const db = this.store.getSessionDb(sid);
@@ -613,19 +613,29 @@ export class Daemon {
       }
 
       this.clientRegistry.send(client, {
-        t: "session.exported",
+        t: "session.exported" as const,
         sid,
-        format: "markdown",
+        format: "markdown" as const,
         d: lines.join("\n"),
-      } as any);
+      });
     } else {
       this.clientRegistry.send(client, {
-        t: "session.exported",
+        t: "session.exported" as const,
         sid,
-        format: "json",
+        format: "json" as const,
         d: JSON.stringify({ meta, records }),
-      } as any);
+      });
     }
+  }
+
+  /** Get the WebSocket server port (for tests) */
+  get wsPort(): number | undefined {
+    return this.wsServer.port;
+  }
+
+  /** Get a runner by session ID (for passthrough mode) */
+  getRunner(sid: string) {
+    return this.sessionManager.getRunner(sid);
   }
 
   stop(): void {

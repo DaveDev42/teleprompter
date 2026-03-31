@@ -126,7 +126,7 @@ export class WsServer {
 
     // Start heartbeat
     this.heartbeatTimer = setInterval(() => {
-      this.registry.sendAll({ t: "pong" } as any);
+      this.registry.sendAll({ t: "pong" });
     }, HEARTBEAT_INTERVAL_MS);
   }
 
@@ -175,7 +175,7 @@ export class WsServer {
         this.events.onSessionRestart?.(client, msg.sid);
         break;
       case "session.export":
-        this.events.onSessionExport?.(client, msg.sid, (msg as any).format);
+        this.events.onSessionExport?.(client, msg.sid, msg.format);
         break;
       default:
         this.registry.send(client, { t: "err", e: "UNKNOWN_TYPE", m: `Unknown message type` });

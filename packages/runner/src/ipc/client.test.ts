@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { IpcAck, IpcInput } from "@teleprompter/protocol";
+import type {
+  IpcAck,
+  IpcBye,
+  IpcInput,
+  IpcMessage,
+  IpcRec,
+} from "@teleprompter/protocol";
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -11,8 +17,8 @@ describe("IpcClient", () => {
   let client: IpcClient;
   let socketPath: string;
   let tmpDir: string;
-  let serverMessages: any[];
-  let clientMessages: any[];
+  let serverMessages: IpcMessage[];
+  let clientMessages: IpcMessage[];
 
   beforeEach(async () => {
     tmpDir = await mkdtemp(join(tmpdir(), "tp-ipc-client-"));
@@ -70,7 +76,8 @@ describe("IpcClient", () => {
 
     expect(serverMessages.length).toBe(2);
     expect(serverMessages[1].t).toBe("rec");
-    expect(serverMessages[1].kind).toBe("io");
+    const rec = serverMessages[1] as IpcRec;
+    expect(rec.kind).toBe("io");
   });
 
   test("receives ack from server", async () => {
@@ -131,6 +138,6 @@ describe("IpcClient", () => {
 
     expect(serverMessages.length).toBe(2);
     expect(serverMessages[1].t).toBe("bye");
-    expect(serverMessages[1].exitCode).toBe(0);
+    expect((serverMessages[1] as IpcBye).exitCode).toBe(0);
   });
 });

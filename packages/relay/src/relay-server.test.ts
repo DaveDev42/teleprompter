@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { RelayServerMessage } from "@teleprompter/protocol";
+import type {
+  RelayAuthOk,
+  RelayError,
+  RelayFrame,
+  RelayPresence,
+  RelayServerMessage,
+} from "@teleprompter/protocol";
 import { RelayServer } from "./relay-server";
 
 function connectWs(port: number): Promise<WebSocket> {
@@ -78,7 +84,7 @@ describe("RelayServer", () => {
     ws.send(JSON.stringify({ t: "relay.pub", sid: "s1", ct: "aaa", seq: 1 }));
     const msg = await waitForMessage(ws);
     expect(msg.t).toBe("relay.err");
-    expect((msg as any).e).toBe("NOT_AUTHENTICATED");
+    expect((msg as RelayError).e).toBe("NOT_AUTHENTICATED");
     ws.close();
   });
 
@@ -95,7 +101,7 @@ describe("RelayServer", () => {
     );
     const authOk = await waitForMessage(daemon);
     expect(authOk.t).toBe("relay.auth.ok");
-    expect((authOk as any).daemonId).toBe(DAEMON_ID);
+    expect((authOk as RelayAuthOk).daemonId).toBe(DAEMON_ID);
     daemon.close();
   });
 
@@ -159,10 +165,10 @@ describe("RelayServer", () => {
 
     const frame = await waitForMessage(frontend, (m) => m.t === "relay.frame");
     expect(frame.t).toBe("relay.frame");
-    expect((frame as any).sid).toBe("session-1");
-    expect((frame as any).ct).toBe("encrypted-payload-1");
-    expect((frame as any).seq).toBe(1);
-    expect((frame as any).from).toBe("daemon");
+    expect((frame as RelayFrame).sid).toBe("session-1");
+    expect((frame as RelayFrame).ct).toBe("encrypted-payload-1");
+    expect((frame as RelayFrame).seq).toBe(1);
+    expect((frame as RelayFrame).from).toBe("daemon");
 
     daemon.close();
     frontend.close();
@@ -210,8 +216,8 @@ describe("RelayServer", () => {
     );
 
     const frame = await waitForMessage(daemon, (m) => m.t === "relay.frame");
-    expect((frame as any).ct).toBe("encrypted-input");
-    expect((frame as any).from).toBe("frontend");
+    expect((frame as RelayFrame).ct).toBe("encrypted-input");
+    expect((frame as RelayFrame).from).toBe("frontend");
 
     daemon.close();
     frontend.close();
@@ -271,8 +277,8 @@ describe("RelayServer", () => {
     );
 
     const frame = await waitForMessage(frontend, (m) => m.t === "relay.frame");
-    expect((frame as any).ct).toBe("visible");
-    expect((frame as any).seq).toBe(2);
+    expect((frame as RelayFrame).ct).toBe("visible");
+    expect((frame as RelayFrame).seq).toBe(2);
 
     daemon.close();
     frontend.close();
@@ -327,8 +333,8 @@ describe("RelayServer", () => {
       (m) => m.t === "relay.frame",
     );
     expect(frames.length).toBe(10);
-    expect((frames[0] as any).ct).toBe("frame-3");
-    expect((frames[9] as any).ct).toBe("frame-12");
+    expect((frames[0] as RelayFrame).ct).toBe("frame-3");
+    expect((frames[9] as RelayFrame).ct).toBe("frame-12");
 
     daemon.close();
     frontend.close();
@@ -371,7 +377,7 @@ describe("RelayServer", () => {
       frontend,
       (m) => m.t === "relay.presence",
     );
-    expect((presence as any).online).toBe(false);
+    expect((presence as RelayPresence).online).toBe(false);
 
     frontend.close();
   });
@@ -443,8 +449,8 @@ describe("RelayServer", () => {
       (m) => m.t === "relay.frame",
     );
     expect(frames.length).toBe(2);
-    expect((frames[0] as any).seq).toBe(4);
-    expect((frames[1] as any).seq).toBe(5);
+    expect((frames[0] as RelayFrame).seq).toBe(4);
+    expect((frames[1] as RelayFrame).seq).toBe(5);
 
     daemon.close();
     frontend.close();

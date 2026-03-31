@@ -3,6 +3,9 @@ import type {
   WsRec,
   WsServerMessage,
   WsSessionMeta,
+  WsWorktreeCreated,
+  WsWorktreeInfo,
+  WsWorktreeListReply,
 } from "@teleprompter/protocol/client";
 
 /** Production relay URL */
@@ -50,7 +53,8 @@ function getDefaultUrl(): string {
     } catch {}
 
     try {
-      const sourceUrl = (globalThis as any).__expo_source_url;
+      const sourceUrl = (globalThis as Record<string, unknown>)
+        .__expo_source_url as string | undefined;
       if (sourceUrl) {
         const match = sourceUrl.match(/\/\/([^:/]+)/);
         if (match?.[1] && match[1] !== "localhost") {
@@ -78,8 +82,8 @@ export type WsEventHandler = {
   onOpen?: () => void;
   onClose?: () => void;
   onError?: (error: string) => void;
-  onWorktreeList?: (worktrees: any[]) => void;
-  onWorktreeCreated?: (info: any, sid?: string) => void;
+  onWorktreeList?: (worktrees: WsWorktreeInfo[]) => void;
+  onWorktreeCreated?: (info: WsWorktreeInfo, sid?: string) => void;
 };
 
 export class DaemonWsClient {

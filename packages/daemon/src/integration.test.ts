@@ -339,7 +339,7 @@ const socket = await Bun.connect({
       store.close();
     } finally {
       // Reset runner command for other tests
-      SessionManager.setRunnerCommand(null as any);
+      SessionManager.setRunnerCommand(null as unknown as string[]);
     }
   });
 });

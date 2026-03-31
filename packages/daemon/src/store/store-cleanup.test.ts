@@ -49,7 +49,11 @@ describe("Store session cleanup", () => {
 
     // Backdate old sessions (simulate 2 hours ago)
     const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
-    const metaDb = (vault as any).metaDb;
+    const metaDb = (
+      vault as unknown as {
+        metaDb: { run: (sql: string, params: unknown[]) => void };
+      }
+    ).metaDb;
     metaDb.run(
       "UPDATE sessions SET updated_at = ? WHERE sid IN ('old-1', 'old-2')",
       [twoHoursAgo],

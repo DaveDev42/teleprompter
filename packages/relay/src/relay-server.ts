@@ -6,6 +6,9 @@ import type {
 } from "@teleprompter/protocol";
 import { createLogger } from "@teleprompter/protocol";
 
+type ServerWebSocket = Bun.ServerWebSocket<unknown>;
+type BunServer = ReturnType<typeof Bun.serve>;
+
 const log = createLogger("Relay");
 
 const MAX_RECENT_FRAMES = 10;
@@ -27,7 +30,7 @@ interface RateLimiter {
 }
 
 interface ConnectedClient {
-  ws: any; // Bun ServerWebSocket
+  ws: ServerWebSocket; // Bun ServerWebSocket
   role: "daemon" | "frontend";
   daemonId: string;
   /** Unique frontend identifier (frontend only) */
@@ -48,10 +51,10 @@ interface DaemonState {
 
 export class RelayServer {
   /** All authenticated clients */
-  private clients = new Map<any, ConnectedClient>();
+  private clients = new Map<ServerWebSocket, ConnectedClient>();
 
   /** daemonId → set of connected clients (both daemon and frontend) */
-  private daemonGroups = new Map<string, Set<any>>();
+  private daemonGroups = new Map<string, Set<ServerWebSocket>>();
 
   /** daemonId → daemon presence state */
   private daemonStates = new Map<string, DaemonState>();
@@ -67,7 +70,7 @@ export class RelayServer {
 
   /** Port the server is listening on */
   private port = 0;
-  private server: any = null;
+  private server: BunServer | null = null;
 
   /**
    * Register a valid pairing token for a daemon.
@@ -83,7 +86,7 @@ export class RelayServer {
     this.server = Bun.serve({
       port,
       fetch(req, server) {
-        if (server.upgrade(req)) return undefined;
+        if (server.upgrade(req, { data: undefined })) return undefined;
 
         // Health check endpoint
         const url = new URL(req.url);
@@ -166,7 +169,7 @@ ${daemons
       },
     });
 
-    this.port = this.server.port;
+    this.port = this.server.port ?? 0;
     log.info(`listening on ws://localhost:${this.port}`);
     return this.port;
   }
@@ -184,7 +187,7 @@ ${daemons
     return this.port;
   }
 
-  private send(ws: any, msg: RelayServerMessage) {
+  private send(ws: ServerWebSocket, msg: RelayServerMessage) {
     try {
       ws.send(JSON.stringify(msg));
     } catch {
@@ -192,7 +195,10 @@ ${daemons
     }
   }
 
-  private handleMessage(ws: any, raw: string | Buffer | ArrayBuffer) {
+  private handleMessage(
+    ws: ServerWebSocket,
+    raw: string | Buffer | ArrayBuffer,
+  ) {
     let msg: RelayClientMessage;
     try {
       const text =
@@ -242,13 +248,13 @@ ${daemons
         this.send(ws, {
           t: "relay.err",
           e: "UNKNOWN_TYPE",
-          m: `Unknown message type: ${(msg as any).t}`,
+          m: `Unknown message type: ${(msg as RelayClientMessage).t}`,
         });
     }
   }
 
   private handleRegister(
-    ws: any,
+    ws: ServerWebSocket,
     msg: RelayClientMessage & { t: "relay.register" },
   ) {
     // Check if daemonId is already registered with a different proof
@@ -271,7 +277,10 @@ ${daemons
     this.send(ws, { t: "relay.register.ok", daemonId: msg.daemonId });
   }
 
-  private handleAuth(ws: any, msg: RelayClientMessage & { t: "relay.auth" }) {
+  private handleAuth(
+    ws: ServerWebSocket,
+    msg: RelayClientMessage & { t: "relay.auth" },
+  ) {
     const expectedDaemonId = this.validTokens.get(msg.token);
     if (!expectedDaemonId || expectedDaemonId !== msg.daemonId) {
       this.send(ws, {
@@ -315,7 +324,7 @@ ${daemons
   }
 
   private handleKeyExchange(
-    ws: any,
+    ws: ServerWebSocket,
     msg: RelayClientMessage & { t: "relay.kx" },
   ) {
     const client = this.clients.get(ws);
@@ -348,7 +357,10 @@ ${daemons
     }
   }
 
-  private handlePublish(ws: any, msg: RelayClientMessage & { t: "relay.pub" }) {
+  private handlePublish(
+    ws: ServerWebSocket,
+    msg: RelayClientMessage & { t: "relay.pub" },
+  ) {
     const client = this.clients.get(ws);
     if (!client) {
       this.send(ws, {
@@ -409,7 +421,7 @@ ${daemons
   }
 
   private handleSubscribe(
-    ws: any,
+    ws: ServerWebSocket,
     msg: RelayClientMessage & { t: "relay.sub" },
   ) {
     const client = this.clients.get(ws);
@@ -461,7 +473,7 @@ ${daemons
   }
 
   private handleUnsubscribe(
-    ws: any,
+    ws: ServerWebSocket,
     msg: RelayClientMessage & { t: "relay.unsub" },
   ) {
     const client = this.clients.get(ws);
@@ -479,7 +491,7 @@ ${daemons
     }
   }
 
-  private handleClose(ws: any) {
+  private handleClose(ws: ServerWebSocket) {
     const client = this.clients.get(ws);
     if (!client) return;
 

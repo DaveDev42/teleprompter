@@ -9,6 +9,12 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Daemon, SessionManager, Store } from "@teleprompter/daemon";
+import type {
+  WsBatch,
+  WsHelloReply,
+  WsRec,
+  WsServerMessage,
+} from "@teleprompter/protocol";
 import { mkdirSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -71,7 +77,7 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
   });
 
   afterEach(() => {
-    SessionManager.setRunnerCommand(null as any);
+    SessionManager.setRunnerCommand(null as unknown as string[]);
     daemon.stop();
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -165,7 +171,7 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     ws.send(JSON.stringify({ t: "attach", sid }));
     await Bun.sleep(50);
 
-    const wsMessages: any[] = [];
+    const wsMessages: WsServerMessage[] = [];
     ws.onmessage = (e) => wsMessages.push(JSON.parse(e.data as string));
 
     // Start the session with a quick claude command
@@ -180,7 +186,7 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     );
 
     // Should have received rec messages via WS
-    const recMessages = wsMessages.filter((m: any) => m.t === "rec");
+    const recMessages = wsMessages.filter((m): m is WsRec => m.t === "rec");
     expect(recMessages.length).toBeGreaterThanOrEqual(1);
 
     // First rec should be io kind with PTY data
@@ -192,7 +198,7 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     expect(payload.length).toBeGreaterThan(0);
 
     // Should have state updates
-    const stateMessages = wsMessages.filter((m: any) => m.t === "state");
+    const stateMessages = wsMessages.filter((m) => m.t === "state");
     expect(stateMessages.length).toBeGreaterThanOrEqual(1);
 
     ws.close();
@@ -223,7 +229,7 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
 
     const helloReply = waitForWsMessage(ws);
     ws.send(JSON.stringify({ t: "hello", v: 1 }));
-    const hello = (await helloReply) as any;
+    const hello = (await helloReply) as WsHelloReply;
 
     // Session should appear in the session list
     expect(hello.d.sessions.length).toBe(1);
@@ -233,7 +239,7 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     // Resume from cursor 0 → should get all records as batch
     const batchReply = waitForWsMessage(ws);
     ws.send(JSON.stringify({ t: "resume", sid, c: 0 }));
-    const batch = (await batchReply) as any;
+    const batch = (await batchReply) as WsBatch;
 
     expect(batch.t).toBe("batch");
     expect(batch.d.length).toBe(totalSeq);

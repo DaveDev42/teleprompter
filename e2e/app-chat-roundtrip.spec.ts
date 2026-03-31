@@ -51,7 +51,8 @@ test.describe("P0 — Chat Roundtrip", () => {
             if (
               msg.t === "hello" &&
               msg.d.sessions.some(
-                (s: any) => s.sid === "chat-rt" && s.state === "running",
+                (s: { sid: string; state: string }) =>
+                  s.sid === "chat-rt" && s.state === "running",
               )
             ) {
               ws.close();

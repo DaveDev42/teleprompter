@@ -9,9 +9,12 @@ describe("logger", () => {
 
   beforeEach(() => {
     output = [];
-    console.log = (...args: any[]) => output.push(args.join(" "));
-    console.warn = (...args: any[]) => output.push(args.join(" "));
-    console.error = (...args: any[]) => output.push(args.join(" "));
+    const capture = (...args: unknown[]) => {
+      output.push(args.join(" "));
+    };
+    console.log = capture;
+    console.warn = capture;
+    console.error = capture;
   });
 
   afterEach(() => {

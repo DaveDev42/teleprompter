@@ -1,5 +1,14 @@
+import type { FitAddon } from "@xterm/addon-fit";
+import type { SearchAddon } from "@xterm/addon-search";
+import type { Terminal } from "@xterm/xterm";
 import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
+
+/** Terminal handle with optional searchAddon for in-terminal search */
+export interface TermHandle {
+  write: (data: string | Uint8Array) => void;
+  searchAddon?: SearchAddon;
+}
 
 /**
  * xterm.js terminal component for Expo Web.
@@ -13,12 +22,12 @@ export function XTermWeb({
 }: {
   onData?: (data: string) => void;
   onResize?: (cols: number, rows: number) => void;
-  termRef?: React.MutableRefObject<any>;
+  termRef?: React.MutableRefObject<TermHandle | null>;
   onReady?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const xtermRef = useRef<any>(null);
-  const fitAddonRef = useRef<any>(null);
+  const xtermRef = useRef<Terminal | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
 
   useEffect(() => {
     if (Platform.OS !== "web") return;
@@ -67,8 +76,9 @@ export function XTermWeb({
       xtermRef.current = term;
       fitAddonRef.current = fitAddon;
       if (termRef) {
-        termRef.current = term;
-        (term as any).searchAddon = searchAddon;
+        const handle = term as TermHandle;
+        handle.searchAddon = searchAddon;
+        termRef.current = handle;
       }
 
       // Signal ready — triggers resume/replay in terminal screen

@@ -5,10 +5,12 @@
  * and formats them for inclusion in the Realtime API system prompt.
  */
 
+import type { Terminal } from "@xterm/xterm";
+
 /**
  * Get the last N lines of visible terminal content.
  */
-export function getTerminalLines(term: any, maxLines = 50): string[] {
+export function getTerminalLines(term: Terminal, maxLines = 50): string[] {
   if (!term?.buffer?.active) return [];
 
   const buffer = term.buffer.active;
@@ -35,7 +37,7 @@ export function getTerminalLines(term: any, maxLines = 50): string[] {
 /**
  * Format terminal content for inclusion in a system prompt.
  */
-export function formatTerminalContext(term: any, maxLines = 30): string {
+export function formatTerminalContext(term: Terminal, maxLines = 30): string {
   const lines = getTerminalLines(term, maxLines);
   if (lines.length === 0) return "";
 

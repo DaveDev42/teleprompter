@@ -1,5 +1,8 @@
+import type { ComponentType } from "react";
 import { useCallback, useEffect, useRef } from "react";
 import { Platform } from "react-native";
+import type { WebViewMessageEvent, WebViewProps } from "react-native-webview";
+import type { TermHandle } from "./XTermWeb";
 
 /**
  * Native xterm.js terminal via WebView for iOS/Android.
@@ -7,8 +10,15 @@ import { Platform } from "react-native";
  * via postMessage bridge.
  */
 
+/** Subset of WebView instance methods we use */
+interface WebViewHandle {
+  postMessage(message: string): void;
+}
+
 // Only import WebView on native platforms
-let WebView: any = null;
+let WebView: ComponentType<
+  WebViewProps & { ref?: React.Ref<WebViewHandle> }
+> | null = null;
 if (Platform.OS !== "web") {
   try {
     WebView = require("react-native-webview").default;
@@ -93,17 +103,19 @@ export function XTermNative({
 }: {
   onData?: (data: string) => void;
   onResize?: (cols: number, rows: number) => void;
-  termRef?: React.MutableRefObject<any>;
+  termRef?: React.MutableRefObject<TermHandle | null>;
 }) {
-  const webViewRef = useRef<any>(null);
+  const webViewRef = useRef<WebViewHandle | null>(null);
 
   // Expose a write method via termRef
   useEffect(() => {
     if (termRef) {
       termRef.current = {
-        write: (data: string) => {
+        write: (data: string | Uint8Array) => {
+          const str =
+            typeof data === "string" ? data : new TextDecoder().decode(data);
           webViewRef.current?.postMessage(
-            JSON.stringify({ type: "write", data }),
+            JSON.stringify({ type: "write", data: str }),
           );
         },
       };
@@ -114,7 +126,7 @@ export function XTermNative({
   }, [termRef]);
 
   const handleMessage = useCallback(
-    (event: any) => {
+    (event: WebViewMessageEvent) => {
       try {
         const msg = JSON.parse(event.nativeEvent.data);
         switch (msg.type) {

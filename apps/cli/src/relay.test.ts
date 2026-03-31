@@ -21,11 +21,11 @@ describe("tp relay (integration)", () => {
 
     // Send ping (works without auth)
     ws.send(JSON.stringify({ t: "relay.ping" }));
-    const pong = await new Promise<any>((resolve, reject) => {
+    const pong = await new Promise<unknown>((resolve, reject) => {
       ws.onmessage = (e) => resolve(JSON.parse(e.data as string));
       setTimeout(() => reject(new Error("timeout")), 3000);
     });
-    expect(pong.t).toBe("relay.pong");
+    expect((pong as { t: string }).t).toBe("relay.pong");
 
     ws.close();
     relay.stop();
@@ -53,11 +53,12 @@ describe("tp relay (integration)", () => {
       }),
     );
 
-    const reply = await new Promise<any>((resolve) => {
+    const reply = await new Promise<unknown>((resolve) => {
       ws.onmessage = (e) => resolve(JSON.parse(e.data as string));
     });
-    expect(reply.t).toBe("relay.auth.ok");
-    expect(reply.daemonId).toBe("test-daemon");
+    const authReply = reply as { t: string; daemonId: string };
+    expect(authReply.t).toBe("relay.auth.ok");
+    expect(authReply.daemonId).toBe("test-daemon");
 
     ws.close();
     relay.stop();

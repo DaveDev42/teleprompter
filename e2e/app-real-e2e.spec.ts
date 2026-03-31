@@ -46,7 +46,8 @@ test.describe("Real E2E — Claude PTY → Browser", () => {
             const msg = JSON.parse(e.data as string);
             if (msg.t === "hello") {
               const running = msg.d.sessions.find(
-                (s: any) => s.sid === "real-test" && s.state === "running",
+                (s: { sid: string; state: string }) =>
+                  s.sid === "real-test" && s.state === "running",
               );
               if (running) {
                 ws.close();

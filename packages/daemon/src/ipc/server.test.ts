@@ -5,6 +5,7 @@ import {
   type IpcAck,
   type IpcBye,
   type IpcHello,
+  type IpcMessage,
   type IpcRec,
 } from "@teleprompter/protocol";
 import { mkdtemp, rm } from "fs/promises";
@@ -17,7 +18,7 @@ describe("IpcServer", () => {
   let server: IpcServer;
   let socketPath: string;
   let tmpDir: string;
-  let receivedMessages: any[] = [];
+  let receivedMessages: IpcMessage[] = [];
   let connectedCount = 0;
   let disconnectedCount = 0;
 
@@ -139,7 +140,7 @@ describe("IpcServer", () => {
   test("sends ack back to runner", async () => {
     const client = await connectClient();
     const decoder = new FrameDecoder();
-    const received: any[] = [];
+    const received: unknown[] = [];
 
     client.on("data", (data: Buffer) => {
       const msgs = decoder.decode(

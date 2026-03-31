@@ -9,6 +9,7 @@ import {
   encrypt,
   FrameDecoder,
   generateKeyPair,
+  type IpcMessage,
   type RelayServerMessage,
   toBase64,
 } from "@teleprompter/protocol";
@@ -156,7 +157,7 @@ describe("Multi-Frontend N:N E2E", () => {
     const framesBPromise = collectFrames(wsB, 2);
 
     // Simulate runner sending a record via IPC
-    const socketPath = (daemon as any).socketPath;
+    const socketPath = (daemon as unknown as { socketPath: string }).socketPath;
     const ipc = connect(socketPath);
     await new Promise<void>((r) => {
       ipc.on("connect", () => r());
@@ -277,7 +278,7 @@ describe("Multi-Frontend N:N E2E", () => {
     await Bun.sleep(300);
 
     // Connect runner via IPC
-    const socketPath = (daemon as any).socketPath;
+    const socketPath = (daemon as unknown as { socketPath: string }).socketPath;
     const ipc = connect(socketPath);
     await new Promise<void>((r) => {
       ipc.on("connect", () => r());
@@ -297,12 +298,12 @@ describe("Multi-Frontend N:N E2E", () => {
 
     // Collect IPC messages
     const decoder = new FrameDecoder();
-    const ipcMessages: any[] = [];
+    const ipcMessages: IpcMessage[] = [];
     ipc.on("data", (data: Buffer) => {
       ipcMessages.push(
-        ...decoder.decode(
+        ...(decoder.decode(
           new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
-        ),
+        ) as IpcMessage[]),
       );
     });
 
@@ -330,7 +331,7 @@ describe("Multi-Frontend N:N E2E", () => {
     // Runner should receive the input
     const inputIpc = ipcMessages.find((m) => m.t === "input");
     expect(inputIpc).toBeDefined();
-    expect(inputIpc.sid).toBe("input-session");
+    expect(inputIpc!.sid).toBe("input-session");
 
     ipc.end();
     ws.close();
@@ -364,7 +365,7 @@ function collectFrames(
 
 function waitMsg(
   ws: WebSocket,
-  pred: (m: any) => boolean,
+  pred: (m: RelayServerMessage) => boolean,
 ): Promise<RelayServerMessage> {
   return new Promise((resolve, reject) => {
     const handler = (e: MessageEvent) => {

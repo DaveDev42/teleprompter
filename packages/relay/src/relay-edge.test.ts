@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { RelayServerMessage } from "@teleprompter/protocol";
+import type {
+  RelayError,
+  RelayFrame,
+  RelayServerMessage,
+} from "@teleprompter/protocol";
 import { RelayServer } from "./relay-server";
 
 function connectWs(port: number): Promise<WebSocket> {
@@ -17,7 +21,7 @@ function waitMsg(
 ): Promise<RelayServerMessage> {
   return new Promise((resolve, reject) => {
     const handler = (e: MessageEvent) => {
-      const msg = JSON.parse(e.data as string);
+      const msg = JSON.parse(e.data as string) as RelayServerMessage;
       if (!pred || pred(msg)) {
         ws.removeEventListener("message", handler);
         resolve(msg);
@@ -64,7 +68,7 @@ describe("RelayServer edge cases", () => {
     ws.send("not json at all {{{");
     const msg = await waitMsg(ws);
     expect(msg.t).toBe("relay.err");
-    expect((msg as any).e).toBe("PARSE_ERROR");
+    expect((msg as RelayError).e).toBe("PARSE_ERROR");
     ws.close();
   });
 
@@ -83,7 +87,7 @@ describe("RelayServer edge cases", () => {
 
     ws.send(JSON.stringify({ t: "relay.nonexistent" }));
     const err = await waitMsg(ws, (m) => m.t === "relay.err");
-    expect((err as any).e).toBe("UNKNOWN_TYPE");
+    expect((err as RelayError).e).toBe("UNKNOWN_TYPE");
     ws.close();
   });
 
@@ -123,8 +127,8 @@ describe("RelayServer edge cases", () => {
     // Both frontends receive
     const f1msg = await waitMsg(frontend1, (m) => m.t === "relay.frame");
     const f2msg = await waitMsg(frontend2, (m) => m.t === "relay.frame");
-    expect((f1msg as any).ct).toBe("payload");
-    expect((f2msg as any).ct).toBe("payload");
+    expect((f1msg as RelayFrame).ct).toBe("payload");
+    expect((f2msg as RelayFrame).ct).toBe("payload");
 
     daemon.close();
     frontend1.close();
@@ -165,7 +169,7 @@ describe("RelayServer edge cases", () => {
       JSON.stringify({ t: "relay.pub", sid: "s1", ct: "visible", seq: 1 }),
     );
     const msg = await waitMsg(frontend, (m) => m.t === "relay.frame");
-    expect((msg as any).ct).toBe("visible");
+    expect((msg as RelayFrame).ct).toBe("visible");
 
     // Unsubscribe
     frontend.send(JSON.stringify({ t: "relay.unsub", sid: "s1" }));
@@ -189,7 +193,7 @@ describe("RelayServer edge cases", () => {
       }),
     );
     const msg2 = await waitMsg(frontend, (m) => m.t === "relay.frame");
-    expect((msg2 as any).ct).toBe("visible-again");
+    expect((msg2 as RelayFrame).ct).toBe("visible-again");
 
     daemon.close();
     frontend.close();

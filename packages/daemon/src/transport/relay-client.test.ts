@@ -151,7 +151,7 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     });
 
     expect(frame.t).toBe("relay.frame");
-    const ct = (frame as any).ct;
+    const ct = (frame as unknown as { ct: string }).ct;
     const plaintext = await decrypt(ct, frontendKeys.rx);
     const decrypted = JSON.parse(new TextDecoder().decode(plaintext));
     expect(decrypted.t).toBe("rec");
@@ -320,13 +320,15 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     client.subscribe("s1");
     await client.publishRecord(rec);
 
-    const frame = await new Promise<any>((resolve, reject) => {
-      frontendWs.onmessage = (e) => {
-        const msg = JSON.parse(e.data as string);
-        if (msg.t === "relay.frame") resolve(msg);
-      };
-      setTimeout(() => reject(new Error("timeout")), 3000);
-    });
+    const frame = await new Promise<{ t: string; ct: string }>(
+      (resolve, reject) => {
+        frontendWs.onmessage = (e) => {
+          const msg = JSON.parse(e.data as string);
+          if (msg.t === "relay.frame") resolve(msg);
+        };
+        setTimeout(() => reject(new Error("timeout")), 3000);
+      },
+    );
 
     expect(frame.ct).toBeTruthy();
     expect(frame.ct.includes("secret!")).toBe(false);

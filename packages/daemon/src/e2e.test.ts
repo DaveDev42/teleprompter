@@ -87,7 +87,7 @@ describe("E2E flow", () => {
   });
 
   afterEach(() => {
-    SessionManager.setRunnerCommand(null as any);
+    SessionManager.setRunnerCommand(null as unknown as string[]);
     daemon.stop();
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -171,7 +171,7 @@ await Bun.connect({
     await helloReply;
 
     // Collect all subsequent messages
-    const wsMessages: any[] = [];
+    const wsMessages: unknown[] = [];
     collectWsMessages(ws, wsMessages);
 
     // Now spawn the runner
@@ -181,7 +181,13 @@ await Bun.connect({
     // The WS client needs to attach first to get rec broadcasts.
     // But state messages go to all clients via sendAll.
     await waitFor(() =>
-      wsMessages.some((m) => m.t === "state" && m.d.state === "running"),
+      wsMessages.some((m) => {
+        const msg = m as Record<string, unknown>;
+        return (
+          msg.t === "state" &&
+          (msg.d as Record<string, unknown>)?.state === "running"
+        );
+      }),
     );
 
     // Attach to session to receive rec broadcasts
@@ -190,7 +196,13 @@ await Bun.connect({
 
     // Wait for session to stop
     await waitFor(() =>
-      wsMessages.some((m) => m.t === "state" && m.d.state === "stopped"),
+      wsMessages.some((m) => {
+        const msg = m as Record<string, unknown>;
+        return (
+          msg.t === "state" &&
+          (msg.d as Record<string, unknown>)?.state === "stopped"
+        );
+      }),
     );
 
     // Verify store
@@ -208,7 +220,9 @@ await Bun.connect({
     expect(records[1]!.name).toBe("Stop");
 
     // Verify WS client received state updates
-    const stateMessages = wsMessages.filter((m: any) => m.t === "state");
+    const stateMessages = wsMessages.filter(
+      (m) => (m as Record<string, unknown>).t === "state",
+    );
     expect(stateMessages.length).toBeGreaterThanOrEqual(2); // running + stopped
 
     store.close();
@@ -288,21 +302,23 @@ await Bun.connect({
 
     const helloReply = waitForWsMessage(ws);
     ws.send(JSON.stringify({ t: "hello" }));
-    const hello = (await helloReply) as any;
+    const hello = (await helloReply) as Record<string, unknown>;
     expect(hello.t).toBe("hello");
-    expect(hello.d.sessions.length).toBe(1);
-    expect(hello.d.sessions[0].sid).toBe(sid);
+    const helloData = hello.d as { sessions: Array<{ sid: string }> };
+    expect(helloData.sessions.length).toBe(1);
+    expect(helloData.sessions[0].sid).toBe(sid);
 
     // Resume from cursor 3 → should get records 4 and 5
     const batchReply = waitForWsMessage(ws);
     ws.send(JSON.stringify({ t: "resume", sid, c: 3 }));
-    const batch = (await batchReply) as any;
+    const batch = (await batchReply) as Record<string, unknown>;
 
     expect(batch.t).toBe("batch");
     expect(batch.sid).toBe(sid);
-    expect(batch.d.length).toBe(2);
-    expect(batch.d[0].seq).toBe(4);
-    expect(batch.d[1].seq).toBe(5);
+    const batchData = batch.d as Array<{ seq: number }>;
+    expect(batchData.length).toBe(2);
+    expect(batchData[0].seq).toBe(4);
+    expect(batchData[1].seq).toBe(5);
 
     ws.close();
     await waitForWsClose(ws);
@@ -557,7 +573,7 @@ await Bun.connect({
     ws.send(JSON.stringify({ t: "attach", sid }));
     await Bun.sleep(50);
 
-    const wsMessages: any[] = [];
+    const wsMessages: unknown[] = [];
     collectWsMessages(ws, wsMessages);
 
     // Now spawn runner
@@ -565,13 +581,20 @@ await Bun.connect({
 
     // Wait for session to complete
     await waitFor(() =>
-      wsMessages.some((m) => m.t === "state" && m.d?.state === "stopped"),
+      wsMessages.some((m) => {
+        const msg = m as Record<string, unknown>;
+        return (
+          msg.t === "state" &&
+          (msg.d as Record<string, unknown>)?.state === "stopped"
+        );
+      }),
     );
 
     // Verify we received the rec broadcasts
-    const recMessages = wsMessages.filter(
-      (m: any) => m.t === "rec" && m.sid === sid,
-    );
+    const recMessages = wsMessages.filter((m) => {
+      const msg = m as Record<string, unknown>;
+      return msg.t === "rec" && msg.sid === sid;
+    }) as Array<Record<string, unknown>>;
     expect(recMessages.length).toBe(3);
     expect(recMessages[0].seq).toBe(1);
     expect(recMessages[1].seq).toBe(2);
@@ -579,7 +602,10 @@ await Bun.connect({
 
     // Verify ordering
     for (let i = 0; i < recMessages.length; i++) {
-      const payload = Buffer.from(recMessages[i].d, "base64").toString("utf-8");
+      const payload = Buffer.from(
+        recMessages[i].d as string,
+        "base64",
+      ).toString("utf-8");
       expect(payload).toBe(`chunk-${i}`);
     }
 

@@ -77,7 +77,7 @@ describe("Daemon worktree WS protocol", () => {
     const reply = await waitMsg(ws, (m) => m.t === "worktree.list");
 
     expect(reply.t).toBe("worktree.list");
-    const worktrees = (reply as { d: unknown[] }).d;
+    const worktrees = (reply as unknown as { d: unknown[] }).d;
     expect(worktrees.length).toBeGreaterThanOrEqual(1);
 
     ws.close();
@@ -121,7 +121,7 @@ describe("Daemon worktree WS protocol", () => {
 
     ws.send(JSON.stringify({ t: "worktree.list" }));
     const err = await waitMsg(ws, (m) => m.t === "err");
-    expect((err as { e: string }).e).toBe("NO_REPO");
+    expect((err as unknown as { e: string }).e).toBe("NO_REPO");
 
     ws.close();
     d2.stop();

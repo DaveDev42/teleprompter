@@ -98,7 +98,10 @@ export function DiagnosticsPanel() {
     const result: typeof cryptoTest = { running: false };
 
     // Detect platform
-    if (typeof (globalThis as any).HermesInternal !== "undefined")
+    if (
+      typeof (globalThis as Record<string, unknown>).HermesInternal !==
+      "undefined"
+    )
       result.platform = "hermes";
     else if (typeof document !== "undefined") result.platform = "web";
     else result.platform = "unknown";

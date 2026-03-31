@@ -141,7 +141,10 @@ test.describe("Full Relay E2E — Runner → Daemon → Relay → App", () => {
     await new Promise((r) => setTimeout(r, 2000));
   });
 
-  async function pairWithDaemon(page: any, json: string) {
+  async function pairWithDaemon(
+    page: import("@playwright/test").Page,
+    json: string,
+  ) {
     // Navigate to Settings
     await page.locator("text=Settings").last().click();
     await page.waitForTimeout(500);

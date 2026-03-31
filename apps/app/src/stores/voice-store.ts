@@ -1,14 +1,16 @@
+import type { Terminal } from "@xterm/xterm";
 import { Platform } from "react-native";
 import { create } from "zustand";
+import type { AudioCapture, AudioPlayer } from "../voice/audio-web";
 import { RealtimeClient } from "../voice/realtime-client";
 import { formatTerminalContext } from "../voice/terminal-context";
 
 /** Global terminal ref — set by the Terminal screen */
-let globalTermRef: any = null;
-export function setGlobalTermRef(ref: any) {
+let globalTermRef: Terminal | null = null;
+export function setGlobalTermRef(ref: Terminal | null) {
   globalTermRef = ref;
 }
-export function getGlobalTermRef(): any {
+export function getGlobalTermRef(): Terminal | null {
   return globalTermRef;
 }
 
@@ -35,8 +37,8 @@ export interface VoiceStore {
 }
 
 let realtimeClient: RealtimeClient | null = null;
-let audioCapture: any = null;
-let audioPlayer: any = null;
+let audioCapture: AudioCapture | null = null;
+let audioPlayer: AudioPlayer | null = null;
 
 export const useVoiceStore = create<VoiceStore>((set, get) => ({
   state: "idle",

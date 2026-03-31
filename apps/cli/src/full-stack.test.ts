@@ -10,6 +10,8 @@ import {
   FrameDecoder,
   generateKeyPair,
   type IpcHello,
+  type IpcInput,
+  type IpcMessage,
   type IpcRec,
   type RelayServerMessage,
   toBase64,
@@ -74,7 +76,7 @@ describe("Full-stack E2E", () => {
     expect(helloReply.t).toBe("hello");
 
     // Simulate runner connecting via IPC
-    const socketPath = (daemon as any).socketPath;
+    const socketPath = (daemon as unknown as { socketPath: string }).socketPath;
     const ipc = connect(socketPath);
     await new Promise<void>((r) => {
       ipc.on("connect", () => r());
@@ -172,7 +174,7 @@ describe("Full-stack E2E", () => {
     await Bun.sleep(50);
 
     // Simulate runner sending record via IPC
-    const socketPath = (daemon as any).socketPath;
+    const socketPath = (daemon as unknown as { socketPath: string }).socketPath;
     const ipc = connect(socketPath);
     await new Promise<void>((r) => {
       ipc.on("connect", () => r());
@@ -217,11 +219,12 @@ describe("Full-stack E2E", () => {
       bundle.keyPair.publicKey,
       "frontend",
     );
-    const plaintext = await decrypt((frame as any).ct, frontendKeys.rx);
+    const relayFrame = frame as RelayServerMessage & { ct: string };
+    const plaintext = await decrypt(relayFrame.ct, frontendKeys.rx);
     const decrypted = JSON.parse(new TextDecoder().decode(plaintext));
     expect(decrypted.t).toBe("rec");
     expect(decrypted.sid).toBe("full-e2e-relay");
-    expect((frame as any).ct).not.toContain("Task complete!");
+    expect(relayFrame.ct).not.toContain("Task complete!");
 
     ipc.end();
     frontendWs.close();
@@ -248,7 +251,7 @@ describe("Full-stack E2E", () => {
     await Bun.sleep(300);
 
     // Connect runner via IPC
-    const socketPath = (daemon as any).socketPath;
+    const socketPath = (daemon as unknown as { socketPath: string }).socketPath;
     const ipc = connect(socketPath);
     await new Promise<void>((r) => {
       ipc.on("connect", () => r());
@@ -268,11 +271,11 @@ describe("Full-stack E2E", () => {
 
     // Collect IPC messages received by runner
     const decoder = new FrameDecoder();
-    const ipcMessages: any[] = [];
+    const ipcMessages: IpcMessage[] = [];
     ipc.on("data", (data: Buffer) => {
       const msgs = decoder.decode(
         new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
-      );
+      ) as IpcMessage[];
       ipcMessages.push(...msgs);
     });
 
@@ -294,10 +297,10 @@ describe("Full-stack E2E", () => {
     await Bun.sleep(200);
 
     // Runner should have received the input
-    const inputMsg = ipcMessages.find((m) => m.t === "input");
+    const inputMsg = ipcMessages.find((m): m is IpcInput => m.t === "input");
     expect(inputMsg).toBeDefined();
-    expect(inputMsg.sid).toBe("bidir-session");
-    expect(Buffer.from(inputMsg.data, "base64").toString()).toBe(
+    expect(inputMsg!.sid).toBe("bidir-session");
+    expect(Buffer.from(inputMsg!.data, "base64").toString()).toBe(
       "Fix the login bug\n",
     );
 

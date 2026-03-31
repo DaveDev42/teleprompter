@@ -202,8 +202,11 @@ export async function daemonCommand(argv: string[]): Promise<void> {
       }, 3000);
     });
 
-    process.on("unhandledRejection", (err: any) => {
-      console.error("[Daemon] unhandled rejection:", err?.message ?? err);
+    process.on("unhandledRejection", (err: unknown) => {
+      console.error(
+        "[Daemon] unhandled rejection:",
+        err instanceof Error ? err.message : err,
+      );
       // Don't restart for rejections — they're usually non-fatal
     });
   }

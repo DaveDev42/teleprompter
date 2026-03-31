@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createLogger, setLogLevel } from "./logger";
 
 describe("logger", () => {
@@ -9,9 +9,12 @@ describe("logger", () => {
 
   beforeEach(() => {
     output = [];
-    console.log = (...args: any[]) => output.push(args.join(" "));
-    console.warn = (...args: any[]) => output.push(args.join(" "));
-    console.error = (...args: any[]) => output.push(args.join(" "));
+    const capture = (...args: unknown[]) => {
+      output.push(args.join(" "));
+    };
+    console.log = capture;
+    console.warn = capture;
+    console.error = capture;
   });
 
   afterEach(() => {

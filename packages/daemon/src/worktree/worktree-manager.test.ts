@@ -1,12 +1,16 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { WorktreeManager } from "./worktree-manager";
-import { mkdtemp, rm, writeFile, readdir } from "fs/promises";
-import { join, dirname, basename } from "path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp, readdir, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
+import { basename, dirname, join } from "path";
+import { WorktreeManager } from "./worktree-manager";
 
 /** Run git with explicit stdout pipe (Bun.$ doesn't capture stdout reliably in test runner) */
 async function gitRun(args: string[], cwd: string): Promise<void> {
-  const proc = Bun.spawn(["git", ...args], { cwd, stdout: "ignore", stderr: "pipe" });
+  const proc = Bun.spawn(["git", ...args], {
+    cwd,
+    stdout: "ignore",
+    stderr: "pipe",
+  });
   const exit = await proc.exited;
   if (exit !== 0) {
     const err = await new Response(proc.stderr).text();
@@ -50,7 +54,7 @@ describe("WorktreeManager", () => {
     try {
       const entries = await readdir(parent);
       for (const entry of entries) {
-        if (entry.startsWith(prefix + "-wt-")) {
+        if (entry.startsWith(`${prefix}-wt-`)) {
           await rm(join(parent, entry), { recursive: true, force: true });
         }
       }
@@ -67,7 +71,7 @@ describe("WorktreeManager", () => {
   });
 
   test("add creates a new worktree with new branch", async () => {
-    const wtPath = repoDir + "-wt-feature";
+    const wtPath = `${repoDir}-wt-feature`;
     const wt = await manager.add(wtPath, "feature-1");
 
     expect(wt.path).toBe(wtPath);
@@ -87,7 +91,7 @@ describe("WorktreeManager", () => {
     await gitRun(["commit", "-m", "dev commit"], repoDir);
     await gitRun(["checkout", "-"], repoDir);
 
-    const wtPath = repoDir + "-wt-from-develop";
+    const wtPath = `${repoDir}-wt-from-develop`;
     const wt = await manager.add(wtPath, "feature-from-dev", "develop");
 
     expect(wt.branch).toBe("feature-from-dev");
@@ -98,7 +102,7 @@ describe("WorktreeManager", () => {
   });
 
   test("remove deletes a worktree", async () => {
-    const wtPath = repoDir + "-wt-to-remove";
+    const wtPath = `${repoDir}-wt-to-remove`;
     await manager.add(wtPath, "to-remove");
 
     let worktrees = await manager.list();
@@ -111,8 +115,8 @@ describe("WorktreeManager", () => {
   });
 
   test("list shows multiple worktrees with correct branches", async () => {
-    const wt1Path = repoDir + "-wt-a";
-    const wt2Path = repoDir + "-wt-b";
+    const wt1Path = `${repoDir}-wt-a`;
+    const wt2Path = `${repoDir}-wt-b`;
 
     await manager.add(wt1Path, "branch-a");
     await manager.add(wt2Path, "branch-b");

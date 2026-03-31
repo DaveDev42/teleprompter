@@ -1,5 +1,5 @@
-import type { ServerWebSocket } from "bun";
 import type { WsServerMessage } from "@teleprompter/protocol";
+import type { ServerWebSocket } from "bun";
 
 export interface WsClient {
   ws: ServerWebSocket<{ client: WsClient }>;
@@ -8,7 +8,9 @@ export interface WsClient {
 
 let nextId = 1;
 
-export function createClient(ws: ServerWebSocket<{ client: WsClient }>): WsClient {
+export function createClient(
+  ws: ServerWebSocket<{ client: WsClient }>,
+): WsClient {
   return { ws, id: nextId++ };
 }
 

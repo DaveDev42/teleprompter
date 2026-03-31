@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { PtyManager } from "./pty-manager";
 
 describe("PtyManager", () => {
@@ -13,7 +13,9 @@ describe("PtyManager", () => {
       cols: 80,
       rows: 24,
       onData: (data) => chunks.push(data),
-      onExit: (code) => { exitCode = code; },
+      onExit: (code) => {
+        exitCode = code;
+      },
     });
 
     expect(pty.pid).toBeGreaterThan(0);
@@ -29,14 +31,16 @@ describe("PtyManager", () => {
   test("write sends data to the PTY", async () => {
     const pty = new PtyManager();
     const chunks: Uint8Array[] = [];
-    let exitCode = -1;
+    let _exitCode = -1;
 
     // Use cat which echoes stdin
     pty.spawn({
       command: ["cat"],
       cwd: "/tmp",
       onData: (data) => chunks.push(data),
-      onExit: (code) => { exitCode = code; },
+      onExit: (code) => {
+        _exitCode = code;
+      },
     });
 
     await Bun.sleep(100);
@@ -58,7 +62,9 @@ describe("PtyManager", () => {
       command: ["sleep", "60"],
       cwd: "/tmp",
       onData: () => {},
-      onExit: () => { exited = true; },
+      onExit: () => {
+        exited = true;
+      },
     });
 
     await Bun.sleep(100);

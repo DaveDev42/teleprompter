@@ -1,12 +1,12 @@
-import { parseArgs } from "util";
-import { RelayServer } from "@teleprompter/relay";
-import { loadPairingData } from "./pair";
 import {
-  generateKeyPair,
+  decrypt,
   deriveSessionKeys,
   encrypt,
-  decrypt,
+  generateKeyPair,
 } from "@teleprompter/protocol";
+import { RelayServer } from "@teleprompter/relay";
+import { parseArgs } from "util";
+import { loadPairingData } from "./pair";
 
 export async function relayCommand(argv: string[]): Promise<void> {
   const subcommand = argv[0];
@@ -43,7 +43,9 @@ async function startRelay(argv: string[]): Promise<void> {
       relay.registerToken(pairing.relayToken, pairing.daemonId);
       console.log(`[Relay] registered token for daemon ${pairing.daemonId}`);
     } else {
-      console.warn("[Relay] --register-pairing: no pairing data found (run `tp pair` first)");
+      console.warn(
+        "[Relay] --register-pairing: no pairing data found (run `tp pair` first)",
+      );
     }
   }
 
@@ -74,7 +76,9 @@ async function pingRelay(argv: string[]): Promise<void> {
   const relayUrl = (values["relay-url"] as string) ?? pairing?.relayUrl;
 
   if (!relayUrl) {
-    console.error("[Ping] No relay URL. Run `tp pair` first or use --relay-url.");
+    console.error(
+      "[Ping] No relay URL. Run `tp pair` first or use --relay-url.",
+    );
     process.exit(1);
   }
 
@@ -86,7 +90,9 @@ async function pingRelay(argv: string[]): Promise<void> {
   const count = parseInt(values.count as string, 10);
   const verifyE2EE = values["verify-e2ee"] as boolean;
 
-  console.log(`PING ${relayUrl} (${count} pings${verifyE2EE ? ", E2EE verify" : ""})`);
+  console.log(
+    `PING ${relayUrl} (${count} pings${verifyE2EE ? ", E2EE verify" : ""})`,
+  );
 
   // Connect as daemon role for ping
   const ws = new WebSocket(relayUrl);
@@ -211,7 +217,7 @@ async function verifyE2EECrypto(): Promise<void> {
 
   // Test encrypt/decrypt round-trip
   const testPayload = new TextEncoder().encode(
-    "E2EE verification test " + Date.now(),
+    `E2EE verification test ${Date.now()}`,
   );
 
   try {

@@ -1,5 +1,5 @@
-import { create } from "zustand";
 import { Appearance } from "react-native";
+import { create } from "zustand";
 
 export type Theme = "dark" | "light" | "system";
 

@@ -1,29 +1,28 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Daemon, SessionManager } from "@teleprompter/daemon";
-import { RelayServer } from "@teleprompter/relay";
 import {
   createPairingBundle,
-  encodePairingData,
-  decodePairingData,
-  parsePairingForFrontend,
-  generateKeyPair,
-  deriveSessionKeys,
-  deriveKxKey,
-  encrypt,
   decrypt,
-  toBase64,
+  deriveKxKey,
+  deriveSessionKeys,
   encodeFrame,
+  encrypt,
   FrameDecoder,
-  type WsServerMessage,
-  type WsRec,
-  type RelayServerMessage,
+  generateKeyPair,
   type IpcHello,
+  type IpcInput,
+  type IpcMessage,
   type IpcRec,
+  type RelayServerMessage,
+  toBase64,
+  type WsRec,
+  type WsServerMessage,
 } from "@teleprompter/protocol";
-import { connect } from "net";
+import { RelayServer } from "@teleprompter/relay";
 import { mkdtemp, rm } from "fs/promises";
-import { join } from "path";
+import { connect } from "net";
 import { tmpdir } from "os";
+import { join } from "path";
 
 /**
  * Full-stack integration test:
@@ -54,7 +53,9 @@ describe("Full-stack E2E", () => {
     daemon = new Daemon(tmpDir);
     daemon.start(join(tmpDir, "daemon.sock"));
     daemon.startWs(0);
-    wsPort = daemon.wsPort!;
+    const port = daemon.wsPort;
+    if (!port) throw new Error("expected wsPort");
+    wsPort = port;
   });
 
   afterEach(async () => {
@@ -66,7 +67,9 @@ describe("Full-stack E2E", () => {
   test("local WS: daemon → frontend record flow", async () => {
     // Connect local frontend WS
     const ws = new WebSocket(`ws://localhost:${wsPort}`);
-    await new Promise<void>((r) => { ws.onopen = () => r(); });
+    await new Promise<void>((r) => {
+      ws.onopen = () => r();
+    });
 
     ws.send(JSON.stringify({ t: "hello", v: 1 }));
 
@@ -75,9 +78,11 @@ describe("Full-stack E2E", () => {
     expect(helloReply.t).toBe("hello");
 
     // Simulate runner connecting via IPC
-    const socketPath = (daemon as any).socketPath;
+    const socketPath = (daemon as unknown as { socketPath: string }).socketPath;
     const ipc = connect(socketPath);
-    await new Promise<void>((r) => { ipc.on("connect", () => r()); });
+    await new Promise<void>((r) => {
+      ipc.on("connect", () => r());
+    });
 
     const hello: IpcHello = {
       t: "hello",
@@ -106,9 +111,9 @@ describe("Full-stack E2E", () => {
     const wsRec = await waitWsMsg(ws, (m) => m.t === "rec");
     expect(wsRec.t).toBe("rec");
     expect((wsRec as WsRec).sid).toBe("full-e2e-local");
-    expect(
-      Buffer.from((wsRec as WsRec).d, "base64").toString(),
-    ).toBe("Hello from runner!");
+    expect(Buffer.from((wsRec as WsRec).d, "base64").toString()).toBe(
+      "Hello from runner!",
+    );
 
     ipc.end();
     ws.close();
@@ -138,11 +143,14 @@ describe("Full-stack E2E", () => {
 
     // Connect frontend to relay
     const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => { frontendWs.onopen = () => r(); });
+    await new Promise<void>((r) => {
+      frontendWs.onopen = () => r();
+    });
 
     frontendWs.send(
       JSON.stringify({
-        t: "relay.auth", v: 2,
+        t: "relay.auth",
+        v: 2,
         role: "frontend",
         daemonId: "e2e-daemon",
         token: bundle.relayToken,
@@ -158,19 +166,21 @@ describe("Full-stack E2E", () => {
       role: "frontend",
     });
     const kxCt = await encrypt(new TextEncoder().encode(kxPayload), kxKey);
-    frontendWs.send(JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }));
+    frontendWs.send(
+      JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }),
+    );
     await Bun.sleep(300);
 
     // Subscribe to session
-    frontendWs.send(
-      JSON.stringify({ t: "relay.sub", sid: "full-e2e-relay" }),
-    );
+    frontendWs.send(JSON.stringify({ t: "relay.sub", sid: "full-e2e-relay" }));
     await Bun.sleep(50);
 
     // Simulate runner sending record via IPC
-    const socketPath = (daemon as any).socketPath;
+    const socketPath = (daemon as unknown as { socketPath: string }).socketPath;
     const ipc = connect(socketPath);
-    await new Promise<void>((r) => { ipc.on("connect", () => r()); });
+    await new Promise<void>((r) => {
+      ipc.on("connect", () => r());
+    });
 
     ipc.write(
       Buffer.from(
@@ -202,10 +212,7 @@ describe("Full-stack E2E", () => {
     );
 
     // Frontend receives encrypted frame from relay
-    const frame = await waitRelayMsg(
-      frontendWs,
-      (m) => m.t === "relay.frame",
-    );
+    const frame = await waitRelayMsg(frontendWs, (m) => m.t === "relay.frame");
     expect(frame.t).toBe("relay.frame");
 
     // Decrypt with derived session keys
@@ -214,14 +221,12 @@ describe("Full-stack E2E", () => {
       bundle.keyPair.publicKey,
       "frontend",
     );
-    const plaintext = await decrypt(
-      (frame as any).ct,
-      frontendKeys.rx,
-    );
+    const relayFrame = frame as RelayServerMessage & { ct: string };
+    const plaintext = await decrypt(relayFrame.ct, frontendKeys.rx);
     const decrypted = JSON.parse(new TextDecoder().decode(plaintext));
     expect(decrypted.t).toBe("rec");
     expect(decrypted.sid).toBe("full-e2e-relay");
-    expect((frame as any).ct).not.toContain("Task complete!");
+    expect(relayFrame.ct).not.toContain("Task complete!");
 
     ipc.end();
     frontendWs.close();
@@ -233,9 +238,9 @@ describe("Full-stack E2E", () => {
       "e2e-bidir",
     );
 
-    const frontendKp = await generateKeyPair();
-    const frontendId = "e2e-bidir-frontend";
-    const kxKey = await deriveKxKey(bundle.pairingSecret);
+    const _frontendKp = await generateKeyPair();
+    const _frontendId = "e2e-bidir-frontend";
+    const _kxKey = await deriveKxKey(bundle.pairingSecret);
 
     await daemon.connectRelay({
       relayUrl: `ws://localhost:${relayPort}`,
@@ -248,9 +253,11 @@ describe("Full-stack E2E", () => {
     await Bun.sleep(300);
 
     // Connect runner via IPC
-    const socketPath = (daemon as any).socketPath;
+    const socketPath = (daemon as unknown as { socketPath: string }).socketPath;
     const ipc = connect(socketPath);
-    await new Promise<void>((r) => { ipc.on("connect", () => r()); });
+    await new Promise<void>((r) => {
+      ipc.on("connect", () => r());
+    });
 
     ipc.write(
       Buffer.from(
@@ -266,17 +273,19 @@ describe("Full-stack E2E", () => {
 
     // Collect IPC messages received by runner
     const decoder = new FrameDecoder();
-    const ipcMessages: any[] = [];
+    const ipcMessages: IpcMessage[] = [];
     ipc.on("data", (data: Buffer) => {
       const msgs = decoder.decode(
         new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
-      );
+      ) as IpcMessage[];
       ipcMessages.push(...msgs);
     });
 
     // Also connect local WS frontend and send input
     const localWs = new WebSocket(`ws://localhost:${wsPort}`);
-    await new Promise<void>((r) => { localWs.onopen = () => r(); });
+    await new Promise<void>((r) => {
+      localWs.onopen = () => r();
+    });
     localWs.send(JSON.stringify({ t: "hello", v: 1 }));
     await waitWsMsg(localWs, (m) => m.t === "hello");
 
@@ -290,12 +299,12 @@ describe("Full-stack E2E", () => {
     await Bun.sleep(200);
 
     // Runner should have received the input
-    const inputMsg = ipcMessages.find((m) => m.t === "input");
-    expect(inputMsg).toBeDefined();
+    const inputMsg = ipcMessages.find((m): m is IpcInput => m.t === "input");
+    if (!inputMsg) throw new Error("expected inputMsg");
     expect(inputMsg.sid).toBe("bidir-session");
-    expect(
-      Buffer.from(inputMsg.data, "base64").toString(),
-    ).toBe("Fix the login bug\n");
+    expect(Buffer.from(inputMsg.data, "base64").toString()).toBe(
+      "Fix the login bug\n",
+    );
 
     ipc.end();
     localWs.close();

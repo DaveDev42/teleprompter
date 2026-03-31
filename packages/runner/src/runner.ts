@@ -1,9 +1,14 @@
-import { PtyManager } from "./pty/pty-manager";
-import { IpcClient } from "./ipc/client";
+import {
+  createLogger,
+  type IpcAck,
+  type IpcInput,
+  type IpcResize,
+} from "@teleprompter/protocol";
+import { Collector } from "./collector";
 import { HookReceiver } from "./hooks/hook-receiver";
 import { buildSettings } from "./hooks/settings-builder";
-import { Collector } from "./collector";
-import { createLogger, type IpcAck, type IpcInput, type IpcResize } from "@teleprompter/protocol";
+import { IpcClient } from "./ipc/client";
+import { PtyManager } from "./pty/pty-manager";
 
 const log = createLogger("Runner");
 

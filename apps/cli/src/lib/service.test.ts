@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { platform } from "os";
 
 describe("service", () => {
@@ -9,7 +9,7 @@ describe("service", () => {
         const plist = generatePlist("/usr/local/bin/tp", "/tmp/logs");
 
         expect(plist).toContain('<?xml version="1.0"');
-        expect(plist).toContain("<plist version=\"1.0\">");
+        expect(plist).toContain('<plist version="1.0">');
         expect(plist).toContain("<string>dev.tpmt.daemon</string>");
         expect(plist).toContain("<string>/usr/local/bin/tp</string>");
         expect(plist).toContain("<string>daemon</string>");

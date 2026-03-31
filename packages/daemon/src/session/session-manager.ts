@@ -1,6 +1,6 @@
-import { resolve, join } from "path";
-import { Subprocess } from "bun";
 import { createLogger } from "@teleprompter/protocol";
+import type { Subprocess } from "bun";
+import { resolve } from "path";
 
 const log = createLogger("SessionManager");
 

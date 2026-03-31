@@ -25,9 +25,7 @@ export function AdaptiveLayout({
           <SessionDrawer />
         </View>
         {/* Chat */}
-        <View className="flex-1 border-r border-zinc-800">
-          {chatContent}
-        </View>
+        <View className="flex-1 border-r border-zinc-800">{chatContent}</View>
         {/* Terminal */}
         <View className="flex-1">{terminalContent}</View>
       </View>
@@ -38,9 +36,7 @@ export function AdaptiveLayout({
     return (
       <View className="flex-1 flex-row bg-black">
         {/* Chat */}
-        <View className="flex-1 border-r border-zinc-800">
-          {chatContent}
-        </View>
+        <View className="flex-1 border-r border-zinc-800">{chatContent}</View>
         {/* Terminal */}
         <View className="flex-1">{terminalContent}</View>
       </View>

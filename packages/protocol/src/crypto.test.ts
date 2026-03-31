@@ -1,16 +1,16 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
-  generateKeyPair,
-  deriveSessionKeys,
-  ratchetSessionKeys,
-  encrypt,
   decrypt,
-  generatePairingSecret,
-  deriveRelayToken,
   deriveKxKey,
   deriveRegistrationProof,
-  toBase64,
+  deriveRelayToken,
+  deriveSessionKeys,
+  encrypt,
   fromBase64,
+  generateKeyPair,
+  generatePairingSecret,
+  ratchetSessionKeys,
+  toBase64,
   toHex,
 } from "./crypto";
 
@@ -184,7 +184,11 @@ describe("crypto", () => {
     );
 
     const daemonKeys = await ratchetSessionKeys(daemonBase, "s1", "daemon");
-    const frontendKeys = await ratchetSessionKeys(frontendBase, "s1", "frontend");
+    const frontendKeys = await ratchetSessionKeys(
+      frontendBase,
+      "s1",
+      "frontend",
+    );
 
     // daemon tx → frontend rx
     const plaintext = new TextEncoder().encode("ratcheted message");
@@ -231,11 +235,13 @@ describe("crypto", () => {
     const secret = await generatePairingSecret();
     const kxKey = await deriveKxKey(secret);
 
-    const payload = new TextEncoder().encode(JSON.stringify({
-      pk: "test-public-key-base64",
-      frontendId: "frontend-123",
-      role: "frontend",
-    }));
+    const payload = new TextEncoder().encode(
+      JSON.stringify({
+        pk: "test-public-key-base64",
+        frontendId: "frontend-123",
+        role: "frontend",
+      }),
+    );
 
     const ct = await encrypt(payload, kxKey);
     const pt = await decrypt(ct, kxKey);
@@ -257,8 +263,9 @@ describe("crypto", () => {
     const secretA = await generatePairingSecret();
     const secretB = await generatePairingSecret();
 
-    expect(await deriveRegistrationProof(secretA))
-      .not.toBe(await deriveRegistrationProof(secretB));
+    expect(await deriveRegistrationProof(secretA)).not.toBe(
+      await deriveRegistrationProof(secretB),
+    );
   });
 
   test("deriveRegistrationProof differs from relay token and kx key", async () => {

@@ -19,7 +19,7 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
   SessionManager.setRunnerCommand(resolveRunnerCommand());
 
   const daemon = new Daemon();
-  const socketPath = daemon.start();
+  const _socketPath = daemon.start();
   daemon.startWs(wsPort);
 
   // Spawn runner with claude args

@@ -1,6 +1,6 @@
+import type { ClaudeHookEvent } from "@teleprompter/protocol";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import type { ClaudeHookEvent } from "@teleprompter/protocol";
 import { captureHookCommand } from "./capture-hook";
 
 const HOOK_EVENTS: ClaudeHookEvent[] = [

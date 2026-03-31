@@ -1,12 +1,23 @@
-import { useEffect, useRef, useCallback, useState } from "react";
-import { View, Text, TextInput, Pressable, Platform } from "react-native";
-import { useSessionStore } from "../../src/stores/session-store";
+import type { WsClientMessage, WsRec } from "@teleprompter/protocol/client";
+import type { Terminal } from "@xterm/xterm";
+import type { ComponentType } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Platform, Pressable, Text, TextInput, View } from "react-native";
+import type { TermHandle } from "../../src/components/XTermWeb";
 import { getDaemonClient } from "../../src/hooks/use-daemon";
+import { useSessionStore } from "../../src/stores/session-store";
 import { setGlobalTermRef } from "../../src/stores/voice-store";
-import type { WsRec } from "@teleprompter/protocol/client";
+
+/** Props accepted by both XTermWeb and XTermNative */
+interface TerminalComponentProps {
+  onData?: (data: string) => void;
+  onResize?: (cols: number, rows: number) => void;
+  termRef?: React.MutableRefObject<TermHandle | null>;
+  onReady?: () => void;
+}
 
 // Platform-specific terminal component
-let TerminalComponent: any = null;
+let TerminalComponent: ComponentType<TerminalComponentProps> | null = null;
 if (Platform.OS === "web") {
   TerminalComponent = require("../../src/components/XTermWeb").XTermWeb;
 } else {
@@ -18,13 +29,13 @@ export default function TerminalScreen() {
   const sid = useSessionStore((s) => s.sid);
   const addRecHandler = useSessionStore((s) => s.addRecHandler);
   const removeRecHandler = useSessionStore((s) => s.removeRecHandler);
-  const termRef = useRef<any>(null);
+  const termRef = useRef<TermHandle | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   // Expose terminal ref globally for voice context
   useEffect(() => {
-    setGlobalTermRef(termRef.current);
+    setGlobalTermRef((termRef.current as Terminal) ?? null);
     return () => setGlobalTermRef(null);
   });
 
@@ -75,7 +86,7 @@ export default function TerminalScreen() {
     (cols: number, rows: number) => {
       const client = getDaemonClient();
       if (sid && client) {
-        client.send({ t: "resize", sid, cols, rows } as any);
+        client.send({ t: "resize", sid, cols, rows } as WsClientMessage);
       }
     },
     [sid],
@@ -122,11 +133,18 @@ export default function TerminalScreen() {
             <Text className="text-gray-400 text-xs">Next</Text>
           </Pressable>
           <Pressable
-            onPress={() => termRef.current?.searchAddon?.findPrevious(searchQuery)}
+            onPress={() =>
+              termRef.current?.searchAddon?.findPrevious(searchQuery)
+            }
           >
             <Text className="text-gray-400 text-xs">Prev</Text>
           </Pressable>
-          <Pressable onPress={() => { setShowSearch(false); setSearchQuery(""); }}>
+          <Pressable
+            onPress={() => {
+              setShowSearch(false);
+              setSearchQuery("");
+            }}
+          >
             <Text className="text-gray-500 text-xs">Close</Text>
           </Pressable>
         </View>

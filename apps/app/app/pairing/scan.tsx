@@ -1,11 +1,26 @@
-import { useState, useEffect } from "react";
-import { View, Text, Pressable, Platform } from "react-native";
+import type { PermissionResponse } from "expo-modules-core";
 import { useRouter } from "expo-router";
+import type { ComponentType } from "react";
+import { useEffect, useState } from "react";
+import { Platform, Pressable, Text, View } from "react-native";
 import { usePairingStore } from "../../src/stores/pairing-store";
 
 // Dynamic import for camera (native only)
-let CameraView: any = null;
-let useCameraPermissions: any = null;
+/** Props subset of CameraView that we use */
+interface CameraViewLikeProps {
+  style?: Record<string, unknown>;
+  barcodeScannerSettings?: { barcodeTypes: string[] };
+  onBarcodeScanned?: ((result: { data: string }) => void) | undefined;
+}
+
+type UseCameraPermissionsHook = () => [
+  PermissionResponse | null,
+  () => Promise<PermissionResponse>,
+  () => Promise<PermissionResponse>,
+];
+
+let CameraView: ComponentType<CameraViewLikeProps> | null = null;
+let useCameraPermissions: UseCameraPermissionsHook | null = null;
 
 if (Platform.OS !== "web") {
   try {
@@ -25,14 +40,14 @@ export default function ScanScreen() {
   // Camera permissions (native only)
   const [permission, requestPermission] = useCameraPermissions?.() ?? [
     null,
-    () => {},
+    (() => {}) as () => Promise<PermissionResponse>,
   ];
 
   useEffect(() => {
     if (permission && !permission.granted) {
       requestPermission();
     }
-  }, [permission]);
+  }, [permission, requestPermission]);
 
   const handleBarCodeScanned = async ({ data }: { data: string }) => {
     if (scanned) return;

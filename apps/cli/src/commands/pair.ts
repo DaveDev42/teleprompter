@@ -1,18 +1,14 @@
-import { parseArgs } from "util";
-import { join } from "path";
-import { mkdir, writeFile, readFile } from "fs/promises";
 import {
   createPairingBundle,
   encodePairingData,
   toBase64,
 } from "@teleprompter/protocol";
+import { mkdir, readFile, writeFile } from "fs/promises";
+import { join } from "path";
 import qrcode from "qrcode-terminal";
+import { parseArgs } from "util";
 
-const PAIRING_DIR = join(
-  process.env.HOME ?? "/tmp",
-  ".config",
-  "teleprompter",
-);
+const PAIRING_DIR = join(process.env.HOME ?? "/tmp", ".config", "teleprompter");
 
 export async function pairCommand(argv: string[]): Promise<void> {
   const { values } = parseArgs({
@@ -27,8 +23,7 @@ export async function pairCommand(argv: string[]): Promise<void> {
 
   const relayUrl = values.relay as string;
   const daemonId =
-    (values["daemon-id"] as string) ??
-    `daemon-${Date.now().toString(36)}`;
+    (values["daemon-id"] as string) ?? `daemon-${Date.now().toString(36)}`;
 
   console.log("[Pair] Generating pairing data...\n");
 

@@ -1,6 +1,6 @@
-import { unlinkSync, existsSync, mkdirSync } from "fs";
-import { dirname, join } from "path";
 import { createLogger, type HookEventBase } from "@teleprompter/protocol";
+import { existsSync, mkdirSync, unlinkSync } from "fs";
+import { dirname, join } from "path";
 
 const log = createLogger("HookReceiver");
 
@@ -58,7 +58,7 @@ export class HookReceiver {
   static defaultSocketPath(sid: string): string {
     const runtimeDir =
       process.env.XDG_RUNTIME_DIR ??
-      join("/tmp", `teleprompter-${process.getuid!()}`);
+      join("/tmp", `teleprompter-${process.getuid?.()}`);
     return join(runtimeDir, `hook-${sid}.sock`);
   }
 }

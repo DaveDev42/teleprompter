@@ -1,6 +1,6 @@
-import { join } from "path";
-import { mkdir, writeFile, unlink } from "fs/promises";
 import { existsSync } from "fs";
+import { mkdir, unlink, writeFile } from "fs/promises";
+import { join } from "path";
 
 const SERVICE_NAME = "teleprompter-daemon";
 
@@ -58,9 +58,17 @@ export async function installLinux(): Promise<void> {
 
   // Reload systemd and enable the service
   Bun.spawnSync(["systemctl", "--user", "daemon-reload"]);
-  const enableResult = Bun.spawnSync(["systemctl", "--user", "enable", "--now", SERVICE_NAME]);
+  const enableResult = Bun.spawnSync([
+    "systemctl",
+    "--user",
+    "enable",
+    "--now",
+    SERVICE_NAME,
+  ]);
   if (enableResult.exitCode !== 0) {
-    console.error(`[Service] systemctl enable failed: ${enableResult.stderr.toString()}`);
+    console.error(
+      `[Service] systemctl enable failed: ${enableResult.stderr.toString()}`,
+    );
     return;
   }
 

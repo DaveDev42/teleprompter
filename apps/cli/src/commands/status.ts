@@ -62,7 +62,7 @@ function displayStatus(sessions: WsSessionMeta[]): void {
   for (const s of sessions) {
     const key = s.worktreePath ?? s.cwd;
     if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(s);
+    groups.get(key)?.push(s);
   }
 
   for (const [path, group] of groups) {
@@ -71,7 +71,11 @@ function displayStatus(sessions: WsSessionMeta[]): void {
       const stateIcon =
         s.state === "running" ? "●" : s.state === "stopped" ? "○" : "✕";
       const stateColor =
-        s.state === "running" ? "\x1b[32m" : s.state === "stopped" ? "\x1b[90m" : "\x1b[31m";
+        s.state === "running"
+          ? "\x1b[32m"
+          : s.state === "stopped"
+            ? "\x1b[90m"
+            : "\x1b[31m";
       const reset = "\x1b[0m";
 
       console.log(

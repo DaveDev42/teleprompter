@@ -1,7 +1,11 @@
-import { existsSync } from "fs";
-import { join, extname } from "path";
 import { createLogger, type WsClientMessage } from "@teleprompter/protocol";
-import { ClientRegistry, createClient, type WsClient } from "./client-registry";
+import { existsSync } from "fs";
+import { extname, join } from "path";
+import {
+  type ClientRegistry,
+  createClient,
+  type WsClient,
+} from "./client-registry";
 
 const log = createLogger("WsServer");
 
@@ -17,10 +21,19 @@ export interface WsServerEvents {
   onInChat(client: WsClient, sid: string, text: string): void;
   onInTerm(client: WsClient, sid: string, data: string): void;
   onResize?(client: WsClient, sid: string, cols: number, rows: number): void;
-  onWorktreeCreate?(client: WsClient, msg: WsClientMessage & { t: "worktree.create" }): void;
-  onWorktreeRemove?(client: WsClient, msg: WsClientMessage & { t: "worktree.remove" }): void;
+  onWorktreeCreate?(
+    client: WsClient,
+    msg: WsClientMessage & { t: "worktree.create" },
+  ): void;
+  onWorktreeRemove?(
+    client: WsClient,
+    msg: WsClientMessage & { t: "worktree.remove" },
+  ): void;
   onWorktreeList?(client: WsClient): void;
-  onSessionCreate?(client: WsClient, msg: WsClientMessage & { t: "session.create" }): void;
+  onSessionCreate?(
+    client: WsClient,
+    msg: WsClientMessage & { t: "session.create" },
+  ): void;
   onSessionStop?(client: WsClient, sid: string): void;
   onSessionRestart?(client: WsClient, sid: string): void;
   onSessionExport?(client: WsClient, sid: string, format?: string): void;
@@ -67,14 +80,19 @@ export class WsServer {
     this.server = Bun.serve<WsData>({
       port,
       fetch(req, server) {
-        if (server.upgrade(req, { data: { client: null as unknown as WsClient } })) {
+        if (
+          server.upgrade(req, { data: { client: null as unknown as WsClient } })
+        ) {
           return;
         }
 
         // Serve static frontend files if webDir is set
         if (self.webDir) {
           const url = new URL(req.url);
-          let filePath = join(self.webDir, url.pathname === "/" ? "index.html" : url.pathname);
+          let filePath = join(
+            self.webDir,
+            url.pathname === "/" ? "index.html" : url.pathname,
+          );
 
           // SPA fallback: if file doesn't exist and no extension, serve index.html
           if (!existsSync(filePath) && !extname(filePath)) {
@@ -87,7 +105,8 @@ export class WsServer {
             return new Response(file, {
               headers: {
                 "Content-Type": MIME_TYPES[ext] ?? "application/octet-stream",
-                "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=31536000",
+                "Cache-Control":
+                  ext === ".html" ? "no-cache" : "public, max-age=31536000",
               },
             });
           }
@@ -106,9 +125,17 @@ export class WsServer {
           const client = ws.data.client;
           let msg: WsClientMessage;
           try {
-            msg = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message));
+            msg = JSON.parse(
+              typeof message === "string"
+                ? message
+                : new TextDecoder().decode(message),
+            );
           } catch {
-            self.registry.send(client, { t: "err", e: "PARSE_ERROR", m: "Invalid JSON" });
+            self.registry.send(client, {
+              t: "err",
+              e: "PARSE_ERROR",
+              m: "Invalid JSON",
+            });
             return;
           }
 
@@ -178,7 +205,11 @@ export class WsServer {
         this.events.onSessionExport?.(client, msg.sid, msg.format);
         break;
       default:
-        this.registry.send(client, { t: "err", e: "UNKNOWN_TYPE", m: `Unknown message type` });
+        this.registry.send(client, {
+          t: "err",
+          e: "UNKNOWN_TYPE",
+          m: `Unknown message type`,
+        });
     }
   }
 

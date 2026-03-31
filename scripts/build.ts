@@ -10,8 +10,8 @@
  */
 
 import { $ } from "bun";
-import { parseArgs } from "util";
 import { mkdirSync } from "fs";
+import { parseArgs } from "util";
 
 const BINARIES = [
   { entry: "apps/cli/src/index.ts", name: "tp" },

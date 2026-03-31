@@ -1,26 +1,26 @@
-import { useEffect, useRef, useState, useCallback } from "react";
-import {
-  View,
-  Text,
-  FlatList,
-  TextInput,
-  Pressable,
-  KeyboardAvoidingView,
-  Keyboard,
-  Platform,
-} from "react-native";
-import { useSessionStore } from "../../src/stores/session-store";
-import {
-  useChatStore,
-  processHookEvent,
-  type ChatMessage,
-} from "../../src/stores/chat-store";
-import { getDaemonClient } from "../../src/hooks/use-daemon";
+import type { WsRec } from "@teleprompter/protocol/client";
 import { useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { ChatCard } from "../../src/components/ChatCard";
 import { VoiceButton } from "../../src/components/VoiceButton";
+import { getDaemonClient } from "../../src/hooks/use-daemon";
+import {
+  type ChatMessage,
+  processHookEvent,
+  useChatStore,
+} from "../../src/stores/chat-store";
+import { useSessionStore } from "../../src/stores/session-store";
 import { useVoiceStore } from "../../src/stores/voice-store";
-import type { WsRec } from "@teleprompter/protocol/client";
 
 export default function ChatScreen() {
   const connected = useSessionStore((s) => s.connected);
@@ -31,7 +31,9 @@ export default function ChatScreen() {
   const messages = useChatStore((s) => s.messages);
   const streamingText = useChatStore((s) => s.streamingText);
   const showTerminalFallback = useChatStore((s) => s.showTerminalFallback);
-  const dismissTerminalFallback = useChatStore((s) => s.dismissTerminalFallback);
+  const dismissTerminalFallback = useChatStore(
+    (s) => s.dismissTerminalFallback,
+  );
   const appendStreaming = useChatStore((s) => s.appendStreaming);
   const router = useRouter();
   const setOnPromptReady = useVoiceStore((s) => s.setOnPromptReady);
@@ -68,7 +70,9 @@ export default function ChatScreen() {
     const handler = (rec: WsRec) => {
       if (rec.k === "event") {
         try {
-          const eventBytes = Uint8Array.from(atob(rec.d), (c) => c.charCodeAt(0));
+          const eventBytes = Uint8Array.from(atob(rec.d), (c) =>
+            c.charCodeAt(0),
+          );
           const event = JSON.parse(new TextDecoder("utf-8").decode(eventBytes));
           processHookEvent(event);
         } catch {
@@ -81,13 +85,13 @@ export default function ChatScreen() {
           const text = new TextDecoder("utf-8").decode(bytes);
           // Strip ANSI escape sequences + control chars for chat display
           const clean = text
-            .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "")   // CSI sequences
-            .replace(/\x1b\][^\x07]*\x07/g, "")        // OSC sequences
-            .replace(/\x1b[()][A-Z0-9]/g, "")          // Character set
-            .replace(/\x1b[>=<]/g, "")                  // Mode switches
-            .replace(/\x1b\x1b/g, "")                   // Double escape
+            .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "") // CSI sequences
+            .replace(/\x1b\][^\x07]*\x07/g, "") // OSC sequences
+            .replace(/\x1b[()][A-Z0-9]/g, "") // Character set
+            .replace(/\x1b[>=<]/g, "") // Mode switches
+            .replace(/\x1b\x1b/g, "") // Double escape
             .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "") // Control chars (keep \n \r \t)
-            .replace(/\r\n?/g, "\n");                   // Normalize line endings
+            .replace(/\r\n?/g, "\n"); // Normalize line endings
           if (clean.trim()) {
             appendStreaming(clean);
           }
@@ -174,7 +178,8 @@ export default function ChatScreen() {
             </Text>
             {!connected && reconnectCount > 3 && (
               <Text className="text-gray-600 text-xs mt-2 text-center">
-                Check that daemon is running:{"\n"}tp daemon start --ws-port 7080
+                Check that daemon is running:{"\n"}tp daemon start --ws-port
+                7080
               </Text>
             )}
             {sid && connected && (
@@ -202,10 +207,7 @@ export default function ChatScreen() {
           >
             <Text className="text-white text-xs">Switch</Text>
           </Pressable>
-          <Pressable
-            onPress={dismissTerminalFallback}
-            className="ml-2"
-          >
+          <Pressable onPress={dismissTerminalFallback} className="ml-2">
             <Text className="text-amber-400 text-xs">Dismiss</Text>
           </Pressable>
         </View>

@@ -14,9 +14,6 @@
       "inputs": ["src/**", "*.test.ts"],
       "outputs": []
     },
-    "lint": {
-      "inputs": ["src/**"]
-    },
     "type-check": {
       "dependsOn": ["^build"],
       "inputs": ["src/**", "tsconfig.json"],

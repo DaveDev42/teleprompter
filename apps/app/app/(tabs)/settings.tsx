@@ -1,24 +1,31 @@
-import { useState, useEffect } from "react";
-import { View, Text, TextInput, Pressable, Platform, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
-import { useVoiceStore } from "../../src/stores/voice-store";
-import { usePairingStore } from "../../src/stores/pairing-store";
+import { useEffect, useState } from "react";
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { DiagnosticsPanel } from "../../src/components/DiagnosticsPanel";
-import { useRelaySettingsStore } from "../../src/stores/relay-settings-store";
-import { useThemeStore, type Theme } from "../../src/stores/theme-store";
-import { useConnectionStore } from "../../src/stores/connection-store";
 import { secureGet, secureSet } from "../../src/lib/secure-storage";
+import { useConnectionStore } from "../../src/stores/connection-store";
+import { usePairingStore } from "../../src/stores/pairing-store";
+import { useRelaySettingsStore } from "../../src/stores/relay-settings-store";
+import { type Theme, useThemeStore } from "../../src/stores/theme-store";
+import { useVoiceStore } from "../../src/stores/voice-store";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const apiKey = useVoiceStore((s) => s.apiKey);
   const setApiKey = useVoiceStore((s) => s.setApiKey);
-  const pairingState = usePairingStore((s) => s.state);
+  const _pairingState = usePairingStore((s) => s.state);
   const pairings = usePairingStore((s) => s.pairings);
   const activeDaemonId = usePairingStore((s) => s.activeDaemonId);
   const setActiveDaemon = usePairingStore((s) => s.setActiveDaemon);
   const removePairing = usePairingStore((s) => s.removePairing);
-  const resetPairing = usePairingStore((s) => s.reset);
+  const _resetPairing = usePairingStore((s) => s.reset);
 
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
@@ -47,7 +54,7 @@ export default function SettingsScreen() {
       }
     });
     loadRelays();
-  }, []);
+  }, [setApiKey, loadRelays, apiKey]);
 
   const handleSave = async () => {
     const key = keyInput.trim();
@@ -79,9 +86,7 @@ export default function SettingsScreen() {
 
       {/* Daemon Connection */}
       <View className="mb-8">
-        <Text className="text-gray-400 text-sm mb-2">
-          Daemon URL
-        </Text>
+        <Text className="text-gray-400 text-sm mb-2">Daemon URL</Text>
         <View className="flex-row items-center gap-2">
           <TextInput
             className="flex-1 bg-zinc-800 text-white rounded-lg px-4 py-3 font-mono text-sm"
@@ -151,7 +156,9 @@ export default function SettingsScreen() {
               onPress={() => setTheme(t)}
               className={`flex-1 py-2 rounded-lg items-center ${theme === t ? "bg-blue-600" : "bg-zinc-800"}`}
             >
-              <Text className={`text-sm ${theme === t ? "text-white" : "text-gray-400"}`}>
+              <Text
+                className={`text-sm ${theme === t ? "text-white" : "text-gray-400"}`}
+              >
                 {t.charAt(0).toUpperCase() + t.slice(1)}
               </Text>
             </Pressable>
@@ -174,12 +181,20 @@ export default function SettingsScreen() {
             >
               <View className="flex-1">
                 <View className="flex-row items-center">
-                  <View className={`w-2 h-2 rounded-full mr-2 ${isActive ? "bg-blue-400" : "bg-gray-500"}`} />
-                  <Text className="text-white text-sm font-mono" numberOfLines={1}>
+                  <View
+                    className={`w-2 h-2 rounded-full mr-2 ${isActive ? "bg-blue-400" : "bg-gray-500"}`}
+                  />
+                  <Text
+                    className="text-white text-sm font-mono"
+                    numberOfLines={1}
+                  >
                     {info.daemonId}
                   </Text>
                 </View>
-                <Text className="text-gray-500 text-xs font-mono ml-4" numberOfLines={1}>
+                <Text
+                  className="text-gray-500 text-xs font-mono ml-4"
+                  numberOfLines={1}
+                >
                   {info.relayUrl}
                 </Text>
               </View>
@@ -262,9 +277,7 @@ export default function SettingsScreen() {
 
       {/* Version */}
       <View className="mb-10">
-        <Text className="text-gray-600 text-xs">
-          Teleprompter v0.1.0
-        </Text>
+        <Text className="text-gray-600 text-xs">Teleprompter v0.1.0</Text>
       </View>
     </ScrollView>
   );

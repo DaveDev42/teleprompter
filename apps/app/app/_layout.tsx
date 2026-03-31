@@ -1,7 +1,7 @@
 import "../global.css";
-import { useEffect } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { useEffect } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useDaemon } from "../src/hooks/use-daemon";
 import { useRelay } from "../src/hooks/use-relay";
@@ -13,13 +13,13 @@ export default function RootLayout() {
   const loaded = useConnectionStore((s) => s.loaded);
   const loadConnection = useConnectionStore((s) => s.load);
   const loadPairings = usePairingStore((s) => s.load);
-  const pairingsLoaded = usePairingStore((s) => s.loaded);
+  const _pairingsLoaded = usePairingStore((s) => s.loaded);
 
   // Load saved settings on mount
   useEffect(() => {
     loadConnection();
     loadPairings();
-  }, []);
+  }, [loadPairings, loadConnection]);
 
   // Direct WebSocket to local daemon (always available for local dev)
   useDaemon(loaded ? (daemonUrl ?? undefined) : undefined);

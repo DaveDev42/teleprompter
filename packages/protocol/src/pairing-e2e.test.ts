@@ -1,15 +1,14 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   createPairingBundle,
-  encodePairingData,
   decodePairingData,
-  parsePairingForFrontend,
-  generateKeyPair,
-  deriveSessionKeys,
-  ratchetSessionKeys,
-  encrypt,
   decrypt,
-  deriveRelayToken,
+  deriveSessionKeys,
+  encodePairingData,
+  encrypt,
+  generateKeyPair,
+  parsePairingForFrontend,
+  ratchetSessionKeys,
 } from "./index";
 
 /**
@@ -58,8 +57,16 @@ describe("Full QR Pairing E2E Flow", () => {
 
     // ═══ Step 6: Ratchet per session ═══
     const sessionId = "session-abc-123";
-    const daemonKeys = await ratchetSessionKeys(daemonBase, sessionId, "daemon");
-    const frontendKeys = await ratchetSessionKeys(frontendBase, sessionId, "frontend");
+    const daemonKeys = await ratchetSessionKeys(
+      daemonBase,
+      sessionId,
+      "daemon",
+    );
+    const frontendKeys = await ratchetSessionKeys(
+      frontendBase,
+      sessionId,
+      "frontend",
+    );
 
     // ═══ Step 7: Bidirectional encryption ═══
     // Daemon → Frontend
@@ -68,7 +75,12 @@ describe("Full QR Pairing E2E Flow", () => {
       sid: sessionId,
       seq: 42,
       k: "event",
-      d: btoa(JSON.stringify({ hook_event_name: "Stop", last_assistant_message: "Done!" })),
+      d: btoa(
+        JSON.stringify({
+          hook_event_name: "Stop",
+          last_assistant_message: "Done!",
+        }),
+      ),
     });
     const ct1 = await encrypt(new TextEncoder().encode(record), daemonKeys.tx);
     const pt1 = await decrypt(ct1, frontendKeys.rx);
@@ -88,7 +100,11 @@ describe("Full QR Pairing E2E Flow", () => {
     expect(decoded2.d).toBe("Fix the login bug");
 
     // ═══ Verify session isolation ═══
-    const otherKeys = await ratchetSessionKeys(daemonBase, "other-session", "daemon");
+    const otherKeys = await ratchetSessionKeys(
+      daemonBase,
+      "other-session",
+      "daemon",
+    );
     // Other session's key cannot decrypt this session's ciphertext
     await expect(decrypt(ct1, otherKeys.rx)).rejects.toThrow();
   });

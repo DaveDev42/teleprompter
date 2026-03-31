@@ -1,6 +1,6 @@
+import { $ } from "bun";
 import { existsSync } from "fs";
 import { join } from "path";
-import { $ } from "bun";
 
 /**
  * tp doctor — diagnose the environment.
@@ -53,7 +53,7 @@ export async function doctorCommand(): Promise<void> {
 
   // Daemon socket
   const socketPath = join(
-    process.env.XDG_RUNTIME_DIR ?? `/tmp/teleprompter-${process.getuid!()}`,
+    process.env.XDG_RUNTIME_DIR ?? `/tmp/teleprompter-${process.getuid?.()}`,
     "daemon.sock",
   );
   if (existsSync(socketPath)) {
@@ -77,7 +77,8 @@ export async function doctorCommand(): Promise<void> {
 
   // Vault directory
   const storeDir = join(
-    process.env.XDG_DATA_HOME ?? join(process.env.HOME ?? "/tmp", ".local", "share"),
+    process.env.XDG_DATA_HOME ??
+      join(process.env.HOME ?? "/tmp", ".local", "share"),
     "teleprompter",
     "vault",
   );

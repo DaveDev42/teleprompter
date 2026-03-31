@@ -1,12 +1,12 @@
-import { create } from "zustand";
 import {
   decodePairingData,
-  parsePairingForFrontend,
-  generateKeyPair,
-  toBase64,
   fromBase64,
+  generateKeyPair,
   type KeyPair,
+  parsePairingForFrontend,
+  toBase64,
 } from "@teleprompter/protocol/client";
+import { create } from "zustand";
 import { secureGet, secureSet } from "../lib/secure-storage";
 
 export type PairingState = "unpaired" | "pairing" | "paired";
@@ -131,9 +131,8 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
       const raw = await secureGet(STORAGE_KEY);
       if (raw) {
         const pairings = await deserializePairings(raw);
-        const firstId = pairings.size > 0
-          ? pairings.keys().next().value ?? null
-          : null;
+        const firstId =
+          pairings.size > 0 ? (pairings.keys().next().value ?? null) : null;
         set({
           pairings,
           activeDaemonId: firstId,
@@ -194,13 +193,13 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
 
     await secureSet(STORAGE_KEY, await serializePairings(pairings));
 
-    const newActive = pairings.size > 0
-      ? pairings.keys().next().value ?? null
-      : null;
+    const newActive =
+      pairings.size > 0 ? (pairings.keys().next().value ?? null) : null;
 
     set({
       pairings,
-      activeDaemonId: get().activeDaemonId === daemonId ? newActive : get().activeDaemonId,
+      activeDaemonId:
+        get().activeDaemonId === daemonId ? newActive : get().activeDaemonId,
       state: pairings.size > 0 ? "paired" : "unpaired",
     });
   },

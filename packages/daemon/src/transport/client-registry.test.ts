@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { ClientRegistry, type WsClient } from "./client-registry";
 
 function mockClient(id: number): WsClient {
@@ -15,7 +15,9 @@ function mockClient(id: number): WsClient {
 }
 
 function getSent(client: WsClient): unknown[] {
-  return ((client.ws as unknown as { _sent: string[] })._sent).map((s) => JSON.parse(s));
+  return (client.ws as unknown as { _sent: string[] })._sent.map((s) =>
+    JSON.parse(s),
+  );
 }
 
 describe("ClientRegistry", () => {

@@ -7,15 +7,21 @@
  *
  * Uses `claude -p` (non-interactive/print mode) for deterministic testing.
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync } from "fs";
-import { join } from "path";
-import { tmpdir } from "os";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Daemon, SessionManager, Store } from "@teleprompter/daemon";
+import type {
+  WsBatch,
+  WsHelloReply,
+  WsRec,
+  WsServerMessage,
+} from "@teleprompter/protocol";
+import { mkdirSync, mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { resolveRunnerCommand } from "./spawn";
 
 // Skip entire suite if claude is not installed
-const claudeAvailable = await Bun.spawn(["which", "claude"]).exited === 0;
+const claudeAvailable = (await Bun.spawn(["which", "claude"]).exited) === 0;
 
 /** Poll a condition until true or timeout */
 async function waitFor(
@@ -65,13 +71,15 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     daemon = new Daemon(storeDir);
     daemon.start(socketPath);
     daemon.startWs(0);
-    wsPort = daemon.wsPort!;
+    const port = daemon.wsPort;
+    if (!port) throw new Error("expected wsPort");
+    wsPort = port;
 
     SessionManager.setRunnerCommand(resolveRunnerCommand());
   });
 
   afterEach(() => {
-    SessionManager.setRunnerCommand(null as any);
+    SessionManager.setRunnerCommand(null as unknown as string[]);
     daemon.stop();
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -92,14 +100,14 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     }, 60000);
 
     const session = store.getSession(sid);
-    expect(session).toBeDefined();
-    expect(session!.state).toBe("stopped");
-    expect(session!.last_seq).toBeGreaterThanOrEqual(1);
+    if (!session) throw new Error("expected session");
+    expect(session.state).toBe("stopped");
+    expect(session.last_seq).toBeGreaterThanOrEqual(1);
 
     // Read all io records and concatenate payloads
     const db = store.getSessionDb(sid);
-    expect(db).toBeDefined();
-    const records = db!.getRecordsFrom(0);
+    if (!db) throw new Error("expected db");
+    const records = db.getRecordsFrom(0);
     const ioRecords = records.filter((r) => r.kind === "io");
     expect(ioRecords.length).toBeGreaterThanOrEqual(1);
 
@@ -136,7 +144,8 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     expect(session).toBeDefined();
 
     const db = store.getSessionDb(sid);
-    const records = db!.getRecordsFrom(0);
+    if (!db) throw new Error("expected db");
+    const records = db.getRecordsFrom(0);
     const ioRecords = records.filter((r) => r.kind === "io");
 
     const fullOutput = ioRecords
@@ -165,7 +174,7 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     ws.send(JSON.stringify({ t: "attach", sid }));
     await Bun.sleep(50);
 
-    const wsMessages: any[] = [];
+    const wsMessages: WsServerMessage[] = [];
     ws.onmessage = (e) => wsMessages.push(JSON.parse(e.data as string));
 
     // Start the session with a quick claude command
@@ -180,7 +189,7 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     );
 
     // Should have received rec messages via WS
-    const recMessages = wsMessages.filter((m: any) => m.t === "rec");
+    const recMessages = wsMessages.filter((m): m is WsRec => m.t === "rec");
     expect(recMessages.length).toBeGreaterThanOrEqual(1);
 
     // First rec should be io kind with PTY data
@@ -192,7 +201,7 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     expect(payload.length).toBeGreaterThan(0);
 
     // Should have state updates
-    const stateMessages = wsMessages.filter((m: any) => m.t === "state");
+    const stateMessages = wsMessages.filter((m) => m.t === "state");
     expect(stateMessages.length).toBeGreaterThanOrEqual(1);
 
     ws.close();
@@ -213,7 +222,9 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
       return s?.state === "stopped";
     }, 15000);
 
-    const totalSeq = store.getSession(sid)!.last_seq;
+    const resumeSession = store.getSession(sid);
+    if (!resumeSession) throw new Error("expected session");
+    const totalSeq = resumeSession.last_seq;
     expect(totalSeq).toBeGreaterThanOrEqual(1);
     store.close();
 
@@ -223,7 +234,7 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
 
     const helloReply = waitForWsMessage(ws);
     ws.send(JSON.stringify({ t: "hello", v: 1 }));
-    const hello = (await helloReply) as any;
+    const hello = (await helloReply) as WsHelloReply;
 
     // Session should appear in the session list
     expect(hello.d.sessions.length).toBe(1);
@@ -233,7 +244,7 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     // Resume from cursor 0 → should get all records as batch
     const batchReply = waitForWsMessage(ws);
     ws.send(JSON.stringify({ t: "resume", sid, c: 0 }));
-    const batch = (await batchReply) as any;
+    const batch = (await batchReply) as WsBatch;
 
     expect(batch.t).toBe("batch");
     expect(batch.d.length).toBe(totalSeq);
@@ -264,8 +275,8 @@ describe.skipIf(!claudeAvailable)("E2E with real claude", () => {
     }, 60000);
 
     const db = store.getSessionDb(sid);
-    expect(db).toBeDefined();
-    const records = db!.getRecordsFrom(0);
+    if (!db) throw new Error("expected db");
+    const records = db.getRecordsFrom(0);
 
     // Should have both io and event records
     const ioRecords = records.filter((r) => r.kind === "io");

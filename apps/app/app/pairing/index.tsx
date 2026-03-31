@@ -1,13 +1,13 @@
+import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-  View,
+  ActivityIndicator,
+  Platform,
+  Pressable,
   Text,
   TextInput,
-  Pressable,
-  Platform,
-  ActivityIndicator,
+  View,
 } from "react-native";
-import { useRouter } from "expo-router";
 import { usePairingStore } from "../../src/stores/pairing-store";
 
 export default function PairingScreen() {

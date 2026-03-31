@@ -1,16 +1,22 @@
-import { join } from "path";
-import { mkdir, writeFile, unlink } from "fs/promises";
 import { existsSync } from "fs";
+import { mkdir, unlink, writeFile } from "fs/promises";
+import { join } from "path";
 
 const LABEL = "dev.tpmt.daemon";
 
 function getPlistPath(): string {
-  return join(process.env.HOME ?? "/tmp", "Library", "LaunchAgents", `${LABEL}.plist`);
+  return join(
+    process.env.HOME ?? "/tmp",
+    "Library",
+    "LaunchAgents",
+    `${LABEL}.plist`,
+  );
 }
 
 function getLogDir(): string {
   return join(
-    process.env.XDG_DATA_HOME ?? join(process.env.HOME ?? "/tmp", ".local", "share"),
+    process.env.XDG_DATA_HOME ??
+      join(process.env.HOME ?? "/tmp", ".local", "share"),
     "teleprompter",
     "logs",
   );
@@ -70,7 +76,9 @@ export async function installDarwin(): Promise<void> {
   await mkdir(logDir, { recursive: true });
 
   // Create LaunchAgents directory
-  await mkdir(join(process.env.HOME ?? "/tmp", "Library", "LaunchAgents"), { recursive: true });
+  await mkdir(join(process.env.HOME ?? "/tmp", "Library", "LaunchAgents"), {
+    recursive: true,
+  });
 
   // Generate and write plist
   const plist = generatePlist(tpBinary, logDir);

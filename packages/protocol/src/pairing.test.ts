@@ -1,17 +1,11 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import { decrypt, deriveSessionKeys, encrypt, generateKeyPair } from "./crypto";
 import {
   createPairingBundle,
-  encodePairingData,
   decodePairingData,
+  encodePairingData,
   parsePairingForFrontend,
 } from "./pairing";
-import {
-  generateKeyPair,
-  deriveSessionKeys,
-  encrypt,
-  decrypt,
-  deriveRelayToken,
-} from "./crypto";
 
 describe("pairing", () => {
   test("creates pairing bundle with all required fields", async () => {

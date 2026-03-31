@@ -7,7 +7,7 @@
 
 import { Platform } from "react-native";
 
-let SecureStore: any = null;
+let SecureStore: typeof import("expo-secure-store") | null = null;
 if (Platform.OS !== "web") {
   try {
     SecureStore = require("expo-secure-store");

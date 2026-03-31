@@ -5,9 +5,9 @@
  * N:1 relationship — multiple sessions per worktree allowed.
  */
 
+import { createLogger } from "@teleprompter/protocol";
 import { execSync } from "child_process";
 import { readFileSync, unlinkSync } from "fs";
-import { createLogger } from "@teleprompter/protocol";
 
 const log = createLogger("WorktreeManager");
 
@@ -35,7 +35,9 @@ function gitOutput(args: string[]): string {
     execSync(`git ${shellEscape(args)} > '${tmpFile}'`, { stdio: "ignore" });
     return readFileSync(tmpFile, "utf-8");
   } finally {
-    try { unlinkSync(tmpFile); } catch {}
+    try {
+      unlinkSync(tmpFile);
+    } catch {}
   }
 }
 
@@ -61,7 +63,13 @@ export class WorktreeManager {
   async list(): Promise<WorktreeInfo[]> {
     let result: string;
     try {
-      result = gitOutput(["-C", this.repoRoot, "worktree", "list", "--porcelain"]);
+      result = gitOutput([
+        "-C",
+        this.repoRoot,
+        "worktree",
+        "list",
+        "--porcelain",
+      ]);
     } catch {
       return [];
     }
@@ -82,9 +90,7 @@ export class WorktreeManager {
       } else if (line.startsWith("branch ")) {
         // refs/heads/main → main
         const ref = line.slice(7);
-        current.branch = ref.startsWith("refs/heads/")
-          ? ref.slice(11)
-          : ref;
+        current.branch = ref.startsWith("refs/heads/") ? ref.slice(11) : ref;
       } else if (line === "bare") {
         current.isMain = true;
       } else if (line === "") {
@@ -127,7 +133,16 @@ export class WorktreeManager {
     if (branchExists) {
       gitRun(["-C", this.repoRoot, "worktree", "add", path, branch]);
     } else if (baseBranch) {
-      gitRun(["-C", this.repoRoot, "worktree", "add", "-b", branch, path, baseBranch]);
+      gitRun([
+        "-C",
+        this.repoRoot,
+        "worktree",
+        "add",
+        "-b",
+        branch,
+        path,
+        baseBranch,
+      ]);
     } else {
       gitRun(["-C", this.repoRoot, "worktree", "add", "-b", branch, path]);
     }

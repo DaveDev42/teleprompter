@@ -1,28 +1,44 @@
+import { completionsCommand } from "./commands/completions";
 import { daemonCommand } from "./commands/daemon";
-import { runCommand } from "./commands/run";
-import { relayCommand } from "./commands/relay";
-import { versionCommand } from "./commands/version";
-import { pairCommand } from "./commands/pair";
-import { statusCommand } from "./commands/status";
-import { logsCommand } from "./commands/logs";
 import { doctorCommand } from "./commands/doctor";
 import { initCommand } from "./commands/init";
-import { upgradeCommand, checkForUpdates } from "./commands/upgrade";
-import { completionsCommand } from "./commands/completions";
+import { logsCommand } from "./commands/logs";
+import { pairCommand } from "./commands/pair";
 import { passthroughCommand } from "./commands/passthrough";
+import { relayCommand } from "./commands/relay";
+import { runCommand } from "./commands/run";
+import { statusCommand } from "./commands/status";
+import { checkForUpdates, upgradeCommand } from "./commands/upgrade";
+import { versionCommand } from "./commands/version";
 
 const command = process.argv[2];
 
 const SUBCOMMANDS = new Set([
-  "daemon", "run", "relay", "pair", "status", "logs",
-  "doctor", "init", "upgrade", "completions", "version",
+  "daemon",
+  "run",
+  "relay",
+  "pair",
+  "status",
+  "logs",
+  "doctor",
+  "init",
+  "upgrade",
+  "completions",
+  "version",
 ]);
 
 // Background version check (non-blocking, only for passthrough mode)
-if (!SUBCOMMANDS.has(command ?? "") && command !== "--help" && command !== "-h" && command !== undefined) {
+if (
+  !SUBCOMMANDS.has(command ?? "") &&
+  command !== "--help" &&
+  command !== "-h" &&
+  command !== undefined
+) {
   checkForUpdates().then((newVersion) => {
     if (newVersion) {
-      console.error(`\x1b[33m[tp] New version available: ${newVersion}. Run 'tp upgrade' to update.\x1b[0m`);
+      console.error(
+        `\x1b[33m[tp] New version available: ${newVersion}. Run 'tp upgrade' to update.\x1b[0m`,
+      );
     }
   });
 }

@@ -1,5 +1,5 @@
-import { create } from "zustand";
 import type { WsRec, WsSessionMeta } from "@teleprompter/protocol/client";
+import { create } from "zustand";
 
 export type RecHandler = (rec: WsRec) => void;
 
@@ -43,10 +43,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   _recHandlers: new Set(),
 
   setSid: (sid) => set({ sid }),
-  setConnected: (connected) => set({ connected, lastError: connected ? null : get().lastError }),
+  setConnected: (connected) =>
+    set({ connected, lastError: connected ? null : get().lastError }),
   setLastSeq: (seq) => set({ lastSeq: seq }),
   setError: (error) => set({ lastError: error }),
-  incrementReconnect: () => set((s) => ({ reconnectCount: s.reconnectCount + 1 })),
+  incrementReconnect: () =>
+    set((s) => ({ reconnectCount: s.reconnectCount + 1 })),
   setSessions: (sessions) => set({ sessions }),
   updateSession: (sid, meta) => {
     set((s) => {

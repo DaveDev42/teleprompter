@@ -1,6 +1,6 @@
-import { join } from "path";
 import { mkdirSync } from "fs";
 import { homedir } from "os";
+import { join } from "path";
 
 export function getStoreDir(): string {
   const dataHome =

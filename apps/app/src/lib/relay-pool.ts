@@ -6,13 +6,9 @@
  * Also supports round-robin session routing (future).
  */
 
-import {
-  FrontendRelayClient,
-  type FrontendRelayConfig,
-  type FrontendRelayEvents,
-} from "./relay-client";
-import type { RelayEndpoint } from "../stores/relay-settings-store";
 import type { KeyPair } from "@teleprompter/protocol/client";
+import type { RelayEndpoint } from "../stores/relay-settings-store";
+import { FrontendRelayClient, type FrontendRelayEvents } from "./relay-client";
 
 const FAILOVER_DELAY_MS = 2000;
 

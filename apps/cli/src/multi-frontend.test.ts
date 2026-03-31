@@ -1,23 +1,23 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Daemon, SessionManager } from "@teleprompter/daemon";
-import { RelayServer } from "@teleprompter/relay";
 import {
   createPairingBundle,
-  generateKeyPair,
-  deriveSessionKeys,
-  deriveKxKey,
-  encrypt,
   decrypt,
-  toBase64,
+  deriveKxKey,
+  deriveSessionKeys,
   encodeFrame,
+  encrypt,
   FrameDecoder,
-  type WsRec,
+  generateKeyPair,
+  type IpcMessage,
   type RelayServerMessage,
+  toBase64,
 } from "@teleprompter/protocol";
-import { connect } from "net";
+import { RelayServer } from "@teleprompter/relay";
 import { mkdtemp, rm } from "fs/promises";
-import { join } from "path";
+import { connect } from "net";
 import { tmpdir } from "os";
+import { join } from "path";
 
 /**
  * Multi-frontend E2E test:
@@ -75,12 +75,19 @@ describe("Multi-Frontend N:N E2E", () => {
 
     // Connect frontend A
     const wsA = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => { wsA.onopen = () => r(); });
-    wsA.send(JSON.stringify({
-      t: "relay.auth", v: 2, role: "frontend",
-      daemonId: "multi-daemon", token: bundle.relayToken,
-      frontendId: "frontend-A",
-    }));
+    await new Promise<void>((r) => {
+      wsA.onopen = () => r();
+    });
+    wsA.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 2,
+        role: "frontend",
+        daemonId: "multi-daemon",
+        token: bundle.relayToken,
+        frontendId: "frontend-A",
+      }),
+    );
     await waitMsg(wsA, (m) => m.t === "relay.auth.ok");
 
     // Frontend A key exchange
@@ -89,21 +96,30 @@ describe("Multi-Frontend N:N E2E", () => {
       frontendId: "frontend-A",
       role: "frontend",
     });
-    wsA.send(JSON.stringify({
-      t: "relay.kx",
-      ct: await encrypt(new TextEncoder().encode(kxA), kxKey),
-      role: "frontend",
-    }));
+    wsA.send(
+      JSON.stringify({
+        t: "relay.kx",
+        ct: await encrypt(new TextEncoder().encode(kxA), kxKey),
+        role: "frontend",
+      }),
+    );
     await Bun.sleep(200);
 
     // Connect frontend B
     const wsB = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => { wsB.onopen = () => r(); });
-    wsB.send(JSON.stringify({
-      t: "relay.auth", v: 2, role: "frontend",
-      daemonId: "multi-daemon", token: bundle.relayToken,
-      frontendId: "frontend-B",
-    }));
+    await new Promise<void>((r) => {
+      wsB.onopen = () => r();
+    });
+    wsB.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 2,
+        role: "frontend",
+        daemonId: "multi-daemon",
+        token: bundle.relayToken,
+        frontendId: "frontend-B",
+      }),
+    );
     await waitMsg(wsB, (m) => m.t === "relay.auth.ok");
 
     // Frontend B key exchange
@@ -112,11 +128,13 @@ describe("Multi-Frontend N:N E2E", () => {
       frontendId: "frontend-B",
       role: "frontend",
     });
-    wsB.send(JSON.stringify({
-      t: "relay.kx",
-      ct: await encrypt(new TextEncoder().encode(kxB), kxKey),
-      role: "frontend",
-    }));
+    wsB.send(
+      JSON.stringify({
+        t: "relay.kx",
+        ct: await encrypt(new TextEncoder().encode(kxB), kxKey),
+        role: "frontend",
+      }),
+    );
     await Bun.sleep(300);
 
     // Both subscribe to the same session
@@ -125,31 +143,49 @@ describe("Multi-Frontend N:N E2E", () => {
     await Bun.sleep(100);
 
     // Set up frame collection BEFORE sending the record
-    const keysA = await deriveSessionKeys(frontendAKp, bundle.keyPair.publicKey, "frontend");
-    const keysB = await deriveSessionKeys(frontendBKp, bundle.keyPair.publicKey, "frontend");
+    const keysA = await deriveSessionKeys(
+      frontendAKp,
+      bundle.keyPair.publicKey,
+      "frontend",
+    );
+    const keysB = await deriveSessionKeys(
+      frontendBKp,
+      bundle.keyPair.publicKey,
+      "frontend",
+    );
     const framesAPromise = collectFrames(wsA, 2);
     const framesBPromise = collectFrames(wsB, 2);
 
     // Simulate runner sending a record via IPC
-    const socketPath = (daemon as any).socketPath;
+    const socketPath = (daemon as unknown as { socketPath: string }).socketPath;
     const ipc = connect(socketPath);
-    await new Promise<void>((r) => { ipc.on("connect", () => r()); });
+    await new Promise<void>((r) => {
+      ipc.on("connect", () => r());
+    });
 
-    ipc.write(Buffer.from(encodeFrame({
-      t: "hello",
-      sid: "test-session",
-      cwd: "/tmp",
-      pid: process.pid,
-    })));
+    ipc.write(
+      Buffer.from(
+        encodeFrame({
+          t: "hello",
+          sid: "test-session",
+          cwd: "/tmp",
+          pid: process.pid,
+        }),
+      ),
+    );
     await Bun.sleep(100);
 
-    ipc.write(Buffer.from(encodeFrame({
-      t: "rec",
-      sid: "test-session",
-      kind: "io",
-      payload: Buffer.from("shared record").toString("base64"),
-      ts: Date.now(),
-    })));
+    ipc.write(
+      Buffer.from(
+        encodeFrame({
+          t: "rec",
+          sid: "test-session",
+          kind: "io",
+          payload: Buffer.from("shared record").toString("base64"),
+          ts: Date.now(),
+        }),
+      ),
+    );
 
     // Wait for frames
     const framesA = await framesAPromise;
@@ -211,12 +247,19 @@ describe("Multi-Frontend N:N E2E", () => {
 
     // Connect frontend
     const ws = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => { ws.onopen = () => r(); });
-    ws.send(JSON.stringify({
-      t: "relay.auth", v: 2, role: "frontend",
-      daemonId: "multi-input", token: bundle.relayToken,
-      frontendId: "input-frontend",
-    }));
+    await new Promise<void>((r) => {
+      ws.onopen = () => r();
+    });
+    ws.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 2,
+        role: "frontend",
+        daemonId: "multi-input",
+        token: bundle.relayToken,
+        frontendId: "input-frontend",
+      }),
+    );
     await waitMsg(ws, (m) => m.t === "relay.auth.ok");
 
     // Key exchange
@@ -225,46 +268,69 @@ describe("Multi-Frontend N:N E2E", () => {
       frontendId: "input-frontend",
       role: "frontend",
     });
-    ws.send(JSON.stringify({
-      t: "relay.kx",
-      ct: await encrypt(new TextEncoder().encode(kxPayload), kxKey),
-      role: "frontend",
-    }));
+    ws.send(
+      JSON.stringify({
+        t: "relay.kx",
+        ct: await encrypt(new TextEncoder().encode(kxPayload), kxKey),
+        role: "frontend",
+      }),
+    );
     await Bun.sleep(300);
 
     // Connect runner via IPC
-    const socketPath = (daemon as any).socketPath;
+    const socketPath = (daemon as unknown as { socketPath: string }).socketPath;
     const ipc = connect(socketPath);
-    await new Promise<void>((r) => { ipc.on("connect", () => r()); });
+    await new Promise<void>((r) => {
+      ipc.on("connect", () => r());
+    });
 
-    ipc.write(Buffer.from(encodeFrame({
-      t: "hello", sid: "input-session", cwd: "/tmp", pid: process.pid,
-    })));
+    ipc.write(
+      Buffer.from(
+        encodeFrame({
+          t: "hello",
+          sid: "input-session",
+          cwd: "/tmp",
+          pid: process.pid,
+        }),
+      ),
+    );
     await Bun.sleep(100);
 
     // Collect IPC messages
     const decoder = new FrameDecoder();
-    const ipcMessages: any[] = [];
+    const ipcMessages: IpcMessage[] = [];
     ipc.on("data", (data: Buffer) => {
       ipcMessages.push(
-        ...decoder.decode(new Uint8Array(data.buffer, data.byteOffset, data.byteLength)),
+        ...(decoder.decode(
+          new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+        ) as IpcMessage[]),
       );
     });
 
     // Frontend sends encrypted input
-    const frontendKeys = await deriveSessionKeys(frontendKp, bundle.keyPair.publicKey, "frontend");
-    const inputMsg = { t: "in.chat", sid: "input-session", d: "Hello via relay!" };
+    const frontendKeys = await deriveSessionKeys(
+      frontendKp,
+      bundle.keyPair.publicKey,
+      "frontend",
+    );
+    const inputMsg = {
+      t: "in.chat",
+      sid: "input-session",
+      d: "Hello via relay!",
+    };
     const ct = await encrypt(
       new TextEncoder().encode(JSON.stringify(inputMsg)),
       frontendKeys.tx,
     );
-    ws.send(JSON.stringify({ t: "relay.pub", sid: "input-session", ct, seq: 1 }));
+    ws.send(
+      JSON.stringify({ t: "relay.pub", sid: "input-session", ct, seq: 1 }),
+    );
 
     await Bun.sleep(300);
 
     // Runner should receive the input
     const inputIpc = ipcMessages.find((m) => m.t === "input");
-    expect(inputIpc).toBeDefined();
+    if (!inputIpc) throw new Error("expected inputIpc");
     expect(inputIpc.sid).toBe("input-session");
 
     ipc.end();
@@ -299,7 +365,7 @@ function collectFrames(
 
 function waitMsg(
   ws: WebSocket,
-  pred: (m: any) => boolean,
+  pred: (m: RelayServerMessage) => boolean,
 ): Promise<RelayServerMessage> {
   return new Promise((resolve, reject) => {
     const handler = (e: MessageEvent) => {

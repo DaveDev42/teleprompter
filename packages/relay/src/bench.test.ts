@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { RelayServer } from "./relay-server";
 
 describe("Relay Performance", () => {
@@ -15,16 +15,32 @@ describe("Relay Performance", () => {
 
   test("throughput: 100 frames daemon→frontend", async () => {
     const daemon = new WebSocket(`ws://localhost:${port}`);
-    await new Promise<void>((r) => { daemon.onopen = () => r(); });
-    daemon.send(JSON.stringify({
-      t: "relay.auth", v: 1, role: "daemon", daemonId: "bench-daemon", token: "bench-token",
-    }));
+    await new Promise<void>((r) => {
+      daemon.onopen = () => r();
+    });
+    daemon.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "daemon",
+        daemonId: "bench-daemon",
+        token: "bench-token",
+      }),
+    );
 
     const frontend = new WebSocket(`ws://localhost:${port}`);
-    await new Promise<void>((r) => { frontend.onopen = () => r(); });
-    frontend.send(JSON.stringify({
-      t: "relay.auth", v: 1, role: "frontend", daemonId: "bench-daemon", token: "bench-token",
-    }));
+    await new Promise<void>((r) => {
+      frontend.onopen = () => r();
+    });
+    frontend.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "frontend",
+        daemonId: "bench-daemon",
+        token: "bench-token",
+      }),
+    );
     await Bun.sleep(100);
 
     frontend.send(JSON.stringify({ t: "relay.sub", sid: "bench" }));
@@ -39,9 +55,14 @@ describe("Relay Performance", () => {
     const COUNT = 100;
     const start = Date.now();
     for (let i = 0; i < COUNT; i++) {
-      daemon.send(JSON.stringify({
-        t: "relay.pub", sid: "bench", ct: "data-" + i, seq: i,
-      }));
+      daemon.send(
+        JSON.stringify({
+          t: "relay.pub",
+          sid: "bench",
+          ct: `data-${i}`,
+          seq: i,
+        }),
+      );
     }
 
     // Wait with short polls

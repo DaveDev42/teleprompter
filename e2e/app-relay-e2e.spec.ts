@@ -1,5 +1,5 @@
-import { test, expect } from "@playwright/test";
-import { spawn, execSync, type ChildProcess } from "child_process";
+import { expect, test } from "@playwright/test";
+import { type ChildProcess, execSync, spawn } from "child_process";
 
 /**
  * Full relay E2E: Runner → Daemon → Relay → App (via Playwright)
@@ -28,7 +28,11 @@ function extractPairingJson(output: string): string {
   return match[0];
 }
 
-function waitForOutput(proc: ChildProcess, pattern: string, timeoutMs = 8000): Promise<void> {
+function waitForOutput(
+  proc: ChildProcess,
+  pattern: string,
+  timeoutMs = 8000,
+): Promise<void> {
   return new Promise<void>((resolve) => {
     const timeout = setTimeout(() => resolve(), timeoutMs);
     const handler = (data: Buffer) => {
@@ -44,47 +48,88 @@ function waitForOutput(proc: ChildProcess, pattern: string, timeoutMs = 8000): P
 
 test.describe("Full Relay E2E — Runner → Daemon → Relay → App", () => {
   test.beforeAll(async () => {
-    try { execSync("pkill -f 'relay start --port 17090'", { stdio: "ignore" }); } catch {}
-    try { execSync("pkill -f 'relay-e2e'", { stdio: "ignore" }); } catch {}
+    try {
+      execSync("pkill -f 'relay start --port 17090'", { stdio: "ignore" });
+    } catch {}
+    try {
+      execSync("pkill -f 'relay-e2e'", { stdio: "ignore" });
+    } catch {}
     await new Promise((r) => setTimeout(r, 1000));
 
     // 1. Generate pairing data for daemon A
-    pairingJsonA = extractPairingJson(execSync(
-      `bun run apps/cli/src/index.ts pair --relay ws://localhost:${RELAY_PORT} --daemon-id relay-e2e-A`,
-      { encoding: "utf-8" },
-    ));
+    pairingJsonA = extractPairingJson(
+      execSync(
+        `bun run apps/cli/src/index.ts pair --relay ws://localhost:${RELAY_PORT} --daemon-id relay-e2e-A`,
+        { encoding: "utf-8" },
+      ),
+    );
 
     // 2. Start relay (registers daemon A's token from pairing.json)
-    relay = spawn("bun", [
-      "run", "apps/cli/src/index.ts",
-      "relay", "start", "--port", String(RELAY_PORT), "--register-pairing",
-    ], { stdio: "pipe", env: { ...process.env, LOG_LEVEL: "error" } });
+    relay = spawn(
+      "bun",
+      [
+        "run",
+        "apps/cli/src/index.ts",
+        "relay",
+        "start",
+        "--port",
+        String(RELAY_PORT),
+        "--register-pairing",
+      ],
+      { stdio: "pipe", env: { ...process.env, LOG_LEVEL: "error" } },
+    );
     await waitForOutput(relay, "listening");
 
     // 3. Start daemon A (connects to relay via saved pairing.json)
-    daemonA = spawn("bun", [
-      "run", "apps/cli/src/index.ts",
-      "daemon", "start", "--ws-port", "7080",
-      "--spawn", "--sid", "session-A", "--cwd", "/tmp",
-    ], { stdio: "pipe", env: { ...process.env, LOG_LEVEL: "error" } });
+    daemonA = spawn(
+      "bun",
+      [
+        "run",
+        "apps/cli/src/index.ts",
+        "daemon",
+        "start",
+        "--ws-port",
+        "7080",
+        "--spawn",
+        "--sid",
+        "session-A",
+        "--cwd",
+        "/tmp",
+      ],
+      { stdio: "pipe", env: { ...process.env, LOG_LEVEL: "error" } },
+    );
     await waitForOutput(daemonA, "press Ctrl+C");
     await new Promise((r) => setTimeout(r, 1000));
 
     // 4. Generate pairing data for daemon B (different daemon-id, same relay)
-    pairingJsonB = extractPairingJson(execSync(
-      `bun run apps/cli/src/index.ts pair --relay ws://localhost:${RELAY_PORT} --daemon-id relay-e2e-B`,
-      { encoding: "utf-8" },
-    ));
+    pairingJsonB = extractPairingJson(
+      execSync(
+        `bun run apps/cli/src/index.ts pair --relay ws://localhost:${RELAY_PORT} --daemon-id relay-e2e-B`,
+        { encoding: "utf-8" },
+      ),
+    );
 
     // 5. Register daemon B's token on the running relay
     //    (relay CLI --register-pairing only loads the latest pairing.json,
     //     but daemon B self-registers via relay.register on connect)
     // 6. Start daemon B on a different WS port
-    daemonB = spawn("bun", [
-      "run", "apps/cli/src/index.ts",
-      "daemon", "start", "--ws-port", "7081",
-      "--spawn", "--sid", "session-B", "--cwd", "/tmp",
-    ], { stdio: "pipe", env: { ...process.env, LOG_LEVEL: "error" } });
+    daemonB = spawn(
+      "bun",
+      [
+        "run",
+        "apps/cli/src/index.ts",
+        "daemon",
+        "start",
+        "--ws-port",
+        "7081",
+        "--spawn",
+        "--sid",
+        "session-B",
+        "--cwd",
+        "/tmp",
+      ],
+      { stdio: "pipe", env: { ...process.env, LOG_LEVEL: "error" } },
+    );
     await waitForOutput(daemonB, "press Ctrl+C");
     await new Promise((r) => setTimeout(r, 1000));
   });
@@ -96,7 +141,10 @@ test.describe("Full Relay E2E — Runner → Daemon → Relay → App", () => {
     await new Promise((r) => setTimeout(r, 2000));
   });
 
-  async function pairWithDaemon(page: any, json: string) {
+  async function pairWithDaemon(
+    page: import("@playwright/test").Page,
+    json: string,
+  ) {
     // Navigate to Settings
     await page.locator("text=Settings").last().click();
     await page.waitForTimeout(500);
@@ -129,7 +177,9 @@ test.describe("Full Relay E2E — Runner → Daemon → Relay → App", () => {
     expect(body).toContain("relay-e2e-A");
   });
 
-  test("N:N — app shows two paired daemons simultaneously", async ({ page }) => {
+  test("N:N — app shows two paired daemons simultaneously", async ({
+    page,
+  }) => {
     await page.goto("/");
     await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
     await page.waitForTimeout(2000);

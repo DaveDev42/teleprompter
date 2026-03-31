@@ -25,7 +25,8 @@ export class QueuedWriter {
 
   drain(socket: Writable): boolean {
     while (this.queue.length > 0) {
-      const chunk = this.queue[0]!;
+      const chunk = this.queue[0];
+      if (!chunk) break;
       const written = socket.write(chunk);
       if (written === 0) return false;
       if (written < chunk.byteLength) {

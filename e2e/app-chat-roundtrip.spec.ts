@@ -1,5 +1,5 @@
-import { test, expect } from "@playwright/test";
-import { spawn, execSync, type ChildProcess } from "child_process";
+import { expect, test } from "@playwright/test";
+import { type ChildProcess, execSync, spawn } from "child_process";
 
 /**
  * P0: Chat → Claude → response roundtrip
@@ -12,17 +12,31 @@ let daemon: ChildProcess;
 
 test.describe("P0 — Chat Roundtrip", () => {
   test.beforeAll(async () => {
-    try { execSync("pkill -f 'daemon start'", { stdio: "ignore" }); } catch {}
+    try {
+      execSync("pkill -f 'daemon start'", { stdio: "ignore" });
+    } catch {}
     await new Promise((r) => setTimeout(r, 2000));
 
-    daemon = spawn("bun", [
-      "run", "apps/cli/src/index.ts",
-      "daemon", "start", "--ws-port", "7080",
-      "--spawn", "--sid", "chat-rt", "--cwd", "/tmp",
-    ], {
-      stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, LOG_LEVEL: "error" },
-    });
+    daemon = spawn(
+      "bun",
+      [
+        "run",
+        "apps/cli/src/index.ts",
+        "daemon",
+        "start",
+        "--ws-port",
+        "7080",
+        "--spawn",
+        "--sid",
+        "chat-rt",
+        "--cwd",
+        "/tmp",
+      ],
+      {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: { ...process.env, LOG_LEVEL: "error" },
+      },
+    );
 
     // Wait for session to be running
     await new Promise<void>((resolve) => {
@@ -34,12 +48,21 @@ test.describe("P0 — Chat Roundtrip", () => {
           ws.onopen = () => ws.send(JSON.stringify({ t: "hello", v: 1 }));
           ws.onmessage = (e) => {
             const msg = JSON.parse(e.data as string);
-            if (msg.t === "hello" && msg.d.sessions.some((s: any) => s.sid === "chat-rt" && s.state === "running")) {
+            if (
+              msg.t === "hello" &&
+              msg.d.sessions.some(
+                (s: { sid: string; state: string }) =>
+                  s.sid === "chat-rt" && s.state === "running",
+              )
+            ) {
               ws.close();
               resolve();
             }
           };
-          setTimeout(() => { ws.close(); resolve(); }, 10000);
+          setTimeout(() => {
+            ws.close();
+            resolve();
+          }, 10000);
         }
       });
       setTimeout(resolve, 25000);
@@ -51,7 +74,9 @@ test.describe("P0 — Chat Roundtrip", () => {
     await new Promise((r) => setTimeout(r, 2000));
   });
 
-  test("app receives PTY streaming data from Claude in Chat", async ({ page }) => {
+  test("app receives PTY streaming data from Claude in Chat", async ({
+    page,
+  }) => {
     // Resize to mobile to show tab bar
     await page.setViewportSize({ width: 400, height: 800 });
 
@@ -61,7 +86,7 @@ test.describe("P0 — Chat Roundtrip", () => {
     // Wait for session attach
     for (let i = 0; i < 20; i++) {
       await page.waitForTimeout(1000);
-      const text = await page.locator("body").textContent() ?? "";
+      const text = (await page.locator("body").textContent()) ?? "";
       if (text.includes("chat-rt")) break;
     }
 
@@ -70,10 +95,10 @@ test.describe("P0 — Chat Roundtrip", () => {
 
     await page.screenshot({ path: "/tmp/pw-chat-content.png" });
 
-    const bodyText = await page.locator("body").textContent() ?? "";
+    const bodyText = (await page.locator("body").textContent()) ?? "";
     const hasSession = bodyText.includes("chat-rt");
     // Chat should have content from Claude PTY (not just "Waiting for session")
-    const hasStreamingContent = bodyText.length > 200;
+    const _hasStreamingContent = bodyText.length > 200;
 
     console.log(`Session: ${hasSession}, body length: ${bodyText.length}`);
     console.log(`Preview: ${bodyText.substring(0, 300)}`);
@@ -89,7 +114,7 @@ test.describe("P0 — Chat Roundtrip", () => {
     // Wait for session
     for (let i = 0; i < 15; i++) {
       await page.waitForTimeout(1000);
-      const text = await page.locator("body").textContent() ?? "";
+      const text = (await page.locator("body").textContent()) ?? "";
       if (text.includes("chat-rt")) break;
     }
 
@@ -98,10 +123,12 @@ test.describe("P0 — Chat Roundtrip", () => {
     await expect(input).toBeVisible({ timeout: 10_000 });
 
     // Check it's editable (not disabled/readonly)
-    const isEditable = await input.evaluate((el: HTMLElement) => {
-      const inp = el as HTMLInputElement | HTMLTextAreaElement;
-      return !inp.disabled && !inp.readOnly;
-    }).catch(() => false);
+    const isEditable = await input
+      .evaluate((el: HTMLElement) => {
+        const inp = el as HTMLInputElement | HTMLTextAreaElement;
+        return !inp.disabled && !inp.readOnly;
+      })
+      .catch(() => false);
 
     expect(isEditable).toBe(true);
 

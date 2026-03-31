@@ -185,6 +185,13 @@ export interface WsWorktreeRemoved {
   path: string;
 }
 
+export interface WsSessionExported {
+  t: "session.exported";
+  sid: string;
+  format: "json" | "markdown";
+  d: string;
+}
+
 export type WsServerMessage =
   | WsHelloReply
   | WsState
@@ -194,4 +201,5 @@ export type WsServerMessage =
   | WsErr
   | WsWorktreeListReply
   | WsWorktreeCreated
-  | WsWorktreeRemoved;
+  | WsWorktreeRemoved
+  | WsSessionExported;

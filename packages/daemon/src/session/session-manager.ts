@@ -4,7 +4,7 @@ import { createLogger } from "@teleprompter/protocol";
 
 const log = createLogger("SessionManager");
 
-interface RunnerInfo {
+export interface RunnerInfo {
   sid: string;
   pid: number;
   cwd: string;

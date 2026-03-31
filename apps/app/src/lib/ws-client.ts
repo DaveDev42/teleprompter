@@ -168,10 +168,10 @@ export class DaemonWsClient {
         this.handlers.onError?.(msg.m ?? msg.e);
         break;
       case "worktree.list":
-        this.handlers.onWorktreeList?.((msg as any).d);
+        this.handlers.onWorktreeList?.(msg.d);
         break;
       case "worktree.created":
-        this.handlers.onWorktreeCreated?.((msg as any).d, (msg as any).sid);
+        this.handlers.onWorktreeCreated?.(msg.d, msg.sid);
         break;
     }
   }

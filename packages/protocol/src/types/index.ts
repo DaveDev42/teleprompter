@@ -43,6 +43,7 @@ export type {
   WsWorktreeListReply,
   WsWorktreeCreated,
   WsWorktreeRemoved,
+  WsSessionExported,
   WsServerMessage,
 } from "./ws";
 export type {

@@ -60,9 +60,7 @@ describe("Daemon worktree WS protocol", () => {
     daemon.startWs(0);
     daemon.setRepoRoot(repoDir);
 
-    // Get the actual WS port
-    // Access via the internal wsServer port
-    wsPort = (daemon as any).wsServer.port;
+    wsPort = daemon.wsPort!;
   });
 
   afterEach(async () => {
@@ -79,7 +77,7 @@ describe("Daemon worktree WS protocol", () => {
     const reply = await waitMsg(ws, (m) => m.t === "worktree.list");
 
     expect(reply.t).toBe("worktree.list");
-    const worktrees = (reply as any).d;
+    const worktrees = (reply as { d: unknown[] }).d;
     expect(worktrees.length).toBeGreaterThanOrEqual(1);
 
     ws.close();
@@ -115,7 +113,7 @@ describe("Daemon worktree WS protocol", () => {
     const d2 = new Daemon();
     d2.start();
     d2.startWs(0);
-    const p2 = (d2 as any).wsServer.port;
+    const p2 = d2.wsPort!;
 
     const ws = await connectWs(p2);
     ws.send(JSON.stringify({ t: "hello" }));
@@ -123,7 +121,7 @@ describe("Daemon worktree WS protocol", () => {
 
     ws.send(JSON.stringify({ t: "worktree.list" }));
     const err = await waitMsg(ws, (m) => m.t === "err");
-    expect((err as any).e).toBe("NO_REPO");
+    expect((err as { e: string }).e).toBe("NO_REPO");
 
     ws.close();
     d2.stop();

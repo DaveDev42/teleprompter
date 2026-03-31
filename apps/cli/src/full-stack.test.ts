@@ -54,7 +54,7 @@ describe("Full-stack E2E", () => {
     daemon = new Daemon(tmpDir);
     daemon.start(join(tmpDir, "daemon.sock"));
     daemon.startWs(0);
-    wsPort = (daemon as any).wsServer.port;
+    wsPort = daemon.wsPort!;
   });
 
   afterEach(async () => {

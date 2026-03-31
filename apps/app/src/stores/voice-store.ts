@@ -1,4 +1,3 @@
-import type { Terminal } from "@xterm/xterm";
 import { Platform } from "react-native";
 import { create } from "zustand";
 import type { AudioCapture, AudioPlayer } from "../voice/audio-web";
@@ -6,11 +5,11 @@ import { RealtimeClient } from "../voice/realtime-client";
 import { formatTerminalContext } from "../voice/terminal-context";
 
 /** Global terminal ref — set by the Terminal screen */
-let globalTermRef: Terminal | null = null;
-export function setGlobalTermRef(ref: Terminal | null) {
+let globalTermRef: any = null;
+export function setGlobalTermRef(ref: any) {
   globalTermRef = ref;
 }
-export function getGlobalTermRef(): Terminal | null {
+export function getGlobalTermRef(): any {
   return globalTermRef;
 }
 

@@ -1,27 +1,30 @@
 import type { WsClientMessage, WsRec } from "@teleprompter/protocol/client";
-import type { Terminal } from "@xterm/xterm";
-import type { ComponentType } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, Pressable, Text, TextInput, View } from "react-native";
-import type { TermHandle } from "../../src/components/XTermWeb";
 import { getDaemonClient } from "../../src/hooks/use-daemon";
+import type { TerminalSearch } from "../../src/lib/terminal-search";
 import { useSessionStore } from "../../src/stores/session-store";
 import { setGlobalTermRef } from "../../src/stores/voice-store";
 
-/** Props accepted by both XTermWeb and XTermNative */
-interface TerminalComponentProps {
-  onData?: (data: string) => void;
-  onResize?: (cols: number, rows: number) => void;
-  termRef?: React.MutableRefObject<TermHandle | null>;
-  onReady?: () => void;
+// Platform-specific terminal component
+let TerminalComponent: any = null;
+if (Platform.OS === "web") {
+  TerminalComponent =
+    require("../../src/components/GhosttyTerminal").GhosttyTerminal;
+} else {
+  TerminalComponent =
+    require("../../src/components/GhosttyNative").GhosttyNative;
 }
 
-// Platform-specific terminal component
-let TerminalComponent: ComponentType<TerminalComponentProps> | null = null;
-if (Platform.OS === "web") {
-  TerminalComponent = require("../../src/components/XTermWeb").XTermWeb;
-} else {
-  TerminalComponent = require("../../src/components/XTermNative").XTermNative;
+// Mobile keyboard toolbar (native only)
+let TerminalToolbar: any = null;
+if (Platform.OS !== "web") {
+  try {
+    TerminalToolbar =
+      require("../../src/components/TerminalToolbar").TerminalToolbar;
+  } catch {
+    // Not available yet
+  }
 }
 
 export default function TerminalScreen() {
@@ -29,35 +32,35 @@ export default function TerminalScreen() {
   const sid = useSessionStore((s) => s.sid);
   const addRecHandler = useSessionStore((s) => s.addRecHandler);
   const removeRecHandler = useSessionStore((s) => s.removeRecHandler);
-  const termRef = useRef<TermHandle | null>(null);
+  const termRef = useRef<any>(null);
+  const searchRef = useRef<TerminalSearch | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchInfo, setSearchInfo] = useState("");
 
   // Expose terminal ref globally for voice context
   useEffect(() => {
-    setGlobalTermRef((termRef.current as Terminal) ?? null);
+    setGlobalTermRef(termRef.current);
     return () => setGlobalTermRef(null);
   });
 
-  // When xterm is ready, request full backlog from daemon
+  // When terminal is ready, request full backlog from daemon
   const handleTermReady = useCallback(() => {
     if (!sid) return;
     const client = getDaemonClient();
     if (client) {
-      // Resume from seq 0 = get all records. The io handler (below)
-      // will write them to xterm as they arrive via batch.
       client.resume(sid, 0);
     }
   }, [sid]);
 
-  // Wire io records to xterm (live data)
+  // Wire io records to terminal (live data)
   useEffect(() => {
     const handler = (rec: WsRec) => {
       if (rec.k !== "io") return;
       const term = termRef.current;
       if (!term) return;
       try {
-        // Decode base64 → binary bytes for xterm (preserves ANSI sequences)
+        // Decode base64 → binary bytes (preserves ANSI sequences)
         const binary = atob(rec.d);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -92,6 +95,32 @@ export default function TerminalScreen() {
     [sid],
   );
 
+  // Search handlers
+  const handleSearchNext = useCallback(() => {
+    if (!searchQuery || !searchRef.current) return;
+    searchRef.current.findNext(searchQuery);
+    const info = searchRef.current.resultInfo;
+    setSearchInfo(
+      info.total > 0 ? `${info.index}/${info.total}` : "No results",
+    );
+  }, [searchQuery]);
+
+  const handleSearchPrev = useCallback(() => {
+    if (!searchQuery || !searchRef.current) return;
+    searchRef.current.findPrevious(searchQuery);
+    const info = searchRef.current.resultInfo;
+    setSearchInfo(
+      info.total > 0 ? `${info.index}/${info.total}` : "No results",
+    );
+  }, [searchQuery]);
+
+  const handleSearchClose = useCallback(() => {
+    setShowSearch(false);
+    setSearchQuery("");
+    setSearchInfo("");
+    searchRef.current?.clear();
+  }, []);
+
   return (
     <View className="flex-1 bg-black">
       <View className="flex-row items-center justify-between px-3 py-2 bg-zinc-900 border-b border-zinc-800">
@@ -118,33 +147,29 @@ export default function TerminalScreen() {
             value={searchQuery}
             onChangeText={(q) => {
               setSearchQuery(q);
-              if (q && termRef.current?.searchAddon) {
-                termRef.current.searchAddon.findNext(q);
+              if (q && searchRef.current) {
+                searchRef.current.findNext(q);
+                const info = searchRef.current.resultInfo;
+                setSearchInfo(
+                  info.total > 0 ? `${info.index}/${info.total}` : "No results",
+                );
+              } else {
+                setSearchInfo("");
               }
             }}
-            onSubmitEditing={() => {
-              termRef.current?.searchAddon?.findNext(searchQuery);
-            }}
+            onSubmitEditing={handleSearchNext}
             autoFocus
           />
-          <Pressable
-            onPress={() => termRef.current?.searchAddon?.findNext(searchQuery)}
-          >
+          {searchInfo ? (
+            <Text className="text-gray-500 text-xs">{searchInfo}</Text>
+          ) : null}
+          <Pressable onPress={handleSearchNext}>
             <Text className="text-gray-400 text-xs">Next</Text>
           </Pressable>
-          <Pressable
-            onPress={() =>
-              termRef.current?.searchAddon?.findPrevious(searchQuery)
-            }
-          >
+          <Pressable onPress={handleSearchPrev}>
             <Text className="text-gray-400 text-xs">Prev</Text>
           </Pressable>
-          <Pressable
-            onPress={() => {
-              setShowSearch(false);
-              setSearchQuery("");
-            }}
-          >
+          <Pressable onPress={handleSearchClose}>
             <Text className="text-gray-500 text-xs">Close</Text>
           </Pressable>
         </View>
@@ -156,9 +181,13 @@ export default function TerminalScreen() {
             onResize={handleResize}
             termRef={termRef}
             onReady={handleTermReady}
+            searchRef={searchRef}
           />
         )}
       </View>
+      {TerminalToolbar && Platform.OS !== "web" && (
+        <TerminalToolbar onData={handleData} />
+      )}
     </View>
   );
 }

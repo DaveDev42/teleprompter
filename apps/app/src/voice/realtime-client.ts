@@ -18,7 +18,15 @@ export interface RealtimeConfig {
   /** System prompt for context injection */
   systemPrompt?: string;
   /** Voice for TTS output */
-  voice?: "alloy" | "echo" | "shimmer" | "ash" | "ballad" | "coral" | "sage" | "verse";
+  voice?:
+    | "alloy"
+    | "echo"
+    | "shimmer"
+    | "ash"
+    | "ballad"
+    | "coral"
+    | "sage"
+    | "verse";
 }
 
 export interface RealtimeEvents {
@@ -176,9 +184,7 @@ When the user gives a coding instruction, output it as a clean prompt. For examp
         break;
 
       case "error":
-        this.events.onError?.(
-          msg.error?.message ?? "Realtime API error",
-        );
+        this.events.onError?.(msg.error?.message ?? "Realtime API error");
         break;
     }
   }

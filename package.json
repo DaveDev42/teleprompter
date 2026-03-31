@@ -16,11 +16,14 @@
     "test:turbo": "turbo run test",
     "type-check": "turbo run type-check",
     "type-check:all": "npx tsc --noEmit -p packages/daemon/tsconfig.json && npx tsc --noEmit -p apps/cli/tsconfig.json && npx tsc --noEmit -p packages/relay/tsconfig.json && npx tsc --noEmit -p packages/runner/tsconfig.json && cd apps/app && npx tsc --noEmit",
-    "lint": "turbo run lint",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
     "doctor": "bun run apps/cli/src/index.ts doctor",
     "status": "bun run apps/cli/src/index.ts status"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.10",
     "@playwright/mcp": "^0.0.68",
     "@playwright/test": "^1.58.2",
     "expo-mcp": "github:DaveDev42/expo-mcp",

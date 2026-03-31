@@ -1,10 +1,10 @@
 import { Database } from "bun:sqlite";
-import { join } from "path";
-import { unlinkSync, existsSync, mkdirSync } from "fs";
-import { SESSIONS_DDL, PAIRINGS_DDL, PRAGMAS } from "./schema";
-import { SessionDb } from "./session-db";
-import { getStoreDir } from "./config";
 import type { SessionState, SID } from "@teleprompter/protocol";
+import { existsSync, mkdirSync, unlinkSync } from "fs";
+import { join } from "path";
+import { getStoreDir } from "./config";
+import { PAIRINGS_DDL, PRAGMAS, SESSIONS_DDL } from "./schema";
+import { SessionDb } from "./session-db";
 
 export interface SessionMeta {
   sid: string;
@@ -81,7 +81,7 @@ export class Store {
 
   getSessionDb(sid: SID): SessionDb | undefined {
     if (this.sessionDbs.has(sid)) {
-      return this.sessionDbs.get(sid)!;
+      return this.sessionDbs.get(sid) as SessionDb;
     }
 
     // Try opening existing db
@@ -196,15 +196,15 @@ export class Store {
     const rows = this.metaDb
       .prepare("SELECT * FROM pairings ORDER BY created_at ASC")
       .all() as Array<{
-        daemon_id: string;
-        relay_url: string;
-        relay_token: string;
-        registration_proof: string;
-        public_key: Buffer;
-        secret_key: Buffer;
-        pairing_secret: Buffer;
-        created_at: number;
-      }>;
+      daemon_id: string;
+      relay_url: string;
+      relay_token: string;
+      registration_proof: string;
+      public_key: Buffer;
+      secret_key: Buffer;
+      pairing_secret: Buffer;
+      created_at: number;
+    }>;
 
     return rows.map((r) => ({
       daemonId: r.daemon_id,

@@ -45,7 +45,9 @@ export class AudioCapture {
   stop(): void {
     this.processor?.disconnect();
     this.processor = null;
-    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream?.getTracks().forEach((t) => {
+      t.stop();
+    });
     this.stream = null;
     this.audioContext?.close();
     this.audioContext = null;

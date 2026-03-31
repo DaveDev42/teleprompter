@@ -64,10 +64,15 @@ function getCurrentVersion(): string {
   }
 }
 
-async function getLatestRelease(): Promise<{ tag: string; url: string } | null> {
+async function getLatestRelease(): Promise<{
+  tag: string;
+  url: string;
+} | null> {
   try {
     // Try gh CLI first (works with private repos)
-    const result = await $`gh release view --repo ${REPO} --json tagName,url`.text().catch(() => "");
+    const result = await $`gh release view --repo ${REPO} --json tagName,url`
+      .text()
+      .catch(() => "");
     if (result) {
       const data = JSON.parse(result);
       return { tag: data.tagName, url: data.url };
@@ -81,7 +86,7 @@ async function getLatestRelease(): Promise<{ tag: string; url: string } | null> 
       { signal: AbortSignal.timeout(5000) },
     );
     if (!res.ok) return null;
-    const data = await res.json() as { tag_name: string; html_url: string };
+    const data = (await res.json()) as { tag_name: string; html_url: string };
     return { tag: data.tag_name, url: data.html_url };
   } catch {
     return null;
@@ -116,10 +121,14 @@ async function upgradeTp(tag: string): Promise<void> {
     }
 
     // Verify
-    const version = await $`${currentPath || "tp"} version`.text().catch(() => "");
+    const version = await $`${currentPath || "tp"} version`
+      .text()
+      .catch(() => "");
     console.log(`Verified: ${version.trim()}`);
   } catch (err) {
     console.error("Upgrade failed:", err instanceof Error ? err.message : err);
-    console.log(`Manual: curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash`);
+    console.log(
+      `Manual: curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash`,
+    );
   }
 }

@@ -1,5 +1,5 @@
-import { create } from "zustand";
 import type { HookEventBase } from "@teleprompter/protocol/client";
+import { create } from "zustand";
 
 export type ChatMessageType =
   | "user"
@@ -53,7 +53,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   addMessage: (msg) => {
     // Show terminal fallback for elicitation/permission (complex interactions)
     if (msg.type === "elicitation" || msg.type === "permission") {
-      set((s) => ({ messages: [...s.messages, msg], showTerminalFallback: true }));
+      set((s) => ({
+        messages: [...s.messages, msg],
+        showTerminalFallback: true,
+      }));
     } else {
       set((s) => ({ messages: [...s.messages, msg] }));
     }
@@ -84,7 +87,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   dismissTerminalFallback: () => set({ showTerminalFallback: false }),
 
-  clear: () => set({ messages: [], streamingText: "", showTerminalFallback: false }),
+  clear: () =>
+    set({ messages: [], streamingText: "", showTerminalFallback: false }),
 }));
 
 /**

@@ -3,35 +3,35 @@
  * No Node.js-specific imports (fs, path, net).
  */
 
-export * from "./types";
 export {
-  ensureSodium,
-  generateKeyPair,
-  deriveSessionKeys,
-  encrypt,
-  decrypt,
-  generatePairingSecret,
-  deriveRelayToken,
-  deriveKxKey,
-  deriveRegistrationProof,
-  ratchetSessionKeys,
-  toBase64,
-  fromBase64,
-  toHex,
-} from "./crypto";
-export type { KeyPair, SessionKeys } from "./crypto";
-export {
-  createPairingBundle,
-  encodePairingData,
-  decodePairingData,
-  parsePairingForFrontend,
-} from "./pairing";
-export type { PairingData, PairingBundle } from "./pairing";
-export { createLogger, setLogLevel } from "./logger";
-export type { LogLevel } from "./logger";
-export {
+  checkClaudeVersion,
   MIN_CLAUDE_VERSION,
   PROTOCOL_VERSION,
   parseVersion,
-  checkClaudeVersion,
 } from "./compat";
+export type { KeyPair, SessionKeys } from "./crypto";
+export {
+  decrypt,
+  deriveKxKey,
+  deriveRegistrationProof,
+  deriveRelayToken,
+  deriveSessionKeys,
+  encrypt,
+  ensureSodium,
+  fromBase64,
+  generateKeyPair,
+  generatePairingSecret,
+  ratchetSessionKeys,
+  toBase64,
+  toHex,
+} from "./crypto";
+export type { LogLevel } from "./logger";
+export { createLogger, setLogLevel } from "./logger";
+export type { PairingBundle, PairingData } from "./pairing";
+export {
+  createPairingBundle,
+  decodePairingData,
+  encodePairingData,
+  parsePairingForFrontend,
+} from "./pairing";
+export * from "./types";

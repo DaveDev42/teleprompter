@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
-import { View, Text, Pressable, Platform } from "react-native";
 import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
+import { Platform, Pressable, Text, View } from "react-native";
 import { usePairingStore } from "../../src/stores/pairing-store";
 
 // Dynamic import for camera (native only)
@@ -32,7 +32,7 @@ export default function ScanScreen() {
     if (permission && !permission.granted) {
       requestPermission();
     }
-  }, [permission]);
+  }, [permission, requestPermission]);
 
   const handleBarCodeScanned = async ({ data }: { data: string }) => {
     if (scanned) return;

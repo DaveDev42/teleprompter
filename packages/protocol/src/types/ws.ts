@@ -1,4 +1,4 @@
-import type { RecordKind, Namespace } from "./record";
+import type { Namespace, RecordKind } from "./record";
 
 // ── Session metadata sent over WS ──
 

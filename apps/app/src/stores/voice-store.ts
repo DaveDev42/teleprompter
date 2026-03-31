@@ -1,5 +1,5 @@
-import { create } from "zustand";
 import { Platform } from "react-native";
+import { create } from "zustand";
 import { RealtimeClient } from "../voice/realtime-client";
 import { formatTerminalContext } from "../voice/terminal-context";
 
@@ -61,7 +61,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     if (includeTerminal && globalTermRef) {
       termContext = formatTerminalContext(globalTermRef);
     }
-    let systemPrompt = buildSystemPrompt(includeTerminal) + termContext;
+    const systemPrompt = buildSystemPrompt(includeTerminal) + termContext;
 
     realtimeClient = new RealtimeClient(
       { apiKey, systemPrompt },

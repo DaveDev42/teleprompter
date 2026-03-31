@@ -1,18 +1,18 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "fs";
-import { join } from "path";
-import { tmpdir } from "os";
-import { Daemon } from "./daemon";
-import { SessionManager } from "./session/session-manager";
-import { HookReceiver } from "../../runner/src/hooks/hook-receiver";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   encodeFrame,
   FrameDecoder,
+  type IpcAck,
+  type IpcBye,
   type IpcHello,
   type IpcRec,
-  type IpcBye,
-  type IpcAck,
 } from "@teleprompter/protocol";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { HookReceiver } from "../../runner/src/hooks/hook-receiver";
+import { Daemon } from "./daemon";
+import { SessionManager } from "./session/session-manager";
 import { Store } from "./store";
 
 describe("Integration", () => {
@@ -85,7 +85,12 @@ describe("Integration", () => {
       ts: Date.now(),
       ns: "claude",
       name: "Stop",
-      payload: Buffer.from(JSON.stringify({ hook_event_name: "Stop", last_assistant_message: "Hi!" })).toString("base64"),
+      payload: Buffer.from(
+        JSON.stringify({
+          hook_event_name: "Stop",
+          last_assistant_message: "Hi!",
+        }),
+      ).toString("base64"),
     };
     socket.write(encodeFrame(rec2));
 
@@ -125,7 +130,7 @@ describe("Integration", () => {
   test("backpressure: 10000 records burst", async () => {
     const sid = "test-burst";
     const decoder = new FrameDecoder();
-    let ackCount = 0;
+    let _ackCount = 0;
     const writer = new (await import("@teleprompter/protocol")).QueuedWriter();
 
     const socket = await Bun.connect({
@@ -133,7 +138,7 @@ describe("Integration", () => {
       socket: {
         data(_socket, data) {
           const messages = decoder.decode(new Uint8Array(data));
-          ackCount += messages.length;
+          _ackCount += messages.length;
         },
         drain(socket) {
           writer.drain(socket);
@@ -145,7 +150,15 @@ describe("Integration", () => {
     });
 
     // Hello
-    writer.write(socket, encodeFrame({ t: "hello", sid, cwd: "/tmp", pid: process.pid } as IpcHello));
+    writer.write(
+      socket,
+      encodeFrame({
+        t: "hello",
+        sid,
+        cwd: "/tmp",
+        pid: process.pid,
+      } as IpcHello),
+    );
     await Bun.sleep(20);
 
     // Burst 10000 records
@@ -202,7 +215,7 @@ describe("Integration", () => {
       last_assistant_message: "Done!",
     };
 
-    const hookSocket = await Bun.connect({
+    const _hookSocket = await Bun.connect({
       unix: hookSocketPath,
       socket: {
         open(socket) {
@@ -218,7 +231,9 @@ describe("Integration", () => {
     await Bun.sleep(100);
 
     expect(receivedEvents.length).toBe(1);
-    expect((receivedEvents[0] as { hook_event_name: string }).hook_event_name).toBe("Stop");
+    expect(
+      (receivedEvents[0] as { hook_event_name: string }).hook_event_name,
+    ).toBe("Stop");
 
     receiver.stop();
   });
@@ -229,7 +244,16 @@ describe("Integration", () => {
     // Write a stub runner script that mimics the real runner's CLI interface
     // but only sends hello → rec → bye over IPC and exits
     const stubPath = join(tmpDir, "stub-runner.ts");
-    const protocolPath = join(__dirname, "..", "..", "..", "packages", "protocol", "src", "index.ts");
+    const protocolPath = join(
+      __dirname,
+      "..",
+      "..",
+      "..",
+      "packages",
+      "protocol",
+      "src",
+      "index.ts",
+    );
     writeFileSync(
       stubPath,
       `

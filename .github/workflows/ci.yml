@@ -24,6 +24,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
+      - name: Lint & format check
+        run: npx biome ci .
+
       - name: Type check
         run: |
           npx tsc --noEmit -p packages/daemon/tsconfig.json

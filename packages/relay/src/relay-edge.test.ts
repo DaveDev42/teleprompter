@@ -1,6 +1,6 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { RelayServer } from "./relay-server";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { RelayServerMessage } from "@teleprompter/protocol";
+import { RelayServer } from "./relay-server";
 
 function connectWs(port: number): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
@@ -47,7 +47,8 @@ describe("RelayServer edge cases", () => {
     const ws = await connectWs(port);
     ws.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "daemon",
         daemonId: "wrong-daemon",
         token: "token-1",
@@ -71,7 +72,8 @@ describe("RelayServer edge cases", () => {
     const ws = await connectWs(port);
     ws.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "frontend",
         daemonId: "daemon-1",
         token: "token-1",
@@ -98,7 +100,8 @@ describe("RelayServer edge cases", () => {
     ] as const) {
       ws.send(
         JSON.stringify({
-          t: "relay.auth", v: 1,
+          t: "relay.auth",
+          v: 1,
           role,
           daemonId: "daemon-1",
           token: "token-1",
@@ -134,7 +137,8 @@ describe("RelayServer edge cases", () => {
 
     daemon.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "daemon",
         daemonId: "daemon-1",
         token: "token-1",
@@ -144,7 +148,8 @@ describe("RelayServer edge cases", () => {
 
     frontend.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "frontend",
         daemonId: "daemon-1",
         token: "token-1",
@@ -176,7 +181,12 @@ describe("RelayServer edge cases", () => {
     frontend.send(JSON.stringify({ t: "relay.sub", sid: "s1" }));
     await Bun.sleep(50);
     daemon.send(
-      JSON.stringify({ t: "relay.pub", sid: "s1", ct: "visible-again", seq: 3 }),
+      JSON.stringify({
+        t: "relay.pub",
+        sid: "s1",
+        ct: "visible-again",
+        seq: 3,
+      }),
     );
     const msg2 = await waitMsg(frontend, (m) => m.t === "relay.frame");
     expect((msg2 as any).ct).toBe("visible-again");

@@ -7,22 +7,22 @@
  */
 
 import type {
+  KeyPair,
   RelayClientMessage,
-  RelayServerMessage,
   RelayFrame,
   RelayKeyExchangeFrame,
-  WsRec,
+  RelayServerMessage,
   SessionKeys,
-  KeyPair,
+  WsRec,
 } from "@teleprompter/protocol";
 import {
-  encrypt,
-  decrypt,
-  deriveSessionKeys,
-  deriveKxKey,
-  toBase64,
-  fromBase64,
   createLogger,
+  decrypt,
+  deriveKxKey,
+  deriveSessionKeys,
+  encrypt,
+  fromBase64,
+  toBase64,
 } from "@teleprompter/protocol";
 
 const log = createLogger("RelayClient");
@@ -74,7 +74,6 @@ export class RelayClient {
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
-  private registered = false;
   private authenticated = false;
   private subscribedSessions = new Set<string>();
 
@@ -119,7 +118,6 @@ export class RelayClient {
 
     ws.onclose = () => {
       this.authenticated = false;
-      this.registered = false;
       this.events.onDisconnected?.();
       this.scheduleReconnect();
     };
@@ -132,7 +130,6 @@ export class RelayClient {
   private async handleMessage(msg: RelayServerMessage): Promise<void> {
     switch (msg.t) {
       case "relay.register.ok":
-        this.registered = true;
         // Step 2: Authenticate
         this.send({
           t: "relay.auth",
@@ -195,10 +192,7 @@ export class RelayClient {
       pk: await toBase64(this.config.keyPair.publicKey),
       role: "daemon",
     });
-    const ct = await encrypt(
-      new TextEncoder().encode(payload),
-      this.kxKey,
-    );
+    const ct = await encrypt(new TextEncoder().encode(payload), this.kxKey);
     this.send({ t: "relay.kx", ct, role: "daemon" });
   }
 
@@ -257,13 +251,13 @@ export class RelayClient {
       try {
         await this.decryptAndDispatch(frame, peer);
         return;
-      } catch {
-        continue;
-      }
+      } catch {}
     }
 
     if (this.peers.size === 0) {
-      log.error("no frontend peers for decryption (key exchange not completed)");
+      log.error(
+        "no frontend peers for decryption (key exchange not completed)",
+      );
     }
   }
 

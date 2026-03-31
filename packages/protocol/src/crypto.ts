@@ -13,7 +13,8 @@ let _sodium: typeof import("libsodium-wrappers-sumo") | null = null;
 export async function ensureSodium() {
   if (!_sodium) {
     // Lazy load to avoid top-level require that breaks React Native
-    _sodium = require("libsodium-wrappers-sumo") as typeof import("libsodium-wrappers-sumo");
+    _sodium =
+      require("libsodium-wrappers-sumo") as typeof import("libsodium-wrappers-sumo");
     await _sodium.ready;
   }
   return _sodium;
@@ -108,10 +109,7 @@ export async function decrypt(
   key: Uint8Array,
 ): Promise<Uint8Array> {
   const sodium = await ensureSodium();
-  const combined = sodium.from_base64(
-    encoded,
-    sodium.base64_variants.ORIGINAL,
-  );
+  const combined = sodium.from_base64(encoded, sodium.base64_variants.ORIGINAL);
   const nonceLen = sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
   const nonce = combined.subarray(0, nonceLen);
   const ciphertext = combined.subarray(nonceLen);
@@ -148,13 +146,9 @@ export async function ratchetSessionKeys(
   // Canonicalize: sort the two base keys to ensure both sides
   // use the same inputs regardless of tx/rx assignment
   const keyA =
-    compareBytes(baseKeys.tx, baseKeys.rx) <= 0
-      ? baseKeys.tx
-      : baseKeys.rx;
+    compareBytes(baseKeys.tx, baseKeys.rx) <= 0 ? baseKeys.tx : baseKeys.rx;
   const keyB =
-    compareBytes(baseKeys.tx, baseKeys.rx) <= 0
-      ? baseKeys.rx
-      : baseKeys.tx;
+    compareBytes(baseKeys.tx, baseKeys.rx) <= 0 ? baseKeys.rx : baseKeys.tx;
 
   // Derive two independent keys
   const inputA = new Uint8Array(keyA.length + sidBytes.length + 1);
@@ -170,9 +164,7 @@ export async function ratchetSessionKeys(
   const kB = sodium.crypto_generichash(32, inputB);
 
   // Assign based on role: daemon tx=kA, rx=kB; frontend tx=kB, rx=kA
-  return role === "daemon"
-    ? { tx: kA, rx: kB }
-    : { tx: kB, rx: kA };
+  return role === "daemon" ? { tx: kA, rx: kB } : { tx: kB, rx: kA };
 }
 
 function compareBytes(a: Uint8Array, b: Uint8Array): number {

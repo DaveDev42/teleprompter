@@ -1,11 +1,11 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import type { WsServerMessage } from "@teleprompter/protocol";
+import { $ } from "bun";
+import { mkdtemp, rm } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { Daemon } from "./daemon";
 import { SessionManager } from "./session/session-manager";
-import type { WsServerMessage } from "@teleprompter/protocol";
-import { mkdtemp, rm } from "fs/promises";
-import { join } from "path";
-import { tmpdir } from "os";
-import { $ } from "bun";
 
 function connectWs(port: number): Promise<WebSocket> {
   return new Promise((resolve, reject) => {

@@ -11,19 +11,31 @@
 
 import { getRandomValues } from "expo-crypto";
 
-const g = globalThis as any;
+interface GlobalWithCrypto {
+  self?: {
+    crypto?: {
+      getRandomValues?: typeof getRandomValues;
+    };
+  };
+}
+
+const g = globalThis as unknown as GlobalWithCrypto;
 
 // libsodium checks: `typeof window === 'object' ? window : self`, then `.crypto.getRandomValues`
 // On Hermes, `window` is not defined, so it falls through to `self`.
 // We ensure `self.crypto.getRandomValues` exists.
 if (typeof g.self === "undefined") {
-  g.self = g;
+  g.self = g as NonNullable<GlobalWithCrypto["self"]>;
 }
 
-if (typeof g.self.crypto === "undefined") {
-  g.self.crypto = {};
+const self = g.self as NonNullable<GlobalWithCrypto["self"]>;
+
+if (typeof self.crypto === "undefined") {
+  self.crypto = {};
 }
 
-if (typeof g.self.crypto.getRandomValues !== "function") {
-  g.self.crypto.getRandomValues = getRandomValues;
+const crypto = self.crypto as NonNullable<(typeof self)["crypto"]>;
+
+if (typeof crypto.getRandomValues !== "function") {
+  crypto.getRandomValues = getRandomValues;
 }

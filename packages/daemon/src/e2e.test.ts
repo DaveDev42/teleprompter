@@ -7,10 +7,10 @@
  * Instead of the real `claude` CLI, we use a stub script that spawns a simple
  * process in a PTY and generates both io output and hook events.
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "fs";
-import { join, resolve } from "path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
+import { join, resolve } from "path";
 import { Daemon } from "./daemon";
 import { SessionManager } from "./session/session-manager";
 import { Store } from "./store";
@@ -180,14 +180,18 @@ await Bun.connect({
     // Wait until we get the "state" messages and "rec" messages via WS
     // The WS client needs to attach first to get rec broadcasts.
     // But state messages go to all clients via sendAll.
-    await waitFor(() => wsMessages.some((m) => m.t === "state" && m.d.state === "running"));
+    await waitFor(() =>
+      wsMessages.some((m) => m.t === "state" && m.d.state === "running"),
+    );
 
     // Attach to session to receive rec broadcasts
     ws.send(JSON.stringify({ t: "attach", sid }));
     await Bun.sleep(50);
 
     // Wait for session to stop
-    await waitFor(() => wsMessages.some((m) => m.t === "state" && m.d.state === "stopped"));
+    await waitFor(() =>
+      wsMessages.some((m) => m.t === "state" && m.d.state === "stopped"),
+    );
 
     // Verify store
     const store = new Store(storeDir);
@@ -560,10 +564,14 @@ await Bun.connect({
     daemon.createSession(sid, tmpDir);
 
     // Wait for session to complete
-    await waitFor(() => wsMessages.some((m) => m.t === "state" && m.d?.state === "stopped"));
+    await waitFor(() =>
+      wsMessages.some((m) => m.t === "state" && m.d?.state === "stopped"),
+    );
 
     // Verify we received the rec broadcasts
-    const recMessages = wsMessages.filter((m: any) => m.t === "rec" && m.sid === sid);
+    const recMessages = wsMessages.filter(
+      (m: any) => m.t === "rec" && m.sid === sid,
+    );
     expect(recMessages.length).toBe(3);
     expect(recMessages[0].seq).toBe(1);
     expect(recMessages[1].seq).toBe(2);

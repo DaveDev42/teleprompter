@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import { SessionManager } from "./session-manager";
 
 describe("SessionManager", () => {
@@ -21,10 +21,10 @@ describe("SessionManager", () => {
     expect(sm.activeCount).toBe(1);
     const runner = sm.getRunner("s1");
     expect(runner).toBeDefined();
-    expect(runner!.sid).toBe("s1");
-    expect(runner!.pid).toBe(1234);
-    expect(runner!.cwd).toBe("/tmp");
-    expect(runner!.claudeVersion).toBe("1.0");
+    expect(runner?.sid).toBe("s1");
+    expect(runner?.pid).toBe(1234);
+    expect(runner?.cwd).toBe("/tmp");
+    expect(runner?.claudeVersion).toBe("1.0");
   });
 
   test("unregisterRunner removes a runner", () => {
@@ -47,8 +47,8 @@ describe("SessionManager", () => {
     sm.registerRunner("s1", 100, "/a");
     sm.registerRunner("s1", 200, "/b", undefined, "2.0");
     expect(sm.activeCount).toBe(1);
-    expect(sm.getRunner("s1")!.pid).toBe(200);
-    expect(sm.getRunner("s1")!.cwd).toBe("/b");
+    expect(sm.getRunner("s1")?.pid).toBe(200);
+    expect(sm.getRunner("s1")?.cwd).toBe("/b");
   });
 
   test("spawnRunner creates and tracks a process", () => {
@@ -56,7 +56,7 @@ describe("SessionManager", () => {
     expect(proc.pid).toBeGreaterThan(0);
     expect(sm.activeCount).toBe(1);
     expect(sm.getRunner("s1")).toBeDefined();
-    expect(sm.getRunner("s1")!.pid).toBe(proc.pid);
+    expect(sm.getRunner("s1")?.pid).toBe(proc.pid);
   });
 
   test("killRunner kills a spawned process", () => {

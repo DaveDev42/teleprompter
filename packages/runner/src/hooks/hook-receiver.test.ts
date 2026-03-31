@@ -1,9 +1,9 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { HookReceiver } from "./hook-receiver";
-import { mkdtemp, rm } from "fs/promises";
-import { join } from "path";
-import { tmpdir } from "os";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { HookEventBase } from "@teleprompter/protocol";
+import { mkdtemp, rm } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
+import { HookReceiver } from "./hook-receiver";
 
 describe("HookReceiver", () => {
   let receiver: HookReceiver;
@@ -35,7 +35,7 @@ describe("HookReceiver", () => {
     };
 
     // Connect and send event (mimics capture-hook behavior)
-    const conn = await Bun.connect({
+    const _conn = await Bun.connect({
       unix: socketPath,
       socket: {
         open(socket) {
@@ -75,9 +75,11 @@ describe("HookReceiver", () => {
 
     await Bun.sleep(150);
     expect(receivedEvents.length).toBe(3);
-    expect(receivedEvents.map((e) => e.hook_event_name)).toEqual(
-      ["Event0", "Event1", "Event2"] as any,
-    );
+    expect(receivedEvents.map((e) => e.hook_event_name)).toEqual([
+      "Event0",
+      "Event1",
+      "Event2",
+    ] as any);
   });
 
   test("defaultSocketPath generates valid path", () => {

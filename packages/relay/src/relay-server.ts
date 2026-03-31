@@ -1,8 +1,8 @@
 import type {
   RelayClientMessage,
-  RelayServerMessage,
   RelayFrame,
   RelayKeyExchangeFrame,
+  RelayServerMessage,
 } from "@teleprompter/protocol";
 import { createLogger } from "@teleprompter/protocol";
 
@@ -93,12 +93,17 @@ export class RelayServer {
             version: "0.1.5",
             protocolVersion: 2,
             clients: self.clients.size,
-            daemons: [...self.daemonStates.entries()]
-              .filter(([, s]) => s.online).length,
-            sessions: [...self.daemonStates.values()]
-              .reduce((sum, s) => sum + s.sessions.size, 0),
-            attached: [...self.daemonStates.values()]
-              .reduce((sum, s) => sum + s.attached.size, 0),
+            daemons: [...self.daemonStates.entries()].filter(
+              ([, s]) => s.online,
+            ).length,
+            sessions: [...self.daemonStates.values()].reduce(
+              (sum, s) => sum + s.sessions.size,
+              0,
+            ),
+            attached: [...self.daemonStates.values()].reduce(
+              (sum, s) => sum + s.attached.size,
+              0,
+            ),
             uptime: Math.floor(process.uptime()),
           });
         }
@@ -125,13 +130,21 @@ th{color:#888;font-size:.75rem;text-transform:uppercase}.ok{color:#4ade80}.off{c
 <p>Clients: <b>${self.clients.size}</b> | Uptime: <b>${Math.floor(process.uptime())}s</b>
 <span id="refresh" onclick="location.reload()"> ↻ refresh</span></p>
 <h2 style="font-size:1rem;color:#888">Daemons (${daemons.length})</h2>
-${daemons.length === 0 ? '<p style="color:#666">No daemons connected</p>' : `
+${
+  daemons.length === 0
+    ? '<p style="color:#666">No daemons connected</p>'
+    : `
 <table><tr><th>ID</th><th>Status</th><th>Sessions</th><th>Last Seen</th></tr>
-${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.id}</td>
-<td><span class="badge ${d.online ? 'badge-on' : 'badge-off'}">${d.online ? 'online' : 'offline'}</span></td>
-<td>${d.sessions.length > 0 ? d.sessions.join(', ') : '—'}</td>
-<td style="color:#888;font-size:.85rem">${d.lastSeen}</td></tr>`).join('')}
-</table>`}
+${daemons
+  .map(
+    (d) => `<tr><td style="font-family:monospace;font-size:.85rem">${d.id}</td>
+<td><span class="badge ${d.online ? "badge-on" : "badge-off"}">${d.online ? "online" : "offline"}</span></td>
+<td>${d.sessions.length > 0 ? d.sessions.join(", ") : "—"}</td>
+<td style="color:#888;font-size:.85rem">${d.lastSeen}</td></tr>`,
+  )
+  .join("")}
+</table>`
+}
 </body></html>`;
           return new Response(html, {
             headers: { "Content-Type": "text/html" },
@@ -141,7 +154,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
         return new Response("Teleprompter Relay", { status: 200 });
       },
       websocket: {
-        open(ws) {
+        open(_ws) {
           // Wait for auth or register message
         },
         message(ws, message) {
@@ -282,7 +295,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
     if (!this.daemonGroups.has(msg.daemonId)) {
       this.daemonGroups.set(msg.daemonId, new Set());
     }
-    this.daemonGroups.get(msg.daemonId)!.add(ws);
+    this.daemonGroups.get(msg.daemonId)?.add(ws);
 
     // Update daemon state
     if (msg.role === "daemon") {
@@ -335,10 +348,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
     }
   }
 
-  private handlePublish(
-    ws: any,
-    msg: RelayClientMessage & { t: "relay.pub" },
-  ) {
+  private handlePublish(ws: any, msg: RelayClientMessage & { t: "relay.pub" }) {
     const client = this.clients.get(ws);
     if (!client) {
       this.send(ws, {
@@ -362,7 +372,7 @@ ${daemons.map(d => `<tr><td style="font-family:monospace;font-size:.85rem">${d.i
     if (!this.recentFrames.has(key)) {
       this.recentFrames.set(key, []);
     }
-    const frames = this.recentFrames.get(key)!;
+    const frames = this.recentFrames.get(key) ?? [];
     const frame: CachedFrame = {
       sid: msg.sid,
       ct: msg.ct,

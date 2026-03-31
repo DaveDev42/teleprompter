@@ -13,7 +13,6 @@ export class PtyManager {
   private proc: Subprocess | null = null;
 
   spawn(opts: PtyOptions): void {
-    const self = this;
     this.proc = Bun.spawn(opts.command, {
       cwd: opts.cwd,
       terminal: {
@@ -34,14 +33,20 @@ export class PtyManager {
 
   write(data: string | Uint8Array): void {
     if (!this.proc) return;
-    (this.proc as unknown as { terminal: { write(d: string | Uint8Array): void } })
-      .terminal.write(data);
+    (
+      this.proc as unknown as {
+        terminal: { write(d: string | Uint8Array): void };
+      }
+    ).terminal.write(data);
   }
 
   resize(cols: number, rows: number): void {
     if (!this.proc) return;
-    (this.proc as unknown as { terminal: { resize(c: number, r: number): void } })
-      .terminal.resize(cols, rows);
+    (
+      this.proc as unknown as {
+        terminal: { resize(c: number, r: number): void };
+      }
+    ).terminal.resize(cols, rows);
   }
 
   kill(signal: number = 15): void {

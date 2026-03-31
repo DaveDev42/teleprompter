@@ -32,10 +32,11 @@ export function XTermWeb({
       const { SearchAddon } = await import("@xterm/addon-search");
 
       // Dynamic CSS import for xterm
-      if (!document.querySelector('link[data-xterm-css]')) {
+      if (!document.querySelector("link[data-xterm-css]")) {
         const link = document.createElement("link");
         link.rel = "stylesheet";
-        link.href = "https://cdn.jsdelivr.net/npm/@xterm/xterm@6/css/xterm.min.css";
+        link.href =
+          "https://cdn.jsdelivr.net/npm/@xterm/xterm@6/css/xterm.min.css";
         link.setAttribute("data-xterm-css", "true");
         document.head.appendChild(link);
       }
@@ -100,14 +101,14 @@ export function XTermWeb({
       xtermRef.current?.dispose();
       xtermRef.current = null;
     };
-  }, []);
+  }, [
+    termRef,
+    onResize, // Signal ready — triggers resume/replay in terminal screen
+    onReady,
+    onData,
+  ]);
 
   if (Platform.OS !== "web") return null;
 
-  return (
-    <div
-      ref={containerRef}
-      className="w-full h-full bg-black"
-    />
-  );
+  return <div ref={containerRef} className="w-full h-full bg-black" />;
 }

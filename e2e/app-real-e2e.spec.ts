@@ -1,5 +1,5 @@
-import { test, expect } from "@playwright/test";
-import { spawn, type ChildProcess } from "child_process";
+import { expect, test } from "@playwright/test";
+import { type ChildProcess, spawn } from "child_process";
 
 let daemon: ChildProcess;
 
@@ -7,18 +7,31 @@ test.describe("Real E2E — Claude PTY → Browser", () => {
   test.beforeAll(async () => {
     // Kill any leftover daemon from other test files
     const { execSync } = require("child_process");
-    try { execSync("pkill -f 'daemon start'", { stdio: "ignore" }); } catch {}
+    try {
+      execSync("pkill -f 'daemon start'", { stdio: "ignore" });
+    } catch {}
     await new Promise((r) => setTimeout(r, 2000));
 
-    daemon = spawn("bun", [
-      "run", "apps/cli/src/index.ts",
-      "daemon", "start",
-      "--ws-port", "7080",
-      "--spawn", "--sid", "real-test", "--cwd", "/tmp",
-    ], {
-      stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, LOG_LEVEL: "error" },
-    });
+    daemon = spawn(
+      "bun",
+      [
+        "run",
+        "apps/cli/src/index.ts",
+        "daemon",
+        "start",
+        "--ws-port",
+        "7080",
+        "--spawn",
+        "--sid",
+        "real-test",
+        "--cwd",
+        "/tmp",
+      ],
+      {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: { ...process.env, LOG_LEVEL: "error" },
+      },
+    );
 
     // Wait for session to be created AND running
     await new Promise<void>((resolve) => {
@@ -32,14 +45,19 @@ test.describe("Real E2E — Claude PTY → Browser", () => {
           ws.onmessage = (e) => {
             const msg = JSON.parse(e.data as string);
             if (msg.t === "hello") {
-              const running = msg.d.sessions.find((s: any) => s.sid === "real-test" && s.state === "running");
+              const running = msg.d.sessions.find(
+                (s: any) => s.sid === "real-test" && s.state === "running",
+              );
               if (running) {
                 ws.close();
                 resolve();
               }
             }
           };
-          setTimeout(() => { ws.close(); resolve(); }, 10000);
+          setTimeout(() => {
+            ws.close();
+            resolve();
+          }, 10000);
         }
       });
       setTimeout(resolve, 25000);
@@ -66,7 +84,7 @@ test.describe("Real E2E — Claude PTY → Browser", () => {
     let hasSession = false;
     for (let i = 0; i < 30; i++) {
       await page.waitForTimeout(1000);
-      const text = await page.locator("body").textContent() ?? "";
+      const text = (await page.locator("body").textContent()) ?? "";
       if (text.includes("real-test")) {
         hasSession = true;
         break;
@@ -80,7 +98,7 @@ test.describe("Real E2E — Claude PTY → Browser", () => {
 
     await page.screenshot({ path: "/tmp/pw-chat-session.png" });
 
-    const bodyText = await page.locator("body").textContent() ?? "";
+    const bodyText = (await page.locator("body").textContent()) ?? "";
     // Must not be stuck on "Connecting to Daemon..."
     expect(bodyText.includes("Connecting to Daemon...")).toBe(false);
     // Session ID should be visible
@@ -94,7 +112,7 @@ test.describe("Real E2E — Claude PTY → Browser", () => {
     // Wait for session to attach
     for (let i = 0; i < 10; i++) {
       await page.waitForTimeout(1000);
-      const text = await page.locator("body").textContent() ?? "";
+      const text = (await page.locator("body").textContent()) ?? "";
       if (text.includes("real-test")) break;
     }
 
@@ -109,8 +127,14 @@ test.describe("Real E2E — Claude PTY → Browser", () => {
 
     await page.screenshot({ path: "/tmp/pw-terminal-session.png" });
 
-    const xtermVisible = await page.locator(".xterm").isVisible().catch(() => false);
-    const hasHeader = await page.locator("text=real-test").isVisible().catch(() => false);
+    const xtermVisible = await page
+      .locator(".xterm")
+      .isVisible()
+      .catch(() => false);
+    const hasHeader = await page
+      .locator("text=real-test")
+      .isVisible()
+      .catch(() => false);
     expect(xtermVisible || hasHeader).toBe(true);
   });
 

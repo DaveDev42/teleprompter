@@ -1,8 +1,4 @@
-import type {
-  IpcRec,
-  HookEventBase,
-  Namespace,
-} from "@teleprompter/protocol";
+import type { HookEventBase, IpcRec, Namespace } from "@teleprompter/protocol";
 
 /**
  * Converts PTY data and hook events into IpcRec messages.

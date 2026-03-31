@@ -1,8 +1,8 @@
 import type {
   WsClientMessage,
+  WsRec,
   WsServerMessage,
   WsSessionMeta,
-  WsRec,
 } from "@teleprompter/protocol/client";
 
 /** Production relay URL */
@@ -22,7 +22,7 @@ function getDefaultUrl(): string {
     // Dev server (Metro/Expo) — extract host, use daemon port
     // Metro uses 8081 by default, but Expo MCP may use 8082+ if 8081 is busy
     const port = parseInt(host?.split(":")[1] ?? "0", 10);
-    if (port >= 8081 && port <= 8099 || host?.includes(":19006")) {
+    if ((port >= 8081 && port <= 8099) || host?.includes(":19006")) {
       const devHost = host.split(":")[0];
       return `ws://${devHost}:7080`;
     }
@@ -52,7 +52,7 @@ function getDefaultUrl(): string {
     try {
       const sourceUrl = (globalThis as any).__expo_source_url;
       if (sourceUrl) {
-        const match = sourceUrl.match(/\/\/([^:\/]+)/);
+        const match = sourceUrl.match(/\/\/([^:/]+)/);
         if (match?.[1] && match[1] !== "localhost") {
           return `ws://${match[1]}:7080`;
         }

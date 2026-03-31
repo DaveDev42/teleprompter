@@ -1,11 +1,6 @@
-import { parseArgs } from "util";
 import { Daemon, SessionManager } from "@teleprompter/daemon";
-import {
-  createPairingBundle,
-  deriveRelayToken,
-  fromBase64,
-  setLogLevel,
-} from "@teleprompter/protocol";
+import { type KeyPair, setLogLevel } from "@teleprompter/protocol";
+import { parseArgs } from "util";
 import { resolveRunnerCommand } from "../spawn";
 import { loadPairingData } from "./pair";
 
@@ -26,9 +21,9 @@ export async function daemonCommand(argv: string[]): Promise<void> {
     default:
       console.error(
         `Usage: tp daemon <start|install|uninstall> [options]\n` +
-        `  start      Start daemon in foreground\n` +
-        `  install    Register as OS service (launchd/systemd)\n` +
-        `  uninstall  Remove OS service registration`,
+          `  start      Start daemon in foreground\n` +
+          `  install    Register as OS service (launchd/systemd)\n` +
+          `  uninstall  Remove OS service registration`,
       );
       process.exit(1);
   }
@@ -86,21 +81,27 @@ export async function daemonCommand(argv: string[]): Promise<void> {
   // Enable worktree management if repo root is specified
   if (values["repo-root"]) {
     daemon.setRepoRoot(values["repo-root"] as string);
-    console.log(`[Daemon] worktree management enabled for ${values["repo-root"]}`);
+    console.log(
+      `[Daemon] worktree management enabled for ${values["repo-root"]}`,
+    );
   }
 
   // Relay connection: CLI flags take priority, then store DB, then pairing.json
-  let relayUrl = values["relay-url"] as string | undefined;
-  let relayToken = values["relay-token"] as string | undefined;
-  let daemonId = values["daemon-id"] as string | undefined;
+  const relayUrl = values["relay-url"] as string | undefined;
+  const relayToken = values["relay-token"] as string | undefined;
+  const daemonId = values["daemon-id"] as string | undefined;
 
   if (relayUrl && relayToken && daemonId) {
     // Explicit CLI flags — connect to specified relay
     try {
       const saved = await loadPairingData();
-      const { generateKeyPair, deriveRegistrationProof, fromBase64: fb64 } = await import("@teleprompter/protocol");
+      const {
+        generateKeyPair,
+        deriveRegistrationProof,
+        fromBase64: fb64,
+      } = await import("@teleprompter/protocol");
 
-      let keyPair;
+      let keyPair: KeyPair;
       let pairingSecret: Uint8Array;
       let registrationProof: string;
 
@@ -115,7 +116,9 @@ export async function daemonCommand(argv: string[]): Promise<void> {
         keyPair = await generateKeyPair();
         pairingSecret = new Uint8Array(32);
         registrationProof = "";
-        console.warn("[Daemon] no saved pairing data — E2EE key exchange will not work");
+        console.warn(
+          "[Daemon] no saved pairing data — E2EE key exchange will not work",
+        );
       }
 
       await daemon.connectRelay({
@@ -140,7 +143,9 @@ export async function daemonCommand(argv: string[]): Promise<void> {
       const saved = await loadPairingData();
       if (saved?.qrData?.ps) {
         try {
-          const { deriveRegistrationProof, fromBase64: fb64 } = await import("@teleprompter/protocol");
+          const { deriveRegistrationProof, fromBase64: fb64 } = await import(
+            "@teleprompter/protocol"
+          );
           const pairingSecret = await fb64(saved.qrData.ps);
           await daemon.connectRelay({
             relayUrl: saved.relayUrl,
@@ -153,7 +158,9 @@ export async function daemonCommand(argv: string[]): Promise<void> {
             },
             pairingSecret,
           });
-          console.log(`[Daemon] connected to relay ${saved.relayUrl} (from pairing.json)`);
+          console.log(
+            `[Daemon] connected to relay ${saved.relayUrl} (from pairing.json)`,
+          );
         } catch (err) {
           console.error(`[Daemon] relay connection failed:`, err);
         }

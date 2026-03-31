@@ -16,8 +16,14 @@ export function capture(cmd: string): string {
     execSync(`${cmd} > '${tmp}' 2>&1`, { stdio: "ignore" });
     return readFileSync(tmp, "utf-8");
   } catch {
-    try { return readFileSync(tmp, "utf-8"); } catch { return ""; }
+    try {
+      return readFileSync(tmp, "utf-8");
+    } catch {
+      return "";
+    }
   } finally {
-    try { unlinkSync(tmp); } catch {}
+    try {
+      unlinkSync(tmp);
+    } catch {}
   }
 }

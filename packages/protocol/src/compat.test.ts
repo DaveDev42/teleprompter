@@ -1,5 +1,5 @@
-import { describe, test, expect } from "bun:test";
-import { parseVersion, checkClaudeVersion, PROTOCOL_VERSION } from "./compat";
+import { describe, expect, test } from "bun:test";
+import { checkClaudeVersion, PROTOCOL_VERSION, parseVersion } from "./compat";
 
 describe("compat", () => {
   test("parseVersion extracts semver components", () => {
@@ -9,7 +9,11 @@ describe("compat", () => {
 
   test("parseVersion handles version with prefix", () => {
     expect(parseVersion("v2.1.81")).toEqual({ major: 2, minor: 1, patch: 81 });
-    expect(parseVersion("Claude 2.1.81")).toEqual({ major: 2, minor: 1, patch: 81 });
+    expect(parseVersion("Claude 2.1.81")).toEqual({
+      major: 2,
+      minor: 1,
+      patch: 81,
+    });
   });
 
   test("parseVersion returns null for invalid", () => {

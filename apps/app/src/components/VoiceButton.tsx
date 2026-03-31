@@ -1,4 +1,4 @@
-import { View, Text, Pressable, Platform } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { useVoiceStore } from "../stores/voice-store";
 
 export function VoiceButton() {
@@ -55,9 +55,7 @@ export function VoiceButton() {
       </Pressable>
 
       {/* Status */}
-      {isActive && (
-        <Text className="text-gray-400 text-xs">{stateLabel}</Text>
-      )}
+      {isActive && <Text className="text-gray-400 text-xs">{stateLabel}</Text>}
       {transcript && isActive && (
         <Text className="text-gray-500 text-xs max-w-32" numberOfLines={1}>
           {transcript}

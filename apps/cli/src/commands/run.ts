@@ -1,5 +1,5 @@
-import { parseArgs } from "util";
 import { Runner } from "@teleprompter/runner";
+import { parseArgs } from "util";
 
 export async function runCommand(argv: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
@@ -16,15 +16,15 @@ export async function runCommand(argv: string[]): Promise<void> {
   });
 
   const sid = values.sid ?? `session-${Date.now()}`;
-  const cwd = values.cwd!;
+  const cwd = values.cwd ?? process.cwd();
 
   const runner = new Runner({
     sid,
     cwd,
     worktreePath: values["worktree-path"],
     socketPath: values["socket-path"],
-    cols: parseInt(values.cols!, 10),
-    rows: parseInt(values.rows!, 10),
+    cols: parseInt(values.cols ?? "120", 10),
+    rows: parseInt(values.rows ?? "40", 10),
     claudeArgs: positionals,
   });
 

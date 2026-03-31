@@ -1,10 +1,14 @@
+import type {
+  WsHelloReply,
+  WsRec,
+  WsState,
+} from "@teleprompter/protocol/client";
 import { useEffect } from "react";
 import { create } from "zustand";
-import { useSessionStore } from "../stores/session-store";
+import { FrontendRelayClient } from "../lib/relay-client";
 import { useOfflineStore } from "../stores/offline-store";
 import { usePairingStore } from "../stores/pairing-store";
-import { FrontendRelayClient } from "../lib/relay-client";
-import type { WsRec, WsState, WsHelloReply } from "@teleprompter/protocol/client";
+import { useSessionStore } from "../stores/session-store";
 
 /** Relay connection state (per daemon) */
 interface RelayConnectionState {

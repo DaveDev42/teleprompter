@@ -1,5 +1,4 @@
 import { spawn } from "child_process";
-import { resolveRunnerCommand } from "../spawn";
 
 /**
  * Ensure daemon is running. If not, start it in the background.
@@ -12,8 +11,12 @@ export async function ensureDaemon(port = 7080): Promise<boolean> {
   console.log("[tp] Daemon not running. Starting in background...");
 
   const args = [
-    "run", "apps/cli/src/index.ts",
-    "daemon", "start", "--ws-port", String(port),
+    "run",
+    "apps/cli/src/index.ts",
+    "daemon",
+    "start",
+    "--ws-port",
+    String(port),
   ];
 
   const proc = spawn("bun", args, {

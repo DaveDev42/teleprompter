@@ -7,15 +7,15 @@
  *
  * Uses `claude -p` (non-interactive/print mode) for deterministic testing.
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync } from "fs";
-import { join } from "path";
-import { tmpdir } from "os";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Daemon, SessionManager, Store } from "@teleprompter/daemon";
+import { mkdirSync, mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { resolveRunnerCommand } from "./spawn";
 
 // Skip entire suite if claude is not installed
-const claudeAvailable = await Bun.spawn(["which", "claude"]).exited === 0;
+const claudeAvailable = (await Bun.spawn(["which", "claude"]).exited) === 0;
 
 /** Poll a condition until true or timeout */
 async function waitFor(

@@ -1,9 +1,9 @@
-import { describe, test, expect } from "bun:test";
-import { RelayServer } from "@teleprompter/relay";
+import { describe, expect, test } from "bun:test";
 import {
-  generatePairingSecret,
   deriveRelayToken,
+  generatePairingSecret,
 } from "@teleprompter/protocol";
+import { RelayServer } from "@teleprompter/relay";
 
 describe("tp relay (integration)", () => {
   test("relay server starts and accepts connections", async () => {
@@ -45,7 +45,8 @@ describe("tp relay (integration)", () => {
 
     ws.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "daemon",
         daemonId: "test-daemon",
         token,

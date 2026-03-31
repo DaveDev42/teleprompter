@@ -1,9 +1,9 @@
-import { useEffect, useRef, useCallback, useState } from "react";
-import { View, Text, TextInput, Pressable, Platform } from "react-native";
-import { useSessionStore } from "../../src/stores/session-store";
-import { getDaemonClient } from "../../src/hooks/use-daemon";
-import { setGlobalTermRef } from "../../src/stores/voice-store";
 import type { WsRec } from "@teleprompter/protocol/client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Platform, Pressable, Text, TextInput, View } from "react-native";
+import { getDaemonClient } from "../../src/hooks/use-daemon";
+import { useSessionStore } from "../../src/stores/session-store";
+import { setGlobalTermRef } from "../../src/stores/voice-store";
 
 // Platform-specific terminal component
 let TerminalComponent: any = null;
@@ -122,11 +122,18 @@ export default function TerminalScreen() {
             <Text className="text-gray-400 text-xs">Next</Text>
           </Pressable>
           <Pressable
-            onPress={() => termRef.current?.searchAddon?.findPrevious(searchQuery)}
+            onPress={() =>
+              termRef.current?.searchAddon?.findPrevious(searchQuery)
+            }
           >
             <Text className="text-gray-400 text-xs">Prev</Text>
           </Pressable>
-          <Pressable onPress={() => { setShowSearch(false); setSearchQuery(""); }}>
+          <Pressable
+            onPress={() => {
+              setShowSearch(false);
+              setSearchQuery("");
+            }}
+          >
             <Text className="text-gray-500 text-xs">Close</Text>
           </Pressable>
         </View>

@@ -1,13 +1,13 @@
 import {
+  createLogger,
   encodeFrame,
   FrameDecoder,
-  QueuedWriter,
   getSocketPath,
-  createLogger,
-  type IpcMessage,
   type IpcAck,
   type IpcInput,
+  type IpcMessage,
   type IpcResize,
+  QueuedWriter,
 } from "@teleprompter/protocol";
 
 const log = createLogger("IpcClient");
@@ -18,7 +18,7 @@ type MessageHandler = (msg: IncomingMessage) => void;
 export class IpcClient {
   private socket: ReturnType<typeof Bun.connect> extends Promise<infer S>
     ? S
-    : never = null!;
+    : never = null as never;
   private writer = new QueuedWriter();
   private decoder = new FrameDecoder();
   private onMessage: MessageHandler;

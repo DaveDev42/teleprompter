@@ -1,7 +1,6 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { ClientRegistry } from "./client-registry";
 import { WsServer } from "./ws-server";
-import type { WsClient } from "./client-registry";
 
 describe("WsServer", () => {
   let registry: ClientRegistry;
@@ -41,7 +40,8 @@ describe("WsServer", () => {
 
     // Use port 0 to get random available port
     server.start(0);
-    port = server.port!;
+    if (!server.port) throw new Error("Expected server to have a port");
+    port = server.port;
   });
 
   afterEach(() => {

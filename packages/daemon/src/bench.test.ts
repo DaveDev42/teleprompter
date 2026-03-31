@@ -1,16 +1,15 @@
-import { describe, test, expect } from "bun:test";
-import { Daemon, SessionManager } from "./lib";
+import { describe, expect, test } from "bun:test";
 import {
   encodeFrame,
-  FrameDecoder,
   type IpcHello,
   type IpcRec,
   type WsServerMessage,
 } from "@teleprompter/protocol";
-import { connect } from "net";
 import { mkdtemp, rm } from "fs/promises";
-import { join } from "path";
+import { connect } from "net";
 import { tmpdir } from "os";
+import { join } from "path";
+import { Daemon, SessionManager } from "./lib";
 
 describe("Performance", () => {
   test("throughput: 1000 records via IPC → WS in <5s", async () => {
@@ -24,7 +23,9 @@ describe("Performance", () => {
 
     // Connect WS client
     const ws = new WebSocket(`ws://localhost:${wsPort}`);
-    await new Promise<void>((r) => { ws.onopen = () => r(); });
+    await new Promise<void>((r) => {
+      ws.onopen = () => r();
+    });
     ws.send(JSON.stringify({ t: "hello" }));
 
     const wsMessages: WsServerMessage[] = [];
@@ -38,10 +39,17 @@ describe("Performance", () => {
     // Connect IPC runner
     const socketPath = join(tmpDir, "daemon.sock");
     const ipc = connect(socketPath);
-    await new Promise<void>((r) => { ipc.on("connect", () => r()); });
+    await new Promise<void>((r) => {
+      ipc.on("connect", () => r());
+    });
 
     // Send hello
-    const hello: IpcHello = { t: "hello", sid: "bench-session", cwd: "/tmp", pid: process.pid };
+    const hello: IpcHello = {
+      t: "hello",
+      sid: "bench-session",
+      cwd: "/tmp",
+      pid: process.pid,
+    };
     ipc.write(Buffer.from(encodeFrame(hello)));
     await Bun.sleep(50);
 
@@ -76,7 +84,9 @@ describe("Performance", () => {
     const elapsed = Date.now() - start;
     const recCount = wsMessages.filter((m) => m.t === "rec").length;
 
-    console.log(`[Bench] ${recCount}/${COUNT} records in ${elapsed}ms (${Math.round(recCount / (elapsed / 1000))} rec/s)`);
+    console.log(
+      `[Bench] ${recCount}/${COUNT} records in ${elapsed}ms (${Math.round(recCount / (elapsed / 1000))} rec/s)`,
+    );
 
     expect(recCount).toBe(COUNT);
     expect(elapsed).toBeLessThan(5000);
@@ -88,10 +98,20 @@ describe("Performance", () => {
   });
 
   test("throughput: codec encode/decode 10000 frames in <1s", () => {
-    const { encodeFrame: encode, FrameDecoder: Decoder } = require("@teleprompter/protocol");
+    const {
+      encodeFrame: encode,
+      FrameDecoder: Decoder,
+    } = require("@teleprompter/protocol");
     const decoder = new Decoder();
 
-    const data = { t: "rec", sid: "bench", seq: 0, k: "io", d: "x".repeat(512), ts: 0 };
+    const data = {
+      t: "rec",
+      sid: "bench",
+      seq: 0,
+      k: "io",
+      d: "x".repeat(512),
+      ts: 0,
+    };
     const COUNT = 10000;
 
     const start = Date.now();
@@ -102,18 +122,27 @@ describe("Performance", () => {
     }
     const elapsed = Date.now() - start;
 
-    console.log(`[Bench] codec: ${COUNT} frames in ${elapsed}ms (${Math.round(COUNT / (elapsed / 1000))} frames/s)`);
+    console.log(
+      `[Bench] codec: ${COUNT} frames in ${elapsed}ms (${Math.round(COUNT / (elapsed / 1000))} frames/s)`,
+    );
     expect(elapsed).toBeLessThan(1000);
   });
 
   test("throughput: crypto encrypt/decrypt 1000 messages in <2s", async () => {
-    const { generateKeyPair, deriveSessionKeys, encrypt, decrypt } = require("@teleprompter/protocol");
+    const {
+      generateKeyPair,
+      deriveSessionKeys,
+      encrypt,
+      decrypt,
+    } = require("@teleprompter/protocol");
 
     const kp1 = await generateKeyPair();
     const kp2 = await generateKeyPair();
     const keys = await deriveSessionKeys(kp1, kp2.publicKey, "daemon");
 
-    const plaintext = new TextEncoder().encode('{"t":"rec","d":"' + "x".repeat(256) + '"}');
+    const plaintext = new TextEncoder().encode(
+      `{"t":"rec","d":"${"x".repeat(256)}"}`,
+    );
     const COUNT = 1000;
 
     const start = Date.now();
@@ -123,7 +152,9 @@ describe("Performance", () => {
     }
     const elapsed = Date.now() - start;
 
-    console.log(`[Bench] crypto: ${COUNT} encrypt+decrypt in ${elapsed}ms (${Math.round(COUNT / (elapsed / 1000))} ops/s)`);
+    console.log(
+      `[Bench] crypto: ${COUNT} encrypt+decrypt in ${elapsed}ms (${Math.round(COUNT / (elapsed / 1000))} ops/s)`,
+    );
     expect(elapsed).toBeLessThan(2000);
   });
 });

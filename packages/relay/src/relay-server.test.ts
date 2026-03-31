@@ -1,6 +1,6 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { RelayServer } from "./relay-server";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { RelayServerMessage } from "@teleprompter/protocol";
+import { RelayServer } from "./relay-server";
 
 function connectWs(port: number): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
@@ -86,7 +86,8 @@ describe("RelayServer", () => {
     const daemon = await connectWs(port);
     daemon.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "daemon",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -102,7 +103,8 @@ describe("RelayServer", () => {
     const ws = await connectWs(port);
     ws.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: "wrong-token",
@@ -120,7 +122,8 @@ describe("RelayServer", () => {
     // Auth both
     daemon.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "daemon",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -130,7 +133,8 @@ describe("RelayServer", () => {
 
     frontend.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -153,10 +157,7 @@ describe("RelayServer", () => {
       }),
     );
 
-    const frame = await waitForMessage(
-      frontend,
-      (m) => m.t === "relay.frame",
-    );
+    const frame = await waitForMessage(frontend, (m) => m.t === "relay.frame");
     expect(frame.t).toBe("relay.frame");
     expect((frame as any).sid).toBe("session-1");
     expect((frame as any).ct).toBe("encrypted-payload-1");
@@ -174,7 +175,8 @@ describe("RelayServer", () => {
     // Auth both
     daemon.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "daemon",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -184,7 +186,8 @@ describe("RelayServer", () => {
 
     frontend.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -221,7 +224,8 @@ describe("RelayServer", () => {
     // Auth both
     daemon.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "daemon",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -231,7 +235,8 @@ describe("RelayServer", () => {
 
     frontend.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -265,10 +270,7 @@ describe("RelayServer", () => {
       }),
     );
 
-    const frame = await waitForMessage(
-      frontend,
-      (m) => m.t === "relay.frame",
-    );
+    const frame = await waitForMessage(frontend, (m) => m.t === "relay.frame");
     expect((frame as any).ct).toBe("visible");
     expect((frame as any).seq).toBe(2);
 
@@ -281,7 +283,8 @@ describe("RelayServer", () => {
 
     daemon.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "daemon",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -306,7 +309,8 @@ describe("RelayServer", () => {
     const frontend = await connectWs(port);
     frontend.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -314,12 +318,14 @@ describe("RelayServer", () => {
     );
     await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
 
-    frontend.send(
-      JSON.stringify({ t: "relay.sub", sid: "s1", after: 0 }),
-    );
+    frontend.send(JSON.stringify({ t: "relay.sub", sid: "s1", after: 0 }));
 
     // Should get last 10 frames (3-12), but only 10 are cached
-    const frames = await collectMessages(frontend, 10, (m) => m.t === "relay.frame");
+    const frames = await collectMessages(
+      frontend,
+      10,
+      (m) => m.t === "relay.frame",
+    );
     expect(frames.length).toBe(10);
     expect((frames[0] as any).ct).toBe("frame-3");
     expect((frames[9] as any).ct).toBe("frame-12");
@@ -335,7 +341,8 @@ describe("RelayServer", () => {
     // Auth both
     daemon.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "daemon",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -345,7 +352,8 @@ describe("RelayServer", () => {
 
     frontend.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -372,7 +380,8 @@ describe("RelayServer", () => {
     const ws = await connectWs(port);
     ws.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -391,7 +400,8 @@ describe("RelayServer", () => {
 
     daemon.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "daemon",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -416,7 +426,8 @@ describe("RelayServer", () => {
     const frontend = await connectWs(port);
     frontend.send(
       JSON.stringify({
-        t: "relay.auth", v: 1,
+        t: "relay.auth",
+        v: 1,
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
@@ -424,11 +435,13 @@ describe("RelayServer", () => {
     );
     await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
 
-    frontend.send(
-      JSON.stringify({ t: "relay.sub", sid: "s1", after: 3 }),
-    );
+    frontend.send(JSON.stringify({ t: "relay.sub", sid: "s1", after: 3 }));
 
-    const frames = await collectMessages(frontend, 2, (m) => m.t === "relay.frame");
+    const frames = await collectMessages(
+      frontend,
+      2,
+      (m) => m.t === "relay.frame",
+    );
     expect(frames.length).toBe(2);
     expect((frames[0] as any).seq).toBe(4);
     expect((frames[1] as any).seq).toBe(5);

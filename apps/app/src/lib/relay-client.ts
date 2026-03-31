@@ -7,18 +7,18 @@
  */
 
 import type {
-  RelayClientMessage,
-  RelayServerMessage,
-  RelayFrame,
-  WsRec,
-  SessionKeys,
   KeyPair,
+  RelayClientMessage,
+  RelayFrame,
+  RelayServerMessage,
+  SessionKeys,
+  WsRec,
 } from "@teleprompter/protocol/client";
 import {
-  encrypt,
   decrypt,
-  deriveSessionKeys,
   deriveKxKey,
+  deriveSessionKeys,
+  encrypt,
   toBase64,
 } from "@teleprompter/protocol/client";
 
@@ -172,10 +172,7 @@ export class FrontendRelayClient {
       frontendId: this.config.frontendId,
       role: "frontend",
     });
-    const ct = await encrypt(
-      new TextEncoder().encode(payload),
-      this.kxKey,
-    );
+    const ct = await encrypt(new TextEncoder().encode(payload), this.kxKey);
     this.send({ t: "relay.kx", ct, role: "frontend" });
   }
 

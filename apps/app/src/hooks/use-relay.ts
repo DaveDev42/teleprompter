@@ -1,9 +1,36 @@
 import { useEffect } from "react";
+import { create } from "zustand";
 import { useSessionStore } from "../stores/session-store";
 import { useOfflineStore } from "../stores/offline-store";
 import { usePairingStore } from "../stores/pairing-store";
 import { FrontendRelayClient } from "../lib/relay-client";
 import type { WsRec, WsState, WsHelloReply } from "@teleprompter/protocol/client";
+
+/** Relay connection state (per daemon) */
+interface RelayConnectionState {
+  /** daemonId → connected */
+  connections: Map<string, boolean>;
+  setConnected: (daemonId: string, connected: boolean) => void;
+  remove: (daemonId: string) => void;
+  clear: () => void;
+}
+
+export const useRelayConnectionStore = create<RelayConnectionState>((set) => ({
+  connections: new Map(),
+  setConnected: (daemonId, connected) =>
+    set((s) => {
+      const next = new Map(s.connections);
+      next.set(daemonId, connected);
+      return { connections: next };
+    }),
+  remove: (daemonId) =>
+    set((s) => {
+      const next = new Map(s.connections);
+      next.delete(daemonId);
+      return { connections: next };
+    }),
+  clear: () => set({ connections: new Map() }),
+}));
 
 /** Per-daemon relay clients */
 const relayClients = new Map<string, FrontendRelayClient>();
@@ -37,6 +64,7 @@ export function useRelay() {
       incrementReconnect,
     } = useSessionStore.getState();
     const { cacheFrame, updateState } = useOfflineStore.getState();
+    const relayConn = useRelayConnectionStore.getState();
 
     // Connect new pairings
     for (const [daemonId, info] of pairings) {
@@ -56,10 +84,12 @@ export function useRelay() {
           onConnected: () => {
             setConnected(true);
             setError(null);
+            relayConn.setConnected(daemonId, true);
           },
           onDisconnected: () => {
             setConnected(false);
             incrementReconnect();
+            relayConn.setConnected(daemonId, false);
           },
           onRecord: (rec: WsRec) => {
             const seq = rec.seq;
@@ -113,6 +143,7 @@ export function useRelay() {
       if (!pairings.has(daemonId)) {
         client.dispose();
         relayClients.delete(daemonId);
+        relayConn.remove(daemonId);
       }
     }
   }, [pairingState, pairings]);

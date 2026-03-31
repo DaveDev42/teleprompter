@@ -11,6 +11,7 @@ function SessionItem({
   onPress,
   onStop,
   onRestart,
+  onExport,
 }: {
   session: WsSessionMeta;
   isActive: boolean;

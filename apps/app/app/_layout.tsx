@@ -1,25 +1,40 @@
 import "../global.css";
+import { useEffect } from "react";
+import { View, useColorScheme } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useDaemon } from "../src/hooks/use-daemon";
 import { useRelay } from "../src/hooks/use-relay";
 import { useConnectionStore } from "../src/stores/connection-store";
 import { usePairingStore } from "../src/stores/pairing-store";
+import { useThemeStore } from "../src/stores/theme-store";
+import { useSettingsStore } from "../src/stores/settings-store";
 
 export default function RootLayout() {
   const daemonUrl = useConnectionStore((s) => s.daemonUrl);
   const loaded = useConnectionStore((s) => s.loaded);
   const loadConnection = useConnectionStore((s) => s.load);
   const loadPairings = usePairingStore((s) => s.load);
-  const _pairingsLoaded = usePairingStore((s) => s.loaded);
+  const loadSettings = useSettingsStore((s) => s.load);
+  const theme = useThemeStore((s) => s.theme);
+  const isDark = useThemeStore((s) => s.isDark);
+  const setTheme = useThemeStore((s) => s.setTheme);
+  const systemScheme = useColorScheme();
 
   // Load saved settings on mount
   useEffect(() => {
     loadConnection();
     loadPairings();
-  }, [loadPairings, loadConnection]);
+    loadSettings();
+  }, []);
+
+  // Re-resolve theme when system color scheme changes
+  useEffect(() => {
+    if (theme === "system") {
+      setTheme("system");
+    }
+  }, [systemScheme, theme]);
 
   // Direct WebSocket to local daemon (always available for local dev)
   useDaemon(loaded ? (daemonUrl ?? undefined) : undefined);
@@ -29,18 +44,24 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen
-          name="pairing/index"
-          options={{ presentation: "modal" }}
-        />
-        <Stack.Screen
-          name="pairing/scan"
-          options={{ presentation: "fullScreenModal" }}
-        />
-      </Stack>
+      <View className={`flex-1 ${isDark ? "dark" : ""}`}>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen
+            name="session/[sid]"
+            options={{ animation: "slide_from_right" }}
+          />
+          <Stack.Screen
+            name="pairing/index"
+            options={{ presentation: "modal" }}
+          />
+          <Stack.Screen
+            name="pairing/scan"
+            options={{ presentation: "fullScreenModal" }}
+          />
+        </Stack>
+      </View>
     </SafeAreaProvider>
   );
 }

@@ -1,241 +1,187 @@
-import type { WsRec } from "@teleprompter/protocol/client";
-import { useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  FlatList,
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
+  View,
   Text,
   TextInput,
-  View,
+  Pressable,
+  FlatList,
 } from "react-native";
-import { ChatCard } from "../../src/components/ChatCard";
-import { VoiceButton } from "../../src/components/VoiceButton";
-import { getDaemonClient } from "../../src/hooks/use-daemon";
-import {
-  type ChatMessage,
-  processHookEvent,
-  useChatStore,
-} from "../../src/stores/chat-store";
+import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSessionStore } from "../../src/stores/session-store";
-import { useVoiceStore } from "../../src/stores/voice-store";
+import { useThemeStore } from "../../src/stores/theme-store";
+import type { WsSessionMeta } from "@teleprompter/protocol/client";
 
-export default function ChatScreen() {
-  const connected = useSessionStore((s) => s.connected);
-  const sid = useSessionStore((s) => s.sid);
-  const reconnectCount = useSessionStore((s) => s.reconnectCount);
-  const addRecHandler = useSessionStore((s) => s.addRecHandler);
-  const removeRecHandler = useSessionStore((s) => s.removeRecHandler);
-  const messages = useChatStore((s) => s.messages);
-  const streamingText = useChatStore((s) => s.streamingText);
-  const showTerminalFallback = useChatStore((s) => s.showTerminalFallback);
-  const dismissTerminalFallback = useChatStore(
-    (s) => s.dismissTerminalFallback,
-  );
-  const appendStreaming = useChatStore((s) => s.appendStreaming);
-  const router = useRouter();
-  const setOnPromptReady = useVoiceStore((s) => s.setOnPromptReady);
-  const flatListRef = useRef<FlatList>(null);
-  const [input, setInput] = useState("");
+function timeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
 
-  // Wire voice prompt to chat send
-  useEffect(() => {
-    setOnPromptReady((prompt: string) => {
-      const client = getDaemonClient();
-      if (sid && client) {
-        client.sendChat(sid, prompt);
-      }
-    });
-    return () => setOnPromptReady(null);
-  }, [sid, setOnPromptReady]);
+function SessionRow({
+  session,
+  isActive,
+  onPress,
+}: {
+  session: WsSessionMeta;
+  isActive: boolean;
+  onPress: () => void;
+}) {
+  const isDark = useThemeStore((s) => s.isDark);
+  const running = session.state === "running";
 
-  // When Chat mounts with a session, request record replay from daemon
-  // This ensures events that arrived before handler registration are processed
-  useEffect(() => {
-    if (!sid) return;
-    const client = getDaemonClient();
-    if (client) {
-      // Small delay to ensure handler is registered first
-      const timer = setTimeout(() => {
-        client.resume(sid, 0);
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [sid]);
-
-  // Wire records to chat store (live data)
-  useEffect(() => {
-    const handler = (rec: WsRec) => {
-      if (rec.k === "event") {
-        try {
-          const eventBytes = Uint8Array.from(atob(rec.d), (c) =>
-            c.charCodeAt(0),
-          );
-          const event = JSON.parse(new TextDecoder("utf-8").decode(eventBytes));
-          processHookEvent(event);
-        } catch {
-          // ignore malformed events
-        }
-      } else if (rec.k === "io") {
-        try {
-          // Decode base64 → UTF-8 properly (atob breaks multi-byte chars)
-          const bytes = Uint8Array.from(atob(rec.d), (c) => c.charCodeAt(0));
-          const text = new TextDecoder("utf-8").decode(bytes);
-          // Strip ANSI escape sequences + control chars for chat display
-          const clean = text
-            .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "") // CSI sequences
-            .replace(/\x1b\][^\x07]*\x07/g, "") // OSC sequences
-            .replace(/\x1b[()][A-Z0-9]/g, "") // Character set
-            .replace(/\x1b[>=<]/g, "") // Mode switches
-            .replace(/\x1b\x1b/g, "") // Double escape
-            .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "") // Control chars (keep \n \r \t)
-            .replace(/\r\n?/g, "\n"); // Normalize line endings
-          if (clean.trim()) {
-            appendStreaming(clean);
-          }
-        } catch {
-          // ignore
-        }
-      }
-    };
-
-    addRecHandler(handler);
-    return () => removeRecHandler(handler);
-  }, [addRecHandler, removeRecHandler, appendStreaming]);
-
-  // Auto-scroll to bottom
-  useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(
-        () => flatListRef.current?.scrollToEnd({ animated: true }),
-        100,
-      );
-    }
-  }, [messages.length]);
-
-  const handleSend = useCallback(() => {
-    const text = input.trim();
-    if (!text || !sid) return;
-    const client = getDaemonClient();
-    if (!client) return;
-    client.sendChat(sid, text);
-    setInput("");
-  }, [input, sid]);
-
-  // Build display list: messages + optional streaming bubble
-  const displayMessages: ChatMessage[] = [...messages];
-  if (streamingText.trim()) {
-    displayMessages.push({
-      id: "streaming-live",
-      type: "streaming",
-      text: streamingText.slice(-500),
-      ts: Date.now(),
-    });
-  }
+  // Extract a description from cwd (last path segment)
+  const desc = session.cwd.split("/").pop() ?? session.cwd;
 
   return (
-    <KeyboardAvoidingView
-      className="flex-1 bg-black"
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
-    >
-      {/* Header */}
-      <View className="flex-row items-center px-3 py-2 bg-zinc-900 border-b border-zinc-800">
+    <Pressable onPress={onPress}>
+      <View
+        className={`flex-row items-center py-4 mx-4 ${
+          isActive
+            ? isDark
+              ? "bg-tp-bg-secondary rounded-lg px-3"
+              : "bg-tp-bg-secondary rounded-lg px-3"
+            : ""
+        }`}
+      >
+        {/* Active indicator */}
+        {isActive && (
+          <View className="absolute left-0 top-4 bottom-4 w-[3px] rounded-full bg-tp-accent" />
+        )}
+
+        {/* Status dot */}
         <View
-          className={`w-2 h-2 rounded-full mr-2 ${connected ? "bg-green-500" : "bg-red-500"}`}
+          className={`w-2 h-2 rounded-full mr-3 ${
+            running ? "bg-tp-success" : "bg-tp-text-tertiary"
+          }`}
         />
-        <Text className="text-white font-bold">Teleprompter</Text>
-        {sid && <Text className="text-gray-500 text-xs ml-2">{sid}</Text>}
+
+        {/* Content */}
+        <View className="flex-1">
+          <Text
+            className="text-tp-text-primary text-[15px] font-semibold"
+            numberOfLines={1}
+          >
+            {desc}
+          </Text>
+          <Text
+            className="text-tp-text-secondary text-[13px] mt-0.5"
+            numberOfLines={1}
+          >
+            {session.sid}
+            {session.worktreePath ? ` · ${session.worktreePath}` : ""}
+          </Text>
+        </View>
+
+        {/* Time */}
+        <Text className="text-tp-text-tertiary text-[11px] ml-2">
+          {timeAgo(session.updatedAt)}
+        </Text>
+
+        {/* Chevron */}
+        <Text className="text-tp-text-tertiary text-lg ml-2">›</Text>
       </View>
 
-      {/* Messages */}
-      <FlatList
-        ref={flatListRef}
-        data={displayMessages}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View className="px-3 py-1">
-            <ChatCard msg={item} />
-          </View>
-        )}
-        className="flex-1"
-        contentContainerStyle={{ paddingVertical: 8 }}
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
-        onScrollBeginDrag={() => Keyboard.dismiss()}
-        ListEmptyComponent={
-          <View className="flex-1 items-center justify-center pt-20">
-            <Text className="text-gray-500">
-              {!connected
-                ? reconnectCount > 0
-                  ? `Reconnecting... (attempt ${reconnectCount})`
-                  : "Connecting to Daemon..."
-                : !sid
-                  ? "Waiting for session..."
-                  : "Listening to Claude Code..."}
-            </Text>
-            {!connected && reconnectCount > 3 && (
-              <Text className="text-gray-600 text-xs mt-2 text-center">
-                Check that daemon is running:{"\n"}tp daemon start --ws-port
-                7080
-              </Text>
-            )}
-            {sid && connected && (
-              <Text className="text-gray-600 text-xs mt-2">
-                PTY output will appear here as streaming text.{"\n"}
-                Hooks events (Stop, ToolUse) will appear as cards.
-              </Text>
-            )}
-          </View>
-        }
-      />
+      {/* Divider */}
+      {!isActive && (
+        <View className="h-[0.5px] bg-tp-border ml-[52px] mr-4" />
+      )}
+    </Pressable>
+  );
+}
 
-      {/* Terminal fallback banner */}
-      {showTerminalFallback && (
-        <View className="flex-row items-center justify-between px-3 py-2 bg-amber-900/50 border-t border-amber-700">
-          <Text className="text-amber-200 text-xs flex-1">
-            This interaction may work better in the Terminal tab.
-          </Text>
-          <Pressable
-            onPress={() => {
-              dismissTerminalFallback();
-              router.push("/terminal");
-            }}
-            className="bg-amber-700 px-3 py-1 rounded ml-2"
-          >
-            <Text className="text-white text-xs">Switch</Text>
-          </Pressable>
-          <Pressable onPress={dismissTerminalFallback} className="ml-2">
-            <Text className="text-amber-400 text-xs">Dismiss</Text>
-          </Pressable>
+export default function SessionsScreen() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const sessions = useSessionStore((s) => s.sessions);
+  const currentSid = useSessionStore((s) => s.sid);
+  const [filter, setFilter] = useState("");
+
+  // Sort by updatedAt desc, filter by search
+  const filteredSessions = useMemo(() => {
+    let list = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
+    if (filter.trim()) {
+      const q = filter.toLowerCase();
+      list = list.filter(
+        (s) =>
+          s.sid.toLowerCase().includes(q) ||
+          s.cwd.toLowerCase().includes(q) ||
+          s.worktreePath?.toLowerCase().includes(q) ||
+          s.state.toLowerCase().includes(q),
+      );
+    }
+    return list;
+  }, [sessions, filter]);
+
+  const handleSessionPress = (session: WsSessionMeta) => {
+    router.push(`/session/${session.sid}`);
+  };
+
+  return (
+    <View className="flex-1 bg-tp-bg" style={{ paddingTop: insets.top }}>
+      {/* Header */}
+      <View className="px-4 pt-2 pb-1">
+        <Text className="text-tp-text-primary text-[28px] font-bold">
+          Sessions
+        </Text>
+      </View>
+
+      {/* Search */}
+      {sessions.length > 2 && (
+        <View className="px-4 py-2">
+          <TextInput
+            className="bg-tp-bg-secondary text-tp-text-primary rounded-search px-4 py-2.5 text-[15px]"
+            placeholder="Search sessions..."
+            placeholderTextColor="var(--tp-text-tertiary)"
+            value={filter}
+            onChangeText={setFilter}
+            autoCapitalize="none"
+          />
         </View>
       )}
 
-      {/* Input */}
-      <View className="flex-row items-end px-3 py-2 bg-zinc-900 border-t border-zinc-800">
-        <VoiceButton />
-        <TextInput
-          className="flex-1 bg-zinc-800 text-white rounded-2xl px-4 py-2 mr-2 max-h-24"
-          placeholder="Send a message..."
-          placeholderTextColor="#666"
-          value={input}
-          onChangeText={setInput}
-          onSubmitEditing={handleSend}
-          multiline
-          returnKeyType="send"
-          editable={connected && !!sid}
-        />
-        <Pressable
-          onPress={handleSend}
-          disabled={!input.trim() || !connected || !sid}
-          className="bg-blue-600 rounded-full w-10 h-10 items-center justify-center"
-          style={{ opacity: input.trim() && connected && sid ? 1 : 0.4 }}
-        >
-          <Text className="text-white text-lg">↑</Text>
-        </Pressable>
-      </View>
-    </KeyboardAvoidingView>
+      {/* Session list */}
+      <FlatList
+        data={filteredSessions}
+        keyExtractor={(item) => item.sid}
+        renderItem={({ item }) => (
+          <SessionRow
+            session={item}
+            isActive={item.sid === currentSid}
+            onPress={() => handleSessionPress(item)}
+          />
+        )}
+        ListEmptyComponent={
+          <View className="flex-1 items-center justify-center pt-40">
+            <View className="w-16 h-16 rounded-2xl bg-tp-bg-secondary items-center justify-center mb-6">
+              <Text className="text-[28px]">💬</Text>
+            </View>
+            <Text className="text-tp-text-primary text-xl font-semibold mb-2">
+              No active sessions
+            </Text>
+            <Text className="text-tp-text-secondary text-[15px] text-center leading-6 px-8">
+              Start a new session from the{"\n"}Daemons tab or run tp on your
+              machine.
+            </Text>
+            <Pressable
+              onPress={() => router.push("/(tabs)/daemons")}
+              className="mt-6 bg-tp-accent rounded-card px-8 py-3"
+            >
+              <Text className="text-white font-semibold text-base">
+                Go to Daemons
+              </Text>
+            </Pressable>
+          </View>
+        }
+        contentContainerStyle={
+          filteredSessions.length === 0 ? { flex: 1 } : undefined
+        }
+      />
+    </View>
   );
 }

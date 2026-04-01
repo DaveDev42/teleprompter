@@ -32,7 +32,9 @@ const DEFAULTS: SerializedSettings = {
 
 async function persist(partial: Partial<SerializedSettings>) {
   const raw = await secureGet(STORAGE_KEY);
-  const current: SerializedSettings = raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS };
+  const current: SerializedSettings = raw
+    ? { ...DEFAULTS, ...JSON.parse(raw) }
+    : { ...DEFAULTS };
   const updated = { ...current, ...partial };
   await secureSet(STORAGE_KEY, JSON.stringify(updated));
 }

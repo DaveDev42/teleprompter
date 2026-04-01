@@ -1,12 +1,12 @@
-import { View, Text, Pressable, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { usePairingStore } from "../../src/stores/pairing-store";
-import { useRelayConnectionStore } from "../../src/hooks/use-relay";
-import { useThemeStore } from "../../src/stores/theme-store";
-import { useSessionStore } from "../../src/stores/session-store";
 import { getDaemonClient } from "../../src/hooks/use-daemon";
+import { useRelayConnectionStore } from "../../src/hooks/use-relay";
 import type { PairingInfo } from "../../src/stores/pairing-store";
+import { usePairingStore } from "../../src/stores/pairing-store";
+import { useSessionStore } from "../../src/stores/session-store";
+import { useThemeStore } from "../../src/stores/theme-store";
 
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;

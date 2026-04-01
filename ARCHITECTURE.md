@@ -554,7 +554,7 @@ exit 0
 ### 10.1 통합 `tp` CLI 바이너리
 
 Runner, Daemon, Relay가 하나의 `tp` 바이너리로 통합된다. 서브커맨드로 역할을 구분한다.
-별도로 `tp-relay` 바이너리도 빌드되어 standalone relay 배포에 사용된다.
+Relay도 `tp relay start` 서브커맨드로 실행된다.
 
 ```bash
 # 서브커맨드 구조
@@ -600,11 +600,6 @@ curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts
 - 태그 패턴: `release/v*` (release-please-config.json의 `tag-prefix`)
 
 ### 10.2 Relay 서버
-
-```bash
-# 단일 바이너리 빌드
-bun build ./packages/relay/src/index.ts --compile --outfile tp-relay
-```
 
 배포: `deploy-relay.yml` (main push 시 자동, 또는 수동 트리거)
 - SSH로 원격 서버에 바이너리 전송 → systemd 서비스 재시작 → health check

@@ -1,28 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Deploy tp-relay to a remote server
+# Deploy tp relay to a remote server
 #
 # Usage:
 #   ./scripts/deploy-relay.sh <host> [port]
 #
 # Prerequisites:
 #   - SSH access to the host (ssh root@host)
-#   - tp-relay binary built for linux (bun run build:cli)
+#   - tp binary built for linux (bun run build:cli)
 #
 # Example:
 #   ./scripts/deploy-relay.sh relay.example.com 7090
 
 HOST="${1:?Usage: deploy-relay.sh <host> [port]}"
 PORT="${2:-7090}"
-BINARY="dist/tp-relay-linux_arm64"
+BINARY="dist/tp-linux_arm64"
 SERVICE_NAME="tp-relay"
 
 # Detect architecture
 ARCH=$(ssh "$HOST" "uname -m")
 case "$ARCH" in
-  aarch64|arm64) BINARY="dist/tp-relay-linux_arm64" ;;
-  x86_64|amd64)  BINARY="dist/tp-relay-linux_x64" ;;
+  aarch64|arm64) BINARY="dist/tp-linux_arm64" ;;
+  x86_64|amd64)  BINARY="dist/tp-linux_x64" ;;
   *) echo "Unknown arch: $ARCH"; exit 1 ;;
 esac
 
@@ -35,8 +35,8 @@ fi
 echo "Deploying $BINARY to $HOST..."
 
 # Upload binary
-scp "$BINARY" "$HOST:/usr/local/bin/tp-relay"
-ssh "$HOST" "chmod +x /usr/local/bin/tp-relay"
+scp "$BINARY" "$HOST:/usr/local/bin/tp"
+ssh "$HOST" "chmod +x /usr/local/bin/tp"
 
 # Create systemd service
 ssh "$HOST" "cat > /etc/systemd/system/${SERVICE_NAME}.service << 'UNIT'
@@ -46,7 +46,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/tp-relay
+ExecStart=/usr/local/bin/tp relay start
 Environment=RELAY_PORT=${PORT}
 Restart=always
 RestartSec=5

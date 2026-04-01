@@ -1,16 +1,10 @@
-import { useMemo, useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  Pressable,
-  FlatList,
-} from "react-native";
+import type { WsSessionMeta } from "@teleprompter/protocol/client";
 import { useRouter } from "expo-router";
+import { useMemo, useState } from "react";
+import { FlatList, Pressable, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSessionStore } from "../../src/stores/session-store";
 import { useThemeStore } from "../../src/stores/theme-store";
-import type { WsSessionMeta } from "@teleprompter/protocol/client";
 
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
@@ -88,9 +82,7 @@ function SessionRow({
       </View>
 
       {/* Divider */}
-      {!isActive && (
-        <View className="h-[0.5px] bg-tp-border ml-[52px] mr-4" />
-      )}
+      {!isActive && <View className="h-[0.5px] bg-tp-border ml-[52px] mr-4" />}
     </Pressable>
   );
 }

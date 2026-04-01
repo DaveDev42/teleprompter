@@ -1,15 +1,15 @@
 import "../global.css";
-import { useEffect } from "react";
-import { View, useColorScheme } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { useEffect } from "react";
+import { useColorScheme, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { useDaemon } from "../src/hooks/use-daemon";
 import { useRelay } from "../src/hooks/use-relay";
 import { useConnectionStore } from "../src/stores/connection-store";
 import { usePairingStore } from "../src/stores/pairing-store";
-import { useThemeStore } from "../src/stores/theme-store";
 import { useSettingsStore } from "../src/stores/settings-store";
+import { useThemeStore } from "../src/stores/theme-store";
 
 export default function RootLayout() {
   const daemonUrl = useConnectionStore((s) => s.daemonUrl);

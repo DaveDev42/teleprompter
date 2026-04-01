@@ -1,5 +1,5 @@
 /**
- * Multi-platform build script for the `tp` CLI and `tp-relay` binaries.
+ * Multi-platform build script for the `tp` CLI binary.
  *
  * Usage:
  *   bun run scripts/build.ts              # Build for current platform
@@ -13,10 +13,7 @@ import { $ } from "bun";
 import { mkdirSync } from "fs";
 import { parseArgs } from "util";
 
-const BINARIES = [
-  { entry: "apps/cli/src/index.ts", name: "tp" },
-  { entry: "packages/relay/src/index.ts", name: "tp-relay" },
-];
+const BINARIES = [{ entry: "apps/cli/src/index.ts", name: "tp" }];
 
 const OUT_DIR = "dist";
 

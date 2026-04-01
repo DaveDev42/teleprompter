@@ -39,7 +39,10 @@ function SessionItem({
         <View className="flex-row items-center flex-1">
           <View className={`w-2 h-2 rounded-full ${stateColor} mr-2`} />
           <View className="flex-1">
-            <Text className="text-tp-text-primary text-sm font-mono" numberOfLines={1}>
+            <Text
+              className="text-tp-text-primary text-sm font-mono"
+              numberOfLines={1}
+            >
               {session.sid}
             </Text>
             <Text className="text-tp-text-secondary text-xs" numberOfLines={1}>

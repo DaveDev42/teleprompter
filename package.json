@@ -24,7 +24,9 @@
   },
   "expo": {
     "install": {
-      "exclude": ["expo-mcp"]
+      "exclude": [
+        "expo-mcp"
+      ]
     }
   },
   "devDependencies": {

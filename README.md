@@ -129,7 +129,7 @@ pnpm test
 # Type check all 5 packages
 pnpm type-check:all
 
-# Build CLI binaries (tp + tp-relay)
+# Build CLI binary
 pnpm build:cli:local    # current platform
 pnpm build:cli          # all 4 platforms
 

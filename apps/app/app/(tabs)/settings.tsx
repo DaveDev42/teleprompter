@@ -1,14 +1,21 @@
-import { useState, useEffect } from "react";
-import { View, Text, TextInput, Pressable, ScrollView, Platform } from "react-native";
 import { useRouter } from "expo-router";
+import { useEffect, useState } from "react";
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useVoiceStore } from "../../src/stores/voice-store";
-import { usePairingStore } from "../../src/stores/pairing-store";
 import { DiagnosticsPanel } from "../../src/components/DiagnosticsPanel";
-import { useThemeStore, type Theme } from "../../src/stores/theme-store";
-import { useSettingsStore } from "../../src/stores/settings-store";
-import { useConnectionStore } from "../../src/stores/connection-store";
 import { secureGet, secureSet } from "../../src/lib/secure-storage";
+import { useConnectionStore } from "../../src/stores/connection-store";
+import { usePairingStore } from "../../src/stores/pairing-store";
+import { useSettingsStore } from "../../src/stores/settings-store";
+import { type Theme, useThemeStore } from "../../src/stores/theme-store";
+import { useVoiceStore } from "../../src/stores/voice-store";
 
 function SectionLabel({ children }: { children: string }) {
   return (
@@ -78,10 +85,7 @@ export default function SettingsScreen() {
 
   if (showDiagnostics) {
     return (
-      <View
-        className="flex-1 bg-tp-bg"
-        style={{ paddingTop: insets.top }}
-      >
+      <View className="flex-1 bg-tp-bg" style={{ paddingTop: insets.top }}>
         <View className="flex-row items-center justify-between px-4 py-3">
           <Text className="text-tp-text-primary text-xl font-bold">
             Diagnostics
@@ -112,15 +116,30 @@ export default function SettingsScreen() {
 
       {/* Appearance */}
       <SectionLabel>Appearance</SectionLabel>
-      <SettingsRow label="Theme" value={themeLabel} first onPress={() => {
-        // Cycle through themes
-        const next: Theme = theme === "dark" ? "light" : theme === "light" ? "system" : "dark";
-        setTheme(next);
-      }} />
+      <SettingsRow
+        label="Theme"
+        value={themeLabel}
+        first
+        onPress={() => {
+          // Cycle through themes
+          const next: Theme =
+            theme === "dark" ? "light" : theme === "light" ? "system" : "dark";
+          setTheme(next);
+        }}
+      />
       <SettingsRow label="Chat Font" value={chatFont} onPress={() => {}} />
       <SettingsRow label="Code Font" value={codeFont} onPress={() => {}} />
-      <SettingsRow label="Terminal Font" value={terminalFont} onPress={() => {}} />
-      <SettingsRow label="Font Size" value={`${fontSize}px`} last onPress={() => {}} />
+      <SettingsRow
+        label="Terminal Font"
+        value={terminalFont}
+        onPress={() => {}}
+      />
+      <SettingsRow
+        label="Font Size"
+        value={`${fontSize}px`}
+        last
+        onPress={() => {}}
+      />
 
       {/* Voice */}
       <SectionLabel>Voice</SectionLabel>

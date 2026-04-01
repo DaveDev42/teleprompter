@@ -58,7 +58,7 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - Worktree management is done directly by Daemon (`git worktree add/remove/list`), no external tool dependency. N:1 relationship — multiple sessions per worktree allowed.
 - E2EE pairing via QR code containing pairing secret + daemon pubkey + relay URL + daemon ID. Daemon pubkey is delivered offline via QR; Frontend pubkey is exchanged in-band via `relay.kx` (encrypted with kxKey derived from pairing secret). Both sides perform ECDH (X25519 `crypto_kx`) → per-frontend session keys → XChaCha20-Poly1305 encryption. Relay token is self-registered via `relay.register` (proof-based, no pre-registration needed). N:N supported — one app connects to multiple daemons, one daemon serves multiple frontends, each with independent E2EE keys identified by `frontendId`.
 - Platform priority: iOS > Web > Android. Responsive layout required for mobile/tablet/desktop.
-- Deployment: `bun build --compile` for `tp` binary (subcommands: daemon, run, relay) and separate `tp-relay` binary for standalone relay deployment.
+- Deployment: `bun build --compile` for `tp` binary (subcommands: daemon, run, relay).
 - Passthrough mode: `tp <claude args>` runs claude directly through tp pipeline. `--tp-*` flags are consumed by tp, rest forwarded to claude.
 
 ## Testing Strategy
@@ -166,7 +166,7 @@ update the relevant documentation files in the same commit.
 ### release/v* 태그 (Release Please PR merge)
 | Target | Workflow | 설명 |
 |--------|----------|------|
-| tp + tp-relay 바이너리 | GitHub Actions `release.yml` | 4 플랫폼 빌드 → GitHub Release |
+| tp 바이너리 | GitHub Actions `release.yml` | 4 플랫폼 빌드 → GitHub Release |
 | iOS App Store | EAS Workflow `production.yaml` | Fingerprint → 빌드/OTA → 제출 |
 | Android Play Store | EAS Workflow `production.yaml` | Fingerprint → 빌드/OTA → 제출 |
 

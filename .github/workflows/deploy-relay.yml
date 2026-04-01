@@ -39,14 +39,14 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - name: Compile relay binary
+      - name: Compile tp binary
         run: |
-          bun build packages/relay/src/index.ts --compile --target=${{ steps.arch.outputs.target }} --outfile /tmp/tp-relay
+          bun build apps/cli/src/index.ts --compile --target=${{ steps.arch.outputs.target }} --outfile /tmp/tp
 
       - name: Deploy to server
         run: |
-          scp -o StrictHostKeyChecking=no /tmp/tp-relay ${{ secrets.RELAY_USER }}@${RELAY_HOST}:/tmp/tp-relay
-          ssh -o StrictHostKeyChecking=no ${{ secrets.RELAY_USER }}@${RELAY_HOST} "sudo mv /tmp/tp-relay /usr/local/bin/tp-relay && sudo chmod +x /usr/local/bin/tp-relay && sudo systemctl restart tp-relay"
+          scp -o StrictHostKeyChecking=no /tmp/tp ${{ secrets.RELAY_USER }}@${RELAY_HOST}:/tmp/tp
+          ssh -o StrictHostKeyChecking=no ${{ secrets.RELAY_USER }}@${RELAY_HOST} "sudo mv /tmp/tp /usr/local/bin/tp && sudo chmod +x /usr/local/bin/tp && sudo systemctl restart tp-relay"
 
       - name: Health check
         run: |

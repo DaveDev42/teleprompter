@@ -1,30 +1,29 @@
-import { useEffect, useRef, useState, useCallback } from "react";
-import {
-  View,
-  Text,
-  FlatList,
-  TextInput,
-  Pressable,
-  KeyboardAvoidingView,
-  Keyboard,
-  Platform,
-} from "react-native";
+import type { WsClientMessage, WsRec } from "@teleprompter/protocol/client";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useSessionStore } from "../../src/stores/session-store";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  useChatStore,
-  processHookEvent,
-  type ChatMessage,
-} from "../../src/stores/chat-store";
-import { getDaemonClient } from "../../src/hooks/use-daemon";
+  FlatList,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChatCard } from "../../src/components/ChatCard";
 import { VoiceButton } from "../../src/components/VoiceButton";
-import { useVoiceStore } from "../../src/stores/voice-store";
-import { useThemeStore } from "../../src/stores/theme-store";
-import { setGlobalTermRef } from "../../src/stores/voice-store";
-import type { WsClientMessage, WsRec } from "@teleprompter/protocol/client";
+import { getDaemonClient } from "../../src/hooks/use-daemon";
 import type { TerminalSearch } from "../../src/lib/terminal-search";
+import {
+  type ChatMessage,
+  processHookEvent,
+  useChatStore,
+} from "../../src/stores/chat-store";
+import { useSessionStore } from "../../src/stores/session-store";
+import { useThemeStore } from "../../src/stores/theme-store";
+import { setGlobalTermRef, useVoiceStore } from "../../src/stores/voice-store";
 
 // Platform-specific terminal component
 let TerminalComponent: any = null;
@@ -264,8 +263,7 @@ function TerminalView({ sid }: { sid: string }) {
       try {
         const binary = atob(rec.d);
         const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++)
-          bytes[i] = binary.charCodeAt(i);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
         term.write(bytes);
       } catch {
         term.write(rec.d);
@@ -348,10 +346,7 @@ export default function SessionDetailScreen() {
       keyboardVerticalOffset={0}
     >
       {/* Safe area top */}
-      <View
-        className="bg-tp-bg-secondary"
-        style={{ paddingTop: insets.top }}
-      />
+      <View className="bg-tp-bg-secondary" style={{ paddingTop: insets.top }} />
 
       {/* Nav header */}
       <View className="flex-row items-center px-2 py-2.5 bg-tp-bg-secondary border-b border-tp-border">

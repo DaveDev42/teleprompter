@@ -1,17 +1,18 @@
 import { View } from "react-native";
 import { useLayout } from "../hooks/use-layout";
-import { SessionDrawer } from "./SessionDrawer";
 
 /**
  * Adaptive layout for different screen sizes:
- * - Mobile: children rendered as-is (tab navigation handles switching)
- * - Tablet: side-by-side split (left=Chat, right=Terminal)
- * - Desktop: sidebar (Sessions) + split (Chat + Terminal)
+ * - Mobile: returns null (tab navigation handles switching)
+ * - Tablet: side-by-side split (Chat + Terminal)
+ * - Desktop: sidebar (Daemons/Sessions) + Chat + Terminal
  */
 export function AdaptiveLayout({
+  sidebarContent,
   chatContent,
   terminalContent,
 }: {
+  sidebarContent: React.ReactNode;
   chatContent: React.ReactNode;
   terminalContent: React.ReactNode;
 }) {
@@ -19,24 +20,26 @@ export function AdaptiveLayout({
 
   if (mode === "desktop") {
     return (
-      <View className="flex-1 flex-row bg-black">
-        {/* Sidebar - Sessions */}
-        <View className="w-[280px] border-r border-zinc-800">
-          <SessionDrawer />
+      <View className="flex-1 flex-row bg-tp-bg">
+        {/* Sidebar — Daemons + Sessions */}
+        <View className="w-[260px] border-r border-tp-border bg-tp-bg-secondary">
+          {sidebarContent}
         </View>
         {/* Chat */}
-        <View className="flex-1 border-r border-zinc-800">{chatContent}</View>
+        <View className="flex-[0.45] border-r border-tp-border">
+          {chatContent}
+        </View>
         {/* Terminal */}
-        <View className="flex-1">{terminalContent}</View>
+        <View className="flex-[0.55]">{terminalContent}</View>
       </View>
     );
   }
 
   if (mode === "tablet") {
     return (
-      <View className="flex-1 flex-row bg-black">
+      <View className="flex-1 flex-row bg-tp-bg">
         {/* Chat */}
-        <View className="flex-1 border-r border-zinc-800">{chatContent}</View>
+        <View className="flex-1 border-r border-tp-border">{chatContent}</View>
         {/* Terminal */}
         <View className="flex-1">{terminalContent}</View>
       </View>

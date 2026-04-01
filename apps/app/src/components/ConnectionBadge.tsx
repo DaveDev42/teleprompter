@@ -1,9 +1,20 @@
 import { Text, View } from "react-native";
 import { useSessionStore } from "../stores/session-store";
 
+function formatRelativeTime(ts: number): string {
+  const diff = Date.now() - ts;
+  const seconds = Math.floor(diff / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 /**
- * Shows connection status and last seen time.
- * Appears as a small badge in headers.
+ * Pill-style connection badge with themed colors.
  */
 export function ConnectionBadge() {
   const connected = useSessionStore((s) => s.connected);
@@ -13,29 +24,25 @@ export function ConnectionBadge() {
   const currentSession = sessions.find((s) => s.sid === sid);
   const lastSeen = currentSession?.updatedAt;
 
+  if (connected) {
+    return (
+      <View className="flex-row items-center rounded-full px-2 py-0.5">
+        <View className="w-1.5 h-1.5 rounded-full bg-tp-success mr-1.5" />
+        <Text className="text-tp-success text-[11px] font-medium">
+          Connected
+        </Text>
+      </View>
+    );
+  }
+
   return (
-    <View className="flex-row items-center gap-1">
-      <View
-        className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`}
-      />
-      {!connected && lastSeen && (
-        <Text className="text-gray-500 text-xs">
+    <View className="flex-row items-center">
+      <View className="w-1.5 h-1.5 rounded-full bg-tp-text-tertiary mr-1.5" />
+      {lastSeen && (
+        <Text className="text-tp-text-tertiary text-[11px]">
           {formatRelativeTime(lastSeen)}
         </Text>
       )}
     </View>
   );
-}
-
-function formatRelativeTime(ts: number): string {
-  const diff = Date.now() - ts;
-  const seconds = Math.floor(diff / 1000);
-
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
 }

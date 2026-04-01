@@ -1,3 +1,53 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    --tp-bg: #ffffff;
+    --tp-bg-secondary: #f4f4f5;
+    --tp-bg-tertiary: #e4e4e7;
+    --tp-bg-elevated: #ffffff;
+    --tp-bg-input: #f4f4f5;
+    --tp-surface: #ffffff;
+    --tp-surface-hover: #f4f4f5;
+    --tp-surface-active: #e4e4e7;
+    --tp-user-bubble: #2563eb;
+    --tp-assistant-bubble: #f4f4f5;
+    --tp-border: #e4e4e7;
+    --tp-border-subtle: #f4f4f5;
+    --tp-border-focus: #3b82f6;
+    --tp-text-primary: #09090b;
+    --tp-text-secondary: #71717a;
+    --tp-text-tertiary: #a1a1aa;
+    --tp-accent: #2563eb;
+    --tp-accent-hover: #1d4ed8;
+    --tp-success: #16a34a;
+    --tp-warning: #d97706;
+    --tp-error: #dc2626;
+  }
+
+  .dark {
+    --tp-bg: #09090b;
+    --tp-bg-secondary: #18181b;
+    --tp-bg-tertiary: #27272a;
+    --tp-bg-elevated: #1c1c1f;
+    --tp-bg-input: #27272a;
+    --tp-surface: #18181b;
+    --tp-surface-hover: #27272a;
+    --tp-surface-active: #3f3f46;
+    --tp-user-bubble: #2563eb;
+    --tp-assistant-bubble: #27272a;
+    --tp-border: #27272a;
+    --tp-border-subtle: #1f1f23;
+    --tp-border-focus: #3b82f6;
+    --tp-text-primary: #fafafa;
+    --tp-text-secondary: #a1a1aa;
+    --tp-text-tertiary: #71717a;
+    --tp-accent: #3b82f6;
+    --tp-accent-hover: #2563eb;
+    --tp-success: #22c55e;
+    --tp-warning: #f59e0b;
+    --tp-error: #ef4444;
+  }
+}

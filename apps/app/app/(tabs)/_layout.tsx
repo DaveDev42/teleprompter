@@ -1,42 +1,55 @@
 import { Tabs } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { useLayout } from "../../src/hooks/use-layout";
+import { useThemeStore } from "../../src/stores/theme-store";
 
 export default function TabsLayout() {
   const { isMobile } = useLayout();
+  const isDark = useThemeStore((s) => s.isDark);
 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: "#111",
+          backgroundColor: isDark ? "#18181B" : "#FFFFFF",
+          borderTopColor: isDark ? "#27272A" : "#E4E4E7",
           // Hide tab bar on desktop (sidebar replaces it)
           display: isMobile ? "flex" : "none",
         },
-        tabBarActiveTintColor: "#fff",
-        tabBarInactiveTintColor: "#666",
+        tabBarActiveTintColor: isDark ? "#3B82F6" : "#2563EB",
+        tabBarInactiveTintColor: isDark ? "#71717A" : "#A1A1AA",
       }}
     >
       <Tabs.Screen
         name="index"
-        options={{ title: "Chat", tabBarLabel: "Chat" }}
-      />
-      <Tabs.Screen
-        name="terminal"
-        options={{ title: "Terminal", tabBarLabel: "Terminal" }}
-      />
-      <Tabs.Screen
-        name="sessions"
         options={{
           title: "Sessions",
           tabBarLabel: "Sessions",
-          // Hide sessions tab on tablet/desktop (shown in sidebar)
-          href: isMobile ? undefined : null,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="list-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="daemons"
+        options={{
+          title: "Daemons",
+          tabBarLabel: "Daemons",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="server-outline" size={size} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="settings"
-        options={{ title: "Settings", tabBarLabel: "Settings" }}
+        options={{
+          title: "Settings",
+          tabBarLabel: "Settings",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="settings-outline" size={size} color={color} />
+          ),
+        }}
       />
     </Tabs>
   );

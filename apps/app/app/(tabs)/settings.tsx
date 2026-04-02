@@ -158,7 +158,7 @@ export default function SettingsScreen() {
         first
         onPress={() => setShowDiagnostics(true)}
       />
-      <SettingsRow label="Version" value="0.1.0" last />
+      <SettingsRow label="Version" value="0.1.1" last />
     </ScrollView>
   );
 }

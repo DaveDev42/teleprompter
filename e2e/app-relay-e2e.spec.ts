@@ -162,9 +162,9 @@ test.describe("Full Relay E2E — Runner → Daemon → Relay → App", () => {
     // Wait for pairing screen
     await page.waitForSelector("[placeholder*='ps']", { timeout: 10_000 });
 
-    // Fill and submit
+    // Fill and submit — use exact match to avoid "No daemons connected" false positive
     await page.locator("[placeholder*='ps']").fill(json);
-    await page.locator("text=Connect").first().click();
+    await page.locator("text=/^Connect$/").click();
     await page.waitForTimeout(5000);
   }
 
@@ -194,7 +194,7 @@ test.describe("Full Relay E2E — Runner → Daemon → Relay → App", () => {
     await page.goto("/pairing");
     await page.waitForSelector("[placeholder*='ps']", { timeout: 10_000 });
     await page.locator("[placeholder*='ps']").fill(pairingJsonB);
-    await page.locator("text=Connect").first().click();
+    await page.locator("text=/^Connect$/").click();
     await page.waitForTimeout(5000);
 
     // Verify BOTH daemons in Daemons tab
@@ -212,7 +212,7 @@ test.describe("Full Relay E2E — Runner → Daemon → Relay → App", () => {
     await page.goto("/pairing");
     await page.waitForSelector("[placeholder*='ps']", { timeout: 15_000 });
     await page.locator("[placeholder*='ps']").fill(pairingJsonA);
-    await page.locator("text=Connect").first().click();
+    await page.locator("text=/^Connect$/").click();
     await page.waitForTimeout(5000);
 
     // Go to Settings -> Diagnostics

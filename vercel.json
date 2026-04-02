@@ -1,4 +1,5 @@
 {
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- apps/app/ packages/protocol/ vercel.json",
   "buildCommand": "cd apps/app && npx expo export --platform web",
   "installCommand": "pnpm install",
   "outputDirectory": "apps/app/dist",

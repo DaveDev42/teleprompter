@@ -4,7 +4,9 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { useColorScheme, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { UpdateBanner } from "../src/components/UpdateBanner";
 import { useDaemon } from "../src/hooks/use-daemon";
+import { useOtaUpdate } from "../src/hooks/use-ota-update";
 import { useRelay } from "../src/hooks/use-relay";
 import { useConnectionStore } from "../src/stores/connection-store";
 import { usePairingStore } from "../src/stores/pairing-store";
@@ -42,6 +44,9 @@ export default function RootLayout() {
   // E2EE relay connections for all paired daemons (runs in parallel with direct WS)
   useRelay();
 
+  // OTA update check on app launch
+  const { status: otaStatus, restart } = useOtaUpdate();
+
   return (
     <SafeAreaProvider>
       <View className={`flex-1 ${isDark ? "dark" : ""}`}>
@@ -61,6 +66,7 @@ export default function RootLayout() {
             options={{ presentation: "fullScreenModal" }}
           />
         </Stack>
+        <UpdateBanner status={otaStatus} onRestart={restart} />
       </View>
     </SafeAreaProvider>
   );

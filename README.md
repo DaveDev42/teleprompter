@@ -1,5 +1,9 @@
 # Teleprompter
 
+[![CI](https://github.com/DaveDev42/teleprompter/actions/workflows/ci.yml/badge.svg)](https://github.com/DaveDev42/teleprompter/actions/workflows/ci.yml)
+[![Deploy Relay](https://github.com/DaveDev42/teleprompter/actions/workflows/deploy-relay.yml/badge.svg)](https://github.com/DaveDev42/teleprompter/actions/workflows/deploy-relay.yml)
+[![License: BSD-2-Clause](https://img.shields.io/badge/License-BSD_2--Clause-blue.svg)](./LICENSE)
+
 Remote Claude Code session controller with E2EE relay, dual Chat/Terminal UI, and voice input.
 
 ## Quick Start
@@ -166,4 +170,4 @@ See [CHANGELOG.md](./CHANGELOG.md) for release notes.
 
 ## License
 
-MIT
+[BSD 2-Clause](./LICENSE)

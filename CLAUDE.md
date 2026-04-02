@@ -244,6 +244,13 @@ tp status                # Daemon 상태 확인 (자동 시작)
 tp run                   # Runner 프로세스 실행
 ```
 
+## Version Management
+
+- **NEVER bump versions** (package.json, app.json, manifest) unless the user explicitly requests it.
+- Pre-1.0: only patch bumps (0.0.x). The first minor bump (0.1.0) is reserved for App Store public release.
+- Release Please handles version bumps automatically via Conventional Commits — `bump-patch-for-minor-pre-major` is enabled so `feat:` commits stay patch-level while pre-1.0.
+- Do not manually edit `version` fields in any package.json, app.json, or `.release-please-manifest.json`.
+
 ## Language
 
 PRD and internal docs are written in Korean. Code, comments, and commit messages should be in English.

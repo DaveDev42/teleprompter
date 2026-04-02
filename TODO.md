@@ -98,4 +98,5 @@
 - [ ] Claude Code channels 양방향(output 구독) 지원 시 Chat UI 통합 재검토
 - [ ] libghostty 네이티브 RN 모듈 (iOS: Metal, Android: OpenGL) — WebView 제거, GPU 렌더링
 - [ ] Expo Go 드롭 → development build 전용 (Apple Watch, 네이티브 crypto, 네이티브 터미널 등)
+- [ ] Expo Push Notifications — 작업 완료, 유저 응답 대기 시 푸시 알림 (Runner hooks 이벤트 기반)
 - [ ] Apple Watch 컴패니언 앱 — 세션 상태 모니터링, 빠른 명령 전송

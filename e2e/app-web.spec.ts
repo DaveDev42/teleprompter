@@ -1,45 +1,39 @@
 import { expect, test } from "@playwright/test";
 
+// Use mobile viewport so tab bar is visible
+test.use({ viewport: { width: 390, height: 844 } });
+
 test.describe("App Web — UI Smoke Tests", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
-    await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
+    await page.waitForSelector("text=Sessions", { timeout: 30_000 });
   });
 
-  test("loads and shows Teleprompter header", async ({ page }) => {
-    await expect(page.locator("text=Teleprompter")).toBeVisible();
+  test("loads and shows Sessions header", async ({ page }) => {
+    await expect(page.locator("text=Sessions").first()).toBeVisible();
   });
 
-  test("shows connection status", async ({ page }) => {
-    const text = (await page.locator("body").textContent()) ?? "";
-    const hasStatus =
-      text.includes("Connecting") ||
-      text.includes("Waiting") ||
-      text.includes("Reconnecting") ||
-      text.includes("Listening");
-    expect(hasStatus).toBe(true);
+  test("shows empty state when no daemon connected", async ({ page }) => {
+    await expect(page.locator("text=No active sessions")).toBeVisible();
   });
 
-  test("has chat input field", async ({ page }) => {
-    // React Native Web renders TextInput as <input> or <textarea> with placeholder
-    const input = page.locator("[placeholder='Send a message...']");
-    await expect(input).toBeVisible();
-  });
-
-  test("has send button", async ({ page }) => {
-    await expect(page.locator("text=↑")).toBeVisible();
+  test("has three navigation tabs", async ({ page }) => {
+    // Tab bar labels in mobile viewport
+    const tabs = page.locator('[role="tablist"]');
+    if (await tabs.isVisible().catch(() => false)) {
+      await expect(tabs.locator("text=Sessions")).toBeVisible();
+      await expect(tabs.locator("text=Daemons")).toBeVisible();
+      await expect(tabs.locator("text=Settings")).toBeVisible();
+    } else {
+      // Fallback: check tab labels exist somewhere in the page
+      const body = await page.locator("body").textContent();
+      expect(body).toContain("Sessions");
+      expect(body).toContain("Daemons");
+    }
   });
 
   test("dark theme is applied", async ({ page }) => {
-    // Verify there's no bright white background — page should be predominantly dark
     const screenshot = await page.screenshot();
-    // If we got this far without error, the page rendered.
-    // The screenshot from CI shows black background already.
-    // Just verify the page has loaded and is not blank white.
-    const _bodyBg = await page.evaluate(
-      () => document.body.style.backgroundColor || "none",
-    );
-    // Expo sets background via nested views, not body directly — just check page rendered
     expect(screenshot.length).toBeGreaterThan(1000);
   });
 });

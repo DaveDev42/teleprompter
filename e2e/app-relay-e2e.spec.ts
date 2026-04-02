@@ -2,13 +2,13 @@ import { expect, test } from "@playwright/test";
 import { type ChildProcess, execSync, spawn } from "child_process";
 
 /**
- * Full relay E2E: Runner → Daemon → Relay → App (via Playwright)
+ * Full relay E2E: Runner -> Daemon -> Relay -> App (via Playwright)
  *
  * Tests the complete pipeline:
  * 1. Start local relay server
  * 2. Generate pairing data (via tp pair)
  * 3. Start daemon connected to relay
- * 4. App pairs via manual paste → relay E2EE connection
+ * 4. App pairs via manual paste -> relay E2EE connection
  * 5. Verify app shows daemon session via relay
  */
 
@@ -64,7 +64,7 @@ test.describe("Full Relay E2E — Runner → Daemon → Relay → App", () => {
       ),
     );
 
-    // 2. Start relay (registers daemon A's token from pairing.json)
+    // 2. Start relay
     relay = spawn(
       "bun",
       [
@@ -80,7 +80,7 @@ test.describe("Full Relay E2E — Runner → Daemon → Relay → App", () => {
     );
     await waitForOutput(relay, "listening");
 
-    // 3. Start daemon A (connects to relay via saved pairing.json)
+    // 3. Start daemon A
     daemonA = spawn(
       "bun",
       [
@@ -101,7 +101,7 @@ test.describe("Full Relay E2E — Runner → Daemon → Relay → App", () => {
     await waitForOutput(daemonA, "press Ctrl+C");
     await new Promise((r) => setTimeout(r, 1000));
 
-    // 4. Generate pairing data for daemon B (different daemon-id, same relay)
+    // 4. Generate pairing data for daemon B
     pairingJsonB = extractPairingJson(
       execSync(
         `bun run apps/cli/src/index.ts pair --relay ws://localhost:${RELAY_PORT} --daemon-id relay-e2e-B`,
@@ -109,10 +109,7 @@ test.describe("Full Relay E2E — Runner → Daemon → Relay → App", () => {
       ),
     );
 
-    // 5. Register daemon B's token on the running relay
-    //    (relay CLI --register-pairing only loads the latest pairing.json,
-    //     but daemon B self-registers via relay.register on connect)
-    // 6. Start daemon B on a different WS port
+    // 5. Start daemon B on a different WS port
     daemonB = spawn(
       "bun",
       [
@@ -145,87 +142,88 @@ test.describe("Full Relay E2E — Runner → Daemon → Relay → App", () => {
     page: import("@playwright/test").Page,
     json: string,
   ) {
-    // Navigate to Settings
-    await page.locator("text=Settings").last().click();
-    await page.waitForTimeout(500);
+    // Navigate to Daemons tab
+    await page.locator("text=Daemons").last().click();
+    await page
+      .waitForSelector("text=No daemons connected", {
+        timeout: 5_000,
+      })
+      .catch(() => {});
 
-    // Click the "Pair with Daemon" button
-    await page.locator("text=Pair with Daemon").first().click();
-    await page.waitForTimeout(1000);
+    // Click manual pairing link or "+" button
+    const manualLink = page.locator("text=enter pairing data manually");
+    if (await manualLink.isVisible().catch(() => false)) {
+      await manualLink.click();
+    } else {
+      // Use the "+" button if daemons already paired
+      await page.locator("text=+").first().click();
+    }
 
-    // Wait for pairing screen — look for the placeholder text on the textarea
+    // Wait for pairing screen
     await page.waitForSelector("[placeholder*='ps']", { timeout: 10_000 });
 
-    // Fill and submit
+    // Fill and submit — use exact match to avoid "No daemons connected" false positive
     await page.locator("[placeholder*='ps']").fill(json);
-    await page.waitForTimeout(300);
-    await page.locator("text=Connect").first().click();
+    await page.locator("text=/^Connect$/").click();
     await page.waitForTimeout(5000);
   }
 
   test("app pairs with daemon A via relay", async ({ page }) => {
     await page.goto("/");
-    await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
-    await page.waitForTimeout(2000);
+    await page.waitForSelector("text=Sessions", { timeout: 30_000 });
 
     await pairWithDaemon(page, pairingJsonA);
 
-    // Go to Settings to verify
-    await page.locator("text=Settings").last().click();
-    await page.waitForTimeout(500);
-    const body = await page.locator("body").textContent();
-    expect(body).toContain("relay-e2e-A");
+    // Verify daemon appears in Daemons tab
+    await page.locator("text=Daemons").last().click();
+    await expect(page.locator("text=relay-e2e-A").first()).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test("N:N — app shows two paired daemons simultaneously", async ({
     page,
   }) => {
     await page.goto("/");
-    await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
-    await page.waitForTimeout(2000);
+    await page.waitForSelector("text=Sessions", { timeout: 30_000 });
 
-    // Pair daemon A via UI
+    // Pair daemon A
     await pairWithDaemon(page, pairingJsonA);
-    await page.waitForTimeout(1000);
 
-    // For daemon B, navigate directly to pairing URL to avoid modal re-open issues
+    // Pair daemon B via direct URL to avoid modal issues
     await page.goto("/pairing");
     await page.waitForSelector("[placeholder*='ps']", { timeout: 10_000 });
     await page.locator("[placeholder*='ps']").fill(pairingJsonB);
-    await page.waitForTimeout(300);
-    await page.locator("text=Connect").first().click();
+    await page.locator("text=/^Connect$/").click();
     await page.waitForTimeout(5000);
 
-    // Navigate to Settings and verify BOTH daemons
+    // Verify BOTH daemons in Daemons tab
     await page.goto("/");
-    await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
-    await page.waitForTimeout(2000);
-    await page.locator("text=Settings").last().click();
-    await page.waitForTimeout(500);
+    await page.waitForSelector("text=Sessions", { timeout: 30_000 });
+    await page.locator("text=Daemons").last().click();
 
     const body = await page.locator("body").textContent();
     expect(body).toContain("relay-e2e-A");
     expect(body).toContain("relay-e2e-B");
-    expect(body).toContain("Paired Daemons (2)");
   });
 
   test("diagnostics shows pairing and E2EE info", async ({ page }) => {
-    // Pair via direct URL navigation
+    // Pair via direct URL
     await page.goto("/pairing");
     await page.waitForSelector("[placeholder*='ps']", { timeout: 15_000 });
     await page.locator("[placeholder*='ps']").fill(pairingJsonA);
-    await page.waitForTimeout(300);
-    await page.locator("text=Connect").first().click();
+    await page.locator("text=/^Connect$/").click();
     await page.waitForTimeout(5000);
 
-    // Go to Settings → Diagnostics
+    // Go to Settings -> Diagnostics
     await page.goto("/");
-    await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
-    await page.waitForTimeout(2000);
+    await page.waitForSelector("text=Sessions", { timeout: 30_000 });
     await page.locator("text=Settings").last().click();
-    await page.waitForTimeout(500);
+    await page.waitForSelector("text=Diagnostics", { timeout: 5_000 });
     await page.locator("text=Diagnostics").first().click();
-    await page.waitForTimeout(500);
+    await page
+      .waitForSelector("text=E2EE CRYPTO", { timeout: 5_000 })
+      .catch(() => {});
 
     const diagText = await page.locator("body").textContent();
     expect(diagText).toContain("E2EE CRYPTO");

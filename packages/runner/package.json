@@ -2,6 +2,7 @@
   "name": "@teleprompter/runner",
   "version": "0.1.5",
   "private": true,
+  "license": "BSD-2-Clause",
   "main": "./src/lib.ts",
   "exports": {
     ".": "./src/lib.ts"

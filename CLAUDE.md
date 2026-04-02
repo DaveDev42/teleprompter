@@ -124,13 +124,15 @@ Stub 프로세스로 전체 파이프라인 검증.
 - `app-mobile-qa` — iOS Simulator / Android Emulator (Expo MCP + Maestro)
 - `app-web-qa` — React Native Web (Playwright MCP + Playwright Test)
 - Playwright E2E: `pnpm test:e2e`
-  - `e2e/app-web.spec.ts` — smoke tests
-  - `e2e/app-roundtrip.spec.ts` — input/output roundtrip
+  - `e2e/app-web.spec.ts` — UI smoke tests (Sessions header, empty state, tabs, dark theme)
+  - `e2e/app-settings.spec.ts` — settings tab (appearance, theme toggle, fonts, diagnostics, version)
+  - `e2e/app-daemon.spec.ts` — daemon-connected session list
+  - `e2e/app-session-switch.spec.ts` — session list and navigation
   - `e2e/app-resume.spec.ts` — daemon restart recovery
-  - `e2e/app-real-e2e.spec.ts` — real Claude PTY E2E
-  - `e2e/app-daemon.spec.ts` — daemon-connected tests
-  - `e2e/app-chat-roundtrip.spec.ts` — chat input/output roundtrip
   - `e2e/app-relay-e2e.spec.ts` — full relay pipeline (pair → relay → daemon → E2EE)
+  - `e2e/app-roundtrip.spec.ts` — input/output roundtrip (local only)
+  - `e2e/app-real-e2e.spec.ts` — real Claude PTY E2E (local only)
+  - `e2e/app-chat-roundtrip.spec.ts` — chat input/output roundtrip (local only)
 
 ### 명령어
 ```bash

@@ -79,7 +79,7 @@ test.describe("Real E2E — Claude PTY → Browser", () => {
     });
 
     await page.goto("/");
-    await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
+    await page.waitForSelector("text=Sessions", { timeout: 30_000 });
 
     // Poll until session ID appears — first load has Metro bundling overhead
     let hasSession = false;
@@ -110,7 +110,7 @@ test.describe("Real E2E — Claude PTY → Browser", () => {
     page,
   }) => {
     await page.goto("/");
-    await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
+    await page.waitForSelector("text=Sessions", { timeout: 30_000 });
 
     // Wait for session to attach
     for (let i = 0; i < 10; i++) {
@@ -144,7 +144,7 @@ test.describe("Real E2E — Claude PTY → Browser", () => {
 
   test("Chat input is editable when connected", async ({ page }) => {
     await page.goto("/");
-    await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
+    await page.waitForSelector("text=Sessions", { timeout: 30_000 });
 
     // Wait for session to attach (input becomes editable)
     let editable = false;

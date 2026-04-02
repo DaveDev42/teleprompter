@@ -81,7 +81,7 @@ test.describe("P0 — Chat Roundtrip", () => {
     await page.setViewportSize({ width: 400, height: 800 });
 
     await page.goto("/");
-    await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
+    await page.waitForSelector("text=Sessions", { timeout: 30_000 });
 
     // Wait for session attach
     for (let i = 0; i < 20; i++) {
@@ -109,7 +109,7 @@ test.describe("P0 — Chat Roundtrip", () => {
   test("Chat input is editable and can type text", async ({ page }) => {
     await page.setViewportSize({ width: 400, height: 800 });
     await page.goto("/");
-    await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
+    await page.waitForSelector("text=Sessions", { timeout: 30_000 });
 
     // Wait for session
     for (let i = 0; i < 15; i++) {

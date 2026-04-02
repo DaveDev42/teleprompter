@@ -2,6 +2,7 @@
   "name": "@teleprompter/cli",
   "version": "0.1.5",
   "private": true,
+  "license": "BSD-2-Clause",
   "scripts": {
     "dev": "bun run src/index.ts",
     "start": "bun run src/index.ts",

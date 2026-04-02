@@ -1,6 +1,8 @@
+import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Platform,
   Pressable,
   ScrollView,
@@ -10,6 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DiagnosticsPanel } from "../../src/components/DiagnosticsPanel";
+import { useOtaUpdate } from "../../src/hooks/use-ota-update";
 import { secureGet, secureSet } from "../../src/lib/secure-storage";
 import { useConnectionStore } from "../../src/stores/connection-store";
 import { usePairingStore } from "../../src/stores/pairing-store";
@@ -32,6 +35,7 @@ function SettingsRow({
   first,
   last,
   destructive,
+  children,
 }: {
   label: string;
   value?: string;
@@ -39,6 +43,7 @@ function SettingsRow({
   first?: boolean;
   last?: boolean;
   destructive?: boolean;
+  children?: React.ReactNode;
 }) {
   return (
     <Pressable onPress={onPress} className="mx-4">
@@ -55,6 +60,7 @@ function SettingsRow({
           {label}
         </Text>
         <View className="flex-row items-center">
+          {children}
           {value !== undefined && (
             <Text className="text-tp-text-secondary text-[15px] mr-1">
               {value}
@@ -71,6 +77,42 @@ function SettingsRow({
   );
 }
 
+function UpdateStatusValue({ status }: { status: import("../../src/hooks/use-ota-update").OtaStatus }) {
+  if (status === "checking" || status === "downloading") {
+    return (
+      <View className="flex-row items-center">
+        <ActivityIndicator size="small" className="mr-2" />
+        <Text className="text-tp-text-secondary text-[13px]">
+          {status === "checking" ? "Checking..." : "Downloading..."}
+        </Text>
+      </View>
+    );
+  }
+  if (status === "up-to-date") {
+    return (
+      <View className="flex-row items-center">
+        <View className="w-2 h-2 rounded-full bg-tp-success mr-1.5" />
+        <Text className="text-tp-success text-[13px] font-medium">Up to date</Text>
+      </View>
+    );
+  }
+  if (status === "available" || status === "ready") {
+    return (
+      <View className="flex-row items-center">
+        <View className="w-2 h-2 rounded-full bg-tp-accent mr-1.5" />
+        <Text className="text-tp-accent text-[13px] font-medium">Update available</Text>
+      </View>
+    );
+  }
+  if (status === "error") {
+    return <Text className="text-tp-error text-[13px]">Check failed</Text>;
+  }
+  if (status === "unavailable") {
+    return <Text className="text-tp-text-tertiary text-[13px]">Dev build</Text>;
+  }
+  return null;
+}
+
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -82,6 +124,7 @@ export default function SettingsScreen() {
   const fontSize = useSettingsStore((s) => s.fontSize);
   const apiKey = useVoiceStore((s) => s.apiKey);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const { status: otaStatus, restart, checkAndFetch } = useOtaUpdate();
 
   if (showDiagnostics) {
     return (
@@ -154,11 +197,56 @@ export default function SettingsScreen() {
       {/* About */}
       <SectionLabel>About</SectionLabel>
       <SettingsRow
-        label="Diagnostics"
+        label="Version"
+        value={Constants.expoConfig?.version ?? "dev"}
         first
-        onPress={() => setShowDiagnostics(true)}
       />
-      <SettingsRow label="Version" value="0.1.1" last />
+      <SettingsRow
+        label="Updates"
+        first={false}
+        last
+        onPress={
+          otaStatus === "ready"
+            ? restart
+            : otaStatus === "up-to-date" || otaStatus === "error"
+              ? checkAndFetch
+              : undefined
+        }
+        value={undefined}
+      >
+        <UpdateStatusValue status={otaStatus} />
+      </SettingsRow>
+
+      {otaStatus === "ready" && (
+        <View className="mx-4 mt-3">
+          <View className="bg-tp-surface rounded-card p-4">
+            <Text className="text-tp-text-primary text-[15px] font-semibold">
+              New version available
+            </Text>
+            <Text className="text-tp-text-secondary text-[13px] mt-1">
+              A new update is ready to install.{"\n"}Restart the app to apply
+              changes.
+            </Text>
+            <Pressable
+              onPress={restart}
+              className="bg-tp-accent rounded-btn items-center py-2.5 mt-3"
+            >
+              <Text className="text-white text-[14px] font-semibold">
+                Restart to Update
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
+      <View className={otaStatus === "ready" ? "" : "mt-3"}>
+        <SettingsRow
+          label="Diagnostics"
+          first
+          last
+          onPress={() => setShowDiagnostics(true)}
+        />
+      </View>
     </ScrollView>
   );
 }

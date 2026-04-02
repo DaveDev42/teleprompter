@@ -2,6 +2,7 @@
   "name": "@teleprompter/tsconfig",
   "version": "0.1.5",
   "private": true,
+  "license": "BSD-2-Clause",
   "files": [
     "base.json",
     "bun.json"

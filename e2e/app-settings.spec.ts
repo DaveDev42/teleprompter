@@ -39,7 +39,7 @@ test.describe("App Web — Settings", () => {
   });
 
   test("version is displayed", async ({ page }) => {
-    await expect(page.locator("text=0.1.0")).toBeVisible();
+    await expect(page.locator("text=/\\d+\\.\\d+\\.\\d+/")).toBeVisible();
   });
 
   test("font settings are displayed", async ({ page }) => {

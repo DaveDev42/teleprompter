@@ -25,7 +25,6 @@ export default defineConfig({
         "app-settings.spec.ts",
         "app-session-switch.spec.ts",
         "app-resume.spec.ts",
-        "app-relay-e2e.spec.ts",
       ],
     },
     {

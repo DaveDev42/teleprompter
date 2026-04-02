@@ -46,30 +46,20 @@ test.describe("App Web — Daemon Connected", () => {
 
   test("connects to daemon and shows session", async ({ page }) => {
     await page.goto("/");
-    await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
+    await page.waitForSelector("text=Sessions", { timeout: 30_000 });
 
-    // Wait for WS connection (should show "Waiting for session..." or session ID)
-    // Not "Connecting to Daemon..." which means WS failed
-    await page.waitForTimeout(5000);
-    const text = await page.locator("body").textContent();
-    const connected =
-      text?.includes("Waiting for session") || text?.includes("pw-test");
-    expect(connected).toBe(true);
+    // Wait for WS connection — session should appear in list
+    await expect(page.locator("text=pw-test")).toBeVisible({ timeout: 10_000 });
   });
 
   test("shows session info after connection", async ({ page }) => {
     await page.goto("/");
-    await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
+    await page.waitForSelector("text=Sessions", { timeout: 30_000 });
 
-    // Wait for WS to connect
-    await page.waitForTimeout(3000);
+    // Wait for WS to connect and session to appear
+    await expect(page.locator("text=pw-test")).toBeVisible({ timeout: 10_000 });
 
-    // The header or status should update from "Connecting" to something else
-    const connecting = page.locator("text=Connecting to Daemon...");
-    // It should NOT still say connecting after 3s with daemon running
-    const _isStillConnecting = await connecting.isVisible().catch(() => false);
-    // If daemon is on localhost:7080 and Playwright is on localhost:8081,
-    // the auto-detect should use localhost:7080
-    expect(true).toBe(true); // Basic connectivity test
+    // Should not still say "No active sessions"
+    await expect(page.locator("text=No active sessions")).not.toBeVisible();
   });
 });

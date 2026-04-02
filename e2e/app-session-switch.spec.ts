@@ -5,7 +5,7 @@ let daemon: ChildProcess;
 
 test.describe("App Web — Session Switching", () => {
   test.beforeAll(async () => {
-    // Start daemon with two sessions
+    // Start daemon with a session
     daemon = spawn(
       "bun",
       [
@@ -46,23 +46,27 @@ test.describe("App Web — Session Switching", () => {
 
   test("sessions tab shows session list", async ({ page }) => {
     await page.goto("/");
-    await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
-    await page.waitForTimeout(3000);
+    await page.waitForSelector("text=Sessions", { timeout: 30_000 });
 
-    // The daemon spawns a session — it should appear in the app
-    // Either via Sessions tab or sidebar, depending on viewport
-    const body = await page.locator("body").textContent();
-    expect(body).toContain("session-alpha");
+    // The daemon spawns a session — it should appear in the Sessions list
+    await expect(page.locator("text=session-alpha")).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
-  test("clicking a session switches the active session", async ({ page }) => {
+  test("clicking a session navigates to session view", async ({ page }) => {
     await page.goto("/");
-    await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
-    await page.waitForTimeout(3000);
+    await page.waitForSelector("text=Sessions", { timeout: 30_000 });
 
-    // The app should auto-attach to the first session
-    const body = await page.locator("body").textContent();
-    const hasSession = body?.includes("session-alpha");
-    expect(hasSession).toBe(true);
+    // Wait for session to appear
+    await expect(page.locator("text=session-alpha")).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Click the session row
+    await page.locator("text=session-alpha").click();
+
+    // Should navigate to session detail page
+    await expect(page.locator("text=Chat")).toBeVisible({ timeout: 5_000 });
   });
 });

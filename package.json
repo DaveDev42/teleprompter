@@ -34,6 +34,7 @@
     "@playwright/mcp": "^0.0.69",
     "@playwright/test": "^1.58.2",
     "expo-mcp": "github:DaveDev42/expo-mcp",
+    "serve": "^14.2.6",
     "turbo": "^2.5.4"
   }
 }

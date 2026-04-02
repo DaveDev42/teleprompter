@@ -1,73 +1,51 @@
 import { expect, test } from "@playwright/test";
 
+// Use mobile viewport so tab bar is visible
+test.use({ viewport: { width: 390, height: 844 } });
+
 test.describe("App Web — Settings", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
-    await page.waitForSelector("text=Teleprompter", { timeout: 30_000 });
+    await page.waitForSelector("text=Sessions", { timeout: 30_000 });
+    // Navigate to Settings tab
+    await page.locator("text=Settings").last().click();
+    await page.waitForSelector("text=Appearance", { timeout: 5_000 });
   });
 
-  test("settings tab is accessible", async ({ page }) => {
-    const settingsTab = page.locator("text=Settings");
-    if (await settingsTab.isVisible()) {
-      await settingsTab.click();
-      await page.waitForTimeout(500);
-      await expect(page.locator("text=Daemon URL")).toBeVisible();
-    }
+  test("settings tab shows appearance section", async ({ page }) => {
+    await expect(page.locator("text=Appearance")).toBeVisible();
+    await expect(page.locator("text=Theme")).toBeVisible();
   });
 
-  test("theme toggle switches between dark/light/system", async ({ page }) => {
-    const settingsTab = page.locator("text=Settings");
-    if (await settingsTab.isVisible()) {
-      await settingsTab.click();
-      await page.waitForTimeout(500);
+  test("theme toggle cycles through dark/light/system", async ({ page }) => {
+    // Default is Dark
+    await expect(page.locator("text=Dark")).toBeVisible();
 
-      // Theme section should show three options
-      await expect(page.locator("text=Theme")).toBeVisible();
-      await expect(page.locator("text=Dark")).toBeVisible();
-      await expect(page.locator("text=Light")).toBeVisible();
-      await expect(page.locator("text=System")).toBeVisible();
+    // Click Theme row to cycle to Light
+    await page.locator("text=Theme").click();
+    await expect(page.locator("text=Light")).toBeVisible();
 
-      // Click Light theme
-      await page.locator("text=Light").click();
-      await page.waitForTimeout(300);
+    // Click again to cycle to System
+    await page.locator("text=Theme").click();
+    await expect(page.locator("text=System")).toBeVisible();
 
-      // Click back to Dark
-      await page.locator("text=Dark").click();
-      await page.waitForTimeout(300);
-
-      // Theme buttons should still be visible (not broken)
-      await expect(page.locator("text=Dark")).toBeVisible();
-    }
-  });
-
-  test("daemon URL input and set button exist", async ({ page }) => {
-    const settingsTab = page.locator("text=Settings");
-    if (await settingsTab.isVisible()) {
-      await settingsTab.click();
-      await page.waitForTimeout(500);
-
-      await expect(page.locator("text=Daemon URL")).toBeVisible();
-      await expect(page.locator("text=Set")).toBeVisible();
-    }
-  });
-
-  test("pair with daemon button exists", async ({ page }) => {
-    const settingsTab = page.locator("text=Settings");
-    if (await settingsTab.isVisible()) {
-      await settingsTab.click();
-      await page.waitForTimeout(500);
-
-      await expect(page.locator("text=Pair with Daemon")).toBeVisible();
-    }
+    // Click again back to Dark
+    await page.locator("text=Theme").click();
+    await expect(page.locator("text=Dark")).toBeVisible();
   });
 
   test("diagnostics button exists", async ({ page }) => {
-    const settingsTab = page.locator("text=Settings");
-    if (await settingsTab.isVisible()) {
-      await settingsTab.click();
-      await page.waitForTimeout(500);
+    await expect(page.locator("text=Diagnostics")).toBeVisible();
+  });
 
-      await expect(page.locator("text=Diagnostics")).toBeVisible();
-    }
+  test("version is displayed", async ({ page }) => {
+    await expect(page.locator("text=0.1.0")).toBeVisible();
+  });
+
+  test("font settings are displayed", async ({ page }) => {
+    await expect(page.locator("text=Chat Font")).toBeVisible();
+    await expect(page.locator("text=Code Font")).toBeVisible();
+    await expect(page.locator("text=Terminal Font")).toBeVisible();
+    await expect(page.locator("text=Font Size")).toBeVisible();
   });
 });

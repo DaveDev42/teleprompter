@@ -3,6 +3,7 @@
     ".": {
       "release-type": "node",
       "tag-prefix": "release/v",
+      "bump-patch-for-minor-pre-major": true,
       "extra-files": [
         {
           "type": "json",

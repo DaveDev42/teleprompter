@@ -24,6 +24,22 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Cache Expo web build
+        id: expo-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/app/dist
+            apps/app/node_modules/.cache
+          key: expo-web-${{ runner.os }}-${{ hashFiles('apps/app/**/*.ts', 'apps/app/**/*.tsx', 'apps/app/app.json', 'pnpm-lock.yaml') }}
+
       - name: Lint & format check
         run: npx biome ci .
 
@@ -47,10 +63,15 @@ jobs:
           ./dist/tp --help
 
       - name: Build web frontend
+        if: steps.expo-cache.outputs.cache-hit != 'true'
         run: cd apps/app && npx expo export --platform web
 
       - name: Install Playwright
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install chromium
+
+      - name: Install Playwright deps
+        run: npx playwright install-deps chromium
 
       - name: Playwright E2E
         run: npx playwright test --project=ci

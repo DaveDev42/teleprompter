@@ -77,7 +77,11 @@ function SettingsRow({
   );
 }
 
-function UpdateStatusValue({ status }: { status: import("../../src/hooks/use-ota-update").OtaStatus }) {
+function UpdateStatusValue({
+  status,
+}: {
+  status: import("../../src/hooks/use-ota-update").OtaStatus;
+}) {
   if (status === "checking" || status === "downloading") {
     return (
       <View className="flex-row items-center">
@@ -92,7 +96,9 @@ function UpdateStatusValue({ status }: { status: import("../../src/hooks/use-ota
     return (
       <View className="flex-row items-center">
         <View className="w-2 h-2 rounded-full bg-tp-success mr-1.5" />
-        <Text className="text-tp-success text-[13px] font-medium">Up to date</Text>
+        <Text className="text-tp-success text-[13px] font-medium">
+          Up to date
+        </Text>
       </View>
     );
   }
@@ -100,7 +106,9 @@ function UpdateStatusValue({ status }: { status: import("../../src/hooks/use-ota
     return (
       <View className="flex-row items-center">
         <View className="w-2 h-2 rounded-full bg-tp-accent mr-1.5" />
-        <Text className="text-tp-accent text-[13px] font-medium">Update available</Text>
+        <Text className="text-tp-accent text-[13px] font-medium">
+          Update available
+        </Text>
       </View>
     );
   }

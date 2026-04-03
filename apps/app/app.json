@@ -19,7 +19,7 @@
         "NSCameraUsageDescription": "Camera is used to scan QR codes for daemon pairing.",
         "NSMicrophoneUsageDescription": "Microphone is used for voice commands to control Claude Code.",
         "UISupportsDocumentBrowser": false,
-        "ITSAppUsesNonExemptEncryption": true
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

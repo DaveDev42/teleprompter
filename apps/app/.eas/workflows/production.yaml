@@ -47,6 +47,7 @@ jobs:
     type: submit
     params:
       build_id: ${{ needs.build_ios.outputs.build_id }}
+      profile: production
 
   submit_android:
     name: Submit Android to Play Store
@@ -54,6 +55,7 @@ jobs:
     type: submit
     params:
       build_id: ${{ needs.build_android.outputs.build_id }}
+      profile: production
 
   update_ios:
     name: Publish iOS OTA

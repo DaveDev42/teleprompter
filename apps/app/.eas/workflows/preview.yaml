@@ -51,6 +51,7 @@ jobs:
     type: submit
     params:
       build_id: ${{ needs.build_ios.outputs.build_id }}
+      profile: preview
 
   submit_android:
     name: Submit Android to Internal
@@ -58,6 +59,7 @@ jobs:
     type: submit
     params:
       build_id: ${{ needs.build_android.outputs.build_id }}
+      profile: preview
 
   update_ios:
     name: Publish iOS OTA

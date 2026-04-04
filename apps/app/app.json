@@ -8,13 +8,20 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/splash-icon-light.png",
       "resizeMode": "contain",
-      "backgroundColor": "#000000"
+      "backgroundColor": "#FFFFFF"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "dev.tpmt.app",
+      "splash": {
+        "dark": {
+          "image": "./assets/splash-icon-dark.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#09090B"
+        }
+      },
       "infoPlist": {
         "NSCameraUsageDescription": "Camera is used to scan QR codes for daemon pairing.",
         "NSMicrophoneUsageDescription": "Microphone is used for voice commands to control Claude Code.",
@@ -23,6 +30,13 @@
       }
     },
     "android": {
+      "splash": {
+        "dark": {
+          "image": "./assets/splash-icon-dark.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#09090B"
+        }
+      },
       "adaptiveIcon": {
         "backgroundColor": "#000000",
         "foregroundImage": "./assets/android-icon-foreground.png",

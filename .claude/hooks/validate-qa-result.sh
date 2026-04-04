@@ -9,9 +9,9 @@ INPUT=$(cat)
 SUBAGENT_TYPE=$(echo "$INPUT" | jq -r '.subagent_type // empty')
 RESULT=$(echo "$INPUT" | jq -r '.result // empty')
 
-# Only validate QA agents
+# Only validate app-web-qa (app-mobile-qa is handled by expo-mcp plugin hook)
 case "$SUBAGENT_TYPE" in
-  app-mobile-qa|app-web-qa) ;;
+  app-web-qa) ;;
   *) exit 0 ;;
 esac
 
@@ -25,20 +25,6 @@ fi
 MISSING=()
 
 case "$SUBAGENT_TYPE" in
-  app-mobile-qa)
-    # App launch evidence
-    if ! echo "$RESULT" | grep -qiE 'start_session|launch_expo'; then
-      MISSING+=("앱 실행 도구 호출")
-    fi
-    # UI verification evidence
-    if ! echo "$RESULT" | grep -qiE 'inspect_view_hierarchy|snapshot|take_screenshot'; then
-      MISSING+=("UI 확인 도구 호출")
-    fi
-    # Interaction evidence
-    if ! echo "$RESULT" | grep -qiE 'tap_on|input_text|mcp__expo__back|run_maestro|scroll|swipe|press_key'; then
-      MISSING+=("실제 인터랙션 도구 호출")
-    fi
-    ;;
   app-web-qa)
     # App launch evidence (MCP navigate or Playwright test execution)
     if ! echo "$RESULT" | grep -qiE 'browser_navigate|playwright test'; then

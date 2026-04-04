@@ -16,6 +16,14 @@ function getUnitPath(): string {
   return join(getUnitDir(), `${SERVICE_NAME}.service`);
 }
 
+export function isServiceInstalled(): boolean {
+  return existsSync(getUnitPath());
+}
+
+export function getServiceName(): string {
+  return SERVICE_NAME;
+}
+
 export function resolveTpBinary(): string {
   const candidates = [
     join(process.env.HOME ?? "", ".local", "bin", "tp"),

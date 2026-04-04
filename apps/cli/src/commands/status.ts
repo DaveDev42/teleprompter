@@ -1,5 +1,6 @@
 import type { WsServerMessage, WsSessionMeta } from "@teleprompter/protocol";
 import { ensureDaemon } from "../lib/ensure-daemon";
+import { errorWithHints } from "../lib/format";
 
 /**
  * tp status — shows the current daemon state.
@@ -17,7 +18,12 @@ export async function statusCommand(argv: string[]): Promise<void> {
   const ws = new WebSocket(url);
 
   const timeout = setTimeout(() => {
-    console.error("Connection timed out.");
+    console.error(
+      errorWithHints(`Cannot reach daemon on port ${port}.`, [
+        "Daemon may have crashed. Run: tp daemon start --verbose",
+        "Diagnose: tp doctor",
+      ]),
+    );
     process.exit(1);
   }, 5000);
 
@@ -27,7 +33,12 @@ export async function statusCommand(argv: string[]): Promise<void> {
 
   ws.onerror = () => {
     clearTimeout(timeout);
-    console.error(`Cannot connect to daemon at ${url}`);
+    console.error(
+      errorWithHints(`Cannot connect to daemon at ${url}.`, [
+        "Start daemon: tp daemon start",
+        `Check port: lsof -i :${port}`,
+      ]),
+    );
     process.exit(1);
   };
 

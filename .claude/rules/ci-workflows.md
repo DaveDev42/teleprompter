@@ -8,7 +8,7 @@ paths:
 # CI/CD & Deployment Conventions
 
 ## GitHub Actions
-- CI: Node 22 + Bun (latest) + pnpm 10.33.0
+- CI: Node 22 + Bun 1.3.6 + pnpm 10.33.0
 - 캐시: Playwright browsers (`playwright-browsers-`), Expo web build (`expo-web-`)
 - Secrets: `RELAY_HOST`, `RELAY_USER`, `RELAY_SSH_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`
 

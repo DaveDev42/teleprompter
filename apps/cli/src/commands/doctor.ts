@@ -1,7 +1,7 @@
 import { $ } from "bun";
 import { existsSync } from "fs";
 import { join } from "path";
-import { green, ok, yellow } from "../lib/colors";
+import { green, yellow } from "../lib/colors";
 import { verifyE2EECrypto } from "../lib/e2ee-verify";
 import { spinner } from "../lib/spinner";
 import { loadPairingData } from "./pair";
@@ -132,8 +132,8 @@ export async function doctorCommand(): Promise<void> {
 }
 
 function check(name: string, value: string, passed: boolean): void {
-  const icon = passed ? ok("") : `${yellow("!")} `;
-  console.log(`  ${icon}${name}: ${value}`);
+  const icon = passed ? `${green("✓")}` : `${yellow("!")}`;
+  console.log(`  ${icon} ${name}: ${value}`);
 }
 
 /**
@@ -147,7 +147,6 @@ async function checkRelayConnectivity(pairing: {
 }): Promise<boolean> {
   const PING_COUNT = 3;
   const stop = spinner(`Pinging ${pairing.relayUrl}...`);
-  const rtts: number[] = [];
 
   try {
     const ws = new WebSocket(pairing.relayUrl);
@@ -187,6 +186,7 @@ async function checkRelayConnectivity(pairing: {
 
           if (msg.t === "relay.auth.ok") {
             // Run pings
+            const rtts: number[] = [];
             for (let i = 0; i < PING_COUNT; i++) {
               const rtt = await new Promise<number>((res) => {
                 let tid: ReturnType<typeof setTimeout>;

@@ -4,13 +4,21 @@ import { join } from "path";
 
 const LABEL = "dev.tpmt.daemon";
 
-function getPlistPath(): string {
+export function getPlistPath(): string {
   return join(
     process.env.HOME ?? "/tmp",
     "Library",
     "LaunchAgents",
     `${LABEL}.plist`,
   );
+}
+
+export function isServiceInstalled(): boolean {
+  return existsSync(getPlistPath());
+}
+
+export function getServiceLabel(): string {
+  return LABEL;
 }
 
 function getLogDir(): string {

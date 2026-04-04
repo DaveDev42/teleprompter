@@ -1,5 +1,6 @@
 import type { WsRec, WsServerMessage } from "@teleprompter/protocol";
 import { ensureDaemon } from "../lib/ensure-daemon";
+import { errorWithHints } from "../lib/format";
 
 /**
  * tp logs [sid] [--port 7080]
@@ -31,7 +32,12 @@ export async function logsCommand(argv: string[]): Promise<void> {
   const ws = new WebSocket(url);
 
   const timeout = setTimeout(() => {
-    console.error("Connection timed out.");
+    console.error(
+      errorWithHints(`Cannot reach daemon on port ${portNum}.`, [
+        "Daemon may have crashed. Run: tp daemon start --verbose",
+        "Diagnose: tp doctor",
+      ]),
+    );
     process.exit(1);
   }, 5000);
 
@@ -41,7 +47,12 @@ export async function logsCommand(argv: string[]): Promise<void> {
 
   ws.onerror = () => {
     clearTimeout(timeout);
-    console.error(`Cannot connect to daemon at ${url}`);
+    console.error(
+      errorWithHints(`Cannot connect to daemon at ${url}.`, [
+        "Start daemon: tp daemon start",
+        `Check port: lsof -i :${portNum}`,
+      ]),
+    );
     process.exit(1);
   };
 

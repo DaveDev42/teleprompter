@@ -6,7 +6,7 @@ describe("tp pair", () => {
     const result = capture(
       "bun run apps/cli/src/index.ts pair --relay ws://test.example --no-save",
     );
-    expect(result).toContain("Generating pairing data");
+    expect(result).toContain("Generating pairing keys");
     expect(result).toContain("ws://test.example");
     expect(result).toContain('"relay":"ws://test.example"');
     expect(result).toContain('"v":1');

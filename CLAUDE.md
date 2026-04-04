@@ -159,6 +159,32 @@ CLAUDE.md, PRD.md, TODO.md, ARCHITECTURE.md must always be kept up to date.
 When implementing features, fixing bugs, or making architectural changes,
 update the relevant documentation files in the same commit.
 
+## Branch Strategy
+
+- **main**: 보호 브랜치 — PR merge로만 변경. 직접 push 금지.
+- **Feature branches**: `feat/`, `fix/`, `chore/`, `refactor/` prefix. PR 생성 후 CI 통과 → merge.
+- **Release tags**: `release/v*` — Release Please가 자동 생성.
+- **Merge 방식**: rebase onto `origin/main` → merge commit (squash 아님).
+
+### PR Merge 절차
+
+```bash
+# 1. rebase
+git fetch origin main && git rebase origin/main
+
+# 2. conflict 해결 후 force push
+git push --force-with-lease
+
+# 3. CI 통과 확인
+gh pr checks <number>
+
+# 4. merge (worktree 환경에서는 gh pr merge가 main checkout 실패할 수 있음 — API 사용)
+gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=merge
+```
+
+> **주의**: `gh pr merge`는 로컬에서 main을 checkout하려 하므로, git worktree 환경에서는 실패한다.
+> 항상 `gh api` PUT 방식을 사용할 것.
+
 ## Commit Discipline
 
 - 논리적 작업 단위(기능, 테스트 스위트, 버그 수정) 완료 후 커밋

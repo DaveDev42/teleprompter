@@ -40,5 +40,16 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "expo-mcp@expo-mcp": true
+  },
+  "extraKnownMarketplaces": {
+    "expo-mcp": {
+      "source": {
+        "source": "github",
+        "repo": "DaveDev42/expo-mcp"
+      }
+    }
   }
 }

@@ -14,7 +14,6 @@ const SUBCOMMANDS = [
   "status",
   "logs",
   "doctor",
-  "init",
   "upgrade",
   "completions",
   "version",

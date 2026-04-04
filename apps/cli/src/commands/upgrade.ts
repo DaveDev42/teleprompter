@@ -1,4 +1,7 @@
 import { $ } from "bun";
+import { ok, warn } from "../lib/colors";
+import { errorWithHints } from "../lib/format";
+import { spinner } from "../lib/spinner";
 
 const REPO = "DaveDev42/teleprompter";
 
@@ -13,28 +16,38 @@ export async function upgradeCommand(): Promise<void> {
   console.log(`Current: tp v${currentVersion}`);
 
   // 2. Check latest release
+  const stop = spinner("Checking for updates...");
   const latest = await getLatestRelease();
   if (!latest) {
-    console.error("Failed to check for updates.");
+    stop();
+    console.error(
+      errorWithHints("Failed to check for updates.", [
+        "Check your network connection",
+        `Manual: gh release view --repo ${REPO}`,
+      ]),
+    );
     return;
   }
+  stop();
 
   console.log(`Latest:  tp ${latest.tag}`);
 
   if (latest.tag === `v${currentVersion}`) {
-    console.log("\ntp is already up to date!");
+    console.log(`\n${ok("tp is already up to date!")}`);
   } else {
     console.log(`\nUpgrading tp ${currentVersion} → ${latest.tag}...`);
     await upgradeTp(latest.tag);
   }
 
   // 3. Upgrade claude code
-  console.log("\nChecking Claude Code...");
+  const stopClaude = spinner("Checking Claude Code...");
   try {
     await $`claude update`.quiet();
-    console.log("Claude Code is up to date.");
+    stopClaude(ok("Claude Code is up to date."));
   } catch {
-    console.log("Claude Code update skipped (run 'claude update' manually).");
+    stopClaude(
+      warn("Claude Code update skipped (run 'claude update' manually)."),
+    );
   }
 }
 
@@ -99,11 +112,13 @@ async function upgradeTp(tag: string): Promise<void> {
   const asset = `tp-${os}_${arch}`;
   const url = `https://github.com/${REPO}/releases/download/${tag}/${asset}`;
 
+  const stop = spinner(`Downloading tp ${tag}...`);
   try {
     // Download to temp
     const tmpPath = `/tmp/tp-upgrade-${Date.now()}`;
     await $`curl -fsSL ${url} -o ${tmpPath}`.quiet();
     await $`chmod +x ${tmpPath}`.quiet();
+    stop(ok(`Downloaded tp ${tag}`));
 
     // Find current binary location
     const currentPath = process.execPath.includes("bun")
@@ -124,11 +139,16 @@ async function upgradeTp(tag: string): Promise<void> {
     const version = await $`${currentPath || "tp"} version`
       .text()
       .catch(() => "");
-    console.log(`Verified: ${version.trim()}`);
+    console.log(ok(`Verified: ${version.trim()}`));
   } catch (err) {
-    console.error("Upgrade failed:", err instanceof Error ? err.message : err);
-    console.log(
-      `Manual: curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash`,
+    stop();
+    console.error(
+      errorWithHints(
+        `Upgrade failed: ${err instanceof Error ? err.message : err}`,
+        [
+          `Manual: curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash`,
+        ],
+      ),
     );
   }
 }

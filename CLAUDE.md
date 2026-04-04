@@ -231,18 +231,29 @@ libsodium은 `window.crypto.getRandomValues`를 요구하나 Hermes에는 없음
 ## CLI Commands
 
 ```bash
-tp daemon start          # Daemon 포그라운드 실행
-tp daemon install        # OS 서비스 등록 (macOS: launchd, Linux: systemd)
-tp daemon uninstall      # OS 서비스 해제
-tp relay start           # Relay 서버 실행
-tp relay ping            # Relay RTT 측정 + E2EE 검증
-  --relay-url URL        #   relay 주소 (기본: 저장된 pairing 데이터)
-  --count N              #   ping 횟수 (기본: 10)
-  --verify-e2ee          #   E2EE encrypt/decrypt round-trip 검증
-tp pair                  # QR 페어링 데이터 생성
-tp status                # Daemon 상태 확인 (자동 시작)
-tp run                   # Runner 프로세스 실행
+tp [flags] [claude args]   # Claude를 tp를 통해 실행 (기본 모드)
+tp pair [--relay URL]      # QR 페어링 데이터 생성 (모바일 앱 연결)
+tp status                  # 세션 & daemon 상태 확인 (자동 시작)
+tp logs [session]          # 세션 라이브 출력 tail
+tp doctor                  # 환경 진단 + relay 연결 + E2EE 검증
+tp upgrade                 # tp + Claude Code 업그레이드
+tp version                 # 버전 출력
+
+# Daemon 관리
+tp daemon start [options]  # Daemon 포그라운드 실행
+tp daemon install          # OS 서비스 등록 (macOS: launchd, Linux: systemd)
+tp daemon uninstall        # OS 서비스 해제
+
+# 고급
+tp relay start [--port]    # Relay 서버 실행
+tp completions <shell>     # 셸 자동완성 생성
+
+# Passthrough 플래그
+--tp-sid <id>              # 세션 ID (기본: 자동 생성)
+--tp-cwd <path>            # 작업 디렉토리 (기본: 현재)
 ```
+
+Daemon은 자동 관리됨: passthrough/status/logs 실행 시 daemon이 없으면 자동 시작. OS 서비스 설치 시 서비스를 통해 kickstart. 최초 실행 시 `tp daemon install` 안내 한 번 표시.
 
 ## Version Management
 

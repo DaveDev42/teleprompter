@@ -7,6 +7,8 @@ import { mkdir, readFile, writeFile } from "fs/promises";
 import { join } from "path";
 import qrcode from "qrcode-terminal";
 import { parseArgs } from "util";
+import { ok } from "../lib/colors";
+import { spinner } from "../lib/spinner";
 
 const PAIRING_DIR = join(process.env.HOME ?? "/tmp", ".config", "teleprompter");
 
@@ -25,10 +27,10 @@ export async function pairCommand(argv: string[]): Promise<void> {
   const daemonId =
     (values["daemon-id"] as string) ?? `daemon-${Date.now().toString(36)}`;
 
-  console.log("[Pair] Generating pairing data...\n");
-
+  const stop = spinner("Generating pairing keys...");
   const bundle = await createPairingBundle(relayUrl, daemonId);
   const qrString = encodePairingData(bundle.qrData);
+  stop(`${ok("Keys generated")}\n`);
 
   // Show QR code in terminal
   qrcode.generate(qrString, { small: true }, (qr: string) => {
@@ -57,9 +59,6 @@ export async function pairCommand(argv: string[]): Promise<void> {
     };
     await writeFile(pairingFile, JSON.stringify(pairingData, null, 2));
     console.log(`\nPairing saved to ${pairingFile}`);
-    console.log(
-      `Use with: tp daemon start --relay-url ${relayUrl} --relay-token ${bundle.relayToken} --daemon-id ${daemonId}`,
-    );
   }
 }
 

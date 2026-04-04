@@ -1,7 +1,6 @@
 import { completionsCommand } from "./commands/completions";
 import { daemonCommand } from "./commands/daemon";
 import { doctorCommand } from "./commands/doctor";
-import { initCommand } from "./commands/init";
 import { logsCommand } from "./commands/logs";
 import { pairCommand } from "./commands/pair";
 import { passthroughCommand } from "./commands/passthrough";
@@ -10,6 +9,7 @@ import { runCommand } from "./commands/run";
 import { statusCommand } from "./commands/status";
 import { checkForUpdates, upgradeCommand } from "./commands/upgrade";
 import { versionCommand } from "./commands/version";
+import { yellow } from "./lib/colors";
 
 const command = process.argv[2];
 
@@ -21,7 +21,6 @@ const SUBCOMMANDS = new Set([
   "status",
   "logs",
   "doctor",
-  "init",
   "upgrade",
   "completions",
   "version",
@@ -37,7 +36,9 @@ if (
   checkForUpdates().then((newVersion) => {
     if (newVersion) {
       console.error(
-        `\x1b[33m[tp] New version available: ${newVersion}. Run 'tp upgrade' to update.\x1b[0m`,
+        yellow(
+          `[tp] New version available: ${newVersion}. Run 'tp upgrade' to update.`,
+        ),
       );
     }
   });
@@ -65,9 +66,6 @@ switch (command) {
   case "doctor":
     await doctorCommand();
     break;
-  case "init":
-    await initCommand();
-    break;
   case "upgrade":
     await upgradeCommand();
     break;
@@ -92,36 +90,33 @@ switch (command) {
 
 function printUsage(): void {
   console.log(`
-tp — Teleprompter CLI
+tp — Teleprompter: remote Claude Code controller
 
 Usage:
-  tp [--tp-*] <claude args>           Run claude through teleprompter (default)
-  tp daemon start [options]            Start the daemon service
-    --ws-port 7080                     WebSocket port for local frontends
-    --repo-root /path                  Enable worktree management
-    --relay-url URL                    Connect to relay server
-    --web-dir /path                    Serve frontend web build at WS port
-    --spawn --sid X --cwd Y            Auto-create a session on start
-    --verbose / --quiet                Log level control
-    --watch                            Auto-restart on crash
-    --prune <hours>                    Clean old sessions on startup
-  tp relay start [--port 7090]        Start a relay server
-  tp pair [--relay URL]               Generate QR pairing data
-  tp status [port]                    Show daemon status and sessions
-  tp logs [sid] [--port 7080]         Tail live session records
+  tp [flags] [claude args]            Run claude through teleprompter
+  tp pair [--relay URL]               Pair with mobile app (QR code)
+  tp status                           Show sessions & daemon status
+  tp logs [session]                   Tail live session output
+  tp doctor                           Diagnose environment & connectivity
   tp upgrade                          Upgrade tp + Claude Code
-  tp doctor                           Diagnose environment
-  tp init                             Quick project setup guide
+  tp version                          Print version
+
+Flags:
+  --tp-sid <id>                       Session ID (default: auto-generated)
+  --tp-cwd <path>                     Working directory (default: current)
+
+Daemon management:
+  tp daemon start [options]           Start daemon in foreground
+  tp daemon install                   Auto-start on login (launchd/systemd)
+  tp daemon uninstall                 Remove auto-start
+
+Advanced:
+  tp relay start [--port 7090]        Run a relay server
   tp completions <bash|zsh|fish>      Generate shell completions
-  tp version                          Print version information
 
-Passthrough mode (default):
-  tp -p "explain this code"           Run claude with teleprompter recording
-  tp --tp-sid my-session -p "hello"   Specify session ID
-  tp --tp-cwd /path/to/project        Specify working directory
-
-Setup shell completions:
-  eval "$(tp completions bash)"       # add to ~/.bashrc
-  eval "$(tp completions zsh)"        # add to ~/.zshrc
+Examples:
+  tp -p "explain this code"           Quick one-shot
+  tp --model sonnet -p "fix the bug"  Pass flags to claude
+  tp pair                             First-time setup
 `);
 }

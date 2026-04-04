@@ -154,6 +154,12 @@ update the relevant documentation files in the same commit.
 - 깨진 코드나 미완성 코드를 커밋하지 않음
 - 문서 업데이트(CLAUDE.md, TODO.md 등)는 해당 코드 변경과 같은 커밋에 포함
 
+## Git Merge Strategy
+
+- **Squash merge is disabled** on this repository. Use `gh pr merge --merge` (merge commit).
+- This repo often uses **git worktrees**. When merging from a worktree, the local `main` branch may belong to another worktree. Always merge via `gh pr merge` (GitHub API) instead of local git merge.
+- After merge, clean up remote branch with `--delete-branch` flag.
+
 ## Deployment Pipeline
 
 ### main push

@@ -9,6 +9,7 @@ import { runCommand } from "./commands/run";
 import { statusCommand } from "./commands/status";
 import { checkForUpdates, upgradeCommand } from "./commands/upgrade";
 import { versionCommand } from "./commands/version";
+import { yellow } from "./lib/colors";
 
 const command = process.argv[2];
 
@@ -35,7 +36,9 @@ if (
   checkForUpdates().then((newVersion) => {
     if (newVersion) {
       console.error(
-        `\x1b[33m[tp] New version available: ${newVersion}. Run 'tp upgrade' to update.\x1b[0m`,
+        yellow(
+          `[tp] New version available: ${newVersion}. Run 'tp upgrade' to update.`,
+        ),
       );
     }
   });

@@ -1,6 +1,7 @@
 import { $ } from "bun";
 import { existsSync } from "fs";
 import { join } from "path";
+import { green, ok, yellow } from "../lib/colors";
 import { verifyE2EECrypto } from "../lib/e2ee-verify";
 import { spinner } from "../lib/spinner";
 import { loadPairingData } from "./pair";
@@ -102,7 +103,8 @@ export async function doctorCommand(): Promise<void> {
 
   if (pairing?.relayUrl) {
     console.log("");
-    await checkRelayConnectivity(pairing);
+    const relayOk = await checkRelayConnectivity(pairing);
+    if (!relayOk) issues++;
   }
 
   // --- E2EE self-test (if paired) ---
@@ -123,22 +125,26 @@ export async function doctorCommand(): Promise<void> {
 
   console.log("");
   if (issues === 0) {
-    console.log("\x1b[32mAll checks passed!\x1b[0m");
+    console.log(green("All checks passed!"));
   } else {
-    console.log(`\x1b[33m${issues} issue(s) found.\x1b[0m`);
+    console.log(yellow(`${issues} issue(s) found.`));
   }
 }
 
-function check(name: string, value: string, ok: boolean): void {
-  const icon = ok ? "\x1b[32m✓\x1b[0m" : "\x1b[33m!\x1b[0m";
-  console.log(`  ${icon} ${name}: ${value}`);
+function check(name: string, value: string, passed: boolean): void {
+  const icon = passed ? ok("") : `${yellow("!")} `;
+  console.log(`  ${icon}${name}: ${value}`);
 }
 
+/**
+ * Ping relay and report status.
+ * Returns true if relay is reachable.
+ */
 async function checkRelayConnectivity(pairing: {
   relayUrl: string;
   relayToken: string;
   daemonId: string;
-}): Promise<void> {
+}): Promise<boolean> {
   const PING_COUNT = 3;
   const stop = spinner(`Pinging ${pairing.relayUrl}...`);
   const rtts: number[] = [];
@@ -225,13 +231,15 @@ async function checkRelayConnectivity(pairing: {
         `${pairing.relayUrl} (min=${min}ms avg=${avg}ms max=${max}ms)`,
         true,
       );
-    } else {
-      stop();
-      check("Relay", `${pairing.relayUrl} (all pings timed out)`, false);
+      return true;
     }
+    stop();
+    check("Relay", `${pairing.relayUrl} (all pings timed out)`, false);
+    return false;
   } catch (err) {
     stop();
     const msg = err instanceof Error ? err.message : String(err);
     check("Relay", `${pairing.relayUrl} (${msg})`, false);
+    return false;
   }
 }

@@ -1,4 +1,5 @@
 import { $ } from "bun";
+import { ok, warn } from "../lib/colors";
 import { errorWithHints } from "../lib/format";
 import { spinner } from "../lib/spinner";
 
@@ -32,7 +33,7 @@ export async function upgradeCommand(): Promise<void> {
   console.log(`Latest:  tp ${latest.tag}`);
 
   if (latest.tag === `v${currentVersion}`) {
-    console.log("\n\x1b[32m✓\x1b[0m tp is already up to date!");
+    console.log(`\n${ok("tp is already up to date!")}`);
   } else {
     console.log(`\nUpgrading tp ${currentVersion} → ${latest.tag}...`);
     await upgradeTp(latest.tag);
@@ -42,10 +43,10 @@ export async function upgradeCommand(): Promise<void> {
   const stopClaude = spinner("Checking Claude Code...");
   try {
     await $`claude update`.quiet();
-    stopClaude("\x1b[32m✓\x1b[0m Claude Code is up to date.");
+    stopClaude(ok("Claude Code is up to date."));
   } catch {
     stopClaude(
-      "\x1b[33m!\x1b[0m Claude Code update skipped (run 'claude update' manually).",
+      warn("Claude Code update skipped (run 'claude update' manually)."),
     );
   }
 }
@@ -117,7 +118,7 @@ async function upgradeTp(tag: string): Promise<void> {
     const tmpPath = `/tmp/tp-upgrade-${Date.now()}`;
     await $`curl -fsSL ${url} -o ${tmpPath}`.quiet();
     await $`chmod +x ${tmpPath}`.quiet();
-    stop(`\x1b[32m✓\x1b[0m Downloaded tp ${tag}`);
+    stop(ok(`Downloaded tp ${tag}`));
 
     // Find current binary location
     const currentPath = process.execPath.includes("bun")
@@ -138,7 +139,7 @@ async function upgradeTp(tag: string): Promise<void> {
     const version = await $`${currentPath || "tp"} version`
       .text()
       .catch(() => "");
-    console.log(`\x1b[32m✓\x1b[0m Verified: ${version.trim()}`);
+    console.log(ok(`Verified: ${version.trim()}`));
   } catch (err) {
     stop();
     console.error(

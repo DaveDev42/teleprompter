@@ -4,19 +4,16 @@
  * Starts a daemon + runner in-process, spawning claude with all non-tp args.
  * This is the default mode when no subcommand is given.
  */
+
+import { Daemon, SessionManager } from "@teleprompter/daemon";
 import { existsSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
-import { Daemon, SessionManager } from "@teleprompter/daemon";
 import { splitArgs } from "../args";
 import { errorWithHints } from "../lib/format";
 import { resolveRunnerCommand } from "../spawn";
 
-const CONFIG_DIR = join(
-  process.env.HOME ?? "/tmp",
-  ".config",
-  "teleprompter",
-);
+const CONFIG_DIR = join(process.env.HOME ?? "/tmp", ".config", "teleprompter");
 const INIT_MARKER = join(CONFIG_DIR, ".tp-initialized");
 
 export async function passthroughCommand(argv: string[]): Promise<void> {

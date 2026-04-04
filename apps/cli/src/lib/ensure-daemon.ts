@@ -1,8 +1,8 @@
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
-import { join } from "path";
 import { platform } from "os";
+import { join } from "path";
 import { errorWithHints } from "./format";
 import { spinner } from "./spinner";
 
@@ -31,7 +31,9 @@ export async function ensureDaemon(port = 7080): Promise<boolean> {
     for (let i = 0; i < 20; i++) {
       await new Promise((r) => setTimeout(r, 500));
       if (await isDaemonRunning(port)) {
-        stop(`\x1b[32m✓\x1b[0m Daemon started via system service (port ${port})`);
+        stop(
+          `\x1b[32m✓\x1b[0m Daemon started via system service (port ${port})`,
+        );
         return true;
       }
     }
@@ -110,12 +112,7 @@ async function tryKickstartService(): Promise<boolean> {
 
     const uid = process.getuid?.() ?? 501;
     const label = getServiceLabel();
-    Bun.spawnSync([
-      "launchctl",
-      "kickstart",
-      "-k",
-      `gui/${uid}/${label}`,
-    ]);
+    Bun.spawnSync(["launchctl", "kickstart", "-k", `gui/${uid}/${label}`]);
     return true;
   }
 

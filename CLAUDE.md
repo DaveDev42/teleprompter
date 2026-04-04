@@ -74,7 +74,7 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 
 ## Testing Strategy
 
-4계층 테스트, 모두 `bun:test` 사용 (Tier 4는 Expo MCP).
+4계층 테스트, 모두 `bun:test` 사용 (Tier 4는 Expo MCP Plugin + Playwright MCP).
 
 ### 명령어
 ```bash
@@ -138,9 +138,9 @@ Stub 프로세스로 전체 파이프라인 검증.
 - `packages/daemon/src/bench.test.ts` — pipeline throughput benchmark
 - `packages/relay/src/bench.test.ts` — relay throughput benchmark
 
-### Tier 4: QA Agent Tests (Expo MCP + Playwright MCP)
+### Tier 4: QA Agent Tests (Expo MCP Plugin + Playwright MCP)
 `/qa` 커맨드로 QA agent에 위임:
-- `app-mobile-qa` — iOS Simulator / Android Emulator (Expo MCP + Maestro)
+- `expo-mcp:qa` — iOS Simulator / Android Emulator (Expo MCP Plugin `DaveDev42/expo-mcp` + Maestro)
 - `app-web-qa` — React Native Web (Playwright MCP + Playwright Test)
 - Playwright E2E: `pnpm test:e2e`
   - `e2e/app-web.spec.ts` — UI smoke tests (Sessions header, empty state, tabs, dark theme)

@@ -1,9 +1,5 @@
 {
   "mcpServers": {
-    "expo": {
-      "command": "npx",
-      "args": ["expo-mcp", "apps/app"]
-    },
     "playwright": {
       "command": "npx",
       "args": [

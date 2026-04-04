@@ -3,6 +3,7 @@ import { existsSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import { platform } from "os";
 import { join } from "path";
+import { dim, ok } from "./colors";
 import { errorWithHints } from "./format";
 import { spinner } from "./spinner";
 
@@ -31,9 +32,7 @@ export async function ensureDaemon(port = 7080): Promise<boolean> {
     for (let i = 0; i < 20; i++) {
       await new Promise((r) => setTimeout(r, 500));
       if (await isDaemonRunning(port)) {
-        stop(
-          `\x1b[32m✓\x1b[0m Daemon started via system service (port ${port})`,
-        );
+        stop(ok(`Daemon started via system service (port ${port})`));
         return true;
       }
     }
@@ -61,7 +60,7 @@ export async function ensureDaemon(port = 7080): Promise<boolean> {
   for (let i = 0; i < 20; i++) {
     await new Promise((r) => setTimeout(r, 500));
     if (await isDaemonRunning(port)) {
-      stop(`\x1b[32m✓\x1b[0m Daemon started (pid=${proc.pid}, port=${port})`);
+      stop(ok(`Daemon started (pid=${proc.pid}, port=${port})`));
       await showInstallHint();
       return true;
     }
@@ -112,7 +111,9 @@ async function tryKickstartService(): Promise<boolean> {
 
     const uid = process.getuid?.() ?? 501;
     const label = getServiceLabel();
-    Bun.spawnSync(["launchctl", "kickstart", "-k", `gui/${uid}/${label}`]);
+    // No -k flag: plain kickstart is a no-op if already running,
+    // avoiding accidental kill of an active daemon during slow startup.
+    Bun.spawnSync(["launchctl", "kickstart", `gui/${uid}/${label}`]);
     return true;
   }
 
@@ -146,7 +147,7 @@ async function showInstallHint(): Promise<void> {
   }
 
   console.error(
-    "\x1b[90mTip: Run 'tp daemon install' to start tp automatically on login.\x1b[0m",
+    dim("Tip: Run 'tp daemon install' to start tp automatically on login."),
   );
 
   // Mark hint as shown

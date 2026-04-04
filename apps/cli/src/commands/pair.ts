@@ -7,6 +7,7 @@ import { mkdir, readFile, writeFile } from "fs/promises";
 import { join } from "path";
 import qrcode from "qrcode-terminal";
 import { parseArgs } from "util";
+import { ok } from "../lib/colors";
 import { spinner } from "../lib/spinner";
 
 const PAIRING_DIR = join(process.env.HOME ?? "/tmp", ".config", "teleprompter");
@@ -29,7 +30,7 @@ export async function pairCommand(argv: string[]): Promise<void> {
   const stop = spinner("Generating pairing keys...");
   const bundle = await createPairingBundle(relayUrl, daemonId);
   const qrString = encodePairingData(bundle.qrData);
-  stop("\x1b[32m✓\x1b[0m Keys generated\n");
+  stop(`${ok("Keys generated")}\n`);
 
   // Show QR code in terminal
   qrcode.generate(qrString, { small: true }, (qr: string) => {

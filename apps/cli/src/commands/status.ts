@@ -1,4 +1,5 @@
 import type { WsServerMessage, WsSessionMeta } from "@teleprompter/protocol";
+import { dim, green, red } from "../lib/colors";
 import { ensureDaemon } from "../lib/ensure-daemon";
 import { errorWithHints } from "../lib/format";
 
@@ -79,19 +80,14 @@ function displayStatus(sessions: WsSessionMeta[]): void {
   for (const [path, group] of groups) {
     console.log(`  ${path}`);
     for (const s of group) {
-      const stateIcon =
-        s.state === "running" ? "●" : s.state === "stopped" ? "○" : "✕";
-      const stateColor =
+      const indicator =
         s.state === "running"
-          ? "\x1b[32m"
+          ? green("●")
           : s.state === "stopped"
-            ? "\x1b[90m"
-            : "\x1b[31m";
-      const reset = "\x1b[0m";
+            ? dim("○")
+            : red("✕");
 
-      console.log(
-        `    ${stateColor}${stateIcon}${reset} ${s.sid}  seq=${s.lastSeq}  ${s.state}`,
-      );
+      console.log(`    ${indicator} ${s.sid}  seq=${s.lastSeq}  ${s.state}`);
       if (s.claudeVersion) {
         console.log(`      claude ${s.claudeVersion}`);
       }

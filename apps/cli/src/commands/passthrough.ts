@@ -10,6 +10,7 @@ import { existsSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { splitArgs } from "../args";
+import { bold, cyan } from "../lib/colors";
 import { errorWithHints } from "../lib/format";
 import { resolveRunnerCommand } from "../spawn";
 
@@ -17,10 +18,12 @@ const CONFIG_DIR = join(process.env.HOME ?? "/tmp", ".config", "teleprompter");
 const INIT_MARKER = join(CONFIG_DIR, ".tp-initialized");
 
 export async function passthroughCommand(argv: string[]): Promise<void> {
-  // Check claude is available
-  try {
-    Bun.spawnSync(["claude", "--version"], { stdout: "pipe", stderr: "pipe" });
-  } catch {
+  // Check claude is available (spawnSync may not throw — check exitCode too)
+  const check = Bun.spawnSync(["claude", "--version"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (check.exitCode !== 0) {
     console.error(
       errorWithHints("Claude Code CLI not found.", [
         "Install: https://docs.anthropic.com/en/docs/claude-code",
@@ -71,10 +74,10 @@ async function showWelcomeOnce(): Promise<void> {
 
   const hasPairing = existsSync(join(CONFIG_DIR, "pairing.json"));
 
-  console.error("\x1b[36mWelcome to Teleprompter!\x1b[0m");
+  console.error(cyan("Welcome to Teleprompter!"));
   console.error("tp wraps Claude Code for remote session control.");
   if (!hasPairing) {
-    console.error("To connect your phone: \x1b[1mtp pair\x1b[0m");
+    console.error(`To connect your phone: ${bold("tp pair")}`);
   }
   console.error("");
 

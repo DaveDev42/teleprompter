@@ -15,8 +15,7 @@ export type OtaStatus =
 export function useOtaUpdate() {
   const [status, setStatus] = useState<OtaStatus>("idle");
 
-  const isAvailable =
-    Platform.OS !== "web" && !__DEV__ && Updates.isEnabled;
+  const isAvailable = Platform.OS !== "web" && !__DEV__ && Updates.isEnabled;
 
   const checkAndFetch = useCallback(async () => {
     if (!isAvailable) {

@@ -35,7 +35,7 @@ case "$SUBAGENT_TYPE" in
       MISSING+=("UI 확인 도구 호출")
     fi
     # Interaction evidence
-    if ! echo "$RESULT" | grep -qiE 'tap_on|input_text|mcp__expo__back|run_maestro'; then
+    if ! echo "$RESULT" | grep -qiE 'tap_on|input_text|mcp__expo__back|run_maestro|scroll|swipe|press_key'; then
       MISSING+=("실제 인터랙션 도구 호출")
     fi
     ;;
@@ -49,7 +49,7 @@ case "$SUBAGENT_TYPE" in
       MISSING+=("UI 확인 도구 호출")
     fi
     # Interaction evidence
-    if ! echo "$RESULT" | grep -qiE 'browser_click|browser_type|browser_press_key|browser_select_option|playwright test'; then
+    if ! echo "$RESULT" | grep -qiE 'browser_click|browser_type|browser_press_key|browser_select_option|browser_evaluate|browser_hover|playwright test'; then
       MISSING+=("실제 인터랙션 도구 호출")
     fi
     ;;

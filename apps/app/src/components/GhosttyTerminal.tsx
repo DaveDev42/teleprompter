@@ -22,8 +22,13 @@ export function GhosttyTerminal({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termInstanceRef = useRef<any>(null);
+  const onDataRef = useRef(onData);
+  const onResizeRef = useRef(onResize);
+  const onReadyRef = useRef(onReady);
+  onDataRef.current = onData;
+  onResizeRef.current = onResize;
+  onReadyRef.current = onReady;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: terminal setup must only run on mount — re-creating on prop changes would destroy terminal state
   useEffect(() => {
     if (Platform.OS !== "web") return;
 
@@ -60,14 +65,14 @@ export function GhosttyTerminal({
       if (termRef) termRef.current = term;
       if (searchRef) searchRef.current = new Search(term);
 
-      onReady?.();
+      onReadyRef.current?.();
 
       term.onData((data: string) => {
-        onData?.(data);
+        onDataRef.current?.(data);
       });
 
       term.onResize(({ cols, rows }: { cols: number; rows: number }) => {
-        onResize?.(cols, rows);
+        onResizeRef.current?.(cols, rows);
       });
 
       const resizeObserver = new ResizeObserver(() => {
@@ -88,7 +93,7 @@ export function GhosttyTerminal({
       termInstanceRef.current?.dispose();
       termInstanceRef.current = null;
     };
-  }, []);
+  }, [termRef, searchRef]);
 
   if (Platform.OS !== "web") return null;
 

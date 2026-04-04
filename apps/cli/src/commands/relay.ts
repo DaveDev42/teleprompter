@@ -9,9 +9,7 @@ export async function relayCommand(argv: string[]): Promise<void> {
     case "start":
       return startRelay(argv.slice(1));
     case "ping":
-      console.log(
-        "tp relay ping has moved to tp doctor.\n  → Run: tp doctor",
-      );
+      console.log("tp relay ping has moved to tp doctor.\n  → Run: tp doctor");
       process.exit(0);
       break;
     default:

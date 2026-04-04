@@ -9,6 +9,24 @@
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-no-verify.sh\""
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-force-push.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/warn-version-edit.sh\""
+          }
+        ]
       }
     ],
     "SubagentStop": [

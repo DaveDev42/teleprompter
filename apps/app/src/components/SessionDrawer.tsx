@@ -168,15 +168,31 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
     getDaemonClient()?.restartSession(sid);
   };
 
+  const exportTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearExportState = useCallback(() => {
+    setExportingSid(null);
+    exportCallbackRef.current = null;
+    if (exportTimeoutRef.current) {
+      clearTimeout(exportTimeoutRef.current);
+      exportTimeoutRef.current = null;
+    }
+  }, []);
+
   const exportSession = useCallback((sid: string) => {
     const client = getDaemonClient();
     if (!client) return;
 
     setExportingSid(sid);
 
+    // Timeout: reset loading state if daemon doesn't respond within 30s
+    exportTimeoutRef.current = setTimeout(() => {
+      clearExportState();
+      console.warn("Export timed out for session:", sid);
+    }, 30000);
+
     exportCallbackRef.current = async (_sid: string, format: string, content: string) => {
-      setExportingSid(null);
-      exportCallbackRef.current = null;
+      clearExportState();
 
       const ext = format === "json" ? "json" : "md";
       const filename = `session-${_sid.slice(0, 8)}.${ext}`;
@@ -194,7 +210,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
           const { File, Paths } = require("expo-file-system") as typeof import("expo-file-system");
           const Sharing = require("expo-sharing") as typeof import("expo-sharing");
           const file = new File(Paths.document, filename);
-          file.write(content);
+          await file.write(content);
           await Sharing.shareAsync(file.uri, {
             mimeType: "text/plain",
             UTI: "public.plain-text",
@@ -206,7 +222,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
     };
 
     client.exportSession(sid, "markdown");
-  }, []);
+  }, [clearExportState]);
 
   const createWorktree = () => {
     const branch = branchInput.trim();

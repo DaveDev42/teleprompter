@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { FlatList, Modal, Pressable, Text, View } from "react-native";
+import { FlatList, Pressable, Text, View } from "react-native";
+import { getPlatformProps } from "../lib/get-platform-props";
+import { ModalContainer } from "./ModalContainer";
 
 const SANS_FONTS = [
   "Inter",
@@ -35,6 +37,7 @@ export function FontPickerModal({
   onSelect: (font: string) => void;
   onClose: () => void;
 }) {
+  const pp = getPlatformProps();
   const fonts = mode === "chat" ? SANS_FONTS : MONO_FONTS;
   const title =
     mode === "chat"
@@ -44,66 +47,58 @@ export function FontPickerModal({
         : "Terminal Font";
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <Pressable className="flex-1 bg-tp-overlay" onPress={onClose}>
-        <View className="flex-1" />
-        <Pressable
-          className="bg-tp-bg-elevated rounded-t-2xl max-h-[60%]"
-          onPress={() => {}}
-        >
-          <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
-            <Text
-              className="text-tp-text-primary text-lg font-bold"
-              accessibilityRole="header"
-            >
-              {title}
-            </Text>
+    <ModalContainer visible={visible} onClose={onClose}>
+      <View className="max-h-[60vh]">
+        <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
+          <Text
+            className="text-tp-text-primary text-lg font-bold"
+            accessibilityRole="header"
+          >
+            {title}
+          </Text>
+          <Pressable
+            className={pp.className}
+            tabIndex={pp.tabIndex}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Done"
+          >
+            <Text className="text-tp-accent text-base">Done</Text>
+          </Pressable>
+        </View>
+        <FlatList
+          data={fonts}
+          keyExtractor={(item) => item}
+          renderItem={({ item }) => (
             <Pressable
-              onPress={onClose}
+              className={`flex-row items-center justify-between px-5 py-3.5 ${pp.className}`}
+              tabIndex={pp.tabIndex}
+              onPress={() => {
+                onSelect(item);
+                onClose();
+              }}
               accessibilityRole="button"
-              accessibilityLabel="Done"
+              accessibilityLabel={item}
+              accessibilityState={{ selected: item === currentFont }}
             >
-              <Text className="text-tp-accent text-base">Done</Text>
-            </Pressable>
-          </View>
-          <FlatList
-            data={fonts}
-            keyExtractor={(item) => item}
-            renderItem={({ item }) => (
-              <Pressable
-                className="flex-row items-center justify-between px-5 py-3.5"
-                onPress={() => {
-                  onSelect(item);
-                  onClose();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={item}
-                accessibilityState={{ selected: item === currentFont }}
+              <Text
+                className="text-tp-text-primary text-[15px]"
+                style={{ fontFamily: item }}
               >
-                <Text
-                  className="text-tp-text-primary text-[15px]"
-                  style={{ fontFamily: item }}
-                >
-                  {item}
-                </Text>
-                {item === currentFont && (
-                  <Text className="text-tp-accent text-base">✓</Text>
-                )}
-              </Pressable>
-            )}
-            ItemSeparatorComponent={() => (
-              <View className="h-[0.5px] bg-tp-border mx-5" />
-            )}
-            contentContainerStyle={{ paddingBottom: 40 }}
-          />
-        </Pressable>
-      </Pressable>
-    </Modal>
+                {item}
+              </Text>
+              {item === currentFont && (
+                <Text className="text-tp-accent text-base">✓</Text>
+              )}
+            </Pressable>
+          )}
+          ItemSeparatorComponent={() => (
+            <View className="h-[0.5px] bg-tp-border mx-5" />
+          )}
+          contentContainerStyle={{ paddingBottom: 40 }}
+        />
+      </View>
+    </ModalContainer>
   );
 }
 
@@ -118,6 +113,7 @@ export function FontSizeModal({
   onChangeSize: (size: number) => void;
   onClose: () => void;
 }) {
+  const pp = getPlatformProps();
   const [size, setSize] = useState(currentSize);
 
   useEffect(() => {
@@ -131,63 +127,54 @@ export function FontSizeModal({
   };
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <Pressable className="flex-1 bg-tp-overlay" onPress={onClose}>
-        <View className="flex-1" />
-        <Pressable
-          className="bg-tp-bg-elevated rounded-t-2xl"
-          onPress={() => {}}
+    <ModalContainer visible={visible} onClose={onClose}>
+      <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
+        <Text
+          className="text-tp-text-primary text-lg font-bold"
+          accessibilityRole="header"
         >
-          <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
-            <Text
-              className="text-tp-text-primary text-lg font-bold"
-              accessibilityRole="header"
-            >
-              Font Size
-            </Text>
-            <Pressable
-              onPress={onClose}
-              accessibilityRole="button"
-              accessibilityLabel="Done"
-            >
-              <Text className="text-tp-accent text-base">Done</Text>
-            </Pressable>
-          </View>
-          <View className="flex-row items-center justify-center gap-8 py-8 pb-12">
-            <Pressable
-              className="w-12 h-12 rounded-full bg-tp-surface items-center justify-center"
-              onPress={() => adjust(-1)}
-              accessibilityRole="button"
-              accessibilityLabel="Decrease font size"
-            >
-              <Text className="text-tp-text-primary text-2xl font-bold">−</Text>
-            </Pressable>
-            <Text
-              className="text-tp-text-primary text-4xl font-bold w-20 text-center"
-              accessibilityLabel={`Font size ${size} pixels`}
-              accessibilityRole="text"
-            >
-              {size}
-            </Text>
-            <Pressable
-              className="w-12 h-12 rounded-full bg-tp-surface items-center justify-center"
-              onPress={() => adjust(1)}
-              accessibilityRole="button"
-              accessibilityLabel="Increase font size"
-            >
-              <Text className="text-tp-text-primary text-2xl font-bold">+</Text>
-            </Pressable>
-          </View>
-          <Text className="text-tp-text-tertiary text-xs text-center pb-8">
-            Range: 10–24px
-          </Text>
+          Font Size
+        </Text>
+        <Pressable
+          className={pp.className}
+          tabIndex={pp.tabIndex}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Done"
+        >
+          <Text className="text-tp-accent text-base">Done</Text>
         </Pressable>
-      </Pressable>
-    </Modal>
+      </View>
+      <View className="flex-row items-center justify-center gap-8 py-8 pb-12">
+        <Pressable
+          className={`w-12 h-12 rounded-full bg-tp-surface items-center justify-center ${pp.className}`}
+          tabIndex={pp.tabIndex}
+          onPress={() => adjust(-1)}
+          accessibilityRole="button"
+          accessibilityLabel="Decrease font size"
+        >
+          <Text className="text-tp-text-primary text-2xl font-bold">−</Text>
+        </Pressable>
+        <Text
+          className="text-tp-text-primary text-4xl font-bold w-20 text-center"
+          accessibilityLabel={`Font size ${size} pixels`}
+          accessibilityRole="text"
+        >
+          {size}
+        </Text>
+        <Pressable
+          className={`w-12 h-12 rounded-full bg-tp-surface items-center justify-center ${pp.className}`}
+          tabIndex={pp.tabIndex}
+          onPress={() => adjust(1)}
+          accessibilityRole="button"
+          accessibilityLabel="Increase font size"
+        >
+          <Text className="text-tp-text-primary text-2xl font-bold">+</Text>
+        </Pressable>
+      </View>
+      <Text className="text-tp-text-tertiary text-xs text-center pb-8">
+        Range: 10–24px
+      </Text>
+    </ModalContainer>
   );
 }

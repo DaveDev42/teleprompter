@@ -3,6 +3,7 @@ import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import { FlatList, Pressable, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { getPlatformProps } from "../../src/lib/get-platform-props";
 import { useSessionStore } from "../../src/stores/session-store";
 import { useThemeStore } from "../../src/stores/theme-store";
 
@@ -28,6 +29,7 @@ function SessionRow({
 }) {
   const isDark = useThemeStore((s) => s.isDark);
   const running = session.state === "running";
+  const pp = getPlatformProps();
 
   // Extract a description from cwd (last path segment)
   const desc = session.cwd.split("/").pop() ?? session.cwd;
@@ -38,6 +40,8 @@ function SessionRow({
       accessibilityRole="button"
       accessibilityLabel={`${desc}, ${running ? "running" : session.state}${isActive ? ", selected" : ""}`}
       accessibilityHint="Open this session"
+      tabIndex={pp.tabIndex}
+      className={pp.className}
     >
       <View
         className={`flex-row items-center py-4 mx-4 ${
@@ -98,6 +102,7 @@ export default function SessionsScreen() {
   const sessions = useSessionStore((s) => s.sessions);
   const currentSid = useSessionStore((s) => s.sid);
   const [filter, setFilter] = useState("");
+  const pp = getPlatformProps();
 
   // Sort by updatedAt desc, filter by search
   const filteredSessions = useMemo(() => {
@@ -135,7 +140,8 @@ export default function SessionsScreen() {
       {sessions.length > 2 && (
         <View className="px-4 py-2">
           <TextInput
-            className="bg-tp-bg-secondary text-tp-text-primary rounded-search px-4 py-2.5 text-[15px]"
+            testID="session-search"
+            className={`bg-tp-bg-secondary text-tp-text-primary rounded-search px-4 py-2.5 text-[15px] ${pp.className}`}
             placeholder="Search sessions..."
             placeholderTextColor="var(--tp-text-tertiary)"
             value={filter}
@@ -143,6 +149,7 @@ export default function SessionsScreen() {
             autoCapitalize="none"
             accessibilityLabel="Search sessions"
             accessibilityHint="Filter sessions by name, path, or status"
+            tabIndex={pp.tabIndex}
           />
         </View>
       )}
@@ -173,7 +180,8 @@ export default function SessionsScreen() {
             </Text>
             <Pressable
               onPress={() => router.push("/(tabs)/daemons")}
-              className="mt-6 bg-tp-accent rounded-card px-8 py-3"
+              className={`mt-6 bg-tp-accent rounded-card px-8 py-3 ${pp.className}`}
+              tabIndex={pp.tabIndex}
               accessibilityRole="button"
               accessibilityLabel="Go to Daemons"
             >

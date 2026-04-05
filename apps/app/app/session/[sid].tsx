@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChatCard } from "../../src/components/ChatCard";
 import { VoiceButton } from "../../src/components/VoiceButton";
 import { getDaemonClient } from "../../src/hooks/use-daemon";
+import { getPlatformProps } from "../../src/lib/get-platform-props";
 import type { TerminalSearch } from "../../src/lib/terminal-search";
 import {
   type ChatMessage,
@@ -44,6 +45,7 @@ function SegmentedControl({
   mode: ViewMode;
   onModeChange: (mode: ViewMode) => void;
 }) {
+  const pp = getPlatformProps();
   return (
     <View className="px-4 py-2 bg-tp-bg-secondary">
       <View
@@ -56,9 +58,10 @@ function SegmentedControl({
           accessibilityRole="tab"
           accessibilityLabel="Chat"
           accessibilityState={{ selected: mode === "chat" }}
+          tabIndex={pp.tabIndex}
           className={`flex-1 py-1.5 rounded-badge items-center ${
             mode === "chat" ? "bg-tp-surface" : ""
-          }`}
+          } ${pp.className}`}
         >
           <Text
             className={`text-[13px] ${
@@ -76,9 +79,10 @@ function SegmentedControl({
           accessibilityRole="tab"
           accessibilityLabel="Terminal"
           accessibilityState={{ selected: mode === "terminal" }}
+          tabIndex={pp.tabIndex}
           className={`flex-1 py-1.5 rounded-badge items-center ${
             mode === "terminal" ? "bg-tp-surface" : ""
-          }`}
+          } ${pp.className}`}
         >
           <Text
             className={`text-[13px] ${
@@ -105,6 +109,7 @@ function ChatView({ sid }: { sid: string }) {
   const flatListRef = useRef<FlatList>(null);
   const [input, setInput] = useState("");
   const setOnPromptReady = useVoiceStore((s) => s.setOnPromptReady);
+  const pp = getPlatformProps();
 
   // Wire voice prompt to chat send
   useEffect(() => {
@@ -226,7 +231,8 @@ function ChatView({ sid }: { sid: string }) {
       <View className="flex-row items-end px-3 py-2 bg-tp-bg-secondary border-t border-tp-border">
         <VoiceButton />
         <TextInput
-          className="flex-1 bg-tp-bg-input text-tp-text-primary rounded-full px-4 py-2 mr-2 max-h-24 text-[15px]"
+          testID="chat-input"
+          className={`flex-1 bg-tp-bg-input text-tp-text-primary rounded-full px-4 py-2 mr-2 max-h-24 text-[15px] ${pp.className}`}
           placeholder="Send a message..."
           placeholderTextColor="var(--tp-text-tertiary)"
           value={input}
@@ -237,11 +243,14 @@ function ChatView({ sid }: { sid: string }) {
           editable={connected && !!sid}
           accessibilityLabel="Message input"
           accessibilityHint="Type a message to send to Claude"
+          tabIndex={pp.tabIndex}
         />
         <Pressable
+          testID="chat-send"
           onPress={handleSend}
           disabled={!input.trim() || !connected || !sid}
-          className="bg-tp-accent rounded-full w-9 h-9 items-center justify-center"
+          className={`bg-tp-accent rounded-full w-9 h-9 items-center justify-center ${pp.className}`}
+          tabIndex={pp.tabIndex}
           style={{ opacity: input.trim() && connected && sid ? 1 : 0.4 }}
           accessibilityRole="button"
           accessibilityLabel="Send message"
@@ -333,6 +342,7 @@ export default function SessionDetailScreen() {
   const sessions = useSessionStore((s) => s.sessions);
   const setSid = useSessionStore((s) => s.setSid);
   const [mode, setMode] = useState<ViewMode>("chat");
+  const pp = getPlatformProps();
 
   const session = sessions.find((s) => s.sid === sid);
   const isRunning = session?.state === "running";
@@ -370,7 +380,8 @@ export default function SessionDetailScreen() {
       <View className="flex-row items-center px-2 py-2.5 bg-tp-bg-secondary border-b border-tp-border">
         <Pressable
           onPress={() => router.back()}
-          className="px-2"
+          className={`px-2 ${pp.className}`}
+          tabIndex={pp.tabIndex}
           accessibilityRole="button"
           accessibilityLabel="Back to sessions"
         >

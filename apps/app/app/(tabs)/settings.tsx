@@ -16,7 +16,7 @@ import {
   FontSizeModal,
 } from "../../src/components/FontPickerModal";
 import { useOtaUpdate } from "../../src/hooks/use-ota-update";
-import { usePlatformProps } from "../../src/hooks/use-platform-props";
+import { getPlatformProps } from "../../src/lib/get-platform-props";
 import { useConnectionStore } from "../../src/stores/connection-store";
 import { usePairingStore } from "../../src/stores/pairing-store";
 import { useSettingsStore } from "../../src/stores/settings-store";
@@ -51,11 +51,11 @@ function SettingsRow({
   destructive?: boolean;
   children?: React.ReactNode;
 }) {
-  const pp = usePlatformProps({ focusable: !!onPress });
+  const pp = getPlatformProps({ focusable: !!onPress });
   return (
     <Pressable
       onPress={onPress}
-      className={`mx-4 ${pp.className ?? ""}`}
+      className={`mx-4 ${pp.className}`}
       tabIndex={pp.tabIndex}
       accessibilityRole={onPress ? "button" : undefined}
       accessibilityLabel={value !== undefined ? `${label}, ${value}` : label}
@@ -156,7 +156,7 @@ export default function SettingsScreen() {
   const [showApiKey, setShowApiKey] = useState(false);
   const { status: otaStatus, restart, checkAndFetch } = useOtaUpdate();
 
-  const pp = usePlatformProps();
+  const pp = getPlatformProps();
 
   if (showDiagnostics) {
     return (
@@ -278,7 +278,7 @@ export default function SettingsScreen() {
             </Text>
             <Pressable
               onPress={restart}
-              className={`bg-tp-accent rounded-btn items-center py-2.5 mt-3 ${pp.className ?? ""}`}
+              className={`bg-tp-accent rounded-btn items-center py-2.5 mt-3 ${pp.className}`}
               tabIndex={pp.tabIndex}
               accessibilityRole="button"
               accessibilityLabel="Restart to update"

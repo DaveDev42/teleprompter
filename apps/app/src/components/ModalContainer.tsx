@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { Modal, Platform, Pressable, View } from "react-native";
 import { useKeyboard } from "../hooks/use-keyboard";
 
+const FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
 export function ModalContainer({
   visible,
   onClose,
@@ -32,7 +34,7 @@ export function ModalContainer({
       const container = containerRef.current as unknown as HTMLElement;
       if (!container) return;
       const focusable = container.querySelectorAll(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        FOCUSABLE_SELECTOR,
       );
       if (focusable.length > 0) {
         (focusable[0] as HTMLElement).focus();
@@ -45,7 +47,7 @@ export function ModalContainer({
       const container = containerRef.current as unknown as HTMLElement;
       if (!container) return;
       const focusable = container.querySelectorAll(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        FOCUSABLE_SELECTOR,
       );
       if (focusable.length === 0) return;
 

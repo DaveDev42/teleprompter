@@ -36,7 +36,10 @@ export interface WsServerEvents {
   ): void;
   onSessionStop?(client: WsClient, sid: string): void;
   onSessionRestart?(client: WsClient, sid: string): void;
-  onSessionExport?(client: WsClient, msg: WsClientMessage & { t: "session.export" }): void;
+  onSessionExport?(
+    client: WsClient,
+    msg: WsClientMessage & { t: "session.export" },
+  ): void;
 }
 
 const MIME_TYPES: Record<string, string> = {

@@ -3,7 +3,15 @@ import type {
   WsSessionMeta,
 } from "@teleprompter/protocol/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Platform, Pressable, Text, TextInput, View } from "react-native";
+import {
+  ActivityIndicator,
+  FlatList,
+  Platform,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { getDaemonClient } from "../hooks/use-daemon";
 import { useChatStore } from "../stores/chat-store";
 import { useSessionStore } from "../stores/session-store";
@@ -123,13 +131,19 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
   const [showWorktreeForm, setShowWorktreeForm] = useState(false);
   const [branchInput, setBranchInput] = useState("");
   const [exportingSid, setExportingSid] = useState<string | null>(null);
-  const exportCallbackRef = useRef<((sid: string, format: string, content: string) => void) | null>(null);
+  const exportCallbackRef = useRef<
+    ((sid: string, format: string, content: string) => void) | null
+  >(null);
 
   useEffect(() => {
     const client = getDaemonClient();
     if (!client) return;
 
-    client.onSessionExported = (sid: string, format: string, content: string) => {
+    client.onSessionExported = (
+      sid: string,
+      format: string,
+      content: string,
+    ) => {
       exportCallbackRef.current?.(sid, format, content);
     };
     return () => {
@@ -189,50 +203,61 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
     }
   }, []);
 
-  const exportSession = useCallback((sid: string) => {
-    const client = getDaemonClient();
-    if (!client) return;
+  const exportSession = useCallback(
+    (sid: string) => {
+      const client = getDaemonClient();
+      if (!client) return;
 
-    setExportingSid(sid);
+      setExportingSid(sid);
 
-    // Timeout: reset loading state if daemon doesn't respond within 30s
-    exportTimeoutRef.current = setTimeout(() => {
-      clearExportState();
-      console.warn("Export timed out for session:", sid);
-    }, 30000);
+      // Timeout: reset loading state if daemon doesn't respond within 30s
+      exportTimeoutRef.current = setTimeout(() => {
+        clearExportState();
+        console.warn("Export timed out for session:", sid);
+      }, 30000);
 
-    exportCallbackRef.current = async (_sid: string, format: string, content: string) => {
-      clearExportState();
+      exportCallbackRef.current = async (
+        _sid: string,
+        format: string,
+        content: string,
+      ) => {
+        clearExportState();
 
-      const ext = format === "json" ? "json" : "md";
-      const filename = `session-${_sid.slice(0, 8)}.${ext}`;
+        const ext = format === "json" ? "json" : "md";
+        const filename = `session-${_sid.slice(0, 8)}.${ext}`;
 
-      if (Platform.OS === "web") {
-        const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        a.click();
-        URL.revokeObjectURL(url);
-      } else {
-        try {
-          const { File, Paths } = require("expo-file-system") as typeof import("expo-file-system");
-          const Sharing = require("expo-sharing") as typeof import("expo-sharing");
-          const file = new File(Paths.document, filename);
-          await file.write(content);
-          await Sharing.shareAsync(file.uri, {
-            mimeType: "text/plain",
-            UTI: "public.plain-text",
+        if (Platform.OS === "web") {
+          const blob = new Blob([content], {
+            type: "text/plain;charset=utf-8",
           });
-        } catch (err) {
-          console.error("Export share failed:", err);
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          a.click();
+          URL.revokeObjectURL(url);
+        } else {
+          try {
+            const { File, Paths } =
+              require("expo-file-system") as typeof import("expo-file-system");
+            const Sharing =
+              require("expo-sharing") as typeof import("expo-sharing");
+            const file = new File(Paths.document, filename);
+            await file.write(content);
+            await Sharing.shareAsync(file.uri, {
+              mimeType: "text/plain",
+              UTI: "public.plain-text",
+            });
+          } catch (err) {
+            console.error("Export share failed:", err);
+          }
         }
-      }
-    };
+      };
 
-    client.exportSession(sid, "markdown");
-  }, [clearExportState]);
+      client.exportSession(sid, "markdown");
+    },
+    [clearExportState],
+  );
 
   const createWorktree = () => {
     const branch = branchInput.trim();

@@ -46,13 +46,20 @@ export function formatEventRecord(rec: StoredRecord): string {
       return jsonBlock("User", data);
 
     case "PreToolUse":
-      return jsonBlock(`Tool Use: ${data.tool_name ?? "unknown"}`, data.tool_input);
+      return jsonBlock(
+        `Tool Use: ${data.tool_name ?? "unknown"}`,
+        data.tool_input,
+      );
 
     case "PostToolUse":
-      return jsonBlock(`Tool Result: ${data.tool_name ?? "unknown"}`, data.tool_result ?? data.tool_input);
+      return jsonBlock(
+        `Tool Result: ${data.tool_name ?? "unknown"}`,
+        data.tool_result ?? data.tool_input,
+      );
 
     default: {
-      const displayName = (rec.name && JSON_BLOCK_EVENTS[rec.name]) ?? rec.name ?? "Event";
+      const displayName =
+        (rec.name && JSON_BLOCK_EVENTS[rec.name]) ?? rec.name ?? "Event";
       return jsonBlock(displayName, data);
     }
   }
@@ -145,4 +152,3 @@ export function formatMarkdown(
 
   return lines.join("\n");
 }
-

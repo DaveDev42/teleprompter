@@ -78,7 +78,8 @@ export class SessionDb {
       params.push(opts.to);
     }
 
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const where =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     const limit = Math.min(opts.limit ?? 50000, 50000);
     const sql = `SELECT seq, kind, ts, ns, name, payload FROM records ${where} ORDER BY seq LIMIT ?`;
     params.push(limit);

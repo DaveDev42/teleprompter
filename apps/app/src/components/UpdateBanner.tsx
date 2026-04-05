@@ -22,6 +22,8 @@ export function UpdateBanner({
     >
       <Pressable
         onPress={onRestart}
+        accessibilityRole="button"
+        accessibilityLabel="Update available, tap to restart"
         className="flex-row bg-tp-surface border border-tp-border rounded-card overflow-hidden"
       >
         {/* Blue accent bar */}
@@ -41,6 +43,8 @@ export function UpdateBanner({
             e.stopPropagation();
             setDismissed(true);
           }}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss update banner"
           className="px-3 justify-center"
           hitSlop={8}
         >

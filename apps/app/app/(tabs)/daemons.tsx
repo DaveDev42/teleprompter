@@ -33,7 +33,10 @@ function DaemonCard({ info }: { info: PairingInfo }) {
   const displayName = shortId;
 
   return (
-    <View className="mx-4 mb-4 rounded-bubble bg-tp-surface border border-tp-border overflow-hidden">
+    <View
+      className="mx-4 mb-4 rounded-bubble bg-tp-surface border border-tp-border overflow-hidden"
+      accessibilityLabel={`Daemon ${displayName}, ${isOnline ? "connected" : "offline"}, ${sessionCount} sessions`}
+    >
       {/* Header row */}
       <View className="flex-row items-center px-4 pt-4 pb-2">
         <View
@@ -75,12 +78,20 @@ function DaemonCard({ info }: { info: PairingInfo }) {
       <View className="flex-row px-4 pb-4 gap-2">
         {isOnline ? (
           <>
-            <Pressable className="flex-1 bg-tp-accent rounded-btn py-2 items-center">
+            <Pressable
+              className="flex-1 bg-tp-accent rounded-btn py-2 items-center"
+              accessibilityRole="button"
+              accessibilityLabel={`New session on ${displayName}`}
+            >
               <Text className="text-white text-[13px] font-medium">
                 New Session
               </Text>
             </Pressable>
-            <Pressable className="flex-1 bg-tp-bg-tertiary rounded-btn py-2 items-center">
+            <Pressable
+              className="flex-1 bg-tp-bg-tertiary rounded-btn py-2 items-center"
+              accessibilityRole="button"
+              accessibilityLabel={`View status of ${displayName}`}
+            >
               <Text className="text-tp-text-primary text-[13px] font-medium">
                 View Status
               </Text>
@@ -107,12 +118,17 @@ export default function DaemonsScreen() {
     <View className="flex-1 bg-tp-bg" style={{ paddingTop: insets.top }}>
       {/* Header */}
       <View className="flex-row items-center justify-between px-4 pt-2 pb-4">
-        <Text className="text-tp-text-primary text-[28px] font-bold">
+        <Text
+          className="text-tp-text-primary text-[28px] font-bold"
+          accessibilityRole="header"
+        >
           Daemons
         </Text>
         <Pressable
           onPress={() => router.push("/pairing")}
           className="w-8 h-8 rounded-btn bg-tp-accent items-center justify-center"
+          accessibilityRole="button"
+          accessibilityLabel="Add daemon"
         >
           <Text className="text-white text-xl leading-5">+</Text>
         </Pressable>
@@ -145,13 +161,19 @@ export default function DaemonsScreen() {
           <Pressable
             onPress={() => router.push("/pairing/scan")}
             className="w-full bg-tp-accent rounded-card py-4 items-center mb-3"
+            accessibilityRole="button"
+            accessibilityLabel="Scan QR code to pair"
           >
             <Text className="text-white font-semibold text-base">
               Scan QR Code to Pair
             </Text>
           </Pressable>
 
-          <Pressable onPress={() => router.push("/pairing")}>
+          <Pressable
+            onPress={() => router.push("/pairing")}
+            accessibilityRole="link"
+            accessibilityLabel="Enter pairing data manually"
+          >
             <Text className="text-tp-accent text-[13px]">
               or enter pairing data manually
             </Text>

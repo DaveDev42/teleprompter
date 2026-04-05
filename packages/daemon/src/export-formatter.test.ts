@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatMarkdown, formatEventRecord, formatIoRecords } from "./export-formatter";
+import { formatEventRecord, formatIoRecords, formatMarkdown } from "./export-formatter";
 import type { StoredRecord } from "./store/session-db";
 
 function makeEventRecord(

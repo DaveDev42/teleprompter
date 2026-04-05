@@ -11,7 +11,8 @@ type BunServer = ReturnType<typeof Bun.serve>;
 
 const log = createLogger("Relay");
 
-const MAX_RECENT_FRAMES = 10;
+const DEFAULT_MAX_RECENT_FRAMES = 10;
+const DEFAULT_MAX_FRAME_SIZE = 1024 * 1024; // 1 MB
 const RATE_LIMIT_WINDOW_MS = 1000;
 const RATE_LIMIT_MAX_MESSAGES = 100;
 const MAX_SUBSCRIPTIONS_PER_CLIENT = 50;
@@ -19,6 +20,13 @@ const MAX_SUBSCRIPTIONS_PER_CLIENT = 50;
 const STALE_TIMEOUT_MS = 90_000;
 /** How often to check for stale daemons (ms) */
 const STALE_CHECK_INTERVAL_MS = 30_000;
+
+export interface RelayServerOptions {
+  /** Max cached frames per session (default: 10, env: TP_RELAY_CACHE_SIZE) */
+  cacheSize?: number;
+  /** Max WebSocket frame size in bytes (default: 1MB, env: TP_RELAY_MAX_FRAME_SIZE) */
+  maxFrameSize?: number;
+}
 
 interface CachedFrame {
   sid: string;
@@ -76,6 +84,20 @@ export class RelayServer {
   private port = 0;
   private server: BunServer | null = null;
   private staleCheckTimer: ReturnType<typeof setInterval> | null = null;
+
+  private readonly maxRecentFrames: number;
+  private readonly maxFrameSize: number;
+
+  constructor(options?: RelayServerOptions) {
+    const envCache = parseInt(process.env.TP_RELAY_CACHE_SIZE ?? "", 10);
+    const envFrame = parseInt(process.env.TP_RELAY_MAX_FRAME_SIZE ?? "", 10);
+    this.maxRecentFrames =
+      options?.cacheSize ??
+      (Number.isFinite(envCache) ? envCache : DEFAULT_MAX_RECENT_FRAMES);
+    this.maxFrameSize =
+      options?.maxFrameSize ??
+      (Number.isFinite(envFrame) ? envFrame : DEFAULT_MAX_FRAME_SIZE);
+  }
 
   /**
    * Register a valid pairing token for a daemon.
@@ -232,6 +254,24 @@ ${daemons
     ws: ServerWebSocket,
     raw: string | Buffer | ArrayBuffer,
   ) {
+    // Check frame size limit
+    const rawSize =
+      typeof raw === "string"
+        ? Buffer.byteLength(raw)
+        : (raw as ArrayBuffer).byteLength;
+    if (rawSize > this.maxFrameSize) {
+      log.warn(
+        `closing connection: frame size ${rawSize} exceeds limit ${this.maxFrameSize}`,
+      );
+      this.send(ws, {
+        t: "relay.err",
+        e: "FRAME_TOO_LARGE",
+        m: `Frame size ${rawSize} exceeds limit of ${this.maxFrameSize} bytes`,
+      });
+      ws.close(1009, "Frame too large");
+      return;
+    }
+
     let msg: RelayClientMessage;
     try {
       const text =
@@ -426,7 +466,7 @@ ${daemons
       frontendId: client.frontendId,
     };
     frames.push(frame);
-    if (frames.length > MAX_RECENT_FRAMES) {
+    if (frames.length > this.maxRecentFrames) {
       frames.shift();
     }
 

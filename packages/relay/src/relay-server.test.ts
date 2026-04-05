@@ -552,6 +552,157 @@ describe("RelayServer", () => {
     frontend.close();
   });
 
+  test("respects custom cache size", async () => {
+    // Create a relay with cache size of 3
+    relay.stop();
+    relay = new RelayServer({ cacheSize: 3 });
+    port = relay.start(0);
+    relay.registerToken(TOKEN, DAEMON_ID);
+
+    const daemon = await connectWs(port);
+    daemon.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "daemon",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+      }),
+    );
+    await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
+
+    // Publish 5 frames
+    for (let i = 1; i <= 5; i++) {
+      daemon.send(
+        JSON.stringify({
+          t: "relay.pub",
+          sid: "s1",
+          ct: `frame-${i}`,
+          seq: i,
+        }),
+      );
+    }
+    await Bun.sleep(100);
+
+    // Frontend subscribes — should only get last 3
+    const frontend = await connectWs(port);
+    frontend.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+      }),
+    );
+    await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
+
+    frontend.send(JSON.stringify({ t: "relay.sub", sid: "s1", after: 0 }));
+
+    const frames = await collectMessages(
+      frontend,
+      3,
+      (m) => m.t === "relay.frame",
+    );
+    expect(frames.length).toBe(3);
+    expect((frames[0] as RelayFrame).ct).toBe("frame-3");
+    expect((frames[2] as RelayFrame).ct).toBe("frame-5");
+
+    daemon.close();
+    frontend.close();
+  });
+
+  test("rejects oversized frames and closes connection", async () => {
+    // Create a relay with small frame size limit
+    relay.stop();
+    relay = new RelayServer({ maxFrameSize: 100 });
+    port = relay.start(0);
+    relay.registerToken(TOKEN, DAEMON_ID);
+
+    const ws = await connectWs(port);
+    ws.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "daemon",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+      }),
+    );
+    await waitForMessage(ws, (m) => m.t === "relay.auth.ok");
+
+    // Send a message that exceeds 100 bytes
+    const largePayload = "x".repeat(200);
+    ws.send(
+      JSON.stringify({
+        t: "relay.pub",
+        sid: "s1",
+        ct: largePayload,
+        seq: 1,
+      }),
+    );
+
+    const err = await waitForMessage(ws, (m) => m.t === "relay.err");
+    expect((err as RelayError).e).toBe("FRAME_TOO_LARGE");
+
+    // Connection should be closed — wait for close event
+    await new Promise<void>((resolve) => {
+      ws.addEventListener("close", () => resolve());
+      setTimeout(resolve, 1000);
+    });
+    expect(ws.readyState).toBe(WebSocket.CLOSED);
+  });
+
+  test("allows frames within size limit", async () => {
+    // Create a relay with generous frame size limit
+    relay.stop();
+    relay = new RelayServer({ maxFrameSize: 10000 });
+    port = relay.start(0);
+    relay.registerToken(TOKEN, DAEMON_ID);
+
+    const daemon = await connectWs(port);
+    daemon.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "daemon",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+      }),
+    );
+    await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
+
+    const frontend = await connectWs(port);
+    frontend.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+      }),
+    );
+    await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
+    frontend.send(JSON.stringify({ t: "relay.sub", sid: "s1" }));
+    await Bun.sleep(50);
+
+    // Send a message within the limit
+    daemon.send(
+      JSON.stringify({
+        t: "relay.pub",
+        sid: "s1",
+        ct: "small-payload",
+        seq: 1,
+      }),
+    );
+
+    const frame = await waitForMessage(frontend, (m) => m.t === "relay.frame");
+    expect((frame as RelayFrame).ct).toBe("small-payload");
+
+    daemon.close();
+    frontend.close();
+  });
+
   test("resume with after= skips already-seen frames", async () => {
     const daemon = await connectWs(port);
 

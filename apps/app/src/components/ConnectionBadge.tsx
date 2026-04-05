@@ -26,7 +26,11 @@ export function ConnectionBadge() {
 
   if (connected) {
     return (
-      <View className="flex-row items-center rounded-full px-2 py-0.5">
+      <View
+        className="flex-row items-center rounded-full px-2 py-0.5"
+        accessibilityLabel="Connected"
+        accessibilityRole="text"
+      >
         <View className="w-1.5 h-1.5 rounded-full bg-tp-success mr-1.5" />
         <Text className="text-tp-success text-[11px] font-medium">
           Connected
@@ -36,7 +40,15 @@ export function ConnectionBadge() {
   }
 
   return (
-    <View className="flex-row items-center">
+    <View
+      className="flex-row items-center"
+      accessibilityLabel={
+        lastSeen
+          ? `Disconnected, last seen ${formatRelativeTime(lastSeen)}`
+          : "Disconnected"
+      }
+      accessibilityRole="text"
+    >
       <View className="w-1.5 h-1.5 rounded-full bg-tp-text-tertiary mr-1.5" />
       {lastSeen && (
         <Text className="text-tp-text-tertiary text-[11px]">

@@ -41,6 +41,9 @@ function RichText({
               key={i}
               className="bg-tp-bg border border-tp-border rounded-lg px-3 py-2 my-1"
               onLongPress={() => copyText(code)}
+              accessibilityRole="text"
+              accessibilityLabel={`Code block${lang ? `, ${lang}` : ""}`}
+              accessibilityHint="Long press to copy"
             >
               {lang ? (
                 <Text className="text-tp-text-tertiary text-[10px] mb-1">
@@ -78,6 +81,9 @@ function UserCard({
     <Pressable
       className="self-end bg-tp-user-bubble rounded-bubble rounded-br-sm px-4 py-2.5 max-w-[80%]"
       onLongPress={() => copyText(msg.text)}
+      accessibilityRole="text"
+      accessibilityLabel={`You: ${msg.text.length > 100 ? `${msg.text.slice(0, 100)}...` : msg.text}`}
+      accessibilityHint="Long press to copy"
     >
       <Text className="text-white leading-[22px]" style={fontStyle} selectable>
         {msg.text}
@@ -99,6 +105,9 @@ function AssistantCard({
     <Pressable
       className="self-start bg-tp-assistant-bubble rounded-bubble rounded-tl-sm px-4 py-2.5 max-w-[80%]"
       onLongPress={() => copyText(msg.text)}
+      accessibilityRole="text"
+      accessibilityLabel={`Claude: ${msg.text.length > 100 ? `${msg.text.slice(0, 100)}...` : msg.text}`}
+      accessibilityHint="Long press to copy"
     >
       <RichText
         text={msg.text}
@@ -113,7 +122,10 @@ function AssistantCard({
 function ToolCard({ msg }: { msg: ChatMessage }) {
   const isResult = msg.event === "PostToolUse";
   return (
-    <View className="self-stretch bg-tp-surface border border-tp-border rounded-card px-3.5 py-2.5">
+    <View
+      className="self-stretch bg-tp-surface border border-tp-border rounded-card px-3.5 py-2.5"
+      accessibilityLabel={`Tool ${msg.toolName}, ${isResult ? "completed" : "running"}`}
+    >
       <View className="flex-row items-center justify-between">
         <View className="flex-row items-center flex-1">
           <Text className="text-tp-text-tertiary text-xs mr-1.5">
@@ -174,7 +186,11 @@ function StreamingCard({
   fontStyle: { fontFamily: string; fontSize: number };
 }) {
   return (
-    <View className="self-start bg-tp-assistant-bubble rounded-bubble rounded-tl-sm px-4 py-2.5 max-w-[80%] opacity-70">
+    <View
+      className="self-start bg-tp-assistant-bubble rounded-bubble rounded-tl-sm px-4 py-2.5 max-w-[80%] opacity-70"
+      accessibilityLabel="Claude is typing"
+      accessibilityRole="text"
+    >
       <Text
         className="text-tp-text-secondary italic"
         style={fontStyle}
@@ -188,7 +204,10 @@ function StreamingCard({
 
 function ElicitationCard({ msg }: { msg: ChatMessage }) {
   return (
-    <View className="self-start bg-indigo-900/50 border border-indigo-600 rounded-card px-4 py-3 max-w-[85%]">
+    <View
+      className="self-start bg-indigo-900/50 border border-indigo-600 rounded-card px-4 py-3 max-w-[85%]"
+      accessibilityLabel={`Input requested: ${msg.text}`}
+    >
       <Text className="text-indigo-300 text-xs font-bold mb-1">
         Input Requested
       </Text>
@@ -210,7 +229,10 @@ function ElicitationCard({ msg }: { msg: ChatMessage }) {
 
 function PermissionCard({ msg }: { msg: ChatMessage }) {
   return (
-    <View className="self-start bg-amber-900/50 border border-amber-600 rounded-card px-4 py-3 max-w-[85%]">
+    <View
+      className="self-start bg-amber-900/50 border border-amber-600 rounded-card px-4 py-3 max-w-[85%]"
+      accessibilityLabel={`Permission required: ${msg.text}${msg.permissionTool ? `, tool: ${msg.permissionTool}` : ""}`}
+    >
       <Text className="text-amber-300 text-xs font-bold mb-1">
         Permission Required
       </Text>

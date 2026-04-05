@@ -26,7 +26,10 @@ function Section({
 }) {
   return (
     <View className="bg-tp-surface rounded-lg px-3 py-2 mb-4">
-      <Text className="text-tp-text-tertiary text-xs font-bold mb-1">
+      <Text
+        className="text-tp-text-tertiary text-xs font-bold mb-1"
+        accessibilityRole="header"
+      >
         {title}
       </Text>
       {children}
@@ -164,7 +167,10 @@ export function DiagnosticsPanel() {
 
   return (
     <ScrollView className="flex-1 bg-tp-bg px-4 pt-4">
-      <Text className="text-tp-text-primary text-lg font-bold mb-4">
+      <Text
+        className="text-tp-text-primary text-lg font-bold mb-4"
+        accessibilityRole="header"
+      >
         Diagnostics
       </Text>
 
@@ -185,6 +191,8 @@ export function DiagnosticsPanel() {
             <Pressable
               onPress={handlePing}
               className="bg-tp-surface px-2 py-0.5 rounded"
+              accessibilityRole="button"
+              accessibilityLabel="Ping daemon"
             >
               <Text className="text-tp-text-tertiary text-xs">Ping</Text>
             </Pressable>
@@ -245,6 +253,13 @@ export function DiagnosticsPanel() {
             onPress={handleCryptoTest}
             disabled={cryptoTest.running}
             className="bg-tp-surface px-3 py-1 rounded"
+            accessibilityRole="button"
+            accessibilityLabel={
+              cryptoTest.running
+                ? "Crypto self-test running"
+                : "Run crypto self-test"
+            }
+            accessibilityState={{ disabled: cryptoTest.running }}
           >
             <Text className="text-tp-text-tertiary text-xs">
               {cryptoTest.running ? "Running..." : "Run Self-Test"}
@@ -263,7 +278,10 @@ export function DiagnosticsPanel() {
       </Section>
 
       {/* Sessions Detail */}
-      <Text className="text-tp-text-tertiary text-xs font-bold mb-2">
+      <Text
+        className="text-tp-text-tertiary text-xs font-bold mb-2"
+        accessibilityRole="header"
+      >
         SESSIONS ({sessions.length})
       </Text>
       {sessions.map((s) => (

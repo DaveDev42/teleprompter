@@ -46,10 +46,16 @@ function SegmentedControl({
 }) {
   return (
     <View className="px-4 py-2 bg-tp-bg-secondary">
-      <View className="flex-row bg-tp-bg-tertiary rounded-btn p-1">
+      <View
+        className="flex-row bg-tp-bg-tertiary rounded-btn p-1"
+        accessibilityRole="tabbar"
+      >
         <Pressable
           testID="tab-chat"
           onPress={() => onModeChange("chat")}
+          accessibilityRole="tab"
+          accessibilityLabel="Chat"
+          accessibilityState={{ selected: mode === "chat" }}
           className={`flex-1 py-1.5 rounded-badge items-center ${
             mode === "chat" ? "bg-tp-surface" : ""
           }`}
@@ -67,6 +73,9 @@ function SegmentedControl({
         <Pressable
           testID="tab-terminal"
           onPress={() => onModeChange("terminal")}
+          accessibilityRole="tab"
+          accessibilityLabel="Terminal"
+          accessibilityState={{ selected: mode === "terminal" }}
           className={`flex-1 py-1.5 rounded-badge items-center ${
             mode === "terminal" ? "bg-tp-surface" : ""
           }`}
@@ -200,6 +209,8 @@ function ChatView({ sid }: { sid: string }) {
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
         onScrollBeginDrag={() => Keyboard.dismiss()}
+        accessibilityRole="list"
+        accessibilityLabel="Chat messages"
         ListEmptyComponent={
           <View className="flex-1 items-center justify-center pt-20">
             <Text className="text-tp-text-tertiary text-[15px]">
@@ -224,12 +235,17 @@ function ChatView({ sid }: { sid: string }) {
           multiline
           returnKeyType="send"
           editable={connected && !!sid}
+          accessibilityLabel="Message input"
+          accessibilityHint="Type a message to send to Claude"
         />
         <Pressable
           onPress={handleSend}
           disabled={!input.trim() || !connected || !sid}
           className="bg-tp-accent rounded-full w-9 h-9 items-center justify-center"
           style={{ opacity: input.trim() && connected && sid ? 1 : 0.4 }}
+          accessibilityRole="button"
+          accessibilityLabel="Send message"
+          accessibilityState={{ disabled: !input.trim() || !connected || !sid }}
         >
           <Text className="text-white text-lg font-bold">↑</Text>
         </Pressable>
@@ -352,12 +368,20 @@ export default function SessionDetailScreen() {
 
       {/* Nav header */}
       <View className="flex-row items-center px-2 py-2.5 bg-tp-bg-secondary border-b border-tp-border">
-        <Pressable onPress={() => router.back()} className="px-2">
+        <Pressable
+          onPress={() => router.back()}
+          className="px-2"
+          accessibilityRole="button"
+          accessibilityLabel="Back to sessions"
+        >
           <Text className="text-tp-accent text-base font-medium">
             ‹ Sessions
           </Text>
         </Pressable>
-        <View className="flex-1 items-center flex-row justify-center">
+        <View
+          className="flex-1 items-center flex-row justify-center"
+          accessibilityLabel={`Session ${displayName}${isRunning ? ", running" : ""}`}
+        >
           <Text
             className="text-tp-text-primary text-[15px] font-semibold"
             numberOfLines={1}

@@ -57,10 +57,17 @@ export function FontPickerModal({
           onPress={() => {}}
         >
           <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
-            <Text className="text-tp-text-primary text-lg font-bold">
+            <Text
+              className="text-tp-text-primary text-lg font-bold"
+              accessibilityRole="header"
+            >
               {title}
             </Text>
-            <Pressable onPress={onClose}>
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Done"
+            >
               <Text className="text-tp-accent text-base">Done</Text>
             </Pressable>
           </View>
@@ -74,6 +81,9 @@ export function FontPickerModal({
                   onSelect(item);
                   onClose();
                 }}
+                accessibilityRole="button"
+                accessibilityLabel={item}
+                accessibilityState={{ selected: item === currentFont }}
               >
                 <Text
                   className="text-tp-text-primary text-[15px]"
@@ -134,10 +144,17 @@ export function FontSizeModal({
           onPress={() => {}}
         >
           <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
-            <Text className="text-tp-text-primary text-lg font-bold">
+            <Text
+              className="text-tp-text-primary text-lg font-bold"
+              accessibilityRole="header"
+            >
               Font Size
             </Text>
-            <Pressable onPress={onClose}>
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Done"
+            >
               <Text className="text-tp-accent text-base">Done</Text>
             </Pressable>
           </View>
@@ -145,15 +162,23 @@ export function FontSizeModal({
             <Pressable
               className="w-12 h-12 rounded-full bg-tp-surface items-center justify-center"
               onPress={() => adjust(-1)}
+              accessibilityRole="button"
+              accessibilityLabel="Decrease font size"
             >
               <Text className="text-tp-text-primary text-2xl font-bold">−</Text>
             </Pressable>
-            <Text className="text-tp-text-primary text-4xl font-bold w-20 text-center">
+            <Text
+              className="text-tp-text-primary text-4xl font-bold w-20 text-center"
+              accessibilityLabel={`Font size ${size} pixels`}
+              accessibilityRole="text"
+            >
               {size}
             </Text>
             <Pressable
               className="w-12 h-12 rounded-full bg-tp-surface items-center justify-center"
               onPress={() => adjust(1)}
+              accessibilityRole="button"
+              accessibilityLabel="Increase font size"
             >
               <Text className="text-tp-text-primary text-2xl font-bold">+</Text>
             </Pressable>

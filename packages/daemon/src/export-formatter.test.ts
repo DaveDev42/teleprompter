@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { formatEventRecord, formatIoRecords, formatMarkdown } from "./export-formatter";
+import {
+  formatEventRecord,
+  formatIoRecords,
+  formatMarkdown,
+} from "./export-formatter";
 import type { StoredRecord } from "./store/session-db";
 
 function makeEventRecord(
@@ -47,14 +51,18 @@ function makeMetaRecord(
 
 describe("formatEventRecord", () => {
   test("Stop event extracts last_assistant_message", () => {
-    const rec = makeEventRecord(1, "Stop", { last_assistant_message: "Hello world" });
+    const rec = makeEventRecord(1, "Stop", {
+      last_assistant_message: "Hello world",
+    });
     const result = formatEventRecord(rec);
     expect(result).toContain("### Assistant Response");
     expect(result).toContain("Hello world");
   });
 
   test("UserPromptSubmit formats as blockquote", () => {
-    const rec = makeEventRecord(1, "UserPromptSubmit", { prompt: "Do something" });
+    const rec = makeEventRecord(1, "UserPromptSubmit", {
+      prompt: "Do something",
+    });
     const result = formatEventRecord(rec);
     expect(result).toContain("### User");
     expect(result).toContain("> Do something");
@@ -217,7 +225,14 @@ describe("formatMarkdown", () => {
       makeEventRecord(3, "Stop", { last_assistant_message: "Done" }, 3000),
     ];
     const result = formatMarkdown(
-      { sid: "s", state: "stopped", cwd: "/", createdAt: 0, updatedAt: 0, lastSeq: 3 },
+      {
+        sid: "s",
+        state: "stopped",
+        cwd: "/",
+        createdAt: 0,
+        updatedAt: 0,
+        lastSeq: 3,
+      },
       records,
     );
     const userIdx = result.indexOf("### User");
@@ -230,7 +245,14 @@ describe("formatMarkdown", () => {
   test("formats meta records as JSON blocks", () => {
     const records = [makeMetaRecord(1, "config", { key: "value" })];
     const result = formatMarkdown(
-      { sid: "s", state: "stopped", cwd: "/", createdAt: 0, updatedAt: 0, lastSeq: 1 },
+      {
+        sid: "s",
+        state: "stopped",
+        cwd: "/",
+        createdAt: 0,
+        updatedAt: 0,
+        lastSeq: 1,
+      },
       records,
     );
     expect(result).toContain("### Meta: config");
@@ -239,7 +261,14 @@ describe("formatMarkdown", () => {
 
   test("appends truncation notice when truncated flag is set", () => {
     const result = formatMarkdown(
-      { sid: "s", state: "stopped", cwd: "/", createdAt: 0, updatedAt: 0, lastSeq: 1 },
+      {
+        sid: "s",
+        state: "stopped",
+        cwd: "/",
+        createdAt: 0,
+        updatedAt: 0,
+        lastSeq: 1,
+      },
       [],
       true,
     );

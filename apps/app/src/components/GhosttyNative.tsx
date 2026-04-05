@@ -159,7 +159,9 @@ export function GhosttyNative({
         const base64 = btoa(binary);
 
         const settings = useSettingsStore.getState();
-        setHtml(buildGhosttyHtml(base64, settings.terminalFont, settings.fontSize));
+        setHtml(
+          buildGhosttyHtml(base64, settings.terminalFont, settings.fontSize),
+        );
       } catch (err) {
         console.error("Failed to load ghostty WASM:", err);
       }

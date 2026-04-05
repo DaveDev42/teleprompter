@@ -42,8 +42,7 @@ export function ApiKeyModal({
       </View>
       <View className="px-5 pb-8">
         <Text className="text-tp-text-secondary text-[13px] mb-3">
-          Required for voice input. Your key is stored locally on this
-          device.
+          Required for voice input. Your key is stored locally on this device.
         </Text>
         <TextInput
           className={`bg-tp-bg-input text-tp-text-primary text-[15px] rounded-btn px-4 py-3 border border-tp-border ${pp.className}`}

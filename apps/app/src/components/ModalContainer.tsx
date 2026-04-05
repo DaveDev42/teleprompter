@@ -88,7 +88,7 @@ export function ModalContainer({
         <View
           className="bg-tp-bg-elevated rounded-t-2xl"
           {...(Platform.OS === "web"
-            ? { onClick: (e: MouseEvent) => e.stopPropagation() }
+            ? { onClick: (e: { stopPropagation: () => void }) => e.stopPropagation() }
             : {})}
         >
           <View ref={containerRef}>{children}</View>

@@ -58,7 +58,7 @@ function SegmentedControl({
           accessibilityRole="tab"
           accessibilityLabel="Chat"
           accessibilityState={{ selected: mode === "chat" }}
-          tabIndex={mode === "chat" ? pp.tabIndex : -1}
+          tabIndex={pp.tabIndex}
           className={`flex-1 py-1.5 rounded-badge items-center ${
             mode === "chat" ? "bg-tp-surface" : ""
           } ${pp.className}`}
@@ -79,7 +79,7 @@ function SegmentedControl({
           accessibilityRole="tab"
           accessibilityLabel="Terminal"
           accessibilityState={{ selected: mode === "terminal" }}
-          tabIndex={mode === "terminal" ? pp.tabIndex : -1}
+          tabIndex={pp.tabIndex}
           className={`flex-1 py-1.5 rounded-badge items-center ${
             mode === "terminal" ? "bg-tp-surface" : ""
           } ${pp.className}`}

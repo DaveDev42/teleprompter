@@ -1,8 +1,8 @@
 import { useRouter } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getPlatformProps } from "../../src/lib/get-platform-props";
 import { useRelayConnectionStore } from "../../src/hooks/use-relay";
+import { getPlatformProps } from "../../src/lib/get-platform-props";
 import type { PairingInfo } from "../../src/stores/pairing-store";
 import { usePairingStore } from "../../src/stores/pairing-store";
 import { useSessionStore } from "../../src/stores/session-store";

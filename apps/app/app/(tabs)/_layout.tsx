@@ -27,6 +27,7 @@ export default function TabsLayout() {
           title: "Sessions",
           tabBarLabel: "Sessions",
           tabBarAccessibilityLabel: "Sessions tab",
+          tabBarButtonTestID: "tab-sessions",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="list-outline" size={size} color={color} />
           ),
@@ -38,6 +39,7 @@ export default function TabsLayout() {
           title: "Daemons",
           tabBarLabel: "Daemons",
           tabBarAccessibilityLabel: "Daemons tab",
+          tabBarButtonTestID: "tab-daemons",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="server-outline" size={size} color={color} />
           ),
@@ -49,6 +51,7 @@ export default function TabsLayout() {
           title: "Settings",
           tabBarLabel: "Settings",
           tabBarAccessibilityLabel: "Settings tab",
+          tabBarButtonTestID: "tab-settings",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="settings-outline" size={size} color={color} />
           ),

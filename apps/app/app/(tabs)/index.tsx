@@ -33,7 +33,12 @@ function SessionRow({
   const desc = session.cwd.split("/").pop() ?? session.cwd;
 
   return (
-    <Pressable onPress={onPress}>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${desc}, ${running ? "running" : session.state}${isActive ? ", selected" : ""}`}
+      accessibilityHint="Open this session"
+    >
       <View
         className={`flex-row items-center py-4 mx-4 ${
           isActive
@@ -118,7 +123,10 @@ export default function SessionsScreen() {
     <View className="flex-1 bg-tp-bg" style={{ paddingTop: insets.top }}>
       {/* Header */}
       <View className="px-4 pt-2 pb-1">
-        <Text className="text-tp-text-primary text-[28px] font-bold">
+        <Text
+          accessibilityRole="header"
+          className="text-tp-text-primary text-[28px] font-bold"
+        >
           Sessions
         </Text>
       </View>
@@ -133,6 +141,8 @@ export default function SessionsScreen() {
             value={filter}
             onChangeText={setFilter}
             autoCapitalize="none"
+            accessibilityLabel="Search sessions"
+            accessibilityHint="Filter sessions by name, path, or status"
           />
         </View>
       )}
@@ -141,6 +151,7 @@ export default function SessionsScreen() {
       <FlatList
         data={filteredSessions}
         keyExtractor={(item) => item.sid}
+        accessibilityRole="list"
         renderItem={({ item }) => (
           <SessionRow
             session={item}
@@ -163,6 +174,8 @@ export default function SessionsScreen() {
             <Pressable
               onPress={() => router.push("/(tabs)/daemons")}
               className="mt-6 bg-tp-accent rounded-card px-8 py-3"
+              accessibilityRole="button"
+              accessibilityLabel="Go to Daemons"
             >
               <Text className="text-white font-semibold text-base">
                 Go to Daemons

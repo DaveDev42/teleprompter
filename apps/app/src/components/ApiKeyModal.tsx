@@ -32,10 +32,17 @@ export function ApiKeyModal({
           onPress={() => {}}
         >
           <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
-            <Text className="text-tp-text-primary text-lg font-bold">
+            <Text
+              className="text-tp-text-primary text-lg font-bold"
+              accessibilityRole="header"
+            >
               OpenAI API Key
             </Text>
-            <Pressable onPress={onClose}>
+            <Pressable
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel="Done"
+            >
               <Text className="text-tp-accent text-base">Done</Text>
             </Pressable>
           </View>
@@ -53,6 +60,8 @@ export function ApiKeyModal({
               autoCapitalize="none"
               autoCorrect={false}
               secureTextEntry
+              accessibilityLabel="OpenAI API key"
+              accessibilityHint="Enter your OpenAI API key for voice input"
             />
             <Pressable
               className="bg-tp-accent rounded-btn items-center py-3 mt-4"
@@ -62,6 +71,8 @@ export function ApiKeyModal({
                 }
                 onClose();
               }}
+              accessibilityRole="button"
+              accessibilityLabel="Save API key"
             >
               <Text className="text-white text-[15px] font-semibold">Save</Text>
             </Pressable>
@@ -73,6 +84,8 @@ export function ApiKeyModal({
                   setValue("");
                   onClose();
                 }}
+                accessibilityRole="button"
+                accessibilityLabel="Remove API key"
               >
                 <Text className="text-tp-error text-[14px]">Remove Key</Text>
               </Pressable>

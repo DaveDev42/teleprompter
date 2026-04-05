@@ -58,10 +58,14 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
-      - name: List artifacts
-        run: ls -la artifacts/
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum tp-* > checksums.txt
+          cat checksums.txt
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/tp-*
+            artifacts/checksums.txt
           generate_release_notes: true

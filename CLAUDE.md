@@ -102,6 +102,7 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `packages/runner/src/collector.test.ts` — io/event/meta record creation
 - `packages/daemon/src/store/session-db.test.ts` — append, cursor, payloads
 - `packages/daemon/src/store/store-cleanup.test.ts` — deleteSession, pruneOldSessions
+- `packages/daemon/src/auto-cleanup.test.ts` — daemon auto-cleanup on startup, periodic scheduler, TTL config
 - `packages/protocol/src/socket-path.test.ts` — path format
 - `packages/protocol/src/logger.test.ts` — level filtering, prefix formatting
 - `apps/cli/src/args.test.ts` — `--tp-*` 인자 분리

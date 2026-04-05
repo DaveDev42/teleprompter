@@ -25,6 +25,7 @@
     --tp-success: #16a34a;
     --tp-warning: #d97706;
     --tp-error: #dc2626;
+    --tp-overlay: rgba(0, 0, 0, 0.5);
   }
 
   .dark {
@@ -49,5 +50,6 @@
     --tp-success: #22c55e;
     --tp-warning: #f59e0b;
     --tp-error: #ef4444;
+    --tp-overlay: rgba(0, 0, 0, 0.5);
   }
 }

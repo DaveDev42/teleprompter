@@ -33,6 +33,9 @@ function SessionItem({
   return (
     <Pressable
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`Session ${session.sid}, ${session.state}${isActive ? ", selected" : ""}`}
+      accessibilityHint="Switch to this session"
       className={`px-4 py-3 border-b border-tp-border ${isActive ? "bg-tp-surface-active" : ""}`}
     >
       <View className="flex-row items-center justify-between">
@@ -66,6 +69,8 @@ function SessionItem({
               e.stopPropagation?.();
               onStop();
             }}
+            accessibilityRole="button"
+            accessibilityLabel={`Stop session ${session.sid}`}
             className="bg-red-900/50 px-2 py-1 rounded"
           >
             <Text className="text-red-300 text-xs">Stop</Text>
@@ -77,6 +82,8 @@ function SessionItem({
               e.stopPropagation?.();
               onRestart();
             }}
+            accessibilityRole="button"
+            accessibilityLabel={`Restart session ${session.sid}`}
             className="bg-orange-900/50 px-2 py-1 rounded"
           >
             <Text className="text-orange-300 text-xs">Restart</Text>
@@ -88,6 +95,8 @@ function SessionItem({
               e.stopPropagation?.();
               onExport();
             }}
+            accessibilityRole="button"
+            accessibilityLabel={`Export session ${session.sid}`}
             className="bg-zinc-700/50 px-2 py-1 rounded"
           >
             <Text className="text-gray-300 text-xs">Export</Text>
@@ -184,7 +193,12 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
     <View className="flex-1 bg-tp-bg-secondary">
       <View className="px-4 py-3 border-b border-tp-border">
         <View className="flex-row items-center justify-between mb-2">
-          <Text className="text-tp-text-primary font-bold">Sessions</Text>
+          <Text
+            className="text-tp-text-primary font-bold"
+            accessibilityRole="header"
+          >
+            Sessions
+          </Text>
           <Text className="text-tp-text-secondary text-xs">
             {filteredSessions.length}/{sessions.length}
           </Text>
@@ -197,6 +211,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
             value={filter}
             onChangeText={setFilter}
             autoCapitalize="none"
+            accessibilityLabel="Search sessions"
           />
         )}
       </View>
@@ -210,7 +225,10 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
           if (item.type === "header") {
             return (
               <View className="px-4 py-2 bg-tp-bg">
-                <Text className="text-tp-text-tertiary text-xs font-mono">
+                <Text
+                  className="text-tp-text-tertiary text-xs font-mono"
+                  accessibilityRole="header"
+                >
                   {item.key}
                 </Text>
               </View>
@@ -246,22 +264,33 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
               onChangeText={setBranchInput}
               autoCapitalize="none"
               autoCorrect={false}
+              accessibilityLabel="Branch name"
+              accessibilityHint="Enter a branch name for the new worktree"
             />
             <Pressable
               onPress={createWorktree}
               disabled={!branchInput.trim()}
+              accessibilityRole="button"
+              accessibilityLabel="Create worktree"
+              accessibilityState={{ disabled: !branchInput.trim() }}
               className="bg-tp-accent px-3 py-1.5 rounded-lg"
               style={{ opacity: branchInput.trim() ? 1 : 0.4 }}
             >
               <Text className="text-tp-text-primary text-xs">Create</Text>
             </Pressable>
-            <Pressable onPress={() => setShowWorktreeForm(false)}>
+            <Pressable
+              onPress={() => setShowWorktreeForm(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel"
+            >
               <Text className="text-tp-text-secondary text-xs">Cancel</Text>
             </Pressable>
           </View>
         ) : (
           <Pressable
             onPress={() => setShowWorktreeForm(true)}
+            accessibilityRole="button"
+            accessibilityLabel="New worktree"
             className="border border-tp-border rounded-lg py-2 items-center"
           >
             <Text className="text-tp-text-tertiary text-xs">New Worktree</Text>

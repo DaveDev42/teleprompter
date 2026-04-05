@@ -42,6 +42,9 @@ export function VoiceButton() {
       <Pressable
         onPress={toggleTerminalContext}
         className={`px-2 py-1 rounded ${includeTerminal ? "bg-tp-accent" : "bg-tp-surface"}`}
+        accessibilityRole="switch"
+        accessibilityLabel="Include terminal context"
+        accessibilityState={{ checked: includeTerminal }}
       >
         <Text className="text-xs text-tp-text-secondary">T</Text>
       </Pressable>
@@ -50,6 +53,13 @@ export function VoiceButton() {
       <Pressable
         onPress={isActive ? stopVoice : startVoice}
         className={`${bgColor} rounded-full w-10 h-10 items-center justify-center`}
+        accessibilityRole="button"
+        accessibilityLabel={
+          isActive ? `Stop voice, ${stateLabel}` : "Start voice input"
+        }
+        accessibilityState={{
+          busy: state === "connecting" || state === "processing",
+        }}
       >
         <Text className="text-tp-text-on-color text-sm">
           {isActive ? "■" : "Mic"}

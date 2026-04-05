@@ -114,7 +114,11 @@ export function TerminalToolbar({
   if (Platform.OS === "web") return null;
 
   return (
-    <View className="bg-zinc-900 border-t border-zinc-700 pb-1">
+    <View
+      className="bg-zinc-900 border-t border-zinc-700 pb-1"
+      accessibilityRole="toolbar"
+      accessibilityLabel="Terminal keyboard"
+    >
       <ToolbarRow
         keys={ROW_1}
         onKey={handleKey}
@@ -176,6 +180,18 @@ function ToolbarRow({
                   ? "bg-zinc-600"
                   : "bg-zinc-800"
             }`}
+            accessibilityRole={key.modifier ? "switch" : "button"}
+            accessibilityLabel={
+              key.modifier === "ctrl"
+                ? `Control${isLocked ? ", locked" : isActive ? ", active" : ""}`
+                : key.modifier === "alt"
+                  ? `Alt${isLocked ? ", locked" : isActive ? ", active" : ""}`
+                  : key.label
+            }
+            accessibilityState={
+              key.modifier ? { checked: isActive } : undefined
+            }
+            accessibilityHint={key.modifier ? "Double tap to lock" : undefined}
           >
             <Text
               className={`text-xs font-medium ${

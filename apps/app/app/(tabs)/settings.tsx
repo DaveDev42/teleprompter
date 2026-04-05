@@ -24,7 +24,10 @@ import { useVoiceStore } from "../../src/stores/voice-store";
 
 function SectionLabel({ children }: { children: string }) {
   return (
-    <Text className="text-tp-text-tertiary text-[13px] font-medium tracking-wide uppercase px-4 mb-2 mt-6">
+    <Text
+      accessibilityRole="header"
+      className="text-tp-text-tertiary text-[13px] font-medium tracking-wide uppercase px-4 mb-2 mt-6"
+    >
       {children}
     </Text>
   );
@@ -48,7 +51,12 @@ function SettingsRow({
   children?: React.ReactNode;
 }) {
   return (
-    <Pressable onPress={onPress} className="mx-4">
+    <Pressable
+      onPress={onPress}
+      className="mx-4"
+      accessibilityRole="button"
+      accessibilityLabel={value !== undefined ? `${label}, ${value}` : label}
+    >
       <View
         className={`flex-row items-center justify-between px-4 py-3.5 bg-tp-surface ${
           first ? "rounded-t-card" : ""
@@ -152,7 +160,11 @@ export default function SettingsScreen() {
           <Text className="text-tp-text-primary text-xl font-bold">
             Diagnostics
           </Text>
-          <Pressable onPress={() => setShowDiagnostics(false)}>
+          <Pressable
+            onPress={() => setShowDiagnostics(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Done"
+          >
             <Text className="text-tp-accent text-base">Done</Text>
           </Pressable>
         </View>
@@ -171,7 +183,10 @@ export default function SettingsScreen() {
     >
       {/* Header */}
       <View className="px-4 pt-2 pb-1">
-        <Text className="text-tp-text-primary text-[28px] font-bold">
+        <Text
+          accessibilityRole="header"
+          className="text-tp-text-primary text-[28px] font-bold"
+        >
           Settings
         </Text>
       </View>
@@ -257,6 +272,8 @@ export default function SettingsScreen() {
             <Pressable
               onPress={restart}
               className="bg-tp-accent rounded-btn items-center py-2.5 mt-3"
+              accessibilityRole="button"
+              accessibilityLabel="Restart to update"
             >
               <Text className="text-white text-[14px] font-semibold">
                 Restart to Update

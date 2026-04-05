@@ -144,17 +144,17 @@
 - [ ] `relay.pong` 수신만 처리, 발신 ping 없음 (`relay-client.ts:175-176`)
 
 ### CLI — 서브커맨드 충돌 (tp vs claude)
-- [ ] **`tp doctor` / `tp upgrade` / `tp version`이 claude의 동명 서브커맨드를 가로챔** — `claude doctor`, `claude upgrade`를 tp 경유로 실행할 방법 없음
-- [ ] **claude 전용 서브커맨드(`auth`, `mcp`, `install`, `update` 등)가 passthrough로 빠짐** — Daemon 시작 + PTY spawn 시도 → 비정상 동작/크래시. claude의 비-세션 유틸리티 명령은 passthrough 대상이 아님
-- [ ] **`tp claude ...` 명시적 passthrough 서브커맨드 도입 검토** — 현재 암묵적 default fallback 대신 `tp claude -p "fix bug"` 형태로 명시화. 서브커맨드 충돌 해소 + 의도 명확화
+- [x] **`tp doctor` / `tp upgrade` / `tp version`이 claude의 동명 서브커맨드를 가로챔** — `tp -- doctor`로 claude의 doctor 실행, `tp doctor --claude` / `tp upgrade --claude`로 claude 명령 병행 실행
+- [x] **claude 전용 서브커맨드(`auth`, `mcp`, `install`, `update` 등)가 passthrough로 빠짐** — CLAUDE_UTILITY_SUBCOMMANDS 감지 → `Bun.spawn(["claude", ...])` 직접 포워딩 (daemon 미시작)
+- [x] **`tp -- ...` 명시적 claude 포워딩** — `tp -- <args>`로 모든 인자를 daemon 없이 claude에 직접 전달. 서브커맨드 충돌 해소 + 의도 명확화
 
 ### CLI — 기타
 - [ ] `tp upgrade` — 바이너리 다운로드 시 체크섬/서명 검증 없음
 - [ ] `tp upgrade` — 업그레이드 실패 시 롤백 없음 (기존 바이너리 백업 미수행)
 - [ ] `tp upgrade` — 업그레이드 후 실행 중인 daemon 재시작 미안내
-- [ ] `tp completions` — `SUBCOMMANDS` 목록에 `run`, `passthrough` 누락 (셸 자동완성 불완전)
-- [ ] `args.ts:39-41` — `--tp-*` 플래그가 마지막 인자이고 값이 없을 때 (`tp --tp-sid`) unhandled throw → 스택 트레이스 출력. 사용자 친화적 에러 메시지 필요
-- [ ] Passthrough에서 WS port 7080 하드코딩 — 동시에 2개 tp passthrough 실행 시 port 충돌로 크래시. 자동 포트 할당 또는 에러 처리 필요
+- [x] `tp completions` — `SUBCOMMANDS` 목록에 `run` 추가 (셸 자동완성 완성)
+- [x] `args.ts:39-41` — `--tp-*` 플래그 값 누락 시 사용자 친화적 에러 메시지 + 사용 예시 출력 (process.exit(1))
+- [x] Passthrough에서 WS port 7080 충돌 시 자동으로 port 0 (auto-assign) fallback + 안내 메시지 출력
 
 ### Worktree
 - [ ] `worktree-manager.ts:22` — Bun stdout 캡처 버그 워크어라운드 (`TODO: Revert to execFileSync`)

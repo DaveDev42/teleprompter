@@ -479,7 +479,7 @@ describe("RelayServer", () => {
     const offline = presenceMessages.find((p) => !p.online);
     expect(online).toBeDefined();
     expect(offline).toBeDefined();
-    expect(offline!.daemonId).toBe(DAEMON_ID);
+    expect(offline?.daemonId).toBe(DAEMON_ID);
 
     daemon.close();
     frontend.close();

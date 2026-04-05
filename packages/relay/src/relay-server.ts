@@ -86,7 +86,9 @@ export class RelayServer {
   }
 
   /** Get daemon state for testing/monitoring */
-  getDaemonState(daemonId: string): { online: boolean; lastSeen: number } | undefined {
+  getDaemonState(
+    daemonId: string,
+  ): { online: boolean; lastSeen: number } | undefined {
     const state = this.daemonStates.get(daemonId);
     if (!state) return undefined;
     return { online: state.online, lastSeen: state.lastSeen };

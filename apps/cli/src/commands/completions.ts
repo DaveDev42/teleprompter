@@ -9,6 +9,7 @@
 
 const SUBCOMMANDS = [
   "daemon",
+  "run",
   "relay",
   "pair",
   "status",
@@ -17,6 +18,16 @@ const SUBCOMMANDS = [
   "upgrade",
   "completions",
   "version",
+  // Claude utility subcommands (forwarded directly to claude)
+  "auth",
+  "mcp",
+  "install",
+  "update",
+  "agents",
+  "auto-mode",
+  "plugin",
+  "plugins",
+  "setup-token",
 ];
 
 const DAEMON_FLAGS = [

@@ -263,6 +263,16 @@ tp logs [session]          # 세션 라이브 출력 tail
 tp doctor                  # 환경 진단 + relay 연결 + E2EE 검증
 tp upgrade                 # tp + Claude Code 업그레이드
 tp version                 # 버전 출력
+tp -- <claude args>        # claude에 직접 포워딩 (daemon 없이)
+
+# Claude 유틸리티 서브커맨드 (daemon 없이 직접 포워딩)
+tp auth                    # claude auth
+tp mcp                     # claude mcp
+tp install                 # claude install
+tp update                  # claude update
+tp agents                  # claude agents
+tp plugin                  # claude plugin
+tp setup-token             # claude setup-token
 
 # Daemon 관리
 tp daemon start [options]  # Daemon 포그라운드 실행

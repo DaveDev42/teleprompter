@@ -59,8 +59,28 @@ describe("splitArgs", () => {
     expect(result.claudeArgs).toEqual(["-p", "hello"]);
   });
 
-  test("throws on missing value for --tp-* flag", () => {
-    expect(() => splitArgs(["--tp-sid"])).toThrow("Missing value for --tp-sid");
+  test("exits with error on missing value for --tp-* flag", () => {
+    const originalExit = process.exit;
+    const originalError = console.error;
+    let exitCode: number | undefined;
+    let errorOutput = "";
+    process.exit = ((code: number) => {
+      exitCode = code;
+      throw new Error("__EXIT__");
+    }) as never;
+    console.error = (msg: string) => {
+      errorOutput += `${msg}\n`;
+    };
+
+    try {
+      expect(() => splitArgs(["--tp-sid"])).toThrow("__EXIT__");
+      expect(exitCode).toBe(1);
+      expect(errorOutput).toContain("--tp-sid requires a value");
+      expect(errorOutput).toContain("Example:");
+    } finally {
+      process.exit = originalExit;
+      console.error = originalError;
+    }
   });
 
   test("unknown --tp-like flags are passed to claude", () => {

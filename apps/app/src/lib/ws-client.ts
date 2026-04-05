@@ -82,6 +82,7 @@ export type WsEventHandler = {
   onError?: (error: string) => void;
   onWorktreeList?: (worktrees: WsWorktreeInfo[]) => void;
   onWorktreeCreated?: (info: WsWorktreeInfo, sid?: string) => void;
+  onSessionExported?: (sid: string, format: string, content: string) => void;
 };
 
 export class DaemonWsClient {
@@ -91,6 +92,10 @@ export class DaemonWsClient {
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
+
+  set onSessionExported(handler: ((sid: string, format: string, content: string) => void) | undefined) {
+    this.handlers.onSessionExported = handler;
+  }
 
   /** Track attached session and last seq for auto-resume on reconnect */
   private attachedSid: string | null = null;
@@ -175,6 +180,9 @@ export class DaemonWsClient {
       case "worktree.created":
         this.handlers.onWorktreeCreated?.(msg.d, msg.sid);
         break;
+      case "session.exported":
+        this.handlers.onSessionExported?.(msg.sid, msg.format, msg.d);
+        break;
     }
   }
 
@@ -257,8 +265,17 @@ export class DaemonWsClient {
     this.send({ t: "session.restart", sid } as WsClientMessage);
   }
 
-  exportSession(sid: string, format: "json" | "markdown" = "markdown") {
-    this.send({ t: "session.export", sid, format } as WsClientMessage);
+  exportSession(
+    sid: string,
+    format: "json" | "markdown" = "markdown",
+    opts?: { recordTypes?: string[]; timeRange?: { from?: number; to?: number }; limit?: number },
+  ) {
+    this.send({
+      t: "session.export",
+      sid,
+      format,
+      ...opts,
+    } as WsClientMessage);
   }
 
   private scheduleReconnect() {

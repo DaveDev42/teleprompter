@@ -2,8 +2,8 @@ import type {
   WsClientMessage,
   WsSessionMeta,
 } from "@teleprompter/protocol/client";
-import { useMemo, useState } from "react";
-import { FlatList, Pressable, Text, TextInput, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, FlatList, Platform, Pressable, Text, TextInput, View } from "react-native";
 import { getDaemonClient } from "../hooks/use-daemon";
 import { useChatStore } from "../stores/chat-store";
 import { useSessionStore } from "../stores/session-store";
@@ -11,6 +11,7 @@ import { useSessionStore } from "../stores/session-store";
 function SessionItem({
   session,
   isActive,
+  isExporting,
   onPress,
   onStop,
   onRestart,
@@ -18,6 +19,7 @@ function SessionItem({
 }: {
   session: WsSessionMeta;
   isActive: boolean;
+  isExporting: boolean;
   onPress: () => void;
   onStop: () => void;
   onRestart: () => void;
@@ -88,9 +90,15 @@ function SessionItem({
               e.stopPropagation?.();
               onExport();
             }}
-            className="bg-zinc-700/50 px-2 py-1 rounded"
+            className="bg-tp-surface px-2 py-1 rounded"
+            disabled={isExporting}
+            style={{ opacity: isExporting ? 0.5 : 1 }}
           >
-            <Text className="text-gray-300 text-xs">Export</Text>
+            {isExporting ? (
+              <ActivityIndicator size="small" color="#999" />
+            ) : (
+              <Text className="text-tp-text-secondary text-xs">Export</Text>
+            )}
           </Pressable>
         )}
       </View>
@@ -105,6 +113,20 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
   const [filter, setFilter] = useState("");
   const [showWorktreeForm, setShowWorktreeForm] = useState(false);
   const [branchInput, setBranchInput] = useState("");
+  const [exportingSid, setExportingSid] = useState<string | null>(null);
+  const exportCallbackRef = useRef<((sid: string, format: string, content: string) => void) | null>(null);
+
+  useEffect(() => {
+    const client = getDaemonClient();
+    if (!client) return;
+
+    client.onSessionExported = (sid: string, format: string, content: string) => {
+      exportCallbackRef.current?.(sid, format, content);
+    };
+    return () => {
+      client.onSessionExported = undefined;
+    };
+  }, []);
 
   // Filter sessions by search term
   const filteredSessions = useMemo(() => {
@@ -146,9 +168,45 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
     getDaemonClient()?.restartSession(sid);
   };
 
-  const exportSession = (sid: string) => {
-    getDaemonClient()?.exportSession(sid, "markdown");
-  };
+  const exportSession = useCallback((sid: string) => {
+    const client = getDaemonClient();
+    if (!client) return;
+
+    setExportingSid(sid);
+
+    exportCallbackRef.current = async (_sid: string, format: string, content: string) => {
+      setExportingSid(null);
+      exportCallbackRef.current = null;
+
+      const ext = format === "json" ? "json" : "md";
+      const filename = `session-${_sid.slice(0, 8)}.${ext}`;
+
+      if (Platform.OS === "web") {
+        const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        try {
+          const { File, Paths } = require("expo-file-system") as typeof import("expo-file-system");
+          const Sharing = require("expo-sharing") as typeof import("expo-sharing");
+          const file = new File(Paths.document, filename);
+          file.write(content);
+          await Sharing.shareAsync(file.uri, {
+            mimeType: "text/plain",
+            UTI: "public.plain-text",
+          });
+        } catch (err) {
+          console.error("Export share failed:", err);
+        }
+      }
+    };
+
+    client.exportSession(sid, "markdown");
+  }, []);
 
   const createWorktree = () => {
     const branch = branchInput.trim();
@@ -220,6 +278,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
             <SessionItem
               session={item.session}
               isActive={item.session.sid === currentSid}
+              isExporting={exportingSid === item.session.sid}
               onPress={() => switchSession(item.session.sid)}
               onStop={() => stopSession(item.session.sid)}
               onRestart={() => restartSession(item.session.sid)}

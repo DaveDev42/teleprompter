@@ -6,9 +6,7 @@ import { resolve } from "path";
  *
  * With --claude flag, also prints claude version.
  */
-export async function versionCommand(
-  argv: string[] = [],
-): Promise<void> {
+export async function versionCommand(argv: string[] = []): Promise<void> {
   try {
     const pkgPath = resolve(import.meta.dir, "../../package.json");
     const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));

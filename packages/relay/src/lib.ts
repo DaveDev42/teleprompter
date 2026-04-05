@@ -1,1 +1,1 @@
-export { RelayServer } from "./relay-server";
+export { RelayServer, type RelayServerOptions } from "./relay-server";

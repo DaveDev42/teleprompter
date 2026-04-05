@@ -30,7 +30,12 @@ export const useRelaySettingsStore = create<RelaySettingsStore>((set, get) => ({
         const relays = JSON.parse(raw) as RelayEndpoint[];
         set({ relays, loaded: true });
         return;
-      } catch {}
+      } catch (e) {
+        console.warn(
+          "[relay-settings] failed to parse stored relay endpoints:",
+          e,
+        );
+      }
     }
     set({ loaded: true });
   },

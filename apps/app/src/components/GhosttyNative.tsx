@@ -107,7 +107,9 @@ function buildGhosttyHtml(
       } else if (msg.type === 'fit') {
         fitAddon.fit();
       }
-    } catch {}
+    } catch (e) {
+      console.warn('[ghostty] failed to handle message from React Native:', e);
+    }
   }
 
   window.addEventListener('message', handleMessage);

@@ -47,7 +47,11 @@ function RichText({
                   {lang}
                 </Text>
               ) : null}
-              <Text className="text-tp-success text-xs" style={codeFontStyle} selectable>
+              <Text
+                className="text-tp-success text-xs"
+                style={codeFontStyle}
+                selectable
+              >
                 {code}
               </Text>
             </Pressable>
@@ -75,11 +79,7 @@ function UserCard({
       className="self-end bg-tp-user-bubble rounded-bubble rounded-br-sm px-4 py-2.5 max-w-[80%]"
       onLongPress={() => copyText(msg.text)}
     >
-      <Text
-        className="text-white leading-[22px]"
-        style={fontStyle}
-        selectable
-      >
+      <Text className="text-white leading-[22px]" style={fontStyle} selectable>
         {msg.text}
       </Text>
     </Pressable>

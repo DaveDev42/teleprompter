@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
-import { usePlatformProps } from "../hooks/use-platform-props";
+import { getPlatformProps } from "../lib/get-platform-props";
 import { ModalContainer } from "./ModalContainer";
 
 export function ApiKeyModal({
@@ -14,7 +14,7 @@ export function ApiKeyModal({
   onSave: (key: string) => void;
   onClose: () => void;
 }) {
-  const pp = usePlatformProps();
+  const pp = getPlatformProps();
   const [value, setValue] = useState(currentKey ?? "");
 
   useEffect(() => {
@@ -31,7 +31,7 @@ export function ApiKeyModal({
           OpenAI API Key
         </Text>
         <Pressable
-          className={pp.className ?? ""}
+          className={pp.className}
           tabIndex={pp.tabIndex}
           onPress={onClose}
           accessibilityRole="button"
@@ -46,7 +46,7 @@ export function ApiKeyModal({
           device.
         </Text>
         <TextInput
-          className={`bg-tp-bg-input text-tp-text-primary text-[15px] rounded-btn px-4 py-3 border border-tp-border ${pp.className ?? ""}`}
+          className={`bg-tp-bg-input text-tp-text-primary text-[15px] rounded-btn px-4 py-3 border border-tp-border ${pp.className}`}
           tabIndex={pp.tabIndex}
           value={value}
           onChangeText={setValue}
@@ -59,7 +59,7 @@ export function ApiKeyModal({
           accessibilityHint="Enter your OpenAI API key for voice input"
         />
         <Pressable
-          className={`bg-tp-accent rounded-btn items-center py-3 mt-4 ${pp.className ?? ""}`}
+          className={`bg-tp-accent rounded-btn items-center py-3 mt-4 ${pp.className}`}
           tabIndex={pp.tabIndex}
           onPress={() => {
             if (value.trim()) {
@@ -74,7 +74,7 @@ export function ApiKeyModal({
         </Pressable>
         {currentKey && (
           <Pressable
-            className={`items-center py-3 mt-2 ${pp.className ?? ""}`}
+            className={`items-center py-3 mt-2 ${pp.className}`}
             tabIndex={pp.tabIndex}
             onPress={() => {
               onSave("");

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { FlatList, Pressable, Text, View } from "react-native";
-import { usePlatformProps } from "../hooks/use-platform-props";
+import { getPlatformProps } from "../lib/get-platform-props";
 import { ModalContainer } from "./ModalContainer";
 
 const SANS_FONTS = [
@@ -37,7 +37,7 @@ export function FontPickerModal({
   onSelect: (font: string) => void;
   onClose: () => void;
 }) {
-  const pp = usePlatformProps();
+  const pp = getPlatformProps();
   const fonts = mode === "chat" ? SANS_FONTS : MONO_FONTS;
   const title =
     mode === "chat"
@@ -57,7 +57,7 @@ export function FontPickerModal({
             {title}
           </Text>
           <Pressable
-            className={pp.className ?? ""}
+            className={pp.className}
             tabIndex={pp.tabIndex}
             onPress={onClose}
             accessibilityRole="button"
@@ -71,7 +71,7 @@ export function FontPickerModal({
           keyExtractor={(item) => item}
           renderItem={({ item }) => (
             <Pressable
-              className={`flex-row items-center justify-between px-5 py-3.5 ${pp.className ?? ""}`}
+              className={`flex-row items-center justify-between px-5 py-3.5 ${pp.className}`}
               tabIndex={pp.tabIndex}
               onPress={() => {
                 onSelect(item);
@@ -113,7 +113,7 @@ export function FontSizeModal({
   onChangeSize: (size: number) => void;
   onClose: () => void;
 }) {
-  const pp = usePlatformProps();
+  const pp = getPlatformProps();
   const [size, setSize] = useState(currentSize);
 
   useEffect(() => {
@@ -136,7 +136,7 @@ export function FontSizeModal({
           Font Size
         </Text>
         <Pressable
-          className={pp.className ?? ""}
+          className={pp.className}
           tabIndex={pp.tabIndex}
           onPress={onClose}
           accessibilityRole="button"
@@ -147,7 +147,7 @@ export function FontSizeModal({
       </View>
       <View className="flex-row items-center justify-center gap-8 py-8 pb-12">
         <Pressable
-          className={`w-12 h-12 rounded-full bg-tp-surface items-center justify-center ${pp.className ?? ""}`}
+          className={`w-12 h-12 rounded-full bg-tp-surface items-center justify-center ${pp.className}`}
           tabIndex={pp.tabIndex}
           onPress={() => adjust(-1)}
           accessibilityRole="button"
@@ -163,7 +163,7 @@ export function FontSizeModal({
           {size}
         </Text>
         <Pressable
-          className={`w-12 h-12 rounded-full bg-tp-surface items-center justify-center ${pp.className ?? ""}`}
+          className={`w-12 h-12 rounded-full bg-tp-surface items-center justify-center ${pp.className}`}
           tabIndex={pp.tabIndex}
           onPress={() => adjust(1)}
           accessibilityRole="button"

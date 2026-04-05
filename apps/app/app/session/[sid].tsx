@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChatCard } from "../../src/components/ChatCard";
 import { VoiceButton } from "../../src/components/VoiceButton";
 import { getDaemonClient } from "../../src/hooks/use-daemon";
-import { usePlatformProps } from "../../src/hooks/use-platform-props";
+import { getPlatformProps } from "../../src/lib/get-platform-props";
 import type { TerminalSearch } from "../../src/lib/terminal-search";
 import {
   type ChatMessage,
@@ -45,7 +45,7 @@ function SegmentedControl({
   mode: ViewMode;
   onModeChange: (mode: ViewMode) => void;
 }) {
-  const pp = usePlatformProps();
+  const pp = getPlatformProps();
   return (
     <View className="px-4 py-2 bg-tp-bg-secondary">
       <View
@@ -61,7 +61,7 @@ function SegmentedControl({
           tabIndex={pp.tabIndex}
           className={`flex-1 py-1.5 rounded-badge items-center ${
             mode === "chat" ? "bg-tp-surface" : ""
-          } ${pp.className ?? ""}`}
+          } ${pp.className}`}
         >
           <Text
             className={`text-[13px] ${
@@ -82,7 +82,7 @@ function SegmentedControl({
           tabIndex={pp.tabIndex}
           className={`flex-1 py-1.5 rounded-badge items-center ${
             mode === "terminal" ? "bg-tp-surface" : ""
-          } ${pp.className ?? ""}`}
+          } ${pp.className}`}
         >
           <Text
             className={`text-[13px] ${
@@ -109,7 +109,7 @@ function ChatView({ sid }: { sid: string }) {
   const flatListRef = useRef<FlatList>(null);
   const [input, setInput] = useState("");
   const setOnPromptReady = useVoiceStore((s) => s.setOnPromptReady);
-  const pp = usePlatformProps();
+  const pp = getPlatformProps();
 
   // Wire voice prompt to chat send
   useEffect(() => {
@@ -232,7 +232,7 @@ function ChatView({ sid }: { sid: string }) {
         <VoiceButton />
         <TextInput
           testID="chat-input"
-          className={`flex-1 bg-tp-bg-input text-tp-text-primary rounded-full px-4 py-2 mr-2 max-h-24 text-[15px] ${pp.className ?? ""}`}
+          className={`flex-1 bg-tp-bg-input text-tp-text-primary rounded-full px-4 py-2 mr-2 max-h-24 text-[15px] ${pp.className}`}
           placeholder="Send a message..."
           placeholderTextColor="var(--tp-text-tertiary)"
           value={input}
@@ -249,7 +249,7 @@ function ChatView({ sid }: { sid: string }) {
           testID="chat-send"
           onPress={handleSend}
           disabled={!input.trim() || !connected || !sid}
-          className={`bg-tp-accent rounded-full w-9 h-9 items-center justify-center ${pp.className ?? ""}`}
+          className={`bg-tp-accent rounded-full w-9 h-9 items-center justify-center ${pp.className}`}
           tabIndex={pp.tabIndex}
           style={{ opacity: input.trim() && connected && sid ? 1 : 0.4 }}
           accessibilityRole="button"
@@ -342,7 +342,7 @@ export default function SessionDetailScreen() {
   const sessions = useSessionStore((s) => s.sessions);
   const setSid = useSessionStore((s) => s.setSid);
   const [mode, setMode] = useState<ViewMode>("chat");
-  const pp = usePlatformProps();
+  const pp = getPlatformProps();
 
   const session = sessions.find((s) => s.sid === sid);
   const isRunning = session?.state === "running";
@@ -380,7 +380,7 @@ export default function SessionDetailScreen() {
       <View className="flex-row items-center px-2 py-2.5 bg-tp-bg-secondary border-b border-tp-border">
         <Pressable
           onPress={() => router.back()}
-          className={`px-2 ${pp.className ?? ""}`}
+          className={`px-2 ${pp.className}`}
           tabIndex={pp.tabIndex}
           accessibilityRole="button"
           accessibilityLabel="Back to sessions"

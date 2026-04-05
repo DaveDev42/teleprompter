@@ -69,7 +69,7 @@ describe("splitArgs", () => {
       throw new Error("__EXIT__");
     }) as never;
     console.error = (msg: string) => {
-      errorOutput += msg + "\n";
+      errorOutput += `${msg}\n`;
     };
 
     try {

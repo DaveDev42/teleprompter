@@ -30,20 +30,20 @@ export function VoiceButton() {
 
   const bgColor = isActive
     ? isSpeaking
-      ? "bg-purple-600"
+      ? "bg-tp-voice-active"
       : state === "listening"
-        ? "bg-red-600"
-        : "bg-yellow-600"
-    : "bg-zinc-700";
+        ? "bg-tp-error"
+        : "bg-tp-warning"
+    : "bg-tp-bg-tertiary";
 
   return (
     <View className="flex-row items-center gap-2">
       {/* Terminal context toggle */}
       <Pressable
         onPress={toggleTerminalContext}
-        className={`px-2 py-1 rounded ${includeTerminal ? "bg-blue-600" : "bg-zinc-800"}`}
+        className={`px-2 py-1 rounded ${includeTerminal ? "bg-tp-accent" : "bg-tp-surface"}`}
       >
-        <Text className="text-xs text-gray-300">T</Text>
+        <Text className="text-xs text-tp-text-secondary">T</Text>
       </Pressable>
 
       {/* Mic button */}
@@ -51,13 +51,20 @@ export function VoiceButton() {
         onPress={isActive ? stopVoice : startVoice}
         className={`${bgColor} rounded-full w-10 h-10 items-center justify-center`}
       >
-        <Text className="text-white text-sm">{isActive ? "■" : "🎤"}</Text>
+        <Text className="text-tp-text-on-color text-sm">
+          {isActive ? "■" : "Mic"}
+        </Text>
       </Pressable>
 
       {/* Status */}
-      {isActive && <Text className="text-gray-400 text-xs">{stateLabel}</Text>}
+      {isActive && (
+        <Text className="text-tp-text-tertiary text-xs">{stateLabel}</Text>
+      )}
       {transcript && isActive && (
-        <Text className="text-gray-500 text-xs max-w-32" numberOfLines={1}>
+        <Text
+          className="text-tp-text-tertiary text-xs max-w-32"
+          numberOfLines={1}
+        >
           {transcript}
         </Text>
       )}

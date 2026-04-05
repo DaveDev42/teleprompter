@@ -89,7 +89,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     if (includeTerminal && globalTermRef) {
       termContext = formatTerminalContext(globalTermRef);
     }
-    const systemPrompt = buildSystemPrompt(includeTerminal) + termContext;
+    const systemPrompt = buildSystemPrompt() + termContext;
 
     realtimeClient = new RealtimeClient(
       { apiKey, systemPrompt },
@@ -169,8 +169,8 @@ function cleanup() {
   realtimeClient = null;
 }
 
-function buildSystemPrompt(includeTerminal: boolean): string {
-  let prompt = `You are a voice interface for Teleprompter, a remote Claude Code controller.
+function buildSystemPrompt(): string {
+  const prompt = `You are a voice interface for Teleprompter, a remote Claude Code controller.
 
 Your role:
 1. Listen to the user's voice input
@@ -187,11 +187,6 @@ Example:
 - User: "um, can you like fix the bug in the login page, the one where it crashes"
 - Your response: "Fixing the login crash bug."
 - (Refined prompt sent to Claude: "Fix the bug in the login page that causes a crash")`;
-
-  if (includeTerminal) {
-    // In production, this would inject actual terminal state
-    prompt += `\n\nTerminal context is enabled. The user may reference what's on their terminal screen.`;
-  }
 
   return prompt;
 }

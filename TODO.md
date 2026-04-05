@@ -167,8 +167,8 @@
 - [ ] 키보드 내비게이션 미검증
 
 ### Protocol / Transport
-- [ ] Relay frame cache 크기 고정 (10 frames per session) — 설정 불가, 긴 오프라인 시 히스토리 유실
-- [ ] WebSocket frame size limit 없음 — 악의적이거나 거대한 메시지에 OOM 가능성
+- [x] Relay frame cache 크기 설정 가능 — `TP_RELAY_CACHE_SIZE` 환경변수 또는 `--cache-size` CLI 옵션 (기본 10)
+- [x] WebSocket frame size limit — `TP_RELAY_MAX_FRAME_SIZE` 환경변수 또는 `--max-frame-size` CLI 옵션 (기본 1MB, 초과 시 연결 종료)
 
 ### UI 미노출 Store (기능은 있으나 설정 UI 없음)
 - [ ] `connection-store.daemonUrl` — 커스텀 Daemon WS URL 설정 가능하나 UI 없음

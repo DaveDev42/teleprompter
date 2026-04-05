@@ -38,7 +38,12 @@ export function splitArgs(argv: string[]): SplitResult {
     if (TP_VALUE_FLAGS.has(arg)) {
       const value = argv[i + 1];
       if (value === undefined) {
-        throw new Error(`Missing value for ${arg}`);
+        console.error(`Error: ${arg} requires a value.\n`);
+        console.error(`Usage: tp ${arg} <value> [claude args...]`);
+        console.error(
+          `Example: tp ${arg} ${arg === "--tp-sid" ? "my-session" : arg === "--tp-cwd" ? "/path/to/project" : "9090"} -p "hello"`,
+        );
+        process.exit(1);
       }
       switch (arg) {
         case "--tp-sid":

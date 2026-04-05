@@ -9,8 +9,12 @@ import { loadPairingData } from "./pair";
 /**
  * tp doctor — diagnose the environment and connectivity.
  * Checks for required tools, permissions, configuration, relay, and E2EE.
+ *
+ * With --claude flag, also runs `claude doctor` after tp's own checks.
  */
-export async function doctorCommand(): Promise<void> {
+export async function doctorCommand(argv: string[] = []): Promise<void> {
+  const runClaudeDoctor = argv.includes("--claude");
+
   console.log("Teleprompter Doctor\n");
 
   let issues = 0;
@@ -119,6 +123,18 @@ export async function doctorCommand(): Promise<void> {
       check("E2EE", "verification failed", false);
       issues++;
     }
+  }
+
+  // --- Claude doctor (if --claude flag) ---
+
+  if (runClaudeDoctor) {
+    console.log("\n--- Claude Code Doctor ---\n");
+    const proc = Bun.spawn(["claude", "doctor"], {
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    await proc.exited;
   }
 
   // --- Summary ---

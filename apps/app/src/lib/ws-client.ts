@@ -48,7 +48,9 @@ function getDefaultUrl(): string {
           return `ws://${host}:7080`;
         }
       }
-    } catch {}
+    } catch (e) {
+      console.warn("[ws-client] failed to resolve daemon host from expo-constants:", e);
+    }
 
     try {
       const sourceUrl = (globalThis as Record<string, unknown>)
@@ -59,7 +61,9 @@ function getDefaultUrl(): string {
           return `ws://${match[1]}:7080`;
         }
       }
-    } catch {}
+    } catch (e) {
+      console.warn("[ws-client] failed to resolve daemon host from source URL:", e);
+    }
 
     return "ws://localhost:7080";
   }

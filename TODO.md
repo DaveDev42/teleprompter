@@ -93,6 +93,89 @@
 
 ---
 
+## 🔧 Bugs — 발견된 버그
+
+### E2E 테스트
+- [ ] `app-session-switch.spec.ts:70` — "clicking a session navigates to session view" 실패. `text=Chat` locator가 세션 이름 "chat-rt"와 Chat 탭 라벨 2개를 동시 매칭 (strict mode violation). `getByText('Chat', { exact: true })` 또는 testID 기반으로 수정 필요
+
+### 코드 컨벤션 위반 (tp-* semantic token)
+- [ ] `VoiceButton.tsx` — raw Tailwind 색상 사용 (`bg-purple-600`, `bg-red-600`, `bg-yellow-600`, `bg-zinc-700/800`, `bg-blue-600`, `text-gray-300/400/500`) → `tp-*` semantic token 교체 필요
+- [ ] `DiagnosticsPanel.tsx` — raw Tailwind 색상 사용 (`bg-zinc-900`, `text-gray-300/400/500`) → `tp-*` semantic token 교체 필요
+
+### Silent Error Swallowing (빈 catch 블록)
+- [ ] `ws-client.ts:51,62` — WS 연결/해제 실패 시 에러 무시
+- [ ] `GhosttyNative.tsx:99` — 터미널 초기화 실패 시 에러 무시
+- [ ] `relay-settings-store.ts:33` — secure storage 읽기 실패 시 에러 무시
+
+---
+
+## 📋 P4 — 미완/미비 기능
+
+### Settings UI — Stub 버튼 (onPress={() => {}} 상태)
+- [ ] **Font Picker UI 미구현** — Chat Font, Code Font, Terminal Font, Font Size 4개 설정 행이 Settings에 표시되지만 `onPress={() => {}}` (빈 핸들러). 폰트 선택 모달/피커 없음
+- [ ] **Font 미적용** — store에 저장된 폰트 설정이 실제 컴포넌트에 적용되지 않음:
+  - `GhosttyTerminal.tsx:48-49` — 터미널 폰트/사이즈 하드코딩 (`fontSize: 14`, `fontFamily: "Menlo, Monaco..."`)
+  - `GhosttyNative.tsx:70-71` — 네이티브 터미널도 하드코딩 (`fontSize: 13`, `fontFamily: "Menlo, Monaco..."`)
+  - `ChatCard.tsx` — 채팅 폰트 하드코딩 (`text-[15px]`, 시스템 기본 폰트)
+  - 커스텀 폰트 로딩 없음 (expo-font, @expo-google-fonts 미설치, .ttf/.otf 파일 없음)
+- [ ] **OpenAI API Key 설정 UI 미구현** — Settings에 "OpenAI API Key" 행이 표시되지만 `onPress={() => {}}`. 입력 모달/다이얼로그 없음
+- [ ] **OpenAI API Key 비영속** — `voice-store.apiKey`가 메모리 전용 (secureGet/secureSet 미사용), 앱 재시작 시 소실
+
+### Theme
+- [ ] **테마 선택 비영속** — `theme-store.ts`에 persistence 없음 (secureGet/secureSet 미사용). 앱 재시작 시 항상 "dark"로 초기화
+
+### Voice (음성) — Web 전용, 네이티브 미지원
+- [ ] `VoiceButton`이 iOS/Android에서 `null` 반환 — 네이티브 오디오 캡처/재생 미구현 (expo-av 등 필요)
+- [ ] `buildSystemPrompt():165` — terminal context 주입 시 정적 문자열이 불필요하게 중복 추가됨 (실제 `termContext`와 별개로 placeholder 문구 삽입). 정리 필요
+
+### Session Export — 기본 수준만 구현
+- [ ] Markdown export가 `event` 레코드만 추출 — tool calls, permissions, elicitations 등 누락
+- [ ] PTY io 레코드 완전히 무시 — 터미널 출력이 export에 포함되지 않음
+- [ ] 필터링/포맷 옵션 없음 — 시간 범위, 레코드 종류 선택 등 미지원
+- [ ] 10,000 레코드 hard limit — 대규모 세션에서 잘림 가능
+
+### Store 자동 정리
+- [ ] `pruneOldSessions`가 수동 호출 전용 — `--prune` 플래그 없이 daemon 실행 시 세션 데이터 무한 축적
+- [ ] 기본 TTL 정책 없음 — 자동 정리 스케줄러 또는 합리적 기본값(7일 등) 필요
+
+### Relay Presence
+- [ ] Daemon→Relay heartbeat/keepalive 미구현 — relay가 dead connection 감지 불가
+- [ ] Stale daemon이 online으로 계속 표시됨 — 네트워크 파티션 후 프론트엔드에 잘못된 상태 전달
+- [ ] `relay.pong` 수신만 처리, 발신 ping 없음 (`relay-client.ts:175-176`)
+
+### CLI — 서브커맨드 충돌 (tp vs claude)
+- [ ] **`tp doctor` / `tp upgrade` / `tp version`이 claude의 동명 서브커맨드를 가로챔** — `claude doctor`, `claude upgrade`를 tp 경유로 실행할 방법 없음
+- [ ] **claude 전용 서브커맨드(`auth`, `mcp`, `install`, `update` 등)가 passthrough로 빠짐** — Daemon 시작 + PTY spawn 시도 → 비정상 동작/크래시. claude의 비-세션 유틸리티 명령은 passthrough 대상이 아님
+- [ ] **`tp claude ...` 명시적 passthrough 서브커맨드 도입 검토** — 현재 암묵적 default fallback 대신 `tp claude -p "fix bug"` 형태로 명시화. 서브커맨드 충돌 해소 + 의도 명확화
+
+### CLI — 기타
+- [ ] `tp upgrade` — 바이너리 다운로드 시 체크섬/서명 검증 없음
+- [ ] `tp upgrade` — 업그레이드 실패 시 롤백 없음 (기존 바이너리 백업 미수행)
+- [ ] `tp upgrade` — 업그레이드 후 실행 중인 daemon 재시작 미안내
+- [ ] `tp completions` — `SUBCOMMANDS` 목록에 `run`, `passthrough` 누락 (셸 자동완성 불완전)
+- [ ] `args.ts:39-41` — `--tp-*` 플래그가 마지막 인자이고 값이 없을 때 (`tp --tp-sid`) unhandled throw → 스택 트레이스 출력. 사용자 친화적 에러 메시지 필요
+- [ ] Passthrough에서 WS port 7080 하드코딩 — 동시에 2개 tp passthrough 실행 시 port 충돌로 크래시. 자동 포트 할당 또는 에러 처리 필요
+
+### Worktree
+- [ ] `worktree-manager.ts:22` — Bun stdout 캡처 버그 워크어라운드 (`TODO: Revert to execFileSync`)
+- [ ] Branch name validation 없음 — 유효하지 않은 git ref 이름 시 generic error
+- [ ] Worktree 경로 권한 검증 없음 — 쓰기 권한 없는 경로에서 실패 시 에러 불명확
+
+### Accessibility (접근성)
+- [ ] 전체 프론트엔드에 `accessibilityLabel`, `role`, `aria-*` 속성 없음
+- [ ] 스크린 리더 미지원 — 인터랙티브 요소(버튼, 탭, 입력, 세션 목록)에 시맨틱 정보 없음
+- [ ] 키보드 내비게이션 미검증
+
+### Protocol / Transport
+- [ ] Relay frame cache 크기 고정 (10 frames per session) — 설정 불가, 긴 오프라인 시 히스토리 유실
+- [ ] WebSocket frame size limit 없음 — 악의적이거나 거대한 메시지에 OOM 가능성
+
+### UI 미노출 Store (기능은 있으나 설정 UI 없음)
+- [ ] `connection-store.daemonUrl` — 커스텀 Daemon WS URL 설정 가능하나 UI 없음
+- [ ] `relay-settings-store.relays` — Relay endpoint 추가/제거/토글 가능하나 UI 없음
+
+---
+
 ## Future
 
 - [ ] Claude Code channels 양방향(output 구독) 지원 시 Chat UI 통합 재검토
@@ -100,3 +183,5 @@
 - [ ] Expo Go 드롭 → development build 전용 (Apple Watch, 네이티브 crypto, 네이티브 터미널 등)
 - [ ] Expo Push Notifications — 작업 완료, 유저 응답 대기 시 푸시 알림 (Runner hooks 이벤트 기반)
 - [ ] Apple Watch 컴패니언 앱 — 세션 상태 모니터링, 빠른 명령 전송
+- [ ] Windows PTY 지원 — 현재 macOS/Linux만 지원 (`Bun.spawn({ terminal })`), Windows는 `bun-pty` Rust FFI 기반 예정
+- [ ] Windows IPC — Named Pipes (현재 Unix domain socket만)

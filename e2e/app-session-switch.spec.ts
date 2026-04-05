@@ -67,6 +67,6 @@ test.describe("App Web — Session Switching", () => {
     await page.locator("text=session-alpha").click();
 
     // Should navigate to session detail page
-    await expect(page.locator("text=Chat")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId("tab-chat")).toBeVisible({ timeout: 5_000 });
   });
 });

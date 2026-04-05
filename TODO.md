@@ -96,7 +96,7 @@
 ## 🔧 Bugs — 발견된 버그
 
 ### E2E 테스트
-- [ ] `app-session-switch.spec.ts:70` — "clicking a session navigates to session view" 실패. `text=Chat` locator가 세션 이름 "chat-rt"와 Chat 탭 라벨 2개를 동시 매칭 (strict mode violation). `getByText('Chat', { exact: true })` 또는 testID 기반으로 수정 필요
+- [x] `app-session-switch.spec.ts:70` — "clicking a session navigates to session view" 실패. `text=Chat` locator가 세션 이름 "chat-rt"와 Chat 탭 라벨 2개를 동시 매칭 (strict mode violation). → Chat 탭 Pressable에 `testID="tab-chat"` 추가, E2E를 `getByTestId("tab-chat")`로 수정
 
 ### 코드 컨벤션 위반 (tp-* semantic token)
 - [ ] `VoiceButton.tsx` — raw Tailwind 색상 사용 (`bg-purple-600`, `bg-red-600`, `bg-yellow-600`, `bg-zinc-700/800`, `bg-blue-600`, `text-gray-300/400/500`) → `tp-*` semantic token 교체 필요

@@ -36,7 +36,10 @@ export interface WsServerEvents {
   ): void;
   onSessionStop?(client: WsClient, sid: string): void;
   onSessionRestart?(client: WsClient, sid: string): void;
-  onSessionExport?(client: WsClient, sid: string, format?: string): void;
+  onSessionExport?(
+    client: WsClient,
+    msg: WsClientMessage & { t: "session.export" },
+  ): void;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -202,7 +205,7 @@ export class WsServer {
         this.events.onSessionRestart?.(client, msg.sid);
         break;
       case "session.export":
-        this.events.onSessionExport?.(client, msg.sid, msg.format);
+        this.events.onSessionExport?.(client, msg);
         break;
       default:
         this.registry.send(client, {

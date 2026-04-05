@@ -92,4 +92,85 @@ describe("SessionDb", () => {
     expect(records[0].ns).toBe("claude");
     expect(records[0].name).toBe("Stop");
   });
+
+  describe("getRecordsFiltered", () => {
+    test("returns all records with no filters", () => {
+      db.append("io", 1000, Buffer.from("a"));
+      db.append("event", 2000, Buffer.from("b"), "claude", "Stop");
+      db.append("meta", 3000, Buffer.from("c"));
+      const records = db.getRecordsFiltered({});
+      expect(records.length).toBe(3);
+    });
+
+    test("filters by kind", () => {
+      db.append("io", 1000, Buffer.from("a"));
+      db.append("event", 2000, Buffer.from("b"), "claude", "Stop");
+      db.append("meta", 3000, Buffer.from("c"));
+      const events = db.getRecordsFiltered({ kinds: ["event"] });
+      expect(events.length).toBe(1);
+      expect(events[0].kind).toBe("event");
+    });
+
+    test("filters by multiple kinds", () => {
+      db.append("io", 1000, Buffer.from("a"));
+      db.append("event", 2000, Buffer.from("b"), "claude", "Stop");
+      db.append("meta", 3000, Buffer.from("c"));
+      const result = db.getRecordsFiltered({ kinds: ["io", "meta"] });
+      expect(result.length).toBe(2);
+      expect(result[0].kind).toBe("io");
+      expect(result[1].kind).toBe("meta");
+    });
+
+    test("filters by time range (from only)", () => {
+      db.append("io", 1000, Buffer.from("a"));
+      db.append("io", 2000, Buffer.from("b"));
+      db.append("io", 3000, Buffer.from("c"));
+      const result = db.getRecordsFiltered({ from: 2000 });
+      expect(result.length).toBe(2);
+      expect(result[0].ts).toBe(2000);
+    });
+
+    test("filters by time range (to only)", () => {
+      db.append("io", 1000, Buffer.from("a"));
+      db.append("io", 2000, Buffer.from("b"));
+      db.append("io", 3000, Buffer.from("c"));
+      const result = db.getRecordsFiltered({ to: 2000 });
+      expect(result.length).toBe(2);
+      expect(result[1].ts).toBe(2000);
+    });
+
+    test("filters by time range (from and to)", () => {
+      db.append("io", 1000, Buffer.from("a"));
+      db.append("io", 2000, Buffer.from("b"));
+      db.append("io", 3000, Buffer.from("c"));
+      const result = db.getRecordsFiltered({ from: 1500, to: 2500 });
+      expect(result.length).toBe(1);
+      expect(result[0].ts).toBe(2000);
+    });
+
+    test("respects limit", () => {
+      for (let i = 0; i < 10; i++) {
+        db.append("io", 1000 + i, Buffer.from(`msg-${i}`));
+      }
+      const result = db.getRecordsFiltered({ limit: 3 });
+      expect(result.length).toBe(3);
+    });
+
+    test("combines kind filter with time range", () => {
+      db.append("io", 1000, Buffer.from("a"));
+      db.append("event", 2000, Buffer.from("b"), "claude", "Stop");
+      db.append("io", 3000, Buffer.from("c"));
+      db.append("event", 4000, Buffer.from("d"), "claude", "Stop");
+      const result = db.getRecordsFiltered({ kinds: ["event"], from: 1500 });
+      expect(result.length).toBe(2);
+      expect(result[0].ts).toBe(2000);
+      expect(result[1].ts).toBe(4000);
+    });
+
+    test("default limit is 50000", () => {
+      db.append("io", 1000, Buffer.from("a"));
+      const result = db.getRecordsFiltered({});
+      expect(result.length).toBe(1);
+    });
+  });
 });

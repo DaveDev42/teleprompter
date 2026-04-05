@@ -4,10 +4,12 @@ import type {
   IpcRec,
   Namespace,
   RecordKind,
+  WsClientMessage,
   WsRec,
   WsSessionMeta,
 } from "@teleprompter/protocol";
 import { createLogger } from "@teleprompter/protocol";
+import { formatMarkdown } from "./export-formatter";
 import { IpcServer } from "./ipc/server";
 import {
   type RunnerInfo,
@@ -117,8 +119,8 @@ export class Daemon {
       onSessionRestart: (client, sid) => {
         this.handleSessionRestart(client, sid);
       },
-      onSessionExport: (client, sid, format) => {
-        this.handleSessionExport(client, sid, format);
+      onSessionExport: (client, msg) => {
+        this.handleSessionExport(client, msg);
       },
     });
   }
@@ -610,9 +612,16 @@ export class Daemon {
 
   private handleSessionExport(
     client: WsClient,
-    sid: string,
-    format?: string,
+    msg: WsClientMessage & { t: "session.export" },
   ): void {
+    const { sid, format, recordTypes, timeRange, limit } = msg as {
+      sid: string;
+      format?: "json" | "markdown";
+      recordTypes?: RecordKind[];
+      timeRange?: { from?: number; to?: number };
+      limit?: number;
+    };
+
     const session = this.store.getSession(sid);
     if (!session) {
       this.clientRegistry.send(client, {
@@ -633,51 +642,31 @@ export class Daemon {
       return;
     }
 
-    const records = db.getRecordsFrom(0, 10000);
+    const effectiveLimit = Math.min(limit ?? 50000, 50000);
+    const records = db.getRecordsFiltered({
+      kinds: recordTypes,
+      from: timeRange?.from,
+      to: timeRange?.to,
+      limit: effectiveLimit,
+    });
+
     const meta = toWsSessionMeta(session);
+    const truncated = records.length >= effectiveLimit;
 
-    if (format === "markdown") {
-      const lines: string[] = [];
-      lines.push(`# Session: ${sid}`);
-      lines.push(`- CWD: ${meta.cwd}`);
-      lines.push(`- State: ${meta.state}`);
-      lines.push(`- Created: ${new Date(meta.createdAt).toISOString()}`);
-      lines.push("");
-
-      for (const rec of records) {
-        const payload = Buffer.from(rec.payload).toString("utf-8");
-        if (rec.kind === "event" && rec.name) {
-          lines.push(`## ${rec.name}`);
-          try {
-            const data = JSON.parse(Buffer.from(payload, "base64").toString());
-            if (data.last_assistant_message) {
-              lines.push(data.last_assistant_message);
-            } else if (data.prompt) {
-              lines.push(`> ${data.prompt}`);
-            } else {
-              lines.push(
-                `\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``,
-              );
-            }
-          } catch {
-            lines.push(payload);
-          }
-          lines.push("");
-        }
-      }
-
-      this.clientRegistry.send(client, {
-        t: "session.exported" as const,
-        sid,
-        format: "markdown" as const,
-        d: lines.join("\n"),
-      });
-    } else {
+    if (format === "json") {
       this.clientRegistry.send(client, {
         t: "session.exported" as const,
         sid,
         format: "json" as const,
-        d: JSON.stringify({ meta, records }),
+        d: JSON.stringify({ meta, records, truncated }),
+      });
+    } else {
+      const md = formatMarkdown(meta, records, truncated);
+      this.clientRegistry.send(client, {
+        t: "session.exported" as const,
+        sid,
+        format: "markdown" as const,
+        d: md,
       });
     }
   }

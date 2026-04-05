@@ -128,7 +128,9 @@ describe("WorktreeManager", () => {
     ];
 
     for (const name of invalidNames) {
-      await expect(manager.add(wtPath, name)).rejects.toThrow("Invalid branch name");
+      await expect(manager.add(wtPath, name)).rejects.toThrow(
+        "Invalid branch name",
+      );
     }
   });
 

@@ -184,3 +184,6 @@
 - [ ] Apple Watch 컴패니언 앱 — 세션 상태 모니터링, 빠른 명령 전송
 - [ ] Windows PTY 지원 — 현재 macOS/Linux만 지원 (`Bun.spawn({ terminal })`), Windows는 `bun-pty` Rust FFI 기반 예정
 - [ ] Windows IPC — Named Pipes (현재 Unix domain socket만)
+- [ ] 글로벌 키보드 단축키 (Cmd+K, Cmd+1/2/3 등) — useKeyboard 훅 확장
+- [ ] 게임패드(8BitDo 등) 내비게이션 — Web Gamepad API 기반 D-pad 포커스 이동, A/B 버튼 매핑, useGamepad 훅. 네이티브는 MFi/Android InputDevice 모듈 필요
+- [ ] 게임패드 음성인식 트리거 — 특정 버튼으로 VoiceButton 토글 (useInputAction 추상화로 키보드/게임패드/음성 통합 액션 시스템)

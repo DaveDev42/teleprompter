@@ -49,7 +49,10 @@ function getDefaultUrl(): string {
         }
       }
     } catch (e) {
-      console.warn("[ws-client] failed to resolve daemon host from expo-constants:", e);
+      console.warn(
+        "[ws-client] failed to resolve daemon host from expo-constants:",
+        e,
+      );
     }
 
     try {
@@ -62,7 +65,10 @@ function getDefaultUrl(): string {
         }
       }
     } catch (e) {
-      console.warn("[ws-client] failed to resolve daemon host from source URL:", e);
+      console.warn(
+        "[ws-client] failed to resolve daemon host from source URL:",
+        e,
+      );
     }
 
     return "ws://localhost:7080";

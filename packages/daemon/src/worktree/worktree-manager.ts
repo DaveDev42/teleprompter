@@ -14,7 +14,9 @@ const log = createLogger("WorktreeManager");
 
 /** Run a git command and return stdout text. */
 function gitOutput(args: string[]): string {
-  return execFileSync("git", args, { stdio: ["ignore", "pipe", "ignore"] }).toString();
+  return execFileSync("git", args, {
+    stdio: ["ignore", "pipe", "ignore"],
+  }).toString();
 }
 
 /** Run a git command, ignoring stdout. Throws on non-zero exit. */

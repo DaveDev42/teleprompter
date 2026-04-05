@@ -82,7 +82,7 @@ function UserCard({
       className="self-end bg-tp-user-bubble rounded-bubble rounded-br-sm px-4 py-2.5 max-w-[80%]"
       onLongPress={() => copyText(msg.text)}
       accessibilityRole="text"
-      accessibilityLabel={`You: ${msg.text}`}
+      accessibilityLabel={`You: ${msg.text.length > 100 ? `${msg.text.slice(0, 100)}...` : msg.text}`}
       accessibilityHint="Long press to copy"
     >
       <Text className="text-white leading-[22px]" style={fontStyle} selectable>
@@ -106,7 +106,7 @@ function AssistantCard({
       className="self-start bg-tp-assistant-bubble rounded-bubble rounded-tl-sm px-4 py-2.5 max-w-[80%]"
       onLongPress={() => copyText(msg.text)}
       accessibilityRole="text"
-      accessibilityLabel={`Claude: ${msg.text}`}
+      accessibilityLabel={`Claude: ${msg.text.length > 100 ? `${msg.text.slice(0, 100)}...` : msg.text}`}
       accessibilityHint="Long press to copy"
     >
       <RichText

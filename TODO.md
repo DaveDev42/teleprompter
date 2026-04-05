@@ -157,9 +157,9 @@
 - [x] Passthrough에서 WS port 7080 충돌 시 자동으로 port 0 (auto-assign) fallback + 안내 메시지 출력
 
 ### Worktree
-- [ ] `worktree-manager.ts:22` — Bun stdout 캡처 버그 워크어라운드 (`TODO: Revert to execFileSync`)
-- [ ] Branch name validation 없음 — 유효하지 않은 git ref 이름 시 generic error
-- [ ] Worktree 경로 권한 검증 없음 — 쓰기 권한 없는 경로에서 실패 시 에러 불명확
+- [x] `worktree-manager.ts:22` — Bun stdout 캡처 버그 워크어라운드 → Bun v1.3.6에서 execFileSync 정상 동작 확인, 워크어라운드 제거 완료
+- [x] Branch name validation — `git check-ref-format --branch`로 사전 검증 + 에러 메시지에 규칙 안내
+- [x] Worktree 경로 권한 검증 — 부모 디렉토리 쓰기 권한 사전 확인 + 명확한 에러 메시지
 
 ### Accessibility (접근성)
 - [ ] 전체 프론트엔드에 `accessibilityLabel`, `role`, `aria-*` 속성 없음

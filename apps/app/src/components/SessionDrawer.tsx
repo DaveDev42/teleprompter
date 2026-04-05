@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { getDaemonClient } from "../hooks/use-daemon";
+import { usePlatformProps } from "../hooks/use-platform-props";
 import { useChatStore } from "../stores/chat-store";
 import { useSessionStore } from "../stores/session-store";
 
@@ -39,6 +40,7 @@ function SessionItem({
       : session.state === "stopped"
         ? "bg-tp-text-tertiary"
         : "bg-tp-error";
+  const pp = usePlatformProps();
 
   return (
     <Pressable
@@ -46,7 +48,8 @@ function SessionItem({
       accessibilityRole="button"
       accessibilityLabel={`Session ${session.sid}, ${session.state}${isActive ? ", selected" : ""}`}
       accessibilityHint="Switch to this session"
-      className={`px-4 py-3 border-b border-tp-border ${isActive ? "bg-tp-surface-active" : ""}`}
+      tabIndex={pp.tabIndex}
+      className={`px-4 py-3 border-b border-tp-border ${isActive ? "bg-tp-surface-active" : ""} ${pp.className ?? ""}`}
     >
       <View className="flex-row items-center justify-between">
         <View className="flex-row items-center flex-1">
@@ -81,7 +84,8 @@ function SessionItem({
             }}
             accessibilityRole="button"
             accessibilityLabel={`Stop session ${session.sid}`}
-            className="bg-red-900/50 px-2 py-1 rounded"
+            tabIndex={pp.tabIndex}
+            className={`bg-red-900/50 px-2 py-1 rounded ${pp.className ?? ""}`}
           >
             <Text className="text-red-300 text-xs">Stop</Text>
           </Pressable>
@@ -94,7 +98,8 @@ function SessionItem({
             }}
             accessibilityRole="button"
             accessibilityLabel={`Restart session ${session.sid}`}
-            className="bg-orange-900/50 px-2 py-1 rounded"
+            tabIndex={pp.tabIndex}
+            className={`bg-orange-900/50 px-2 py-1 rounded ${pp.className ?? ""}`}
           >
             <Text className="text-orange-300 text-xs">Restart</Text>
           </Pressable>
@@ -107,7 +112,8 @@ function SessionItem({
             }}
             accessibilityRole="button"
             accessibilityLabel={`Export session ${session.sid}`}
-            className="bg-tp-surface px-2 py-1 rounded"
+            tabIndex={pp.tabIndex}
+            className={`bg-tp-surface px-2 py-1 rounded ${pp.className ?? ""}`}
             disabled={isExporting}
             style={{ opacity: isExporting ? 0.5 : 1 }}
           >
@@ -131,6 +137,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
   const [showWorktreeForm, setShowWorktreeForm] = useState(false);
   const [branchInput, setBranchInput] = useState("");
   const [exportingSid, setExportingSid] = useState<string | null>(null);
+  const pp = usePlatformProps();
   const exportCallbackRef = useRef<
     ((sid: string, format: string, content: string) => void) | null
   >(null);
@@ -305,7 +312,8 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
         </View>
         {sessions.length > 3 && (
           <TextInput
-            className="bg-tp-bg-tertiary text-tp-text-primary rounded-lg px-3 py-1.5 text-sm"
+            className={`bg-tp-bg-tertiary text-tp-text-primary rounded-lg px-3 py-1.5 text-sm ${pp.className ?? ""}`}
+            tabIndex={pp.tabIndex}
             placeholder="Search sessions..."
             placeholderTextColor="#555"
             value={filter}
@@ -374,7 +382,8 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
               accessibilityRole="button"
               accessibilityLabel="Create worktree"
               accessibilityState={{ disabled: !branchInput.trim() }}
-              className="bg-tp-accent px-3 py-1.5 rounded-lg"
+              tabIndex={pp.tabIndex}
+              className={`bg-tp-accent px-3 py-1.5 rounded-lg ${pp.className ?? ""}`}
               style={{ opacity: branchInput.trim() ? 1 : 0.4 }}
             >
               <Text className="text-tp-text-primary text-xs">Create</Text>
@@ -383,6 +392,8 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
               onPress={() => setShowWorktreeForm(false)}
               accessibilityRole="button"
               accessibilityLabel="Cancel"
+              tabIndex={pp.tabIndex}
+              className={pp.className}
             >
               <Text className="text-tp-text-secondary text-xs">Cancel</Text>
             </Pressable>
@@ -392,7 +403,8 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
             onPress={() => setShowWorktreeForm(true)}
             accessibilityRole="button"
             accessibilityLabel="New worktree"
-            className="border border-tp-border rounded-lg py-2 items-center"
+            tabIndex={pp.tabIndex}
+            className={`border border-tp-border rounded-lg py-2 items-center ${pp.className ?? ""}`}
           >
             <Text className="text-tp-text-tertiary text-xs">New Worktree</Text>
           </Pressable>

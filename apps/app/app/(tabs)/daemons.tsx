@@ -1,6 +1,7 @@
 import { useRouter } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { usePlatformProps } from "../../src/hooks/use-platform-props";
 import { useRelayConnectionStore } from "../../src/hooks/use-relay";
 import type { PairingInfo } from "../../src/stores/pairing-store";
 import { usePairingStore } from "../../src/stores/pairing-store";
@@ -22,6 +23,7 @@ function DaemonCard({ info }: { info: PairingInfo }) {
   const connections = useRelayConnectionStore((s) => s.connections);
   const sessions = useSessionStore((s) => s.sessions);
   useThemeStore((s) => s.isDark);
+  const pp = usePlatformProps();
   const isOnline = connections.get(info.daemonId) ?? false;
 
   // Count active sessions for this daemon (approximation — sessions don't track daemonId yet)
@@ -79,7 +81,8 @@ function DaemonCard({ info }: { info: PairingInfo }) {
         {isOnline ? (
           <>
             <Pressable
-              className="flex-1 bg-tp-accent rounded-btn py-2 items-center"
+              className={`flex-1 bg-tp-accent rounded-btn py-2 items-center ${pp.className ?? ""}`}
+              tabIndex={pp.tabIndex}
               accessibilityRole="button"
               accessibilityLabel={`New session on ${displayName}`}
             >
@@ -88,7 +91,8 @@ function DaemonCard({ info }: { info: PairingInfo }) {
               </Text>
             </Pressable>
             <Pressable
-              className="flex-1 bg-tp-bg-tertiary rounded-btn py-2 items-center"
+              className={`flex-1 bg-tp-bg-tertiary rounded-btn py-2 items-center ${pp.className ?? ""}`}
+              tabIndex={pp.tabIndex}
               accessibilityRole="button"
               accessibilityLabel={`View status of ${displayName}`}
             >
@@ -111,6 +115,7 @@ export default function DaemonsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const pairings = usePairingStore((s) => s.pairings);
+  const pp = usePlatformProps();
 
   const pairingList = [...pairings.values()];
 
@@ -126,7 +131,8 @@ export default function DaemonsScreen() {
         </Text>
         <Pressable
           onPress={() => router.push("/pairing")}
-          className="w-8 h-8 rounded-btn bg-tp-accent items-center justify-center"
+          className={`w-8 h-8 rounded-btn bg-tp-accent items-center justify-center ${pp.className ?? ""}`}
+          tabIndex={pp.tabIndex}
           accessibilityRole="button"
           accessibilityLabel="Add daemon"
         >
@@ -160,7 +166,8 @@ export default function DaemonsScreen() {
 
           <Pressable
             onPress={() => router.push("/pairing/scan")}
-            className="w-full bg-tp-accent rounded-card py-4 items-center mb-3"
+            className={`w-full bg-tp-accent rounded-card py-4 items-center mb-3 ${pp.className ?? ""}`}
+            tabIndex={pp.tabIndex}
             accessibilityRole="button"
             accessibilityLabel="Scan QR code to pair"
           >
@@ -171,6 +178,8 @@ export default function DaemonsScreen() {
 
           <Pressable
             onPress={() => router.push("/pairing")}
+            tabIndex={pp.tabIndex}
+            className={pp.className}
             accessibilityRole="link"
             accessibilityLabel="Enter pairing data manually"
           >

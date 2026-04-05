@@ -1,4 +1,5 @@
 import { Platform, Pressable, Text, View } from "react-native";
+import { getPlatformProps } from "../lib/get-platform-props";
 import type { ChatMessage } from "../stores/chat-store";
 import { useSettingsStore } from "../stores/settings-store";
 
@@ -77,9 +78,11 @@ function UserCard({
   msg: ChatMessage;
   fontStyle: { fontFamily: string; fontSize: number };
 }) {
+  const pp = getPlatformProps();
   return (
     <Pressable
-      className="self-end bg-tp-user-bubble rounded-bubble rounded-br-sm px-4 py-2.5 max-w-[80%]"
+      className={`self-end bg-tp-user-bubble rounded-bubble rounded-br-sm px-4 py-2.5 max-w-[80%] ${pp.className}`}
+      tabIndex={pp.tabIndex}
       onLongPress={() => copyText(msg.text)}
       accessibilityRole="text"
       accessibilityLabel={`You: ${msg.text.length > 100 ? `${msg.text.slice(0, 100)}...` : msg.text}`}
@@ -101,9 +104,11 @@ function AssistantCard({
   fontStyle: { fontFamily: string; fontSize: number };
   codeFontStyle: { fontFamily: string };
 }) {
+  const pp = getPlatformProps();
   return (
     <Pressable
-      className="self-start bg-tp-assistant-bubble rounded-bubble rounded-tl-sm px-4 py-2.5 max-w-[80%]"
+      className={`self-start bg-tp-assistant-bubble rounded-bubble rounded-tl-sm px-4 py-2.5 max-w-[80%] ${pp.className}`}
+      tabIndex={pp.tabIndex}
       onLongPress={() => copyText(msg.text)}
       accessibilityRole="text"
       accessibilityLabel={`Claude: ${msg.text.length > 100 ? `${msg.text.slice(0, 100)}...` : msg.text}`}

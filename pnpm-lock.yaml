@@ -142,6 +142,9 @@ importers:
       '@teleprompter/protocol':
         specifier: workspace:*
         version: link:../protocol
+      strip-ansi:
+        specifier: ^7.2.0
+        version: 7.2.0
     devDependencies:
       '@teleprompter/tsconfig':
         specifier: workspace:*

@@ -1,4 +1,5 @@
 import { $ } from "bun";
+import { existsSync, unlinkSync } from "fs";
 import { ok, warn } from "../lib/colors";
 import { errorWithHints } from "../lib/format";
 import { spinner } from "../lib/spinner";
@@ -118,42 +119,252 @@ async function getLatestRelease(): Promise<{
   }
 }
 
-async function upgradeTp(tag: string): Promise<void> {
+/** Build the asset name for the current platform. */
+export function getAssetName(): string {
   const os = process.platform === "darwin" ? "darwin" : "linux";
   const arch = process.arch === "arm64" ? "arm64" : "x64";
-  const asset = `tp-${os}_${arch}`;
+  return `tp-${os}_${arch}`;
+}
+
+/** Resolve the path to the currently running tp binary. */
+export async function resolveCurrentBinaryPath(): Promise<string> {
+  const currentPath = process.execPath.includes("bun")
+    ? (await $`which tp`.text().catch(() => "")).trim()
+    : process.execPath;
+
+  return currentPath && currentPath !== "" ? currentPath : "";
+}
+
+/**
+ * Download checksums.txt from a release and return map of filename→sha256.
+ * Returns null if checksums.txt is unavailable (older releases).
+ */
+export async function downloadChecksums(
+  tag: string,
+): Promise<Map<string, string> | null> {
+  const url = `https://github.com/${REPO}/releases/download/${tag}/checksums.txt`;
+  try {
+    const res = await fetch(url, {
+      redirect: "follow",
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return null;
+    const text = await res.text();
+    return parseChecksums(text);
+  } catch {
+    return null;
+  }
+}
+
+/** Parse checksums.txt (sha256sum format: "hash  filename\n") into a Map. */
+export function parseChecksums(text: string): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const line of text.trim().split("\n")) {
+    // sha256sum format: "<hash>  <filename>" (two spaces)
+    const match = line.match(/^([a-f0-9]{64})\s+(.+)$/);
+    if (match) {
+      map.set(match[2], match[1]);
+    }
+  }
+  return map;
+}
+
+/** Compute SHA-256 hex digest of a file. */
+export async function computeFileHash(filePath: string): Promise<string> {
+  const file = Bun.file(filePath);
+  const hasher = new Bun.CryptoHasher("sha256");
+  hasher.update(await file.arrayBuffer());
+  return hasher.digest("hex");
+}
+
+/** Back up existing binary to .bak in the same directory. */
+export function backupBinary(binaryPath: string): string {
+  const bakPath = `${binaryPath}.bak`;
+  if (!existsSync(binaryPath)) {
+    throw new Error(`Binary not found at ${binaryPath}`);
+  }
+  const result = Bun.spawnSync(["cp", binaryPath, bakPath]);
+  if (result.exitCode !== 0) {
+    throw new Error(`Failed to back up binary: cp exited ${result.exitCode}`);
+  }
+  return bakPath;
+}
+
+/** Restore binary from .bak backup. */
+export function restoreBinary(binaryPath: string, bakPath: string): void {
+  const result = Bun.spawnSync(["mv", bakPath, binaryPath]);
+  if (result.exitCode !== 0) {
+    console.error(
+      `Failed to restore backup: mv exited ${result.exitCode}. Manual restore: mv ${bakPath} ${binaryPath}`,
+    );
+  }
+}
+
+/** Clean up .bak backup after successful upgrade. */
+export function cleanupBackup(bakPath: string): void {
+  try {
+    unlinkSync(bakPath);
+  } catch {
+    // Ignore — non-critical
+  }
+}
+
+/** Restart daemon service after binary upgrade. */
+export async function restartDaemon(): Promise<void> {
+  if (process.platform === "darwin") {
+    const { isServiceInstalled, getServiceLabel } = await import(
+      "../lib/service-darwin"
+    );
+    if (isServiceInstalled()) {
+      const uid = process.getuid?.() ?? 501;
+      const label = getServiceLabel();
+      const result = Bun.spawnSync([
+        "launchctl",
+        "kickstart",
+        "-k",
+        `gui/${uid}/${label}`,
+      ]);
+      if (result.exitCode === 0) {
+        console.log(ok("Daemon restarted via launchd."));
+      } else {
+        console.log(
+          warn(
+            `Daemon restart failed (launchctl exit ${result.exitCode}). Restart manually: tp daemon start`,
+          ),
+        );
+      }
+      return;
+    }
+  } else {
+    const { isServiceInstalled, getServiceName } = await import(
+      "../lib/service-linux"
+    );
+    if (isServiceInstalled()) {
+      const name = getServiceName();
+      const result = Bun.spawnSync(["systemctl", "--user", "restart", name]);
+      if (result.exitCode === 0) {
+        console.log(ok("Daemon restarted via systemd."));
+      } else {
+        console.log(
+          warn(
+            `Daemon restart failed (systemctl exit ${result.exitCode}). Restart manually: tp daemon start`,
+          ),
+        );
+      }
+      return;
+    }
+  }
+
+  // No service installed — check for running daemon process
+  try {
+    const pidResult = await $`pgrep -x "tp"`.text().catch(() => "");
+    if (pidResult.trim()) {
+      console.log(
+        warn(
+          "Daemon is running but not managed by a system service. Restart it manually: tp daemon start",
+        ),
+      );
+    }
+  } catch {
+    // No daemon running — nothing to do
+  }
+}
+
+async function upgradeTp(tag: string): Promise<void> {
+  const asset = getAssetName();
   const url = `https://github.com/${REPO}/releases/download/${tag}/${asset}`;
 
   const stop = spinner(`Downloading tp ${tag}...`);
+  let tmpPath = "";
+  let bakPath = "";
+  let targetPath = "";
+
   try {
-    // Download to temp
-    const tmpPath = `/tmp/tp-upgrade-${Date.now()}`;
+    // Download binary to temp
+    tmpPath = `/tmp/tp-upgrade-${Date.now()}`;
     await $`curl -fsSL ${url} -o ${tmpPath}`.quiet();
     await $`chmod +x ${tmpPath}`.quiet();
     stop(ok(`Downloaded tp ${tag}`));
 
-    // Find current binary location
-    const currentPath = process.execPath.includes("bun")
-      ? (await $`which tp`.text().catch(() => "")).trim()
-      : process.execPath;
-
-    if (currentPath && currentPath !== "") {
-      await $`mv ${tmpPath} ${currentPath}`.quiet();
-      console.log(`Updated tp at ${currentPath}`);
+    // Verify checksum
+    const stopCheck = spinner("Verifying checksum...");
+    const checksums = await downloadChecksums(tag);
+    if (checksums) {
+      const expectedHash = checksums.get(asset);
+      if (!expectedHash) {
+        stopCheck();
+        throw new Error(`Asset ${asset} not found in checksums.txt`);
+      }
+      const actualHash = await computeFileHash(tmpPath);
+      if (actualHash !== expectedHash) {
+        stopCheck();
+        // Delete the corrupted download
+        try {
+          unlinkSync(tmpPath);
+        } catch {}
+        tmpPath = ""; // Already cleaned up
+        throw new Error(
+          `Checksum mismatch!\n  Expected: ${expectedHash}\n  Got:      ${actualHash}`,
+        );
+      }
+      stopCheck(ok("Checksum verified (SHA-256)."));
     } else {
-      const installDir = `${process.env.HOME}/.local/bin`;
-      await $`mkdir -p ${installDir}`.quiet();
-      await $`mv ${tmpPath} ${installDir}/tp`.quiet();
-      console.log(`Installed tp to ${installDir}/tp`);
+      stopCheck(
+        warn("Checksum verification skipped (checksums.txt not available)."),
+      );
     }
 
-    // Verify
-    const version = await $`${currentPath || "tp"} version`
-      .text()
-      .catch(() => "");
+    // Resolve target path
+    const currentPath = await resolveCurrentBinaryPath();
+    if (currentPath) {
+      targetPath = currentPath;
+    } else {
+      targetPath = `${process.env.HOME}/.local/bin/tp`;
+      await $`mkdir -p ${process.env.HOME}/.local/bin`.quiet();
+    }
+
+    // Back up existing binary
+    if (existsSync(targetPath)) {
+      bakPath = backupBinary(targetPath);
+    }
+
+    // Replace binary
+    await $`mv ${tmpPath} ${targetPath}`.quiet();
+    tmpPath = ""; // Cleared — no longer need to clean up tmp
+    console.log(`Updated tp at ${targetPath}`);
+
+    // Verify the new binary runs
+    const version = await $`${targetPath} version`.text().catch(() => "");
+    if (!version.trim()) {
+      throw new Error(
+        "New binary verification failed — binary did not produce version output",
+      );
+    }
     console.log(ok(`Verified: ${version.trim()}`));
+
+    // Clean up backup
+    if (bakPath) {
+      cleanupBackup(bakPath);
+    }
+
+    // Restart daemon if running as a service
+    await restartDaemon();
   } catch (err) {
     stop();
+
+    // Clean up downloaded temp file if it still exists
+    if (tmpPath && existsSync(tmpPath)) {
+      try {
+        unlinkSync(tmpPath);
+      } catch {}
+    }
+
+    // Rollback: restore from backup
+    if (bakPath && existsSync(bakPath) && targetPath) {
+      restoreBinary(targetPath, bakPath);
+      console.log(ok(`Rolled back to previous binary at ${targetPath}`));
+    }
+
     console.error(
       errorWithHints(
         `Upgrade failed: ${err instanceof Error ? err.message : err}`,

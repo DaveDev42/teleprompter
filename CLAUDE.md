@@ -110,6 +110,7 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `apps/cli/src/commands/status.test.ts` — daemon status display
 - `apps/cli/src/commands/pair.test.ts` — pairing data generation
 - `apps/cli/src/commands/passthrough.test.ts` — arg splitting
+- `apps/cli/src/commands/upgrade.test.ts` — checksum parsing, file hashing, backup/rollback
 - `packages/protocol/src/compat.test.ts` — protocol version compatibility
 - `packages/runner/src/pty/pty-manager.test.ts` — PTY spawn, resize, lifecycle
 - `apps/cli/src/lib/service.test.ts` — OS service plist/unit generation

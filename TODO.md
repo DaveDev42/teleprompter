@@ -139,9 +139,9 @@
 - [ ] 기본 TTL 정책 없음 — 자동 정리 스케줄러 또는 합리적 기본값(7일 등) 필요
 
 ### Relay Presence
-- [ ] Daemon→Relay heartbeat/keepalive 미구현 — relay가 dead connection 감지 불가
-- [ ] Stale daemon이 online으로 계속 표시됨 — 네트워크 파티션 후 프론트엔드에 잘못된 상태 전달
-- [ ] `relay.pong` 수신만 처리, 발신 ping 없음 (`relay-client.ts:175-176`)
+- [x] Daemon→Relay heartbeat/keepalive 미구현 — relay가 dead connection 감지 불가 → RelayClient가 30초 간격으로 relay.ping 발신
+- [x] Stale daemon이 online으로 계속 표시됨 — 네트워크 파티션 후 프론트엔드에 잘못된 상태 전달 → RelayServer가 90초 무응답 daemon을 offline 전환 + presence 브로드캐스트
+- [x] `relay.pong` 수신만 처리, 발신 ping 없음 (`relay-client.ts:175-176`) → startPing/stopPing 구현
 
 ### CLI — 서브커맨드 충돌 (tp vs claude)
 - [x] **`tp doctor` / `tp upgrade` / `tp version`이 claude의 동명 서브커맨드를 가로챔** — `tp -- doctor`로 claude의 doctor 실행, `tp doctor --claude` / `tp upgrade --claude`로 claude 명령 병행 실행

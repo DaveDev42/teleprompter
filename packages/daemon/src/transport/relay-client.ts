@@ -29,6 +29,8 @@ const log = createLogger("RelayClient");
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
+/** How often to send relay.ping (ms) */
+const PING_INTERVAL_MS = 30_000;
 
 interface FrontendPeer {
   frontendId: string;
@@ -73,6 +75,7 @@ export class RelayClient {
   private kxKey: Uint8Array | null = null;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
   private disposed = false;
   private authenticated = false;
   private subscribedSessions = new Set<string>();
@@ -153,6 +156,8 @@ export class RelayClient {
         }
         // Step 3: Broadcast daemon's public key for key exchange
         await this.broadcastDaemonPublicKey();
+        // Step 4: Start heartbeat ping
+        this.startPing();
         log.info(`authenticated to relay`);
         break;
 
@@ -346,6 +351,20 @@ export class RelayClient {
     }
   }
 
+  private startPing(): void {
+    this.stopPing();
+    this.pingTimer = setInterval(() => {
+      this.send({ t: "relay.ping", ts: Date.now() });
+    }, PING_INTERVAL_MS);
+  }
+
+  private stopPing(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+  }
+
   private send(msg: RelayClientMessage): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
@@ -363,6 +382,7 @@ export class RelayClient {
   }
 
   private cleanup(): void {
+    this.stopPing();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

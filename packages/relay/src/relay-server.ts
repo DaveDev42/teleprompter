@@ -15,6 +15,10 @@ const MAX_RECENT_FRAMES = 10;
 const RATE_LIMIT_WINDOW_MS = 1000;
 const RATE_LIMIT_MAX_MESSAGES = 100;
 const MAX_SUBSCRIPTIONS_PER_CLIENT = 50;
+/** How long without a ping before a daemon is considered stale (ms) */
+const STALE_TIMEOUT_MS = 90_000;
+/** How often to check for stale daemons (ms) */
+const STALE_CHECK_INTERVAL_MS = 30_000;
 
 interface CachedFrame {
   sid: string;
@@ -71,6 +75,7 @@ export class RelayServer {
   /** Port the server is listening on */
   private port = 0;
   private server: BunServer | null = null;
+  private staleCheckTimer: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Register a valid pairing token for a daemon.
@@ -79,6 +84,30 @@ export class RelayServer {
   registerToken(token: string, daemonId: string) {
     this.validTokens.set(token, daemonId);
   }
+
+  /** Get daemon state for testing/monitoring */
+  getDaemonState(daemonId: string): { online: boolean; lastSeen: number } | undefined {
+    const state = this.daemonStates.get(daemonId);
+    if (!state) return undefined;
+    return { online: state.online, lastSeen: state.lastSeen };
+  }
+
+  /** Override stale timeout for testing */
+  setStaleTimeoutMs(ms: number): void {
+    this.staleTimeoutMs = ms;
+  }
+
+  /** Override stale check interval for testing */
+  setStaleCheckIntervalMs(ms: number): void {
+    this.staleCheckIntervalMs = ms;
+    // Restart the check if already running
+    if (this.staleCheckTimer) {
+      this.startStaleCheck();
+    }
+  }
+
+  private staleTimeoutMs = STALE_TIMEOUT_MS;
+  private staleCheckIntervalMs = STALE_CHECK_INTERVAL_MS;
 
   start(port: number = 0): number {
     const self = this;
@@ -170,11 +199,13 @@ ${daemons
     });
 
     this.port = this.server.port ?? 0;
+    this.startStaleCheck();
     log.info(`listening on ws://localhost:${this.port}`);
     return this.port;
   }
 
   stop() {
+    this.stopStaleCheck();
     this.server?.stop();
     this.clients.clear();
     this.daemonGroups.clear();
@@ -242,7 +273,7 @@ ${daemons
         this.handleUnsubscribe(ws, msg);
         break;
       case "relay.ping":
-        this.send(ws, { t: "relay.pong", ts: msg.ts });
+        this.handlePing(ws, msg);
         break;
       default:
         this.send(ws, {
@@ -532,6 +563,50 @@ ${daemons
 
     rl.count++;
     return rl.count <= RATE_LIMIT_MAX_MESSAGES;
+  }
+
+  private handlePing(
+    ws: ServerWebSocket,
+    msg: RelayClientMessage & { t: "relay.ping" },
+  ) {
+    // Update lastSeen for daemon clients
+    const client = this.clients.get(ws);
+    if (client?.role === "daemon") {
+      const state = this.daemonStates.get(client.daemonId);
+      if (state) {
+        state.lastSeen = Date.now();
+      }
+    }
+    this.send(ws, { t: "relay.pong", ts: msg.ts });
+  }
+
+  private startStaleCheck(): void {
+    this.stopStaleCheck();
+    this.staleCheckTimer = setInterval(
+      () => this.checkStaleDaemons(),
+      this.staleCheckIntervalMs,
+    );
+  }
+
+  private stopStaleCheck(): void {
+    if (this.staleCheckTimer) {
+      clearInterval(this.staleCheckTimer);
+      this.staleCheckTimer = null;
+    }
+  }
+
+  private checkStaleDaemons(): void {
+    const now = Date.now();
+    for (const [daemonId, state] of this.daemonStates) {
+      if (state.online && now - state.lastSeen > this.staleTimeoutMs) {
+        state.online = false;
+        const staleSec = Math.round((now - state.lastSeen) / 1000);
+        log.info(
+          `daemon ${daemonId} marked offline (stale — no ping for ${staleSec}s)`,
+        );
+        this.broadcastPresence(daemonId);
+      }
+    }
   }
 
   private broadcastPresence(daemonId: string) {

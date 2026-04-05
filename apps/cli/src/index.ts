@@ -1,6 +1,8 @@
+import { CLAUDE_UTILITY_SUBCOMMANDS } from "./claude-subcommands";
 import { completionsCommand } from "./commands/completions";
 import { daemonCommand } from "./commands/daemon";
 import { doctorCommand } from "./commands/doctor";
+import { forwardToClaudeCommand } from "./commands/forward-claude";
 import { logsCommand } from "./commands/logs";
 import { pairCommand } from "./commands/pair";
 import { passthroughCommand } from "./commands/passthrough";
@@ -10,8 +12,6 @@ import { statusCommand } from "./commands/status";
 import { checkForUpdates, upgradeCommand } from "./commands/upgrade";
 import { versionCommand } from "./commands/version";
 import { yellow } from "./lib/colors";
-import { CLAUDE_UTILITY_SUBCOMMANDS } from "./claude-subcommands";
-import { forwardToClaudeCommand } from "./commands/forward-claude";
 
 const command = process.argv[2];
 

@@ -21,6 +21,10 @@ export function formatEventRecord(rec: StoredRecord): string {
     return `### ${rec.name ?? "Event"}\n\n${raw}`;
   }
 
+  if (!data) {
+    return `### ${rec.name ?? "Event"}\n\n${raw}`;
+  }
+
   switch (rec.name) {
     case "Stop":
       if (data.last_assistant_message) {

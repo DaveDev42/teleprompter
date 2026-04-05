@@ -6,11 +6,11 @@ import { RealtimeClient } from "../voice/realtime-client";
 import { formatTerminalContext } from "../voice/terminal-context";
 
 /** Global terminal ref — set by the Terminal screen */
-let globalTermRef: any = null;
-export function setGlobalTermRef(ref: any) {
+let globalTermRef: unknown = null;
+export function setGlobalTermRef(ref: unknown) {
   globalTermRef = ref;
 }
-export function getGlobalTermRef(): any {
+export function getGlobalTermRef(): unknown {
   return globalTermRef;
 }
 

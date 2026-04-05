@@ -103,7 +103,9 @@ export class DaemonWsClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
 
-  set onSessionExported(handler: ((sid: string, format: string, content: string) => void) | undefined) {
+  set onSessionExported(handler:
+    | ((sid: string, format: string, content: string) => void)
+    | undefined) {
     this.handlers.onSessionExported = handler;
   }
 
@@ -278,7 +280,11 @@ export class DaemonWsClient {
   exportSession(
     sid: string,
     format: "json" | "markdown" = "markdown",
-    opts?: { recordTypes?: string[]; timeRange?: { from?: number; to?: number }; limit?: number },
+    opts?: {
+      recordTypes?: string[];
+      timeRange?: { from?: number; to?: number };
+      limit?: number;
+    },
   ) {
     this.send({
       t: "session.export",

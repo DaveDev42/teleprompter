@@ -48,6 +48,7 @@ function SegmentedControl({
     <View className="px-4 py-2 bg-tp-bg-secondary">
       <View className="flex-row bg-tp-bg-tertiary rounded-btn p-1">
         <Pressable
+          testID="tab-chat"
           onPress={() => onModeChange("chat")}
           className={`flex-1 py-1.5 rounded-badge items-center ${
             mode === "chat" ? "bg-tp-surface" : ""
@@ -64,6 +65,7 @@ function SegmentedControl({
           </Text>
         </Pressable>
         <Pressable
+          testID="tab-terminal"
           onPress={() => onModeChange("terminal")}
           className={`flex-1 py-1.5 rounded-badge items-center ${
             mode === "terminal" ? "bg-tp-surface" : ""

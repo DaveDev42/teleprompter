@@ -99,8 +99,8 @@
 - [x] `app-session-switch.spec.ts:70` — "clicking a session navigates to session view" 실패. `text=Chat` locator가 세션 이름 "chat-rt"와 Chat 탭 라벨 2개를 동시 매칭 (strict mode violation). → Chat 탭 Pressable에 `testID="tab-chat"` 추가, E2E를 `getByTestId("tab-chat")`로 수정
 
 ### 코드 컨벤션 위반 (tp-* semantic token)
-- [ ] `VoiceButton.tsx` — raw Tailwind 색상 사용 (`bg-purple-600`, `bg-red-600`, `bg-yellow-600`, `bg-zinc-700/800`, `bg-blue-600`, `text-gray-300/400/500`) → `tp-*` semantic token 교체 필요
-- [ ] `DiagnosticsPanel.tsx` — raw Tailwind 색상 사용 (`bg-zinc-900`, `text-gray-300/400/500`) → `tp-*` semantic token 교체 필요
+- [x] `VoiceButton.tsx` — raw Tailwind 색상 사용 (`bg-purple-600`, `bg-red-600`, `bg-yellow-600`, `bg-zinc-700/800`, `bg-blue-600`, `text-gray-300/400/500`) → `tp-*` semantic token 교체 완료 (tp-voice-active 토큰 추가, 이모지 🎤 → 텍스트 "Mic" 교체)
+- [x] `DiagnosticsPanel.tsx` — raw Tailwind 색상 사용 (`bg-zinc-900`, `text-gray-300/400/500`) → `tp-*` semantic token 교체 완료
 
 ### Silent Error Swallowing (빈 catch 블록)
 - [ ] `ws-client.ts:51,62` — WS 연결/해제 실패 시 에러 무시
@@ -126,7 +126,7 @@
 
 ### Voice (음성) — Web 전용, 네이티브 미지원
 - [ ] `VoiceButton`이 iOS/Android에서 `null` 반환 — 네이티브 오디오 캡처/재생 미구현 (expo-av 등 필요)
-- [ ] `buildSystemPrompt():165` — terminal context 주입 시 정적 문자열이 불필요하게 중복 추가됨 (실제 `termContext`와 별개로 placeholder 문구 삽입). 정리 필요
+- [x] `buildSystemPrompt():165` — terminal context 주입 시 정적 문자열이 불필요하게 중복 추가됨 → 정적 placeholder 제거, includeTerminal 파라미터 정리 완료
 
 ### Session Export — 기본 수준만 구현
 - [ ] Markdown export가 `event` 레코드만 추출 — tool calls, permissions, elicitations 등 누락

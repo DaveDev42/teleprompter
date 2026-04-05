@@ -1,0 +1,98 @@
+import { useEffect, useMemo, useRef } from "react";
+import { Modal, Platform, Pressable, View } from "react-native";
+import { useKeyboard } from "../hooks/use-keyboard";
+
+export function ModalContainer({
+  visible,
+  onClose,
+  children,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const containerRef = useRef<View>(null);
+  const previousFocusRef = useRef<Element | null>(null);
+
+  const keyMap = useMemo<Record<string, () => void>>(
+    () => (visible ? { Escape: onClose } : ({} as Record<string, () => void>)),
+    [visible, onClose],
+  );
+  useKeyboard(keyMap);
+
+  // Focus trap (Web only)
+  useEffect(() => {
+    if (Platform.OS !== "web" || !visible) return;
+
+    // Save previous focus
+    previousFocusRef.current = document.activeElement;
+
+    // Focus first focusable element inside modal
+    const timer = setTimeout(() => {
+      const container = containerRef.current as unknown as HTMLElement;
+      if (!container) return;
+      const focusable = container.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length > 0) {
+        (focusable[0] as HTMLElement).focus();
+      }
+    }, 100);
+
+    // Tab trap
+    const trapHandler = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const container = containerRef.current as unknown as HTMLElement;
+      if (!container) return;
+      const focusable = container.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+
+      const first = focusable[0] as HTMLElement;
+      const last = focusable[focusable.length - 1] as HTMLElement;
+
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+
+    document.addEventListener("keydown", trapHandler);
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("keydown", trapHandler);
+      // Restore focus
+      if (previousFocusRef.current instanceof HTMLElement) {
+        previousFocusRef.current.focus();
+      }
+    };
+  }, [visible]);
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <Pressable className="flex-1 bg-tp-overlay" onPress={onClose}>
+        <View className="flex-1" />
+        <Pressable
+          className="bg-tp-bg-elevated rounded-t-2xl"
+          onPress={() => {}}
+        >
+          <View ref={containerRef}>{children}</View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}

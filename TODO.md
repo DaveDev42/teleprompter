@@ -129,10 +129,10 @@
 - [x] `buildSystemPrompt():165` — terminal context 주입 시 정적 문자열이 불필요하게 중복 추가됨 → 정적 placeholder 제거, includeTerminal 파라미터 정리 완료
 
 ### Session Export — 기본 수준만 구현
-- [ ] Markdown export가 `event` 레코드만 추출 — tool calls, permissions, elicitations 등 누락
-- [ ] PTY io 레코드 완전히 무시 — 터미널 출력이 export에 포함되지 않음
-- [ ] 필터링/포맷 옵션 없음 — 시간 범위, 레코드 종류 선택 등 미지원
-- [ ] 10,000 레코드 hard limit — 대규모 세션에서 잘림 가능
+- [x] Markdown export가 `event` 레코드만 추출 — 전체 hooks event 포맷팅 (Stop, UserPromptSubmit, PreToolUse, PostToolUse, PermissionRequest, Elicitation 등)
+- [x] PTY io 레코드 완전히 무시 — strip-ansi로 ANSI escape 제거 후 코드 블록으로 포함
+- [x] 필터링/포맷 옵션 없음 — recordTypes, timeRange, limit 옵션 추가
+- [x] 10,000 레코드 hard limit — 50,000 기본값, limit 파라미터로 조정 가능
 
 ### Store 자동 정리
 - [x] `pruneOldSessions`가 수동 호출 전용 — Daemon 시작 시 자동 호출 + 24시간마다 주기적 실행. `--prune-ttl <days>` 옵션, `TP_PRUNE_TTL_DAYS` 환경변수, `--no-prune` 비활성화 플래그 지원

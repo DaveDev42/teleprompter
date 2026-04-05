@@ -4,6 +4,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { getDaemonClient } from "../hooks/use-daemon";
 import { useRelayConnectionStore } from "../hooks/use-relay";
 import { checkCryptoAvailability } from "../lib/crypto-native";
+import { getPlatformProps } from "../lib/get-platform-props";
 import { useOfflineStore } from "../stores/offline-store";
 import { usePairingStore } from "../stores/pairing-store";
 import { useSessionStore } from "../stores/session-store";
@@ -158,6 +159,7 @@ export function DiagnosticsPanel() {
     setCryptoTest(result);
   }, []);
 
+  const pp = getPlatformProps();
   const runningSessions = sessions.filter((s) => s.state === "running").length;
   const stoppedSessions = sessions.filter((s) => s.state === "stopped").length;
   const errorSessions = sessions.filter((s) => s.state === "error").length;
@@ -190,7 +192,8 @@ export function DiagnosticsPanel() {
             </Text>
             <Pressable
               onPress={handlePing}
-              className="bg-tp-surface px-2 py-0.5 rounded"
+              className={`bg-tp-surface px-2 py-0.5 rounded ${pp.className}`}
+              tabIndex={pp.tabIndex}
               accessibilityRole="button"
               accessibilityLabel="Ping daemon"
             >
@@ -252,7 +255,8 @@ export function DiagnosticsPanel() {
           <Pressable
             onPress={handleCryptoTest}
             disabled={cryptoTest.running}
-            className="bg-tp-surface px-3 py-1 rounded"
+            className={`bg-tp-surface px-3 py-1 rounded ${pp.className}`}
+            tabIndex={pp.tabIndex}
             accessibilityRole="button"
             accessibilityLabel={
               cryptoTest.running

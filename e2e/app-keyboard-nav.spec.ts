@@ -5,7 +5,7 @@ test.use({ viewport: { width: 390, height: 844 } });
 test.describe("App Keyboard Navigation", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
-    await page.locator("text=Sessions").waitFor({ timeout: 30_000 });
+    await page.getByTestId("tab-sessions").waitFor({ timeout: 30_000 });
   });
 
   test("Tab navigates through tab bar items", async ({ page }) => {

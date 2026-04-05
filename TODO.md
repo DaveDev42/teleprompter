@@ -105,7 +105,6 @@
 ### Silent Error Swallowing (빈 catch 블록)
 - [x] `ws-client.ts:51,62` — WS 연결/해제 실패 시 에러 무시 → `console.warn` 로깅 추가
 - [x] `GhosttyNative.tsx:110` — 터미널 메시지 파싱 실패 시 에러 무시 → `console.warn` 로깅 추가
-- [x] `relay-settings-store.ts:33` — secure storage 읽기 실패 시 에러 무시 → `console.warn` 로깅 추가
 
 ---
 
@@ -172,7 +171,7 @@
 
 ### UI 미노출 Store (기능은 있으나 설정 UI 없음)
 - [ ] `connection-store.daemonUrl` — 커스텀 Daemon WS URL 설정 가능하나 UI 없음
-- [ ] `relay-settings-store.relays` — Relay endpoint 추가/제거/토글 가능하나 UI 없음
+- [x] `relay-settings-store.relays` — dead code 삭제됨 (relay URL은 PairingInfo.relayUrl에서 daemon별 자동 설정)
 
 ---
 

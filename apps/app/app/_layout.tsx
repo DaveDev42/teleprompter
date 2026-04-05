@@ -12,6 +12,7 @@ import { useConnectionStore } from "../src/stores/connection-store";
 import { usePairingStore } from "../src/stores/pairing-store";
 import { useSettingsStore } from "../src/stores/settings-store";
 import { useThemeStore } from "../src/stores/theme-store";
+import { useVoiceStore } from "../src/stores/voice-store";
 
 export default function RootLayout() {
   const daemonUrl = useConnectionStore((s) => s.daemonUrl);
@@ -19,6 +20,8 @@ export default function RootLayout() {
   const loadConnection = useConnectionStore((s) => s.load);
   const loadPairings = usePairingStore((s) => s.load);
   const loadSettings = useSettingsStore((s) => s.load);
+  const loadTheme = useThemeStore((s) => s.load);
+  const loadVoice = useVoiceStore((s) => s.load);
   const theme = useThemeStore((s) => s.theme);
   const isDark = useThemeStore((s) => s.isDark);
   const setTheme = useThemeStore((s) => s.setTheme);
@@ -29,6 +32,8 @@ export default function RootLayout() {
     loadConnection();
     loadPairings();
     loadSettings();
+    loadTheme();
+    loadVoice();
   }, []);
 
   // Re-resolve theme when system color scheme changes

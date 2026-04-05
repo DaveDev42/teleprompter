@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
+import { useSettingsStore } from "../stores/settings-store";
 
 /**
  * Native ghostty-web terminal via WebView for iOS/Android.
@@ -22,7 +23,17 @@ if (Platform.OS !== "web") {
  * The WASM binary is passed as a base64 string to avoid CORS issues
  * when loading from inline HTML (null origin).
  */
-function buildGhosttyHtml(wasmBase64: string): string {
+/** Escape a string for safe injection into an HTML template literal. */
+function escapeHtml(s: string): string {
+  return s.replace(/[&"'<>\\]/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+function buildGhosttyHtml(
+  wasmBase64: string,
+  terminalFont: string,
+  fontSize: number,
+): string {
+  const safeFont = escapeHtml(terminalFont);
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -67,8 +78,8 @@ function buildGhosttyHtml(wasmBase64: string): string {
 
   const term = new Terminal({
     cursorBlink: true,
-    fontSize: 13,
-    fontFamily: "Menlo, Monaco, 'Courier New', monospace",
+    fontSize: ${fontSize},
+    fontFamily: "${safeFont}, Menlo, Monaco, 'Courier New', monospace",
     theme: { background: '#000000', foreground: '#ffffff', cursor: '#ffffff' },
     scrollback: 10000,
   });
@@ -147,7 +158,10 @@ export function GhosttyNative({
         }
         const base64 = btoa(binary);
 
-        setHtml(buildGhosttyHtml(base64));
+        const settings = useSettingsStore.getState();
+        setHtml(
+          buildGhosttyHtml(base64, settings.terminalFont, settings.fontSize),
+        );
       } catch (err) {
         console.error("Failed to load ghostty WASM:", err);
       }

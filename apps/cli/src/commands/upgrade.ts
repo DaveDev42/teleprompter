@@ -7,8 +7,20 @@ const REPO = "DaveDev42/teleprompter";
 
 /**
  * tp upgrade — upgrade tp binary and optionally claude code.
+ *
+ * With --claude flag, runs `claude update` directly and skips tp upgrade.
  */
-export async function upgradeCommand(): Promise<void> {
+export async function upgradeCommand(argv: string[] = []): Promise<void> {
+  if (argv.includes("--claude")) {
+    const proc = Bun.spawn(["claude", "update"], {
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    const exitCode = await proc.exited;
+    process.exit(exitCode);
+  }
+
   console.log("Teleprompter Upgrade\n");
 
   // 1. Check current version

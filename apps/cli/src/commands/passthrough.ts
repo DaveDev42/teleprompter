@@ -40,14 +40,33 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
 
   const sid = tpArgs.sid ?? `session-${Date.now()}`;
   const cwd = tpArgs.cwd ?? process.cwd();
-  const wsPort = parseInt(tpArgs.wsPort ?? "7080", 10);
+  const preferredPort = parseInt(tpArgs.wsPort ?? "7080", 10);
 
   // Inject self-spawn runner command
   SessionManager.setRunnerCommand(resolveRunnerCommand());
 
   const daemon = new Daemon();
   const _socketPath = daemon.start();
-  daemon.startWs(wsPort);
+
+  // Try preferred port, then fall back to auto-assigned port
+  try {
+    daemon.startWs(preferredPort);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      code === "EADDRINUSE" ||
+      msg.includes("EADDRINUSE") ||
+      msg.includes("address already in use")
+    ) {
+      console.error(
+        `[tp] Port ${preferredPort} is in use, using auto-assigned port.`,
+      );
+      daemon.startWs(0);
+    } else {
+      throw err;
+    }
+  }
 
   // Spawn runner with claude args
   daemon.createSession(sid, cwd, { claudeArgs });

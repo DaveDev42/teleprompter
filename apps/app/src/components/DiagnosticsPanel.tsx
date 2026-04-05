@@ -11,8 +11,8 @@ import { useSessionStore } from "../stores/session-store";
 function MetricRow({ label, value }: { label: string; value: string }) {
   return (
     <View className="flex-row justify-between py-1">
-      <Text className="text-gray-500 text-xs">{label}</Text>
-      <Text className="text-gray-300 text-xs font-mono">{value}</Text>
+      <Text className="text-tp-text-tertiary text-xs">{label}</Text>
+      <Text className="text-tp-text-secondary text-xs font-mono">{value}</Text>
     </View>
   );
 }
@@ -25,8 +25,10 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <View className="bg-zinc-900 rounded-lg px-3 py-2 mb-4">
-      <Text className="text-gray-400 text-xs font-bold mb-1">{title}</Text>
+    <View className="bg-tp-surface rounded-lg px-3 py-2 mb-4">
+      <Text className="text-tp-text-tertiary text-xs font-bold mb-1">
+        {title}
+      </Text>
       {children}
     </View>
   );
@@ -37,8 +39,10 @@ function SessionDiagnostics({ session }: { session: WsSessionMeta }) {
     useOfflineStore((s) => s.recentFrames.get(session.sid)) ?? [];
 
   return (
-    <View className="bg-zinc-900 rounded-lg px-3 py-2 mb-2">
-      <Text className="text-white text-sm font-mono mb-1">{session.sid}</Text>
+    <View className="bg-tp-surface rounded-lg px-3 py-2 mb-2">
+      <Text className="text-tp-text-primary text-sm font-mono mb-1">
+        {session.sid}
+      </Text>
       <MetricRow label="State" value={session.state} />
       <MetricRow label="CWD" value={session.cwd} />
       {session.worktreePath && (
@@ -159,8 +163,10 @@ export function DiagnosticsPanel() {
   );
 
   return (
-    <ScrollView className="flex-1 bg-black px-4 pt-4">
-      <Text className="text-white text-lg font-bold mb-4">Diagnostics</Text>
+    <ScrollView className="flex-1 bg-tp-bg px-4 pt-4">
+      <Text className="text-tp-text-primary text-lg font-bold mb-4">
+        Diagnostics
+      </Text>
 
       {/* Connection */}
       <Section title="CONNECTION">
@@ -171,16 +177,16 @@ export function DiagnosticsPanel() {
         <MetricRow label="Active Session" value={sid ?? "none"} />
         <MetricRow label="Last Seq (cursor)" value={String(lastSeq)} />
         <View className="flex-row justify-between items-center py-1">
-          <Text className="text-gray-500 text-xs">RTT</Text>
+          <Text className="text-tp-text-tertiary text-xs">RTT</Text>
           <View className="flex-row items-center gap-2">
-            <Text className="text-gray-300 text-xs font-mono">
+            <Text className="text-tp-text-secondary text-xs font-mono">
               {rtt >= 0 ? `${rtt}ms` : "—"}
             </Text>
             <Pressable
               onPress={handlePing}
-              className="bg-zinc-800 px-2 py-0.5 rounded"
+              className="bg-tp-surface px-2 py-0.5 rounded"
             >
-              <Text className="text-gray-400 text-xs">Ping</Text>
+              <Text className="text-tp-text-tertiary text-xs">Ping</Text>
             </Pressable>
           </View>
         </View>
@@ -238,9 +244,9 @@ export function DiagnosticsPanel() {
           <Pressable
             onPress={handleCryptoTest}
             disabled={cryptoTest.running}
-            className="bg-zinc-800 px-3 py-1 rounded"
+            className="bg-tp-surface px-3 py-1 rounded"
           >
-            <Text className="text-gray-400 text-xs">
+            <Text className="text-tp-text-tertiary text-xs">
               {cryptoTest.running ? "Running..." : "Run Self-Test"}
             </Text>
           </Pressable>
@@ -257,14 +263,14 @@ export function DiagnosticsPanel() {
       </Section>
 
       {/* Sessions Detail */}
-      <Text className="text-gray-400 text-xs font-bold mb-2">
+      <Text className="text-tp-text-tertiary text-xs font-bold mb-2">
         SESSIONS ({sessions.length})
       </Text>
       {sessions.map((s) => (
         <SessionDiagnostics key={s.sid} session={s} />
       ))}
       {sessions.length === 0 && (
-        <Text className="text-gray-600 text-xs mb-4">No sessions</Text>
+        <Text className="text-tp-text-tertiary text-xs mb-4">No sessions</Text>
       )}
     </ScrollView>
   );

@@ -20,11 +20,13 @@
     --tp-text-primary: #09090b;
     --tp-text-secondary: #71717a;
     --tp-text-tertiary: #a1a1aa;
+    --tp-text-on-color: #ffffff;
     --tp-accent: #2563eb;
     --tp-accent-hover: #1d4ed8;
     --tp-success: #16a34a;
     --tp-warning: #d97706;
     --tp-error: #dc2626;
+    --tp-voice-active: #9333ea;
     --tp-overlay: rgba(0, 0, 0, 0.5);
   }
 
@@ -45,11 +47,13 @@
     --tp-text-primary: #fafafa;
     --tp-text-secondary: #a1a1aa;
     --tp-text-tertiary: #71717a;
+    --tp-text-on-color: #ffffff;
     --tp-accent: #3b82f6;
     --tp-accent-hover: #2563eb;
     --tp-success: #22c55e;
     --tp-warning: #f59e0b;
     --tp-error: #ef4444;
+    --tp-voice-active: #a855f7;
     --tp-overlay: rgba(0, 0, 0, 0.5);
   }
 }

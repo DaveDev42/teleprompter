@@ -103,9 +103,9 @@
 - [x] `DiagnosticsPanel.tsx` — raw Tailwind 색상 사용 (`bg-zinc-900`, `text-gray-300/400/500`) → `tp-*` semantic token 교체 완료
 
 ### Silent Error Swallowing (빈 catch 블록)
-- [ ] `ws-client.ts:51,62` — WS 연결/해제 실패 시 에러 무시
-- [ ] `GhosttyNative.tsx:99` — 터미널 초기화 실패 시 에러 무시
-- [ ] `relay-settings-store.ts:33` — secure storage 읽기 실패 시 에러 무시
+- [x] `ws-client.ts:51,62` — WS 연결/해제 실패 시 에러 무시 → `console.warn` 로깅 추가
+- [x] `GhosttyNative.tsx:110` — 터미널 메시지 파싱 실패 시 에러 무시 → `console.warn` 로깅 추가
+- [x] `relay-settings-store.ts:33` — secure storage 읽기 실패 시 에러 무시 → `console.warn` 로깅 추가
 
 ---
 

@@ -1,7 +1,6 @@
 import { useRouter } from "expo-router";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getDaemonClient } from "../../src/hooks/use-daemon";
 import { useRelayConnectionStore } from "../../src/hooks/use-relay";
 import type { PairingInfo } from "../../src/stores/pairing-store";
 import { usePairingStore } from "../../src/stores/pairing-store";
@@ -22,7 +21,7 @@ function timeAgo(ts: number): string {
 function DaemonCard({ info }: { info: PairingInfo }) {
   const connections = useRelayConnectionStore((s) => s.connections);
   const sessions = useSessionStore((s) => s.sessions);
-  const isDark = useThemeStore((s) => s.isDark);
+  useThemeStore((s) => s.isDark);
   const isOnline = connections.get(info.daemonId) ?? false;
 
   // Count active sessions for this daemon (approximation — sessions don't track daemonId yet)

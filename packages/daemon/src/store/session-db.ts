@@ -56,6 +56,36 @@ export class SessionDb {
     return this.selectStmt.all(seq, limit) as StoredRecord[];
   }
 
+  getRecordsFiltered(opts: {
+    kinds?: RecordKind[];
+    from?: number;
+    to?: number;
+    limit?: number;
+  }): StoredRecord[] {
+    const conditions: string[] = [];
+    const params: (string | number)[] = [];
+
+    if (opts.kinds && opts.kinds.length > 0) {
+      conditions.push(`kind IN (${opts.kinds.map(() => "?").join(", ")})`);
+      params.push(...opts.kinds);
+    }
+    if (opts.from !== undefined) {
+      conditions.push("ts >= ?");
+      params.push(opts.from);
+    }
+    if (opts.to !== undefined) {
+      conditions.push("ts <= ?");
+      params.push(opts.to);
+    }
+
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const limit = Math.min(opts.limit ?? 50000, 50000);
+    const sql = `SELECT seq, kind, ts, ns, name, payload FROM records ${where} ORDER BY seq LIMIT ?`;
+    params.push(limit);
+
+    return this.db.prepare(sql).all(...params) as StoredRecord[];
+  }
+
   getLastSeq(): number {
     const row = this.lastSeqStmt.get() as { last_seq: number | null };
     return row.last_seq ?? 0;

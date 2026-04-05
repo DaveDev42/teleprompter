@@ -79,7 +79,8 @@
         {
           "cameraPermission": "Camera is used to scan QR codes for daemon pairing."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "extra": {
       "router": {},

@@ -101,6 +101,9 @@ export interface WsSessionExport {
   t: "session.export";
   sid: string;
   format?: "json" | "markdown";
+  recordTypes?: RecordKind[];
+  timeRange?: { from?: number; to?: number };
+  limit?: number;
 }
 
 export type WsClientMessage =

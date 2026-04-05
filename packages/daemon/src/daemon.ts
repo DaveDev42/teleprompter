@@ -25,6 +25,9 @@ import { WorktreeManager } from "./worktree/worktree-manager";
 
 const log = createLogger("Daemon");
 
+const DEFAULT_PRUNE_TTL_DAYS = 7;
+const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 export class Daemon {
   private ipcServer: IpcServer;
   private store: Store;
@@ -33,6 +36,7 @@ export class Daemon {
   private wsServer: WsServer;
   private relayClients: RelayClient[] = [];
   private worktreeManager: WorktreeManager | null = null;
+  private pruneTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(storeDir?: string) {
     this.store = new Store(storeDir);
@@ -136,6 +140,48 @@ export class Daemon {
     return this.socketPath;
   }
 
+  /**
+   * Start automatic session cleanup.
+   * Prunes immediately on call, then every 24 hours.
+   * @param ttlDays Days to keep stopped/error sessions (default: 7, env: TP_PRUNE_TTL_DAYS)
+   */
+  startAutoCleanup(ttlDays?: number): void {
+    const days =
+      ttlDays ??
+      (process.env.TP_PRUNE_TTL_DAYS
+        ? Number(process.env.TP_PRUNE_TTL_DAYS)
+        : DEFAULT_PRUNE_TTL_DAYS);
+    const maxAgeMs = days * 24 * 60 * 60 * 1000;
+
+    // Prune immediately on startup
+    const pruned = this.store.pruneOldSessions(maxAgeMs);
+    if (pruned > 0) {
+      log.info(`pruned ${pruned} old session(s) (>${days}d)`);
+    }
+
+    // Schedule periodic cleanup
+    this.stopAutoCleanup();
+    this.pruneTimer = setInterval(() => {
+      const n = this.store.pruneOldSessions(maxAgeMs);
+      if (n > 0) {
+        log.info(`periodic prune: removed ${n} session(s) (>${days}d)`);
+      }
+    }, PRUNE_INTERVAL_MS);
+
+    // Don't keep the process alive just for cleanup
+    this.pruneTimer.unref();
+  }
+
+  /**
+   * Stop the automatic cleanup scheduler.
+   */
+  stopAutoCleanup(): void {
+    if (this.pruneTimer) {
+      clearInterval(this.pruneTimer);
+      this.pruneTimer = null;
+    }
+  }
+
   startWs(port: number): void {
     this.wsServer.start(port);
   }
@@ -146,14 +192,6 @@ export class Daemon {
    */
   setWebDir(dir: string): void {
     this.wsServer.setWebDir(dir);
-  }
-
-  /**
-   * Prune stopped/error sessions older than maxAgeMs.
-   * Returns the number of sessions deleted.
-   */
-  pruneOldSessions(maxAgeMs: number): number {
-    return this.store.pruneOldSessions(maxAgeMs);
   }
 
   /**
@@ -667,6 +705,7 @@ export class Daemon {
       log.info(`killed ${killed} running session(s)`);
     }
 
+    this.stopAutoCleanup();
     for (const relay of this.relayClients) {
       relay.dispose();
     }

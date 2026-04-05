@@ -42,7 +42,8 @@ export async function daemonCommand(argv: string[]): Promise<void> {
       "daemon-id": { type: "string" },
       "frontend-pubkey": { type: "string" },
       "web-dir": { type: "string" },
-      prune: { type: "string" },
+      "prune-ttl": { type: "string" },
+      "no-prune": { type: "boolean", default: false },
       verbose: { type: "boolean", default: false },
       quiet: { type: "boolean", default: false },
       watch: { type: "boolean", default: false },
@@ -63,13 +64,14 @@ export async function daemonCommand(argv: string[]): Promise<void> {
   const wsPort = parseInt(values["ws-port"] as string, 10);
   daemon.startWs(wsPort);
 
-  // Prune old sessions on startup
-  if (values.prune) {
-    const hours = parseInt(values.prune as string, 10) || 24;
-    const pruned = daemon.pruneOldSessions(hours * 60 * 60 * 1000);
-    if (pruned > 0) {
-      console.log(`[Daemon] pruned ${pruned} old session(s) (>${hours}h)`);
-    }
+  // Start auto-cleanup (prune on startup + every 24h)
+  if (!values["no-prune"]) {
+    const parsed = values["prune-ttl"]
+      ? parseInt(values["prune-ttl"] as string, 10)
+      : undefined;
+    const ttlDays =
+      parsed !== undefined && Number.isNaN(parsed) ? undefined : parsed;
+    daemon.startAutoCleanup(ttlDays);
   }
 
   // Serve frontend web build if specified

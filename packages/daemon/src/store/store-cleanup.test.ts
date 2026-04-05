@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Store } from "./store";
+import { backdateSession } from "./test-helpers";
 
 describe("Store session cleanup", () => {
   let vault: Store;
@@ -48,16 +49,8 @@ describe("Store session cleanup", () => {
     // running-1 stays as "running"
 
     // Backdate old sessions (simulate 2 hours ago)
-    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
-    const metaDb = (
-      vault as unknown as {
-        metaDb: { run: (sql: string, params: unknown[]) => void };
-      }
-    ).metaDb;
-    metaDb.run(
-      "UPDATE sessions SET updated_at = ? WHERE sid IN ('old-1', 'old-2')",
-      [twoHoursAgo],
-    );
+    backdateSession(vault, "old-1", 2 * 60 * 60 * 1000);
+    backdateSession(vault, "old-2", 2 * 60 * 60 * 1000);
 
     // Prune sessions older than 1 hour
     const pruned = vault.pruneOldSessions(60 * 60 * 1000);
@@ -74,5 +67,26 @@ describe("Store session cleanup", () => {
     vault.createSession("s1", "/tmp");
     const pruned = vault.pruneOldSessions(60 * 60 * 1000);
     expect(pruned).toBe(0);
+  });
+
+  test("pruneOldSessions does not remove sessions within TTL", () => {
+    vault.createSession("recent", "/tmp");
+    vault.updateSessionState("recent", "stopped");
+    // updated_at is now (just created), TTL is 7 days
+    const pruned = vault.pruneOldSessions(7 * 24 * 60 * 60 * 1000);
+    expect(pruned).toBe(0);
+    expect(vault.getSession("recent")).toBeDefined();
+  });
+
+  test("pruneOldSessions removes error sessions beyond TTL", () => {
+    vault.createSession("err-old", "/tmp");
+    vault.updateSessionState("err-old", "error");
+
+    // Backdate to 8 days ago
+    backdateSession(vault, "err-old", 8 * 24 * 60 * 60 * 1000);
+
+    const pruned = vault.pruneOldSessions(7 * 24 * 60 * 60 * 1000);
+    expect(pruned).toBe(1);
+    expect(vault.getSession("err-old")).toBeUndefined();
   });
 });

@@ -135,8 +135,8 @@
 - [ ] 10,000 레코드 hard limit — 대규모 세션에서 잘림 가능
 
 ### Store 자동 정리
-- [ ] `pruneOldSessions`가 수동 호출 전용 — `--prune` 플래그 없이 daemon 실행 시 세션 데이터 무한 축적
-- [ ] 기본 TTL 정책 없음 — 자동 정리 스케줄러 또는 합리적 기본값(7일 등) 필요
+- [x] `pruneOldSessions`가 수동 호출 전용 — Daemon 시작 시 자동 호출 + 24시간마다 주기적 실행. `--prune-ttl <days>` 옵션, `TP_PRUNE_TTL_DAYS` 환경변수, `--no-prune` 비활성화 플래그 지원
+- [x] 기본 TTL 정책 없음 — 기본 7일 TTL 적용, `startAutoCleanup()` + `setInterval` 기반 스케줄러 구현
 
 ### Relay Presence
 - [ ] Daemon→Relay heartbeat/keepalive 미구현 — relay가 dead connection 감지 불가

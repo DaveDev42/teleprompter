@@ -401,6 +401,157 @@ describe("RelayServer", () => {
     ws.close();
   });
 
+  test("ping updates daemon lastSeen", async () => {
+    const daemon = await connectWs(port);
+    daemon.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "daemon",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+      }),
+    );
+    await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
+
+    const beforePing = relay.getDaemonState(DAEMON_ID)?.lastSeen ?? 0;
+
+    // Wait a bit so lastSeen changes are observable
+    await Bun.sleep(50);
+
+    // Send a ping
+    daemon.send(JSON.stringify({ t: "relay.ping", ts: Date.now() }));
+    const pong = await waitForMessage(daemon, (m) => m.t === "relay.pong");
+    expect(pong.t).toBe("relay.pong");
+
+    const afterPing = relay.getDaemonState(DAEMON_ID)?.lastSeen ?? 0;
+    expect(afterPing).toBeGreaterThan(beforePing);
+
+    daemon.close();
+  });
+
+  test("stale daemon is marked offline after timeout", async () => {
+    // Use very short stale timeout for testing
+    relay.setStaleTimeoutMs(200);
+    relay.setStaleCheckIntervalMs(100);
+
+    const daemon = await connectWs(port);
+    const frontend = await connectWs(port);
+
+    // Collect all presence messages on the frontend
+    const presenceMessages: RelayPresence[] = [];
+    frontend.addEventListener("message", (e) => {
+      const msg = JSON.parse(e.data as string) as RelayServerMessage;
+      if (msg.t === "relay.presence") {
+        presenceMessages.push(msg as RelayPresence);
+      }
+    });
+
+    // Auth daemon
+    daemon.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "daemon",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+      }),
+    );
+    await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
+
+    // Auth frontend
+    frontend.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+      }),
+    );
+    await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
+
+    // Wait for initial online presence + stale timeout + check interval
+    await Bun.sleep(500);
+
+    // Should have initial online presence, then offline from stale detection
+    const online = presenceMessages.find((p) => p.online);
+    const offline = presenceMessages.find((p) => !p.online);
+    expect(online).toBeDefined();
+    expect(offline).toBeDefined();
+    expect(offline!.daemonId).toBe(DAEMON_ID);
+
+    daemon.close();
+    frontend.close();
+  });
+
+  test("ping keeps daemon from going stale", async () => {
+    // Use short stale timeout
+    relay.setStaleTimeoutMs(300);
+    relay.setStaleCheckIntervalMs(100);
+
+    const daemon = await connectWs(port);
+    const frontend = await connectWs(port);
+
+    // Collect all presence messages to verify no offline was sent during pings
+    const presenceMessages: RelayPresence[] = [];
+    frontend.addEventListener("message", (e) => {
+      const msg = JSON.parse(e.data as string) as RelayServerMessage;
+      if (msg.t === "relay.presence") {
+        presenceMessages.push(msg as RelayPresence);
+      }
+    });
+
+    // Auth daemon
+    daemon.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "daemon",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+      }),
+    );
+    await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
+
+    // Auth frontend
+    frontend.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+      }),
+    );
+    await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
+    await waitForMessage(frontend, (m) => m.t === "relay.presence");
+
+    // Send pings every 100ms (well within the 300ms stale timeout)
+    const pingInterval = setInterval(() => {
+      daemon.send(JSON.stringify({ t: "relay.ping", ts: Date.now() }));
+    }, 100);
+
+    // Wait longer than stale timeout
+    await Bun.sleep(500);
+    clearInterval(pingInterval);
+
+    // Explicitly verify: daemon is still online, no offline presence was broadcast
+    const state = relay.getDaemonState(DAEMON_ID);
+    expect(state?.online).toBe(true);
+    expect(presenceMessages.every((p) => p.online)).toBe(true);
+
+    // Now close daemon — offline presence should arrive from ws close
+    daemon.close();
+    const offlinePresence = (await waitForMessage(
+      frontend,
+      (m) => m.t === "relay.presence" && !(m as RelayPresence).online,
+    )) as RelayPresence;
+    expect(offlinePresence.online).toBe(false);
+
+    frontend.close();
+  });
+
   test("resume with after= skips already-seen frames", async () => {
     const daemon = await connectWs(port);
 

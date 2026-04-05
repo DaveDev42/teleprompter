@@ -1,4 +1,5 @@
 import { Platform, Pressable, Text, View } from "react-native";
+import { getPlatformProps } from "../lib/get-platform-props";
 import { useVoiceStore } from "../stores/voice-store";
 
 export function VoiceButton() {
@@ -20,6 +21,7 @@ export function VoiceButton() {
   }
 
   const isActive = state !== "idle";
+  const pp = getPlatformProps();
 
   const stateLabel = {
     idle: "Mic",
@@ -41,7 +43,8 @@ export function VoiceButton() {
       {/* Terminal context toggle */}
       <Pressable
         onPress={toggleTerminalContext}
-        className={`px-2 py-1 rounded ${includeTerminal ? "bg-tp-accent" : "bg-tp-surface"}`}
+        className={`px-2 py-1 rounded ${includeTerminal ? "bg-tp-accent" : "bg-tp-surface"} ${pp.className}`}
+        tabIndex={pp.tabIndex}
         accessibilityRole="switch"
         accessibilityLabel="Include terminal context"
         accessibilityState={{ checked: includeTerminal }}
@@ -52,7 +55,8 @@ export function VoiceButton() {
       {/* Mic button */}
       <Pressable
         onPress={isActive ? stopVoice : startVoice}
-        className={`${bgColor} rounded-full w-10 h-10 items-center justify-center`}
+        className={`${bgColor} rounded-full w-10 h-10 items-center justify-center ${pp.className}`}
+        tabIndex={pp.tabIndex}
         accessibilityRole="button"
         accessibilityLabel={
           isActive ? `Stop voice, ${stateLabel}` : "Start voice input"

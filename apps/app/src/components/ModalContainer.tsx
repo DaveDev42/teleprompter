@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { Modal, Platform, Pressable, View } from "react-native";
 import { useKeyboard } from "../hooks/use-keyboard";
 
-const FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+const FOCUSABLE_SELECTOR =
+  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 export function ModalContainer({
   visible,
@@ -29,13 +30,11 @@ export function ModalContainer({
     // Save previous focus
     previousFocusRef.current = document.activeElement;
 
-    // Focus first focusable element inside modal
+    // Wait for Modal's slide animation to mount DOM before focusing
     const timer = setTimeout(() => {
       const container = containerRef.current as unknown as HTMLElement;
       if (!container) return;
-      const focusable = container.querySelectorAll(
-        FOCUSABLE_SELECTOR,
-      );
+      const focusable = container.querySelectorAll(FOCUSABLE_SELECTOR);
       if (focusable.length > 0) {
         (focusable[0] as HTMLElement).focus();
       }
@@ -46,9 +45,7 @@ export function ModalContainer({
       if (e.key !== "Tab") return;
       const container = containerRef.current as unknown as HTMLElement;
       if (!container) return;
-      const focusable = container.querySelectorAll(
-        FOCUSABLE_SELECTOR,
-      );
+      const focusable = container.querySelectorAll(FOCUSABLE_SELECTOR);
       if (focusable.length === 0) return;
 
       const first = focusable[0] as HTMLElement;
@@ -88,12 +85,14 @@ export function ModalContainer({
     >
       <Pressable className="flex-1 bg-tp-overlay" onPress={onClose}>
         <View className="flex-1" />
-        <Pressable
+        <View
           className="bg-tp-bg-elevated rounded-t-2xl"
-          onPress={() => {}}
+          {...(Platform.OS === "web"
+            ? { onClick: (e: MouseEvent) => e.stopPropagation() }
+            : {})}
         >
           <View ref={containerRef}>{children}</View>
-        </Pressable>
+        </View>
       </Pressable>
     </Modal>
   );

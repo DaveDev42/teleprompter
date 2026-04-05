@@ -149,9 +149,9 @@
 - [x] **`tp -- ...` 명시적 claude 포워딩** — `tp -- <args>`로 모든 인자를 daemon 없이 claude에 직접 전달. 서브커맨드 충돌 해소 + 의도 명확화
 
 ### CLI — 기타
-- [ ] `tp upgrade` — 바이너리 다운로드 시 체크섬/서명 검증 없음
-- [ ] `tp upgrade` — 업그레이드 실패 시 롤백 없음 (기존 바이너리 백업 미수행)
-- [ ] `tp upgrade` — 업그레이드 후 실행 중인 daemon 재시작 미안내
+- [x] `tp upgrade` — SHA-256 체크섬 검증 (release.yml에서 checksums.txt 생성, 다운로드 후 해시 비교)
+- [x] `tp upgrade` — 롤백 지원 (기존 바이너리 .bak 백업 → 실패 시 자동 복원 → 성공 시 삭제)
+- [x] `tp upgrade` — daemon 자동 재시작 (launchd kickstart / systemctl restart, 서비스 미설치 시 안내 메시지)
 - [x] `tp completions` — `SUBCOMMANDS` 목록에 `run` 추가 (셸 자동완성 완성)
 - [x] `args.ts:39-41` — `--tp-*` 플래그 값 누락 시 사용자 친화적 에러 메시지 + 사용 예시 출력 (process.exit(1))
 - [x] Passthrough에서 WS port 7080 충돌 시 자동으로 port 0 (auto-assign) fallback + 안내 메시지 출력

@@ -69,7 +69,8 @@ export async function daemonCommand(argv: string[]): Promise<void> {
     const parsed = values["prune-ttl"]
       ? parseInt(values["prune-ttl"] as string, 10)
       : undefined;
-    const ttlDays = parsed !== undefined && Number.isNaN(parsed) ? undefined : parsed;
+    const ttlDays =
+      parsed !== undefined && Number.isNaN(parsed) ? undefined : parsed;
     daemon.startAutoCleanup(ttlDays);
   }
 

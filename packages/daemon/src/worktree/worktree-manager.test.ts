@@ -114,6 +114,33 @@ describe("WorktreeManager", () => {
     expect(worktrees.length).toBe(1);
   });
 
+  test("add rejects invalid branch names", async () => {
+    const wtPath = `${repoDir}-wt-invalid`;
+    const invalidNames = [
+      "has space",
+      "has..double-dot",
+      "has~tilde",
+      "has^caret",
+      "has:colon",
+      ".starts-with-dot",
+      "ends-with-dot.",
+      "has/lock.lock",
+    ];
+
+    for (const name of invalidNames) {
+      await expect(manager.add(wtPath, name)).rejects.toThrow(
+        "Invalid branch name",
+      );
+    }
+  });
+
+  test("add rejects unwritable parent directory", async () => {
+    const wtPath = "/nonexistent-parent/worktree";
+    await expect(manager.add(wtPath, "valid-branch")).rejects.toThrow(
+      "does not exist or is not writable",
+    );
+  });
+
   test("list shows multiple worktrees with correct branches", async () => {
     const wt1Path = `${repoDir}-wt-a`;
     const wt2Path = `${repoDir}-wt-b`;

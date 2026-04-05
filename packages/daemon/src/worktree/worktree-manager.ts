@@ -6,44 +6,56 @@
  */
 
 import { createLogger } from "@teleprompter/protocol";
-import { execSync } from "child_process";
-import { readFileSync, unlinkSync } from "fs";
+import { execFileSync } from "child_process";
+import { accessSync, constants } from "fs";
+import { dirname } from "path";
 
 const log = createLogger("WorktreeManager");
 
-let _tmpSeq = 0;
-
-/**
- * Escape args for shell execution.
- *
- * WORKAROUND: Bun v1.3.6 test runner intercepts pipe-based child process
- * stdout (Bun.$, Bun.spawn, execFileSync all return empty). Shell redirect
- * to temp file is the only reliable way to capture output.
- * TODO: Revert to execFileSync once Bun fixes this behavior.
- *
- * Safety: args come from internal git operations (paths, branch names).
- * Single-quote wrapping with inner quote escaping handles all valid git refs.
- */
-function shellEscape(args: string[]): string {
-  return args.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ");
-}
-
 /** Run a git command and return stdout text. */
 function gitOutput(args: string[]): string {
-  const tmpFile = `/tmp/.tp-git-${process.pid}-${++_tmpSeq}`;
-  try {
-    execSync(`git ${shellEscape(args)} > '${tmpFile}'`, { stdio: "ignore" });
-    return readFileSync(tmpFile, "utf-8");
-  } finally {
-    try {
-      unlinkSync(tmpFile);
-    } catch {}
-  }
+  return execFileSync("git", args, {
+    stdio: ["ignore", "pipe", "ignore"],
+  }).toString();
 }
 
 /** Run a git command, ignoring stdout. Throws on non-zero exit. */
 function gitRun(args: string[]): void {
-  execSync(`git ${shellEscape(args)}`, { stdio: "ignore" });
+  execFileSync("git", args, { stdio: "ignore" });
+}
+
+/**
+ * Validate a git branch name using `git check-ref-format`.
+ * Throws with a descriptive message if the name is invalid.
+ */
+function validateBranchName(branch: string): void {
+  try {
+    execFileSync("git", ["check-ref-format", "--branch", branch], {
+      stdio: "ignore",
+    });
+  } catch {
+    throw new Error(
+      `Invalid branch name: '${branch}'. ` +
+        "Branch names cannot contain spaces, '..', '~', '^', ':', " +
+        "control characters, or start/end with '.' or '/'.",
+    );
+  }
+}
+
+/**
+ * Verify the parent directory of a path exists and is writable.
+ * Throws with a descriptive message if not.
+ */
+function validatePathPermissions(path: string): void {
+  const parent = dirname(path);
+  try {
+    accessSync(parent, constants.W_OK);
+  } catch {
+    throw new Error(
+      `Cannot create worktree at '${path}': ` +
+        `parent directory '${parent}' does not exist or is not writable.`,
+    );
+  }
 }
 
 export interface WorktreeInfo {
@@ -121,6 +133,10 @@ export class WorktreeManager {
     branch: string,
     baseBranch?: string,
   ): Promise<WorktreeInfo> {
+    validateBranchName(branch);
+    if (baseBranch) validateBranchName(baseBranch);
+    validatePathPermissions(path);
+
     // Check if branch exists
     let branchExists = false;
     try {

@@ -54,7 +54,7 @@ function SettingsRow({
     <Pressable
       onPress={onPress}
       className="mx-4"
-      accessibilityRole="button"
+      accessibilityRole={onPress ? "button" : undefined}
       accessibilityLabel={value !== undefined ? `${label}, ${value}` : label}
     >
       <View

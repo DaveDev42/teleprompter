@@ -12,8 +12,8 @@ import { ApiKeyModal } from "../../src/components/ApiKeyModal";
 import { DiagnosticsPanel } from "../../src/components/DiagnosticsPanel";
 import {
   FontPickerModal,
-  FontSizeModal,
   type FontPickerMode,
+  FontSizeModal,
 } from "../../src/components/FontPickerModal";
 import { useOtaUpdate } from "../../src/hooks/use-ota-update";
 import { useConnectionStore } from "../../src/stores/connection-store";

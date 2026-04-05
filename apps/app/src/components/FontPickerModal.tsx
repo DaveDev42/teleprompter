@@ -1,11 +1,5 @@
 import { useEffect, useState } from "react";
-import {
-  FlatList,
-  Modal,
-  Pressable,
-  Text,
-  View,
-} from "react-native";
+import { FlatList, Modal, Pressable, Text, View } from "react-native";
 
 const SANS_FONTS = [
   "Inter",

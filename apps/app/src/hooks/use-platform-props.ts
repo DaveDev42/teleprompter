@@ -4,8 +4,8 @@ const FOCUS_CLASS = "focus-visible:ring-2 focus-visible:ring-tp-border-focus foc
 
 export function usePlatformProps(options?: {
   focusable?: boolean;
-  tabIndex?: number;
-}): { tabIndex?: number; className?: string } {
+  tabIndex?: 0 | -1;
+}): { tabIndex?: 0 | -1; className?: string } {
   if (Platform.OS !== "web") return {};
 
   const focusable = options?.focusable ?? true;

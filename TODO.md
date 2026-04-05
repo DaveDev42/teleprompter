@@ -163,7 +163,7 @@
 ### Accessibility (접근성)
 - [x] 전체 프론트엔드에 `accessibilityLabel`, `accessibilityRole`, `accessibilityState`, `accessibilityHint` 추가
 - [x] 스크린 리더 지원 — 모든 인터랙티브 요소(버튼, 탭, 입력, 세션 목록, 모달)에 시맨틱 정보 추가
-- [ ] 키보드 내비게이션 미검증
+- [x] 키보드 내비게이션 검증 및 수정 — Web Tab/Enter/Escape 내비게이션, 포커스 ring, 모달 Escape/포커스 트랩, E2E 테스트
 
 ### Protocol / Transport
 - [x] Relay frame cache 크기 설정 가능 — `TP_RELAY_CACHE_SIZE` 환경변수 또는 `--cache-size` CLI 옵션 (기본 10)

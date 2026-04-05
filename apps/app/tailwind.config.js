@@ -29,6 +29,7 @@ module.exports = {
           success: "var(--tp-success)",
           warning: "var(--tp-warning)",
           error: "var(--tp-error)",
+          overlay: "var(--tp-overlay)",
         },
       },
       borderRadius: {

@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 import { create } from "zustand";
+import { secureDelete, secureGet, secureSet } from "../lib/secure-storage";
 import type { AudioCapture, AudioPlayer } from "../voice/audio-web";
 import { RealtimeClient } from "../voice/realtime-client";
 import { formatTerminalContext } from "../voice/terminal-context";
@@ -24,9 +25,11 @@ export interface VoiceStore {
   includeTerminal: boolean;
   /** OpenAI API key */
   apiKey: string | null;
+  loaded: boolean;
 
   // Actions
-  setApiKey: (key: string) => void;
+  load: () => Promise<void>;
+  setApiKey: (key: string) => Promise<void>;
   startVoice: () => Promise<void>;
   stopVoice: () => void;
   toggleTerminalContext: () => void;
@@ -34,6 +37,8 @@ export interface VoiceStore {
   _onPromptReady: ((prompt: string) => void) | null;
   setOnPromptReady: (fn: ((prompt: string) => void) | null) => void;
 }
+
+const VOICE_STORAGE_KEY = "voice_api_key";
 
 let realtimeClient: RealtimeClient | null = null;
 let audioCapture: AudioCapture | null = null;
@@ -46,9 +51,31 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   isSpeaking: false,
   includeTerminal: false,
   apiKey: null,
+  loaded: false,
   _onPromptReady: null,
 
-  setApiKey: (key) => set({ apiKey: key }),
+  load: async () => {
+    try {
+      const raw = await secureGet(VOICE_STORAGE_KEY);
+      if (raw) {
+        set({ apiKey: raw, loaded: true });
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    set({ loaded: true });
+  },
+
+  setApiKey: async (key) => {
+    if (key) {
+      set({ apiKey: key });
+      await secureSet(VOICE_STORAGE_KEY, key);
+    } else {
+      set({ apiKey: null });
+      await secureDelete(VOICE_STORAGE_KEY);
+    }
+  },
 
   startVoice: async () => {
     const { apiKey, includeTerminal } = get();

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import type { TerminalSearch } from "../lib/terminal-search";
+import { useSettingsStore } from "../stores/settings-store";
 
 /**
  * ghostty-web terminal component for Expo Web.
@@ -43,10 +44,11 @@ export function GhosttyTerminal({
 
       if (disposed || !containerRef.current) return;
 
+      const settings = useSettingsStore.getState();
       const term = new Terminal({
         cursorBlink: true,
-        fontSize: 14,
-        fontFamily: "Menlo, Monaco, 'Courier New', monospace",
+        fontSize: settings.fontSize,
+        fontFamily: `${settings.terminalFont}, Menlo, Monaco, 'Courier New', monospace`,
         theme: {
           background: "#000000",
           foreground: "#ffffff",

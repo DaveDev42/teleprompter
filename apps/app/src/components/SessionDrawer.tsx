@@ -126,7 +126,8 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
     return () => {
       client.onSessionExported = undefined;
     };
-  }, []);
+    // Re-run when sessions change — guarantees client is available after daemon connects
+  }, [sessions]);
 
   // Filter sessions by search term
   const filteredSessions = useMemo(() => {

@@ -88,12 +88,12 @@ export function formatIoRecords(records: StoredRecord[]): string {
 }
 
 function formatMetaRecord(rec: StoredRecord): string {
+  const label = `Meta: ${rec.name ?? "unknown"}`;
   const raw = Buffer.from(rec.payload).toString("utf-8");
   try {
-    const data = JSON.parse(raw);
-    return `### Meta: ${rec.name ?? "unknown"}\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``;
+    return jsonBlock(label, JSON.parse(raw));
   } catch {
-    return `### Meta: ${rec.name ?? "unknown"}\n\n${raw}`;
+    return `### ${label}\n\n${raw}`;
   }
 }
 

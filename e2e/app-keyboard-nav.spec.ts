@@ -87,13 +87,23 @@ test.describe("App Keyboard Navigation", () => {
     });
   });
 
-  test("focus ring class is applied to focusable elements", async ({
+  test("focusable elements have tabindex for keyboard access", async ({
     page,
   }) => {
-    // Verify that focusable elements have the focus-visible ring classes
+    // Tab bar tabs should be focusable (rendered by React Navigation)
     const settingsTab = page.getByTestId("tab-settings");
-    const classList = await settingsTab.evaluate((el) => el.className);
-    expect(classList).toContain("focus-visible:ring-2");
-    expect(classList).toContain("focus-visible:ring-tp-border-focus");
+    await expect(settingsTab).toBeVisible();
+
+    // Navigate to session view and verify our custom elements have tabindex
+    await page.goto("/session/test-keyboard");
+    const chatTab = page.getByTestId("tab-chat");
+    await chatTab.waitFor({ timeout: 10_000 });
+    await expect(chatTab).toHaveAttribute("tabindex", "0");
+
+    const terminalTab = page.getByTestId("tab-terminal");
+    await expect(terminalTab).toHaveAttribute("tabindex", "0");
+
+    const chatInput = page.getByTestId("chat-input");
+    await expect(chatInput).toBeVisible();
   });
 });

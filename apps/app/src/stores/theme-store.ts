@@ -1,5 +1,6 @@
 import { Appearance } from "react-native";
 import { create } from "zustand";
+import { secureGet, secureSet } from "../lib/secure-storage";
 
 export type Theme = "dark" | "light" | "system";
 
@@ -7,8 +8,12 @@ export interface ThemeStore {
   theme: Theme;
   /** Resolved: what's actually applied */
   isDark: boolean;
-  setTheme: (theme: Theme) => void;
+  loaded: boolean;
+  load: () => Promise<void>;
+  setTheme: (theme: Theme) => Promise<void>;
 }
+
+const STORAGE_KEY = "app_theme";
 
 function resolveIsDark(theme: Theme): boolean {
   if (theme === "system") {
@@ -20,5 +25,23 @@ function resolveIsDark(theme: Theme): boolean {
 export const useThemeStore = create<ThemeStore>((set) => ({
   theme: "dark",
   isDark: true,
-  setTheme: (theme) => set({ theme, isDark: resolveIsDark(theme) }),
+  loaded: false,
+
+  load: async () => {
+    try {
+      const raw = await secureGet(STORAGE_KEY);
+      if (raw === "dark" || raw === "light" || raw === "system") {
+        set({ theme: raw, isDark: resolveIsDark(raw), loaded: true });
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    set({ loaded: true });
+  },
+
+  setTheme: async (theme) => {
+    set({ theme, isDark: resolveIsDark(theme) });
+    await secureSet(STORAGE_KEY, theme);
+  },
 }));

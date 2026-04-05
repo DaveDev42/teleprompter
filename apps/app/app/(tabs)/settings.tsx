@@ -1,19 +1,21 @@
 import Constants from "expo-constants";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   ActivityIndicator,
-  Platform,
   Pressable,
   ScrollView,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ApiKeyModal } from "../../src/components/ApiKeyModal";
 import { DiagnosticsPanel } from "../../src/components/DiagnosticsPanel";
+import {
+  FontPickerModal,
+  FontSizeModal,
+  type FontPickerMode,
+} from "../../src/components/FontPickerModal";
 import { useOtaUpdate } from "../../src/hooks/use-ota-update";
-import { secureGet, secureSet } from "../../src/lib/secure-storage";
 import { useConnectionStore } from "../../src/stores/connection-store";
 import { usePairingStore } from "../../src/stores/pairing-store";
 import { useSettingsStore } from "../../src/stores/settings-store";
@@ -123,15 +125,24 @@ function UpdateStatusValue({
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
   const chatFont = useSettingsStore((s) => s.chatFont);
   const codeFont = useSettingsStore((s) => s.codeFont);
   const terminalFont = useSettingsStore((s) => s.terminalFont);
   const fontSize = useSettingsStore((s) => s.fontSize);
+  const setChatFont = useSettingsStore((s) => s.setChatFont);
+  const setCodeFont = useSettingsStore((s) => s.setCodeFont);
+  const setTerminalFont = useSettingsStore((s) => s.setTerminalFont);
+  const setFontSize = useSettingsStore((s) => s.setFontSize);
   const apiKey = useVoiceStore((s) => s.apiKey);
+  const setApiKey = useVoiceStore((s) => s.setApiKey);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [fontPickerMode, setFontPickerMode] = useState<FontPickerMode | null>(
+    null,
+  );
+  const [showFontSize, setShowFontSize] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
   const { status: otaStatus, restart, checkAndFetch } = useOtaUpdate();
 
   if (showDiagnostics) {
@@ -178,18 +189,26 @@ export default function SettingsScreen() {
           setTheme(next);
         }}
       />
-      <SettingsRow label="Chat Font" value={chatFont} onPress={() => {}} />
-      <SettingsRow label="Code Font" value={codeFont} onPress={() => {}} />
+      <SettingsRow
+        label="Chat Font"
+        value={chatFont}
+        onPress={() => setFontPickerMode("chat")}
+      />
+      <SettingsRow
+        label="Code Font"
+        value={codeFont}
+        onPress={() => setFontPickerMode("code")}
+      />
       <SettingsRow
         label="Terminal Font"
         value={terminalFont}
-        onPress={() => {}}
+        onPress={() => setFontPickerMode("terminal")}
       />
       <SettingsRow
         label="Font Size"
         value={`${fontSize}px`}
         last
-        onPress={() => {}}
+        onPress={() => setShowFontSize(true)}
       />
 
       {/* Voice */}
@@ -199,7 +218,7 @@ export default function SettingsScreen() {
         value={apiKey ? "sk-...configured" : "Not set"}
         first
         last
-        onPress={() => {}}
+        onPress={() => setShowApiKey(true)}
       />
 
       {/* About */}
@@ -255,6 +274,35 @@ export default function SettingsScreen() {
           onPress={() => setShowDiagnostics(true)}
         />
       </View>
+      <FontPickerModal
+        visible={fontPickerMode !== null}
+        mode={fontPickerMode ?? "chat"}
+        currentFont={
+          fontPickerMode === "chat"
+            ? chatFont
+            : fontPickerMode === "code"
+              ? codeFont
+              : terminalFont
+        }
+        onSelect={(font) => {
+          if (fontPickerMode === "chat") setChatFont(font);
+          else if (fontPickerMode === "code") setCodeFont(font);
+          else setTerminalFont(font);
+        }}
+        onClose={() => setFontPickerMode(null)}
+      />
+      <FontSizeModal
+        visible={showFontSize}
+        currentSize={fontSize}
+        onChangeSize={setFontSize}
+        onClose={() => setShowFontSize(false)}
+      />
+      <ApiKeyModal
+        visible={showApiKey}
+        currentKey={apiKey}
+        onSave={setApiKey}
+        onClose={() => setShowApiKey(false)}
+      />
     </ScrollView>
   );
 }

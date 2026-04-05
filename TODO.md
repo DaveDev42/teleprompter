@@ -112,17 +112,17 @@
 ## 📋 P4 — 미완/미비 기능
 
 ### Settings UI — Stub 버튼 (onPress={() => {}} 상태)
-- [ ] **Font Picker UI 미구현** — Chat Font, Code Font, Terminal Font, Font Size 4개 설정 행이 Settings에 표시되지만 `onPress={() => {}}` (빈 핸들러). 폰트 선택 모달/피커 없음
-- [ ] **Font 미적용** — store에 저장된 폰트 설정이 실제 컴포넌트에 적용되지 않음:
-  - `GhosttyTerminal.tsx:48-49` — 터미널 폰트/사이즈 하드코딩 (`fontSize: 14`, `fontFamily: "Menlo, Monaco..."`)
-  - `GhosttyNative.tsx:70-71` — 네이티브 터미널도 하드코딩 (`fontSize: 13`, `fontFamily: "Menlo, Monaco..."`)
-  - `ChatCard.tsx` — 채팅 폰트 하드코딩 (`text-[15px]`, 시스템 기본 폰트)
-  - 커스텀 폰트 로딩 없음 (expo-font, @expo-google-fonts 미설치, .ttf/.otf 파일 없음)
-- [ ] **OpenAI API Key 설정 UI 미구현** — Settings에 "OpenAI API Key" 행이 표시되지만 `onPress={() => {}}`. 입력 모달/다이얼로그 없음
-- [ ] **OpenAI API Key 비영속** — `voice-store.apiKey`가 메모리 전용 (secureGet/secureSet 미사용), 앱 재시작 시 소실
+- [x] **Font Picker UI 구현** — FontPickerModal (chat/code/terminal 폰트 선택) + FontSizeModal (10–24px 스테퍼) 구현. Settings에서 각 행 onPress로 모달 표시
+- [x] **Font 적용** — store 폰트 설정이 실제 컴포넌트에 반영:
+  - `GhosttyTerminal.tsx` — useSettingsStore에서 terminalFont, fontSize 읽어서 적용
+  - `GhosttyNative.tsx` — buildGhosttyHtml에 terminalFont, fontSize 전달
+  - `ChatCard.tsx` — chatFont, codeFont, fontSize를 UserCard/AssistantCard/StreamingCard에 적용
+  - 시스템 폰트 기반 (사전 정의 목록에서 선택, 커스텀 폰트 로딩 불필요)
+- [x] **OpenAI API Key 설정 UI 구현** — ApiKeyModal (TextInput + Save/Remove) 구현. Settings에서 onPress로 모달 표시
+- [x] **OpenAI API Key 영속화** — voice-store.ts에 secureGet/secureSet 추가. 앱 시작 시 load, 설정 시 persist
 
 ### Theme
-- [ ] **테마 선택 비영속** — `theme-store.ts`에 persistence 없음 (secureGet/secureSet 미사용). 앱 재시작 시 항상 "dark"로 초기화
+- [x] **테마 선택 영속화** — theme-store.ts에 secureGet/secureSet 추가. 앱 재시작 시 선택한 테마 유지
 
 ### Voice (음성) — Web 전용, 네이티브 미지원
 - [ ] `VoiceButton`이 iOS/Android에서 `null` 반환 — 네이티브 오디오 캡처/재생 미구현 (expo-av 등 필요)

@@ -1,5 +1,6 @@
 import { Platform, Pressable, Text, View } from "react-native";
 import type { ChatMessage } from "../stores/chat-store";
+import { useSettingsStore } from "../stores/settings-store";
 
 async function copyText(text: string) {
   if (Platform.OS === "web" && navigator.clipboard) {
@@ -12,14 +13,18 @@ async function copyText(text: string) {
 function RichText({
   text,
   className: textClass,
+  fontStyle,
+  codeFontStyle,
 }: {
   text: string;
   className?: string;
+  fontStyle?: { fontFamily: string; fontSize: number };
+  codeFontStyle?: { fontFamily: string };
 }) {
   const parts = text.split(/(```[\s\S]*?```)/g);
   if (parts.length === 1) {
     return (
-      <Text className={textClass} selectable>
+      <Text className={textClass} style={fontStyle} selectable>
         {text}
       </Text>
     );
@@ -42,14 +47,14 @@ function RichText({
                   {lang}
                 </Text>
               ) : null}
-              <Text className="text-tp-success text-xs" selectable>
+              <Text className="text-tp-success text-xs" style={codeFontStyle} selectable>
                 {code}
               </Text>
             </Pressable>
           );
         }
         return part ? (
-          <Text key={i} className={textClass} selectable>
+          <Text key={i} className={textClass} style={fontStyle} selectable>
             {part}
           </Text>
         ) : null;
@@ -58,20 +63,38 @@ function RichText({
   );
 }
 
-function UserCard({ msg }: { msg: ChatMessage }) {
+function UserCard({
+  msg,
+  fontStyle,
+}: {
+  msg: ChatMessage;
+  fontStyle: { fontFamily: string; fontSize: number };
+}) {
   return (
     <Pressable
       className="self-end bg-tp-user-bubble rounded-bubble rounded-br-sm px-4 py-2.5 max-w-[80%]"
       onLongPress={() => copyText(msg.text)}
     >
-      <Text className="text-white text-[15px] leading-[22px]" selectable>
+      <Text
+        className="text-white leading-[22px]"
+        style={fontStyle}
+        selectable
+      >
         {msg.text}
       </Text>
     </Pressable>
   );
 }
 
-function AssistantCard({ msg }: { msg: ChatMessage }) {
+function AssistantCard({
+  msg,
+  fontStyle,
+  codeFontStyle,
+}: {
+  msg: ChatMessage;
+  fontStyle: { fontFamily: string; fontSize: number };
+  codeFontStyle: { fontFamily: string };
+}) {
   return (
     <Pressable
       className="self-start bg-tp-assistant-bubble rounded-bubble rounded-tl-sm px-4 py-2.5 max-w-[80%]"
@@ -79,7 +102,9 @@ function AssistantCard({ msg }: { msg: ChatMessage }) {
     >
       <RichText
         text={msg.text}
-        className="text-tp-text-primary text-[15px] leading-[22px]"
+        className="text-tp-text-primary leading-[22px]"
+        fontStyle={fontStyle}
+        codeFontStyle={codeFontStyle}
       />
     </Pressable>
   );
@@ -141,10 +166,20 @@ function SystemCard({ msg }: { msg: ChatMessage }) {
   );
 }
 
-function StreamingCard({ msg }: { msg: ChatMessage }) {
+function StreamingCard({
+  msg,
+  fontStyle,
+}: {
+  msg: ChatMessage;
+  fontStyle: { fontFamily: string; fontSize: number };
+}) {
   return (
     <View className="self-start bg-tp-assistant-bubble rounded-bubble rounded-tl-sm px-4 py-2.5 max-w-[80%] opacity-70">
-      <Text className="text-tp-text-secondary italic text-[15px]" selectable>
+      <Text
+        className="text-tp-text-secondary italic"
+        style={fontStyle}
+        selectable
+      >
         {msg.text}
       </Text>
     </View>
@@ -197,11 +232,23 @@ function PermissionCard({ msg }: { msg: ChatMessage }) {
 }
 
 export function ChatCard({ msg }: { msg: ChatMessage }) {
+  const chatFont = useSettingsStore((s) => s.chatFont);
+  const codeFont = useSettingsStore((s) => s.codeFont);
+  const fontSize = useSettingsStore((s) => s.fontSize);
+  const fontStyle = { fontFamily: chatFont, fontSize };
+  const codeFontStyle = { fontFamily: codeFont };
+
   switch (msg.type) {
     case "user":
-      return <UserCard msg={msg} />;
+      return <UserCard msg={msg} fontStyle={fontStyle} />;
     case "assistant":
-      return <AssistantCard msg={msg} />;
+      return (
+        <AssistantCard
+          msg={msg}
+          fontStyle={fontStyle}
+          codeFontStyle={codeFontStyle}
+        />
+      );
     case "tool":
       return <ToolCard msg={msg} />;
     case "elicitation":
@@ -211,6 +258,6 @@ export function ChatCard({ msg }: { msg: ChatMessage }) {
     case "system":
       return <SystemCard msg={msg} />;
     case "streaming":
-      return <StreamingCard msg={msg} />;
+      return <StreamingCard msg={msg} fontStyle={fontStyle} />;
   }
 }

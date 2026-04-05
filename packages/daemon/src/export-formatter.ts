@@ -1,16 +1,23 @@
+import type { WsSessionMeta } from "@teleprompter/protocol";
 import stripAnsi from "strip-ansi";
 import type { StoredRecord } from "./store/session-db";
 
-export interface ExportSessionMeta {
-  sid: string;
-  state: string;
-  cwd: string;
-  createdAt: number;
-  updatedAt: number;
-  lastSeq: number;
-}
-
 const IO_MERGE_GAP_MS = 2000;
+
+/** Event names that render as `### {Display Name}` + full JSON block */
+const JSON_BLOCK_EVENTS: Record<string, string> = {
+  PermissionRequest: "Permission Request",
+  Elicitation: "Elicitation",
+  ElicitationResult: "Elicitation Result",
+  SubagentStart: "Subagent Start",
+  SubagentStop: "Subagent Stop",
+  SessionStart: "Session Start",
+  SessionEnd: "Session End",
+};
+
+function jsonBlock(heading: string, data: unknown): string {
+  return `### ${heading}\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``;
+}
 
 export function formatEventRecord(rec: StoredRecord): string {
   const raw = Buffer.from(rec.payload).toString("utf-8");
@@ -30,43 +37,24 @@ export function formatEventRecord(rec: StoredRecord): string {
       if (data.last_assistant_message) {
         return `### Assistant Response\n\n${data.last_assistant_message}`;
       }
-      return `### Assistant Response\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``;
+      return jsonBlock("Assistant Response", data);
 
     case "UserPromptSubmit":
       if (data.prompt) {
         return `### User\n\n> ${String(data.prompt).replace(/\n/g, "\n> ")}`;
       }
-      return `### User\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``;
+      return jsonBlock("User", data);
 
     case "PreToolUse":
-      return `### Tool Use: ${data.tool_name ?? "unknown"}\n\n\`\`\`json\n${JSON.stringify(data.tool_input, null, 2)}\n\`\`\``;
+      return jsonBlock(`Tool Use: ${data.tool_name ?? "unknown"}`, data.tool_input);
 
     case "PostToolUse":
-      return `### Tool Result: ${data.tool_name ?? "unknown"}\n\n\`\`\`json\n${JSON.stringify(data.tool_result ?? data.tool_input, null, 2)}\n\`\`\``;
+      return jsonBlock(`Tool Result: ${data.tool_name ?? "unknown"}`, data.tool_result ?? data.tool_input);
 
-    case "PermissionRequest":
-      return `### Permission Request\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``;
-
-    case "Elicitation":
-      return `### Elicitation\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``;
-
-    case "ElicitationResult":
-      return `### Elicitation Result\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``;
-
-    case "SubagentStart":
-      return `### Subagent Start\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``;
-
-    case "SubagentStop":
-      return `### Subagent Stop\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``;
-
-    case "SessionStart":
-      return `### Session Start\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``;
-
-    case "SessionEnd":
-      return `### Session End\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``;
-
-    default:
-      return `### ${rec.name ?? "Event"}\n\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``;
+    default: {
+      const displayName = (rec.name && JSON_BLOCK_EVENTS[rec.name]) ?? rec.name ?? "Event";
+      return jsonBlock(displayName, data);
+    }
   }
 }
 
@@ -110,7 +98,7 @@ function formatMetaRecord(rec: StoredRecord): string {
 }
 
 export function formatMarkdown(
-  meta: ExportSessionMeta,
+  meta: WsSessionMeta,
   records: StoredRecord[],
   truncated = false,
 ): string {

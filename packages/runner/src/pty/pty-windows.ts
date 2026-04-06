@@ -21,7 +21,9 @@ export class PtyWindows implements PtyManager {
     // If no custom host script path (e.g. test override), use the installed path
     if (!this.hostScriptPath) {
       const { ensurePtyHost } = require("./pty-host-installer") as typeof import("./pty-host-installer");
-      const hostDir = ensurePtyHost(process.env.npm_package_version ?? "0.0.0");
+      // Use runner package version — npm_package_version is unreliable in compiled binaries
+      const { version } = require("../../package.json") as { version: string };
+      const hostDir = ensurePtyHost(version);
       this.hostScriptPath = join(hostDir, "pty-windows-host.cjs");
     }
 

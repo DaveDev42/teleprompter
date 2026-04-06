@@ -33,7 +33,8 @@ export function getTaskName(): string {
 
 export function generateSchtasksArgs(tpBinary: string, logDir: string): string[] {
   const logFile = join(logDir, "daemon.log");
-  const tr = `"${tpBinary}" daemon start > "${logFile}" 2>&1`;
+  // Wrap in cmd.exe because schtasks /TR does not support shell redirection natively
+  const tr = `cmd.exe /C ""${tpBinary}" daemon start > "${logFile}" 2>&1"`;
 
   return [
     "/Create",

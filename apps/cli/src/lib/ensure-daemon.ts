@@ -164,7 +164,10 @@ async function showInstallHint(): Promise<void> {
 
   // Mark hint as shown
   try {
-    const dir = join(process.env.HOME ?? "/tmp", ".config", "teleprompter");
+    const dir = join(
+      process.env.APPDATA ?? process.env.HOME ?? "/tmp",
+      "teleprompter",
+    );
     await mkdir(dir, { recursive: true });
     await writeFile(HINT_FILE, new Date().toISOString());
   } catch {

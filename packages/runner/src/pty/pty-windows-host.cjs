@@ -1,3 +1,7 @@
+// NOTE: This file is also embedded as a string constant in pty-host-installer.ts
+// (PTY_HOST_SCRIPT). When modifying this file, update the embedded copy too.
+// The embedded version is used for compiled binary deployment where this file
+// is not available on disk.
 "use strict";
 
 const pty = require("@aspect-build/node-pty");

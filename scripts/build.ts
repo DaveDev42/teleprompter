@@ -28,7 +28,7 @@ const TARGETS = [
 type Target = (typeof TARGETS)[number];
 
 function outFile(name: string, target: Target): string {
-  const suffix = target.replace("bun-", "").replace("-", "_");
+  const suffix = target.replace("bun-", "").replaceAll("-", "_");
   const ext = target.includes("windows") ? ".exe" : "";
   return `${OUT_DIR}/${name}-${suffix}${ext}`;
 }

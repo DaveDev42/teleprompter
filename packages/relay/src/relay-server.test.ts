@@ -791,10 +791,7 @@ describe("RelayServer", () => {
         }),
       );
 
-      const err = await waitForMessage(
-        frontend,
-        (m) => m.t === "relay.err",
-      );
+      const err = await waitForMessage(frontend, (m) => m.t === "relay.err");
       expect(err.t).toBe("relay.err");
       expect((err as RelayError).e).toBe("UNAUTHORIZED");
 

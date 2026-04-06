@@ -24,7 +24,7 @@ export default function RootLayout() {
   const theme = useThemeStore((s) => s.theme);
   const isDark = useThemeStore((s) => s.isDark);
   const setTheme = useThemeStore((s) => s.setTheme);
-  const systemScheme = useColorScheme();
+  const _systemScheme = useColorScheme();
 
   // Load saved settings on mount
   useEffect(() => {
@@ -34,14 +34,14 @@ export default function RootLayout() {
     loadVoice();
     // One-time cleanup: remove stale daemon_url from removed connection-store
     secureDelete("daemon_url");
-  }, []);
+  }, [loadVoice, loadPairings, loadTheme, loadSettings]);
 
   // Re-resolve theme when system color scheme changes
   useEffect(() => {
     if (theme === "system") {
       setTheme("system");
     }
-  }, [systemScheme, theme]);
+  }, [theme, setTheme]);
 
   // Direct WebSocket to local daemon (always active for E2E and local dev)
   // In production mobile, getTransport() prefers relay when paired

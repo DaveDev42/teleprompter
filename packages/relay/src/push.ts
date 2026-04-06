@@ -11,6 +11,7 @@ export type DeliveryResult = "ws" | "push" | "rate_limited" | "deduped" | "error
 
 export interface PushRequest {
   frontendId: string;
+  daemonId: string;
   token: string;
   title: string;
   body: string;
@@ -57,7 +58,8 @@ export class PushService {
   }
 
   async sendOrDeliver(req: PushRequest): Promise<DeliveryResult> {
-    const { frontendId, token, title, body, isFrontendConnected, data } = req;
+    const { frontendId, daemonId, token, title, body, isFrontendConnected, data } = req;
+    const rateLimitKey = `${daemonId}:${frontendId}`;
 
     // Step 1: WebSocket delivery takes priority
     if (isFrontendConnected) {
@@ -78,7 +80,7 @@ export class PushService {
 
     // Step 3: Rate limit check
     const now = Date.now();
-    const rl = this.rateLimits.get(frontendId);
+    const rl = this.rateLimits.get(rateLimitKey);
     if (rl && now - rl.windowStart < 60_000) {
       if (rl.count >= this.rateLimitPerMinute) {
         log.warn(`rate limited push for frontendId ${frontendId}`);
@@ -95,7 +97,7 @@ export class PushService {
     if (rl && now - rl.windowStart < 60_000) {
       rl.count++;
     } else {
-      this.rateLimits.set(frontendId, { count: 1, windowStart: now });
+      this.rateLimits.set(rateLimitKey, { count: 1, windowStart: now });
     }
 
     // Step 5: Call Expo Push API

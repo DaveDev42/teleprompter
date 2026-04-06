@@ -122,15 +122,10 @@ jobs:
       - name: Test
         run: |
           # Bun 1.3.6 on Windows may panic after all tests pass (internal assertion failure).
-          # Capture output and check for "0 fail" to determine actual test result.
-          set +e
-          output=$(bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay 2>&1)
-          exit_code=$?
-          echo "$output"
-          if echo "$output" | grep -q "0 fail"; then
-            exit 0
-          fi
-          exit $exit_code
+          # Write output to file, then check for "0 fail" to determine actual result.
+          bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay 2>&1 | tee test-output.txt || true
+          cat test-output.txt
+          grep -q "0 fail" test-output.txt
         shell: bash
 
       - name: Build CLI

@@ -12,7 +12,7 @@ let globalClient: DaemonWsClient | null = null;
  * Should be called once at the app layout level.
  * Returns the client instance for sending messages.
  */
-export function useDaemon(url?: string) {
+export function useDaemon() {
   const clientRef = useRef<DaemonWsClient | null>(null);
 
   useEffect(() => {
@@ -28,7 +28,7 @@ export function useDaemon(url?: string) {
     } = useSessionStore.getState();
     const { cacheFrame, updateState } = useOfflineStore.getState();
 
-    const client = new DaemonWsClient(url, {
+    const client = new DaemonWsClient(undefined, {
       onOpen: () => {
         setConnected(true);
         setError(null);
@@ -87,7 +87,7 @@ export function useDaemon(url?: string) {
       clientRef.current = null;
       globalClient = null;
     };
-  }, [url]);
+  }, []);
 
   return clientRef;
 }

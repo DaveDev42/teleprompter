@@ -8,16 +8,12 @@ import { UpdateBanner } from "../src/components/UpdateBanner";
 import { useDaemon } from "../src/hooks/use-daemon";
 import { useOtaUpdate } from "../src/hooks/use-ota-update";
 import { useRelay } from "../src/hooks/use-relay";
-import { useConnectionStore } from "../src/stores/connection-store";
 import { usePairingStore } from "../src/stores/pairing-store";
 import { useSettingsStore } from "../src/stores/settings-store";
 import { useThemeStore } from "../src/stores/theme-store";
 import { useVoiceStore } from "../src/stores/voice-store";
 
 export default function RootLayout() {
-  const daemonUrl = useConnectionStore((s) => s.daemonUrl);
-  const loaded = useConnectionStore((s) => s.loaded);
-  const loadConnection = useConnectionStore((s) => s.load);
   const loadPairings = usePairingStore((s) => s.load);
   const loadSettings = useSettingsStore((s) => s.load);
   const loadTheme = useThemeStore((s) => s.load);
@@ -29,7 +25,6 @@ export default function RootLayout() {
 
   // Load saved settings on mount
   useEffect(() => {
-    loadConnection();
     loadPairings();
     loadSettings();
     loadTheme();
@@ -44,7 +39,7 @@ export default function RootLayout() {
   }, [systemScheme, theme]);
 
   // Direct WebSocket to local daemon (always available for local dev)
-  useDaemon(loaded ? (daemonUrl ?? undefined) : undefined);
+  useDaemon();
 
   // E2EE relay connections for all paired daemons (runs in parallel with direct WS)
   useRelay();

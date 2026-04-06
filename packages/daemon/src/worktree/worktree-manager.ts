@@ -111,6 +111,11 @@ export class WorktreeManager {
       }
     }
 
+    // Push the last worktree (output may not end with a blank line)
+    if (current.path) {
+      worktrees.push(current as WorktreeInfo);
+    }
+
     // Mark the first as main
     if (worktrees.length > 0 && !worktrees.some((w) => w.isMain)) {
       worktrees[0].isMain = true;

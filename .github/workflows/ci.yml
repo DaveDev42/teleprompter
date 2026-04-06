@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -14,15 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.6"
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - name: Lint & format check
         run: npx biome ci .
 
@@ -30,15 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.6"
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - name: Type check
         run: |
           npx tsc --noEmit -p packages/daemon/tsconfig.json
@@ -51,15 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.6"
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - name: Test with coverage
         run: bun test --coverage packages/protocol packages/daemon packages/runner apps/cli packages/relay
 
@@ -67,15 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.6"
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - name: Build CLI
         run: bun run scripts/build.ts
       - name: Smoke test
@@ -87,15 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.6"
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
 
       - name: Cache Playwright browsers
         id: playwright-cache
@@ -103,6 +67,8 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
 
       - name: Cache Expo web build
         id: expo-cache
@@ -112,6 +78,8 @@ jobs:
             apps/app/dist
             apps/app/node_modules/.cache
           key: expo-web-${{ runner.os }}-${{ hashFiles('apps/app/**/*.ts', 'apps/app/**/*.tsx', 'apps/app/app.json', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            expo-web-${{ runner.os }}-
 
       - name: Build web frontend
         if: steps.expo-cache.outputs.cache-hit != 'true'
@@ -162,7 +130,7 @@ jobs:
         run: cd apps/app && npx expo doctor
 
       - name: Trigger EAS Build
-        if: steps.changes.outputs.app == 'true' && vars.EXPO_TOKEN != ''
+        if: steps.changes.outputs.app == 'true' && secrets.EXPO_TOKEN != ''
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: cd apps/app && npx eas-cli build --platform all --profile preview --non-interactive

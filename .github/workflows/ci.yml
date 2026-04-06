@@ -31,12 +31,15 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Type check
         run: |
-          npx tsc --noEmit -p packages/daemon/tsconfig.json &
-          npx tsc --noEmit -p apps/cli/tsconfig.json &
-          npx tsc --noEmit -p packages/relay/tsconfig.json &
-          npx tsc --noEmit -p packages/runner/tsconfig.json &
-          npx tsc --noEmit -p apps/app/tsconfig.json &
-          wait
+          pids=()
+          npx tsc --noEmit -p packages/daemon/tsconfig.json & pids+=($!)
+          npx tsc --noEmit -p apps/cli/tsconfig.json & pids+=($!)
+          npx tsc --noEmit -p packages/relay/tsconfig.json & pids+=($!)
+          npx tsc --noEmit -p packages/runner/tsconfig.json & pids+=($!)
+          npx tsc --noEmit -p apps/app/tsconfig.json & pids+=($!)
+          fail=0
+          for pid in "${pids[@]}"; do wait "$pid" || fail=1; done
+          exit $fail
 
   test:
     runs-on: ubuntu-latest
@@ -125,10 +128,12 @@ jobs:
 
       - name: Expo Doctor
         if: steps.changes.outputs.app == 'true'
-        run: cd apps/app && npx expo doctor
+        working-directory: apps/app
+        run: npx expo doctor
 
       - name: Trigger EAS Build
         if: steps.changes.outputs.app == 'true' && env.EXPO_TOKEN != ''
+        working-directory: apps/app
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: cd apps/app && npx eas-cli build --platform all --profile preview --non-interactive
+        run: npx eas-cli build --platform all --profile preview --non-interactive

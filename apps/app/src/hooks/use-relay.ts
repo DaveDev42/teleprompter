@@ -1,8 +1,4 @@
-import type {
-  WsHelloReply,
-  WsRec,
-  WsState,
-} from "@teleprompter/protocol/client";
+import type { WsRec, WsSessionMeta } from "@teleprompter/protocol/client";
 import { useEffect } from "react";
 import { create } from "zustand";
 import { FrontendRelayClient } from "../lib/relay-client";
@@ -95,7 +91,7 @@ export function useRelay() {
             incrementReconnect();
             relayConn.setConnected(daemonId, false);
           },
-          onRecord: (rec: WsRec) => {
+          onRec: (rec: WsRec) => {
             const seq = rec.seq;
             if (seq > useSessionStore.getState().lastSeq) {
               setLastSeq(seq);
@@ -103,24 +99,17 @@ export function useRelay() {
             cacheFrame(rec);
             dispatchRec(rec);
           },
-          onState: (msg: unknown) => {
-            if (msg && typeof msg === "object" && "t" in msg) {
-              const m = msg as Record<string, unknown>;
-              if (m.t === "state" && typeof m.sid === "string" && m.d) {
-                const state = m as unknown as WsState;
-                updateSession(state.sid, state.d);
-                updateState(state.sid, state.d.state);
-                const currentSid = useSessionStore.getState().sid;
-                if (!currentSid && state.d.state === "running") {
-                  client.subscribe(state.sid);
-                  setSid(state.sid);
-                  setLastSeq(state.d.lastSeq);
-                }
-              }
-              if (m.t === "hello" && m.d && typeof m.d === "object") {
-                const hello = m as unknown as WsHelloReply;
-                setSessions(hello.d.sessions);
-              }
+          onSessionList: (sessions: WsSessionMeta[]) => {
+            setSessions(sessions);
+          },
+          onState: (sid: string, meta: WsSessionMeta) => {
+            updateSession(sid, meta);
+            updateState(sid, meta.state);
+            const currentSid = useSessionStore.getState().sid;
+            if (!currentSid && meta.state === "running") {
+              client.subscribe(sid);
+              setSid(sid);
+              setLastSeq(meta.lastSeq);
             }
           },
           onPresence: (online: boolean, sessions: string[]) => {

@@ -41,10 +41,11 @@ export default function RootLayout() {
     }
   }, [systemScheme, theme]);
 
-  // Direct WebSocket to local daemon (always available for local dev)
-  useDaemon();
+  // Direct WebSocket to local daemon (__DEV__ only — production uses relay exclusively)
+  // null = disabled (production), undefined = auto-detect URL
+  useDaemon(__DEV__ ? undefined : null);
 
-  // E2EE relay connections for all paired daemons (runs in parallel with direct WS)
+  // E2EE relay connections for all paired daemons
   useRelay();
 
   // OTA update check on app launch

@@ -106,6 +106,14 @@ export interface WsSessionExport {
   limit?: number;
 }
 
+export interface WsPushToken {
+  t: "pushToken";
+  /** Expo push token (e.g., "ExponentPushToken[xxx]") */
+  token: string;
+  /** Client platform */
+  platform: "ios" | "android";
+}
+
 export type WsClientMessage =
   | WsHello
   | WsAttach
@@ -121,7 +129,8 @@ export type WsClientMessage =
   | WsSessionCreate
   | WsSessionStop
   | WsSessionRestart
-  | WsSessionExport;
+  | WsSessionExport
+  | WsPushToken;
 
 // ── Daemon → Frontend ──
 

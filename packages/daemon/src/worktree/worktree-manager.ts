@@ -13,15 +13,16 @@ import { dirname } from "path";
 const log = createLogger("WorktreeManager");
 
 /** Run a git command and return stdout text. */
-function gitOutput(args: string[]): string {
+function gitOutput(args: string[], cwd?: string): string {
   return execFileSync("git", args, {
+    cwd,
     stdio: ["ignore", "pipe", "ignore"],
   }).toString();
 }
 
 /** Run a git command, ignoring stdout. Throws on non-zero exit. */
-function gitRun(args: string[]): void {
-  execFileSync("git", args, { stdio: "ignore" });
+function gitRun(args: string[], cwd?: string): void {
+  execFileSync("git", args, { cwd, stdio: "ignore" });
 }
 
 /**
@@ -75,13 +76,10 @@ export class WorktreeManager {
   async list(): Promise<WorktreeInfo[]> {
     let result: string;
     try {
-      result = gitOutput([
-        "-C",
+      result = gitOutput(
+        ["-C", this.repoRoot, "worktree", "list", "--porcelain"],
         this.repoRoot,
-        "worktree",
-        "list",
-        "--porcelain",
-      ]);
+      );
     } catch {
       return [];
     }
@@ -140,33 +138,45 @@ export class WorktreeManager {
     // Check if branch exists
     let branchExists = false;
     try {
-      gitOutput(["-C", this.repoRoot, "rev-parse", "--verify", branch]);
+      gitOutput(
+        ["-C", this.repoRoot, "rev-parse", "--verify", branch],
+        this.repoRoot,
+      );
       branchExists = true;
     } catch {
       branchExists = false;
     }
 
     if (branchExists) {
-      gitRun(["-C", this.repoRoot, "worktree", "add", path, branch]);
-    } else if (baseBranch) {
-      gitRun([
-        "-C",
+      gitRun(
+        ["-C", this.repoRoot, "worktree", "add", path, branch],
         this.repoRoot,
-        "worktree",
-        "add",
-        "-b",
-        branch,
-        path,
-        baseBranch,
-      ]);
+      );
+    } else if (baseBranch) {
+      gitRun(
+        [
+          "-C",
+          this.repoRoot,
+          "worktree",
+          "add",
+          "-b",
+          branch,
+          path,
+          baseBranch,
+        ],
+        this.repoRoot,
+      );
     } else {
-      gitRun(["-C", this.repoRoot, "worktree", "add", "-b", branch, path]);
+      gitRun(
+        ["-C", this.repoRoot, "worktree", "add", "-b", branch, path],
+        this.repoRoot,
+      );
     }
 
     log.info(`added worktree at ${path} (${branch})`);
 
     // Get HEAD of the new worktree
-    const head = gitOutput(["-C", path, "rev-parse", "HEAD"]).trim();
+    const head = gitOutput(["-C", path, "rev-parse", "HEAD"], path).trim();
 
     return { path, branch, head, isMain: false };
   }
@@ -177,7 +187,7 @@ export class WorktreeManager {
   async remove(path: string, force = false): Promise<void> {
     const args = ["-C", this.repoRoot, "worktree", "remove", path];
     if (force) args.push("--force");
-    gitRun(args);
+    gitRun(args, this.repoRoot);
     log.info(`removed worktree at ${path}`);
   }
 
@@ -185,6 +195,6 @@ export class WorktreeManager {
    * Prune stale worktree entries.
    */
   async prune(): Promise<void> {
-    gitRun(["-C", this.repoRoot, "worktree", "prune"]);
+    gitRun(["-C", this.repoRoot, "worktree", "prune"], this.repoRoot);
   }
 }

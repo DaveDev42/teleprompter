@@ -25,7 +25,7 @@ const protocolSrc = resolve(
   "protocol",
   "src",
   "index.ts",
-);
+).replaceAll("\\", "/");
 
 // ── helpers ──
 

@@ -127,13 +127,27 @@ export class Store {
 
     // Delete session database file
     const dbPath = join(this.storeDir, "sessions", `${sid}.sqlite`);
-    if (existsSync(dbPath)) {
-      unlinkSync(dbPath);
-    }
+    this.unlinkRetry(dbPath);
     // Also remove WAL/SHM files
     for (const suffix of ["-wal", "-shm"]) {
-      const walPath = dbPath + suffix;
-      if (existsSync(walPath)) unlinkSync(walPath);
+      this.unlinkRetry(dbPath + suffix);
+    }
+  }
+
+  private unlinkRetry(path: string, retries = 3): void {
+    for (let i = 0; i <= retries; i++) {
+      try {
+        if (existsSync(path)) unlinkSync(path);
+        return;
+      } catch (err: unknown) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if ((code === "EBUSY" || code === "EPERM") && i < retries) {
+          // Brief sync delay to let OS release file handles
+          Bun.sleepSync(50 * (i + 1));
+          continue;
+        }
+        throw err;
+      }
     }
   }
 

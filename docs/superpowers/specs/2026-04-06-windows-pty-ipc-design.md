@@ -309,8 +309,36 @@ macOS/Linux에서는 기존 테스트만 실행되어 regression 없음 확인.
 `bun build --compile` 시 node-pty `.node` 파일은 번들 불가.
 Windows PTY 호스트(`pty-windows-host.cjs`)는 Node.js 런타임에서 실행되므로,
 Windows에서는 Node.js가 PATH에 있어야 한다 (Claude Code 자체가 Node.js 기반이므로 사전 설치 전제).
-`@aspect-build/node-pty`는 호스트 스크립트의 런타임 의존성으로, tp 바이너리와 별도로 `npm install` 되어야 한다.
-설치 경로: `%LOCALAPPDATA%\teleprompter\pty-host\` (package.json + node_modules).
+
+**macOS/Linux에서는 추가 설치 없음** — PTY는 `Bun.spawn({ terminal })` 내장.
+
+### Windows PTY 호스트 자동 설치
+
+`@aspect-build/node-pty`는 tp 바이너리에 번들 불가하므로 별도 설치가 필요하다.
+유저가 수동으로 `npm install` 하지 않도록, **자동 설치 메커니즘**을 제공한다.
+
+**설치 경로:** `%LOCALAPPDATA%\teleprompter\pty-host\`
+
+**자동 설치 트리거:**
+1. **최초 PTY spawn 시** — `PtyWindows.spawn()`이 호출될 때 pty-host 디렉토리 존재 여부 확인. 없으면 자동 설치 후 spawn 진행
+2. **`tp upgrade` 시** — tp 바이너리 업그레이드 시 pty-host도 함께 갱신
+3. **`tp doctor` 시** — pty-host 상태 진단 + 누락 시 설치 안내
+
+**설치 과정:**
+```
+1. mkdirSync('%LOCALAPPDATA%\teleprompter\pty-host\')
+2. package.json 생성 ({"dependencies":{"@aspect-build/node-pty":"*"}})
+3. child_process.execSync('npm install --production', { cwd: ptyHostDir })
+4. pty-windows-host.cjs 복사 (tp 바이너리에 임베드된 텍스트로부터)
+```
+
+**버전 관리:**
+- pty-host 디렉토리에 `.version` 파일로 tp 버전 기록
+- `PtyWindows.spawn()` 시 `.version`과 현재 tp 버전 비교, 불일치 시 재설치
+
+**설치 실패 시:**
+- 에러 메시지 출력 + `tp doctor` 실행 안내
+- Node.js 미설치 시: "Node.js가 필요합니다. https://nodejs.org 에서 설치하세요." 안내
 
 ## 7. Documentation Updates
 

@@ -103,6 +103,8 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `packages/daemon/src/store/session-db.test.ts` — append, cursor, payloads
 - `packages/daemon/src/store/store-cleanup.test.ts` — deleteSession, pruneOldSessions
 - `packages/daemon/src/auto-cleanup.test.ts` — daemon auto-cleanup on startup, periodic scheduler, TTL config
+- `packages/daemon/src/push/push-notifier.test.ts` — hook event detection, token registration, push dispatch
+- `packages/relay/src/push.test.ts` — Expo Push API client, rate limiting, dedup
 - `packages/protocol/src/socket-path.test.ts` — path format
 - `packages/protocol/src/logger.test.ts` — level filtering, prefix formatting
 - `apps/cli/src/args.test.ts` — `--tp-*` 인자 분리
@@ -122,7 +124,7 @@ Stub 프로세스로 전체 파이프라인 검증.
 - `packages/daemon/src/e2e.test.ts` — 동시 세션, crash, resume, streaming, input relay
 - `packages/daemon/src/transport/ws-server.test.ts` — WebSocket 서버 동작
 - `packages/daemon/src/transport/relay-client.test.ts` — Daemon→Relay E2E with v2 self-registration + key exchange
-- `packages/relay/src/relay-server.test.ts` — Relay auth, routing, caching, presence
+- `packages/relay/src/relay-server.test.ts` — Relay auth, routing, caching, presence, relay.push handling
 - `packages/relay/src/relay-edge.test.ts` — malformed JSON, multi-frontend, unsubscribe
 - `packages/daemon/src/worktree/worktree-manager.test.ts` — git worktree add/remove/list
 - `packages/daemon/src/worktree-ws.test.ts` — worktree/session WS protocol handlers

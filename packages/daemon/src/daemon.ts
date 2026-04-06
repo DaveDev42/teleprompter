@@ -15,6 +15,7 @@ import {
 } from "@teleprompter/protocol";
 import { formatMarkdown } from "./export-formatter";
 import { IpcServer } from "./ipc/server";
+import { PushNotifier } from "./push/push-notifier";
 import {
   type RunnerInfo,
   SessionManager,
@@ -42,10 +43,19 @@ export class Daemon {
   private wsServer: WsServer;
   private relayClients: RelayClient[] = [];
   private worktreeManager: WorktreeManager | null = null;
+  private pushNotifier: PushNotifier;
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(storeDir?: string) {
     this.store = new Store(storeDir);
+
+    this.pushNotifier = new PushNotifier({
+      sendPush: (frontendId, token, title, body, data) => {
+        for (const relay of this.relayClients) {
+          relay.sendPush(frontendId, token, title, body, data);
+        }
+      },
+    });
 
     this.ipcServer = new IpcServer({
       onConnect: (_runner) => {
@@ -237,6 +247,9 @@ export class Daemon {
           }
         }
       },
+      onPushToken: (frontendId, token, platform) => {
+        this.pushNotifier.registerToken(frontendId, token, platform);
+      },
     });
 
     await client.connect();
@@ -396,6 +409,14 @@ export class Daemon {
     for (const relay of this.relayClients) {
       relay.publishRecord(wsRec).catch(() => {});
     }
+
+    // Check if this record should trigger a push notification
+    this.pushNotifier.onRecord({
+      sid: msg.sid,
+      kind: msg.kind,
+      name: msg.name,
+      ns: msg.ns,
+    });
   }
 
   private handleBye(msg: IpcBye): void {

@@ -1,8 +1,6 @@
 name: Preview Deploy
-on:
-  # Triggered by GitHub Actions CI eas-gate job via `eas workflow:run`
-  # No automatic git push trigger — CI gates ensure lint/test/type-check pass first
-  manual: {}
+# Triggered by GitHub Actions CI eas-gate job via `eas workflow:run --ref`
+# No `on:` trigger — prevents automatic execution on git push
 jobs:
   fingerprint:
     name: Fingerprint

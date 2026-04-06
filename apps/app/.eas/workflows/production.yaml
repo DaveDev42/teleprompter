@@ -1,7 +1,6 @@
 name: Production Deploy
-on:
-  push:
-    tags: ['release/v*']
+# Triggered manually or by GitHub Actions release workflow via `eas workflow:run --ref`
+# No `on:` trigger — prevents automatic execution on git push/tag
 jobs:
   fingerprint:
     name: Fingerprint

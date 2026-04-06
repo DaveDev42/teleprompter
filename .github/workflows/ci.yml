@@ -131,9 +131,9 @@ jobs:
         working-directory: apps/app
         run: npx expo-doctor
 
-      - name: Trigger EAS Build
+      - name: Trigger EAS Preview Workflow
         if: steps.changes.outputs.app == 'true' && env.EXPO_TOKEN != ''
         working-directory: apps/app
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: npx eas-cli build --platform all --profile preview --non-interactive
+        run: npx eas-cli workflow:run .eas/workflows/preview.yaml --ref ${{ github.sha }} --non-interactive

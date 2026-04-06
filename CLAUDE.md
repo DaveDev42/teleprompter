@@ -214,15 +214,15 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 | Relay | GitHub Actions `deploy-relay.yml` | packages/relay,protocol,daemon 변경 시 |
 | Web | Vercel (자동) | 항상 → `tpmt.dev` |
 | EAS Gate | GitHub Actions `ci.yml` eas-gate job | CI 5 jobs pass + apps/app,packages/protocol 변경 시 |
-| iOS TestFlight | EAS via eas-gate (preview profile) | apps/app, packages/protocol 변경 시 |
-| Android Internal | EAS via eas-gate (preview profile) | apps/app, packages/protocol 변경 시 |
+| iOS TestFlight | EAS Workflow `preview.yaml` via eas-gate | Fingerprint → 빌드/OTA → TestFlight 제출 |
+| Android Internal | EAS Workflow `preview.yaml` via eas-gate | Fingerprint → 빌드/OTA → Internal track 제출 |
 
 ### release/v* 태그 (Release Please PR merge)
 | Target | Workflow | 설명 |
 |--------|----------|------|
 | tp 바이너리 | GitHub Actions `release.yml` | 4 플랫폼 빌드 → GitHub Release |
-| iOS App Store | EAS Workflow `production.yaml` | Fingerprint → 빌드/OTA → 제출 |
-| Android Play Store | EAS Workflow `production.yaml` | Fingerprint → 빌드/OTA → 제출 |
+| iOS App Store | EAS Workflow `production.yaml` (수동) | Fingerprint → 빌드/OTA → 제출 |
+| Android Play Store | EAS Workflow `production.yaml` (수동) | Fingerprint → 빌드/OTA → 제출 |
 
 ### 수동
 | Workflow | 역할 |
@@ -235,6 +235,7 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 - **JS만 변경**: OTA 업데이트 발행 (~2분, 빌드 비용 $0)
 - **네이티브 변경**: 풀빌드 + 스토어 제출
 - **paths 필터**: `dorny/paths-filter`로 apps/app/, packages/protocol/ 변경 감지 → 변경 없으면 EAS skip
+- **CI 게이트**: EAS Workflow는 git push로 자동 트리거되지 않음. CI eas-gate가 `eas workflow:run --ref` 로 트리거 (lint/test/type-check 통과 후)
 - **EAS 게이트**: CI 5개 job 전부 pass → `expo doctor` → `eas build` (EXPO_TOKEN secret 필요)
 
 ### 릴리즈 절차

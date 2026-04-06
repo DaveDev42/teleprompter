@@ -9,7 +9,12 @@ import { spinner } from "./spinner";
 
 const HINT_FILE = join(
   process.platform === "win32"
-    ? (process.env.APPDATA ?? join(process.env.USERPROFILE ?? "C:\\Users\\Default", "AppData", "Roaming"))
+    ? (process.env.APPDATA ??
+        join(
+          process.env.USERPROFILE ?? "C:\\Users\\Default",
+          "AppData",
+          "Roaming",
+        ))
     : join(process.env.HOME ?? "/tmp", ".config"),
   "teleprompter",
   ".daemon-hint-shown",
@@ -168,7 +173,12 @@ async function showInstallHint(): Promise<void> {
   try {
     const dir = join(
       process.platform === "win32"
-        ? (process.env.APPDATA ?? join(process.env.USERPROFILE ?? "C:\\Users\\Default", "AppData", "Roaming"))
+        ? (process.env.APPDATA ??
+            join(
+              process.env.USERPROFILE ?? "C:\\Users\\Default",
+              "AppData",
+              "Roaming",
+            ))
         : join(process.env.HOME ?? "/tmp", ".config"),
       "teleprompter",
     );

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { join } from "path";
 import { tmpdir } from "os";
+import { join } from "path";
 
 describe("pty-host-installer", () => {
   let testDir: string;

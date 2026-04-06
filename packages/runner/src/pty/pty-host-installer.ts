@@ -1,7 +1,7 @@
+import { createLogger } from "@teleprompter/protocol";
 import { execSync } from "child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { createLogger } from "@teleprompter/protocol";
 
 const log = createLogger("PtyHostInstaller");
 

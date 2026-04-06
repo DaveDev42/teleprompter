@@ -17,7 +17,8 @@ export interface PtyManager {
 
 export function createPtyManager(): PtyManager {
   if (process.platform === "win32") {
-    const { PtyWindows } = require("./pty-windows") as typeof import("./pty-windows");
+    const { PtyWindows } =
+      require("./pty-windows") as typeof import("./pty-windows");
     return new PtyWindows();
   }
   const { PtyBun } = require("./pty-bun") as typeof import("./pty-bun");

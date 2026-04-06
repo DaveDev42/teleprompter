@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "fs";
-import { join } from "path";
 import { tmpdir } from "os";
+import { join } from "path";
 
 describe("PtyWindows", () => {
   let testDir: string;
@@ -60,7 +60,9 @@ rl.on("line", (line) => {
       cols: 80,
       rows: 24,
       onData: (data) => chunks.push(data),
-      onExit: (code) => { exitCode = code; },
+      onExit: (code) => {
+        exitCode = code;
+      },
     });
 
     await Bun.sleep(300);

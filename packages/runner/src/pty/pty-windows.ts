@@ -1,7 +1,7 @@
-import { spawn, type ChildProcess } from "child_process";
-import { createInterface } from "readline";
-import { join } from "path";
 import { createLogger } from "@teleprompter/protocol";
+import { type ChildProcess, spawn } from "child_process";
+import { join } from "path";
+import { createInterface } from "readline";
 import type { PtyManager, PtyOptions } from "./pty-manager";
 
 const log = createLogger("PtyWindows");
@@ -22,7 +22,8 @@ export class PtyWindows implements PtyManager {
 
     // If no custom host script path (e.g. test override), use the installed path
     if (!this.hostScriptPath) {
-      const { ensurePtyHost } = require("./pty-host-installer") as typeof import("./pty-host-installer");
+      const { ensurePtyHost } =
+        require("./pty-host-installer") as typeof import("./pty-host-installer");
       // Use runner package version — npm_package_version is unreliable in compiled binaries
       const { version } = require("../../package.json") as { version: string };
       const hostDir = ensurePtyHost(version);
@@ -50,7 +51,9 @@ export class PtyWindows implements PtyManager {
           break;
         case "data": {
           const buf = Buffer.from(msg.data as string, "base64");
-          opts.onData(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
+          opts.onData(
+            new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength),
+          );
           break;
         }
         case "exit":
@@ -86,7 +89,8 @@ export class PtyWindows implements PtyManager {
 
   write(data: string | Uint8Array): void {
     if (!this.child) return;
-    const buf = typeof data === "string" ? Buffer.from(data) : Buffer.from(data);
+    const buf =
+      typeof data === "string" ? Buffer.from(data) : Buffer.from(data);
     this.send({ type: "write", data: buf.toString("base64") });
   }
 

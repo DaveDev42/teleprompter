@@ -207,11 +207,12 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 ### main push
 | Target | Workflow | Condition |
 |--------|----------|-----------|
-| CI | GitHub Actions `ci.yml` | 항상 |
+| CI | GitHub Actions `ci.yml` | 항상 (5 parallel jobs: lint, type-check, test, build-cli, e2e) |
 | Relay | GitHub Actions `deploy-relay.yml` | packages/relay,protocol,daemon 변경 시 |
 | Web | Vercel (자동) | 항상 → `tpmt.dev` |
-| iOS TestFlight | EAS Workflow `preview.yaml` | apps/app, packages/protocol 변경 시 |
-| Android Internal | EAS Workflow `preview.yaml` | apps/app, packages/protocol 변경 시 |
+| EAS Gate | GitHub Actions `ci.yml` eas-gate job | CI 5 jobs pass + apps/app,packages/protocol 변경 시 |
+| iOS TestFlight | EAS via eas-gate (preview profile) | apps/app, packages/protocol 변경 시 |
+| Android Internal | EAS via eas-gate (preview profile) | apps/app, packages/protocol 변경 시 |
 
 ### release/v* 태그 (Release Please PR merge)
 | Target | Workflow | 설명 |
@@ -230,7 +231,8 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 - **Fingerprint**: 네이티브 코드 해시로 기존 빌드 재사용 여부 판단
 - **JS만 변경**: OTA 업데이트 발행 (~2분, 빌드 비용 $0)
 - **네이티브 변경**: 풀빌드 + 스토어 제출
-- **paths 필터**: 앱 무관한 변경 시 EAS 트리거 안 됨
+- **paths 필터**: `dorny/paths-filter`로 apps/app/, packages/protocol/ 변경 감지 → 변경 없으면 EAS skip
+- **EAS 게이트**: CI 5개 job 전부 pass → `expo doctor` → `eas build` (EXPO_TOKEN secret 필요)
 
 ### 릴리즈 절차
 ```bash

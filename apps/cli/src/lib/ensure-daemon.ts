@@ -8,7 +8,9 @@ import { errorWithHints } from "./format";
 import { spinner } from "./spinner";
 
 const HINT_FILE = join(
-  process.env.APPDATA ?? process.env.HOME ?? "/tmp",
+  process.platform === "win32"
+    ? (process.env.APPDATA ?? join(process.env.USERPROFILE ?? "C:\\Users\\Default", "AppData", "Roaming"))
+    : join(process.env.HOME ?? "/tmp", ".config"),
   "teleprompter",
   ".daemon-hint-shown",
 );
@@ -165,7 +167,9 @@ async function showInstallHint(): Promise<void> {
   // Mark hint as shown
   try {
     const dir = join(
-      process.env.APPDATA ?? process.env.HOME ?? "/tmp",
+      process.platform === "win32"
+        ? (process.env.APPDATA ?? join(process.env.USERPROFILE ?? "C:\\Users\\Default", "AppData", "Roaming"))
+        : join(process.env.HOME ?? "/tmp", ".config"),
       "teleprompter",
     );
     await mkdir(dir, { recursive: true });

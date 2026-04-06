@@ -76,7 +76,7 @@ rl.on("line", (line) => {
     }
 
     default:
-      send({ type: "error", message: `unknown type: ${msg.type}` });
+      send({ type: "error", message: "unknown type: " + msg.type });
   }
 });
 

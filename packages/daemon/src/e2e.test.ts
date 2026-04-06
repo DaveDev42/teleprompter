@@ -8,7 +8,8 @@
  * process in a PTY and generates both io output and hook events.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { rmRetry } from "@teleprompter/protocol/test-utils";
+import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 import { Daemon } from "./daemon";
@@ -24,7 +25,7 @@ const protocolSrc = resolve(
   "protocol",
   "src",
   "index.ts",
-);
+).replaceAll("\\", "/");
 
 // ── helpers ──
 
@@ -88,10 +89,10 @@ describe("E2E flow", () => {
     wsPort = port;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     SessionManager.setRunnerCommand(null as unknown as string[]);
     daemon.stop();
-    rmSync(tmpDir, { recursive: true, force: true });
+    await rmRetry(tmpDir);
   });
 
   // ─── 1. Full pipeline: Runner → Daemon → Vault → WS Client ───
@@ -128,7 +129,7 @@ await Bun.connect({
     drain(s) { writer.drain(s); },
     open(s) {
       writer.write(s, encodeFrame({
-        t: "hello", sid, cwd: "/tmp/e2e", pid: process.pid,
+        t: "hello", sid, cwd: "${tmpDir}/e2e", pid: process.pid,
       }));
 
       setTimeout(() => {
@@ -270,7 +271,7 @@ await Bun.connect({
     drain(s) { writer.drain(s); },
     open(s) {
       writer.write(s, encodeFrame({
-        t: "hello", sid, cwd: "/tmp/e2e", pid: process.pid,
+        t: "hello", sid, cwd: "${tmpDir}/e2e", pid: process.pid,
       }));
 
       setTimeout(() => {
@@ -367,7 +368,7 @@ await Bun.connect({
     drain(s) { writer.drain(s); },
     open(s) {
       writer.write(s, encodeFrame({
-        t: "hello", sid, cwd: "/tmp/" + sid, pid: process.pid,
+        t: "hello", sid, cwd: "${tmpDir}/" + sid, pid: process.pid,
       }));
 
       setTimeout(() => {
@@ -463,7 +464,7 @@ await Bun.connect({
     drain(s) { writer.drain(s); },
     open(s) {
       writer.write(s, encodeFrame({
-        t: "hello", sid, cwd: "/tmp/crash", pid: process.pid,
+        t: "hello", sid, cwd: "${tmpDir}/crash", pid: process.pid,
       }));
 
       setTimeout(() => {
@@ -543,7 +544,7 @@ await Bun.connect({
     drain(s) { writer.drain(s); },
     async open(s) {
       writer.write(s, encodeFrame({
-        t: "hello", sid, cwd: "/tmp/stream", pid: process.pid,
+        t: "hello", sid, cwd: "${tmpDir}/stream", pid: process.pid,
       }));
 
       await Bun.sleep(50);
@@ -676,7 +677,7 @@ await Bun.connect({
     drain(s) { writer.drain(s); },
     open(s) {
       writer.write(s, encodeFrame({
-        t: "hello", sid, cwd: "/tmp/input", pid: process.pid,
+        t: "hello", sid, cwd: "${tmpDir}/input", pid: process.pid,
       }));
     },
     close() {},
@@ -764,7 +765,7 @@ await Bun.connect({
     drain(s) { writer.drain(s); },
     open(s) {
       writer.write(s, encodeFrame({
-        t: "hello", sid, cwd: "/tmp/abrupt", pid: process.pid,
+        t: "hello", sid, cwd: "${tmpDir}/abrupt", pid: process.pid,
       }));
 
       setTimeout(() => {

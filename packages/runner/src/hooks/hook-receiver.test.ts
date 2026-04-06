@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { HookEventBase } from "@teleprompter/protocol";
-import { mkdtemp, rm } from "fs/promises";
+import { rmRetry } from "@teleprompter/protocol/test-utils";
+import { mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { HookReceiver } from "./hook-receiver";
@@ -23,14 +24,14 @@ describe("HookReceiver", () => {
 
   afterEach(async () => {
     receiver.stop();
-    await rm(tmpDir, { recursive: true, force: true });
+    await rmRetry(tmpDir);
   });
 
   test("receives hook event via unix socket", async () => {
     const event = {
       session_id: "test-session",
       hook_event_name: "Stop",
-      cwd: "/tmp",
+      cwd: tmpdir(),
       last_assistant_message: "Done!",
     };
 
@@ -58,7 +59,7 @@ describe("HookReceiver", () => {
       const event = {
         session_id: "test",
         hook_event_name: `Event${i}`,
-        cwd: "/tmp",
+        cwd: tmpdir(),
       };
       await Bun.connect({
         unix: socketPath,

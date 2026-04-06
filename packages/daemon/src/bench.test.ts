@@ -5,7 +5,8 @@ import {
   type IpcRec,
   type WsServerMessage,
 } from "@teleprompter/protocol";
-import { mkdtemp, rm } from "fs/promises";
+import { rmRetry } from "@teleprompter/protocol/test-utils";
+import { mkdtemp } from "fs/promises";
 import { connect } from "net";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -48,7 +49,7 @@ describe("Performance", () => {
     const hello: IpcHello = {
       t: "hello",
       sid: "bench-session",
-      cwd: "/tmp",
+      cwd: tmpdir(),
       pid: process.pid,
     };
     ipc.write(Buffer.from(encodeFrame(hello)));
@@ -95,7 +96,7 @@ describe("Performance", () => {
     ipc.end();
     ws.close();
     daemon.stop();
-    await rm(tmpDir, { recursive: true, force: true });
+    await rmRetry(tmpDir);
   });
 
   test("throughput: codec encode/decode 10000 frames in <1s", () => {

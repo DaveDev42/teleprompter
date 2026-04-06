@@ -12,7 +12,7 @@ let ptyProcess = null;
 const rl = readline.createInterface({ input: process.stdin });
 
 function send(msg) {
-  process.stdout.write(JSON.stringify(msg) + "\n");
+  process.stdout.write(`${JSON.stringify(msg)}\n`);
 }
 
 rl.on("line", (line) => {
@@ -76,7 +76,7 @@ rl.on("line", (line) => {
     }
 
     default:
-      send({ type: "error", message: "unknown type: " + msg.type });
+      send({ type: "error", message: `unknown type: ${msg.type}` });
   }
 });
 

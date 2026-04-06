@@ -129,7 +129,7 @@ jobs:
       - name: Expo Doctor
         if: steps.changes.outputs.app == 'true'
         working-directory: apps/app
-        run: npx expo doctor
+        run: npx expo-doctor
 
       - name: Trigger EAS Build
         if: steps.changes.outputs.app == 'true' && env.EXPO_TOKEN != ''

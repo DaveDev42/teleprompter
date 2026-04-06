@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { rmRetry } from "@teleprompter/protocol";
 import { mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { rmRetry } from "@teleprompter/protocol";
 import { Daemon } from "./daemon";
 import type { Store } from "./store";
 import { backdateSession } from "./store/test-helpers";

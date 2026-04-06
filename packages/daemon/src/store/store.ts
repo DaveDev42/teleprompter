@@ -134,7 +134,7 @@ export class Store {
     }
   }
 
-  private unlinkRetry(path: string, retries = 3): void {
+  private unlinkRetry(path: string, retries = 5): void {
     for (let i = 0; i <= retries; i++) {
       try {
         if (existsSync(path)) unlinkSync(path);
@@ -142,10 +142,12 @@ export class Store {
       } catch (err: unknown) {
         const code = (err as NodeJS.ErrnoException).code;
         if ((code === "EBUSY" || code === "EPERM") && i < retries) {
-          // Brief sync delay to let OS release file handles
-          Bun.sleepSync(50 * (i + 1));
+          // Exponential backoff to let OS release file handles (Windows)
+          Bun.sleepSync(100 * 2 ** i);
           continue;
         }
+        // Best-effort: log and skip rather than crash on cleanup
+        if (code === "EBUSY" || code === "EPERM") return;
         throw err;
       }
     }

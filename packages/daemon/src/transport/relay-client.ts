@@ -350,6 +350,33 @@ export class RelayClient {
     this.send({ t: "relay.pub", sid, ct, seq: 0 });
   }
 
+  /**
+   * Send a push notification request to the relay server.
+   * The relay forwards this to the Expo Push API on behalf of the daemon.
+   */
+  sendPush(
+    frontendId: string,
+    token: string,
+    title: string,
+    body: string,
+    data?: { sid: string; daemonId?: string; event: string },
+  ): void {
+    this.send({
+      t: "relay.push",
+      frontendId,
+      token,
+      title,
+      body,
+      data: data
+        ? {
+            sid: data.sid,
+            daemonId: data.daemonId ?? this.config.daemonId,
+            event: data.event,
+          }
+        : undefined,
+    } as RelayClientMessage);
+  }
+
   subscribe(sid: string): void {
     this.subscribedSessions.add(sid);
     if (this.authenticated) {

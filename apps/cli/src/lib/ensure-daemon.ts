@@ -144,6 +144,9 @@ async function showInstallHint(): Promise<void> {
   } else if (os === "linux") {
     const { isServiceInstalled } = await import("./service-linux");
     if (isServiceInstalled()) return;
+  } else if (os === "win32") {
+    const { isServiceInstalled } = await import("./service-windows");
+    if (isServiceInstalled()) return;
   }
 
   console.error(

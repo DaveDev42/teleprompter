@@ -1,11 +1,6 @@
 name: Preview Deploy
-on:
-  push:
-    branches: ['main']
-    paths:
-      - 'apps/app/**'
-      - 'packages/protocol/**'
-      - 'pnpm-lock.yaml'
+# Triggered by GitHub Actions CI eas-gate job via `eas workflow:run --ref`
+# No `on:` trigger — prevents automatic execution on git push
 jobs:
   fingerprint:
     name: Fingerprint

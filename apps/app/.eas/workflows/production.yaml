@@ -1,7 +1,8 @@
 name: Production Deploy
 on:
-  push:
-    tags: ['release/v*']
+  # Triggered by GitHub Actions release workflow via `eas workflow:run`
+  # No automatic git push trigger — release workflow gates ensure CI passes first
+  manual: {}
 jobs:
   fingerprint:
     name: Fingerprint

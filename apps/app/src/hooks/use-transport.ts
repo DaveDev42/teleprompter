@@ -2,8 +2,8 @@
  * Unified transport hook.
  *
  * getTransport() returns the active TransportClient:
- * - In __DEV__: prefers direct WS (DaemonWsClient), falls back to relay
- * - In production: uses relay (FrontendRelayClient) only
+ * - When a relay is connected (paired), prefers relay (E2EE)
+ * - Otherwise falls back to direct WS (DaemonWsClient)
  *
  * Components should use getTransport() instead of getDaemonClient() or getRelayClient().
  */
@@ -15,20 +15,21 @@ import { getRelayClient } from "./use-relay";
 /**
  * Get the currently active transport client.
  *
- * In __DEV__ mode, prefers the direct WS connection (lower latency, no encryption overhead).
- * In production, uses the relay connection exclusively (E2EE).
+ * Prefers the relay connection when available (E2EE, production).
+ * Falls back to direct WS (local dev, E2E tests, no pairing).
+ *
+ * Note: a non-null return does not guarantee isConnected() — callers
+ * should handle the case where the transport is not yet ready.
  */
 export function getTransport(): TransportClient | null {
-  if (__DEV__) {
-    // In dev, prefer direct WS if connected; fall back to relay
-    const daemon = getDaemonClient();
-    if (daemon?.isConnected()) return daemon;
-    const relay = getRelayClient();
-    if (relay?.isConnected()) return relay;
-    // Return whichever exists (even if not yet connected)
-    return daemon ?? relay;
-  }
+  // Prefer relay when connected (E2EE production path)
+  const relay = getRelayClient();
+  if (relay?.isConnected()) return relay;
 
-  // Production: relay only (useDaemon is disabled, getDaemonClient returns null)
-  return getRelayClient();
+  // Fall back to direct WS (local dev, E2E tests, no pairing)
+  const daemon = getDaemonClient();
+  if (daemon?.isConnected()) return daemon;
+
+  // Return whichever exists (even if not yet connected)
+  return daemon ?? relay;
 }

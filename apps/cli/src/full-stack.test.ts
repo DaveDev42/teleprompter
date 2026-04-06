@@ -14,12 +14,13 @@ import {
   type IpcMessage,
   type IpcRec,
   type RelayServerMessage,
+  rmRetry,
   toBase64,
   type WsRec,
   type WsServerMessage,
 } from "@teleprompter/protocol";
 import { RelayServer } from "@teleprompter/relay";
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp } from "fs/promises";
 import { connect } from "net";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -61,7 +62,7 @@ describe("Full-stack E2E", () => {
   afterEach(async () => {
     daemon.stop();
     relay.stop();
-    await rm(tmpDir, { recursive: true, force: true });
+    await rmRetry(tmpDir);
   });
 
   test("local WS: daemon → frontend record flow", async () => {
@@ -87,7 +88,7 @@ describe("Full-stack E2E", () => {
     const hello: IpcHello = {
       t: "hello",
       sid: "full-e2e-local",
-      cwd: "/tmp",
+      cwd: tmpdir(),
       pid: process.pid,
     };
     ipc.write(Buffer.from(encodeFrame(hello)));
@@ -187,7 +188,7 @@ describe("Full-stack E2E", () => {
         encodeFrame({
           t: "hello",
           sid: "full-e2e-relay",
-          cwd: "/tmp",
+          cwd: tmpdir(),
           pid: process.pid,
         }),
       ),
@@ -264,7 +265,7 @@ describe("Full-stack E2E", () => {
         encodeFrame({
           t: "hello",
           sid: "bidir-session",
-          cwd: "/tmp",
+          cwd: tmpdir(),
           pid: process.pid,
         }),
       ),

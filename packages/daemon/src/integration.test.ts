@@ -6,8 +6,9 @@ import {
   type IpcBye,
   type IpcHello,
   type IpcRec,
+  rmRetry,
 } from "@teleprompter/protocol";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { HookReceiver } from "../../runner/src/hooks/hook-receiver";
@@ -30,9 +31,9 @@ describe("Integration", () => {
     daemon.start(socketPath);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     daemon.stop();
-    rmSync(tmpDir, { recursive: true, force: true });
+    await rmRetry(tmpDir);
   });
 
   test("mock runner pipeline: hello → rec → bye → store verify", async () => {
@@ -60,7 +61,7 @@ describe("Integration", () => {
     const hello: IpcHello = {
       t: "hello",
       sid,
-      cwd: "/tmp/project",
+      cwd: join(tmpdir(), "project"),
       pid: process.pid,
     };
     socket.write(encodeFrame(hello));
@@ -161,7 +162,7 @@ describe("Integration", () => {
       encodeFrame({
         t: "hello",
         sid,
-        cwd: "/tmp",
+        cwd: tmpDir,
         pid: process.pid,
       } as IpcHello),
     );
@@ -217,7 +218,7 @@ describe("Integration", () => {
     const event = {
       session_id: "s1",
       hook_event_name: "Stop",
-      cwd: "/tmp",
+      cwd: tmpDir,
       last_assistant_message: "Done!",
     };
 
@@ -287,7 +288,7 @@ const socket = await Bun.connect({
     drain(s) { writer.drain(s); },
     open(s) {
       // hello
-      writer.write(s, encodeFrame({ t: "hello", sid, cwd: "/tmp/stub", pid: process.pid }));
+      writer.write(s, encodeFrame({ t: "hello", sid, cwd: "${tmpDir}/stub", pid: process.pid }));
 
       // record
       setTimeout(() => {

@@ -260,7 +260,7 @@ describe("Integration", () => {
       "protocol",
       "src",
       "index.ts",
-    );
+    ).replaceAll("\\", "/");
     writeFileSync(
       stubPath,
       `

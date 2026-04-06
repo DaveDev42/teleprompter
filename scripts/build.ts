@@ -22,13 +22,15 @@ const TARGETS = [
   "bun-darwin-x64",
   "bun-linux-x64",
   "bun-linux-arm64",
+  "bun-windows-x64",
 ] as const;
 
 type Target = (typeof TARGETS)[number];
 
 function outFile(name: string, target: Target): string {
   const suffix = target.replace("bun-", "").replace("-", "_");
-  return `${OUT_DIR}/${name}-${suffix}`;
+  const ext = target.includes("windows") ? ".exe" : "";
+  return `${OUT_DIR}/${name}-${suffix}${ext}`;
 }
 
 const { values } = parseArgs({

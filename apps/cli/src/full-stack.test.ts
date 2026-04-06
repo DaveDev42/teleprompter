@@ -14,11 +14,11 @@ import {
   type IpcMessage,
   type IpcRec,
   type RelayServerMessage,
-  rmRetry,
   toBase64,
   type WsRec,
   type WsServerMessage,
 } from "@teleprompter/protocol";
+import { rmRetry } from "@teleprompter/protocol/test-utils";
 import { RelayServer } from "@teleprompter/relay";
 import { mkdtemp } from "fs/promises";
 import { connect } from "net";

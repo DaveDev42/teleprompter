@@ -3,9 +3,9 @@ import {
   encodeFrame,
   type IpcHello,
   type IpcRec,
-  rmRetry,
   type WsServerMessage,
 } from "@teleprompter/protocol";
+import { rmRetry } from "@teleprompter/protocol/test-utils";
 import { mkdtemp } from "fs/promises";
 import { connect } from "net";
 import { tmpdir } from "os";

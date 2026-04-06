@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { HookEventBase } from "@teleprompter/protocol";
-import { rmRetry } from "@teleprompter/protocol";
+import { rmRetry } from "@teleprompter/protocol/test-utils";
 import { mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";

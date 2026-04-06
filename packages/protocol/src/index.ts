@@ -35,5 +35,4 @@ export {
 } from "./pairing";
 export { QueuedWriter } from "./queued-writer";
 export { getSocketPath, getWindowsSocketPath } from "./socket-path";
-export { rmRetry } from "./test-utils";
 export * from "./types";

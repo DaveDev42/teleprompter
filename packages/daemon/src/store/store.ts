@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import type { SessionState, SID } from "@teleprompter/protocol";
-import { existsSync, mkdirSync, unlinkSync } from "fs";
+import { mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { getStoreDir } from "./config";
 import { PAIRINGS_DDL, PRAGMAS, SESSIONS_DDL } from "./schema";
@@ -137,10 +137,11 @@ export class Store {
   private unlinkRetry(path: string): void {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        if (existsSync(path)) unlinkSync(path);
+        unlinkSync(path);
         return;
       } catch (err: unknown) {
         const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") return;
         if (code === "EBUSY" || code === "EPERM") {
           // Windows: file handles may not be released yet after db.close()
           Bun.sleepSync(50);

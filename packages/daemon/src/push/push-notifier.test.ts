@@ -1,5 +1,10 @@
-import { describe, expect, it, mock } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
+import { setLogLevel } from "@teleprompter/protocol";
 import { PushNotifier } from "./push-notifier";
+
+// Suppress log noise during tests
+beforeAll(() => setLogLevel("silent"));
+afterAll(() => setLogLevel("info"));
 
 describe("PushNotifier", () => {
   function makeSendPush() {

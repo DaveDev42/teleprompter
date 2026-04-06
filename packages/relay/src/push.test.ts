@@ -1,6 +1,11 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { setLogLevel } from "@teleprompter/protocol";
 import { PushService } from "./push";
 import type { PushRequest, PushServiceOptions } from "./push";
+
+// Suppress log noise during tests
+beforeAll(() => setLogLevel("silent"));
+afterAll(() => setLogLevel("info"));
 
 function makeRequest(overrides: Partial<PushRequest> = {}): PushRequest {
   return {

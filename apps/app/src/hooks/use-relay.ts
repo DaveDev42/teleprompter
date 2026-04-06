@@ -151,7 +151,9 @@ export function useRelay() {
       );
 
       relayClients.set(daemonId, client);
-      activeRelayClients.push(client);
+      if (!activeRelayClients.includes(client)) {
+        activeRelayClients.push(client);
+      }
       client.connect();
     }
 

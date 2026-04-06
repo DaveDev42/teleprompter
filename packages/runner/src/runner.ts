@@ -8,7 +8,7 @@ import { Collector } from "./collector";
 import { HookReceiver } from "./hooks/hook-receiver";
 import { buildSettings } from "./hooks/settings-builder";
 import { IpcClient } from "./ipc/client";
-import { PtyManager } from "./pty/pty-manager";
+import { createPtyManager, type PtyManager } from "./pty/pty-manager";
 
 const log = createLogger("Runner");
 
@@ -32,7 +32,7 @@ export interface RunnerOptions {
 
 export class Runner {
   private state: RunnerState = "created";
-  private pty = new PtyManager();
+  private pty: PtyManager = createPtyManager();
   private ipc: IpcClient;
   private hookReceiver: HookReceiver;
   private collector: Collector;

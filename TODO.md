@@ -47,6 +47,7 @@
 - [x] CI QA 자동화 — Playwright CI 18개 테스트 (smoke, daemon, settings, session switch, resume, relay E2E + N:N)
 - [x] Playwright CI/local 프로젝트 분리 — CI는 claude 없이 7/7 pass
 - [x] 테스트 커버리지 리포트 생성 — `bun test --coverage` (CI에 적용)
+- [x] CI 병렬화 — 단일 job → 5개 독립 병렬 job (lint, type-check, test, build-cli, e2e) + EAS gate job (dorny/paths-filter, expo doctor, eas build)
 
 ### 리팩터링
 - [x] Vault → Store 리네이밍 (클래스, 파일, 디렉터리, 테스트, 문서)

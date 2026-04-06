@@ -6,23 +6,69 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.6"
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
+      - name: Lint & format check
+        run: npx biome ci .
+
+  type-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Type check
+        run: |
+          pids=()
+          npx tsc --noEmit -p packages/daemon/tsconfig.json & pids+=($!)
+          npx tsc --noEmit -p apps/cli/tsconfig.json & pids+=($!)
+          npx tsc --noEmit -p packages/relay/tsconfig.json & pids+=($!)
+          npx tsc --noEmit -p packages/runner/tsconfig.json & pids+=($!)
+          npx tsc --noEmit -p apps/app/tsconfig.json & pids+=($!)
+          fail=0
+          for pid in "${pids[@]}"; do wait "$pid" || fail=1; done
+          exit $fail
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Test with coverage
+        run: bun test --coverage packages/protocol packages/daemon packages/runner apps/cli packages/relay
+
+  build-cli:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Build CLI
+        run: bun run scripts/build.ts
+      - name: Smoke test
+        run: |
+          ./dist/tp version
+          ./dist/tp --help
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
 
       - name: Cache Playwright browsers
         id: playwright-cache
@@ -30,6 +76,8 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
 
       - name: Cache Expo web build
         id: expo-cache
@@ -38,29 +86,9 @@ jobs:
           path: |
             apps/app/dist
             apps/app/node_modules/.cache
-          key: expo-web-${{ runner.os }}-${{ hashFiles('apps/app/**/*.ts', 'apps/app/**/*.tsx', 'apps/app/app.json', 'pnpm-lock.yaml') }}
-
-      - name: Lint & format check
-        run: npx biome ci .
-
-      - name: Type check
-        run: |
-          npx tsc --noEmit -p packages/daemon/tsconfig.json
-          npx tsc --noEmit -p apps/cli/tsconfig.json
-          npx tsc --noEmit -p packages/relay/tsconfig.json
-          npx tsc --noEmit -p packages/runner/tsconfig.json
-          cd apps/app && npx tsc --noEmit && cd ../..
-
-      - name: Test with coverage
-        run: bun test --coverage packages/protocol packages/daemon packages/runner apps/cli packages/relay
-
-      - name: Build CLI
-        run: bun run scripts/build.ts
-
-      - name: Smoke test
-        run: |
-          ./dist/tp version
-          ./dist/tp --help
+          key: expo-web-${{ runner.os }}-${{ hashFiles('apps/app/**/*.ts', 'apps/app/**/*.tsx', 'apps/app/app.json', 'packages/protocol/src/**/*.ts', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            expo-web-${{ runner.os }}-
 
       - name: Build web frontend
         if: steps.expo-cache.outputs.cache-hit != 'true'
@@ -75,3 +103,37 @@ jobs:
 
       - name: Playwright E2E
         run: npx playwright test --project=ci
+
+  eas-gate:
+    needs: [lint, type-check, test, build-cli, e2e]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect app/protocol changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            app:
+              - 'apps/app/**'
+              - 'packages/protocol/**'
+
+      - uses: ./.github/actions/setup
+        if: steps.changes.outputs.app == 'true'
+
+      - name: Expo Doctor
+        if: steps.changes.outputs.app == 'true'
+        working-directory: apps/app
+        run: npx expo doctor
+
+      - name: Trigger EAS Build
+        if: steps.changes.outputs.app == 'true' && env.EXPO_TOKEN != ''
+        working-directory: apps/app
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: npx eas-cli build --platform all --profile preview --non-interactive

@@ -23,6 +23,11 @@
     "doctor": "bun run apps/cli/src/index.ts doctor",
     "status": "bun run apps/cli/src/index.ts status"
   },
+  "pnpm": {
+    "overrides": {
+      "@expo/dom-webview": "55.0.5"
+    }
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.4.10",
     "@playwright/mcp": "^0.0.69",

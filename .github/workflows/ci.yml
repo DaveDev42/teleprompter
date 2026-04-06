@@ -104,8 +104,38 @@ jobs:
       - name: Playwright E2E
         run: npx playwright test --project=ci
 
+  test-windows:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+
+      - name: Type check
+        run: |
+          npx tsc --noEmit -p packages/daemon/tsconfig.json
+          npx tsc --noEmit -p apps/cli/tsconfig.json
+          npx tsc --noEmit -p packages/relay/tsconfig.json
+          npx tsc --noEmit -p packages/runner/tsconfig.json
+        shell: bash
+
+      - name: Test
+        run: bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay
+        shell: bash
+
+      - name: Build CLI
+        run: bun run scripts/build.ts
+        shell: bash
+
+      - name: Smoke test
+        run: |
+          $bin = if (Test-Path "./dist/tp.exe") { "./dist/tp.exe" } else { "./dist/tp" }
+          & $bin version
+          & $bin --help
+        shell: pwsh
+
   eas-gate:
-    needs: [lint, type-check, test, build-cli, e2e]
+    needs: [lint, type-check, test, build-cli, e2e, test-windows]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30

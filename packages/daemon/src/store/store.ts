@@ -1,10 +1,12 @@
 import { Database } from "bun:sqlite";
-import type { SessionState, SID } from "@teleprompter/protocol";
+import { createLogger, type SessionState, type SID } from "@teleprompter/protocol";
 import { mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { getStoreDir } from "./config";
 import { PAIRINGS_DDL, PRAGMAS, SESSIONS_DDL } from "./schema";
 import { SessionDb } from "./session-db";
+
+const log = createLogger("Store");
 
 export interface SessionMeta {
   sid: string;
@@ -143,14 +145,16 @@ export class Store {
         const code = (err as NodeJS.ErrnoException).code;
         if (code === "ENOENT") return;
         if (code === "EBUSY" || code === "EPERM") {
-          // Windows: file handles may not be released yet after db.close()
+          // Windows: file handles may not be released yet after db.close().
+          // Synchronous sleep because deleteSession is sync. Max 150ms total blocking.
           Bun.sleepSync(50);
           continue;
         }
         throw err;
       }
     }
-    // Best-effort: give up silently on persistent EBUSY (Windows file locking)
+    // Best-effort: log and give up on persistent EBUSY (Windows file locking)
+    log.warn(`failed to delete ${path} after 3 retries (file locked)`);
   }
 
   /**

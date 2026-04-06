@@ -6,6 +6,7 @@ import { useColorScheme, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { UpdateBanner } from "../src/components/UpdateBanner";
 import { useDaemon } from "../src/hooks/use-daemon";
+import { secureDelete } from "../src/lib/secure-storage";
 import { useOtaUpdate } from "../src/hooks/use-ota-update";
 import { useRelay } from "../src/hooks/use-relay";
 import { usePairingStore } from "../src/stores/pairing-store";
@@ -29,6 +30,8 @@ export default function RootLayout() {
     loadSettings();
     loadTheme();
     loadVoice();
+    // One-time cleanup: remove stale daemon_url from removed connection-store
+    secureDelete("daemon_url");
   }, []);
 
   // Re-resolve theme when system color scheme changes

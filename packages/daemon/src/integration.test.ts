@@ -204,7 +204,7 @@ describe("Integration", () => {
     if (!db) throw new Error("expected db");
     expect(db.getLastSeq()).toBe(total);
     store.close();
-  }, 15_000);
+  }, 12_000);
 
   test("hook receiver: JSON event → onEvent callback", async () => {
     const hookSocketPath = join(tmpDir, "hook-test.sock");

@@ -8,8 +8,7 @@ import { errorWithHints } from "./format";
 import { spinner } from "./spinner";
 
 const HINT_FILE = join(
-  process.env.HOME ?? "/tmp",
-  ".config",
+  process.env.APPDATA ?? process.env.HOME ?? "/tmp",
   "teleprompter",
   ".daemon-hint-shown",
 );
@@ -124,6 +123,16 @@ async function tryKickstartService(): Promise<boolean> {
     if (!isServiceInstalled()) return false;
 
     Bun.spawnSync(["systemctl", "--user", "start", getServiceName()]);
+    return true;
+  }
+
+  if (os === "win32") {
+    const { isServiceInstalled, getTaskName } = await import(
+      "./service-windows"
+    );
+    if (!isServiceInstalled()) return false;
+
+    Bun.spawnSync(["schtasks", "/Run", "/TN", getTaskName()]);
     return true;
   }
 

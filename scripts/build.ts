@@ -6,7 +6,7 @@
  *   bun run scripts/build.ts --all        # Build for all platforms
  *   bun run scripts/build.ts --target X   # Build for specific target
  *
- * Targets: darwin-arm64, darwin-x64, linux-x64, linux-arm64
+ * Targets: darwin-arm64, darwin-x64, linux-x64, linux-arm64, windows-x64
  */
 
 import { $ } from "bun";

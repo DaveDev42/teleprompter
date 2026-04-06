@@ -19,6 +19,8 @@ class NetSocketAdapter {
 
   write(data: Uint8Array): number {
     const canWriteMore = this.socket.write(Buffer.from(data));
+    // node:net buffers the entire chunk internally (no partial writes).
+    // Return full length if buffer not full, 0 if backpressure (triggers QueuedWriter queueing).
     return canWriteMore ? data.byteLength : 0;
   }
 }

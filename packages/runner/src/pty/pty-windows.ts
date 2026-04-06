@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "child_process";
 import { createInterface } from "readline";
+import { join } from "path";
 import { createLogger } from "@teleprompter/protocol";
 import type { PtyManager, PtyOptions } from "./pty-manager";
 
@@ -11,11 +12,19 @@ export class PtyWindows implements PtyManager {
   private hostScriptPath: string;
 
   constructor(hostScriptPath?: string) {
-    this.hostScriptPath =
-      hostScriptPath ?? require.resolve("./pty-windows-host.cjs");
+    // Default is empty string — resolved at spawn() time via ensurePtyHost()
+    // to avoid require.resolve() / __dirname issues in compiled binaries.
+    this.hostScriptPath = hostScriptPath ?? "";
   }
 
   spawn(opts: PtyOptions): void {
+    // If no custom host script path (e.g. test override), use the installed path
+    if (!this.hostScriptPath) {
+      const { ensurePtyHost } = require("./pty-host-installer") as typeof import("./pty-host-installer");
+      const hostDir = ensurePtyHost(process.env.npm_package_version ?? "0.0.0");
+      this.hostScriptPath = join(hostDir, "pty-windows-host.cjs");
+    }
+
     this.child = spawn("node", [this.hostScriptPath], {
       stdio: ["pipe", "pipe", "inherit"],
     });

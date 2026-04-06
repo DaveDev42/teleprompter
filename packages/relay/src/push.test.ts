@@ -5,6 +5,7 @@ import type { PushRequest, PushServiceOptions } from "./push";
 function makeRequest(overrides: Partial<PushRequest> = {}): PushRequest {
   return {
     frontendId: "frontend-1",
+    daemonId: "d1",
     token: "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]",
     title: "New message",
     body: "Claude responded",
@@ -74,6 +75,24 @@ describe("PushService", () => {
       service = new PushService({ fetchFn: fn });
       const result = await service.sendOrDeliver(makeRequest());
       expect(result).toBe("error");
+    });
+
+    test("returns 'error' when Expo API returns non-200", async () => {
+      const service = new PushService({
+        fetchFn: (async () => new Response("Too Many Requests", { status: 429 })) as unknown as typeof fetch,
+      });
+
+      const result = await service.sendOrDeliver({
+        frontendId: "f1",
+        daemonId: "d1",
+        token: "ExponentPushToken[abc]",
+        title: "T",
+        body: "B",
+        isFrontendConnected: false,
+      });
+
+      expect(result).toBe("error");
+      service.dispose();
     });
   });
 

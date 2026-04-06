@@ -4,9 +4,11 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { useColorScheme, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { InAppToast } from "../src/components/InAppToast";
 import { UpdateBanner } from "../src/components/UpdateBanner";
 import { useDaemon } from "../src/hooks/use-daemon";
 import { useOtaUpdate } from "../src/hooks/use-ota-update";
+import { usePushNotifications } from "../src/hooks/use-push-notifications";
 import { useRelay } from "../src/hooks/use-relay";
 import { secureDelete } from "../src/lib/secure-storage";
 import { usePairingStore } from "../src/stores/pairing-store";
@@ -48,6 +50,9 @@ export default function RootLayout() {
   // E2EE relay connections for all paired daemons
   useRelay();
 
+  // Push notification registration and handling
+  usePushNotifications();
+
   // OTA update check on app launch
   const { status: otaStatus, restart } = useOtaUpdate();
 
@@ -71,6 +76,7 @@ export default function RootLayout() {
           />
         </Stack>
         <UpdateBanner status={otaStatus} onRestart={restart} />
+        <InAppToast />
       </View>
     </SafeAreaProvider>
   );

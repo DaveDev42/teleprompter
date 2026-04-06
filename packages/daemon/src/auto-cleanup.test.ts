@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "fs/promises";
+import { rmRetry } from "@teleprompter/protocol/test-utils";
+import { mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Daemon } from "./daemon";
@@ -21,17 +22,17 @@ describe("Daemon auto-cleanup", () => {
 
   afterEach(async () => {
     daemon.stop();
-    await rm(storeDir, { recursive: true, force: true });
+    await rmRetry(storeDir);
   });
 
   test("startAutoCleanup prunes old sessions on startup", () => {
     const store = getStore(daemon);
 
-    store.createSession("old-session", "/tmp");
+    store.createSession("old-session", tmpdir());
     store.updateSessionState("old-session", "stopped");
     backdateSession(store, "old-session", 10 * 24 * 60 * 60 * 1000);
 
-    store.createSession("new-session", "/tmp");
+    store.createSession("new-session", tmpdir());
     store.updateSessionState("new-session", "stopped");
 
     daemon.startAutoCleanup(7);
@@ -43,7 +44,7 @@ describe("Daemon auto-cleanup", () => {
   test("startAutoCleanup uses default 7-day TTL", () => {
     const store = getStore(daemon);
 
-    store.createSession("s1", "/tmp");
+    store.createSession("s1", tmpdir());
     store.updateSessionState("s1", "stopped");
     backdateSession(store, "s1", 6 * 24 * 60 * 60 * 1000);
 
@@ -55,7 +56,7 @@ describe("Daemon auto-cleanup", () => {
   test("startAutoCleanup respects TP_PRUNE_TTL_DAYS env var", () => {
     const store = getStore(daemon);
 
-    store.createSession("s1", "/tmp");
+    store.createSession("s1", tmpdir());
     store.updateSessionState("s1", "stopped");
     backdateSession(store, "s1", 2 * 24 * 60 * 60 * 1000);
 
@@ -105,7 +106,7 @@ describe("Daemon auto-cleanup", () => {
   test("running sessions are not pruned regardless of age", () => {
     const store = getStore(daemon);
 
-    store.createSession("running-old", "/tmp");
+    store.createSession("running-old", tmpdir());
     // Don't change state — stays "running"
     backdateSession(store, "running-old", 30 * 24 * 60 * 60 * 1000);
 

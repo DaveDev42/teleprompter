@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { tmpdir } from "os";
 import { createPtyManager } from "./pty-manager";
 
-describe("PtyManager", () => {
+// PtyBun tests — only run on macOS/Linux (Bun.spawn terminal is Unix-only)
+describe.skipIf(process.platform === "win32")("PtyManager", () => {
   test("spawns a command and receives output", async () => {
     const pty = createPtyManager();
     const chunks: Uint8Array[] = [];
@@ -9,7 +11,7 @@ describe("PtyManager", () => {
 
     pty.spawn({
       command: ["echo", "hello from pty"],
-      cwd: "/tmp",
+      cwd: tmpdir(),
       cols: 80,
       rows: 24,
       onData: (data) => chunks.push(data),
@@ -36,7 +38,7 @@ describe("PtyManager", () => {
     // Use cat which echoes stdin
     pty.spawn({
       command: ["cat"],
-      cwd: "/tmp",
+      cwd: tmpdir(),
       onData: (data) => chunks.push(data),
       onExit: (code) => {
         _exitCode = code;
@@ -60,7 +62,7 @@ describe("PtyManager", () => {
 
     pty.spawn({
       command: ["sleep", "60"],
-      cwd: "/tmp",
+      cwd: tmpdir(),
       onData: () => {},
       onExit: () => {
         exited = true;
@@ -74,7 +76,10 @@ describe("PtyManager", () => {
     await Bun.sleep(200);
     expect(exited).toBe(true);
   });
+});
 
+// These tests run on all platforms
+describe("PtyManager (cross-platform)", () => {
   test("write does nothing when no process spawned", () => {
     const pty = createPtyManager();
     // Should not throw
@@ -84,7 +89,7 @@ describe("PtyManager", () => {
     expect(pty.pid).toBeUndefined();
   });
 
-  test("createPtyManager returns PtyBun on non-windows", () => {
+  test("createPtyManager returns correct implementation", () => {
     const pty = createPtyManager();
     expect(pty).toBeDefined();
     expect(pty.pid).toBeUndefined();

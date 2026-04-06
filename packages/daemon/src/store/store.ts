@@ -1,10 +1,16 @@
 import { Database } from "bun:sqlite";
-import type { SessionState, SID } from "@teleprompter/protocol";
-import { existsSync, mkdirSync, unlinkSync } from "fs";
+import {
+  createLogger,
+  type SessionState,
+  type SID,
+} from "@teleprompter/protocol";
+import { mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { getStoreDir } from "./config";
 import { PAIRINGS_DDL, PRAGMAS, SESSIONS_DDL } from "./schema";
 import { SessionDb } from "./session-db";
+
+const log = createLogger("Store");
 
 export interface SessionMeta {
   sid: string;
@@ -127,14 +133,32 @@ export class Store {
 
     // Delete session database file
     const dbPath = join(this.storeDir, "sessions", `${sid}.sqlite`);
-    if (existsSync(dbPath)) {
-      unlinkSync(dbPath);
-    }
+    this.unlinkRetry(dbPath);
     // Also remove WAL/SHM files
     for (const suffix of ["-wal", "-shm"]) {
-      const walPath = dbPath + suffix;
-      if (existsSync(walPath)) unlinkSync(walPath);
+      this.unlinkRetry(dbPath + suffix);
     }
+  }
+
+  private unlinkRetry(path: string): void {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        unlinkSync(path);
+        return;
+      } catch (err: unknown) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") return;
+        if (code === "EBUSY" || code === "EPERM") {
+          // Windows: file handles may not be released yet after db.close().
+          // Synchronous sleep because deleteSession is sync. Max 150ms total blocking.
+          Bun.sleepSync(50);
+          continue;
+        }
+        throw err;
+      }
+    }
+    // Best-effort: log and give up on persistent EBUSY (Windows file locking)
+    log.warn(`failed to delete ${path} after 3 retries (file locked)`);
   }
 
   /**

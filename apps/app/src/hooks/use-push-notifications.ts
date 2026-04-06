@@ -5,6 +5,10 @@ import { getRelayClients } from "./use-relay";
 
 let _currentToken: string | null = null;
 
+export function getCurrentPushToken(): string | null {
+  return _currentToken;
+}
+
 async function registerForPushToken(
   Notifications: typeof import("expo-notifications"),
 ): Promise<void> {

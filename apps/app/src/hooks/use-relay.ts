@@ -1,5 +1,6 @@
 import type { WsRec, WsSessionMeta } from "@teleprompter/protocol/client";
 import { useEffect } from "react";
+import { Platform } from "react-native";
 import { create } from "zustand";
 import { FrontendRelayClient } from "../lib/relay-client";
 import { useOfflineStore } from "../stores/offline-store";
@@ -39,7 +40,7 @@ const relayClients = new Map<string, FrontendRelayClient>();
 /** Module-level list for push token broadcasting */
 let activeRelayClients: FrontendRelayClient[] = [];
 
-export function getRelayClients(): FrontendRelayClient[] {
+export function getRelayClients(): readonly FrontendRelayClient[] {
   return activeRelayClients;
 }
 
@@ -93,6 +94,15 @@ export function useRelay() {
             setConnected(true);
             setError(null);
             relayConn.setConnected(daemonId, true);
+            // Re-send push token on reconnect so daemon always has a fresh token
+            if (Platform.OS !== "web") {
+              const { getCurrentPushToken } = require("./use-push-notifications") as typeof import("./use-push-notifications");
+              const token = getCurrentPushToken();
+              if (token) {
+                const platform = Platform.OS as "ios" | "android";
+                client.sendPushToken(token, platform);
+              }
+            }
           },
           onDisconnected: () => {
             setConnected(false);

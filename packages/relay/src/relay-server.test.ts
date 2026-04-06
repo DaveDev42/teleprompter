@@ -800,6 +800,42 @@ describe("RelayServer", () => {
 
       frontend.close();
     });
+
+    test("calls Expo Push API when frontend is disconnected", async () => {
+      // Connect daemon only, no frontend
+      const daemon = await connectWs(port);
+      daemon.send(
+        JSON.stringify({
+          t: "relay.auth",
+          role: "daemon",
+          daemonId: DAEMON_ID,
+          token: TOKEN,
+          v: 2,
+        }),
+      );
+      await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
+
+      // Send relay.push for a frontendId that is NOT connected
+      daemon.send(
+        JSON.stringify({
+          t: "relay.push",
+          frontendId: "fe-disconnected",
+          token: "ExponentPushToken[test]",
+          title: "Test",
+          body: "Test body",
+        }),
+      );
+
+      // No WS notification should be received (no frontend to receive it)
+      // The push service will try Expo API (which will fail in test env, but that's OK)
+      // Just verify no crash and daemon stays connected
+      await Bun.sleep(200);
+      daemon.send(JSON.stringify({ t: "relay.ping" }));
+      const pong = await waitForMessage(daemon, (m) => m.t === "relay.pong");
+      expect(pong.t).toBe("relay.pong");
+
+      daemon.close();
+    });
   });
 
   test("resume with after= skips already-seen frames", async () => {

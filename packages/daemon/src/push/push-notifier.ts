@@ -28,7 +28,7 @@ export interface PushNotifierDeps {
     token: string,
     title: string,
     body: string,
-    data: { sid: string; daemonId?: string; event: string },
+    data: { sid: string; event: string },
   ) => void;
 }
 
@@ -72,7 +72,6 @@ export class PushNotifier {
       );
       this.deps.sendPush(frontendId, entry.token, msg.title, msg.body, {
         sid: rec.sid,
-        daemonId: undefined,
         event: rec.name,
       });
     }

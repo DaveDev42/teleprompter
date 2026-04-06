@@ -35,7 +35,12 @@ export function InAppToast() {
             {toast.body}
           </Text>
         </View>
-        <Pressable onPress={dismiss} hitSlop={8} accessibilityLabel="Dismiss notification" accessibilityRole="button">
+        <Pressable
+          onPress={dismiss}
+          hitSlop={8}
+          accessibilityLabel="Dismiss notification"
+          accessibilityRole="button"
+        >
           <Text className="text-tp-text-tertiary text-lg">✕</Text>
         </Pressable>
       </View>

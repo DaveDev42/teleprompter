@@ -74,5 +74,5 @@ export function usePushNotifications() {
     return () => {
       responseSub.remove();
     };
-  }, []);
+  }, [router.push]);
 }

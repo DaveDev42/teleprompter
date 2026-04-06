@@ -1,4 +1,4 @@
-import type { WsClientMessage, WsRec } from "@teleprompter/protocol/client";
+import type { WsRec } from "@teleprompter/protocol/client";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -14,7 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChatCard } from "../../src/components/ChatCard";
 import { VoiceButton } from "../../src/components/VoiceButton";
-import { getDaemonClient } from "../../src/hooks/use-daemon";
+import { getTransport } from "../../src/hooks/use-transport";
 import { getPlatformProps } from "../../src/lib/get-platform-props";
 import type { TerminalSearch } from "../../src/lib/terminal-search";
 import {
@@ -114,7 +114,7 @@ function ChatView({ sid }: { sid: string }) {
   // Wire voice prompt to chat send
   useEffect(() => {
     setOnPromptReady((prompt: string) => {
-      const client = getDaemonClient();
+      const client = getTransport();
       if (sid && client) {
         client.sendChat(sid, prompt);
       }
@@ -125,7 +125,7 @@ function ChatView({ sid }: { sid: string }) {
   // Request record replay on mount
   useEffect(() => {
     if (!sid) return;
-    const client = getDaemonClient();
+    const client = getTransport();
     if (client) {
       const timer = setTimeout(() => client.resume(sid, 0), 500);
       return () => clearTimeout(timer);
@@ -182,7 +182,7 @@ function ChatView({ sid }: { sid: string }) {
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text || !sid) return;
-    const client = getDaemonClient();
+    const client = getTransport();
     if (!client) return;
     client.sendChat(sid, text);
     setInput("");
@@ -276,7 +276,7 @@ function TerminalView({ sid }: { sid: string }) {
 
   const handleTermReady = useCallback(() => {
     if (!sid) return;
-    const client = getDaemonClient();
+    const client = getTransport();
     if (client) {
       client.resume(sid, 0);
     }
@@ -302,7 +302,7 @@ function TerminalView({ sid }: { sid: string }) {
 
   const handleData = useCallback(
     (data: string) => {
-      const client = getDaemonClient();
+      const client = getTransport();
       if (!sid || !client) return;
       client.sendTermInput(sid, btoa(data));
     },
@@ -311,9 +311,9 @@ function TerminalView({ sid }: { sid: string }) {
 
   const handleResize = useCallback(
     (cols: number, rows: number) => {
-      const client = getDaemonClient();
+      const client = getTransport();
       if (sid && client) {
-        client.send({ t: "resize", sid, cols, rows } as WsClientMessage);
+        client.send({ t: "resize", sid, cols, rows });
       }
     },
     [sid],
@@ -350,7 +350,7 @@ export default function SessionDetailScreen() {
   // Attach to session on mount
   useEffect(() => {
     if (!sid) return;
-    const client = getDaemonClient();
+    const client = getTransport();
     if (client) {
       client.attach(sid);
       setSid(sid);
@@ -359,7 +359,7 @@ export default function SessionDetailScreen() {
     useChatStore.getState().clear();
 
     return () => {
-      const c = getDaemonClient();
+      const c = getTransport();
       if (c && sid) c.detach(sid);
     };
   }, [sid]);

@@ -8,7 +8,11 @@ import type {
   WsRec,
   WsSessionMeta,
 } from "@teleprompter/protocol";
-import { createLogger } from "@teleprompter/protocol";
+import {
+  createLogger,
+  RELAY_CHANNEL_CONTROL,
+  RELAY_CHANNEL_META,
+} from "@teleprompter/protocol";
 import { formatMarkdown } from "./export-formatter";
 import { IpcServer } from "./ipc/server";
 import {
@@ -203,18 +207,28 @@ export class Daemon {
    */
   async connectRelay(config: RelayClientConfig): Promise<RelayClient> {
     const client = new RelayClient(config, {
-      onInput: (_sid, data) => {
+      onInput: (kind, _sid, data) => {
         // Relay input from remote frontend → runner
         const runner = this.ipcServer.findRunnerBySid(_sid);
         if (runner) {
-          this.ipcServer.send(runner, { t: "input", sid: _sid, data });
+          // Chat input needs newline appended (matching WS onInChat behavior)
+          const payload =
+            kind === "chat"
+              ? Buffer.from(`${data}\n`).toString("base64")
+              : data;
+          this.ipcServer.send(runner, { t: "input", sid: _sid, data: payload });
         }
+      },
+      onControlMessage: (msg, frontendId) => {
+        this.handleRelayControlMessage(client, msg, frontendId);
       },
       onFrontendJoined: (frontendId) => {
         // Send session list to newly connected frontend (like WS hello)
         const sessions = this.store.listSessions().map(toWsSessionMeta);
         const helloMsg = { t: "hello", v: 1, d: { sessions } };
-        client.publishToPeer(frontendId, "__meta__", helloMsg).catch(() => {});
+        client
+          .publishToPeer(frontendId, RELAY_CHANNEL_META, helloMsg)
+          .catch(() => {});
 
         // Subscribe all running sessions so the frontend gets records
         for (const s of sessions) {
@@ -227,8 +241,9 @@ export class Daemon {
 
     await client.connect();
 
-    // Subscribe to meta channel and all existing sessions
-    client.subscribe("__meta__");
+    // Subscribe to meta, control, and all existing sessions
+    client.subscribe(RELAY_CHANNEL_META);
+    client.subscribe(RELAY_CHANNEL_CONTROL);
     for (const meta of this.store.listSessions()) {
       if (meta.state === "running") {
         client.subscribe(meta.sid);
@@ -331,7 +346,7 @@ export class Daemon {
       };
       this.clientRegistry.sendAll(stateMsg);
       for (const relay of this.relayClients) {
-        relay.publishState("__meta__", stateMsg).catch(() => {});
+        relay.publishState(RELAY_CHANNEL_META, stateMsg).catch(() => {});
       }
     }
   }
@@ -401,8 +416,393 @@ export class Daemon {
       };
       this.clientRegistry.sendAll(stateMsg);
       for (const relay of this.relayClients) {
-        relay.publishState("__meta__", stateMsg).catch(() => {});
+        relay.publishState(RELAY_CHANNEL_META, stateMsg).catch(() => {});
       }
+    }
+  }
+
+  /**
+   * Handle control messages from a remote frontend via relay.
+   * Mirrors the WS server handlers but sends responses back through relay.
+   */
+  private handleRelayControlMessage(
+    relay: RelayClient,
+    msg: Record<string, unknown>,
+    frontendId: string,
+  ): void {
+    if (typeof msg.t !== "string") {
+      log.warn("relay control message missing type field");
+      return;
+    }
+
+    const reply = (sid: string, response: unknown) => {
+      relay.publishToPeer(frontendId, sid, response).catch(() => {});
+    };
+    const replyError = (sid: string, e: string, m: string) => {
+      reply(sid, { t: "err", e, m });
+    };
+
+    // Validate sid for messages that require it
+    // (in.chat/in.term are routed via onInput, never reach here)
+    const needsSid = [
+      "attach",
+      "detach",
+      "resume",
+      "resize",
+      "session.stop",
+      "session.restart",
+      "session.export",
+    ];
+    if (needsSid.includes(msg.t) && typeof msg.sid !== "string") {
+      replyError(RELAY_CHANNEL_CONTROL, "INVALID", `${msg.t} missing sid`);
+      return;
+    }
+
+    switch (msg.t) {
+      case "hello": {
+        const sessions = this.store.listSessions().map(toWsSessionMeta);
+        reply(RELAY_CHANNEL_META, { t: "hello", v: 1, d: { sessions } });
+        break;
+      }
+
+      case "attach": {
+        const sid = msg.sid as string;
+        const meta = this.store.getSession(sid);
+        if (meta) {
+          reply(sid, { t: "state", sid, d: toWsSessionMeta(meta) });
+        } else {
+          replyError(sid, "NOT_FOUND", `Session ${sid} not found`);
+        }
+        break;
+      }
+
+      case "detach":
+        // No response needed for detach via relay
+        break;
+
+      case "resume": {
+        const sid = msg.sid as string;
+        const cursor = (msg.c as number) ?? 0;
+        this.handleRelayResume(relay, frontendId, sid, cursor);
+        break;
+      }
+
+      case "resize": {
+        const sid = msg.sid as string;
+        const runner = this.ipcServer.findRunnerBySid(sid);
+        if (runner) {
+          this.ipcServer.send(runner, {
+            t: "resize",
+            sid,
+            cols: msg.cols as number,
+            rows: msg.rows as number,
+          });
+        }
+        break;
+      }
+
+      case "ping":
+        reply(RELAY_CHANNEL_CONTROL, { t: "pong" });
+        break;
+
+      case "session.create": {
+        if (typeof msg.cwd !== "string") {
+          replyError(RELAY_CHANNEL_CONTROL, "INVALID", "Missing cwd");
+          break;
+        }
+        const cwd = msg.cwd;
+        const sid = (msg.sid as string) ?? `session-${Date.now().toString(36)}`;
+        try {
+          this.createSession(sid, cwd);
+        } catch (err) {
+          replyError(
+            sid,
+            "SESSION_ERROR",
+            err instanceof Error ? err.message : "Failed to create session",
+          );
+        }
+        break;
+      }
+
+      case "session.stop": {
+        const sid = msg.sid as string;
+        if (!this.sessionManager.killRunner(sid)) {
+          replyError(sid, "NO_RUNNER", `No runner for session ${sid}`);
+        }
+        break;
+      }
+
+      case "session.restart": {
+        const sid = msg.sid as string;
+        const session = this.store.getSession(sid);
+        if (!session) {
+          replyError(sid, "NOT_FOUND", `Session ${sid} not found`);
+          break;
+        }
+        this.sessionManager.killRunner(sid);
+        try {
+          this.createSession(sid, session.cwd, {
+            worktreePath: session.worktree_path ?? undefined,
+          });
+          log.info(`restarted session ${sid} via relay`);
+        } catch (err) {
+          replyError(
+            sid,
+            "SESSION_ERROR",
+            err instanceof Error ? err.message : "Failed to restart session",
+          );
+        }
+        break;
+      }
+
+      case "session.export":
+        this.handleRelaySessionExport(relay, frontendId, msg);
+        break;
+
+      case "worktree.list":
+        this.handleRelayWorktreeList(relay, frontendId);
+        break;
+
+      case "worktree.create": {
+        if (typeof msg.branch !== "string") {
+          replyError(RELAY_CHANNEL_CONTROL, "INVALID", "Missing branch");
+          break;
+        }
+        this.handleRelayWorktreeCreate(
+          relay,
+          frontendId,
+          msg.branch,
+          msg.baseBranch as string | undefined,
+          msg.path as string | undefined,
+        );
+        break;
+      }
+
+      case "worktree.remove": {
+        if (typeof msg.path !== "string") {
+          replyError(RELAY_CHANNEL_CONTROL, "INVALID", "Missing path");
+          break;
+        }
+        this.handleRelayWorktreeRemove(
+          relay,
+          frontendId,
+          msg.path,
+          msg.force as boolean | undefined,
+        );
+        break;
+      }
+
+      default:
+        log.warn(`unknown relay control message: ${msg.t}`);
+    }
+  }
+
+  private handleRelayResume(
+    relay: RelayClient,
+    frontendId: string,
+    sid: string,
+    cursor: number,
+  ): void {
+    const db = this.store.getSessionDb(sid);
+    if (!db) {
+      relay
+        .publishToPeer(frontendId, sid, {
+          t: "err",
+          e: "NOT_FOUND",
+          m: `Session ${sid} not found`,
+        })
+        .catch(() => {});
+      return;
+    }
+
+    const records = db.getRecordsFrom(cursor);
+    const wsRecs = toWsRecs(sid, records);
+
+    relay
+      .publishToPeer(frontendId, sid, { t: "batch", sid, d: wsRecs })
+      .catch(() => {});
+  }
+
+  private async handleRelayWorktreeList(
+    relay: RelayClient,
+    frontendId: string,
+  ): Promise<void> {
+    if (!this.worktreeManager) {
+      relay
+        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
+          t: "err",
+          e: "NO_REPO",
+          m: "No repository configured for worktree management",
+        })
+        .catch(() => {});
+      return;
+    }
+
+    try {
+      const worktrees = await this.worktreeManager.list();
+      relay
+        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
+          t: "worktree.list",
+          d: worktrees,
+        })
+        .catch(() => {});
+    } catch (err) {
+      relay
+        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
+          t: "err",
+          e: "WORKTREE_ERROR",
+          m: err instanceof Error ? err.message : "Failed to list worktrees",
+        })
+        .catch(() => {});
+    }
+  }
+
+  private async handleRelayWorktreeCreate(
+    relay: RelayClient,
+    frontendId: string,
+    branch: string,
+    baseBranch?: string,
+    path?: string,
+  ): Promise<void> {
+    if (!this.worktreeManager) {
+      relay
+        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
+          t: "err",
+          e: "NO_REPO",
+          m: "No repository configured",
+        })
+        .catch(() => {});
+      return;
+    }
+
+    try {
+      const ts = Date.now().toString(36);
+      const wtPath = path ?? `${branch}-${ts}`;
+      const wt = await this.worktreeManager.add(wtPath, branch, baseBranch);
+      const sid = `${branch}-${ts}`;
+      this.createSession(sid, wt.path, { worktreePath: wt.path });
+
+      relay
+        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
+          t: "worktree.created",
+          d: wt,
+          sid,
+        })
+        .catch(() => {});
+    } catch (err) {
+      relay
+        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
+          t: "err",
+          e: "WORKTREE_ERROR",
+          m: err instanceof Error ? err.message : "Failed to create worktree",
+        })
+        .catch(() => {});
+    }
+  }
+
+  private async handleRelayWorktreeRemove(
+    relay: RelayClient,
+    frontendId: string,
+    path: string,
+    force?: boolean,
+  ): Promise<void> {
+    if (!this.worktreeManager) {
+      relay
+        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
+          t: "err",
+          e: "NO_REPO",
+          m: "No repository configured",
+        })
+        .catch(() => {});
+      return;
+    }
+
+    try {
+      await this.worktreeManager.remove(path, force);
+      relay
+        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
+          t: "worktree.removed",
+          path,
+        })
+        .catch(() => {});
+    } catch (err) {
+      relay
+        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
+          t: "err",
+          e: "WORKTREE_ERROR",
+          m: err instanceof Error ? err.message : "Failed to remove worktree",
+        })
+        .catch(() => {});
+    }
+  }
+
+  private handleRelaySessionExport(
+    relay: RelayClient,
+    frontendId: string,
+    msg: Record<string, unknown>,
+  ): void {
+    const sid = msg.sid as string;
+    const format = (msg.format as "json" | "markdown") ?? "markdown";
+    const recordTypes = msg.recordTypes as RecordKind[] | undefined;
+    const timeRange = msg.timeRange as
+      | { from?: number; to?: number }
+      | undefined;
+    const limit = msg.limit as number | undefined;
+
+    const session = this.store.getSession(sid);
+    if (!session) {
+      relay
+        .publishToPeer(frontendId, sid, {
+          t: "err",
+          e: "NOT_FOUND",
+          m: `Session ${sid} not found`,
+        })
+        .catch(() => {});
+      return;
+    }
+
+    const db = this.store.getSessionDb(sid);
+    if (!db) {
+      relay
+        .publishToPeer(frontendId, sid, {
+          t: "err",
+          e: "NOT_FOUND",
+          m: `Session DB for ${sid} not found`,
+        })
+        .catch(() => {});
+      return;
+    }
+
+    const effectiveLimit = Math.min(limit ?? 50000, 50000);
+    const records = db.getRecordsFiltered({
+      kinds: recordTypes,
+      from: timeRange?.from,
+      to: timeRange?.to,
+      limit: effectiveLimit,
+    });
+
+    const meta = toWsSessionMeta(session);
+    const truncated = records.length >= effectiveLimit;
+
+    if (format === "json") {
+      relay
+        .publishToPeer(frontendId, sid, {
+          t: "session.exported",
+          sid,
+          format: "json",
+          d: JSON.stringify({ meta, records, truncated }),
+        })
+        .catch(() => {});
+    } else {
+      const md = formatMarkdown(meta, records, truncated);
+      relay
+        .publishToPeer(frontendId, sid, {
+          t: "session.exported",
+          sid,
+          format: "markdown",
+          d: md,
+        })
+        .catch(() => {});
     }
   }
 
@@ -418,16 +818,7 @@ export class Daemon {
     }
 
     const records = db.getRecordsFrom(cursor);
-    const wsRecs: WsRec[] = records.map((r: StoredRecord) => ({
-      t: "rec" as const,
-      sid,
-      seq: r.seq,
-      k: r.kind,
-      ns: (r.ns as Namespace) ?? undefined,
-      n: r.name ?? undefined,
-      d: Buffer.from(r.payload).toString("base64"),
-      ts: r.ts,
-    }));
+    const wsRecs = toWsRecs(sid, records);
 
     this.clientRegistry.send(client, { t: "batch", sid, d: wsRecs });
   }
@@ -704,6 +1095,19 @@ export class Daemon {
     this.store.close();
     log.info("stopped");
   }
+}
+
+function toWsRecs(sid: string, records: StoredRecord[]): WsRec[] {
+  return records.map((r) => ({
+    t: "rec" as const,
+    sid,
+    seq: r.seq,
+    k: r.kind,
+    ns: (r.ns as Namespace) ?? undefined,
+    n: r.name ?? undefined,
+    d: Buffer.from(r.payload).toString("base64"),
+    ts: r.ts,
+  }));
 }
 
 function toWsSessionMeta(meta: SessionMeta): WsSessionMeta {

@@ -1,8 +1,8 @@
 import type { WsSessionMeta } from "@teleprompter/protocol/client";
 import { useCallback, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
-import { getDaemonClient } from "../hooks/use-daemon";
 import { useRelayConnectionStore } from "../hooks/use-relay";
+import { getTransport } from "../hooks/use-transport";
 import { checkCryptoAvailability } from "../lib/crypto-native";
 import { getPlatformProps } from "../lib/get-platform-props";
 import { useOfflineStore } from "../stores/offline-store";
@@ -94,7 +94,7 @@ export function DiagnosticsPanel() {
   }>({ running: false });
 
   const handlePing = () => {
-    const client = getDaemonClient();
+    const client = getTransport();
     if (client) {
       client.ping();
       setTimeout(() => setRtt(client.getRtt()), 500);

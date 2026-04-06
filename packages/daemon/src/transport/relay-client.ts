@@ -55,7 +55,14 @@ export interface RelayClientConfig {
 
 export interface RelayClientEvents {
   /** Called when a decrypted input arrives from a frontend via relay */
-  onInput?: (sid: string, data: string, frontendId?: string) => void;
+  onInput?: (
+    kind: "chat" | "term",
+    sid: string,
+    data: string,
+    frontendId?: string,
+  ) => void;
+  /** Called when a decrypted control message arrives from a frontend via relay */
+  onControlMessage?: (msg: Record<string, unknown>, frontendId: string) => void;
   /** Called when relay connection state changes */
   onConnected?: () => void;
   onDisconnected?: () => void;
@@ -275,7 +282,13 @@ export class RelayClient {
     const msg = JSON.parse(text);
 
     if (msg.t === "in.chat" || msg.t === "in.term") {
-      this.events.onInput?.(msg.sid, msg.d, peer.frontendId);
+      const kind = msg.t === "in.chat" ? "chat" : "term";
+      this.events.onInput?.(kind, msg.sid, msg.d, peer.frontendId);
+    } else {
+      // Control plane messages: attach, detach, resume, resize, ping,
+      // session.create, session.stop, session.restart, session.export,
+      // worktree.create, worktree.remove, worktree.list, hello
+      this.events.onControlMessage?.(msg, peer.frontendId);
     }
   }
 

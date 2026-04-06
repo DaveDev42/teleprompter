@@ -11,6 +11,13 @@
  * - frontendId — per-frontend identity for N:N daemon↔frontend multiplexing
  */
 
+// ── Relay channel constants ──
+
+/** Virtual session ID for session list / state updates */
+export const RELAY_CHANNEL_META = "__meta__";
+/** Virtual session ID for control plane messages */
+export const RELAY_CHANNEL_CONTROL = "__control__";
+
 // ── Client → Relay (both Daemon and Frontend) ──
 
 export interface RelayAuth {

@@ -1,7 +1,4 @@
-import type {
-  WsClientMessage,
-  WsSessionMeta,
-} from "@teleprompter/protocol/client";
+import type { WsSessionMeta } from "@teleprompter/protocol/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -12,7 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { getDaemonClient } from "../hooks/use-daemon";
+import { getTransport } from "../hooks/use-transport";
 import { getPlatformProps } from "../lib/get-platform-props";
 import { useChatStore } from "../stores/chat-store";
 import { useSessionStore } from "../stores/session-store";
@@ -143,7 +140,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
   >(null);
 
   useEffect(() => {
-    const client = getDaemonClient();
+    const client = getTransport();
     if (!client) return;
 
     client.onSessionExported = (
@@ -173,7 +170,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
   }, [sessions, filter]);
 
   const switchSession = (sid: string) => {
-    const client = getDaemonClient();
+    const client = getTransport();
     if (!client) return;
 
     // Detach current
@@ -192,11 +189,11 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
   };
 
   const stopSession = (sid: string) => {
-    getDaemonClient()?.stopSession(sid);
+    getTransport()?.stopSession(sid);
   };
 
   const restartSession = (sid: string) => {
-    getDaemonClient()?.restartSession(sid);
+    getTransport()?.restartSession(sid);
   };
 
   const exportTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -212,7 +209,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
 
   const exportSession = useCallback(
     (sid: string) => {
-      const client = getDaemonClient();
+      const client = getTransport();
       if (!client) return;
 
       setExportingSid(sid);
@@ -269,9 +266,9 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
   const createWorktree = () => {
     const branch = branchInput.trim();
     if (!branch) return;
-    const client = getDaemonClient();
+    const client = getTransport();
     if (!client) return;
-    client.send({ t: "worktree.create", branch } as WsClientMessage);
+    client.createWorktree(branch);
     setBranchInput("");
     setShowWorktreeForm(false);
   };

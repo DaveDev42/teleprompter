@@ -170,7 +170,11 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     const frontendId = "test-frontend-2";
     const kxKey = await deriveKxKey(pairingSecret);
 
-    let receivedInput: { sid: string; data: string } | null = null;
+    let receivedInput: {
+      kind: string;
+      sid: string;
+      data: string;
+    } | null = null;
 
     const client = new RelayClient(
       {
@@ -182,8 +186,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         pairingSecret,
       },
       {
-        onInput: (sid, data) => {
-          receivedInput = { sid, data };
+        onInput: (kind, sid, data) => {
+          receivedInput = { kind, sid, data };
         },
       },
     );
@@ -242,8 +246,13 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
 
     await Bun.sleep(300);
 
-    const input = receivedInput as { sid: string; data: string } | null;
+    const input = receivedInput as {
+      kind: string;
+      sid: string;
+      data: string;
+    } | null;
     if (!input) throw new Error("expected receivedInput");
+    expect(input.kind).toBe("chat");
     expect(input.sid).toBe("session-1");
     expect(input.data).toBe("Hello from frontend!");
 

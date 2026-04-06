@@ -41,10 +41,11 @@ export default function RootLayout() {
     }
   }, [systemScheme, theme]);
 
-  // Direct WebSocket to local daemon (always available for local dev)
+  // Direct WebSocket to local daemon (always active for E2E and local dev)
+  // In production mobile, getTransport() prefers relay when paired
   useDaemon();
 
-  // E2EE relay connections for all paired daemons (runs in parallel with direct WS)
+  // E2EE relay connections for all paired daemons
   useRelay();
 
   // OTA update check on app launch

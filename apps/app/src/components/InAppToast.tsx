@@ -21,6 +21,8 @@ export function InAppToast() {
   return (
     <Pressable
       onPress={handlePress}
+      accessibilityRole="alert"
+      accessibilityLabel={`${toast.title}: ${toast.body}`}
       className="absolute left-4 right-4 bg-tp-bg-elevated rounded-card border border-tp-border p-4 shadow-lg z-50"
       style={{ top: insets.top + 8 }}
     >

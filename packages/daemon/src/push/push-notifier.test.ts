@@ -9,7 +9,7 @@ describe("PushNotifier", () => {
         _token: string,
         _title: string,
         _body: string,
-        _data: { sid: string; daemonId?: string; event: string },
+        _data: { sid: string; event: string },
       ) => {},
     );
   }
@@ -27,7 +27,7 @@ describe("PushNotifier", () => {
       "ExponentPushToken[abc]",
       "Response needed",
       "Claude is waiting for your answer",
-      { sid: "s1", daemonId: undefined, event: "Elicitation" },
+      { sid: "s1", event: "Elicitation" },
     ]);
   });
 
@@ -44,7 +44,7 @@ describe("PushNotifier", () => {
       "ExponentPushToken[xyz]",
       "Permission needed",
       "Tool permission approval required",
-      { sid: "s2", daemonId: undefined, event: "PermissionRequest" },
+      { sid: "s2", event: "PermissionRequest" },
     ]);
   });
 

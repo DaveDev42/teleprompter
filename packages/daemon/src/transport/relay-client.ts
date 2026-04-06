@@ -365,7 +365,7 @@ export class RelayClient {
     body: string,
     data?: { sid: string; daemonId?: string; event: string },
   ): void {
-    this.send({
+    const msg: RelayClientMessage = {
       t: "relay.push",
       frontendId,
       token,
@@ -378,7 +378,8 @@ export class RelayClient {
             event: data.event,
           }
         : undefined,
-    } as RelayClientMessage);
+    };
+    this.send(msg);
   }
 
   subscribe(sid: string): void {

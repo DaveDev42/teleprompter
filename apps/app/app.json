@@ -80,7 +80,14 @@
           "cameraPermission": "Camera is used to scan QR codes for daemon pairing."
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#000000"
+        }
+      ]
     ],
     "extra": {
       "router": {},

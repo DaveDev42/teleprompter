@@ -70,6 +70,12 @@ export interface RelayClientEvents {
   onPresence?: (online: boolean, sessions?: string[]) => void;
   /** Called when a new frontend completes key exchange */
   onFrontendJoined?: (frontendId: string) => void;
+  /** Called when a frontend sends a pushToken message */
+  onPushToken?: (
+    frontendId: string,
+    token: string,
+    platform: "ios" | "android",
+  ) => void;
 }
 
 export class RelayClient {
@@ -284,6 +290,8 @@ export class RelayClient {
     if (msg.t === "in.chat" || msg.t === "in.term") {
       const kind = msg.t === "in.chat" ? "chat" : "term";
       this.events.onInput?.(kind, msg.sid, msg.d, peer.frontendId);
+    } else if (msg.t === "pushToken") {
+      this.events.onPushToken?.(peer.frontendId, msg.token, msg.platform);
     } else {
       // Control plane messages: attach, detach, resume, resize, ping,
       // session.create, session.stop, session.restart, session.export,
@@ -348,6 +356,34 @@ export class RelayClient {
     const plaintext = new TextEncoder().encode(JSON.stringify(msg));
     const ct = await encrypt(plaintext, peer.sessionKeys.tx);
     this.send({ t: "relay.pub", sid, ct, seq: 0 });
+  }
+
+  /**
+   * Send a push notification request to the relay server.
+   * The relay forwards this to the Expo Push API on behalf of the daemon.
+   */
+  sendPush(
+    frontendId: string,
+    token: string,
+    title: string,
+    body: string,
+    data?: { sid: string; daemonId?: string; event: string },
+  ): void {
+    const msg: RelayClientMessage = {
+      t: "relay.push",
+      frontendId,
+      token,
+      title,
+      body,
+      data: data
+        ? {
+            sid: data.sid,
+            daemonId: data.daemonId ?? this.config.daemonId,
+            event: data.event,
+          }
+        : undefined,
+    };
+    this.send(msg);
   }
 
   subscribe(sid: string): void {

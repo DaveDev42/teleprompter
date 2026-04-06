@@ -2,9 +2,11 @@ import type {
   RelayClientMessage,
   RelayFrame,
   RelayKeyExchangeFrame,
+  RelayNotification,
   RelayServerMessage,
 } from "@teleprompter/protocol";
 import { createLogger } from "@teleprompter/protocol";
+import { PushService } from "./push";
 
 type ServerWebSocket = Bun.ServerWebSocket<unknown>;
 type BunServer = ReturnType<typeof Bun.serve>;
@@ -64,6 +66,8 @@ interface DaemonState {
 export class RelayServer {
   /** All authenticated clients */
   private clients = new Map<ServerWebSocket, ConnectedClient>();
+
+  private pushService = new PushService();
 
   /** daemonId → set of connected clients (both daemon and frontend) */
   private daemonGroups = new Map<string, Set<ServerWebSocket>>();
@@ -230,6 +234,7 @@ ${daemons
 
   stop() {
     this.stopStaleCheck();
+    this.pushService.dispose();
     this.server?.stop();
     this.clients.clear();
     this.daemonGroups.clear();
@@ -316,6 +321,12 @@ ${daemons
         break;
       case "relay.ping":
         this.handlePing(ws, msg);
+        break;
+      case "relay.push":
+        this.handlePush(
+          ws,
+          msg as RelayClientMessage & { t: "relay.push" },
+        ).catch((err) => log.error(`handlePush failed: ${err}`));
         break;
       default:
         this.send(ws, {
@@ -620,6 +631,60 @@ ${daemons
       }
     }
     this.send(ws, { t: "relay.pong", ts: msg.ts });
+  }
+
+  private async handlePush(
+    ws: ServerWebSocket,
+    msg: RelayClientMessage & { t: "relay.push" },
+  ) {
+    const client = this.clients.get(ws);
+    if (!client || client.role !== "daemon") {
+      this.send(ws, {
+        t: "relay.err",
+        e: "UNAUTHORIZED",
+        m: "Only daemons can send push requests",
+      });
+      return;
+    }
+
+    // Find the target frontend by frontendId in the same daemon group
+    const group = this.daemonGroups.get(client.daemonId);
+    let targetFrontendWs: ServerWebSocket | null = null;
+    if (group) {
+      for (const memberWs of group) {
+        const member = this.clients.get(memberWs);
+        if (
+          member &&
+          member.role === "frontend" &&
+          member.frontendId === msg.frontendId
+        ) {
+          targetFrontendWs = memberWs;
+          break;
+        }
+      }
+    }
+
+    const isFrontendConnected = targetFrontendWs !== null;
+
+    const result = await this.pushService.sendOrDeliver({
+      frontendId: msg.frontendId,
+      daemonId: client.daemonId,
+      token: msg.token,
+      title: msg.title,
+      body: msg.body,
+      isFrontendConnected,
+      data: msg.data,
+    });
+
+    if (result === "ws" && targetFrontendWs) {
+      const notification: RelayNotification = {
+        t: "relay.notification",
+        title: msg.title,
+        body: msg.body,
+        data: msg.data,
+      };
+      this.send(targetFrontendWs, notification);
+    }
   }
 
   private startStaleCheck(): void {

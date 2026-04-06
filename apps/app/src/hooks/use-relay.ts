@@ -1,7 +1,9 @@
 import type { WsRec, WsSessionMeta } from "@teleprompter/protocol/client";
 import { useEffect } from "react";
+import { Platform } from "react-native";
 import { create } from "zustand";
 import { FrontendRelayClient } from "../lib/relay-client";
+import { useNotificationStore } from "../stores/notification-store";
 import { useOfflineStore } from "../stores/offline-store";
 import { usePairingStore } from "../stores/pairing-store";
 import { useSessionStore } from "../stores/session-store";
@@ -34,6 +36,13 @@ export const useRelayConnectionStore = create<RelayConnectionState>((set) => ({
 
 /** Per-daemon relay clients */
 const relayClients = new Map<string, FrontendRelayClient>();
+
+/** Module-level list for push token broadcasting */
+let activeRelayClients: FrontendRelayClient[] = [];
+
+export function getRelayClients(): readonly FrontendRelayClient[] {
+  return activeRelayClients;
+}
 
 /**
  * Hook that manages E2EE relay connections for all paired daemons.
@@ -85,6 +94,16 @@ export function useRelay() {
             setConnected(true);
             setError(null);
             relayConn.setConnected(daemonId, true);
+            // Re-send push token on reconnect so daemon always has a fresh token
+            if (Platform.OS !== "web") {
+              const { getCurrentPushToken } =
+                require("./use-push-notifications") as typeof import("./use-push-notifications");
+              const token = getCurrentPushToken();
+              if (token) {
+                const platform = Platform.OS as "ios" | "android";
+                client.sendPushToken(token, platform);
+              }
+            }
           },
           onDisconnected: () => {
             setConnected(false);
@@ -124,10 +143,18 @@ export function useRelay() {
               }
             }
           },
+          onNotification: (title, body, data) => {
+            const currentSid = useSessionStore.getState().sid;
+            if (data?.sid && data.sid === currentSid) return;
+            useNotificationStore.getState().showToast({ title, body, data });
+          },
         },
       );
 
       relayClients.set(daemonId, client);
+      if (!activeRelayClients.includes(client)) {
+        activeRelayClients.push(client);
+      }
       client.connect();
     }
 
@@ -136,6 +163,7 @@ export function useRelay() {
       if (!pairings.has(daemonId)) {
         client.dispose();
         relayClients.delete(daemonId);
+        activeRelayClients = activeRelayClients.filter((c) => c !== client);
         relayConn.remove(daemonId);
       }
     }
@@ -146,6 +174,7 @@ export function useRelay() {
     return () => {
       for (const client of relayClients.values()) client.dispose();
       relayClients.clear();
+      activeRelayClients = [];
     };
   }, []);
 }

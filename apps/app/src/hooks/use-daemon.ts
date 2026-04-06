@@ -91,7 +91,7 @@ export function useDaemon(url?: string | null) {
       clientRef.current = null;
       globalClient = null;
     };
-  }, []);
+  }, [url]);
 
   return clientRef;
 }

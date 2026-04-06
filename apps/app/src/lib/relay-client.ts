@@ -55,6 +55,12 @@ export interface FrontendRelayEvents extends TransportEventHandler {
   onDisconnected?: () => void;
   /** Daemon online/offline presence */
   onPresence?: (online: boolean, sessions: string[]) => void;
+  /** Push notification received from relay (plaintext) */
+  onNotification?: (
+    title: string,
+    body: string,
+    data?: { sid: string; daemonId: string; event: string },
+  ) => void;
 }
 
 export class FrontendRelayClient implements TransportClient {
@@ -177,6 +183,10 @@ export class FrontendRelayClient implements TransportClient {
         await this.handleFrame(msg);
         break;
 
+      case "relay.notification":
+        this.events.onNotification?.(msg.title, msg.body, msg.data);
+        break;
+
       case "relay.presence":
         this.events.onPresence?.(msg.online, msg.sessions);
         break;
@@ -270,6 +280,19 @@ export class FrontendRelayClient implements TransportClient {
     if (seq > this.lastSeq) {
       this.lastSeq = seq;
     }
+  }
+
+  /** Encrypt and send push token to daemon via relay meta channel */
+  async sendPushToken(
+    token: string,
+    platform: "ios" | "android",
+  ): Promise<void> {
+    if (!this.authenticated || !this.sessionKeys) return;
+    const msg = { t: "pushToken", token, platform };
+    const json = JSON.stringify(msg);
+    const plaintext = new TextEncoder().encode(json);
+    const ct = await encrypt(plaintext, this.sessionKeys.tx);
+    this.sendRelay({ t: "relay.pub", sid: RELAY_CHANNEL_META, ct, seq: 0 });
   }
 
   // ── Encrypted control message sender ──

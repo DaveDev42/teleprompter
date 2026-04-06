@@ -23,7 +23,6 @@ import {
   useChatStore,
 } from "../../src/stores/chat-store";
 import { useSessionStore } from "../../src/stores/session-store";
-import { useThemeStore } from "../../src/stores/theme-store";
 import { setGlobalTermRef, useVoiceStore } from "../../src/stores/voice-store";
 
 // Platform-specific terminal component
@@ -338,7 +337,7 @@ export default function SessionDetailScreen() {
   const { sid } = useLocalSearchParams<{ sid: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const connected = useSessionStore((s) => s.connected);
+  const _connected = useSessionStore((s) => s.connected);
   const sessions = useSessionStore((s) => s.sessions);
   const setSid = useSessionStore((s) => s.setSid);
   const [mode, setMode] = useState<ViewMode>("chat");
@@ -362,7 +361,7 @@ export default function SessionDetailScreen() {
       const c = getTransport();
       if (c && sid) c.detach(sid);
     };
-  }, [sid]);
+  }, [sid, setSid]);
 
   // Derive display name from cwd
   const displayName = session?.cwd.split("/").pop() ?? sid ?? "Session";

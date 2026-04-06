@@ -34,5 +34,5 @@ export {
   parsePairingForFrontend,
 } from "./pairing";
 export { QueuedWriter } from "./queued-writer";
-export { getSocketPath } from "./socket-path";
+export { getSocketPath, getWindowsSocketPath } from "./socket-path";
 export * from "./types";

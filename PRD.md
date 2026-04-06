@@ -98,7 +98,7 @@ Teleprompter는 다음을 제공한다.
 
 5.4.2 PTY
 	•	macOS/Linux: Bun.spawn({ terminal }) — Bun v1.3.5+ 네이티브 PTY
-	•	Windows: 미지원 (향후 bun-pty 라이브러리 Rust FFI 기반 지원 예정)
+	•	Windows: `@aspect-build/node-pty` via Node.js subprocess (ConPTY). Node.js 필요. pty-host 자동 설치 (`%LOCALAPPDATA%\teleprompter\pty-host\`)
 
 5.4.3 Frontend 기술
 	•	상태 관리: Zustand
@@ -221,7 +221,7 @@ Relay Server
 8.3 Runner ↔ Daemon IPC
 	•	cross-platform local socket abstraction 사용
 	•	macOS/Linux: Unix domain socket
-	•	Windows: 미지원 (향후 named pipe 예정)
+	•	Windows: Named Pipes (`\\.\pipe\teleprompter-{username}-daemon`)
 	•	backpressure 처리 필수: Bun socket.write()가 버퍼 가득 시 0을 반환하며 데이터를 버림 → write queue + drain 기반 flow control 구현
 
 8.4 Relay 상태 모델

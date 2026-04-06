@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { PtyManager } from "./pty-manager";
+import { createPtyManager } from "./pty-manager";
 
 describe("PtyManager", () => {
   test("spawns a command and receives output", async () => {
-    const pty = new PtyManager();
+    const pty = createPtyManager();
     const chunks: Uint8Array[] = [];
     let exitCode = -1;
 
@@ -29,7 +29,7 @@ describe("PtyManager", () => {
   });
 
   test("write sends data to the PTY", async () => {
-    const pty = new PtyManager();
+    const pty = createPtyManager();
     const chunks: Uint8Array[] = [];
     let _exitCode = -1;
 
@@ -55,7 +55,7 @@ describe("PtyManager", () => {
   });
 
   test("kill terminates the process", async () => {
-    const pty = new PtyManager();
+    const pty = createPtyManager();
     let exited = false;
 
     pty.spawn({
@@ -76,11 +76,17 @@ describe("PtyManager", () => {
   });
 
   test("write does nothing when no process spawned", () => {
-    const pty = new PtyManager();
+    const pty = createPtyManager();
     // Should not throw
     pty.write("test");
     pty.resize(80, 24);
     pty.kill();
+    expect(pty.pid).toBeUndefined();
+  });
+
+  test("createPtyManager returns PtyBun on non-windows", () => {
+    const pty = createPtyManager();
+    expect(pty).toBeDefined();
     expect(pty.pid).toBeUndefined();
   });
 });

@@ -1,3 +1,4 @@
+import type { Server } from "node:net";
 import {
   createLogger,
   encodeFrame,
@@ -13,7 +14,8 @@ import { existsSync, unlinkSync } from "fs";
 
 type IncomingMessage = IpcHello | IpcRec | IpcBye;
 
-interface ConnectedRunner {
+export interface ConnectedRunner {
+  /** Bun socket on Unix, Bun socket or NetSocketAdapter on Windows (node:net fallback) */
   socket: unknown;
   writer: QueuedWriter;
   decoder: FrameDecoder;
@@ -29,7 +31,7 @@ export interface IpcServerEvents {
 const log = createLogger("IpcServer");
 
 export class IpcServer {
-  private server: ReturnType<typeof Bun.listen> | null = null;
+  private server: ReturnType<typeof Bun.listen> | Server | null = null;
   private runners = new Set<ConnectedRunner>();
   private events: IpcServerEvents;
 
@@ -39,6 +41,15 @@ export class IpcServer {
 
   start(socketPath?: string): string {
     const path = socketPath ?? getSocketPath();
+
+    if (process.platform === "win32") {
+      const { startWindowsServer } =
+        require("./server-windows") as typeof import("./server-windows");
+      const result = startWindowsServer(path, this.events, this.runners);
+      this.server = result.server;
+      log.info(`listening on ${path}`);
+      return path;
+    }
 
     // Clean up stale socket file
     if (existsSync(path)) {
@@ -109,7 +120,11 @@ export class IpcServer {
   }
 
   stop(): void {
-    this.server?.stop();
+    if (this.server && "close" in this.server) {
+      (this.server as Server).close();
+    } else if (this.server && "stop" in this.server) {
+      (this.server as ReturnType<typeof Bun.listen>).stop();
+    }
     this.server = null;
     this.runners.clear();
   }

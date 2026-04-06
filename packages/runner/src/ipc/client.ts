@@ -22,6 +22,7 @@ export class IpcClient {
   private writer = new QueuedWriter();
   private decoder = new FrameDecoder();
   private onMessage: MessageHandler;
+  private winConn: { send(msg: IpcMessage): void; close(): void } | null = null;
 
   constructor(onMessage: MessageHandler) {
     this.onMessage = onMessage;
@@ -29,8 +30,17 @@ export class IpcClient {
 
   async connect(socketPath?: string): Promise<void> {
     const path = socketPath ?? getSocketPath();
-    const self = this;
 
+    if (process.platform === "win32") {
+      const { connectWindows } =
+        require("./client-windows") as typeof import("./client-windows");
+      this.winConn = await connectWindows(path, (msg) => {
+        this.onMessage(msg as IncomingMessage);
+      });
+      return;
+    }
+
+    const self = this;
     this.socket = await Bun.connect({
       unix: path,
       socket: {
@@ -54,11 +64,20 @@ export class IpcClient {
   }
 
   send(msg: IpcMessage): void {
+    if (this.winConn) {
+      this.winConn.send(msg);
+      return;
+    }
     const frame = encodeFrame(msg);
     this.writer.write(this.socket, frame);
   }
 
   close(): void {
+    if (this.winConn) {
+      this.winConn.close();
+      this.winConn = null;
+      return;
+    }
     this.socket.end();
   }
 }

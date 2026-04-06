@@ -6,7 +6,7 @@
  *   bun run scripts/build.ts --all        # Build for all platforms
  *   bun run scripts/build.ts --target X   # Build for specific target
  *
- * Targets: darwin-arm64, darwin-x64, linux-x64, linux-arm64
+ * Targets: darwin-arm64, darwin-x64, linux-x64, linux-arm64, windows-x64
  */
 
 import { $ } from "bun";
@@ -22,13 +22,15 @@ const TARGETS = [
   "bun-darwin-x64",
   "bun-linux-x64",
   "bun-linux-arm64",
+  "bun-windows-x64",
 ] as const;
 
 type Target = (typeof TARGETS)[number];
 
 function outFile(name: string, target: Target): string {
-  const suffix = target.replace("bun-", "").replace("-", "_");
-  return `${OUT_DIR}/${name}-${suffix}`;
+  const suffix = target.replace("bun-", "").replaceAll("-", "_");
+  const ext = target.includes("windows") ? ".exe" : "";
+  return `${OUT_DIR}/${name}-${suffix}${ext}`;
 }
 
 const { values } = parseArgs({

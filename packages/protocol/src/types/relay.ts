@@ -83,6 +83,24 @@ export interface RelayPing {
   ts?: number;
 }
 
+export interface RelayPush {
+  t: "relay.push";
+  /** Target frontend */
+  frontendId: string;
+  /** Expo push token */
+  token: string;
+  /** Notification title */
+  title: string;
+  /** Notification body */
+  body: string;
+  /** Navigation payload */
+  data?: {
+    sid: string;
+    daemonId: string;
+    event: string;
+  };
+}
+
 export type RelayClientMessage =
   | RelayAuth
   | RelayRegister
@@ -90,7 +108,8 @@ export type RelayClientMessage =
   | RelayPublish
   | RelaySubscribe
   | RelayUnsubscribe
-  | RelayPing;
+  | RelayPing
+  | RelayPush;
 
 // ── Relay → Client ──
 
@@ -155,6 +174,17 @@ export interface RelayError {
   m?: string;
 }
 
+export interface RelayNotification {
+  t: "relay.notification";
+  title: string;
+  body: string;
+  data?: {
+    sid: string;
+    daemonId: string;
+    event: string;
+  };
+}
+
 export type RelayServerMessage =
   | RelayAuthOk
   | RelayAuthErr
@@ -164,4 +194,5 @@ export type RelayServerMessage =
   | RelayKeyExchangeFrame
   | RelayPresence
   | RelayPong
-  | RelayError;
+  | RelayError
+  | RelayNotification;

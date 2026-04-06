@@ -8,10 +8,10 @@
  * process in a PTY and generates both io output and hook events.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { rmRetry } from "@teleprompter/protocol";
 import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
-import { rmRetry } from "@teleprompter/protocol";
 import { Daemon } from "./daemon";
 import { SessionManager } from "./session/session-manager";
 import { Store } from "./store";

@@ -134,23 +134,22 @@ export class Store {
     }
   }
 
-  private unlinkRetry(path: string, retries = 5): void {
-    for (let i = 0; i <= retries; i++) {
+  private unlinkRetry(path: string): void {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
         if (existsSync(path)) unlinkSync(path);
         return;
       } catch (err: unknown) {
         const code = (err as NodeJS.ErrnoException).code;
-        if ((code === "EBUSY" || code === "EPERM") && i < retries) {
-          // Exponential backoff to let OS release file handles (Windows)
-          Bun.sleepSync(100 * 2 ** i);
+        if (code === "EBUSY" || code === "EPERM") {
+          // Windows: file handles may not be released yet after db.close()
+          Bun.sleepSync(50);
           continue;
         }
-        // Best-effort: log and skip rather than crash on cleanup
-        if (code === "EBUSY" || code === "EPERM") return;
         throw err;
       }
     }
+    // Best-effort: give up silently on persistent EBUSY (Windows file locking)
   }
 
   /**

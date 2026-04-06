@@ -3,6 +3,7 @@ import type {
   RelayAuthOk,
   RelayError,
   RelayFrame,
+  RelayNotification,
   RelayPresence,
   RelayServerMessage,
 } from "@teleprompter/protocol";
@@ -701,6 +702,104 @@ describe("RelayServer", () => {
 
     daemon.close();
     frontend.close();
+  });
+
+  describe("relay.push", () => {
+    test("delivers WS notification when frontend is connected", async () => {
+      const daemon = await connectWs(port);
+      const frontend = await connectWs(port);
+
+      // Auth daemon
+      daemon.send(
+        JSON.stringify({
+          t: "relay.auth",
+          v: 1,
+          role: "daemon",
+          daemonId: DAEMON_ID,
+          token: TOKEN,
+        }),
+      );
+      await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
+
+      // Auth frontend with frontendId "fe-1"
+      frontend.send(
+        JSON.stringify({
+          t: "relay.auth",
+          v: 1,
+          role: "frontend",
+          daemonId: DAEMON_ID,
+          token: TOKEN,
+          frontendId: "fe-1",
+        }),
+      );
+      await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
+
+      // Daemon sends relay.push targeting "fe-1"
+      daemon.send(
+        JSON.stringify({
+          t: "relay.push",
+          frontendId: "fe-1",
+          token: "ExponentPushToken[fake-token]",
+          title: "New message",
+          body: "Claude responded",
+          data: { sid: "s1", daemonId: DAEMON_ID, event: "stop" },
+        }),
+      );
+
+      // Frontend receives relay.notification
+      const notification = await waitForMessage(
+        frontend,
+        (m) => m.t === "relay.notification",
+      );
+      expect(notification.t).toBe("relay.notification");
+      expect((notification as RelayNotification).title).toBe("New message");
+      expect((notification as RelayNotification).body).toBe("Claude responded");
+      expect((notification as RelayNotification).data).toEqual({
+        sid: "s1",
+        daemonId: DAEMON_ID,
+        event: "stop",
+      });
+
+      daemon.close();
+      frontend.close();
+    });
+
+    test("rejects relay.push from non-daemon role", async () => {
+      const frontend = await connectWs(port);
+
+      // Auth as frontend
+      frontend.send(
+        JSON.stringify({
+          t: "relay.auth",
+          v: 1,
+          role: "frontend",
+          daemonId: DAEMON_ID,
+          token: TOKEN,
+          frontendId: "fe-1",
+        }),
+      );
+      await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
+
+      // Frontend tries to send relay.push — should be rejected
+      frontend.send(
+        JSON.stringify({
+          t: "relay.push",
+          frontendId: "fe-2",
+          token: "ExponentPushToken[fake-token]",
+          title: "Unauthorized",
+          body: "Should fail",
+        }),
+      );
+
+      const err = await waitForMessage(
+        frontend,
+        (m) => m.t === "relay.err",
+      );
+      expect(err.t).toBe("relay.err");
+      expect((err as RelayError).e).toBe("UNAUTHORIZED");
+
+      frontend.close();
+    });
   });
 
   test("resume with after= skips already-seen frames", async () => {

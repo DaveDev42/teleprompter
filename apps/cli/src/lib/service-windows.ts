@@ -31,17 +31,24 @@ export function getTaskName(): string {
   return TASK_NAME;
 }
 
-export function generateSchtasksArgs(tpBinary: string, logDir: string): string[] {
+export function generateSchtasksArgs(
+  tpBinary: string,
+  logDir: string,
+): string[] {
   const logFile = join(logDir, "daemon.log");
   // Wrap in cmd.exe because schtasks /TR does not support shell redirection natively
   const tr = `cmd.exe /C ""${tpBinary}" daemon start > "${logFile}" 2>&1"`;
 
   return [
     "/Create",
-    "/TN", TASK_NAME,
-    "/TR", tr,
-    "/SC", "ONLOGON",
-    "/RL", "LIMITED",
+    "/TN",
+    TASK_NAME,
+    "/TR",
+    tr,
+    "/SC",
+    "ONLOGON",
+    "/RL",
+    "LIMITED",
     "/F",
   ];
 }
@@ -77,7 +84,9 @@ export async function uninstallWindows(): Promise<void> {
   const result = Bun.spawnSync(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"]);
 
   if (result.exitCode !== 0) {
-    console.error(`[Service] schtasks delete failed: ${result.stderr.toString()}`);
+    console.error(
+      `[Service] schtasks delete failed: ${result.stderr.toString()}`,
+    );
     return;
   }
 

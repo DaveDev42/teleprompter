@@ -15,7 +15,9 @@ export async function installService(): Promise<void> {
     return installWindows();
   }
   console.error(`[Service] Unsupported platform: ${os}`);
-  console.error(`[Service] Supported: macOS (launchd), Linux (systemd), Windows (Task Scheduler)`);
+  console.error(
+    `[Service] Supported: macOS (launchd), Linux (systemd), Windows (Task Scheduler)`,
+  );
   process.exit(1);
 }
 

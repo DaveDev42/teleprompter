@@ -32,7 +32,8 @@ export class IpcClient {
     const path = socketPath ?? getSocketPath();
 
     if (process.platform === "win32") {
-      const { connectWindows } = require("./client-windows") as typeof import("./client-windows");
+      const { connectWindows } =
+        require("./client-windows") as typeof import("./client-windows");
       this.winConn = await connectWindows(path, (msg) => {
         this.onMessage(msg as IncomingMessage);
       });

@@ -1,3 +1,4 @@
+import type { Server } from "node:net";
 import {
   createLogger,
   encodeFrame,
@@ -10,7 +11,6 @@ import {
   QueuedWriter,
 } from "@teleprompter/protocol";
 import { existsSync, unlinkSync } from "fs";
-import type { Server } from "node:net";
 
 type IncomingMessage = IpcHello | IpcRec | IpcBye;
 
@@ -43,7 +43,8 @@ export class IpcServer {
     const path = socketPath ?? getSocketPath();
 
     if (process.platform === "win32") {
-      const { startWindowsServer } = require("./server-windows") as typeof import("./server-windows");
+      const { startWindowsServer } =
+        require("./server-windows") as typeof import("./server-windows");
       const result = startWindowsServer(path, this.events, this.runners);
       this.server = result.server;
       log.info(`listening on ${path}`);

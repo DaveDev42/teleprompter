@@ -46,21 +46,27 @@ export function startWindowsServer(
           events.onConnect(runner);
         },
         data(socket, data) {
-          const runner = (socket as unknown as { _runner: ConnectedRunner })._runner;
+          const runner = (socket as unknown as { _runner: ConnectedRunner })
+            ._runner;
           const messages = runner.decoder.decode(new Uint8Array(data));
           for (const msg of messages) {
             if ((msg as IpcHello).t === "hello") {
               runner.sid = (msg as IpcHello).sid;
             }
-            events.onMessage(runner, msg as Parameters<IpcServerEvents["onMessage"]>[1]);
+            events.onMessage(
+              runner,
+              msg as Parameters<IpcServerEvents["onMessage"]>[1],
+            );
           }
         },
         drain(socket) {
-          const runner = (socket as unknown as { _runner: ConnectedRunner })._runner;
+          const runner = (socket as unknown as { _runner: ConnectedRunner })
+            ._runner;
           runner.writer.drain(socket);
         },
         close(socket) {
-          const runner = (socket as unknown as { _runner: ConnectedRunner })._runner;
+          const runner = (socket as unknown as { _runner: ConnectedRunner })
+            ._runner;
           runners.delete(runner);
           events.onDisconnect(runner);
         },
@@ -98,7 +104,10 @@ export function startWindowsServer(
         if ((msg as IpcHello).t === "hello") {
           runner.sid = (msg as IpcHello).sid;
         }
-        events.onMessage(runner, msg as Parameters<IpcServerEvents["onMessage"]>[1]);
+        events.onMessage(
+          runner,
+          msg as Parameters<IpcServerEvents["onMessage"]>[1],
+        );
       }
     });
 

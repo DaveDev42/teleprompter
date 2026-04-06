@@ -171,7 +171,7 @@
 - [x] WebSocket frame size limit — `TP_RELAY_MAX_FRAME_SIZE` 환경변수 또는 `--max-frame-size` CLI 옵션 (기본 1MB, 초과 시 연결 종료)
 
 ### UI 미노출 Store (기능은 있으나 설정 UI 없음)
-- [ ] `connection-store.daemonUrl` — 커스텀 Daemon WS URL 설정 가능하나 UI 없음
+- [x] `connection-store` — 삭제됨 (daemonUrl은 ws-client.ts의 getDefaultUrl()로 자동 감지, 별도 store 불필요)
 - [x] `relay-settings-store.relays` — dead code 삭제됨 (relay URL은 PairingInfo.relayUrl에서 daemon별 자동 설정)
 
 ---

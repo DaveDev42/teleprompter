@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { getSocketPath, getWindowsSocketPath } from "./socket-path";
 
-describe("getSocketPath", () => {
+describe.skipIf(process.platform === "win32")("getSocketPath", () => {
   test("returns a path ending with daemon.sock", () => {
     const path = getSocketPath();
     expect(path).toMatch(/daemon\.sock$/);

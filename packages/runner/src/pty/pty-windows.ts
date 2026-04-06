@@ -18,6 +18,8 @@ export class PtyWindows implements PtyManager {
   }
 
   spawn(opts: PtyOptions): void {
+    let exitNotified = false;
+
     // If no custom host script path (e.g. test override), use the installed path
     if (!this.hostScriptPath) {
       const { ensurePtyHost } = require("./pty-host-installer") as typeof import("./pty-host-installer");
@@ -52,6 +54,7 @@ export class PtyWindows implements PtyManager {
           break;
         }
         case "exit":
+          exitNotified = true;
           opts.onExit((msg.code as number) ?? 1);
           break;
         case "error":
@@ -65,6 +68,11 @@ export class PtyWindows implements PtyManager {
         log.error(`host process exited with code ${code}`);
       }
       this.child = null;
+      // If host crashed without sending an exit message, notify the Runner
+      if (!exitNotified) {
+        exitNotified = true;
+        opts.onExit(code ?? 1);
+      }
     });
 
     this.send({

@@ -1,15 +1,100 @@
 import { execSync } from "child_process";
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { createLogger } from "@teleprompter/protocol";
 
 const log = createLogger("PtyHostInstaller");
+
+/**
+ * The host script content is embedded inline so that it remains available
+ * in a `bun build --compile` binary where __dirname / file paths don't resolve
+ * to the original source tree.
+ */
+const PTY_HOST_SCRIPT = `"use strict";
+
+const pty = require("@aspect-build/node-pty");
+const readline = require("readline");
+
+let ptyProcess = null;
+
+const rl = readline.createInterface({ input: process.stdin });
+
+function send(msg) {
+  process.stdout.write(JSON.stringify(msg) + "\\n");
+}
+
+rl.on("line", (line) => {
+  let msg;
+  try {
+    msg = JSON.parse(line);
+  } catch {
+    send({ type: "error", message: "invalid JSON" });
+    return;
+  }
+
+  switch (msg.type) {
+    case "spawn": {
+      if (ptyProcess) {
+        send({ type: "error", message: "already spawned" });
+        return;
+      }
+      try {
+        const cmd = msg.command[0];
+        const args = msg.command.slice(1);
+        ptyProcess = pty.spawn(cmd, args, {
+          name: "xterm-256color",
+          cols: msg.cols || 120,
+          rows: msg.rows || 40,
+          cwd: msg.cwd,
+        });
+
+        send({ type: "pid", pid: ptyProcess.pid });
+
+        ptyProcess.onData((data) => {
+          send({ type: "data", data: Buffer.from(data).toString("base64") });
+        });
+
+        ptyProcess.onExit(({ exitCode }) => {
+          send({ type: "exit", code: exitCode ?? 1 });
+          ptyProcess = null;
+        });
+      } catch (err) {
+        send({ type: "error", message: err.message });
+      }
+      break;
+    }
+
+    case "write": {
+      if (!ptyProcess) return;
+      const buf = Buffer.from(msg.data, "base64");
+      ptyProcess.write(buf.toString());
+      break;
+    }
+
+    case "resize": {
+      if (!ptyProcess) return;
+      ptyProcess.resize(msg.cols, msg.rows);
+      break;
+    }
+
+    case "kill": {
+      if (!ptyProcess) return;
+      ptyProcess.kill(msg.signal);
+      break;
+    }
+
+    default:
+      send({ type: "error", message: "unknown type: " + msg.type });
+  }
+});
+
+rl.on("close", () => {
+  if (ptyProcess) {
+    ptyProcess.kill();
+  }
+  process.exit(0);
+});
+`;
 
 export function getPtyHostDir(): string {
   if (process.platform === "win32") {
@@ -44,10 +129,10 @@ export function writeHostFiles(dir: string, version: string): void {
   };
   writeFileSync(join(dir, "package.json"), JSON.stringify(pkg, null, 2));
   writeFileSync(join(dir, ".version"), version);
-}
 
-export function getHostScriptPath(): string {
-  return join(__dirname, "pty-windows-host.cjs");
+  // Write the host script inline — avoids __dirname / file copy issues
+  // in compiled binaries where the original .cjs file is not on disk.
+  writeFileSync(join(dir, "pty-windows-host.cjs"), PTY_HOST_SCRIPT);
 }
 
 export function ensurePtyHost(currentVersion: string): string {
@@ -61,12 +146,6 @@ export function ensurePtyHost(currentVersion: string): string {
   log.info("installing pty-host dependencies...");
 
   writeHostFiles(dir, currentVersion);
-
-  const srcScript = getHostScriptPath();
-  const destScript = join(dir, "pty-windows-host.cjs");
-  if (existsSync(srcScript)) {
-    copyFileSync(srcScript, destScript);
-  }
 
   try {
     execSync("npm install --production", {

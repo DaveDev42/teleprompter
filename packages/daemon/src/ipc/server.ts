@@ -15,6 +15,7 @@ import type { Server } from "node:net";
 type IncomingMessage = IpcHello | IpcRec | IpcBye;
 
 export interface ConnectedRunner {
+  /** Bun socket on Unix, Bun socket or NetSocketAdapter on Windows (node:net fallback) */
   socket: unknown;
   writer: QueuedWriter;
   decoder: FrameDecoder;

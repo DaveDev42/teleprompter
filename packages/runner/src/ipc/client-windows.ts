@@ -87,6 +87,7 @@ export async function connectWindows(
 
     socket.on("error", (err) => {
       log.error("socket error:", err.message);
+      socket.destroy();
       reject(err);
     });
 

@@ -58,5 +58,10 @@ describe("pty-host-installer", () => {
 
     const version = readFileSync(join(dir, ".version"), "utf-8");
     expect(version).toBe("0.0.5");
+
+    // writeHostFiles also embeds the host script
+    expect(existsSync(join(dir, "pty-windows-host.cjs"))).toBe(true);
+    const script = readFileSync(join(dir, "pty-windows-host.cjs"), "utf-8");
+    expect(script).toContain("@aspect-build/node-pty");
   });
 });

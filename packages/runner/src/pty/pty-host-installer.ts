@@ -124,7 +124,7 @@ export function writeHostFiles(dir: string, version: string): void {
     name: "teleprompter-pty-host",
     private: true,
     dependencies: {
-      "@aspect-build/node-pty": "*",
+      "@aspect-build/node-pty": "^0.11.0",
     },
   };
   writeFileSync(join(dir, "package.json"), JSON.stringify(pkg, null, 2));

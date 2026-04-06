@@ -116,6 +116,7 @@ jobs:
 
       - name: Type check
         run: |
+          npx tsc --noEmit -p packages/protocol/tsconfig.json
           npx tsc --noEmit -p packages/daemon/tsconfig.json
           npx tsc --noEmit -p apps/cli/tsconfig.json
           npx tsc --noEmit -p packages/relay/tsconfig.json

@@ -1,6 +1,8 @@
 import { rm } from "fs/promises";
 
 /**
+ * @internal Test-only utility. Import via `@teleprompter/protocol/test-utils`.
+ *
  * rm with retry for Windows EBUSY errors.
  * On Windows, files locked by open handles (sockets, SQLite) can't be
  * deleted immediately. This retries with exponential backoff.

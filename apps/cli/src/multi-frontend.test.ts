@@ -11,9 +11,9 @@ import {
   generateKeyPair,
   type IpcMessage,
   type RelayServerMessage,
-  rmRetry,
   toBase64,
 } from "@teleprompter/protocol";
+import { rmRetry } from "@teleprompter/protocol/test-utils";
 import { RelayServer } from "@teleprompter/relay";
 import { mkdtemp } from "fs/promises";
 import { connect } from "net";

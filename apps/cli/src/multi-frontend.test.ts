@@ -11,10 +11,11 @@ import {
   generateKeyPair,
   type IpcMessage,
   type RelayServerMessage,
+  rmRetry,
   toBase64,
 } from "@teleprompter/protocol";
 import { RelayServer } from "@teleprompter/relay";
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp } from "fs/promises";
 import { connect } from "net";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -48,7 +49,7 @@ describe("Multi-Frontend N:N E2E", () => {
   afterEach(async () => {
     daemon.stop();
     relay.stop();
-    await rm(tmpDir, { recursive: true, force: true });
+    await rmRetry(tmpDir);
   });
 
   test("two frontends receive independently encrypted records", async () => {
@@ -168,7 +169,7 @@ describe("Multi-Frontend N:N E2E", () => {
         encodeFrame({
           t: "hello",
           sid: "test-session",
-          cwd: "/tmp",
+          cwd: tmpdir(),
           pid: process.pid,
         }),
       ),
@@ -289,7 +290,7 @@ describe("Multi-Frontend N:N E2E", () => {
         encodeFrame({
           t: "hello",
           sid: "input-session",
-          cwd: "/tmp",
+          cwd: tmpdir(),
           pid: process.pid,
         }),
       ),

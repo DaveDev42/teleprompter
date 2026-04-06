@@ -292,7 +292,7 @@ export class FrontendRelayClient implements TransportClient {
     const json = JSON.stringify(msg);
     const plaintext = new TextEncoder().encode(json);
     const ct = await encrypt(plaintext, this.sessionKeys.tx);
-    this.send({ t: "relay.pub", sid: "__meta__", ct, seq: 0 });
+    this.sendRelay({ t: "relay.pub", sid: RELAY_CHANNEL_META, ct, seq: 0 });
   }
 
   // ── Encrypted control message sender ──

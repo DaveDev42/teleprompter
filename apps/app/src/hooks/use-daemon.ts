@@ -10,12 +10,16 @@ let globalClient: DaemonWsClient | null = null;
 /**
  * Hook that manages the WebSocket connection to the Daemon.
  * Should be called once at the app layout level.
+ * Pass `null` to skip connecting (e.g., in production when relay is used).
  * Returns the client instance for sending messages.
  */
-export function useDaemon() {
+export function useDaemon(url?: string | null) {
   const clientRef = useRef<DaemonWsClient | null>(null);
 
   useEffect(() => {
+    // null = explicitly disabled (production mode)
+    if (url === null) return;
+
     const {
       setConnected,
       setSid,
@@ -28,7 +32,7 @@ export function useDaemon() {
     } = useSessionStore.getState();
     const { cacheFrame, updateState } = useOfflineStore.getState();
 
-    const client = new DaemonWsClient(undefined, {
+    const client = new DaemonWsClient(url ?? undefined, {
       onOpen: () => {
         setConnected(true);
         setError(null);

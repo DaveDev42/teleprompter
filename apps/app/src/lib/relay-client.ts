@@ -4,15 +4,25 @@
  * Connects to a Relay server via the pairing data obtained from QR scan.
  * Performs in-band key exchange to deliver the frontend's public key
  * to the daemon. Encrypts outgoing input and decrypts incoming records.
+ *
+ * Implements TransportClient for unified transport layer.
  */
 
+import {
+  RELAY_CHANNEL_CONTROL,
+  RELAY_CHANNEL_META,
+} from "@teleprompter/protocol/client";
 import type {
   KeyPair,
+  RecordKind,
   RelayClientMessage,
   RelayFrame,
   RelayServerMessage,
   SessionKeys,
+  WsClientMessage,
   WsRec,
+  WsSessionMeta,
+  WsWorktreeInfo,
 } from "@teleprompter/protocol/client";
 import {
   decrypt,
@@ -21,6 +31,7 @@ import {
   encrypt,
   toBase64,
 } from "@teleprompter/protocol/client";
+import type { TransportClient, TransportEventHandler } from "./transport";
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
@@ -39,19 +50,16 @@ export interface FrontendRelayConfig {
   frontendId: string;
 }
 
-export interface FrontendRelayEvents {
-  /** Decrypted record from daemon */
-  onRecord?: (rec: WsRec) => void;
-  /** Decrypted state from daemon */
-  onState?: (msg: unknown) => void;
-  /** Connection state */
+export interface FrontendRelayEvents extends TransportEventHandler {
+  /** Fired after relay auth succeeds (distinct from onOpen which fires on WS open) */
   onConnected?: () => void;
+  /** Fired on WS close (distinct from onClose in TransportEventHandler — both fire) */
   onDisconnected?: () => void;
   /** Daemon online/offline presence */
   onPresence?: (online: boolean, sessions: string[]) => void;
 }
 
-export class FrontendRelayClient {
+export class FrontendRelayClient implements TransportClient {
   private ws: WebSocket | null = null;
   private config: FrontendRelayConfig;
   private events: FrontendRelayEvents;
@@ -63,9 +71,25 @@ export class FrontendRelayClient {
   private authenticated = false;
   private subscribedSessions = new Set<string>();
 
+  /** Track attached session and last seq for auto-resume on reconnect */
+  private attachedSid: string | null = null;
+  private lastSeq = 0;
+  private hasConnectedBefore = false;
+  private pingStart = 0;
+  /** Last measured round-trip time in ms */
+  private rtt = -1;
+
   constructor(config: FrontendRelayConfig, events: FrontendRelayEvents = {}) {
     this.config = config;
     this.events = events;
+  }
+
+  set onSessionExported(
+    handler:
+      | ((sid: string, format: string, content: string) => void)
+      | undefined,
+  ) {
+    this.events.onSessionExported = handler;
   }
 
   async connect(): Promise<void> {
@@ -92,7 +116,8 @@ export class FrontendRelayClient {
 
     ws.onopen = () => {
       this.reconnectAttempt = 0;
-      this.send({
+      this.events.onOpen?.();
+      this.sendRelay({
         t: "relay.auth",
         role: "frontend",
         daemonId: this.config.daemonId,
@@ -113,11 +138,14 @@ export class FrontendRelayClient {
 
     ws.onclose = () => {
       this.authenticated = false;
+      this.events.onClose?.();
       this.events.onDisconnected?.();
       this.scheduleReconnect();
     };
 
-    ws.onerror = () => {};
+    ws.onerror = () => {
+      this.events.onError?.("Relay WebSocket error");
+    };
   }
 
   private async handleMessage(msg: RelayServerMessage): Promise<void> {
@@ -125,18 +153,24 @@ export class FrontendRelayClient {
       case "relay.auth.ok":
         this.authenticated = true;
         this.events.onConnected?.();
-        // Subscribe to meta channel for session list / state updates
-        this.send({ t: "relay.sub", sid: "__meta__" });
+        // Subscribe to meta + control channels
+        this.sendRelay({ t: "relay.sub", sid: RELAY_CHANNEL_META });
+        this.sendRelay({ t: "relay.sub", sid: RELAY_CHANNEL_CONTROL });
         // Re-subscribe to all sessions
         for (const sid of this.subscribedSessions) {
-          this.send({ t: "relay.sub", sid });
+          this.sendRelay({ t: "relay.sub", sid });
         }
         // Send key exchange: deliver frontend's public key to daemon
         await this.sendKeyExchange();
+        // Auto-resume if we were previously attached
+        if (this.hasConnectedBefore && this.attachedSid) {
+          this.resume(this.attachedSid, this.lastSeq);
+        }
+        this.hasConnectedBefore = true;
         break;
 
       case "relay.auth.err":
-        console.error(`[FrontendRelay] auth failed: ${msg.e}`);
+        this.events.onError?.(`Relay auth failed: ${msg.e}`);
         break;
 
       case "relay.kx.frame":
@@ -154,9 +188,11 @@ export class FrontendRelayClient {
       case "relay.pong":
         break;
 
-      case "relay.err":
-        console.error(`[FrontendRelay] error: ${msg.m ?? msg.e}`);
+      case "relay.err": {
+        const errMsg = msg as { m?: string; e?: string };
+        this.events.onError?.(`Relay error: ${errMsg.m ?? errMsg.e}`);
         break;
+      }
     }
   }
 
@@ -173,7 +209,7 @@ export class FrontendRelayClient {
       role: "frontend",
     });
     const ct = await encrypt(new TextEncoder().encode(payload), this.kxKey);
-    this.send({ t: "relay.kx", ct, role: "frontend" });
+    this.sendRelay({ t: "relay.kx", ct, role: "frontend" });
   }
 
   private async handleFrame(frame: RelayFrame): Promise<void> {
@@ -185,57 +221,187 @@ export class FrontendRelayClient {
       const text = new TextDecoder().decode(plaintext);
       const msg = JSON.parse(text);
 
-      if (msg.t === "rec") {
-        this.events.onRecord?.(msg as WsRec);
-      } else if (msg.t === "state" || msg.t === "hello") {
-        this.events.onState?.(msg);
+      switch (msg.t) {
+        case "rec":
+          this.trackSeq(msg.seq);
+          this.events.onRec?.(msg as WsRec);
+          break;
+        case "batch":
+          for (const rec of msg.d) {
+            this.trackSeq(rec.seq);
+            this.events.onRec?.(rec as WsRec);
+          }
+          break;
+        case "state":
+          this.events.onState?.(msg.sid, msg.d as WsSessionMeta);
+          break;
+        case "hello":
+          this.events.onSessionList?.(msg.d.sessions as WsSessionMeta[]);
+          break;
+        case "pong":
+          if (this.pingStart > 0) {
+            this.rtt = Date.now() - this.pingStart;
+            this.pingStart = 0;
+          }
+          break;
+        case "err":
+          this.events.onError?.(msg.m ?? msg.e);
+          break;
+        case "worktree.list":
+          this.events.onWorktreeList?.(msg.d as WsWorktreeInfo[]);
+          break;
+        case "worktree.created":
+          this.events.onWorktreeCreated?.(
+            msg.d as WsWorktreeInfo,
+            msg.sid as string | undefined,
+          );
+          break;
+        case "session.exported":
+          this.events.onSessionExported?.(msg.sid, msg.format, msg.d);
+          break;
+        default:
+          console.warn(`[FrontendRelay] unknown message type: ${msg.t}`);
       }
-    } catch {
-      console.error(`[FrontendRelay] decrypt failed`);
+    } catch (err) {
+      console.error(`[FrontendRelay] decrypt failed for sid=${frame.sid}:`, err);
     }
   }
 
-  /** Encrypt and send chat input to daemon via relay */
-  async sendChat(sid: string, text: string): Promise<void> {
-    if (!this.authenticated || !this.sessionKeys) return;
-
-    const msg = { t: "in.chat", sid, d: text };
-    const ct = await encrypt(
-      new TextEncoder().encode(JSON.stringify(msg)),
-      this.sessionKeys.tx,
-    );
-
-    this.send({ t: "relay.pub", sid, ct, seq: 0 });
+  private trackSeq(seq: number) {
+    if (seq > this.lastSeq) {
+      this.lastSeq = seq;
+    }
   }
 
-  /** Encrypt and send terminal input to daemon via relay */
-  async sendTermInput(sid: string, data: string): Promise<void> {
-    if (!this.authenticated || !this.sessionKeys) return;
+  // ── Encrypted control message sender ──
 
-    const msg = { t: "in.term", sid, d: data };
-    const ct = await encrypt(
-      new TextEncoder().encode(JSON.stringify(msg)),
-      this.sessionKeys.tx,
-    );
+  private async sendEncrypted(msg: Record<string, unknown>): Promise<void> {
+    if (!this.authenticated || !this.sessionKeys) {
+      console.warn(
+        `[FrontendRelay] dropping ${msg.t} — not authenticated`,
+      );
+      return;
+    }
 
-    this.send({ t: "relay.pub", sid, ct, seq: 0 });
+    try {
+      const ct = await encrypt(
+        new TextEncoder().encode(JSON.stringify(msg)),
+        this.sessionKeys.tx,
+      );
+
+      const sid = (msg.sid as string) ?? RELAY_CHANNEL_CONTROL;
+      this.sendRelay({ t: "relay.pub", sid, ct, seq: 0 });
+    } catch {
+      console.error(`[FrontendRelay] encrypt failed for ${msg.t}`);
+    }
   }
+
+  // ── TransportClient: Session attachment ──
+
+  attach(sid: string): void {
+    this.attachedSid = sid;
+    this.subscribe(sid);
+    this.sendEncrypted({ t: "attach", sid });
+  }
+
+  detach(sid: string): void {
+    if (this.attachedSid === sid) {
+      this.attachedSid = null;
+    }
+    this.sendEncrypted({ t: "detach", sid });
+  }
+
+  resume(sid: string, cursor: number): void {
+    this.attachedSid = sid;
+    this.subscribe(sid);
+    this.sendEncrypted({ t: "resume", sid, c: cursor });
+  }
+
+  // ── TransportClient: Input ──
+
+  sendChat(sid: string, text: string): void {
+    this.sendEncrypted({ t: "in.chat", sid, d: text });
+  }
+
+  sendTermInput(sid: string, data: string): void {
+    this.sendEncrypted({ t: "in.term", sid, d: data });
+  }
+
+  send(msg: WsClientMessage): void {
+    this.sendEncrypted(msg as unknown as Record<string, unknown>);
+  }
+
+  // ── TransportClient: Session management ──
+
+  createSession(cwd: string, sid?: string): void {
+    this.sendEncrypted({ t: "session.create", cwd, sid });
+  }
+
+  stopSession(sid: string): void {
+    this.sendEncrypted({ t: "session.stop", sid });
+  }
+
+  restartSession(sid: string): void {
+    this.sendEncrypted({ t: "session.restart", sid });
+  }
+
+  exportSession(
+    sid: string,
+    format: "json" | "markdown" = "markdown",
+    opts?: {
+      recordTypes?: RecordKind[];
+      timeRange?: { from?: number; to?: number };
+      limit?: number;
+    },
+  ): void {
+    this.sendEncrypted({ t: "session.export", sid, format, ...opts });
+  }
+
+  // ── TransportClient: Worktree management ──
+
+  requestWorktreeList(): void {
+    this.sendEncrypted({ t: "worktree.list" });
+  }
+
+  createWorktree(branch: string, baseBranch?: string, path?: string): void {
+    this.sendEncrypted({ t: "worktree.create", branch, baseBranch, path });
+  }
+
+  removeWorktree(path: string, force?: boolean): void {
+    this.sendEncrypted({ t: "worktree.remove", path, force });
+  }
+
+  // ── TransportClient: Diagnostics ──
+
+  ping(): void {
+    this.pingStart = Date.now();
+    // Send encrypted ping to daemon for E2E RTT measurement
+    this.sendEncrypted({ t: "ping" });
+  }
+
+  getRtt(): number {
+    return this.rtt;
+  }
+
+  // ── Relay subscription (relay-specific, not in TransportClient) ──
 
   subscribe(sid: string): void {
     this.subscribedSessions.add(sid);
     if (this.authenticated) {
-      this.send({ t: "relay.sub", sid });
+      this.sendRelay({ t: "relay.sub", sid });
     }
   }
 
   unsubscribe(sid: string): void {
     this.subscribedSessions.delete(sid);
     if (this.authenticated) {
-      this.send({ t: "relay.unsub", sid });
+      this.sendRelay({ t: "relay.unsub", sid });
     }
   }
 
-  private send(msg: RelayClientMessage): void {
+  // ── Internal ──
+
+  private sendRelay(msg: RelayClientMessage): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
     }

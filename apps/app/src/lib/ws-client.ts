@@ -1,10 +1,12 @@
 import type {
+  RecordKind,
   WsClientMessage,
   WsRec,
   WsServerMessage,
   WsSessionMeta,
   WsWorktreeInfo,
 } from "@teleprompter/protocol/client";
+import type { TransportClient, TransportEventHandler } from "./transport";
 
 /** Production relay URL */
 const PRODUCTION_RELAY_URL = "wss://relay.tpmt.dev";
@@ -83,22 +85,10 @@ export const resolvedWsUrl = DEFAULT_URL;
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 
-export type WsEventHandler = {
-  onSessionList?: (sessions: WsSessionMeta[]) => void;
-  onRec?: (rec: WsRec) => void;
-  onState?: (sid: string, meta: WsSessionMeta) => void;
-  onOpen?: () => void;
-  onClose?: () => void;
-  onError?: (error: string) => void;
-  onWorktreeList?: (worktrees: WsWorktreeInfo[]) => void;
-  onWorktreeCreated?: (info: WsWorktreeInfo, sid?: string) => void;
-  onSessionExported?: (sid: string, format: string, content: string) => void;
-};
-
-export class DaemonWsClient {
+export class DaemonWsClient implements TransportClient {
   private ws: WebSocket | null = null;
   private url: string;
-  private handlers: WsEventHandler;
+  private handlers: TransportEventHandler;
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
@@ -115,9 +105,9 @@ export class DaemonWsClient {
   private hasConnectedBefore = false;
   private pingStart = 0;
   /** Last measured round-trip time in ms */
-  rtt = -1;
+  private rtt = -1;
 
-  constructor(url: string = DEFAULT_URL, handlers: WsEventHandler = {}) {
+  constructor(url: string = DEFAULT_URL, handlers: TransportEventHandler = {}) {
     this.url = url;
     this.handlers = handlers;
   }
@@ -249,7 +239,7 @@ export class DaemonWsClient {
   // ── Worktree / Session management ──
 
   requestWorktreeList() {
-    this.send({ t: "worktree.list" } as WsClientMessage);
+    this.send({ t: "worktree.list" });
   }
 
   createWorktree(branch: string, baseBranch?: string, path?: string) {
@@ -258,30 +248,30 @@ export class DaemonWsClient {
       branch,
       baseBranch,
       path,
-    } as WsClientMessage);
+    });
   }
 
   removeWorktree(path: string, force?: boolean) {
-    this.send({ t: "worktree.remove", path, force } as WsClientMessage);
+    this.send({ t: "worktree.remove", path, force });
   }
 
   createSession(cwd: string, sid?: string) {
-    this.send({ t: "session.create", cwd, sid } as WsClientMessage);
+    this.send({ t: "session.create", cwd, sid });
   }
 
   stopSession(sid: string) {
-    this.send({ t: "session.stop", sid } as WsClientMessage);
+    this.send({ t: "session.stop", sid });
   }
 
   restartSession(sid: string) {
-    this.send({ t: "session.restart", sid } as WsClientMessage);
+    this.send({ t: "session.restart", sid });
   }
 
   exportSession(
     sid: string,
     format: "json" | "markdown" = "markdown",
     opts?: {
-      recordTypes?: string[];
+      recordTypes?: RecordKind[];
       timeRange?: { from?: number; to?: number };
       limit?: number;
     },
@@ -291,7 +281,7 @@ export class DaemonWsClient {
       sid,
       format,
       ...opts,
-    } as WsClientMessage);
+    });
   }
 
   private scheduleReconnect() {
@@ -327,5 +317,9 @@ export class DaemonWsClient {
   dispose() {
     this.disposed = true;
     this.cleanup();
+  }
+
+  isConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
   }
 }

@@ -34,7 +34,11 @@ export class PtyWindows implements PtyManager {
       stdio: ["pipe", "pipe", "inherit"],
     });
 
-    const rl = createInterface({ input: this.child.stdout! });
+    if (!this.child.stdout) {
+      log.error("host process stdout is null");
+      return;
+    }
+    const rl = createInterface({ input: this.child.stdout });
 
     rl.on("line", (line) => {
       let msg: { type: string; [k: string]: unknown };
@@ -110,6 +114,6 @@ export class PtyWindows implements PtyManager {
 
   private send(msg: Record<string, unknown>): void {
     if (!this.child?.stdin?.writable) return;
-    this.child.stdin.write(JSON.stringify(msg) + "\n");
+    this.child.stdin.write(`${JSON.stringify(msg)}\n`);
   }
 }

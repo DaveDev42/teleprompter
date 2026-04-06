@@ -1,5 +1,9 @@
 import { Database } from "bun:sqlite";
-import { createLogger, type SessionState, type SID } from "@teleprompter/protocol";
+import {
+  createLogger,
+  type SessionState,
+  type SID,
+} from "@teleprompter/protocol";
 import { mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { getStoreDir } from "./config";

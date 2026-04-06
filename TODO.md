@@ -159,6 +159,7 @@
 - [x] `worktree-manager.ts:22` — Bun stdout 캡처 버그 워크어라운드 → Bun v1.3.6에서 execFileSync 정상 동작 확인, 워크어라운드 제거 완료
 - [x] Branch name validation — `git check-ref-format --branch`로 사전 검증 + 에러 메시지에 규칙 안내
 - [x] Worktree 경로 권한 검증 — 부모 디렉토리 쓰기 권한 사전 확인 + 명확한 에러 메시지
+- [x] `worktree-manager.ts` gitOutput/gitRun에 `cwd` 미지정 — repo root에서 bun test 실행 시 process.cwd()가 테스트 대상 repo가 아닌 실제 repo를 참조하여 5/7 실패 → execFileSync에 `{ cwd }` 옵션 추가
 
 ### Accessibility (접근성)
 - [x] 전체 프론트엔드에 `accessibilityLabel`, `accessibilityRole`, `accessibilityState`, `accessibilityHint` 추가

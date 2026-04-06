@@ -1,7 +1,14 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 import { setLogLevel } from "@teleprompter/protocol";
+import type { PushRequest } from "./push";
 import { PushService } from "./push";
-import type { PushRequest, PushServiceOptions } from "./push";
 
 // Suppress log noise during tests
 beforeAll(() => setLogLevel("silent"));
@@ -84,7 +91,10 @@ describe("PushService", () => {
 
     test("returns 'error' when Expo API returns non-200", async () => {
       const service = new PushService({
-        fetchFn: (async () => new Response("Too Many Requests", { status: 429 })) as unknown as typeof fetch,
+        fetchFn: (async () =>
+          new Response("Too Many Requests", {
+            status: 429,
+          })) as unknown as typeof fetch,
       });
 
       const result = await service.sendOrDeliver({

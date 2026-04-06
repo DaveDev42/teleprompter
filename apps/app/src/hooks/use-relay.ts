@@ -3,8 +3,8 @@ import { useEffect } from "react";
 import { Platform } from "react-native";
 import { create } from "zustand";
 import { FrontendRelayClient } from "../lib/relay-client";
-import { useOfflineStore } from "../stores/offline-store";
 import { useNotificationStore } from "../stores/notification-store";
+import { useOfflineStore } from "../stores/offline-store";
 import { usePairingStore } from "../stores/pairing-store";
 import { useSessionStore } from "../stores/session-store";
 
@@ -96,7 +96,8 @@ export function useRelay() {
             relayConn.setConnected(daemonId, true);
             // Re-send push token on reconnect so daemon always has a fresh token
             if (Platform.OS !== "web") {
-              const { getCurrentPushToken } = require("./use-push-notifications") as typeof import("./use-push-notifications");
+              const { getCurrentPushToken } =
+                require("./use-push-notifications") as typeof import("./use-push-notifications");
               const token = getCurrentPushToken();
               if (token) {
                 const platform = Platform.OS as "ios" | "android";

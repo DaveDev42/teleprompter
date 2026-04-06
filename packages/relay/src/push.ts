@@ -8,7 +8,12 @@ const DEFAULT_DEDUP_WINDOW_MS = 60_000;
 const DEDUP_CLEANUP_INTERVAL_MS = 30_000;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 
-export type DeliveryResult = "ws" | "push" | "rate_limited" | "deduped" | "error";
+export type DeliveryResult =
+  | "ws"
+  | "push"
+  | "rate_limited"
+  | "deduped"
+  | "error";
 
 export interface PushRequest {
   frontendId: string;
@@ -45,7 +50,8 @@ export class PushService {
   private readonly cleanupInterval: ReturnType<typeof setInterval>;
 
   constructor(options: PushServiceOptions = {}) {
-    this.rateLimitPerMinute = options.rateLimitPerMinute ?? DEFAULT_RATE_LIMIT_PER_MINUTE;
+    this.rateLimitPerMinute =
+      options.rateLimitPerMinute ?? DEFAULT_RATE_LIMIT_PER_MINUTE;
     this.dedupWindowMs = options.dedupWindowMs ?? DEFAULT_DEDUP_WINDOW_MS;
     this.fetchFn = options.fetchFn ?? fetch;
 
@@ -59,7 +65,15 @@ export class PushService {
   }
 
   async sendOrDeliver(req: PushRequest): Promise<DeliveryResult> {
-    const { frontendId, daemonId, token, title, body, isFrontendConnected, data } = req;
+    const {
+      frontendId,
+      daemonId,
+      token,
+      title,
+      body,
+      isFrontendConnected,
+      data,
+    } = req;
     const rateLimitKey = `${daemonId}:${frontendId}`;
 
     // Step 1: WebSocket delivery takes priority
@@ -94,12 +108,17 @@ export class PushService {
       const payload = { to: token, title, body, data, sound: "default" };
       const response = await this.fetchFn(EXPO_PUSH_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
         body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
-        log.warn(`Expo Push API returned ${response.status} for frontendId ${frontendId}`);
+        log.warn(
+          `Expo Push API returned ${response.status} for frontendId ${frontendId}`,
+        );
         return "error";
       }
 

@@ -17,7 +17,6 @@ import {
 } from "../../src/components/FontPickerModal";
 import { useOtaUpdate } from "../../src/hooks/use-ota-update";
 import { getPlatformProps } from "../../src/lib/get-platform-props";
-import { usePairingStore } from "../../src/stores/pairing-store";
 import { useSettingsStore } from "../../src/stores/settings-store";
 import { type Theme, useThemeStore } from "../../src/stores/theme-store";
 import { useVoiceStore } from "../../src/stores/voice-store";

@@ -323,9 +323,10 @@ ${daemons
         this.handlePing(ws, msg);
         break;
       case "relay.push":
-        this.handlePush(ws, msg as RelayClientMessage & { t: "relay.push" }).catch((err) =>
-          log.error(`handlePush failed: ${err}`),
-        );
+        this.handlePush(
+          ws,
+          msg as RelayClientMessage & { t: "relay.push" },
+        ).catch((err) => log.error(`handlePush failed: ${err}`));
         break;
       default:
         this.send(ws, {

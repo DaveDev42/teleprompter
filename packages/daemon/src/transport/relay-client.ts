@@ -71,7 +71,11 @@ export interface RelayClientEvents {
   /** Called when a new frontend completes key exchange */
   onFrontendJoined?: (frontendId: string) => void;
   /** Called when a frontend sends a pushToken message */
-  onPushToken?: (frontendId: string, token: string, platform: "ios" | "android") => void;
+  onPushToken?: (
+    frontendId: string,
+    token: string,
+    platform: "ios" | "android",
+  ) => void;
 }
 
 export class RelayClient {

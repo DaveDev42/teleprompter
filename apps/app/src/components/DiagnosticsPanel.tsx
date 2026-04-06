@@ -1,8 +1,8 @@
 import type { WsSessionMeta } from "@teleprompter/protocol/client";
 import { useCallback, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
-import { getTransport } from "../hooks/use-transport";
 import { useRelayConnectionStore } from "../hooks/use-relay";
+import { getTransport } from "../hooks/use-transport";
 import { checkCryptoAvailability } from "../lib/crypto-native";
 import { getPlatformProps } from "../lib/get-platform-props";
 import { useOfflineStore } from "../stores/offline-store";

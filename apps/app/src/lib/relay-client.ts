@@ -8,10 +8,6 @@
  * Implements TransportClient for unified transport layer.
  */
 
-import {
-  RELAY_CHANNEL_CONTROL,
-  RELAY_CHANNEL_META,
-} from "@teleprompter/protocol/client";
 import type {
   KeyPair,
   RecordKind,
@@ -29,6 +25,8 @@ import {
   deriveKxKey,
   deriveSessionKeys,
   encrypt,
+  RELAY_CHANNEL_CONTROL,
+  RELAY_CHANNEL_META,
   toBase64,
 } from "@teleprompter/protocol/client";
 import type { TransportClient, TransportEventHandler } from "./transport";
@@ -84,11 +82,9 @@ export class FrontendRelayClient implements TransportClient {
     this.events = events;
   }
 
-  set onSessionExported(
-    handler:
-      | ((sid: string, format: string, content: string) => void)
-      | undefined,
-  ) {
+  set onSessionExported(handler:
+    | ((sid: string, format: string, content: string) => void)
+    | undefined,) {
     this.events.onSessionExported = handler;
   }
 
@@ -263,7 +259,10 @@ export class FrontendRelayClient implements TransportClient {
           console.warn(`[FrontendRelay] unknown message type: ${msg.t}`);
       }
     } catch (err) {
-      console.error(`[FrontendRelay] decrypt failed for sid=${frame.sid}:`, err);
+      console.error(
+        `[FrontendRelay] decrypt failed for sid=${frame.sid}:`,
+        err,
+      );
     }
   }
 
@@ -277,9 +276,7 @@ export class FrontendRelayClient implements TransportClient {
 
   private async sendEncrypted(msg: Record<string, unknown>): Promise<void> {
     if (!this.authenticated || !this.sessionKeys) {
-      console.warn(
-        `[FrontendRelay] dropping ${msg.t} — not authenticated`,
-      );
+      console.warn(`[FrontendRelay] dropping ${msg.t} — not authenticated`);
       return;
     }
 

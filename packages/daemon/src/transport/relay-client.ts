@@ -62,10 +62,7 @@ export interface RelayClientEvents {
     frontendId?: string,
   ) => void;
   /** Called when a decrypted control message arrives from a frontend via relay */
-  onControlMessage?: (
-    msg: Record<string, unknown>,
-    frontendId: string,
-  ) => void;
+  onControlMessage?: (msg: Record<string, unknown>, frontendId: string) => void;
   /** Called when relay connection state changes */
   onConnected?: () => void;
   onDisconnected?: () => void;

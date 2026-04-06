@@ -1,7 +1,3 @@
-import {
-  RELAY_CHANNEL_CONTROL,
-  RELAY_CHANNEL_META,
-} from "@teleprompter/protocol";
 import type {
   IpcBye,
   IpcHello,
@@ -12,7 +8,11 @@ import type {
   WsRec,
   WsSessionMeta,
 } from "@teleprompter/protocol";
-import { createLogger } from "@teleprompter/protocol";
+import {
+  createLogger,
+  RELAY_CHANNEL_CONTROL,
+  RELAY_CHANNEL_META,
+} from "@teleprompter/protocol";
 import { formatMarkdown } from "./export-formatter";
 import { IpcServer } from "./ipc/server";
 import {
@@ -226,7 +226,9 @@ export class Daemon {
         // Send session list to newly connected frontend (like WS hello)
         const sessions = this.store.listSessions().map(toWsSessionMeta);
         const helloMsg = { t: "hello", v: 1, d: { sessions } };
-        client.publishToPeer(frontendId, RELAY_CHANNEL_META, helloMsg).catch(() => {});
+        client
+          .publishToPeer(frontendId, RELAY_CHANNEL_META, helloMsg)
+          .catch(() => {});
 
         // Subscribe all running sessions so the frontend gets records
         for (const s of sessions) {
@@ -509,8 +511,7 @@ export class Daemon {
           break;
         }
         const cwd = msg.cwd;
-        const sid =
-          (msg.sid as string) ?? `session-${Date.now().toString(36)}`;
+        const sid = (msg.sid as string) ?? `session-${Date.now().toString(36)}`;
         try {
           this.createSession(sid, cwd);
         } catch (err) {
@@ -693,8 +694,7 @@ export class Daemon {
         .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
           t: "err",
           e: "WORKTREE_ERROR",
-          m:
-            err instanceof Error ? err.message : "Failed to create worktree",
+          m: err instanceof Error ? err.message : "Failed to create worktree",
         })
         .catch(() => {});
     }
@@ -730,8 +730,7 @@ export class Daemon {
         .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
           t: "err",
           e: "WORKTREE_ERROR",
-          m:
-            err instanceof Error ? err.message : "Failed to remove worktree",
+          m: err instanceof Error ? err.message : "Failed to remove worktree",
         })
         .catch(() => {});
     }

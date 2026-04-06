@@ -1,10 +1,7 @@
 import type {
   RecordKind,
   WsClientMessage,
-  WsRec,
   WsServerMessage,
-  WsSessionMeta,
-  WsWorktreeInfo,
 } from "@teleprompter/protocol/client";
 import type { TransportClient, TransportEventHandler } from "./transport";
 

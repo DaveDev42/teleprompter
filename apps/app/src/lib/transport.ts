@@ -66,9 +66,7 @@ export interface TransportClient {
   getRtt(): number;
 
   // ── Export callback (setter) ──
-  set onSessionExported(
-    handler:
-      | ((sid: string, format: string, content: string) => void)
-      | undefined,
-  );
+  set onSessionExported(handler:
+    | ((sid: string, format: string, content: string) => void)
+    | undefined,);
 }

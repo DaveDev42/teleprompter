@@ -16,7 +16,6 @@ export type {
   IpcResize,
 } from "./ipc";
 export type { Namespace, Record, RecordKind } from "./record";
-export { RELAY_CHANNEL_CONTROL, RELAY_CHANNEL_META } from "./relay";
 export type {
   RelayAuth,
   RelayAuthErr,
@@ -37,6 +36,7 @@ export type {
   RelaySubscribe,
   RelayUnsubscribe,
 } from "./relay";
+export { RELAY_CHANNEL_CONTROL, RELAY_CHANNEL_META } from "./relay";
 export type { Session, SessionState, SID } from "./session";
 export type {
   WsAttach,

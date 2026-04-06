@@ -35,7 +35,7 @@ e2e/           # Playwright E2E tests (.spec.ts)
 
 ## Architecture
 
-- **Runner** spawns Claude Code in a PTY (`Bun.spawn({ terminal })`), collects io streams and hooks events, sends Records to Daemon via Unix domain socket IPC
+- **Runner** spawns Claude Code in a PTY (macOS/Linux: `PtyBun` via `Bun.spawn({ terminal })`; Windows: `PtyWindows` via Node.js subprocess + `@aspect-build/node-pty` ConPTY), collects io streams and hooks events, sends Records to Daemon via IPC (macOS/Linux: Unix domain socket; Windows: Named Pipe)
 - **Daemon** manages sessions, stores Records in Store (append-only per session, with session delete/prune support), persists pairings in store DB for auto-reconnect, encrypts with libsodium per-frontend keys, connects to Relay(s)
 - **Relay** is a stateless ciphertext forwarder — holds only recent 10 encrypted frames per session
 - **Frontend** decrypts and renders: Terminal tab (xterm.js) + Chat tab (hooks events + PTY parsing hybrid)
@@ -61,6 +61,7 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - Platform priority: iOS > Web > Android. Responsive layout required for mobile/tablet/desktop.
 - Deployment: `bun build --compile` for `tp` binary (subcommands: daemon, run, relay).
 - Passthrough mode: `tp <claude args>` runs claude directly through tp pipeline. `--tp-*` flags are consumed by tp, rest forwarded to claude.
+- **Windows support**: PTY via Node.js subprocess + `@aspect-build/node-pty` (Bun PTY Windows unsupported). IPC via Named Pipes (`Bun.listen` native pipe attempt, `node:net` fallback). Service via Task Scheduler (`schtasks.exe`). Build target: `bun-windows-x64`.
 
 ## Coding Conventions (Summary)
 
@@ -69,7 +70,7 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - Type-only: `import type { ... }`. Import sort: Biome 위임.
 - Zustand: `create<Interface>((set, get) => ({...}))`, 미들웨어 없음.
 - Styling: `tp-*` semantic tokens only. Raw Tailwind colors 금지.
-- Tests: `bun:test`, 소스 옆 co-located. Biome = lint + format (ESLint/Prettier 금지).
+- Tests: `bun:test`, 소스 옆 co-located. Biome = lint + format (ESLint/Prettier 금지). Platform-guarded tests: `describe.skipIf(process.platform !== "win32")` / `describe.skipIf(process.platform === "win32")`.
 - 영역별 상세 컨벤션은 `.claude/rules/`에서 자동 로드됨.
 
 ## Testing Strategy
@@ -247,7 +248,7 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 - **Relay**: Vultr Seoul `relay.tpmt.dev` (wss://, Caddy TLS + systemd: `tp-relay`)
 - **Web**: Vercel → `tpmt.dev`
 - **App**: EAS Build → TestFlight / Google Internal / App Store / Play Store
-- **CLI**: GitHub Releases → `bun build --compile` (darwin/linux × arm64/x64)
+- **CLI**: GitHub Releases → `bun build --compile` (darwin/linux × arm64/x64, windows × x64)
 
 ### GitHub Secrets
 | Secret | 용도 |

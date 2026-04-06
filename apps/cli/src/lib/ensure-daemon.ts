@@ -8,8 +8,14 @@ import { errorWithHints } from "./format";
 import { spinner } from "./spinner";
 
 const HINT_FILE = join(
-  process.env.HOME ?? "/tmp",
-  ".config",
+  process.platform === "win32"
+    ? (process.env.APPDATA ??
+        join(
+          process.env.USERPROFILE ?? "C:\\Users\\Default",
+          "AppData",
+          "Roaming",
+        ))
+    : join(process.env.HOME ?? "/tmp", ".config"),
   "teleprompter",
   ".daemon-hint-shown",
 );
@@ -127,6 +133,16 @@ async function tryKickstartService(): Promise<boolean> {
     return true;
   }
 
+  if (os === "win32") {
+    const { isServiceInstalled, getTaskName } = await import(
+      "./service-windows"
+    );
+    if (!isServiceInstalled()) return false;
+
+    Bun.spawnSync(["schtasks", "/Run", "/TN", getTaskName()]);
+    return true;
+  }
+
   return false;
 }
 
@@ -144,6 +160,9 @@ async function showInstallHint(): Promise<void> {
   } else if (os === "linux") {
     const { isServiceInstalled } = await import("./service-linux");
     if (isServiceInstalled()) return;
+  } else if (os === "win32") {
+    const { isServiceInstalled } = await import("./service-windows");
+    if (isServiceInstalled()) return;
   }
 
   console.error(
@@ -152,7 +171,17 @@ async function showInstallHint(): Promise<void> {
 
   // Mark hint as shown
   try {
-    const dir = join(process.env.HOME ?? "/tmp", ".config", "teleprompter");
+    const dir = join(
+      process.platform === "win32"
+        ? (process.env.APPDATA ??
+            join(
+              process.env.USERPROFILE ?? "C:\\Users\\Default",
+              "AppData",
+              "Roaming",
+            ))
+        : join(process.env.HOME ?? "/tmp", ".config"),
+      "teleprompter",
+    );
     await mkdir(dir, { recursive: true });
     await writeFile(HINT_FILE, new Date().toISOString());
   } catch {

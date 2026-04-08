@@ -187,7 +187,7 @@
 - [ ] `VoiceButton`이 iOS/Android에서 `null` 반환 — 네이티브 오디오 캡처/재생 미구현 (expo-av 등 필요)
 
 ### Windows
-- [ ] Windows CI (test-windows) 간헐적 실패 — Bun 1.3.6 Windows 호환 이슈, `continue-on-error`로 처리 중
+- [x] Windows CI (test-windows) 간헐적 실패 — Bun 1.3.11로 업그레이드 + `(fail)` 패턴 기반 실패 감지 워크어라운드로 해결. Bun panic은 여전히 발생하나 테스트 결과에 영향 없음
 
 ### 미검증 항목 (잠재 이슈)
 - [ ] Push Notifications 실기기 미검증 — Simulator에서는 push token 생성 불가, 실제 iOS/Android 디바이스에서 E2E 테스트 필요

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { realpathSync } from "fs";
 import { mkdtemp, readdir, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
@@ -23,8 +24,8 @@ describe("WorktreeManager", () => {
   let manager: WorktreeManager;
 
   beforeEach(async () => {
-    // Create a temp git repo
-    repoDir = await mkdtemp(join(tmpdir(), "tp-wt-test-"));
+    // Create a temp git repo (resolve symlinks: macOS /var → /private/var)
+    repoDir = realpathSync(await mkdtemp(join(tmpdir(), "tp-wt-test-")));
     await gitRun(["init", "-b", "main"], repoDir);
     await gitRun(["config", "user.email", "test@test.com"], repoDir);
     await gitRun(["config", "user.name", "Test"], repoDir);
@@ -64,9 +65,7 @@ describe("WorktreeManager", () => {
   test("list returns main worktree", async () => {
     const worktrees = await manager.list();
     expect(worktrees.length).toBe(1);
-    // macOS: /var → /private/var symlink, so compare realpath
-    const { realpathSync } = require("fs");
-    expect(realpathSync(worktrees[0].path)).toBe(realpathSync(repoDir));
+    expect(worktrees[0].path).toBe(repoDir);
     expect(worktrees[0].isMain).toBe(true);
   });
 

@@ -16,7 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts
 git clone https://github.com/DaveDev42/teleprompter.git
 cd teleprompter
 pnpm install
-bun run build:cli:local    # → dist/tp
+pnpm build:cli:local    # → dist/tp
 ```
 
 ## Usage
@@ -71,7 +71,7 @@ cd apps/app && npx expo start --web
 | `tp doctor` | Environment diagnostics |
 | `tp upgrade` | Upgrade tp + Claude Code |
 | `tp version` | Print version |
-| `tp daemon start [opts]` | Start the daemon service |
+| `tp daemon start [opts]` | Start daemon in foreground |
 | `tp daemon install` | Register as OS service (launchd/systemd) |
 | `tp daemon uninstall` | Remove OS service |
 | `tp relay start [--port]` | Start a relay server |

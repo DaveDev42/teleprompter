@@ -113,10 +113,7 @@ export class WorktreeManager {
   async list(): Promise<WorktreeInfo[]> {
     let result: string;
     try {
-      result = gitOutput(
-        ["worktree", "list", "--porcelain"],
-        this.repoRoot,
-      );
+      result = gitOutput(["worktree", "list", "--porcelain"], this.repoRoot);
     } catch {
       return [];
     }
@@ -180,30 +177,21 @@ export class WorktreeManager {
     // Check if branch exists
     let branchExists = false;
     try {
-      gitOutput(
-        ["rev-parse", "--verify", branch],
-        this.repoRoot,
-      );
+      gitOutput(["rev-parse", "--verify", branch], this.repoRoot);
       branchExists = true;
     } catch {
       branchExists = false;
     }
 
     if (branchExists) {
-      gitRun(
-        ["worktree", "add", path, branch],
-        this.repoRoot,
-      );
+      gitRun(["worktree", "add", path, branch], this.repoRoot);
     } else if (baseBranch) {
       gitRun(
         ["worktree", "add", "-b", branch, path, baseBranch],
         this.repoRoot,
       );
     } else {
-      gitRun(
-        ["worktree", "add", "-b", branch, path],
-        this.repoRoot,
-      );
+      gitRun(["worktree", "add", "-b", branch, path], this.repoRoot);
     }
 
     log.info(`added worktree at ${path} (${branch})`);

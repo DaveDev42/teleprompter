@@ -16,7 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts
 git clone https://github.com/DaveDev42/teleprompter.git
 cd teleprompter
 pnpm install
-bun run build:cli:local    # → dist/tp
+pnpm build:cli:local    # → dist/tp
 ```
 
 ## Usage
@@ -64,17 +64,18 @@ cd apps/app && npx expo start --web
 
 | Command | Description |
 |---------|-------------|
-| `tp <claude args>` | Run claude through tp pipeline (default) |
-| `tp daemon start [opts]` | Start the daemon service |
-| `tp relay start [--port]` | Start a relay server |
+| `tp [flags] [claude args]` | Run Claude through tp pipeline (default) |
 | `tp pair [--relay URL]` | Generate QR pairing data |
 | `tp status` | Show daemon status and sessions |
-| `tp logs` | Tail live session records |
+| `tp logs [session]` | Tail live session output |
 | `tp doctor` | Environment diagnostics |
-| `tp init` | Project setup guide |
-| `tp upgrade` | Check and install latest release |
-| `tp completions <shell>` | Generate shell completions (bash/zsh/fish) |
+| `tp upgrade` | Upgrade tp + Claude Code |
 | `tp version` | Print version |
+| `tp daemon start [opts]` | Start daemon in foreground |
+| `tp daemon install` | Register as OS service (launchd/systemd) |
+| `tp daemon uninstall` | Remove OS service |
+| `tp relay start [--port]` | Start a relay server |
+| `tp completions <shell>` | Generate shell completions (bash/zsh/fish) |
 
 ### Daemon Options
 
@@ -116,7 +117,6 @@ packages/
   relay/          # WebSocket ciphertext relay
   protocol/       # Shared types, codec, crypto, pairing
   tsconfig/       # Shared TypeScript configs
-  eslint-config/  # Shared ESLint configuration
 scripts/
   build.ts        # Multi-platform bun build --compile
   install.sh      # curl-pipe-sh installer
@@ -153,7 +153,7 @@ pnpm doctor
 - **Bun** — runtime for Runner, Daemon, Relay
 - **Expo** — React Native + Web frontend
 - **libsodium** — X25519 key exchange + XChaCha20-Poly1305 AEAD encryption
-- **xterm.js** — terminal rendering (Web + native WebView bridge)
+- **ghostty-web** — terminal rendering (libghostty WASM, Canvas 2D)
 - **OpenAI Realtime API** — voice input/output with STT + TTS
 
 ## Security
@@ -166,6 +166,7 @@ pnpm doctor
 
 ## Documentation
 
+- [Getting Started](./docs/GETTING-STARTED.md) — installation, first session, phone pairing, and app walkthrough
 - [FAQ](./docs/FAQ.md) — Installation, connection, sessions, daemon, voice, upgrading, and development
 
 ## Changelog

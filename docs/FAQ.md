@@ -43,9 +43,14 @@ tp doctor
 
 ### What are the prerequisites?
 
+**Runtime (required):**
 - **Bun** v1.3.6+ (runtime for daemon, runner, relay)
 - **Claude Code** CLI (`claude` in PATH)
 - **Git** (for worktree features)
+
+**Development only:**
+- **Node.js** 22+ (build tooling)
+- **pnpm** (monorepo package manager)
 
 Run `tp doctor` to check all requirements at once.
 
@@ -106,7 +111,7 @@ $XDG_DATA_HOME/teleprompter/vault/sessions.sqlite
 # typically: ~/.local/share/teleprompter/vault/sessions.sqlite
 ```
 
-The vault is created automatically on first daemon run.
+On macOS, `XDG_DATA_HOME` is not set by default — the path resolves to `~/.local/share`. The vault is created automatically on first daemon run.
 
 ### Can I export a session?
 
@@ -167,14 +172,14 @@ tp logs              # tail live session output
 tp logs <session-id> # tail a specific session
 ```
 
-For daemon-level diagnostics, use `tp doctor --verbose` or check the system service logs:
+For additional diagnostics, run `tp doctor --claude` to also run Claude Code's own doctor. You can also check the system service logs directly:
 
 ```bash
-# macOS
+# macOS (launchd)
 log show --predicate 'process == "tp"' --last 1h
 
-# Linux
-journalctl -u tp-relay --since "1 hour ago"
+# Linux (systemd)
+journalctl --user -u teleprompter-daemon --since "1 hour ago"
 ```
 
 ---
@@ -262,7 +267,8 @@ Builds use `bun build --compile` to produce standalone binaries.
 
 ```bash
 # Development mode (hot reload)
-cd apps/app && npx expo start --web
+pnpm dev:app
+# or: cd apps/app && npx expo start --web
 
 # Production build
 pnpm build:web
@@ -287,6 +293,8 @@ The relay is stateless and only forwards encrypted frames. Configure frame limit
 | Check | What it verifies | Fix |
 |-------|-----------------|-----|
 | Bun | Bun runtime installed | Install Bun: `curl -fsSL https://bun.sh/install \| bash` |
+| Node.js | Node.js available (for dev/build) | Install Node.js 22+ |
+| pnpm | pnpm package manager (for dev/build) | `npm i -g pnpm` |
 | Claude CLI | `claude` in PATH | Install Claude Code |
 | Git | Git available | Install Git |
 | Daemon socket | Daemon is running | Run `tp daemon start` or any tp command (auto-starts) |

@@ -12,13 +12,13 @@ curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts
 
 This installs the `tp` binary to `~/.local/bin`. You can override the install location with `INSTALL_DIR`.
 
-**From source:**
+**From source (all platforms including Windows):**
 
 ```bash
 git clone https://github.com/DaveDev42/teleprompter.git
 cd teleprompter
 pnpm install
-bun run build:cli:local    # builds for current platform → dist/tp
+pnpm build:cli:local    # builds for current platform → dist/tp
 ```
 
 ### What platforms are supported?
@@ -258,7 +258,7 @@ Tests use `bun:test` exclusively — no Jest or Vitest. Test files are co-locate
 
 ```bash
 pnpm build:cli:local    # current platform only
-pnpm build:cli          # all 4 platforms (darwin/linux x arm64/x64)
+pnpm build:cli          # all 5 targets (darwin/linux x arm64/x64 + windows x64)
 ```
 
 Builds use `bun build --compile` to produce standalone binaries.

@@ -178,6 +178,24 @@
 
 ---
 
+## 🔧 미비한 점 — 현재 남아있는 이슈
+
+### CLI
+- [ ] `tp -- --version`이 claude 버전 대신 tp 버전 표시 — `--` 이후 `--version`이 claude에 전달되어야 하지만 tp가 먼저 처리
+
+### Voice
+- [ ] `VoiceButton`이 iOS/Android에서 `null` 반환 — 네이티브 오디오 캡처/재생 미구현 (expo-av 등 필요)
+
+### Windows
+- [ ] Windows CI (test-windows) 간헐적 실패 — Bun 1.3.6 Windows 호환 이슈, `continue-on-error`로 처리 중
+
+### 미검증 항목 (잠재 이슈)
+- [ ] Push Notifications 실기기 미검증 — Simulator에서는 push token 생성 불가, 실제 iOS/Android 디바이스에서 E2E 테스트 필요
+- [ ] Windows PTY/IPC 실환경 미검증 — CI unit test만 통과, 실제 Windows 환경에서 `tp` passthrough + daemon 동작 E2E 검증 필요
+- [ ] Session Export 대규모 세션 성능 미검증 — 10,000+ records 세션에서 export 속도/메모리 사용량 확인 필요 (현재 limit 50,000)
+
+---
+
 ## Future
 
 - [ ] Claude Code channels 양방향(output 구독) 지원 시 Chat UI 통합 재검토

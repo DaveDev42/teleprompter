@@ -164,6 +164,10 @@ pnpm doctor
 - Relay sees only ciphertext (zero-trust)
 - API keys stored in OS Keychain/Keystore (native) or localStorage (web)
 
+## Documentation
+
+- [FAQ](./docs/FAQ.md) — Installation, connection, sessions, daemon, voice, upgrading, and development
+
 ## Changelog
 
 See [CHANGELOG.md](./CHANGELOG.md) for release notes.

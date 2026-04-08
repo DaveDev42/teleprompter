@@ -107,9 +107,6 @@ jobs:
   test-windows:
     runs-on: windows-2022
     timeout-minutes: 15
-    # Bun 1.3.6 panics after tests pass on Windows (oven-sh/bun#27471).
-    # Allow failure so it doesn't block eas-gate. Remove when Bun fixes the panic.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -124,7 +121,17 @@ jobs:
         shell: bash
 
       - name: Test
-        run: bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay
+        # Bun panics after tests pass on Windows (oven-sh/bun#27471).
+        # Capture output to file, ignore panic exit code, then check for real failures.
+        run: |
+          bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay 2>&1 | tee test-output.txt || true
+          if grep -q " 0 fail" test-output.txt; then
+            echo "All tests passed (ignoring Bun panic on exit)"
+          else
+            echo "Test failures detected:"
+            grep -E "fail|error" test-output.txt
+            exit 1
+          fi
         shell: bash
 
       - name: Build CLI

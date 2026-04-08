@@ -5,17 +5,17 @@ import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { WorktreeManager } from "./worktree-manager";
 
-/** Run git with explicit stdout pipe (Bun.$ doesn't capture stdout reliably in test runner) */
-async function gitRun(args: string[], cwd: string): Promise<void> {
-  const proc = Bun.spawn(["git", ...args], {
+/** Run git synchronously to avoid Bun.spawn cwd issues in bun test runner */
+function gitRunSync(args: string[], cwd: string): void {
+  const { spawnSync } = require("child_process");
+  const result = spawnSync("git", args, {
     cwd,
-    stdout: "ignore",
-    stderr: "pipe",
+    stdio: ["ignore", "ignore", "pipe"],
   });
-  const exit = await proc.exited;
-  if (exit !== 0) {
-    const err = await new Response(proc.stderr).text();
-    throw new Error(`git ${args[0]} failed: ${err}`);
+  if (result.status !== 0) {
+    throw new Error(
+      `git ${args[0]} failed: ${result.stderr?.toString().trim()}`,
+    );
   }
 }
 
@@ -26,14 +26,14 @@ describe("WorktreeManager", () => {
   beforeEach(async () => {
     // Create a temp git repo (resolve symlinks: macOS /var → /private/var)
     repoDir = realpathSync(await mkdtemp(join(tmpdir(), "tp-wt-test-")));
-    await gitRun(["init", "-b", "main"], repoDir);
-    await gitRun(["config", "user.email", "test@test.com"], repoDir);
-    await gitRun(["config", "user.name", "Test"], repoDir);
-    await gitRun(["config", "commit.gpgsign", "false"], repoDir);
+    gitRunSync(["init", "-b", "main"], repoDir);
+    gitRunSync(["config", "user.email", "test@test.com"], repoDir);
+    gitRunSync(["config", "user.name", "Test"], repoDir);
+    gitRunSync(["config", "commit.gpgsign", "false"], repoDir);
     // Create an initial commit (required for worktrees)
     await writeFile(join(repoDir, "README.md"), "");
-    await gitRun(["add", "."], repoDir);
-    await gitRun(["commit", "-m", "init"], repoDir);
+    gitRunSync(["add", "."], repoDir);
+    gitRunSync(["commit", "-m", "init"], repoDir);
 
     manager = new WorktreeManager(repoDir);
   });
@@ -84,11 +84,11 @@ describe("WorktreeManager", () => {
 
   test("add creates worktree from base branch", async () => {
     // Create a base branch with a commit
-    await gitRun(["checkout", "-b", "develop"], repoDir);
+    gitRunSync(["checkout", "-b", "develop"], repoDir);
     await writeFile(join(repoDir, "dev.txt"), "");
-    await gitRun(["add", "."], repoDir);
-    await gitRun(["commit", "-m", "dev commit"], repoDir);
-    await gitRun(["checkout", "-"], repoDir);
+    gitRunSync(["add", "."], repoDir);
+    gitRunSync(["commit", "-m", "dev commit"], repoDir);
+    gitRunSync(["checkout", "-"], repoDir);
 
     const wtPath = `${repoDir}-wt-from-develop`;
     const wt = await manager.add(wtPath, "feature-from-dev", "develop");

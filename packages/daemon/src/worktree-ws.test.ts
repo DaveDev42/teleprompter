@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { WsServerMessage } from "@teleprompter/protocol";
 import { $ } from "bun";
+import { realpathSync } from "fs";
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -42,8 +43,8 @@ describe("Daemon worktree WS protocol", () => {
   let wsPort: number;
 
   beforeEach(async () => {
-    // Create a temp git repo
-    repoDir = await mkdtemp(join(tmpdir(), "tp-wt-ws-"));
+    // Create a temp git repo (resolve symlinks: macOS /var → /private/var)
+    repoDir = realpathSync(await mkdtemp(join(tmpdir(), "tp-wt-ws-")));
     await $`git -C ${repoDir} init -b main`.quiet();
     await $`git -C ${repoDir} config user.email "test@test.com"`.quiet();
     await $`git -C ${repoDir} config user.name "Test"`.quiet();

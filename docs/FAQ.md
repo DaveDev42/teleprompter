@@ -284,6 +284,14 @@ The relay is stateless and only forwards encrypted frames. Configure frame limit
 - `TP_RELAY_CACHE_SIZE` — recent frames per session (default: 10)
 - `TP_RELAY_MAX_FRAME_SIZE` — max frame size (default: 1MB)
 
+### How do I enable shell autocompletion?
+
+```bash
+tp completions bash >> ~/.bashrc
+tp completions zsh >> ~/.zshrc
+tp completions fish >> ~/.config/fish/completions/tp.fish
+```
+
 ---
 
 ## Troubleshooting
@@ -293,8 +301,8 @@ The relay is stateless and only forwards encrypted frames. Configure frame limit
 | Check | What it verifies | Fix |
 |-------|-----------------|-----|
 | Bun | Bun runtime installed | Install Bun: `curl -fsSL https://bun.sh/install \| bash` |
-| Node.js | Node.js available (for dev/build) | Install Node.js 22+ |
-| pnpm | pnpm package manager (for dev/build) | `npm i -g pnpm` |
+| Node.js | Node.js available (dev only) | Install Node.js 22+ |
+| pnpm | pnpm package manager (dev only) | `npm i -g pnpm` |
 | Claude CLI | `claude` in PATH | Install Claude Code |
 | Git | Git available | Install Git |
 | Daemon socket | Daemon is running | Run `tp daemon start` or any tp command (auto-starts) |

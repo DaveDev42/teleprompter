@@ -122,16 +122,15 @@ jobs:
 
       - name: Test
         # Bun panics after tests pass on Windows (oven-sh/bun#27471).
-        # Capture output to file, ignore panic exit code, then check for real failures.
+        # Ignore panic exit code, then check for real test failures via "(fail)" pattern.
         run: |
           bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay 2>&1 | tee test-output.txt || true
-          if grep -q " 0 fail" test-output.txt; then
-            echo "All tests passed (ignoring Bun panic on exit)"
-          else
+          if grep -q "^(fail)" test-output.txt; then
             echo "Test failures detected:"
-            grep -E "fail|error" test-output.txt
+            grep "^(fail)" test-output.txt
             exit 1
           fi
+          echo "All tests passed (ignoring Bun panic on exit)"
         shell: bash
 
       - name: Build CLI

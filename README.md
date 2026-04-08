@@ -117,7 +117,6 @@ packages/
   relay/          # WebSocket ciphertext relay
   protocol/       # Shared types, codec, crypto, pairing
   tsconfig/       # Shared TypeScript configs
-  eslint-config/  # Shared ESLint configuration
 scripts/
   build.ts        # Multi-platform bun build --compile
   install.sh      # curl-pipe-sh installer
@@ -154,7 +153,7 @@ pnpm doctor
 - **Bun** — runtime for Runner, Daemon, Relay
 - **Expo** — React Native + Web frontend
 - **libsodium** — X25519 key exchange + XChaCha20-Poly1305 AEAD encryption
-- **xterm.js** — terminal rendering (Web + native WebView bridge)
+- **ghostty-web** — terminal rendering (libghostty WASM, Canvas 2D)
 - **OpenAI Realtime API** — voice input/output with STT + TTS
 
 ## Security

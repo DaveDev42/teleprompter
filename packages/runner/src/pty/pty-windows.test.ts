@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-describe("PtyWindows", () => {
+describe.skipIf(process.platform !== "win32")("PtyWindows", () => {
   let testDir: string;
   let mockHostPath: string;
 

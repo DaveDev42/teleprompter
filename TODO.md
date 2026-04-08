@@ -161,6 +161,7 @@
 - [x] Branch name validation — `git check-ref-format --branch`로 사전 검증 + 에러 메시지에 규칙 안내
 - [x] Worktree 경로 권한 검증 — 부모 디렉토리 쓰기 권한 사전 확인 + 명확한 에러 메시지
 - [x] `worktree-manager.ts` gitOutput/gitRun에 `cwd` 미지정 — repo root에서 bun test 실행 시 process.cwd()가 테스트 대상 repo가 아닌 실제 repo를 참조하여 5/7 실패 → execFileSync에 `{ cwd }` 옵션 추가
+- [x] macOS symlink 경로 불일치 — `repoRoot`가 `/var/...`이지만 git은 `/private/var/...` 반환 → `WorktreeManager` 생성자에서 `realpathSync`로 해결, 테스트 `beforeEach`에서도 `repoDir` 정규화
 
 ### Accessibility (접근성)
 - [x] 전체 프론트엔드에 `accessibilityLabel`, `accessibilityRole`, `accessibilityState`, `accessibilityHint` 추가

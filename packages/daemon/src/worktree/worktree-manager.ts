@@ -7,7 +7,7 @@
 
 import { createLogger } from "@teleprompter/protocol";
 import { execFileSync } from "child_process";
-import { accessSync, constants } from "fs";
+import { accessSync, constants, realpathSync } from "fs";
 import { dirname } from "path";
 
 const log = createLogger("WorktreeManager");
@@ -68,7 +68,10 @@ export interface WorktreeInfo {
 }
 
 export class WorktreeManager {
-  constructor(private repoRoot: string) {}
+  constructor(private repoRoot: string) {
+    // Resolve symlinks so paths match git output (macOS: /var → /private/var, /tmp → /private/tmp)
+    this.repoRoot = realpathSync(repoRoot);
+  }
 
   /**
    * List all worktrees in the repository.

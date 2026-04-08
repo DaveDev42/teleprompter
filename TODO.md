@@ -181,7 +181,7 @@
 ## 🔧 미비한 점 — 현재 남아있는 이슈
 
 ### CLI
-- [ ] `tp -- --version`이 claude 버전 대신 tp 버전 표시 — `--` 이후 `--version`이 claude에 전달되어야 하지만 tp가 먼저 처리
+- [x] `tp -- --version` — 컴파일된 바이너리에서는 정상 동작 (`claude --version` 출력). `bun run`으로 테스트 시 `--`가 bun에 의해 소비되어 오탐이었음
 
 ### Voice
 - [ ] `VoiceButton`이 iOS/Android에서 `null` 반환 — 네이티브 오디오 캡처/재생 미구현 (expo-av 등 필요)

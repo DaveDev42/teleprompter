@@ -6,23 +6,56 @@
  */
 
 import { createLogger } from "@teleprompter/protocol";
-import { execFileSync } from "child_process";
-import { accessSync, constants, realpathSync } from "fs";
-import { dirname } from "path";
+import { spawnSync } from "child_process";
+import {
+  accessSync,
+  constants,
+  readFileSync,
+  realpathSync,
+  unlinkSync,
+} from "fs";
+import { tmpdir } from "os";
+import { dirname, join } from "path";
 
 const log = createLogger("WorktreeManager");
 
 /** Run a git command and return stdout text. */
 function gitOutput(args: string[], cwd?: string): string {
-  return execFileSync("git", args, {
-    cwd,
-    stdio: ["ignore", "pipe", "ignore"],
-  }).toString();
+  // Use shell redirection to capture stdout to a temp file.
+  // Node's child_process pipe returns empty buffers under `bun test`
+  // when run from monorepo root (Bun test runner pipe interference).
+  const tmp = join(
+    tmpdir(),
+    `tp-git-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+  try {
+    const cmd = ["git", ...args].map((a) => `'${a}'`).join(" ");
+    const result = spawnSync("sh", ["-c", `${cmd} > '${tmp}'`], {
+      cwd,
+      stdio: "ignore",
+    });
+    if (result.status !== 0) {
+      throw new Error(`git ${args[0]} exited ${result.status}`);
+    }
+    return readFileSync(tmp, "utf-8");
+  } finally {
+    try {
+      unlinkSync(tmp);
+    } catch {}
+  }
 }
 
 /** Run a git command, ignoring stdout. Throws on non-zero exit. */
 function gitRun(args: string[], cwd?: string): void {
-  execFileSync("git", args, { cwd, stdio: "ignore" });
+  const result = spawnSync("git", args, {
+    cwd,
+    stdio: ["ignore", "ignore", "pipe"],
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `git ${args[0]} failed: ${result.stderr?.toString().trim()}`,
+    );
+  }
 }
 
 /**
@@ -31,9 +64,10 @@ function gitRun(args: string[], cwd?: string): void {
  */
 function validateBranchName(branch: string): void {
   try {
-    execFileSync("git", ["check-ref-format", "--branch", branch], {
+    const r = spawnSync("git", ["check-ref-format", "--branch", branch], {
       stdio: "ignore",
     });
+    if (r.status !== 0) throw new Error("invalid");
   } catch {
     throw new Error(
       `Invalid branch name: '${branch}'. ` +
@@ -80,7 +114,7 @@ export class WorktreeManager {
     let result: string;
     try {
       result = gitOutput(
-        ["-C", this.repoRoot, "worktree", "list", "--porcelain"],
+        ["worktree", "list", "--porcelain"],
         this.repoRoot,
       );
     } catch {
@@ -147,7 +181,7 @@ export class WorktreeManager {
     let branchExists = false;
     try {
       gitOutput(
-        ["-C", this.repoRoot, "rev-parse", "--verify", branch],
+        ["rev-parse", "--verify", branch],
         this.repoRoot,
       );
       branchExists = true;
@@ -157,26 +191,17 @@ export class WorktreeManager {
 
     if (branchExists) {
       gitRun(
-        ["-C", this.repoRoot, "worktree", "add", path, branch],
+        ["worktree", "add", path, branch],
         this.repoRoot,
       );
     } else if (baseBranch) {
       gitRun(
-        [
-          "-C",
-          this.repoRoot,
-          "worktree",
-          "add",
-          "-b",
-          branch,
-          path,
-          baseBranch,
-        ],
+        ["worktree", "add", "-b", branch, path, baseBranch],
         this.repoRoot,
       );
     } else {
       gitRun(
-        ["-C", this.repoRoot, "worktree", "add", "-b", branch, path],
+        ["worktree", "add", "-b", branch, path],
         this.repoRoot,
       );
     }
@@ -184,7 +209,7 @@ export class WorktreeManager {
     log.info(`added worktree at ${path} (${branch})`);
 
     // Get HEAD of the new worktree
-    const head = gitOutput(["-C", path, "rev-parse", "HEAD"], path).trim();
+    const head = gitOutput(["rev-parse", "HEAD"], path).trim();
 
     return { path, branch, head, isMain: false };
   }
@@ -193,7 +218,7 @@ export class WorktreeManager {
    * Remove a worktree.
    */
   async remove(path: string, force = false): Promise<void> {
-    const args = ["-C", this.repoRoot, "worktree", "remove", path];
+    const args = ["worktree", "remove", path];
     if (force) args.push("--force");
     gitRun(args, this.repoRoot);
     log.info(`removed worktree at ${path}`);
@@ -203,6 +228,6 @@ export class WorktreeManager {
    * Prune stale worktree entries.
    */
   async prune(): Promise<void> {
-    gitRun(["-C", this.repoRoot, "worktree", "prune"], this.repoRoot);
+    gitRun(["worktree", "prune"], this.repoRoot);
   }
 }

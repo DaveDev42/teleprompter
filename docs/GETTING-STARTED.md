@@ -125,7 +125,7 @@ The Sessions tab shows all active Claude Code sessions. When no daemon is connec
 see the empty state above. Tap a session to open it in the dual Chat/Terminal view:
 
 - **Chat tab** — structured conversation view with tool-use cards and streaming text
-- **Terminal tab** — full PTY output rendered via ghostty-web (xterm.js canvas)
+- **Terminal tab** — full PTY output rendered via ghostty-web
 
 ### Settings
 

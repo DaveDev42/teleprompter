@@ -36,7 +36,7 @@ tp version
 git clone https://github.com/DaveDev42/teleprompter.git
 cd teleprompter
 pnpm install
-bun run build:cli:local    # outputs dist/tp for your platform
+pnpm build:cli:local    # outputs dist/tp for your platform
 ```
 
 ## Step 1: Run Your First Session
@@ -138,8 +138,9 @@ the app version and OTA updates.
 
 ![Diagnostics panel](screenshots/03-diagnostics.png)
 
-Access from **Settings > Diagnostics**. Shows real-time connection status, relay/pairing
-state, E2EE crypto self-test, and session summary with per-session detail.
+Tap **Diagnostics** at the bottom of Settings to open the diagnostics panel. Shows
+real-time connection status, relay/pairing state, E2EE crypto self-test, and session
+summary with per-session detail.
 
 ## CLI Reference
 
@@ -167,6 +168,10 @@ state, E2EE crypto self-test, and session summary with per-session detail.
 
 All other flags are forwarded directly to `claude`.
 
+> **Tip:** Use `tp -- <claude args>` to forward arguments directly to Claude without the
+> daemon pipeline. tp also forwards subcommands like `auth`, `mcp`, and `update` directly
+> to Claude — run `tp <subcommand> --help` for details.
+
 ## Troubleshooting
 
 **tp: command not found**
@@ -191,5 +196,5 @@ All other flags are forwarded directly to `claude`.
 - Check the Diagnostics panel in the app for connection status
 - Ensure pairing is active (Diagnostics > Relay / Pairing)
 
-For more help, see the [FAQ](https://github.com/DaveDev42/teleprompter/issues) or
-open an issue on GitHub.
+For more help, search [existing issues](https://github.com/DaveDev42/teleprompter/issues)
+or open a new one on GitHub.

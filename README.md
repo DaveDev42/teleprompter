@@ -64,17 +64,18 @@ cd apps/app && npx expo start --web
 
 | Command | Description |
 |---------|-------------|
-| `tp <claude args>` | Run claude through tp pipeline (default) |
-| `tp daemon start [opts]` | Start the daemon service |
-| `tp relay start [--port]` | Start a relay server |
+| `tp [flags] [claude args]` | Run claude through tp pipeline (default) |
 | `tp pair [--relay URL]` | Generate QR pairing data |
 | `tp status` | Show daemon status and sessions |
-| `tp logs` | Tail live session records |
+| `tp logs [session]` | Tail live session output |
 | `tp doctor` | Environment diagnostics |
-| `tp init` | Project setup guide |
-| `tp upgrade` | Check and install latest release |
-| `tp completions <shell>` | Generate shell completions (bash/zsh/fish) |
+| `tp upgrade` | Upgrade tp + Claude Code |
 | `tp version` | Print version |
+| `tp daemon start [opts]` | Start the daemon service |
+| `tp daemon install` | Register as OS service (launchd/systemd) |
+| `tp daemon uninstall` | Remove OS service |
+| `tp relay start [--port]` | Start a relay server |
+| `tp completions <shell>` | Generate shell completions (bash/zsh/fish) |
 
 ### Daemon Options
 

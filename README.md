@@ -166,6 +166,7 @@ pnpm doctor
 
 ## Documentation
 
+- [Getting Started](./docs/GETTING-STARTED.md) — installation, first session, phone pairing, and app walkthrough
 - [FAQ](./docs/FAQ.md) — Installation, connection, sessions, daemon, voice, upgrading, and development
 
 ## Changelog

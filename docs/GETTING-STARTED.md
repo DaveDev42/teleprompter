@@ -11,6 +11,7 @@ This guide walks you through installation, your first session, and connecting th
 |-------------|---------|-------|
 | **OS** | macOS or Linux | `uname -s` |
 | **Claude Code CLI** | Latest | `claude --version` |
+| **pnpm** (build from source only) | Latest | `pnpm --version` |
 | **Bun** (build from source only) | 1.3.6+ | `bun --version` |
 
 > **Note:** Windows support is experimental. See the main README for details.

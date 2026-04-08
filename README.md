@@ -64,7 +64,7 @@ cd apps/app && npx expo start --web
 
 | Command | Description |
 |---------|-------------|
-| `tp [flags] [claude args]` | Run claude through tp pipeline (default) |
+| `tp [flags] [claude args]` | Run Claude through tp pipeline (default) |
 | `tp pair [--relay URL]` | Generate QR pairing data |
 | `tp status` | Show daemon status and sessions |
 | `tp logs [session]` | Tail live session output |

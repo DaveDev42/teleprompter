@@ -58,14 +58,8 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
 
   const daemon = new Daemon();
   daemon.start(tmpSocket);
-
-  // WS only needed if no background daemon is running
-  // (background daemon already handles remote frontends)
-  try {
-    daemon.startWs(0); // auto-assign port — never conflict
-  } catch {
-    // WS not critical for passthrough
-  }
+  // No WS server needed — background daemon handles frontend connections.
+  // Passthrough daemon only needs IPC for the runner subprocess.
 
   // Pipe PTY output to local terminal
   daemon.onRecord = (_sid, kind, payload) => {

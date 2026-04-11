@@ -41,35 +41,30 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
 
   const sid = tpArgs.sid ?? `session-${Date.now()}`;
   const cwd = tpArgs.cwd ?? process.cwd();
-  const preferredPort = parseInt(tpArgs.wsPort ?? "7080", 10);
 
-  // Suppress daemon/runner logs — PTY output owns stdout
+  // Suppress all daemon/runner logs — PTY output owns the terminal.
+  // Set env var BEFORE setLogLevel so child processes inherit it.
+  process.env.LOG_LEVEL = "silent";
   setLogLevel("silent");
 
   // Inject self-spawn runner command
   SessionManager.setRunnerCommand(resolveRunnerCommand());
 
-  const daemon = new Daemon();
-  const _socketPath = daemon.start();
+  // Use a temporary IPC socket to avoid conflicting with background daemon
+  const tmpSocket = join(
+    process.env.TMPDIR ?? "/tmp",
+    `tp-passthrough-${process.pid}.sock`,
+  );
 
-  // Try preferred port, then fall back to auto-assigned port
+  const daemon = new Daemon();
+  daemon.start(tmpSocket);
+
+  // WS only needed if no background daemon is running
+  // (background daemon already handles remote frontends)
   try {
-    daemon.startWs(preferredPort);
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    const msg = err instanceof Error ? err.message : String(err);
-    if (
-      code === "EADDRINUSE" ||
-      msg.includes("EADDRINUSE") ||
-      msg.includes("address already in use")
-    ) {
-      console.error(
-        `[tp] Port ${preferredPort} is in use, using auto-assigned port.`,
-      );
-      daemon.startWs(0);
-    } else {
-      throw err;
-    }
+    daemon.startWs(0); // auto-assign port — never conflict
+  } catch {
+    // WS not critical for passthrough
   }
 
   // Pipe PTY output to local terminal
@@ -82,7 +77,12 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
   // Spawn runner with claude args and actual terminal size
   const cols = process.stdout.columns || 120;
   const rows = process.stdout.rows || 40;
-  daemon.createSession(sid, cwd, { claudeArgs, cols, rows });
+  daemon.createSession(sid, cwd, {
+    claudeArgs,
+    cols,
+    rows,
+    env: { LOG_LEVEL: "silent" },
+  });
 
   // Pipe local stdin to runner PTY (raw mode for interactive use)
   if (process.stdin.isTTY) {
@@ -107,6 +107,9 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
       process.stdin.setRawMode(false);
     }
     daemon.stop();
+    try {
+      require("fs").unlinkSync(tmpSocket);
+    } catch {}
     process.exit(0);
   }
 
@@ -121,6 +124,9 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
       process.stdin.setRawMode(false);
     }
     daemon.stop();
+    try {
+      require("fs").unlinkSync(tmpSocket);
+    } catch {}
     process.exit(exitCode);
   }
 }

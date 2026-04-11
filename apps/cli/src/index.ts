@@ -28,15 +28,22 @@ const SUBCOMMANDS = new Set([
   "version",
 ]);
 
-// Background version check (non-blocking, only for passthrough mode)
-if (
+// Background version check — skip for passthrough mode (PTY owns the terminal)
+const isPassthrough =
   !SUBCOMMANDS.has(command ?? "") &&
   !CLAUDE_UTILITY_SUBCOMMANDS.has(command ?? "") &&
   command !== "--" &&
   command !== "--help" &&
   command !== "-h" &&
-  command !== undefined
-) {
+  command !== undefined;
+
+if (isPassthrough) {
+  // Passthrough: suppress version check — would corrupt PTY output
+  // Users see version info via `tp version` or `tp upgrade`
+} else if (command === undefined || command === "--help" || command === "-h") {
+  // Help/no-args: no version check needed
+} else if (command !== "run") {
+  // Subcommands (except `run` — it's a runner subprocess): show version hint
   checkForUpdates().then((newVersion) => {
     if (newVersion) {
       console.error(

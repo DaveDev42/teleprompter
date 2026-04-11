@@ -18,9 +18,7 @@ export function resolveRunnerCommand(): string[] {
 }
 
 function isCompiled(): boolean {
-  // In compiled mode, process.execPath points to the binary itself,
-  // not to a bun runtime executable
-  return (
-    !process.execPath.endsWith("/bun") && process.argv[0] === process.execPath
-  );
+  // In compiled mode, import.meta.url starts with file:///$bunfs/
+  // (Bun's virtual filesystem for bundled modules)
+  return import.meta.url.includes("$bunfs");
 }

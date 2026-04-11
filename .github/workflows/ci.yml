@@ -63,6 +63,25 @@ jobs:
           ./dist/tp version
           ./dist/tp --help
 
+      - name: Compiled binary runner spawn test
+        run: |
+          # Verify the compiled binary can spawn a runner process.
+          # This catches $bunfs path resolution bugs (e.g. isCompiled() false positive).
+          # Use timeout to prevent hanging — runner will fail (no claude) but must not crash
+          # with "Module not found" before reaching that point.
+          timeout 10 ./dist/tp --dangerously-skip-permissions -p "test" 2>&1 | tee /tmp/tp-smoke.log || true
+          if grep -q 'Module not found' /tmp/tp-smoke.log; then
+            echo "FATAL: Compiled binary failed to resolve runner module"
+            cat /tmp/tp-smoke.log
+            exit 1
+          fi
+          if grep -q '\[Runner\] started\|\[SessionManager\] spawned runner\|Claude Code CLI not found' /tmp/tp-smoke.log; then
+            echo "Runner spawn OK (or claude not installed — expected in CI)"
+          else
+            echo "WARNING: Unexpected output — runner may not have spawned"
+            cat /tmp/tp-smoke.log
+          fi
+
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 15

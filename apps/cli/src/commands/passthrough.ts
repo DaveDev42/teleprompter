@@ -11,7 +11,7 @@ import { existsSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { splitArgs } from "../args";
-import { bold, cyan } from "../lib/colors";
+import { bold, cyan, dim, ok } from "../lib/colors";
 import { errorWithHints } from "../lib/format";
 import { resolveRunnerCommand } from "../spawn";
 
@@ -34,8 +34,8 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // First-run welcome (non-blocking, shows once)
-  await showWelcomeOnce();
+  // First-run: show pairing QR if no pairing exists
+  await showFirstRunPairing();
 
   const { tpArgs, claudeArgs } = splitArgs(argv);
 
@@ -125,23 +125,34 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
   }
 }
 
-async function showWelcomeOnce(): Promise<void> {
-  if (existsSync(INIT_MARKER)) return;
+async function showFirstRunPairing(): Promise<void> {
+  const pairingFile = join(CONFIG_DIR, "pairing.json");
+  if (existsSync(pairingFile)) return;
 
-  const hasPairing = existsSync(join(CONFIG_DIR, "pairing.json"));
-
-  console.error(cyan("Welcome to Teleprompter!"));
-  console.error("tp wraps Claude Code for remote session control.");
-  if (!hasPairing) {
-    console.error(`To connect your phone: ${bold("tp pair")}`);
-  }
+  // First run — generate pairing and show QR
+  console.error(bold(cyan("Welcome to Teleprompter!")));
+  console.error("tp wraps Claude Code for remote session control.\n");
+  console.error(
+    "Scan this QR code with the Teleprompter app to connect your phone:",
+  );
+  console.error(dim("(Web: tpmt.dev · iOS: TestFlight · Android: Internal)"));
   console.error("");
 
-  // Mark as shown
+  try {
+    const { pairCommand } = await import("./pair");
+    await pairCommand([]);
+  } catch {
+    // Pairing failed — continue anyway, user can run `tp pair` later
+    console.error(dim("\nPairing skipped. Run `tp pair` later to connect."));
+  }
+
+  console.error("");
+  console.error(dim("Tip: Run `tp daemon install` to auto-start on login."));
+  console.error("");
+
+  // Mark as initialized
   try {
     await mkdir(CONFIG_DIR, { recursive: true });
     await writeFile(INIT_MARKER, new Date().toISOString());
-  } catch {
-    // Non-critical
-  }
+  } catch {}
 }

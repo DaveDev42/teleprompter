@@ -146,8 +146,14 @@ async function showFirstRunPairing(): Promise<void> {
     console.error(dim("\nPairing skipped. Run `tp pair` later to connect."));
   }
 
+  // Auto-install daemon as OS service (launchd/systemd)
   console.error("");
-  console.error(dim("Tip: Run `tp daemon install` to auto-start on login."));
+  try {
+    const { installService } = await import("../lib/service");
+    await installService();
+  } catch {
+    console.error(dim("Daemon service install skipped. Run `tp daemon install` manually."));
+  }
   console.error("");
 
   // Mark as initialized

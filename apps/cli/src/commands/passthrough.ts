@@ -68,10 +68,29 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
     }
   }
 
+  // Pipe PTY output to local terminal
+  daemon.onRecord = (_sid, kind, payload) => {
+    if (kind === "io") {
+      process.stdout.write(payload);
+    }
+  };
+
   // Spawn runner with claude args
   daemon.createSession(sid, cwd, { claudeArgs });
 
+  // Pipe local stdin to runner PTY (raw mode for interactive use)
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(true);
+  }
+  process.stdin.resume();
+  process.stdin.on("data", (data: Buffer) => {
+    daemon.sendInput(sid, data);
+  });
+
   function shutdown() {
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+    }
     daemon.stop();
     process.exit(0);
   }
@@ -83,6 +102,9 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
   const runner = daemon.getRunner(sid);
   if (runner?.process) {
     const exitCode = await runner.process.exited;
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+    }
     daemon.stop();
     process.exit(exitCode);
   }

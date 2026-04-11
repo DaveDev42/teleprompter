@@ -46,6 +46,11 @@ export class Daemon {
   private pushNotifier: PushNotifier;
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
 
+  /** Optional callback for local record observation (e.g. passthrough PTY stdout) */
+  onRecord:
+    | ((sid: string, kind: string, payload: Buffer, name?: string) => void)
+    | null = null;
+
   constructor(storeDir?: string) {
     this.store = new Store(storeDir);
 
@@ -311,6 +316,18 @@ export class Daemon {
     });
   }
 
+  /** Send raw terminal input to a running session's PTY */
+  sendInput(sid: string, data: Buffer): void {
+    const runner = this.ipcServer.findRunnerBySid(sid);
+    if (runner) {
+      this.ipcServer.send(runner, {
+        t: "input",
+        sid,
+        data: data.toString("base64"),
+      });
+    }
+  }
+
   private handleMessage(
     runner: Parameters<IpcServer["send"]>[0],
     msg: IpcHello | IpcRec | IpcBye,
@@ -409,6 +426,9 @@ export class Daemon {
     for (const relay of this.relayClients) {
       relay.publishRecord(wsRec).catch(() => {});
     }
+
+    // Notify local observer (passthrough PTY stdout)
+    this.onRecord?.(msg.sid, msg.kind, payload, msg.name);
 
     // Check if this record should trigger a push notification
     this.pushNotifier.onRecord({

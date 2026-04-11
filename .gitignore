@@ -35,3 +35,7 @@ apps/app/android/
 # Playwright MCP artifacts
 .playwright-mcp/
 test-results/
+
+# Claude Code local settings (machine-specific, not shared)
+.claude/settings.local.json
+.claude.local.md

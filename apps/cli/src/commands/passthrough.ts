@@ -6,6 +6,7 @@
  */
 
 import { Daemon, SessionManager } from "@teleprompter/daemon";
+import { setLogLevel } from "@teleprompter/protocol";
 import { existsSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
@@ -42,6 +43,9 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
   const cwd = tpArgs.cwd ?? process.cwd();
   const preferredPort = parseInt(tpArgs.wsPort ?? "7080", 10);
 
+  // Suppress daemon/runner logs — PTY output owns stdout
+  setLogLevel("silent");
+
   // Inject self-spawn runner command
   SessionManager.setRunnerCommand(resolveRunnerCommand());
 
@@ -75,8 +79,10 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
     }
   };
 
-  // Spawn runner with claude args
-  daemon.createSession(sid, cwd, { claudeArgs });
+  // Spawn runner with claude args and actual terminal size
+  const cols = process.stdout.columns || 120;
+  const rows = process.stdout.rows || 40;
+  daemon.createSession(sid, cwd, { claudeArgs, cols, rows });
 
   // Pipe local stdin to runner PTY (raw mode for interactive use)
   if (process.stdin.isTTY) {
@@ -85,6 +91,15 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
   process.stdin.resume();
   process.stdin.on("data", (data: Buffer) => {
     daemon.sendInput(sid, data);
+  });
+
+  // Forward terminal resize events
+  process.stdout.on("resize", () => {
+    daemon.resizeSession(
+      sid,
+      process.stdout.columns || 120,
+      process.stdout.rows || 40,
+    );
   });
 
   function shutdown() {

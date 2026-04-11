@@ -328,6 +328,14 @@ export class Daemon {
     }
   }
 
+  /** Resize a running session's PTY */
+  resizeSession(sid: string, cols: number, rows: number): void {
+    const runner = this.ipcServer.findRunnerBySid(sid);
+    if (runner) {
+      this.ipcServer.send(runner, { t: "resize", sid, cols, rows });
+    }
+  }
+
   private handleMessage(
     runner: Parameters<IpcServer["send"]>[0],
     msg: IpcHello | IpcRec | IpcBye,

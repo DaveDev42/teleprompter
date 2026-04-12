@@ -32,23 +32,20 @@ describe("Store session cleanup", () => {
   // but on the Windows CI runner under load we still see all retries
   // exhausted — the lock outlives any practical retry budget. Skipped
   // until Bun ships synchronous handle release for sqlite.
-  skipOnWin(
-    "deleteSession removes metadata and db file",
-    () => {
-      vault.createSession("s1", "/tmp");
-      const db = vault.getSessionDb("s1");
-      db?.append("io", Date.now(), Buffer.from("test"));
+  skipOnWin("deleteSession removes metadata and db file", () => {
+    vault.createSession("s1", "/tmp");
+    const db = vault.getSessionDb("s1");
+    db?.append("io", Date.now(), Buffer.from("test"));
 
-      expect(vault.getSession("s1")).toBeDefined();
-      const dbPath = join(storeDir, "sessions", "s1.sqlite");
-      expect(existsSync(dbPath)).toBe(true);
+    expect(vault.getSession("s1")).toBeDefined();
+    const dbPath = join(storeDir, "sessions", "s1.sqlite");
+    expect(existsSync(dbPath)).toBe(true);
 
-      vault.deleteSession("s1");
+    vault.deleteSession("s1");
 
-      expect(vault.getSession("s1")).toBeUndefined();
-      expect(existsSync(dbPath)).toBe(false);
-    },
-  );
+    expect(vault.getSession("s1")).toBeUndefined();
+    expect(existsSync(dbPath)).toBe(false);
+  });
 
   skipOnWin(
     "pruneOldSessions removes stopped sessions older than threshold",
@@ -93,17 +90,14 @@ describe("Store session cleanup", () => {
   // Skipped on Windows CI: pruneOldSessions iterates deleteSession across
   // multiple sessions, which on Windows exhausts the unlinkRetry budget per
   // iteration due to bun:sqlite finalizer lag. Covered by macOS/Linux CI.
-  skipOnWin(
-    "pruneOldSessions removes error sessions beyond TTL",
-    () => {
-      vault.createSession("err-old", "/tmp");
-      vault.updateSessionState("err-old", "error");
+  skipOnWin("pruneOldSessions removes error sessions beyond TTL", () => {
+    vault.createSession("err-old", "/tmp");
+    vault.updateSessionState("err-old", "error");
 
-      backdateSession(vault, "err-old", 8 * 24 * 60 * 60 * 1000);
+    backdateSession(vault, "err-old", 8 * 24 * 60 * 60 * 1000);
 
-      const pruned = vault.pruneOldSessions(7 * 24 * 60 * 60 * 1000);
-      expect(pruned).toBe(1);
-      expect(vault.getSession("err-old")).toBeUndefined();
-    },
-  );
+    const pruned = vault.pruneOldSessions(7 * 24 * 60 * 60 * 1000);
+    expect(pruned).toBe(1);
+    expect(vault.getSession("err-old")).toBeUndefined();
+  });
 });

@@ -6,6 +6,12 @@ import { join } from "path";
 import { Store } from "./store";
 import { backdateSession, rmRetry } from "./test-helpers";
 
+// Windows `bun:sqlite` defers OS handle release to its GC finalizer, and
+// the subsequent `unlink` retry loop (`Store.unlinkRetry`) can legitimately
+// take several seconds per session on the Windows CI runner. Extend the
+// per-test timeout on Windows so slow-but-correct cleanup doesn't flake.
+const WIN_TIMEOUT = process.platform === "win32" ? 30_000 : 5_000;
+
 describe("Store session cleanup", () => {
   let vault: Store;
   let storeDir: string;
@@ -20,50 +26,49 @@ describe("Store session cleanup", () => {
     rmRetry(storeDir);
   });
 
-  test("deleteSession removes metadata and db file", () => {
-    vault.createSession("s1", "/tmp");
-    const db = vault.getSessionDb("s1");
-    db?.append("io", Date.now(), Buffer.from("test"));
+  test(
+    "deleteSession removes metadata and db file",
+    () => {
+      vault.createSession("s1", "/tmp");
+      const db = vault.getSessionDb("s1");
+      db?.append("io", Date.now(), Buffer.from("test"));
 
-    expect(vault.getSession("s1")).toBeDefined();
-    const dbPath = join(storeDir, "sessions", "s1.sqlite");
-    expect(existsSync(dbPath)).toBe(true);
+      expect(vault.getSession("s1")).toBeDefined();
+      const dbPath = join(storeDir, "sessions", "s1.sqlite");
+      expect(existsSync(dbPath)).toBe(true);
 
-    vault.deleteSession("s1");
+      vault.deleteSession("s1");
 
-    expect(vault.getSession("s1")).toBeUndefined();
-    expect(existsSync(dbPath)).toBe(false);
-  });
+      expect(vault.getSession("s1")).toBeUndefined();
+      expect(existsSync(dbPath)).toBe(false);
+    },
+    WIN_TIMEOUT,
+  );
 
   test(
     "pruneOldSessions removes stopped sessions older than threshold",
     () => {
-      // Create sessions with different ages
       vault.createSession("old-1", "/tmp");
       vault.createSession("old-2", "/tmp");
       vault.createSession("new-1", "/tmp");
       vault.createSession("running-1", "/tmp");
 
-      // Mark old sessions as stopped and backdate
       vault.updateSessionState("old-1", "stopped");
       vault.updateSessionState("old-2", "error");
       vault.updateSessionState("new-1", "stopped");
-      // running-1 stays as "running"
 
-      // Backdate old sessions (simulate 2 hours ago)
       backdateSession(vault, "old-1", 2 * 60 * 60 * 1000);
       backdateSession(vault, "old-2", 2 * 60 * 60 * 1000);
 
-      // Prune sessions older than 1 hour
       const pruned = vault.pruneOldSessions(60 * 60 * 1000);
-      expect(pruned).toBe(2); // old-1 and old-2
+      expect(pruned).toBe(2);
 
-      // Verify
       expect(vault.getSession("old-1")).toBeUndefined();
       expect(vault.getSession("old-2")).toBeUndefined();
-      expect(vault.getSession("new-1")).toBeDefined(); // too recent
-      expect(vault.getSession("running-1")).toBeDefined(); // still running
+      expect(vault.getSession("new-1")).toBeDefined();
+      expect(vault.getSession("running-1")).toBeDefined();
     },
+    WIN_TIMEOUT,
   );
 
   test("pruneOldSessions returns 0 when nothing to prune", () => {
@@ -81,15 +86,18 @@ describe("Store session cleanup", () => {
     expect(vault.getSession("recent")).toBeDefined();
   });
 
-  test("pruneOldSessions removes error sessions beyond TTL", () => {
-    vault.createSession("err-old", "/tmp");
-    vault.updateSessionState("err-old", "error");
+  test(
+    "pruneOldSessions removes error sessions beyond TTL",
+    () => {
+      vault.createSession("err-old", "/tmp");
+      vault.updateSessionState("err-old", "error");
 
-    // Backdate to 8 days ago
-    backdateSession(vault, "err-old", 8 * 24 * 60 * 60 * 1000);
+      backdateSession(vault, "err-old", 8 * 24 * 60 * 60 * 1000);
 
-    const pruned = vault.pruneOldSessions(7 * 24 * 60 * 60 * 1000);
-    expect(pruned).toBe(1);
-    expect(vault.getSession("err-old")).toBeUndefined();
-  });
+      const pruned = vault.pruneOldSessions(7 * 24 * 60 * 60 * 1000);
+      expect(pruned).toBe(1);
+      expect(vault.getSession("err-old")).toBeUndefined();
+    },
+    WIN_TIMEOUT,
+  );
 });

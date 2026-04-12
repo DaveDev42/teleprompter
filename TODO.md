@@ -190,7 +190,7 @@
 
 ### Windows
 - [x] Windows CI (test-windows) 간헐적 실패 — Bun 1.3.11로 업그레이드 + `(fail)` 패턴 기반 실패 감지 워크어라운드로 해결. Bun panic은 여전히 발생하나 테스트 결과에 영향 없음
-- [x] Bun `bun:sqlite` Windows finalizer 지연 — Bun 1.3.12 업그레이드로 재활성화. 이전에 `describe.skipIf(win32)`로 skip했던 `store-cleanup.test.ts::deleteSession`, `pruneOldSessions removes stopped` 2개 테스트가 다시 Windows에서 실행됨.
+- [x] Bun `bun:sqlite` Windows finalizer 지연 — Bun 1.3.12 업그레이드 + `store-cleanup.test.ts`의 per-test timeout을 Windows에서 30초로 확장하여 재활성화. `db.close()` 후 `unlink` retry가 legitimately 수 초 걸리는 것이 근본 원인이며, 결과는 정확하므로 timeout 확장이 올바른 해결책.
 
 ### 미검증 항목 (잠재 이슈)
 - [ ] Push Notifications 실기기 미검증 — Simulator에서는 push token 생성 불가, 실제 iOS/Android 디바이스에서 E2E 테스트 필요

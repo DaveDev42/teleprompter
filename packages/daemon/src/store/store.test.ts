@@ -5,6 +5,11 @@ import { join } from "path";
 import { Store } from "./store";
 import { rmRetry } from "./test-helpers";
 
+// On Windows CI, bun:sqlite finalizer lag makes each Store test take 1.7-1.9s
+// (vs ~50ms on macOS/Linux). Linux/macOS CI run the full suite — Windows
+// samples a representative subset to stay under the job time budget.
+const skipOnWin = test.skipIf(process.platform === "win32");
+
 describe("Store", () => {
   let storeDir: string;
   let vault: Store;
@@ -35,7 +40,7 @@ describe("Store", () => {
     expect(session.last_seq).toBe(0);
   });
 
-  test("append records and retrieve", () => {
+  skipOnWin("append records and retrieve", () => {
     const db = vault.createSession("s2", "/tmp");
 
     const payload1 = new TextEncoder().encode("hello");
@@ -58,7 +63,7 @@ describe("Store", () => {
     expect(rec1.name).toBe("Stop");
   });
 
-  test("getLastSeq", () => {
+  skipOnWin("getLastSeq", () => {
     const db = vault.createSession("s3", "/tmp");
 
     expect(db.getLastSeq()).toBe(0);
@@ -70,7 +75,7 @@ describe("Store", () => {
     expect(db.getLastSeq()).toBe(3);
   });
 
-  test("updateSessionState", () => {
+  skipOnWin("updateSessionState", () => {
     vault.createSession("s4", "/tmp");
     vault.updateSessionState("s4", "stopped");
 
@@ -79,7 +84,7 @@ describe("Store", () => {
     expect(session.state).toBe("stopped");
   });
 
-  test("updateLastSeq", () => {
+  skipOnWin("updateLastSeq", () => {
     vault.createSession("s5", "/tmp");
     vault.updateLastSeq("s5", 42);
 
@@ -88,7 +93,7 @@ describe("Store", () => {
     expect(session.last_seq).toBe(42);
   });
 
-  test("listSessions", () => {
+  skipOnWin("listSessions", () => {
     vault.createSession("s6", "/tmp/a");
     vault.createSession("s7", "/tmp/b");
     vault.createSession("s8", "/tmp/c");
@@ -111,7 +116,7 @@ describe("Store", () => {
     expect(records.length).toBe(1);
   });
 
-  test("getSession returns undefined for nonexistent", () => {
+  skipOnWin("getSession returns undefined for nonexistent", () => {
     expect(vault.getSession("nonexistent")).toBeUndefined();
   });
 });

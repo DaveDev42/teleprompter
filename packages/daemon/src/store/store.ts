@@ -131,6 +131,13 @@ export class Store {
     // Delete metadata
     this.metaDb.run("DELETE FROM sessions WHERE sid = ?", [sid]);
 
+    // Force a synchronous GC so Bun's bun:sqlite finalizer releases the
+    // underlying OS file handle before we try to unlink. On Windows this
+    // is the difference between an immediate unlink and ~20s of EBUSY.
+    if (process.platform === "win32") {
+      Bun.gc(true);
+    }
+
     // Delete session database file
     const dbPath = join(this.storeDir, "sessions", `${sid}.sqlite`);
     this.unlinkRetry(dbPath);
@@ -141,7 +148,12 @@ export class Store {
   }
 
   private unlinkRetry(path: string): void {
-    const maxAttempts = 8;
+    // Windows: Bun sqlite occasionally holds the WAL/SHM file handle after
+    // db.close() returns. The caller should run Bun.gc(true) first to
+    // trigger the finalizer; this retry is a safety net.
+    // Budget: 25 + 50 + 100 + 200 + 400 + 800 = 1575 ms across 6 attempts,
+    // well below the default 5000 ms test timeout.
+    const maxAttempts = 6;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         unlinkSync(path);
@@ -150,10 +162,9 @@ export class Store {
         const code = (err as NodeJS.ErrnoException).code;
         if (code === "ENOENT") return;
         if (code === "EBUSY" || code === "EPERM") {
-          // Windows: file handles may not be released yet after db.close().
-          // Exponential backoff: 25, 50, 100, 200, 400, 800, 1600, 3200 ms
-          // ≈ 6.4s max. Bun sqlite occasionally holds WAL/SHM locks for
-          // several hundred ms after the database handle closes.
+          if (process.platform === "win32") {
+            Bun.gc(true);
+          }
           Bun.sleepSync(25 * 2 ** attempt);
           continue;
         }
@@ -262,5 +273,8 @@ export class Store {
       // Ignore — checkpoint may fail if another connection holds the db.
     }
     this.metaDb.close();
+    if (process.platform === "win32") {
+      Bun.gc(true);
+    }
   }
 }

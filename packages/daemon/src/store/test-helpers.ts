@@ -6,7 +6,7 @@ import type { Store } from "./store";
  * may not be released immediately after `db.close()`. Mirrors the retry
  * policy in `Store.unlinkRetry`.
  */
-export function rmRetry(path: string, maxAttempts = 5): void {
+export function rmRetry(path: string, maxAttempts = 6): void {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       rmSync(path, { recursive: true, force: true });
@@ -15,7 +15,11 @@ export function rmRetry(path: string, maxAttempts = 5): void {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === "ENOENT") return;
       if (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY") {
-        Bun.sleepSync(50);
+        // Force sqlite finalizer to run and release OS handles on Windows.
+        if (process.platform === "win32") {
+          Bun.gc(true);
+        }
+        Bun.sleepSync(25 * 2 ** attempt);
         continue;
       }
       throw err;

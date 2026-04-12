@@ -12,21 +12,5 @@ runs:
       with:
         node-version: 22
         cache: pnpm
-    # node_modules cache layered on top of setup-node's pnpm-store cache.
-    # The store cache speeds up cold installs; this one lets
-    # `pnpm install --frozen-lockfile` short-circuit when the tree is already
-    # materialized. Key includes os+arch+node major so native modules
-    # (e.g. @aspect-build/node-pty on Windows) never cross ABI boundaries;
-    # bump `v1` to invalidate if runner images change Node ABI unexpectedly.
-    - name: Cache node_modules
-      uses: actions/cache@v4
-      with:
-        path: |
-          node_modules
-          apps/*/node_modules
-          packages/*/node_modules
-        key: node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node22-${{ hashFiles('pnpm-lock.yaml', '.npmrc', '**/package.json') }}
-        restore-keys: |
-          node-modules-v1-${{ runner.os }}-${{ runner.arch }}-node22-
     - run: pnpm install --frozen-lockfile
       shell: bash

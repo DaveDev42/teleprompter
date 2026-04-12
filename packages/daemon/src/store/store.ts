@@ -141,7 +141,8 @@ export class Store {
   }
 
   private unlinkRetry(path: string): void {
-    for (let attempt = 0; attempt < 3; attempt++) {
+    const maxAttempts = 8;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         unlinkSync(path);
         return;
@@ -150,15 +151,18 @@ export class Store {
         if (code === "ENOENT") return;
         if (code === "EBUSY" || code === "EPERM") {
           // Windows: file handles may not be released yet after db.close().
-          // Synchronous sleep because deleteSession is sync. Max 150ms total blocking.
-          Bun.sleepSync(50);
+          // Exponential backoff: 25, 50, 100, 200, 400, 800, 1600, 3200 ms
+          // ≈ 6.4s max. Bun sqlite occasionally holds WAL/SHM locks for
+          // several hundred ms after the database handle closes.
+          Bun.sleepSync(25 * 2 ** attempt);
           continue;
         }
         throw err;
       }
     }
-    // Best-effort: log and give up on persistent EBUSY (Windows file locking)
-    log.warn(`failed to delete ${path} after 3 retries (file locked)`);
+    log.warn(
+      `failed to delete ${path} after ${maxAttempts} retries (file locked)`,
+    );
   }
 
   /**

@@ -5,6 +5,20 @@ import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { WorktreeManager } from "./worktree-manager";
 
+/**
+ * Normalize a path so it matches the form `git worktree list --porcelain`
+ * emits on the current platform:
+ * - Windows: 8.3 short names → long names (realpath.native), `\` → `/`.
+ * - macOS/Linux: realpathSync already handles symlinks (e.g. `/var` → `/private/var`).
+ */
+function normalizeGitPath(p: string): string {
+  const resolved =
+    process.platform === "win32" && realpathSync.native
+      ? realpathSync.native(p)
+      : realpathSync(p);
+  return process.platform === "win32" ? resolved.replace(/\\/g, "/") : resolved;
+}
+
 /** Run git synchronously to avoid Bun.spawn cwd issues in bun test runner */
 function gitRunSync(args: string[], cwd: string): void {
   const { spawnSync } = require("child_process");
@@ -24,8 +38,10 @@ describe("WorktreeManager", () => {
   let manager: WorktreeManager;
 
   beforeEach(async () => {
-    // Create a temp git repo (resolve symlinks: macOS /var → /private/var)
-    repoDir = realpathSync(await mkdtemp(join(tmpdir(), "tp-wt-test-")));
+    // Create a temp git repo. Normalize so the path matches what
+    // `git worktree list --porcelain` emits (resolves macOS /var → /private/var
+    // symlinks and Windows 8.3 short names + backslashes).
+    repoDir = normalizeGitPath(await mkdtemp(join(tmpdir(), "tp-wt-test-")));
     gitRunSync(["init", "-b", "main"], repoDir);
     gitRunSync(["config", "user.email", "test@test.com"], repoDir);
     gitRunSync(["config", "user.name", "Test"], repoDir);

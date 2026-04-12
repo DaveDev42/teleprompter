@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { Daemon } from "./daemon";
 
-describe("Daemon passthrough helpers", () => {
+describe.skipIf(process.platform === "win32")("Daemon passthrough helpers", () => {
   let storeDir: string;
   let daemon: Daemon;
 

@@ -1,9 +1,9 @@
+import { getSocketPath } from "@teleprompter/protocol";
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import { platform } from "os";
 import { join } from "path";
-import { getSocketPath } from "@teleprompter/protocol";
 import { dim, ok } from "./colors";
 import { errorWithHints } from "./format";
 import { spinner } from "./spinner";

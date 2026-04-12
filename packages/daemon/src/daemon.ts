@@ -68,7 +68,6 @@ export class Daemon {
         this.handleMessage(runner, msg);
       },
     });
-
   }
 
   private socketPath: string = "";

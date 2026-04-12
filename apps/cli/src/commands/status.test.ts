@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Daemon } from "@teleprompter/daemon";
+import { Store } from "@teleprompter/daemon";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -16,38 +16,25 @@ describe.skipIf(process.platform === "win32")("tp status (store-backed)", () => 
   });
 
   test("listSessions returns an array on a fresh store", () => {
-    const daemon = new Daemon(storeDir);
-    const sessions = daemon.listSessions();
+    const store = new Store(storeDir);
+    const sessions = store.listSessions();
     expect(Array.isArray(sessions)).toBe(true);
     expect(sessions.length).toBe(0);
-    daemon.close();
+    store.close();
   });
 
   test("listSessions reflects a seeded session", () => {
-    // Seed via one Daemon instance, then read via another, simulating the
-    // CLI reading the store while another daemon wrote to it.
-    const seed = new Daemon(storeDir);
-    // Access the store through a second path: create a session via the
-    // internal Store by triggering createSession on the Daemon's handleHello
-    // path requires IPC. Instead, use the exposed Store directly.
-    // The Daemon constructor already owns a Store; poke it via listSessions
-    // after inserting through the Store export.
+    const seed = new Store(storeDir);
+    seed.createSession("test-sid", "/tmp/some-cwd");
     seed.close();
 
-    // Reopen and seed via Store directly for a deterministic fixture.
-    const { Store } =
-      require("@teleprompter/daemon") as typeof import("@teleprompter/daemon");
     const store = new Store(storeDir);
-    store.createSession("test-sid", "/tmp/some-cwd");
-    store.close();
-
-    const daemon = new Daemon(storeDir);
-    const sessions = daemon.listSessions();
+    const sessions = store.listSessions();
     expect(sessions.length).toBe(1);
     const s = sessions[0];
     expect(s.sid).toBe("test-sid");
     expect(s.cwd).toBe("/tmp/some-cwd");
     expect(typeof s.last_seq).toBe("number");
-    daemon.close();
+    store.close();
   });
 });

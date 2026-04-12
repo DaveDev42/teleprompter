@@ -1,4 +1,4 @@
-import { Daemon, type SessionMeta } from "@teleprompter/daemon";
+import { type SessionMeta, Store } from "@teleprompter/daemon";
 import { getSocketPath } from "@teleprompter/protocol";
 import { existsSync } from "fs";
 import { dim, green, red } from "../lib/colors";
@@ -14,9 +14,9 @@ export async function statusCommand(_argv: string[]): Promise<void> {
   const socketPath = getSocketPath();
   const backgroundRunning = existsSync(socketPath);
 
-  const daemon = new Daemon();
-  const sessions = daemon.listSessions();
-  daemon.close();
+  const store = new Store();
+  const sessions = store.listSessions();
+  store.close();
 
   displayStatus(sessions, backgroundRunning);
   process.exit(0);

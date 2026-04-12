@@ -1,4 +1,4 @@
-import { Daemon } from "@teleprompter/daemon";
+import { Store } from "@teleprompter/daemon";
 
 /**
  * tp logs [sid]
@@ -15,10 +15,10 @@ export async function logsCommand(argv: string[]): Promise<void> {
     }
   }
 
-  const daemon = new Daemon();
+  const store = new Store();
 
   if (!sid) {
-    const sessions = daemon.listSessions();
+    const sessions = store.listSessions();
     if (sessions.length === 0) {
       console.error("No sessions found.");
     } else {
@@ -29,15 +29,15 @@ export async function logsCommand(argv: string[]): Promise<void> {
         console.error(`  ${mark} ${s.sid}  seq=${s.last_seq}  ${s.state}`);
       }
     }
-    daemon.close();
+    store.close();
     process.exit(sessions.length === 0 ? 1 : 0);
     return;
   }
 
-  const session = daemon.getSession(sid);
+  const session = store.getSession(sid);
   if (!session) {
     console.error(`Session ${sid} not found.`);
-    daemon.close();
+    store.close();
     process.exit(1);
     return;
   }
@@ -47,7 +47,9 @@ export async function logsCommand(argv: string[]): Promise<void> {
 
   let lastSeq = 0;
   const tick = (): void => {
-    const recs = daemon.getRecordsSince(sid!, lastSeq);
+    const db = store.getSessionDb(sid!);
+    if (!db) return;
+    const recs = db.getRecordsFrom(lastSeq, 1000);
     for (const r of recs) {
       if (r.kind === "io") {
         process.stdout.write(Buffer.from(r.payload).toString("utf-8"));
@@ -73,13 +75,15 @@ export async function logsCommand(argv: string[]): Promise<void> {
     }
   };
 
-  // Initial drain, then poll.
-  tick();
-  const timer = setInterval(tick, 500);
-
+  // Register SIGINT before the first tick so early interrupts are handled.
+  let timer: ReturnType<typeof setInterval> | undefined;
   process.on("SIGINT", () => {
-    clearInterval(timer);
-    daemon.close();
+    if (timer) clearInterval(timer);
+    store.close();
     process.exit(0);
   });
+
+  // Initial drain, then poll.
+  tick();
+  timer = setInterval(tick, 500);
 }

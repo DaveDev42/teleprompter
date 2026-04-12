@@ -65,31 +65,6 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
     if (kind === "io") process.stdout.write(payload);
   };
 
-  const cols = process.stdout.columns || 120;
-  const rows = process.stdout.rows || 40;
-  daemon.createSession(sid, cwd, {
-    claudeArgs,
-    cols,
-    rows,
-    env: { LOG_LEVEL: "silent" },
-  });
-
-  // Pipe local stdin → runner PTY
-  if (process.stdin.isTTY) process.stdin.setRawMode(true);
-  process.stdin.resume();
-  process.stdin.on("data", (data: Buffer) => {
-    daemon.sendInput(sid, data);
-  });
-
-  // Forward terminal resize
-  process.stdout.on("resize", () => {
-    daemon.resizeSession(
-      sid,
-      process.stdout.columns || 120,
-      process.stdout.rows || 40,
-    );
-  });
-
   const cleanup = () => {
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
     daemon.stop();
@@ -107,11 +82,58 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
     process.exit(0);
   });
 
-  const runner = daemon.getRunner(sid);
-  if (runner?.process) {
-    const exitCode = await runner.process.exited;
+  try {
+    const cols = process.stdout.columns || 120;
+    const rows = process.stdout.rows || 40;
+    daemon.createSession(sid, cwd, {
+      claudeArgs,
+      cols,
+      rows,
+      env: { LOG_LEVEL: "silent" },
+    });
+
+    // Pipe local stdin → runner PTY
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.on("data", (data: Buffer) => {
+      daemon.sendInput(sid, data);
+    });
+
+    // Forward terminal resize
+    process.stdout.on("resize", () => {
+      daemon.resizeSession(
+        sid,
+        process.stdout.columns || 120,
+        process.stdout.rows || 40,
+      );
+    });
+
+    const runner = daemon.getRunner(sid);
+    if (runner?.process) {
+      const exitCode = await runner.process.exited;
+      cleanup();
+      process.exit(exitCode);
+    } else {
+      console.error(
+        errorWithHints("Failed to spawn Claude Code runner.", [
+          "Verify `claude` is installed and on your PATH",
+          "Try: tp doctor",
+        ]),
+      );
+      cleanup();
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error(
+      errorWithHints(
+        `Failed to start passthrough session: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        ["Try: tp doctor", "Check that `claude` is installed and on your PATH"],
+      ),
+    );
     cleanup();
-    process.exit(exitCode);
+    process.exit(1);
   }
 }
 

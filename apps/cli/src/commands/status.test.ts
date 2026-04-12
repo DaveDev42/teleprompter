@@ -4,6 +4,24 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
+/** Windows-safe rm: retries on EBUSY (SQLite WAL handles). */
+function rmRetry(path: string): void {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      rmSync(path, { recursive: true, force: true });
+      return;
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") return;
+      if (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY") {
+        Bun.sleepSync(50);
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 describe("tp status (store-backed)", () => {
   let storeDir: string;
 
@@ -12,7 +30,7 @@ describe("tp status (store-backed)", () => {
   });
 
   afterEach(() => {
-    rmSync(storeDir, { recursive: true, force: true });
+    rmRetry(storeDir);
   });
 
   test("listSessions returns an array on a fresh store", () => {

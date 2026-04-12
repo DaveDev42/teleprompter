@@ -11,7 +11,10 @@ function getStore(daemon: Daemon): Store {
   return (daemon as unknown as { store: Store }).store;
 }
 
-// Skipped on Windows: rapid-fire Store.deleteSession hits bun:sqlite finalizer lag. Covered by macOS/Linux CI.
+// Skipped on Windows CI: each afterEach tears down a real sqlite-backed Store,
+// and the finalizer lag on Windows makes the per-test unlinkRetry budget
+// cascade into suite-wide timeouts once one test trips it. Covered by
+// macOS/Linux CI; a minimal Windows smoke suite lives below.
 describe.skipIf(process.platform === "win32")("Daemon auto-cleanup", () => {
   let daemon: Daemon;
   let storeDir: string;
@@ -114,5 +117,34 @@ describe.skipIf(process.platform === "win32")("Daemon auto-cleanup", () => {
     daemon.startAutoCleanup(7);
 
     expect(store.getSession("running-old")).toBeDefined();
+  });
+});
+
+// Windows-only smoke: verifies the auto-cleanup timer wiring on the platform
+// where the full suite is skipped, without exercising the slow deleteSession
+// path. No sessions created → prune is a no-op → no finalizer lag.
+describe.skipIf(process.platform !== "win32")("Daemon auto-cleanup (win smoke)", () => {
+  let daemon: Daemon;
+  let storeDir: string;
+
+  beforeEach(async () => {
+    storeDir = await mkdtemp(join(tmpdir(), "tp-daemon-cleanup-win-"));
+    daemon = new Daemon(storeDir);
+  });
+
+  afterEach(async () => {
+    daemon.stop();
+    await rmRetry(storeDir);
+  });
+
+  test("startAutoCleanup + stop() wire and tear down the timer", () => {
+    daemon.startAutoCleanup(7);
+    const withTimer = daemon as unknown as {
+      pruneTimer: ReturnType<typeof setInterval> | null;
+    };
+    expect(withTimer.pruneTimer).not.toBeNull();
+
+    daemon.stop();
+    expect(withTimer.pruneTimer).toBeNull();
   });
 });

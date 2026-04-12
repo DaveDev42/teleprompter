@@ -1,8 +1,8 @@
 /**
- * Unified transport interface for frontend ↔ daemon communication.
+ * Transport interface for frontend ↔ daemon communication via E2EE relay.
  *
- * Both DaemonWsClient (direct WS, dev) and FrontendRelayClient (E2EE relay, prod)
- * implement this interface so the app can be transport-agnostic.
+ * Frontend must always use FrontendRelayClient (direct WS to daemon is
+ * forbidden by Architecture Invariants — see CLAUDE.md).
  */
 
 import type {

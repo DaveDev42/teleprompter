@@ -5,7 +5,6 @@ runs:
   using: composite
   steps:
     - name: Cache Bun binary
-      id: bun-cache
       uses: actions/cache@v4
       with:
         path: ~/.bun

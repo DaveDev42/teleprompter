@@ -5,6 +5,10 @@ import { join } from "path";
 import { SessionDb } from "./session-db";
 import { rmRetry } from "./test-helpers";
 
+// On Windows CI, bun:sqlite finalizer lag inflates each test to 1.7-1.9s.
+// Linux/macOS run the full suite — Windows samples a representative subset.
+const skipOnWin = test.skipIf(process.platform === "win32");
+
 describe("SessionDb", () => {
   let db: SessionDb;
   let tmpDir: string;
@@ -19,7 +23,7 @@ describe("SessionDb", () => {
     rmRetry(tmpDir);
   });
 
-  test("starts with lastSeq = 0", () => {
+  skipOnWin("starts with lastSeq = 0", () => {
     expect(db.getLastSeq()).toBe(0);
   });
 
@@ -32,14 +36,14 @@ describe("SessionDb", () => {
     expect(seq3).toBe(3);
   });
 
-  test("getLastSeq reflects appended records", () => {
+  skipOnWin("getLastSeq reflects appended records", () => {
     db.append("io", Date.now(), Buffer.from("a"));
     db.append("io", Date.now(), Buffer.from("b"));
     db.append("io", Date.now(), Buffer.from("c"));
     expect(db.getLastSeq()).toBe(3);
   });
 
-  test("getRecordsFrom returns records after cursor", () => {
+  skipOnWin("getRecordsFrom returns records after cursor", () => {
     db.append("io", 1000, Buffer.from("first"));
     db.append("event", 2000, Buffer.from("second"), "claude", "Stop");
     db.append("io", 3000, Buffer.from("third"));
@@ -69,7 +73,7 @@ describe("SessionDb", () => {
     expect(retrieved).toEqual(payload);
   });
 
-  test("respects limit parameter", () => {
+  skipOnWin("respects limit parameter", () => {
     for (let i = 0; i < 10; i++) {
       db.append("io", Date.now(), Buffer.from(`msg-${i}`));
     }
@@ -80,14 +84,14 @@ describe("SessionDb", () => {
     expect(limited[2].seq).toBe(3);
   });
 
-  test("stores nullable ns and name fields", () => {
+  skipOnWin("stores nullable ns and name fields", () => {
     db.append("io", Date.now(), Buffer.from("test"));
     const records = db.getRecordsFrom(0);
     expect(records[0].ns).toBeNull();
     expect(records[0].name).toBeNull();
   });
 
-  test("stores non-null ns and name fields", () => {
+  skipOnWin("stores non-null ns and name fields", () => {
     db.append("event", Date.now(), Buffer.from("{}"), "claude", "Stop");
     const records = db.getRecordsFrom(0);
     expect(records[0].ns).toBe("claude");
@@ -95,7 +99,7 @@ describe("SessionDb", () => {
   });
 
   describe("getRecordsFiltered", () => {
-    test("returns all records with no filters", () => {
+    skipOnWin("returns all records with no filters", () => {
       db.append("io", 1000, Buffer.from("a"));
       db.append("event", 2000, Buffer.from("b"), "claude", "Stop");
       db.append("meta", 3000, Buffer.from("c"));
@@ -103,7 +107,7 @@ describe("SessionDb", () => {
       expect(records.length).toBe(3);
     });
 
-    test("filters by kind", () => {
+    skipOnWin("filters by kind", () => {
       db.append("io", 1000, Buffer.from("a"));
       db.append("event", 2000, Buffer.from("b"), "claude", "Stop");
       db.append("meta", 3000, Buffer.from("c"));
@@ -112,7 +116,7 @@ describe("SessionDb", () => {
       expect(events[0].kind).toBe("event");
     });
 
-    test("filters by multiple kinds", () => {
+    skipOnWin("filters by multiple kinds", () => {
       db.append("io", 1000, Buffer.from("a"));
       db.append("event", 2000, Buffer.from("b"), "claude", "Stop");
       db.append("meta", 3000, Buffer.from("c"));
@@ -122,7 +126,7 @@ describe("SessionDb", () => {
       expect(result[1].kind).toBe("meta");
     });
 
-    test("filters by time range (from only)", () => {
+    skipOnWin("filters by time range (from only)", () => {
       db.append("io", 1000, Buffer.from("a"));
       db.append("io", 2000, Buffer.from("b"));
       db.append("io", 3000, Buffer.from("c"));
@@ -131,7 +135,7 @@ describe("SessionDb", () => {
       expect(result[0].ts).toBe(2000);
     });
 
-    test("filters by time range (to only)", () => {
+    skipOnWin("filters by time range (to only)", () => {
       db.append("io", 1000, Buffer.from("a"));
       db.append("io", 2000, Buffer.from("b"));
       db.append("io", 3000, Buffer.from("c"));
@@ -140,7 +144,7 @@ describe("SessionDb", () => {
       expect(result[1].ts).toBe(2000);
     });
 
-    test("filters by time range (from and to)", () => {
+    skipOnWin("filters by time range (from and to)", () => {
       db.append("io", 1000, Buffer.from("a"));
       db.append("io", 2000, Buffer.from("b"));
       db.append("io", 3000, Buffer.from("c"));
@@ -149,7 +153,7 @@ describe("SessionDb", () => {
       expect(result[0].ts).toBe(2000);
     });
 
-    test("respects limit", () => {
+    skipOnWin("respects limit", () => {
       for (let i = 0; i < 10; i++) {
         db.append("io", 1000 + i, Buffer.from(`msg-${i}`));
       }
@@ -168,7 +172,7 @@ describe("SessionDb", () => {
       expect(result[1].ts).toBe(4000);
     });
 
-    test("default limit is 50000", () => {
+    skipOnWin("default limit is 50000", () => {
       db.append("io", 1000, Buffer.from("a"));
       const result = db.getRecordsFiltered({});
       expect(result.length).toBe(1);

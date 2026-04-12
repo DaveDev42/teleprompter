@@ -1,38 +1,47 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
+import { randomUUID } from "crypto";
 import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Store } from "./store";
 import { rmRetry } from "./test-helpers";
 
-// On Windows CI, bun:sqlite finalizer lag makes each Store test take 1.7-1.9s
-// (vs ~50ms on macOS/Linux). Linux/macOS CI run the full suite — Windows
-// samples a representative subset to stay under the job time budget.
-const skipOnWin = test.skipIf(process.platform === "win32");
-
-describe("Store", () => {
+// Shared-fixture block: Store is opened once and metadata + per-session
+// .sqlite files are reset between tests via `resetForTest()`. Each test
+// uses a unique sid (randomUUID) as defense in depth. Avoids per-test
+// bun:sqlite open/close churn, which is especially expensive on Windows.
+describe("Store (shared fixture)", () => {
   let storeDir: string;
   let vault: Store;
 
-  beforeEach(() => {
+  beforeAll(() => {
     storeDir = mkdtempSync(join(tmpdir(), "tp-vault-test-"));
-    // Create sessions subdirectory
-    const { mkdirSync } = require("fs");
-    mkdirSync(join(storeDir, "sessions"), { recursive: true });
     vault = new Store(storeDir);
   });
 
   afterEach(() => {
+    vault.resetForTest();
+  });
+
+  afterAll(() => {
     vault.close();
     rmRetry(storeDir);
   });
 
   test("createSession and getSession", () => {
-    vault.createSession("s1", "/tmp/project", "/tmp/wt", "1.0.0");
+    const sid = `s-${randomUUID()}`;
+    vault.createSession(sid, "/tmp/project", "/tmp/wt", "1.0.0");
 
-    const session = vault.getSession("s1");
+    const session = vault.getSession(sid);
     if (!session) throw new Error("expected session");
-    expect(session.sid).toBe("s1");
+    expect(session.sid).toBe(sid);
     expect(session.state).toBe("running");
     expect(session.cwd).toBe("/tmp/project");
     expect(session.worktree_path).toBe("/tmp/wt");
@@ -40,8 +49,9 @@ describe("Store", () => {
     expect(session.last_seq).toBe(0);
   });
 
-  skipOnWin("append records and retrieve", () => {
-    const db = vault.createSession("s2", "/tmp");
+  test("append records and retrieve", () => {
+    const sid = `s-${randomUUID()}`;
+    const db = vault.createSession(sid, "/tmp");
 
     const payload1 = new TextEncoder().encode("hello");
     const payload2 = new TextEncoder().encode("world");
@@ -63,8 +73,9 @@ describe("Store", () => {
     expect(rec1.name).toBe("Stop");
   });
 
-  skipOnWin("getLastSeq", () => {
-    const db = vault.createSession("s3", "/tmp");
+  test("getLastSeq", () => {
+    const sid = `s-${randomUUID()}`;
+    const db = vault.createSession(sid, "/tmp");
 
     expect(db.getLastSeq()).toBe(0);
 
@@ -75,48 +86,59 @@ describe("Store", () => {
     expect(db.getLastSeq()).toBe(3);
   });
 
-  skipOnWin("updateSessionState", () => {
-    vault.createSession("s4", "/tmp");
-    vault.updateSessionState("s4", "stopped");
+  test("updateSessionState", () => {
+    const sid = `s-${randomUUID()}`;
+    vault.createSession(sid, "/tmp");
+    vault.updateSessionState(sid, "stopped");
 
-    const session = vault.getSession("s4");
+    const session = vault.getSession(sid);
     if (!session) throw new Error("expected session");
     expect(session.state).toBe("stopped");
   });
 
-  skipOnWin("updateLastSeq", () => {
-    vault.createSession("s5", "/tmp");
-    vault.updateLastSeq("s5", 42);
+  test("updateLastSeq", () => {
+    const sid = `s-${randomUUID()}`;
+    vault.createSession(sid, "/tmp");
+    vault.updateLastSeq(sid, 42);
 
-    const session = vault.getSession("s5");
+    const session = vault.getSession(sid);
     if (!session) throw new Error("expected session");
     expect(session.last_seq).toBe(42);
   });
 
-  skipOnWin("listSessions", () => {
-    vault.createSession("s6", "/tmp/a");
-    vault.createSession("s7", "/tmp/b");
-    vault.createSession("s8", "/tmp/c");
+  test("listSessions", () => {
+    vault.createSession(`s-${randomUUID()}`, "/tmp/a");
+    vault.createSession(`s-${randomUUID()}`, "/tmp/b");
+    vault.createSession(`s-${randomUUID()}`, "/tmp/c");
 
     const sessions = vault.listSessions();
     expect(sessions.length).toBe(3);
   });
 
-  test("getSessionDb reopens existing db", () => {
-    const db = vault.createSession("s9", "/tmp");
-    db.append("io", Date.now(), new TextEncoder().encode("data"));
-
-    // Close and reopen
-    vault.close();
-    vault = new Store(storeDir);
-
-    const db2 = vault.getSessionDb("s9");
-    if (!db2) throw new Error("expected db2");
-    const records = db2.getRecordsFrom(0);
-    expect(records.length).toBe(1);
-  });
-
-  skipOnWin("getSession returns undefined for nonexistent", () => {
+  test("getSession returns undefined for nonexistent", () => {
     expect(vault.getSession("nonexistent")).toBeUndefined();
+  });
+});
+
+// Isolated fixture: this test exercises Store close/reopen, so it cannot
+// share state with the block above.
+describe("Store (isolated)", () => {
+  test("getSessionDb reopens existing db", () => {
+    const storeDir = mkdtempSync(join(tmpdir(), "tp-vault-reopen-"));
+    const first = new Store(storeDir);
+    const firstDb = first.createSession("s9", "/tmp");
+    firstDb.append("io", Date.now(), new TextEncoder().encode("data"));
+    first.close();
+
+    const second = new Store(storeDir);
+    try {
+      const db2 = second.getSessionDb("s9");
+      if (!db2) throw new Error("expected db2");
+      const records = db2.getRecordsFrom(0);
+      expect(records.length).toBe(1);
+    } finally {
+      second.close();
+      rmRetry(storeDir);
+    }
   });
 });

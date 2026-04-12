@@ -4,7 +4,7 @@ import {
   type SessionState,
   type SID,
 } from "@teleprompter/protocol";
-import { mkdirSync, unlinkSync } from "fs";
+import { mkdirSync, rmSync, unlinkSync } from "fs";
 import { join } from "path";
 import { getStoreDir } from "./config";
 import { PAIRINGS_DDL, PRAGMAS, SESSIONS_DDL } from "./schema";
@@ -160,14 +160,17 @@ export class Store {
     // keeps startAutoCleanup within the default 5000 ms test timeout when
     // it walks several sessions at once.
     const maxAttempts = 6;
+    let lastCode: string | undefined;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         unlinkSync(path);
         return;
       } catch (err: unknown) {
         const code = (err as NodeJS.ErrnoException).code;
+        lastCode = code;
         if (code === "ENOENT") return;
         if (code === "EBUSY" || code === "EPERM") {
+          if (attempt === maxAttempts - 1) break;
           if (process.platform === "win32") {
             Bun.gc(true);
           }
@@ -178,7 +181,7 @@ export class Store {
       }
     }
     log.warn(
-      `failed to delete ${path} after ${maxAttempts} retries (file locked)`,
+      `failed to delete ${path} after ${maxAttempts} retries (${lastCode ?? "locked"})`,
     );
   }
 
@@ -264,6 +267,70 @@ export class Store {
 
   deletePairing(daemonId: string): void {
     this.metaDb.run("DELETE FROM pairings WHERE daemon_id = ?", [daemonId]);
+  }
+
+  /**
+   * Test-only: clear metadata rows, close cached session dbs, and sweep the
+   * per-session `.sqlite` files on disk. The meta db itself is kept open so
+   * shared-fixture blocks can reuse it — avoids the per-test bun:sqlite
+   * open/close churn that is especially expensive on Windows. Callers
+   * should still prefer unique sids per test as defense in depth.
+   */
+  resetForTest(): void {
+    const hadOpenDbs = this.sessionDbs.size > 0;
+    for (const db of this.sessionDbs.values()) {
+      db.close();
+    }
+    this.sessionDbs.clear();
+    this.metaDb.run("DELETE FROM sessions");
+    this.metaDb.run("DELETE FROM pairings");
+    // Keep the meta WAL from growing across long shared-fixture runs.
+    try {
+      this.metaDb.run("PRAGMA wal_checkpoint(TRUNCATE);");
+    } catch {
+      // Benign: checkpoint can fail if WAL is already truncated.
+    }
+    // Sweep per-session files so later tests cannot observe stale data via
+    // getSessionDb(sid) reopening an on-disk leftover.
+    const sessionsDir = join(this.storeDir, "sessions");
+    if (hadOpenDbs && process.platform === "win32") {
+      // Mirror deleteSession(): two GCs with a sleep between so bun:sqlite
+      // finalizers actually release OS handles before we unlink.
+      Bun.gc(true);
+      Bun.sleepSync(50);
+      Bun.gc(true);
+    }
+    // Retry on Windows EBUSY/EPERM/ENOTEMPTY — matches unlinkRetry budget.
+    const maxAttempts = 6;
+    let swept = false;
+    let lastCode: string | undefined;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        rmSync(sessionsDir, { recursive: true, force: true });
+        swept = true;
+        break;
+      } catch (err: unknown) {
+        const code = (err as NodeJS.ErrnoException).code;
+        lastCode = code;
+        if (code === "ENOENT") {
+          swept = true;
+          break;
+        }
+        if (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY") {
+          if (attempt === maxAttempts - 1) break;
+          if (process.platform === "win32") Bun.gc(true);
+          Bun.sleepSync(25 * 2 ** attempt);
+          continue;
+        }
+        throw err;
+      }
+    }
+    if (!swept) {
+      log.warn(
+        `resetForTest: failed to sweep ${sessionsDir} after ${maxAttempts} retries (${lastCode ?? "locked"})`,
+      );
+    }
+    mkdirSync(sessionsDir, { recursive: true });
   }
 
   close(): void {

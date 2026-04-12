@@ -156,11 +156,10 @@ export class Store {
     // Windows: Bun sqlite occasionally holds the WAL/SHM file handle after
     // db.close() returns. The caller should run Bun.gc(true) first to
     // trigger the finalizer; this retry is a safety net.
-    // Budget on Windows: 50+100+200+400+800+1600+3200 = 6350 ms across 7
-    // attempts. Three files (db/wal/shm) can each spend this budget, so
-    // the worst case is ~19 s — within the 30 s Windows test timeout.
-    const maxAttempts = process.platform === "win32" ? 7 : 6;
-    const baseDelayMs = process.platform === "win32" ? 50 : 25;
+    // Budget: 25 + 50 + 100 + 200 + 400 + 800 = 1575 ms across 6 attempts,
+    // keeps startAutoCleanup within the default 5000 ms test timeout when
+    // it walks several sessions at once.
+    const maxAttempts = 6;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         unlinkSync(path);
@@ -172,7 +171,7 @@ export class Store {
           if (process.platform === "win32") {
             Bun.gc(true);
           }
-          Bun.sleepSync(baseDelayMs * 2 ** attempt);
+          Bun.sleepSync(25 * 2 ** attempt);
           continue;
         }
         throw err;

@@ -1,13 +1,17 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { SessionManager } from "./session-manager";
 
+// Cross-platform no-op command: Bun itself with --version exits instantly.
+// `true`/`sleep` aren't available as binaries on Windows.
+const NOOP_CMD = [process.execPath, "--version"];
+const LONG_RUNNING_CMD = [process.execPath, "-e", "setTimeout(()=>{}, 60000)"];
+
 describe("SessionManager", () => {
   let sm: SessionManager;
 
   beforeEach(() => {
     sm = new SessionManager();
-    // Use `true` as a no-op command to avoid spawning real processes
-    SessionManager.setRunnerCommand(["true"]);
+    SessionManager.setRunnerCommand(NOOP_CMD);
   });
 
   test("starts empty", () => {
@@ -52,7 +56,9 @@ describe("SessionManager", () => {
   });
 
   test("spawnRunner creates and tracks a process", () => {
-    const proc = sm.spawnRunner("s1", "/tmp", { socketPath: "/tmp/test.sock" });
+    const proc = sm.spawnRunner("s1", process.cwd(), {
+      socketPath: "ignored-noop.sock",
+    });
     expect(proc.pid).toBeGreaterThan(0);
     expect(sm.activeCount).toBe(1);
     expect(sm.getRunner("s1")).toBeDefined();
@@ -60,9 +66,9 @@ describe("SessionManager", () => {
   });
 
   test("killRunner kills a spawned process", () => {
-    // Use `sleep` so the process stays alive
-    SessionManager.setRunnerCommand(["sleep", "60"]);
-    sm.spawnRunner("s1", "/tmp");
+    // Long-running command so the process stays alive until killed.
+    SessionManager.setRunnerCommand(LONG_RUNNING_CMD);
+    sm.spawnRunner("s1", process.cwd());
     expect(sm.killRunner("s1")).toBe(true);
   });
 
@@ -75,16 +81,13 @@ describe("SessionManager", () => {
     expect(sm.killRunner("s1")).toBe(false);
   });
 
-  test.skipIf(process.platform === "win32")(
-    "spawnRunner forwards env option to subprocess",
-    () => {
-      const mgr = new SessionManager();
-      SessionManager.setRunnerCommand(["true"]); // no-op command
-      const proc = mgr.spawnRunner("env-test-sid", "/tmp", {
-        env: { FOO: "bar" },
-      });
-      expect(proc.pid).toBeGreaterThan(0);
-      proc.kill();
-    },
-  );
+  test("spawnRunner forwards env option to subprocess", () => {
+    const mgr = new SessionManager();
+    SessionManager.setRunnerCommand(NOOP_CMD);
+    const proc = mgr.spawnRunner("env-test-sid", process.cwd(), {
+      env: { FOO: "bar" },
+    });
+    expect(proc.pid).toBeGreaterThan(0);
+    proc.kill();
+  });
 });

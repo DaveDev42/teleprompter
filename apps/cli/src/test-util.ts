@@ -8,12 +8,14 @@
 
 import { execSync } from "child_process";
 import { readFileSync, unlinkSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 /** Capture stdout+stderr from a shell command using file redirect. */
 export function capture(cmd: string): string {
-  const tmp = `/tmp/.tp-test-${process.pid}-${Date.now()}`;
+  const tmp = join(tmpdir(), `.tp-test-${process.pid}-${Date.now()}`);
   try {
-    execSync(`${cmd} > '${tmp}' 2>&1`, { stdio: "ignore" });
+    execSync(`${cmd} > "${tmp}" 2>&1`, { stdio: "ignore" });
     return readFileSync(tmp, "utf-8");
   } catch {
     try {

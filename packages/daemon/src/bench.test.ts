@@ -12,15 +12,14 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { Daemon, SessionManager } from "./lib";
 
-describe("Performance", () => {
+describe.skip("Performance", () => {
   test("throughput: 1000 records via IPC → WS in <5s", async () => {
     const tmpDir = await mkdtemp(join(tmpdir(), "tp-bench-"));
     SessionManager.setRunnerCommand(["true"]);
 
     const daemon = new Daemon(tmpDir);
     daemon.start(join(tmpDir, "daemon.sock"));
-    daemon.startWs(0);
-    const wsPort = daemon.wsPort;
+    const wsPort = 0; // skipped — WS removed (Task 8)
     if (!wsPort) throw new Error("expected wsPort");
 
     // Connect WS client

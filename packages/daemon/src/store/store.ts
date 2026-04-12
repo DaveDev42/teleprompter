@@ -4,7 +4,7 @@ import {
   type SessionState,
   type SID,
 } from "@teleprompter/protocol";
-import { mkdirSync, unlinkSync } from "fs";
+import { mkdirSync, rmSync, unlinkSync } from "fs";
 import { join } from "path";
 import { getStoreDir } from "./config";
 import { PAIRINGS_DDL, PRAGMAS, SESSIONS_DDL } from "./schema";
@@ -267,9 +267,11 @@ export class Store {
   }
 
   /**
-   * Test-only: clear metadata rows and close cached session dbs without
-   * touching disk files. Use with a shared fixture to avoid per-test
-   * bun:sqlite open/close churn (expensive on Windows).
+   * Test-only: clear metadata rows, close cached session dbs, and sweep the
+   * per-session `.sqlite` files on disk. The meta db itself is kept open so
+   * shared-fixture blocks can reuse it — avoids the per-test bun:sqlite
+   * open/close churn that is especially expensive on Windows. Callers
+   * should still prefer unique sids per test as defense in depth.
    */
   resetForTest(): void {
     for (const db of this.sessionDbs.values()) {
@@ -278,6 +280,18 @@ export class Store {
     this.sessionDbs.clear();
     this.metaDb.run("DELETE FROM sessions");
     this.metaDb.run("DELETE FROM pairings");
+    // Sweep per-session files so later tests cannot observe stale data via
+    // getSessionDb(sid) reopening an on-disk leftover.
+    const sessionsDir = join(this.storeDir, "sessions");
+    if (process.platform === "win32") {
+      Bun.gc(true);
+    }
+    try {
+      rmSync(sessionsDir, { recursive: true, force: true });
+    } catch {
+      // Best-effort: do not throw from test teardown.
+    }
+    mkdirSync(sessionsDir, { recursive: true });
   }
 
   close(): void {

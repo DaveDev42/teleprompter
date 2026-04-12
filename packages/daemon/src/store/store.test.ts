@@ -7,15 +7,15 @@ import {
   test,
 } from "bun:test";
 import { randomUUID } from "crypto";
-import { mkdirSync, mkdtempSync } from "fs";
+import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Store } from "./store";
 import { rmRetry } from "./test-helpers";
 
-// Shared-fixture block: Store is opened once and metadata is reset between
-// tests. Each test uses a unique sid (randomUUID) so leftover .sqlite files
-// from prior tests cannot interfere with assertions. This avoids per-test
+// Shared-fixture block: Store is opened once and metadata + per-session
+// .sqlite files are reset between tests via `resetForTest()`. Each test
+// uses a unique sid (randomUUID) as defense in depth. Avoids per-test
 // bun:sqlite open/close churn, which is especially expensive on Windows.
 describe("Store (shared fixture)", () => {
   let storeDir: string;
@@ -23,7 +23,6 @@ describe("Store (shared fixture)", () => {
 
   beforeAll(() => {
     storeDir = mkdtempSync(join(tmpdir(), "tp-vault-test-"));
-    mkdirSync(join(storeDir, "sessions"), { recursive: true });
     vault = new Store(storeDir);
   });
 
@@ -126,13 +125,13 @@ describe("Store (shared fixture)", () => {
 describe("Store (isolated)", () => {
   test("getSessionDb reopens existing db", () => {
     const storeDir = mkdtempSync(join(tmpdir(), "tp-vault-reopen-"));
-    mkdirSync(join(storeDir, "sessions"), { recursive: true });
-    let vault = new Store(storeDir);
+    let vault: Store | undefined = new Store(storeDir);
     try {
       const db = vault.createSession("s9", "/tmp");
       db.append("io", Date.now(), new TextEncoder().encode("data"));
 
       vault.close();
+      vault = undefined;
       vault = new Store(storeDir);
 
       const db2 = vault.getSessionDb("s9");
@@ -140,7 +139,7 @@ describe("Store (isolated)", () => {
       const records = db2.getRecordsFrom(0);
       expect(records.length).toBe(1);
     } finally {
-      vault.close();
+      vault?.close();
       rmRetry(storeDir);
     }
   });

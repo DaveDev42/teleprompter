@@ -74,4 +74,14 @@ describe("SessionManager", () => {
     sm.registerRunner("s1", 99999, "/tmp");
     expect(sm.killRunner("s1")).toBe(false);
   });
+
+  test("spawnRunner forwards env option to subprocess", () => {
+    const mgr = new SessionManager();
+    SessionManager.setRunnerCommand(["true"]); // no-op command
+    const proc = mgr.spawnRunner("env-test-sid", "/tmp", {
+      env: { FOO: "bar" },
+    });
+    expect(proc.pid).toBeGreaterThan(0);
+    proc.kill();
+  });
 });

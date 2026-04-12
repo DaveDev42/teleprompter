@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { type ChildProcess, execSync, spawn } from "child_process";
+import { waitForDaemonReady } from "./lib/daemon-readiness";
 
 /**
  * P0: Chat → Claude → response roundtrip
@@ -24,8 +25,6 @@ test.describe("P0 — Chat Roundtrip", () => {
         "apps/cli/src/index.ts",
         "daemon",
         "start",
-        "--ws-port",
-        "7080",
         "--spawn",
         "--sid",
         "chat-rt",
@@ -38,34 +37,18 @@ test.describe("P0 — Chat Roundtrip", () => {
       },
     );
 
-    // Wait for session to be running
+    await waitForDaemonReady();
+    // Give the session a moment to transition to "running"
     await new Promise<void>((resolve) => {
       let out = "";
+      const timeout = setTimeout(resolve, 15000);
       daemon.stderr?.on("data", (d) => {
         out += d.toString();
         if (out.includes("session created")) {
-          const ws = new WebSocket("ws://localhost:7080");
-          ws.onopen = () => ws.send(JSON.stringify({ t: "hello", v: 1 }));
-          ws.onmessage = (e) => {
-            const msg = JSON.parse(e.data as string);
-            if (
-              msg.t === "hello" &&
-              msg.d.sessions.some(
-                (s: { sid: string; state: string }) =>
-                  s.sid === "chat-rt" && s.state === "running",
-              )
-            ) {
-              ws.close();
-              resolve();
-            }
-          };
-          setTimeout(() => {
-            ws.close();
-            resolve();
-          }, 10000);
+          clearTimeout(timeout);
+          setTimeout(resolve, 2000);
         }
       });
-      setTimeout(resolve, 25000);
     });
   });
 

@@ -88,8 +88,6 @@ test.describe("Full Relay E2E — Runner → Daemon → Relay → App", () => {
         "apps/cli/src/index.ts",
         "daemon",
         "start",
-        "--ws-port",
-        "7080",
         "--spawn",
         "--sid",
         "session-A",
@@ -109,7 +107,10 @@ test.describe("Full Relay E2E — Runner → Daemon → Relay → App", () => {
       ),
     );
 
-    // 5. Start daemon B on a different WS port
+    // 5. Start daemon B in an isolated runtime dir so its IPC socket
+    //    does not collide with daemon A.
+    const daemonBRuntimeDir = "/tmp/teleprompter-e2e-daemon-b";
+    execSync(`mkdir -p ${daemonBRuntimeDir}`);
     daemonB = spawn(
       "bun",
       [
@@ -117,15 +118,20 @@ test.describe("Full Relay E2E — Runner → Daemon → Relay → App", () => {
         "apps/cli/src/index.ts",
         "daemon",
         "start",
-        "--ws-port",
-        "7081",
         "--spawn",
         "--sid",
         "session-B",
         "--cwd",
         "/tmp",
       ],
-      { stdio: "pipe", env: { ...process.env, LOG_LEVEL: "error" } },
+      {
+        stdio: "pipe",
+        env: {
+          ...process.env,
+          LOG_LEVEL: "error",
+          XDG_RUNTIME_DIR: daemonBRuntimeDir,
+        },
+      },
     );
     await waitForOutput(daemonB, "press Ctrl+C");
     await new Promise((r) => setTimeout(r, 1000));

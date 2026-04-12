@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { type ChildProcess, spawn } from "child_process";
+import { waitForDaemonReady } from "./lib/daemon-readiness";
 
 let daemon: ChildProcess;
 
@@ -13,8 +14,6 @@ test.describe("App Web — Daemon Connected", () => {
         "apps/cli/src/index.ts",
         "daemon",
         "start",
-        "--ws-port",
-        "7080",
         "--spawn",
         "--sid",
         "pw-test",
@@ -27,16 +26,7 @@ test.describe("App Web — Daemon Connected", () => {
       },
     );
 
-    // Wait for daemon to be ready
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => resolve(), 5000);
-      daemon.stderr?.on("data", (data) => {
-        if (data.toString().includes("listening")) {
-          clearTimeout(timeout);
-          resolve();
-        }
-      });
-    });
+    await waitForDaemonReady();
   });
 
   test.afterAll(async () => {

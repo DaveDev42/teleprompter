@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { type ChildProcess, spawn } from "child_process";
+import { waitForDaemonReady } from "./lib/daemon-readiness";
 
 let daemon: ChildProcess;
 
@@ -19,8 +20,6 @@ test.describe("Real E2E — Claude PTY → Browser", () => {
         "apps/cli/src/index.ts",
         "daemon",
         "start",
-        "--ws-port",
-        "7080",
         "--spawn",
         "--sid",
         "real-test",
@@ -33,35 +32,18 @@ test.describe("Real E2E — Claude PTY → Browser", () => {
       },
     );
 
-    // Wait for session to be created AND running
+    await waitForDaemonReady();
+    // Give the session a moment to transition to "running"
     await new Promise<void>((resolve) => {
       let output = "";
+      const timeout = setTimeout(resolve, 15000);
       daemon.stderr?.on("data", (d) => {
         output += d.toString();
         if (output.includes("session created")) {
-          // Verify session is visible via WS before proceeding
-          const ws = new WebSocket("ws://localhost:7080");
-          ws.onopen = () => ws.send(JSON.stringify({ t: "hello", v: 1 }));
-          ws.onmessage = (e) => {
-            const msg = JSON.parse(e.data as string);
-            if (msg.t === "hello") {
-              const running = msg.d.sessions.find(
-                (s: { sid: string; state: string }) =>
-                  s.sid === "real-test" && s.state === "running",
-              );
-              if (running) {
-                ws.close();
-                resolve();
-              }
-            }
-          };
-          setTimeout(() => {
-            ws.close();
-            resolve();
-          }, 10000);
+          clearTimeout(timeout);
+          setTimeout(resolve, 2000);
         }
       });
-      setTimeout(resolve, 25000);
     });
   });
 

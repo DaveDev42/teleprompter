@@ -28,7 +28,7 @@ teleprompter/
 │   │   │   ├── components/    # UI 컴포넌트
 │   │   │   ├── hooks/         # React hooks
 │   │   │   ├── stores/        # Zustand stores
-│   │   │   ├── lib/           # WS client, relay client, secure storage
+│   │   │   ├── lib/           # Relay client (E2EE), secure storage
 │   │   │   └── voice/         # OpenAI Realtime API, audio capture/playback
 │   │   ├── app.json
 │   │   ├── metro.config.js
@@ -47,7 +47,7 @@ teleprompter/
 │   │   ├── src/
 │   │   │   ├── session/       # Session 관리
 │   │   │   ├── store/         # 로컬 저장소
-│   │   │   ├── transport/     # WS server, relay client, client registry
+│   │   │   ├── transport/     # Relay client (E2EE WS client)
 │   │   │   ├── worktree/      # git worktree 관리
 │   │   │   └── ipc/           # Runner IPC 서버
 │   │   └── package.json
@@ -568,7 +568,7 @@ Relay도 `tp relay start` 서브커맨드로 실행된다.
 
 ```bash
 # 서브커맨드 구조
-tp daemon start [--ws-port 7080] [--spawn --sid X --cwd Y]
+tp daemon start [--relay-url URL] [--spawn --sid X --cwd Y]
 tp run --sid X --cwd Y [--socket-path P]    # daemon이 내부적으로 호출
 tp relay start [--port 7090]                 # relay server
 tp pair [--relay URL] [--daemon-id]          # QR pairing

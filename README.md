@@ -32,32 +32,23 @@ tp --tp-sid my-session -p "fix the login bug"
 
 `--tp-*` flags are consumed by tp; everything else is forwarded to claude.
 
-### Full Setup
+### Connect Your Phone
 
 ```bash
-# 1. Build the frontend web app
-cd apps/app && npx expo export --platform web --output-dir ../../dist/web && cd ../..
+# Generate pairing data (QR code) — default relay: wss://relay.tpmt.dev
+tp pair
 
-# 2. Start daemon with built-in frontend serving
-tp daemon start --ws-port 7080 --repo-root /path/to/repo --web-dir dist/web
-
-# 3. Open http://localhost:7080 in your browser — done!
-
-# Optional: Start relay for remote access
-tp relay start --port 7090
-
-# Optional: Generate pairing data for E2EE
-tp pair --relay ws://relay.example.com
+# Or use a custom relay
+tp pair --relay wss://relay.example.com
 ```
 
-### Development Mode
+Scan the QR code with the Teleprompter app (iOS TestFlight / Android Internal / [tpmt.dev](https://tpmt.dev)). The app connects to your daemon **through the relay** with end-to-end encryption — no direct local connection.
+
+### Auto-start on Login
 
 ```bash
-# Start daemon
-tp daemon start --ws-port 7080
-
-# Start frontend dev server (hot reload)
-cd apps/app && npx expo start --web
+tp daemon install      # macOS launchd / Linux systemd / Windows Task Scheduler
+tp daemon uninstall    # Remove
 ```
 
 ### CLI Commands
@@ -74,36 +65,22 @@ cd apps/app && npx expo start --web
 | `tp daemon start [opts]` | Start daemon in foreground |
 | `tp daemon install` | Register as OS service (launchd/systemd) |
 | `tp daemon uninstall` | Remove OS service |
-| `tp relay start [--port]` | Start a relay server |
+| `tp relay start [--port]` | Start a relay server (self-hosted) |
 | `tp completions <shell>` | Generate shell completions (bash/zsh/fish) |
-
-### Daemon Options
-
-```
---ws-port 7080        WebSocket port for local frontends
---repo-root /path     Enable git worktree management
---relay-url URL       Connect to relay server
---relay-token TOKEN   Relay auth token (from tp pair)
---daemon-id ID        Daemon identifier
---web-dir /path       Serve frontend web build at WS port
---spawn --sid X       Auto-create a session on start
---cwd /path           Working directory for session
---prune               Prune old sessions on start
---verbose / --quiet   Log level control
---watch               Auto-restart on uncaught exceptions
-```
 
 ## Architecture
 
 ```
-Runner → Daemon → Relay → App
- (PTY)   (Vault)  (E2EE)  (Expo)
+Runner ──IPC──→ Daemon ──WSS (E2EE)──→ Relay ──WSS (E2EE)──→ App
+ (PTY)          (Store)                (forwarder)           (Expo)
 ```
 
-- **Runner**: Spawns Claude Code in a PTY, collects io streams and hooks events
-- **Daemon**: Manages sessions, stores records in Vault, encrypts with libsodium
-- **Relay**: Stateless ciphertext forwarder (zero-trust, recent 10 frames cache)
-- **App**: Expo app (iOS/Web/Android) with Chat + Terminal + Voice UI
+- **Runner**: Spawns Claude Code in a PTY, collects io streams and hooks events, communicates with Daemon via IPC (Unix domain socket / Named Pipe on Windows)
+- **Daemon**: Manages sessions, stores records, encrypts with libsodium per-frontend keys, connects to Relay(s) as a client
+- **Relay**: Stateless ciphertext forwarder (zero-trust, 10 encrypted frames cached per session). Never sees plaintext.
+- **App**: Expo app (iOS/Web/Android) with Chat + Terminal + Voice UI. Connects to paired daemon(s) via Relay only.
+
+**All frontend↔daemon traffic flows through the Relay with E2EE.** Daemon does not run a WebSocket server; the App does not connect directly to the Daemon. Pairing (QR/JSON) delivers the Daemon's public key and relay URL offline; frontend pubkey is exchanged in-band via `relay.kx`.
 
 ## Monorepo Structure
 
@@ -112,7 +89,7 @@ apps/
   cli/            # Unified `tp` binary
   app/            # Expo app (iOS + Web + Android)
 packages/
-  daemon/         # Session management, vault, WS server
+  daemon/         # Session management, Store, IPC server, Relay client
   runner/         # PTY management, hooks collection
   relay/          # WebSocket ciphertext relay
   protocol/       # Shared types, codec, crypto, pairing

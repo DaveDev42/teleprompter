@@ -39,7 +39,10 @@ export class Daemon {
   private worktreeManager: WorktreeManager | null = null;
   private pushNotifier: PushNotifier;
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
-  /** Local record observer for passthrough CLI (pipes PTY io to process.stdout). */
+  /**
+   * Local record observer for passthrough CLI (pipes PTY io to process.stdout).
+   * Only one observer is supported; assigning a second overwrites the first.
+   */
   onRecord:
     | ((sid: string, kind: string, payload: Buffer, name?: string) => void)
     | null = null;
@@ -346,7 +349,9 @@ export class Daemon {
     }
 
     // Notify local observer (passthrough CLI pipes io records to stdout).
-    this.onRecord?.(msg.sid, msg.kind, payload, msg.name);
+    if (this.onRecord) {
+      this.onRecord(msg.sid, msg.kind, payload, msg.name);
+    }
 
     // Check if this record should trigger a push notification
     this.pushNotifier.onRecord({
@@ -796,7 +801,12 @@ export class Daemon {
     return db.getRecordsFrom(afterSeq, limit);
   }
 
-  /** Close the underlying store without tearing down IPC / relay state. */
+  /**
+   * Close the underlying store without tearing down IPC / relay state.
+   * Safe to call without a prior `start()`. Do NOT call if `start()` was
+   * invoked — use `stop()` instead, which tears down IPC/relay and then
+   * closes the store.
+   */
   close(): void {
     this.store.close();
   }

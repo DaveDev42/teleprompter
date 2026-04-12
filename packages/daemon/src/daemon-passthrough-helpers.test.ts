@@ -4,6 +4,10 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { Daemon } from "./daemon";
 
+// Skipped on Windows: this suite constructs a Daemon which opens an IPC
+// server bound to a Unix domain socket path. Windows IPC uses Named Pipes
+// via a different code path, so the helper surface exercised here is not
+// directly applicable on win32.
 describe.skipIf(process.platform === "win32")("Daemon passthrough helpers", () => {
   let storeDir: string;
   let daemon: Daemon;

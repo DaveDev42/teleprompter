@@ -104,7 +104,7 @@ export class SessionDb {
     try {
       this.db.run("PRAGMA wal_checkpoint(TRUNCATE);");
     } catch {
-      // Ignore — checkpoint may fail under concurrent access.
+      // Benign: checkpoint can fail if WAL is already truncated or locked.
     }
   }
 

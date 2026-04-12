@@ -11,16 +11,12 @@ const { values } = parseArgs({
     sid: { type: "string" },
     cwd: { type: "string" },
     "worktree-path": { type: "string" },
-    "ws-port": { type: "string", default: "7080" },
   },
   strict: false,
 });
 
 const daemon = new Daemon();
 const socketPath = daemon.start();
-
-const wsPort = parseInt(values["ws-port"] as string, 10);
-daemon.startWs(wsPort);
 
 // Auto-cleanup old sessions on startup + every 24h
 daemon.startAutoCleanup();

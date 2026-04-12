@@ -4,7 +4,6 @@ import type {
   IpcRec,
   Namespace,
   RecordKind,
-  WsClientMessage,
   WsRec,
   WsSessionMeta,
 } from "@teleprompter/protocol";
@@ -24,10 +23,7 @@ import {
 import { Store } from "./store";
 import type { StoredRecord } from "./store/session-db";
 import type { SessionMeta } from "./store/store";
-import type { WsClient } from "./transport/client-registry";
-import { ClientRegistry } from "./transport/client-registry";
 import { RelayClient, type RelayClientConfig } from "./transport/relay-client";
-import { WsServer } from "./transport/ws-server";
 import { WorktreeManager } from "./worktree/worktree-manager";
 
 const log = createLogger("Daemon");
@@ -39,8 +35,6 @@ export class Daemon {
   private ipcServer: IpcServer;
   private store: Store;
   private sessionManager = new SessionManager();
-  private clientRegistry = new ClientRegistry();
-  private wsServer: WsServer;
   private relayClients: RelayClient[] = [];
   private worktreeManager: WorktreeManager | null = null;
   private pushNotifier: PushNotifier;
@@ -75,72 +69,6 @@ export class Daemon {
       },
     });
 
-    this.wsServer = new WsServer(this.clientRegistry, {
-      onHello: (client) => {
-        const sessions = this.store.listSessions().map(toWsSessionMeta);
-        this.clientRegistry.send(client, { t: "hello", v: 1, d: { sessions } });
-      },
-      onAttach: (client, sid) => {
-        this.clientRegistry.attach(client, sid);
-        const meta = this.store.getSession(sid);
-        if (meta) {
-          this.clientRegistry.send(client, {
-            t: "state",
-            sid,
-            d: toWsSessionMeta(meta),
-          });
-        } else {
-          this.clientRegistry.send(client, {
-            t: "err",
-            e: "NOT_FOUND",
-            m: `Session ${sid} not found`,
-          });
-        }
-      },
-      onDetach: (client, sid) => {
-        this.clientRegistry.detach(client, sid);
-      },
-      onResume: (client, sid, cursor) => {
-        this.handleResume(client, sid, cursor);
-      },
-      onInChat: (client, sid, text) => {
-        this.handleWsInput(
-          client,
-          sid,
-          Buffer.from(`${text}\n`).toString("base64"),
-        );
-      },
-      onInTerm: (client, sid, data) => {
-        this.handleWsInput(client, sid, data);
-      },
-      onResize: (_client, sid, cols, rows) => {
-        const runner = this.ipcServer.findRunnerBySid(sid);
-        if (runner) {
-          this.ipcServer.send(runner, { t: "resize", sid, cols, rows });
-        }
-      },
-      onWorktreeCreate: (client, msg) => {
-        this.handleWorktreeCreate(client, msg.branch, msg.baseBranch, msg.path);
-      },
-      onWorktreeRemove: (client, msg) => {
-        this.handleWorktreeRemove(client, msg.path, msg.force);
-      },
-      onWorktreeList: (client) => {
-        this.handleWorktreeList(client);
-      },
-      onSessionCreate: (client, msg) => {
-        this.handleSessionCreate(client, msg.cwd, msg.sid);
-      },
-      onSessionStop: (client, sid) => {
-        this.handleSessionStop(client, sid);
-      },
-      onSessionRestart: (client, sid) => {
-        this.handleSessionRestart(client, sid);
-      },
-      onSessionExport: (client, msg) => {
-        this.handleSessionExport(client, msg);
-      },
-    });
   }
 
   private socketPath: string = "";
@@ -200,18 +128,6 @@ export class Daemon {
       clearInterval(this.pruneTimer);
       this.pruneTimer = null;
     }
-  }
-
-  startWs(port: number): void {
-    this.wsServer.start(port);
-  }
-
-  /**
-   * Set the directory for serving the frontend web build.
-   * Enables accessing the frontend at http://localhost:<ws-port>/
-   */
-  setWebDir(dir: string): void {
-    this.wsServer.setWebDir(dir);
   }
 
   /**
@@ -373,7 +289,7 @@ export class Daemon {
       relay.subscribe(msg.sid);
     }
 
-    // Notify WS clients + relay of new session
+    // Notify relay of new session
     const meta = this.store.getSession(msg.sid);
     if (meta) {
       const stateMsg = {
@@ -381,7 +297,6 @@ export class Daemon {
         sid: msg.sid,
         d: toWsSessionMeta(meta),
       };
-      this.clientRegistry.sendAll(stateMsg);
       for (const relay of this.relayClients) {
         relay.publishState(RELAY_CHANNEL_META, stateMsg).catch(() => {});
       }
@@ -416,7 +331,7 @@ export class Daemon {
       seq,
     });
 
-    // Fan out to WS clients subscribed to this session
+    // Publish to relay(s) for remote frontends
     const wsRec: WsRec = {
       t: "rec",
       sid: msg.sid,
@@ -427,9 +342,6 @@ export class Daemon {
       d: msg.payload, // already base64
       ts: msg.ts,
     };
-    this.clientRegistry.broadcast(msg.sid, wsRec);
-
-    // Also publish to relay(s) for remote frontends
     for (const relay of this.relayClients) {
       relay.publishRecord(wsRec).catch(() => {});
     }
@@ -454,7 +366,7 @@ export class Daemon {
       `session ended sid=${msg.sid} exitCode=${msg.exitCode} state=${state}`,
     );
 
-    // Notify WS clients + relay of session state change
+    // Notify relay of session state change
     const meta = this.store.getSession(msg.sid);
     if (meta) {
       const stateMsg = {
@@ -462,7 +374,6 @@ export class Daemon {
         sid: msg.sid,
         d: toWsSessionMeta(meta),
       };
-      this.clientRegistry.sendAll(stateMsg);
       for (const relay of this.relayClients) {
         relay.publishState(RELAY_CHANNEL_META, stateMsg).catch(() => {});
       }
@@ -854,265 +765,11 @@ export class Daemon {
     }
   }
 
-  private handleResume(client: WsClient, sid: string, cursor: number): void {
-    const db = this.store.getSessionDb(sid);
-    if (!db) {
-      this.clientRegistry.send(client, {
-        t: "err",
-        e: "NOT_FOUND",
-        m: `Session ${sid} not found`,
-      });
-      return;
-    }
-
-    const records = db.getRecordsFrom(cursor);
-    const wsRecs = toWsRecs(sid, records);
-
-    this.clientRegistry.send(client, { t: "batch", sid, d: wsRecs });
-  }
-
-  private handleWsInput(
-    client: WsClient,
-    sid: string,
-    base64Data: string,
-  ): void {
-    const runner = this.ipcServer.findRunnerBySid(sid);
-    if (!runner) {
-      this.clientRegistry.send(client, {
-        t: "err",
-        e: "NO_RUNNER",
-        m: `No runner for session ${sid}`,
-      });
-      return;
-    }
-
-    this.ipcServer.send(runner, {
-      t: "input",
-      sid,
-      data: base64Data,
-    });
-  }
-
   /**
    * Set the repository root for worktree management.
    */
   setRepoRoot(repoRoot: string): void {
     this.worktreeManager = new WorktreeManager(repoRoot);
-  }
-
-  private async handleWorktreeList(client: WsClient): Promise<void> {
-    if (!this.worktreeManager) {
-      this.clientRegistry.send(client, {
-        t: "err",
-        e: "NO_REPO",
-        m: "No repository configured for worktree management",
-      });
-      return;
-    }
-
-    try {
-      const worktrees = await this.worktreeManager.list();
-      this.clientRegistry.send(client, {
-        t: "worktree.list",
-        d: worktrees,
-      });
-    } catch (err) {
-      this.clientRegistry.send(client, {
-        t: "err",
-        e: "WORKTREE_ERROR",
-        m: err instanceof Error ? err.message : "Failed to list worktrees",
-      });
-    }
-  }
-
-  private async handleWorktreeCreate(
-    client: WsClient,
-    branch: string,
-    baseBranch?: string,
-    path?: string,
-  ): Promise<void> {
-    if (!this.worktreeManager) {
-      this.clientRegistry.send(client, {
-        t: "err",
-        e: "NO_REPO",
-        m: "No repository configured",
-      });
-      return;
-    }
-
-    try {
-      const wtPath = path ?? `${branch}-${Date.now().toString(36)}`;
-      const wt = await this.worktreeManager.add(wtPath, branch, baseBranch);
-
-      // Auto-create a session in the new worktree
-      const sid = `${branch}-${Date.now().toString(36)}`;
-      this.createSession(sid, wt.path, { worktreePath: wt.path });
-
-      this.clientRegistry.send(client, {
-        t: "worktree.created",
-        d: wt,
-        sid,
-      });
-    } catch (err) {
-      this.clientRegistry.send(client, {
-        t: "err",
-        e: "WORKTREE_ERROR",
-        m: err instanceof Error ? err.message : "Failed to create worktree",
-      });
-    }
-  }
-
-  private async handleWorktreeRemove(
-    client: WsClient,
-    path: string,
-    force?: boolean,
-  ): Promise<void> {
-    if (!this.worktreeManager) {
-      this.clientRegistry.send(client, {
-        t: "err",
-        e: "NO_REPO",
-        m: "No repository configured",
-      });
-      return;
-    }
-
-    try {
-      await this.worktreeManager.remove(path, force);
-      this.clientRegistry.send(client, {
-        t: "worktree.removed",
-        path,
-      });
-    } catch (err) {
-      this.clientRegistry.send(client, {
-        t: "err",
-        e: "WORKTREE_ERROR",
-        m: err instanceof Error ? err.message : "Failed to remove worktree",
-      });
-    }
-  }
-
-  private handleSessionCreate(
-    client: WsClient,
-    cwd: string,
-    sid?: string,
-  ): void {
-    const sessionId = sid ?? `session-${Date.now().toString(36)}`;
-    try {
-      this.createSession(sessionId, cwd);
-      // Session state will be broadcast via handleHello when runner connects
-    } catch (err) {
-      this.clientRegistry.send(client, {
-        t: "err",
-        e: "SESSION_ERROR",
-        m: err instanceof Error ? err.message : "Failed to create session",
-      });
-    }
-  }
-
-  private handleSessionStop(client: WsClient, sid: string): void {
-    if (!this.sessionManager.killRunner(sid)) {
-      this.clientRegistry.send(client, {
-        t: "err",
-        e: "NO_RUNNER",
-        m: `No runner for session ${sid}`,
-      });
-    }
-    // Session end will be handled by handleBye when the process exits
-  }
-
-  private handleSessionRestart(client: WsClient, sid: string): void {
-    const session = this.store.getSession(sid);
-    if (!session) {
-      this.clientRegistry.send(client, {
-        t: "err",
-        e: "NOT_FOUND",
-        m: `Session ${sid} not found`,
-      });
-      return;
-    }
-
-    // Kill existing runner if still running
-    this.sessionManager.killRunner(sid);
-
-    // Re-create the session with the same cwd and worktree
-    try {
-      this.createSession(sid, session.cwd, {
-        worktreePath: session.worktree_path ?? undefined,
-      });
-      log.info(`restarted session ${sid}`);
-    } catch (err) {
-      this.clientRegistry.send(client, {
-        t: "err",
-        e: "SESSION_ERROR",
-        m: err instanceof Error ? err.message : "Failed to restart session",
-      });
-    }
-  }
-
-  private handleSessionExport(
-    client: WsClient,
-    msg: WsClientMessage & { t: "session.export" },
-  ): void {
-    const { sid, format, recordTypes, timeRange, limit } = msg as {
-      sid: string;
-      format?: "json" | "markdown";
-      recordTypes?: RecordKind[];
-      timeRange?: { from?: number; to?: number };
-      limit?: number;
-    };
-
-    const session = this.store.getSession(sid);
-    if (!session) {
-      this.clientRegistry.send(client, {
-        t: "err",
-        e: "NOT_FOUND",
-        m: `Session ${sid} not found`,
-      });
-      return;
-    }
-
-    const db = this.store.getSessionDb(sid);
-    if (!db) {
-      this.clientRegistry.send(client, {
-        t: "err",
-        e: "NOT_FOUND",
-        m: `Session DB for ${sid} not found`,
-      });
-      return;
-    }
-
-    const effectiveLimit = Math.min(limit ?? 50000, 50000);
-    const records = db.getRecordsFiltered({
-      kinds: recordTypes,
-      from: timeRange?.from,
-      to: timeRange?.to,
-      limit: effectiveLimit,
-    });
-
-    const meta = toWsSessionMeta(session);
-    const truncated = records.length >= effectiveLimit;
-
-    if (format === "json") {
-      this.clientRegistry.send(client, {
-        t: "session.exported" as const,
-        sid,
-        format: "json" as const,
-        d: JSON.stringify({ meta, records, truncated }),
-      });
-    } else {
-      const md = formatMarkdown(meta, records, truncated);
-      this.clientRegistry.send(client, {
-        t: "session.exported" as const,
-        sid,
-        format: "markdown" as const,
-        d: md,
-      });
-    }
-  }
-
-  /** Get the WebSocket server port (for tests) */
-  get wsPort(): number | undefined {
-    return this.wsServer.port;
   }
 
   /** Get a runner by session ID (for passthrough mode) */
@@ -1138,7 +795,6 @@ export class Daemon {
       relay.dispose();
     }
     this.relayClients = [];
-    this.wsServer.stop();
     this.ipcServer.stop();
     this.store.close();
     log.info("stopped");

@@ -266,6 +266,20 @@ export class Store {
     this.metaDb.run("DELETE FROM pairings WHERE daemon_id = ?", [daemonId]);
   }
 
+  /**
+   * Test-only: clear metadata rows and close cached session dbs without
+   * touching disk files. Use with a shared fixture to avoid per-test
+   * bun:sqlite open/close churn (expensive on Windows).
+   */
+  resetForTest(): void {
+    for (const db of this.sessionDbs.values()) {
+      db.close();
+    }
+    this.sessionDbs.clear();
+    this.metaDb.run("DELETE FROM sessions");
+    this.metaDb.run("DELETE FROM pairings");
+  }
+
   close(): void {
     for (const db of this.sessionDbs.values()) {
       db.close();

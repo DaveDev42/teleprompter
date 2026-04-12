@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
+import { randomUUID } from "crypto";
 import { existsSync } from "fs";
 import { mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
@@ -6,22 +14,24 @@ import { join } from "path";
 import { Store } from "./store";
 import { backdateSession, rmRetry } from "./test-helpers";
 
-// See store.test.ts / session-db.test.ts for rationale — bun:sqlite finalizer
-// lag on Windows CI makes file unlinks unreliable for tests that delete .sqlite
-// files while handles may still be held. These tests are Windows-skipped; the
-// remaining tests cover the happy paths that do not unlink per-session DBs.
-const skipOnWin = test.skipIf(process.platform === "win32");
-
+// Shared-fixture block: Store is opened once, metadata reset between tests.
+// Each test uses unique sids so residual on-disk .sqlite files from prior
+// tests never collide. Avoids expensive bun:sqlite open/close per test,
+// especially on Windows.
 describe("Store session cleanup", () => {
   let vault: Store;
   let storeDir: string;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     storeDir = await mkdtemp(join(tmpdir(), "tp-vault-cleanup-"));
     vault = new Store(storeDir);
   });
 
-  afterEach(async () => {
+  afterEach(() => {
+    vault.resetForTest();
+  });
+
+  afterAll(() => {
     vault.close();
     rmRetry(storeDir);
   });
@@ -32,72 +42,86 @@ describe("Store session cleanup", () => {
   // but on the Windows CI runner under load we still see all retries
   // exhausted — the lock outlives any practical retry budget. Skipped
   // until Bun ships synchronous handle release for sqlite.
-  skipOnWin("deleteSession removes metadata and db file", () => {
-    vault.createSession("s1", "/tmp");
-    const db = vault.getSessionDb("s1");
-    db?.append("io", Date.now(), Buffer.from("test"));
+  test.skipIf(process.platform === "win32")(
+    "deleteSession removes metadata and db file",
+    () => {
+      const sid = `s-${randomUUID()}`;
+      vault.createSession(sid, "/tmp");
+      const db = vault.getSessionDb(sid);
+      db?.append("io", Date.now(), Buffer.from("test"));
 
-    expect(vault.getSession("s1")).toBeDefined();
-    const dbPath = join(storeDir, "sessions", "s1.sqlite");
-    expect(existsSync(dbPath)).toBe(true);
+      expect(vault.getSession(sid)).toBeDefined();
+      const dbPath = join(storeDir, "sessions", `${sid}.sqlite`);
+      expect(existsSync(dbPath)).toBe(true);
 
-    vault.deleteSession("s1");
+      vault.deleteSession(sid);
 
-    expect(vault.getSession("s1")).toBeUndefined();
-    expect(existsSync(dbPath)).toBe(false);
-  });
+      expect(vault.getSession(sid)).toBeUndefined();
+      expect(existsSync(dbPath)).toBe(false);
+    },
+  );
 
-  skipOnWin(
+  test.skipIf(process.platform === "win32")(
     "pruneOldSessions removes stopped sessions older than threshold",
     () => {
-      vault.createSession("old-1", "/tmp");
-      vault.createSession("old-2", "/tmp");
-      vault.createSession("new-1", "/tmp");
-      vault.createSession("running-1", "/tmp");
+      const old1 = `old-${randomUUID()}`;
+      const old2 = `old-${randomUUID()}`;
+      const newer = `new-${randomUUID()}`;
+      const running = `running-${randomUUID()}`;
 
-      vault.updateSessionState("old-1", "stopped");
-      vault.updateSessionState("old-2", "error");
-      vault.updateSessionState("new-1", "stopped");
+      vault.createSession(old1, "/tmp");
+      vault.createSession(old2, "/tmp");
+      vault.createSession(newer, "/tmp");
+      vault.createSession(running, "/tmp");
 
-      backdateSession(vault, "old-1", 2 * 60 * 60 * 1000);
-      backdateSession(vault, "old-2", 2 * 60 * 60 * 1000);
+      vault.updateSessionState(old1, "stopped");
+      vault.updateSessionState(old2, "error");
+      vault.updateSessionState(newer, "stopped");
+
+      backdateSession(vault, old1, 2 * 60 * 60 * 1000);
+      backdateSession(vault, old2, 2 * 60 * 60 * 1000);
 
       const pruned = vault.pruneOldSessions(60 * 60 * 1000);
       expect(pruned).toBe(2);
 
-      expect(vault.getSession("old-1")).toBeUndefined();
-      expect(vault.getSession("old-2")).toBeUndefined();
-      expect(vault.getSession("new-1")).toBeDefined();
-      expect(vault.getSession("running-1")).toBeDefined();
+      expect(vault.getSession(old1)).toBeUndefined();
+      expect(vault.getSession(old2)).toBeUndefined();
+      expect(vault.getSession(newer)).toBeDefined();
+      expect(vault.getSession(running)).toBeDefined();
     },
   );
 
   test("pruneOldSessions returns 0 when nothing to prune", () => {
-    vault.createSession("s1", "/tmp");
+    vault.createSession(`s-${randomUUID()}`, "/tmp");
     const pruned = vault.pruneOldSessions(60 * 60 * 1000);
     expect(pruned).toBe(0);
   });
 
   test("pruneOldSessions does not remove sessions within TTL", () => {
-    vault.createSession("recent", "/tmp");
-    vault.updateSessionState("recent", "stopped");
+    const sid = `recent-${randomUUID()}`;
+    vault.createSession(sid, "/tmp");
+    vault.updateSessionState(sid, "stopped");
     // updated_at is now (just created), TTL is 7 days
     const pruned = vault.pruneOldSessions(7 * 24 * 60 * 60 * 1000);
     expect(pruned).toBe(0);
-    expect(vault.getSession("recent")).toBeDefined();
+    expect(vault.getSession(sid)).toBeDefined();
   });
 
   // Skipped on Windows CI: pruneOldSessions iterates deleteSession across
   // multiple sessions, which on Windows exhausts the unlinkRetry budget per
   // iteration due to bun:sqlite finalizer lag. Covered by macOS/Linux CI.
-  skipOnWin("pruneOldSessions removes error sessions beyond TTL", () => {
-    vault.createSession("err-old", "/tmp");
-    vault.updateSessionState("err-old", "error");
+  test.skipIf(process.platform === "win32")(
+    "pruneOldSessions removes error sessions beyond TTL",
+    () => {
+      const sid = `err-old-${randomUUID()}`;
+      vault.createSession(sid, "/tmp");
+      vault.updateSessionState(sid, "error");
 
-    backdateSession(vault, "err-old", 8 * 24 * 60 * 60 * 1000);
+      backdateSession(vault, sid, 8 * 24 * 60 * 60 * 1000);
 
-    const pruned = vault.pruneOldSessions(7 * 24 * 60 * 60 * 1000);
-    expect(pruned).toBe(1);
-    expect(vault.getSession("err-old")).toBeUndefined();
-  });
+      const pruned = vault.pruneOldSessions(7 * 24 * 60 * 60 * 1000);
+      expect(pruned).toBe(1);
+      expect(vault.getSession(sid)).toBeUndefined();
+    },
+  );
 });

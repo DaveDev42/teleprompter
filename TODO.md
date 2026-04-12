@@ -183,6 +183,7 @@
 ### CLI
 - [x] `tp -- --version` — 컴파일된 바이너리에서는 정상 동작 (`claude --version` 출력). `bun run`으로 테스트 시 `--`가 bun에 의해 소비되어 오탐이었음
 - [x] 컴파일된 `tp` 바이너리에서 passthrough 모드 크래시 (`Module not found "/$bunfs/root/index.ts"`) — `isCompiled()`가 `process.argv[0] === process.execPath`로 판단했으나 Bun compile 후에는 불일치. `import.meta.url.includes("$bunfs")`로 수정. CI에 컴파일 바이너리 runner spawn smoke test 추가
+- [x] daemon의 direct WS 서버 및 frontend의 DaemonWsClient 제거 — CLAUDE.md Architecture Invariants에 맞게 relay-only로 통일. WS 관련 1500+ 라인 레거시 삭제
 
 ### Voice
 - [ ] `VoiceButton`이 iOS/Android에서 `null` 반환 — 네이티브 오디오 캡처/재생 미구현 (expo-av 등 필요)

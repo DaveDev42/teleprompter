@@ -1,148 +1,85 @@
-import type { WsRec, WsServerMessage } from "@teleprompter/protocol";
-import { ensureDaemon } from "../lib/ensure-daemon";
-import { errorWithHints } from "../lib/format";
+import { Daemon } from "@teleprompter/daemon";
 
 /**
- * tp logs [sid] [--port 7080]
+ * tp logs [sid]
  *
- * Tails live records from a session. If no SID is given,
- * attaches to the first running session. Auto-starts daemon if needed.
+ * Tails live records from a session by polling the Store every 500ms.
+ * If no SID is given, prints the list of known sessions and exits.
  */
 export async function logsCommand(argv: string[]): Promise<void> {
   let sid: string | undefined;
-  let port = "7080";
-
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "--port" && argv[i + 1]) {
-      port = argv[i + 1];
-      i++;
-    } else if (!argv[i].startsWith("--")) {
-      sid = argv[i];
+  for (const a of argv) {
+    if (!a.startsWith("--")) {
+      sid = a;
+      break;
     }
   }
 
-  const portNum = parseInt(port, 10);
-  const url = `ws://localhost:${port}`;
+  const daemon = new Daemon();
 
-  const running = await ensureDaemon(portNum);
-  if (!running) {
-    process.exit(1);
-  }
-
-  const ws = new WebSocket(url);
-
-  const timeout = setTimeout(() => {
-    console.error(
-      errorWithHints(`Cannot reach daemon on port ${portNum}.`, [
-        "Daemon may have crashed. Run: tp daemon start --verbose",
-        "Diagnose: tp doctor",
-      ]),
-    );
-    process.exit(1);
-  }, 5000);
-
-  ws.onopen = () => {
-    ws.send(JSON.stringify({ t: "hello", v: 1 }));
-  };
-
-  ws.onerror = () => {
-    clearTimeout(timeout);
-    console.error(
-      errorWithHints(`Cannot connect to daemon at ${url}.`, [
-        "Start daemon: tp daemon start",
-        `Check port: lsof -i :${portNum}`,
-      ]),
-    );
-    process.exit(1);
-  };
-
-  ws.onmessage = (event) => {
-    const msg: WsServerMessage = JSON.parse(event.data as string);
-
-    switch (msg.t) {
-      case "hello": {
-        clearTimeout(timeout);
-        const sessions = msg.d.sessions;
-        const target = sid
-          ? sessions.find((s) => s.sid === sid)
-          : sessions.find((s) => s.state === "running");
-
-        if (!target) {
-          console.error(
-            sid ? `Session ${sid} not found.` : "No running sessions.",
-          );
-          if (sessions.length > 0) {
-            console.error("Available sessions:");
-            for (const s of sessions) {
-              console.error(`  ${s.state === "running" ? "●" : "○"} ${s.sid}`);
-            }
-          }
-          ws.close();
-          process.exit(1);
-          return;
-        }
-
-        console.error(`Tailing session: ${target.sid} (seq=${target.lastSeq})`);
-        console.error("Press Ctrl+C to stop.\n");
-
-        ws.send(JSON.stringify({ t: "attach", sid: target.sid }));
-        // Also resume from current seq to get future records
-        ws.send(
-          JSON.stringify({ t: "resume", sid: target.sid, c: target.lastSeq }),
-        );
-        break;
+  if (!sid) {
+    const sessions = daemon.listSessions();
+    if (sessions.length === 0) {
+      console.error("No sessions found.");
+    } else {
+      console.error("Usage: tp logs <sid>");
+      console.error("Available sessions:");
+      for (const s of sessions) {
+        const mark = s.state === "running" ? "●" : "○";
+        console.error(`  ${mark} ${s.sid}  seq=${s.last_seq}  ${s.state}`);
       }
+    }
+    daemon.close();
+    process.exit(sessions.length === 0 ? 1 : 0);
+    return;
+  }
 
-      case "rec":
-        printRecord(msg);
-        break;
+  const session = daemon.getSession(sid);
+  if (!session) {
+    console.error(`Session ${sid} not found.`);
+    daemon.close();
+    process.exit(1);
+    return;
+  }
 
-      case "batch":
-        for (const rec of msg.d) {
-          printRecord(rec);
+  console.error(`Tailing session: ${sid} (seq=${session.last_seq})`);
+  console.error("Press Ctrl+C to stop.\n");
+
+  let lastSeq = 0;
+  const tick = (): void => {
+    const recs = daemon.getRecordsSince(sid!, lastSeq);
+    for (const r of recs) {
+      if (r.kind === "io") {
+        process.stdout.write(Buffer.from(r.payload).toString("utf-8"));
+      } else if (r.kind === "event") {
+        try {
+          const event = JSON.parse(Buffer.from(r.payload).toString("utf-8"));
+          const name = event.hook_event_name ?? event.name ?? "unknown";
+          const ts = new Date(r.ts).toISOString().slice(11, 23);
+          console.error(`\n[${ts}] event ${name}`);
+          if (event.last_assistant_message) {
+            console.error(
+              `  → ${String(event.last_assistant_message).slice(0, 200)}`,
+            );
+          }
+          if (event.tool_name) {
+            console.error(`  tool: ${event.tool_name}`);
+          }
+        } catch {
+          /* ignore parse errors */
         }
-        break;
-
-      case "state":
-        console.error(`[state] ${msg.sid}: ${msg.d.state}`);
-        break;
+      }
+      lastSeq = r.seq;
     }
   };
 
-  // Keep running until Ctrl+C
+  // Initial drain, then poll.
+  tick();
+  const timer = setInterval(tick, 500);
+
   process.on("SIGINT", () => {
-    ws.close();
+    clearInterval(timer);
+    daemon.close();
     process.exit(0);
   });
-}
-
-function printRecord(rec: WsRec): void {
-  const ts = new Date(rec.ts).toISOString().slice(11, 23);
-  const kind = rec.k.padEnd(5);
-
-  if (rec.k === "io") {
-    // Decode and print raw PTY output
-    try {
-      const text = Buffer.from(rec.d, "base64").toString("utf-8");
-      process.stdout.write(text);
-    } catch {
-      console.log(`[${ts}] ${kind} <binary>`);
-    }
-  } else if (rec.k === "event") {
-    try {
-      const event = JSON.parse(Buffer.from(rec.d, "base64").toString("utf-8"));
-      const name = event.hook_event_name ?? event.name ?? "unknown";
-      console.error(`\n[${ts}] event ${name}`);
-      if (event.last_assistant_message) {
-        console.error(`  → ${event.last_assistant_message.slice(0, 200)}`);
-      }
-      if (event.tool_name) {
-        console.error(`  tool: ${event.tool_name}`);
-      }
-    } catch {
-      console.error(`[${ts}] event <parse error>`);
-    }
-  } else {
-    console.error(`[${ts}] ${kind} seq=${rec.seq}`);
-  }
 }

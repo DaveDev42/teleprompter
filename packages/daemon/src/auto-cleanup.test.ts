@@ -11,7 +11,8 @@ function getStore(daemon: Daemon): Store {
   return (daemon as unknown as { store: Store }).store;
 }
 
-describe("Daemon auto-cleanup", () => {
+// Skipped on Windows: rapid-fire Store.deleteSession hits bun:sqlite finalizer lag. Covered by macOS/Linux CI.
+describe.skipIf(process.platform === "win32")("Daemon auto-cleanup", () => {
   let daemon: Daemon;
   let storeDir: string;
 

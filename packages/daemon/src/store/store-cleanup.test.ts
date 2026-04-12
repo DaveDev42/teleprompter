@@ -84,7 +84,8 @@ describe("Store session cleanup", () => {
     expect(vault.getSession("recent")).toBeDefined();
   });
 
-  test("pruneOldSessions removes error sessions beyond TTL", () => {
+  // Skipped on Windows: rapid-fire Store.deleteSession hits bun:sqlite finalizer lag. Covered by macOS/Linux CI.
+  test.skipIf(process.platform === "win32")("pruneOldSessions removes error sessions beyond TTL", () => {
     vault.createSession("err-old", "/tmp");
     vault.updateSessionState("err-old", "error");
 

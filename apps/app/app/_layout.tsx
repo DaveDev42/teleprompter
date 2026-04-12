@@ -6,11 +6,9 @@ import { useColorScheme, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { InAppToast } from "../src/components/InAppToast";
 import { UpdateBanner } from "../src/components/UpdateBanner";
-import { useDaemon } from "../src/hooks/use-daemon";
 import { useOtaUpdate } from "../src/hooks/use-ota-update";
 import { usePushNotifications } from "../src/hooks/use-push-notifications";
 import { useRelay } from "../src/hooks/use-relay";
-import { secureDelete } from "../src/lib/secure-storage";
 import { usePairingStore } from "../src/stores/pairing-store";
 import { useSettingsStore } from "../src/stores/settings-store";
 import { useThemeStore } from "../src/stores/theme-store";
@@ -32,8 +30,6 @@ export default function RootLayout() {
     loadSettings();
     loadTheme();
     loadVoice();
-    // One-time cleanup: remove stale daemon_url from removed connection-store
-    secureDelete("daemon_url");
   }, [loadVoice, loadPairings, loadTheme, loadSettings]);
 
   // Re-resolve theme when system color scheme changes
@@ -42,10 +38,6 @@ export default function RootLayout() {
       setTheme("system");
     }
   }, [theme, setTheme]);
-
-  // Direct WebSocket to local daemon (always active for E2E and local dev)
-  // In production mobile, getTransport() prefers relay when paired
-  useDaemon();
 
   // E2EE relay connections for all paired daemons
   useRelay();

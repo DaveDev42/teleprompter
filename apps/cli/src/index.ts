@@ -28,15 +28,33 @@ const SUBCOMMANDS = new Set([
   "version",
 ]);
 
-// Background version check (non-blocking, only for passthrough mode)
-if (
+// Background version check (non-blocking).
+// Skip in passthrough AND `run` modes — PTY owns the terminal and stray
+// stderr corrupts the display. Other subcommands (status, doctor, etc.)
+// are skipped because they print machine-readable output.
+const isPassthrough =
   !SUBCOMMANDS.has(command ?? "") &&
   !CLAUDE_UTILITY_SUBCOMMANDS.has(command ?? "") &&
   command !== "--" &&
   command !== "--help" &&
   command !== "-h" &&
-  command !== undefined
-) {
+  command !== undefined;
+
+// Skip in passthrough (PTY owns terminal), run (runner child), version
+// (machine-readable), --help/--/undefined, and claude utility forwards.
+const skipVersionCheck =
+  isPassthrough ||
+  command === "run" ||
+  command === "version" ||
+  command === "--version" ||
+  command === "-v" ||
+  command === "--" ||
+  command === "--help" ||
+  command === "-h" ||
+  command === undefined ||
+  CLAUDE_UTILITY_SUBCOMMANDS.has(command);
+
+if (!skipVersionCheck) {
   checkForUpdates().then((newVersion) => {
     if (newVersion) {
       console.error(

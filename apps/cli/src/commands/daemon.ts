@@ -35,13 +35,11 @@ export async function daemonCommand(argv: string[]): Promise<void> {
       sid: { type: "string" },
       cwd: { type: "string" },
       "worktree-path": { type: "string" },
-      "ws-port": { type: "string", default: "7080" },
       "repo-root": { type: "string" },
       "relay-url": { type: "string" },
       "relay-token": { type: "string" },
       "daemon-id": { type: "string" },
       "frontend-pubkey": { type: "string" },
-      "web-dir": { type: "string" },
       "prune-ttl": { type: "string" },
       "no-prune": { type: "boolean", default: false },
       verbose: { type: "boolean", default: false },
@@ -61,9 +59,6 @@ export async function daemonCommand(argv: string[]): Promise<void> {
   const daemon = new Daemon();
   const socketPath = daemon.start();
 
-  const wsPort = parseInt(values["ws-port"] as string, 10);
-  daemon.startWs(wsPort);
-
   // Start auto-cleanup (prune on startup + every 24h)
   if (!values["no-prune"]) {
     const parsed = values["prune-ttl"]
@@ -72,12 +67,6 @@ export async function daemonCommand(argv: string[]): Promise<void> {
     const ttlDays =
       parsed !== undefined && Number.isNaN(parsed) ? undefined : parsed;
     daemon.startAutoCleanup(ttlDays);
-  }
-
-  // Serve frontend web build if specified
-  if (values["web-dir"]) {
-    daemon.setWebDir(values["web-dir"] as string);
-    console.log(`[Daemon] serving frontend from ${values["web-dir"]}`);
   }
 
   // Enable worktree management if repo root is specified

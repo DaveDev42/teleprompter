@@ -30,14 +30,12 @@ describe("passthrough arg splitting", () => {
       "s1",
       "--tp-cwd",
       "/tmp",
-      "--tp-ws-port",
-      "9090",
       "-p",
       "fix bug",
       "--model",
       "sonnet",
     ]);
-    expect(tpArgs).toEqual({ sid: "s1", cwd: "/tmp", wsPort: "9090" });
+    expect(tpArgs).toEqual({ sid: "s1", cwd: "/tmp" });
     expect(claudeArgs).toEqual(["-p", "fix bug", "--model", "sonnet"]);
   });
 
@@ -45,6 +43,5 @@ describe("passthrough arg splitting", () => {
     const { tpArgs } = splitArgs(["-p", "hello"]);
     expect(tpArgs.sid).toBeUndefined();
     expect(tpArgs.cwd).toBeUndefined();
-    expect(tpArgs.wsPort).toBeUndefined();
   });
 });

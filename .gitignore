@@ -40,3 +40,6 @@ test-results/
 .claude/settings.local.json
 .claude.local.md
 .claude/scheduled_tasks.lock
+
+# Superpowers planning artifacts (local-only workflow scratch)
+docs/superpowers/

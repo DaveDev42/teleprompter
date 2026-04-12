@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { SessionDb } from "./session-db";
+import { rmRetry } from "./test-helpers";
 
 describe("SessionDb", () => {
   let db: SessionDb;
@@ -15,7 +16,7 @@ describe("SessionDb", () => {
 
   afterEach(async () => {
     db.close();
-    await rm(tmpDir, { recursive: true, force: true });
+    rmRetry(tmpDir);
   });
 
   test("starts with lastSeq = 0", () => {

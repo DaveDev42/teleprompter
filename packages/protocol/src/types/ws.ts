@@ -1,3 +1,6 @@
+// TODO: rename Ws-prefixed types (WsRec, WsSessionMeta, WsClientMessage,
+// WsServerMessage) — they're now shared protocol types, not WS-transport-specific.
+// Deferred from the direct-WS removal PR to keep scope bounded.
 import type { Namespace, RecordKind } from "./record";
 
 // ── Session metadata sent over WS ──

@@ -26,10 +26,10 @@ describe("splitArgs", () => {
     expect(result.claudeArgs).toEqual(["-p", "hello"]);
   });
 
-  test("--tp-ws-port is extracted", () => {
+  test("--tp-ws-port is no longer recognized (passed to claude)", () => {
     const result = splitArgs(["--tp-ws-port", "9090", "-p", "hello"]);
-    expect(result.tpArgs.wsPort).toBe("9090");
-    expect(result.claudeArgs).toEqual(["-p", "hello"]);
+    expect(result.tpArgs).toEqual({});
+    expect(result.claudeArgs).toEqual(["--tp-ws-port", "9090", "-p", "hello"]);
   });
 
   test("multiple --tp-* flags mixed with claude args", () => {
@@ -42,13 +42,10 @@ describe("splitArgs", () => {
       "/tmp",
       "--model",
       "opus",
-      "--tp-ws-port",
-      "8080",
     ]);
     expect(result.tpArgs).toEqual({
       sid: "s1",
       cwd: "/tmp",
-      wsPort: "8080",
     });
     expect(result.claudeArgs).toEqual(["-p", "hello", "--model", "opus"]);
   });

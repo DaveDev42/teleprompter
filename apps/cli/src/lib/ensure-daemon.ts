@@ -1,3 +1,4 @@
+import { getSocketPath } from "@teleprompter/protocol";
 import { spawn } from "child_process";
 import { existsSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
@@ -21,39 +22,37 @@ const HINT_FILE = join(
 );
 
 /**
+ * Check whether the background daemon is running by probing its IPC socket.
+ */
+export async function isDaemonRunning(): Promise<boolean> {
+  return existsSync(getSocketPath());
+}
+
+/**
  * Ensure daemon is running. If not, try to start it:
  * 1. If OS service is installed → kickstart it
  * 2. Otherwise → spawn in background + show install hint once
- * Returns when the daemon WS is reachable.
+ * Returns true when the daemon IPC socket is reachable.
  */
-export async function ensureDaemon(port = 7080): Promise<boolean> {
-  // Already running — fast path
-  if (await isDaemonRunning(port)) return true;
+export async function ensureDaemon(): Promise<boolean> {
+  if (await isDaemonRunning()) return true;
 
   const stop = spinner("Starting daemon...");
 
   // Try kickstarting the OS service if installed
   if (await tryKickstartService()) {
-    // Wait for service to come up
     for (let i = 0; i < 20; i++) {
       await new Promise((r) => setTimeout(r, 500));
-      if (await isDaemonRunning(port)) {
-        stop(ok(`Daemon started via system service (port ${port})`));
+      if (await isDaemonRunning()) {
+        stop(ok(`Daemon started via system service`));
         return true;
       }
     }
-    // Service failed to start — fall through to manual spawn
+    // fall through to manual spawn
   }
 
   // Spawn daemon in background
-  const args = [
-    "run",
-    "apps/cli/src/index.ts",
-    "daemon",
-    "start",
-    "--ws-port",
-    String(port),
-  ];
+  const args = ["run", "apps/cli/src/index.ts", "daemon", "start"];
 
   const proc = spawn("bun", args, {
     stdio: "ignore",
@@ -62,11 +61,10 @@ export async function ensureDaemon(port = 7080): Promise<boolean> {
   });
   proc.unref();
 
-  // Wait for daemon to become reachable
   for (let i = 0; i < 20; i++) {
     await new Promise((r) => setTimeout(r, 500));
-    if (await isDaemonRunning(port)) {
-      stop(ok(`Daemon started (pid=${proc.pid}, port=${port})`));
+    if (await isDaemonRunning()) {
+      stop(ok(`Daemon started (pid=${proc.pid})`));
       await showInstallHint();
       return true;
     }
@@ -80,26 +78,6 @@ export async function ensureDaemon(port = 7080): Promise<boolean> {
     ]),
   );
   return false;
-}
-
-async function isDaemonRunning(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const ws = new WebSocket(`ws://localhost:${port}`);
-    const timer = setTimeout(() => {
-      ws.close();
-      resolve(false);
-    }, 1500);
-
-    ws.onopen = () => {
-      clearTimeout(timer);
-      ws.close();
-      resolve(true);
-    };
-    ws.onerror = () => {
-      clearTimeout(timer);
-      resolve(false);
-    };
-  });
 }
 
 /**
@@ -117,8 +95,6 @@ async function tryKickstartService(): Promise<boolean> {
 
     const uid = process.getuid?.() ?? 501;
     const label = getServiceLabel();
-    // No -k flag: plain kickstart is a no-op if already running,
-    // avoiding accidental kill of an active daemon during slow startup.
     Bun.spawnSync(["launchctl", "kickstart", `gui/${uid}/${label}`]);
     return true;
   }
@@ -152,7 +128,6 @@ async function tryKickstartService(): Promise<boolean> {
 async function showInstallHint(): Promise<void> {
   if (existsSync(HINT_FILE)) return;
 
-  // Check if already installed as service
   const os = platform();
   if (os === "darwin") {
     const { isServiceInstalled } = await import("./service-darwin");
@@ -169,7 +144,6 @@ async function showInstallHint(): Promise<void> {
     dim("Tip: Run 'tp daemon install' to start tp automatically on login."),
   );
 
-  // Mark hint as shown
   try {
     const dir = join(
       process.platform === "win32"

@@ -1,65 +1,52 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Daemon, SessionManager } from "@teleprompter/daemon";
-import type { WsServerMessage } from "@teleprompter/protocol";
+import { mkdtempSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { Daemon } from "@teleprompter/daemon";
 
-describe("tp status", () => {
-  let daemon: Daemon;
-  let wsPort: number;
+describe("tp status (store-backed)", () => {
+  let storeDir: string;
 
   beforeEach(() => {
-    SessionManager.setRunnerCommand(["true"]);
-    daemon = new Daemon();
-    daemon.start();
-    daemon.startWs(0);
-    const port = daemon.wsPort;
-    if (!port) throw new Error("expected wsPort");
-    wsPort = port;
+    storeDir = mkdtempSync(join(tmpdir(), "tp-status-test-"));
   });
 
   afterEach(() => {
-    daemon.stop();
+    rmSync(storeDir, { recursive: true, force: true });
   });
 
-  /** Connect to daemon WS and get the hello response */
-  async function getDaemonStatus(): Promise<WsServerMessage & { t: "hello" }> {
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(`ws://localhost:${wsPort}`);
-      const timeout = setTimeout(() => {
-        ws.close();
-        reject(new Error("Timeout connecting to daemon"));
-      }, 3000);
-
-      ws.onopen = () => ws.send(JSON.stringify({ t: "hello", v: 1 }));
-      ws.onmessage = (event) => {
-        clearTimeout(timeout);
-        const msg = JSON.parse(event.data as string);
-        if (msg.t === "hello") {
-          ws.close();
-          resolve(msg);
-        }
-      };
-      ws.onerror = () => {
-        clearTimeout(timeout);
-        reject(new Error("WS error"));
-      };
-    });
-  }
-
-  test("returns hello with sessions array", async () => {
-    const msg = await getDaemonStatus();
-    expect(msg.t).toBe("hello");
-    expect(msg.d).toBeDefined();
-    expect(msg.d.sessions).toBeArray();
+  test("listSessions returns an array on a fresh store", () => {
+    const daemon = new Daemon(storeDir);
+    const sessions = daemon.listSessions();
+    expect(Array.isArray(sessions)).toBe(true);
+    expect(sessions.length).toBe(0);
+    daemon.close();
   });
 
-  test("sessions have expected fields", async () => {
-    const msg = await getDaemonStatus();
-    // Sessions from store may exist from previous test runs
-    if (msg.d.sessions.length > 0) {
-      const session = msg.d.sessions[0];
-      expect(session.sid).toBeString();
-      expect(session.state).toBeString();
-      expect(typeof session.lastSeq).toBe("number");
-    }
+  test("listSessions reflects a seeded session", () => {
+    // Seed via one Daemon instance, then read via another, simulating the
+    // CLI reading the store while another daemon wrote to it.
+    const seed = new Daemon(storeDir);
+    // Access the store through a second path: create a session via the
+    // internal Store by triggering createSession on the Daemon's handleHello
+    // path requires IPC. Instead, use the exposed Store directly.
+    // The Daemon constructor already owns a Store; poke it via listSessions
+    // after inserting through the Store export.
+    seed.close();
+
+    // Reopen and seed via Store directly for a deterministic fixture.
+    const { Store } = require("@teleprompter/daemon") as typeof import("@teleprompter/daemon");
+    const store = new Store(storeDir);
+    store.createSession("test-sid", "/tmp/some-cwd");
+    store.close();
+
+    const daemon = new Daemon(storeDir);
+    const sessions = daemon.listSessions();
+    expect(sessions.length).toBe(1);
+    const s = sessions[0];
+    expect(s.sid).toBe("test-sid");
+    expect(s.cwd).toBe("/tmp/some-cwd");
+    expect(typeof s.last_seq).toBe("number");
+    daemon.close();
   });
 });

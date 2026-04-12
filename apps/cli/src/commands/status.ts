@@ -1,63 +1,39 @@
-import type { WsServerMessage, WsSessionMeta } from "@teleprompter/protocol";
+import { existsSync } from "fs";
+import { Daemon, type SessionMeta } from "@teleprompter/daemon";
+import { getSocketPath } from "@teleprompter/protocol";
 import { dim, green, red } from "../lib/colors";
-import { ensureDaemon } from "../lib/ensure-daemon";
-import { errorWithHints } from "../lib/format";
 
 /**
  * tp status — shows the current daemon state.
- * Auto-starts daemon if not running.
+ *
+ * Reads the Store directly (the Store is the source of truth regardless of
+ * whether the background daemon is currently running). Also reports whether
+ * the daemon IPC socket is live.
  */
-export async function statusCommand(argv: string[]): Promise<void> {
-  const port = parseInt(argv[0] ?? "7080", 10);
-  const url = `ws://localhost:${port}`;
+export async function statusCommand(_argv: string[]): Promise<void> {
+  const socketPath = getSocketPath();
+  const backgroundRunning = existsSync(socketPath);
 
-  const running = await ensureDaemon(port);
-  if (!running) {
-    process.exit(1);
-  }
+  const daemon = new Daemon();
+  const sessions = daemon.listSessions();
+  daemon.close();
 
-  const ws = new WebSocket(url);
-
-  const timeout = setTimeout(() => {
-    console.error(
-      errorWithHints(`Cannot reach daemon on port ${port}.`, [
-        "Daemon may have crashed. Run: tp daemon start --verbose",
-        "Diagnose: tp doctor",
-      ]),
-    );
-    process.exit(1);
-  }, 5000);
-
-  ws.onopen = () => {
-    ws.send(JSON.stringify({ t: "hello", v: 1 }));
-  };
-
-  ws.onerror = () => {
-    clearTimeout(timeout);
-    console.error(
-      errorWithHints(`Cannot connect to daemon at ${url}.`, [
-        "Start daemon: tp daemon start",
-        `Check port: lsof -i :${port}`,
-      ]),
-    );
-    process.exit(1);
-  };
-
-  ws.onmessage = (event) => {
-    clearTimeout(timeout);
-    const msg: WsServerMessage = JSON.parse(event.data as string);
-    if (msg.t === "hello") {
-      displayStatus(msg.d.sessions);
-      ws.close();
-      process.exit(0);
-    }
-  };
+  displayStatus(sessions, backgroundRunning);
+  process.exit(0);
 }
 
-function displayStatus(sessions: WsSessionMeta[]): void {
+function displayStatus(
+  sessions: SessionMeta[],
+  backgroundRunning: boolean,
+): void {
   console.log("");
   console.log(`Daemon Status`);
   console.log(`─────────────`);
+  console.log(
+    `Background daemon: ${
+      backgroundRunning ? green("running") : dim("not running")
+    }`,
+  );
   console.log(`Sessions: ${sessions.length}`);
   console.log("");
 
@@ -70,9 +46,9 @@ function displayStatus(sessions: WsSessionMeta[]): void {
     return;
   }
 
-  const groups = new Map<string, WsSessionMeta[]>();
+  const groups = new Map<string, SessionMeta[]>();
   for (const s of sessions) {
-    const key = s.worktreePath ?? s.cwd;
+    const key = s.worktree_path ?? s.cwd;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)?.push(s);
   }
@@ -87,11 +63,11 @@ function displayStatus(sessions: WsSessionMeta[]): void {
             ? dim("○")
             : red("✕");
 
-      console.log(`    ${indicator} ${s.sid}  seq=${s.lastSeq}  ${s.state}`);
-      if (s.claudeVersion) {
-        console.log(`      claude ${s.claudeVersion}`);
+      console.log(`    ${indicator} ${s.sid}  seq=${s.last_seq}  ${s.state}`);
+      if (s.claude_version) {
+        console.log(`      claude ${s.claude_version}`);
       }
-      const age = formatAge(Date.now() - s.updatedAt);
+      const age = formatAge(Date.now() - s.updated_at);
       console.log(`      updated ${age}`);
     }
     console.log("");

@@ -777,6 +777,31 @@ export class Daemon {
     return this.sessionManager.getRunner(sid);
   }
 
+  /** List all sessions known to the store. */
+  listSessions(): SessionMeta[] {
+    return this.store.listSessions();
+  }
+
+  /** Get a session's metadata by sid. */
+  getSession(sid: string): SessionMeta | undefined {
+    return this.store.getSession(sid);
+  }
+
+  /**
+   * Get stored records for a session with seq > afterSeq.
+   * Returns empty array if the session is unknown.
+   */
+  getRecordsSince(sid: string, afterSeq = 0, limit = 1000): StoredRecord[] {
+    const db = this.store.getSessionDb(sid);
+    if (!db) return [];
+    return db.getRecordsFrom(afterSeq, limit);
+  }
+
+  /** Close the underlying store without tearing down IPC / relay state. */
+  close(): void {
+    this.store.close();
+  }
+
   stop(): void {
     // Kill all running sessions gracefully
     const runners = this.sessionManager.listRunners();

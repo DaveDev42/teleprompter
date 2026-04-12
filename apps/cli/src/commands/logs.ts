@@ -76,13 +76,15 @@ export async function logsCommand(argv: string[]): Promise<void> {
     }
   };
 
-  // Register SIGINT before the first tick so early interrupts are handled.
+  // Register signal handlers before the first tick so early interrupts are handled.
   let timer: ReturnType<typeof setInterval> | undefined;
-  process.on("SIGINT", () => {
+  const shutdown = () => {
     if (timer) clearInterval(timer);
     store.close();
     process.exit(0);
-  });
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 
   // Initial drain, then poll.
   tick();

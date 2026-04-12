@@ -92,10 +92,27 @@ export class SessionDb {
     return row.last_seq ?? 0;
   }
 
+  /**
+   * Test-only: clear all records, reset the autoincrement sequence, and
+   * truncate the WAL. Designed for shared-fixture test blocks that reuse a
+   * single `SessionDb` across tests to avoid per-test open/close churn
+   * (especially costly on Windows where `bun:sqlite` finalizers lag).
+   */
+  resetForTest(): void {
+    this.db.run("DELETE FROM records");
+    this.db.run("DELETE FROM sqlite_sequence WHERE name='records'");
+    try {
+      this.db.run("PRAGMA wal_checkpoint(TRUNCATE);");
+    } catch {
+      // Benign: checkpoint can fail if WAL is already truncated or locked.
+    }
+  }
+
   close(): void {
-    // Checkpoint and truncate WAL so the -wal/-shm sidecar files are
-    // released. Without this, Windows keeps an exclusive handle on the
-    // sidecars and subsequent `rm` fails with EBUSY.
+    // Checkpoint and truncate WAL so it is emptied before close, letting
+    // Windows release the -wal/-shm handles cleanly. Without this, Windows
+    // keeps an exclusive handle on the sidecars and subsequent `rm` fails
+    // with EBUSY.
     try {
       this.db.run("PRAGMA wal_checkpoint(TRUNCATE);");
     } catch {

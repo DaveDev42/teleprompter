@@ -6,7 +6,7 @@ import { join } from "path";
 
 /** Windows-safe rm: retries on EBUSY (SQLite WAL handles). */
 function rmRetry(path: string): void {
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 6; attempt++) {
     try {
       rmSync(path, { recursive: true, force: true });
       return;
@@ -14,7 +14,10 @@ function rmRetry(path: string): void {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === "ENOENT") return;
       if (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY") {
-        Bun.sleepSync(50);
+        if (process.platform === "win32") {
+          Bun.gc(true);
+        }
+        Bun.sleepSync(25 * 2 ** attempt);
         continue;
       }
       throw err;

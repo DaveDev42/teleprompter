@@ -102,5 +102,10 @@ export class SessionDb {
       // Ignore — checkpoint may fail if another connection holds the db.
     }
     this.db.close();
+    // Trigger finalization of the underlying sqlite handle on Windows,
+    // where GC-driven cleanup otherwise lingers for many seconds.
+    if (process.platform === "win32") {
+      Bun.gc(true);
+    }
   }
 }

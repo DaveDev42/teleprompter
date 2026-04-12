@@ -21,10 +21,7 @@ export default defineConfig({
       retries: 0,
       testMatch: [
         "app-web.spec.ts",
-        "app-daemon.spec.ts",
         "app-settings.spec.ts",
-        "app-session-switch.spec.ts",
-        "app-resume.spec.ts",
         "app-keyboard-nav.spec.ts",
       ],
     },

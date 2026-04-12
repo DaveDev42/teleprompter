@@ -123,28 +123,31 @@ describe.skipIf(process.platform === "win32")("Daemon auto-cleanup", () => {
 // Windows-only smoke: verifies the auto-cleanup timer wiring on the platform
 // where the full suite is skipped, without exercising the slow deleteSession
 // path. No sessions created → prune is a no-op → no finalizer lag.
-describe.skipIf(process.platform !== "win32")("Daemon auto-cleanup (win smoke)", () => {
-  let daemon: Daemon;
-  let storeDir: string;
+describe.skipIf(process.platform !== "win32")(
+  "Daemon auto-cleanup (win smoke)",
+  () => {
+    let daemon: Daemon;
+    let storeDir: string;
 
-  beforeEach(async () => {
-    storeDir = await mkdtemp(join(tmpdir(), "tp-daemon-cleanup-win-"));
-    daemon = new Daemon(storeDir);
-  });
+    beforeEach(async () => {
+      storeDir = await mkdtemp(join(tmpdir(), "tp-daemon-cleanup-win-"));
+      daemon = new Daemon(storeDir);
+    });
 
-  afterEach(async () => {
-    daemon.stop();
-    await rmRetry(storeDir);
-  });
+    afterEach(async () => {
+      daemon.stop();
+      await rmRetry(storeDir);
+    });
 
-  test("startAutoCleanup + stop() wire and tear down the timer", () => {
-    daemon.startAutoCleanup(7);
-    const withTimer = daemon as unknown as {
-      pruneTimer: ReturnType<typeof setInterval> | null;
-    };
-    expect(withTimer.pruneTimer).not.toBeNull();
+    test("startAutoCleanup + stop() wire and tear down the timer", () => {
+      daemon.startAutoCleanup(7);
+      const withTimer = daemon as unknown as {
+        pruneTimer: ReturnType<typeof setInterval> | null;
+      };
+      expect(withTimer.pruneTimer).not.toBeNull();
 
-    daemon.stop();
-    expect(withTimer.pruneTimer).toBeNull();
-  });
-});
+      daemon.stop();
+      expect(withTimer.pruneTimer).toBeNull();
+    });
+  },
+);

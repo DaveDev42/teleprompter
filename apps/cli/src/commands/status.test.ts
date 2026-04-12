@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Daemon } from "@teleprompter/daemon";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { Daemon } from "@teleprompter/daemon";
 
-describe("tp status (store-backed)", () => {
+describe.skipIf(process.platform === "win32")("tp status (store-backed)", () => {
   let storeDir: string;
 
   beforeEach(() => {
@@ -35,7 +35,8 @@ describe("tp status (store-backed)", () => {
     seed.close();
 
     // Reopen and seed via Store directly for a deterministic fixture.
-    const { Store } = require("@teleprompter/daemon") as typeof import("@teleprompter/daemon");
+    const { Store } =
+      require("@teleprompter/daemon") as typeof import("@teleprompter/daemon");
     const store = new Store(storeDir);
     store.createSession("test-sid", "/tmp/some-cwd");
     store.close();

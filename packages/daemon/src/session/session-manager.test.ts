@@ -75,13 +75,16 @@ describe("SessionManager", () => {
     expect(sm.killRunner("s1")).toBe(false);
   });
 
-  test("spawnRunner forwards env option to subprocess", () => {
-    const mgr = new SessionManager();
-    SessionManager.setRunnerCommand(["true"]); // no-op command
-    const proc = mgr.spawnRunner("env-test-sid", "/tmp", {
-      env: { FOO: "bar" },
-    });
-    expect(proc.pid).toBeGreaterThan(0);
-    proc.kill();
-  });
+  test.skipIf(process.platform === "win32")(
+    "spawnRunner forwards env option to subprocess",
+    () => {
+      const mgr = new SessionManager();
+      SessionManager.setRunnerCommand(["true"]); // no-op command
+      const proc = mgr.spawnRunner("env-test-sid", "/tmp", {
+        env: { FOO: "bar" },
+      });
+      expect(proc.pid).toBeGreaterThan(0);
+      proc.kill();
+    },
+  );
 });

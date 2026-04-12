@@ -1,6 +1,6 @@
-import { existsSync } from "fs";
 import { Daemon, type SessionMeta } from "@teleprompter/daemon";
 import { getSocketPath } from "@teleprompter/protocol";
+import { existsSync } from "fs";
 import { dim, green, red } from "../lib/colors";
 
 /**

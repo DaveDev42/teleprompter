@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync } from "fs";
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Store } from "./store";
-import { backdateSession } from "./test-helpers";
+import { backdateSession, rmRetry } from "./test-helpers";
 
 describe("Store session cleanup", () => {
   let vault: Store;
@@ -17,7 +17,7 @@ describe("Store session cleanup", () => {
 
   afterEach(async () => {
     vault.close();
-    await rm(storeDir, { recursive: true, force: true });
+    rmRetry(storeDir);
   });
 
   test("deleteSession removes metadata and db file", () => {

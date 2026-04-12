@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Daemon } from "./daemon";
+import { rmRetry } from "./store/test-helpers";
 
 describe("Daemon passthrough helpers", () => {
   let storeDir: string;
@@ -15,7 +16,7 @@ describe("Daemon passthrough helpers", () => {
 
   afterEach(() => {
     daemon.stop();
-    rmSync(storeDir, { recursive: true, force: true });
+    rmRetry(storeDir);
   });
 
   test("onRecord callback is a nullable public property", () => {

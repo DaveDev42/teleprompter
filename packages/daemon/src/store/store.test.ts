@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Store } from "./store";
+import { rmRetry } from "./test-helpers";
 
 describe("Store", () => {
   let storeDir: string;
@@ -18,7 +19,7 @@ describe("Store", () => {
 
   afterEach(() => {
     vault.close();
-    rmSync(storeDir, { recursive: true, force: true });
+    rmRetry(storeDir);
   });
 
   test("createSession and getSession", () => {

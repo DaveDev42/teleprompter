@@ -125,21 +125,19 @@ describe("Store (shared fixture)", () => {
 describe("Store (isolated)", () => {
   test("getSessionDb reopens existing db", () => {
     const storeDir = mkdtempSync(join(tmpdir(), "tp-vault-reopen-"));
-    let vault: Store | undefined = new Store(storeDir);
+    const first = new Store(storeDir);
+    const firstDb = first.createSession("s9", "/tmp");
+    firstDb.append("io", Date.now(), new TextEncoder().encode("data"));
+    first.close();
+
+    const second = new Store(storeDir);
     try {
-      const db = vault.createSession("s9", "/tmp");
-      db.append("io", Date.now(), new TextEncoder().encode("data"));
-
-      vault.close();
-      vault = undefined;
-      vault = new Store(storeDir);
-
-      const db2 = vault.getSessionDb("s9");
+      const db2 = second.getSessionDb("s9");
       if (!db2) throw new Error("expected db2");
       const records = db2.getRecordsFrom(0);
       expect(records.length).toBe(1);
     } finally {
-      vault?.close();
+      second.close();
       rmRetry(storeDir);
     }
   });

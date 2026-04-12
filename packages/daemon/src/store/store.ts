@@ -274,22 +274,48 @@ export class Store {
    * should still prefer unique sids per test as defense in depth.
    */
   resetForTest(): void {
+    const hadOpenDbs = this.sessionDbs.size > 0;
     for (const db of this.sessionDbs.values()) {
       db.close();
     }
     this.sessionDbs.clear();
     this.metaDb.run("DELETE FROM sessions");
     this.metaDb.run("DELETE FROM pairings");
+    // Keep the meta WAL from growing across long shared-fixture runs.
+    try {
+      this.metaDb.run("PRAGMA wal_checkpoint(TRUNCATE);");
+    } catch {
+      // Benign: checkpoint can fail if WAL is already truncated.
+    }
     // Sweep per-session files so later tests cannot observe stale data via
     // getSessionDb(sid) reopening an on-disk leftover.
     const sessionsDir = join(this.storeDir, "sessions");
-    if (process.platform === "win32") {
+    if (hadOpenDbs && process.platform === "win32") {
+      // Mirror deleteSession(): two GCs with a sleep between so bun:sqlite
+      // finalizers actually release OS handles before we unlink.
+      Bun.gc(true);
+      Bun.sleepSync(50);
       Bun.gc(true);
     }
-    try {
-      rmSync(sessionsDir, { recursive: true, force: true });
-    } catch {
-      // Best-effort: do not throw from test teardown.
+    // Retry on Windows EBUSY/EPERM — matches the budget of unlinkRetry.
+    const maxAttempts = 6;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        rmSync(sessionsDir, { recursive: true, force: true });
+        break;
+      } catch (err: unknown) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "ENOENT") break;
+        if (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY") {
+          if (process.platform === "win32") Bun.gc(true);
+          Bun.sleepSync(25 * 2 ** attempt);
+          if (attempt === maxAttempts - 1) {
+            log.warn(`resetForTest: failed to sweep ${sessionsDir} (${code})`);
+          }
+          continue;
+        }
+        throw err;
+      }
     }
     mkdirSync(sessionsDir, { recursive: true });
   }

@@ -20,30 +20,22 @@ describe("Store session cleanup", () => {
     rmRetry(storeDir);
   });
 
-  // Skipped on Windows: Bun `bun:sqlite` defers OS handle release to its GC
-  // finalizer, which Windows mandatory-locking makes user-visible as EBUSY
-  // on unlink. `Bun.gc(true)` + 6-attempt retry reduces but does not fully
-  // eliminate the lag for tests that chain multiple deleteSessions. Upstream
-  // issue; track re-enablement when Bun ships synchronous handle release.
-  test.skipIf(process.platform === "win32")(
-    "deleteSession removes metadata and db file",
-    () => {
-      vault.createSession("s1", "/tmp");
-      const db = vault.getSessionDb("s1");
-      db?.append("io", Date.now(), Buffer.from("test"));
+  test("deleteSession removes metadata and db file", () => {
+    vault.createSession("s1", "/tmp");
+    const db = vault.getSessionDb("s1");
+    db?.append("io", Date.now(), Buffer.from("test"));
 
-      expect(vault.getSession("s1")).toBeDefined();
-      const dbPath = join(storeDir, "sessions", "s1.sqlite");
-      expect(existsSync(dbPath)).toBe(true);
+    expect(vault.getSession("s1")).toBeDefined();
+    const dbPath = join(storeDir, "sessions", "s1.sqlite");
+    expect(existsSync(dbPath)).toBe(true);
 
-      vault.deleteSession("s1");
+    vault.deleteSession("s1");
 
-      expect(vault.getSession("s1")).toBeUndefined();
-      expect(existsSync(dbPath)).toBe(false);
-    },
-  );
+    expect(vault.getSession("s1")).toBeUndefined();
+    expect(existsSync(dbPath)).toBe(false);
+  });
 
-  test.skipIf(process.platform === "win32")(
+  test(
     "pruneOldSessions removes stopped sessions older than threshold",
     () => {
       // Create sessions with different ages

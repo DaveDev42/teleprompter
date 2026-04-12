@@ -31,12 +31,10 @@ const SUBCOMMANDS = [
 ];
 
 const DAEMON_FLAGS = [
-  "--ws-port",
   "--repo-root",
   "--relay-url",
   "--relay-token",
   "--daemon-id",
-  "--web-dir",
   "--prune",
   "--spawn",
   "--sid",

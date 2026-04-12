@@ -4,6 +4,9 @@ import { capture } from "../test-util";
 describe("tp completions", () => {
   test("bash completions include all subcommands", () => {
     const result = capture("bun run apps/cli/src/index.ts completions bash");
+    // Legacy WS flags must not appear (relay-only architecture)
+    expect(result).not.toContain("--ws-port");
+    expect(result).not.toContain("--web-dir");
     // tp subcommands
     expect(result).toContain("run");
     expect(result).toContain("daemon");

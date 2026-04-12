@@ -20,11 +20,12 @@ describe("Store session cleanup", () => {
     rmRetry(storeDir);
   });
 
-  // Skipped on Windows: Bun `bun:sqlite` defers OS handle release to its GC
-  // finalizer, which Windows mandatory-locking makes user-visible as EBUSY
-  // on unlink. `Bun.gc(true)` + 6-attempt retry reduces but does not fully
-  // eliminate the lag for tests that chain multiple deleteSessions. Upstream
-  // issue; track re-enablement when Bun ships synchronous handle release.
+  // Windows `bun:sqlite` holds the underlying OS file handle past
+  // `db.close()` until the next GC cycle actually runs the finalizer.
+  // `Bun.gc(true)` + a 6-attempt retry releases it in the common case,
+  // but on the Windows CI runner under load we still see all retries
+  // exhausted — the lock outlives any practical retry budget. Skipped
+  // until Bun ships synchronous handle release for sqlite.
   test.skipIf(process.platform === "win32")(
     "deleteSession removes metadata and db file",
     () => {
@@ -46,31 +47,25 @@ describe("Store session cleanup", () => {
   test.skipIf(process.platform === "win32")(
     "pruneOldSessions removes stopped sessions older than threshold",
     () => {
-      // Create sessions with different ages
       vault.createSession("old-1", "/tmp");
       vault.createSession("old-2", "/tmp");
       vault.createSession("new-1", "/tmp");
       vault.createSession("running-1", "/tmp");
 
-      // Mark old sessions as stopped and backdate
       vault.updateSessionState("old-1", "stopped");
       vault.updateSessionState("old-2", "error");
       vault.updateSessionState("new-1", "stopped");
-      // running-1 stays as "running"
 
-      // Backdate old sessions (simulate 2 hours ago)
       backdateSession(vault, "old-1", 2 * 60 * 60 * 1000);
       backdateSession(vault, "old-2", 2 * 60 * 60 * 1000);
 
-      // Prune sessions older than 1 hour
       const pruned = vault.pruneOldSessions(60 * 60 * 1000);
-      expect(pruned).toBe(2); // old-1 and old-2
+      expect(pruned).toBe(2);
 
-      // Verify
       expect(vault.getSession("old-1")).toBeUndefined();
       expect(vault.getSession("old-2")).toBeUndefined();
-      expect(vault.getSession("new-1")).toBeDefined(); // too recent
-      expect(vault.getSession("running-1")).toBeDefined(); // still running
+      expect(vault.getSession("new-1")).toBeDefined();
+      expect(vault.getSession("running-1")).toBeDefined();
     },
   );
 
@@ -93,7 +88,6 @@ describe("Store session cleanup", () => {
     vault.createSession("err-old", "/tmp");
     vault.updateSessionState("err-old", "error");
 
-    // Backdate to 8 days ago
     backdateSession(vault, "err-old", 8 * 24 * 60 * 60 * 1000);
 
     const pruned = vault.pruneOldSessions(7 * 24 * 60 * 60 * 1000);

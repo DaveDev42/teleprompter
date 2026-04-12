@@ -134,7 +134,12 @@ export class Store {
     // Force a synchronous GC so Bun's bun:sqlite finalizer releases the
     // underlying OS file handle before we try to unlink. On Windows this
     // is the difference between an immediate unlink and ~20s of EBUSY.
+    // Run twice with a brief pause: the first GC schedules the finalizer,
+    // the sleep lets the OS release the handle, the second GC sweeps any
+    // stragglers.
     if (process.platform === "win32") {
+      Bun.gc(true);
+      Bun.sleepSync(50);
       Bun.gc(true);
     }
 
@@ -152,7 +157,8 @@ export class Store {
     // db.close() returns. The caller should run Bun.gc(true) first to
     // trigger the finalizer; this retry is a safety net.
     // Budget: 25 + 50 + 100 + 200 + 400 + 800 = 1575 ms across 6 attempts,
-    // well below the default 5000 ms test timeout.
+    // keeps startAutoCleanup within the default 5000 ms test timeout when
+    // it walks several sessions at once.
     const maxAttempts = 6;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {

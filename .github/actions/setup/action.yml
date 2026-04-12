@@ -4,10 +4,12 @@ description: Install Bun, pnpm, Node, and dependencies (checkout must happen fir
 runs:
   using: composite
   steps:
-    - uses: actions/cache@v4
+    - name: Cache Bun binary
+      id: bun-cache
+      uses: actions/cache@v4
       with:
         path: ~/.bun
-        key: bun-${{ runner.os }}-1.3.12
+        key: bun-${{ runner.os }}-${{ runner.arch }}-1.3.12
     - uses: oven-sh/setup-bun@v2
       with:
         bun-version: "1.3.12"

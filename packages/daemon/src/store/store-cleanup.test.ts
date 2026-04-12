@@ -6,6 +6,12 @@ import { join } from "path";
 import { Store } from "./store";
 import { backdateSession, rmRetry } from "./test-helpers";
 
+// See store.test.ts / session-db.test.ts for rationale — bun:sqlite finalizer
+// lag on Windows CI makes file unlinks unreliable for tests that delete .sqlite
+// files while handles may still be held. These tests are Windows-skipped; the
+// remaining tests cover the happy paths that do not unlink per-session DBs.
+const skipOnWin = test.skipIf(process.platform === "win32");
+
 describe("Store session cleanup", () => {
   let vault: Store;
   let storeDir: string;
@@ -26,7 +32,7 @@ describe("Store session cleanup", () => {
   // but on the Windows CI runner under load we still see all retries
   // exhausted — the lock outlives any practical retry budget. Skipped
   // until Bun ships synchronous handle release for sqlite.
-  test.skipIf(process.platform === "win32")(
+  skipOnWin(
     "deleteSession removes metadata and db file",
     () => {
       vault.createSession("s1", "/tmp");
@@ -44,7 +50,7 @@ describe("Store session cleanup", () => {
     },
   );
 
-  test.skipIf(process.platform === "win32")(
+  skipOnWin(
     "pruneOldSessions removes stopped sessions older than threshold",
     () => {
       vault.createSession("old-1", "/tmp");
@@ -87,7 +93,7 @@ describe("Store session cleanup", () => {
   // Skipped on Windows CI: pruneOldSessions iterates deleteSession across
   // multiple sessions, which on Windows exhausts the unlinkRetry budget per
   // iteration due to bun:sqlite finalizer lag. Covered by macOS/Linux CI.
-  test.skipIf(process.platform === "win32")(
+  skipOnWin(
     "pruneOldSessions removes error sessions beyond TTL",
     () => {
       vault.createSession("err-old", "/tmp");

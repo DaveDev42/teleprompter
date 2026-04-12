@@ -160,14 +160,17 @@ export class Store {
     // keeps startAutoCleanup within the default 5000 ms test timeout when
     // it walks several sessions at once.
     const maxAttempts = 6;
+    let lastCode: string | undefined;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         unlinkSync(path);
         return;
       } catch (err: unknown) {
         const code = (err as NodeJS.ErrnoException).code;
+        lastCode = code;
         if (code === "ENOENT") return;
         if (code === "EBUSY" || code === "EPERM") {
+          if (attempt === maxAttempts - 1) break;
           if (process.platform === "win32") {
             Bun.gc(true);
           }
@@ -178,7 +181,7 @@ export class Store {
       }
     }
     log.warn(
-      `failed to delete ${path} after ${maxAttempts} retries (file locked)`,
+      `failed to delete ${path} after ${maxAttempts} retries (${lastCode ?? "locked"})`,
     );
   }
 
@@ -297,25 +300,35 @@ export class Store {
       Bun.sleepSync(50);
       Bun.gc(true);
     }
-    // Retry on Windows EBUSY/EPERM — matches the budget of unlinkRetry.
+    // Retry on Windows EBUSY/EPERM/ENOTEMPTY — matches unlinkRetry budget.
     const maxAttempts = 6;
+    let swept = false;
+    let lastCode: string | undefined;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         rmSync(sessionsDir, { recursive: true, force: true });
+        swept = true;
         break;
       } catch (err: unknown) {
         const code = (err as NodeJS.ErrnoException).code;
-        if (code === "ENOENT") break;
+        lastCode = code;
+        if (code === "ENOENT") {
+          swept = true;
+          break;
+        }
         if (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY") {
+          if (attempt === maxAttempts - 1) break;
           if (process.platform === "win32") Bun.gc(true);
           Bun.sleepSync(25 * 2 ** attempt);
-          if (attempt === maxAttempts - 1) {
-            log.warn(`resetForTest: failed to sweep ${sessionsDir} (${code})`);
-          }
           continue;
         }
         throw err;
       }
+    }
+    if (!swept) {
+      log.warn(
+        `resetForTest: failed to sweep ${sessionsDir} after ${maxAttempts} retries (${lastCode ?? "locked"})`,
+      );
     }
     mkdirSync(sessionsDir, { recursive: true });
   }

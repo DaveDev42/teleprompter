@@ -134,7 +134,12 @@ export class Store {
     // Force a synchronous GC so Bun's bun:sqlite finalizer releases the
     // underlying OS file handle before we try to unlink. On Windows this
     // is the difference between an immediate unlink and ~20s of EBUSY.
+    // Run twice with a brief pause: the first GC schedules the finalizer,
+    // the sleep lets the OS release the handle, the second GC sweeps any
+    // stragglers.
     if (process.platform === "win32") {
+      Bun.gc(true);
+      Bun.sleepSync(50);
       Bun.gc(true);
     }
 
@@ -151,9 +156,11 @@ export class Store {
     // Windows: Bun sqlite occasionally holds the WAL/SHM file handle after
     // db.close() returns. The caller should run Bun.gc(true) first to
     // trigger the finalizer; this retry is a safety net.
-    // Budget: 25 + 50 + 100 + 200 + 400 + 800 = 1575 ms across 6 attempts,
-    // well below the default 5000 ms test timeout.
-    const maxAttempts = 6;
+    // Budget on Windows: 50+100+200+400+800+1600+3200 = 6350 ms across 7
+    // attempts. Three files (db/wal/shm) can each spend this budget, so
+    // the worst case is ~19 s — within the 30 s Windows test timeout.
+    const maxAttempts = process.platform === "win32" ? 7 : 6;
+    const baseDelayMs = process.platform === "win32" ? 50 : 25;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         unlinkSync(path);
@@ -165,7 +172,7 @@ export class Store {
           if (process.platform === "win32") {
             Bun.gc(true);
           }
-          Bun.sleepSync(25 * 2 ** attempt);
+          Bun.sleepSync(baseDelayMs * 2 ** attempt);
           continue;
         }
         throw err;

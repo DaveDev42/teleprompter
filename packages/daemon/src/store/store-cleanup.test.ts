@@ -10,7 +10,7 @@ import { backdateSession, rmRetry } from "./test-helpers";
 // the subsequent `unlink` retry loop (`Store.unlinkRetry`) can legitimately
 // take several seconds per session on the Windows CI runner. Extend the
 // per-test timeout on Windows so slow-but-correct cleanup doesn't flake.
-const WIN_TIMEOUT = process.platform === "win32" ? 30_000 : 5_000;
+const WIN_TIMEOUT = process.platform === "win32" ? 60_000 : 5_000;
 
 describe("Store session cleanup", () => {
   let vault: Store;

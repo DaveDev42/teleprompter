@@ -1,16 +1,21 @@
 /**
  * Passthrough mode: `tp [--tp-*] <claude args>`
  *
- * Starts a daemon + runner in-process, spawning claude with all non-tp args.
- * This is the default mode when no subcommand is given.
+ * Runs claude via an in-process Daemon + Runner. PTY output pipes to
+ * the local terminal; stdin pipes to the runner. Background daemon (if
+ * installed as a service) is not affected — passthrough uses a temp IPC
+ * socket to avoid collision.
+ *
+ * On first run, shows a pairing QR and auto-installs the daemon service.
  */
 
 import { Daemon, SessionManager } from "@teleprompter/daemon";
-import { existsSync } from "fs";
+import { setLogLevel } from "@teleprompter/protocol";
+import { existsSync, unlinkSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { splitArgs } from "../args";
-import { bold, cyan } from "../lib/colors";
+import { bold, cyan, dim } from "../lib/colors";
 import { errorWithHints } from "../lib/format";
 import { resolveRunnerCommand } from "../spawn";
 
@@ -18,7 +23,7 @@ const CONFIG_DIR = join(process.env.HOME ?? "/tmp", ".config", "teleprompter");
 const INIT_MARKER = join(CONFIG_DIR, ".tp-initialized");
 
 export async function passthroughCommand(argv: string[]): Promise<void> {
-  // Check claude is available (spawnSync may not throw — check exitCode too)
+  // Check claude CLI exists
   const check = Bun.spawnSync(["claude", "--version"], {
     stdout: "pipe",
     stderr: "pipe",
@@ -33,78 +38,115 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // First-run welcome (non-blocking, shows once)
-  await showWelcomeOnce();
+  // First-run: pair + install daemon service
+  await showFirstRunPairing();
 
   const { tpArgs, claudeArgs } = splitArgs(argv);
-
   const sid = tpArgs.sid ?? `session-${Date.now()}`;
   const cwd = tpArgs.cwd ?? process.cwd();
-  const preferredPort = parseInt(tpArgs.wsPort ?? "7080", 10);
 
-  // Inject self-spawn runner command
+  // Silence all teleprompter logs — PTY owns the terminal.
+  process.env.LOG_LEVEL = "silent";
+  setLogLevel("silent");
+
   SessionManager.setRunnerCommand(resolveRunnerCommand());
 
+  // Temp IPC socket to avoid colliding with a background daemon service.
+  const tmpSocket = join(
+    process.env.TMPDIR ?? "/tmp",
+    `tp-passthrough-${process.pid}.sock`,
+  );
+
   const daemon = new Daemon();
-  const _socketPath = daemon.start();
+  daemon.start(tmpSocket);
 
-  // Try preferred port, then fall back to auto-assigned port
-  try {
-    daemon.startWs(preferredPort);
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    const msg = err instanceof Error ? err.message : String(err);
-    if (
-      code === "EADDRINUSE" ||
-      msg.includes("EADDRINUSE") ||
-      msg.includes("address already in use")
-    ) {
-      console.error(
-        `[tp] Port ${preferredPort} is in use, using auto-assigned port.`,
-      );
-      daemon.startWs(0);
-    } else {
-      throw err;
-    }
-  }
+  // Pipe runner PTY io records → local stdout
+  daemon.onRecord = (_sid, kind, payload) => {
+    if (kind === "io") process.stdout.write(payload);
+  };
 
-  // Spawn runner with claude args
-  daemon.createSession(sid, cwd, { claudeArgs });
+  const cols = process.stdout.columns || 120;
+  const rows = process.stdout.rows || 40;
+  daemon.createSession(sid, cwd, {
+    claudeArgs,
+    cols,
+    rows,
+    env: { LOG_LEVEL: "silent" },
+  });
 
-  function shutdown() {
+  // Pipe local stdin → runner PTY
+  if (process.stdin.isTTY) process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.on("data", (data: Buffer) => {
+    daemon.sendInput(sid, data);
+  });
+
+  // Forward terminal resize
+  process.stdout.on("resize", () => {
+    daemon.resizeSession(
+      sid,
+      process.stdout.columns || 120,
+      process.stdout.rows || 40,
+    );
+  });
+
+  const cleanup = () => {
+    if (process.stdin.isTTY) process.stdin.setRawMode(false);
     daemon.stop();
+    try {
+      unlinkSync(tmpSocket);
+    } catch {}
+  };
+
+  process.on("SIGINT", () => {
+    cleanup();
     process.exit(0);
-  }
+  });
+  process.on("SIGTERM", () => {
+    cleanup();
+    process.exit(0);
+  });
 
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
-
-  // Wait for the runner process to exit
   const runner = daemon.getRunner(sid);
   if (runner?.process) {
     const exitCode = await runner.process.exited;
-    daemon.stop();
+    cleanup();
     process.exit(exitCode);
   }
 }
 
-async function showWelcomeOnce(): Promise<void> {
-  if (existsSync(INIT_MARKER)) return;
+async function showFirstRunPairing(): Promise<void> {
+  const pairingFile = join(CONFIG_DIR, "pairing.json");
+  if (existsSync(pairingFile)) return;
 
-  const hasPairing = existsSync(join(CONFIG_DIR, "pairing.json"));
+  console.error(bold(cyan("Welcome to Teleprompter!")));
+  console.error("tp wraps Claude Code for remote session control.\n");
+  console.error(
+    "Scan this QR code with the Teleprompter app to connect your phone:",
+  );
+  console.error(dim("(Web: tpmt.dev · iOS: TestFlight · Android: Internal)"));
+  console.error("");
 
-  console.error(cyan("Welcome to Teleprompter!"));
-  console.error("tp wraps Claude Code for remote session control.");
-  if (!hasPairing) {
-    console.error(`To connect your phone: ${bold("tp pair")}`);
+  try {
+    const { pairCommand } = await import("./pair");
+    await pairCommand([]);
+  } catch {
+    console.error(dim("\nPairing skipped. Run `tp pair` later to connect."));
+  }
+
+  console.error("");
+  try {
+    const { installService } = await import("../lib/service");
+    await installService();
+  } catch {
+    console.error(
+      dim("Daemon service install skipped. Run `tp daemon install` manually."),
+    );
   }
   console.error("");
 
-  // Mark as shown
   try {
     await mkdir(CONFIG_DIR, { recursive: true });
     await writeFile(INIT_MARKER, new Date().toISOString());
-  } catch {
-    // Non-critical
-  }
+  } catch {}
 }

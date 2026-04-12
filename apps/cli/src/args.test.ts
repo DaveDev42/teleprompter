@@ -29,12 +29,7 @@ describe("splitArgs", () => {
   test("--tp-ws-port is no longer recognized (passed to claude)", () => {
     const result = splitArgs(["--tp-ws-port", "9090", "-p", "hello"]);
     expect(result.tpArgs).toEqual({});
-    expect(result.claudeArgs).toEqual([
-      "--tp-ws-port",
-      "9090",
-      "-p",
-      "hello",
-    ]);
+    expect(result.claudeArgs).toEqual(["--tp-ws-port", "9090", "-p", "hello"]);
   });
 
   test("multiple --tp-* flags mixed with claude args", () => {

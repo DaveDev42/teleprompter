@@ -45,9 +45,10 @@ export async function logsCommand(argv: string[]): Promise<void> {
   console.error(`Tailing session: ${sid} (seq=${session.last_seq})`);
   console.error("Press Ctrl+C to stop.\n");
 
+  const activeSid = sid;
   let lastSeq = 0;
   const tick = (): void => {
-    const db = store.getSessionDb(sid!);
+    const db = store.getSessionDb(activeSid);
     if (!db) return;
     const recs = db.getRecordsFrom(lastSeq, 1000);
     for (const r of recs) {

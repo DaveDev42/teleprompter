@@ -92,6 +92,12 @@ export class SessionDb {
     return row.last_seq ?? 0;
   }
 
+  /** Test-only: clear all records and reset the autoincrement sequence. */
+  resetForTest(): void {
+    this.db.run("DELETE FROM records");
+    this.db.run("DELETE FROM sqlite_sequence WHERE name='records'");
+  }
+
   close(): void {
     // Checkpoint and truncate WAL so the -wal/-shm sidecar files are
     // released. Without this, Windows keeps an exclusive handle on the

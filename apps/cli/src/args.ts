@@ -4,7 +4,6 @@
  * Supported --tp-* flags:
  *   --tp-sid <string>       Session ID
  *   --tp-cwd <string>       Working directory
- *   --tp-ws-port <string>   WebSocket port for daemon (default: "7080")
  *
  * Everything else is forwarded to claude as-is.
  *
@@ -17,7 +16,6 @@
 export interface TpArgs {
   sid?: string;
   cwd?: string;
-  wsPort?: string;
 }
 
 export interface SplitResult {
@@ -25,7 +23,7 @@ export interface SplitResult {
   claudeArgs: string[];
 }
 
-const TP_VALUE_FLAGS = new Set(["--tp-sid", "--tp-cwd", "--tp-ws-port"]);
+const TP_VALUE_FLAGS = new Set(["--tp-sid", "--tp-cwd"]);
 
 export function splitArgs(argv: string[]): SplitResult {
   const tpArgs: TpArgs = {};
@@ -41,7 +39,7 @@ export function splitArgs(argv: string[]): SplitResult {
         console.error(`Error: ${arg} requires a value.\n`);
         console.error(`Usage: tp ${arg} <value> [claude args...]`);
         console.error(
-          `Example: tp ${arg} ${arg === "--tp-sid" ? "my-session" : arg === "--tp-cwd" ? "/path/to/project" : "9090"} -p "hello"`,
+          `Example: tp ${arg} ${arg === "--tp-sid" ? "my-session" : "/path/to/project"} -p "hello"`,
         );
         process.exit(1);
       }
@@ -51,9 +49,6 @@ export function splitArgs(argv: string[]): SplitResult {
           break;
         case "--tp-cwd":
           tpArgs.cwd = value;
-          break;
-        case "--tp-ws-port":
-          tpArgs.wsPort = value;
           break;
       }
       i += 2;

@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { type ChildProcess, execSync, spawn } from "child_process";
+import { waitForDaemonReady } from "./lib/daemon-readiness";
 
 /**
  * P0: Session resume after daemon restart
@@ -19,8 +20,6 @@ function startDaemon(): ChildProcess {
       "apps/cli/src/index.ts",
       "daemon",
       "start",
-      "--ws-port",
-      "7080",
       "--spawn",
       "--sid",
       "resume-test",
@@ -32,17 +31,6 @@ function startDaemon(): ChildProcess {
       env: { ...process.env, LOG_LEVEL: "error" },
     },
   );
-}
-
-function waitForDaemonReady(proc: ChildProcess): Promise<void> {
-  return new Promise<void>((resolve) => {
-    let out = "";
-    proc.stderr?.on("data", (d) => {
-      out += d.toString();
-      if (out.includes("session created")) setTimeout(resolve, 2000);
-    });
-    setTimeout(resolve, 15000);
-  });
 }
 
 test.describe("P0 — Session Resume", () => {
@@ -61,7 +49,7 @@ test.describe("P0 — Session Resume", () => {
   test("app reconnects after daemon restart", async ({ page }) => {
     // 1. Start daemon
     daemon = startDaemon();
-    await waitForDaemonReady(daemon);
+    await waitForDaemonReady();
 
     // 2. App connects
     await page.setViewportSize({ width: 400, height: 800 });
@@ -83,7 +71,7 @@ test.describe("P0 — Session Resume", () => {
 
     // 4. Restart daemon
     daemon = startDaemon();
-    await waitForDaemonReady(daemon);
+    await waitForDaemonReady();
 
     // 5. App should auto-reconnect — session reappears
     await expect(page.locator("text=resume-test")).toBeVisible({

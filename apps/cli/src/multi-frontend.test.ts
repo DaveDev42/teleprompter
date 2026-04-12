@@ -43,7 +43,6 @@ describe("Multi-Frontend N:N E2E", () => {
 
     daemon = new Daemon(tmpDir);
     daemon.start(join(tmpDir, "daemon.sock"));
-    daemon.startWs(0);
   });
 
   afterEach(async () => {

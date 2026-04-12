@@ -20,6 +20,7 @@ export interface SpawnRunnerOptions {
   cols?: number;
   rows?: number;
   claudeArgs?: string[];
+  env?: Record<string, string>;
 }
 
 export class SessionManager {
@@ -107,6 +108,7 @@ export class SessionManager {
     const proc = Bun.spawn(args, {
       cwd,
       stdio: ["inherit", "inherit", "inherit"],
+      env: opts?.env ? { ...process.env, ...opts.env } : undefined,
     });
 
     // Track the spawned process

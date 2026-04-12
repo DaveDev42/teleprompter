@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { type ChildProcess, execSync, spawn } from "child_process";
+import { waitForDaemonReady } from "./lib/daemon-readiness";
 
 /**
  * P0 E2E: Full roundtrip verification
@@ -24,8 +25,6 @@ test.describe("P0 — Full Roundtrip", () => {
         "apps/cli/src/index.ts",
         "daemon",
         "start",
-        "--ws-port",
-        "7080",
         "--spawn",
         "--sid",
         "roundtrip",
@@ -38,33 +37,17 @@ test.describe("P0 — Full Roundtrip", () => {
       },
     );
 
+    await waitForDaemonReady();
     await new Promise<void>((resolve) => {
       let out = "";
+      const timeout = setTimeout(resolve, 15000);
       daemon.stderr?.on("data", (d) => {
         out += d.toString();
         if (out.includes("session created")) {
-          const ws = new WebSocket("ws://localhost:7080");
-          ws.onopen = () => ws.send(JSON.stringify({ t: "hello", v: 1 }));
-          ws.onmessage = (e) => {
-            const msg = JSON.parse(e.data as string);
-            if (
-              msg.t === "hello" &&
-              msg.d.sessions.some(
-                (s: { sid: string; state: string }) =>
-                  s.sid === "roundtrip" && s.state === "running",
-              )
-            ) {
-              ws.close();
-              resolve();
-            }
-          };
-          setTimeout(() => {
-            ws.close();
-            resolve();
-          }, 10000);
+          clearTimeout(timeout);
+          setTimeout(resolve, 2000);
         }
       });
-      setTimeout(resolve, 25000);
     });
   });
 

@@ -12,8 +12,8 @@ paths:
 - Base URL: `http://localhost:8081` (Expo web)
 
 ## CI vs Local
-- CI: `app-web`, `app-daemon`, `app-settings`, `app-session-switch`, `app-resume` — retries 없음
-- Local: 전체 테스트 + `app-relay-e2e`, `app-roundtrip`, `app-real-e2e`, `app-chat-roundtrip` — 1 retry
+- CI: `app-web`, `app-settings`, `app-keyboard-nav` — retries 없음 (daemon 불필요)
+- Local: 전체 테스트 (daemon/relay 필요한 `app-daemon`, `app-session-switch`, `app-resume`, `app-relay-e2e`, `app-roundtrip`, `app-real-e2e`, `app-chat-roundtrip` 포함) — 1 retry
 
 ## 명령어
 - `pnpm test:e2e` — local 프로젝트 (전체 테스트)

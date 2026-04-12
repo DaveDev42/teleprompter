@@ -93,6 +93,14 @@ export class SessionDb {
   }
 
   close(): void {
+    // Checkpoint and truncate WAL so the -wal/-shm sidecar files are
+    // released. Without this, Windows keeps an exclusive handle on the
+    // sidecars and subsequent `rm` fails with EBUSY.
+    try {
+      this.db.run("PRAGMA wal_checkpoint(TRUNCATE);");
+    } catch {
+      // Ignore — checkpoint may fail if another connection holds the db.
+    }
     this.db.close();
   }
 }

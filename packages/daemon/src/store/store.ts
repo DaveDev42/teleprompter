@@ -250,6 +250,13 @@ export class Store {
       db.close();
     }
     this.sessionDbs.clear();
+    // Checkpoint the meta db WAL so its sidecar files release their
+    // Windows handles before close (mirrors SessionDb.close()).
+    try {
+      this.metaDb.run("PRAGMA wal_checkpoint(TRUNCATE);");
+    } catch {
+      // Ignore — checkpoint may fail if another connection holds the db.
+    }
     this.metaDb.close();
   }
 }

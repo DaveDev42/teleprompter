@@ -56,6 +56,8 @@ export interface RelayClientConfig {
   keyPair: KeyPair;
   /** Raw pairing secret (for kx envelope encryption) */
   pairingSecret: Uint8Array;
+  /** Optional human-readable label for this pairing */
+  label?: string | null;
 }
 
 export interface RelayClientEvents {

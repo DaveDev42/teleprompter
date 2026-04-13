@@ -6,6 +6,7 @@ import {
   toBase64,
 } from "@teleprompter/protocol";
 import { mkdir, readFile, unlink, writeFile } from "fs/promises";
+import { hostname } from "os";
 import { join } from "path";
 import qrcode from "qrcode-terminal";
 import { parseArgs } from "util";
@@ -24,6 +25,9 @@ export async function pairCommand(argv: string[]): Promise<void> {
       return;
     case "delete":
       await pairDelete(argv.slice(1));
+      return;
+    case "rename":
+      await pairRename(argv.slice(1));
       return;
     case "new":
       await pairNew(argv.slice(1));
@@ -44,6 +48,7 @@ async function pairNew(argv: string[]): Promise<void> {
     options: {
       relay: { type: "string", default: "wss://relay.tpmt.dev" },
       "daemon-id": { type: "string" },
+      label: { type: "string" },
       save: { type: "boolean", default: true },
       help: { type: "boolean", short: "h" },
     },
@@ -58,9 +63,13 @@ async function pairNew(argv: string[]): Promise<void> {
   const relayUrl = values.relay as string;
   const daemonId =
     (values["daemon-id"] as string) ?? `daemon-${Date.now().toString(36)}`;
+  const label =
+    ((values.label as string | undefined)?.trim() ?? "") !== ""
+      ? (values.label as string).trim()
+      : defaultLabel();
 
   const stop = spinner("Generating pairing keys...");
-  const bundle = await createPairingBundle(relayUrl, daemonId);
+  const bundle = await createPairingBundle(relayUrl, daemonId, { label });
   const qrString = encodePairingData(bundle.qrData);
   stop(`${ok("Keys generated")}\n`);
 
@@ -69,6 +78,7 @@ async function pairNew(argv: string[]): Promise<void> {
   });
 
   console.log(`\nDaemon ID:    ${daemonId}`);
+  console.log(`Label:        ${label}`);
   console.log(`Relay:        ${relayUrl}`);
   console.log(`Relay Token:  ${bundle.relayToken.substring(0, 16)}...`);
 
@@ -84,10 +94,20 @@ async function pairNew(argv: string[]): Promise<void> {
       publicKey: await toBase64(bundle.keyPair.publicKey),
       secretKey: await toBase64(bundle.keyPair.secretKey),
       qrData: bundle.qrData,
+      label,
       createdAt: Date.now(),
     };
     await writeFile(PAIRING_FILE, JSON.stringify(pairingData, null, 2));
     console.log(`\nPairing saved to ${PAIRING_FILE}`);
+  }
+}
+
+function defaultLabel(): string {
+  try {
+    const h = hostname();
+    return h && h.length > 0 ? h : "daemon";
+  } catch {
+    return "daemon";
   }
 }
 
@@ -121,20 +141,22 @@ async function pairList(argv: string[]): Promise<void> {
 
   const rows = pairings.map((p) => ({
     daemonId: p.daemonId,
+    label: p.label ?? "",
     relayUrl: p.relayUrl,
     created: formatAge(Date.now() - p.createdAt),
   }));
 
   if (rows.length > 0) {
+    const labelW = Math.max(5, ...rows.map((r) => r.label.length));
     const idW = Math.max(9, ...rows.map((r) => r.daemonId.length));
     const relayW = Math.max(5, ...rows.map((r) => r.relayUrl.length));
 
     console.log(
-      `${"DAEMON ID".padEnd(idW)}  ${"RELAY".padEnd(relayW)}  CREATED`,
+      `${"LABEL".padEnd(labelW)}  ${"DAEMON ID".padEnd(idW)}  ${"RELAY".padEnd(relayW)}  CREATED`,
     );
     for (const r of rows) {
       console.log(
-        `${r.daemonId.padEnd(idW)}  ${r.relayUrl.padEnd(relayW)}  ${r.created}`,
+        `${r.label.padEnd(labelW)}  ${r.daemonId.padEnd(idW)}  ${r.relayUrl.padEnd(relayW)}  ${r.created}`,
       );
     }
   }
@@ -150,7 +172,10 @@ async function pairList(argv: string[]): Promise<void> {
       pending.createdAt != null
         ? formatAge(Date.now() - pending.createdAt)
         : "unknown";
-    console.log(`  ${pending.daemonId}  ${pending.relayUrl}  ${createdLabel}`);
+    const pendingLbl = pending.label ?? pending.qrData?.label ?? "";
+    console.log(
+      `  ${pendingLbl ? `${pendingLbl}  ` : ""}${pending.daemonId}  ${pending.relayUrl}  ${createdLabel}`,
+    );
   }
 }
 
@@ -281,6 +306,90 @@ async function pairDelete(argv: string[]): Promise<void> {
   }
 }
 
+async function pairRename(argv: string[]): Promise<void> {
+  const { values, positionals } = parseArgs({
+    args: argv,
+    options: {
+      help: { type: "boolean", short: "h" },
+    },
+    allowPositionals: true,
+    strict: false,
+  });
+
+  if (values.help || positionals.length < 2) {
+    console.log(
+      "Usage: tp pair rename <daemon-id-prefix> <label...>\n" +
+        "  Passing an empty label clears it.",
+    );
+    if (values.help) return;
+    process.exit(1);
+  }
+
+  if (await isDaemonRunning()) {
+    console.error(
+      fail(
+        "Daemon is running. Stop it first with `tp daemon stop` (or via the app's Daemons screen) before running `tp pair rename`, to avoid relay conflicts.",
+      ),
+    );
+    process.exit(1);
+  }
+
+  const [prefix, ...labelParts] = positionals;
+  const newLabel = labelParts.join(" ").trim();
+
+  const store = new Store();
+  try {
+    const pairings = store.listPairings();
+    const matches = pairings.filter((p) => p.daemonId.startsWith(prefix!));
+
+    if (matches.length === 0) {
+      console.error(fail(`No pairing matches '${prefix}'.`));
+      if (pairings.length > 0) {
+        console.error(dim("Known daemon IDs:"));
+        for (const p of pairings) console.error(dim(`  ${p.daemonId}`));
+      }
+      process.exit(1);
+    }
+
+    if (matches.length > 1) {
+      console.error(fail(`Prefix '${prefix}' is ambiguous. Candidates:`));
+      for (const m of matches) console.error(`  ${m.daemonId}  ${m.relayUrl}`);
+      process.exit(1);
+    }
+
+    const target = matches[0]!;
+    const full = store
+      .loadPairings()
+      .find((p) => p.daemonId === target.daemonId);
+
+    store.updatePairingLabel(target.daemonId, newLabel === "" ? null : newLabel);
+
+    console.log(
+      ok(
+        `Renamed ${target.daemonId} → ${newLabel === "" ? "(cleared)" : `"${newLabel}"`}`,
+      ),
+    );
+
+    if (full) {
+      const raw = Number(process.env.TP_UNPAIR_TIMEOUT_MS);
+      const timeoutMs =
+        Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_UNPAIR_TIMEOUT_MS;
+      const cutoffRaw = Number(process.env.TP_UNPAIR_CONNECT_CUTOFF_MS);
+      const connectCutoffMs =
+        Number.isFinite(cutoffRaw) && cutoffRaw > 0
+          ? cutoffRaw
+          : UNPAIR_CONNECT_CUTOFF_MS;
+      try {
+        await notifyPeerRename(full, newLabel, { timeoutMs, connectCutoffMs });
+      } catch (err) {
+        console.warn(`[pair] could not notify peer: ${err}`);
+      }
+    }
+  } finally {
+    store.close();
+  }
+}
+
 const DEFAULT_UNPAIR_TIMEOUT_MS = 3000;
 const DEFAULT_UNPAIR_GRACE_MS = 100;
 const UNPAIR_CONNECT_CUTOFF_MS = 1500;
@@ -354,6 +463,67 @@ async function notifyPeerUnpair(
   }
 }
 
+/**
+ * Best-effort control.rename delivery — mirrors notifyPeerUnpair but sends
+ * a ControlRename frame instead. Keeps CLI ⇄ daemon separation (CLI opens
+ * its own short-lived RelayClient while the daemon is stopped).
+ */
+async function notifyPeerRename(
+  pairing: FullPairing,
+  label: string,
+  opts: { timeoutMs: number; connectCutoffMs: number },
+): Promise<void> {
+  const client = new RelayClient(
+    {
+      daemonId: pairing.daemonId,
+      relayUrl: pairing.relayUrl,
+      token: pairing.relayToken,
+      registrationProof: pairing.registrationProof,
+      keyPair: {
+        publicKey: pairing.publicKey,
+        secretKey: pairing.secretKey,
+      },
+      pairingSecret: pairing.pairingSecret,
+    },
+    {},
+  );
+
+  const connectStart = Date.now();
+  const deadline = connectStart + opts.timeoutMs;
+  try {
+    await client.connect();
+    client.subscribe(RELAY_CHANNEL_CONTROL);
+
+    while (Date.now() < deadline) {
+      if (client.listPeerFrontendIds().length > 0) break;
+      if (
+        !client.isConnected() &&
+        Date.now() - connectStart >= opts.connectCutoffMs
+      ) {
+        break;
+      }
+      await Bun.sleep(DEFAULT_UNPAIR_GRACE_MS);
+    }
+
+    const peers = client.listPeerFrontendIds();
+    let notified = 0;
+    for (const fid of peers) {
+      try {
+        if (await client.sendRenameNotice(fid, label)) notified++;
+      } catch {
+        // best effort
+      }
+    }
+    if (peers.length > 0) {
+      console.log(dim(`Notified ${notified}/${peers.length} frontend(s).`));
+    }
+
+    await Bun.sleep(DEFAULT_UNPAIR_GRACE_MS);
+  } finally {
+    client.dispose();
+  }
+}
+
 function prompt(question: string): Promise<string> {
   return new Promise((resolve) => {
     process.stdout.write(question);
@@ -391,10 +561,11 @@ function printPairUsage(): void {
 tp pair — manage mobile app pairings
 
 Usage:
-  tp pair [--relay URL]            Alias for 'tp pair new'
-  tp pair new [--relay URL]        Generate a new pairing (QR code)
-  tp pair list                     List registered pairings
-  tp pair delete <daemon-id> [-y]  Delete a pairing (prefix match allowed)
+  tp pair [--relay URL]                        Alias for 'tp pair new'
+  tp pair new [--relay URL] [--label <name>]   Generate a new pairing (QR code)
+  tp pair list                                 List registered pairings
+  tp pair rename <daemon-id> <label...>        Rename a pairing (prefix match)
+  tp pair delete <daemon-id> [-y]              Delete a pairing (prefix match allowed)
 `);
 }
 
@@ -407,8 +578,16 @@ export async function loadPairingData(): Promise<{
   relayToken: string;
   publicKey: string;
   secretKey: string;
+  label?: string;
   createdAt?: number;
-  qrData?: { ps: string; pk: string; relay: string; did: string; v: number };
+  qrData?: {
+    ps: string;
+    pk: string;
+    relay: string;
+    did: string;
+    v: number;
+    label?: string;
+  };
 } | null> {
   try {
     const raw = await readFile(PAIRING_FILE, "utf-8");

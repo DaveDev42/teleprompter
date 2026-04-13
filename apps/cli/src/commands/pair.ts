@@ -313,7 +313,7 @@ async function pairRename(argv: string[]): Promise<void> {
       help: { type: "boolean", short: "h" },
     },
     allowPositionals: true,
-    strict: false,
+    strict: true,
   });
 
   if (values.help || positionals.length < 2) {
@@ -397,16 +397,21 @@ const UNPAIR_CONNECT_CUTOFF_MS = 1500;
 type FullPairing = ReturnType<Store["loadPairings"]>[number];
 
 /**
- * Best-effort control.unpair delivery over a short-lived relay connection.
+ * Best-effort peer notification over a short-lived relay connection.
  *
  * `timeoutMs` is the maximum wall-clock time spent waiting for at least one
  * frontend to complete kx before we give up on notification. Once any peer
  * appears, we send immediately and then wait DEFAULT_UNPAIR_GRACE_MS for the
  * relay to forward the encrypted control frame before disconnecting.
+ *
+ * Used by `tp pair delete` (control.unpair) and `tp pair rename`
+ * (control.rename). Keeps CLI ⇄ daemon separation: the CLI opens its own
+ * short-lived RelayClient while the daemon is stopped.
  */
-async function notifyPeerUnpair(
+async function notifyPeer(
   pairing: FullPairing,
   opts: { timeoutMs: number; connectCutoffMs: number },
+  send: (client: RelayClient, frontendId: string) => Promise<boolean>,
 ): Promise<void> {
   const client = new RelayClient(
     {
@@ -445,7 +450,7 @@ async function notifyPeerUnpair(
     let notified = 0;
     for (const fid of peers) {
       try {
-        if (await client.sendUnpairNotice(fid, "user-initiated")) notified++;
+        if (await send(client, fid)) notified++;
       } catch {
         // best effort
       }
@@ -463,65 +468,21 @@ async function notifyPeerUnpair(
   }
 }
 
-/**
- * Best-effort control.rename delivery — mirrors notifyPeerUnpair but sends
- * a ControlRename frame instead. Keeps CLI ⇄ daemon separation (CLI opens
- * its own short-lived RelayClient while the daemon is stopped).
- */
+async function notifyPeerUnpair(
+  pairing: FullPairing,
+  opts: { timeoutMs: number; connectCutoffMs: number },
+): Promise<void> {
+  return notifyPeer(pairing, opts, (c, fid) =>
+    c.sendUnpairNotice(fid, "user-initiated"),
+  );
+}
+
 async function notifyPeerRename(
   pairing: FullPairing,
   label: string,
   opts: { timeoutMs: number; connectCutoffMs: number },
 ): Promise<void> {
-  const client = new RelayClient(
-    {
-      daemonId: pairing.daemonId,
-      relayUrl: pairing.relayUrl,
-      token: pairing.relayToken,
-      registrationProof: pairing.registrationProof,
-      keyPair: {
-        publicKey: pairing.publicKey,
-        secretKey: pairing.secretKey,
-      },
-      pairingSecret: pairing.pairingSecret,
-    },
-    {},
-  );
-
-  const connectStart = Date.now();
-  const deadline = connectStart + opts.timeoutMs;
-  try {
-    await client.connect();
-    client.subscribe(RELAY_CHANNEL_CONTROL);
-
-    while (Date.now() < deadline) {
-      if (client.listPeerFrontendIds().length > 0) break;
-      if (
-        !client.isConnected() &&
-        Date.now() - connectStart >= opts.connectCutoffMs
-      ) {
-        break;
-      }
-      await Bun.sleep(DEFAULT_UNPAIR_GRACE_MS);
-    }
-
-    const peers = client.listPeerFrontendIds();
-    let notified = 0;
-    for (const fid of peers) {
-      try {
-        if (await client.sendRenameNotice(fid, label)) notified++;
-      } catch {
-        // best effort
-      }
-    }
-    if (peers.length > 0) {
-      console.log(dim(`Notified ${notified}/${peers.length} frontend(s).`));
-    }
-
-    await Bun.sleep(DEFAULT_UNPAIR_GRACE_MS);
-  } finally {
-    client.dispose();
-  }
+  return notifyPeer(pairing, opts, (c, fid) => c.sendRenameNotice(fid, label));
 }
 
 function prompt(question: string): Promise<string> {

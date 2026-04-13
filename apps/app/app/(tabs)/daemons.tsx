@@ -40,13 +40,15 @@ function DaemonCard({
 
   // Short daemon ID for fallback display
   const shortId = info.daemonId.slice(0, 8);
-  const displayName = info.label?.trim() ? info.label : shortId;
-  const showSecondaryId = Boolean(info.label?.trim());
+  const hasLabel = Boolean(info.label?.trim());
+  const displayName = hasLabel ? info.label : shortId;
+  const showSecondaryId = hasLabel;
+  const a11yName = hasLabel ? `Daemon ${displayName}` : "Daemon (unnamed)";
 
   return (
     <View
       className="mx-4 mb-4 rounded-bubble bg-tp-surface border border-tp-border overflow-hidden"
-      accessibilityLabel={`Daemon ${displayName}, ${isOnline ? "connected" : "offline"}, ${sessionCount} sessions`}
+      accessibilityLabel={`${a11yName}, ${isOnline ? "connected" : "offline"}, ${sessionCount} sessions`}
     >
       {/* Header row */}
       <View className="flex-row items-center px-4 pt-4 pb-2">
@@ -235,6 +237,7 @@ export default function DaemonsScreen() {
       <RenamePairingModal
         visible={renameTarget !== null}
         initialValue={renameTarget?.label ?? ""}
+        daemonId={renameTarget?.daemonId}
         onCancel={() => setRenameTarget(null)}
         onSave={async (val) => {
           const target = renameTarget;

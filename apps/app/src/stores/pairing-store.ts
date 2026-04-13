@@ -173,6 +173,7 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
       let raw = await secureGet(STORAGE_KEY);
       if (!raw) {
         // One-time migration from v2 → v3 (adds nullable `label` field)
+        // TODO: delete v2 migration after N releases
         try {
           const prev = await secureGet(PREVIOUS_STORAGE_KEY);
           if (prev) {
@@ -309,11 +310,12 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
   },
 
   renamePairing: async (daemonId: string, newLabel: string) => {
+    const trimmed = newLabel.trim();
     const pairings = new Map(get().pairings);
     const existing = pairings.get(daemonId);
     if (!existing) return;
     // Protocol: empty string clears the label — store as null locally.
-    const localLabel = newLabel.trim() === "" ? null : newLabel;
+    const localLabel = trimmed === "" ? null : trimmed;
     pairings.set(daemonId, { ...existing, label: localLabel });
 
     set({ pairings });
@@ -321,8 +323,9 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
 
     if (renameSender) {
       try {
-        // Send raw value over the wire — empty string signals clear to peer.
-        await renameSender(daemonId, newLabel);
+        // Send trimmed value over the wire — preserves user intent and
+        // empty string signals clear to peer.
+        await renameSender(daemonId, trimmed);
       } catch (err) {
         console.warn("[pairing] failed to send rename notice", err);
       }
@@ -332,9 +335,13 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
   handlePeerRename: async (daemonId: string, label: string) => {
     const pairings = new Map(get().pairings);
     const existing = pairings.get(daemonId);
-    if (!existing) return;
+    if (!existing) {
+      console.warn("[pairing] handlePeerRename: unknown daemonId", daemonId);
+      return;
+    }
     // Protocol: empty string clears the label — store as null locally.
-    const localLabel = label === "" ? null : label;
+    const trimmed = label.trim();
+    const localLabel = trimmed === "" ? null : trimmed;
     pairings.set(daemonId, { ...existing, label: localLabel });
 
     set({ pairings });

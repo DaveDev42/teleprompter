@@ -188,6 +188,8 @@ export class Daemon {
       );
     };
 
+    // Note: daemon stores a single label row per pairing; if multiple frontends
+    // rename concurrently, last-write-wins. Cross-frontend fan-out is out of scope.
     client.onRename = ({ frontendId, label }) => {
       log.info(
         `peer renamed pairing (daemonId=${config.daemonId}, frontendId=${frontendId}) → "${label}"`,

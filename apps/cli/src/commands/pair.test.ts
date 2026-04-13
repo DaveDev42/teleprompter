@@ -251,6 +251,24 @@ describe.skipIf(process.platform === "win32")("tp pair list/delete", () => {
     expect(row?.label).toBe("New Label Here");
   });
 
+  test("rename trims leading/trailing whitespace in label", () => {
+    seed([
+      { id: "daemon-aaaa1111", relay: "ws://127.0.0.1:1", label: "old" },
+    ]);
+    const out = capture(
+      `${CLI} pair rename daemon-aaaa '   padded label   '`,
+      env,
+    );
+    expect(out).toContain("Renamed daemon-aaaa1111");
+
+    const store = new Store(storeDir);
+    const row = store
+      .listPairings()
+      .find((p) => p.daemonId === "daemon-aaaa1111");
+    store.close();
+    expect(row?.label).toBe("padded label");
+  });
+
   test("rename with empty label clears it", () => {
     seed([
       { id: "daemon-aaaa1111", relay: "ws://127.0.0.1:1", label: "old" },

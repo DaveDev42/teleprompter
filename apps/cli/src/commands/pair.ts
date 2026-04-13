@@ -63,10 +63,8 @@ async function pairNew(argv: string[]): Promise<void> {
   const relayUrl = values.relay as string;
   const daemonId =
     (values["daemon-id"] as string) ?? `daemon-${Date.now().toString(36)}`;
-  const label =
-    ((values.label as string | undefined)?.trim() ?? "") !== ""
-      ? (values.label as string).trim()
-      : defaultLabel();
+  const rawLabel = (values.label as string | undefined)?.trim() ?? "";
+  const label = rawLabel || defaultLabel();
 
   const stop = spinner("Generating pairing keys...");
   const bundle = await createPairingBundle(relayUrl, daemonId, { label });
@@ -270,14 +268,8 @@ async function pairDelete(argv: string[]): Promise<void> {
     }
 
     if (fullPairing) {
-      const raw = Number(process.env.TP_UNPAIR_TIMEOUT_MS);
-      const timeoutMs =
-        Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_UNPAIR_TIMEOUT_MS;
-      const cutoffRaw = Number(process.env.TP_UNPAIR_CONNECT_CUTOFF_MS);
-      const connectCutoffMs =
-        Number.isFinite(cutoffRaw) && cutoffRaw > 0
-          ? cutoffRaw
-          : UNPAIR_CONNECT_CUTOFF_MS;
+      // TP_UNPAIR_* env vars gate both unpair and rename notifications — same flow.
+      const { timeoutMs, connectCutoffMs } = readNotifyTimeouts();
       try {
         await notifyPeerUnpair(fullPairing, { timeoutMs, connectCutoffMs });
       } catch (err) {
@@ -316,15 +308,20 @@ async function pairRename(argv: string[]): Promise<void> {
     strict: true,
   });
 
-  if (values.help || positionals.length < 2) {
-    console.log(
-      "Usage: tp pair rename <daemon-id-prefix> <label...>\n" +
-        "  Passing an empty label clears it.",
+  if (values.help) {
+    printPairUsage();
+    return;
+  }
+  if (positionals.length < 2) {
+    console.error(
+      fail("Usage: tp pair rename <daemon-id-prefix> <label...>"),
     );
-    if (values.help) return;
     process.exit(1);
   }
 
+  // CLI is source of truth when stopped; label is already written to store
+  // before we notify the peer, so even if notification fails the rename
+  // persists locally.
   if (await isDaemonRunning()) {
     console.error(
       fail(
@@ -335,12 +332,18 @@ async function pairRename(argv: string[]): Promise<void> {
   }
 
   const [prefix, ...labelParts] = positionals;
+  if (!prefix) {
+    console.error(
+      fail("Usage: tp pair rename <daemon-id-prefix> <label...>"),
+    );
+    process.exit(1);
+  }
   const newLabel = labelParts.join(" ").trim();
 
   const store = new Store();
   try {
     const pairings = store.listPairings();
-    const matches = pairings.filter((p) => p.daemonId.startsWith(prefix!));
+    const matches = pairings.filter((p) => p.daemonId.startsWith(prefix));
 
     if (matches.length === 0) {
       console.error(fail(`No pairing matches '${prefix}'.`));
@@ -371,14 +374,8 @@ async function pairRename(argv: string[]): Promise<void> {
     );
 
     if (full) {
-      const raw = Number(process.env.TP_UNPAIR_TIMEOUT_MS);
-      const timeoutMs =
-        Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_UNPAIR_TIMEOUT_MS;
-      const cutoffRaw = Number(process.env.TP_UNPAIR_CONNECT_CUTOFF_MS);
-      const connectCutoffMs =
-        Number.isFinite(cutoffRaw) && cutoffRaw > 0
-          ? cutoffRaw
-          : UNPAIR_CONNECT_CUTOFF_MS;
+      // TP_UNPAIR_* env vars gate both unpair and rename notifications — same flow.
+      const { timeoutMs, connectCutoffMs } = readNotifyTimeouts();
       try {
         await notifyPeerRename(full, newLabel, { timeoutMs, connectCutoffMs });
       } catch (err) {
@@ -393,6 +390,26 @@ async function pairRename(argv: string[]): Promise<void> {
 const DEFAULT_UNPAIR_TIMEOUT_MS = 3000;
 const DEFAULT_UNPAIR_GRACE_MS = 100;
 const UNPAIR_CONNECT_CUTOFF_MS = 1500;
+
+/**
+ * Read peer-notification timeouts from env. Used by both `tp pair delete`
+ * (control.unpair) and `tp pair rename` (control.rename). Env var names are
+ * kept as `TP_UNPAIR_*` for backward compatibility.
+ */
+function readNotifyTimeouts(): {
+  timeoutMs: number;
+  connectCutoffMs: number;
+} {
+  const raw = Number(process.env.TP_UNPAIR_TIMEOUT_MS);
+  const timeoutMs =
+    Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_UNPAIR_TIMEOUT_MS;
+  const cutoffRaw = Number(process.env.TP_UNPAIR_CONNECT_CUTOFF_MS);
+  const connectCutoffMs =
+    Number.isFinite(cutoffRaw) && cutoffRaw > 0
+      ? cutoffRaw
+      : UNPAIR_CONNECT_CUTOFF_MS;
+  return { timeoutMs, connectCutoffMs };
+}
 
 type FullPairing = ReturnType<Store["loadPairings"]>[number];
 
@@ -524,6 +541,7 @@ tp pair — manage mobile app pairings
 Usage:
   tp pair [--relay URL]                        Alias for 'tp pair new'
   tp pair new [--relay URL] [--label <name>]   Generate a new pairing (QR code)
+                                               (label defaults to os.hostname())
   tp pair list                                 List registered pairings
   tp pair rename <daemon-id> <label...>        Rename a pairing (prefix match)
   tp pair delete <daemon-id> [-y]              Delete a pairing (prefix match allowed)

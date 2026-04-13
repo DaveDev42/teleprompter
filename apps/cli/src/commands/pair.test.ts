@@ -1,5 +1,5 @@
-import { Store } from "@teleprompter/daemon";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Store } from "@teleprompter/daemon";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -17,7 +17,12 @@ describe("tp pair", () => {
   });
 
   afterEach(() => {
-    rmSync(home, { recursive: true, force: true });
+    rmSync(home, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100,
+    });
   });
 
   test("generates pairing data with QR code (default/alias)", () => {
@@ -51,7 +56,12 @@ describe("tp pair list/delete", () => {
   });
 
   afterEach(() => {
-    rmSync(home, { recursive: true, force: true });
+    rmSync(home, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100,
+    });
   });
 
   function seed(pairings: Array<{ id: string; relay: string }>) {
@@ -136,8 +146,9 @@ describe("tp pair list/delete", () => {
     writePending("daemon-pending1", "ws://pending.example");
     const out = capture(`${CLI} pair delete daemon-pending --yes`, env);
     expect(out).toContain("Deleted pairing daemon-pending1");
-    expect(existsSync(join(home, ".config", "teleprompter", "pairing.json")))
-      .toBe(false);
+    expect(
+      existsSync(join(home, ".config", "teleprompter", "pairing.json")),
+    ).toBe(false);
   });
 
   test("delete preserves non-matching pending handoff file", () => {
@@ -145,8 +156,9 @@ describe("tp pair list/delete", () => {
     writePending("daemon-pending1", "ws://pending.example");
     const out = capture(`${CLI} pair delete daemon-persisted --yes`, env);
     expect(out).toContain("Deleted pairing daemon-persisted1");
-    expect(existsSync(join(home, ".config", "teleprompter", "pairing.json")))
-      .toBe(true);
+    expect(
+      existsSync(join(home, ".config", "teleprompter", "pairing.json")),
+    ).toBe(true);
   });
 
   test("delete errors on no match", () => {

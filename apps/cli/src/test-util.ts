@@ -14,10 +14,7 @@ import { join } from "path";
 let captureCounter = 0;
 
 /** Capture stdout+stderr from a shell command using file redirect. */
-export function capture(
-  cmd: string,
-  env?: Record<string, string>,
-): string {
+export function capture(cmd: string, env?: Record<string, string>): string {
   const tmp = join(
     tmpdir(),
     `.tp-test-${process.pid}-${Date.now()}-${captureCounter++}`,

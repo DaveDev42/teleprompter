@@ -181,8 +181,13 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
             const migrated = parsed.map((p) => ({ ...p, label: p.label ?? null }));
             raw = JSON.stringify(migrated);
             await secureSet(STORAGE_KEY, raw);
+            await secureSet(PREVIOUS_STORAGE_KEY, "");
           }
-        } catch {
+        } catch (err) {
+          console.warn(
+            "[pairing] v2 migration failed; previous pairings discarded",
+            err,
+          );
           // Malformed v2 data — start fresh
         }
       }

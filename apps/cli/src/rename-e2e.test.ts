@@ -1,5 +1,6 @@
-// TODO: extract a shared mock-relay + paired-client harness with multi-frontend.test.ts
-// and unpair-e2e.test.ts to reduce duplication. Not load-bearing for this feature.
+// TODO: extract shared test harness with unpair-e2e.test.ts and multi-frontend.test.ts.
+// Specifically, add Daemon test-only accessors (e.g., daemon.getRelayClientForTesting())
+// instead of `as unknown as` casts here.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Daemon, SessionManager } from "@teleprompter/daemon";
 import type { RelayClient } from "@teleprompter/daemon";

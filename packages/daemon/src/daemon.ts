@@ -192,7 +192,7 @@ export class Daemon {
     // rename concurrently, last-write-wins. Cross-frontend fan-out is out of scope.
     client.onRename = ({ frontendId, label }) => {
       log.info(
-        `peer renamed pairing (daemonId=${config.daemonId}, frontendId=${frontendId}) → "${label}"`,
+        `peer renamed pairing (frontendId=${frontendId}) → ${JSON.stringify(label)}`,
       );
       try {
         this.store.updatePairingLabel(config.daemonId, label || null);

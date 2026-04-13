@@ -40,8 +40,9 @@ function DaemonCard({
 
   // Short daemon ID for fallback display
   const shortId = info.daemonId.slice(0, 8);
-  const hasLabel = Boolean(info.label?.trim());
-  const displayName = hasLabel ? info.label : shortId;
+  const trimmedLabel = info.label?.trim();
+  const displayName = trimmedLabel || shortId;
+  const hasLabel = Boolean(trimmedLabel);
   const showSecondaryId = hasLabel;
   const a11yName = hasLabel ? `Daemon ${displayName}` : "Daemon (unnamed)";
 
@@ -242,7 +243,7 @@ export default function DaemonsScreen() {
         onSave={async (val) => {
           const target = renameTarget;
           setRenameTarget(null);
-          if (target) await renamePairing(target.daemonId, val.trim());
+          if (target) await renamePairing(target.daemonId, val);
         }}
       />
     </View>

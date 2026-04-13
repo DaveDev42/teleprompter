@@ -100,6 +100,24 @@ async function pairNew(argv: string[]): Promise<void> {
   }
 }
 
+/**
+ * Resolve a daemon ID fragment against a list of pairings.
+ *
+ * Exact matches win outright — otherwise we match by prefix OR substring so
+ * the user can type either `daemon-mncx9824` or just `mncx9824`. `rename` and
+ * `delete` share this helper to keep their matching behavior identical.
+ */
+export function matchPairings<T extends { daemonId: string }>(
+  candidates: readonly T[],
+  fragment: string,
+): T[] {
+  const exact = candidates.filter((c) => c.daemonId === fragment);
+  if (exact.length > 0) return exact;
+  return candidates.filter(
+    (c) => c.daemonId.startsWith(fragment) || c.daemonId.includes(fragment),
+  );
+}
+
 function defaultLabel(): string {
   try {
     const h = hostname();
@@ -229,7 +247,7 @@ async function pairDelete(argv: string[]): Promise<void> {
       });
     }
 
-    const matches = candidates.filter((c) => c.daemonId.startsWith(prefix));
+    const matches = matchPairings(candidates, prefix);
 
     if (matches.length === 0) {
       console.error(fail(`No pairing matches '${prefix}'.`));
@@ -339,7 +357,7 @@ async function pairRename(argv: string[]): Promise<void> {
   const store = new Store();
   try {
     const pairings = store.listPairings();
-    const matches = pairings.filter((p) => p.daemonId.startsWith(prefix));
+    const matches = matchPairings(pairings, prefix);
 
     if (matches.length === 0) {
       console.error(fail(`No pairing matches '${prefix}'.`));

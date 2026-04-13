@@ -1,7 +1,8 @@
 import { getSocketPath } from "@teleprompter/protocol";
 import { spawn } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, unlinkSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
+import { connect } from "net";
 import { platform } from "os";
 import { join } from "path";
 import { dim, ok } from "./colors";
@@ -23,9 +24,37 @@ const HINT_FILE = join(
 
 /**
  * Check whether the background daemon is running by probing its IPC socket.
+ *
+ * A bare socket file can linger after a crashed daemon. We attempt a TCP-style
+ * connect — if it succeeds the daemon is alive; ECONNREFUSED means the file
+ * is stale and we remove it so callers can proceed.
  */
 export async function isDaemonRunning(): Promise<boolean> {
-  return existsSync(getSocketPath());
+  const sockPath = getSocketPath();
+  if (!existsSync(sockPath)) return false;
+
+  // Windows named pipes: existence check is sufficient — the pipe disappears
+  // when the daemon process exits.
+  if (process.platform === "win32") return true;
+
+  return new Promise<boolean>((resolve) => {
+    const sock = connect(sockPath);
+    const done = (alive: boolean) => {
+      sock.removeAllListeners();
+      sock.destroy();
+      if (!alive) {
+        try {
+          unlinkSync(sockPath);
+        } catch {
+          // best effort
+        }
+      }
+      resolve(alive);
+    };
+    sock.once("connect", () => done(true));
+    sock.once("error", () => done(false));
+    setTimeout(() => done(false), 500);
+  });
 }
 
 /**

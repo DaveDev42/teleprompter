@@ -1,5 +1,13 @@
 import { $ } from "bun";
-import { existsSync, unlinkSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "fs";
+import { homedir } from "os";
+import { dirname, join } from "path";
 import { ok, warn } from "../lib/colors";
 import { errorWithHints } from "../lib/format";
 import { spinner } from "../lib/spinner";
@@ -64,15 +72,85 @@ export async function upgradeCommand(argv: string[] = []): Promise<void> {
   }
 }
 
+const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+function getCachePath(): string {
+  const xdg = process.env.XDG_CACHE_HOME;
+  const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".cache");
+  return join(base, "teleprompter", "upgrade-check.json");
+}
+
+/** Parse a semver-ish tag ("v0.1.5" or "0.1.5") into numeric parts. */
+export function parseVersion(v: string): number[] | null {
+  const m = v
+    .trim()
+    .replace(/^v/, "")
+    .match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+
+/** Returns true iff `a` < `b`. Unparseable input → false (treat as up-to-date). */
+export function isOlderVersion(a: string, b: string): boolean {
+  const pa = parseVersion(a);
+  const pb = parseVersion(b);
+  if (!pa || !pb) return false;
+  for (let i = 0; i < 3; i++) {
+    const ai = pa[i] ?? 0;
+    const bi = pb[i] ?? 0;
+    if (ai < bi) return true;
+    if (ai > bi) return false;
+  }
+  return false;
+}
+
 /**
  * Check if a newer version is available. Called on tp startup.
  * Returns the new version tag if available, null otherwise.
+ *
+ * - Suppressed entirely when `TP_NO_UPDATE_CHECK=1`.
+ * - Rate-limited via `~/.cache/teleprompter/upgrade-check.json` — at most one
+ *   network check per 24h.
+ * - Only announces when the installed version is strictly older than latest
+ *   (previous `!==` comparison also fired for dev/source builds whose
+ *   package.json version equals latest).
  */
-export async function checkForUpdates(): Promise<string | null> {
+export async function checkForUpdates(
+  opts: { cachePath?: string; now?: number } = {},
+): Promise<string | null> {
+  if (process.env.TP_NO_UPDATE_CHECK === "1") return null;
+
+  const cachePath = opts.cachePath ?? getCachePath();
+  const now = opts.now ?? Date.now();
+
+  try {
+    if (existsSync(cachePath)) {
+      const cached = JSON.parse(readFileSync(cachePath, "utf-8")) as {
+        lastCheck?: number;
+      };
+      if (
+        typeof cached.lastCheck === "number" &&
+        now - cached.lastCheck < UPDATE_CHECK_INTERVAL_MS
+      ) {
+        return null;
+      }
+    }
+  } catch {
+    // ignore cache read errors
+  }
+
   try {
     const current = getCurrentVersion();
     const latest = await getLatestRelease();
-    if (latest && latest.tag !== `v${current}`) {
+
+    try {
+      mkdirSync(dirname(cachePath), { recursive: true });
+      writeFileSync(cachePath, JSON.stringify({ lastCheck: now }));
+    } catch {
+      // cache is best-effort
+    }
+
+    if (latest && isOlderVersion(current, latest.tag)) {
       return latest.tag;
     }
   } catch {

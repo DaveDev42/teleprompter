@@ -7,7 +7,12 @@ import {
 import { mkdirSync, rmSync, unlinkSync } from "fs";
 import { join } from "path";
 import { getStoreDir } from "./config";
-import { PAIRINGS_DDL, PRAGMAS, SESSIONS_DDL } from "./schema";
+import {
+  PAIRINGS_DDL,
+  PAIRINGS_MIGRATIONS,
+  PRAGMAS,
+  SESSIONS_DDL,
+} from "./schema";
 import { SessionDb } from "./session-db";
 
 const log = createLogger("Store");
@@ -16,6 +21,7 @@ export interface PairingSummary {
   daemonId: string;
   relayUrl: string;
   createdAt: number;
+  label: string | null;
 }
 
 export interface SessionMeta {
@@ -50,6 +56,14 @@ export class Store {
     }
     this.metaDb.run(SESSIONS_DDL);
     this.metaDb.run(PAIRINGS_DDL);
+    for (const sql of PAIRINGS_MIGRATIONS) {
+      try {
+        this.metaDb.run(sql);
+      } catch (err) {
+        const msg = (err as Error).message ?? "";
+        if (!/duplicate column|already exists/i.test(msg)) throw err;
+      }
+    }
 
     this.createStmt = this.metaDb.prepare(
       "INSERT OR REPLACE INTO sessions (sid, state, worktree_path, cwd, created_at, updated_at, claude_version, last_seq) VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
@@ -219,12 +233,13 @@ export class Store {
     publicKey: Uint8Array;
     secretKey: Uint8Array;
     pairingSecret: Uint8Array;
+    label?: string | null;
   }): void {
     this.metaDb
       .prepare(
         `INSERT OR REPLACE INTO pairings
-         (daemon_id, relay_url, relay_token, registration_proof, public_key, secret_key, pairing_secret, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (daemon_id, relay_url, relay_token, registration_proof, public_key, secret_key, pairing_secret, created_at, label)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         data.daemonId,
@@ -235,7 +250,32 @@ export class Store {
         data.secretKey,
         data.pairingSecret,
         Date.now(),
+        data.label ?? null,
       );
+  }
+
+  /**
+   * Alias for savePairing. Prefer addPairing for new call sites; savePairing
+   * is retained for backward compatibility.
+   */
+  addPairing(data: {
+    daemonId: string;
+    relayUrl: string;
+    relayToken: string;
+    registrationProof: string;
+    publicKey: Uint8Array;
+    secretKey: Uint8Array;
+    pairingSecret: Uint8Array;
+    label?: string | null;
+  }): void {
+    this.savePairing(data);
+  }
+
+  updatePairingLabel(daemonId: string, label: string | null): void {
+    this.metaDb.run("UPDATE pairings SET label = ? WHERE daemon_id = ?", [
+      label,
+      daemonId,
+    ]);
   }
 
   loadPairings(): Array<{
@@ -246,6 +286,7 @@ export class Store {
     publicKey: Uint8Array;
     secretKey: Uint8Array;
     pairingSecret: Uint8Array;
+    label: string | null;
   }> {
     const rows = this.metaDb
       .prepare("SELECT * FROM pairings ORDER BY created_at ASC")
@@ -258,6 +299,7 @@ export class Store {
       secret_key: Buffer;
       pairing_secret: Buffer;
       created_at: number;
+      label: string | null;
     }>;
 
     return rows.map((r) => ({
@@ -268,6 +310,7 @@ export class Store {
       publicKey: new Uint8Array(r.public_key),
       secretKey: new Uint8Array(r.secret_key),
       pairingSecret: new Uint8Array(r.pairing_secret),
+      label: r.label ?? null,
     }));
   }
 
@@ -278,17 +321,19 @@ export class Store {
   listPairings(): PairingSummary[] {
     const rows = this.metaDb
       .prepare(
-        "SELECT daemon_id, relay_url, created_at FROM pairings ORDER BY created_at ASC",
+        "SELECT daemon_id, relay_url, created_at, label FROM pairings ORDER BY created_at ASC",
       )
       .all() as Array<{
       daemon_id: string;
       relay_url: string;
       created_at: number;
+      label: string | null;
     }>;
     return rows.map((r) => ({
       daemonId: r.daemon_id,
       relayUrl: r.relay_url,
       createdAt: r.created_at,
+      label: r.label ?? null,
     }));
   }
 

@@ -73,6 +73,7 @@ export async function upgradeCommand(argv: string[] = []): Promise<void> {
 }
 
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const CACHE_SCHEMA_VERSION = 1;
 
 function getCachePath(): string {
   const xdg = process.env.XDG_CACHE_HOME;
@@ -94,7 +95,9 @@ type ParsedVersion = {
  */
 export function parseVersion(v: string): ParsedVersion | null {
   const trimmed = v.trim().replace(/^v/, "");
-  const m = trimmed.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/);
+  const m = trimmed.match(
+    /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/,
+  );
   if (!m) return null;
   return {
     major: Number(m[1]),
@@ -107,9 +110,10 @@ export function parseVersion(v: string): ParsedVersion | null {
 /**
  * Returns true iff `a` < `b`. Unparseable input → false (treat as up-to-date).
  *
- * Per semver, a prerelease (`X.Y.Z-rc.1`) sorts *before* its same-numbered
- * stable (`X.Y.Z`) — so a user on `0.1.5-rc.1` will still be prompted to
- * upgrade to stable `0.1.5`.
+ * Numeric triple is compared in full. For same-numbered triples we apply only
+ * the stable-vs-prerelease rule (`0.1.5-rc.1 < 0.1.5`); prereleases are not
+ * compared to each other. The upgrade notice only nudges users toward stable
+ * releases, so distinguishing rc.1 from rc.2 is intentionally out of scope.
  */
 export function isOlderVersion(a: string, b: string): boolean {
   const pa = parseVersion(a);
@@ -119,7 +123,6 @@ export function isOlderVersion(a: string, b: string): boolean {
     if (pa[k] < pb[k]) return true;
     if (pa[k] > pb[k]) return false;
   }
-  // Same numeric triple — prerelease is older than stable.
   return pa.prerelease && !pb.prerelease;
 }
 
@@ -142,20 +145,23 @@ export async function checkForUpdates(
   const cachePath = opts.cachePath ?? getCachePath();
   const now = opts.now ?? Date.now();
 
+  // Cache is written in `finally` so transient GitHub failures still rate-limit.
   try {
-    if (existsSync(cachePath)) {
-      const cached = JSON.parse(readFileSync(cachePath, "utf-8")) as {
-        lastCheck?: number;
-      };
-      if (
-        typeof cached.lastCheck === "number" &&
-        now - cached.lastCheck < UPDATE_CHECK_INTERVAL_MS
-      ) {
-        return null;
-      }
+    const cached = JSON.parse(readFileSync(cachePath, "utf-8")) as {
+      version?: number;
+      lastCheck?: number;
+    };
+    // Unknown/missing schema version → treat as cache miss so format migrations
+    // don't get stuck reading old shapes.
+    if (
+      cached.version === CACHE_SCHEMA_VERSION &&
+      typeof cached.lastCheck === "number" &&
+      now - cached.lastCheck < UPDATE_CHECK_INTERVAL_MS
+    ) {
+      return null;
     }
   } catch {
-    // ignore cache read errors
+    // No cache, unreadable, or malformed — fall through and re-check.
   }
 
   try {
@@ -168,11 +174,12 @@ export async function checkForUpdates(
   } catch {
     // Silently fail — don't block startup
   } finally {
-    // Write the cache regardless of success so a transient GitHub outage or
-    // rate-limit doesn't cause every subsequent invocation to re-hit the API.
     try {
       mkdirSync(dirname(cachePath), { recursive: true });
-      writeFileSync(cachePath, JSON.stringify({ version: 1, lastCheck: now }));
+      writeFileSync(
+        cachePath,
+        JSON.stringify({ version: CACHE_SCHEMA_VERSION, lastCheck: now }),
+      );
     } catch {
       // cache is best-effort
     }

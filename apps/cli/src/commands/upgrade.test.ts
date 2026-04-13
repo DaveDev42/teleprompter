@@ -145,8 +145,24 @@ describe("backup and rollback", () => {
 
 describe("version comparison", () => {
   test("parseVersion strips leading v", () => {
-    expect(parseVersion("v0.1.5")).toEqual([0, 1, 5]);
-    expect(parseVersion("0.1.5")).toEqual([0, 1, 5]);
+    expect(parseVersion("v0.1.5")).toEqual({
+      major: 0,
+      minor: 1,
+      patch: 5,
+      prerelease: false,
+    });
+    expect(parseVersion("0.1.5")).toEqual({
+      major: 0,
+      minor: 1,
+      patch: 5,
+      prerelease: false,
+    });
+  });
+
+  test("parseVersion captures prerelease marker", () => {
+    const parsed = parseVersion("0.1.5-rc.1");
+    expect(parsed?.prerelease).toBe(true);
+    expect(parsed?.patch).toBe(5);
   });
 
   test("parseVersion returns null for garbage", () => {
@@ -158,6 +174,12 @@ describe("version comparison", () => {
     expect(isOlderVersion("0.1.5", "v0.1.5")).toBe(false);
     expect(isOlderVersion("0.2.0", "v0.1.9")).toBe(false);
     expect(isOlderVersion("1.0.0", "v0.9.9")).toBe(false);
+  });
+
+  test("prerelease sorts before same-numbered stable", () => {
+    expect(isOlderVersion("0.1.5-rc.1", "v0.1.5")).toBe(true);
+    expect(isOlderVersion("0.1.5", "v0.1.5-rc.1")).toBe(false);
+    expect(isOlderVersion("0.1.5-rc.1", "v0.1.5-rc.1")).toBe(false);
   });
 });
 
@@ -200,5 +222,16 @@ describe("checkForUpdates", () => {
       now: t0 + 60 * 60 * 1000,
     });
     expect(result).toBeNull();
+  });
+
+  test("writes cache after running so failed network calls still rate-limit", async () => {
+    // No cache file → check runs (network call may fail offline; that's fine).
+    // We only assert that the cache file is written so the next call short-circuits.
+    await checkForUpdates({ cachePath, now: 1_700_000_000_000 });
+    expect(existsSync(cachePath)).toBe(true);
+    const cached = JSON.parse(
+      require("node:fs").readFileSync(cachePath, "utf-8"),
+    );
+    expect(cached.lastCheck).toBe(1_700_000_000_000);
   });
 });

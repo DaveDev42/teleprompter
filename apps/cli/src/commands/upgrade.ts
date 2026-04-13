@@ -80,28 +80,47 @@ function getCachePath(): string {
   return join(base, "teleprompter", "upgrade-check.json");
 }
 
-/** Parse a semver-ish tag ("v0.1.5" or "0.1.5") into numeric parts. */
-export function parseVersion(v: string): number[] | null {
-  const m = v
-    .trim()
-    .replace(/^v/, "")
-    .match(/^(\d+)\.(\d+)\.(\d+)/);
+type ParsedVersion = {
+  major: number;
+  minor: number;
+  patch: number;
+  /** true when the tag has a -prerelease suffix (e.g. `0.1.5-rc.1`). */
+  prerelease: boolean;
+};
+
+/**
+ * Parse a semver-ish tag ("v0.1.5" or "0.1.5-rc.1") into numeric parts.
+ * Returns null for unparseable input.
+ */
+export function parseVersion(v: string): ParsedVersion | null {
+  const trimmed = v.trim().replace(/^v/, "");
+  const m = trimmed.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/);
   if (!m) return null;
-  return [Number(m[1]), Number(m[2]), Number(m[3])];
+  return {
+    major: Number(m[1]),
+    minor: Number(m[2]),
+    patch: Number(m[3]),
+    prerelease: m[4] != null,
+  };
 }
 
-/** Returns true iff `a` < `b`. Unparseable input → false (treat as up-to-date). */
+/**
+ * Returns true iff `a` < `b`. Unparseable input → false (treat as up-to-date).
+ *
+ * Per semver, a prerelease (`X.Y.Z-rc.1`) sorts *before* its same-numbered
+ * stable (`X.Y.Z`) — so a user on `0.1.5-rc.1` will still be prompted to
+ * upgrade to stable `0.1.5`.
+ */
 export function isOlderVersion(a: string, b: string): boolean {
   const pa = parseVersion(a);
   const pb = parseVersion(b);
   if (!pa || !pb) return false;
-  for (let i = 0; i < 3; i++) {
-    const ai = pa[i] ?? 0;
-    const bi = pb[i] ?? 0;
-    if (ai < bi) return true;
-    if (ai > bi) return false;
+  for (const k of ["major", "minor", "patch"] as const) {
+    if (pa[k] < pb[k]) return true;
+    if (pa[k] > pb[k]) return false;
   }
-  return false;
+  // Same numeric triple — prerelease is older than stable.
+  return pa.prerelease && !pb.prerelease;
 }
 
 /**
@@ -143,18 +162,20 @@ export async function checkForUpdates(
     const current = getCurrentVersion();
     const latest = await getLatestRelease();
 
-    try {
-      mkdirSync(dirname(cachePath), { recursive: true });
-      writeFileSync(cachePath, JSON.stringify({ lastCheck: now }));
-    } catch {
-      // cache is best-effort
-    }
-
     if (latest && isOlderVersion(current, latest.tag)) {
       return latest.tag;
     }
   } catch {
     // Silently fail — don't block startup
+  } finally {
+    // Write the cache regardless of success so a transient GitHub outage or
+    // rate-limit doesn't cause every subsequent invocation to re-hit the API.
+    try {
+      mkdirSync(dirname(cachePath), { recursive: true });
+      writeFileSync(cachePath, JSON.stringify({ version: 1, lastCheck: now }));
+    } catch {
+      // cache is best-effort
+    }
   }
   return null;
 }

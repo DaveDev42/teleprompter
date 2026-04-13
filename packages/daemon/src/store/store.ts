@@ -56,10 +56,23 @@ export class Store {
     }
     this.metaDb.run(SESSIONS_DDL);
     this.metaDb.run(PAIRINGS_DDL);
+    // Probe the current schema and only run ALTER when columns are missing.
+    // Fresh DBs already have `label` from PAIRINGS_DDL; this is strictly for
+    // upgrading pre-label databases.
+    const existingCols = new Set(
+      (
+        this.metaDb.prepare("PRAGMA table_info(pairings)").all() as Array<{
+          name: string;
+        }>
+      ).map((r) => r.name),
+    );
     for (const sql of PAIRINGS_MIGRATIONS) {
+      const m = sql.match(/ADD COLUMN\s+(\w+)/i);
+      if (m && existingCols.has(m[1]!)) continue;
       try {
         this.metaDb.run(sql);
       } catch (err) {
+        // Safety net: if a concurrent open raced us, swallow dup-column errors.
         const msg = (err as Error).message ?? "";
         if (!/duplicate column|already exists/i.test(msg)) throw err;
       }

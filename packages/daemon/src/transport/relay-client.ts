@@ -437,12 +437,7 @@ export class RelayClient {
     }
   }
 
-  /**
-   * Send a rename control notice to a specific frontend peer.
-   * Mirrors sendUnpairNotice: rides the encrypted data channel on
-   * RELAY_CHANNEL_CONTROL (ciphertext-only to relay). If no peer session
-   * exists for the given frontendId, logs a warning and returns false.
-   */
+  /** Encrypted control.rename notice to `frontendId`; see sendUnpairNotice for mechanics. */
   async sendRenameNotice(frontendId: string, label: string): Promise<boolean> {
     if (!this.authenticated) {
       log.warn(

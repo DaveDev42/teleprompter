@@ -6,11 +6,13 @@ import { ModalContainer } from "./ModalContainer";
 export function RenamePairingModal({
   visible,
   initialValue,
+  daemonId,
   onCancel,
   onSave,
 }: {
   visible: boolean;
   initialValue: string;
+  daemonId?: string;
   onCancel: () => void;
   onSave: (value: string) => void | Promise<void>;
 }) {
@@ -24,6 +26,8 @@ export function RenamePairingModal({
   const handleSave = () => {
     void onSave(value);
   };
+
+  const isUnchanged = value === initialValue;
 
   return (
     <ModalContainer visible={visible} onClose={onCancel}>
@@ -45,11 +49,13 @@ export function RenamePairingModal({
             Rename Daemon
           </Text>
           <Pressable
-            className={pp.className}
+            className={`${pp.className} ${isUnchanged ? "opacity-40" : ""}`}
             tabIndex={pp.tabIndex}
             onPress={handleSave}
+            disabled={isUnchanged}
             accessibilityRole="button"
             accessibilityLabel="Save pairing label"
+            accessibilityState={{ disabled: isUnchanged }}
           >
             <Text className="text-tp-accent text-base font-semibold">Save</Text>
           </Pressable>
@@ -58,6 +64,7 @@ export function RenamePairingModal({
           value={value}
           onChangeText={setValue}
           placeholder="Label (leave empty to clear)"
+          // CSS var resolves on web; native falls back to platform default.
           placeholderTextColor="var(--tp-text-tertiary)"
           autoFocus
           autoCorrect={false}
@@ -65,7 +72,9 @@ export function RenamePairingModal({
           returnKeyType="done"
           onSubmitEditing={handleSave}
           className="bg-tp-bg-input text-tp-text-primary rounded-btn px-3 py-3 text-[15px]"
-          accessibilityLabel="Pairing label"
+          accessibilityLabel={
+            daemonId ? `Pairing label for ${daemonId}` : "Pairing label"
+          }
         />
         <Text className="text-tp-text-tertiary text-xs mt-2">
           Empty value clears the label and falls back to the daemon ID.

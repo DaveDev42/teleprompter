@@ -7,6 +7,7 @@
  */
 
 import type {
+  ControlUnpair,
   KeyPair,
   RelayClientMessage,
   RelayFrame,
@@ -16,12 +17,14 @@ import type {
   WsRec,
 } from "@teleprompter/protocol";
 import {
+  CONTROL_UNPAIR,
   createLogger,
   decrypt,
   deriveKxKey,
   deriveSessionKeys,
   encrypt,
   fromBase64,
+  RELAY_CHANNEL_CONTROL,
   toBase64,
 } from "@teleprompter/protocol";
 
@@ -356,6 +359,48 @@ export class RelayClient {
     const plaintext = new TextEncoder().encode(JSON.stringify(msg));
     const ct = await encrypt(plaintext, peer.sessionKeys.tx);
     this.send({ t: "relay.pub", sid, ct, seq: 0 });
+  }
+
+  /**
+   * Send an unpair control notice to a specific frontend peer.
+   * The payload rides the existing encrypted data channel on the virtual
+   * control session (RELAY_CHANNEL_CONTROL) — the relay never sees plaintext.
+   * If no session exists for the given frontendId (no key exchange completed),
+   * this logs a warning and returns without sending.
+   */
+  async sendUnpairNotice(
+    frontendId: string,
+    reason: ControlUnpair["reason"] = "user-initiated",
+  ): Promise<void> {
+    if (!this.authenticated) {
+      log.warn(
+        `sendUnpairNotice: not authenticated; skipping notice for ${frontendId}`,
+      );
+      return;
+    }
+    const peer = this.peers.get(frontendId);
+    if (!peer) {
+      log.warn(
+        `sendUnpairNotice: no peer session for frontend ${frontendId}; skipping`,
+      );
+      return;
+    }
+
+    const msg: ControlUnpair = {
+      t: CONTROL_UNPAIR,
+      daemonId: this.config.daemonId,
+      frontendId,
+      reason,
+      ts: Date.now(),
+    };
+    const plaintext = new TextEncoder().encode(JSON.stringify(msg));
+    const ct = await encrypt(plaintext, peer.sessionKeys.tx);
+    this.send({
+      t: "relay.pub",
+      sid: RELAY_CHANNEL_CONTROL,
+      ct,
+      seq: 0,
+    });
   }
 
   /**

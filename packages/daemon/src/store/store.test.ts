@@ -120,7 +120,7 @@ describe("Store (shared fixture)", () => {
   });
 
   test("pairings: label is persisted on add and returned on list", () => {
-    vault.addPairing({
+    vault.savePairing({
       daemonId: "daemon-label-1",
       relayUrl: "wss://r",
       relayToken: "t",
@@ -137,7 +137,7 @@ describe("Store (shared fixture)", () => {
   });
 
   test("pairings: updatePairingLabel changes label", () => {
-    vault.addPairing({
+    vault.savePairing({
       daemonId: "daemon-label-2",
       relayUrl: "wss://r",
       relayToken: "t",
@@ -155,8 +155,8 @@ describe("Store (shared fixture)", () => {
     expect(row.label).toBe("new");
   });
 
-  test("pairings: addPairing with no label stores null", () => {
-    vault.addPairing({
+  test("pairings: savePairing with no label stores null", () => {
+    vault.savePairing({
       daemonId: "daemon-nolabel",
       relayUrl: "wss://r",
       relayToken: "t",

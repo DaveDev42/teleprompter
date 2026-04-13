@@ -254,23 +254,6 @@ export class Store {
       );
   }
 
-  /**
-   * Alias for savePairing. Prefer addPairing for new call sites; savePairing
-   * is retained for backward compatibility.
-   */
-  addPairing(data: {
-    daemonId: string;
-    relayUrl: string;
-    relayToken: string;
-    registrationProof: string;
-    publicKey: Uint8Array;
-    secretKey: Uint8Array;
-    pairingSecret: Uint8Array;
-    label?: string | null;
-  }): void {
-    this.savePairing(data);
-  }
-
   updatePairingLabel(daemonId: string, label: string | null): void {
     this.metaDb.run("UPDATE pairings SET label = ? WHERE daemon_id = ?", [
       label,

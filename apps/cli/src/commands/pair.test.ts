@@ -4,8 +4,41 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { capture } from "../test-util";
+import { matchPairings } from "./pair";
 
 const CLI = "bun run apps/cli/src/index.ts";
+
+describe("matchPairings", () => {
+  const pairings = [
+    { daemonId: "daemon-mncx9824" },
+    { daemonId: "daemon-aaaa1111" },
+    { daemonId: "daemon-aaaa2222" },
+  ];
+
+  test("matches by prefix", () => {
+    const out = matchPairings(pairings, "daemon-mncx");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.daemonId).toBe("daemon-mncx9824");
+  });
+
+  test("matches by substring when prefix does not match", () => {
+    const out = matchPairings(pairings, "mncx9824");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.daemonId).toBe("daemon-mncx9824");
+  });
+
+  test("returns multiple on ambiguous prefix", () => {
+    const out = matchPairings(pairings, "daemon-aaaa");
+    expect(out).toHaveLength(2);
+  });
+
+  test("exact match wins over substring ambiguity", () => {
+    const exact = [{ daemonId: "abc" }, { daemonId: "xabcy" }];
+    const out = matchPairings(exact, "abc");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.daemonId).toBe("abc");
+  });
+});
 
 describe("tp pair", () => {
   let home: string;
@@ -300,5 +333,36 @@ describe.skipIf(process.platform === "win32")("tp pair list/delete", () => {
     const store = new Store(storeDir);
     expect(store.listPairings()).toHaveLength(1);
     store.close();
+  });
+
+  test("rename matches by suffix fragment (parity with delete)", () => {
+    seed([{ id: "daemon-mncx9824", relay: "ws://127.0.0.1:1", label: "old" }]);
+    const out = capture(`${CLI} pair rename mncx9824 New`, env);
+    expect(out).toContain("Renamed daemon-mncx9824");
+
+    const store = new Store(storeDir);
+    const row = store
+      .listPairings()
+      .find((p) => p.daemonId === "daemon-mncx9824");
+    store.close();
+    expect(row?.label).toBe("New");
+  });
+
+  test("delete matches by suffix fragment", () => {
+    seed([{ id: "daemon-mncx9824", relay: "wss://r.example" }]);
+    const out = capture(`${CLI} pair delete mncx9824 --yes`, env);
+    expect(out).toContain("Deleted pairing daemon-mncx9824");
+  });
+
+  test("rename succeeds with stale daemon socket present", () => {
+    const runtime = join(home, "runtime");
+    mkdirSync(runtime, { recursive: true });
+    const sockPath = join(runtime, "daemon.sock");
+    writeFileSync(sockPath, "");
+    seed([{ id: "daemon-aaaa1111", relay: "ws://127.0.0.1:1", label: "old" }]);
+
+    const out = capture(`${CLI} pair rename daemon-aaaa NewLabel`, env);
+    expect(out).toContain("Renamed daemon-aaaa1111");
+    expect(existsSync(sockPath)).toBe(false);
   });
 });

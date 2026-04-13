@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
   backupBinary,
+  checkForUpdates,
   cleanupBackup,
   computeFileHash,
   getAssetName,
+  isOlderVersion,
   parseChecksums,
+  parseVersion,
   restoreBinary,
 } from "./upgrade";
 
@@ -137,5 +140,65 @@ describe("backup and rollback", () => {
 
   test("cleanupBackup does not throw if .bak missing", () => {
     expect(() => cleanupBackup("/tmp/nonexistent.bak")).not.toThrow();
+  });
+});
+
+describe("version comparison", () => {
+  test("parseVersion strips leading v", () => {
+    expect(parseVersion("v0.1.5")).toEqual([0, 1, 5]);
+    expect(parseVersion("0.1.5")).toEqual([0, 1, 5]);
+  });
+
+  test("parseVersion returns null for garbage", () => {
+    expect(parseVersion("not-a-version")).toBeNull();
+  });
+
+  test("isOlderVersion recognises strict order", () => {
+    expect(isOlderVersion("0.1.4", "v0.1.5")).toBe(true);
+    expect(isOlderVersion("0.1.5", "v0.1.5")).toBe(false);
+    expect(isOlderVersion("0.2.0", "v0.1.9")).toBe(false);
+    expect(isOlderVersion("1.0.0", "v0.9.9")).toBe(false);
+  });
+});
+
+describe("checkForUpdates", () => {
+  let cacheDir: string;
+  let cachePath: string;
+  const origNoCheck = process.env.TP_NO_UPDATE_CHECK;
+
+  beforeEach(() => {
+    cacheDir = mkdtempSync(join(tmpdir(), "tp-upgrade-cache-"));
+    cachePath = join(cacheDir, "upgrade-check.json");
+    delete process.env.TP_NO_UPDATE_CHECK;
+  });
+
+  afterEach(() => {
+    rmSync(cacheDir, { recursive: true, force: true });
+    if (origNoCheck === undefined) delete process.env.TP_NO_UPDATE_CHECK;
+    else process.env.TP_NO_UPDATE_CHECK = origNoCheck;
+  });
+
+  test("returns null when env var suppresses check", async () => {
+    process.env.TP_NO_UPDATE_CHECK = "1";
+    const result = await checkForUpdates({ cachePath });
+    expect(result).toBeNull();
+    expect(existsSync(cachePath)).toBe(false);
+  });
+
+  test("returns null when cache is fresh (<24h)", async () => {
+    writeFileSync(cachePath, JSON.stringify({ lastCheck: Date.now() }));
+    const result = await checkForUpdates({ cachePath });
+    expect(result).toBeNull();
+  });
+
+  test("uses cache window relative to provided now", async () => {
+    const t0 = 1_700_000_000_000;
+    writeFileSync(cachePath, JSON.stringify({ lastCheck: t0 }));
+    // 1 hour later — still fresh
+    const result = await checkForUpdates({
+      cachePath,
+      now: t0 + 60 * 60 * 1000,
+    });
+    expect(result).toBeNull();
   });
 });

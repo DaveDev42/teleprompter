@@ -188,6 +188,20 @@ export class Daemon {
       );
     };
 
+    client.onRename = ({ frontendId, label }) => {
+      log.info(
+        `peer renamed pairing (daemonId=${config.daemonId}, frontendId=${frontendId}) → "${label}"`,
+      );
+      try {
+        this.store.updatePairingLabel(config.daemonId, label || null);
+      } catch (err) {
+        log.error(
+          `updatePairingLabel failed after inbound rename (daemonId=${config.daemonId}):`,
+          err,
+        );
+      }
+    };
+
     await client.connect();
 
     // Subscribe to meta, control, and all existing sessions

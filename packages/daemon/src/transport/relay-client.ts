@@ -7,6 +7,7 @@
  */
 
 import type {
+  ControlUnpair,
   KeyPair,
   RelayClientMessage,
   RelayFrame,
@@ -16,12 +17,14 @@ import type {
   WsRec,
 } from "@teleprompter/protocol";
 import {
+  CONTROL_UNPAIR,
   createLogger,
   decrypt,
   deriveKxKey,
   deriveSessionKeys,
   encrypt,
   fromBase64,
+  RELAY_CHANNEL_CONTROL,
   toBase64,
 } from "@teleprompter/protocol";
 
@@ -92,6 +95,11 @@ export class RelayClient {
   private disposed = false;
   private authenticated = false;
   private subscribedSessions = new Set<string>();
+
+  /** Called when an inbound control.unpair frame is received from a frontend. */
+  onUnpair:
+    | ((info: { frontendId: string; reason: ControlUnpair["reason"] }) => void)
+    | null = null;
 
   constructor(config: RelayClientConfig, events: RelayClientEvents = {}) {
     this.config = config;
@@ -287,6 +295,12 @@ export class RelayClient {
     const text = new TextDecoder().decode(plaintext);
     const msg = JSON.parse(text);
 
+    if (frame.sid === RELAY_CHANNEL_CONTROL && msg.t === CONTROL_UNPAIR) {
+      const m = msg as ControlUnpair;
+      this.onUnpair?.({ frontendId: m.frontendId, reason: m.reason });
+      return;
+    }
+
     if (msg.t === "in.chat" || msg.t === "in.term") {
       const kind = msg.t === "in.chat" ? "chat" : "term";
       this.events.onInput?.(kind, msg.sid, msg.d, peer.frontendId);
@@ -356,6 +370,56 @@ export class RelayClient {
     const plaintext = new TextEncoder().encode(JSON.stringify(msg));
     const ct = await encrypt(plaintext, peer.sessionKeys.tx);
     this.send({ t: "relay.pub", sid, ct, seq: 0 });
+  }
+
+  /**
+   * Send an unpair control notice to a specific frontend peer.
+   * The payload rides the existing encrypted data channel on the virtual
+   * control session (RELAY_CHANNEL_CONTROL) — the relay never sees plaintext.
+   * If no session exists for the given frontendId (no key exchange completed),
+   * this logs a warning and returns without sending.
+   */
+  async sendUnpairNotice(
+    frontendId: string,
+    reason: ControlUnpair["reason"] = "user-initiated",
+  ): Promise<boolean> {
+    if (!this.authenticated) {
+      log.warn(
+        `sendUnpairNotice: not authenticated; skipping notice for ${frontendId}`,
+      );
+      return false;
+    }
+    const peer = this.peers.get(frontendId);
+    // Defensive: under normal flow Daemon.removePairing only iterates peers
+    // that completed kx, so this branch is rarely hit.
+    if (!peer) {
+      log.warn(
+        `sendUnpairNotice: no peer session for frontend ${frontendId}; skipping`,
+      );
+      return false;
+    }
+
+    try {
+      const msg: ControlUnpair = {
+        t: CONTROL_UNPAIR,
+        daemonId: this.config.daemonId,
+        frontendId,
+        reason,
+        ts: Date.now(),
+      };
+      const plaintext = new TextEncoder().encode(JSON.stringify(msg));
+      const ct = await encrypt(plaintext, peer.sessionKeys.tx);
+      this.send({
+        t: "relay.pub",
+        sid: RELAY_CHANNEL_CONTROL,
+        ct,
+        seq: 0,
+      });
+      return true;
+    } catch (err) {
+      log.warn(`sendUnpairNotice: send failed for ${frontendId}: ${err}`);
+      return false;
+    }
   }
 
   /**
@@ -456,11 +520,26 @@ export class RelayClient {
     this.cleanup();
   }
 
+  /**
+   * True once `relay.auth.ok` has been received. The WebSocket may be open
+   * earlier; callers that need a "relay is reachable and has accepted us"
+   * signal (e.g. CLI unpair-notify) should poll this.
+   */
   isConnected(): boolean {
     return this.authenticated;
   }
 
   getPeerCount(): number {
     return this.peers.size;
+  }
+
+  /** List frontendIds that have completed key exchange with this daemon. */
+  listPeerFrontendIds(): string[] {
+    return Array.from(this.peers.keys());
+  }
+
+  /** The daemonId this client is registered as on the relay. */
+  get daemonId(): string {
+    return this.config.daemonId;
   }
 }

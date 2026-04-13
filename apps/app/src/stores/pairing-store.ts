@@ -1,4 +1,5 @@
 import {
+  type ControlUnpair,
   decodePairingData,
   fromBase64,
   generateKeyPair,
@@ -39,6 +40,14 @@ interface SerializedPairingInfo {
 
 const STORAGE_KEY = "pairings_v2";
 
+type UnpairSender = (daemonId: string) => Promise<void>;
+let unpairSender: UnpairSender | null = null;
+
+/** Register a sender used by `removePairing` to notify the daemon over relay. */
+export function registerUnpairSender(fn: UnpairSender | null): void {
+  unpairSender = fn;
+}
+
 function generateFrontendId(): string {
   const bytes = new Uint8Array(16);
   if (typeof crypto !== "undefined" && crypto.getRandomValues) {
@@ -57,6 +66,12 @@ export interface PairingStore {
   activeDaemonId: string | null;
   error: string | null;
   loaded: boolean;
+  /** Most recent peer-initiated unpair (for UI toast). */
+  lastPeerUnpair: {
+    daemonId: string;
+    reason: ControlUnpair["reason"];
+    ts: number;
+  } | null;
 
   /** Load pairings from secure storage */
   load: () => Promise<void>;
@@ -68,6 +83,13 @@ export interface PairingStore {
   setActiveDaemon: (daemonId: string | null) => void;
   /** Reset all pairings */
   reset: () => Promise<void>;
+  /** Clear the last-peer-unpair notice (after UI has shown the toast). */
+  clearLastPeerUnpair: () => void;
+  /** Handle an inbound control.unpair from the daemon — removes local pairing and sets lastPeerUnpair. */
+  handlePeerUnpair: (
+    daemonId: string,
+    reason: ControlUnpair["reason"],
+  ) => Promise<void>;
 }
 
 async function serializePairings(
@@ -125,6 +147,7 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
   activeDaemonId: null,
   error: null,
   loaded: false,
+  lastPeerUnpair: null,
 
   load: async () => {
     try {
@@ -188,6 +211,14 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
   },
 
   removePairing: async (daemonId: string) => {
+    if (unpairSender) {
+      try {
+        await unpairSender(daemonId);
+      } catch (err) {
+        console.warn("[pairing] unpair notice failed:", err);
+      }
+    }
+
     const pairings = new Map(get().pairings);
     pairings.delete(daemonId);
 
@@ -213,6 +244,30 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
       pairings: new Map(),
       activeDaemonId: null,
       error: null,
+      lastPeerUnpair: null,
+    });
+  },
+
+  clearLastPeerUnpair: () => set({ lastPeerUnpair: null }),
+
+  handlePeerUnpair: async (
+    daemonId: string,
+    reason: ControlUnpair["reason"],
+  ) => {
+    const pairings = new Map(get().pairings);
+    pairings.delete(daemonId);
+
+    await secureSet(STORAGE_KEY, await serializePairings(pairings));
+
+    const newActive =
+      pairings.size > 0 ? (pairings.keys().next().value ?? null) : null;
+
+    set({
+      pairings,
+      activeDaemonId:
+        get().activeDaemonId === daemonId ? newActive : get().activeDaemonId,
+      state: pairings.size > 0 ? "paired" : "unpaired",
+      lastPeerUnpair: { daemonId, reason, ts: Date.now() },
     });
   },
 }));

@@ -63,6 +63,7 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - `relay.kx` / `relay.kx.frame` — in-band pubkey exchange (encrypted with `deriveKxKey(pairingSecret)`)
 - `relay.pub` / `relay.frame` — encrypted data frames, includes `frontendId` for N:N routing
 - `relay.presence` — daemon online/offline with session list
+- `control.unpair` — E2EE control message on the `__control__` sid (rides the existing `relay.pub` channel as ciphertext). Sent by either side when a pairing is removed (`tp pair delete` or the app's Daemons list). The receiving peer auto-removes the matching pairing and surfaces a toast/log. Stateless: if the peer is offline, the message is lost and the pairing heals on the next connect attempt.
 - Connection flow: daemon `register → auth → broadcast pubkey via kx`; frontend `auth → send pubkey via kx → subscribe`
 
 ## Key Design Decisions

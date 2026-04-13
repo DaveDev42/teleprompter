@@ -249,6 +249,9 @@ Relay Protocol v2 (Daemon/Frontend ↔ Relay):
   relay.kx.frame   pubkey 교환 수신
   relay.presence   Daemon online/offline + 세션 목록
   relay.ping/pong  keepalive
+
+  control.unpair   E2EE 페어링 해제 알림 (relay.pub on __control__ sid)
+                   한쪽이 페어링을 삭제하면 반대편도 자동 삭제
 ```
 
 ## 5. E2EE 아키텍처 (Relay Protocol v2)

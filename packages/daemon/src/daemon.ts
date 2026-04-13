@@ -174,6 +174,20 @@ export class Daemon {
       },
     });
 
+    client.onUnpair = ({ frontendId, reason }) => {
+      log.info(
+        `peer unpaired (daemonId=${config.daemonId}, frontendId=${frontendId}, reason=${reason}); removing pairing`,
+      );
+      this.removePairing(config.daemonId, { notifyPeer: false }).catch(
+        (err) => {
+          log.error(
+            `removePairing failed after inbound unpair (daemonId=${config.daemonId}):`,
+            err,
+          );
+        },
+      );
+    };
+
     await client.connect();
 
     // Subscribe to meta, control, and all existing sessions
@@ -387,6 +401,9 @@ export class Daemon {
   /**
    * Handle control messages from a remote frontend via relay.
    * Mirrors the WS server handlers but sends responses back through relay.
+   *
+   * Note: `control.unpair` is intercepted earlier in
+   * RelayClient.decryptAndDispatch and never reaches this handler.
    */
   private handleRelayControlMessage(
     relay: RelayClient,
@@ -809,6 +826,49 @@ export class Daemon {
    */
   close(): void {
     this.store.close();
+  }
+
+  /**
+   * Remove a pairing by daemonId: optionally notifies the peer with a
+   * control.unpair frame, tears down the relay client, and deletes the
+   * persisted pairing record from the store.
+   */
+  async removePairing(
+    daemonId: string,
+    opts: { notifyPeer: boolean } = { notifyPeer: true },
+  ): Promise<void> {
+    const idx = this.relayClients.findIndex((c) => c.daemonId === daemonId);
+    const client = idx >= 0 ? this.relayClients[idx] : undefined;
+    if (client && opts.notifyPeer) {
+      let notified = 0;
+      const peers = client.listPeerFrontendIds();
+      for (const frontendId of peers) {
+        try {
+          if (await client.sendUnpairNotice(frontendId, "user-initiated")) {
+            notified++;
+          }
+        } catch (err) {
+          // Best-effort — continue teardown on failure
+          log.warn(
+            `sendUnpairNotice failed for frontend ${frontendId}: ${String(err)}`,
+          );
+        }
+      }
+      const logFn = peers.length === 0 ? log.debug : log.info;
+      logFn(
+        `removePairing(${daemonId}): notified ${notified}/${peers.length} peers`,
+      );
+    }
+    if (client) {
+      client.dispose();
+      this.relayClients.splice(idx, 1);
+    }
+    this.store.deletePairing(daemonId);
+  }
+
+  /** @internal for tests */
+  getActivePairingIds(): string[] {
+    return this.relayClients.map((c) => c.daemonId);
   }
 
   stop(): void {

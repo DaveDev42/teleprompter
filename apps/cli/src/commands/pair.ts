@@ -1,7 +1,8 @@
-import { Store } from "@teleprompter/daemon";
+import { RelayClient, Store } from "@teleprompter/daemon";
 import {
   createPairingBundle,
   encodePairingData,
+  RELAY_CHANNEL_CONTROL,
   toBase64,
 } from "@teleprompter/protocol";
 import { mkdir, readFile, unlink, writeFile } from "fs/promises";
@@ -9,6 +10,7 @@ import { join } from "path";
 import qrcode from "qrcode-terminal";
 import { parseArgs } from "util";
 import { dim, fail, ok, warn } from "../lib/colors";
+import { isDaemonRunning } from "../lib/ensure-daemon";
 import { spinner } from "../lib/spinner";
 
 const PAIRING_DIR = join(process.env.HOME ?? "/tmp", ".config", "teleprompter");
@@ -173,6 +175,15 @@ async function pairDelete(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
+  if (await isDaemonRunning()) {
+    console.error(
+      fail(
+        "Daemon is running. Stop it first with `tp daemon stop` (or via the app's Daemons screen) before running `tp pair delete`, to avoid relay conflicts.",
+      ),
+    );
+    process.exit(1);
+  }
+
   const store = new Store();
   try {
     const pairings = store.listPairings();
@@ -213,6 +224,9 @@ async function pairDelete(argv: string[]): Promise<void> {
     }
 
     const target = matches[0]!;
+    const fullPairing = store
+      .loadPairings()
+      .find((p) => p.daemonId === target.daemonId);
 
     if (!values.yes) {
       if (!process.stdin.isTTY) {
@@ -227,6 +241,22 @@ async function pairDelete(argv: string[]): Promise<void> {
       if (!/^y(es)?$/i.test(answer.trim())) {
         console.log("Aborted.");
         return;
+      }
+    }
+
+    if (fullPairing) {
+      const raw = Number(process.env.TP_UNPAIR_TIMEOUT_MS);
+      const timeoutMs =
+        Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_UNPAIR_TIMEOUT_MS;
+      const cutoffRaw = Number(process.env.TP_UNPAIR_CONNECT_CUTOFF_MS);
+      const connectCutoffMs =
+        Number.isFinite(cutoffRaw) && cutoffRaw > 0
+          ? cutoffRaw
+          : UNPAIR_CONNECT_CUTOFF_MS;
+      try {
+        await notifyPeerUnpair(fullPairing, { timeoutMs, connectCutoffMs });
+      } catch (err) {
+        console.warn(`[pair] could not notify peer: ${err}`);
       }
     }
 
@@ -248,6 +278,79 @@ async function pairDelete(argv: string[]): Promise<void> {
     );
   } finally {
     store.close();
+  }
+}
+
+const DEFAULT_UNPAIR_TIMEOUT_MS = 3000;
+const DEFAULT_UNPAIR_GRACE_MS = 100;
+const UNPAIR_CONNECT_CUTOFF_MS = 1500;
+
+type FullPairing = ReturnType<Store["loadPairings"]>[number];
+
+/**
+ * Best-effort control.unpair delivery over a short-lived relay connection.
+ *
+ * `timeoutMs` is the maximum wall-clock time spent waiting for at least one
+ * frontend to complete kx before we give up on notification. Once any peer
+ * appears, we send immediately and then wait DEFAULT_UNPAIR_GRACE_MS for the
+ * relay to forward the encrypted control frame before disconnecting.
+ */
+async function notifyPeerUnpair(
+  pairing: FullPairing,
+  opts: { timeoutMs: number; connectCutoffMs: number },
+): Promise<void> {
+  const client = new RelayClient(
+    {
+      daemonId: pairing.daemonId,
+      relayUrl: pairing.relayUrl,
+      token: pairing.relayToken,
+      registrationProof: pairing.registrationProof,
+      keyPair: {
+        publicKey: pairing.publicKey,
+        secretKey: pairing.secretKey,
+      },
+      pairingSecret: pairing.pairingSecret,
+    },
+    {},
+  );
+
+  const connectStart = Date.now();
+  const deadline = connectStart + opts.timeoutMs;
+  try {
+    await client.connect();
+    client.subscribe(RELAY_CHANNEL_CONTROL);
+
+    while (Date.now() < deadline) {
+      if (client.listPeerFrontendIds().length > 0) break;
+      // Early exit: relay unreachable (never connected) and cutoff elapsed.
+      if (
+        !client.isConnected() &&
+        Date.now() - connectStart >= opts.connectCutoffMs
+      ) {
+        break;
+      }
+      await Bun.sleep(DEFAULT_UNPAIR_GRACE_MS);
+    }
+
+    const peers = client.listPeerFrontendIds();
+    let notified = 0;
+    for (const fid of peers) {
+      try {
+        if (await client.sendUnpairNotice(fid, "user-initiated")) notified++;
+      } catch {
+        // best effort
+      }
+    }
+    if (peers.length > 0) {
+      console.log(dim(`Notified ${notified}/${peers.length} frontend(s).`));
+    }
+
+    // Grace period so the relay can forward the control frame before we
+    // disconnect. If the peer was still completing kx at send time, the
+    // frame waits in the relay's per-session 10-frame cache.
+    await Bun.sleep(DEFAULT_UNPAIR_GRACE_MS);
+  } finally {
+    client.dispose();
   }
 }
 

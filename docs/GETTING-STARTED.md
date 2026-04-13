@@ -149,6 +149,8 @@ summary with per-session detail.
 |---------|-------------|
 | `tp [flags] [claude args]` | Run Claude through tp pipeline (default) |
 | `tp pair [--relay URL]` | Generate QR pairing data |
+| `tp pair list` | List registered pairings |
+| `tp pair delete <id> [-y]` | Delete a pairing (notifies the peer app/daemon so it also removes the pairing) |
 | `tp status` | Show daemon status and sessions |
 | `tp logs [session]` | Tail live session output |
 | `tp doctor` | Environment diagnostics |

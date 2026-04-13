@@ -53,7 +53,11 @@ describe.skipIf(process.platform === "win32")("tp pair list/delete", () => {
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), "tp-pair-"));
-    env = { HOME: home, XDG_DATA_HOME: join(home, "xdg") };
+    env = {
+      HOME: home,
+      XDG_DATA_HOME: join(home, "xdg"),
+      TP_UNPAIR_TIMEOUT_MS: "100",
+    };
     storeDir = join(home, "xdg", "teleprompter", "vault");
   });
 
@@ -184,6 +188,16 @@ describe.skipIf(process.platform === "win32")("tp pair list/delete", () => {
     seed([{ id: "daemon-aaaa1111", relay: "wss://r.example" }]);
     const out = capture(`${CLI} pair delete daemon-aaaa extra --yes`, env);
     expect(out).toContain("Usage: tp pair delete");
+  });
+
+  test("delete removes pairing even when relay unreachable", () => {
+    seed([{ id: "daemon-aaaa1111", relay: "ws://127.0.0.1:1" }]);
+    const out = capture(`${CLI} pair delete daemon-aaaa --yes`, env);
+    expect(out).toContain("Deleted pairing daemon-aaaa1111");
+
+    const store = new Store(storeDir);
+    expect(store.listPairings()).toHaveLength(0);
+    store.close();
   });
 
   test("delete without --yes on non-TTY refuses", () => {

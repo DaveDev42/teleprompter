@@ -1,7 +1,8 @@
-import { Store } from "@teleprompter/daemon";
+import { RelayClient, Store } from "@teleprompter/daemon";
 import {
   createPairingBundle,
   encodePairingData,
+  RELAY_CHANNEL_CONTROL,
   toBase64,
 } from "@teleprompter/protocol";
 import { mkdir, readFile, unlink, writeFile } from "fs/promises";
@@ -213,6 +214,9 @@ async function pairDelete(argv: string[]): Promise<void> {
     }
 
     const target = matches[0]!;
+    const fullPairing = store
+      .loadPairings()
+      .find((p) => p.daemonId === target.daemonId);
 
     if (!values.yes) {
       if (!process.stdin.isTTY) {
@@ -227,6 +231,17 @@ async function pairDelete(argv: string[]): Promise<void> {
       if (!/^y(es)?$/i.test(answer.trim())) {
         console.log("Aborted.");
         return;
+      }
+    }
+
+    if (fullPairing) {
+      const raw = Number(process.env.TP_UNPAIR_TIMEOUT_MS);
+      const timeoutMs =
+        Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_UNPAIR_TIMEOUT_MS;
+      try {
+        await notifyPeerUnpair(fullPairing, { timeoutMs });
+      } catch (err) {
+        console.warn(`[pair] could not notify peer: ${err}`);
       }
     }
 
@@ -248,6 +263,54 @@ async function pairDelete(argv: string[]): Promise<void> {
     );
   } finally {
     store.close();
+  }
+}
+
+const DEFAULT_UNPAIR_TIMEOUT_MS = 3000;
+
+type FullPairing = ReturnType<Store["loadPairings"]>[number];
+
+async function notifyPeerUnpair(
+  pairing: FullPairing,
+  opts: { timeoutMs: number },
+): Promise<void> {
+  const client = new RelayClient(
+    {
+      daemonId: pairing.daemonId,
+      relayUrl: pairing.relayUrl,
+      token: pairing.relayToken,
+      registrationProof: pairing.registrationProof,
+      keyPair: {
+        publicKey: pairing.publicKey,
+        secretKey: pairing.secretKey,
+      },
+      pairingSecret: pairing.pairingSecret,
+    },
+    {},
+  );
+
+  const deadline = Date.now() + opts.timeoutMs;
+  try {
+    await client.connect();
+    client.subscribe(RELAY_CHANNEL_CONTROL);
+
+    while (Date.now() < deadline) {
+      if (client.listPeerFrontendIds().length > 0) break;
+      await Bun.sleep(100);
+    }
+
+    for (const fid of client.listPeerFrontendIds()) {
+      try {
+        await client.sendUnpairNotice(fid, "user-initiated");
+      } catch {
+        // best effort
+      }
+    }
+
+    // Brief grace period so the relay can forward before disconnect.
+    await Bun.sleep(100);
+  } finally {
+    client.dispose();
   }
 }
 

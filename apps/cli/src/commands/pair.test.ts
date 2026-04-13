@@ -51,6 +51,15 @@ describe("matchPairings", () => {
     expect(out).toHaveLength(1);
     expect(out[0]!.daemonId).toBe("daemon-aaaa1111");
   });
+
+  test("prefix match beats daemon-<fragment> shorthand", () => {
+    // A fragment that is both a prefix of one ID and the suffix of another's
+    // shorthand must resolve via prefix — the shorthand is only a fallback.
+    const both = [{ daemonId: "abc" }, { daemonId: "daemon-abc" }];
+    const out = matchPairings(both, "abc");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.daemonId).toBe("abc");
+  });
 });
 
 describe("tp pair", () => {

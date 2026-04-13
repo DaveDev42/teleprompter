@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
@@ -208,14 +215,17 @@ describe("checkForUpdates", () => {
   });
 
   test("returns null when cache is fresh (<24h)", async () => {
-    writeFileSync(cachePath, JSON.stringify({ lastCheck: Date.now() }));
+    writeFileSync(
+      cachePath,
+      JSON.stringify({ version: 1, lastCheck: Date.now() }),
+    );
     const result = await checkForUpdates({ cachePath });
     expect(result).toBeNull();
   });
 
   test("uses cache window relative to provided now", async () => {
     const t0 = 1_700_000_000_000;
-    writeFileSync(cachePath, JSON.stringify({ lastCheck: t0 }));
+    writeFileSync(cachePath, JSON.stringify({ version: 1, lastCheck: t0 }));
     // 1 hour later — still fresh
     const result = await checkForUpdates({
       cachePath,
@@ -224,14 +234,26 @@ describe("checkForUpdates", () => {
     expect(result).toBeNull();
   });
 
+  test("treats unknown schema version as cache miss", async () => {
+    // Future schema bump → reader must refuse old shape. Without a network
+    // short-circuit we can't assert the return value cheaply, but the cache
+    // file should be rewritten with the current schema version.
+    writeFileSync(
+      cachePath,
+      JSON.stringify({ version: 99, lastCheck: Date.now() }),
+    );
+    await checkForUpdates({ cachePath, now: 1_700_000_000_000 });
+    const cached = JSON.parse(readFileSync(cachePath, "utf-8"));
+    expect(cached.version).toBe(1);
+    expect(cached.lastCheck).toBe(1_700_000_000_000);
+  });
+
   test("writes cache after running so failed network calls still rate-limit", async () => {
     // No cache file → check runs (network call may fail offline; that's fine).
     // We only assert that the cache file is written so the next call short-circuits.
     await checkForUpdates({ cachePath, now: 1_700_000_000_000 });
     expect(existsSync(cachePath)).toBe(true);
-    const cached = JSON.parse(
-      require("node:fs").readFileSync(cachePath, "utf-8"),
-    );
+    const cached = JSON.parse(readFileSync(cachePath, "utf-8"));
     expect(cached.lastCheck).toBe(1_700_000_000_000);
   });
 });

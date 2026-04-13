@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { getSocketPath } from "@teleprompter/protocol";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { createServer } from "net";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -15,6 +16,14 @@ describe.skipIf(process.platform === "win32")("isDaemonRunning", () => {
     runtime = mkdtempSync(join(tmpdir(), "tp-ensure-daemon-"));
     process.env.XDG_RUNTIME_DIR = runtime;
     sockPath = join(runtime, "daemon.sock");
+    // Guard against platform-specific socket-path resolution (e.g. macOS
+    // falling back to TMPDIR). If this fails the other assertions would
+    // silently test the developer's real daemon socket.
+    if (getSocketPath() !== sockPath) {
+      throw new Error(
+        `getSocketPath() did not honor XDG_RUNTIME_DIR (got ${getSocketPath()})`,
+      );
+    }
   });
 
   afterEach(() => {
@@ -47,17 +56,5 @@ describe.skipIf(process.platform === "win32")("isDaemonRunning", () => {
         }),
       );
     }
-  });
-
-  test("removes bare socket whose listener has closed (ECONNREFUSED)", async () => {
-    // Create a socket file via listen, then close without unlinking. On most
-    // platforms `server.close()` unlinks; simulate the crash scenario with a
-    // plain file-backed path instead — covered by the regular-file test above.
-    // Here we simulate by creating the path as a non-listening unix socket:
-    // we drop to the regular-file fallback which is the practical stale case.
-    mkdirSync(runtime, { recursive: true });
-    writeFileSync(sockPath, "");
-    expect(await isDaemonRunning()).toBe(false);
-    expect(existsSync(sockPath)).toBe(false);
   });
 });

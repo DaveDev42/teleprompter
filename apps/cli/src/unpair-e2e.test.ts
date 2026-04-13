@@ -1,3 +1,5 @@
+// TODO: extract a shared mock-relay + paired-client harness with multi-frontend.test.ts
+// to reduce duplication. Not load-bearing for this feature.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Daemon, SessionManager } from "@teleprompter/daemon";
 import {

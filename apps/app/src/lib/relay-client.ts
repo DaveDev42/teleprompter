@@ -271,12 +271,22 @@ export class FrontendRelayClient implements TransportClient {
         case "session.exported":
           this.events.onSessionExported?.(msg.sid, msg.format, msg.d);
           break;
-        case CONTROL_UNPAIR:
-          this.onUnpair?.({
-            daemonId: (msg.daemonId as string) ?? this.config.daemonId,
-            reason: (msg.reason as string) ?? "unknown",
-          });
+        case CONTROL_UNPAIR: {
+          if (frame.sid !== RELAY_CHANNEL_CONTROL) {
+            console.warn(
+              `[FrontendRelay] ignoring ${CONTROL_UNPAIR} on non-control sid=${frame.sid}`,
+            );
+            break;
+          }
+          const reason =
+            typeof msg.reason === "string" ? msg.reason : "unknown";
+          const daemonId =
+            typeof msg.daemonId === "string"
+              ? msg.daemonId
+              : this.config.daemonId;
+          this.onUnpair?.({ daemonId, reason });
           break;
+        }
         default:
           console.warn(`[FrontendRelay] unknown message type: ${msg.t}`);
       }
@@ -307,7 +317,12 @@ export class FrontendRelayClient implements TransportClient {
     this.sendRelay({ t: "relay.pub", sid: RELAY_CHANNEL_META, ct, seq: 0 });
   }
 
-  /** Send a control.unpair notice to the daemon over the E2EE data channel. */
+  /**
+   * Send a control.unpair notice to the daemon over the E2EE data channel.
+   *
+   * Frontend has a single peer (the daemon), so no peer selector is needed —
+   * unlike the daemon side which picks a frontend.
+   */
   async sendUnpairNotice(
     reason: ControlUnpair["reason"] = "user-initiated",
   ): Promise<void> {

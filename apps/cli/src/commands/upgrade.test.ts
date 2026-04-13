@@ -234,6 +234,16 @@ describe("checkForUpdates", () => {
     expect(result).toBeNull();
   });
 
+  test("fresh-cache short-circuit does not slide the window", async () => {
+    const t0 = 1_700_000_000_000;
+    writeFileSync(cachePath, JSON.stringify({ version: 1, lastCheck: t0 }));
+    await checkForUpdates({ cachePath, now: t0 + 60 * 60 * 1000 });
+    const cached = JSON.parse(readFileSync(cachePath, "utf-8"));
+    // lastCheck must remain pinned to the original t0 — a sliding window
+    // would silence the notice indefinitely on repeated invocations.
+    expect(cached.lastCheck).toBe(t0);
+  });
+
   test("treats unknown schema version as cache miss", async () => {
     // Future schema bump → reader must refuse old shape. Without a network
     // short-circuit we can't assert the return value cheaply, but the cache

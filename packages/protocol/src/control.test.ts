@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { ControlMessage, ControlRename, ControlUnpair } from "./types/control";
+import type {
+  ControlMessage,
+  ControlRename,
+  ControlUnpair,
+} from "./types/control";
 import { CONTROL_RENAME, CONTROL_UNPAIR } from "./types/control";
 
 describe("control types", () => {

@@ -313,9 +313,7 @@ async function pairRename(argv: string[]): Promise<void> {
     return;
   }
   if (positionals.length < 2) {
-    console.error(
-      fail("Usage: tp pair rename <daemon-id-prefix> <label...>"),
-    );
+    console.error(fail("Usage: tp pair rename <daemon-id-prefix> <label...>"));
     process.exit(1);
   }
 
@@ -333,9 +331,7 @@ async function pairRename(argv: string[]): Promise<void> {
 
   const [prefix, ...labelParts] = positionals;
   if (!prefix) {
-    console.error(
-      fail("Usage: tp pair rename <daemon-id-prefix> <label...>"),
-    );
+    console.error(fail("Usage: tp pair rename <daemon-id-prefix> <label...>"));
     process.exit(1);
   }
   const newLabel = labelParts.join(" ").trim();
@@ -365,7 +361,10 @@ async function pairRename(argv: string[]): Promise<void> {
       .loadPairings()
       .find((p) => p.daemonId === target.daemonId);
 
-    store.updatePairingLabel(target.daemonId, newLabel === "" ? null : newLabel);
+    store.updatePairingLabel(
+      target.daemonId,
+      newLabel === "" ? null : newLabel,
+    );
 
     console.log(
       ok(

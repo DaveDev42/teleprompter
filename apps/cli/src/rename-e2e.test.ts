@@ -2,8 +2,8 @@
 // Specifically, add Daemon test-only accessors (e.g., daemon.getRelayClientForTesting())
 // instead of `as unknown as` casts here.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Daemon, SessionManager } from "@teleprompter/daemon";
 import type { RelayClient } from "@teleprompter/daemon";
+import { Daemon, SessionManager } from "@teleprompter/daemon";
 import {
   CONTROL_RENAME,
   createPairingBundle,
@@ -229,7 +229,9 @@ describe("Rename Notification E2E", () => {
     // Poll for daemon store label update (or timeout).
     const store = (
       daemon as unknown as {
-        store: { listPairings(): Array<{ daemonId: string; label: string | null }> };
+        store: {
+          listPairings(): Array<{ daemonId: string; label: string | null }>;
+        };
       }
     ).store;
     const deadline = Date.now() + 2000;

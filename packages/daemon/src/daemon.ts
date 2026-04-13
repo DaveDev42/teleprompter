@@ -219,9 +219,8 @@ export class Daemon {
     // Preserve any existing label if the caller didn't supply one, so
     // reconnecting saved relays doesn't overwrite a user-set label.
     const existingLabel =
-      this.store
-        .listPairings()
-        .find((p) => p.daemonId === config.daemonId)?.label ?? null;
+      this.store.listPairings().find((p) => p.daemonId === config.daemonId)
+        ?.label ?? null;
     this.store.savePairing({
       daemonId: config.daemonId,
       relayUrl: config.relayUrl,

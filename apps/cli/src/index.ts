@@ -125,7 +125,7 @@ tp — Teleprompter: remote Claude Code controller
 
 Usage:
   tp [flags] [claude args]            Run claude through teleprompter
-  tp pair [--relay URL]               Pair with mobile app (QR code)
+  tp pair [new|list|delete]           Manage mobile app pairings (QR code)
   tp status                           Show sessions & daemon status
   tp logs [session]                   Tail live session output
   tp doctor                           Diagnose environment & connectivity

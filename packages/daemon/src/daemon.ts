@@ -174,6 +174,20 @@ export class Daemon {
       },
     });
 
+    client.onUnpair = ({ frontendId, reason }) => {
+      log.info(
+        `peer unpaired (daemonId=${config.daemonId}, frontendId=${frontendId}, reason=${reason}); removing pairing`,
+      );
+      this.removePairing(config.daemonId, { notifyPeer: false }).catch(
+        (err) => {
+          log.error(
+            `removePairing failed after inbound unpair (daemonId=${config.daemonId}):`,
+            err,
+          );
+        },
+      );
+    };
+
     await client.connect();
 
     // Subscribe to meta, control, and all existing sessions
@@ -809,6 +823,36 @@ export class Daemon {
    */
   close(): void {
     this.store.close();
+  }
+
+  /**
+   * Remove a pairing by daemonId: optionally notifies the peer with a
+   * control.unpair frame, tears down the relay client, and deletes the
+   * persisted pairing record from the store.
+   */
+  async removePairing(
+    daemonId: string,
+    opts: { notifyPeer: boolean } = { notifyPeer: true },
+  ): Promise<void> {
+    const idx = this.relayClients.findIndex((c) => c.daemonId === daemonId);
+    const client = idx >= 0 ? this.relayClients[idx] : undefined;
+    if (client && opts.notifyPeer) {
+      for (const frontendId of client.listPeerFrontendIds()) {
+        try {
+          await client.sendUnpairNotice(frontendId, "user-initiated");
+        } catch (err) {
+          // Best-effort — continue teardown on failure
+          log.warn(
+            `sendUnpairNotice failed for frontend ${frontendId}: ${String(err)}`,
+          );
+        }
+      }
+    }
+    if (client) {
+      client.dispose();
+      this.relayClients.splice(idx, 1);
+    }
+    this.store.deletePairing(daemonId);
   }
 
   stop(): void {

@@ -353,6 +353,96 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     client.dispose();
   });
 
+  test("inbound control.unpair fires onUnpair callback", async () => {
+    const daemonKp = await generateKeyPair();
+    const frontendKp = await generateKeyPair();
+    const frontendId = "test-frontend-inbound-unpair";
+    const kxKey = await deriveKxKey(pairingSecret);
+
+    const received: Array<{ frontendId: string; reason: string }> = [];
+
+    const client = new RelayClient(
+      {
+        relayUrl: `ws://localhost:${relayPort}`,
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        registrationProof,
+        keyPair: daemonKp,
+        pairingSecret,
+      },
+      {},
+    );
+    client.onUnpair = (info) => received.push(info);
+
+    await client.connect();
+    client.subscribe(RELAY_CHANNEL_CONTROL);
+    await Bun.sleep(300);
+
+    // Connect and auth frontend
+    const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
+    await new Promise<void>((r) => {
+      frontendWs.onopen = () => r();
+    });
+    frontendWs.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 2,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        frontendId,
+      }),
+    );
+    await Bun.sleep(100);
+
+    // Key exchange
+    const kxPayload = JSON.stringify({
+      pk: await toBase64(frontendKp.publicKey),
+      frontendId,
+      role: "frontend",
+    });
+    const kxCt = await encrypt(new TextEncoder().encode(kxPayload), kxKey);
+    frontendWs.send(
+      JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }),
+    );
+    await Bun.sleep(300);
+
+    // Frontend derives session keys and sends control.unpair on control channel
+    const frontendKeys = await deriveSessionKeys(
+      frontendKp,
+      daemonKp.publicKey,
+      "frontend",
+    );
+    const unpairMsg = {
+      t: CONTROL_UNPAIR,
+      daemonId: DAEMON_ID,
+      frontendId,
+      reason: "user-initiated",
+      ts: Date.now(),
+    };
+    const ct = await encrypt(
+      new TextEncoder().encode(JSON.stringify(unpairMsg)),
+      frontendKeys.tx,
+    );
+    frontendWs.send(
+      JSON.stringify({
+        t: "relay.pub",
+        sid: RELAY_CHANNEL_CONTROL,
+        ct,
+        seq: 1,
+      }),
+    );
+
+    await Bun.sleep(300);
+
+    expect(received).toHaveLength(1);
+    expect(received[0]?.frontendId).toBe(frontendId);
+    expect(received[0]?.reason).toBe("user-initiated");
+
+    frontendWs.close();
+    client.dispose();
+  });
+
   test("relay cannot read plaintext (ciphertext-only)", async () => {
     const daemonKp = await generateKeyPair();
     const frontendKp = await generateKeyPair();

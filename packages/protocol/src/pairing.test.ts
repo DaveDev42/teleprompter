@@ -37,6 +37,35 @@ describe("pairing", () => {
     expect(decoded.v).toBe(1);
   });
 
+  test("createPairingBundle includes label when provided", async () => {
+    const bundle = await createPairingBundle(
+      "wss://relay.test",
+      "daemon-lbl",
+      { label: "My MacBook" },
+    );
+    expect(bundle.qrData.label).toBe("My MacBook");
+  });
+
+  test("encoded pairing data round-trips label", async () => {
+    const bundle = await createPairingBundle(
+      "wss://relay.test",
+      "daemon-lbl",
+      { label: "My MacBook" },
+    );
+    const encoded = encodePairingData(bundle.qrData);
+    const decoded = decodePairingData(encoded);
+    expect(decoded.label).toBe("My MacBook");
+  });
+
+  test("pairing bundle omits label cleanly when not provided", async () => {
+    const bundle = await createPairingBundle(
+      "wss://relay.test",
+      "daemon-nolbl",
+    );
+    expect(bundle.qrData.label).toBeUndefined();
+    expect("label" in bundle.qrData).toBe(false);
+  });
+
   test("decodePairingData rejects invalid format", () => {
     expect(() => decodePairingData('{"foo":1}')).toThrow(
       "Invalid pairing data format",

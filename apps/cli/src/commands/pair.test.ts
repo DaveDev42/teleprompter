@@ -21,7 +21,7 @@ describe("matchPairings", () => {
     expect(out[0]!.daemonId).toBe("daemon-mncx9824");
   });
 
-  test("matches by substring when prefix does not match", () => {
+  test("matches via daemon-<fragment> shorthand when prefix does not", () => {
     const out = matchPairings(pairings, "mncx9824");
     expect(out).toHaveLength(1);
     expect(out[0]!.daemonId).toBe("daemon-mncx9824");

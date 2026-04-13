@@ -96,6 +96,11 @@ export class RelayClient {
   private authenticated = false;
   private subscribedSessions = new Set<string>();
 
+  /** Called when an inbound control.unpair frame is received from a frontend. */
+  onUnpair:
+    | ((info: { frontendId: string; reason: ControlUnpair["reason"] }) => void)
+    | null = null;
+
   constructor(config: RelayClientConfig, events: RelayClientEvents = {}) {
     this.config = config;
     this.events = events;
@@ -289,6 +294,12 @@ export class RelayClient {
     const plaintext = await decrypt(frame.ct, peer.sessionKeys.rx);
     const text = new TextDecoder().decode(plaintext);
     const msg = JSON.parse(text);
+
+    if (frame.sid === RELAY_CHANNEL_CONTROL && msg.t === CONTROL_UNPAIR) {
+      const m = msg as ControlUnpair;
+      this.onUnpair?.({ frontendId: m.frontendId, reason: m.reason });
+      return;
+    }
 
     if (msg.t === "in.chat" || msg.t === "in.term") {
       const kind = msg.t === "in.chat" ? "chat" : "term";
@@ -507,5 +518,15 @@ export class RelayClient {
 
   getPeerCount(): number {
     return this.peers.size;
+  }
+
+  /** List frontendIds that have completed key exchange with this daemon. */
+  listPeerFrontendIds(): string[] {
+    return Array.from(this.peers.keys());
+  }
+
+  /** The daemonId this client is registered as on the relay. */
+  get daemonId(): string {
+    return this.config.daemonId;
   }
 }

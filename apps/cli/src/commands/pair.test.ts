@@ -56,6 +56,7 @@ describe.skipIf(process.platform === "win32")("tp pair list/delete", () => {
     env = {
       HOME: home,
       XDG_DATA_HOME: join(home, "xdg"),
+      XDG_RUNTIME_DIR: join(home, "runtime"),
       TP_UNPAIR_TIMEOUT_MS: "100",
     };
     storeDir = join(home, "xdg", "teleprompter", "vault");

@@ -390,6 +390,8 @@ export class RelayClient {
       return;
     }
     const peer = this.peers.get(frontendId);
+    // Defensive: under normal flow Daemon.removePairing only iterates peers
+    // that completed kx, so this branch is rarely hit.
     if (!peer) {
       log.warn(
         `sendUnpairNotice: no peer session for frontend ${frontendId}; skipping`,

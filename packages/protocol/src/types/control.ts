@@ -9,7 +9,12 @@ export const CONTROL_UNPAIR = "control.unpair" as const;
 
 export interface ControlUnpair {
   t: typeof CONTROL_UNPAIR;
-  /** Daemon ID that this pairing belongs to */
+  /**
+   * Daemon ID that this pairing belongs to.
+   *
+   * Informational only — receivers should trust the transport identity
+   * (their own daemon/frontend context), not this field.
+   */
   daemonId: string;
   /** Frontend ID of the peer relationship being unpaired */
   frontendId: string;

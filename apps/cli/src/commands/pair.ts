@@ -10,6 +10,7 @@ import { join } from "path";
 import qrcode from "qrcode-terminal";
 import { parseArgs } from "util";
 import { dim, fail, ok, warn } from "../lib/colors";
+import { isDaemonRunning } from "../lib/ensure-daemon";
 import { spinner } from "../lib/spinner";
 
 const PAIRING_DIR = join(process.env.HOME ?? "/tmp", ".config", "teleprompter");
@@ -174,6 +175,15 @@ async function pairDelete(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
+  if (await isDaemonRunning()) {
+    console.error(
+      fail(
+        "Daemon is running. Stop it first with `tp daemon stop` (or via the app's Daemons screen) before running `tp pair delete`, to avoid relay conflicts.",
+      ),
+    );
+    process.exit(1);
+  }
+
   const store = new Store();
   try {
     const pairings = store.listPairings();
@@ -267,6 +277,7 @@ async function pairDelete(argv: string[]): Promise<void> {
 }
 
 const DEFAULT_UNPAIR_TIMEOUT_MS = 3000;
+const DEFAULT_UNPAIR_GRACE_MS = 100;
 
 type FullPairing = ReturnType<Store["loadPairings"]>[number];
 
@@ -296,7 +307,7 @@ async function notifyPeerUnpair(
 
     while (Date.now() < deadline) {
       if (client.listPeerFrontendIds().length > 0) break;
-      await Bun.sleep(100);
+      await Bun.sleep(DEFAULT_UNPAIR_GRACE_MS);
     }
 
     for (const fid of client.listPeerFrontendIds()) {
@@ -307,8 +318,10 @@ async function notifyPeerUnpair(
       }
     }
 
-    // Brief grace period so the relay can forward before disconnect.
-    await Bun.sleep(100);
+    // Grace period so the relay can forward the control frame before we
+    // disconnect. If the peer was still completing kx at send time, the
+    // frame waits in the relay's per-session 10-frame cache.
+    await Bun.sleep(DEFAULT_UNPAIR_GRACE_MS);
   } finally {
     client.dispose();
   }

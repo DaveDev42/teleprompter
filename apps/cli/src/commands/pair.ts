@@ -43,9 +43,15 @@ async function pairNew(argv: string[]): Promise<void> {
       relay: { type: "string", default: "wss://relay.tpmt.dev" },
       "daemon-id": { type: "string" },
       save: { type: "boolean", default: true },
+      help: { type: "boolean", short: "h" },
     },
     strict: false,
   });
+
+  if (values.help) {
+    printPairUsage();
+    return;
+  }
 
   const relayUrl = values.relay as string;
   const daemonId =
@@ -83,7 +89,14 @@ async function pairNew(argv: string[]): Promise<void> {
   }
 }
 
-async function pairList(_argv: string[]): Promise<void> {
+async function pairList(argv: string[]): Promise<void> {
+  parseArgs({
+    args: argv,
+    options: {},
+    allowPositionals: false,
+    strict: true,
+  });
+
   const store = new Store();
   let pairings: ReturnType<Store["listPairings"]>;
   try {
@@ -95,8 +108,9 @@ async function pairList(_argv: string[]): Promise<void> {
   const pending = await loadPairingData();
   const pendingIsPersisted =
     pending != null && pairings.some((p) => p.daemonId === pending.daemonId);
+  const showPending = pending != null && !pendingIsPersisted;
 
-  if (pairings.length === 0 && !pending) {
+  if (pairings.length === 0 && !showPending) {
     console.log("No pairings registered.");
     console.log("");
     console.log("Create one with: tp pair new");
@@ -123,15 +137,19 @@ async function pairList(_argv: string[]): Promise<void> {
     }
   }
 
-  if (pending && !pendingIsPersisted) {
-    console.log("");
+  if (showPending) {
+    if (rows.length > 0) console.log("");
     console.log(
       warn(
         `Pending pairing in ${PAIRING_FILE} (daemon will register on next start):`,
       ),
     );
+    const createdLabel =
+      pending.createdAt != null
+        ? formatAge(Date.now() - pending.createdAt)
+        : "unknown";
     console.log(
-      `  ${pending.daemonId}  ${pending.relayUrl}  ${formatAge(Date.now() - (pending.createdAt ?? Date.now()))}`,
+      `  ${pending.daemonId}  ${pending.relayUrl}  ${createdLabel}`,
     );
   }
 }
@@ -240,10 +258,18 @@ function prompt(question: string): Promise<string> {
     process.stdout.write(question);
     process.stdin.resume();
     process.stdin.setEncoding("utf8");
-    process.stdin.once("data", (data: string) => {
+    const done = (value: string) => {
+      process.stdin.off("data", onData);
+      process.stdin.off("end", onEnd);
+      process.stdin.off("close", onEnd);
       process.stdin.pause();
-      resolve(data);
-    });
+      resolve(value);
+    };
+    const onData = (data: string) => done(data);
+    const onEnd = () => done("");
+    process.stdin.once("data", onData);
+    process.stdin.once("end", onEnd);
+    process.stdin.once("close", onEnd);
   });
 }
 

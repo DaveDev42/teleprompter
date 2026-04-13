@@ -278,7 +278,7 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 
 ```bash
 tp [flags] [claude args]   # Claude를 tp를 통해 실행 (기본 모드)
-tp pair [--relay URL]      # QR 페어링 데이터 생성 (모바일 앱 연결) — `pair new`의 alias
+tp pair [--relay URL]      # QR 페어링 데이터 생성 (모바일 앱 연결) — 기본적으로 `pair new` 실행
 tp pair new [--relay URL]  # 새 페어링 생성 (QR 출력)
 tp pair list               # 등록된 페어링 목록
 tp pair delete <id> [-y]   # 페어링 삭제 (daemon-id prefix 허용)

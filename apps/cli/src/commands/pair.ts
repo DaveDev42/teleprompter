@@ -103,9 +103,14 @@ async function pairNew(argv: string[]): Promise<void> {
 /**
  * Resolve a daemon ID fragment against a list of pairings.
  *
- * Exact matches win outright — otherwise we match by prefix OR substring so
- * the user can type either `daemon-mncx9824` or just `mncx9824`. `rename` and
- * `delete` share this helper to keep their matching behavior identical.
+ * Match precedence (first non-empty result wins):
+ *   1. Exact daemon ID
+ *   2. Prefix match (e.g. `daemon-mncx`)
+ *   3. `daemon-<fragment>` shorthand (e.g. `mncx9824` → `daemon-mncx9824`)
+ *
+ * `rename` and `delete` share this helper so users get identical matching in
+ * both. Substring/middle matches are intentionally excluded — they collide
+ * far too easily on real installs.
  */
 export function matchPairings<T extends { daemonId: string }>(
   candidates: readonly T[],
@@ -113,9 +118,12 @@ export function matchPairings<T extends { daemonId: string }>(
 ): T[] {
   const exact = candidates.filter((c) => c.daemonId === fragment);
   if (exact.length > 0) return exact;
-  return candidates.filter(
-    (c) => c.daemonId.startsWith(fragment) || c.daemonId.includes(fragment),
-  );
+
+  const prefix = candidates.filter((c) => c.daemonId.startsWith(fragment));
+  if (prefix.length > 0) return prefix;
+
+  const shorthand = `daemon-${fragment}`;
+  return candidates.filter((c) => c.daemonId === shorthand);
 }
 
 function defaultLabel(): string {

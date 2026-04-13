@@ -38,6 +38,19 @@ describe("matchPairings", () => {
     expect(out).toHaveLength(1);
     expect(out[0]!.daemonId).toBe("abc");
   });
+
+  test("does not match arbitrary mid-id substrings", () => {
+    // "cx98" appears in the middle of daemon-mncx9824 but is neither a prefix
+    // nor a daemon-<frag> shorthand — it must not match.
+    const out = matchPairings(pairings, "cx98");
+    expect(out).toHaveLength(0);
+  });
+
+  test("daemon-<fragment> shorthand matches exactly one", () => {
+    const out = matchPairings(pairings, "aaaa1111");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.daemonId).toBe("daemon-aaaa1111");
+  });
 });
 
 describe("tp pair", () => {

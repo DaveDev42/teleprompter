@@ -248,8 +248,13 @@ async function pairDelete(argv: string[]): Promise<void> {
       const raw = Number(process.env.TP_UNPAIR_TIMEOUT_MS);
       const timeoutMs =
         Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_UNPAIR_TIMEOUT_MS;
+      const cutoffRaw = Number(process.env.TP_UNPAIR_CONNECT_CUTOFF_MS);
+      const connectCutoffMs =
+        Number.isFinite(cutoffRaw) && cutoffRaw > 0
+          ? cutoffRaw
+          : UNPAIR_CONNECT_CUTOFF_MS;
       try {
-        await notifyPeerUnpair(fullPairing, { timeoutMs });
+        await notifyPeerUnpair(fullPairing, { timeoutMs, connectCutoffMs });
       } catch (err) {
         console.warn(`[pair] could not notify peer: ${err}`);
       }
@@ -292,7 +297,7 @@ type FullPairing = ReturnType<Store["loadPairings"]>[number];
  */
 async function notifyPeerUnpair(
   pairing: FullPairing,
-  opts: { timeoutMs: number },
+  opts: { timeoutMs: number; connectCutoffMs: number },
 ): Promise<void> {
   const client = new RelayClient(
     {
@@ -320,19 +325,24 @@ async function notifyPeerUnpair(
       // Early exit: relay unreachable (never connected) and cutoff elapsed.
       if (
         !client.isConnected() &&
-        Date.now() - connectStart >= UNPAIR_CONNECT_CUTOFF_MS
+        Date.now() - connectStart >= opts.connectCutoffMs
       ) {
         break;
       }
       await Bun.sleep(DEFAULT_UNPAIR_GRACE_MS);
     }
 
-    for (const fid of client.listPeerFrontendIds()) {
+    const peers = client.listPeerFrontendIds();
+    let notified = 0;
+    for (const fid of peers) {
       try {
-        await client.sendUnpairNotice(fid, "user-initiated");
+        if (await client.sendUnpairNotice(fid, "user-initiated")) notified++;
       } catch {
         // best effort
       }
+    }
+    if (peers.length > 0) {
+      console.log(dim(`Notified ${notified}/${peers.length} frontend(s).`));
     }
 
     // Grace period so the relay can forward the control frame before we

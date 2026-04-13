@@ -854,7 +854,8 @@ export class Daemon {
           );
         }
       }
-      log.info(
+      const logFn = peers.length === 0 ? log.debug : log.info;
+      logFn(
         `removePairing(${daemonId}): notified ${notified}/${peers.length} peers`,
       );
     }

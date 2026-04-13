@@ -520,6 +520,11 @@ export class RelayClient {
     this.cleanup();
   }
 
+  /**
+   * True once `relay.auth.ok` has been received. The WebSocket may be open
+   * earlier; callers that need a "relay is reachable and has accepted us"
+   * signal (e.g. CLI unpair-notify) should poll this.
+   */
   isConnected(): boolean {
     return this.authenticated;
   }

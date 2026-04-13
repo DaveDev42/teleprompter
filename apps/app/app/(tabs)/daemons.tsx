@@ -239,7 +239,7 @@ export default function DaemonsScreen() {
         onSave={async (val) => {
           const target = renameTarget;
           setRenameTarget(null);
-          if (target) await renamePairing(target.daemonId, val);
+          if (target) await renamePairing(target.daemonId, val.trim());
         }}
       />
     </View>

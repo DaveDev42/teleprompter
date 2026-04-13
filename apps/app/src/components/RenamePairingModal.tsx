@@ -58,9 +58,10 @@ export function RenamePairingModal({
           value={value}
           onChangeText={setValue}
           placeholder="Label (leave empty to clear)"
-          placeholderTextColor="#888"
+          placeholderTextColor="var(--tp-text-tertiary)"
           autoFocus
           autoCorrect={false}
+          maxLength={64}
           returnKeyType="done"
           onSubmitEditing={handleSave}
           className="bg-tp-bg-input text-tp-text-primary rounded-btn px-3 py-3 text-[15px]"

@@ -135,9 +135,7 @@ describe("Unpair Notification E2E", () => {
       daemon as unknown as { store: { loadPairings(): unknown[] } }
     ).store;
     expect(store.loadPairings().length).toBe(0);
-    const relayClients = (daemon as unknown as { relayClients: unknown[] })
-      .relayClients;
-    expect(relayClients.length).toBe(0);
+    expect(daemon.getActivePairingIds().length).toBe(0);
 
     ws.close();
   });
@@ -227,16 +225,18 @@ describe("Unpair Notification E2E", () => {
     const store = (
       daemon as unknown as { store: { loadPairings(): unknown[] } }
     ).store;
-    const relayClients = (daemon as unknown as { relayClients: unknown[] })
-      .relayClients;
     const deadline = Date.now() + 2000;
     while (Date.now() < deadline) {
-      if (store.loadPairings().length === 0 && relayClients.length === 0) break;
+      if (
+        store.loadPairings().length === 0 &&
+        daemon.getActivePairingIds().length === 0
+      )
+        break;
       await Bun.sleep(50);
     }
 
     expect(store.loadPairings().length).toBe(0);
-    expect(relayClients.length).toBe(0);
+    expect(daemon.getActivePairingIds().length).toBe(0);
 
     ws.close();
   });

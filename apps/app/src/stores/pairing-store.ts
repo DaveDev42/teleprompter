@@ -1,4 +1,5 @@
 import {
+  type ControlUnpair,
   decodePairingData,
   fromBase64,
   generateKeyPair,
@@ -66,7 +67,11 @@ export interface PairingStore {
   error: string | null;
   loaded: boolean;
   /** Most recent peer-initiated unpair (for UI toast). */
-  lastPeerUnpair: { daemonId: string; reason: string; ts: number } | null;
+  lastPeerUnpair: {
+    daemonId: string;
+    reason: ControlUnpair["reason"];
+    ts: number;
+  } | null;
 
   /** Load pairings from secure storage */
   load: () => Promise<void>;
@@ -81,7 +86,10 @@ export interface PairingStore {
   /** Clear the last-peer-unpair notice (after UI has shown the toast). */
   clearLastPeerUnpair: () => void;
   /** Handle an inbound control.unpair from the daemon — removes local pairing and sets lastPeerUnpair. */
-  handlePeerUnpair: (daemonId: string, reason: string) => Promise<void>;
+  handlePeerUnpair: (
+    daemonId: string,
+    reason: ControlUnpair["reason"],
+  ) => Promise<void>;
 }
 
 async function serializePairings(
@@ -242,7 +250,10 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
 
   clearLastPeerUnpair: () => set({ lastPeerUnpair: null }),
 
-  handlePeerUnpair: async (daemonId: string, reason: string) => {
+  handlePeerUnpair: async (
+    daemonId: string,
+    reason: ControlUnpair["reason"],
+  ) => {
     const pairings = new Map(get().pairings);
     pairings.delete(daemonId);
 

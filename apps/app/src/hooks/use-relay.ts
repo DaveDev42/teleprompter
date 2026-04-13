@@ -165,10 +165,10 @@ export function useRelay() {
         },
       );
 
-      relayClients.set(daemonId, client);
       client.onUnpair = ({ daemonId: did, reason }) => {
         void usePairingStore.getState().handlePeerUnpair(did, reason);
       };
+      relayClients.set(daemonId, client);
       if (!activeRelayClients.includes(client)) {
         activeRelayClients.push(client);
       }

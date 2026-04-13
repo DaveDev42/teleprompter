@@ -171,6 +171,8 @@ summary with per-session detail.
 
 All other flags are forwarded directly to `claude`.
 
+> Set `TP_UNPAIR_TIMEOUT_MS` (default 3000ms) to tune how long `tp pair delete` waits for a frontend to become reachable before giving up on the unpair notice.
+
 > **Tip:** Use `tp -- <claude args>` to forward arguments directly to Claude without the
 > daemon pipeline. tp also forwards subcommands like `auth`, `mcp`, and `update` directly
 > to Claude — run `tp <subcommand> --help` for details.

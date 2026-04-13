@@ -382,12 +382,12 @@ export class RelayClient {
   async sendUnpairNotice(
     frontendId: string,
     reason: ControlUnpair["reason"] = "user-initiated",
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (!this.authenticated) {
       log.warn(
         `sendUnpairNotice: not authenticated; skipping notice for ${frontendId}`,
       );
-      return;
+      return false;
     }
     const peer = this.peers.get(frontendId);
     // Defensive: under normal flow Daemon.removePairing only iterates peers
@@ -396,24 +396,30 @@ export class RelayClient {
       log.warn(
         `sendUnpairNotice: no peer session for frontend ${frontendId}; skipping`,
       );
-      return;
+      return false;
     }
 
-    const msg: ControlUnpair = {
-      t: CONTROL_UNPAIR,
-      daemonId: this.config.daemonId,
-      frontendId,
-      reason,
-      ts: Date.now(),
-    };
-    const plaintext = new TextEncoder().encode(JSON.stringify(msg));
-    const ct = await encrypt(plaintext, peer.sessionKeys.tx);
-    this.send({
-      t: "relay.pub",
-      sid: RELAY_CHANNEL_CONTROL,
-      ct,
-      seq: 0,
-    });
+    try {
+      const msg: ControlUnpair = {
+        t: CONTROL_UNPAIR,
+        daemonId: this.config.daemonId,
+        frontendId,
+        reason,
+        ts: Date.now(),
+      };
+      const plaintext = new TextEncoder().encode(JSON.stringify(msg));
+      const ct = await encrypt(plaintext, peer.sessionKeys.tx);
+      this.send({
+        t: "relay.pub",
+        sid: RELAY_CHANNEL_CONTROL,
+        ct,
+        seq: 0,
+      });
+      return true;
+    } catch (err) {
+      log.warn(`sendUnpairNotice: send failed for ${frontendId}: ${err}`);
+      return false;
+    }
   }
 
   /**

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { ControlMessage, ControlUnpair } from "./types/control";
-import { CONTROL_UNPAIR } from "./types/control";
+import type { ControlMessage, ControlRename, ControlUnpair } from "./types/control";
+import { CONTROL_RENAME, CONTROL_UNPAIR } from "./types/control";
 
 describe("control types", () => {
   test("CONTROL_UNPAIR constant is stable", () => {
@@ -28,5 +28,31 @@ describe("control types", () => {
       ts: 1,
     };
     expect(msg.t).toBe("control.unpair");
+  });
+
+  test("CONTROL_RENAME constant is stable", () => {
+    expect(CONTROL_RENAME).toBe("control.rename");
+  });
+
+  test("ControlRename has expected shape", () => {
+    const msg: ControlRename = {
+      t: "control.rename",
+      daemonId: "daemon-abc",
+      frontendId: "frontend-xyz",
+      label: "Dave's iPhone",
+      ts: 1,
+    };
+    expect(msg.label).toBe("Dave's iPhone");
+  });
+
+  test("ControlMessage union accepts rename", () => {
+    const msg: ControlMessage = {
+      t: "control.rename",
+      daemonId: "d",
+      frontendId: "f",
+      label: "x",
+      ts: 0,
+    };
+    expect(msg.t).toBe("control.rename");
   });
 });

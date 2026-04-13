@@ -148,9 +148,7 @@ async function pairList(argv: string[]): Promise<void> {
       pending.createdAt != null
         ? formatAge(Date.now() - pending.createdAt)
         : "unknown";
-    console.log(
-      `  ${pending.daemonId}  ${pending.relayUrl}  ${createdLabel}`,
-    );
+    console.log(`  ${pending.daemonId}  ${pending.relayUrl}  ${createdLabel}`);
   }
 }
 

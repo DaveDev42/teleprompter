@@ -30,6 +30,8 @@ const SUBCOMMANDS = [
   "setup-token",
 ];
 
+const PAIR_SUBCOMMANDS = ["new", "list", "delete"];
+
 const DAEMON_FLAGS = [
   "--repo-root",
   "--relay-url",
@@ -77,6 +79,8 @@ _tp_completions() {
     COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
   elif [ "\${COMP_WORDS[1]}" = "daemon" ] && [ "$COMP_CWORD" -ge 3 ]; then
     COMPREPLY=( $(compgen -W "${DAEMON_FLAGS.join(" ")}" -- "$cur") )
+  elif [ "\${COMP_WORDS[1]}" = "pair" ] && [ "$COMP_CWORD" -eq 2 ]; then
+    COMPREPLY=( $(compgen -W "${PAIR_SUBCOMMANDS.join(" ")}" -- "$cur") )
   fi
 }
 complete -F _tp_completions tp`;
@@ -104,6 +108,9 @@ ${SUBCOMMANDS.map((c) => `    '${c}:${c} command'`).join("\n")}
           _arguments \\
 ${DAEMON_FLAGS.map((f) => `            '${f}[${f}]'`).join(" \\\n")}
           ;;
+        pair)
+          _values 'pair subcommand' ${PAIR_SUBCOMMANDS.map((s) => `'${s}'`).join(" ")}
+          ;;
       esac
       ;;
   esac
@@ -120,6 +127,10 @@ function generateFish(): string {
     ...DAEMON_FLAGS.map(
       (f) =>
         `complete -c tp -n '__fish_seen_subcommand_from daemon' -l '${f.replace("--", "")}' -d '${f}'`,
+    ),
+    ...PAIR_SUBCOMMANDS.map(
+      (s) =>
+        `complete -c tp -n '__fish_seen_subcommand_from pair' -a '${s}' -d '${s}'`,
     ),
   ];
   return lines.join("\n");

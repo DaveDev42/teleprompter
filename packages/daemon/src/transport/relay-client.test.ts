@@ -336,7 +336,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     );
 
     const tsBefore = Date.now();
-    await client.sendUnpairNotice(frontendId, "user-initiated");
+    const sent = await client.sendUnpairNotice(frontendId, "user-initiated");
+    expect(sent).toBe(true);
     const frame = await framePromise;
 
     expect(frame.sid).toBe(RELAY_CHANNEL_CONTROL);

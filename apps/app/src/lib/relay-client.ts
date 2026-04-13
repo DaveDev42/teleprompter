@@ -78,8 +78,9 @@ export class FrontendRelayClient implements TransportClient {
   private subscribedSessions = new Set<string>();
 
   /** Called when daemon notifies this frontend that its pairing was removed. */
-  onUnpair: ((info: { daemonId: string; reason: string }) => void) | null =
-    null;
+  onUnpair:
+    | ((info: { daemonId: string; reason: ControlUnpair["reason"] }) => void)
+    | null = null;
 
   /** Track attached session and last seq for auto-resume on reconnect */
   private attachedSid: string | null = null;
@@ -278,8 +279,13 @@ export class FrontendRelayClient implements TransportClient {
             );
             break;
           }
-          const reason =
-            typeof msg.reason === "string" ? msg.reason : "unknown";
+          const rawReason = msg.reason;
+          const reason: ControlUnpair["reason"] =
+            rawReason === "user-initiated" ||
+            rawReason === "device-removed" ||
+            rawReason === "rotated"
+              ? rawReason
+              : "user-initiated";
           const daemonId =
             typeof msg.daemonId === "string"
               ? msg.daemonId

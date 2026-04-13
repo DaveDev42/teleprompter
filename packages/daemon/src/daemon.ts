@@ -401,6 +401,9 @@ export class Daemon {
   /**
    * Handle control messages from a remote frontend via relay.
    * Mirrors the WS server handlers but sends responses back through relay.
+   *
+   * Note: `control.unpair` is intercepted earlier in
+   * RelayClient.decryptAndDispatch and never reaches this handler.
    */
   private handleRelayControlMessage(
     relay: RelayClient,
@@ -837,9 +840,13 @@ export class Daemon {
     const idx = this.relayClients.findIndex((c) => c.daemonId === daemonId);
     const client = idx >= 0 ? this.relayClients[idx] : undefined;
     if (client && opts.notifyPeer) {
-      for (const frontendId of client.listPeerFrontendIds()) {
+      let notified = 0;
+      const peers = client.listPeerFrontendIds();
+      for (const frontendId of peers) {
         try {
-          await client.sendUnpairNotice(frontendId, "user-initiated");
+          if (await client.sendUnpairNotice(frontendId, "user-initiated")) {
+            notified++;
+          }
         } catch (err) {
           // Best-effort — continue teardown on failure
           log.warn(
@@ -847,12 +854,20 @@ export class Daemon {
           );
         }
       }
+      log.info(
+        `removePairing(${daemonId}): notified ${notified}/${peers.length} peers`,
+      );
     }
     if (client) {
       client.dispose();
       this.relayClients.splice(idx, 1);
     }
     this.store.deletePairing(daemonId);
+  }
+
+  /** @internal for tests */
+  getActivePairingIds(): string[] {
+    return this.relayClients.map((c) => c.daemonId);
   }
 
   stop(): void {

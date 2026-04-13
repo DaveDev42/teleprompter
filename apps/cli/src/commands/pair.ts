@@ -278,9 +278,18 @@ async function pairDelete(argv: string[]): Promise<void> {
 
 const DEFAULT_UNPAIR_TIMEOUT_MS = 3000;
 const DEFAULT_UNPAIR_GRACE_MS = 100;
+const UNPAIR_CONNECT_CUTOFF_MS = 1500;
 
 type FullPairing = ReturnType<Store["loadPairings"]>[number];
 
+/**
+ * Best-effort control.unpair delivery over a short-lived relay connection.
+ *
+ * `timeoutMs` is the maximum wall-clock time spent waiting for at least one
+ * frontend to complete kx before we give up on notification. Once any peer
+ * appears, we send immediately and then wait DEFAULT_UNPAIR_GRACE_MS for the
+ * relay to forward the encrypted control frame before disconnecting.
+ */
 async function notifyPeerUnpair(
   pairing: FullPairing,
   opts: { timeoutMs: number },
@@ -300,13 +309,21 @@ async function notifyPeerUnpair(
     {},
   );
 
-  const deadline = Date.now() + opts.timeoutMs;
+  const connectStart = Date.now();
+  const deadline = connectStart + opts.timeoutMs;
   try {
     await client.connect();
     client.subscribe(RELAY_CHANNEL_CONTROL);
 
     while (Date.now() < deadline) {
       if (client.listPeerFrontendIds().length > 0) break;
+      // Early exit: relay unreachable (never connected) and cutoff elapsed.
+      if (
+        !client.isConnected() &&
+        Date.now() - connectStart >= UNPAIR_CONNECT_CUTOFF_MS
+      ) {
+        break;
+      }
       await Bun.sleep(DEFAULT_UNPAIR_GRACE_MS);
     }
 

@@ -1,7 +1,8 @@
 import { useRouter } from "expo-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { RenamePairingModal } from "../../src/components/RenamePairingModal";
 import { useRelayConnectionStore } from "../../src/hooks/use-relay";
 import { getPlatformProps } from "../../src/lib/get-platform-props";
 import { useNotificationStore } from "../../src/stores/notification-store";
@@ -21,7 +22,13 @@ function timeAgo(ts: number): string {
   return `${days}d ago`;
 }
 
-function DaemonCard({ info }: { info: PairingInfo }) {
+function DaemonCard({
+  info,
+  onRename,
+}: {
+  info: PairingInfo;
+  onRename: (info: PairingInfo) => void;
+}) {
   const connections = useRelayConnectionStore((s) => s.connections);
   const sessions = useSessionStore((s) => s.sessions);
   useThemeStore((s) => s.isDark);
@@ -31,15 +38,18 @@ function DaemonCard({ info }: { info: PairingInfo }) {
   // Count active sessions for this daemon (approximation — sessions don't track daemonId yet)
   const sessionCount = sessions.length;
 
-  // Short daemon ID for display
+  // Short daemon ID for fallback display
   const shortId = info.daemonId.slice(0, 8);
-  // Derive a display name from daemonId
-  const displayName = shortId;
+  const trimmedLabel = info.label?.trim();
+  const displayName = trimmedLabel || shortId;
+  const hasLabel = Boolean(trimmedLabel);
+  const showSecondaryId = hasLabel;
+  const a11yName = hasLabel ? `Daemon ${displayName}` : "Daemon (unnamed)";
 
   return (
     <View
       className="mx-4 mb-4 rounded-bubble bg-tp-surface border border-tp-border overflow-hidden"
-      accessibilityLabel={`Daemon ${displayName}, ${isOnline ? "connected" : "offline"}, ${sessionCount} sessions`}
+      accessibilityLabel={`${a11yName}, ${isOnline ? "connected" : "offline"}, ${sessionCount} sessions`}
     >
       {/* Header row */}
       <View className="flex-row items-center px-4 pt-4 pb-2">
@@ -48,9 +58,25 @@ function DaemonCard({ info }: { info: PairingInfo }) {
             isOnline ? "bg-tp-success" : "bg-tp-text-tertiary"
           }`}
         />
-        <Text className="text-tp-text-primary text-[17px] font-semibold flex-1">
-          {displayName}
-        </Text>
+        <View className="flex-1">
+          <Text className="text-tp-text-primary text-[17px] font-semibold">
+            {displayName}
+          </Text>
+          {showSecondaryId && (
+            <Text className="text-tp-text-tertiary text-xs font-mono">
+              {info.daemonId}
+            </Text>
+          )}
+        </View>
+        <Pressable
+          onPress={() => onRename(info)}
+          className={`bg-tp-bg-tertiary rounded-badge px-2 py-1 mr-2 ${pp.className}`}
+          tabIndex={pp.tabIndex}
+          accessibilityRole="button"
+          accessibilityLabel={`Rename ${displayName}`}
+        >
+          <Text className="text-tp-text-secondary text-xs">Rename</Text>
+        </Pressable>
         <Text
           className={`text-xs font-medium ${
             isOnline ? "text-tp-success" : "text-tp-text-tertiary"
@@ -119,6 +145,8 @@ export default function DaemonsScreen() {
   const pairings = usePairingStore((s) => s.pairings);
   const lastPeerUnpair = usePairingStore((s) => s.lastPeerUnpair);
   const clearLastPeerUnpair = usePairingStore((s) => s.clearLastPeerUnpair);
+  const renamePairing = usePairingStore((s) => s.renamePairing);
+  const [renameTarget, setRenameTarget] = useState<PairingInfo | null>(null);
   const pp = getPlatformProps();
 
   useEffect(() => {
@@ -157,7 +185,11 @@ export default function DaemonsScreen() {
       {pairingList.length > 0 ? (
         <ScrollView>
           {pairingList.map((info) => (
-            <DaemonCard key={info.daemonId} info={info} />
+            <DaemonCard
+              key={info.daemonId}
+              info={info}
+              onRename={setRenameTarget}
+            />
           ))}
         </ScrollView>
       ) : (
@@ -203,6 +235,17 @@ export default function DaemonsScreen() {
           </Pressable>
         </View>
       )}
+      <RenamePairingModal
+        visible={renameTarget !== null}
+        initialValue={renameTarget?.label ?? ""}
+        daemonId={renameTarget?.daemonId}
+        onCancel={() => setRenameTarget(null)}
+        onSave={async (val) => {
+          const target = renameTarget;
+          setRenameTarget(null);
+          if (target) await renamePairing(target.daemonId, val);
+        }}
+      />
     </View>
   );
 }

@@ -9,6 +9,7 @@
  */
 
 import type {
+  ControlRename,
   ControlUnpair,
   KeyPair,
   RecordKind,
@@ -22,6 +23,7 @@ import type {
   WsWorktreeInfo,
 } from "@teleprompter/protocol/client";
 import {
+  CONTROL_RENAME,
   CONTROL_UNPAIR,
   decrypt,
   deriveKxKey,
@@ -81,6 +83,9 @@ export class FrontendRelayClient implements TransportClient {
   onUnpair:
     | ((info: { daemonId: string; reason: ControlUnpair["reason"] }) => void)
     | null = null;
+
+  /** Called when daemon notifies this frontend that the pairing label was changed. */
+  onRename: ((info: { daemonId: string; label: string }) => void) | null = null;
 
   /** Track attached session and last seq for auto-resume on reconnect */
   private attachedSid: string | null = null;
@@ -293,6 +298,21 @@ export class FrontendRelayClient implements TransportClient {
           this.onUnpair?.({ daemonId, reason });
           break;
         }
+        case CONTROL_RENAME: {
+          if (frame.sid !== RELAY_CHANNEL_CONTROL) {
+            console.warn(
+              `[FrontendRelay] ignoring ${CONTROL_RENAME} on non-control sid=${frame.sid}`,
+            );
+            break;
+          }
+          const label = typeof msg.label === "string" ? msg.label : "";
+          const daemonId =
+            typeof msg.daemonId === "string"
+              ? msg.daemonId
+              : this.config.daemonId;
+          this.onRename?.({ daemonId, label });
+          break;
+        }
         default:
           console.warn(`[FrontendRelay] unknown message type: ${msg.t}`);
       }
@@ -338,6 +358,29 @@ export class FrontendRelayClient implements TransportClient {
       daemonId: this.config.daemonId,
       frontendId: this.config.frontendId,
       reason,
+      ts: Date.now(),
+    };
+    const plaintext = new TextEncoder().encode(JSON.stringify(msg));
+    const ct = await encrypt(plaintext, this.sessionKeys.tx);
+    this.sendRelay({
+      t: "relay.pub",
+      sid: RELAY_CHANNEL_CONTROL,
+      ct,
+      seq: 0,
+    });
+  }
+
+  /**
+   * Send a control.rename notice to the daemon over the E2EE control channel.
+   * Mirrors `sendUnpairNotice` structurally.
+   */
+  async sendRenameNotice(label: string): Promise<void> {
+    if (!this.authenticated || !this.sessionKeys) return;
+    const msg: ControlRename = {
+      t: CONTROL_RENAME,
+      daemonId: this.config.daemonId,
+      frontendId: this.config.frontendId,
+      label,
       ts: Date.now(),
     };
     const plaintext = new TextEncoder().encode(JSON.stringify(msg));

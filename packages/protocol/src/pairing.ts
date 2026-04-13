@@ -31,6 +31,8 @@ export interface PairingData {
   did: string;
   /** Protocol version */
   v: number;
+  /** Optional human-readable daemon label */
+  label?: string;
 }
 
 export interface PairingBundle {
@@ -52,6 +54,7 @@ export interface PairingBundle {
 export async function createPairingBundle(
   relayUrl: string,
   daemonId: string,
+  opts?: { label?: string },
 ): Promise<PairingBundle> {
   const keyPair = await generateKeyPair();
   const pairingSecret = await generatePairingSecret();
@@ -64,6 +67,7 @@ export async function createPairingBundle(
     relay: relayUrl,
     did: daemonId,
     v: 1,
+    ...(opts?.label ? { label: opts.label } : {}),
   };
 
   return { qrData, keyPair, pairingSecret, relayToken, registrationProof };
@@ -88,6 +92,9 @@ export function decodePairingData(raw: string): PairingData {
     typeof data.did !== "string" ||
     typeof data.v !== "number"
   ) {
+    throw new Error("Invalid pairing data format");
+  }
+  if (data.label !== undefined && typeof data.label !== "string") {
     throw new Error("Invalid pairing data format");
   }
   return data as PairingData;

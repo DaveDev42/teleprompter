@@ -7,6 +7,7 @@ import {
   parsePairingForFrontend,
   toBase64,
 } from "@teleprompter/protocol/client";
+import * as Device from "expo-device";
 import { create } from "zustand";
 import { secureGet, secureSet } from "../lib/secure-storage";
 
@@ -22,6 +23,8 @@ export interface PairingInfo {
   frontendId: string;
   pairingSecret: Uint8Array;
   pairedAt: number;
+  /** Optional human-readable label for this pairing */
+  label?: string | null;
 }
 
 /** Serializable format for secure storage */
@@ -36,9 +39,11 @@ interface SerializedPairingInfo {
   frontendId: string;
   pairingSecret: string; // base64
   pairedAt: number;
+  label?: string | null;
 }
 
-const STORAGE_KEY = "pairings_v2";
+const STORAGE_KEY = "pairings_v3";
+const PREVIOUS_STORAGE_KEY = "pairings_v2";
 
 type UnpairSender = (daemonId: string) => Promise<void>;
 let unpairSender: UnpairSender | null = null;
@@ -90,6 +95,18 @@ export interface PairingStore {
     daemonId: string,
     reason: ControlUnpair["reason"],
   ) => Promise<void>;
+  /** Rename a pairing locally and notify the daemon over relay. */
+  renamePairing: (daemonId: string, newLabel: string) => Promise<void>;
+  /** Handle an inbound control.rename from the daemon — receive-only, no echo. */
+  handlePeerRename: (daemonId: string, label: string) => Promise<void>;
+}
+
+type RenameSender = (daemonId: string, label: string) => Promise<void>;
+let renameSender: RenameSender | null = null;
+
+/** Register a sender used by `renamePairing` to notify the daemon over relay. */
+export function registerRenameSender(fn: RenameSender | null): void {
+  renameSender = fn;
 }
 
 async function serializePairings(
@@ -108,6 +125,7 @@ async function serializePairings(
       frontendId: info.frontendId,
       pairingSecret: await toBase64(info.pairingSecret),
       pairedAt: info.pairedAt,
+      label: info.label ?? null,
     });
   }
   return JSON.stringify(entries);
@@ -133,6 +151,7 @@ async function deserializePairings(
         frontendId: e.frontendId,
         pairingSecret: await fromBase64(e.pairingSecret),
         pairedAt: e.pairedAt,
+        label: e.label ?? null,
       });
     }
   } catch {
@@ -151,7 +170,30 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
 
   load: async () => {
     try {
-      const raw = await secureGet(STORAGE_KEY);
+      let raw = await secureGet(STORAGE_KEY);
+      if (!raw) {
+        // One-time migration from v2 → v3 (adds nullable `label` field)
+        // TODO: delete v2 migration after N releases
+        try {
+          const prev = await secureGet(PREVIOUS_STORAGE_KEY);
+          if (prev) {
+            const parsed = JSON.parse(prev) as SerializedPairingInfo[];
+            const migrated = parsed.map((p) => ({
+              ...p,
+              label: p.label ?? null,
+            }));
+            raw = JSON.stringify(migrated);
+            await secureSet(STORAGE_KEY, raw);
+            await secureSet(PREVIOUS_STORAGE_KEY, "");
+          }
+        } catch (err) {
+          console.warn(
+            "[pairing] v2 migration failed; previous pairings discarded",
+            err,
+          );
+          // Malformed v2 data — start fresh
+        }
+      }
       if (raw) {
         const pairings = await deserializePairings(raw);
         const firstId =
@@ -178,6 +220,9 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
       const frontendKeyPair = await generateKeyPair();
       const frontendId = generateFrontendId();
 
+      // Seed label from QR bundle, falling back to device name.
+      const seedLabel = data.label ?? Device.deviceName ?? "Daemon";
+
       const info: PairingInfo = {
         daemonId: parsed.daemonId,
         relayUrl: parsed.relayUrl,
@@ -188,6 +233,7 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
         frontendId,
         pairingSecret: parsed.pairingSecret,
         pairedAt: Date.now(),
+        label: seedLabel,
       };
 
       const pairings = new Map(get().pairings);
@@ -269,5 +315,44 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
       state: pairings.size > 0 ? "paired" : "unpaired",
       lastPeerUnpair: { daemonId, reason, ts: Date.now() },
     });
+  },
+
+  renamePairing: async (daemonId: string, newLabel: string) => {
+    const trimmed = newLabel.trim();
+    const pairings = new Map(get().pairings);
+    const existing = pairings.get(daemonId);
+    if (!existing) return;
+    // Protocol: empty string clears the label — store as null locally.
+    const localLabel = trimmed === "" ? null : trimmed;
+    pairings.set(daemonId, { ...existing, label: localLabel });
+
+    set({ pairings });
+    await secureSet(STORAGE_KEY, await serializePairings(pairings));
+
+    if (renameSender) {
+      try {
+        // Send trimmed value over the wire — preserves user intent and
+        // empty string signals clear to peer.
+        await renameSender(daemonId, trimmed);
+      } catch (err) {
+        console.warn("[pairing] failed to send rename notice", err);
+      }
+    }
+  },
+
+  handlePeerRename: async (daemonId: string, label: string) => {
+    const pairings = new Map(get().pairings);
+    const existing = pairings.get(daemonId);
+    if (!existing) {
+      console.warn("[pairing] handlePeerRename: unknown daemonId", daemonId);
+      return;
+    }
+    // Protocol: empty string clears the label — store as null locally.
+    const trimmed = label.trim();
+    const localLabel = trimmed === "" ? null : trimmed;
+    pairings.set(daemonId, { ...existing, label: localLabel });
+
+    set({ pairings });
+    await secureSet(STORAGE_KEY, await serializePairings(pairings));
   },
 }));

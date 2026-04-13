@@ -269,6 +269,27 @@ export class Store {
     this.metaDb.run("DELETE FROM pairings WHERE daemon_id = ?", [daemonId]);
   }
 
+  listPairings(): Array<{
+    daemonId: string;
+    relayUrl: string;
+    createdAt: number;
+  }> {
+    const rows = this.metaDb
+      .prepare(
+        "SELECT daemon_id, relay_url, created_at FROM pairings ORDER BY created_at ASC",
+      )
+      .all() as Array<{
+      daemon_id: string;
+      relay_url: string;
+      created_at: number;
+    }>;
+    return rows.map((r) => ({
+      daemonId: r.daemon_id,
+      relayUrl: r.relay_url,
+      createdAt: r.created_at,
+    }));
+  }
+
   /**
    * Test-only: clear metadata rows, close cached session dbs, and sweep the
    * per-session `.sqlite` files on disk. The meta db itself is kept open so

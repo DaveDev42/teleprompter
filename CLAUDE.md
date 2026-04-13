@@ -64,6 +64,7 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - `relay.pub` / `relay.frame` — encrypted data frames, includes `frontendId` for N:N routing
 - `relay.presence` — daemon online/offline with session list
 - `control.unpair` — E2EE control message on the `__control__` sid (rides the existing `relay.pub` channel as ciphertext). Sent by either side when a pairing is removed (`tp pair delete` or the app's Daemons list). The receiving peer auto-removes the matching pairing and surfaces a toast/log. Stateless: if the peer is offline, the message is lost and the pairing heals on the next connect attempt.
+- `control.rename` — E2EE control message on `__control__` sid; updates the peer's pairing label. Sent when either side runs `tp pair rename` or edits the label in the app.
 - Connection flow: daemon `register → auth → broadcast pubkey via kx`; frontend `auth → send pubkey via kx → subscribe`
 
 ## Key Design Decisions
@@ -279,9 +280,10 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 
 ```bash
 tp [flags] [claude args]   # Claude를 tp를 통해 실행 (기본 모드)
-tp pair [--relay URL]      # QR 페어링 데이터 생성 (모바일 앱 연결) — 기본적으로 `pair new` 실행
-tp pair new [--relay URL]  # 새 페어링 생성 (QR 출력)
-tp pair list               # 등록된 페어링 목록
+tp pair [--relay URL] [--label NAME]   # QR 페어링 데이터 생성 (모바일 앱 연결) — 기본적으로 `pair new` 실행
+tp pair new [--relay URL] [--label NAME]  # 새 페어링 생성 (QR 출력, label 기본값 = hostname)
+tp pair list               # 등록된 페어링 목록 (label + daemon ID 표시)
+tp pair rename <id-prefix> <label...>  # 페어링 label 변경 (peer 알림)
 tp pair delete <id> [-y]   # 페어링 삭제 (daemon-id prefix 허용)
 tp status                  # 세션 & daemon 상태 확인 (자동 시작)
 tp logs [session]          # 세션 라이브 출력 tail

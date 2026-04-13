@@ -1,8 +1,10 @@
 import { useRouter } from "expo-router";
+import { useEffect } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRelayConnectionStore } from "../../src/hooks/use-relay";
 import { getPlatformProps } from "../../src/lib/get-platform-props";
+import { useNotificationStore } from "../../src/stores/notification-store";
 import type { PairingInfo } from "../../src/stores/pairing-store";
 import { usePairingStore } from "../../src/stores/pairing-store";
 import { useSessionStore } from "../../src/stores/session-store";
@@ -115,7 +117,19 @@ export default function DaemonsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const pairings = usePairingStore((s) => s.pairings);
+  const lastPeerUnpair = usePairingStore((s) => s.lastPeerUnpair);
+  const clearLastPeerUnpair = usePairingStore((s) => s.clearLastPeerUnpair);
   const pp = getPlatformProps();
+
+  useEffect(() => {
+    if (!lastPeerUnpair) return;
+    const shortId = lastPeerUnpair.daemonId.slice(0, 8);
+    useNotificationStore.getState().showToast({
+      title: "Pairing removed",
+      body: `Daemon ${shortId} removed this pairing.`,
+    });
+    clearLastPeerUnpair();
+  }, [lastPeerUnpair, clearLastPeerUnpair]);
 
   const pairingList = [...pairings.values()];
 

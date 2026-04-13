@@ -1,3 +1,4 @@
+export * from "./control";
 export type { Envelope, FrameType } from "./envelope";
 export type {
   ClaudeHookEvent,

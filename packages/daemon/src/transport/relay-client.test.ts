@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  CONTROL_UNPAIR,
   decrypt,
   deriveKxKey,
   deriveRegistrationProof,
@@ -8,6 +9,7 @@ import {
   encrypt,
   generateKeyPair,
   generatePairingSecret,
+  RELAY_CHANNEL_CONTROL,
   type RelayServerMessage,
   toBase64,
   type WsRec,
@@ -255,6 +257,188 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     expect(input.kind).toBe("chat");
     expect(input.sid).toBe("session-1");
     expect(input.data).toBe("Hello from frontend!");
+
+    frontendWs.close();
+    client.dispose();
+  });
+
+  test("sendUnpairNotice publishes encrypted control frame on control channel", async () => {
+    const daemonKp = await generateKeyPair();
+    const frontendKp = await generateKeyPair();
+    const frontendId = "test-frontend-unpair";
+    const kxKey = await deriveKxKey(pairingSecret);
+
+    const client = new RelayClient(
+      {
+        relayUrl: `ws://localhost:${relayPort}`,
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        registrationProof,
+        keyPair: daemonKp,
+        pairingSecret,
+      },
+      {},
+    );
+
+    await client.connect();
+    await Bun.sleep(300);
+
+    // Connect and auth frontend
+    const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
+    await new Promise<void>((r) => {
+      frontendWs.onopen = () => r();
+    });
+    frontendWs.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 2,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        frontendId,
+      }),
+    );
+    await Bun.sleep(100);
+
+    // Key exchange
+    const kxPayload = JSON.stringify({
+      pk: await toBase64(frontendKp.publicKey),
+      frontendId,
+      role: "frontend",
+    });
+    const kxCt = await encrypt(new TextEncoder().encode(kxPayload), kxKey);
+    frontendWs.send(
+      JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }),
+    );
+    await Bun.sleep(300);
+
+    // Subscribe to the control channel so we receive the unpair frame
+    frontendWs.send(
+      JSON.stringify({ t: "relay.sub", sid: RELAY_CHANNEL_CONTROL }),
+    );
+    await Bun.sleep(50);
+
+    // Frontend derives its session keys
+    const frontendKeys = await deriveSessionKeys(
+      frontendKp,
+      daemonKp.publicKey,
+      "frontend",
+    );
+
+    const framePromise = new Promise<{ t: string; sid: string; ct: string }>(
+      (resolve, reject) => {
+        frontendWs.onmessage = (e) => {
+          const msg = JSON.parse(e.data as string);
+          if (msg.t === "relay.frame") resolve(msg);
+        };
+        setTimeout(() => reject(new Error("timeout")), 3000);
+      },
+    );
+
+    const tsBefore = Date.now();
+    const sent = await client.sendUnpairNotice(frontendId, "user-initiated");
+    expect(sent).toBe(true);
+    const frame = await framePromise;
+
+    expect(frame.sid).toBe(RELAY_CHANNEL_CONTROL);
+    const plaintext = await decrypt(frame.ct, frontendKeys.rx);
+    const decoded = JSON.parse(new TextDecoder().decode(plaintext));
+    expect(decoded.t).toBe(CONTROL_UNPAIR);
+    expect(decoded.daemonId).toBe(DAEMON_ID);
+    expect(decoded.frontendId).toBe(frontendId);
+    expect(decoded.reason).toBe("user-initiated");
+    expect(typeof decoded.ts).toBe("number");
+    expect(decoded.ts).toBeGreaterThanOrEqual(tsBefore);
+
+    frontendWs.close();
+    client.dispose();
+  });
+
+  test("inbound control.unpair fires onUnpair callback", async () => {
+    const daemonKp = await generateKeyPair();
+    const frontendKp = await generateKeyPair();
+    const frontendId = "test-frontend-inbound-unpair";
+    const kxKey = await deriveKxKey(pairingSecret);
+
+    const received: Array<{ frontendId: string; reason: string }> = [];
+
+    const client = new RelayClient(
+      {
+        relayUrl: `ws://localhost:${relayPort}`,
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        registrationProof,
+        keyPair: daemonKp,
+        pairingSecret,
+      },
+      {},
+    );
+    client.onUnpair = (info) => received.push(info);
+
+    await client.connect();
+    client.subscribe(RELAY_CHANNEL_CONTROL);
+    await Bun.sleep(300);
+
+    // Connect and auth frontend
+    const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
+    await new Promise<void>((r) => {
+      frontendWs.onopen = () => r();
+    });
+    frontendWs.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 2,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        frontendId,
+      }),
+    );
+    await Bun.sleep(100);
+
+    // Key exchange
+    const kxPayload = JSON.stringify({
+      pk: await toBase64(frontendKp.publicKey),
+      frontendId,
+      role: "frontend",
+    });
+    const kxCt = await encrypt(new TextEncoder().encode(kxPayload), kxKey);
+    frontendWs.send(
+      JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }),
+    );
+    await Bun.sleep(300);
+
+    // Frontend derives session keys and sends control.unpair on control channel
+    const frontendKeys = await deriveSessionKeys(
+      frontendKp,
+      daemonKp.publicKey,
+      "frontend",
+    );
+    const unpairMsg = {
+      t: CONTROL_UNPAIR,
+      daemonId: DAEMON_ID,
+      frontendId,
+      reason: "user-initiated",
+      ts: Date.now(),
+    };
+    const ct = await encrypt(
+      new TextEncoder().encode(JSON.stringify(unpairMsg)),
+      frontendKeys.tx,
+    );
+    frontendWs.send(
+      JSON.stringify({
+        t: "relay.pub",
+        sid: RELAY_CHANNEL_CONTROL,
+        ct,
+        seq: 1,
+      }),
+    );
+
+    await Bun.sleep(300);
+
+    expect(received).toHaveLength(1);
+    expect(received[0]?.frontendId).toBe(frontendId);
+    expect(received[0]?.reason).toBe("user-initiated");
 
     frontendWs.close();
     client.dispose();

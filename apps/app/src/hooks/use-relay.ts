@@ -5,7 +5,7 @@ import { create } from "zustand";
 import { FrontendRelayClient } from "../lib/relay-client";
 import { useNotificationStore } from "../stores/notification-store";
 import { useOfflineStore } from "../stores/offline-store";
-import { usePairingStore } from "../stores/pairing-store";
+import { registerUnpairSender, usePairingStore } from "../stores/pairing-store";
 import { useSessionStore } from "../stores/session-store";
 
 /** Relay connection state (per daemon) */
@@ -51,6 +51,20 @@ export function getRelayClients(): readonly FrontendRelayClient[] {
 export function useRelay() {
   const pairings = usePairingStore((s) => s.pairings);
   const pairingState = usePairingStore((s) => s.state);
+
+  // Register the unpair sender — invoked by `usePairingStore.removePairing`
+  // to notify the daemon over relay before the local pairing record is dropped.
+  // Registered in an effect (not module scope) to handle Fast Refresh correctly.
+  useEffect(() => {
+    registerUnpairSender(async (daemonId) => {
+      const client = relayClients.get(daemonId);
+      if (!client) return;
+      await client.sendUnpairNotice("user-initiated");
+    });
+    return () => {
+      registerUnpairSender(null);
+    };
+  }, []);
 
   useEffect(() => {
     if (pairingState !== "paired" || pairings.size === 0) {
@@ -151,6 +165,9 @@ export function useRelay() {
         },
       );
 
+      client.onUnpair = ({ daemonId: did, reason }) => {
+        void usePairingStore.getState().handlePeerUnpair(did, reason);
+      };
       relayClients.set(daemonId, client);
       if (!activeRelayClients.includes(client)) {
         activeRelayClients.push(client);

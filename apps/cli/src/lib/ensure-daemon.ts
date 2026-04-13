@@ -1,7 +1,8 @@
 import { getSocketPath } from "@teleprompter/protocol";
 import { spawn } from "child_process";
-import { existsSync } from "fs";
+import { existsSync, lstatSync, unlinkSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
+import { Socket } from "net";
 import { platform } from "os";
 import { join } from "path";
 import { dim, ok } from "./colors";
@@ -23,9 +24,63 @@ const HINT_FILE = join(
 
 /**
  * Check whether the background daemon is running by probing its IPC socket.
+ *
+ * A bare socket file can linger after a crashed daemon. We attempt to connect;
+ * if connect fails with ECONNREFUSED (or the file is not a socket at all), we
+ * treat it as stale and remove it. Transient errors (ETIMEDOUT, EAGAIN, …) are
+ * reported as "not running" without touching the file — safer under a race
+ * with a daemon that's mid-startup.
  */
 export async function isDaemonRunning(): Promise<boolean> {
-  return existsSync(getSocketPath());
+  const sockPath = getSocketPath();
+  if (!existsSync(sockPath)) return false;
+
+  // Windows named pipes: existence check is sufficient — the pipe disappears
+  // when the daemon process exits.
+  if (process.platform === "win32") return true;
+
+  // If the path exists but is not a socket (e.g. a leftover regular file from
+  // a misconfigured run), it's safe to remove.
+  try {
+    if (!lstatSync(sockPath).isSocket()) {
+      try {
+        unlinkSync(sockPath);
+      } catch {
+        // best effort
+      }
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  return new Promise<boolean>((resolve) => {
+    const sock = new Socket();
+    let settled = false;
+    const timer = setTimeout(() => settle(false, null), 500);
+
+    const settle = (alive: boolean, errCode: string | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      sock.removeAllListeners();
+      sock.destroy();
+      if (!alive && errCode === "ECONNREFUSED") {
+        try {
+          unlinkSync(sockPath);
+        } catch {
+          // best effort
+        }
+      }
+      resolve(alive);
+    };
+
+    sock.once("connect", () => settle(true, null));
+    sock.once("error", (err: NodeJS.ErrnoException) => {
+      settle(false, err.code ?? null);
+    });
+    sock.connect(sockPath);
+  });
 }
 
 /**

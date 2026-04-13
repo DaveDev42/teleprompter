@@ -235,26 +235,21 @@ describe.skipIf(process.platform === "win32")("tp pair list/delete", () => {
   });
 
   test("rename updates the stored label by prefix", () => {
-    seed([
-      { id: "daemon-aaaa1111", relay: "ws://127.0.0.1:1", label: "old" },
-    ]);
-    const out = capture(
-      `${CLI} pair rename daemon-aaaa New Label Here`,
-      env,
-    );
+    seed([{ id: "daemon-aaaa1111", relay: "ws://127.0.0.1:1", label: "old" }]);
+    const out = capture(`${CLI} pair rename daemon-aaaa New Label Here`, env);
     expect(out).toContain("Renamed daemon-aaaa1111");
     expect(out).toContain('"New Label Here"');
 
     const store = new Store(storeDir);
-    const row = store.listPairings().find((p) => p.daemonId === "daemon-aaaa1111");
+    const row = store
+      .listPairings()
+      .find((p) => p.daemonId === "daemon-aaaa1111");
     store.close();
     expect(row?.label).toBe("New Label Here");
   });
 
   test("rename trims leading/trailing whitespace in label", () => {
-    seed([
-      { id: "daemon-aaaa1111", relay: "ws://127.0.0.1:1", label: "old" },
-    ]);
+    seed([{ id: "daemon-aaaa1111", relay: "ws://127.0.0.1:1", label: "old" }]);
     const out = capture(
       `${CLI} pair rename daemon-aaaa '   padded label   '`,
       env,
@@ -270,9 +265,7 @@ describe.skipIf(process.platform === "win32")("tp pair list/delete", () => {
   });
 
   test("rename with empty label clears it", () => {
-    seed([
-      { id: "daemon-aaaa1111", relay: "ws://127.0.0.1:1", label: "old" },
-    ]);
+    seed([{ id: "daemon-aaaa1111", relay: "ws://127.0.0.1:1", label: "old" }]);
     const out = capture(`${CLI} pair rename daemon-aaaa ''`, env);
     expect(out).toContain("(cleared)");
 

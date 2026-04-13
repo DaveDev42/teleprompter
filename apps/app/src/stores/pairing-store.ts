@@ -178,7 +178,10 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
           const prev = await secureGet(PREVIOUS_STORAGE_KEY);
           if (prev) {
             const parsed = JSON.parse(prev) as SerializedPairingInfo[];
-            const migrated = parsed.map((p) => ({ ...p, label: p.label ?? null }));
+            const migrated = parsed.map((p) => ({
+              ...p,
+              label: p.label ?? null,
+            }));
             raw = JSON.stringify(migrated);
             await secureSet(STORAGE_KEY, raw);
             await secureSet(PREVIOUS_STORAGE_KEY, "");

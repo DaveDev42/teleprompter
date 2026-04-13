@@ -38,20 +38,16 @@ describe("pairing", () => {
   });
 
   test("createPairingBundle includes label when provided", async () => {
-    const bundle = await createPairingBundle(
-      "wss://relay.test",
-      "daemon-lbl",
-      { label: "My MacBook" },
-    );
+    const bundle = await createPairingBundle("wss://relay.test", "daemon-lbl", {
+      label: "My MacBook",
+    });
     expect(bundle.qrData.label).toBe("My MacBook");
   });
 
   test("encoded pairing data round-trips label", async () => {
-    const bundle = await createPairingBundle(
-      "wss://relay.test",
-      "daemon-lbl",
-      { label: "My MacBook" },
-    );
+    const bundle = await createPairingBundle("wss://relay.test", "daemon-lbl", {
+      label: "My MacBook",
+    });
     const encoded = encodePairingData(bundle.qrData);
     const decoded = decodePairingData(encoded);
     expect(decoded.label).toBe("My MacBook");

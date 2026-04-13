@@ -213,7 +213,13 @@ export class Daemon {
       }
     }
 
-    // Persist pairing data for auto-reconnect on daemon restart
+    // Persist pairing data for auto-reconnect on daemon restart.
+    // Preserve any existing label if the caller didn't supply one, so
+    // reconnecting saved relays doesn't overwrite a user-set label.
+    const existingLabel =
+      this.store
+        .listPairings()
+        .find((p) => p.daemonId === config.daemonId)?.label ?? null;
     this.store.savePairing({
       daemonId: config.daemonId,
       relayUrl: config.relayUrl,
@@ -222,6 +228,7 @@ export class Daemon {
       publicKey: config.keyPair.publicKey,
       secretKey: config.keyPair.secretKey,
       pairingSecret: config.pairingSecret,
+      label: config.label ?? existingLabel,
     });
 
     this.relayClients.push(client);
@@ -244,6 +251,7 @@ export class Daemon {
           registrationProof: p.registrationProof,
           keyPair: { publicKey: p.publicKey, secretKey: p.secretKey },
           pairingSecret: p.pairingSecret,
+          label: p.label,
         });
         count++;
         log.info(`reconnected to relay ${p.relayUrl} (daemon ${p.daemonId})`);

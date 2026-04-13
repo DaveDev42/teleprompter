@@ -66,6 +66,8 @@ export class Store {
         }>
       ).map((r) => r.name),
     );
+    // PAIRINGS_MIGRATIONS is intentionally "ADD COLUMN only" until a versioned
+    // migrations table exists. Probe before ALTER to avoid noisy duplicate-column errors.
     for (const sql of PAIRINGS_MIGRATIONS) {
       const m = sql.match(/ADD COLUMN\s+(\w+)/i);
       if (m && existingCols.has(m[1]!)) continue;

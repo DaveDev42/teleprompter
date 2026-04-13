@@ -23,11 +23,12 @@ export function RenamePairingModal({
     if (visible) setValue(initialValue);
   }, [visible, initialValue]);
 
+  const isUnchanged = value === initialValue;
+
   const handleSave = () => {
+    if (isUnchanged) return;
     void onSave(value);
   };
-
-  const isUnchanged = value === initialValue;
 
   return (
     <ModalContainer visible={visible} onClose={onCancel}>

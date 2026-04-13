@@ -24,4 +24,18 @@ export interface ControlUnpair {
   ts: number;
 }
 
-export type ControlMessage = ControlUnpair;
+export const CONTROL_RENAME = "control.rename" as const;
+
+export interface ControlRename {
+  t: typeof CONTROL_RENAME;
+  /** Daemon ID of the pairing being renamed */
+  daemonId: string;
+  /** Frontend ID on the other end of the pairing */
+  frontendId: string;
+  /** New label (empty string clears the label — receiver treats as null) */
+  label: string;
+  /** Sender timestamp (ms) */
+  ts: number;
+}
+
+export type ControlMessage = ControlUnpair | ControlRename;

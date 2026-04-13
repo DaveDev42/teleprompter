@@ -12,6 +12,12 @@ import { SessionDb } from "./session-db";
 
 const log = createLogger("Store");
 
+export interface PairingSummary {
+  daemonId: string;
+  relayUrl: string;
+  createdAt: number;
+}
+
 export interface SessionMeta {
   sid: string;
   state: string;
@@ -269,11 +275,7 @@ export class Store {
     this.metaDb.run("DELETE FROM pairings WHERE daemon_id = ?", [daemonId]);
   }
 
-  listPairings(): Array<{
-    daemonId: string;
-    relayUrl: string;
-    createdAt: number;
-  }> {
+  listPairings(): PairingSummary[] {
     const rows = this.metaDb
       .prepare(
         "SELECT daemon_id, relay_url, created_at FROM pairings ORDER BY created_at ASC",

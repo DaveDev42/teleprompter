@@ -312,13 +312,16 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
     const pairings = new Map(get().pairings);
     const existing = pairings.get(daemonId);
     if (!existing) return;
-    pairings.set(daemonId, { ...existing, label: newLabel });
+    // Protocol: empty string clears the label — store as null locally.
+    const localLabel = newLabel.trim() === "" ? null : newLabel;
+    pairings.set(daemonId, { ...existing, label: localLabel });
 
     set({ pairings });
     await secureSet(STORAGE_KEY, await serializePairings(pairings));
 
     if (renameSender) {
       try {
+        // Send raw value over the wire — empty string signals clear to peer.
         await renameSender(daemonId, newLabel);
       } catch (err) {
         console.warn("[pairing] failed to send rename notice", err);
@@ -330,7 +333,9 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
     const pairings = new Map(get().pairings);
     const existing = pairings.get(daemonId);
     if (!existing) return;
-    pairings.set(daemonId, { ...existing, label });
+    // Protocol: empty string clears the label — store as null locally.
+    const localLabel = label === "" ? null : label;
+    pairings.set(daemonId, { ...existing, label: localLabel });
 
     set({ pairings });
     await secureSet(STORAGE_KEY, await serializePairings(pairings));

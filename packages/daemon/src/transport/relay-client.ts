@@ -7,6 +7,7 @@
  */
 
 import type {
+  ControlRename,
   ControlUnpair,
   KeyPair,
   RelayClientMessage,
@@ -17,6 +18,7 @@ import type {
   WsRec,
 } from "@teleprompter/protocol";
 import {
+  CONTROL_RENAME,
   CONTROL_UNPAIR,
   createLogger,
   decrypt,
@@ -100,6 +102,10 @@ export class RelayClient {
   onUnpair:
     | ((info: { frontendId: string; reason: ControlUnpair["reason"] }) => void)
     | null = null;
+
+  /** Called when an inbound control.rename frame is received from a frontend. */
+  onRename: ((info: { frontendId: string; label: string }) => void) | null =
+    null;
 
   constructor(config: RelayClientConfig, events: RelayClientEvents = {}) {
     this.config = config;
@@ -295,10 +301,17 @@ export class RelayClient {
     const text = new TextDecoder().decode(plaintext);
     const msg = JSON.parse(text);
 
-    if (frame.sid === RELAY_CHANNEL_CONTROL && msg.t === CONTROL_UNPAIR) {
-      const m = msg as ControlUnpair;
-      this.onUnpair?.({ frontendId: m.frontendId, reason: m.reason });
-      return;
+    if (frame.sid === RELAY_CHANNEL_CONTROL) {
+      if (msg.t === CONTROL_UNPAIR) {
+        const m = msg as ControlUnpair;
+        this.onUnpair?.({ frontendId: m.frontendId, reason: m.reason });
+        return;
+      }
+      if (msg.t === CONTROL_RENAME) {
+        const m = msg as ControlRename;
+        this.onRename?.({ frontendId: m.frontendId, label: m.label });
+        return;
+      }
     }
 
     if (msg.t === "in.chat" || msg.t === "in.term") {
@@ -418,6 +431,50 @@ export class RelayClient {
       return true;
     } catch (err) {
       log.warn(`sendUnpairNotice: send failed for ${frontendId}: ${err}`);
+      return false;
+    }
+  }
+
+  /**
+   * Send a rename control notice to a specific frontend peer.
+   * Mirrors sendUnpairNotice: rides the encrypted data channel on
+   * RELAY_CHANNEL_CONTROL (ciphertext-only to relay). If no peer session
+   * exists for the given frontendId, logs a warning and returns false.
+   */
+  async sendRenameNotice(frontendId: string, label: string): Promise<boolean> {
+    if (!this.authenticated) {
+      log.warn(
+        `sendRenameNotice: not authenticated; skipping notice for ${frontendId}`,
+      );
+      return false;
+    }
+    const peer = this.peers.get(frontendId);
+    if (!peer) {
+      log.warn(
+        `sendRenameNotice: no peer session for frontend ${frontendId}; skipping`,
+      );
+      return false;
+    }
+
+    try {
+      const msg: ControlRename = {
+        t: CONTROL_RENAME,
+        daemonId: this.config.daemonId,
+        frontendId,
+        label,
+        ts: Date.now(),
+      };
+      const plaintext = new TextEncoder().encode(JSON.stringify(msg));
+      const ct = await encrypt(plaintext, peer.sessionKeys.tx);
+      this.send({
+        t: "relay.pub",
+        sid: RELAY_CHANNEL_CONTROL,
+        ct,
+        seq: 0,
+      });
+      return true;
+    } catch (err) {
+      log.warn(`sendRenameNotice: send failed for ${frontendId}: ${err}`);
       return false;
     }
   }

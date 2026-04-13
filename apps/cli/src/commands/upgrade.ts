@@ -1,5 +1,13 @@
 import { $ } from "bun";
-import { existsSync, unlinkSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "fs";
+import { homedir } from "os";
+import { dirname, join } from "path";
 import { ok, warn } from "../lib/colors";
 import { errorWithHints } from "../lib/format";
 import { spinner } from "../lib/spinner";
@@ -64,15 +72,115 @@ export async function upgradeCommand(argv: string[] = []): Promise<void> {
   }
 }
 
+const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const CACHE_SCHEMA_VERSION = 1;
+
+function getCachePath(): string {
+  const xdg = process.env.XDG_CACHE_HOME;
+  const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".cache");
+  return join(base, "teleprompter", "upgrade-check.json");
+}
+
+type ParsedVersion = {
+  major: number;
+  minor: number;
+  patch: number;
+  /** true when the tag has a -prerelease suffix (e.g. `0.1.5-rc.1`). */
+  prerelease: boolean;
+};
+
+/**
+ * Parse a semver-ish tag ("v0.1.5" or "0.1.5-rc.1") into numeric parts.
+ * Returns null for unparseable input.
+ */
+export function parseVersion(v: string): ParsedVersion | null {
+  const trimmed = v.trim().replace(/^v/, "");
+  const m = trimmed.match(
+    /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/,
+  );
+  if (!m) return null;
+  return {
+    major: Number(m[1]),
+    minor: Number(m[2]),
+    patch: Number(m[3]),
+    prerelease: m[4] != null,
+  };
+}
+
+/**
+ * Returns true iff `a` < `b`. Unparseable input → false (treat as up-to-date).
+ *
+ * Numeric triple is compared in full. For same-numbered triples we apply only
+ * the stable-vs-prerelease rule (`0.1.5-rc.1 < 0.1.5`); prereleases are not
+ * compared to each other. The upgrade notice only nudges users toward stable
+ * releases, so distinguishing rc.1 from rc.2 is intentionally out of scope.
+ */
+export function isOlderVersion(a: string, b: string): boolean {
+  const pa = parseVersion(a);
+  const pb = parseVersion(b);
+  if (!pa || !pb) return false;
+  for (const k of ["major", "minor", "patch"] as const) {
+    if (pa[k] < pb[k]) return true;
+    if (pa[k] > pb[k]) return false;
+  }
+  return pa.prerelease && !pb.prerelease;
+}
+
 /**
  * Check if a newer version is available. Called on tp startup.
  * Returns the new version tag if available, null otherwise.
+ *
+ * - Suppressed entirely when `TP_NO_UPDATE_CHECK=1`.
+ * - Rate-limited via `~/.cache/teleprompter/upgrade-check.json` — at most one
+ *   network check per 24h.
+ * - Only announces when the installed version is strictly older than latest
+ *   (previous `!==` comparison also fired for dev/source builds whose
+ *   package.json version equals latest).
  */
-export async function checkForUpdates(): Promise<string | null> {
+export async function checkForUpdates(
+  opts: { cachePath?: string; now?: number } = {},
+): Promise<string | null> {
+  if (process.env.TP_NO_UPDATE_CHECK === "1") return null;
+
+  const cachePath = opts.cachePath ?? getCachePath();
+  const now = opts.now ?? Date.now();
+
+  try {
+    const cached = JSON.parse(readFileSync(cachePath, "utf-8")) as {
+      version?: number;
+      lastCheck?: number;
+    };
+    // Unknown/missing schema version → treat as cache miss so format migrations
+    // don't get stuck reading old shapes. A fresh hit short-circuits *without*
+    // rewriting the cache so the 24h window is fixed, not sliding.
+    if (
+      cached.version === CACHE_SCHEMA_VERSION &&
+      typeof cached.lastCheck === "number" &&
+      now - cached.lastCheck < UPDATE_CHECK_INTERVAL_MS
+    ) {
+      return null;
+    }
+  } catch {
+    // No cache, unreadable, or malformed — fall through and re-check.
+  }
+
+  // Record the attempt *before* the network call so transient GitHub failures
+  // still rate-limit subsequent invocations to the 24h window.
+  try {
+    mkdirSync(dirname(cachePath), { recursive: true });
+    writeFileSync(
+      cachePath,
+      JSON.stringify({ version: CACHE_SCHEMA_VERSION, lastCheck: now }),
+    );
+  } catch {
+    // cache is best-effort
+  }
+
   try {
     const current = getCurrentVersion();
     const latest = await getLatestRelease();
-    if (latest && latest.tag !== `v${current}`) {
+
+    if (latest && isOlderVersion(current, latest.tag)) {
       return latest.tag;
     }
   } catch {

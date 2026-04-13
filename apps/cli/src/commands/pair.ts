@@ -100,6 +100,32 @@ async function pairNew(argv: string[]): Promise<void> {
   }
 }
 
+/**
+ * Resolve a daemon ID fragment against a list of pairings.
+ *
+ * Match precedence (first non-empty result wins):
+ *   1. Exact daemon ID
+ *   2. Prefix match (e.g. `daemon-mncx`)
+ *   3. `daemon-<fragment>` shorthand (e.g. `mncx9824` → `daemon-mncx9824`)
+ *
+ * `rename` and `delete` share this helper so users get identical matching in
+ * both. Substring/middle matches are intentionally excluded — they collide
+ * far too easily on real installs.
+ */
+export function matchPairings<T extends { daemonId: string }>(
+  candidates: readonly T[],
+  fragment: string,
+): T[] {
+  const exact = candidates.filter((c) => c.daemonId === fragment);
+  if (exact.length > 0) return exact;
+
+  const prefix = candidates.filter((c) => c.daemonId.startsWith(fragment));
+  if (prefix.length > 0) return prefix;
+
+  const shorthand = `daemon-${fragment}`;
+  return candidates.filter((c) => c.daemonId === shorthand);
+}
+
 function defaultLabel(): string {
   try {
     const h = hostname();
@@ -229,7 +255,7 @@ async function pairDelete(argv: string[]): Promise<void> {
       });
     }
 
-    const matches = candidates.filter((c) => c.daemonId.startsWith(prefix));
+    const matches = matchPairings(candidates, prefix);
 
     if (matches.length === 0) {
       console.error(fail(`No pairing matches '${prefix}'.`));
@@ -339,7 +365,7 @@ async function pairRename(argv: string[]): Promise<void> {
   const store = new Store();
   try {
     const pairings = store.listPairings();
-    const matches = pairings.filter((p) => p.daemonId.startsWith(prefix));
+    const matches = matchPairings(pairings, prefix);
 
     if (matches.length === 0) {
       console.error(fail(`No pairing matches '${prefix}'.`));

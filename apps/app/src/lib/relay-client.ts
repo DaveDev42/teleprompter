@@ -9,6 +9,7 @@
  */
 
 import type {
+  ControlUnpair,
   KeyPair,
   RecordKind,
   RelayClientMessage,
@@ -21,6 +22,7 @@ import type {
   WsWorktreeInfo,
 } from "@teleprompter/protocol/client";
 import {
+  CONTROL_UNPAIR,
   decrypt,
   deriveKxKey,
   deriveSessionKeys,
@@ -74,6 +76,10 @@ export class FrontendRelayClient implements TransportClient {
   private disposed = false;
   private authenticated = false;
   private subscribedSessions = new Set<string>();
+
+  /** Called when daemon notifies this frontend that its pairing was removed. */
+  onUnpair: ((info: { daemonId: string; reason: string }) => void) | null =
+    null;
 
   /** Track attached session and last seq for auto-resume on reconnect */
   private attachedSid: string | null = null;
@@ -265,6 +271,12 @@ export class FrontendRelayClient implements TransportClient {
         case "session.exported":
           this.events.onSessionExported?.(msg.sid, msg.format, msg.d);
           break;
+        case CONTROL_UNPAIR:
+          this.onUnpair?.({
+            daemonId: (msg.daemonId as string) ?? this.config.daemonId,
+            reason: (msg.reason as string) ?? "unknown",
+          });
+          break;
         default:
           console.warn(`[FrontendRelay] unknown message type: ${msg.t}`);
       }
@@ -293,6 +305,28 @@ export class FrontendRelayClient implements TransportClient {
     const plaintext = new TextEncoder().encode(json);
     const ct = await encrypt(plaintext, this.sessionKeys.tx);
     this.sendRelay({ t: "relay.pub", sid: RELAY_CHANNEL_META, ct, seq: 0 });
+  }
+
+  /** Send a control.unpair notice to the daemon over the E2EE data channel. */
+  async sendUnpairNotice(
+    reason: ControlUnpair["reason"] = "user-initiated",
+  ): Promise<void> {
+    if (!this.authenticated || !this.sessionKeys) return;
+    const msg: ControlUnpair = {
+      t: CONTROL_UNPAIR,
+      daemonId: this.config.daemonId,
+      frontendId: this.config.frontendId,
+      reason,
+      ts: Date.now(),
+    };
+    const plaintext = new TextEncoder().encode(JSON.stringify(msg));
+    const ct = await encrypt(plaintext, this.sessionKeys.tx);
+    this.sendRelay({
+      t: "relay.pub",
+      sid: RELAY_CHANNEL_CONTROL,
+      ct,
+      seq: 0,
+    });
   }
 
   // ── Encrypted control message sender ──

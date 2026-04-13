@@ -5,7 +5,11 @@ import { create } from "zustand";
 import { FrontendRelayClient } from "../lib/relay-client";
 import { useNotificationStore } from "../stores/notification-store";
 import { useOfflineStore } from "../stores/offline-store";
-import { registerUnpairSender, usePairingStore } from "../stores/pairing-store";
+import {
+  registerRenameSender,
+  registerUnpairSender,
+  usePairingStore,
+} from "../stores/pairing-store";
 import { useSessionStore } from "../stores/session-store";
 
 /** Relay connection state (per daemon) */
@@ -61,8 +65,14 @@ export function useRelay() {
       if (!client) return;
       await client.sendUnpairNotice("user-initiated");
     });
+    registerRenameSender(async (daemonId, label) => {
+      const client = relayClients.get(daemonId);
+      if (!client) return;
+      await client.sendRenameNotice(label);
+    });
     return () => {
       registerUnpairSender(null);
+      registerRenameSender(null);
     };
   }, []);
 
@@ -167,6 +177,9 @@ export function useRelay() {
 
       client.onUnpair = ({ daemonId: did, reason }) => {
         void usePairingStore.getState().handlePeerUnpair(did, reason);
+      };
+      client.onRename = ({ daemonId: did, label }) => {
+        void usePairingStore.getState().handlePeerRename(did, label);
       };
       relayClients.set(daemonId, client);
       if (!activeRelayClients.includes(client)) {

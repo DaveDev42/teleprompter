@@ -39,6 +39,7 @@ export type {
   RelayUnsubscribe,
 } from "./relay";
 export { RELAY_CHANNEL_CONTROL, RELAY_CHANNEL_META } from "./relay";
+export * from "./control";
 export type { Session, SessionState, SID } from "./session";
 export type {
   WsAttach,

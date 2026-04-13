@@ -145,14 +145,14 @@ export async function checkForUpdates(
   const cachePath = opts.cachePath ?? getCachePath();
   const now = opts.now ?? Date.now();
 
-  // Cache is written in `finally` so transient GitHub failures still rate-limit.
   try {
     const cached = JSON.parse(readFileSync(cachePath, "utf-8")) as {
       version?: number;
       lastCheck?: number;
     };
     // Unknown/missing schema version → treat as cache miss so format migrations
-    // don't get stuck reading old shapes.
+    // don't get stuck reading old shapes. A fresh hit short-circuits *without*
+    // rewriting the cache so the 24h window is fixed, not sliding.
     if (
       cached.version === CACHE_SCHEMA_VERSION &&
       typeof cached.lastCheck === "number" &&
@@ -164,6 +164,18 @@ export async function checkForUpdates(
     // No cache, unreadable, or malformed — fall through and re-check.
   }
 
+  // Record the attempt *before* the network call so transient GitHub failures
+  // still rate-limit subsequent invocations to the 24h window.
+  try {
+    mkdirSync(dirname(cachePath), { recursive: true });
+    writeFileSync(
+      cachePath,
+      JSON.stringify({ version: CACHE_SCHEMA_VERSION, lastCheck: now }),
+    );
+  } catch {
+    // cache is best-effort
+  }
+
   try {
     const current = getCurrentVersion();
     const latest = await getLatestRelease();
@@ -173,16 +185,6 @@ export async function checkForUpdates(
     }
   } catch {
     // Silently fail — don't block startup
-  } finally {
-    try {
-      mkdirSync(dirname(cachePath), { recursive: true });
-      writeFileSync(
-        cachePath,
-        JSON.stringify({ version: CACHE_SCHEMA_VERSION, lastCheck: now }),
-      );
-    } catch {
-      // cache is best-effort
-    }
   }
   return null;
 }

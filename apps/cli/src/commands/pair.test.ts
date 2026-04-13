@@ -42,6 +42,25 @@ describe("tp pair", () => {
     );
     expect(result).toContain('"relay":"ws://test.example"');
   });
+
+  test("tp pair new --label embeds label in QR and prints it", () => {
+    const result = capture(
+      `${CLI} pair new --relay ws://test.example --label "Dave's Mac" --no-save`,
+      isolatedEnv,
+    );
+    expect(result).toContain(`"label":"Dave's Mac"`);
+    expect(result).toMatch(/Label:\s+Dave's Mac/);
+  });
+
+  test("tp pair new without --label defaults to hostname", () => {
+    const result = capture(
+      `${CLI} pair new --relay ws://test.example --no-save`,
+      isolatedEnv,
+    );
+    // Should print a Label: line (hostname is non-empty on any dev machine)
+    expect(result).toMatch(/Label:\s+\S+/);
+    expect(result).toContain(`"label":`);
+  });
 });
 
 // SQLite file handles linger on Windows, causing EBUSY on rmSync in cleanup.
@@ -71,7 +90,9 @@ describe.skipIf(process.platform === "win32")("tp pair list/delete", () => {
     });
   });
 
-  function seed(pairings: Array<{ id: string; relay: string }>) {
+  function seed(
+    pairings: Array<{ id: string; relay: string; label?: string | null }>,
+  ) {
     const store = new Store(storeDir);
     for (const p of pairings) {
       store.savePairing({
@@ -82,6 +103,7 @@ describe.skipIf(process.platform === "win32")("tp pair list/delete", () => {
         publicKey: new Uint8Array(32),
         secretKey: new Uint8Array(32),
         pairingSecret: new Uint8Array(32),
+        label: p.label ?? null,
       });
     }
     store.close();
@@ -199,6 +221,75 @@ describe.skipIf(process.platform === "win32")("tp pair list/delete", () => {
     const store = new Store(storeDir);
     expect(store.listPairings()).toHaveLength(0);
     store.close();
+  });
+
+  test("list shows LABEL column and persisted labels", () => {
+    seed([
+      { id: "daemon-aaaa1111", relay: "wss://r.example", label: "Office Mac" },
+      { id: "daemon-bbbb2222", relay: "wss://r2.example" },
+    ]);
+    const out = capture(`${CLI} pair list`, env);
+    expect(out).toContain("LABEL");
+    expect(out).toContain("Office Mac");
+    expect(out).toContain("daemon-aaaa1111");
+  });
+
+  test("rename updates the stored label by prefix", () => {
+    seed([{ id: "daemon-aaaa1111", relay: "ws://127.0.0.1:1", label: "old" }]);
+    const out = capture(`${CLI} pair rename daemon-aaaa New Label Here`, env);
+    expect(out).toContain("Renamed daemon-aaaa1111");
+    expect(out).toContain('"New Label Here"');
+
+    const store = new Store(storeDir);
+    const row = store
+      .listPairings()
+      .find((p) => p.daemonId === "daemon-aaaa1111");
+    store.close();
+    expect(row?.label).toBe("New Label Here");
+  });
+
+  test("rename trims leading/trailing whitespace in label", () => {
+    seed([{ id: "daemon-aaaa1111", relay: "ws://127.0.0.1:1", label: "old" }]);
+    const out = capture(
+      `${CLI} pair rename daemon-aaaa '   padded label   '`,
+      env,
+    );
+    expect(out).toContain("Renamed daemon-aaaa1111");
+
+    const store = new Store(storeDir);
+    const row = store
+      .listPairings()
+      .find((p) => p.daemonId === "daemon-aaaa1111");
+    store.close();
+    expect(row?.label).toBe("padded label");
+  });
+
+  test("rename with empty label clears it", () => {
+    seed([{ id: "daemon-aaaa1111", relay: "ws://127.0.0.1:1", label: "old" }]);
+    const out = capture(`${CLI} pair rename daemon-aaaa ''`, env);
+    expect(out).toContain("(cleared)");
+
+    const store = new Store(storeDir);
+    const row = store
+      .listPairings()
+      .find((p) => p.daemonId === "daemon-aaaa1111");
+    store.close();
+    expect(row?.label).toBeNull();
+  });
+
+  test("rename errors on ambiguous prefix", () => {
+    seed([
+      { id: "daemon-aaaa1111", relay: "ws://127.0.0.1:1" },
+      { id: "daemon-aaaa2222", relay: "ws://127.0.0.1:1" },
+    ]);
+    const out = capture(`${CLI} pair rename daemon-aaaa foo`, env);
+    expect(out).toContain("ambiguous");
+  });
+
+  test("rename errors on no match", () => {
+    seed([{ id: "daemon-aaaa1111", relay: "ws://127.0.0.1:1" }]);
+    const out = capture(`${CLI} pair rename nope foo`, env);
+    expect(out).toContain("No pairing matches");
   });
 
   test("delete without --yes on non-TTY refuses", () => {

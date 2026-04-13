@@ -77,6 +77,12 @@ Generate pairing data to connect the mobile app via the encrypted relay:
 tp pair --relay wss://relay.tpmt.dev
 ```
 
+Each pairing has a human-readable **label** (auto-seeded from the device hostname,
+override with `--label NAME`) plus a cryptographic **daemon ID**. The label is what
+you see in `tp pair list` and in the app; the ID is the internal identifier tied to
+E2EE keys. Rename later with `tp pair rename <id-prefix> <new label>` — the peer is
+notified automatically.
+
 This outputs a QR code and a pairing string. In the Teleprompter app:
 
 1. Open the **Daemons** tab
@@ -148,8 +154,9 @@ summary with per-session detail.
 | Command | Description |
 |---------|-------------|
 | `tp [flags] [claude args]` | Run Claude through tp pipeline (default) |
-| `tp pair [--relay URL]` | Generate QR pairing data |
-| `tp pair list` | List registered pairings |
+| `tp pair [--relay URL] [--label NAME]` | Generate QR pairing data (label defaults to hostname) |
+| `tp pair list` | List registered pairings (shows label + daemon ID) |
+| `tp pair rename <id-prefix> <label...>` | Rename a pairing and notify the peer |
 | `tp pair delete <id> [-y]` | Delete a pairing (notifies the peer app/daemon so it also removes the pairing) |
 | `tp status` | Show daemon status and sessions |
 | `tp logs [session]` | Tail live session output |

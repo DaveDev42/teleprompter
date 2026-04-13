@@ -31,9 +31,14 @@ CREATE TABLE IF NOT EXISTS pairings (
   public_key BLOB NOT NULL,
   secret_key BLOB NOT NULL,
   pairing_secret BLOB NOT NULL,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  label TEXT
 );
 `;
+
+export const PAIRINGS_MIGRATIONS: string[] = [
+  `ALTER TABLE pairings ADD COLUMN label TEXT;`,
+];
 
 export const PRAGMAS = [
   "PRAGMA journal_mode = WAL;",

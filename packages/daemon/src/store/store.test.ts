@@ -118,6 +118,59 @@ describe("Store (shared fixture)", () => {
   test("getSession returns undefined for nonexistent", () => {
     expect(vault.getSession("nonexistent")).toBeUndefined();
   });
+
+  test("pairings: label is persisted on add and returned on list", () => {
+    vault.savePairing({
+      daemonId: "daemon-label-1",
+      relayUrl: "wss://r",
+      relayToken: "t",
+      registrationProof: "p",
+      publicKey: Buffer.from([1]),
+      secretKey: Buffer.from([2]),
+      pairingSecret: Buffer.from([3]),
+      label: "My MacBook",
+    });
+    const rows = vault.listPairings();
+    const row = rows.find((r) => r.daemonId === "daemon-label-1");
+    if (!row) throw new Error("expected row");
+    expect(row.label).toBe("My MacBook");
+  });
+
+  test("pairings: updatePairingLabel changes label", () => {
+    vault.savePairing({
+      daemonId: "daemon-label-2",
+      relayUrl: "wss://r",
+      relayToken: "t",
+      registrationProof: "p",
+      publicKey: Buffer.from([1]),
+      secretKey: Buffer.from([2]),
+      pairingSecret: Buffer.from([3]),
+      label: "old",
+    });
+    vault.updatePairingLabel("daemon-label-2", "new");
+    const row = vault
+      .listPairings()
+      .find((r) => r.daemonId === "daemon-label-2");
+    if (!row) throw new Error("expected row");
+    expect(row.label).toBe("new");
+  });
+
+  test("pairings: savePairing with no label stores null", () => {
+    vault.savePairing({
+      daemonId: "daemon-nolabel",
+      relayUrl: "wss://r",
+      relayToken: "t",
+      registrationProof: "p",
+      publicKey: Buffer.from([1]),
+      secretKey: Buffer.from([2]),
+      pairingSecret: Buffer.from([3]),
+    });
+    const row = vault
+      .listPairings()
+      .find((r) => r.daemonId === "daemon-nolabel");
+    if (!row) throw new Error("expected row");
+    expect(row.label).toBeNull();
+  });
 });
 
 // Isolated fixture: this test exercises Store close/reopen, so it cannot

@@ -50,8 +50,28 @@ jobs:
           name: binary-${{ matrix.target }}
           path: dist/tp-*
 
+  build-windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target: [bun-windows-x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - name: Build
+        shell: bash
+        run: |
+          SUFFIX=$(echo "${{ matrix.target }}" | sed 's/bun-//' | sed 's/-/_/')
+          bun build apps/cli/src/index.ts --compile --target=${{ matrix.target }} --outfile dist/tp-${SUFFIX}.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/tp-*
+
   release:
-    needs: [build-darwin, build-linux]
+    needs: [build-darwin, build-linux, build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

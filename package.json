@@ -1,6 +1,5 @@
 {
   "name": "teleprompter",
-  "version": "0.0.1",
   "private": true,
   "license": "BSD-2-Clause",
   "packageManager": "pnpm@10.33.0",

@@ -183,7 +183,7 @@ update the relevant documentation files in the same commit.
 
 - **main**: 보호 브랜치 — PR merge로만 변경. 직접 push 금지.
 - **Feature branches**: `feat/`, `fix/`, `chore/`, `refactor/` prefix. PR 생성 후 CI 통과 → merge.
-- **Release tags**: `release/v*` — Release Please가 자동 생성.
+- **Release tags**: `v*` — Release Please가 자동 생성.
 - **Merge 방식**: rebase onto `origin/main` → merge commit (squash 아님).
 
 ### PR Merge 절차
@@ -238,7 +238,7 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 | iOS TestFlight | EAS Workflow `preview.yaml` via eas-gate | Fingerprint → 빌드/OTA → TestFlight 제출 |
 | Android Internal | EAS Workflow `preview.yaml` via eas-gate | Fingerprint → 빌드/OTA → Internal track 제출 |
 
-### release/v* 태그 (Release Please PR merge)
+### v* 태그 (Release Please PR merge)
 | Target | Workflow | 설명 |
 |--------|----------|------|
 | tp 바이너리 | GitHub Actions `release.yml` | 4 플랫폼 빌드 → GitHub Release |
@@ -263,7 +263,7 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 ```bash
 # 1. 개발: main에 Conventional Commits로 push (자동 배포)
 # 2. 릴리즈 준비: GitHub Actions > Release Please > Run workflow
-# 3. 릴리즈: Release PR merge → release/vX.Y.Z 태그 자동 생성
+# 3. 릴리즈: Release PR merge → vX.Y.Z 태그 자동 생성
 ```
 
 ### Infrastructure

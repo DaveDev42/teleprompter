@@ -2,7 +2,6 @@
   "packages": {
     ".": {
       "release-type": "node",
-      "tag-prefix": "release/v",
       "include-component-in-tag": false,
       "bump-major-pre-major": false,
       "bump-minor-pre-major": false,

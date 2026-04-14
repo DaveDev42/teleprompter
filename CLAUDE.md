@@ -213,6 +213,13 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 - 깨진 코드나 미완성 코드를 커밋하지 않음
 - 문서 업데이트(CLAUDE.md, TODO.md 등)는 해당 코드 변경과 같은 커밋에 포함
 
+## Commit & Release Convention
+
+- **Default to patch version bumps.** Unless the user explicitly asks for a major or minor bump, every change (including API-breaking ones in 0.x) must ship as a patch release. release-please drives version bumps from conventional-commit prefixes.
+- **Never use `feat!`, `fix!`, or a `BREAKING CHANGE:` footer** in PR titles, squash-merge messages, or commit messages. These escalate release-please to major bumps automatically (e.g. 0.x → 1.0.0). Use plain `feat:` / `fix:` / `refactor:` / `chore:` instead, and describe breaking changes in the PR body and migration notes rather than the commit prefix.
+- **Manual major/minor bump**: when a major/minor release is explicitly requested, push a commit to `main` with a `Release-As: x.y.z` footer (release-please auto-detects it), or temporarily set `release-as` in `release-please-config.json` via a chore PR, then remove it in a follow-up chore PR after the release ships.
+- Since this repo uses merge commits (not squash), every commit on the PR branch is visible to release-please; make sure no commit on the branch uses the banned prefixes.
+
 ## Git Merge Strategy
 
 - **Squash merge is disabled** on this repository. Use `gh pr merge --merge` (merge commit).

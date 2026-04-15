@@ -42,7 +42,7 @@ try {
   $checksums = (Invoke-WebRequest -Uri $checksumUrl -UseBasicParsing).Content
   $line = $checksums -split "`n" | Where-Object { $_ -match [regex]::Escape($assetName) } | Select-Object -First 1
   if ($line) {
-    $expected = ($line -split "\s+")[0]
+    $expected = (($line -split "\s+")[0]).Trim()
     $actual = (Get-FileHash -Algorithm SHA256 -Path $tmpBin).Hash.ToLower()
     if ($actual -ne $expected.ToLower()) {
       Write-Error "Checksum mismatch: expected $expected, got $actual"

@@ -110,7 +110,7 @@ Install the daemon as an OS service so it starts automatically on login:
 tp daemon install
 ```
 
-This creates a launchd plist (macOS) or systemd unit (Linux). To uninstall later:
+This creates a launchd plist (macOS), a systemd user unit (Linux), or a Task Scheduler task named `TeleprompterDaemon` (Windows). To uninstall later:
 
 ```bash
 tp daemon uninstall

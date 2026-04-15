@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.8](https://github.com/DaveDev42/teleprompter/compare/v0.1.7...v0.1.8) (2026-04-15)
+
+
+### Features
+
+* **release:** add Windows arm64 to v* release builds ([b86caf9](https://github.com/DaveDev42/teleprompter/commit/b86caf99b769b8bc7f8cfbe0ee92ba5c8d52d5d7))
+* **release:** add Windows arm64 to v* release builds ([c5540c5](https://github.com/DaveDev42/teleprompter/commit/c5540c5522f7429fec05144068244c08fdab0cb9))
+* **release:** add Windows x64 to v* release builds ([2e44e39](https://github.com/DaveDev42/teleprompter/commit/2e44e397d66f4bd676875e6a047873813d9780e5))
+* **release:** add Windows x64 to v* release builds ([726c7c6](https://github.com/DaveDev42/teleprompter/commit/726c7c64351e2be567565d03e1fb08becdfa8696))
+
 ## [0.1.7](https://github.com/DaveDev42/teleprompter/compare/v0.1.6...v0.1.7) (2026-04-14)
 
 

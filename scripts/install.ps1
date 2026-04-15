@@ -9,12 +9,15 @@ $Repo = "DaveDev42/teleprompter"
 $InstallDir = if ($env:INSTALL_DIR) { $env:INSTALL_DIR } else { "$env:LOCALAPPDATA\Programs\teleprompter" }
 $BinName = "tp.exe"
 
-# Detect architecture
-$arch = switch ($env:PROCESSOR_ARCHITECTURE) {
+# Detect architecture. PROCESSOR_ARCHITEW6432 is set when the current PowerShell
+# process is running under WOW64 on an arm64/x64 native host; prefer it so an
+# x64-emulated shell on arm64 Windows still installs the arm64 binary.
+$archRaw = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+$arch = switch ($archRaw) {
   "AMD64" { "x64" }
   "ARM64" { "arm64" }
   default {
-    Write-Error "Unsupported architecture: $env:PROCESSOR_ARCHITECTURE"
+    Write-Error "Unsupported architecture: $archRaw"
     exit 1
   }
 }
@@ -34,33 +37,45 @@ Write-Host "Installing tp $version (windows/$arch) to $InstallDir..."
 $url = "https://github.com/$Repo/releases/download/$version/$assetName"
 $tmpDir = New-Item -ItemType Directory -Path (Join-Path $env:TEMP "tp-install-$([guid]::NewGuid())") -Force
 $tmpBin = Join-Path $tmpDir $BinName
-Invoke-WebRequest -Uri $url -OutFile $tmpBin -UseBasicParsing
 
-# Verify checksum (best-effort: skip if checksums.txt missing on older releases)
-$checksumUrl = "https://github.com/$Repo/releases/download/$version/checksums.txt"
 try {
-  $checksums = (Invoke-WebRequest -Uri $checksumUrl -UseBasicParsing).Content
-  $line = $checksums -split "`n" | Where-Object { $_ -match [regex]::Escape($assetName) } | Select-Object -First 1
-  if ($line) {
-    $expected = (($line -split "\s+")[0]).Trim()
-    $actual = (Get-FileHash -Algorithm SHA256 -Path $tmpBin).Hash.ToLower()
-    if ($actual -ne $expected.ToLower()) {
-      Write-Error "Checksum mismatch: expected $expected, got $actual"
-      exit 1
+  Invoke-WebRequest -Uri $url -OutFile $tmpBin -UseBasicParsing
+
+  # Verify checksum (best-effort: skip if checksums.txt missing on older releases)
+  $checksumUrl = "https://github.com/$Repo/releases/download/$version/checksums.txt"
+  $checksumOk = $true
+  try {
+    $checksums = (Invoke-WebRequest -Uri $checksumUrl -UseBasicParsing).Content
+    $line = $checksums -split "`n" | Where-Object { $_ -match [regex]::Escape($assetName) } | Select-Object -First 1
+    if ($line) {
+      $expected = (($line -split "\s+")[0]).Trim()
+      $actual = (Get-FileHash -Algorithm SHA256 -Path $tmpBin).Hash.ToLower()
+      if ($actual -ne $expected.ToLower()) {
+        $checksumOk = $false
+        Write-Host "Checksum mismatch: expected $expected, got $actual"
+      } else {
+        Write-Host "Checksum verified."
+      }
     }
-    Write-Host "Checksum verified."
+  } catch {
+    Write-Host "Checksum verification skipped (checksums.txt not available)."
   }
-} catch {
-  Write-Host "Checksum verification skipped (checksums.txt not available)."
+
+  if (-not $checksumOk) {
+    throw "Checksum verification failed"
+  }
+
+  # Install
+  New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+  $target = Join-Path $InstallDir $BinName
+  Move-Item -Path $tmpBin -Destination $target -Force
+
+  Write-Host "Installed tp to $target"
+} finally {
+  if (Test-Path $tmpDir.FullName) {
+    Remove-Item -Path $tmpDir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+  }
 }
-
-# Install
-New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-$target = Join-Path $InstallDir $BinName
-Move-Item -Path $tmpBin -Destination $target -Force
-Remove-Item -Path $tmpDir -Recurse -Force
-
-Write-Host "Installed tp to $target"
 
 # PATH advice
 if (-not ($env:Path -split ";" | Where-Object { $_ -eq $InstallDir })) {

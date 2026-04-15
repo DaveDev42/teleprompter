@@ -29,7 +29,8 @@ packages/
   tsconfig/    # Shared TS configs (base.json, bun.json)
 scripts/
   build.ts     # Multi-platform `bun build --compile` script
-  install.sh   # curl-pipe-sh installer for GitHub Releases
+  install.sh   # curl-pipe-sh installer for GitHub Releases (macOS/Linux)
+  install.ps1  # PowerShell installer for GitHub Releases (Windows)
 e2e/           # Playwright E2E tests (.spec.ts)
 ```
 

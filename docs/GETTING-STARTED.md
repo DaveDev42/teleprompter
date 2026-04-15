@@ -9,14 +9,16 @@ This guide walks you through installation, your first session, and connecting th
 
 | Requirement | Version | Check |
 |-------------|---------|-------|
-| **OS** | macOS or Linux | `uname -s` |
+| **OS** | macOS, Linux, or Windows | `uname -s` (macOS/Linux) / `$PSVersionTable.OS` (Windows) |
 | **Claude Code CLI** | Latest | `claude --version` |
 | **pnpm** (build from source only) | Latest | `pnpm --version` |
 | **Bun** (build from source only) | 1.3.12+ | `bun --version` |
 
-> **Note:** Windows support is experimental. See the main README for details.
+> **Note:** Windows support uses ConPTY for terminal rendering and Task Scheduler for background services. See [Windows-specific notes](#windows-specific-notes) below.
 
 ## Quick Install
+
+### macOS / Linux
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts/install.sh | bash
@@ -24,6 +26,14 @@ curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts
 
 This downloads the latest `tp` binary to `~/.local/bin/tp`. If `~/.local/bin` is not in your
 `PATH`, the installer will print the command to add it.
+
+### Windows
+
+```powershell
+irm https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts/install.ps1 | iex
+```
+
+Installs `tp.exe` to `$env:LOCALAPPDATA\Programs\teleprompter`. The installer prints the PATH command to run.
 
 To verify the installation:
 
@@ -100,7 +110,7 @@ Install the daemon as an OS service so it starts automatically on login:
 tp daemon install
 ```
 
-This creates a launchd plist (macOS) or systemd unit (Linux). To uninstall later:
+This creates a launchd plist (macOS), a systemd user unit (Linux), or a Task Scheduler task named `TeleprompterDaemon` (Windows). To uninstall later:
 
 ```bash
 tp daemon uninstall
@@ -187,11 +197,12 @@ All other flags are forwarded directly to `claude`.
 ## Troubleshooting
 
 **tp: command not found**
-- Ensure `~/.local/bin` is in your `PATH`:
+- macOS / Linux: ensure `~/.local/bin` is in your `PATH`:
   ```bash
   export PATH="$HOME/.local/bin:$PATH"
   ```
   Add this to your `~/.zshrc` or `~/.bashrc` to make it permanent.
+- Windows: see the [Windows-specific notes](#windows-specific-notes) for the PATH command.
 
 **Daemon won't start**
 - Check if another daemon is already running: `tp status`
@@ -207,6 +218,14 @@ All other flags are forwarded directly to `claude`.
 - Verify the daemon is running: `tp status`
 - Check the Diagnostics panel in the app for connection status
 - Ensure pairing is active (Diagnostics > Relay / Pairing)
+
+## Windows-specific notes
+
+- **PATH**: the installer places `tp.exe` in `%LOCALAPPDATA%\Programs\teleprompter`. Add that directory to `PATH` (the installer prints the exact command).
+- **Service**: `tp daemon install` registers a Task Scheduler task named `TeleprompterDaemon` that launches on login. `tp daemon uninstall` removes it.
+- **PTY**: terminal rendering uses a bundled Node.js PTY host (`@aspect-build/node-pty` via ConPTY) since Bun's PTY support is not yet available on Windows.
+- **IPC**: Runner ↔ Daemon uses Named Pipes instead of Unix domain sockets.
+- **Upgrade**: `tp upgrade` downloads the `.exe`, verifies the SHA-256 checksum, replaces the current binary, and restarts the Task Scheduler task if installed.
 
 For more help, search [existing issues](https://github.com/DaveDev42/teleprompter/issues)
 or open a new one on GitHub.

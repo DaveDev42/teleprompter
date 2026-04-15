@@ -17,8 +17,8 @@ $arch = switch ($archRaw) {
   "AMD64" { "x64" }
   "ARM64" { "arm64" }
   default {
+    # Write-Error terminates under $ErrorActionPreference='Stop'
     Write-Error "Unsupported architecture: $archRaw"
-    exit 1
   }
 }
 
@@ -35,8 +35,8 @@ Write-Host "Installing tp $version (windows/$arch) to $InstallDir..."
 
 # Download
 $url = "https://github.com/$Repo/releases/download/$version/$assetName"
-$tmpDir = New-Item -ItemType Directory -Path (Join-Path $env:TEMP "tp-install-$([guid]::NewGuid())") -Force
-$tmpBin = Join-Path $tmpDir $BinName
+$tmpDirPath = (New-Item -ItemType Directory -Path (Join-Path $env:TEMP "tp-install-$([guid]::NewGuid())") -Force).FullName
+$tmpBin = Join-Path $tmpDirPath $BinName
 
 try {
   Invoke-WebRequest -Uri $url -OutFile $tmpBin -UseBasicParsing
@@ -72,13 +72,13 @@ try {
 
   Write-Host "Installed tp to $target"
 } finally {
-  if (Test-Path $tmpDir.FullName) {
-    Remove-Item -Path $tmpDir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+  if ($tmpDirPath -and (Test-Path $tmpDirPath)) {
+    Remove-Item -Path $tmpDirPath -Recurse -Force -ErrorAction SilentlyContinue
   }
 }
 
 # PATH advice
-if (-not ($env:Path -split ";" | Where-Object { $_ -eq $InstallDir })) {
+if (-not ($env:Path -split ";" | Where-Object { $_ -ieq $InstallDir })) {
   Write-Host ""
   Write-Host "To use 'tp' from any shell, add this directory to PATH:"
   Write-Host "  [Environment]::SetEnvironmentVariable('Path', `"`$env:Path;$InstallDir`", 'User')"

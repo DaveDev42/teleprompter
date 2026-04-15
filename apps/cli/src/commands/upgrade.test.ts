@@ -61,6 +61,16 @@ describe("parseChecksums", () => {
     const map = parseChecksums("");
     expect(map.size).toBe(0);
   });
+
+  test("handles CRLF line endings", () => {
+    const hashA = "a".repeat(64);
+    const hashB = "b".repeat(64);
+    const text = `${hashA}  tp-windows_x64.exe\r\n${hashB}  tp-windows_arm64.exe\r\n`;
+    const map = parseChecksums(text);
+    expect(map.size).toBe(2);
+    expect(map.get("tp-windows_x64.exe")).toBe(hashA);
+    expect(map.get("tp-windows_arm64.exe")).toBe(hashB);
+  });
 });
 
 describe("computeFileHash", () => {

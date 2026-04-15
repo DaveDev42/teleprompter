@@ -79,7 +79,14 @@ const CACHE_SCHEMA_VERSION = 1;
 
 function getCachePath(): string {
   const xdg = process.env.XDG_CACHE_HOME;
-  const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".cache");
+  let base: string;
+  if (xdg && xdg.length > 0) {
+    base = xdg;
+  } else if (process.platform === "win32") {
+    base = process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
+  } else {
+    base = join(homedir(), ".cache");
+  }
   return join(base, "teleprompter", "upgrade-check.json");
 }
 
@@ -274,7 +281,7 @@ export async function downloadChecksums(
 /** Parse checksums.txt (sha256sum format: "hash  filename\n") into a Map. */
 export function parseChecksums(text: string): Map<string, string> {
   const map = new Map<string, string>();
-  for (const line of text.trim().split("\n")) {
+  for (const line of text.trim().split(/\r?\n/)) {
     // sha256sum format: "<hash>  <filename>" (two spaces)
     const match = line.match(/^([a-f0-9]{64})\s+(.+)$/);
     if (match) {
@@ -302,7 +309,8 @@ export function backupBinary(binaryPath: string): string {
   return bakPath;
 }
 
-/** Restore binary from .bak backup. */
+/** Restore binary from .bak backup. Throws if restore fails so caller can
+ * avoid reporting a successful rollback when the backup is still in place. */
 export function restoreBinary(binaryPath: string, bakPath: string): void {
   try {
     renameSync(bakPath, binaryPath);
@@ -311,11 +319,12 @@ export function restoreBinary(binaryPath: string, bakPath: string): void {
     if (err.code === "EXDEV") {
       copyFileSync(bakPath, binaryPath);
       unlinkSync(bakPath);
-    } else {
-      console.error(
-        `Failed to restore backup: ${err.message}. Manual restore: move ${bakPath} to ${binaryPath}`,
-      );
+      return;
     }
+    console.error(
+      `Failed to restore backup: ${err.message}. Manual restore: move ${bakPath} to ${binaryPath}`,
+    );
+    throw err;
   }
 }
 
@@ -361,9 +370,11 @@ export async function restartDaemon(): Promise<void> {
     if (isServiceInstalled()) {
       const name = getTaskName();
       // /End may fail if task isn't running — that's OK
-      Bun.spawnSync(["schtasks.exe", "/End", "/TN", name]);
-      const runResult = Bun.spawnSync(["schtasks.exe", "/Run", "/TN", name]);
-      if (runResult.exitCode === 0) {
+      Bun.spawnSync(["schtasks", "/End", "/TN", name]);
+      const runResult = Bun.spawnSync(["schtasks", "/Run", "/TN", name]);
+      // schtasks /Run returns 1 when the task is already running (SCHED_E_TASK_ATTEMPTED_TO_RUN_WITHOUT_INSTANCES).
+      // Treat exit 0 and 1 both as success for the purposes of restart messaging.
+      if (runResult.exitCode === 0 || runResult.exitCode === 1) {
         console.log(ok(`Daemon restarted via Task Scheduler (${name}).`));
       } else {
         console.log(
@@ -531,16 +542,22 @@ async function upgradeTp(tag: string): Promise<void> {
 
     // Rollback: restore from backup
     if (bakPath && existsSync(bakPath) && targetPath) {
-      restoreBinary(targetPath, bakPath);
-      console.log(ok(`Rolled back to previous binary at ${targetPath}`));
+      try {
+        restoreBinary(targetPath, bakPath);
+        console.log(ok(`Rolled back to previous binary at ${targetPath}`));
+      } catch {
+        // restoreBinary already logged the failure; don't claim success.
+      }
     }
 
+    const manualHint =
+      process.platform === "win32"
+        ? `Manual: irm https://raw.githubusercontent.com/${REPO}/main/scripts/install.ps1 | iex`
+        : `Manual: curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash`;
     console.error(
       errorWithHints(
         `Upgrade failed: ${err instanceof Error ? err.message : err}`,
-        [
-          `Manual: curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash`,
-        ],
+        [manualHint],
       ),
     );
   }

@@ -8,11 +8,23 @@ Remote Claude Code session controller with E2EE relay, dual Chat/Terminal UI, an
 
 ## Quick Start
 
-```bash
-# Install (macOS/Linux)
-curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts/install.sh | bash
+### macOS / Linux
 
-# Or build from source
+```bash
+curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts/install.sh | bash
+```
+
+### Windows
+
+```powershell
+irm https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts/install.ps1 | iex
+```
+
+Installs `tp.exe` to `$env:LOCALAPPDATA\Programs\teleprompter`. Add that directory to `PATH` per the installer's final message.
+
+### Build from source
+
+```bash
 git clone https://github.com/DaveDev42/teleprompter.git
 cd teleprompter
 pnpm install
@@ -96,7 +108,8 @@ packages/
   tsconfig/       # Shared TypeScript configs
 scripts/
   build.ts        # Multi-platform bun build --compile
-  install.sh      # curl-pipe-sh installer
+  install.sh      # curl-pipe-sh installer (macOS/Linux)
+  install.ps1     # PowerShell installer (Windows)
 ```
 
 ## Development

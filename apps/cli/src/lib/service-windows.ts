@@ -13,7 +13,7 @@ export function getLogDir(): string {
 
 export function resolveTpBinary(): string {
   const candidates = [
-    join(process.env.LOCALAPPDATA ?? "", "Programs", "tp", "tp.exe"),
+    join(process.env.LOCALAPPDATA ?? "", "Programs", "teleprompter", "tp.exe"),
     join(process.env.USERPROFILE ?? "", ".local", "bin", "tp.exe"),
   ];
   for (const c of candidates) {

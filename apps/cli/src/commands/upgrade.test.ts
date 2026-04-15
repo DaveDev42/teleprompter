@@ -18,6 +18,7 @@ import {
   isOlderVersion,
   parseChecksums,
   parseVersion,
+  resolveCurrentBinaryPath,
   restoreBinary,
 } from "./upgrade";
 
@@ -60,6 +61,16 @@ describe("parseChecksums", () => {
     const map = parseChecksums("");
     expect(map.size).toBe(0);
   });
+
+  test("handles CRLF line endings", () => {
+    const hashA = "a".repeat(64);
+    const hashB = "b".repeat(64);
+    const text = `${hashA}  tp-windows_x64.exe\r\n${hashB}  tp-windows_arm64.exe\r\n`;
+    const map = parseChecksums(text);
+    expect(map.size).toBe(2);
+    expect(map.get("tp-windows_x64.exe")).toBe(hashA);
+    expect(map.get("tp-windows_arm64.exe")).toBe(hashB);
+  });
 });
 
 describe("computeFileHash", () => {
@@ -98,7 +109,82 @@ describe("computeFileHash", () => {
 describe("getAssetName", () => {
   test("returns platform-specific asset name", () => {
     const name = getAssetName();
-    expect(name).toMatch(/^tp-(darwin|linux)_(arm64|x64)$/);
+    expect(name).toMatch(/^tp-(darwin|linux|windows)_(arm64|x64)(\.exe)?$/);
+  });
+
+  test("returns .exe on Windows x64", () => {
+    const origPlatform = process.platform;
+    const origArch = process.arch;
+    Object.defineProperty(process, "platform", {
+      value: "win32",
+      configurable: true,
+    });
+    Object.defineProperty(process, "arch", {
+      value: "x64",
+      configurable: true,
+    });
+    try {
+      expect(getAssetName()).toBe("tp-windows_x64.exe");
+    } finally {
+      Object.defineProperty(process, "platform", {
+        value: origPlatform,
+        configurable: true,
+      });
+      Object.defineProperty(process, "arch", {
+        value: origArch,
+        configurable: true,
+      });
+    }
+  });
+
+  test("returns .exe on Windows arm64", () => {
+    const origPlatform = process.platform;
+    const origArch = process.arch;
+    Object.defineProperty(process, "platform", {
+      value: "win32",
+      configurable: true,
+    });
+    Object.defineProperty(process, "arch", {
+      value: "arm64",
+      configurable: true,
+    });
+    try {
+      expect(getAssetName()).toBe("tp-windows_arm64.exe");
+    } finally {
+      Object.defineProperty(process, "platform", {
+        value: origPlatform,
+        configurable: true,
+      });
+      Object.defineProperty(process, "arch", {
+        value: origArch,
+        configurable: true,
+      });
+    }
+  });
+
+  test("returns plain name on darwin arm64", () => {
+    const origPlatform = process.platform;
+    const origArch = process.arch;
+    Object.defineProperty(process, "platform", {
+      value: "darwin",
+      configurable: true,
+    });
+    Object.defineProperty(process, "arch", {
+      value: "arm64",
+      configurable: true,
+    });
+    try {
+      expect(getAssetName()).toBe("tp-darwin_arm64");
+    } finally {
+      Object.defineProperty(process, "platform", {
+        value: origPlatform,
+        configurable: true,
+      });
+      Object.defineProperty(process, "arch", {
+        value: origArch,
+        configurable: true,
+      });
+    }
   });
 });
 
@@ -187,6 +273,66 @@ describe("version comparison", () => {
     expect(isOlderVersion("0.1.5-rc.1", "v0.1.5")).toBe(true);
     expect(isOlderVersion("0.1.5", "v0.1.5-rc.1")).toBe(false);
     expect(isOlderVersion("0.1.5-rc.1", "v0.1.5-rc.1")).toBe(false);
+  });
+});
+
+describe("backupBinary and restoreBinary cross-platform round-trip", () => {
+  test("round-trips without shelling out (fs only)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tp-test-"));
+    const bin = join(dir, "tp");
+    writeFileSync(bin, "v1");
+    const bak = backupBinary(bin);
+    expect(existsSync(bak)).toBe(true);
+    writeFileSync(bin, "v2");
+    restoreBinary(bin, bak);
+    expect(readFileSync(bin, "utf8")).toBe("v1");
+    expect(existsSync(bak)).toBe(false);
+    rmSync(dir, { recursive: true });
+  });
+});
+
+describe("resolveCurrentBinaryPath", () => {
+  test("returns execPath when not running via bun", async () => {
+    const origExecPath = process.execPath;
+    Object.defineProperty(process, "execPath", {
+      value: "/usr/local/bin/tp",
+      configurable: true,
+    });
+    try {
+      const result = await resolveCurrentBinaryPath();
+      expect(result).toBe("/usr/local/bin/tp");
+    } finally {
+      Object.defineProperty(process, "execPath", {
+        value: origExecPath,
+        configurable: true,
+      });
+    }
+  });
+
+  test("returns execPath on Windows (compiled tp.exe)", async () => {
+    const origExecPath = process.execPath;
+    const origPlatform = process.platform;
+    Object.defineProperty(process, "execPath", {
+      value: "C:\\Users\\x\\tp.exe",
+      configurable: true,
+    });
+    Object.defineProperty(process, "platform", {
+      value: "win32",
+      configurable: true,
+    });
+    try {
+      const result = await resolveCurrentBinaryPath();
+      expect(result).toBe("C:\\Users\\x\\tp.exe");
+    } finally {
+      Object.defineProperty(process, "execPath", {
+        value: origExecPath,
+        configurable: true,
+      });
+      Object.defineProperty(process, "platform", {
+        value: origPlatform,
+        configurable: true,
+      });
+    }
   });
 });
 

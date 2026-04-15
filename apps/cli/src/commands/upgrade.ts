@@ -1,12 +1,14 @@
 import { $ } from "bun";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   unlinkSync,
   writeFileSync,
 } from "fs";
-import { homedir } from "os";
+import { homedir, tmpdir } from "os";
 import { dirname, join } from "path";
 import { ok, warn } from "../lib/colors";
 import { errorWithHints } from "../lib/format";
@@ -77,7 +79,14 @@ const CACHE_SCHEMA_VERSION = 1;
 
 function getCachePath(): string {
   const xdg = process.env.XDG_CACHE_HOME;
-  const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".cache");
+  let base: string;
+  if (xdg && xdg.length > 0) {
+    base = xdg;
+  } else if (process.platform === "win32") {
+    base = process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
+  } else {
+    base = join(homedir(), ".cache");
+  }
   return join(base, "teleprompter", "upgrade-check.json");
 }
 
@@ -229,18 +238,23 @@ async function getLatestRelease(): Promise<{
 
 /** Build the asset name for the current platform. */
 export function getAssetName(): string {
-  const os = process.platform === "darwin" ? "darwin" : "linux";
+  let os: string;
+  if (process.platform === "darwin") os = "darwin";
+  else if (process.platform === "win32") os = "windows";
+  else os = "linux";
   const arch = process.arch === "arm64" ? "arm64" : "x64";
-  return `tp-${os}_${arch}`;
+  const suffix = process.platform === "win32" ? ".exe" : "";
+  return `tp-${os}_${arch}${suffix}`;
 }
 
 /** Resolve the path to the currently running tp binary. */
 export async function resolveCurrentBinaryPath(): Promise<string> {
-  const currentPath = process.execPath.includes("bun")
-    ? (await $`which tp`.text().catch(() => "")).trim()
-    : process.execPath;
-
-  return currentPath && currentPath !== "" ? currentPath : "";
+  if (process.execPath && !process.execPath.includes("bun")) {
+    return process.execPath;
+  }
+  const cmd = process.platform === "win32" ? "where" : "which";
+  const found = (await $`${cmd} tp`.text().catch(() => "")).trim();
+  return found ? found.split(/\r?\n/)[0] : "";
 }
 
 /**
@@ -267,7 +281,7 @@ export async function downloadChecksums(
 /** Parse checksums.txt (sha256sum format: "hash  filename\n") into a Map. */
 export function parseChecksums(text: string): Map<string, string> {
   const map = new Map<string, string>();
-  for (const line of text.trim().split("\n")) {
+  for (const line of text.trim().split(/\r?\n/)) {
     // sha256sum format: "<hash>  <filename>" (two spaces)
     const match = line.match(/^([a-f0-9]{64})\s+(.+)$/);
     if (match) {
@@ -291,20 +305,26 @@ export function backupBinary(binaryPath: string): string {
   if (!existsSync(binaryPath)) {
     throw new Error(`Binary not found at ${binaryPath}`);
   }
-  const result = Bun.spawnSync(["cp", binaryPath, bakPath]);
-  if (result.exitCode !== 0) {
-    throw new Error(`Failed to back up binary: cp exited ${result.exitCode}`);
-  }
+  copyFileSync(binaryPath, bakPath);
   return bakPath;
 }
 
-/** Restore binary from .bak backup. */
+/** Restore binary from .bak backup. Throws if restore fails so caller can
+ * avoid reporting a successful rollback when the backup is still in place. */
 export function restoreBinary(binaryPath: string, bakPath: string): void {
-  const result = Bun.spawnSync(["mv", bakPath, binaryPath]);
-  if (result.exitCode !== 0) {
+  try {
+    renameSync(bakPath, binaryPath);
+  } catch (e) {
+    const err = e as NodeJS.ErrnoException;
+    if (err.code === "EXDEV") {
+      copyFileSync(bakPath, binaryPath);
+      unlinkSync(bakPath);
+      return;
+    }
     console.error(
-      `Failed to restore backup: mv exited ${result.exitCode}. Manual restore: mv ${bakPath} ${binaryPath}`,
+      `Failed to restore backup: ${err.message}. Manual restore: move ${bakPath} to ${binaryPath}`,
     );
+    throw err;
   }
 }
 
@@ -343,7 +363,30 @@ export async function restartDaemon(): Promise<void> {
       }
       return;
     }
+  } else if (process.platform === "win32") {
+    const { isServiceInstalled, getTaskName } = await import(
+      "../lib/service-windows"
+    );
+    if (isServiceInstalled()) {
+      const name = getTaskName();
+      // /End may fail if task isn't running — that's OK
+      Bun.spawnSync(["schtasks", "/End", "/TN", name]);
+      const runResult = Bun.spawnSync(["schtasks", "/Run", "/TN", name]);
+      // schtasks /Run returns 1 when the task is already running (SCHED_E_TASK_ATTEMPTED_TO_RUN_WITHOUT_INSTANCES).
+      // Treat exit 0 and 1 both as success for the purposes of restart messaging.
+      if (runResult.exitCode === 0 || runResult.exitCode === 1) {
+        console.log(ok(`Daemon restarted via Task Scheduler (${name}).`));
+      } else {
+        console.log(
+          warn(
+            `Daemon restart failed (schtasks exit ${runResult.exitCode}). Restart manually: tp daemon start`,
+          ),
+        );
+      }
+      return;
+    }
   } else {
+    // Linux
     const { isServiceInstalled, getServiceName } = await import(
       "../lib/service-linux"
     );
@@ -364,6 +407,10 @@ export async function restartDaemon(): Promise<void> {
   }
 
   // No service installed — check for running daemon process
+  if (process.platform === "win32") {
+    // pgrep is not available on Windows; skip process check
+    return;
+  }
   try {
     const pidResult = await $`pgrep -x "tp"`.text().catch(() => "");
     if (pidResult.trim()) {
@@ -389,9 +436,20 @@ async function upgradeTp(tag: string): Promise<void> {
 
   try {
     // Download binary to temp
-    tmpPath = `/tmp/tp-upgrade-${Date.now()}`;
-    await $`curl -fsSL ${url} -o ${tmpPath}`.quiet();
-    await $`chmod +x ${tmpPath}`.quiet();
+    const tmpName =
+      process.platform === "win32"
+        ? `tp-upgrade-${Date.now()}.exe`
+        : `tp-upgrade-${Date.now()}`;
+    tmpPath = join(tmpdir(), tmpName);
+    const res = await fetch(url, {
+      redirect: "follow",
+      signal: AbortSignal.timeout(120000),
+    });
+    if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
+    await Bun.write(tmpPath, res);
+    if (process.platform !== "win32") {
+      await $`chmod +x ${tmpPath}`.quiet();
+    }
     stop(ok(`Downloaded tp ${tag}`));
 
     // Verify checksum
@@ -426,9 +484,14 @@ async function upgradeTp(tag: string): Promise<void> {
     const currentPath = await resolveCurrentBinaryPath();
     if (currentPath) {
       targetPath = currentPath;
+    } else if (process.platform === "win32") {
+      const base =
+        process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
+      targetPath = join(base, "Programs", "teleprompter", "tp.exe");
+      mkdirSync(dirname(targetPath), { recursive: true });
     } else {
-      targetPath = `${process.env.HOME}/.local/bin/tp`;
-      await $`mkdir -p ${process.env.HOME}/.local/bin`.quiet();
+      targetPath = join(homedir(), ".local", "bin", "tp");
+      mkdirSync(dirname(targetPath), { recursive: true });
     }
 
     // Back up existing binary
@@ -437,7 +500,17 @@ async function upgradeTp(tag: string): Promise<void> {
     }
 
     // Replace binary
-    await $`mv ${tmpPath} ${targetPath}`.quiet();
+    try {
+      renameSync(tmpPath, targetPath);
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "EXDEV") {
+        copyFileSync(tmpPath, targetPath);
+        unlinkSync(tmpPath);
+      } else {
+        throw e;
+      }
+    }
     tmpPath = ""; // Cleared — no longer need to clean up tmp
     console.log(`Updated tp at ${targetPath}`);
 
@@ -469,16 +542,22 @@ async function upgradeTp(tag: string): Promise<void> {
 
     // Rollback: restore from backup
     if (bakPath && existsSync(bakPath) && targetPath) {
-      restoreBinary(targetPath, bakPath);
-      console.log(ok(`Rolled back to previous binary at ${targetPath}`));
+      try {
+        restoreBinary(targetPath, bakPath);
+        console.log(ok(`Rolled back to previous binary at ${targetPath}`));
+      } catch {
+        // restoreBinary already logged the failure; don't claim success.
+      }
     }
 
+    const manualHint =
+      process.platform === "win32"
+        ? `Manual: irm https://raw.githubusercontent.com/${REPO}/main/scripts/install.ps1 | iex`
+        : `Manual: curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash`;
     console.error(
       errorWithHints(
         `Upgrade failed: ${err instanceof Error ? err.message : err}`,
-        [
-          `Manual: curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash`,
-        ],
+        [manualHint],
       ),
     );
   }

@@ -23,6 +23,7 @@ const TARGETS = [
   "bun-linux-x64",
   "bun-linux-arm64",
   "bun-windows-x64",
+  "bun-windows-arm64",
 ] as const;
 
 type Target = (typeof TARGETS)[number];

@@ -34,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [bun-linux-x64, bun-linux-arm64, bun-windows-x64]
+        target: [bun-linux-x64, bun-linux-arm64, bun-windows-x64, bun-windows-arm64]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

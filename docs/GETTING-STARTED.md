@@ -197,11 +197,12 @@ All other flags are forwarded directly to `claude`.
 ## Troubleshooting
 
 **tp: command not found**
-- Ensure `~/.local/bin` is in your `PATH`:
+- macOS / Linux: ensure `~/.local/bin` is in your `PATH`:
   ```bash
   export PATH="$HOME/.local/bin:$PATH"
   ```
   Add this to your `~/.zshrc` or `~/.bashrc` to make it permanent.
+- Windows: see the [Windows-specific notes](#windows-specific-notes) for the PATH command.
 
 **Daemon won't start**
 - Check if another daemon is already running: `tp status`

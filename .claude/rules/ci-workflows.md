@@ -29,6 +29,6 @@ paths:
 - Port: 7090
 
 ## Scripts
-- `scripts/build.ts`: multi-platform `bun build --compile` (darwin/linux × arm64/x64)
+- `scripts/build.ts`: multi-platform `bun build --compile` (darwin/linux × arm64/x64, windows × x64)
 - `scripts/install.sh`: curl-pipe-sh installer
 - `scripts/deploy-relay.sh`: SSH 배포 (arch 자동 감지)

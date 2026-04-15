@@ -240,11 +240,12 @@ export function getAssetName(): string {
 
 /** Resolve the path to the currently running tp binary. */
 export async function resolveCurrentBinaryPath(): Promise<string> {
-  const currentPath = process.execPath.includes("bun")
-    ? (await $`which tp`.text().catch(() => "")).trim()
-    : process.execPath;
-
-  return currentPath && currentPath !== "" ? currentPath : "";
+  if (process.execPath && !process.execPath.includes("bun")) {
+    return process.execPath;
+  }
+  const cmd = process.platform === "win32" ? "where" : "which";
+  const found = (await $`${cmd} tp`.text().catch(() => "")).trim();
+  return found ? found.split(/\r?\n/)[0] : "";
 }
 
 /**

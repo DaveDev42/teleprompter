@@ -18,6 +18,7 @@ import {
   isOlderVersion,
   parseChecksums,
   parseVersion,
+  resolveCurrentBinaryPath,
   restoreBinary,
 } from "./upgrade";
 
@@ -262,6 +263,51 @@ describe("version comparison", () => {
     expect(isOlderVersion("0.1.5-rc.1", "v0.1.5")).toBe(true);
     expect(isOlderVersion("0.1.5", "v0.1.5-rc.1")).toBe(false);
     expect(isOlderVersion("0.1.5-rc.1", "v0.1.5-rc.1")).toBe(false);
+  });
+});
+
+describe("resolveCurrentBinaryPath", () => {
+  test("returns execPath when not running via bun", async () => {
+    const origExecPath = process.execPath;
+    Object.defineProperty(process, "execPath", {
+      value: "/usr/local/bin/tp",
+      configurable: true,
+    });
+    try {
+      const result = await resolveCurrentBinaryPath();
+      expect(result).toBe("/usr/local/bin/tp");
+    } finally {
+      Object.defineProperty(process, "execPath", {
+        value: origExecPath,
+        configurable: true,
+      });
+    }
+  });
+
+  test("returns execPath on Windows (compiled tp.exe)", async () => {
+    const origExecPath = process.execPath;
+    const origPlatform = process.platform;
+    Object.defineProperty(process, "execPath", {
+      value: "C:\\Users\\x\\tp.exe",
+      configurable: true,
+    });
+    Object.defineProperty(process, "platform", {
+      value: "win32",
+      configurable: true,
+    });
+    try {
+      const result = await resolveCurrentBinaryPath();
+      expect(result).toBe("C:\\Users\\x\\tp.exe");
+    } finally {
+      Object.defineProperty(process, "execPath", {
+        value: origExecPath,
+        configurable: true,
+      });
+      Object.defineProperty(process, "platform", {
+        value: origPlatform,
+        configurable: true,
+      });
+    }
   });
 });
 

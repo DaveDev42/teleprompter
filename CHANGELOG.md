@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.9](https://github.com/DaveDev42/teleprompter/compare/v0.1.8...v0.1.9) (2026-04-15)
+
+
+### Features
+
+* **cli:** getAssetName supports Windows .exe ([56afa52](https://github.com/DaveDev42/teleprompter/commit/56afa52f2177964c98c263ba73c61bc7cffc86d4))
+* **cli:** tp upgrade handles Windows (tmp, fs ops, daemon restart) ([9bf232a](https://github.com/DaveDev42/teleprompter/commit/9bf232aede352ff628814cb62c6cee8ec159de23))
+* **install:** PowerShell installer for Windows ([6d3791f](https://github.com/DaveDev42/teleprompter/commit/6d3791f717ad89ad0041a4320d9d79af466954c4))
+* Windows install, upgrade, and docs ([3d4d0d0](https://github.com/DaveDev42/teleprompter/commit/3d4d0d098580940a19b666e0fe542863dd83a61a))
+
+
+### Bug Fixes
+
+* **cli:** address Windows review feedback (path reconciliation, CRLF, cache, rollback) ([92ea566](https://github.com/DaveDev42/teleprompter/commit/92ea566904c0c972371ae33f19c3d5bfbc9d1339))
+* **cli:** resolveCurrentBinaryPath uses 'where' on Windows ([837edaf](https://github.com/DaveDev42/teleprompter/commit/837edaf459520ef1fca01d29084d2baffd72b1a0))
+* **install:** cleanup temp on failure; arm64 via PROCESSOR_ARCHITEW6432; docs troubleshoot ([b7aa655](https://github.com/DaveDev42/teleprompter/commit/b7aa65557e5acc64fd69e038c8c63aa97ec5da87))
+
 ## [0.1.8](https://github.com/DaveDev42/teleprompter/compare/v0.1.7...v0.1.8) (2026-04-15)
 
 

@@ -104,39 +104,75 @@ describe("getAssetName", () => {
   test("returns .exe on Windows x64", () => {
     const origPlatform = process.platform;
     const origArch = process.arch;
-    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
-    Object.defineProperty(process, "arch", { value: "x64", configurable: true });
+    Object.defineProperty(process, "platform", {
+      value: "win32",
+      configurable: true,
+    });
+    Object.defineProperty(process, "arch", {
+      value: "x64",
+      configurable: true,
+    });
     try {
       expect(getAssetName()).toBe("tp-windows_x64.exe");
     } finally {
-      Object.defineProperty(process, "platform", { value: origPlatform, configurable: true });
-      Object.defineProperty(process, "arch", { value: origArch, configurable: true });
+      Object.defineProperty(process, "platform", {
+        value: origPlatform,
+        configurable: true,
+      });
+      Object.defineProperty(process, "arch", {
+        value: origArch,
+        configurable: true,
+      });
     }
   });
 
   test("returns .exe on Windows arm64", () => {
     const origPlatform = process.platform;
     const origArch = process.arch;
-    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
-    Object.defineProperty(process, "arch", { value: "arm64", configurable: true });
+    Object.defineProperty(process, "platform", {
+      value: "win32",
+      configurable: true,
+    });
+    Object.defineProperty(process, "arch", {
+      value: "arm64",
+      configurable: true,
+    });
     try {
       expect(getAssetName()).toBe("tp-windows_arm64.exe");
     } finally {
-      Object.defineProperty(process, "platform", { value: origPlatform, configurable: true });
-      Object.defineProperty(process, "arch", { value: origArch, configurable: true });
+      Object.defineProperty(process, "platform", {
+        value: origPlatform,
+        configurable: true,
+      });
+      Object.defineProperty(process, "arch", {
+        value: origArch,
+        configurable: true,
+      });
     }
   });
 
   test("returns plain name on darwin arm64", () => {
     const origPlatform = process.platform;
     const origArch = process.arch;
-    Object.defineProperty(process, "platform", { value: "darwin", configurable: true });
-    Object.defineProperty(process, "arch", { value: "arm64", configurable: true });
+    Object.defineProperty(process, "platform", {
+      value: "darwin",
+      configurable: true,
+    });
+    Object.defineProperty(process, "arch", {
+      value: "arm64",
+      configurable: true,
+    });
     try {
       expect(getAssetName()).toBe("tp-darwin_arm64");
     } finally {
-      Object.defineProperty(process, "platform", { value: origPlatform, configurable: true });
-      Object.defineProperty(process, "arch", { value: origArch, configurable: true });
+      Object.defineProperty(process, "platform", {
+        value: origPlatform,
+        configurable: true,
+      });
+      Object.defineProperty(process, "arch", {
+        value: origArch,
+        configurable: true,
+      });
     }
   });
 });

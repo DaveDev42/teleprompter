@@ -1,12 +1,14 @@
 import { $ } from "bun";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   unlinkSync,
   writeFileSync,
 } from "fs";
-import { homedir } from "os";
+import { homedir, tmpdir } from "os";
 import { dirname, join } from "path";
 import { ok, warn } from "../lib/colors";
 import { errorWithHints } from "../lib/format";
@@ -296,20 +298,24 @@ export function backupBinary(binaryPath: string): string {
   if (!existsSync(binaryPath)) {
     throw new Error(`Binary not found at ${binaryPath}`);
   }
-  const result = Bun.spawnSync(["cp", binaryPath, bakPath]);
-  if (result.exitCode !== 0) {
-    throw new Error(`Failed to back up binary: cp exited ${result.exitCode}`);
-  }
+  copyFileSync(binaryPath, bakPath);
   return bakPath;
 }
 
 /** Restore binary from .bak backup. */
 export function restoreBinary(binaryPath: string, bakPath: string): void {
-  const result = Bun.spawnSync(["mv", bakPath, binaryPath]);
-  if (result.exitCode !== 0) {
-    console.error(
-      `Failed to restore backup: mv exited ${result.exitCode}. Manual restore: mv ${bakPath} ${binaryPath}`,
-    );
+  try {
+    renameSync(bakPath, binaryPath);
+  } catch (e) {
+    const err = e as NodeJS.ErrnoException;
+    if (err.code === "EXDEV") {
+      copyFileSync(bakPath, binaryPath);
+      unlinkSync(bakPath);
+    } else {
+      console.error(
+        `Failed to restore backup: ${err.message}. Manual restore: move ${bakPath} to ${binaryPath}`,
+      );
+    }
   }
 }
 
@@ -348,7 +354,28 @@ export async function restartDaemon(): Promise<void> {
       }
       return;
     }
+  } else if (process.platform === "win32") {
+    const { isServiceInstalled, getTaskName } = await import(
+      "../lib/service-windows"
+    );
+    if (isServiceInstalled()) {
+      const name = getTaskName();
+      // /End may fail if task isn't running — that's OK
+      Bun.spawnSync(["schtasks.exe", "/End", "/TN", name]);
+      const runResult = Bun.spawnSync(["schtasks.exe", "/Run", "/TN", name]);
+      if (runResult.exitCode === 0) {
+        console.log(ok(`Daemon restarted via Task Scheduler (${name}).`));
+      } else {
+        console.log(
+          warn(
+            `Daemon restart failed (schtasks exit ${runResult.exitCode}). Restart manually: tp daemon start`,
+          ),
+        );
+      }
+      return;
+    }
   } else {
+    // Linux
     const { isServiceInstalled, getServiceName } = await import(
       "../lib/service-linux"
     );
@@ -369,6 +396,10 @@ export async function restartDaemon(): Promise<void> {
   }
 
   // No service installed — check for running daemon process
+  if (process.platform === "win32") {
+    // pgrep is not available on Windows; skip process check
+    return;
+  }
   try {
     const pidResult = await $`pgrep -x "tp"`.text().catch(() => "");
     if (pidResult.trim()) {
@@ -394,9 +425,20 @@ async function upgradeTp(tag: string): Promise<void> {
 
   try {
     // Download binary to temp
-    tmpPath = `/tmp/tp-upgrade-${Date.now()}`;
-    await $`curl -fsSL ${url} -o ${tmpPath}`.quiet();
-    await $`chmod +x ${tmpPath}`.quiet();
+    const tmpName =
+      process.platform === "win32"
+        ? `tp-upgrade-${Date.now()}.exe`
+        : `tp-upgrade-${Date.now()}`;
+    tmpPath = join(tmpdir(), tmpName);
+    const res = await fetch(url, {
+      redirect: "follow",
+      signal: AbortSignal.timeout(120000),
+    });
+    if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
+    await Bun.write(tmpPath, res);
+    if (process.platform !== "win32") {
+      await $`chmod +x ${tmpPath}`.quiet();
+    }
     stop(ok(`Downloaded tp ${tag}`));
 
     // Verify checksum
@@ -431,9 +473,14 @@ async function upgradeTp(tag: string): Promise<void> {
     const currentPath = await resolveCurrentBinaryPath();
     if (currentPath) {
       targetPath = currentPath;
+    } else if (process.platform === "win32") {
+      const base =
+        process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
+      targetPath = join(base, "Programs", "teleprompter", "tp.exe");
+      mkdirSync(dirname(targetPath), { recursive: true });
     } else {
-      targetPath = `${process.env.HOME}/.local/bin/tp`;
-      await $`mkdir -p ${process.env.HOME}/.local/bin`.quiet();
+      targetPath = join(homedir(), ".local", "bin", "tp");
+      mkdirSync(dirname(targetPath), { recursive: true });
     }
 
     // Back up existing binary
@@ -442,7 +489,17 @@ async function upgradeTp(tag: string): Promise<void> {
     }
 
     // Replace binary
-    await $`mv ${tmpPath} ${targetPath}`.quiet();
+    try {
+      renameSync(tmpPath, targetPath);
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "EXDEV") {
+        copyFileSync(tmpPath, targetPath);
+        unlinkSync(tmpPath);
+      } else {
+        throw e;
+      }
+    }
     tmpPath = ""; // Cleared — no longer need to clean up tmp
     console.log(`Updated tp at ${targetPath}`);
 

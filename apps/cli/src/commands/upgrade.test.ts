@@ -266,6 +266,21 @@ describe("version comparison", () => {
   });
 });
 
+describe("backupBinary and restoreBinary cross-platform round-trip", () => {
+  test("round-trips without shelling out (fs only)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tp-test-"));
+    const bin = join(dir, "tp");
+    writeFileSync(bin, "v1");
+    const bak = backupBinary(bin);
+    expect(existsSync(bak)).toBe(true);
+    writeFileSync(bin, "v2");
+    restoreBinary(bin, bak);
+    expect(readFileSync(bin, "utf8")).toBe("v1");
+    expect(existsSync(bak)).toBe(false);
+    rmSync(dir, { recursive: true });
+  });
+});
+
 describe("resolveCurrentBinaryPath", () => {
   test("returns execPath when not running via bun", async () => {
     const origExecPath = process.execPath;

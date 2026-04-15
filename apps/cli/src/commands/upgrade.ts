@@ -229,9 +229,13 @@ async function getLatestRelease(): Promise<{
 
 /** Build the asset name for the current platform. */
 export function getAssetName(): string {
-  const os = process.platform === "darwin" ? "darwin" : "linux";
+  let os: string;
+  if (process.platform === "darwin") os = "darwin";
+  else if (process.platform === "win32") os = "windows";
+  else os = "linux";
   const arch = process.arch === "arm64" ? "arm64" : "x64";
-  return `tp-${os}_${arch}`;
+  const suffix = process.platform === "win32" ? ".exe" : "";
+  return `tp-${os}_${arch}${suffix}`;
 }
 
 /** Resolve the path to the currently running tp binary. */

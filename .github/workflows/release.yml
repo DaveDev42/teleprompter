@@ -15,6 +15,7 @@ jobs:
   build-darwin:
     runs-on: macos-latest
     strategy:
+      fail-fast: false
       matrix:
         target: [bun-darwin-arm64, bun-darwin-x64]
     steps:
@@ -22,36 +23,31 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
-      - name: Build
-        run: |
-          SUFFIX=$(echo "${{ matrix.target }}" | sed 's/bun-//' | sed 's/-/_/')
-          bun build apps/cli/src/index.ts --compile --target=${{ matrix.target }} --outfile dist/tp-${SUFFIX}
+      - run: bun run scripts/build.ts --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.target }}
           path: dist/tp-*
 
-  build-linux:
+  build-cross:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        target: [bun-linux-x64, bun-linux-arm64]
+        target: [bun-linux-x64, bun-linux-arm64, bun-windows-x64]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
-      - name: Build
-        run: |
-          SUFFIX=$(echo "${{ matrix.target }}" | sed 's/bun-//' | sed 's/-/_/')
-          bun build apps/cli/src/index.ts --compile --target=${{ matrix.target }} --outfile dist/tp-${SUFFIX}
+      - run: bun run scripts/build.ts --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.target }}
           path: dist/tp-*
 
   release:
-    needs: [build-darwin, build-linux]
+    needs: [build-darwin, build-cross]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

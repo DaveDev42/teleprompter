@@ -27,9 +27,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: bun run scripts/build.ts --target ${{ matrix.target }}
       - name: Ad-hoc codesign (macOS)
+        # Bun embeds a native ad-hoc signature on `--compile` output when the
+        # target arch matches the host (arm64 runner → arm64 target), which
+        # makes `codesign --sign -` choke with "invalid or unsupported format
+        # for signature". Strip the existing signature first, then re-sign.
         run: |
           for f in dist/tp-*; do
             if [ -f "$f" ]; then
+              codesign --remove-signature "$f" || true
               codesign --sign - --force --options runtime --timestamp=none "$f"
               codesign --verify --verbose "$f"
             fi

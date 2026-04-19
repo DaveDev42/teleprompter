@@ -325,6 +325,7 @@ describe("installCompletion — full cycle", () => {
     expect(installCompletion({ shell: "powershell", home, force: true }).status).toBe("installed");
     const afterForce = readFileSync(profileFile, "utf-8");
     expect((afterForce.match(/# >>> tp completions/g) ?? []).length).toBe(1);
+    expect(afterForce).toMatch(/# <<< tp completions <<<\n$/);
 
     expect(uninstallCompletion({ shell: "powershell", home }).status).toBe("uninstalled");
     expect(existsSync(scriptFile)).toBe(false);

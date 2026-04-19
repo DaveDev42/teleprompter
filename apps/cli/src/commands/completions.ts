@@ -7,6 +7,13 @@
  *   eval "$(tp completions fish)"
  */
 
+import { detectShell, type Shell } from "../lib/shell-detect";
+import {
+  installCompletion,
+  uninstallCompletion,
+  type InstallShell,
+} from "./completions-install";
+
 const SUBCOMMANDS = [
   "daemon",
   "run",
@@ -49,9 +56,15 @@ const DAEMON_FLAGS = [
 ];
 
 export function completionsCommand(argv: string[]): void {
-  const shell = argv[0] ?? "bash";
+  if (argv[0] === "install") {
+    runInstall(argv.slice(1));
+    return;
+  }
 
-  switch (shell) {
+  const shell = argv[0] ?? "bash";
+  const normalized = shell === "pwsh" ? "powershell" : shell;
+
+  switch (normalized) {
     case "bash":
       console.log(generateBash());
       break;
@@ -62,13 +75,59 @@ export function completionsCommand(argv: string[]): void {
       console.log(generateFish());
       break;
     case "powershell":
-    case "pwsh":
       console.log(generatePowerShell());
       break;
     default:
       console.error(`Unknown shell: ${shell}`);
       console.error("Supported: bash, zsh, fish, powershell");
       process.exit(1);
+  }
+}
+
+function runInstall(argv: string[]): void {
+  const force = argv.includes("--force");
+  const dryRun = argv.includes("--dry-run");
+  const uninstall = argv.includes("--uninstall");
+  const legacyPowerShell = argv.includes("--legacy-powershell");
+
+  const positional = argv.find((a) => !a.startsWith("--"));
+  const requested =
+    positional === "pwsh" ? "powershell" : (positional as Shell | undefined);
+
+  const shell: Shell | null =
+    requested ?? detectShell(process.env, process.platform);
+
+  if (!shell) {
+    console.error(
+      "Could not detect shell. Run 'tp completions install <bash|zsh|fish|powershell>'.",
+    );
+    process.exit(1);
+  }
+
+  if (uninstall) {
+    const r = uninstallCompletion({ shell, legacyPowerShell });
+    if (r.status === "uninstalled") {
+      console.log(`tp completions removed for ${shell} (${r.file})`);
+    } else {
+      console.log(`tp completions not installed for ${shell}`);
+    }
+    return;
+  }
+
+  const r = installCompletion({
+    shell: shell as InstallShell,
+    force,
+    dryRun,
+    legacyPowerShell,
+  });
+
+  if (r.status === "dry-run") {
+    console.log(r.plan);
+  } else if (r.status === "already-installed") {
+    console.log(`tp completions already installed for ${shell} (${r.file})`);
+  } else {
+    console.log(`tp completions installed for ${shell} (${r.file})`);
+    console.log("Restart your shell or source your rc file to activate.");
   }
 }
 

@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { capture } from "../test-util";
 
 // Windows can exceed the 5s default when bun startup imports heavy deps.
@@ -109,6 +112,54 @@ describe("tp completions", () => {
     () => {
       const result = capture("bun run apps/cli/src/index.ts completions pwsh");
       expect(result).toContain("Register-ArgumentCompleter");
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "completions install writes to a tmp HOME (bash)",
+    () => {
+      const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
+      try {
+        const result = capture(
+          `bun run apps/cli/src/index.ts completions install bash`,
+          { HOME: tmpHome, SHELL: "/bin/bash" },
+        );
+        expect(result).toContain("tp completions installed for bash");
+        const bashrc = readFileSync(join(tmpHome, ".bashrc"), "utf-8");
+        expect(bashrc).toContain('eval "$(tp completions bash)"');
+      } finally {
+        rmSync(tmpHome, { recursive: true, force: true });
+      }
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "completions install without shell arg auto-detects from $SHELL",
+    () => {
+      const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
+      try {
+        capture(`bun run apps/cli/src/index.ts completions install`, {
+          HOME: tmpHome,
+          SHELL: "/bin/zsh",
+        });
+        expect(existsSync(join(tmpHome, ".zshrc"))).toBe(true);
+      } finally {
+        rmSync(tmpHome, { recursive: true, force: true });
+      }
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "completions install fails with exit 1 when shell cannot be detected",
+    () => {
+      const result = capture(
+        `bun run apps/cli/src/index.ts completions install`,
+        { HOME: "/tmp", SHELL: "/bin/sh" },
+      );
+      expect(result).toContain("Could not detect shell");
     },
     TIMEOUT,
   );

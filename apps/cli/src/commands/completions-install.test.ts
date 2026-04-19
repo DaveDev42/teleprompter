@@ -237,3 +237,47 @@ describe("installCompletion — powershell", () => {
     expect(result.status).toBe("not-installed");
   });
 });
+
+describe("installCompletion — powershell profile override", () => {
+  test("powerShellProfileDir overrides the default path", () => {
+    const custom = join(home, "custom-profile-dir");
+    const result = installCompletion({
+      shell: "powershell",
+      home,
+      powerShellProfileDir: custom,
+    });
+    expect(result.status).toBe("installed");
+    expect(existsSync(join(custom, "tp-completions.ps1"))).toBe(true);
+    expect(existsSync(join(custom, "Profile.ps1"))).toBe(true);
+  });
+});
+
+describe("installCompletion — full cycle", () => {
+  test("bash: install → force → uninstall → install", () => {
+    const r1 = installCompletion({ shell: "bash", home });
+    expect(r1.status).toBe("installed");
+
+    const r2 = installCompletion({ shell: "bash", home, force: true });
+    expect(r2.status).toBe("installed");
+
+    const r3 = uninstallCompletion({ shell: "bash", home });
+    expect(r3.status).toBe("uninstalled");
+
+    const r4 = installCompletion({ shell: "bash", home });
+    expect(r4.status).toBe("installed");
+  });
+
+  test("fish: install → force → uninstall → install", () => {
+    expect(installCompletion({ shell: "fish", home }).status).toBe("installed");
+    expect(installCompletion({ shell: "fish", home, force: true }).status).toBe("installed");
+    expect(uninstallCompletion({ shell: "fish", home }).status).toBe("uninstalled");
+    expect(installCompletion({ shell: "fish", home }).status).toBe("installed");
+  });
+
+  test("powershell: install → force → uninstall → install", () => {
+    expect(installCompletion({ shell: "powershell", home }).status).toBe("installed");
+    expect(installCompletion({ shell: "powershell", home, force: true }).status).toBe("installed");
+    expect(uninstallCompletion({ shell: "powershell", home }).status).toBe("uninstalled");
+    expect(installCompletion({ shell: "powershell", home }).status).toBe("installed");
+  });
+});

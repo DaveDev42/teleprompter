@@ -2,6 +2,8 @@ import { randomBytes } from "crypto";
 import {
   closeSync,
   existsSync,
+  fchmodSync,
+  fsyncSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -42,11 +44,9 @@ export type UninstallResult =
   | { status: "dry-run"; plan: string };
 
 function preservedMode(file: string): number {
-  try {
-    return statSync(file).mode & 0o777;
-  } catch {
-    return 0o644;
-  }
+  if (!existsSync(file)) return 0o644;
+  // File exists but stat fails — surface the error instead of silently using 0644.
+  return statSync(file).mode & 0o777;
 }
 
 function atomicWrite(file: string, contents: string, mode?: number): void {
@@ -57,6 +57,8 @@ function atomicWrite(file: string, contents: string, mode?: number): void {
     // Exclusive create (O_CREAT|O_EXCL) defeats symlink pre-creation attacks.
     fd = openSync(tmp, "wx", mode ?? 0o644);
     writeSync(fd, contents);
+    if (mode !== undefined) fchmodSync(fd, mode);
+    fsyncSync(fd);
     closeSync(fd);
     fd = null;
     renameSync(tmp, file);
@@ -78,19 +80,19 @@ function powershellDir(home: string, legacy: boolean, override?: string): string
   return join(home, "Documents", legacy ? "WindowsPowerShell" : "PowerShell");
 }
 
-function powershellScriptPath(home: string, legacy: boolean, override?: string): string {
+export function powershellScriptPath(home: string, legacy: boolean, override?: string): string {
   return join(powershellDir(home, legacy, override), "tp-completions.ps1");
 }
 
-function powershellProfilePath(home: string, legacy: boolean, override?: string): string {
+export function powershellProfilePath(home: string, legacy: boolean, override?: string): string {
   return join(powershellDir(home, legacy, override), "Profile.ps1");
 }
 
-function rcFilePath(shell: "bash" | "zsh", home: string): string {
+export function rcFilePath(shell: "bash" | "zsh", home: string): string {
   return join(home, shell === "bash" ? ".bashrc" : ".zshrc");
 }
 
-function fishFilePath(home: string): string {
+export function fishFilePath(home: string): string {
   return join(home, ".config", "fish", "completions", "tp.fish");
 }
 
@@ -151,25 +153,29 @@ export function installCompletion(opts: InstallOptions): InstallResult {
     const profileFile = powershellProfilePath(home, legacy, psDir);
     const dotSource = `. "${scriptFile}"`;
 
-    if (opts.dryRun) {
-      return {
-        status: "dry-run",
-        plan: `Would write ${scriptFile} and append dot-source to ${profileFile}`,
-      };
-    }
-
     // NOTE: concurrent external edits to Profile.ps1 between this read and the
     // atomic write below are not preserved. Real-world risk is low (rc files
     // are rarely edited during install), but worth noting.
     const existingProfile = existsSync(profileFile)
       ? readFileSync(profileFile, "utf-8")
       : "";
+    const scriptExists = existsSync(scriptFile);
+    const profileHasMarker = containsMarker(existingProfile);
+    const isFullyInstalled = scriptExists && profileHasMarker;
 
-    if (
-      existsSync(scriptFile) &&
-      containsMarker(existingProfile) &&
-      !opts.force
-    ) {
+    if (opts.dryRun) {
+      let action: string;
+      if (isFullyInstalled && !opts.force) {
+        action = `Would skip (already installed)`;
+      } else if (isFullyInstalled && opts.force) {
+        action = `Would rewrite tp completions in ${scriptFile} and ${profileFile}`;
+      } else {
+        action = `Would write ${scriptFile} and append dot-source to ${profileFile}`;
+      }
+      return { status: "dry-run", plan: action };
+    }
+
+    if (isFullyInstalled && !opts.force) {
       return { status: "already-installed", file: scriptFile };
     }
 
@@ -201,6 +207,9 @@ function installRcLine(
   const line = `eval "$(tp completions ${shell})"`;
   const block = markerBlock(line);
 
+  // NOTE: concurrent external edits to the rc file between this read and
+  // the atomic write below are not preserved. Real-world risk is low (rc
+  // files are rarely edited during install).
   const existing = existsSync(file) ? readFileSync(file, "utf-8") : "";
   const hasMarker = containsMarker(existing);
 
@@ -222,7 +231,6 @@ function installRcLine(
   const next =
     (base.endsWith("\n") || base === "" ? base : `${base}\n`) + block;
 
-  mkdirSync(dirname(file), { recursive: true });
   atomicWrite(file, next, preservedMode(file));
   return { status: "installed", file };
 }

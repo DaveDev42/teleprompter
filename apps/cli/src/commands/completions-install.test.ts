@@ -178,6 +178,34 @@ describe("uninstallCompletion — fish", () => {
   });
 });
 
+describe("installCompletion — powershell heal", () => {
+  test("heals when script exists but profile marker is missing", () => {
+    installCompletion({ shell: "powershell", home });
+    // Remove the marker block from Profile.ps1, leaving the script file in place.
+    const profileFile = join(home, "Documents", "PowerShell", "Profile.ps1");
+    writeFileSync(profileFile, "# just user content\n");
+    const r = installCompletion({ shell: "powershell", home });
+    expect(r.status).toBe("installed");
+    const profile = readFileSync(profileFile, "utf-8");
+    expect(profile).toContain("# >>> tp completions");
+    expect(profile).toContain("# just user content");
+  });
+
+  test("heals when profile marker exists but script is missing", () => {
+    installCompletion({ shell: "powershell", home });
+    const scriptFile = join(
+      home,
+      "Documents",
+      "PowerShell",
+      "tp-completions.ps1",
+    );
+    rmSync(scriptFile);
+    const r = installCompletion({ shell: "powershell", home });
+    expect(r.status).toBe("installed");
+    expect(existsSync(scriptFile)).toBe(true);
+  });
+});
+
 describe("installCompletion — powershell", () => {
   test("writes managed file and appends dot-source to profile", () => {
     const result = installCompletion({ shell: "powershell", home });
@@ -254,30 +282,55 @@ describe("installCompletion — powershell profile override", () => {
 
 describe("installCompletion — full cycle", () => {
   test("bash: install → force → uninstall → install", () => {
+    const bashrc = join(home, ".bashrc");
     const r1 = installCompletion({ shell: "bash", home });
     expect(r1.status).toBe("installed");
+    expect(readFileSync(bashrc, "utf-8")).toContain("tp completions bash");
 
     const r2 = installCompletion({ shell: "bash", home, force: true });
     expect(r2.status).toBe("installed");
+    const afterForce = readFileSync(bashrc, "utf-8");
+    expect(afterForce).toContain("tp completions bash");
+    expect((afterForce.match(/# >>> tp completions/g) ?? []).length).toBe(1);
 
     const r3 = uninstallCompletion({ shell: "bash", home });
     expect(r3.status).toBe("uninstalled");
+    expect(readFileSync(bashrc, "utf-8")).not.toContain("# >>> tp completions");
 
     const r4 = installCompletion({ shell: "bash", home });
     expect(r4.status).toBe("installed");
+    expect(readFileSync(bashrc, "utf-8")).toContain("tp completions bash");
   });
 
   test("fish: install → force → uninstall → install", () => {
+    const file = join(home, ".config", "fish", "completions", "tp.fish");
     expect(installCompletion({ shell: "fish", home }).status).toBe("installed");
+    expect(readFileSync(file, "utf-8")).toContain("complete -c tp");
     expect(installCompletion({ shell: "fish", home, force: true }).status).toBe("installed");
+    expect(readFileSync(file, "utf-8")).toContain("complete -c tp");
     expect(uninstallCompletion({ shell: "fish", home }).status).toBe("uninstalled");
+    expect(existsSync(file)).toBe(false);
     expect(installCompletion({ shell: "fish", home }).status).toBe("installed");
+    expect(readFileSync(file, "utf-8")).toContain("complete -c tp");
   });
 
   test("powershell: install → force → uninstall → install", () => {
+    const scriptFile = join(home, "Documents", "PowerShell", "tp-completions.ps1");
+    const profileFile = join(home, "Documents", "PowerShell", "Profile.ps1");
+
     expect(installCompletion({ shell: "powershell", home }).status).toBe("installed");
+    expect(readFileSync(scriptFile, "utf-8")).toContain("Register-ArgumentCompleter");
+    expect(readFileSync(profileFile, "utf-8")).toContain("# >>> tp completions");
+
     expect(installCompletion({ shell: "powershell", home, force: true }).status).toBe("installed");
+    const afterForce = readFileSync(profileFile, "utf-8");
+    expect((afterForce.match(/# >>> tp completions/g) ?? []).length).toBe(1);
+
     expect(uninstallCompletion({ shell: "powershell", home }).status).toBe("uninstalled");
+    expect(existsSync(scriptFile)).toBe(false);
+    expect(readFileSync(profileFile, "utf-8")).not.toContain("# >>> tp completions");
+
     expect(installCompletion({ shell: "powershell", home }).status).toBe("installed");
+    expect(readFileSync(scriptFile, "utf-8")).toContain("Register-ArgumentCompleter");
   });
 });

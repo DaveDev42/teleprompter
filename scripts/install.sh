@@ -8,6 +8,8 @@ set -euo pipefail
 
 REPO="DaveDev42/teleprompter"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
+# Normalize: drop any trailing slash so PATH comparison matches $PATH entries.
+INSTALL_DIR="${INSTALL_DIR%/}"
 BIN_NAME="tp"
 
 # Detect OS
@@ -49,8 +51,50 @@ chmod +x "${INSTALL_DIR}/${BIN_NAME}"
 echo "Installed ${BIN_NAME} to ${INSTALL_DIR}/${BIN_NAME}"
 
 # Check if INSTALL_DIR is in PATH
-if ! echo "$PATH" | tr ':' '\n' | grep -qx "${INSTALL_DIR}"; then
+ON_PATH=0
+if echo "$PATH" | tr ':' '\n' | sed 's:/*$::' | grep -qx "${INSTALL_DIR}"; then
+  ON_PATH=1
+else
   echo ""
   echo "Add ${INSTALL_DIR} to your PATH:"
   echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
+fi
+
+# Install shell completions (idempotent, failure is non-fatal).
+# Skip on non-TTY (e.g. `curl ... | bash`) unless TP_AUTO_COMPLETIONS=1.
+# Opt-out:
+#   NO_COMPLETIONS=1             works everywhere (env)
+#   --no-completions             works only for local invocations
+#                                (bash install.sh --no-completions)
+SKIP_COMPLETIONS=0
+for arg in "$@"; do
+  if [ "$arg" = "--no-completions" ]; then
+    SKIP_COMPLETIONS=1
+    break
+  fi
+done
+if [ "${NO_COMPLETIONS:-0}" = "1" ]; then
+  SKIP_COMPLETIONS=1
+fi
+if [ ! -t 0 ] && [ "${TP_AUTO_COMPLETIONS:-0}" != "1" ]; then
+  SKIP_COMPLETIONS=1
+  echo ""
+  echo "Shell completions not installed (non-interactive shell detected)."
+  echo "To install: '${BIN_NAME} completions install'"
+  echo "To force auto-install on pipe: TP_AUTO_COMPLETIONS=1"
+  echo "To disable completely:         NO_COMPLETIONS=1"
+fi
+if [ "$ON_PATH" != "1" ]; then
+  SKIP_COMPLETIONS=1
+  echo ""
+  echo "Shell completions not installed (${INSTALL_DIR} not on PATH)."
+  echo "Add it to PATH (see message above) then run: ${BIN_NAME} completions install"
+fi
+
+if [ "$SKIP_COMPLETIONS" = "0" ]; then
+  "${INSTALL_DIR}/${BIN_NAME}" completions install || {
+    echo ""
+    echo "Note: shell completions were not installed automatically."
+    echo "Run '${BIN_NAME} completions install' manually to enable them."
+  }
 fi

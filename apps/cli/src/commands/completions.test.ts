@@ -1,5 +1,5 @@
-import { execSync } from "child_process";
 import { describe, expect, test } from "bun:test";
+import { execSync } from "child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -264,7 +264,9 @@ describe("tp completions", () => {
           `bun run apps/cli/src/index.ts completions install powershell --profile-dir "${customProfile}"`,
           { HOME: tmpHome },
         );
-        expect(existsSync(join(customProfile, "tp-completions.ps1"))).toBe(true);
+        expect(existsSync(join(customProfile, "tp-completions.ps1"))).toBe(
+          true,
+        );
       } finally {
         rmSync(tmpHome, { recursive: true, force: true });
       }
@@ -277,13 +279,10 @@ describe("tp completions", () => {
     () => {
       let exitCode = 0;
       try {
-        execSync(
-          "bun run apps/cli/src/index.ts completions install",
-          {
-            env: { ...process.env, HOME: "/tmp", SHELL: "/bin/sh" },
-            stdio: "pipe",
-          },
-        );
+        execSync("bun run apps/cli/src/index.ts completions install", {
+          env: { ...process.env, HOME: "/tmp", SHELL: "/bin/sh" },
+          stdio: "pipe",
+        });
       } catch (e: unknown) {
         exitCode = (e as { status: number }).status;
       }

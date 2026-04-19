@@ -2,8 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { FrameDecoder } from "@teleprompter/protocol";
 import { Daemon } from "./daemon";
 import { BeginPairingError } from "./pairing/begin-pairing-error";
+import type { ConnectedRunner } from "./ipc/server";
 import type { RelayClient } from "./transport/relay-client";
 
 describe("Daemon.beginPairing", () => {
@@ -206,5 +208,135 @@ describe("Daemon.beginPairing", () => {
     expect(e.reason).toBe("relay-unreachable");
     expect(e.message).toBe("ECONNREFUSED");
     expect(e instanceof Error).toBe(true);
+  });
+
+  // Helper: build a fake ConnectedRunner whose writer captures sent frames as parsed JSON.
+  function makeFakeCli(): {
+    runner: ConnectedRunner;
+    messages: unknown[];
+  } {
+    const messages: unknown[] = [];
+    const runner = {
+      socket: {},
+      writer: {
+        write: (_s: unknown, frame: Uint8Array) => {
+          // FrameDecoder understands the 4-byte length prefix; feed it the frame.
+          const dec = new FrameDecoder();
+          for (const m of dec.decode(frame)) messages.push(m);
+        },
+        drain: () => {},
+      },
+      decoder: new FrameDecoder(),
+    } as unknown as ConnectedRunner;
+    return { runner, messages };
+  }
+
+  test("pair.begin IPC: success path emits begin.ok + pair.completed", async () => {
+    dir = mkdtempSync(join(tmpdir(), "tp-daemon-"));
+    const daemon = new Daemon(dir);
+    daemon.__setRelayFactory(() => fakeRelay());
+
+    const cli = makeFakeCli();
+
+    await daemon.__handlePairBegin(cli.runner, {
+      t: "pair.begin",
+      relayUrl: "wss://r",
+      daemonId: "d-ipc-ok",
+      label: "ipc-host",
+    });
+
+    expect(cli.messages[0]).toMatchObject({
+      t: "pair.begin.ok",
+      daemonId: "d-ipc-ok",
+    });
+    expect((cli.messages[0] as { qrString: string }).qrString.length).toBeGreaterThan(0);
+
+    // Trigger completion
+    (daemon as unknown as { pendingPairing: { __markCompleted: (f: string) => void } }).pendingPairing.__markCompleted("f1");
+    // Allow the microtask chain (awaitPendingPairing → promote → send completed) to run.
+    await new Promise((r) => setTimeout(r, 10));
+
+    const completed = cli.messages.find(
+      (m) => (m as { t: string }).t === "pair.completed",
+    );
+    expect(completed).toMatchObject({
+      t: "pair.completed",
+      daemonId: "d-ipc-ok",
+      label: "ipc-host",
+    });
+
+    daemon.stop();
+  });
+
+  test("pair.begin IPC: already-pending emits begin.err", async () => {
+    dir = mkdtempSync(join(tmpdir(), "tp-daemon-"));
+    const daemon = new Daemon(dir);
+    daemon.__setRelayFactory(() => fakeRelay());
+
+    const cli = makeFakeCli();
+    await daemon.__handlePairBegin(cli.runner, {
+      t: "pair.begin",
+      relayUrl: "wss://r",
+      daemonId: "d1",
+    });
+
+    const cli2 = makeFakeCli();
+    await daemon.__handlePairBegin(cli2.runner, {
+      t: "pair.begin",
+      relayUrl: "wss://r",
+      daemonId: "d2",
+    });
+
+    expect(cli2.messages[0]).toMatchObject({
+      t: "pair.begin.err",
+      reason: "already-pending",
+    });
+
+    daemon.cancelPendingPairing();
+    daemon.stop();
+  });
+
+  test("pair.cancel IPC: cancels pending and emits pair.cancelled", async () => {
+    dir = mkdtempSync(join(tmpdir(), "tp-daemon-"));
+    const daemon = new Daemon(dir);
+    daemon.__setRelayFactory(() => fakeRelay());
+
+    const cli = makeFakeCli();
+    await daemon.__handlePairBegin(cli.runner, {
+      t: "pair.begin",
+      relayUrl: "wss://r",
+      daemonId: "d-cancel",
+    });
+    const pairingId = (cli.messages[0] as { pairingId: string }).pairingId;
+
+    daemon.__handlePairCancel(cli.runner, { t: "pair.cancel", pairingId });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const cancelled = cli.messages.find(
+      (m) => (m as { t: string }).t === "pair.cancelled",
+    );
+    expect(cancelled).toMatchObject({ t: "pair.cancelled", pairingId });
+
+    daemon.stop();
+  });
+
+  test("CLI disconnect cancels pending pairing owned by that CLI", async () => {
+    dir = mkdtempSync(join(tmpdir(), "tp-daemon-"));
+    const daemon = new Daemon(dir);
+    daemon.__setRelayFactory(() => fakeRelay());
+
+    const cli = makeFakeCli();
+    await daemon.__handlePairBegin(cli.runner, {
+      t: "pair.begin",
+      relayUrl: "wss://r",
+      daemonId: "d-disc",
+    });
+
+    daemon.__handleCliDisconnect(cli.runner);
+    await new Promise((r) => setTimeout(r, 10));
+
+    // pendingPairing should be cleared.
+    expect(daemon.awaitPendingPairing()).toBeNull();
+    daemon.stop();
   });
 });

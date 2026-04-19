@@ -113,7 +113,6 @@ describe.skipIf(process.platform === "win32")(
 );
 
 describe("installCompletion — safety", () => {
-
   test("dry-run distinguishes fresh / already-installed / force-rewrite", () => {
     const fresh = installCompletion({ shell: "bash", home, dryRun: true });
     expect((fresh as { plan: string }).plan).toContain("Would append");

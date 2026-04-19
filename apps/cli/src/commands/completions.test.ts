@@ -73,4 +73,43 @@ describe("tp completions", () => {
     },
     TIMEOUT,
   );
+
+  test(
+    "powershell completions include Register-ArgumentCompleter and all subcommands",
+    () => {
+      const result = capture(
+        "bun run apps/cli/src/index.ts completions powershell",
+      );
+      expect(result).toContain("Register-ArgumentCompleter");
+      expect(result).toContain("-CommandName tp");
+      // tp subcommands
+      expect(result).toContain("'daemon'");
+      expect(result).toContain("'run'");
+      expect(result).toContain("'relay'");
+      expect(result).toContain("'pair'");
+      expect(result).toContain("'status'");
+      expect(result).toContain("'logs'");
+      expect(result).toContain("'doctor'");
+      expect(result).toContain("'upgrade'");
+      expect(result).toContain("'completions'");
+      expect(result).toContain("'version'");
+      // daemon subcommands
+      expect(result).toContain("'start'");
+      expect(result).toContain("'install'");
+      expect(result).toContain("'uninstall'");
+      // pair subcommands
+      expect(result).toContain("'new'");
+      expect(result).toContain("'delete'");
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "pwsh is accepted as an alias for powershell",
+    () => {
+      const result = capture("bun run apps/cli/src/index.ts completions pwsh");
+      expect(result).toContain("Register-ArgumentCompleter");
+    },
+    TIMEOUT,
+  );
 });

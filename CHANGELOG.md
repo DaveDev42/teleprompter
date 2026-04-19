@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.11](https://github.com/DaveDev42/teleprompter/compare/v0.1.10...v0.1.11) (2026-04-19)
+
+
+### Bug Fixes
+
+* **release:** strip Bun's embedded signature before re-signing on macOS ([8ad9157](https://github.com/DaveDev42/teleprompter/commit/8ad9157babd015fbc9aa6ab70c698c36f911e6df))
+* **release:** strip Bun's embedded signature before re-signing on macOS ([b30d016](https://github.com/DaveDev42/teleprompter/commit/b30d0162da61639f88a1ca2f78f291a030b3e0f2))
+
 ## [0.1.10](https://github.com/DaveDev42/teleprompter/compare/v0.1.9...v0.1.10) (2026-04-19)
 
 

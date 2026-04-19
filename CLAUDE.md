@@ -323,7 +323,14 @@ tp completions <shell>     # 셸 자동완성 생성
 --tp-cwd <path>            # 작업 디렉토리 (기본: 현재)
 ```
 
-Daemon은 자동 관리됨: passthrough/status/logs 실행 시 daemon이 없으면 자동 시작. OS 서비스 설치 시 서비스를 통해 kickstart. 최초 실행 시 `tp daemon install` 안내 한 번 표시.
+Daemon은 자동 관리됨: passthrough/status/logs 실행 시 daemon이 없으면 자동 시작. OS 서비스 설치 시 서비스를 통해 kickstart. 최초 실행 시 TTY에서는 `Install daemon as an OS service ... [Y/n]` 프롬프트가 뜨고, 비-TTY(CI/파이프)에서는 한 번짜리 힌트만 표시.
+
+### Environment Variables
+
+| Var | Effect |
+|-----|--------|
+| `TP_NO_UPDATE_CHECK=1` | Suppress the background "new version available" check on startup |
+| `TP_NO_AUTO_INSTALL=1` | Force first-run to skip the interactive "install daemon service?" prompt, even on a TTY; falls back to the dim hint line |
 
 ## Version Management
 

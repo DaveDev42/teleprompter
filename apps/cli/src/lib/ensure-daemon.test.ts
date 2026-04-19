@@ -4,7 +4,11 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { createServer } from "net";
 import { tmpdir } from "os";
 import { join } from "path";
-import { isDaemonRunning, parseYesNoAnswer } from "./ensure-daemon";
+import {
+  decideInstallPromptMode,
+  isDaemonRunning,
+  parseYesNoAnswer,
+} from "./ensure-daemon";
 
 // Unix-only: Windows named pipes take a different path in isDaemonRunning.
 describe.skipIf(process.platform === "win32")("isDaemonRunning", () => {
@@ -71,6 +75,8 @@ describe("parseYesNoAnswer", () => {
     expect(parseYesNoAnswer("Y", false)).toBe(true);
     expect(parseYesNoAnswer("yes", false)).toBe(true);
     expect(parseYesNoAnswer("  YES  ", false)).toBe(true);
+    // starts-with: typo-ish accept should still install
+    expect(parseYesNoAnswer("yep", false)).toBe(true);
   });
 
   test("no variants are accepted", () => {
@@ -78,11 +84,70 @@ describe("parseYesNoAnswer", () => {
     expect(parseYesNoAnswer("N", true)).toBe(false);
     expect(parseYesNoAnswer("no", true)).toBe(false);
     expect(parseYesNoAnswer("  NO  ", true)).toBe(false);
+    // starts-with: "nah", "nope" should decline even with defaultYes=true
+    expect(parseYesNoAnswer("nah", true)).toBe(false);
+    expect(parseYesNoAnswer("nope", true)).toBe(false);
   });
 
   test("ambiguous input falls back to the default", () => {
     expect(parseYesNoAnswer("maybe", true)).toBe(true);
     expect(parseYesNoAnswer("maybe", false)).toBe(false);
     expect(parseYesNoAnswer("?", true)).toBe(true);
+  });
+});
+
+describe("decideInstallPromptMode", () => {
+  const base = {
+    hintFileExists: false,
+    serviceInstalled: false,
+    stdinIsTTY: true,
+    stderrIsTTY: true,
+    noAutoInstallEnv: false,
+  };
+
+  test("skips when the hint file already exists", () => {
+    expect(decideInstallPromptMode({ ...base, hintFileExists: true })).toBe(
+      "skip",
+    );
+  });
+
+  test("skips when the service is already installed", () => {
+    expect(decideInstallPromptMode({ ...base, serviceInstalled: true })).toBe(
+      "skip",
+    );
+  });
+
+  test("prompts on a full TTY with the opt-out flag unset", () => {
+    expect(decideInstallPromptMode(base)).toBe("prompt");
+  });
+
+  test("falls back to hint when stdin is not a TTY (e.g. piped)", () => {
+    expect(decideInstallPromptMode({ ...base, stdinIsTTY: false })).toBe(
+      "hint",
+    );
+  });
+
+  test("falls back to hint when stderr is not a TTY (e.g. captured)", () => {
+    expect(decideInstallPromptMode({ ...base, stderrIsTTY: false })).toBe(
+      "hint",
+    );
+  });
+
+  test("falls back to hint when TP_NO_AUTO_INSTALL=1 is set", () => {
+    expect(decideInstallPromptMode({ ...base, noAutoInstallEnv: true })).toBe(
+      "hint",
+    );
+  });
+
+  test("skip short-circuits ahead of TTY/env checks", () => {
+    // Even on a full TTY, a stamped hint file wins.
+    expect(
+      decideInstallPromptMode({
+        ...base,
+        hintFileExists: true,
+        stdinIsTTY: true,
+        stderrIsTTY: true,
+      }),
+    ).toBe("skip");
   });
 });

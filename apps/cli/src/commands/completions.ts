@@ -77,8 +77,14 @@ Flags:
   --uninstall            Remove installed completions
   --dry-run              Show what would change without writing
   --legacy-powershell    Use Windows PowerShell 5.1 profile path
-  --profile-dir <path>   Override PowerShell profile directory
-  --help, -h             Show this help`;
+  --profile-dir PATH     PowerShell profile directory override (powershell only)
+  --help, -h             Show this help
+
+Notes:
+  --profile-dir must be followed by a path (not another flag).
+  --profile-dir is used only when <shell> is powershell.
+  Fish and PowerShell write completion files to disk; rerun
+  'tp completions install <shell> --force' after 'tp upgrade' to refresh.`;
 
 const INSTALL_FLAG_ALLOWLIST = new Set([
   "--force",
@@ -125,6 +131,25 @@ export function completionsCommand(argv: string[]): void {
 }
 
 function runInstall(argv: string[]): void {
+  // Extract --profile-dir value (last occurrence wins) before the help check
+  // so that `--profile-dir --help` (allowlist collision) is caught as an error.
+  const profileDirIdx = argv.lastIndexOf("--profile-dir");
+  let powerShellProfileDir: string | undefined;
+
+  // Build a set of indices consumed by --profile-dir so they don't appear as positionals.
+  const consumedIndices = new Set<number>();
+  if (profileDirIdx >= 0) {
+    const value = argv[profileDirIdx + 1];
+    if (value === undefined || INSTALL_FLAG_ALLOWLIST.has(value) || value === "--profile-dir") {
+      console.error("--profile-dir requires a path argument.");
+      console.error(INSTALL_USAGE);
+      process.exit(1);
+    }
+    powerShellProfileDir = value;
+    consumedIndices.add(profileDirIdx);
+    consumedIndices.add(profileDirIdx + 1);
+  }
+
   // Help flag check.
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(INSTALL_USAGE);
@@ -135,23 +160,6 @@ function runInstall(argv: string[]): void {
   const dryRun = argv.includes("--dry-run");
   const uninstall = argv.includes("--uninstall");
   const legacyPowerShell = argv.includes("--legacy-powershell");
-
-  // Extract --profile-dir value (last occurrence wins).
-  const profileDirIdx = argv.lastIndexOf("--profile-dir");
-  let powerShellProfileDir: string | undefined;
-
-  // Build a set of indices consumed by --profile-dir so they don't appear as positionals.
-  const consumedIndices = new Set<number>();
-  if (profileDirIdx >= 0) {
-    const value = argv[profileDirIdx + 1];
-    if (!value || value.startsWith("-")) {
-      console.error("--profile-dir requires a path argument.");
-      process.exit(1);
-    }
-    powerShellProfileDir = value;
-    consumedIndices.add(profileDirIdx);
-    consumedIndices.add(profileDirIdx + 1);
-  }
 
   // Reject unknown flags.
   for (const [i, a] of argv.entries()) {

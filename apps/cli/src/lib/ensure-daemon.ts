@@ -9,18 +9,25 @@ import { dim, ok } from "./colors";
 import { errorWithHints } from "./format";
 import { spinner } from "./spinner";
 
-const HINT_FILE = join(
-  process.platform === "win32"
-    ? (process.env.APPDATA ??
+/**
+ * Platform-appropriate config directory for tp state files.
+ * Windows: `%APPDATA%\teleprompter` (with `%USERPROFILE%\AppData\Roaming` fallback).
+ * Unix: `$HOME/.config/teleprompter` (POSIX XDG-style).
+ */
+function getConfigDir(): string {
+  const base =
+    process.platform === "win32"
+      ? (process.env.APPDATA ??
         join(
           process.env.USERPROFILE ?? "C:\\Users\\Default",
           "AppData",
           "Roaming",
         ))
-    : join(process.env.HOME ?? "/tmp", ".config"),
-  "teleprompter",
-  ".daemon-hint-shown",
-);
+      : join(process.env.HOME ?? "/tmp", ".config");
+  return join(base, "teleprompter");
+}
+
+const HINT_FILE = join(getConfigDir(), ".daemon-hint-shown");
 
 /**
  * Check whether the background daemon is running by probing its IPC socket.
@@ -202,6 +209,13 @@ async function showInstallHint(): Promise<void> {
     return;
   }
 
+  // Context line so a first-run user understands what the prompt is about
+  // before answering.
+  console.error(
+    dim(
+      "tp daemon is now running in the background. It can also auto-start on login.",
+    ),
+  );
   const accepted = await promptYesNo(
     "Install daemon as an OS service so it auto-starts on login? [Y/n] ",
   );
@@ -247,18 +261,7 @@ async function isServiceInstalledAny(): Promise<boolean> {
 
 async function markHinted(): Promise<void> {
   try {
-    const dir = join(
-      process.platform === "win32"
-        ? (process.env.APPDATA ??
-            join(
-              process.env.USERPROFILE ?? "C:\\Users\\Default",
-              "AppData",
-              "Roaming",
-            ))
-        : join(process.env.HOME ?? "/tmp", ".config"),
-      "teleprompter",
-    );
-    await mkdir(dir, { recursive: true });
+    await mkdir(getConfigDir(), { recursive: true });
     await writeFile(HINT_FILE, new Date().toISOString());
   } catch {
     // Non-critical — just skip
@@ -266,30 +269,46 @@ async function markHinted(): Promise<void> {
 }
 
 /**
- * Read a single y/n answer from stdin.
+ * Minimal interface covering the pieces of a Readable stream we actually
+ * use. Extracted so `readYesNoLine` can be unit-tested against a
+ * PassThrough stream without hitting the real `process.stdin`.
+ */
+export interface YesNoReadable {
+  on(event: "data", listener: (chunk: Buffer) => void): unknown;
+  once(event: "end" | "close", listener: () => void): unknown;
+  off(event: "data", listener: (chunk: Buffer) => void): unknown;
+  off(event: "end" | "close", listener: () => void): unknown;
+  resume(): unknown;
+  pause(): unknown;
+}
+
+/**
+ * Read a single y/n answer from the supplied readable stream.
  *
  * Resolves on:
- *  - the first newline → parsed via `parseYesNoAnswer`
+ *  - the first newline → parsed via `parseYesNoAnswer` with `defaultYes=true`
  *  - `end` or `close` (stdin EOF, Ctrl+D, upstream pipe gone) → `false`,
  *    because the action installs a system service and abnormal-close
  *    should not be treated as implicit consent.
  *
- * The single `done()` closure removes all listeners and pauses stdin, so
- * the function never leaks handlers even if called multiple times.
+ * The single `done()` closure removes all listeners and pauses the stream
+ * exactly once, so the function never leaks handlers even under
+ * concurrent `data`/`end` races.
+ *
+ * @internal Exported for unit tests; not part of the public CLI API.
  */
-async function promptYesNo(prompt: string): Promise<boolean> {
+export async function readYesNoLine(stream: YesNoReadable): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
-    process.stderr.write(prompt);
     let buf = "";
     let settled = false;
 
     const done = (value: boolean) => {
       if (settled) return;
       settled = true;
-      process.stdin.off("data", onData);
-      process.stdin.off("end", onEnd);
-      process.stdin.off("close", onEnd);
-      process.stdin.pause();
+      stream.off("data", onData);
+      stream.off("end", onEnd);
+      stream.off("close", onEnd);
+      stream.pause();
       resolve(value);
     };
     const onData = (chunk: Buffer) => {
@@ -300,11 +319,17 @@ async function promptYesNo(prompt: string): Promise<boolean> {
     };
     const onEnd = () => done(false);
 
-    process.stdin.resume();
-    process.stdin.on("data", onData);
-    process.stdin.once("end", onEnd);
-    process.stdin.once("close", onEnd);
+    stream.resume();
+    stream.on("data", onData);
+    stream.once("end", onEnd);
+    stream.once("close", onEnd);
   });
+}
+
+/** Write the prompt to stderr and read a single y/n line from stdin. */
+async function promptYesNo(prompt: string): Promise<boolean> {
+  process.stderr.write(prompt);
+  return readYesNoLine(process.stdin);
 }
 
 /**
@@ -312,13 +337,19 @@ async function promptYesNo(prompt: string): Promise<boolean> {
  *
  * Rules, applied in order:
  *  - empty / whitespace-only → `defaultYes`
- *  - starts with `n` (e.g. `n`, `no`, `nope`, `nah`) → `false`
- *  - starts with `y` (e.g. `y`, `yes`, `yep`) → `true`
+ *  - starts with ASCII `n` (e.g. `n`, `no`, `nope`, `nah`, `nil`) → `false`
+ *  - starts with ASCII `y` (e.g. `y`, `yes`, `yep`, `yikes`) → `true`
  *  - anything else → `defaultYes`
  *
  * Starts-with matching favours declining over the default when the user
  * clearly typed something `n`-ish, which is the safe direction for
- * destructive-ish actions like installing a system service.
+ * destructive-ish actions like installing a system service. Over-matching
+ * on words like `nil` / `yikes` is intentional — typo-tolerance beats a
+ * strict whitelist here since the prompt is English-only.
+ *
+ * Non-ASCII responses (e.g. `아니요`, `いいえ`, `нет`) intentionally fall
+ * back to `defaultYes`; the prompt string is English-only so the locale
+ * mismatch is unlikely to arise in practice.
  *
  * @internal Exported for unit tests; not part of the public CLI API.
  */

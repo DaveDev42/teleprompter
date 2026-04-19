@@ -4,10 +4,12 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { createServer } from "net";
 import { tmpdir } from "os";
 import { join } from "path";
+import { PassThrough } from "stream";
 import {
   decideInstallPromptMode,
   isDaemonRunning,
   parseYesNoAnswer,
+  readYesNoLine,
 } from "./ensure-daemon";
 
 // Unix-only: Windows named pipes take a different path in isDaemonRunning.
@@ -94,6 +96,32 @@ describe("parseYesNoAnswer", () => {
     expect(parseYesNoAnswer("maybe", false)).toBe(false);
     expect(parseYesNoAnswer("?", true)).toBe(true);
   });
+
+  test("starts-with is deliberately broad (typo-tolerance over whitelist)", () => {
+    // Documenting intentional over-matching: typing anything starting with n
+    // declines, and anything starting with y accepts, even if the word is not
+    // a canonical yes/no. Narrowing this back to a whitelist would break the
+    // typo-tolerant property called out in the docstring.
+    expect(parseYesNoAnswer("yikes", false)).toBe(true);
+    expect(parseYesNoAnswer("yolo", false)).toBe(true);
+    expect(parseYesNoAnswer("nil", true)).toBe(false);
+    expect(parseYesNoAnswer("nvm", true)).toBe(false);
+  });
+
+  test("leading/trailing space around the token still resolves", () => {
+    // trim() strips outer whitespace before the startsWith check, so these
+    // behave identically to their unpadded counterparts.
+    expect(parseYesNoAnswer("  y please  ", false)).toBe(true);
+    expect(parseYesNoAnswer("  n please  ", true)).toBe(false);
+  });
+
+  test("non-ASCII responses fall back to the default", () => {
+    // Documented contract: prompt string is English-only, so non-ASCII
+    // negatives/positives take the default path rather than overreaching.
+    expect(parseYesNoAnswer("아니요", true)).toBe(true);
+    expect(parseYesNoAnswer("いいえ", true)).toBe(true);
+    expect(parseYesNoAnswer("нет", true)).toBe(true);
+  });
 });
 
 describe("decideInstallPromptMode", () => {
@@ -149,5 +177,61 @@ describe("decideInstallPromptMode", () => {
         stderrIsTTY: true,
       }),
     ).toBe("skip");
+  });
+});
+
+describe("readYesNoLine", () => {
+  test("resolves true on `y\\n`", async () => {
+    const s = new PassThrough();
+    const p = readYesNoLine(s);
+    s.write("y\n");
+    expect(await p).toBe(true);
+  });
+
+  test("resolves false on `n\\n`", async () => {
+    const s = new PassThrough();
+    const p = readYesNoLine(s);
+    s.write("no\n");
+    expect(await p).toBe(false);
+  });
+
+  test("empty newline uses defaultYes=true", async () => {
+    const s = new PassThrough();
+    const p = readYesNoLine(s);
+    s.write("\n");
+    expect(await p).toBe(true);
+  });
+
+  test("resolves false on stream end without input (Ctrl+D)", async () => {
+    const s = new PassThrough();
+    const p = readYesNoLine(s);
+    s.end();
+    expect(await p).toBe(false);
+  });
+
+  test("resolves false on close before newline", async () => {
+    const s = new PassThrough();
+    const p = readYesNoLine(s);
+    s.write("partial");
+    s.destroy();
+    expect(await p).toBe(false);
+  });
+
+  test("assembles multi-chunk input before newline", async () => {
+    const s = new PassThrough();
+    const p = readYesNoLine(s);
+    s.write("ye");
+    s.write("s\n");
+    expect(await p).toBe(true);
+  });
+
+  test("does not leak listeners after resolving", async () => {
+    const s = new PassThrough();
+    const p = readYesNoLine(s);
+    s.write("y\n");
+    await p;
+    expect(s.listenerCount("data")).toBe(0);
+    expect(s.listenerCount("end")).toBe(0);
+    expect(s.listenerCount("close")).toBe(0);
   });
 });

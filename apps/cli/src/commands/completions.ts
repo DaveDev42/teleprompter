@@ -61,10 +61,29 @@ export function completionsCommand(argv: string[]): void {
     case "fish":
       console.log(generateFish());
       break;
+    case "powershell":
+    case "pwsh":
+      console.log(generatePowerShell());
+      break;
     default:
       console.error(`Unknown shell: ${shell}`);
-      console.error("Supported: bash, zsh, fish");
+      console.error("Supported: bash, zsh, fish, powershell");
       process.exit(1);
+  }
+}
+
+export function renderCompletion(
+  shell: "bash" | "zsh" | "fish" | "powershell",
+): string {
+  switch (shell) {
+    case "bash":
+      return generateBash();
+    case "zsh":
+      return generateZsh();
+    case "fish":
+      return generateFish();
+    case "powershell":
+      return generatePowerShell();
   }
 }
 
@@ -145,4 +164,41 @@ function generateFish(): string {
     ),
   ];
   return lines.join("\n");
+}
+
+function generatePowerShell(): string {
+  const commands = SUBCOMMANDS.map((c) => `'${c}'`).join(", ");
+  const daemonSubs = DAEMON_SUBCOMMANDS.map((s) => `'${s}'`).join(", ");
+  const pairSubs = PAIR_SUBCOMMANDS.map((s) => `'${s}'`).join(", ");
+  const daemonFlags = DAEMON_FLAGS.map((f) => `'${f}'`).join(", ");
+
+  return `# tp powershell completion
+Register-ArgumentCompleter -Native -CommandName tp -ScriptBlock {
+    param($wordToComplete, $commandAst, $cursorPosition)
+
+    $commands = @(${commands})
+    $daemonSubs = @(${daemonSubs})
+    $pairSubs = @(${pairSubs})
+    $daemonFlags = @(${daemonFlags})
+
+    $tokens = $commandAst.CommandElements | ForEach-Object { $_.ToString() }
+    $pos = $tokens.Count
+
+    if ($pos -le 1) {
+        $commands | Where-Object { $_ -like "$wordToComplete*" } |
+            ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+    }
+    elseif ($tokens[1] -eq 'daemon' -and $pos -eq 2) {
+        $daemonSubs | Where-Object { $_ -like "$wordToComplete*" } |
+            ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+    }
+    elseif ($tokens[1] -eq 'daemon' -and $pos -ge 3) {
+        $daemonFlags | Where-Object { $_ -like "$wordToComplete*" } |
+            ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterName', $_) }
+    }
+    elseif ($tokens[1] -eq 'pair' -and $pos -eq 2) {
+        $pairSubs | Where-Object { $_ -like "$wordToComplete*" } |
+            ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+    }
+}`;
 }

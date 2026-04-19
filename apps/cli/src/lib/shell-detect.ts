@@ -1,6 +1,6 @@
 export type Shell = "bash" | "zsh" | "fish" | "powershell";
 
-const POSIX_SHELLS = new Set<string>(["bash", "zsh", "fish"]);
+const POSIX_SHELLS: ReadonlySet<Shell> = new Set<Shell>(["bash", "zsh", "fish"]);
 
 export function detectShell(
   env: Record<string, string | undefined>,
@@ -17,7 +17,7 @@ export function detectShell(
   const shellPath = env.SHELL;
   if (shellPath) {
     const base = shellPath.split("/").pop() ?? "";
-    if (POSIX_SHELLS.has(base)) return base as Shell;
+    if ((POSIX_SHELLS as ReadonlySet<string>).has(base)) return base as Shell;
   }
 
   // Secondary signal when $SHELL is unset/odd — the shell itself sets these.

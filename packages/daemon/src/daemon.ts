@@ -7,6 +7,7 @@ import type {
   IpcPairCancel,
   IpcPairCancelled,
   IpcPairCompleted,
+  IpcPairError,
   IpcRec,
   Namespace,
   RecordKind,
@@ -430,14 +431,33 @@ export class Daemon {
       p.then((result) => {
         if (this.pendingPairingOwner === runner) this.pendingPairingOwner = null;
         if (result.kind === "completed") {
-          this.promoteCompletedPairing(result);
-          const evt: IpcPairCompleted = {
-            t: "pair.completed",
-            pairingId: info.pairingId,
-            daemonId: info.daemonId,
-            label: result.label,
-          };
-          this.ipcServer.send(runner, evt);
+          try {
+            this.promoteCompletedPairing(result);
+            const evt: IpcPairCompleted = {
+              t: "pair.completed",
+              pairingId: info.pairingId,
+              daemonId: info.daemonId,
+              label: result.label,
+            };
+            this.ipcServer.send(runner, evt);
+          } catch (promoteErr) {
+            const message =
+              promoteErr instanceof Error
+                ? promoteErr.message
+                : String(promoteErr);
+            log.error(
+              `promoteCompletedPairing failed (pairingId=${info.pairingId}): ${message}`,
+            );
+            // Defensively clear the slot so subsequent pair.begin can proceed.
+            this.pendingPairing = null;
+            const errEvt: IpcPairError = {
+              t: "pair.error",
+              pairingId: info.pairingId,
+              reason: "internal",
+              message,
+            };
+            this.ipcServer.send(runner, errEvt);
+          }
         } else {
           const evt: IpcPairCancelled = {
             t: "pair.cancelled",
@@ -445,6 +465,12 @@ export class Daemon {
           };
           this.ipcServer.send(runner, evt);
         }
+      }).catch((err) => {
+        // Defense in depth: catch unexpected promise rejections (e.g. ipcServer.send throws).
+        log.error(
+          `unexpected error in pair completion handler (pairingId=${info.pairingId}):`,
+          err,
+        );
       });
     } catch (err) {
       const reason =
@@ -455,6 +481,7 @@ export class Daemon {
           : err instanceof Error
             ? err.message
             : String(err);
+      log.warn(`pair.begin failed: reason=${reason} message=${message}`);
       const reply: IpcPairBeginErr = {
         t: "pair.begin.err",
         reason,
@@ -465,9 +492,15 @@ export class Daemon {
   }
 
   __handlePairCancel(
-    _runner: ConnectedRunner,
+    runner: ConnectedRunner,
     msg: IpcPairCancel,
   ): void {
+    if (this.pendingPairingOwner && this.pendingPairingOwner !== runner) {
+      log.warn(
+        `pair.cancel from non-owner runner ignored (pairingId=${msg.pairingId})`,
+      );
+      return;
+    }
     this.cancelPendingPairing(msg.pairingId);
   }
 

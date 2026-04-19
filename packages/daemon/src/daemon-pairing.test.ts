@@ -339,4 +339,113 @@ describe("Daemon.beginPairing", () => {
     expect(daemon.awaitPendingPairing()).toBeNull();
     daemon.stop();
   });
+
+  // N1: disconnect after completion is harmless
+  test("CLI disconnect after completion is a no-op", async () => {
+    dir = mkdtempSync(join(tmpdir(), "tp-daemon-"));
+    const daemon = new Daemon(dir);
+    daemon.__setRelayFactory(() => fakeRelay());
+
+    const cli = makeFakeCli();
+    await daemon.__handlePairBegin(cli.runner, {
+      t: "pair.begin",
+      relayUrl: "wss://r",
+      daemonId: "d-disc-after",
+    });
+    (daemon as unknown as { pendingPairing: { __markCompleted: (f: string) => void } }).pendingPairing.__markCompleted("f1");
+    await new Promise((r) => setTimeout(r, 10));
+    // After completion, pendingPairing is cleared by the promote path.
+    expect(
+      (daemon as unknown as { pendingPairing: unknown }).pendingPairing,
+    ).toBeNull();
+
+    // Disconnect after completion — should be harmless.
+    daemon.__handleCliDisconnect(cli.runner);
+    // No pending, no error.
+    expect(
+      (daemon as unknown as { pendingPairing: unknown }).pendingPairing,
+    ).toBeNull();
+    daemon.stop();
+  });
+
+  // N2: pair.cancel with wrong pairingId is a no-op
+  test("pair.cancel with mismatched pairingId does not cancel", async () => {
+    dir = mkdtempSync(join(tmpdir(), "tp-daemon-"));
+    const daemon = new Daemon(dir);
+    daemon.__setRelayFactory(() => fakeRelay());
+
+    const cli = makeFakeCli();
+    await daemon.__handlePairBegin(cli.runner, {
+      t: "pair.begin",
+      relayUrl: "wss://r",
+      daemonId: "d-mismatch",
+    });
+
+    daemon.__handlePairCancel(cli.runner, { t: "pair.cancel", pairingId: "wrong-id" });
+    // Still pending — check via internal field to avoid double-calling awaitCompletion().
+    expect(
+      (daemon as unknown as { pendingPairing: unknown }).pendingPairing,
+    ).not.toBeNull();
+
+    daemon.cancelPendingPairing();
+    daemon.stop();
+  });
+
+  // I2 coverage: pair.cancel from non-owner runner is rejected
+  test("pair.cancel from non-owner runner is ignored", async () => {
+    dir = mkdtempSync(join(tmpdir(), "tp-daemon-"));
+    const daemon = new Daemon(dir);
+    daemon.__setRelayFactory(() => fakeRelay());
+
+    const owner = makeFakeCli();
+    await daemon.__handlePairBegin(owner.runner, {
+      t: "pair.begin",
+      relayUrl: "wss://r",
+      daemonId: "d-non-owner",
+    });
+    const pairingId = (owner.messages[0] as { pairingId: string }).pairingId;
+
+    const intruder = makeFakeCli();
+    daemon.__handlePairCancel(intruder.runner, { t: "pair.cancel", pairingId });
+    // Still pending — intruder ignored. Check via internal field to avoid double-calling awaitCompletion().
+    expect(
+      (daemon as unknown as { pendingPairing: unknown }).pendingPairing,
+    ).not.toBeNull();
+
+    daemon.cancelPendingPairing();
+    daemon.stop();
+  });
+
+  // C1 coverage: promote failure surfaces to CLI and clears pending slot
+  test("promote failure emits pair.error and clears pending slot", async () => {
+    dir = mkdtempSync(join(tmpdir(), "tp-daemon-"));
+    const daemon = new Daemon(dir);
+    daemon.__setRelayFactory(() => fakeRelay());
+
+    // Inject a throwing savePairing.
+    const store = (daemon as unknown as { store: { savePairing: (x: unknown) => void } }).store;
+    const original = store.savePairing.bind(store);
+    store.savePairing = () => { throw new Error("disk full"); };
+
+    const cli = makeFakeCli();
+    await daemon.__handlePairBegin(cli.runner, {
+      t: "pair.begin",
+      relayUrl: "wss://r",
+      daemonId: "d-promote-fail",
+    });
+    (daemon as unknown as { pendingPairing: { __markCompleted: (f: string) => void } }).pendingPairing.__markCompleted("f1");
+    await new Promise((r) => setTimeout(r, 20));
+
+    const errEvt = cli.messages.find((m) => (m as { t: string }).t === "pair.error");
+    expect(errEvt).toMatchObject({ t: "pair.error", reason: "internal" });
+    expect((errEvt as { message: string }).message).toMatch(/disk full/);
+    // Pending slot cleared so next pair.begin works.
+    expect(
+      (daemon as unknown as { pendingPairing: unknown }).pendingPairing,
+    ).toBeNull();
+
+    // Restore and clean up.
+    store.savePairing = original;
+    daemon.stop();
+  });
 });

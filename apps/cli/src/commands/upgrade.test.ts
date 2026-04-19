@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  chmodSync,
   existsSync,
   mkdtempSync,
   readFileSync,
@@ -20,6 +21,7 @@ import {
   parseVersion,
   resolveCurrentBinaryPath,
   restoreBinary,
+  verifyNewBinary,
 } from "./upgrade";
 
 describe("parseChecksums", () => {
@@ -411,5 +413,62 @@ describe("checkForUpdates", () => {
     expect(existsSync(cachePath)).toBe(true);
     const cached = JSON.parse(readFileSync(cachePath, "utf-8"));
     expect(cached.lastCheck).toBe(1_700_000_000_000);
+  });
+});
+
+describe("verifyNewBinary", () => {
+  const scriptDirs: string[] = [];
+
+  afterEach(() => {
+    for (const dir of scriptDirs) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {}
+    }
+    scriptDirs.length = 0;
+  });
+
+  function makeScript(contents: string): string {
+    const dir = mkdtempSync(join(tmpdir(), "tp-verify-"));
+    scriptDirs.push(dir);
+    const path = join(dir, "fake-tp");
+    writeFileSync(path, `#!/usr/bin/env bash\n${contents}\n`);
+    chmodSync(path, 0o755);
+    return path;
+  }
+
+  test("accepts `tp v0.1.9` output", async () => {
+    const bin = makeScript(`echo "tp v0.1.9"`);
+    const r = await verifyNewBinary(bin);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.version).toBe("tp v0.1.9");
+  });
+
+  test("rejects empty stdout", async () => {
+    const bin = makeScript(`exit 0`);
+    const r = await verifyNewBinary(bin);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/no output/);
+  });
+
+  test("rejects non-tp output", async () => {
+    const bin = makeScript(`echo "hello"`);
+    const r = await verifyNewBinary(bin);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/unexpected output/);
+  });
+
+  test("rejects non-zero exit", async () => {
+    const bin = makeScript(`echo "oops" >&2; exit 2`);
+    const r = await verifyNewBinary(bin);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/exit 2: oops/);
+  });
+
+  test("rejects SIGKILL with Gatekeeper hint", async () => {
+    const bin = makeScript(`kill -KILL $$`);
+    const r = await verifyNewBinary(bin);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/signal SIGKILL|killed by signal/);
   });
 });

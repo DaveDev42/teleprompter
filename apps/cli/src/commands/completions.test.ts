@@ -166,16 +166,52 @@ describe("tp completions", () => {
   );
 
   test(
-    "completions install --help prints usage and does not install",
+    "completions install --help prints usage, exits 0, does not install",
     () => {
       const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
       try {
-        const result = capture(
-          `bun run apps/cli/src/index.ts completions install --help`,
-          { HOME: tmpHome, SHELL: "/bin/bash" },
-        );
-        expect(result).toContain("Usage: tp completions install");
+        let exitCode = 0;
+        let output = "";
+        try {
+          output = execSync(
+            "bun run apps/cli/src/index.ts completions install --help",
+            {
+              env: { ...process.env, HOME: tmpHome, SHELL: "/bin/bash" },
+              stdio: "pipe",
+            },
+          ).toString();
+        } catch (e: unknown) {
+          exitCode = (e as { status: number }).status;
+          output = (e as { stdout?: Buffer }).stdout?.toString() ?? "";
+        }
+        expect(exitCode).toBe(0);
+        expect(output).toContain("Usage: tp completions install");
         expect(existsSync(join(tmpHome, ".bashrc"))).toBe(false);
+      } finally {
+        rmSync(tmpHome, { recursive: true, force: true });
+      }
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "completions install --profile-dir without value errors",
+    () => {
+      const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
+      try {
+        let exitCode = 0;
+        try {
+          execSync(
+            "bun run apps/cli/src/index.ts completions install powershell --profile-dir",
+            {
+              env: { ...process.env, HOME: tmpHome },
+              stdio: "pipe",
+            },
+          );
+        } catch (e: unknown) {
+          exitCode = (e as { status: number }).status;
+        }
+        expect(exitCode).toBe(1);
       } finally {
         rmSync(tmpHome, { recursive: true, force: true });
       }

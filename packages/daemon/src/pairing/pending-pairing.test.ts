@@ -75,4 +75,80 @@ describe("PendingPairing", () => {
     expect(released).toBe(relay as unknown as RelayClient);
     expect(() => pp.releaseRelay()).toThrow();
   });
+
+  test("begin() subscribes to __meta__ and __control__ channels", async () => {
+    const relay = makeFakeRelayClient();
+    const pp = new PendingPairing({
+      relayUrl: "wss://relay.test",
+      daemonId: "daemon-test",
+      label: null,
+      createRelayClient: () => relay as unknown as RelayClient,
+    });
+    await pp.begin();
+    expect(relay.subscribe).toHaveBeenCalledWith("__meta__");
+    expect(relay.subscribe).toHaveBeenCalledWith("__control__");
+  });
+
+  test("completion + releaseRelay does NOT dispose the relay", async () => {
+    const relay = makeFakeRelayClient();
+    const pp = new PendingPairing({
+      relayUrl: "wss://relay.test",
+      daemonId: "daemon-test",
+      label: null,
+      createRelayClient: () => relay as unknown as RelayClient,
+    });
+    await pp.begin();
+    const p = pp.awaitCompletion();
+    pp.__markCompleted("frontend-abc");
+    await p;
+    const released = pp.releaseRelay();
+    expect(released).toBeDefined();
+    expect(relay.dispose).not.toHaveBeenCalled();
+  });
+
+  test("awaitCompletion called after __markCompleted still resolves", async () => {
+    const relay = makeFakeRelayClient();
+    const pp = new PendingPairing({
+      relayUrl: "wss://relay.test",
+      daemonId: "daemon-test",
+      label: null,
+      createRelayClient: () => relay as unknown as RelayClient,
+    });
+    await pp.begin();
+    pp.__markCompleted("frontend-late");
+    const result = await pp.awaitCompletion();
+    expect(result.kind).toBe("completed");
+  });
+
+  test("awaitCompletion called twice before resolution throws", async () => {
+    const relay = makeFakeRelayClient();
+    const pp = new PendingPairing({
+      relayUrl: "wss://relay.test",
+      daemonId: "daemon-test",
+      label: null,
+      createRelayClient: () => relay as unknown as RelayClient,
+    });
+    await pp.begin();
+    pp.awaitCompletion();
+    expect(() => pp.awaitCompletion()).toThrow();
+  });
+
+  test("__markCompleted is idempotent", async () => {
+    const relay = makeFakeRelayClient();
+    const pp = new PendingPairing({
+      relayUrl: "wss://relay.test",
+      daemonId: "daemon-test",
+      label: null,
+      createRelayClient: () => relay as unknown as RelayClient,
+    });
+    await pp.begin();
+    const p = pp.awaitCompletion();
+    pp.__markCompleted("frontend-first");
+    pp.__markCompleted("frontend-second");
+    const result = await p;
+    expect(result.kind).toBe("completed");
+    if (result.kind === "completed") {
+      expect(result.frontendId).toBe("frontend-first");
+    }
+  });
 });

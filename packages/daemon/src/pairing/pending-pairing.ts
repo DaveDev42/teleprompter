@@ -38,7 +38,6 @@ export interface PendingPairingOptions {
  * - `completed` carries the material the daemon needs to persist the pairing
  *   (savePairing) and keep the RelayClient alive.
  * - `cancelled` is emitted after `cancel()` (user Ctrl+C, CLI disconnect, etc.).
- * - `error` is emitted if kx parsing / internal logic fails.
  */
 export type PendingPairingResult =
   | {
@@ -52,15 +51,14 @@ export type PendingPairingResult =
       pairingSecret: Uint8Array;
       label: string | null;
     }
-  | { kind: "cancelled" }
-  | { kind: "error"; reason: string; message?: string };
+  | { kind: "cancelled" };
 
 /**
  * Lifecycle:
- *   new → begin() → awaitCompletion() → { completed | cancelled | error }
+ *   new → begin() → awaitCompletion() → { completed | cancelled }
  * After `completed`, the caller (daemon) calls `releaseRelay()` to take
  * ownership of the RelayClient — the PendingPairing will not dispose it.
- * After `cancelled`/`error`, the RelayClient is disposed here.
+ * After `cancelled`, the RelayClient is disposed here.
  */
 export class PendingPairing {
   readonly pairingId: string;
@@ -73,6 +71,7 @@ export class PendingPairing {
   private qrString = "";
   private settle: ((r: PendingPairingResult) => void) | null = null;
   private settled = false;
+  private resolved: PendingPairingResult | null = null;
 
   constructor(opts: PendingPairingOptions) {
     this.opts = opts;
@@ -120,6 +119,12 @@ export class PendingPairing {
   }
 
   awaitCompletion(): Promise<PendingPairingResult> {
+    if (this.resolved !== null) {
+      return Promise.resolve(this.resolved);
+    }
+    if (this.settle !== null) {
+      throw new Error("awaitCompletion() called twice");
+    }
     return new Promise((resolve) => {
       this.settle = resolve;
     });
@@ -137,7 +142,7 @@ export class PendingPairing {
     log.info(
       `pairing ${this.pairingId} completed with frontend ${frontendId}`,
     );
-    this.settle?.({
+    this.resolved = {
       kind: "completed",
       frontendId,
       daemonId: this.opts.daemonId,
@@ -147,7 +152,8 @@ export class PendingPairing {
       keyPair: this.keyPair,
       pairingSecret: this.pairingSecret,
       label: this.opts.label,
-    });
+    };
+    this.settle?.(this.resolved);
   }
 
   /** User Ctrl+C or CLI disconnect: dispose the relay and resolve with `cancelled`. */
@@ -157,7 +163,8 @@ export class PendingPairing {
     this.relay?.dispose();
     this.relay = null;
     log.info(`pairing ${this.pairingId} cancelled`);
-    this.settle?.({ kind: "cancelled" });
+    this.resolved = { kind: "cancelled" };
+    this.settle?.(this.resolved);
   }
 
   /**

@@ -151,6 +151,12 @@ async function pairNew(argv: string[]): Promise<void> {
             );
             resolve(1);
             return;
+          default: {
+            const _exhaustive: never = m;
+            void _exhaustive;
+            resolve(1);
+            return;
+          }
         }
       });
       ipc!.onClose(() => {
@@ -162,6 +168,15 @@ async function pairNew(argv: string[]): Promise<void> {
     const onSigint = (): void => {
       if (pairingId && ipc) {
         ipc.send({ t: "pair.cancel", pairingId } satisfies IpcPairCancel);
+      } else {
+        // Pre-ok: no pairingId yet, so a pair.cancel frame wouldn't identify
+        // anything server-side. Close the socket instead — the daemon's
+        // onDisconnect will cancel any half-begun PendingPairing.
+        try {
+          ipc?.close();
+        } catch {
+          /* best effort */
+        }
       }
     };
     process.on("SIGINT", onSigint);

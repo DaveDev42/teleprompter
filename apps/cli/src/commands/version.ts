@@ -1,19 +1,17 @@
-import { readFileSync } from "fs";
-import { resolve } from "path";
+import pkg from "../../../../package.json" with { type: "json" };
 
 /**
  * tp version — print tp version.
  *
  * With --claude flag, also prints claude version.
+ *
+ * The version is read from the root package.json via a static JSON import so
+ * Bun's `--compile` bundler inlines the value at build time. Runtime
+ * filesystem reads fail inside the compiled binary because the original
+ * package.json is not shipped alongside it.
  */
 export async function versionCommand(argv: string[] = []): Promise<void> {
-  try {
-    const pkgPath = resolve(import.meta.dir, "../../package.json");
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-    console.log(`tp v${pkg.version}`);
-  } catch {
-    console.log("tp v0.1.5");
-  }
+  console.log(`tp v${pkg.version}`);
 
   if (argv.includes("--claude")) {
     const proc = Bun.spawn(["claude", "--version"], {

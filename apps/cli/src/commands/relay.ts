@@ -1,6 +1,5 @@
 import { RelayServer } from "@teleprompter/relay";
 import { parseArgs } from "util";
-import { loadPairingData } from "./pair";
 
 export async function relayCommand(argv: string[]): Promise<void> {
   const subcommand = argv[0];
@@ -18,8 +17,7 @@ export async function relayCommand(argv: string[]): Promise<void> {
           `\n` +
           `  --port <port>           Server port (default: 7090)\n` +
           `  --cache-size <n>        Max cached frames per session (default: 10, env: TP_RELAY_CACHE_SIZE)\n` +
-          `  --max-frame-size <n>    Max WebSocket frame size in bytes (default: 1048576, env: TP_RELAY_MAX_FRAME_SIZE)\n` +
-          `  --register-pairing      Auto-register token from pairing data`,
+          `  --max-frame-size <n>    Max WebSocket frame size in bytes (default: 1048576, env: TP_RELAY_MAX_FRAME_SIZE)`,
       );
       process.exit(1);
   }
@@ -32,7 +30,6 @@ async function startRelay(argv: string[]): Promise<void> {
       port: { type: "string", default: "7090" },
       "cache-size": { type: "string" },
       "max-frame-size": { type: "string" },
-      "register-pairing": { type: "boolean", default: false },
     },
     strict: false,
   });
@@ -47,19 +44,6 @@ async function startRelay(argv: string[]): Promise<void> {
       : undefined,
   });
   relay.start(port);
-
-  // Auto-register pairing token from saved pairing data
-  if (values["register-pairing"]) {
-    const pairing = await loadPairingData();
-    if (pairing) {
-      relay.registerToken(pairing.relayToken, pairing.daemonId);
-      console.log(`[Relay] registered token for daemon ${pairing.daemonId}`);
-    } else {
-      console.warn(
-        "[Relay] --register-pairing: no pairing data found (run `tp pair` first)",
-      );
-    }
-  }
 
   console.log("[Relay] press Ctrl+C to stop");
 

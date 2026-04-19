@@ -1,6 +1,6 @@
 export type Shell = "bash" | "zsh" | "fish" | "powershell";
 
-const POSIX_SHELLS: Shell[] = ["bash", "zsh", "fish"];
+const POSIX_SHELLS = new Set<string>(["bash", "zsh", "fish"]);
 
 export function detectShell(
   env: Record<string, string | undefined>,
@@ -14,5 +14,5 @@ export function detectShell(
   if (!shellPath) return null;
 
   const base = shellPath.split("/").pop() ?? "";
-  return (POSIX_SHELLS as string[]).includes(base) ? (base as Shell) : null;
+  return POSIX_SHELLS.has(base) ? (base as Shell) : null;
 }

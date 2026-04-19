@@ -9,7 +9,7 @@
  * On first run, shows a pairing QR and auto-installs the daemon service.
  */
 
-import { Daemon, SessionManager } from "@teleprompter/daemon";
+import { Daemon, SessionManager, Store } from "@teleprompter/daemon";
 import { setLogLevel } from "@teleprompter/protocol";
 import { unlinkSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
@@ -138,7 +138,6 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
 }
 
 async function showFirstRunPairing(): Promise<void> {
-  const { Store } = await import("@teleprompter/daemon");
   const store = new Store();
   try {
     if (store.listPairings().length > 0) return;

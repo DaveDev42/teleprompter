@@ -162,6 +162,7 @@ function runInstall(argv: string[]): void {
   const legacyPowerShell = argv.includes("--legacy-powershell");
 
   // Reject unknown flags.
+  // consumedIndices skips --profile-dir and its value so they're not re-checked.
   for (const [i, a] of argv.entries()) {
     if (a.startsWith("-") && a !== "-" && !INSTALL_FLAG_ALLOWLIST.has(a) && !consumedIndices.has(i)) {
       console.error(`Unknown flag: ${a}`);
@@ -284,7 +285,11 @@ ${DAEMON_FLAGS.map((f) => `              '${f}[${f.replace(/^--/, "")}]'`).join(
           fi
           ;;
         pair)
-          _values 'pair subcommand' ${PAIR_SUBCOMMANDS.map((s) => `'${s}'`).join(" ")}
+          if [ "\${#words[@]}" -le 2 ]; then
+            _values 'pair subcommand' ${PAIR_SUBCOMMANDS.map((s) => `'${s}'`).join(" ")}
+          elif [ "\${words[2]}" = "new" ]; then
+            _arguments '--relay[relay URL]' '--label[pairing label]'
+          fi
           ;;
       esac
       ;;
@@ -311,6 +316,8 @@ function generateFish(): string {
       (s) =>
         `complete -c tp -n '__fish_seen_subcommand_from pair' -a '${s}' -d '${s}'`,
     ),
+    `complete -c tp -n '__fish_seen_subcommand_from pair; and __fish_seen_subcommand_from new' -l relay -d 'relay URL'`,
+    `complete -c tp -n '__fish_seen_subcommand_from pair; and __fish_seen_subcommand_from new' -l label -d 'pairing label'`,
   ];
   return lines.join("\n");
 }

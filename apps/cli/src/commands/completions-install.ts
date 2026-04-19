@@ -45,7 +45,6 @@ export type UninstallResult =
 
 function preservedMode(file: string): number {
   if (!existsSync(file)) return 0o644;
-  // File exists but stat fails — surface the error instead of silently using 0644.
   return statSync(file).mode & 0o777;
 }
 

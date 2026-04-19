@@ -19,6 +19,13 @@ export type InstallOptions = {
   force?: boolean;
   dryRun?: boolean;
   legacyPowerShell?: boolean;
+  /**
+   * Override the PowerShell profile directory. If unset, derived from
+   * `home`. On Windows with OneDrive redirection the correct path is
+   * `%OneDrive%\Documents\PowerShell` — callers that have access to
+   * `$PROFILE` (e.g. install.ps1) should pass it in.
+   */
+  powerShellProfileDir?: string;
 };
 
 export type InstallResult =
@@ -38,27 +45,38 @@ function preservedMode(file: string): number {
   }
 }
 
+let atomicWriteCounter = 0;
+
 function atomicWrite(file: string, contents: string, mode?: number): void {
-  const tmp = `${file}.tp-tmp-${process.pid}`;
-  writeFileSync(tmp, contents, mode !== undefined ? { mode } : {});
-  // `renameSync` is atomic on the same filesystem.
-  renameSync(tmp, file);
+  const tmp = `${file}.tp-tmp-${process.pid}-${Date.now()}-${atomicWriteCounter++}`;
+  try {
+    writeFileSync(tmp, contents, mode !== undefined ? { mode } : {});
+    // `renameSync` is atomic on the same filesystem.
+    renameSync(tmp, file);
+  } catch (err) {
+    // Clean up orphan tmp file on any failure.
+    try {
+      rmSync(tmp, { force: true });
+    } catch {}
+    throw err;
+  }
 }
 
 const MARKER_START =
   "# >>> tp completions (managed by `tp completions install`) >>>";
 const MARKER_END = "# <<< tp completions <<<";
 
-function powershellDir(home: string, legacy: boolean): string {
+function powershellDir(home: string, legacy: boolean, override?: string): string {
+  if (override) return override;
   return join(home, "Documents", legacy ? "WindowsPowerShell" : "PowerShell");
 }
 
-function powershellScriptPath(home: string, legacy: boolean): string {
-  return join(powershellDir(home, legacy), "tp-completions.ps1");
+function powershellScriptPath(home: string, legacy: boolean, override?: string): string {
+  return join(powershellDir(home, legacy, override), "tp-completions.ps1");
 }
 
-function powershellProfilePath(home: string, legacy: boolean): string {
-  return join(powershellDir(home, legacy), "Profile.ps1");
+function powershellProfilePath(home: string, legacy: boolean, override?: string): string {
+  return join(powershellDir(home, legacy, override), "Profile.ps1");
 }
 
 function rcFilePath(shell: "bash" | "zsh", home: string): string {
@@ -121,8 +139,9 @@ export function installCompletion(opts: InstallOptions): InstallResult {
 
   if (opts.shell === "powershell") {
     const legacy = !!opts.legacyPowerShell;
-    const scriptFile = powershellScriptPath(home, legacy);
-    const profileFile = powershellProfilePath(home, legacy);
+    const psDir = opts.powerShellProfileDir;
+    const scriptFile = powershellScriptPath(home, legacy, psDir);
+    const profileFile = powershellProfilePath(home, legacy, psDir);
     const dotSource = `. "${scriptFile}"`;
 
     if (opts.dryRun) {
@@ -144,7 +163,7 @@ export function installCompletion(opts: InstallOptions): InstallResult {
       return { status: "already-installed", file: scriptFile };
     }
 
-    mkdirSync(powershellDir(home, legacy), { recursive: true });
+    mkdirSync(powershellDir(home, legacy, psDir), { recursive: true });
     atomicWrite(scriptFile, `${renderCompletion("powershell")}\n`, 0o644);
 
     const baseProfile = containsMarker(existingProfile)
@@ -159,7 +178,8 @@ export function installCompletion(opts: InstallOptions): InstallResult {
     return { status: "installed", file: scriptFile };
   }
 
-  throw new Error(`Unsupported shell: ${opts.shell}`);
+  const _exhaustive: never = opts.shell;
+  throw new Error(`Unsupported shell: ${String(_exhaustive)}`);
 }
 
 function installRcLine(
@@ -217,8 +237,9 @@ export function uninstallCompletion(opts: InstallOptions): UninstallResult {
 
   if (opts.shell === "powershell") {
     const legacy = !!opts.legacyPowerShell;
-    const scriptFile = powershellScriptPath(home, legacy);
-    const profileFile = powershellProfilePath(home, legacy);
+    const psDir = opts.powerShellProfileDir;
+    const scriptFile = powershellScriptPath(home, legacy, psDir);
+    const profileFile = powershellProfilePath(home, legacy, psDir);
 
     const scriptExists = existsSync(scriptFile);
     const profileHasMarker =
@@ -237,5 +258,6 @@ export function uninstallCompletion(opts: InstallOptions): UninstallResult {
     return { status: "uninstalled", file: scriptFile };
   }
 
-  throw new Error(`Unsupported shell: ${opts.shell}`);
+  const _exhaustive: never = opts.shell;
+  throw new Error(`Unsupported shell: ${String(_exhaustive)}`);
 }

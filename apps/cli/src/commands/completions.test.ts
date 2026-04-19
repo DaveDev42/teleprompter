@@ -53,4 +53,24 @@ describe("tp completions", () => {
     },
     TIMEOUT,
   );
+
+  test(
+    "bash completions include daemon subcommands including status",
+    () => {
+      const result = capture("bun run apps/cli/src/index.ts completions bash");
+      expect(result).toContain("start status install uninstall");
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "fish completions include daemon status subcommand",
+    () => {
+      const result = capture("bun run apps/cli/src/index.ts completions fish");
+      expect(result).toContain(
+        "__fish_seen_subcommand_from daemon' -a 'status'",
+      );
+    },
+    TIMEOUT,
+  );
 });

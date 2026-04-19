@@ -3,6 +3,10 @@
 #   irm https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts/install.ps1 | iex
 #   $env:VERSION = "v0.1.8"; irm ... | iex
 
+param(
+  [switch]$NoCompletions
+)
+
 $ErrorActionPreference = "Stop"
 
 $Repo = "DaveDev42/teleprompter"
@@ -84,4 +88,15 @@ if (-not ($env:Path -split ";" | Where-Object { $_ -ieq $InstallDir })) {
   Write-Host "  [Environment]::SetEnvironmentVariable('Path', `"`$env:Path;$InstallDir`", 'User')"
   Write-Host ""
   Write-Host "Or run: `"$target`" version"
+}
+
+# Install shell completions (idempotent, failure is non-fatal)
+if (-not $NoCompletions) {
+  try {
+    & $target completions install powershell | Out-Host
+  } catch {
+    Write-Host ""
+    Write-Host "Note: shell completions were not installed automatically."
+    Write-Host "Run '$target completions install powershell' manually to enable them."
+  }
 }

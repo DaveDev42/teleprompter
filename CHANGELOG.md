@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.10](https://github.com/DaveDev42/teleprompter/compare/v0.1.9...v0.1.10) (2026-04-19)
+
+
+### Bug Fixes
+
+* **release:** ad-hoc codesign macOS + cosign keyless + stricter upgrade verify ([24d2ab0](https://github.com/DaveDev42/teleprompter/commit/24d2ab0d34e57ee45fa53574a67388fe50315284))
+* **release:** ad-hoc codesign macOS + cosign keyless + stricter upgrade verify ([4f8dcf4](https://github.com/DaveDev42/teleprompter/commit/4f8dcf4f7634d96ec4d5ca806e45b604f27e1f61))
+
 ## [0.1.9](https://github.com/DaveDev42/teleprompter/compare/v0.1.8...v0.1.9) (2026-04-15)
 
 

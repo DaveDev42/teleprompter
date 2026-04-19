@@ -154,7 +154,7 @@ describe("tp completions", () => {
   );
 
   test(
-    "completions install fails with exit 1 when shell cannot be detected",
+    "completions install prints error when shell cannot be detected",
     () => {
       const result = capture(
         `bun run apps/cli/src/index.ts completions install`,
@@ -170,21 +170,13 @@ describe("tp completions", () => {
     () => {
       const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
       try {
-        let exitCode = 0;
-        let output = "";
-        try {
-          output = execSync(
-            "bun run apps/cli/src/index.ts completions install --help",
-            {
-              env: { ...process.env, HOME: tmpHome, SHELL: "/bin/bash" },
-              stdio: "pipe",
-            },
-          ).toString();
-        } catch (e: unknown) {
-          exitCode = (e as { status: number }).status;
-          output = (e as { stdout?: Buffer }).stdout?.toString() ?? "";
-        }
-        expect(exitCode).toBe(0);
+        const output = execSync(
+          "bun run apps/cli/src/index.ts completions install --help",
+          {
+            env: { ...process.env, HOME: tmpHome, SHELL: "/bin/bash" },
+            stdio: "pipe",
+          },
+        ).toString();
         expect(output).toContain("Usage: tp completions install");
         expect(existsSync(join(tmpHome, ".bashrc"))).toBe(false);
       } finally {
@@ -203,6 +195,31 @@ describe("tp completions", () => {
         try {
           execSync(
             "bun run apps/cli/src/index.ts completions install powershell --profile-dir",
+            {
+              env: { ...process.env, HOME: tmpHome },
+              stdio: "pipe",
+            },
+          );
+        } catch (e: unknown) {
+          exitCode = (e as { status: number }).status;
+        }
+        expect(exitCode).toBe(1);
+      } finally {
+        rmSync(tmpHome, { recursive: true, force: true });
+      }
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "completions install --profile-dir --help errors (allowlist collision)",
+    () => {
+      const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
+      try {
+        let exitCode = 0;
+        try {
+          execSync(
+            "bun run apps/cli/src/index.ts completions install powershell --profile-dir --help",
             {
               env: { ...process.env, HOME: tmpHome },
               stdio: "pipe",

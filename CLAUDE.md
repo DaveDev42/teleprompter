@@ -316,7 +316,8 @@ tp daemon uninstall        # OS 서비스 해제
 
 # 고급
 tp relay start [--port]    # Relay 서버 실행
-tp completions <shell>     # 셸 자동완성 생성
+tp completions <bash|zsh|fish|powershell>   # 셸 자동완성 스크립트 출력
+tp completions install [shell]              # 현재 쉘에 완성 자동 등록 (--force, --uninstall, --dry-run)
 
 # Passthrough 플래그
 --tp-sid <id>              # 세션 ID (기본: 자동 생성)

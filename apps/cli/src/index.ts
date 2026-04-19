@@ -145,7 +145,8 @@ Daemon management:
 
 Advanced:
   tp relay start [--port 7090]        Run a relay server
-  tp completions <bash|zsh|fish>      Generate shell completions
+  tp completions <bash|zsh|fish|powershell>   Print shell completions to stdout
+  tp completions install [shell]      Install completions (--force, --uninstall, --dry-run)
 
 Claude utility commands (forwarded directly to claude):
   tp auth                             Manage claude authentication

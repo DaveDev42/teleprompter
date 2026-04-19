@@ -78,7 +78,7 @@ describe("IpcServer", () => {
     await Bun.sleep(50);
     expect(receivedMessages.length).toBe(1);
     expect(receivedMessages[0].t).toBe("hello");
-    expect(receivedMessages[0].sid).toBe("test-session");
+    expect((receivedMessages[0] as IpcHello).sid).toBe("test-session");
     client.end();
   });
 

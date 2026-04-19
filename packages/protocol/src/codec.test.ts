@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { encodeFrame, FrameDecoder } from "./codec";
+import type {
+  IpcMessage,
+  IpcPairBegin,
+  IpcPairBeginErr,
+  IpcPairBeginOk,
+  IpcPairCancel,
+  IpcPairCancelled,
+  IpcPairCompleted,
+  IpcPairError,
+} from "./types/ipc";
 
 describe("codec", () => {
   test("round-trip single frame", () => {
@@ -77,4 +87,17 @@ describe("codec", () => {
     const results = decoder.decode(encodeFrame({ t: "fresh" }));
     expect(results).toEqual([{ t: "fresh" }]);
   });
+});
+
+test("IpcMessage union accepts pair.* messages", () => {
+  const msgs: IpcMessage[] = [
+    { t: "pair.begin", relayUrl: "wss://r", label: "x" },
+    { t: "pair.begin.ok", pairingId: "p1", qrString: "q", daemonId: "d1" },
+    { t: "pair.begin.err", reason: "already-pending" },
+    { t: "pair.cancel", pairingId: "p1" },
+    { t: "pair.completed", pairingId: "p1", daemonId: "d1", label: "x" },
+    { t: "pair.cancelled", pairingId: "p1" },
+    { t: "pair.error", pairingId: "p1", reason: "relay-unreachable" },
+  ];
+  expect(msgs.length).toBe(7);
 });

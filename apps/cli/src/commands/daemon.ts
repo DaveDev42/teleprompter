@@ -1,6 +1,7 @@
 import { Daemon, SessionManager } from "@teleprompter/daemon";
 import { setLogLevel } from "@teleprompter/protocol";
 import { parseArgs } from "util";
+import { isDaemonRunning } from "../lib/ensure-daemon";
 import { resolveRunnerCommand } from "../spawn";
 
 export async function daemonCommand(argv: string[]): Promise<void> {
@@ -56,7 +57,6 @@ export async function daemonCommand(argv: string[]): Promise<void> {
   // Inject self-spawn runner command so SessionManager uses `tp run` instead of relative path
   SessionManager.setRunnerCommand(resolveRunnerCommand());
 
-  const { isDaemonRunning } = await import("../lib/ensure-daemon");
   if (await isDaemonRunning()) {
     console.log("[Daemon] already running — exiting");
     return;

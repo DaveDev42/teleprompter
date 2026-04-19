@@ -54,3 +54,14 @@ if ! echo "$PATH" | tr ':' '\n' | grep -qx "${INSTALL_DIR}"; then
   echo "Add ${INSTALL_DIR} to your PATH:"
   echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
 fi
+
+# Install shell completions (idempotent, failure is non-fatal)
+if [ "${NO_COMPLETIONS:-0}" != "1" ] && [ "${1:-}" != "--no-completions" ]; then
+  if "${INSTALL_DIR}/${BIN_NAME}" completions install 2>/dev/null; then
+    :
+  else
+    echo ""
+    echo "Note: shell completions were not installed automatically."
+    echo "Run '${BIN_NAME} completions install' manually to enable them."
+  fi
+fi

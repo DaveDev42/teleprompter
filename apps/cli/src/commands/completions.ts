@@ -37,6 +37,7 @@ const SUBCOMMANDS = [
   "setup-token",
 ];
 
+// Mirrors the verbs in pairCommand() router in pair.ts. No show/qr/export exist.
 const PAIR_SUBCOMMANDS = ["new", "list", "delete", "rename"];
 const DAEMON_SUBCOMMANDS = ["start", "status", "install", "uninstall"];
 
@@ -127,18 +128,7 @@ function runInstall(argv: string[]): void {
   // Help flag check.
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(INSTALL_USAGE);
-    return;
-  }
-
-  // Reject unknown flags.
-  for (const a of argv) {
-    if (a.startsWith("--") || (a.startsWith("-") && a !== "-h")) {
-      if (!INSTALL_FLAG_ALLOWLIST.has(a)) {
-        console.error(`Unknown flag: ${a}`);
-        console.error(INSTALL_USAGE);
-        process.exit(1);
-      }
-    }
+    process.exit(0);
   }
 
   const force = argv.includes("--force");
@@ -146,16 +136,30 @@ function runInstall(argv: string[]): void {
   const uninstall = argv.includes("--uninstall");
   const legacyPowerShell = argv.includes("--legacy-powershell");
 
-  // Extract --profile-dir value.
-  const profileDirIdx = argv.indexOf("--profile-dir");
-  const powerShellProfileDir =
-    profileDirIdx >= 0 ? argv[profileDirIdx + 1] : undefined;
+  // Extract --profile-dir value (last occurrence wins).
+  const profileDirIdx = argv.lastIndexOf("--profile-dir");
+  let powerShellProfileDir: string | undefined;
 
   // Build a set of indices consumed by --profile-dir so they don't appear as positionals.
   const consumedIndices = new Set<number>();
   if (profileDirIdx >= 0) {
+    const value = argv[profileDirIdx + 1];
+    if (!value || value.startsWith("-")) {
+      console.error("--profile-dir requires a path argument.");
+      process.exit(1);
+    }
+    powerShellProfileDir = value;
     consumedIndices.add(profileDirIdx);
     consumedIndices.add(profileDirIdx + 1);
+  }
+
+  // Reject unknown flags.
+  for (const [i, a] of argv.entries()) {
+    if (a.startsWith("-") && a !== "-" && !INSTALL_FLAG_ALLOWLIST.has(a) && !consumedIndices.has(i)) {
+      console.error(`Unknown flag: ${a}`);
+      console.error(INSTALL_USAGE);
+      process.exit(1);
+    }
   }
 
   const positional = argv.find(
@@ -178,8 +182,10 @@ function runInstall(argv: string[]): void {
   }
 
   if (uninstall) {
-    const r = uninstallCompletion({ shell, legacyPowerShell, powerShellProfileDir });
-    if (r.status === "uninstalled") {
+    const r = uninstallCompletion({ shell, legacyPowerShell, dryRun, powerShellProfileDir });
+    if (r.status === "dry-run") {
+      console.log(r.plan);
+    } else if (r.status === "uninstalled") {
       console.error(`tp completions removed for ${shell} (${r.file})`);
     } else {
       console.error(`tp completions not installed for ${shell}`);
@@ -302,6 +308,9 @@ function generateFish(): string {
 }
 
 function generatePowerShell(): string {
+  // The emitted PowerShell completer is fully self-contained — it needs
+  // no profile-dir or external state. --profile-dir only affects the
+  // install-time location of this script, not its runtime behavior.
   const commands = SUBCOMMANDS.map((c) => `'${c}'`).join(", ");
   const daemonSubs = DAEMON_SUBCOMMANDS.map((s) => `'${s}'`).join(", ");
   const pairSubs = PAIR_SUBCOMMANDS.map((s) => `'${s}'`).join(", ");

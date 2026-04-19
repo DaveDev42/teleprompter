@@ -3,6 +3,10 @@
 #   irm https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts/install.ps1 | iex
 #   $env:VERSION = "v0.1.8"; irm ... | iex
 
+param(
+  [switch]$NoCompletions
+)
+
 $ErrorActionPreference = "Stop"
 
 $Repo = "DaveDev42/teleprompter"
@@ -78,10 +82,39 @@ try {
 }
 
 # PATH advice
-if (-not ($env:Path -split ";" | Where-Object { $_ -ieq $InstallDir })) {
+if (-not ($env:Path -split ";" | Where-Object { $_.TrimEnd('\', '/') -ieq $InstallDir.TrimEnd('\', '/') })) {
   Write-Host ""
   Write-Host "To use 'tp' from any shell, add this directory to PATH:"
   Write-Host "  [Environment]::SetEnvironmentVariable('Path', `"`$env:Path;$InstallDir`", 'User')"
   Write-Host ""
   Write-Host "Or run: `"$target`" version"
+}
+
+# Install shell completions (idempotent, failure is non-fatal)
+if (-not $NoCompletions -and $env:NO_COMPLETIONS -ne "1") {
+  $onPath = ($env:Path -split ";" | Where-Object { $_.TrimEnd('\', '/') -ieq $InstallDir.TrimEnd('\', '/') })
+  if (-not $onPath) {
+    Write-Host ""
+    Write-Host "Shell completions not installed ($InstallDir is not on PATH)."
+    Write-Host "Add it to PATH (see message above) then run: tp completions install"
+  } else {
+    try {
+      $profileDir = $null
+      if ($PROFILE -and $PROFILE.CurrentUserAllHosts) {
+        $profileDir = Split-Path -Parent $PROFILE.CurrentUserAllHosts
+      }
+      if ($profileDir) {
+        & $target completions install powershell --profile-dir "$profileDir"
+      } else {
+        & $target completions install powershell
+      }
+      if ($LASTEXITCODE -ne 0) {
+        throw "completions install exited with code $LASTEXITCODE"
+      }
+    } catch {
+      Write-Host ""
+      Write-Host "Note: shell completions were not installed automatically."
+      Write-Host "Run '$target completions install powershell' manually to enable them."
+    }
+  }
 }

@@ -155,7 +155,9 @@ Claude utility commands (forwarded directly to claude):
   tp install                          Install claude native build
   tp update                           Update claude
   tp agents                           List claude agents
+  tp auto-mode                        claude auto-mode
   tp plugin                           Manage claude plugins
+  tp plugins                          claude plugins (plural alias)
   tp setup-token                      Set up claude auth token
 
 The --claude flag:

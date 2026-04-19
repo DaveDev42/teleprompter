@@ -125,3 +125,55 @@ describe("installCompletion — safety", () => {
     expect((rewrite as { plan: string }).plan).toContain("Would rewrite");
   });
 });
+
+describe("installCompletion — fish", () => {
+  test("creates ~/.config/fish/completions/tp.fish", () => {
+    const result = installCompletion({ shell: "fish", home });
+    expect(result.status).toBe("installed");
+    const file = join(home, ".config", "fish", "completions", "tp.fish");
+    expect(existsSync(file)).toBe(true);
+    const content = readFileSync(file, "utf-8");
+    expect(content).toContain("complete -c tp");
+  });
+
+  test("is idempotent: second install reports already-installed", () => {
+    installCompletion({ shell: "fish", home });
+    const result = installCompletion({ shell: "fish", home });
+    expect(result.status).toBe("already-installed");
+  });
+
+  test("--force rewrites the file", () => {
+    const file = join(home, ".config", "fish", "completions", "tp.fish");
+    installCompletion({ shell: "fish", home });
+    writeFileSync(file, "stale content\n");
+    const result = installCompletion({ shell: "fish", home, force: true });
+    expect(result.status).toBe("installed");
+    const content = readFileSync(file, "utf-8");
+    expect(content).toContain("complete -c tp");
+    expect(content).not.toContain("stale content");
+  });
+
+  test("--dry-run does not create the file", () => {
+    const result = installCompletion({ shell: "fish", home, dryRun: true });
+    expect(result.status).toBe("dry-run");
+    expect(
+      existsSync(join(home, ".config", "fish", "completions", "tp.fish")),
+    ).toBe(false);
+  });
+});
+
+describe("uninstallCompletion — fish", () => {
+  test("removes the managed file", () => {
+    installCompletion({ shell: "fish", home });
+    const result = uninstallCompletion({ shell: "fish", home });
+    expect(result.status).toBe("uninstalled");
+    expect(
+      existsSync(join(home, ".config", "fish", "completions", "tp.fish")),
+    ).toBe(false);
+  });
+
+  test("reports not-installed when absent", () => {
+    const result = uninstallCompletion({ shell: "fish", home });
+    expect(result.status).toBe("not-installed");
+  });
+});

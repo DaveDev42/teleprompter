@@ -49,6 +49,18 @@ const MARKER_START =
   "# >>> tp completions (managed by `tp completions install`) >>>";
 const MARKER_END = "# <<< tp completions <<<";
 
+function powershellDir(home: string, legacy: boolean): string {
+  return join(home, "Documents", legacy ? "WindowsPowerShell" : "PowerShell");
+}
+
+function powershellScriptPath(home: string, legacy: boolean): string {
+  return join(powershellDir(home, legacy), "tp-completions.ps1");
+}
+
+function powershellProfilePath(home: string, legacy: boolean): string {
+  return join(powershellDir(home, legacy), "Profile.ps1");
+}
+
 function rcFilePath(shell: "bash" | "zsh", home: string): string {
   return join(home, shell === "bash" ? ".bashrc" : ".zshrc");
 }
@@ -107,6 +119,46 @@ export function installCompletion(opts: InstallOptions): InstallResult {
     );
   }
 
+  if (opts.shell === "powershell") {
+    const legacy = !!opts.legacyPowerShell;
+    const scriptFile = powershellScriptPath(home, legacy);
+    const profileFile = powershellProfilePath(home, legacy);
+    const dotSource = `. "${scriptFile}"`;
+
+    if (opts.dryRun) {
+      return {
+        status: "dry-run",
+        plan: `Would write ${scriptFile} and append dot-source to ${profileFile}`,
+      };
+    }
+
+    const existingProfile = existsSync(profileFile)
+      ? readFileSync(profileFile, "utf-8")
+      : "";
+
+    if (
+      existsSync(scriptFile) &&
+      containsMarker(existingProfile) &&
+      !opts.force
+    ) {
+      return { status: "already-installed", file: scriptFile };
+    }
+
+    mkdirSync(powershellDir(home, legacy), { recursive: true });
+    atomicWrite(scriptFile, `${renderCompletion("powershell")}\n`, 0o644);
+
+    const baseProfile = containsMarker(existingProfile)
+      ? stripMarkerBlock(existingProfile)
+      : existingProfile;
+    const nextProfile =
+      (baseProfile.endsWith("\n") || baseProfile === ""
+        ? baseProfile
+        : `${baseProfile}\n`) + markerBlock(dotSource);
+    atomicWrite(profileFile, nextProfile, preservedMode(profileFile));
+
+    return { status: "installed", file: scriptFile };
+  }
+
   throw new Error(`Unsupported shell: ${opts.shell}`);
 }
 
@@ -161,6 +213,28 @@ export function uninstallCompletion(opts: InstallOptions): UninstallResult {
     if (!existsSync(file)) return { status: "not-installed" };
     rmSync(file);
     return { status: "uninstalled", file };
+  }
+
+  if (opts.shell === "powershell") {
+    const legacy = !!opts.legacyPowerShell;
+    const scriptFile = powershellScriptPath(home, legacy);
+    const profileFile = powershellProfilePath(home, legacy);
+
+    const scriptExists = existsSync(scriptFile);
+    const profileHasMarker =
+      existsSync(profileFile) &&
+      containsMarker(readFileSync(profileFile, "utf-8"));
+
+    if (!scriptExists && !profileHasMarker) {
+      return { status: "not-installed" };
+    }
+
+    if (scriptExists) rmSync(scriptFile);
+    if (profileHasMarker) {
+      const next = stripMarkerBlock(readFileSync(profileFile, "utf-8"));
+      atomicWrite(profileFile, next, preservedMode(profileFile));
+    }
+    return { status: "uninstalled", file: scriptFile };
   }
 
   throw new Error(`Unsupported shell: ${opts.shell}`);

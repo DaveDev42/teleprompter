@@ -177,3 +177,63 @@ describe("uninstallCompletion — fish", () => {
     expect(result.status).toBe("not-installed");
   });
 });
+
+describe("installCompletion — powershell", () => {
+  test("writes managed file and appends dot-source to profile", () => {
+    const result = installCompletion({ shell: "powershell", home });
+    expect(result.status).toBe("installed");
+
+    const scriptFile = join(
+      home,
+      "Documents",
+      "PowerShell",
+      "tp-completions.ps1",
+    );
+    const profileFile = join(home, "Documents", "PowerShell", "Profile.ps1");
+
+    expect(existsSync(scriptFile)).toBe(true);
+    expect(readFileSync(scriptFile, "utf-8")).toContain(
+      "Register-ArgumentCompleter",
+    );
+
+    const profile = readFileSync(profileFile, "utf-8");
+    expect(profile).toContain("# >>> tp completions");
+    expect(profile).toContain(`. "${scriptFile}"`);
+    expect(profile).toContain("# <<< tp completions");
+  });
+
+  test("uses WindowsPowerShell path when legacyPowerShell=true", () => {
+    installCompletion({ shell: "powershell", home, legacyPowerShell: true });
+    expect(
+      existsSync(
+        join(home, "Documents", "WindowsPowerShell", "tp-completions.ps1"),
+      ),
+    ).toBe(true);
+  });
+
+  test("idempotent second install", () => {
+    installCompletion({ shell: "powershell", home });
+    const result = installCompletion({ shell: "powershell", home });
+    expect(result.status).toBe("already-installed");
+  });
+
+  test("uninstall removes managed file and profile marker block", () => {
+    const dir = join(home, "Documents", "PowerShell");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "Profile.ps1"), "# user profile content\n");
+    installCompletion({ shell: "powershell", home });
+
+    const result = uninstallCompletion({ shell: "powershell", home });
+    expect(result.status).toBe("uninstalled");
+    expect(existsSync(join(dir, "tp-completions.ps1"))).toBe(false);
+
+    const profile = readFileSync(join(dir, "Profile.ps1"), "utf-8");
+    expect(profile).toContain("# user profile content");
+    expect(profile).not.toContain("# >>> tp completions");
+  });
+
+  test("uninstall reports not-installed when nothing exists", () => {
+    const result = uninstallCompletion({ shell: "powershell", home });
+    expect(result.status).toBe("not-installed");
+  });
+});

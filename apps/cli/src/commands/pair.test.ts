@@ -63,58 +63,20 @@ describe("matchPairings", () => {
 });
 
 describe("tp pair", () => {
-  let home: string;
-  let isolatedEnv: Record<string, string>;
-
-  beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), "tp-pair-home-"));
-    isolatedEnv = { HOME: home, XDG_DATA_HOME: join(home, "xdg") };
-  });
-
-  afterEach(() => {
-    rmSync(home, {
-      recursive: true,
-      force: true,
-      maxRetries: 10,
-      retryDelay: 100,
-    });
-  });
-
-  test("generates pairing data with QR code (default/alias)", () => {
-    const result = capture(
-      `${CLI} pair --relay ws://test.example --no-save`,
-      isolatedEnv,
-    );
-    expect(result).toContain("Generating pairing keys");
-    expect(result).toContain("ws://test.example");
-    expect(result).toContain('"relay":"ws://test.example"');
-  });
-
-  test("tp pair new emits QR", () => {
-    const result = capture(
-      `${CLI} pair new --relay ws://test.example --no-save`,
-      isolatedEnv,
-    );
-    expect(result).toContain('"relay":"ws://test.example"');
-  });
-
-  test("tp pair new --label embeds label in QR and prints it", () => {
-    const result = capture(
-      `${CLI} pair new --relay ws://test.example --label "Dave's Mac" --no-save`,
-      isolatedEnv,
-    );
-    expect(result).toContain(`"label":"Dave's Mac"`);
-    expect(result).toMatch(/Label:\s+Dave's Mac/);
-  });
-
-  test("tp pair new without --label defaults to hostname", () => {
-    const result = capture(
-      `${CLI} pair new --relay ws://test.example --no-save`,
-      isolatedEnv,
-    );
-    // Should print a Label: line (hostname is non-empty on any dev machine)
-    expect(result).toMatch(/Label:\s+\S+/);
-    expect(result).toContain(`"label":`);
+  test("tp pair --help prints usage", () => {
+    const home = mkdtempSync(join(tmpdir(), "tp-pair-help-"));
+    try {
+      const out = capture(`${CLI} pair --help`, { HOME: home });
+      expect(out).toContain("tp pair — manage mobile app pairings");
+      expect(out).toContain("tp pair new");
+    } finally {
+      rmSync(home, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 100,
+      });
+    }
   });
 });
 
@@ -164,22 +126,6 @@ describe.skipIf(process.platform === "win32")("tp pair list/delete", () => {
     store.close();
   }
 
-  function writePending(id: string, relay: string) {
-    const dir = join(home, ".config", "teleprompter");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(
-      join(dir, "pairing.json"),
-      JSON.stringify({
-        daemonId: id,
-        relayUrl: relay,
-        relayToken: "t",
-        publicKey: "p",
-        secretKey: "s",
-        createdAt: Date.now(),
-      }),
-    );
-  }
-
   test("list shows empty state", () => {
     const out = capture(`${CLI} pair list`, env);
     expect(out).toContain("No pairings registered");
@@ -197,19 +143,23 @@ describe.skipIf(process.platform === "win32")("tp pair list/delete", () => {
     expect(out).toContain("wss://r.example");
   });
 
-  test("list surfaces pending handoff file", () => {
-    writePending("daemon-pending1", "ws://pending.example");
+  test("list ignores stale pairing.json (legacy migration)", () => {
+    const dir = join(home, ".config", "teleprompter");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "pairing.json"),
+      JSON.stringify({
+        daemonId: "legacy",
+        relayUrl: "ws://x",
+        relayToken: "t",
+        publicKey: "p",
+        secretKey: "s",
+      }),
+    );
     const out = capture(`${CLI} pair list`, env);
-    expect(out).toContain("Pending pairing");
-    expect(out).toContain("daemon-pending1");
-    expect(out).toContain("ws://pending.example");
-  });
-
-  test("list does not duplicate pending when already persisted", () => {
-    seed([{ id: "daemon-same1", relay: "wss://r.example" }]);
-    writePending("daemon-same1", "wss://r.example");
-    const out = capture(`${CLI} pair list`, env);
-    expect(out).not.toContain("Pending pairing");
+    expect(out).toContain("No pairings registered");
+    // File should be silently removed after list.
+    expect(existsSync(join(dir, "pairing.json"))).toBe(false);
   });
 
   test("delete by prefix removes one pairing", () => {
@@ -224,25 +174,6 @@ describe.skipIf(process.platform === "win32")("tp pair list/delete", () => {
     const remaining = store.listPairings();
     store.close();
     expect(remaining.map((p) => p.daemonId)).toEqual(["daemon-bbbb2222"]);
-  });
-
-  test("delete also removes matching pending handoff file", () => {
-    writePending("daemon-pending1", "ws://pending.example");
-    const out = capture(`${CLI} pair delete daemon-pending --yes`, env);
-    expect(out).toContain("Deleted pairing daemon-pending1");
-    expect(
-      existsSync(join(home, ".config", "teleprompter", "pairing.json")),
-    ).toBe(false);
-  });
-
-  test("delete preserves non-matching pending handoff file", () => {
-    seed([{ id: "daemon-persisted1", relay: "wss://r.example" }]);
-    writePending("daemon-pending1", "ws://pending.example");
-    const out = capture(`${CLI} pair delete daemon-persisted --yes`, env);
-    expect(out).toContain("Deleted pairing daemon-persisted1");
-    expect(
-      existsSync(join(home, ".config", "teleprompter", "pairing.json")),
-    ).toBe(true);
   });
 
   test("delete errors on no match", () => {

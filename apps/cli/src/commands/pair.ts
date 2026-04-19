@@ -1,18 +1,26 @@
 import { RelayClient, Store } from "@teleprompter/daemon";
 import {
-  createPairingBundle,
-  encodePairingData,
+  getSocketPath,
   RELAY_CHANNEL_CONTROL,
-  toBase64,
 } from "@teleprompter/protocol";
-import { mkdir, readFile, unlink, writeFile } from "fs/promises";
+import type {
+  IpcPairBegin,
+  IpcPairBeginErr,
+  IpcPairBeginOk,
+  IpcPairCancel,
+  IpcPairCancelled,
+  IpcPairCompleted,
+  IpcPairError,
+} from "@teleprompter/protocol";
+import { readFile, unlink } from "fs/promises";
 import { hostname } from "os";
 import { join } from "path";
 import qrcode from "qrcode-terminal";
 import { parseArgs } from "util";
 import { dim, fail, ok, warn } from "../lib/colors";
-import { isDaemonRunning } from "../lib/ensure-daemon";
-import { spinner } from "../lib/spinner";
+import { ensureDaemon, isDaemonRunning } from "../lib/ensure-daemon";
+import { connectIpcAsClient, type IpcClient } from "../lib/ipc-client";
+import { acquirePairLock, releasePairLock } from "../lib/pair-lock";
 
 const PAIRING_DIR = join(process.env.HOME ?? "/tmp", ".config", "teleprompter");
 const PAIRING_FILE = join(PAIRING_DIR, "pairing.json");
@@ -49,7 +57,6 @@ async function pairNew(argv: string[]): Promise<void> {
       relay: { type: "string", default: "wss://relay.tpmt.dev" },
       "daemon-id": { type: "string" },
       label: { type: "string" },
-      save: { type: "boolean", default: true },
       help: { type: "boolean", short: "h" },
     },
     strict: false,
@@ -61,42 +68,130 @@ async function pairNew(argv: string[]): Promise<void> {
   }
 
   const relayUrl = values.relay as string;
-  const daemonId =
-    (values["daemon-id"] as string) ?? `daemon-${Date.now().toString(36)}`;
+  const daemonId = values["daemon-id"] as string | undefined;
   const rawLabel = (values.label as string | undefined)?.trim() ?? "";
   const label = rawLabel || defaultLabel();
 
-  const stop = spinner("Generating pairing keys...");
-  const bundle = await createPairingBundle(relayUrl, daemonId, { label });
-  const qrString = encodePairingData(bundle.qrData);
-  stop(`${ok("Keys generated")}\n`);
+  const lockPath = join(PAIRING_DIR, "pair.lock");
+  const lockRelease = await acquirePairLock(lockPath);
+  if (!lockRelease) {
+    console.error(
+      fail("Another `tp pair new` is already running. Cancel it first."),
+    );
+    process.exit(1);
+  }
 
-  qrcode.generate(qrString, { small: true }, (qr: string) => {
-    console.log(qr);
-  });
+  let ipc: IpcClient | null = null;
+  let cleanedUp = false;
+  const cleanup = async (code: number): Promise<never> => {
+    if (!cleanedUp) {
+      cleanedUp = true;
+      try {
+        ipc?.close();
+      } catch {
+        /* best effort */
+      }
+      await releasePairLock(lockRelease);
+    }
+    process.exit(code);
+  };
 
-  console.log(`\nDaemon ID:    ${daemonId}`);
-  console.log(`Label:        ${label}`);
-  console.log(`Relay:        ${relayUrl}`);
-  console.log(`Relay Token:  ${bundle.relayToken.substring(0, 16)}...`);
+  try {
+    const daemonOk = await ensureDaemon();
+    if (!daemonOk) await cleanup(1);
 
-  console.log(`\nPairing data (paste into frontend):`);
-  console.log(qrString);
+    ipc = await connectIpcAsClient(getSocketPath());
+    let pairingId: string | null = null;
 
-  if (values.save !== false) {
-    await mkdir(PAIRING_DIR, { recursive: true });
-    const pairingData = {
-      daemonId,
-      relayUrl,
-      relayToken: bundle.relayToken,
-      publicKey: await toBase64(bundle.keyPair.publicKey),
-      secretKey: await toBase64(bundle.keyPair.secretKey),
-      qrData: bundle.qrData,
-      label,
-      createdAt: Date.now(),
+    const done = new Promise<number>((resolve) => {
+      ipc!.onMessage((raw) => {
+        const m = raw as
+          | IpcPairBeginOk
+          | IpcPairBeginErr
+          | IpcPairCompleted
+          | IpcPairCancelled
+          | IpcPairError;
+        switch (m.t) {
+          case "pair.begin.ok": {
+            pairingId = m.pairingId;
+            qrcode.generate(m.qrString, { small: true }, (qr: string) => {
+              console.log(qr);
+            });
+            console.log(`\nDaemon ID:    ${m.daemonId}`);
+            console.log(`Label:        ${label}`);
+            console.log(`Relay:        ${relayUrl}`);
+            console.log(`\nPairing data (paste into frontend):`);
+            console.log(m.qrString);
+            console.log(
+              `\n${dim("Waiting for your app to scan the QR...")} (Ctrl+C to cancel)`,
+            );
+            return;
+          }
+          case "pair.begin.err":
+            console.error(
+              fail(
+                `Pairing failed: ${m.reason}${m.message ? ` — ${m.message}` : ""}`,
+              ),
+            );
+            resolve(1);
+            return;
+          case "pair.completed":
+            console.log(ok(`Paired ${m.label ?? m.daemonId} (${m.daemonId})`));
+            resolve(0);
+            return;
+          case "pair.cancelled":
+            console.error(dim("Pairing cancelled."));
+            resolve(130);
+            return;
+          case "pair.error":
+            console.error(
+              fail(
+                `Pairing error: ${m.reason}${m.message ? ` — ${m.message}` : ""}`,
+              ),
+            );
+            resolve(1);
+            return;
+        }
+      });
+      ipc!.onClose(() => {
+        console.error(fail("Daemon disconnected — pairing aborted."));
+        resolve(1);
+      });
+    });
+
+    const onSigint = (): void => {
+      if (pairingId && ipc) {
+        ipc.send({ t: "pair.cancel", pairingId } satisfies IpcPairCancel);
+      }
     };
-    await writeFile(PAIRING_FILE, JSON.stringify(pairingData, null, 2));
-    console.log(`\nPairing saved to ${PAIRING_FILE}`);
+    process.on("SIGINT", onSigint);
+
+    const begin: IpcPairBegin = {
+      t: "pair.begin",
+      relayUrl,
+      daemonId,
+      label,
+    };
+    ipc.send(begin);
+
+    // Migration: silently remove stale pairing.json from the pre-blocking-pair
+    // era so old handoff files don't linger.
+    try {
+      await unlink(PAIRING_FILE);
+    } catch {
+      /* best effort */
+    }
+
+    const code = await done;
+    process.off("SIGINT", onSigint);
+    await cleanup(code);
+  } catch (err) {
+    console.error(
+      fail(
+        `Pairing failed: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
+    await cleanup(1);
   }
 }
 
@@ -143,6 +238,15 @@ async function pairList(argv: string[]): Promise<void> {
     strict: true,
   });
 
+  // Migration: silently unlink any stale pairing.json from the pre-blocking-pair
+  // era. The new flow never writes this file; its presence means a legacy
+  // install is being upgraded in place.
+  try {
+    await unlink(PAIRING_FILE);
+  } catch {
+    /* best effort */
+  }
+
   const store = new Store();
   let pairings: ReturnType<Store["listPairings"]>;
   try {
@@ -151,12 +255,7 @@ async function pairList(argv: string[]): Promise<void> {
     store.close();
   }
 
-  const pending = await loadPairingData();
-  const pendingIsPersisted =
-    pending != null && pairings.some((p) => p.daemonId === pending.daemonId);
-  const showPending = pending != null && !pendingIsPersisted;
-
-  if (pairings.length === 0 && !showPending) {
+  if (pairings.length === 0) {
     console.log("No pairings registered.");
     console.log("");
     console.log("Create one with: tp pair new");
@@ -170,35 +269,16 @@ async function pairList(argv: string[]): Promise<void> {
     created: formatAge(Date.now() - p.createdAt),
   }));
 
-  if (rows.length > 0) {
-    const labelW = Math.max(5, ...rows.map((r) => r.label.length));
-    const idW = Math.max(9, ...rows.map((r) => r.daemonId.length));
-    const relayW = Math.max(5, ...rows.map((r) => r.relayUrl.length));
+  const labelW = Math.max(5, ...rows.map((r) => r.label.length));
+  const idW = Math.max(9, ...rows.map((r) => r.daemonId.length));
+  const relayW = Math.max(5, ...rows.map((r) => r.relayUrl.length));
 
+  console.log(
+    `${"LABEL".padEnd(labelW)}  ${"DAEMON ID".padEnd(idW)}  ${"RELAY".padEnd(relayW)}  CREATED`,
+  );
+  for (const r of rows) {
     console.log(
-      `${"LABEL".padEnd(labelW)}  ${"DAEMON ID".padEnd(idW)}  ${"RELAY".padEnd(relayW)}  CREATED`,
-    );
-    for (const r of rows) {
-      console.log(
-        `${r.label.padEnd(labelW)}  ${r.daemonId.padEnd(idW)}  ${r.relayUrl.padEnd(relayW)}  ${r.created}`,
-      );
-    }
-  }
-
-  if (showPending) {
-    if (rows.length > 0) console.log("");
-    console.log(
-      warn(
-        `Pending pairing in ${PAIRING_FILE} (daemon will register on next start):`,
-      ),
-    );
-    const createdLabel =
-      pending.createdAt != null
-        ? formatAge(Date.now() - pending.createdAt)
-        : "unknown";
-    const pendingLbl = pending.label ?? pending.qrData?.label ?? "";
-    console.log(
-      `  ${pendingLbl ? `${pendingLbl}  ` : ""}${pending.daemonId}  ${pending.relayUrl}  ${createdLabel}`,
+      `${r.label.padEnd(labelW)}  ${r.daemonId.padEnd(idW)}  ${r.relayUrl.padEnd(relayW)}  ${r.created}`,
     );
   }
 }
@@ -236,24 +316,11 @@ async function pairDelete(argv: string[]): Promise<void> {
   const store = new Store();
   try {
     const pairings = store.listPairings();
-    const pending = await loadPairingData();
 
-    type Candidate = { daemonId: string; relayUrl: string; pending: boolean };
-    const candidates: Candidate[] = pairings.map((p) => ({
+    const candidates = pairings.map((p) => ({
       daemonId: p.daemonId,
       relayUrl: p.relayUrl,
-      pending: false,
     }));
-    if (
-      pending != null &&
-      !candidates.some((c) => c.daemonId === pending.daemonId)
-    ) {
-      candidates.push({
-        daemonId: pending.daemonId,
-        relayUrl: pending.relayUrl,
-        pending: true,
-      });
-    }
 
     const matches = matchPairings(candidates, prefix);
 
@@ -304,16 +371,6 @@ async function pairDelete(argv: string[]): Promise<void> {
     }
 
     store.deletePairing(target.daemonId);
-
-    // If the pending handoff file matches, remove it too so the daemon
-    // doesn't re-ingest the just-deleted pairing on next start.
-    if (pending != null && pending.daemonId === target.daemonId) {
-      try {
-        await unlink(PAIRING_FILE);
-      } catch {
-        // best effort
-      }
-    }
 
     console.log(ok(`Deleted pairing ${target.daemonId}`));
     console.log(

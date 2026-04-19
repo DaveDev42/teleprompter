@@ -117,7 +117,7 @@ describe("tp completions", () => {
     TIMEOUT,
   );
 
-  test(
+  test.skipIf(process.platform === "win32")(
     "completions install writes to a tmp HOME (bash)",
     () => {
       const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
@@ -136,7 +136,7 @@ describe("tp completions", () => {
     TIMEOUT,
   );
 
-  test(
+  test.skipIf(process.platform === "win32")(
     "completions install without shell arg auto-detects from $SHELL",
     () => {
       const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
@@ -153,7 +153,7 @@ describe("tp completions", () => {
     TIMEOUT,
   );
 
-  test(
+  test.skipIf(process.platform === "win32")(
     "completions install prints error when shell cannot be detected",
     () => {
       const result = capture(
@@ -274,7 +274,7 @@ describe("tp completions", () => {
     TIMEOUT,
   );
 
-  test(
+  test.skipIf(process.platform === "win32")(
     "completions install exits non-zero when shell cannot be detected",
     () => {
       let exitCode = 0;

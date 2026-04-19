@@ -92,21 +92,27 @@ describe("installCompletion — zsh", () => {
   });
 });
 
-describe("installCompletion — safety", () => {
-  test("preserves existing .zshrc mode when installing", () => {
-    const file = join(home, ".zshrc");
-    writeFileSync(file, "# prior\n");
-    chmodSync(file, 0o600);
-    installCompletion({ shell: "zsh", home });
-    const mode = statSync(file).mode & 0o777;
-    expect(mode).toBe(0o600);
-  });
+describe.skipIf(process.platform === "win32")(
+  "installCompletion — safety (POSIX mode bits)",
+  () => {
+    test("preserves existing .zshrc mode when installing", () => {
+      const file = join(home, ".zshrc");
+      writeFileSync(file, "# prior\n");
+      chmodSync(file, 0o600);
+      installCompletion({ shell: "zsh", home });
+      const mode = statSync(file).mode & 0o777;
+      expect(mode).toBe(0o600);
+    });
 
-  test("new .bashrc gets mode 0o644", () => {
-    installCompletion({ shell: "bash", home });
-    const mode = statSync(join(home, ".bashrc")).mode & 0o777;
-    expect(mode).toBe(0o644);
-  });
+    test("new .bashrc gets mode 0o644", () => {
+      installCompletion({ shell: "bash", home });
+      const mode = statSync(join(home, ".bashrc")).mode & 0o777;
+      expect(mode).toBe(0o644);
+    });
+  },
+);
+
+describe("installCompletion — safety", () => {
 
   test("dry-run distinguishes fresh / already-installed / force-rewrite", () => {
     const fresh = installCompletion({ shell: "bash", home, dryRun: true });

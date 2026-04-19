@@ -10,6 +10,9 @@ import {
 } from "fs";
 import { homedir, tmpdir } from "os";
 import { dirname, join } from "path";
+import { version as pkgVersion } from "../../../../package.json" with {
+  type: "json",
+};
 import { ok, warn } from "../lib/colors";
 import { errorWithHints } from "../lib/format";
 import { spinner } from "../lib/spinner";
@@ -199,12 +202,10 @@ export async function checkForUpdates(
 }
 
 function getCurrentVersion(): string {
-  try {
-    const pkg = require("../../package.json");
-    return pkg.version;
-  } catch {
-    return "0.0.0";
-  }
+  // Static JSON import inlines the version at bundle time so `bun --compile`
+  // produces a binary that reports the correct version without a runtime
+  // filesystem read.
+  return pkgVersion;
 }
 
 async function getLatestRelease(): Promise<{

@@ -35,7 +35,10 @@ export async function connectIpcAsClient(socketPath: string): Promise<IpcClient>
       close() {
         for (const h of closeHandlers) h();
       },
-      error() {},
+      error(_s, _err) {
+        try { _s.end(); } catch {}
+        for (const h of closeHandlers) h();
+      },
     },
   });
 

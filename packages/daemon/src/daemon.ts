@@ -1,6 +1,12 @@
 import type {
   IpcBye,
   IpcHello,
+  IpcPairBegin,
+  IpcPairBeginErr,
+  IpcPairBeginOk,
+  IpcPairCancel,
+  IpcPairCancelled,
+  IpcPairCompleted,
   IpcRec,
   Namespace,
   RecordKind,
@@ -14,6 +20,7 @@ import {
 } from "@teleprompter/protocol";
 import { formatMarkdown } from "./export-formatter";
 import { IpcServer } from "./ipc/server";
+import type { ConnectedRunner } from "./ipc/server";
 import {
   PendingPairing,
   type PendingPairingResult,
@@ -49,6 +56,7 @@ export class Daemon {
   private pushNotifier: PushNotifier;
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
   private pendingPairing: PendingPairing | null = null;
+  private pendingPairingOwner: ConnectedRunner | null = null;
   private relayFactory:
     | ((cfg: RelayClientConfig) => RelayClient)
     | null = null;
@@ -76,12 +84,22 @@ export class Daemon {
         log.info("runner connected");
       },
       onDisconnect: (runner) => {
+        this.__handleCliDisconnect(runner);
         if (runner.sid) {
           log.info(`runner disconnected sid=${runner.sid}`);
         }
       },
       onMessage: (runner, msg) => {
-        this.handleMessage(runner, msg);
+        const raw = msg as unknown as { t: string };
+        if (raw.t === "pair.begin") {
+          void this.__handlePairBegin(runner, msg as unknown as IpcPairBegin);
+          return;
+        }
+        if (raw.t === "pair.cancel") {
+          this.__handlePairCancel(runner, msg as unknown as IpcPairCancel);
+          return;
+        }
+        this.handleMessage(runner, msg as IpcHello | IpcRec | IpcBye);
       },
     });
   }
@@ -384,6 +402,81 @@ export class Daemon {
       this.relayClients.push(relay);
     }
     this.pendingPairing = null;
+  }
+
+  async __handlePairBegin(
+    runner: ConnectedRunner,
+    msg: IpcPairBegin,
+  ): Promise<void> {
+    try {
+      const info = await this.beginPairing({
+        relayUrl: msg.relayUrl,
+        daemonId: msg.daemonId,
+        label: msg.label ?? null,
+      });
+      this.pendingPairingOwner = runner;
+
+      const ok: IpcPairBeginOk = {
+        t: "pair.begin.ok",
+        pairingId: info.pairingId,
+        qrString: info.qrString,
+        daemonId: info.daemonId,
+      };
+      this.ipcServer.send(runner, ok);
+
+      // Fire-and-forget: await completion and emit follow-up.
+      const p = this.awaitPendingPairing();
+      if (!p) return;
+      p.then((result) => {
+        if (this.pendingPairingOwner === runner) this.pendingPairingOwner = null;
+        if (result.kind === "completed") {
+          this.promoteCompletedPairing(result);
+          const evt: IpcPairCompleted = {
+            t: "pair.completed",
+            pairingId: info.pairingId,
+            daemonId: info.daemonId,
+            label: result.label,
+          };
+          this.ipcServer.send(runner, evt);
+        } else {
+          const evt: IpcPairCancelled = {
+            t: "pair.cancelled",
+            pairingId: info.pairingId,
+          };
+          this.ipcServer.send(runner, evt);
+        }
+      });
+    } catch (err) {
+      const reason =
+        err instanceof BeginPairingError ? err.reason : "internal";
+      const message =
+        err instanceof BeginPairingError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      const reply: IpcPairBeginErr = {
+        t: "pair.begin.err",
+        reason,
+        message,
+      };
+      this.ipcServer.send(runner, reply);
+    }
+  }
+
+  __handlePairCancel(
+    _runner: ConnectedRunner,
+    msg: IpcPairCancel,
+  ): void {
+    this.cancelPendingPairing(msg.pairingId);
+  }
+
+  __handleCliDisconnect(runner: ConnectedRunner): void {
+    if (this.pendingPairingOwner === runner) {
+      log.info("CLI disconnected mid-pairing; cancelling pending");
+      this.cancelPendingPairing();
+      this.pendingPairingOwner = null;
+    }
   }
 
   /**

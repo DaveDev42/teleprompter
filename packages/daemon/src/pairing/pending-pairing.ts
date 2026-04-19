@@ -156,6 +156,11 @@ export class PendingPairing {
     this.settle?.(this.resolved);
   }
 
+  /** Returns true if the pairing has already resolved with `completed`. */
+  get completed(): boolean {
+    return this.resolved?.kind === "completed";
+  }
+
   /** User Ctrl+C or CLI disconnect: dispose the relay and resolve with `cancelled`. */
   cancel(): void {
     if (this.settled) return;

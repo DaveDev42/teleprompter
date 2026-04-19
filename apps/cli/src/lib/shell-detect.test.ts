@@ -48,10 +48,7 @@ describe("detectShell", () => {
 
   test("SHELL takes precedence over version vars", () => {
     expect(
-      detectShell(
-        { SHELL: "/bin/bash", ZSH_VERSION: "5.9" },
-        "linux",
-      ),
+      detectShell({ SHELL: "/bin/bash", ZSH_VERSION: "5.9" }, "linux"),
     ).toBe("bash");
   });
 });

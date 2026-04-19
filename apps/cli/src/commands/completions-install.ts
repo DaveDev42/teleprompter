@@ -63,9 +63,13 @@ function atomicWrite(file: string, contents: string, mode?: number): void {
     renameSync(tmp, file);
   } catch (err) {
     if (fd !== null) {
-      try { closeSync(fd); } catch {}
+      try {
+        closeSync(fd);
+      } catch {}
     }
-    try { rmSync(tmp, { force: true }); } catch {}
+    try {
+      rmSync(tmp, { force: true });
+    } catch {}
     throw err;
   }
 }
@@ -74,16 +78,28 @@ export const MARKER_START =
   "# >>> tp completions (managed by `tp completions install`) >>>";
 export const MARKER_END = "# <<< tp completions <<<";
 
-function powershellDir(home: string, legacy: boolean, override?: string): string {
+function powershellDir(
+  home: string,
+  legacy: boolean,
+  override?: string,
+): string {
   if (override) return override;
   return join(home, "Documents", legacy ? "WindowsPowerShell" : "PowerShell");
 }
 
-export function powershellScriptPath(home: string, legacy: boolean, override?: string): string {
+export function powershellScriptPath(
+  home: string,
+  legacy: boolean,
+  override?: string,
+): string {
   return join(powershellDir(home, legacy, override), "tp-completions.ps1");
 }
 
-export function powershellProfilePath(home: string, legacy: boolean, override?: string): string {
+export function powershellProfilePath(
+  home: string,
+  legacy: boolean,
+  override?: string,
+): string {
   return join(powershellDir(home, legacy, override), "Profile.ps1");
 }
 
@@ -279,7 +295,8 @@ export function uninstallCompletion(opts: InstallOptions): UninstallResult {
     if (opts.dryRun) {
       const parts: string[] = [];
       if (scriptExists) parts.push(`Would remove ${scriptFile}`);
-      if (profileHasMarker) parts.push(`Would remove tp completions block from ${profileFile}`);
+      if (profileHasMarker)
+        parts.push(`Would remove tp completions block from ${profileFile}`);
       return { status: "dry-run", plan: parts.join("; ") };
     }
 

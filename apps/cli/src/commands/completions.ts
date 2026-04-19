@@ -9,9 +9,9 @@
 
 import { detectShell, type Shell } from "../lib/shell-detect";
 import {
+  type InstallShell,
   installCompletion,
   uninstallCompletion,
-  type InstallShell,
 } from "./completions-install";
 
 const SUBCOMMANDS = [
@@ -58,7 +58,11 @@ const DAEMON_FLAGS = [
 
 // Validate subcommand names and flag formats at module load.
 const SUBCOMMAND_NAME_RE = /^[a-z0-9-]+$/;
-for (const name of [...SUBCOMMANDS, ...PAIR_SUBCOMMANDS, ...DAEMON_SUBCOMMANDS]) {
+for (const name of [
+  ...SUBCOMMANDS,
+  ...PAIR_SUBCOMMANDS,
+  ...DAEMON_SUBCOMMANDS,
+]) {
   if (!SUBCOMMAND_NAME_RE.test(name)) {
     throw new Error(`Invalid subcommand name: ${name}`);
   }
@@ -140,7 +144,11 @@ function runInstall(argv: string[]): void {
   const consumedIndices = new Set<number>();
   if (profileDirIdx >= 0) {
     const value = argv[profileDirIdx + 1];
-    if (value === undefined || INSTALL_FLAG_ALLOWLIST.has(value) || value === "--profile-dir") {
+    if (
+      value === undefined ||
+      INSTALL_FLAG_ALLOWLIST.has(value) ||
+      value === "--profile-dir"
+    ) {
       console.error("--profile-dir requires a path argument.");
       console.error(INSTALL_USAGE);
       process.exit(1);
@@ -164,7 +172,12 @@ function runInstall(argv: string[]): void {
   // Reject unknown flags.
   // consumedIndices skips --profile-dir and its value so they're not re-checked.
   for (const [i, a] of argv.entries()) {
-    if (a.startsWith("-") && a !== "-" && !INSTALL_FLAG_ALLOWLIST.has(a) && !consumedIndices.has(i)) {
+    if (
+      a.startsWith("-") &&
+      a !== "-" &&
+      !INSTALL_FLAG_ALLOWLIST.has(a) &&
+      !consumedIndices.has(i)
+    ) {
       console.error(`Unknown flag: ${a}`);
       console.error(INSTALL_USAGE);
       process.exit(1);
@@ -191,7 +204,12 @@ function runInstall(argv: string[]): void {
   }
 
   if (uninstall) {
-    const r = uninstallCompletion({ shell, legacyPowerShell, dryRun, powerShellProfileDir });
+    const r = uninstallCompletion({
+      shell,
+      legacyPowerShell,
+      dryRun,
+      powerShellProfileDir,
+    });
     if (r.status === "dry-run") {
       console.log(r.plan);
     } else if (r.status === "uninstalled") {

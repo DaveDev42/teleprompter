@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write        # cosign keyless OIDC
+  attestations: write    # actions/attest-build-provenance
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -24,6 +26,14 @@ jobs:
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
       - run: bun run scripts/build.ts --target ${{ matrix.target }}
+      - name: Ad-hoc codesign (macOS)
+        run: |
+          for f in dist/tp-*; do
+            if [ -f "$f" ]; then
+              codesign --sign - --force --options runtime --timestamp=none "$f"
+              codesign --verify --verbose "$f"
+            fi
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.target }}
@@ -54,14 +64,37 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      - name: Verify macOS signatures (best-effort)
+        run: |
+          cd artifacts
+          for f in tp-darwin_*; do
+            file "$f" || true
+          done
+      - uses: sigstore/cosign-installer@v3
       - name: Generate checksums
         run: |
           cd artifacts
           sha256sum tp-* > checksums.txt
           cat checksums.txt
+      - name: Sign checksums with cosign (keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cd artifacts
+          cosign sign-blob \
+            --output-signature checksums.txt.sig \
+            --output-certificate checksums.txt.pem \
+            checksums.txt
+          ls -la checksums.txt*
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "artifacts/tp-*"
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/tp-*
             artifacts/checksums.txt
+            artifacts/checksums.txt.sig
+            artifacts/checksums.txt.pem
           generate_release_notes: true

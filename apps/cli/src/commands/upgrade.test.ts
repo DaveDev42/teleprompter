@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  chmodSync,
   existsSync,
   mkdtempSync,
   readFileSync,
@@ -20,6 +21,7 @@ import {
   parseVersion,
   resolveCurrentBinaryPath,
   restoreBinary,
+  verifyNewBinary,
 } from "./upgrade";
 
 describe("parseChecksums", () => {
@@ -411,5 +413,101 @@ describe("checkForUpdates", () => {
     expect(existsSync(cachePath)).toBe(true);
     const cached = JSON.parse(readFileSync(cachePath, "utf-8"));
     expect(cached.lastCheck).toBe(1_700_000_000_000);
+  });
+});
+
+// `verifyNewBinary` spawns the binary path as an executable. On Unix we use
+// bash shebang scripts; Windows has no shebang support so we fall back to a
+// Node script with `.cmd` wrapper. SIGKILL test is Unix-only (Windows lacks
+// POSIX kill semantics — the Gatekeeper-hint code path is a Darwin concern
+// anyway, so platform-gating the signal test does not lose coverage).
+describe("verifyNewBinary", () => {
+  const scriptDirs: string[] = [];
+  const isWindows = process.platform === "win32";
+
+  afterEach(() => {
+    for (const dir of scriptDirs) {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {}
+    }
+    scriptDirs.length = 0;
+  });
+
+  type Spec = { stdout?: string; stderr?: string; exit?: number };
+
+  function makeScript(spec: Spec): string {
+    const dir = mkdtempSync(join(tmpdir(), "tp-verify-"));
+    scriptDirs.push(dir);
+    if (isWindows) {
+      // Use a Node .js helper + .cmd wrapper so Bun.spawn can exec it directly.
+      const js = join(dir, "fake-tp.js");
+      const body = [
+        spec.stdout != null
+          ? `process.stdout.write(${JSON.stringify(`${spec.stdout}\n`)});`
+          : "",
+        spec.stderr != null
+          ? `process.stderr.write(${JSON.stringify(`${spec.stderr}\n`)});`
+          : "",
+        `process.exit(${spec.exit ?? 0});`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      writeFileSync(js, body);
+      const cmd = join(dir, "fake-tp.cmd");
+      writeFileSync(cmd, `@echo off\r\nnode "${js}" %*\r\n`);
+      return cmd;
+    }
+    const path = join(dir, "fake-tp");
+    const lines = ["#!/usr/bin/env bash"];
+    if (spec.stdout != null) {
+      lines.push(`printf '%s\\n' ${JSON.stringify(spec.stdout)}`);
+    }
+    if (spec.stderr != null) {
+      lines.push(`printf '%s\\n' ${JSON.stringify(spec.stderr)} >&2`);
+    }
+    lines.push(`exit ${spec.exit ?? 0}`);
+    writeFileSync(path, `${lines.join("\n")}\n`);
+    chmodSync(path, 0o755);
+    return path;
+  }
+
+  test("accepts `tp v0.1.9` output", async () => {
+    const bin = makeScript({ stdout: "tp v0.1.9" });
+    const r = await verifyNewBinary(bin);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.version).toBe("tp v0.1.9");
+  });
+
+  test("rejects empty stdout", async () => {
+    const bin = makeScript({ exit: 0 });
+    const r = await verifyNewBinary(bin);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/no output/);
+  });
+
+  test("rejects non-tp output", async () => {
+    const bin = makeScript({ stdout: "hello" });
+    const r = await verifyNewBinary(bin);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/unexpected output/);
+  });
+
+  test("rejects non-zero exit", async () => {
+    const bin = makeScript({ stderr: "oops", exit: 2 });
+    const r = await verifyNewBinary(bin);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/exit 2: oops/);
+  });
+
+  test.skipIf(isWindows)("rejects SIGKILL with Gatekeeper hint", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tp-verify-"));
+    scriptDirs.push(dir);
+    const path = join(dir, "fake-tp");
+    writeFileSync(path, `#!/usr/bin/env bash\nkill -KILL $$\n`);
+    chmodSync(path, 0o755);
+    const r = await verifyNewBinary(path);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/signal SIGKILL|killed by signal/);
   });
 });

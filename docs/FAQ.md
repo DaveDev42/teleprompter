@@ -73,7 +73,7 @@ Yes. Teleprompter supports N:N connectivity — one daemon can serve multiple fr
 
 Run `tp doctor` to diagnose issues. It checks:
 
-1. **Pairing data** — Does `~/.config/teleprompter/pairing.json` exist? If not, run `tp pair` first.
+1. **Pairing data** — Does `tp pair list` show a pairing? If not, run `tp pair new` first.
 2. **Daemon status** — Is the daemon running? It auto-starts on `tp status` or `tp pair`.
 3. **Relay connectivity** — Can the daemon reach the relay server? Doctor pings the relay and reports RTT.
 4. **E2EE self-test** — Is the crypto stack (libsodium) working correctly?

@@ -12,7 +12,7 @@ import type {
   IpcPairCompleted,
   IpcPairError,
 } from "@teleprompter/protocol";
-import { readFile, unlink } from "fs/promises";
+import { unlink } from "fs/promises";
 import { hostname } from "os";
 import { join } from "path";
 import qrcode from "qrcode-terminal";
@@ -645,30 +645,3 @@ Usage:
 `);
 }
 
-/**
- * Load saved pairing data (used by daemon CLI).
- */
-export async function loadPairingData(): Promise<{
-  daemonId: string;
-  relayUrl: string;
-  relayToken: string;
-  publicKey: string;
-  secretKey: string;
-  label?: string;
-  createdAt?: number;
-  qrData?: {
-    ps: string;
-    pk: string;
-    relay: string;
-    did: string;
-    v: number;
-    label?: string;
-  };
-} | null> {
-  try {
-    const raw = await readFile(PAIRING_FILE, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}

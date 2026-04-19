@@ -57,7 +57,7 @@ fi
 
 # Install shell completions (idempotent, failure is non-fatal)
 if [ "${NO_COMPLETIONS:-0}" != "1" ] && [ "${1:-}" != "--no-completions" ]; then
-  if "${INSTALL_DIR}/${BIN_NAME}" completions install 2>/dev/null; then
+  if "${INSTALL_DIR}/${BIN_NAME}" completions install; then
     :
   else
     echo ""

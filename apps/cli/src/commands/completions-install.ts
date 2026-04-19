@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
 
@@ -20,6 +27,21 @@ export type InstallResult =
 export type UninstallResult =
   | { status: "uninstalled"; file: string }
   | { status: "not-installed" };
+
+function preservedMode(file: string): number {
+  try {
+    return statSync(file).mode & 0o777;
+  } catch {
+    return 0o644;
+  }
+}
+
+function atomicWrite(file: string, contents: string, mode?: number): void {
+  const tmp = `${file}.tp-tmp-${process.pid}`;
+  writeFileSync(tmp, contents, mode !== undefined ? { mode } : {});
+  // `renameSync` is atomic on the same filesystem.
+  renameSync(tmp, file);
+}
 
 const MARKER_START =
   "# >>> tp completions (managed by `tp completions install`) >>>";
@@ -69,24 +91,28 @@ function installRcLine(
   const block = markerBlock(line);
 
   const existing = existsSync(file) ? readFileSync(file, "utf-8") : "";
+  const hasMarker = containsMarker(existing);
 
   if (opts.dryRun) {
-    return {
-      status: "dry-run",
-      plan: `Would append tp completions block to ${file}`,
-    };
+    const action =
+      hasMarker && !opts.force
+        ? "Would skip (already installed)"
+        : hasMarker && opts.force
+          ? "Would rewrite tp completions block in"
+          : "Would append tp completions block to";
+    return { status: "dry-run", plan: `${action} ${file}` };
   }
 
-  if (containsMarker(existing) && !opts.force) {
+  if (hasMarker && !opts.force) {
     return { status: "already-installed", file };
   }
 
-  const base = containsMarker(existing) ? stripMarkerBlock(existing) : existing;
+  const base = hasMarker ? stripMarkerBlock(existing) : existing;
   const next =
     (base.endsWith("\n") || base === "" ? base : `${base}\n`) + block;
 
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, next, { mode: 0o644 });
+  atomicWrite(file, next, preservedMode(file));
   return { status: "installed", file };
 }
 
@@ -98,7 +124,7 @@ export function uninstallCompletion(opts: InstallOptions): UninstallResult {
     if (!existsSync(file)) return { status: "not-installed" };
     const existing = readFileSync(file, "utf-8");
     if (!containsMarker(existing)) return { status: "not-installed" };
-    writeFileSync(file, stripMarkerBlock(existing), { mode: 0o644 });
+    atomicWrite(file, stripMarkerBlock(existing), preservedMode(file));
     return { status: "uninstalled", file };
   }
 

@@ -1,10 +1,12 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
@@ -87,5 +89,39 @@ describe("installCompletion — zsh", () => {
     installCompletion({ shell: "zsh", home });
     const zshrc = readFileSync(join(home, ".zshrc"), "utf-8");
     expect(zshrc).toContain('eval "$(tp completions zsh)"');
+  });
+});
+
+describe("installCompletion — safety", () => {
+  test("preserves existing .zshrc mode when installing", () => {
+    const file = join(home, ".zshrc");
+    writeFileSync(file, "# prior\n");
+    chmodSync(file, 0o600);
+    installCompletion({ shell: "zsh", home });
+    const mode = statSync(file).mode & 0o777;
+    expect(mode).toBe(0o600);
+  });
+
+  test("new .bashrc gets mode 0o644", () => {
+    installCompletion({ shell: "bash", home });
+    const mode = statSync(join(home, ".bashrc")).mode & 0o777;
+    expect(mode).toBe(0o644);
+  });
+
+  test("dry-run distinguishes fresh / already-installed / force-rewrite", () => {
+    const fresh = installCompletion({ shell: "bash", home, dryRun: true });
+    expect((fresh as { plan: string }).plan).toContain("Would append");
+
+    installCompletion({ shell: "bash", home });
+    const skip = installCompletion({ shell: "bash", home, dryRun: true });
+    expect((skip as { plan: string }).plan).toContain("Would skip");
+
+    const rewrite = installCompletion({
+      shell: "bash",
+      home,
+      dryRun: true,
+      force: true,
+    });
+    expect((rewrite as { plan: string }).plan).toContain("Would rewrite");
   });
 });

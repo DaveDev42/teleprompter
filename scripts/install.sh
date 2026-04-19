@@ -57,7 +57,10 @@ fi
 
 # Install shell completions (idempotent, failure is non-fatal).
 # Skip on non-TTY (e.g. `curl ... | bash`) unless TP_AUTO_COMPLETIONS=1.
-# Opt-out via NO_COMPLETIONS=1 or --no-completions positional arg.
+# Opt-out:
+#   NO_COMPLETIONS=1             works everywhere (env)
+#   --no-completions             works only for local invocations
+#                                (bash install.sh --no-completions)
 SKIP_COMPLETIONS=0
 for arg in "$@"; do
   if [ "$arg" = "--no-completions" ]; then
@@ -72,8 +75,9 @@ if [ ! -t 0 ] && [ "${TP_AUTO_COMPLETIONS:-0}" != "1" ]; then
   SKIP_COMPLETIONS=1
   echo ""
   echo "Shell completions not installed (non-interactive shell detected)."
-  echo "Run '${BIN_NAME} completions install' to enable them,"
-  echo "or set TP_AUTO_COMPLETIONS=1 to auto-install on pipe-to-shell."
+  echo "To install: '${BIN_NAME} completions install'"
+  echo "To force auto-install on pipe: TP_AUTO_COMPLETIONS=1"
+  echo "To disable completely:         NO_COMPLETIONS=1"
 fi
 
 if [ "$SKIP_COMPLETIONS" = "0" ]; then

@@ -74,7 +74,6 @@ test.describe("Full Relay E2E — Runner → Daemon → Relay → App", () => {
         "start",
         "--port",
         String(RELAY_PORT),
-        "--register-pairing",
       ],
       { stdio: "pipe", env: { ...process.env, LOG_LEVEL: "error" } },
     );

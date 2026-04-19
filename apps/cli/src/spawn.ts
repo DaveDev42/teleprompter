@@ -17,8 +17,15 @@ export function resolveRunnerCommand(): string[] {
   return ["bun", "run", cliEntry, "run"];
 }
 
-function isCompiled(): boolean {
-  // In compiled mode, import.meta.url starts with file:///$bunfs/
-  // (Bun's virtual filesystem for bundled modules)
+/**
+ * Returns true when tp is running as a `bun build --compile` single-file
+ * executable (as opposed to `bun run` against the source checkout).
+ *
+ * Detection keys off Bun's virtual-filesystem marker `$bunfs` in
+ * `import.meta.url`, which is baked into the bundled module and is
+ * independent of filesystem layout or binary naming. CI has a dedicated
+ * smoke test in `.github/workflows/ci.yml` that guards regressions here.
+ */
+export function isCompiled(): boolean {
   return import.meta.url.includes("$bunfs");
 }

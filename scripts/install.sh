@@ -49,7 +49,10 @@ chmod +x "${INSTALL_DIR}/${BIN_NAME}"
 echo "Installed ${BIN_NAME} to ${INSTALL_DIR}/${BIN_NAME}"
 
 # Check if INSTALL_DIR is in PATH
-if ! echo "$PATH" | tr ':' '\n' | grep -qx "${INSTALL_DIR}"; then
+ON_PATH=0
+if echo "$PATH" | tr ':' '\n' | grep -qx "${INSTALL_DIR}"; then
+  ON_PATH=1
+else
   echo ""
   echo "Add ${INSTALL_DIR} to your PATH:"
   echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
@@ -78,6 +81,12 @@ if [ ! -t 0 ] && [ "${TP_AUTO_COMPLETIONS:-0}" != "1" ]; then
   echo "To install: '${BIN_NAME} completions install'"
   echo "To force auto-install on pipe: TP_AUTO_COMPLETIONS=1"
   echo "To disable completely:         NO_COMPLETIONS=1"
+fi
+if [ "$ON_PATH" != "1" ]; then
+  SKIP_COMPLETIONS=1
+  echo ""
+  echo "Shell completions not installed (${INSTALL_DIR} not on PATH)."
+  echo "Add it to PATH (see message above) then run: ${BIN_NAME} completions install"
 fi
 
 if [ "$SKIP_COMPLETIONS" = "0" ]; then

@@ -61,9 +61,9 @@ Run `tp doctor` to check all requirements at once.
 ### How do I connect my phone to Teleprompter?
 
 1. Run `tp pair --relay wss://relay.tpmt.dev` on your computer
-2. This generates a QR code containing the pairing secret, daemon public key, relay URL, and daemon ID
+2. This generates a QR code and **blocks** waiting for the mobile app to complete the ECDH key exchange (press Ctrl+C to cancel)
 3. Scan the QR code from the Teleprompter app on your phone
-4. The app establishes an E2EE connection through the relay
+4. Once the app completes the key exchange, the pairing is persisted and `tp pair` exits
 
 ### Can I connect multiple devices?
 

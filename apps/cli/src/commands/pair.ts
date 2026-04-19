@@ -637,9 +637,10 @@ tp pair — manage mobile app pairings
 
 Usage:
   tp pair [--relay URL]                        Alias for 'tp pair new'
-  tp pair new [--relay URL] [--label <name>]   Generate a new pairing (QR code)
-                                               (label defaults to os.hostname())
-  tp pair list                                 List registered pairings
+  tp pair new [--relay URL] [--label <name>]   Generate a QR and BLOCK until the
+                                               mobile app scans it (Ctrl+C to cancel).
+                                               Auto-starts the daemon if needed.
+  tp pair list                                 List registered (completed) pairings
   tp pair rename <daemon-id> <label...>        Rename a pairing (prefix match)
   tp pair delete <daemon-id> [-y]              Delete a pairing (prefix match allowed)
 `);

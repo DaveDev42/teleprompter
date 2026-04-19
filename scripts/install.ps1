@@ -91,20 +91,27 @@ if (-not ($env:Path -split ";" | Where-Object { $_ -ieq $InstallDir })) {
 }
 
 # Install shell completions (idempotent, failure is non-fatal)
-if (-not $NoCompletions) {
-  try {
-    $profileDir = $null
-    if ($PROFILE -and $PROFILE.CurrentUserAllHosts) {
-      $profileDir = Split-Path -Parent $PROFILE.CurrentUserAllHosts
-    }
-    if ($profileDir) {
-      & $target completions install powershell --profile-dir "$profileDir"
-    } else {
-      & $target completions install powershell
-    }
-  } catch {
+if (-not $NoCompletions -and $env:NO_COMPLETIONS -ne "1") {
+  $onPath = ($env:Path -split ";" | Where-Object { $_ -ieq $InstallDir })
+  if (-not $onPath) {
     Write-Host ""
-    Write-Host "Note: shell completions were not installed automatically."
-    Write-Host "Run '$target completions install powershell' manually to enable them."
+    Write-Host "Shell completions not installed ($InstallDir is not on PATH)."
+    Write-Host "Add it to PATH (see message above) then run: tp completions install"
+  } else {
+    try {
+      $profileDir = $null
+      if ($PROFILE -and $PROFILE.CurrentUserAllHosts) {
+        $profileDir = Split-Path -Parent $PROFILE.CurrentUserAllHosts
+      }
+      if ($profileDir) {
+        & $target completions install powershell --profile-dir "$profileDir"
+      } else {
+        & $target completions install powershell
+      }
+    } catch {
+      Write-Host ""
+      Write-Host "Note: shell completions were not installed automatically."
+      Write-Host "Run '$target completions install powershell' manually to enable them."
+    }
   }
 }

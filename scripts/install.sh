@@ -81,11 +81,9 @@ if [ ! -t 0 ] && [ "${TP_AUTO_COMPLETIONS:-0}" != "1" ]; then
 fi
 
 if [ "$SKIP_COMPLETIONS" = "0" ]; then
-  if "${INSTALL_DIR}/${BIN_NAME}" completions install; then
-    :
-  else
+  "${INSTALL_DIR}/${BIN_NAME}" completions install || {
     echo ""
     echo "Note: shell completions were not installed automatically."
     echo "Run '${BIN_NAME} completions install' manually to enable them."
-  fi
+  }
 fi

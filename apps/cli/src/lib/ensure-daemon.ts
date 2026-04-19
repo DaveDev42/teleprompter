@@ -5,6 +5,7 @@ import { mkdir, writeFile } from "fs/promises";
 import { Socket } from "net";
 import { platform } from "os";
 import { join } from "path";
+import { isCompiled } from "../spawn";
 import { dim, ok } from "./colors";
 import { errorWithHints } from "./format";
 import { spinner } from "./spinner";
@@ -113,15 +114,22 @@ export async function ensureDaemon(): Promise<boolean> {
     // fall through to manual spawn
   }
 
-  // Spawn daemon in background. When running from the compiled `tp` binary
-  // (bun --compile), re-exec self; in a dev checkout, fall back to
-  // `bun run apps/cli/src/index.ts daemon start` so this path works both
-  // ways without a packaging step.
-  const isCompiledBinary =
-    process.execPath && !/\bbun(\.exe)?$/i.test(process.execPath);
-  const [cmd, spawnArgs] = isCompiledBinary
+  // Spawn daemon in background. Reuse the canonical `isCompiled()`
+  // (keyed on Bun's `$bunfs` marker) so detection stays consistent with
+  // spawn.ts and doesn't drift if a user renames or shims `bun`. For dev
+  // mode, resolve the CLI entry relative to this file — same URL-based
+  // pattern spawn.ts uses — so the path works regardless of cwd.
+  const [cmd, spawnArgs] = isCompiled()
     ? [process.execPath, ["daemon", "start"]]
-    : ["bun", ["run", "apps/cli/src/index.ts", "daemon", "start"]];
+    : [
+        "bun",
+        [
+          "run",
+          new URL("../index.ts", import.meta.url).pathname,
+          "daemon",
+          "start",
+        ],
+      ];
 
   const proc = spawn(cmd, spawnArgs, {
     stdio: "ignore",

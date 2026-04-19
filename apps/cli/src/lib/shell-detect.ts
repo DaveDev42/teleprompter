@@ -15,8 +15,15 @@ export function detectShell(
   }
 
   const shellPath = env.SHELL;
-  if (!shellPath) return null;
+  if (shellPath) {
+    const base = shellPath.split("/").pop() ?? "";
+    if (POSIX_SHELLS.has(base)) return base as Shell;
+  }
 
-  const base = shellPath.split("/").pop() ?? "";
-  return POSIX_SHELLS.has(base) ? (base as Shell) : null;
+  // Secondary signal when $SHELL is unset/odd — the shell itself sets these.
+  if (env.ZSH_VERSION) return "zsh";
+  if (env.BASH_VERSION) return "bash";
+  if (env.FISH_VERSION) return "fish";
+
+  return null;
 }

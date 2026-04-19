@@ -337,6 +337,56 @@ export function cleanupBackup(bakPath: string): void {
   }
 }
 
+export type VerificationResult =
+  | { ok: true; version: string }
+  | { ok: false; reason: string };
+
+/**
+ * Run `<binary> version` and confirm it produced a plausible tp version banner.
+ * Fails loudly on signal kills (SIGKILL/SIGTERM — common when macOS Gatekeeper
+ * rejects unsigned downloads) instead of silently returning empty output.
+ */
+export async function verifyNewBinary(
+  binaryPath: string,
+): Promise<VerificationResult> {
+  const proc = Bun.spawn([binaryPath, "version"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  const signal = proc.signalCode;
+
+  if (exitCode !== 0) {
+    if (signal) {
+      return {
+        ok: false,
+        reason:
+          `binary killed by signal ${signal} (exit ${exitCode}). ` +
+          `On macOS this usually means the download was rejected by Gatekeeper ` +
+          `because the binary is unsigned. Re-run with a signed release.`,
+      };
+    }
+    const err = stderr.trim() || stdout.trim() || "no output";
+    return {
+      ok: false,
+      reason: `exit ${exitCode}: ${err}`,
+    };
+  }
+
+  const out = stdout.trim();
+  if (!out) {
+    return { ok: false, reason: "no output on stdout" };
+  }
+  if (!/^tp v\d/.test(out)) {
+    return { ok: false, reason: `unexpected output: ${out}` };
+  }
+  return { ok: true, version: out };
+}
+
 /** Restart daemon service after binary upgrade. */
 export async function restartDaemon(): Promise<void> {
   if (process.platform === "darwin") {
@@ -515,13 +565,13 @@ async function upgradeTp(tag: string): Promise<void> {
     console.log(`Updated tp at ${targetPath}`);
 
     // Verify the new binary runs
-    const version = await $`${targetPath} version`.text().catch(() => "");
-    if (!version.trim()) {
+    const verification = await verifyNewBinary(targetPath);
+    if (!verification.ok) {
       throw new Error(
-        "New binary verification failed — binary did not produce version output",
+        `New binary verification failed — ${verification.reason}`,
       );
     }
-    console.log(ok(`Verified: ${version.trim()}`));
+    console.log(ok(`Verified: ${verification.version}`));
 
     // Clean up backup
     if (bakPath) {

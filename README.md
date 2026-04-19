@@ -163,6 +163,52 @@ pnpm doctor
 
 See [CHANGELOG.md](./CHANGELOG.md) for release notes.
 
+## Verifying downloads
+
+All release binaries are built in GitHub Actions from tagged commits. You can verify three layers of integrity:
+
+### 1. Checksum (basic)
+
+```bash
+# Download the binary and checksums
+curl -fsSL -O https://github.com/DaveDev42/teleprompter/releases/download/vX.Y.Z/tp-linux_x64
+curl -fsSL -O https://github.com/DaveDev42/teleprompter/releases/download/vX.Y.Z/checksums.txt
+
+# Verify (Linux)
+sha256sum --check --ignore-missing checksums.txt
+# Verify (macOS)
+shasum -a 256 --check --ignore-missing checksums.txt
+```
+
+### 2. Cosign keyless signature (recommended)
+
+Verifies that `checksums.txt` was signed by this repo's CI workflow. Protects against a compromised GitHub account re-uploading a doctored `checksums.txt`.
+
+Install [cosign](https://docs.sigstore.dev/cosign/installation/), then:
+
+```bash
+curl -fsSL -O https://github.com/DaveDev42/teleprompter/releases/download/vX.Y.Z/checksums.txt
+curl -fsSL -O https://github.com/DaveDev42/teleprompter/releases/download/vX.Y.Z/checksums.txt.sig
+curl -fsSL -O https://github.com/DaveDev42/teleprompter/releases/download/vX.Y.Z/checksums.txt.pem
+
+cosign verify-blob \
+  --certificate checksums.txt.pem \
+  --signature checksums.txt.sig \
+  --certificate-identity-regexp 'https://github.com/DaveDev42/teleprompter/\.github/workflows/release\.yml@.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+```
+
+Expected: `Verified OK`. Then run the checksum check from step 1.
+
+### 3. SLSA build provenance (advanced)
+
+Every binary has a GitHub-native attestation linking it to the exact commit and workflow run that built it. Requires [GitHub CLI](https://cli.github.com/).
+
+```bash
+gh attestation verify tp-linux_x64 --owner DaveDev42
+```
+
 ## License
 
 [BSD 2-Clause](./LICENSE)

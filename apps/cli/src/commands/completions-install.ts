@@ -1,11 +1,14 @@
+import { randomBytes } from "crypto";
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   renameSync,
   rmSync,
   statSync,
-  writeFileSync,
+  writeSync,
 } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
@@ -35,7 +38,8 @@ export type InstallResult =
 
 export type UninstallResult =
   | { status: "uninstalled"; file: string }
-  | { status: "not-installed" };
+  | { status: "not-installed" }
+  | { status: "dry-run"; plan: string };
 
 function preservedMode(file: string): number {
   try {
@@ -45,26 +49,29 @@ function preservedMode(file: string): number {
   }
 }
 
-let atomicWriteCounter = 0;
-
 function atomicWrite(file: string, contents: string, mode?: number): void {
-  const tmp = `${file}.tp-tmp-${process.pid}-${Date.now()}-${atomicWriteCounter++}`;
+  const suffix = randomBytes(6).toString("hex");
+  const tmp = `${file}.tp-tmp-${suffix}`;
+  let fd: number | null = null;
   try {
-    writeFileSync(tmp, contents, mode !== undefined ? { mode } : {});
-    // `renameSync` is atomic on the same filesystem.
+    // Exclusive create (O_CREAT|O_EXCL) defeats symlink pre-creation attacks.
+    fd = openSync(tmp, "wx", mode ?? 0o644);
+    writeSync(fd, contents);
+    closeSync(fd);
+    fd = null;
     renameSync(tmp, file);
   } catch (err) {
-    // Clean up orphan tmp file on any failure.
-    try {
-      rmSync(tmp, { force: true });
-    } catch {}
+    if (fd !== null) {
+      try { closeSync(fd); } catch {}
+    }
+    try { rmSync(tmp, { force: true }); } catch {}
     throw err;
   }
 }
 
-const MARKER_START =
+export const MARKER_START =
   "# >>> tp completions (managed by `tp completions install`) >>>";
-const MARKER_END = "# <<< tp completions <<<";
+export const MARKER_END = "# <<< tp completions <<<";
 
 function powershellDir(home: string, legacy: boolean, override?: string): string {
   if (override) return override;
@@ -151,6 +158,9 @@ export function installCompletion(opts: InstallOptions): InstallResult {
       };
     }
 
+    // NOTE: concurrent external edits to Profile.ps1 between this read and the
+    // atomic write below are not preserved. Real-world risk is low (rc files
+    // are rarely edited during install), but worth noting.
     const existingProfile = existsSync(profileFile)
       ? readFileSync(profileFile, "utf-8")
       : "";
@@ -225,12 +235,21 @@ export function uninstallCompletion(opts: InstallOptions): UninstallResult {
     if (!existsSync(file)) return { status: "not-installed" };
     const existing = readFileSync(file, "utf-8");
     if (!containsMarker(existing)) return { status: "not-installed" };
+    if (opts.dryRun) {
+      return {
+        status: "dry-run",
+        plan: `Would remove tp completions block from ${file}`,
+      };
+    }
     atomicWrite(file, stripMarkerBlock(existing), preservedMode(file));
     return { status: "uninstalled", file };
   }
   if (opts.shell === "fish") {
     const file = fishFilePath(home);
     if (!existsSync(file)) return { status: "not-installed" };
+    if (opts.dryRun) {
+      return { status: "dry-run", plan: `Would remove ${file}` };
+    }
     rmSync(file);
     return { status: "uninstalled", file };
   }
@@ -248,6 +267,13 @@ export function uninstallCompletion(opts: InstallOptions): UninstallResult {
 
     if (!scriptExists && !profileHasMarker) {
       return { status: "not-installed" };
+    }
+
+    if (opts.dryRun) {
+      const parts: string[] = [];
+      if (scriptExists) parts.push(`Would remove ${scriptFile}`);
+      if (profileHasMarker) parts.push(`Would remove tp completions block from ${profileFile}`);
+      return { status: "dry-run", plan: parts.join("; ") };
     }
 
     if (scriptExists) rmSync(scriptFile);

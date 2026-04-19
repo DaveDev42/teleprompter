@@ -225,10 +225,30 @@ describe("readYesNoLine", () => {
     expect(await p).toBe(true);
   });
 
-  test("does not leak listeners after resolving", async () => {
+  test("does not leak listeners after resolving on newline", async () => {
     const s = new PassThrough();
     const p = readYesNoLine(s);
     s.write("y\n");
+    await p;
+    expect(s.listenerCount("data")).toBe(0);
+    expect(s.listenerCount("end")).toBe(0);
+    expect(s.listenerCount("close")).toBe(0);
+  });
+
+  test("does not leak listeners after resolving on end", async () => {
+    const s = new PassThrough();
+    const p = readYesNoLine(s);
+    s.end();
+    await p;
+    expect(s.listenerCount("data")).toBe(0);
+    expect(s.listenerCount("end")).toBe(0);
+    expect(s.listenerCount("close")).toBe(0);
+  });
+
+  test("does not leak listeners after resolving on close", async () => {
+    const s = new PassThrough();
+    const p = readYesNoLine(s);
+    s.destroy();
     await p;
     expect(s.listenerCount("data")).toBe(0);
     expect(s.listenerCount("end")).toBe(0);

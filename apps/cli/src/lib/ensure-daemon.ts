@@ -113,10 +113,17 @@ export async function ensureDaemon(): Promise<boolean> {
     // fall through to manual spawn
   }
 
-  // Spawn daemon in background
-  const args = ["run", "apps/cli/src/index.ts", "daemon", "start"];
+  // Spawn daemon in background. When running from the compiled `tp` binary
+  // (bun --compile), re-exec self; in a dev checkout, fall back to
+  // `bun run apps/cli/src/index.ts daemon start` so this path works both
+  // ways without a packaging step.
+  const isCompiledBinary =
+    process.execPath && !/\bbun(\.exe)?$/i.test(process.execPath);
+  const [cmd, spawnArgs] = isCompiledBinary
+    ? [process.execPath, ["daemon", "start"]]
+    : ["bun", ["run", "apps/cli/src/index.ts", "daemon", "start"]];
 
-  const proc = spawn("bun", args, {
+  const proc = spawn(cmd, spawnArgs, {
     stdio: "ignore",
     detached: true,
     env: { ...process.env, LOG_LEVEL: "error" },
@@ -272,6 +279,11 @@ async function markHinted(): Promise<void> {
  * Minimal interface covering the pieces of a Readable stream we actually
  * use. Extracted so `readYesNoLine` can be unit-tested against a
  * PassThrough stream without hitting the real `process.stdin`.
+ *
+ * The `data` event must emit a Node `Buffer` — this rules out web
+ * `ReadableStream` and object-mode streams, which do not type-check
+ * against this signature. That's fine because our only production caller
+ * is `process.stdin`, which always emits Buffer.
  */
 export interface YesNoReadable {
   on(event: "data", listener: (chunk: Buffer) => void): unknown;

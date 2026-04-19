@@ -31,6 +31,7 @@ const SUBCOMMANDS = [
 ];
 
 const PAIR_SUBCOMMANDS = ["new", "list", "delete"];
+const DAEMON_SUBCOMMANDS = ["start", "status", "install", "uninstall"];
 
 const DAEMON_FLAGS = [
   "--repo-root",
@@ -77,6 +78,8 @@ _tp_completions() {
 
   if [ "$COMP_CWORD" -eq 1 ]; then
     COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
+  elif [ "\${COMP_WORDS[1]}" = "daemon" ] && [ "$COMP_CWORD" -eq 2 ]; then
+    COMPREPLY=( $(compgen -W "${DAEMON_SUBCOMMANDS.join(" ")}" -- "$cur") )
   elif [ "\${COMP_WORDS[1]}" = "daemon" ] && [ "$COMP_CWORD" -ge 3 ]; then
     COMPREPLY=( $(compgen -W "${DAEMON_FLAGS.join(" ")}" -- "$cur") )
   elif [ "\${COMP_WORDS[1]}" = "pair" ] && [ "$COMP_CWORD" -eq 2 ]; then
@@ -105,8 +108,12 @@ ${SUBCOMMANDS.map((c) => `    '${c}:${c} command'`).join("\n")}
     args)
       case \${words[1]} in
         daemon)
-          _arguments \\
-${DAEMON_FLAGS.map((f) => `            '${f}[${f}]'`).join(" \\\n")}
+          if [ "\${#words[@]}" -le 2 ]; then
+            _values 'daemon subcommand' ${DAEMON_SUBCOMMANDS.map((s) => `'${s}'`).join(" ")}
+          else
+            _arguments \\
+${DAEMON_FLAGS.map((f) => `              '${f}[${f}]'`).join(" \\\n")}
+          fi
           ;;
         pair)
           _values 'pair subcommand' ${PAIR_SUBCOMMANDS.map((s) => `'${s}'`).join(" ")}
@@ -123,6 +130,10 @@ function generateFish(): string {
     "# tp fish completion",
     ...SUBCOMMANDS.map(
       (c) => `complete -c tp -n '__fish_use_subcommand' -a '${c}' -d '${c}'`,
+    ),
+    ...DAEMON_SUBCOMMANDS.map(
+      (s) =>
+        `complete -c tp -n '__fish_seen_subcommand_from daemon' -a '${s}' -d '${s}'`,
     ),
     ...DAEMON_FLAGS.map(
       (f) =>

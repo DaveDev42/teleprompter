@@ -93,7 +93,8 @@ if (-not ($env:Path -split ";" | Where-Object { $_ -ieq $InstallDir })) {
 # Install shell completions (idempotent, failure is non-fatal)
 if (-not $NoCompletions) {
   try {
-    & $target completions install powershell | Out-Host
+    $profileDir = Split-Path -Parent $PROFILE.CurrentUserAllHosts
+    & $target completions install powershell --profile-dir "$profileDir"
   } catch {
     Write-Host ""
     Write-Host "Note: shell completions were not installed automatically."

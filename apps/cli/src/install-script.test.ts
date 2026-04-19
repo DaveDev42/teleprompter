@@ -17,5 +17,11 @@ describe.skipIf(process.platform === "win32")(
       expect(script).toMatch(/\[\s*!\s*-t\s+0\s*\]/);
       expect(script).toContain("--no-completions");
     });
+
+    test("PATH gate present", () => {
+      const script = readFileSync("scripts/install.sh", "utf-8");
+      expect(script).toContain("ON_PATH");
+      expect(script).toContain("not on PATH");
+    });
   },
 );

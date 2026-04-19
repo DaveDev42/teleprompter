@@ -55,8 +55,28 @@ if ! echo "$PATH" | tr ':' '\n' | grep -qx "${INSTALL_DIR}"; then
   echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
 fi
 
-# Install shell completions (idempotent, failure is non-fatal)
-if [ "${NO_COMPLETIONS:-0}" != "1" ] && [ "${1:-}" != "--no-completions" ]; then
+# Install shell completions (idempotent, failure is non-fatal).
+# Skip on non-TTY (e.g. `curl ... | bash`) unless TP_AUTO_COMPLETIONS=1.
+# Opt-out via NO_COMPLETIONS=1 or --no-completions positional arg.
+SKIP_COMPLETIONS=0
+for arg in "$@"; do
+  if [ "$arg" = "--no-completions" ]; then
+    SKIP_COMPLETIONS=1
+    break
+  fi
+done
+if [ "${NO_COMPLETIONS:-0}" = "1" ]; then
+  SKIP_COMPLETIONS=1
+fi
+if [ ! -t 0 ] && [ "${TP_AUTO_COMPLETIONS:-0}" != "1" ]; then
+  SKIP_COMPLETIONS=1
+  echo ""
+  echo "Shell completions not installed (non-interactive shell detected)."
+  echo "Run '${BIN_NAME} completions install' to enable them,"
+  echo "or set TP_AUTO_COMPLETIONS=1 to auto-install on pipe-to-shell."
+fi
+
+if [ "$SKIP_COMPLETIONS" = "0" ]; then
   if "${INSTALL_DIR}/${BIN_NAME}" completions install; then
     :
   else

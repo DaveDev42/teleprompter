@@ -1,8 +1,7 @@
 import { Daemon, SessionManager } from "@teleprompter/daemon";
-import { type KeyPair, setLogLevel } from "@teleprompter/protocol";
+import { setLogLevel } from "@teleprompter/protocol";
 import { parseArgs } from "util";
 import { resolveRunnerCommand } from "../spawn";
-import { loadPairingData } from "./pair";
 
 export async function daemonCommand(argv: string[]): Promise<void> {
   const subcommand = argv[0];
@@ -41,10 +40,6 @@ export async function daemonCommand(argv: string[]): Promise<void> {
       cwd: { type: "string" },
       "worktree-path": { type: "string" },
       "repo-root": { type: "string" },
-      "relay-url": { type: "string" },
-      "relay-token": { type: "string" },
-      "daemon-id": { type: "string" },
-      "frontend-pubkey": { type: "string" },
       "prune-ttl": { type: "string" },
       "no-prune": { type: "boolean", default: false },
       verbose: { type: "boolean", default: false },
@@ -60,6 +55,12 @@ export async function daemonCommand(argv: string[]): Promise<void> {
 
   // Inject self-spawn runner command so SessionManager uses `tp run` instead of relative path
   SessionManager.setRunnerCommand(resolveRunnerCommand());
+
+  const { isDaemonRunning } = await import("../lib/ensure-daemon");
+  if (await isDaemonRunning()) {
+    console.log("[Daemon] already running — exiting");
+    return;
+  }
 
   const daemon = new Daemon();
   const socketPath = daemon.start();
@@ -82,86 +83,10 @@ export async function daemonCommand(argv: string[]): Promise<void> {
     );
   }
 
-  // Relay connection: CLI flags take priority, then store DB, then pairing.json
-  const relayUrl = values["relay-url"] as string | undefined;
-  const relayToken = values["relay-token"] as string | undefined;
-  const daemonId = values["daemon-id"] as string | undefined;
-
-  if (relayUrl && relayToken && daemonId) {
-    // Explicit CLI flags — connect to specified relay
-    try {
-      const saved = await loadPairingData();
-      const {
-        generateKeyPair,
-        deriveRegistrationProof,
-        fromBase64: fb64,
-      } = await import("@teleprompter/protocol");
-
-      let keyPair: KeyPair;
-      let pairingSecret: Uint8Array;
-      let registrationProof: string;
-
-      if (saved?.publicKey && saved?.secretKey && saved?.qrData?.ps) {
-        keyPair = {
-          publicKey: await fb64(saved.publicKey),
-          secretKey: await fb64(saved.secretKey),
-        };
-        pairingSecret = await fb64(saved.qrData.ps);
-        registrationProof = await deriveRegistrationProof(pairingSecret);
-      } else {
-        keyPair = await generateKeyPair();
-        pairingSecret = new Uint8Array(32);
-        registrationProof = "";
-        console.warn(
-          "[Daemon] no saved pairing data — E2EE key exchange will not work",
-        );
-      }
-
-      await daemon.connectRelay({
-        relayUrl,
-        daemonId,
-        token: relayToken,
-        registrationProof,
-        keyPair,
-        pairingSecret,
-      });
-      console.log(`[Daemon] connected to relay ${relayUrl}`);
-    } catch (err) {
-      console.error(`[Daemon] relay connection failed:`, err);
-    }
-  } else {
-    // No CLI flags — reconnect from saved pairings in store DB
-    const count = await daemon.reconnectSavedRelays();
-    if (count > 0) {
-      console.log(`[Daemon] reconnected to ${count} saved relay(s)`);
-    } else {
-      // Fallback: try pairing.json file
-      const saved = await loadPairingData();
-      if (saved?.qrData?.ps) {
-        try {
-          const { deriveRegistrationProof, fromBase64: fb64 } = await import(
-            "@teleprompter/protocol"
-          );
-          const pairingSecret = await fb64(saved.qrData.ps);
-          await daemon.connectRelay({
-            relayUrl: saved.relayUrl,
-            daemonId: saved.daemonId,
-            token: saved.relayToken,
-            registrationProof: await deriveRegistrationProof(pairingSecret),
-            keyPair: {
-              publicKey: await fb64(saved.publicKey),
-              secretKey: await fb64(saved.secretKey),
-            },
-            pairingSecret,
-          });
-          console.log(
-            `[Daemon] connected to relay ${saved.relayUrl} (from pairing.json)`,
-          );
-        } catch (err) {
-          console.error(`[Daemon] relay connection failed:`, err);
-        }
-      }
-    }
+  // Reconnect all saved pairings (store DB is the sole source of truth).
+  const count = await daemon.reconnectSavedRelays();
+  if (count > 0) {
+    console.log(`[Daemon] reconnected to ${count} saved relay(s)`);
   }
 
   console.log(`[Daemon] listening on ${socketPath}`);

@@ -317,7 +317,11 @@ tp daemon uninstall        # OS 서비스 해제
 # 고급
 tp relay start [--port]    # Relay 서버 실행
 tp completions <bash|zsh|fish|powershell>   # 셸 자동완성 스크립트 출력
-tp completions install [shell]              # 현재 쉘에 완성 자동 등록 (--force, --uninstall, --dry-run)
+tp completions install [shell]              # 현재 쉘에 완성 자동 등록 (--force, --dry-run)
+tp completions uninstall [shell]           # 설치된 완성 제거
+# scripts/install.sh 는 기본적으로 non-TTY 환경(`curl | bash`)에서 completion 설치를 건너뜀.
+# 수동 설치 시: NO_COMPLETIONS=1 또는 --no-completions 로 opt-out, TP_AUTO_COMPLETIONS=1 로 강제 활성화.
+# scripts/install.ps1 은 -NoCompletions 로 opt-out.
 
 # Passthrough 플래그
 --tp-sid <id>              # 세션 ID (기본: 자동 생성)

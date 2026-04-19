@@ -16,8 +16,8 @@ export async function acquirePairLock(
   // proper-lockfile requires the target file to exist.
   try {
     writeFileSync(lockPath, "", { flag: "a" });
-  } catch {
-    // best effort
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
   }
 
   try {

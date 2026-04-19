@@ -26,4 +26,8 @@ describe("pair-lock", () => {
     expect(third).not.toBeNull();
     await releasePairLock(third);
   });
+
+  test("releasePairLock(null) is a no-op", async () => {
+    await expect(releasePairLock(null)).resolves.toBeUndefined();
+  });
 });

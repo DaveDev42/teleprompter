@@ -8,6 +8,8 @@ set -euo pipefail
 
 REPO="DaveDev42/teleprompter"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
+# Normalize: drop any trailing slash so PATH comparison matches $PATH entries.
+INSTALL_DIR="${INSTALL_DIR%/}"
 BIN_NAME="tp"
 
 # Detect OS
@@ -50,7 +52,7 @@ echo "Installed ${BIN_NAME} to ${INSTALL_DIR}/${BIN_NAME}"
 
 # Check if INSTALL_DIR is in PATH
 ON_PATH=0
-if echo "$PATH" | tr ':' '\n' | grep -qx "${INSTALL_DIR}"; then
+if echo "$PATH" | tr ':' '\n' | sed 's:/*$::' | grep -qx "${INSTALL_DIR}"; then
   ON_PATH=1
 else
   echo ""

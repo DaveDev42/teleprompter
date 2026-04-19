@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.12](https://github.com/DaveDev42/teleprompter/compare/v0.1.11...v0.1.12) (2026-04-19)
+
+
+### Features
+
+* **cli:** add tp daemon status subcommand ([8b77361](https://github.com/DaveDev42/teleprompter/commit/8b7736145e649e1bf9ae4dca7dce9281dd5297b8))
+* **cli:** add tp daemon status subcommand ([669821d](https://github.com/DaveDev42/teleprompter/commit/669821d848fe6c4f3e3a56bbbc4ffa362935f82e))
+
+
+### Bug Fixes
+
+* **cli:** inline version via static JSON import in compiled binary ([6e5319b](https://github.com/DaveDev42/teleprompter/commit/6e5319bb9b1e9a16ce7f3b0c40783e9165511867))
+* **cli:** inline version via static JSON import so compiled binary reports correct version ([7127187](https://github.com/DaveDev42/teleprompter/commit/7127187e7e9d7ec2b1d7ff3a645ea219aeb1e3c2))
+* **eas:** restore appVersionSource remote; keep runtimeVersion appVersion ([f18ed61](https://github.com/DaveDev42/teleprompter/commit/f18ed610e561c54744e2886cdc8f527354627544))
+* **eas:** restore appVersionSource remote; keep runtimeVersion appVersion ([8600b0f](https://github.com/DaveDev42/teleprompter/commit/8600b0fcceec3d5d5ba78e062c6be7c19dc361d7))
+
 ## [0.1.11](https://github.com/DaveDev42/teleprompter/compare/v0.1.10...v0.1.11) (2026-04-19)
 
 

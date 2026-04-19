@@ -1,3 +1,4 @@
+import { execSync } from "child_process";
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
@@ -160,6 +161,80 @@ describe("tp completions", () => {
         { HOME: "/tmp", SHELL: "/bin/sh" },
       );
       expect(result).toContain("Could not detect shell");
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "completions install --help prints usage and does not install",
+    () => {
+      const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
+      try {
+        const result = capture(
+          `bun run apps/cli/src/index.ts completions install --help`,
+          { HOME: tmpHome, SHELL: "/bin/bash" },
+        );
+        expect(result).toContain("Usage: tp completions install");
+        expect(existsSync(join(tmpHome, ".bashrc"))).toBe(false);
+      } finally {
+        rmSync(tmpHome, { recursive: true, force: true });
+      }
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "completions install rejects unknown flags",
+    () => {
+      const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
+      try {
+        const result = capture(
+          `bun run apps/cli/src/index.ts completions install --oops`,
+          { HOME: tmpHome, SHELL: "/bin/bash" },
+        );
+        expect(result).toContain("Unknown flag: --oops");
+        expect(existsSync(join(tmpHome, ".bashrc"))).toBe(false);
+      } finally {
+        rmSync(tmpHome, { recursive: true, force: true });
+      }
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "completions install --profile-dir overrides PowerShell profile location",
+    () => {
+      const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
+      const customProfile = join(tmpHome, "custom-ps");
+      try {
+        capture(
+          `bun run apps/cli/src/index.ts completions install powershell --profile-dir "${customProfile}"`,
+          { HOME: tmpHome },
+        );
+        expect(existsSync(join(customProfile, "tp-completions.ps1"))).toBe(true);
+      } finally {
+        rmSync(tmpHome, { recursive: true, force: true });
+      }
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "completions install exits non-zero when shell cannot be detected",
+    () => {
+      let exitCode = 0;
+      try {
+        execSync(
+          "bun run apps/cli/src/index.ts completions install",
+          {
+            env: { ...process.env, HOME: "/tmp", SHELL: "/bin/sh" },
+            stdio: "pipe",
+          },
+        );
+      } catch (e: unknown) {
+        exitCode = (e as { status: number }).status;
+      }
+      expect(exitCode).toBe(1);
     },
     TIMEOUT,
   );

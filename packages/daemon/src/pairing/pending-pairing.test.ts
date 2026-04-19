@@ -1,0 +1,78 @@
+import { describe, expect, mock, test } from "bun:test";
+import type { RelayClient } from "../transport/relay-client";
+import { PendingPairing } from "./pending-pairing";
+
+function makeFakeRelayClient() {
+  return {
+    connect: mock(async () => {}),
+    subscribe: mock(() => {}),
+    dispose: mock(() => {}),
+    isConnected: () => true,
+  };
+}
+
+describe("PendingPairing", () => {
+  test("begin() generates keys + QR and opens relay", async () => {
+    const relay = makeFakeRelayClient();
+    const pp = new PendingPairing({
+      relayUrl: "wss://relay.test",
+      daemonId: "daemon-test",
+      label: "test-host",
+      createRelayClient: () => relay as unknown as RelayClient,
+    });
+
+    const { qrString, daemonId, pairingId } = await pp.begin();
+
+    expect(qrString.length).toBeGreaterThan(0);
+    expect(daemonId).toBe("daemon-test");
+    expect(pairingId.length).toBeGreaterThan(0);
+    expect(relay.connect).toHaveBeenCalledTimes(1);
+  });
+
+  test("awaitCompletion resolves on kx frame", async () => {
+    const relay = makeFakeRelayClient();
+    const pp = new PendingPairing({
+      relayUrl: "wss://relay.test",
+      daemonId: "daemon-test",
+      label: null,
+      createRelayClient: () => relay as unknown as RelayClient,
+    });
+
+    await pp.begin();
+    const p = pp.awaitCompletion();
+    pp.__markCompleted("frontend-abc");
+    const result = await p;
+    expect(result.kind).toBe("completed");
+  });
+
+  test("cancel() resolves awaitCompletion with cancelled and disposes relay", async () => {
+    const relay = makeFakeRelayClient();
+    const pp = new PendingPairing({
+      relayUrl: "wss://relay.test",
+      daemonId: "daemon-test",
+      label: null,
+      createRelayClient: () => relay as unknown as RelayClient,
+    });
+
+    await pp.begin();
+    const p = pp.awaitCompletion();
+    pp.cancel();
+    const result = await p;
+    expect(result.kind).toBe("cancelled");
+    expect(relay.dispose).toHaveBeenCalled();
+  });
+
+  test("releaseRelay() returns the client and prevents further dispose", async () => {
+    const relay = makeFakeRelayClient();
+    const pp = new PendingPairing({
+      relayUrl: "wss://relay.test",
+      daemonId: "daemon-test",
+      label: null,
+      createRelayClient: () => relay as unknown as RelayClient,
+    });
+    await pp.begin();
+    const released = pp.releaseRelay();
+    expect(released).toBe(relay as unknown as RelayClient);
+    expect(() => pp.releaseRelay()).toThrow();
+  });
+});

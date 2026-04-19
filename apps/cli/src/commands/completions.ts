@@ -37,7 +37,7 @@ const SUBCOMMANDS = [
   "setup-token",
 ];
 
-const PAIR_SUBCOMMANDS = ["new", "list", "delete"];
+const PAIR_SUBCOMMANDS = ["new", "list", "delete", "rename"];
 const DAEMON_SUBCOMMANDS = ["start", "status", "install", "uninstall"];
 
 const DAEMON_FLAGS = [
@@ -55,7 +55,46 @@ const DAEMON_FLAGS = [
   "--watch",
 ];
 
+// Validate subcommand names and flag formats at module load.
+const SUBCOMMAND_NAME_RE = /^[a-z0-9-]+$/;
+for (const name of [...SUBCOMMANDS, ...PAIR_SUBCOMMANDS, ...DAEMON_SUBCOMMANDS]) {
+  if (!SUBCOMMAND_NAME_RE.test(name)) {
+    throw new Error(`Invalid subcommand name: ${name}`);
+  }
+}
+for (const flag of DAEMON_FLAGS) {
+  if (!/^--[a-z0-9-]+$/.test(flag)) {
+    throw new Error(`Invalid flag: ${flag}`);
+  }
+}
+
+const INSTALL_USAGE = `Usage: tp completions install [shell] [flags]
+
+Shells: bash, zsh, fish, powershell (alias: pwsh)
+Flags:
+  --force                Overwrite existing installation
+  --uninstall            Remove installed completions
+  --dry-run              Show what would change without writing
+  --legacy-powershell    Use Windows PowerShell 5.1 profile path
+  --profile-dir <path>   Override PowerShell profile directory
+  --help, -h             Show this help`;
+
+const INSTALL_FLAG_ALLOWLIST = new Set([
+  "--force",
+  "--dry-run",
+  "--uninstall",
+  "--legacy-powershell",
+  "--profile-dir",
+  "--help",
+  "-h",
+]);
+
 export function completionsCommand(argv: string[]): void {
+  if (argv[0] === "uninstall") {
+    runInstall(["--uninstall", ...argv.slice(1)]);
+    return;
+  }
+
   if (argv[0] === "install") {
     runInstall(argv.slice(1));
     return;
@@ -85,12 +124,43 @@ export function completionsCommand(argv: string[]): void {
 }
 
 function runInstall(argv: string[]): void {
+  // Help flag check.
+  if (argv.includes("--help") || argv.includes("-h")) {
+    console.log(INSTALL_USAGE);
+    return;
+  }
+
+  // Reject unknown flags.
+  for (const a of argv) {
+    if (a.startsWith("--") || (a.startsWith("-") && a !== "-h")) {
+      if (!INSTALL_FLAG_ALLOWLIST.has(a)) {
+        console.error(`Unknown flag: ${a}`);
+        console.error(INSTALL_USAGE);
+        process.exit(1);
+      }
+    }
+  }
+
   const force = argv.includes("--force");
   const dryRun = argv.includes("--dry-run");
   const uninstall = argv.includes("--uninstall");
   const legacyPowerShell = argv.includes("--legacy-powershell");
 
-  const positional = argv.find((a) => !a.startsWith("--"));
+  // Extract --profile-dir value.
+  const profileDirIdx = argv.indexOf("--profile-dir");
+  const powerShellProfileDir =
+    profileDirIdx >= 0 ? argv[profileDirIdx + 1] : undefined;
+
+  // Build a set of indices consumed by --profile-dir so they don't appear as positionals.
+  const consumedIndices = new Set<number>();
+  if (profileDirIdx >= 0) {
+    consumedIndices.add(profileDirIdx);
+    consumedIndices.add(profileDirIdx + 1);
+  }
+
+  const positional = argv.find(
+    (a, i) => !a.startsWith("-") && !consumedIndices.has(i),
+  );
   const requested =
     positional === "pwsh" ? "powershell" : (positional as Shell | undefined);
 
@@ -98,42 +168,44 @@ function runInstall(argv: string[]): void {
     requested ?? detectShell(process.env, process.platform);
 
   if (!shell) {
+    const hint = process.env.SHELL
+      ? `Detected $SHELL=${process.env.SHELL} (unsupported).`
+      : "$SHELL is not set.";
     console.error(
-      "Could not detect shell. Run 'tp completions install <bash|zsh|fish|powershell>'.",
+      `Could not detect shell. ${hint} Run 'tp completions install <bash|zsh|fish|powershell>'.`,
     );
     process.exit(1);
   }
 
   if (uninstall) {
-    const r = uninstallCompletion({ shell, legacyPowerShell });
+    const r = uninstallCompletion({ shell, legacyPowerShell, powerShellProfileDir });
     if (r.status === "uninstalled") {
-      console.log(`tp completions removed for ${shell} (${r.file})`);
+      console.error(`tp completions removed for ${shell} (${r.file})`);
     } else {
-      console.log(`tp completions not installed for ${shell}`);
+      console.error(`tp completions not installed for ${shell}`);
     }
     return;
   }
 
   const r = installCompletion({
-    shell: shell as InstallShell,
+    shell,
     force,
     dryRun,
     legacyPowerShell,
+    powerShellProfileDir,
   });
 
   if (r.status === "dry-run") {
     console.log(r.plan);
   } else if (r.status === "already-installed") {
-    console.log(`tp completions already installed for ${shell} (${r.file})`);
+    console.error(`tp completions already installed for ${shell} (${r.file})`);
   } else {
-    console.log(`tp completions installed for ${shell} (${r.file})`);
-    console.log("Restart your shell or source your rc file to activate.");
+    console.error(`tp completions installed for ${shell} (${r.file})`);
+    console.error("Restart your shell or source your rc file to activate.");
   }
 }
 
-export function renderCompletion(
-  shell: "bash" | "zsh" | "fish" | "powershell",
-): string {
+export function renderCompletion(shell: InstallShell): string {
   switch (shell) {
     case "bash":
       return generateBash();
@@ -162,6 +234,10 @@ _tp_completions() {
     COMPREPLY=( $(compgen -W "${DAEMON_FLAGS.join(" ")}" -- "$cur") )
   elif [ "\${COMP_WORDS[1]}" = "pair" ] && [ "$COMP_CWORD" -eq 2 ]; then
     COMPREPLY=( $(compgen -W "${PAIR_SUBCOMMANDS.join(" ")}" -- "$cur") )
+  elif [ "\${COMP_WORDS[1]}" = "pair" ] && [ "\${COMP_WORDS[2]}" = "new" ] && [ "$COMP_CWORD" -ge 3 ]; then
+    COMPREPLY=( $(compgen -W "--relay --label" -- "$cur") )
+  elif [ "\${COMP_WORDS[1]}" = "doctor" ] || [ "\${COMP_WORDS[1]}" = "version" ] || [ "\${COMP_WORDS[1]}" = "upgrade" ]; then
+    COMPREPLY=( $(compgen -W "--claude" -- "$cur") )
   fi
 }
 complete -F _tp_completions tp`;
@@ -190,7 +266,7 @@ ${SUBCOMMANDS.map((c) => `    '${c}:${c} command'`).join("\n")}
             _values 'daemon subcommand' ${DAEMON_SUBCOMMANDS.map((s) => `'${s}'`).join(" ")}
           else
             _arguments \\
-${DAEMON_FLAGS.map((f) => `              '${f}[${f}]'`).join(" \\\n")}
+${DAEMON_FLAGS.map((f) => `              '${f}[${f.replace(/^--/, "")}]'`).join(" \\\n")}
           fi
           ;;
         pair)

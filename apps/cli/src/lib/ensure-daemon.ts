@@ -178,27 +178,72 @@ async function tryKickstartService(): Promise<boolean> {
 }
 
 /**
- * Show a one-time hint about installing the daemon as an OS service.
+ * On the first real run, offer to install the daemon as an OS service so it
+ * starts automatically on login. Non-interactive environments (CI, scripts
+ * piping stdin) fall back to a one-time dim hint. Setting
+ * `TP_NO_AUTO_INSTALL=1` forces the hint-only path even on a TTY.
  */
 async function showInstallHint(): Promise<void> {
   if (existsSync(HINT_FILE)) return;
+  if (await isServiceInstalledAny()) return;
 
+  const interactive =
+    process.stdin.isTTY === true &&
+    process.stderr.isTTY === true &&
+    process.env.TP_NO_AUTO_INSTALL !== "1";
+
+  if (!interactive) {
+    console.error(
+      dim("Tip: Run 'tp daemon install' to start tp automatically on login."),
+    );
+    await markHinted();
+    return;
+  }
+
+  const accepted = await promptYesNo(
+    "Install daemon as an OS service so it auto-starts on login? [Y/n] ",
+  );
+  await markHinted();
+
+  if (!accepted) {
+    console.error(
+      dim("Skipping. Run 'tp daemon install' later to enable auto-start."),
+    );
+    return;
+  }
+
+  try {
+    const { installService } = await import("./service");
+    await installService();
+  } catch (err) {
+    console.error(
+      dim(
+        `Service install failed: ${
+          err instanceof Error ? err.message : String(err)
+        }. Run 'tp daemon install' manually.`,
+      ),
+    );
+  }
+}
+
+async function isServiceInstalledAny(): Promise<boolean> {
   const os = platform();
   if (os === "darwin") {
     const { isServiceInstalled } = await import("./service-darwin");
-    if (isServiceInstalled()) return;
-  } else if (os === "linux") {
-    const { isServiceInstalled } = await import("./service-linux");
-    if (isServiceInstalled()) return;
-  } else if (os === "win32") {
-    const { isServiceInstalled } = await import("./service-windows");
-    if (isServiceInstalled()) return;
+    return isServiceInstalled();
   }
+  if (os === "linux") {
+    const { isServiceInstalled } = await import("./service-linux");
+    return isServiceInstalled();
+  }
+  if (os === "win32") {
+    const { isServiceInstalled } = await import("./service-windows");
+    return isServiceInstalled();
+  }
+  return false;
+}
 
-  console.error(
-    dim("Tip: Run 'tp daemon install' to start tp automatically on login."),
-  );
-
+async function markHinted(): Promise<void> {
   try {
     const dir = join(
       process.platform === "win32"
@@ -216,4 +261,38 @@ async function showInstallHint(): Promise<void> {
   } catch {
     // Non-critical — just skip
   }
+}
+
+/**
+ * Read a single y/n answer from stdin with a default of yes (empty input).
+ * Exposed for tests via `parseYesNoAnswer`.
+ */
+async function promptYesNo(prompt: string): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    process.stderr.write(prompt);
+    let buf = "";
+    const onData = (chunk: Buffer) => {
+      buf += chunk.toString("utf-8");
+      const idx = buf.indexOf("\n");
+      if (idx === -1) return;
+      process.stdin.removeListener("data", onData);
+      process.stdin.pause();
+      resolve(parseYesNoAnswer(buf.slice(0, idx), true));
+    };
+    process.stdin.resume();
+    process.stdin.on("data", onData);
+  });
+}
+
+/**
+ * Normalize a y/n response. Empty string returns `defaultYes`. Anything that
+ * isn't a clear "no" is treated as yes when the default is yes, so a stray
+ * whitespace doesn't block the install.
+ */
+export function parseYesNoAnswer(raw: string, defaultYes: boolean): boolean {
+  const trimmed = raw.trim().toLowerCase();
+  if (trimmed === "") return defaultYes;
+  if (trimmed === "n" || trimmed === "no") return false;
+  if (trimmed === "y" || trimmed === "yes") return true;
+  return defaultYes;
 }

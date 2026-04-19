@@ -37,4 +37,21 @@ describe("detectShell", () => {
   test("returns null on win32 without $PSModulePath", () => {
     expect(detectShell({}, "win32")).toBeNull();
   });
+
+  test("falls back to BASH_VERSION when SHELL unset", () => {
+    expect(detectShell({ BASH_VERSION: "5.2" }, "linux")).toBe("bash");
+  });
+
+  test("falls back to ZSH_VERSION", () => {
+    expect(detectShell({ ZSH_VERSION: "5.9" }, "darwin")).toBe("zsh");
+  });
+
+  test("SHELL takes precedence over version vars", () => {
+    expect(
+      detectShell(
+        { SHELL: "/bin/bash", ZSH_VERSION: "5.9" },
+        "linux",
+      ),
+    ).toBe("bash");
+  });
 });

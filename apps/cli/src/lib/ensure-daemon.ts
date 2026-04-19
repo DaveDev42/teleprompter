@@ -184,15 +184,17 @@ async function tryKickstartService(): Promise<boolean> {
  * `TP_NO_AUTO_INSTALL=1` forces the hint-only path even on a TTY.
  */
 async function showInstallHint(): Promise<void> {
-  if (existsSync(HINT_FILE)) return;
-  if (await isServiceInstalledAny()) return;
+  const mode = decideInstallPromptMode({
+    hintFileExists: existsSync(HINT_FILE),
+    serviceInstalled: await isServiceInstalledAny(),
+    stdinIsTTY: process.stdin.isTTY === true,
+    stderrIsTTY: process.stderr.isTTY === true,
+    noAutoInstallEnv: process.env.TP_NO_AUTO_INSTALL === "1",
+  });
 
-  const interactive =
-    process.stdin.isTTY === true &&
-    process.stderr.isTTY === true &&
-    process.env.TP_NO_AUTO_INSTALL !== "1";
+  if (mode === "skip") return;
 
-  if (!interactive) {
+  if (mode === "hint") {
     console.error(
       dim("Tip: Run 'tp daemon install' to start tp automatically on login."),
     );
@@ -264,35 +266,105 @@ async function markHinted(): Promise<void> {
 }
 
 /**
- * Read a single y/n answer from stdin with a default of yes (empty input).
- * Exposed for tests via `parseYesNoAnswer`.
+ * Read a single y/n answer from stdin.
+ *
+ * Resolves on:
+ *  - the first newline → parsed via `parseYesNoAnswer`
+ *  - `end` or `close` (stdin EOF, Ctrl+D, upstream pipe gone) → `false`,
+ *    because the action installs a system service and abnormal-close
+ *    should not be treated as implicit consent.
+ *
+ * The single `done()` closure removes all listeners and pauses stdin, so
+ * the function never leaks handlers even if called multiple times.
  */
 async function promptYesNo(prompt: string): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     process.stderr.write(prompt);
     let buf = "";
+    let settled = false;
+
+    const done = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      process.stdin.off("data", onData);
+      process.stdin.off("end", onEnd);
+      process.stdin.off("close", onEnd);
+      process.stdin.pause();
+      resolve(value);
+    };
     const onData = (chunk: Buffer) => {
       buf += chunk.toString("utf-8");
       const idx = buf.indexOf("\n");
       if (idx === -1) return;
-      process.stdin.removeListener("data", onData);
-      process.stdin.pause();
-      resolve(parseYesNoAnswer(buf.slice(0, idx), true));
+      done(parseYesNoAnswer(buf.slice(0, idx), true));
     };
+    const onEnd = () => done(false);
+
     process.stdin.resume();
     process.stdin.on("data", onData);
+    process.stdin.once("end", onEnd);
+    process.stdin.once("close", onEnd);
   });
 }
 
 /**
- * Normalize a y/n response. Empty string returns `defaultYes`. Anything that
- * isn't a clear "no" is treated as yes when the default is yes, so a stray
- * whitespace doesn't block the install.
+ * Normalize a y/n response.
+ *
+ * Rules, applied in order:
+ *  - empty / whitespace-only → `defaultYes`
+ *  - starts with `n` (e.g. `n`, `no`, `nope`, `nah`) → `false`
+ *  - starts with `y` (e.g. `y`, `yes`, `yep`) → `true`
+ *  - anything else → `defaultYes`
+ *
+ * Starts-with matching favours declining over the default when the user
+ * clearly typed something `n`-ish, which is the safe direction for
+ * destructive-ish actions like installing a system service.
+ *
+ * @internal Exported for unit tests; not part of the public CLI API.
  */
 export function parseYesNoAnswer(raw: string, defaultYes: boolean): boolean {
   const trimmed = raw.trim().toLowerCase();
   if (trimmed === "") return defaultYes;
-  if (trimmed === "n" || trimmed === "no") return false;
-  if (trimmed === "y" || trimmed === "yes") return true;
+  if (trimmed.startsWith("n")) return false;
+  if (trimmed.startsWith("y")) return true;
   return defaultYes;
+}
+
+/**
+ * Decide which branch `showInstallHint` should take, without any I/O.
+ *
+ * @internal Exported for unit tests.
+ */
+export type InstallPromptMode = "skip" | "hint" | "prompt";
+
+/**
+ * Inputs to the gate decision. Parameterised so tests can exercise every
+ * branch without stubbing the live `process` object.
+ *
+ * @internal
+ */
+export type InstallPromptInputs = {
+  hintFileExists: boolean;
+  serviceInstalled: boolean;
+  stdinIsTTY: boolean;
+  stderrIsTTY: boolean;
+  noAutoInstallEnv: boolean;
+};
+
+/**
+ * Pure decision for the first-run install flow. Returns:
+ *  - "skip" — already hinted OR already installed (no output, no prompt)
+ *  - "hint" — non-interactive env; print the dim one-liner and stamp the file
+ *  - "prompt" — interactive; ask the user and act on the answer
+ *
+ * @internal Exported for unit tests.
+ */
+export function decideInstallPromptMode(
+  inputs: InstallPromptInputs,
+): InstallPromptMode {
+  if (inputs.hintFileExists) return "skip";
+  if (inputs.serviceInstalled) return "skip";
+  const interactive =
+    inputs.stdinIsTTY && inputs.stderrIsTTY && !inputs.noAutoInstallEnv;
+  return interactive ? "prompt" : "hint";
 }

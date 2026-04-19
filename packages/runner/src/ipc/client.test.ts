@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type {
   IpcAck,
   IpcBye,
+  IpcHello,
   IpcInput,
   IpcMessage,
   IpcRec,
@@ -55,7 +56,7 @@ describe("IpcClient", () => {
 
     expect(serverMessages.length).toBe(1);
     expect(serverMessages[0].t).toBe("hello");
-    expect(serverMessages[0].sid).toBe("test-client");
+    expect((serverMessages[0] as IpcHello).sid).toBe("test-client");
   });
 
   test("sends record and server receives it", async () => {

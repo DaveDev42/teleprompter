@@ -500,17 +500,14 @@ describe("verifyNewBinary", () => {
     if (!r.ok) expect(r.reason).toMatch(/exit 2: oops/);
   });
 
-  test.skipIf(isWindows)(
-    "rejects SIGKILL with Gatekeeper hint",
-    async () => {
-      const dir = mkdtempSync(join(tmpdir(), "tp-verify-"));
-      scriptDirs.push(dir);
-      const path = join(dir, "fake-tp");
-      writeFileSync(path, `#!/usr/bin/env bash\nkill -KILL $$\n`);
-      chmodSync(path, 0o755);
-      const r = await verifyNewBinary(path);
-      expect(r.ok).toBe(false);
-      if (!r.ok) expect(r.reason).toMatch(/signal SIGKILL|killed by signal/);
-    },
-  );
+  test.skipIf(isWindows)("rejects SIGKILL with Gatekeeper hint", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tp-verify-"));
+    scriptDirs.push(dir);
+    const path = join(dir, "fake-tp");
+    writeFileSync(path, `#!/usr/bin/env bash\nkill -KILL $$\n`);
+    chmodSync(path, 0o755);
+    const r = await verifyNewBinary(path);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/signal SIGKILL|killed by signal/);
+  });
 });

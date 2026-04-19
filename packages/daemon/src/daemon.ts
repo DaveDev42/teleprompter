@@ -14,6 +14,10 @@ import {
 } from "@teleprompter/protocol";
 import { formatMarkdown } from "./export-formatter";
 import { IpcServer } from "./ipc/server";
+import {
+  PendingPairing,
+  type PendingPairingResult,
+} from "./pairing/pending-pairing";
 import { PushNotifier } from "./push/push-notifier";
 import {
   type RunnerInfo,
@@ -39,6 +43,10 @@ export class Daemon {
   private worktreeManager: WorktreeManager | null = null;
   private pushNotifier: PushNotifier;
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
+  private pendingPairing: PendingPairing | null = null;
+  private relayFactory:
+    | ((cfg: RelayClientConfig) => RelayClient)
+    | null = null;
   /**
    * Local record observer for passthrough CLI (pipes PTY io to process.stdout).
    * Only one observer is supported; assigning a second overwrites the first.
@@ -234,6 +242,98 @@ export class Daemon {
 
     this.relayClients.push(client);
     return client;
+  }
+
+  /** Test-only hook: inject a fake RelayClient factory for PendingPairing. */
+  __setRelayFactory(f: (cfg: RelayClientConfig) => RelayClient): void {
+    this.relayFactory = f;
+  }
+
+  /**
+   * Start a new pending pairing. Exactly one pending pairing per daemon.
+   * Throws `{ reason, message? }` on error — the IPC layer converts this into
+   * an `IpcPairBeginErr`.
+   */
+  async beginPairing(args: {
+    relayUrl: string;
+    daemonId?: string;
+    label?: string | null;
+  }): Promise<{ pairingId: string; qrString: string; daemonId: string }> {
+    if (this.pendingPairing) {
+      throw { reason: "already-pending" as const };
+    }
+
+    const daemonId = args.daemonId ?? `daemon-${Date.now().toString(36)}`;
+
+    if (this.store.listPairings().some((p) => p.daemonId === daemonId)) {
+      throw { reason: "daemon-id-taken" as const };
+    }
+
+    const pp = new PendingPairing({
+      relayUrl: args.relayUrl,
+      daemonId,
+      label: args.label ?? null,
+      createRelayClient: (cfg) => {
+        const factory = this.relayFactory;
+        if (factory) return factory(cfg as RelayClientConfig);
+        return new RelayClient(cfg as RelayClientConfig, {
+          onFrontendJoined: (frontendId) => {
+            this.pendingPairing?.__markCompleted(frontendId);
+          },
+        });
+      },
+    });
+
+    try {
+      const info = await pp.begin();
+      this.pendingPairing = pp;
+      return info;
+    } catch (err) {
+      pp.cancel();
+      throw {
+        reason: "relay-unreachable" as const,
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  /** Returns the awaitCompletion promise, or null if no pending pairing. */
+  awaitPendingPairing(): Promise<PendingPairingResult> | null {
+    return this.pendingPairing?.awaitCompletion() ?? null;
+  }
+
+  /** Cancel the current pending pairing (no-op if none or if `pairingId` mismatches). */
+  cancelPendingPairing(pairingId?: string): void {
+    if (!this.pendingPairing) return;
+    if (pairingId && this.pendingPairing.pairingId !== pairingId) return;
+    this.pendingPairing.cancel();
+    this.pendingPairing = null;
+  }
+
+  /**
+   * Persist a completed pending pairing and hand off its RelayClient to the
+   * daemon's relay pool. Call this after `awaitPendingPairing()` resolves with
+   * `{ kind: "completed" }`.
+   */
+  promoteCompletedPairing(
+    result: PendingPairingResult & { kind: "completed" },
+  ): void {
+    this.store.savePairing({
+      daemonId: result.daemonId,
+      relayUrl: result.relayUrl,
+      relayToken: result.relayToken,
+      registrationProof: result.registrationProof,
+      publicKey: result.keyPair.publicKey,
+      secretKey: result.keyPair.secretKey,
+      pairingSecret: result.pairingSecret,
+      label: result.label,
+    });
+    const pp = this.pendingPairing;
+    if (pp) {
+      const relay = pp.releaseRelay();
+      this.relayClients.push(relay);
+    }
+    this.pendingPairing = null;
   }
 
   /**

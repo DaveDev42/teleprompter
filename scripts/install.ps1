@@ -82,7 +82,7 @@ try {
 }
 
 # PATH advice
-if (-not ($env:Path -split ";" | Where-Object { $_ -ieq $InstallDir })) {
+if (-not ($env:Path -split ";" | Where-Object { $_.TrimEnd('\', '/') -ieq $InstallDir.TrimEnd('\', '/') })) {
   Write-Host ""
   Write-Host "To use 'tp' from any shell, add this directory to PATH:"
   Write-Host "  [Environment]::SetEnvironmentVariable('Path', `"`$env:Path;$InstallDir`", 'User')"
@@ -92,7 +92,7 @@ if (-not ($env:Path -split ";" | Where-Object { $_ -ieq $InstallDir })) {
 
 # Install shell completions (idempotent, failure is non-fatal)
 if (-not $NoCompletions -and $env:NO_COMPLETIONS -ne "1") {
-  $onPath = ($env:Path -split ";" | Where-Object { $_ -ieq $InstallDir })
+  $onPath = ($env:Path -split ";" | Where-Object { $_.TrimEnd('\', '/') -ieq $InstallDir.TrimEnd('\', '/') })
   if (-not $onPath) {
     Write-Host ""
     Write-Host "Shell completions not installed ($InstallDir is not on PATH)."
@@ -107,6 +107,9 @@ if (-not $NoCompletions -and $env:NO_COMPLETIONS -ne "1") {
         & $target completions install powershell --profile-dir "$profileDir"
       } else {
         & $target completions install powershell
+      }
+      if ($LASTEXITCODE -ne 0) {
+        throw "completions install exited with code $LASTEXITCODE"
       }
     } catch {
       Write-Host ""

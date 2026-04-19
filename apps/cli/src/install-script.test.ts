@@ -1,13 +1,21 @@
 import { describe, expect, test } from "bun:test";
+import { execSync } from "child_process";
 import { readFileSync } from "fs";
 
-describe("install.sh completion opt-out", () => {
-  test("NO_COMPLETIONS=1 skips completion install", () => {
-    // Static check of install.sh contents since full execution
-    // requires network + real binary.
-    const script = readFileSync("scripts/install.sh", "utf-8");
-    expect(script).toContain("NO_COMPLETIONS");
-    expect(script).toContain("TP_AUTO_COMPLETIONS");
-    expect(script).toContain("-t 0");
-  });
-});
+describe.skipIf(process.platform === "win32")(
+  "install.sh completion opt-out",
+  () => {
+    test("script is valid bash", () => {
+      // Throws on syntax errors
+      execSync("bash -n scripts/install.sh", { stdio: "pipe" });
+    });
+
+    test("opt-out knobs and TTY gate present", () => {
+      const script = readFileSync("scripts/install.sh", "utf-8");
+      expect(script).toContain("NO_COMPLETIONS");
+      expect(script).toContain("TP_AUTO_COMPLETIONS");
+      expect(script).toMatch(/\[\s*!\s*-t\s+0\s*\]/);
+      expect(script).toContain("--no-completions");
+    });
+  },
+);

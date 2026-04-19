@@ -18,11 +18,16 @@ export async function daemonCommand(argv: string[]): Promise<void> {
       const { uninstallService } = await import("../lib/service");
       return uninstallService();
     }
+    case "status": {
+      const { daemonStatusCommand } = await import("./daemon-status");
+      return daemonStatusCommand(argv.slice(1));
+    }
     default:
       console.error(
-        `Usage: tp daemon <start|install|uninstall> [options]\n` +
+        `Usage: tp daemon <start|status|install|uninstall> [options]\n` +
           `  start      Start daemon in foreground\n` +
-          `  install    Register as OS service (launchd/systemd)\n` +
+          `  status     Show service registration + running state\n` +
+          `  install    Register as OS service (launchd/systemd/Task Scheduler)\n` +
           `  uninstall  Remove OS service registration`,
       );
       process.exit(1);

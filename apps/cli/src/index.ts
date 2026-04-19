@@ -139,6 +139,7 @@ Flags:
 
 Daemon management:
   tp daemon start [options]           Start daemon in foreground
+  tp daemon status                    Inspect service registration + run state
   tp daemon install                   Auto-start on login (launchd/systemd)
   tp daemon uninstall                 Remove auto-start
 

@@ -1,17 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { FrameDecoder } from "@teleprompter/protocol";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Daemon } from "./daemon";
 import type { ConnectedRunner } from "./ipc/server";
 import { BeginPairingError } from "./pairing/begin-pairing-error";
+import { rmRetry } from "./store/test-helpers";
 import type { RelayClient } from "./transport/relay-client";
 
 describe("Daemon.beginPairing", () => {
   let dir: string;
   afterEach(() => {
-    if (dir) rmSync(dir, { recursive: true, force: true });
+    if (dir) rmRetry(dir);
   });
 
   function fakeRelay() {

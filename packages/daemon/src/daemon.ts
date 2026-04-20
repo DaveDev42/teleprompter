@@ -173,7 +173,7 @@ export class Daemon {
    * RelayClient instance even though it hasn't been constructed yet.
    */
   private buildRelayEvents(
-    daemonId: string,
+    _daemonId: string,
     getClient: () => RelayClient | null,
   ): RelayClientEvents {
     return {

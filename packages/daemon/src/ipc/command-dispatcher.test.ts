@@ -79,7 +79,9 @@ function makeHarness(
     recordObserver: [],
   };
 
-  const fakeSessions: SessionMeta[] = opts.sessionMeta ? [opts.sessionMeta] : [];
+  const fakeSessions: SessionMeta[] = opts.sessionMeta
+    ? [opts.sessionMeta]
+    : [];
 
   const ipcServer: Pick<IpcServer, "send" | "findRunnerBySid"> = {
     send: (runner, msg) => {
@@ -143,12 +145,7 @@ function makeHarness(
   const relayClients = opts.relayClients ?? [];
 
   const recordObserver:
-    | ((
-        sid: string,
-        kind: string,
-        payload: Buffer,
-        name?: string,
-      ) => void)
+    | ((sid: string, kind: string, payload: Buffer, name?: string) => void)
     | null = (sid, kind, payload, name) => {
     calls.recordObserver.push([sid, kind, payload, name]);
   };
@@ -241,8 +238,12 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
       pid: 42,
     };
     dispatcher.dispatchIpc(makeRunner(), hello);
-    expect(calls.storeCreateSession).toEqual([["s1", "/cwd", undefined, undefined]]);
-    expect(calls.sessionRegister).toEqual([["s1", 42, "/cwd", undefined, undefined]]);
+    expect(calls.storeCreateSession).toEqual([
+      ["s1", "/cwd", undefined, undefined],
+    ]);
+    expect(calls.sessionRegister).toEqual([
+      ["s1", 42, "/cwd", undefined, undefined],
+    ]);
     expect(seenSubscribes).toEqual(["s1"]);
     expect(seenStates.length).toBe(1);
   });

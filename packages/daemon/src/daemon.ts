@@ -12,9 +12,10 @@ import { IpcCommandDispatcher } from "./ipc/command-dispatcher";
 import type { ConnectedRunner } from "./ipc/server";
 import { IpcServer } from "./ipc/server";
 import { BeginPairingError } from "./pairing/begin-pairing-error";
-import {
+import { PairingOrchestrator } from "./pairing/pairing-orchestrator";
+import type {
   PendingPairing,
-  type PendingPairingResult,
+  PendingPairingResult,
 } from "./pairing/pending-pairing";
 import { PushNotifier } from "./push/push-notifier";
 import {
@@ -25,11 +26,7 @@ import {
 import { Store } from "./store";
 import type { StoredRecord } from "./store/session-db";
 import type { SessionMeta } from "./store/store";
-import {
-  RelayClient,
-  type RelayClientConfig,
-  type RelayClientEvents,
-} from "./transport/relay-client";
+import type { RelayClient, RelayClientConfig } from "./transport/relay-client";
 import { RelayConnectionManager } from "./transport/relay-manager";
 import { WorktreeManager } from "./worktree/worktree-manager";
 
@@ -46,7 +43,7 @@ export class Daemon {
   private worktreeManager: WorktreeManager | null = null;
   private pushNotifier: PushNotifier;
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
-  private pendingPairing: PendingPairing | null = null;
+  private pairingOrchestrator: PairingOrchestrator;
   private pendingPairingOwner: ConnectedRunner | null = null;
   private dispatcher: IpcCommandDispatcher;
   /**
@@ -95,6 +92,11 @@ export class Daemon {
       getDispatcher: () => this.dispatcher,
     });
 
+    this.pairingOrchestrator = new PairingOrchestrator({
+      relayManager: this.relayManager,
+      store: this.store,
+    });
+
     this.dispatcher = new IpcCommandDispatcher({
       ipcServer: this.ipcServer,
       store: this.store,
@@ -113,6 +115,16 @@ export class Daemon {
   }
 
   private socketPath: string = "";
+
+  /**
+   * Back-compat accessor for tests: returns the currently pending pairing.
+   * The real state lives on {@link PairingOrchestrator}; this getter keeps
+   * `daemon.pendingPairing` read-access working for existing test fixtures
+   * that introspect daemon state directly.
+   */
+  get pendingPairing(): PendingPairing | null {
+    return this.pairingOrchestrator.current;
+  }
 
   start(socketPath?: string): string {
     // Mark stale "running" sessions as stopped (from previous daemon run)
@@ -194,89 +206,26 @@ export class Daemon {
    * Throws `BeginPairingError` on error — the IPC layer converts this into
    * an `IpcPairBeginErr`.
    *
-   * Pairing lifecycle (`pendingPairing`, cancel, promote) stays on Daemon
-   * for C2 — the RelayConnectionManager is invoked for client construction
-   * (via `buildEvents` / `attachHandlers`) and for eventual promotion (via
-   * `registerClient`).
+   * Thin delegate to {@link PairingOrchestrator.begin}.
    */
   async beginPairing(args: {
     relayUrl: string;
     daemonId?: string;
     label?: string | null;
   }): Promise<{ pairingId: string; qrString: string; daemonId: string }> {
-    if (this.pendingPairing) {
-      throw new BeginPairingError("already-pending");
-    }
-
-    const daemonId = args.daemonId ?? `daemon-${Date.now().toString(36)}`;
-
-    if (this.store.listPairings().some((p) => p.daemonId === daemonId)) {
-      throw new BeginPairingError("daemon-id-taken");
-    }
-
-    let relayRef: RelayClient | null = null;
-    const events = this.relayManager.buildEvents(daemonId, () => relayRef);
-    const wrappedEvents: RelayClientEvents = {
-      ...events,
-      onFrontendJoined: (frontendId) => {
-        // Call the original hello/subscribe fan-out logic
-        events.onFrontendJoined?.(frontendId);
-        // Resolve the pending pairing
-        this.pendingPairing?.__markCompleted(frontendId);
-      },
-    };
-
-    const pp = new PendingPairing({
-      relayUrl: args.relayUrl,
-      daemonId,
-      label: args.label ?? null,
-      createRelayClient: (cfg) => {
-        const factory = this.relayManager.__getFactory();
-        if (factory) {
-          // Test path — factory provides a fake; ignore wrappedEvents
-          const client = factory(cfg as RelayClientConfig);
-          relayRef = client;
-          this.relayManager.attachHandlers(client, daemonId);
-          return client;
-        }
-        const client = new RelayClient(cfg as RelayClientConfig, wrappedEvents);
-        relayRef = client;
-        this.relayManager.attachHandlers(client, daemonId);
-        return client;
-      },
-    });
-
-    // Reserve the slot synchronously before any async work so no concurrent
-    // beginPairing can slip in while relay.connect() is in-flight.
-    this.pendingPairing = pp;
-
-    try {
-      const info = await pp.begin();
-      return info;
-    } catch (err) {
-      pp.cancel();
-      if (this.pendingPairing === pp) this.pendingPairing = null;
-      throw new BeginPairingError(
-        "relay-unreachable",
-        err instanceof Error ? err.message : String(err),
-      );
-    }
+    return this.pairingOrchestrator.begin(args);
   }
 
   /** Returns the awaitCompletion promise, or null if no pending pairing. */
   awaitPendingPairing(): Promise<PendingPairingResult> | null {
-    return this.pendingPairing?.awaitCompletion() ?? null;
+    return this.pairingOrchestrator.awaitPending();
   }
 
   /** Cancel the current pending pairing (no-op if none or if `pairingId` mismatches).
    * Also a no-op if the pairing has already completed — the promote path is
    * about to run and must not be disrupted. */
   cancelPendingPairing(pairingId?: string): void {
-    if (!this.pendingPairing) return;
-    if (pairingId && this.pendingPairing.pairingId !== pairingId) return;
-    if (this.pendingPairing.completed) return; // race: promote is about to run
-    this.pendingPairing.cancel();
-    this.pendingPairing = null;
+    this.pairingOrchestrator.cancel(pairingId);
   }
 
   /**
@@ -287,22 +236,7 @@ export class Daemon {
   promoteCompletedPairing(
     result: PendingPairingResult & { kind: "completed" },
   ): void {
-    this.store.savePairing({
-      daemonId: result.daemonId,
-      relayUrl: result.relayUrl,
-      relayToken: result.relayToken,
-      registrationProof: result.registrationProof,
-      publicKey: result.keyPair.publicKey,
-      secretKey: result.keyPair.secretKey,
-      pairingSecret: result.pairingSecret,
-      label: result.label,
-    });
-    const pp = this.pendingPairing;
-    if (pp) {
-      const relay = pp.releaseRelay();
-      this.relayManager.registerClient(relay);
-    }
-    this.pendingPairing = null;
+    this.pairingOrchestrator.promote(result);
   }
 
   async __handlePairBegin(
@@ -350,7 +284,7 @@ export class Daemon {
               `promoteCompletedPairing failed (pairingId=${info.pairingId}): ${message}`,
             );
             // Defensively clear the slot so subsequent pair.begin can proceed.
-            this.pendingPairing = null;
+            this.pairingOrchestrator.clearPending();
             const errEvt: IpcPairError = {
               t: "pair.error",
               pairingId: info.pairingId,
@@ -521,6 +455,7 @@ export class Daemon {
     }
 
     this.stopAutoCleanup();
+    this.pairingOrchestrator.stop();
     this.relayManager.stop();
     this.ipcServer.stop();
     this.store.close();

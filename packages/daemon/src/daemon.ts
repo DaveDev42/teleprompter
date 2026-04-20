@@ -6,13 +6,8 @@ import type {
   IpcPairCancelled,
   IpcPairCompleted,
   IpcPairError,
-  WsSessionMeta,
 } from "@teleprompter/protocol";
-import {
-  createLogger,
-  RELAY_CHANNEL_CONTROL,
-  RELAY_CHANNEL_META,
-} from "@teleprompter/protocol";
+import { createLogger } from "@teleprompter/protocol";
 import { IpcCommandDispatcher } from "./ipc/command-dispatcher";
 import type { ConnectedRunner } from "./ipc/server";
 import { IpcServer } from "./ipc/server";
@@ -35,6 +30,7 @@ import {
   type RelayClientConfig,
   type RelayClientEvents,
 } from "./transport/relay-client";
+import { RelayConnectionManager } from "./transport/relay-manager";
 import { WorktreeManager } from "./worktree/worktree-manager";
 
 const log = createLogger("Daemon");
@@ -46,13 +42,12 @@ export class Daemon {
   private ipcServer: IpcServer;
   private store: Store;
   private sessionManager = new SessionManager();
-  private relayClients: RelayClient[] = [];
+  private relayManager: RelayConnectionManager;
   private worktreeManager: WorktreeManager | null = null;
   private pushNotifier: PushNotifier;
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
   private pendingPairing: PendingPairing | null = null;
   private pendingPairingOwner: ConnectedRunner | null = null;
-  private relayFactory: ((cfg: RelayClientConfig) => RelayClient) | null = null;
   private dispatcher: IpcCommandDispatcher;
   /**
    * Local record observer for passthrough CLI (pipes PTY io to process.stdout).
@@ -67,9 +62,7 @@ export class Daemon {
 
     this.pushNotifier = new PushNotifier({
       sendPush: (frontendId, token, title, body, data) => {
-        for (const relay of this.relayClients) {
-          relay.sendPush(frontendId, token, title, body, data);
-        }
+        this.relayManager.dispatchPush(frontendId, token, title, body, data);
       },
     });
 
@@ -91,6 +84,17 @@ export class Daemon {
       },
     });
 
+    // RelayConnectionManager is constructed before the dispatcher so the
+    // dispatcher can read relay clients via `manager.listClients()`. The
+    // manager itself reads the dispatcher lazily via `getDispatcher` to
+    // close the cycle.
+    this.relayManager = new RelayConnectionManager({
+      ipcServer: this.ipcServer,
+      store: this.store,
+      pushNotifier: this.pushNotifier,
+      getDispatcher: () => this.dispatcher,
+    });
+
     this.dispatcher = new IpcCommandDispatcher({
       ipcServer: this.ipcServer,
       store: this.store,
@@ -104,7 +108,7 @@ export class Daemon {
       onPairCancel: (runner, msg) => this.__handlePairCancel(runner, msg),
       onCliDisconnect: (runner) => this.__handleCliDisconnect(runner),
       getOnRecord: () => this.onRecord,
-      getRelayClients: () => this.relayClients,
+      getRelayClients: () => [...this.relayManager.listClients()],
     });
   }
 
@@ -168,136 +172,32 @@ export class Daemon {
   }
 
   /**
-   * Build the full RelayClientEvents bag for a given daemonId.
-   * `getClient` is a lazy reference so the closures can call back into the
-   * RelayClient instance even though it hasn't been constructed yet.
-   */
-  private buildRelayEvents(
-    _daemonId: string,
-    getClient: () => RelayClient | null,
-  ): RelayClientEvents {
-    return {
-      onInput: (kind, _sid, data) => {
-        const runner = this.ipcServer.findRunnerBySid(_sid);
-        if (runner) {
-          const payload =
-            kind === "chat"
-              ? Buffer.from(`${data}\n`).toString("base64")
-              : data;
-          this.ipcServer.send(runner, { t: "input", sid: _sid, data: payload });
-        }
-      },
-      onControlMessage: (msg, frontendId) => {
-        const c = getClient();
-        if (c) this.dispatcher.dispatchRelayControl(c, msg, frontendId);
-      },
-      onFrontendJoined: (frontendId) => {
-        const c = getClient();
-        if (!c) return;
-        const sessions = this.store.listSessions().map(toWsSessionMeta);
-        const helloMsg = { t: "hello", v: 1, d: { sessions } };
-        c.publishToPeer(frontendId, RELAY_CHANNEL_META, helloMsg).catch(
-          () => {},
-        );
-        for (const s of sessions) {
-          if (s.state === "running") {
-            c.subscribe(s.sid);
-          }
-        }
-      },
-      onPushToken: (frontendId, token, platform) => {
-        this.pushNotifier.registerToken(frontendId, token, platform);
-      },
-    };
-  }
-
-  /**
-   * Attach the onUnpair and onRename handlers to a fully-constructed
-   * RelayClient. Called immediately after construction in both
-   * `connectRelay` and `beginPairing`.
-   */
-  private attachRelayHandlers(client: RelayClient, daemonId: string): void {
-    client.onUnpair = ({ frontendId, reason }) => {
-      log.info(
-        `peer unpaired (daemonId=${daemonId}, frontendId=${frontendId}, reason=${reason}); removing pairing`,
-      );
-      this.removePairing(daemonId, { notifyPeer: false }).catch((err) => {
-        log.error(
-          `removePairing failed after inbound unpair (daemonId=${daemonId}):`,
-          err,
-        );
-      });
-    };
-    // Note: daemon stores a single label row per pairing; if multiple frontends
-    // rename concurrently, last-write-wins. Cross-frontend fan-out is out of scope.
-    client.onRename = ({ frontendId, label }) => {
-      log.info(
-        `peer renamed pairing (frontendId=${frontendId}) → ${JSON.stringify(label)}`,
-      );
-      try {
-        this.store.updatePairingLabel(daemonId, label || null);
-      } catch (err) {
-        log.error(
-          `updatePairingLabel failed after inbound rename (daemonId=${daemonId}):`,
-          err,
-        );
-      }
-    };
-  }
-
-  /**
    * Connect to a Relay server for remote frontend access.
    * Multiple relays can be connected simultaneously.
    * Pairing data is persisted to store for auto-reconnect on restart.
+   *
+   * Thin delegate to {@link RelayConnectionManager.addClient}; kept on the
+   * Daemon surface for back-compat with CLI tests (unpair-e2e, rename-e2e,
+   * multi-frontend).
    */
   async connectRelay(config: RelayClientConfig): Promise<RelayClient> {
-    let clientRef: RelayClient | null = null;
-    const events = this.buildRelayEvents(config.daemonId, () => clientRef);
-    const client = new RelayClient(config, events);
-    clientRef = client;
-    this.attachRelayHandlers(client, config.daemonId);
-
-    await client.connect();
-
-    // Subscribe to meta, control, and all existing sessions
-    client.subscribe(RELAY_CHANNEL_META);
-    client.subscribe(RELAY_CHANNEL_CONTROL);
-    for (const meta of this.store.listSessions()) {
-      if (meta.state === "running") {
-        client.subscribe(meta.sid);
-      }
-    }
-
-    // Persist pairing data for auto-reconnect on daemon restart.
-    // Preserve any existing label if the caller didn't supply one, so
-    // reconnecting saved relays doesn't overwrite a user-set label.
-    const existingLabel =
-      this.store.listPairings().find((p) => p.daemonId === config.daemonId)
-        ?.label ?? null;
-    this.store.savePairing({
-      daemonId: config.daemonId,
-      relayUrl: config.relayUrl,
-      relayToken: config.token,
-      registrationProof: config.registrationProof,
-      publicKey: config.keyPair.publicKey,
-      secretKey: config.keyPair.secretKey,
-      pairingSecret: config.pairingSecret,
-      label: config.label ?? existingLabel,
-    });
-
-    this.relayClients.push(client);
-    return client;
+    return this.relayManager.addClient(config);
   }
 
   /** Test-only hook: inject a fake RelayClient factory for PendingPairing. */
   __setRelayFactory(f: (cfg: RelayClientConfig) => RelayClient): void {
-    this.relayFactory = f;
+    this.relayManager.__setFactory(f);
   }
 
   /**
    * Start a new pending pairing. Exactly one pending pairing per daemon.
    * Throws `BeginPairingError` on error — the IPC layer converts this into
    * an `IpcPairBeginErr`.
+   *
+   * Pairing lifecycle (`pendingPairing`, cancel, promote) stays on Daemon
+   * for C2 — the RelayConnectionManager is invoked for client construction
+   * (via `buildEvents` / `attachHandlers`) and for eventual promotion (via
+   * `registerClient`).
    */
   async beginPairing(args: {
     relayUrl: string;
@@ -315,7 +215,7 @@ export class Daemon {
     }
 
     let relayRef: RelayClient | null = null;
-    const events = this.buildRelayEvents(daemonId, () => relayRef);
+    const events = this.relayManager.buildEvents(daemonId, () => relayRef);
     const wrappedEvents: RelayClientEvents = {
       ...events,
       onFrontendJoined: (frontendId) => {
@@ -331,17 +231,17 @@ export class Daemon {
       daemonId,
       label: args.label ?? null,
       createRelayClient: (cfg) => {
-        const factory = this.relayFactory;
+        const factory = this.relayManager.__getFactory();
         if (factory) {
           // Test path — factory provides a fake; ignore wrappedEvents
           const client = factory(cfg as RelayClientConfig);
           relayRef = client;
-          this.attachRelayHandlers(client, daemonId);
+          this.relayManager.attachHandlers(client, daemonId);
           return client;
         }
         const client = new RelayClient(cfg as RelayClientConfig, wrappedEvents);
         relayRef = client;
-        this.attachRelayHandlers(client, daemonId);
+        this.relayManager.attachHandlers(client, daemonId);
         return client;
       },
     });
@@ -381,8 +281,8 @@ export class Daemon {
 
   /**
    * Persist a completed pending pairing and hand off its RelayClient to the
-   * daemon's relay pool. Call this after `awaitPendingPairing()` resolves with
-   * `{ kind: "completed" }`.
+   * relay manager's pool. Call this after `awaitPendingPairing()` resolves
+   * with `{ kind: "completed" }`.
    */
   promoteCompletedPairing(
     result: PendingPairingResult & { kind: "completed" },
@@ -400,7 +300,7 @@ export class Daemon {
     const pp = this.pendingPairing;
     if (pp) {
       const relay = pp.releaseRelay();
-      this.relayClients.push(relay);
+      this.relayManager.registerClient(relay);
     }
     this.pendingPairing = null;
   }
@@ -510,30 +410,13 @@ export class Daemon {
   }
 
   /**
-   * Reconnect to all saved relay pairings from store.
-   * Called on daemon startup to restore relay connections.
+   * Reconnect to all saved relay pairings from store. Called on daemon
+   * startup to restore relay connections.
+   *
+   * Thin delegate to {@link RelayConnectionManager.reconnectSaved}.
    */
   async reconnectSavedRelays(): Promise<number> {
-    const pairings = this.store.loadPairings();
-    let count = 0;
-    for (const p of pairings) {
-      try {
-        await this.connectRelay({
-          relayUrl: p.relayUrl,
-          daemonId: p.daemonId,
-          token: p.relayToken,
-          registrationProof: p.registrationProof,
-          keyPair: { publicKey: p.publicKey, secretKey: p.secretKey },
-          pairingSecret: p.pairingSecret,
-          label: p.label,
-        });
-        count++;
-        log.info(`reconnected to relay ${p.relayUrl} (daemon ${p.daemonId})`);
-      } catch (err) {
-        log.error(`failed to reconnect to relay ${p.relayUrl}:`, err);
-      }
-    }
-    return count;
+    return this.relayManager.reconnectSaved();
   }
 
   createSession(sid: string, cwd: string, opts?: SpawnRunnerOptions): void {
@@ -609,43 +492,19 @@ export class Daemon {
    * Remove a pairing by daemonId: optionally notifies the peer with a
    * control.unpair frame, tears down the relay client, and deletes the
    * persisted pairing record from the store.
+   *
+   * Thin delegate to {@link RelayConnectionManager.removePairing}.
    */
   async removePairing(
     daemonId: string,
     opts: { notifyPeer: boolean } = { notifyPeer: true },
   ): Promise<void> {
-    const idx = this.relayClients.findIndex((c) => c.daemonId === daemonId);
-    const client = idx >= 0 ? this.relayClients[idx] : undefined;
-    if (client && opts.notifyPeer) {
-      let notified = 0;
-      const peers = client.listPeerFrontendIds();
-      for (const frontendId of peers) {
-        try {
-          if (await client.sendUnpairNotice(frontendId, "user-initiated")) {
-            notified++;
-          }
-        } catch (err) {
-          // Best-effort — continue teardown on failure
-          log.warn(
-            `sendUnpairNotice failed for frontend ${frontendId}: ${String(err)}`,
-          );
-        }
-      }
-      const logFn = peers.length === 0 ? log.debug : log.info;
-      logFn(
-        `removePairing(${daemonId}): notified ${notified}/${peers.length} peers`,
-      );
-    }
-    if (client) {
-      client.dispose();
-      this.relayClients.splice(idx, 1);
-    }
-    this.store.deletePairing(daemonId);
+    return this.relayManager.removePairing(daemonId, opts);
   }
 
   /** @internal for tests */
   getActivePairingIds(): string[] {
-    return this.relayClients.map((c) => c.daemonId);
+    return this.relayManager.listDaemonIds();
   }
 
   stop(): void {
@@ -662,25 +521,9 @@ export class Daemon {
     }
 
     this.stopAutoCleanup();
-    for (const relay of this.relayClients) {
-      relay.dispose();
-    }
-    this.relayClients = [];
+    this.relayManager.stop();
     this.ipcServer.stop();
     this.store.close();
     log.info("stopped");
   }
-}
-
-function toWsSessionMeta(meta: SessionMeta): WsSessionMeta {
-  return {
-    sid: meta.sid,
-    state: meta.state,
-    cwd: meta.cwd,
-    worktreePath: meta.worktree_path ?? undefined,
-    claudeVersion: meta.claude_version ?? undefined,
-    createdAt: meta.created_at,
-    updatedAt: meta.updated_at,
-    lastSeq: meta.last_seq,
-  };
 }

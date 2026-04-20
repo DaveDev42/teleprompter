@@ -143,9 +143,7 @@ describe("Daemon.beginPairing", () => {
     expect(pairings.some((p) => p.daemonId === "d1")).toBe(true);
 
     // Relay pool should now contain the promoted client
-    const relayCount = (daemon as unknown as { relayClients: Array<unknown> })
-      .relayClients.length;
-    expect(relayCount).toBeGreaterThanOrEqual(1);
+    expect(daemon.getActivePairingIds().length).toBeGreaterThanOrEqual(1);
 
     daemon.stop();
   });
@@ -228,9 +226,7 @@ describe("Daemon.beginPairing", () => {
     ).store.listPairings();
     expect(pairings.some((p) => p.daemonId === "d-race")).toBe(true);
 
-    const relayCount = (daemon as unknown as { relayClients: Array<unknown> })
-      .relayClients.length;
-    expect(relayCount).toBeGreaterThanOrEqual(1);
+    expect(daemon.getActivePairingIds().length).toBeGreaterThanOrEqual(1);
 
     daemon.stop();
   });

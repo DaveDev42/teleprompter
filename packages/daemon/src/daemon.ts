@@ -1,7 +1,4 @@
 import type {
-  IpcBye,
-  IpcHello,
-  IpcMessage,
   IpcPairBegin,
   IpcPairBeginErr,
   IpcPairBeginOk,
@@ -9,11 +6,6 @@ import type {
   IpcPairCancelled,
   IpcPairCompleted,
   IpcPairError,
-  IpcRec,
-  Namespace,
-  RelayControlMessage,
-  WsRec,
-  WsSessionExport,
   WsSessionMeta,
 } from "@teleprompter/protocol";
 import {
@@ -21,7 +13,7 @@ import {
   RELAY_CHANNEL_CONTROL,
   RELAY_CHANNEL_META,
 } from "@teleprompter/protocol";
-import { formatMarkdown } from "./export-formatter";
+import { IpcCommandDispatcher } from "./ipc/command-dispatcher";
 import type { ConnectedRunner } from "./ipc/server";
 import { IpcServer } from "./ipc/server";
 import { BeginPairingError } from "./pairing/begin-pairing-error";
@@ -61,6 +53,7 @@ export class Daemon {
   private pendingPairing: PendingPairing | null = null;
   private pendingPairingOwner: ConnectedRunner | null = null;
   private relayFactory: ((cfg: RelayClientConfig) => RelayClient) | null = null;
+  private dispatcher: IpcCommandDispatcher;
   /**
    * Local record observer for passthrough CLI (pipes PTY io to process.stdout).
    * Only one observer is supported; assigning a second overwrites the first.
@@ -80,36 +73,38 @@ export class Daemon {
       },
     });
 
+    // IpcServer and dispatcher reference each other at construction time,
+    // so create the dispatcher first (with a lazy ipcServer getter is avoided
+    // by assigning `this.ipcServer` before the dispatcher references it).
     this.ipcServer = new IpcServer({
       onConnect: (_runner) => {
         log.info("runner connected");
       },
       onDisconnect: (runner) => {
-        this.__handleCliDisconnect(runner);
+        this.dispatcher.handleRunnerDisconnect(runner);
         if (runner.sid) {
           log.info(`runner disconnected sid=${runner.sid}`);
         }
       },
-      onMessage: (runner, msg: IpcMessage) => {
-        switch (msg.t) {
-          case "pair.begin":
-            void this.__handlePairBegin(runner, msg);
-            return;
-          case "pair.cancel":
-            this.__handlePairCancel(runner, msg);
-            return;
-          case "hello":
-          case "rec":
-          case "bye":
-            this.handleMessage(runner, msg);
-            return;
-          default:
-            // ack/input/resize/pair.begin.ok/pair.begin.err/
-            // pair.completed/pair.cancelled/pair.error are daemon→runner
-            // messages; if a runner sends one we simply ignore it.
-            log.warn(`ignoring unexpected IPC message from runner: ${msg.t}`);
-        }
+      onMessage: (runner, msg) => {
+        this.dispatcher.dispatchIpc(runner, msg);
       },
+    });
+
+    this.dispatcher = new IpcCommandDispatcher({
+      ipcServer: this.ipcServer,
+      store: this.store,
+      sessionManager: this.sessionManager,
+      pushNotifier: this.pushNotifier,
+      getWorktreeManager: () => this.worktreeManager,
+      createSession: (sid, cwd, opts) => this.createSession(sid, cwd, opts),
+      onPairBegin: (runner, msg) => {
+        void this.__handlePairBegin(runner, msg);
+      },
+      onPairCancel: (runner, msg) => this.__handlePairCancel(runner, msg),
+      onCliDisconnect: (runner) => this.__handleCliDisconnect(runner),
+      getOnRecord: () => this.onRecord,
+      getRelayClients: () => this.relayClients,
     });
   }
 
@@ -194,7 +189,7 @@ export class Daemon {
       },
       onControlMessage: (msg, frontendId) => {
         const c = getClient();
-        if (c) this.handleRelayControlMessage(c, msg, frontendId);
+        if (c) this.dispatcher.dispatchRelayControl(c, msg, frontendId);
       },
       onFrontendJoined: (frontendId) => {
         const c = getClient();
@@ -568,478 +563,6 @@ export class Daemon {
     }
   }
 
-  private handleMessage(
-    runner: Parameters<IpcServer["send"]>[0],
-    msg: IpcHello | IpcRec | IpcBye,
-  ): void {
-    switch (msg.t) {
-      case "hello":
-        this.handleHello(runner, msg);
-        break;
-      case "rec":
-        this.handleRec(runner, msg);
-        break;
-      case "bye":
-        this.handleBye(msg);
-        break;
-    }
-  }
-
-  private handleHello(_runner: unknown, msg: IpcHello): void {
-    this.store.createSession(
-      msg.sid,
-      msg.cwd,
-      msg.worktreePath,
-      msg.claudeVersion,
-    );
-    this.sessionManager.registerRunner(
-      msg.sid,
-      msg.pid,
-      msg.cwd,
-      msg.worktreePath,
-      msg.claudeVersion,
-    );
-    log.info(`session created sid=${msg.sid}`);
-
-    // Subscribe relay clients to the new session
-    for (const relay of this.relayClients) {
-      relay.subscribe(msg.sid);
-    }
-
-    // Notify relay of new session
-    const meta = this.store.getSession(msg.sid);
-    if (meta) {
-      const stateMsg = {
-        t: "state" as const,
-        sid: msg.sid,
-        d: toWsSessionMeta(meta),
-      };
-      for (const relay of this.relayClients) {
-        relay.publishState(RELAY_CHANNEL_META, stateMsg).catch(() => {});
-      }
-    }
-  }
-
-  private handleRec(
-    runner: Parameters<IpcServer["send"]>[0],
-    msg: IpcRec,
-  ): void {
-    const db = this.store.getSessionDb(msg.sid);
-    if (!db) {
-      log.error(`unknown session sid=${msg.sid}`);
-      return;
-    }
-
-    const payload = Buffer.from(msg.payload, "base64");
-    const seq = db.append(msg.kind, msg.ts, payload, msg.ns, msg.name);
-
-    this.store.updateLastSeq(msg.sid, seq);
-
-    // Send ack (informational, non-blocking)
-    this.ipcServer.send(runner, {
-      t: "ack",
-      sid: msg.sid,
-      seq,
-    });
-
-    // Publish to relay(s) for remote frontends
-    const wsRec: WsRec = {
-      t: "rec",
-      sid: msg.sid,
-      seq,
-      k: msg.kind,
-      ns: msg.ns,
-      n: msg.name,
-      d: msg.payload, // already base64
-      ts: msg.ts,
-    };
-    for (const relay of this.relayClients) {
-      relay.publishRecord(wsRec).catch(() => {});
-    }
-
-    // Notify local observer (passthrough CLI pipes io records to stdout).
-    if (this.onRecord) {
-      this.onRecord(msg.sid, msg.kind, payload, msg.name);
-    }
-
-    // Check if this record should trigger a push notification
-    this.pushNotifier.onRecord({
-      sid: msg.sid,
-      kind: msg.kind,
-      name: msg.name,
-      ns: msg.ns,
-    });
-  }
-
-  private handleBye(msg: IpcBye): void {
-    const state = msg.exitCode === 0 ? "stopped" : "error";
-    this.store.updateSessionState(msg.sid, state);
-    this.sessionManager.unregisterRunner(msg.sid);
-    log.info(
-      `session ended sid=${msg.sid} exitCode=${msg.exitCode} state=${state}`,
-    );
-
-    // Notify relay of session state change
-    const meta = this.store.getSession(msg.sid);
-    if (meta) {
-      const stateMsg = {
-        t: "state" as const,
-        sid: msg.sid,
-        d: toWsSessionMeta(meta),
-      };
-      for (const relay of this.relayClients) {
-        relay.publishState(RELAY_CHANNEL_META, stateMsg).catch(() => {});
-      }
-    }
-  }
-
-  /**
-   * Handle control messages from a remote frontend via relay.
-   * Mirrors the WS server handlers but sends responses back through relay.
-   *
-   * Note: `control.unpair` is intercepted earlier in
-   * RelayClient.decryptAndDispatch and never reaches this handler.
-   */
-  private handleRelayControlMessage(
-    relay: RelayClient,
-    msg: RelayControlMessage,
-    frontendId: string,
-  ): void {
-    const reply = (sid: string, response: unknown) => {
-      relay.publishToPeer(frontendId, sid, response).catch(() => {});
-    };
-    const replyError = (sid: string, e: string, m: string) => {
-      reply(sid, { t: "err", e, m });
-    };
-
-    switch (msg.t) {
-      case "hello": {
-        const sessions = this.store.listSessions().map(toWsSessionMeta);
-        reply(RELAY_CHANNEL_META, { t: "hello", v: 1, d: { sessions } });
-        break;
-      }
-
-      case "attach": {
-        const meta = this.store.getSession(msg.sid);
-        if (meta) {
-          reply(msg.sid, {
-            t: "state",
-            sid: msg.sid,
-            d: toWsSessionMeta(meta),
-          });
-        } else {
-          replyError(msg.sid, "NOT_FOUND", `Session ${msg.sid} not found`);
-        }
-        break;
-      }
-
-      case "detach":
-        // No response needed for detach via relay
-        break;
-
-      case "resume": {
-        this.handleRelayResume(relay, frontendId, msg.sid, msg.c);
-        break;
-      }
-
-      case "resize": {
-        const runner = this.ipcServer.findRunnerBySid(msg.sid);
-        if (runner) {
-          this.ipcServer.send(runner, {
-            t: "resize",
-            sid: msg.sid,
-            cols: msg.cols,
-            rows: msg.rows,
-          });
-        }
-        break;
-      }
-
-      case "ping":
-        reply(RELAY_CHANNEL_CONTROL, { t: "pong" });
-        break;
-
-      case "session.create": {
-        const sid = msg.sid ?? `session-${Date.now().toString(36)}`;
-        try {
-          this.createSession(sid, msg.cwd);
-        } catch (err) {
-          replyError(
-            sid,
-            "SESSION_ERROR",
-            err instanceof Error ? err.message : "Failed to create session",
-          );
-        }
-        break;
-      }
-
-      case "session.stop": {
-        if (!this.sessionManager.killRunner(msg.sid)) {
-          replyError(msg.sid, "NO_RUNNER", `No runner for session ${msg.sid}`);
-        }
-        break;
-      }
-
-      case "session.restart": {
-        const session = this.store.getSession(msg.sid);
-        if (!session) {
-          replyError(msg.sid, "NOT_FOUND", `Session ${msg.sid} not found`);
-          break;
-        }
-        this.sessionManager.killRunner(msg.sid);
-        try {
-          this.createSession(msg.sid, session.cwd, {
-            worktreePath: session.worktree_path ?? undefined,
-          });
-          log.info(`restarted session ${msg.sid} via relay`);
-        } catch (err) {
-          replyError(
-            msg.sid,
-            "SESSION_ERROR",
-            err instanceof Error ? err.message : "Failed to restart session",
-          );
-        }
-        break;
-      }
-
-      case "session.export":
-        this.handleRelaySessionExport(relay, frontendId, msg);
-        break;
-
-      case "worktree.list":
-        this.handleRelayWorktreeList(relay, frontendId);
-        break;
-
-      case "worktree.create": {
-        this.handleRelayWorktreeCreate(
-          relay,
-          frontendId,
-          msg.branch,
-          msg.baseBranch,
-          msg.path,
-        );
-        break;
-      }
-
-      case "worktree.remove": {
-        this.handleRelayWorktreeRemove(relay, frontendId, msg.path, msg.force);
-        break;
-      }
-
-      default: {
-        const _exhaustive: never = msg;
-        void _exhaustive;
-      }
-    }
-  }
-
-  private handleRelayResume(
-    relay: RelayClient,
-    frontendId: string,
-    sid: string,
-    cursor: number,
-  ): void {
-    const db = this.store.getSessionDb(sid);
-    if (!db) {
-      relay
-        .publishToPeer(frontendId, sid, {
-          t: "err",
-          e: "NOT_FOUND",
-          m: `Session ${sid} not found`,
-        })
-        .catch(() => {});
-      return;
-    }
-
-    const records = db.getRecordsFrom(cursor);
-    const wsRecs = toWsRecs(sid, records);
-
-    relay
-      .publishToPeer(frontendId, sid, { t: "batch", sid, d: wsRecs })
-      .catch(() => {});
-  }
-
-  private async handleRelayWorktreeList(
-    relay: RelayClient,
-    frontendId: string,
-  ): Promise<void> {
-    if (!this.worktreeManager) {
-      relay
-        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
-          t: "err",
-          e: "NO_REPO",
-          m: "No repository configured for worktree management",
-        })
-        .catch(() => {});
-      return;
-    }
-
-    try {
-      const worktrees = await this.worktreeManager.list();
-      relay
-        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
-          t: "worktree.list",
-          d: worktrees,
-        })
-        .catch(() => {});
-    } catch (err) {
-      relay
-        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
-          t: "err",
-          e: "WORKTREE_ERROR",
-          m: err instanceof Error ? err.message : "Failed to list worktrees",
-        })
-        .catch(() => {});
-    }
-  }
-
-  private async handleRelayWorktreeCreate(
-    relay: RelayClient,
-    frontendId: string,
-    branch: string,
-    baseBranch?: string,
-    path?: string,
-  ): Promise<void> {
-    if (!this.worktreeManager) {
-      relay
-        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
-          t: "err",
-          e: "NO_REPO",
-          m: "No repository configured",
-        })
-        .catch(() => {});
-      return;
-    }
-
-    try {
-      const ts = Date.now().toString(36);
-      const wtPath = path ?? `${branch}-${ts}`;
-      const wt = await this.worktreeManager.add(wtPath, branch, baseBranch);
-      const sid = `${branch}-${ts}`;
-      this.createSession(sid, wt.path, { worktreePath: wt.path });
-
-      relay
-        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
-          t: "worktree.created",
-          d: wt,
-          sid,
-        })
-        .catch(() => {});
-    } catch (err) {
-      relay
-        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
-          t: "err",
-          e: "WORKTREE_ERROR",
-          m: err instanceof Error ? err.message : "Failed to create worktree",
-        })
-        .catch(() => {});
-    }
-  }
-
-  private async handleRelayWorktreeRemove(
-    relay: RelayClient,
-    frontendId: string,
-    path: string,
-    force?: boolean,
-  ): Promise<void> {
-    if (!this.worktreeManager) {
-      relay
-        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
-          t: "err",
-          e: "NO_REPO",
-          m: "No repository configured",
-        })
-        .catch(() => {});
-      return;
-    }
-
-    try {
-      await this.worktreeManager.remove(path, force);
-      relay
-        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
-          t: "worktree.removed",
-          path,
-        })
-        .catch(() => {});
-    } catch (err) {
-      relay
-        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
-          t: "err",
-          e: "WORKTREE_ERROR",
-          m: err instanceof Error ? err.message : "Failed to remove worktree",
-        })
-        .catch(() => {});
-    }
-  }
-
-  private handleRelaySessionExport(
-    relay: RelayClient,
-    frontendId: string,
-    msg: WsSessionExport,
-  ): void {
-    const sid = msg.sid;
-    const format = msg.format ?? "markdown";
-    const recordTypes = msg.recordTypes;
-    const timeRange = msg.timeRange;
-    const limit = msg.limit;
-
-    const session = this.store.getSession(sid);
-    if (!session) {
-      relay
-        .publishToPeer(frontendId, sid, {
-          t: "err",
-          e: "NOT_FOUND",
-          m: `Session ${sid} not found`,
-        })
-        .catch(() => {});
-      return;
-    }
-
-    const db = this.store.getSessionDb(sid);
-    if (!db) {
-      relay
-        .publishToPeer(frontendId, sid, {
-          t: "err",
-          e: "NOT_FOUND",
-          m: `Session DB for ${sid} not found`,
-        })
-        .catch(() => {});
-      return;
-    }
-
-    const effectiveLimit = Math.min(limit ?? 50000, 50000);
-    const records = db.getRecordsFiltered({
-      kinds: recordTypes,
-      from: timeRange?.from,
-      to: timeRange?.to,
-      limit: effectiveLimit,
-    });
-
-    const meta = toWsSessionMeta(session);
-    const truncated = records.length >= effectiveLimit;
-
-    if (format === "json") {
-      relay
-        .publishToPeer(frontendId, sid, {
-          t: "session.exported",
-          sid,
-          format: "json",
-          d: JSON.stringify({ meta, records, truncated }),
-        })
-        .catch(() => {});
-    } else {
-      const md = formatMarkdown(meta, records, truncated);
-      relay
-        .publishToPeer(frontendId, sid, {
-          t: "session.exported",
-          sid,
-          format: "markdown",
-          d: md,
-        })
-        .catch(() => {});
-    }
-  }
-
   /**
    * Set the repository root for worktree management.
    */
@@ -1147,33 +670,6 @@ export class Daemon {
     this.store.close();
     log.info("stopped");
   }
-}
-
-const NAMESPACE_VALUES: ReadonlySet<Namespace> = new Set([
-  "claude",
-  "tp",
-  "runner",
-  "daemon",
-]);
-
-function toNamespace(value: string | null): Namespace | undefined {
-  if (value === null) return undefined;
-  return NAMESPACE_VALUES.has(value as Namespace)
-    ? (value as Namespace)
-    : undefined;
-}
-
-function toWsRecs(sid: string, records: StoredRecord[]): WsRec[] {
-  return records.map((r) => ({
-    t: "rec" as const,
-    sid,
-    seq: r.seq,
-    k: r.kind,
-    ns: toNamespace(r.ns),
-    n: r.name ?? undefined,
-    d: Buffer.from(r.payload).toString("base64"),
-    ts: r.ts,
-  }));
 }
 
 function toWsSessionMeta(meta: SessionMeta): WsSessionMeta {

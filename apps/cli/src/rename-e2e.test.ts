@@ -123,9 +123,14 @@ describe("Rename Notification E2E", () => {
     // Reach into the daemon to get the active relay client and call
     // sendRenameNotice directly (the public path is symmetric to unpair —
     // see daemon.removePairing → client.sendUnpairNotice).
-    const relayClients = (daemon as unknown as { relayClients: RelayClient[] })
-      .relayClients;
-    const client = relayClients.find((c) => c.daemonId === daemonId);
+    const relayManager = (
+      daemon as unknown as {
+        relayManager: { listClients: () => readonly RelayClient[] };
+      }
+    ).relayManager;
+    const client = relayManager
+      .listClients()
+      .find((c) => c.daemonId === daemonId);
     expect(client).toBeDefined();
     const newLabel = "MacBook Pro 14";
     const sent = await client!.sendRenameNotice(frontendId, newLabel);

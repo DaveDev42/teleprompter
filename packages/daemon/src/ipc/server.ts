@@ -4,15 +4,11 @@ import {
   encodeFrame,
   FrameDecoder,
   getSocketPath,
-  type IpcBye,
-  type IpcHello,
   type IpcMessage,
-  type IpcRec,
+  parseIpcMessage,
   QueuedWriter,
 } from "@teleprompter/protocol";
 import { existsSync, unlinkSync } from "fs";
-
-type IncomingMessage = IpcHello | IpcRec | IpcBye;
 
 export interface ConnectedRunner {
   /** Bun socket on Unix, Bun socket or NetSocketAdapter on Windows (node:net fallback) */
@@ -23,7 +19,7 @@ export interface ConnectedRunner {
 }
 
 export interface IpcServerEvents {
-  onMessage: (runner: ConnectedRunner, msg: IncomingMessage) => void;
+  onMessage: (runner: ConnectedRunner, msg: IpcMessage) => void;
   onConnect: (runner: ConnectedRunner) => void;
   onDisconnect: (runner: ConnectedRunner) => void;
 }
@@ -75,12 +71,17 @@ export class IpcServer {
           const runner = (socket as unknown as { _runner: ConnectedRunner })
             ._runner;
           const messages = runner.decoder.decode(new Uint8Array(data));
-          for (const msg of messages) {
-            // Track SID from hello message
-            if ((msg as IpcHello).t === "hello") {
-              runner.sid = (msg as IpcHello).sid;
+          for (const raw of messages) {
+            const msg = parseIpcMessage(raw);
+            if (!msg) {
+              log.warn("dropped malformed IPC message");
+              continue;
             }
-            self.events.onMessage(runner, msg as IncomingMessage);
+            // Track SID from hello message
+            if (msg.t === "hello") {
+              runner.sid = msg.sid;
+            }
+            self.events.onMessage(runner, msg);
           }
         },
         drain(socket) {

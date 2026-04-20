@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { FrameDecoder } from "@teleprompter/protocol";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { FrameDecoder } from "@teleprompter/protocol";
 import { Daemon } from "./daemon";
-import { BeginPairingError } from "./pairing/begin-pairing-error";
 import type { ConnectedRunner } from "./ipc/server";
+import { BeginPairingError } from "./pairing/begin-pairing-error";
 import type { RelayClient } from "./transport/relay-client";
 
 describe("Daemon.beginPairing", () => {
@@ -71,11 +71,13 @@ describe("Daemon.beginPairing", () => {
     dir = mkdtempSync(join(tmpdir(), "tp-daemon-"));
     const daemon = new Daemon(dir);
     // Seed the store with a pairing
-    (daemon as unknown as {
-      store: {
-        savePairing: (x: unknown) => void;
-      };
-    }).store.savePairing({
+    (
+      daemon as unknown as {
+        store: {
+          savePairing: (x: unknown) => void;
+        };
+      }
+    ).store.savePairing({
       daemonId: "taken",
       relayUrl: "wss://r",
       relayToken: "t",
@@ -118,7 +120,11 @@ describe("Daemon.beginPairing", () => {
       label: "my-host",
     });
     // Simulate completion
-    (daemon as unknown as { pendingPairing: { __markCompleted: (f: string) => void } }).pendingPairing.__markCompleted("frontend-1");
+    (
+      daemon as unknown as {
+        pendingPairing: { __markCompleted: (f: string) => void };
+      }
+    ).pendingPairing.__markCompleted("frontend-1");
     const p = daemon.awaitPendingPairing();
     const result = await p!;
     expect(result.kind).toBe("completed");
@@ -126,13 +132,18 @@ describe("Daemon.beginPairing", () => {
     daemon.promoteCompletedPairing(result);
 
     // Store should now have the pairing
-    const pairings = (daemon as unknown as {
-      store: { listPairings: () => Array<{ daemonId: string; label: string | null }> };
-    }).store.listPairings();
+    const pairings = (
+      daemon as unknown as {
+        store: {
+          listPairings: () => Array<{ daemonId: string; label: string | null }>;
+        };
+      }
+    ).store.listPairings();
     expect(pairings.some((p) => p.daemonId === "d1")).toBe(true);
 
     // Relay pool should now contain the promoted client
-    const relayCount = (daemon as unknown as { relayClients: Array<unknown> }).relayClients.length;
+    const relayCount = (daemon as unknown as { relayClients: Array<unknown> })
+      .relayClients.length;
     expect(relayCount).toBeGreaterThanOrEqual(1);
 
     daemon.stop();
@@ -150,7 +161,10 @@ describe("Daemon.beginPairing", () => {
     const daemon = new Daemon(dir);
     daemon.__setRelayFactory(() => fakeRelay());
 
-    const info = await daemon.beginPairing({ relayUrl: "wss://r", daemonId: "d1" });
+    const info = await daemon.beginPairing({
+      relayUrl: "wss://r",
+      daemonId: "d1",
+    });
     daemon.cancelPendingPairing("wrong-id");
     // Pending still active
     expect(daemon.awaitPendingPairing()).not.toBeNull();
@@ -162,12 +176,17 @@ describe("Daemon.beginPairing", () => {
   test("begin rejects with relay-unreachable when relay.connect throws", async () => {
     dir = mkdtempSync(join(tmpdir(), "tp-daemon-"));
     const daemon = new Daemon(dir);
-    daemon.__setRelayFactory(() => ({
-      connect: async () => { throw new Error("ECONNREFUSED"); },
-      subscribe: () => {},
-      dispose: () => {},
-      isConnected: () => false,
-    } as unknown as RelayClient));
+    daemon.__setRelayFactory(
+      () =>
+        ({
+          connect: async () => {
+            throw new Error("ECONNREFUSED");
+          },
+          subscribe: () => {},
+          dispose: () => {},
+          isConnected: () => false,
+        }) as unknown as RelayClient,
+    );
 
     await expect(
       daemon.beginPairing({ relayUrl: "wss://r", daemonId: "d1" }),
@@ -180,8 +199,16 @@ describe("Daemon.beginPairing", () => {
     const daemon = new Daemon(dir);
     daemon.__setRelayFactory(() => fakeRelay());
 
-    await daemon.beginPairing({ relayUrl: "wss://r", daemonId: "d-race", label: "x" });
-    const pp = (daemon as unknown as { pendingPairing: { __markCompleted: (f: string) => void } }).pendingPairing;
+    await daemon.beginPairing({
+      relayUrl: "wss://r",
+      daemonId: "d-race",
+      label: "x",
+    });
+    const pp = (
+      daemon as unknown as {
+        pendingPairing: { __markCompleted: (f: string) => void };
+      }
+    ).pendingPairing;
     pp.__markCompleted("f1");
     const result = await daemon.awaitPendingPairing()!;
     expect(result.kind).toBe("completed");
@@ -193,10 +220,15 @@ describe("Daemon.beginPairing", () => {
     if (result.kind !== "completed") throw new Error("unreachable");
     daemon.promoteCompletedPairing(result);
 
-    const pairings = (daemon as unknown as { store: { listPairings: () => Array<{ daemonId: string }> } }).store.listPairings();
+    const pairings = (
+      daemon as unknown as {
+        store: { listPairings: () => Array<{ daemonId: string }> };
+      }
+    ).store.listPairings();
     expect(pairings.some((p) => p.daemonId === "d-race")).toBe(true);
 
-    const relayCount = (daemon as unknown as { relayClients: Array<unknown> }).relayClients.length;
+    const relayCount = (daemon as unknown as { relayClients: Array<unknown> })
+      .relayClients.length;
     expect(relayCount).toBeGreaterThanOrEqual(1);
 
     daemon.stop();
@@ -249,10 +281,16 @@ describe("Daemon.beginPairing", () => {
       t: "pair.begin.ok",
       daemonId: "d-ipc-ok",
     });
-    expect((cli.messages[0] as { qrString: string }).qrString.length).toBeGreaterThan(0);
+    expect(
+      (cli.messages[0] as { qrString: string }).qrString.length,
+    ).toBeGreaterThan(0);
 
     // Trigger completion
-    (daemon as unknown as { pendingPairing: { __markCompleted: (f: string) => void } }).pendingPairing.__markCompleted("f1");
+    (
+      daemon as unknown as {
+        pendingPairing: { __markCompleted: (f: string) => void };
+      }
+    ).pendingPairing.__markCompleted("f1");
     // Allow the microtask chain (awaitPendingPairing → promote → send completed) to run.
     await new Promise((r) => setTimeout(r, 10));
 
@@ -352,7 +390,11 @@ describe("Daemon.beginPairing", () => {
       relayUrl: "wss://r",
       daemonId: "d-disc-after",
     });
-    (daemon as unknown as { pendingPairing: { __markCompleted: (f: string) => void } }).pendingPairing.__markCompleted("f1");
+    (
+      daemon as unknown as {
+        pendingPairing: { __markCompleted: (f: string) => void };
+      }
+    ).pendingPairing.__markCompleted("f1");
     await new Promise((r) => setTimeout(r, 10));
     // After completion, pendingPairing is cleared by the promote path.
     expect(
@@ -381,7 +423,10 @@ describe("Daemon.beginPairing", () => {
       daemonId: "d-mismatch",
     });
 
-    daemon.__handlePairCancel(cli.runner, { t: "pair.cancel", pairingId: "wrong-id" });
+    daemon.__handlePairCancel(cli.runner, {
+      t: "pair.cancel",
+      pairingId: "wrong-id",
+    });
     // Still pending — check via internal field to avoid double-calling awaitCompletion().
     expect(
       (daemon as unknown as { pendingPairing: unknown }).pendingPairing,
@@ -423,9 +468,13 @@ describe("Daemon.beginPairing", () => {
     daemon.__setRelayFactory(() => fakeRelay());
 
     // Inject a throwing savePairing.
-    const store = (daemon as unknown as { store: { savePairing: (x: unknown) => void } }).store;
+    const store = (
+      daemon as unknown as { store: { savePairing: (x: unknown) => void } }
+    ).store;
     const original = store.savePairing.bind(store);
-    store.savePairing = () => { throw new Error("disk full"); };
+    store.savePairing = () => {
+      throw new Error("disk full");
+    };
 
     const cli = makeFakeCli();
     await daemon.__handlePairBegin(cli.runner, {
@@ -433,10 +482,16 @@ describe("Daemon.beginPairing", () => {
       relayUrl: "wss://r",
       daemonId: "d-promote-fail",
     });
-    (daemon as unknown as { pendingPairing: { __markCompleted: (f: string) => void } }).pendingPairing.__markCompleted("f1");
+    (
+      daemon as unknown as {
+        pendingPairing: { __markCompleted: (f: string) => void };
+      }
+    ).pendingPairing.__markCompleted("f1");
     await new Promise((r) => setTimeout(r, 20));
 
-    const errEvt = cli.messages.find((m) => (m as { t: string }).t === "pair.error");
+    const errEvt = cli.messages.find(
+      (m) => (m as { t: string }).t === "pair.error",
+    );
     expect(errEvt).toMatchObject({ t: "pair.error", reason: "internal" });
     expect((errEvt as { message: string }).message).toMatch(/disk full/);
     // Pending slot cleared so next pair.begin works.

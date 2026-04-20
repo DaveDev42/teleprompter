@@ -13,7 +13,9 @@ export interface IpcClient {
  * treats any connecting peer the same — the "role" is inferred from the
  * message types the peer sends (pair.* vs hello/rec/bye).
  */
-export async function connectIpcAsClient(socketPath: string): Promise<IpcClient> {
+export async function connectIpcAsClient(
+  socketPath: string,
+): Promise<IpcClient> {
   if (process.platform === "win32") {
     const { connectWindowsIpc } = await import("./ipc-client-windows");
     return connectWindowsIpc(socketPath);
@@ -36,7 +38,9 @@ export async function connectIpcAsClient(socketPath: string): Promise<IpcClient>
         for (const h of closeHandlers) h();
       },
       error(_s, _err) {
-        try { _s.end(); } catch {}
+        try {
+          _s.end();
+        } catch {}
         for (const h of closeHandlers) h();
       },
     },

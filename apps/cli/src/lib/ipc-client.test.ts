@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { encodeFrame, FrameDecoder } from "@teleprompter/protocol";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { encodeFrame, FrameDecoder } from "@teleprompter/protocol";
 import { connectIpcAsClient } from "./ipc-client";
 
 describe("connectIpcAsClient", () => {
@@ -56,7 +56,9 @@ describe("connectIpcAsClient", () => {
 
     const client = await connectIpcAsClient(sockPath);
     let closed = false;
-    client.onClose(() => { closed = true; });
+    client.onClose(() => {
+      closed = true;
+    });
     client.send({ t: "hello" });
     await new Promise((r) => setTimeout(r, 100));
     expect(closed).toBe(true);

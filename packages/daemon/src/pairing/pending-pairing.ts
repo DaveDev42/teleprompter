@@ -139,9 +139,7 @@ export class PendingPairing {
     if (this.settled) return;
     if (!this.keyPair || !this.pairingSecret) return;
     this.settled = true;
-    log.info(
-      `pairing ${this.pairingId} completed with frontend ${frontendId}`,
-    );
+    log.info(`pairing ${this.pairingId} completed with frontend ${frontendId}`);
     this.resolved = {
       kind: "completed",
       frontendId,

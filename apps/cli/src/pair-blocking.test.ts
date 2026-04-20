@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { spawn, type Subprocess } from "bun";
 import { Store } from "@teleprompter/daemon";
+import { type Subprocess, spawn } from "bun";
 import { existsSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";

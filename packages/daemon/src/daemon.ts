@@ -1,6 +1,7 @@
 import type {
   IpcBye,
   IpcHello,
+  IpcMessage,
   IpcPairBegin,
   IpcPairBeginErr,
   IpcPairBeginOk,
@@ -10,8 +11,9 @@ import type {
   IpcPairError,
   IpcRec,
   Namespace,
-  RecordKind,
+  RelayControlMessage,
   WsRec,
+  WsSessionExport,
   WsSessionMeta,
 } from "@teleprompter/protocol";
 import {
@@ -88,17 +90,25 @@ export class Daemon {
           log.info(`runner disconnected sid=${runner.sid}`);
         }
       },
-      onMessage: (runner, msg) => {
-        const raw = msg as unknown as { t: string };
-        if (raw.t === "pair.begin") {
-          void this.__handlePairBegin(runner, msg as unknown as IpcPairBegin);
-          return;
+      onMessage: (runner, msg: IpcMessage) => {
+        switch (msg.t) {
+          case "pair.begin":
+            void this.__handlePairBegin(runner, msg);
+            return;
+          case "pair.cancel":
+            this.__handlePairCancel(runner, msg);
+            return;
+          case "hello":
+          case "rec":
+          case "bye":
+            this.handleMessage(runner, msg);
+            return;
+          default:
+            // ack/input/resize/pair.begin.ok/pair.begin.err/
+            // pair.completed/pair.cancelled/pair.error are daemon→runner
+            // messages; if a runner sends one we simply ignore it.
+            log.warn(`ignoring unexpected IPC message from runner: ${msg.t}`);
         }
-        if (raw.t === "pair.cancel") {
-          this.__handlePairCancel(runner, msg as unknown as IpcPairCancel);
-          return;
-        }
-        this.handleMessage(runner, msg as IpcHello | IpcRec | IpcBye);
       },
     });
   }
@@ -621,13 +631,7 @@ export class Daemon {
     }
 
     const payload = Buffer.from(msg.payload, "base64");
-    const seq = db.append(
-      msg.kind as RecordKind,
-      msg.ts,
-      payload,
-      msg.ns as Namespace | undefined,
-      msg.name,
-    );
+    const seq = db.append(msg.kind, msg.ts, payload, msg.ns, msg.name);
 
     this.store.updateLastSeq(msg.sid, seq);
 
@@ -643,8 +647,8 @@ export class Daemon {
       t: "rec",
       sid: msg.sid,
       seq,
-      k: msg.kind as RecordKind,
-      ns: msg.ns as Namespace | undefined,
+      k: msg.kind,
+      ns: msg.ns,
       n: msg.name,
       d: msg.payload, // already base64
       ts: msg.ts,
@@ -698,36 +702,15 @@ export class Daemon {
    */
   private handleRelayControlMessage(
     relay: RelayClient,
-    msg: Record<string, unknown>,
+    msg: RelayControlMessage,
     frontendId: string,
   ): void {
-    if (typeof msg.t !== "string") {
-      log.warn("relay control message missing type field");
-      return;
-    }
-
     const reply = (sid: string, response: unknown) => {
       relay.publishToPeer(frontendId, sid, response).catch(() => {});
     };
     const replyError = (sid: string, e: string, m: string) => {
       reply(sid, { t: "err", e, m });
     };
-
-    // Validate sid for messages that require it
-    // (in.chat/in.term are routed via onInput, never reach here)
-    const needsSid = [
-      "attach",
-      "detach",
-      "resume",
-      "resize",
-      "session.stop",
-      "session.restart",
-      "session.export",
-    ];
-    if (needsSid.includes(msg.t) && typeof msg.sid !== "string") {
-      replyError(RELAY_CHANNEL_CONTROL, "INVALID", `${msg.t} missing sid`);
-      return;
-    }
 
     switch (msg.t) {
       case "hello": {
@@ -737,12 +720,15 @@ export class Daemon {
       }
 
       case "attach": {
-        const sid = msg.sid as string;
-        const meta = this.store.getSession(sid);
+        const meta = this.store.getSession(msg.sid);
         if (meta) {
-          reply(sid, { t: "state", sid, d: toWsSessionMeta(meta) });
+          reply(msg.sid, {
+            t: "state",
+            sid: msg.sid,
+            d: toWsSessionMeta(meta),
+          });
         } else {
-          replyError(sid, "NOT_FOUND", `Session ${sid} not found`);
+          replyError(msg.sid, "NOT_FOUND", `Session ${msg.sid} not found`);
         }
         break;
       }
@@ -752,21 +738,18 @@ export class Daemon {
         break;
 
       case "resume": {
-        const sid = msg.sid as string;
-        const cursor = (msg.c as number) ?? 0;
-        this.handleRelayResume(relay, frontendId, sid, cursor);
+        this.handleRelayResume(relay, frontendId, msg.sid, msg.c);
         break;
       }
 
       case "resize": {
-        const sid = msg.sid as string;
-        const runner = this.ipcServer.findRunnerBySid(sid);
+        const runner = this.ipcServer.findRunnerBySid(msg.sid);
         if (runner) {
           this.ipcServer.send(runner, {
             t: "resize",
-            sid,
-            cols: msg.cols as number,
-            rows: msg.rows as number,
+            sid: msg.sid,
+            cols: msg.cols,
+            rows: msg.rows,
           });
         }
         break;
@@ -777,14 +760,9 @@ export class Daemon {
         break;
 
       case "session.create": {
-        if (typeof msg.cwd !== "string") {
-          replyError(RELAY_CHANNEL_CONTROL, "INVALID", "Missing cwd");
-          break;
-        }
-        const cwd = msg.cwd;
-        const sid = (msg.sid as string) ?? `session-${Date.now().toString(36)}`;
+        const sid = msg.sid ?? `session-${Date.now().toString(36)}`;
         try {
-          this.createSession(sid, cwd);
+          this.createSession(sid, msg.cwd);
         } catch (err) {
           replyError(
             sid,
@@ -796,29 +774,27 @@ export class Daemon {
       }
 
       case "session.stop": {
-        const sid = msg.sid as string;
-        if (!this.sessionManager.killRunner(sid)) {
-          replyError(sid, "NO_RUNNER", `No runner for session ${sid}`);
+        if (!this.sessionManager.killRunner(msg.sid)) {
+          replyError(msg.sid, "NO_RUNNER", `No runner for session ${msg.sid}`);
         }
         break;
       }
 
       case "session.restart": {
-        const sid = msg.sid as string;
-        const session = this.store.getSession(sid);
+        const session = this.store.getSession(msg.sid);
         if (!session) {
-          replyError(sid, "NOT_FOUND", `Session ${sid} not found`);
+          replyError(msg.sid, "NOT_FOUND", `Session ${msg.sid} not found`);
           break;
         }
-        this.sessionManager.killRunner(sid);
+        this.sessionManager.killRunner(msg.sid);
         try {
-          this.createSession(sid, session.cwd, {
+          this.createSession(msg.sid, session.cwd, {
             worktreePath: session.worktree_path ?? undefined,
           });
-          log.info(`restarted session ${sid} via relay`);
+          log.info(`restarted session ${msg.sid} via relay`);
         } catch (err) {
           replyError(
-            sid,
+            msg.sid,
             "SESSION_ERROR",
             err instanceof Error ? err.message : "Failed to restart session",
           );
@@ -835,36 +811,25 @@ export class Daemon {
         break;
 
       case "worktree.create": {
-        if (typeof msg.branch !== "string") {
-          replyError(RELAY_CHANNEL_CONTROL, "INVALID", "Missing branch");
-          break;
-        }
         this.handleRelayWorktreeCreate(
           relay,
           frontendId,
           msg.branch,
-          msg.baseBranch as string | undefined,
-          msg.path as string | undefined,
+          msg.baseBranch,
+          msg.path,
         );
         break;
       }
 
       case "worktree.remove": {
-        if (typeof msg.path !== "string") {
-          replyError(RELAY_CHANNEL_CONTROL, "INVALID", "Missing path");
-          break;
-        }
-        this.handleRelayWorktreeRemove(
-          relay,
-          frontendId,
-          msg.path,
-          msg.force as boolean | undefined,
-        );
+        this.handleRelayWorktreeRemove(relay, frontendId, msg.path, msg.force);
         break;
       }
 
-      default:
-        log.warn(`unknown relay control message: ${msg.t}`);
+      default: {
+        const _exhaustive: never = msg;
+        void _exhaustive;
+      }
     }
   }
 
@@ -1010,15 +975,13 @@ export class Daemon {
   private handleRelaySessionExport(
     relay: RelayClient,
     frontendId: string,
-    msg: Record<string, unknown>,
+    msg: WsSessionExport,
   ): void {
-    const sid = msg.sid as string;
-    const format = (msg.format as "json" | "markdown") ?? "markdown";
-    const recordTypes = msg.recordTypes as RecordKind[] | undefined;
-    const timeRange = msg.timeRange as
-      | { from?: number; to?: number }
-      | undefined;
-    const limit = msg.limit as number | undefined;
+    const sid = msg.sid;
+    const format = msg.format ?? "markdown";
+    const recordTypes = msg.recordTypes;
+    const timeRange = msg.timeRange;
+    const limit = msg.limit;
 
     const session = this.store.getSession(sid);
     if (!session) {
@@ -1186,13 +1149,27 @@ export class Daemon {
   }
 }
 
+const NAMESPACE_VALUES: ReadonlySet<Namespace> = new Set([
+  "claude",
+  "tp",
+  "runner",
+  "daemon",
+]);
+
+function toNamespace(value: string | null): Namespace | undefined {
+  if (value === null) return undefined;
+  return NAMESPACE_VALUES.has(value as Namespace)
+    ? (value as Namespace)
+    : undefined;
+}
+
 function toWsRecs(sid: string, records: StoredRecord[]): WsRec[] {
   return records.map((r) => ({
     t: "rec" as const,
     sid,
     seq: r.seq,
     k: r.kind,
-    ns: (r.ns as Namespace) ?? undefined,
+    ns: toNamespace(r.ns),
     n: r.name ?? undefined,
     d: Buffer.from(r.payload).toString("base64"),
     ts: r.ts,

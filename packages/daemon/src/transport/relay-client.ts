@@ -11,6 +11,7 @@ import type {
   ControlUnpair,
   KeyPair,
   RelayClientMessage,
+  RelayControlMessage,
   RelayFrame,
   RelayKeyExchangeFrame,
   RelayServerMessage,
@@ -26,6 +27,7 @@ import {
   deriveSessionKeys,
   encrypt,
   fromBase64,
+  parseRelayControlMessage,
   RELAY_CHANNEL_CONTROL,
   toBase64,
 } from "@teleprompter/protocol";
@@ -69,7 +71,7 @@ export interface RelayClientEvents {
     frontendId?: string,
   ) => void;
   /** Called when a decrypted control message arrives from a frontend via relay */
-  onControlMessage?: (msg: Record<string, unknown>, frontendId: string) => void;
+  onControlMessage?: (msg: RelayControlMessage, frontendId: string) => void;
   /** Called when relay connection state changes */
   onConnected?: () => void;
   onDisconnected?: () => void;
@@ -325,7 +327,12 @@ export class RelayClient {
       // Control plane messages: attach, detach, resume, resize, ping,
       // session.create, session.stop, session.restart, session.export,
       // worktree.create, worktree.remove, worktree.list, hello
-      this.events.onControlMessage?.(msg, peer.frontendId);
+      const parsed = parseRelayControlMessage(msg);
+      if (!parsed) {
+        log.warn(`dropped malformed relay control message: t=${msg.t}`);
+        return;
+      }
+      this.events.onControlMessage?.(parsed, peer.frontendId);
     }
   }
 

@@ -2,7 +2,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import {
   createLogger,
   FrameDecoder,
-  type IpcHello,
+  parseIpcMessage,
   QueuedWriter,
 } from "@teleprompter/protocol";
 import type { ConnectedRunner, IpcServerEvents } from "./server";
@@ -49,14 +49,16 @@ export function startWindowsServer(
           const runner = (socket as unknown as { _runner: ConnectedRunner })
             ._runner;
           const messages = runner.decoder.decode(new Uint8Array(data));
-          for (const msg of messages) {
-            if ((msg as IpcHello).t === "hello") {
-              runner.sid = (msg as IpcHello).sid;
+          for (const raw of messages) {
+            const msg = parseIpcMessage(raw);
+            if (!msg) {
+              log.warn("dropped malformed IPC message");
+              continue;
             }
-            events.onMessage(
-              runner,
-              msg as Parameters<IpcServerEvents["onMessage"]>[1],
-            );
+            if (msg.t === "hello") {
+              runner.sid = msg.sid;
+            }
+            events.onMessage(runner, msg);
           }
         },
         drain(socket) {
@@ -100,14 +102,16 @@ export function startWindowsServer(
       const messages = runner.decoder.decode(
         new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
       );
-      for (const msg of messages) {
-        if ((msg as IpcHello).t === "hello") {
-          runner.sid = (msg as IpcHello).sid;
+      for (const raw of messages) {
+        const msg = parseIpcMessage(raw);
+        if (!msg) {
+          log.warn("dropped malformed IPC message");
+          continue;
         }
-        events.onMessage(
-          runner,
-          msg as Parameters<IpcServerEvents["onMessage"]>[1],
-        );
+        if (msg.t === "hello") {
+          runner.sid = msg.sid;
+        }
+        events.onMessage(runner, msg);
       }
     });
 

@@ -24,6 +24,7 @@ export {
   toBase64,
   toHex,
 } from "./crypto";
+export { parseIpcMessage } from "./ipc-guard";
 export type { LogLevel } from "./logger";
 export { createLogger, setLogLevel } from "./logger";
 export type { PairingBundle, PairingData } from "./pairing";
@@ -34,5 +35,7 @@ export {
   parsePairingForFrontend,
 } from "./pairing";
 export { QueuedWriter } from "./queued-writer";
+export type { RelayControlMessage } from "./relay-guard";
+export { parseRelayControlMessage } from "./relay-guard";
 export { getSocketPath, getWindowsSocketPath } from "./socket-path";
 export * from "./types";

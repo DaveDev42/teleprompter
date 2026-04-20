@@ -14,6 +14,35 @@
 - [ ] Windows install.ps1 실환경 미검증 — PowerShell 설치 스크립트 (v0.1.9 기준), 실제 Windows 기기에서 `irm ... | iex` → `tp version` → `tp upgrade` 플로우 확인 필요
 - [ ] Session Export 대규모 세션 성능 미검증 — 10,000+ records 세션에서 export 속도/메모리 사용량 확인 필요 (현재 limit 50,000)
 
+### 발견된 버그
+- [ ] **Windows CLI pair flow 실제 구현 필요** — `tp pair new`가 Windows에서 `apps/cli/src/lib/ipc-client-windows.ts`의 스텁 `throw new Error(...)`에 도달해 페어링 플로우 전체가 깨짐. 호출 체인: `pair.ts::pairNew()` → `ensureDaemon()` → `connectIpcAsClient(getSocketPath())` → Windows 분기 → 스텁. Daemon 측 Named Pipe 서버(`packages/daemon/src/ipc/server-windows.ts`)와 `packages/runner/src/ipc/client-windows.ts`의 `connectWindows` 구현(Bun native pipe → `node:net` fallback)이 이미 있으므로 이를 참고해 CLI 클라이언트를 구현. 구현 후 기존 `describe.skipIf(win32)`로 skip된 `pair.test.ts`, `pair-blocking.test.ts` 등 해제. 발견: PR #117 작업 중 (v0.1.12 기준).
+
+---
+
+## 🛠 리뷰 기반 구조 개선 (2026-04-20 전체 리뷰)
+
+우선순위 순. 각 항목 말미의 `[group: X]`는 병렬 수행 그룹.
+
+### Phase 1 — 완료 (2026-04-20)
+- [x] **CLAUDE.md Tier 1–3 테스트 목록 재동기화** — PR #116. 실제 66개 테스트 파일과 동기화.
+- [x] **IPC / relay control 경계 스키마 가드 도입** — PR #120. `parseIpcMessage` / `parseRelayControlMessage` 2개 guard 도입, `daemon.ts` 내 `as unknown as` / `Record<string, unknown>` 전부 제거 (14개 narrowing cast 제거). 50개 guard 테스트 추가.
+- [x] **`apps/app/src/lib/relay-client.ts` 단위 테스트** — PR #118. 26개 테스트 (E2EE roundtrip, ECDH, ratchet, WS 상태머신, reconnect 백오프).
+- [x] **`apps/app/src/lib/{secure-storage, crypto-native, crypto-polyfill}.ts` 단위 테스트** — PR #119. 21개 테스트. `apps/app/tsconfig.json`에 `*.test.ts` exclude 추가해 bun:test TS2307 해소.
+- [x] **zustand 스토어 핵심 로직 테스트** — PR #121. 57개 테스트 (pairing v2→v3 migration, session store multicast, chat streaming). v2 migration 제거 전 안전망 확보.
+- [x] **`apps/cli/src/lib/ipc-client-windows.ts` 문서화** — PR #117. 호출 체인과 참고 구현을 주석으로 명시. 구현은 별도 (위 "Windows CLI pair flow 실제 구현" 참조).
+
+### Phase 2 — 진행 중 (daemon.ts 분해)
+`daemon.ts` 같은 파일을 순차 수정해야 하므로 C1 → C2 → C3 순서.
+
+- [ ] **C1: `IpcCommandDispatcher` 추출** — `daemon.ts`의 `onMessage` + relay control / worktree / session export 라우팅을 별도 클래스로 분리 (`daemon.ts:91-102`, `561-1008` 영역). B1(PR #120)이 만든 타입드 경계 위에서 분해하므로 cast 재도입 없이 가능.
+- [ ] **C2: `RelayConnectionManager` 추출** — `relayClients: RelayClient[]`, 연결/재연결, push fan-out (`daemon.ts:55, 73-79, 248-560`). C1 선행.
+- [ ] **C3: `PairingOrchestrator` 추출** — `pendingPairing` / `__handlePairBegin` / `__handlePairCancel` lifecycle (`daemon.ts:59-60, 297-509`). C2 선행.
+
+분해 후 `Daemon` 클래스는 DI 컨테이너 성격으로 200–300 LOC 목표.
+
+### Phase 3 — A4 완료 후 대기
+- [ ] **D1: `pairing-store.ts` v2 마이그레이션 제거** — 파일 내 `TODO: delete v2 migration after N releases` 코멘트 참조. 기준 릴리즈(예: v0.1.15) 결정 후 그 이후 첫 PR에서 마이그레이션 블록 제거. A4(PR #121) 테스트가 안전망.
+
 ---
 
 ## Future

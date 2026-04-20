@@ -20,8 +20,9 @@ import {
   RELAY_CHANNEL_META,
 } from "@teleprompter/protocol";
 import { formatMarkdown } from "./export-formatter";
-import { IpcServer } from "./ipc/server";
 import type { ConnectedRunner } from "./ipc/server";
+import { IpcServer } from "./ipc/server";
+import { BeginPairingError } from "./pairing/begin-pairing-error";
 import {
   PendingPairing,
   type PendingPairingResult,
@@ -40,7 +41,6 @@ import {
   type RelayClientConfig,
   type RelayClientEvents,
 } from "./transport/relay-client";
-import { BeginPairingError } from "./pairing/begin-pairing-error";
 import { WorktreeManager } from "./worktree/worktree-manager";
 
 const log = createLogger("Daemon");
@@ -58,9 +58,7 @@ export class Daemon {
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
   private pendingPairing: PendingPairing | null = null;
   private pendingPairingOwner: ConnectedRunner | null = null;
-  private relayFactory:
-    | ((cfg: RelayClientConfig) => RelayClient)
-    | null = null;
+  private relayFactory: ((cfg: RelayClientConfig) => RelayClient) | null = null;
   /**
    * Local record observer for passthrough CLI (pipes PTY io to process.stdout).
    * Only one observer is supported; assigning a second overwrites the first.
@@ -213,10 +211,7 @@ export class Daemon {
    * RelayClient. Called immediately after construction in both
    * `connectRelay` and `beginPairing`.
    */
-  private attachRelayHandlers(
-    client: RelayClient,
-    daemonId: string,
-  ): void {
+  private attachRelayHandlers(client: RelayClient, daemonId: string): void {
     client.onUnpair = ({ frontendId, reason }) => {
       log.info(
         `peer unpaired (daemonId=${daemonId}, frontendId=${frontendId}, reason=${reason}); removing pairing`,
@@ -429,7 +424,8 @@ export class Daemon {
       const p = this.awaitPendingPairing();
       if (!p) return;
       p.then((result) => {
-        if (this.pendingPairingOwner === runner) this.pendingPairingOwner = null;
+        if (this.pendingPairingOwner === runner)
+          this.pendingPairingOwner = null;
         if (result.kind === "completed") {
           try {
             this.promoteCompletedPairing(result);
@@ -473,8 +469,7 @@ export class Daemon {
         );
       });
     } catch (err) {
-      const reason =
-        err instanceof BeginPairingError ? err.reason : "internal";
+      const reason = err instanceof BeginPairingError ? err.reason : "internal";
       const message =
         err instanceof BeginPairingError
           ? err.message
@@ -491,10 +486,7 @@ export class Daemon {
     }
   }
 
-  __handlePairCancel(
-    runner: ConnectedRunner,
-    msg: IpcPairCancel,
-  ): void {
+  __handlePairCancel(runner: ConnectedRunner, msg: IpcPairCancel): void {
     if (this.pendingPairingOwner && this.pendingPairingOwner !== runner) {
       log.warn(
         `pair.cancel from non-owner runner ignored (pairingId=${msg.pairingId})`,

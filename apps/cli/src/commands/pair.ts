@@ -1,8 +1,4 @@
 import { RelayClient, Store } from "@teleprompter/daemon";
-import {
-  getSocketPath,
-  RELAY_CHANNEL_CONTROL,
-} from "@teleprompter/protocol";
 import type {
   IpcPairBegin,
   IpcPairBeginErr,
@@ -12,6 +8,7 @@ import type {
   IpcPairCompleted,
   IpcPairError,
 } from "@teleprompter/protocol";
+import { getSocketPath, RELAY_CHANNEL_CONTROL } from "@teleprompter/protocol";
 import { unlink } from "fs/promises";
 import { hostname } from "os";
 import { join } from "path";
@@ -645,4 +642,3 @@ Usage:
   tp pair delete <daemon-id> [-y]              Delete a pairing (prefix match allowed)
 `);
 }
-

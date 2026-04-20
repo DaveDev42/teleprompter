@@ -1,10 +1,10 @@
+import { Store } from "@teleprompter/daemon";
 import { $ } from "bun";
 import { existsSync } from "fs";
 import { join } from "path";
 import { green, yellow } from "../lib/colors";
 import { verifyE2EECrypto } from "../lib/e2ee-verify";
 import { spinner } from "../lib/spinner";
-import { loadPairingData } from "./pair";
 
 /**
  * tp doctor — diagnose the environment and connectivity.
@@ -77,17 +77,18 @@ export async function doctorCommand(argv: string[] = []): Promise<void> {
   }
 
   // Pairing data
-  const pairing = await loadPairingData();
-  const pairingPath = join(
-    process.env.HOME ?? "/tmp",
-    ".config",
-    "teleprompter",
-    "pairing.json",
-  );
+  const store = new Store();
+  let pairings: ReturnType<Store["loadPairings"]>;
+  try {
+    pairings = store.loadPairings();
+  } finally {
+    store.close();
+  }
+  const pairing = pairings[0] ?? null;
   if (pairing) {
-    check("Pairing data", pairingPath, true);
+    check("Pairing data", `${pairings.length} pairing(s) in store`, true);
   } else {
-    check("Pairing data", "not configured → run: tp pair", false);
+    check("Pairing data", "no pairings → run: tp pair new", false);
   }
 
   // Vault directory

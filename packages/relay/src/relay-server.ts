@@ -105,7 +105,7 @@ export class RelayServer {
 
   /**
    * Register a valid pairing token for a daemon.
-   * Used by tests and the --register-pairing CLI flag.
+   * Used by tests.
    */
   registerToken(token: string, daemonId: string) {
     this.validTokens.set(token, daemonId);

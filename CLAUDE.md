@@ -51,6 +51,7 @@ These are non-negotiable rules. **If code contradicts these, the code is wrong (
 - **Relay는 ciphertext만 전달한다 (zero-trust).** Relay never sees plaintext data. Relay is stateless — it does not track clients beyond the 10-frame cache.
 - **Daemon은 frontend를 인식하지 않는다.** No client registry on daemon. Frontend identity exists only via `frontendId` in relay protocol v2.
 - **Pairing은 relay URL을 daemon에서 결정한다.** Frontend does not configure relay URL independently; it reads relay URL from the pairing bundle (QR/JSON).
+- **Daemon은 relay의 유일한 클라이언트다.** CLI는 직접 relay WebSocket을 열지 않는다. 페어링은 CLI → daemon (IPC) → relay 경로로만 흐른다.
 
 **Reading discipline:** When the codebase contradicts the documented architecture, assume the docs are correct and the code has unreverted legacy. Never infer architecture from code — read CLAUDE.md / ARCHITECTURE.md / PRD.md first, then read code to understand the current implementation state.
 
@@ -77,6 +78,7 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - Deployment: `bun build --compile` for `tp` binary (subcommands: daemon, run, relay).
 - Passthrough mode: `tp <claude args>` runs claude directly through tp pipeline. `--tp-*` flags are consumed by tp, rest forwarded to claude.
 - **Windows support**: PTY via Node.js subprocess + `@aspect-build/node-pty` (Bun PTY Windows unsupported). IPC via Named Pipes (`Bun.listen` native pipe attempt, `node:net` fallback). Service via Task Scheduler (`schtasks.exe`). Build target: `bun-windows-x64`.
+- Pairing is completion-gated: `tp pair new` blocks until the frontend completes ECDH kx. Pending pairings live in daemon memory only; store DB holds completed pairings. `pairing.json`은 더 이상 존재하지 않는다. CLI는 daemon이 떠있지 않으면 자동으로 시작하며 (`ensureDaemon()`), pair lock (`proper-lockfile` on `pair.lock`)으로 동시 `tp pair new` 실행을 막는다.
 
 ## Coding Conventions (Summary)
 

@@ -9,9 +9,9 @@
  * On first run, shows a pairing QR and auto-installs the daemon service.
  */
 
-import { Daemon, SessionManager } from "@teleprompter/daemon";
+import { Daemon, SessionManager, Store } from "@teleprompter/daemon";
 import { setLogLevel } from "@teleprompter/protocol";
-import { existsSync, unlinkSync } from "fs";
+import { unlinkSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import { join } from "path";
 import { splitArgs } from "../args";
@@ -138,8 +138,12 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
 }
 
 async function showFirstRunPairing(): Promise<void> {
-  const pairingFile = join(CONFIG_DIR, "pairing.json");
-  if (existsSync(pairingFile)) return;
+  const store = new Store();
+  try {
+    if (store.listPairings().length > 0) return;
+  } finally {
+    store.close();
+  }
 
   console.error(bold(cyan("Welcome to Teleprompter!")));
   console.error("tp wraps Claude Code for remote session control.\n");

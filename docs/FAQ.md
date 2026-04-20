@@ -61,9 +61,9 @@ Run `tp doctor` to check all requirements at once.
 ### How do I connect my phone to Teleprompter?
 
 1. Run `tp pair --relay wss://relay.tpmt.dev` on your computer
-2. This generates a QR code containing the pairing secret, daemon public key, relay URL, and daemon ID
+2. This generates a QR code and **blocks** waiting for the mobile app to complete the ECDH key exchange (press Ctrl+C to cancel)
 3. Scan the QR code from the Teleprompter app on your phone
-4. The app establishes an E2EE connection through the relay
+4. Once the app completes the key exchange, the pairing is persisted and `tp pair` exits
 
 ### Can I connect multiple devices?
 
@@ -73,7 +73,7 @@ Yes. Teleprompter supports N:N connectivity — one daemon can serve multiple fr
 
 Run `tp doctor` to diagnose issues. It checks:
 
-1. **Pairing data** — Does `~/.config/teleprompter/pairing.json` exist? If not, run `tp pair` first.
+1. **Pairing data** — Does `tp pair list` show a pairing? If not, run `tp pair new` first.
 2. **Daemon status** — Is the daemon running? It auto-starts on `tp status` or `tp pair`.
 3. **Relay connectivity** — Can the daemon reach the relay server? Doctor pings the relay and reports RTT.
 4. **E2EE self-test** — Is the crypto stack (libsodium) working correctly?

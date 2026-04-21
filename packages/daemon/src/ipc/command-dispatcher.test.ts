@@ -42,6 +42,8 @@ interface Calls {
   cliDisconnect: number;
   pushNotifier: unknown[];
   recordObserver: Array<[string, string, Buffer, string | undefined]>;
+  removePairing: string[];
+  renamePairing: Array<[string, string | null]>;
 }
 
 function makeRunner(sid?: string): ConnectedRunner {
@@ -61,6 +63,12 @@ function makeHarness(
     sessionMeta?: SessionMeta;
     sessionDb?: SessionDb;
     relayClients?: RelayClient[];
+    pairings?: Array<{ daemonId: string }>;
+    removePairingResult?: (daemonId: string) => Promise<number>;
+    renamePairingResult?: (
+      daemonId: string,
+      label: string | null,
+    ) => Promise<number>;
   } = {},
 ) {
   const calls: Calls = {
@@ -77,6 +85,8 @@ function makeHarness(
     cliDisconnect: 0,
     pushNotifier: [],
     recordObserver: [],
+    removePairing: [],
+    renamePairing: [],
   };
 
   const fakeSessions: SessionMeta[] = opts.sessionMeta
@@ -100,6 +110,7 @@ function makeHarness(
     | "listSessions"
     | "getSession"
     | "getSessionDb"
+    | "listPairings"
   > = {
     createSession: (sid, cwd, worktreePath, claudeVersion) => {
       calls.storeCreateSession.push([sid, cwd, worktreePath, claudeVersion]);
@@ -118,6 +129,13 @@ function makeHarness(
         ? opts.sessionMeta
         : undefined,
     getSessionDb: () => fakeDb,
+    listPairings: () =>
+      (opts.pairings ?? []).map((p) => ({
+        daemonId: p.daemonId,
+        relayUrl: "ws://mock",
+        label: null,
+        createdAt: 0,
+      })),
   };
 
   const sessionManager: Pick<
@@ -168,6 +186,18 @@ function makeHarness(
     onCliDisconnect: () => {
       calls.cliDisconnect++;
     },
+    removePairing: async (daemonId) => {
+      calls.removePairing.push(daemonId);
+      return opts.removePairingResult
+        ? await opts.removePairingResult(daemonId)
+        : 0;
+    },
+    renamePairing: async (daemonId, label) => {
+      calls.renamePairing.push([daemonId, label]);
+      return opts.renamePairingResult
+        ? await opts.renamePairingResult(daemonId, label)
+        : 0;
+    },
     getOnRecord: () => recordObserver,
     getRelayClients: () => relayClients,
   });
@@ -206,6 +236,110 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     dispatcher.dispatchIpc(makeRunner(), msg);
     expect(calls.pairCancel).toEqual([msg]);
     expect(calls.pairBegin).toEqual([]);
+  });
+
+  test("pair.remove dispatches removePairing and replies pair.remove.ok", async () => {
+    const { dispatcher, calls } = makeHarness({
+      pairings: [{ daemonId: "d1" }],
+      removePairingResult: async () => 2,
+    });
+    const runner = makeRunner();
+    dispatcher.dispatchIpc(runner, { t: "pair.remove", daemonId: "d1" });
+    // Wait one microtask tick for the async handler.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls.removePairing).toEqual(["d1"]);
+    expect(calls.ipcSends).toEqual([
+      { t: "pair.remove.ok", daemonId: "d1", notifiedPeers: 2 },
+    ]);
+  });
+
+  test("pair.remove replies pair.remove.err not-found when no matching pairing", async () => {
+    const { dispatcher, calls } = makeHarness({ pairings: [] });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "pair.remove",
+      daemonId: "missing",
+    });
+    await Promise.resolve();
+    expect(calls.removePairing).toEqual([]);
+    expect(calls.ipcSends).toEqual([
+      { t: "pair.remove.err", daemonId: "missing", reason: "not-found" },
+    ]);
+  });
+
+  test("pair.remove replies pair.remove.err internal when remove throws", async () => {
+    const { dispatcher, calls } = makeHarness({
+      pairings: [{ daemonId: "d1" }],
+      removePairingResult: async () => {
+        throw new Error("db write failed");
+      },
+    });
+    dispatcher.dispatchIpc(makeRunner(), { t: "pair.remove", daemonId: "d1" });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls.ipcSends).toEqual([
+      {
+        t: "pair.remove.err",
+        daemonId: "d1",
+        reason: "internal",
+        message: "db write failed",
+      },
+    ]);
+  });
+
+  test("pair.rename dispatches renamePairing and replies pair.rename.ok", async () => {
+    const { dispatcher, calls } = makeHarness({
+      pairings: [{ daemonId: "d1" }],
+      renamePairingResult: async () => 1,
+    });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "pair.rename",
+      daemonId: "d1",
+      label: "Office Mac",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls.renamePairing).toEqual([["d1", "Office Mac"]]);
+    expect(calls.ipcSends).toEqual([
+      {
+        t: "pair.rename.ok",
+        daemonId: "d1",
+        label: "Office Mac",
+        notifiedPeers: 1,
+      },
+    ]);
+  });
+
+  test("pair.rename with label=null (clear) round-trips through reply", async () => {
+    const { dispatcher, calls } = makeHarness({
+      pairings: [{ daemonId: "d1" }],
+      renamePairingResult: async () => 0,
+    });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "pair.rename",
+      daemonId: "d1",
+      label: null,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls.renamePairing).toEqual([["d1", null]]);
+    expect(calls.ipcSends).toEqual([
+      { t: "pair.rename.ok", daemonId: "d1", label: null, notifiedPeers: 0 },
+    ]);
+  });
+
+  test("pair.rename replies pair.rename.err not-found when pairing missing", async () => {
+    const { dispatcher, calls } = makeHarness({ pairings: [] });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "pair.rename",
+      daemonId: "missing",
+      label: "x",
+    });
+    await Promise.resolve();
+    expect(calls.renamePairing).toEqual([]);
+    expect(calls.ipcSends).toEqual([
+      { t: "pair.rename.err", daemonId: "missing", reason: "not-found" },
+    ]);
   });
 
   test("hello creates session row, registers runner, and notifies relays", () => {

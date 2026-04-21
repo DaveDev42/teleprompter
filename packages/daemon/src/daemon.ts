@@ -110,6 +110,8 @@ export class Daemon {
       },
       onPairCancel: (runner, msg) => this.__handlePairCancel(runner, msg),
       onCliDisconnect: (runner) => this.__handleCliDisconnect(runner),
+      removePairing: (daemonId) => this.removePairing(daemonId),
+      renamePairing: (daemonId, label) => this.renamePairing(daemonId, label),
       getOnRecord: () => this.onRecord,
       getRelayClients: () => [...this.relayManager.listClients()],
     });
@@ -424,15 +426,31 @@ export class Daemon {
   /**
    * Remove a pairing by daemonId: optionally notifies the peer with a
    * control.unpair frame, tears down the relay client, and deletes the
-   * persisted pairing record from the store.
+   * persisted pairing record from the store. Returns the number of peers
+   * notified (0 when `notifyPeer` is false or the pairing has no live
+   * relay connection).
    *
    * Thin delegate to {@link RelayConnectionManager.removePairing}.
    */
   async removePairing(
     daemonId: string,
     opts: { notifyPeer: boolean } = { notifyPeer: true },
-  ): Promise<void> {
+  ): Promise<number> {
     return this.relayManager.removePairing(daemonId, opts);
+  }
+
+  /**
+   * Rename a pairing's label, updating the store and pushing a
+   * `control.rename` frame to connected peers. Returns the number of peers
+   * notified.
+   *
+   * Thin delegate to {@link RelayConnectionManager.renamePairing}.
+   */
+  async renamePairing(
+    daemonId: string,
+    label: string | null,
+  ): Promise<number> {
+    return this.relayManager.renamePairing(daemonId, label);
   }
 
   /** @internal for tests */

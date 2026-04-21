@@ -3,7 +3,7 @@
  *
  * crypto-native.ts is a thin wrapper around `ensureSodium()` from
  * `@teleprompter/protocol/client` that caches the availability result. Under
- * Bun, libsodium-wrappers-sumo initializes successfully (WASM path), so the
+ * Bun, libsodium-wrappers initializes successfully (WASM path), so the
  * real happy-path is exercised. A separate describe block loads a stub
  * protocol module to verify the failure/caching path.
  */

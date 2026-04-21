@@ -8,13 +8,13 @@
  * - Nonce: random per frame (safe with XChaCha20's 24-byte nonce)
  */
 
-let _sodium: typeof import("libsodium-wrappers-sumo") | null = null;
+let _sodium: typeof import("libsodium-wrappers") | null = null;
 
 export async function ensureSodium() {
   if (!_sodium) {
     // Lazy load to avoid top-level require that breaks React Native
     _sodium =
-      require("libsodium-wrappers-sumo") as typeof import("libsodium-wrappers-sumo");
+      require("libsodium-wrappers") as typeof import("libsodium-wrappers");
     await _sodium.ready;
   }
   return _sodium;

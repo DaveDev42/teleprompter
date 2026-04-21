@@ -1,7 +1,7 @@
 /**
  * Polyfill crypto.getRandomValues for Hermes (React Native).
  *
- * libsodium-wrappers-sumo checks `window.crypto` or `self.crypto` for
+ * libsodium-wrappers checks `window.crypto` or `self.crypto` for
  * getRandomValues(). Hermes has neither `window` nor `self`, so we
  * install `self` as a global with a crypto object backed by expo-crypto's
  * native getRandomValues (SecRandomCopyBytes on iOS, SecureRandom on Android).

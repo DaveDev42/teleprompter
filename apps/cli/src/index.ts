@@ -66,58 +66,65 @@ if (!skipVersionCheck) {
   });
 }
 
-switch (command) {
-  case "daemon":
-    await daemonCommand(process.argv.slice(3));
-    break;
-  case "run":
-    await runCommand(process.argv.slice(3));
-    break;
-  case "relay":
-    await relayCommand(process.argv.slice(3));
-    break;
-  case "pair":
-    await pairCommand(process.argv.slice(3));
-    break;
-  case "status":
-    await statusCommand(process.argv.slice(3));
-    break;
-  case "logs":
-    await logsCommand(process.argv.slice(3));
-    break;
-  case "doctor":
-    await doctorCommand(process.argv.slice(3));
-    break;
-  case "upgrade":
-    await upgradeCommand(process.argv.slice(3));
-    break;
-  case "completions":
-    completionsCommand(process.argv.slice(3));
-    break;
-  case "version":
-  case "--version":
-  case "-v":
-    await versionCommand(process.argv.slice(3));
-    break;
-  case "--":
-    // `tp -- <args>` → forward everything after -- directly to claude
-    await forwardToClaudeCommand(process.argv.slice(3));
-    break;
-  case "--help":
-  case "-h":
-  case undefined:
-    printUsage();
-    break;
-  default:
-    // Claude utility subcommands → forward directly without daemon
-    if (CLAUDE_UTILITY_SUBCOMMANDS.has(command)) {
-      await forwardToClaudeCommand(process.argv.slice(2));
-    } else {
-      // No recognized subcommand → passthrough to claude via daemon+runner
-      await passthroughCommand(process.argv.slice(2));
-    }
-    break;
+async function main(): Promise<void> {
+  switch (command) {
+    case "daemon":
+      await daemonCommand(process.argv.slice(3));
+      break;
+    case "run":
+      await runCommand(process.argv.slice(3));
+      break;
+    case "relay":
+      await relayCommand(process.argv.slice(3));
+      break;
+    case "pair":
+      await pairCommand(process.argv.slice(3));
+      break;
+    case "status":
+      await statusCommand(process.argv.slice(3));
+      break;
+    case "logs":
+      await logsCommand(process.argv.slice(3));
+      break;
+    case "doctor":
+      await doctorCommand(process.argv.slice(3));
+      break;
+    case "upgrade":
+      await upgradeCommand(process.argv.slice(3));
+      break;
+    case "completions":
+      completionsCommand(process.argv.slice(3));
+      break;
+    case "version":
+    case "--version":
+    case "-v":
+      await versionCommand(process.argv.slice(3));
+      break;
+    case "--":
+      // `tp -- <args>` → forward everything after -- directly to claude
+      await forwardToClaudeCommand(process.argv.slice(3));
+      break;
+    case "--help":
+    case "-h":
+    case undefined:
+      printUsage();
+      break;
+    default:
+      // Claude utility subcommands → forward directly without daemon
+      if (CLAUDE_UTILITY_SUBCOMMANDS.has(command)) {
+        await forwardToClaudeCommand(process.argv.slice(2));
+      } else {
+        // No recognized subcommand → passthrough to claude via daemon+runner
+        await passthroughCommand(process.argv.slice(2));
+      }
+      break;
+  }
 }
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
 
 function printUsage(): void {
   console.log(`

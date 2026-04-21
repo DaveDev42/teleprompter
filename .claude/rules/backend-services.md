@@ -30,9 +30,12 @@ paths:
 ## Relay
 - Stateless: ciphertext 전달만 — 복호화 불가 (zero-trust)
 - Protocol v2: `relay.register` (self-registration), `relay.kx` (in-band key exchange)
-- Caching: 최근 10 frames per session
+- Caching: 최근 N frames per session (default 10, override via `TP_RELAY_CACHE_SIZE` env)
 
-## CLI
-- Subcommand router: `tp daemon|relay|run|pair|status|logs`
-- Passthrough: `tp <claude args>` → `--tp-*` flags 분리 후 나머지 claude에 전달
-- 인자 분리: `args.test.ts`, `passthrough.test.ts`에서 커버
+## CLI (`apps/cli/src`)
+- Entry: `index.ts` — subcommand router wrapped in `async main()` (no top-level await; enables future `--bytecode` builds).
+- Subcommands: `daemon`, `run`, `relay`, `pair`, `status`, `logs`, `doctor`, `upgrade`, `completions`, `version` (see `SUBCOMMANDS` set in `index.ts`).
+- Claude utility forwards (daemon-bypass): `auth`, `mcp`, `install`, `update`, `agents`, `auto-mode`, `plugin`, `plugins`, `setup-token` — listed in `claude-subcommands.ts` (`CLAUDE_UTILITY_SUBCOMMANDS`).
+- Passthrough: `tp <claude args>` (unrecognized first arg) → `--tp-*` flags 분리 후 나머지 claude에 전달.
+- 인자 분리 테스트: `args.test.ts`, `passthrough.test.ts`.
+- Background update check (`checkForUpdates`): 24h-cached, rate-limited even on network failure, `TP_NO_UPDATE_CHECK=1` opt-out. Skipped for passthrough, `run`, `version`, `--help`, `--`, claude utility forwards.

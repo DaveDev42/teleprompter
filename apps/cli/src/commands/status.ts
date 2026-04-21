@@ -1,7 +1,7 @@
 import { type SessionMeta, Store } from "@teleprompter/daemon";
-import { getSocketPath } from "@teleprompter/protocol";
-import { existsSync } from "fs";
 import { dim, green, red } from "../lib/colors";
+import { isDaemonRunning } from "../lib/ensure-daemon";
+import { formatAge } from "../lib/format";
 
 /**
  * tp status — shows the current daemon state.
@@ -11,8 +11,7 @@ import { dim, green, red } from "../lib/colors";
  * the daemon IPC socket is live.
  */
 export async function statusCommand(_argv: string[]): Promise<void> {
-  const socketPath = getSocketPath();
-  const backgroundRunning = existsSync(socketPath);
+  const backgroundRunning = await isDaemonRunning();
 
   const store = new Store();
   const sessions = store.listSessions();
@@ -72,14 +71,4 @@ function displayStatus(
     }
     console.log("");
   }
-}
-
-function formatAge(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
 }

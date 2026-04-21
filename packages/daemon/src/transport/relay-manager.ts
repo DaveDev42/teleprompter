@@ -6,8 +6,7 @@ import {
 import type { IpcCommandDispatcher } from "../ipc/command-dispatcher";
 import type { IpcServer } from "../ipc/server";
 import type { PushNotifier } from "../push/push-notifier";
-import type { Store } from "../store";
-import { toWsSessionMeta } from "../store/session-meta";
+import { type Store, toWsSessionMeta } from "../store";
 import {
   RelayClient,
   type RelayClientConfig,

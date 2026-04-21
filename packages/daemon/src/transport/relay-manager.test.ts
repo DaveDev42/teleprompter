@@ -202,17 +202,26 @@ describe("RelayConnectionManager", () => {
   });
 
   test("concurrent removePairing preserves the other client (no stale-index splice)", async () => {
+    // Regression test for the stale-index race in `removePairing`: when a
+    // captured `idx` becomes stale because a concurrent remove of an
+    // earlier-indexed client shifts the target's position, the second
+    // splice must not remove the wrong slot or leave a zombie.
+    //
+    // To reproduce, the target client must sit at a higher index and lower-
+    // indexed clients must be spliced out during its own `sendUnpairNotice`
+    // await. Add X, Y, then A so A is at index 2; remove X and Y while A's
+    // notice is in flight — A's cached index shifts from 2 → 0.
     const mgr = new RelayConnectionManager(makeDeps());
 
-    // Client A has a single peer; its sendUnpairNotice yields, giving B a
-    // window to complete and splice itself out first. Without re-resolving
-    // the index after the await, A's splice would remove the wrong slot.
+    const stubX = makeStubClient("X", []);
+    const stubY = makeStubClient("Y", []);
     const stubA = makeStubClient("A", ["peerA"]);
-    const stubB = makeStubClient("B", []);
+    const stubs = [stubX, stubY, stubA];
     let callIdx = 0;
     mgr.__setFactory(() => {
-      callIdx++;
-      return callIdx === 1 ? stubA : stubB;
+      const s = stubs[callIdx++];
+      if (!s) throw new Error("factory exhausted");
+      return s;
     });
 
     stubA.sendUnpairNotice = mock(async (frontendId: string) => {
@@ -221,15 +230,22 @@ describe("RelayConnectionManager", () => {
       return true;
     });
 
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "X", label: null });
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "Y", label: null });
     await mgr.addClient({ ...BASE_CONFIG, daemonId: "A", label: null });
-    await mgr.addClient({ ...BASE_CONFIG, daemonId: "B", label: null });
 
+    // Kick off A's remove (captures idx=2, yields at the await), then
+    // synchronously mutate the pool so A's real index drops to 0.
     const pA = mgr.removePairing("A", { notifyPeer: true });
-    await mgr.removePairing("B", { notifyPeer: false });
+    await mgr.removePairing("X", { notifyPeer: false });
+    await mgr.removePairing("Y", { notifyPeer: false });
     await pA;
 
+    expect(stubX.__disposed).toBe(true);
+    expect(stubY.__disposed).toBe(true);
     expect(stubA.__disposed).toBe(true);
-    expect(stubB.__disposed).toBe(true);
+    // Without the indexOf recheck, A would remain as a zombie (splice with
+    // a stale idx=2 out of bounds), and listDaemonIds() would still show A.
     expect(mgr.listDaemonIds()).toEqual([]);
   });
 

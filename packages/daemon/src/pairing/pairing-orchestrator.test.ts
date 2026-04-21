@@ -314,6 +314,45 @@ describe("PairingOrchestrator", () => {
     expect(orch.hasPending).toBe(false);
   });
 
+  test("clearPending() disposes the relay when promote() threw partway", async () => {
+    // Specific C1 regression: Daemon's promote-failure handler calls
+    // clearPending() after savePairing throws, before releaseRelay runs.
+    // The orphan relay must be disposed.
+    const relay = makeFakeRelayClient();
+    const manager = makeFakeRelayManager({ factory: () => relay });
+    const throwingStore = {
+      listPairings: mock(() => [] as Array<{ daemonId: string }>),
+      savePairing: mock(() => {
+        throw new Error("disk full");
+      }),
+    };
+    const orch = new PairingOrchestrator({
+      relayManager: manager as unknown as Pick<
+        RelayConnectionManager,
+        "buildEvents" | "attachHandlers" | "__getFactory" | "registerClient"
+      >,
+      store: throwingStore as unknown as Pick<
+        Store,
+        "listPairings" | "savePairing"
+      >,
+    });
+
+    await orch.begin({ relayUrl: "wss://r", daemonId: "d1" });
+    const pending = orch.current;
+    if (!pending) throw new Error("expected pending pairing");
+    pending.__markCompleted("frontend-x");
+    const result = await orch.awaitPending()!;
+    if (result.kind !== "completed") throw new Error("expected completed");
+
+    expect(() => orch.promote(result)).toThrow("disk full");
+    // promote threw before releaseRelay — relay is still on pending
+    expect(relay.dispose).not.toHaveBeenCalled();
+
+    orch.clearPending();
+    expect(relay.dispose).toHaveBeenCalledTimes(1);
+    expect(orch.hasPending).toBe(false);
+  });
+
   test("clearPending() after promote() is a no-op (relay already released)", async () => {
     const relay = makeFakeRelayClient();
     const manager = makeFakeRelayManager({ factory: () => relay });

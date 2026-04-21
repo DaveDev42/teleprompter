@@ -170,7 +170,7 @@ Stub 프로세스로 전체 파이프라인 검증.
 - `packages/protocol/src/pairing-e2e.test.ts` — full QR pairing → ratchet → E2E encrypt
 - `packages/runner/src/ipc/client.test.ts` — Runner↔Daemon IPC client connection
 - `apps/cli/src/multi-frontend.test.ts` — N:N multi-frontend E2EE (2 frontends, independent keys, cross-decrypt rejection)
-- `apps/cli/src/pair-blocking.test.ts` — `tp pair new`가 실제 daemon subprocess에서 frontend kx 완료까지 블록 (SIGINT 경로 포함, Windows skip)
+- `apps/cli/src/pair-blocking.test.ts` — `tp pair new`가 실제 daemon subprocess에서 frontend kx 완료까지 블록 (SIGINT 경로 포함, macOS/Linux/Windows 모두 실행)
 - `apps/cli/src/rename-e2e.test.ts` — `control.rename` 라운드트립 (Daemon + 실제 RelayServer)
 - `apps/cli/src/unpair-e2e.test.ts` — `control.unpair` 라운드트립 (Daemon + 실제 RelayServer)
 

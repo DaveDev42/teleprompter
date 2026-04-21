@@ -48,6 +48,37 @@
 
 ---
 
+## 🧹 Simplify Pass (2026-04-21)
+
+3-agent 병렬 리뷰(reuse / quality / efficiency) 결과 도출된 정리 작업. 하위호환성은 신경쓰지 않고 정리 — 채택 그룹 A(안전/명확) + B(범위 있음) 전부 진행.
+
+### 그룹 A — 완료
+- [x] **A1: `formatAge` 3중 중복 제거** — `apps/cli/src/lib/format.ts`로 이동 + 테스트.
+- [x] **A2: `resolveTpBinary` 3플랫폼 중복 제거** — `lib/paths.ts` 단일화, 플랫폼 모듈에서 re-export.
+- [x] **A3: `getConfigDir` 통일** — `lib/paths.ts`로 이동, 5곳 인라인 제거, Windows APPDATA/XDG 일관성 수정.
+- [x] **A4: `daemon-status.ts` stale-socket 오탐 수정** — `isDaemonRunning()` connect-probe로 교체 (status 커맨드도 동일 처리).
+- [x] **A5: `waitForDaemonReady` 추출** — `ensure-daemon.ts`의 폴링 루프 2중 중복 제거.
+- [x] **A6: `SessionState.connected` 제거** — `useAnyRelayConnected()` 파생 훅 도입; N-daemon last-write-wins 버그 수정.
+- [x] **A7: relay-client publish helper 통합** — `sendEncrypted`/`broadcastEncrypted`/`sendControl` 내부 helper, ~140줄 축소.
+- [x] **A8: `FrameDecoder` O(N²) 수정** — 빈 버퍼일 때 copy 스킵, 핫패스 O(N) 유지.
+- [x] **A9: `reconnectSavedRelays` 병렬화** — `Promise.allSettled`로 N× handshake 지연 제거.
+- [x] **A10: `QueuedWriter` 큐 크기 제한** — 8 MiB 기본 cap + overflow 플래그.
+- [x] **A11: `Store.sessionDbs` LRU 캡** — 32-slot LRU, evict 시 `SessionDb.close()` 호출.
+- [x] **A12: CLI dynamic imports** — per-subcommand dynamic import로 `tp version/status` startup cost 제거.
+- [x] **A13: `checkForUpdates()` 범위 축소** — `upgrade/doctor/pair/passthrough`만 호출, 나머지 스킵.
+
+### 그룹 B — 일부 완료
+- [x] **B1: 레거시 `pairing.json` 마이그레이션 제거** — unlink 블록 + 상수 + 테스트 제거.
+- [ ] **B2: CLI `notifyPeer` → daemon IPC 이관** — scope 과대로 보류. 기존 "daemon must be stopped" 제약 제거 + 신규 IPC 커맨드 + RelayConnectionManager 훅 + 테스트가 필요. 별도 브랜치에서 진행.
+- [ ] **B3: IPC 바이너리 프레이밍 (io records)** — scope 과대로 보류. 프로토콜 버전 bump + runner/daemon/relay 전역 테스트 업데이트 필요. 별도 브랜치.
+- [x] **B4: Relay 상태 TTL eviction** — offline 1시간 후 `daemonStates` + `recentFrames` evict.
+- [x] **B5: `cacheFrame` 배치 업데이트** — Map in-place mutate + 120ms throttled flush; PTY 버스트 시 rerender 폭주 해소.
+- [x] **B6: ANSI strip 추출** — `lib/ansi-strip.ts` + 7 단위 테스트.
+- [x] **B7: 하드코딩 hex → `tp-*` 토큰** — `lib/tokens.ts`에 palette + `TERMINAL_COLORS` 중앙화.
+- [x] **B8: `swallow(err)` helper** — `lib/swallow.ts` 추가. 개별 callsite 전환은 점진적.
+
+---
+
 ## Future
 
 - [ ] Claude Code channels 양방향(output 구독) 지원 시 Chat UI 통합 재검토

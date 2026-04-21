@@ -6,15 +6,15 @@ paths:
 # Frontend Conventions (apps/app)
 
 ## Zustand Store 패턴
-- 생성: `create<Interface>((set, get) => ({...}))` — 미들웨어 없음 (immer, persist, devtools 미사용)
+- 생성: `create<Interface>((set, get) => ({...}))` — 미들웨어 없음 (immer, persist, devtools 미사용). Module-level `persist()` helper for explicit write-through.
 - Interface: state 필드 + action 메서드를 단일 interface에 정의 (`<Name>Store` 또는 `<Name>State`)
-- Private fields: `_` prefix (`_recHandlers`, `_onPromptReady`)
+- Private fields: `_` prefix. Current live examples: `_timer`, `_toastId` in `notification-store.ts`. Test stores may use other `_`-prefixed ids (`_id`, `_input`) to mirror protocol field names.
 - Persistence: `secureGet`/`secureSet` from `lib/secure-storage` (Web: `tp_` prefix localStorage, Native: expo-secure-store)
   - Write-through: `set()` 먼저 → `persist()` async
   - Load: try/catch + 파싱 에러 시 silent fail
 - Uint8Array 필드: `SerializedPairingInfo` interface로 base64 변환 (`toBase64`/`fromBase64`)
-- Error: `lastError: string | null` + `setError()` (session, pairing만)
-- Reset: session-store, pairing-store만 `reset()` 보유
+- Error: `lastError: string | null` + `setError()` lives in `session-store` only today. Add to other stores only when the UI genuinely surfaces the error state.
+- Reset: `session-store`, `pairing-store`만 `reset()` 보유
 - Cross-store: `useXStore.getState()` (React 외부), `useXStore(s => s.field)` (React 내부) — store 간 직접 import 없음
 
 ## NativeWind / Tailwind

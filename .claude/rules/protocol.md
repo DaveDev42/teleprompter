@@ -11,8 +11,8 @@ paths:
 - 새 유틸 추가 시: 서버 전용이면 index.ts에만, 프론트엔드에도 필요하면 client.ts에도 export
 
 ## Type 파일 구조 (`src/types/`)
-- 도메인당 1파일: envelope.ts, event.ts, ipc.ts, record.ts, relay.ts, session.ts, ws.ts
-- Namespace prefix: `Ipc*` (Runner↔Daemon), `Relay*` (Daemon↔Relay), `Ws*` (Frontend↔Daemon)
+- 도메인당 1파일: `envelope.ts`, `event.ts`, `ipc.ts`, `record.ts`, `relay.ts`, `session.ts`, `ws.ts`, `control.ts` (E2EE control messages riding the `__control__` sid — `control.unpair`, `control.rename`, etc.)
+- Namespace prefix: `Ipc*` (Runner↔Daemon), `Relay*` (Daemon↔Relay), `Ws*` (Frontend↔Daemon), `Control*` (peer-to-peer control messages)
 - index.ts에서 re-export
 
 ## Envelope 필드명

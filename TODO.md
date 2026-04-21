@@ -67,9 +67,9 @@
 - [x] **A12: CLI dynamic imports** — per-subcommand dynamic import로 `tp version/status` startup cost 제거.
 - [x] **A13: `checkForUpdates()` 범위 축소** — `upgrade/doctor/pair/passthrough`만 호출, 나머지 스킵.
 
-### 그룹 B — 일부 완료
+### 그룹 B
 - [x] **B1: 레거시 `pairing.json` 마이그레이션 제거** — unlink 블록 + 상수 + 테스트 제거.
-- [ ] **B2: CLI `notifyPeer` → daemon IPC 이관** — scope 과대로 보류. 기존 "daemon must be stopped" 제약 제거 + 신규 IPC 커맨드 + RelayConnectionManager 훅 + 테스트가 필요. 별도 브랜치에서 진행.
+- [x] **B2: CLI `pair delete`/`pair rename` → daemon IPC 이관 (2026-04-21)** — "daemon must be stopped" 제약 제거. daemon이 running이면 새 `pair.remove`/`pair.rename` IPC를 보내 daemon이 기존 RelayClient로 peer notify + store 업데이트를 한 번에 수행. daemon이 running이 아니면 store를 직접 수정 (fallback). `RelayConnectionManager`에 `renamePairing` 메서드 신설 + `removePairing`이 notify된 peer 수를 반환하도록 시그니처 변경. 프로토콜에 `IpcPairRemove{,Ok,Err}` / `IpcPairRename{,Ok,Err}` 타입 + `parseIpcMessage` guard 확장. 단위 테스트 6 (dispatcher) + 4 (RelayConnectionManager) + 6 (ipc-guard) 추가.
 - [ ] **B3: IPC 바이너리 프레이밍 (io records)** — scope 과대로 보류. 프로토콜 버전 bump + runner/daemon/relay 전역 테스트 업데이트 필요. 별도 브랜치.
 - [x] **B4: Relay 상태 TTL eviction** — offline 1시간 후 `daemonStates` + `recentFrames` evict.
 - [x] **B5: `cacheFrame` 배치 업데이트** — Map in-place mutate + 120ms throttled flush; PTY 버스트 시 rerender 폭주 해소.

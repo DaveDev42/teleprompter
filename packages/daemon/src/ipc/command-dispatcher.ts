@@ -4,6 +4,12 @@ import type {
   IpcMessage,
   IpcPairBegin,
   IpcPairCancel,
+  IpcPairRemove,
+  IpcPairRemoveErr,
+  IpcPairRemoveOk,
+  IpcPairRename,
+  IpcPairRenameErr,
+  IpcPairRenameOk,
   IpcRec,
   Namespace,
   RelayControlMessage,
@@ -53,6 +59,12 @@ export interface IpcCommandDispatcherDeps {
   onPairBegin: (runner: ConnectedRunner, msg: IpcPairBegin) => void;
   onPairCancel: (runner: ConnectedRunner, msg: IpcPairCancel) => void;
   onCliDisconnect: (runner: ConnectedRunner) => void;
+  /** Remove a pairing (notifies peers, tears down relay client, deletes from
+   * store). Returns the number of peers notified. */
+  removePairing: (daemonId: string) => Promise<number>;
+  /** Rename a pairing's label (updates store, notifies peers). Returns the
+   * number of peers notified. */
+  renamePairing: (daemonId: string, label: string | null) => Promise<number>;
   /** Local record observer (passthrough CLI). Getter because Daemon can
    * install the observer after dispatcher construction. */
   getOnRecord: () =>
@@ -91,6 +103,12 @@ export class IpcCommandDispatcher {
       case "pair.cancel":
         this.deps.onPairCancel(runner, msg);
         return;
+      case "pair.remove":
+        void this.handlePairRemove(runner, msg);
+        return;
+      case "pair.rename":
+        void this.handlePairRename(runner, msg);
+        return;
       case "hello":
         this.handleHello(msg);
         return;
@@ -102,9 +120,78 @@ export class IpcCommandDispatcher {
         return;
       default:
         // ack/input/resize/pair.begin.ok/pair.begin.err/
-        // pair.completed/pair.cancelled/pair.error are daemon→runner
-        // messages; if a runner sends one we simply ignore it.
+        // pair.completed/pair.cancelled/pair.error/pair.remove.ok etc.
+        // are daemon→runner messages; if a runner sends one we simply ignore it.
         log.warn(`ignoring unexpected IPC message from runner: ${msg.t}`);
+    }
+  }
+
+  private async handlePairRemove(
+    runner: ConnectedRunner,
+    msg: IpcPairRemove,
+  ): Promise<void> {
+    const pairings = this.deps.store.listPairings();
+    const exists = pairings.some((p) => p.daemonId === msg.daemonId);
+    if (!exists) {
+      const err: IpcPairRemoveErr = {
+        t: "pair.remove.err",
+        daemonId: msg.daemonId,
+        reason: "not-found",
+      };
+      this.deps.ipcServer.send(runner, err);
+      return;
+    }
+    try {
+      const notified = await this.deps.removePairing(msg.daemonId);
+      const ok: IpcPairRemoveOk = {
+        t: "pair.remove.ok",
+        daemonId: msg.daemonId,
+        notifiedPeers: notified,
+      };
+      this.deps.ipcServer.send(runner, ok);
+    } catch (e) {
+      const err: IpcPairRemoveErr = {
+        t: "pair.remove.err",
+        daemonId: msg.daemonId,
+        reason: "internal",
+        message: e instanceof Error ? e.message : String(e),
+      };
+      this.deps.ipcServer.send(runner, err);
+    }
+  }
+
+  private async handlePairRename(
+    runner: ConnectedRunner,
+    msg: IpcPairRename,
+  ): Promise<void> {
+    const pairings = this.deps.store.listPairings();
+    const exists = pairings.some((p) => p.daemonId === msg.daemonId);
+    if (!exists) {
+      const err: IpcPairRenameErr = {
+        t: "pair.rename.err",
+        daemonId: msg.daemonId,
+        reason: "not-found",
+      };
+      this.deps.ipcServer.send(runner, err);
+      return;
+    }
+    try {
+      const notified = await this.deps.renamePairing(msg.daemonId, msg.label);
+      const ok: IpcPairRenameOk = {
+        t: "pair.rename.ok",
+        daemonId: msg.daemonId,
+        label: msg.label,
+        notifiedPeers: notified,
+      };
+      this.deps.ipcServer.send(runner, ok);
+    } catch (e) {
+      const err: IpcPairRenameErr = {
+        t: "pair.rename.err",
+        daemonId: msg.daemonId,
+        reason: "internal",
+        message: e instanceof Error ? e.message : String(e),
+      };
+      this.deps.ipcServer.send(runner, err);
     }
   }
 

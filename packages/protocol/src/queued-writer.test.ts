@@ -81,4 +81,28 @@ describe("QueuedWriter", () => {
     expect(writer.pending).toBe(0);
     expect(socket.written.length).toBe(1000);
   });
+
+  test("overflows when queued bytes exceed cap and rejects further writes", () => {
+    const socket = new MockSocket(0);
+    const writer = new QueuedWriter({ maxQueuedBytes: 8 });
+
+    // 4 bytes — fits.
+    const first = writer.write(socket, new TextEncoder().encode("aaaa"));
+    expect(first).toBe(false);
+    expect(writer.pending).toBe(1);
+    expect(writer.isOverflowed).toBe(false);
+
+    // Another 4 bytes — still within cap (4+4 = 8, boundary).
+    writer.write(socket, new TextEncoder().encode("bbbb"));
+    expect(writer.isOverflowed).toBe(false);
+
+    // One more byte pushes past cap → overflows.
+    const third = writer.write(socket, new TextEncoder().encode("c"));
+    expect(third).toBe(false);
+    expect(writer.isOverflowed).toBe(true);
+
+    // Subsequent writes short-circuit and stay dropped.
+    const fourth = writer.write(socket, new TextEncoder().encode("d"));
+    expect(fourth).toBe(false);
+  });
 });

@@ -22,6 +22,14 @@ const MAX_SUBSCRIPTIONS_PER_CLIENT = 50;
 const STALE_TIMEOUT_MS = 90_000;
 /** How often to check for stale daemons (ms) */
 const STALE_CHECK_INTERVAL_MS = 30_000;
+/**
+ * How long to retain per-daemon session state + recent-frame cache after
+ * the daemon has been marked offline, before the relay evicts everything.
+ * Until this elapses a returning daemon can resume without re-bootstrapping
+ * its frontends from scratch. Defaults to 1 hour; the relay has no
+ * durability guarantee beyond this window.
+ */
+const OFFLINE_EVICT_AFTER_MS = 60 * 60_000;
 
 export interface RelayServerOptions {
   /** Max cached frames per session (default: 10, env: TP_RELAY_CACHE_SIZE) */
@@ -712,8 +720,29 @@ ${daemons
           `daemon ${daemonId} marked offline (stale — no ping for ${staleSec}s)`,
         );
         this.broadcastPresence(daemonId);
+      } else if (
+        !state.online &&
+        now - state.lastSeen > OFFLINE_EVICT_AFTER_MS
+      ) {
+        this.evictDaemon(daemonId);
       }
     }
+  }
+
+  /**
+   * Drop all per-daemon cached state. Called when a daemon has been offline
+   * long enough that retaining it would be pure memory leak — no returning
+   * frontend can use the stale cache. The next successful register/auth
+   * rebuilds state from scratch.
+   */
+  private evictDaemon(daemonId: string): void {
+    this.daemonStates.delete(daemonId);
+    for (const key of this.recentFrames.keys()) {
+      if (key.startsWith(`${daemonId}:`)) {
+        this.recentFrames.delete(key);
+      }
+    }
+    log.info(`daemon ${daemonId} evicted from relay state after offline TTL`);
   }
 
   private broadcastPresence(daemonId: string) {

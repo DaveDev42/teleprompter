@@ -21,9 +21,8 @@ import type {
   SessionManager,
   SpawnRunnerOptions,
 } from "../session/session-manager";
-import type { Store } from "../store";
+import { type Store, toWsSessionMeta } from "../store";
 import type { StoredRecord } from "../store/session-db";
-import { toWsSessionMeta } from "../store/session-meta";
 import type { RelayClient } from "../transport/relay-client";
 import type { WorktreeManager } from "../worktree/worktree-manager";
 import type { ConnectedRunner, IpcServer } from "./server";

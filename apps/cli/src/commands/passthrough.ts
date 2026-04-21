@@ -17,9 +17,10 @@ import { join } from "path";
 import { splitArgs } from "../args";
 import { bold, cyan, dim } from "../lib/colors";
 import { errorWithHints } from "../lib/format";
+import { getConfigDir } from "../lib/paths";
 import { resolveRunnerCommand } from "../spawn";
 
-const CONFIG_DIR = join(process.env.HOME ?? "/tmp", ".config", "teleprompter");
+const CONFIG_DIR = getConfigDir();
 const INIT_MARKER = join(CONFIG_DIR, ".tp-initialized");
 
 export async function passthroughCommand(argv: string[]): Promise<void> {

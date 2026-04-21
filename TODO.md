@@ -15,7 +15,7 @@
 - [ ] Session Export 대규모 세션 성능 미검증 — 10,000+ records 세션에서 export 속도/메모리 사용량 확인 필요 (현재 limit 50,000)
 
 ### 발견된 버그
-- [ ] **Windows CLI pair flow 실제 구현 필요** — `tp pair new`가 Windows에서 `apps/cli/src/lib/ipc-client-windows.ts`의 스텁 `throw new Error(...)`에 도달해 페어링 플로우 전체가 깨짐. 호출 체인: `pair.ts::pairNew()` → `ensureDaemon()` → `connectIpcAsClient(getSocketPath())` → Windows 분기 → 스텁. Daemon 측 Named Pipe 서버(`packages/daemon/src/ipc/server-windows.ts`)와 `packages/runner/src/ipc/client-windows.ts`의 `connectWindows` 구현(Bun native pipe → `node:net` fallback)이 이미 있으므로 이를 참고해 CLI 클라이언트를 구현. 구현 후 기존 `describe.skipIf(win32)`로 skip된 `pair.test.ts`, `pair-blocking.test.ts` 등 해제. 발견: PR #117 작업 중 (v0.1.12 기준).
+(현재 없음)
 
 ---
 
@@ -29,7 +29,10 @@
 - [x] **`apps/app/src/lib/relay-client.ts` 단위 테스트** — PR #118. 26개 테스트 (E2EE roundtrip, ECDH, ratchet, WS 상태머신, reconnect 백오프).
 - [x] **`apps/app/src/lib/{secure-storage, crypto-native, crypto-polyfill}.ts` 단위 테스트** — PR #119. 21개 테스트. `apps/app/tsconfig.json`에 `*.test.ts` exclude 추가해 bun:test TS2307 해소.
 - [x] **zustand 스토어 핵심 로직 테스트** — PR #121. 57개 테스트 (pairing v2→v3 migration, session store multicast, chat streaming). v2 migration 제거 전 안전망 확보.
-- [x] **`apps/cli/src/lib/ipc-client-windows.ts` 문서화** — PR #117. 호출 체인과 참고 구현을 주석으로 명시. 구현은 별도 (위 "Windows CLI pair flow 실제 구현" 참조).
+- [x] **`apps/cli/src/lib/ipc-client-windows.ts` 문서화** — PR #117. 호출 체인과 참고 구현을 주석으로 명시.
+
+### Phase 1 follow-up (land-on-reality)
+- [x] **Windows CLI pair flow 실제 구현 (2026-04-20)** — `apps/cli/src/lib/ipc-client-windows.ts`의 스텁 `throw`를 제거하고 실제 Named Pipe 클라이언트로 교체. `packages/runner/src/ipc/client-windows.ts`의 `connectWindows`와 동일한 전략(Bun native pipe → `node:net` fallback). Windows 전용 단위 테스트를 `apps/cli/src/lib/ipc-client-windows.test.ts`에 추가 (`describe.skipIf(process.platform !== "win32")`). `pair-blocking.test.ts`는 Windows에서도 실행되도록 skip을 풀고 Named Pipe 경로 대응을 추가. `pair.test.ts`의 list/delete 스위트는 SQLite 파일 핸들 지속 이슈(위 Windows 섹션의 bun#25964)로 여전히 Windows skip 유지 — IPC와 무관한 별도 문제. `ipc-client.test.ts`의 POSIX 전용 테스트는 `\\.\pipe\...` 경로 요구 때문에 Windows 스킵 유지, 그 대체가 새로 추가한 `ipc-client-windows.test.ts`.
 
 ### Phase 2 — 진행 중 (daemon.ts 분해)
 `daemon.ts` 같은 파일을 순차 수정해야 하므로 C1 → C2 → C3 순서.

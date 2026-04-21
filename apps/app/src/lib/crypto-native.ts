@@ -1,7 +1,7 @@
 /**
  * Native crypto availability for all platforms.
  *
- * libsodium-wrappers-sumo includes a JS-based WebAssembly polyfill
+ * libsodium-wrappers includes a JS-based WebAssembly polyfill
  * (asm.js fallback) that works on Hermes without native WASM support.
  * This means E2EE crypto is available on all platforms including
  * iOS/Android via Expo Go — no custom native modules required.

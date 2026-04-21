@@ -1,19 +1,28 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Store } from "@teleprompter/daemon";
+import { rmRetry } from "@teleprompter/protocol/test-utils";
 import { type Subprocess, spawn } from "bun";
-import { existsSync, mkdtempSync, rmSync } from "fs";
+import { existsSync, mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 const CLI = ["bun", "run", "apps/cli/src/index.ts"];
 
-describe.skipIf(process.platform === "win32")("tp pair new (blocking)", () => {
+describe("tp pair new (blocking)", () => {
   let home: string;
   let env: Record<string, string>;
   let daemon: Subprocess | null = null;
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), "tp-pair-blocking-"));
+    // On Windows, getSocketPath() keys the Named Pipe name on
+    // process.env.USERNAME, which would collide across parallel test runs
+    // and across developer machines. Scope it to a unique per-test value
+    // so we can run the test in isolation.
+    const winUser =
+      process.platform === "win32"
+        ? `tp-blk-${process.pid}-${Date.now()}`
+        : undefined;
     env = {
       ...process.env,
       HOME: home,
@@ -22,22 +31,18 @@ describe.skipIf(process.platform === "win32")("tp pair new (blocking)", () => {
       LOG_LEVEL: "error",
       // Prevent the first-run install prompt from waiting on stdin
       TP_NO_AUTO_INSTALL: "1",
+      ...(winUser ? { USERNAME: winUser } : {}),
     } as Record<string, string>;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     try {
       daemon?.kill();
     } catch {
       /* noop */
     }
     daemon = null;
-    rmSync(home, {
-      recursive: true,
-      force: true,
-      maxRetries: 10,
-      retryDelay: 100,
-    });
+    await rmRetry(home);
   });
 
   test("SIGINT before frontend scan → exit 130, empty store", async () => {
@@ -51,7 +56,10 @@ describe.skipIf(process.platform === "win32")("tp pair new (blocking)", () => {
     });
 
     // Wait for daemon socket to appear — poll
-    const socketPath = join(home, "runtime", "daemon.sock");
+    const socketPath =
+      process.platform === "win32"
+        ? `\\\\.\\pipe\\teleprompter-${env.USERNAME}-daemon`
+        : join(home, "runtime", "daemon.sock");
     const deadline = Date.now() + 5000;
     while (!existsSync(socketPath) && Date.now() < deadline) {
       await Bun.sleep(50);

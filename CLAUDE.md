@@ -147,7 +147,8 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `apps/cli/src/lib/e2ee-verify.test.ts` — `verifyE2EECrypto` 자가검증 (daemon↔frontend, relay isolation)
 - `apps/cli/src/lib/ensure-daemon.test.ts` — `isDaemonRunning` / install prompt 결정 / yes-no 파싱
 - `apps/cli/src/lib/format.test.ts` — `errorWithHints` 에러 메시지 포매터
-- `apps/cli/src/lib/ipc-client.test.ts` — `connectIpcAsClient` framed JSON 송수신
+- `apps/cli/src/lib/ipc-client.test.ts` — `connectIpcAsClient` framed JSON 송수신 (POSIX unix socket 경로)
+- `apps/cli/src/lib/ipc-client-windows.test.ts` — `connectWindowsIpc` Named Pipe 송수신 — `process.platform !== "win32"`에서 skip
 - `apps/cli/src/lib/pair-lock.test.ts` — `acquirePairLock`/`releasePairLock` 동시성 (proper-lockfile)
 - `apps/cli/src/lib/shell-detect.test.ts` — `$SHELL`/`$PSModulePath` 기반 쉘 감지
 - `apps/cli/src/lib/spinner.test.ts` — spinner start/stop 라이프사이클

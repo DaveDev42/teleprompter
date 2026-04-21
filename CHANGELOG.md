@@ -1,5 +1,57 @@
 # Changelog
 
+## [0.1.13](https://github.com/DaveDev42/teleprompter/compare/v0.1.12...v0.1.13) (2026-04-21)
+
+
+### Features
+
+* block tp pair new until frontend completes kx ([6f7dc1f](https://github.com/DaveDev42/teleprompter/commit/6f7dc1f2841f1cf419cf1cd9fac3eb7026b0c7dd))
+* **cli:** add IPC client utility for pair flow ([0ea7ff2](https://github.com/DaveDev42/teleprompter/commit/0ea7ff22489f7a9b62b10c2d3e600f4c52e6c423))
+* **cli:** add pair-lock utility for tp pair new concurrency ([c5cff2d](https://github.com/DaveDev42/teleprompter/commit/c5cff2d1cc59f3f2767c6b3eff6ead7f6797a2de))
+* **cli:** add shell detection utility for completion installer ([07f28e8](https://github.com/DaveDev42/teleprompter/commit/07f28e8d9cb7bcb64a7b3cd52135be80a6d512f0))
+* **cli:** add tp completions install subcommand ([77a38d8](https://github.com/DaveDev42/teleprompter/commit/77a38d88e73b08bcaca174e50b5b7b521cea18b9))
+* **cli:** add tp completions install with auto-wiring ([f055c5e](https://github.com/DaveDev42/teleprompter/commit/f055c5ec7a435ea0b44b63af2521836d6d9b635c))
+* **cli:** block tp pair new until kx completes via daemon IPC ([0e9a461](https://github.com/DaveDev42/teleprompter/commit/0e9a461b22bf4b8bb18277c973737afdeef298dc))
+* **cli:** generate powershell completion script ([6c1aa0a](https://github.com/DaveDev42/teleprompter/commit/6c1aa0a0ad1fe218b87b5f26d12326c7d3cafc7b))
+* **cli:** install bash/zsh completions with marker-block idempotency ([fc45033](https://github.com/DaveDev42/teleprompter/commit/fc450333e6a0f578ac9b9ad9eaa71b268d8b07e3))
+* **cli:** install fish completions via managed file ([b9bd55e](https://github.com/DaveDev42/teleprompter/commit/b9bd55ea3d75f47836a2e4472bd742777b604c82))
+* **cli:** install powershell completions via profile dot-source ([d30250a](https://github.com/DaveDev42/teleprompter/commit/d30250ad14f4f697e0ab62232080f1594a35598e))
+* **cli:** offer interactive daemon service install on first run ([4d50b45](https://github.com/DaveDev42/teleprompter/commit/4d50b45c6f1aafef74f06ba009a056785d19706d))
+* **cli:** offer interactive daemon service install on first run ([2590980](https://github.com/DaveDev42/teleprompter/commit/2590980d0dab007105ecd3eaa9889ff0d9bce5c5))
+* **cli:** reject unknown flags, add --help, uninstall verb, and improve completions ([e6760d8](https://github.com/DaveDev42/teleprompter/commit/e6760d832ee502c52502262c5f8f639423227883))
+* **cli:** shell-detect version-var fallback when \$SHELL unset or unrecognized ([cd4d677](https://github.com/DaveDev42/teleprompter/commit/cd4d677670d0f36b5630d8b470f1ff5cd46156ec))
+* **daemon:** add beginPairing/cancelPendingPairing/promoteCompletedPairing ([66d994f](https://github.com/DaveDev42/teleprompter/commit/66d994fbe201aa32d31a500e16218b9650bd9da9))
+* **daemon:** add PendingPairing module ([3f47af5](https://github.com/DaveDev42/teleprompter/commit/3f47af5171e8b71a9ae307372d2ea0043bde0e5b))
+* **daemon:** wire pair.* IPC handlers + CLI disconnect cancellation ([8fcbce1](https://github.com/DaveDev42/teleprompter/commit/8fcbce17287b563ce99902b9eaf8006a8606db5e))
+* **install:** auto-install shell completions in install.ps1 ([303786e](https://github.com/DaveDev42/teleprompter/commit/303786e68d4cf6ea8b764465151fe9da77c22806))
+* **install:** auto-install shell completions in install.sh ([d97f6fe](https://github.com/DaveDev42/teleprompter/commit/d97f6fe75d3bf2979733683b09ab3f071eab851e))
+* **protocol:** add pair.* IPC message types ([46794a7](https://github.com/DaveDev42/teleprompter/commit/46794a7a8fb6a94180faed9cf2412866fcc8256f))
+
+
+### Bug Fixes
+
+* **cli:** add fsync, explicit fchmod, export path helpers, and fix preservedMode ([812b424](https://github.com/DaveDev42/teleprompter/commit/812b4242cbe28f1571340361ebe6121000171ca2))
+* **cli:** address review-fix loop pass 1 feedback ([bba7866](https://github.com/DaveDev42/teleprompter/commit/bba7866d05ccc48e4f45eb1e94188023f43d39e4))
+* **cli:** address review-fix loop pass 2 feedback ([8e2b1a7](https://github.com/DaveDev42/teleprompter/commit/8e2b1a7d788afe89092925dee83eb61aef4eb7b8))
+* **cli:** address review-fix loop pass 3 feedback ([75d8a87](https://github.com/DaveDev42/teleprompter/commit/75d8a870e09b011396362bde4d2b98ecec9f2cdf))
+* **cli:** address review-fix loop pass 4 feedback ([ebddcab](https://github.com/DaveDev42/teleprompter/commit/ebddcaba2df53f37a6fe69d002aaefc0058aa55f))
+* **cli:** atomic rc-file writes and preserve permissions in completions install ([e22c673](https://github.com/DaveDev42/teleprompter/commit/e22c6736745ce5c5090c0ea0ea5c291f499f343c))
+* **cli:** close and notify handlers on IPC socket error ([e8c9008](https://github.com/DaveDev42/teleprompter/commit/e8c9008416ed1721a0be12d6343e002904110e8d))
+* **cli:** defeat symlink attack in atomic write via O_CREAT|O_EXCL ([e49874a](https://github.com/DaveDev42/teleprompter/commit/e49874acefbec765ed6b9f244d825a0ced054e95))
+* **cli:** handle SIGINT before pair.begin.ok and exhaust switch ([8f716a6](https://github.com/DaveDev42/teleprompter/commit/8f716a60a5375852c19dc3dcb994a504646cda7c))
+* **cli:** implement Windows Named Pipe IPC client for pair flow ([5cd155e](https://github.com/DaveDev42/teleprompter/commit/5cd155e776bea570e697c34c4aceeb84dd2e55ab))
+* **cli:** improve shell-detect typing, atomic write robustness, and exhaustive switches ([72ca2ef](https://github.com/DaveDev42/teleprompter/commit/72ca2ef802cc9fed7f6ca268c7ef06c86dd86fd6))
+* **cli:** mention version-var fallback in shell detection hint ([f8d49ae](https://github.com/DaveDev42/teleprompter/commit/f8d49ae6edd433bbbc4b17d111c9b6cf765d8338))
+* **cli:** relax --profile-dir value validation and document reordering ([a516950](https://github.com/DaveDev42/teleprompter/commit/a516950e7091d401e7a93324a68c278b0e0d729b))
+* **cli:** typed Set and cleaner preservedMode ([1822059](https://github.com/DaveDev42/teleprompter/commit/182205996c962d3881caa5bd127401b3b6896d91))
+* **cli:** validate --profile-dir value in tp completions install ([bff81ba](https://github.com/DaveDev42/teleprompter/commit/bff81bace1bb7b0ca264f9b873c790e2e0ffa990))
+* **install:** honor NO_COMPLETIONS in install.ps1 and skip when not on PATH ([b698f45](https://github.com/DaveDev42/teleprompter/commit/b698f453c862137cf6a1c7e8cdab0d82349c17b1))
+* **install:** normalize PATH comparison and add PATH gate to install.sh ([1d8ad69](https://github.com/DaveDev42/teleprompter/commit/1d8ad69a769a7c9f33e152ec70e607d3312099de))
+* **install:** normalize trailing slashes in install.sh PATH check ([aa11613](https://github.com/DaveDev42/teleprompter/commit/aa11613d6ee36b884e0b0fa0a352f7204e5ed767))
+* **install:** null-guard \$PROFILE and improve TTY-skip messaging ([a5a1ee3](https://github.com/DaveDev42/teleprompter/commit/a5a1ee34da0d2a6be820be817842e7c25950f8cc))
+* **install:** skip completions on non-TTY curl-pipe-sh and pass PROFILE dir on Windows ([c9bb764](https://github.com/DaveDev42/teleprompter/commit/c9bb7647a0baeaa9ec4b846568ba4abbd36a9b83))
+* **install:** stop swallowing stderr from completions install in install.sh ([31cec0d](https://github.com/DaveDev42/teleprompter/commit/31cec0df62aee3885069dc31d8a43a2116815282))
+
 ## [0.1.12](https://github.com/DaveDev42/teleprompter/compare/v0.1.11...v0.1.12) (2026-04-19)
 
 

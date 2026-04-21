@@ -193,14 +193,34 @@ export class PairingOrchestrator {
   /**
    * Dispose of any in-flight pending pairing. Called during daemon shutdown.
    * A pending pairing would otherwise leave its RelayClient dangling.
+   *
+   * Handles both still-pending and completed-but-not-promoted slots:
+   * `cancel()` is a no-op when the pairing has already settled as
+   * completed (see `PendingPairing.cancel`), so we then try `releaseRelay`
+   * to dispose the orphan RelayClient that the completed pending still
+   * owned. Without this, a frontend that joined just as daemon shutdown
+   * began could leave an authenticated WebSocket lingering.
    */
   stop(): void {
-    if (!this.pending) return;
+    const pp = this.pending;
+    this.pending = null;
+    if (!pp) return;
     try {
-      this.pending.cancel();
+      pp.cancel();
     } catch (err) {
       log.warn(`pending-pairing cancel during stop() failed: ${String(err)}`);
     }
-    this.pending = null;
+    // `cancel()` disposes the relay for the not-yet-completed path; for
+    // the completed-but-not-promoted path, cancel is a no-op so we must
+    // dispose the orphan ourselves. `releaseRelay()` returns null if it
+    // was already disposed by cancel — idempotent.
+    const relay = pp.releaseRelay();
+    if (relay) {
+      try {
+        relay.dispose();
+      } catch (err) {
+        log.warn(`orphan relay dispose during stop() failed: ${err}`);
+      }
+    }
   }
 }

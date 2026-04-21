@@ -286,6 +286,30 @@ describe("PairingOrchestrator", () => {
     expect(orch.hasPending).toBe(false);
   });
 
+  test("stop() disposes the relay even for a completed-but-not-promoted pending", async () => {
+    // Regression: if a frontend joins just before daemon.stop() runs,
+    // PendingPairing transitions to `completed` and cancel() becomes a
+    // no-op. stop() must still dispose the orphan RelayClient.
+    const relay = makeFakeRelayClient();
+    const manager = makeFakeRelayManager({ factory: () => relay });
+    const store = makeFakeStore();
+    const orch = makeOrchestrator(manager, store);
+
+    await orch.begin({ relayUrl: "wss://r", daemonId: "d1" });
+    orch.current!.__markCompleted("frontend-x");
+    // Drain the completion promise so the pairing is fully settled.
+    const result = await orch.awaitPending()!;
+    expect(result.kind).toBe("completed");
+
+    // At this point the pairing is completed but promote() has not run —
+    // relay is still owned by PendingPairing.
+    expect(relay.dispose).not.toHaveBeenCalled();
+
+    orch.stop();
+    expect(relay.dispose).toHaveBeenCalledTimes(1);
+    expect(orch.hasPending).toBe(false);
+  });
+
   test("attachHandlers is called on the factory-produced client", async () => {
     const relay = makeFakeRelayClient();
     const manager = makeFakeRelayManager({ factory: () => relay });
@@ -333,7 +357,9 @@ describe("PairingOrchestrator", () => {
     });
     const throwingStore = {
       listPairings: mock(() => [] as Array<{ daemonId: string }>),
-      savePairing: mock(() => {
+      // Declare the return type explicitly as `void` so we can swap in a
+      // no-op later with `mockImplementation` without an `as never` cast.
+      savePairing: mock<() => void>(() => {
         throw new Error("disk full");
       }),
     };
@@ -365,13 +391,10 @@ describe("PairingOrchestrator", () => {
     expect(orch.hasPending).toBe(false);
 
     // Slot is truly freed — a subsequent begin() must succeed on a fresh
-    // relay. Swap savePairing to a no-op. The initial mock returned `never`
-    // (it always threw), so TS infers a `() => never` signature; the
-    // explicit `as never` keeps the bun:test Mock type narrow while the
-    // replacement behavior becomes a no-op.
-    throwingStore.savePairing.mockImplementation((() => {
+    // relay. Swap savePairing to a no-op.
+    throwingStore.savePairing.mockImplementation(() => {
       /* noop */
-    }) as never);
+    });
     const info = await orch.begin({ relayUrl: "wss://r", daemonId: "d2" });
     expect(info.daemonId).toBe("d2");
     expect(orch.hasPending).toBe(true);

@@ -81,7 +81,7 @@ export class PairingOrchestrator {
     }
 
     let relayRef: RelayClient | null = null;
-    const events = this.deps.relayManager.buildEvents(daemonId, () => relayRef);
+    const events = this.deps.relayManager.buildEvents(() => relayRef);
     const pp = new PendingPairing({
       relayUrl: args.relayUrl,
       daemonId,
@@ -163,7 +163,7 @@ export class PairingOrchestrator {
     const pp = this.pending;
     if (pp) {
       const relay = pp.releaseRelay();
-      this.deps.relayManager.registerClient(relay);
+      if (relay) this.deps.relayManager.registerClient(relay);
     }
     this.pending = null;
   }
@@ -172,23 +172,55 @@ export class PairingOrchestrator {
    * Defensive: clear the pending slot without running cancel/promote.
    * Used when `promote()` fails partway — the caller has already logged /
    * reported the failure and needs the slot freed so subsequent `begin()`
-   * can proceed.
+   * can proceed. If the pending still owns a RelayClient (e.g. `promote()`
+   * threw before `releaseRelay()`), dispose it explicitly so it does not
+   * leak outside the manager's pool.
    */
   clearPending(): void {
+    const pp = this.pending;
     this.pending = null;
+    if (!pp) return;
+    const relay = pp.releaseRelay();
+    if (relay) {
+      try {
+        relay.dispose();
+      } catch (err) {
+        log.warn(`orphan relay dispose during clearPending failed: ${err}`);
+      }
+    }
   }
 
   /**
    * Dispose of any in-flight pending pairing. Called during daemon shutdown.
    * A pending pairing would otherwise leave its RelayClient dangling.
+   *
+   * Handles both still-pending and completed-but-not-promoted slots:
+   * `cancel()` is a no-op when the pairing has already settled as
+   * completed (see `PendingPairing.cancel`), so we then try `releaseRelay`
+   * to dispose the orphan RelayClient that the completed pending still
+   * owned. Without this, a frontend that joined just as daemon shutdown
+   * began could leave an authenticated WebSocket lingering.
    */
   stop(): void {
-    if (!this.pending) return;
+    const pp = this.pending;
+    this.pending = null;
+    if (!pp) return;
     try {
-      this.pending.cancel();
+      pp.cancel();
     } catch (err) {
       log.warn(`pending-pairing cancel during stop() failed: ${String(err)}`);
     }
-    this.pending = null;
+    // `cancel()` disposes the relay for the not-yet-completed path; for
+    // the completed-but-not-promoted path, cancel is a no-op so we must
+    // dispose the orphan ourselves. `releaseRelay()` returns null if it
+    // was already disposed by cancel — idempotent.
+    const relay = pp.releaseRelay();
+    if (relay) {
+      try {
+        relay.dispose();
+      } catch (err) {
+        log.warn(`orphan relay dispose during stop() failed: ${err}`);
+      }
+    }
   }
 }

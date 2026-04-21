@@ -46,6 +46,7 @@ export class Daemon {
   private pairingOrchestrator: PairingOrchestrator;
   private pendingPairingOwner: ConnectedRunner | null = null;
   private dispatcher: IpcCommandDispatcher;
+  private socketPath: string = "";
   /**
    * Local record observer for passthrough CLI (pipes PTY io to process.stdout).
    * Only one observer is supported; assigning a second overwrites the first.
@@ -113,8 +114,6 @@ export class Daemon {
       getRelayClients: () => [...this.relayManager.listClients()],
     });
   }
-
-  private socketPath: string = "";
 
   /**
    * Back-compat accessor for tests: returns the currently pending pairing.

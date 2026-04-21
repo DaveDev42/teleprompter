@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Store } from "@teleprompter/daemon";
+import { getWindowsSocketPath } from "@teleprompter/protocol";
 import { rmRetry } from "@teleprompter/protocol/test-utils";
 import { type Subprocess, spawn } from "bun";
-import { existsSync, mkdtempSync } from "fs";
+import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -55,16 +56,28 @@ describe("tp pair new (blocking)", () => {
       stdin: "ignore",
     });
 
-    // Wait for daemon socket to appear — poll
+    // Wait for daemon to accept connections. A successful connect + close is
+    // the definitive readiness signal (more reliable than existsSync, which
+    // is inconsistent for Windows Named Pipes across Bun/Node versions).
     const socketPath =
       process.platform === "win32"
-        ? `\\\\.\\pipe\\teleprompter-${env.USERNAME}-daemon`
+        ? getWindowsSocketPath(env.USERNAME)
         : join(home, "runtime", "daemon.sock");
     const deadline = Date.now() + 5000;
-    while (!existsSync(socketPath) && Date.now() < deadline) {
-      await Bun.sleep(50);
+    let ready = false;
+    while (!ready && Date.now() < deadline) {
+      try {
+        const probe = await Bun.connect({
+          unix: socketPath,
+          socket: { data() {}, open() {}, close() {}, error() {} },
+        });
+        probe.end();
+        ready = true;
+      } catch {
+        await Bun.sleep(50);
+      }
     }
-    expect(existsSync(socketPath)).toBe(true);
+    expect(ready).toBe(true);
 
     // Run tp pair new
     const cli = spawn({

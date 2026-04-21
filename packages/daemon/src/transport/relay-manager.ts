@@ -1,4 +1,3 @@
-import type { WsSessionMeta } from "@teleprompter/protocol";
 import {
   createLogger,
   RELAY_CHANNEL_CONTROL,
@@ -7,8 +6,7 @@ import {
 import type { IpcCommandDispatcher } from "../ipc/command-dispatcher";
 import type { IpcServer } from "../ipc/server";
 import type { PushNotifier } from "../push/push-notifier";
-import type { Store } from "../store";
-import type { SessionMeta } from "../store/store";
+import { type Store, toWsSessionMeta } from "../store";
 import {
   RelayClient,
   type RelayClientConfig,
@@ -80,10 +78,7 @@ export class RelayConnectionManager {
    * `getClient` is a lazy reference so the closures can call back into the
    * RelayClient instance that is about to be constructed.
    */
-  buildEvents(
-    _daemonId: string,
-    getClient: () => RelayClient | null,
-  ): RelayClientEvents {
+  buildEvents(getClient: () => RelayClient | null): RelayClientEvents {
     return {
       onInput: (kind, sid, data) => {
         const runner = this.deps.ipcServer.findRunnerBySid(sid);
@@ -163,7 +158,7 @@ export class RelayConnectionManager {
    */
   async addClient(config: RelayClientConfig): Promise<RelayClient> {
     let clientRef: RelayClient | null = null;
-    const events = this.buildEvents(config.daemonId, () => clientRef);
+    const events = this.buildEvents(() => clientRef);
     const client = this.factory
       ? this.factory(config)
       : new RelayClient(config, events);
@@ -247,8 +242,7 @@ export class RelayConnectionManager {
     daemonId: string,
     opts: { notifyPeer: boolean } = { notifyPeer: true },
   ): Promise<void> {
-    const idx = this.clients.findIndex((c) => c.daemonId === daemonId);
-    const client = idx >= 0 ? this.clients[idx] : undefined;
+    const client = this.clients.find((c) => c.daemonId === daemonId);
     if (client && opts.notifyPeer) {
       let notified = 0;
       const peers = client.listPeerFrontendIds();
@@ -271,7 +265,10 @@ export class RelayConnectionManager {
     }
     if (client) {
       client.dispose();
-      this.clients.splice(idx, 1);
+      // Re-resolve the index after any awaits — a concurrent removePairing
+      // may have mutated `clients` while sendUnpairNotice was in flight.
+      const i = this.clients.indexOf(client);
+      if (i >= 0) this.clients.splice(i, 1);
     }
     this.deps.store.deletePairing(daemonId);
   }
@@ -325,17 +322,4 @@ export class RelayConnectionManager {
     }
     this.clients.length = 0;
   }
-}
-
-function toWsSessionMeta(meta: SessionMeta): WsSessionMeta {
-  return {
-    sid: meta.sid,
-    state: meta.state,
-    cwd: meta.cwd,
-    worktreePath: meta.worktree_path ?? undefined,
-    claudeVersion: meta.claude_version ?? undefined,
-    createdAt: meta.created_at,
-    updatedAt: meta.updated_at,
-    lastSeq: meta.last_seq,
-  };
 }

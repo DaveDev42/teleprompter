@@ -62,7 +62,7 @@ describe("PendingPairing", () => {
     expect(relay.dispose).toHaveBeenCalled();
   });
 
-  test("releaseRelay() returns the client and prevents further dispose", async () => {
+  test("releaseRelay() returns the client once, then null (idempotent)", async () => {
     const relay = makeFakeRelayClient();
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
@@ -73,7 +73,7 @@ describe("PendingPairing", () => {
     await pp.begin();
     const released = pp.releaseRelay();
     expect(released).toBe(relay as unknown as RelayClient);
-    expect(() => pp.releaseRelay()).toThrow();
+    expect(pp.releaseRelay()).toBeNull();
   });
 
   test("begin() subscribes to __meta__ and __control__ channels", async () => {

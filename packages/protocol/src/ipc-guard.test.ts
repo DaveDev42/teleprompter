@@ -339,4 +339,104 @@ describe("parseIpcMessage", () => {
       ).toBeNull();
     });
   });
+
+  describe("pair.remove / pair.rename", () => {
+    test("pair.remove parses required daemonId", () => {
+      expect(parseIpcMessage({ t: "pair.remove", daemonId: "d1" })).toEqual({
+        t: "pair.remove",
+        daemonId: "d1",
+      });
+      expect(parseIpcMessage({ t: "pair.remove" })).toBeNull();
+    });
+
+    test("pair.remove.ok requires daemonId and numeric notifiedPeers", () => {
+      expect(
+        parseIpcMessage({
+          t: "pair.remove.ok",
+          daemonId: "d1",
+          notifiedPeers: 2,
+        }),
+      ).toEqual({ t: "pair.remove.ok", daemonId: "d1", notifiedPeers: 2 });
+      expect(
+        parseIpcMessage({
+          t: "pair.remove.ok",
+          daemonId: "d1",
+          notifiedPeers: "2",
+        }),
+      ).toBeNull();
+    });
+
+    test("pair.remove.err validates reason enum", () => {
+      expect(
+        parseIpcMessage({
+          t: "pair.remove.err",
+          daemonId: "d1",
+          reason: "not-found",
+        }),
+      ).toEqual({
+        t: "pair.remove.err",
+        daemonId: "d1",
+        reason: "not-found",
+        message: undefined,
+      });
+      expect(
+        parseIpcMessage({
+          t: "pair.remove.err",
+          daemonId: "d1",
+          reason: "bogus",
+        }),
+      ).toBeNull();
+    });
+
+    test("pair.rename accepts string or null label", () => {
+      expect(
+        parseIpcMessage({ t: "pair.rename", daemonId: "d1", label: "Mac" }),
+      ).toEqual({ t: "pair.rename", daemonId: "d1", label: "Mac" });
+      expect(
+        parseIpcMessage({ t: "pair.rename", daemonId: "d1", label: null }),
+      ).toEqual({ t: "pair.rename", daemonId: "d1", label: null });
+      expect(
+        parseIpcMessage({ t: "pair.rename", daemonId: "d1", label: 42 }),
+      ).toBeNull();
+    });
+
+    test("pair.rename.ok parses full shape", () => {
+      expect(
+        parseIpcMessage({
+          t: "pair.rename.ok",
+          daemonId: "d1",
+          label: "Mac",
+          notifiedPeers: 1,
+        }),
+      ).toEqual({
+        t: "pair.rename.ok",
+        daemonId: "d1",
+        label: "Mac",
+        notifiedPeers: 1,
+      });
+    });
+
+    test("pair.rename.err validates reason enum", () => {
+      expect(
+        parseIpcMessage({
+          t: "pair.rename.err",
+          daemonId: "d1",
+          reason: "internal",
+          message: "boom",
+        }),
+      ).toEqual({
+        t: "pair.rename.err",
+        daemonId: "d1",
+        reason: "internal",
+        message: "boom",
+      });
+      expect(
+        parseIpcMessage({
+          t: "pair.rename.err",
+          daemonId: "d1",
+          reason: "kx-decrypt-failed",
+        }),
+      ).toBeNull();
+    });
+  });
 });

@@ -296,4 +296,41 @@ describe("PairingOrchestrator", () => {
     expect(manager.attachHandlers).toHaveBeenCalledTimes(1);
     expect(manager.attachHandlers).toHaveBeenCalledWith(relay, "d1");
   });
+
+  test("clearPending() disposes the orphan relay client", async () => {
+    const relay = makeFakeRelayClient();
+    const manager = makeFakeRelayManager({ factory: () => relay });
+    const store = makeFakeStore();
+    const orch = makeOrchestrator(manager, store);
+
+    await orch.begin({ relayUrl: "wss://r", daemonId: "d1" });
+
+    // Simulate the failed-promote path: caller clears the slot without
+    // running cancel (which would fire the completion promise) or promote
+    // (which would hand the client off to the manager).
+    orch.clearPending();
+
+    expect(relay.dispose).toHaveBeenCalledTimes(1);
+    expect(orch.hasPending).toBe(false);
+  });
+
+  test("clearPending() after promote() is a no-op (relay already released)", async () => {
+    const relay = makeFakeRelayClient();
+    const manager = makeFakeRelayManager({ factory: () => relay });
+    const store = makeFakeStore();
+    const orch = makeOrchestrator(manager, store);
+
+    await orch.begin({ relayUrl: "wss://r", daemonId: "d1" });
+    // Force PendingPairing into the completed state so promote() is valid.
+    const pending = orch.current;
+    if (!pending) throw new Error("expected pending pairing");
+    pending.__markCompleted("frontend-x");
+    const result = await orch.awaitPending()!;
+    if (result.kind !== "completed") throw new Error("expected completed");
+    orch.promote(result);
+
+    // After a successful promote, clearPending should not double-dispose.
+    orch.clearPending();
+    expect(relay.dispose).not.toHaveBeenCalled();
+  });
 });

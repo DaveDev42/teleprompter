@@ -1,4 +1,4 @@
-import { RelayClient, Store } from "@teleprompter/daemon";
+import { Store } from "@teleprompter/daemon";
 import type {
   IpcPairBegin,
   IpcPairBeginErr,
@@ -7,13 +7,19 @@ import type {
   IpcPairCancelled,
   IpcPairCompleted,
   IpcPairError,
+  IpcPairRemove,
+  IpcPairRemoveErr,
+  IpcPairRemoveOk,
+  IpcPairRename,
+  IpcPairRenameErr,
+  IpcPairRenameOk,
 } from "@teleprompter/protocol";
-import { getSocketPath, RELAY_CHANNEL_CONTROL } from "@teleprompter/protocol";
+import { getSocketPath } from "@teleprompter/protocol";
 import { hostname } from "os";
 import { join } from "path";
 import qrcode from "qrcode-terminal";
 import { parseArgs } from "util";
-import { dim, fail, ok, warn } from "../lib/colors";
+import { dim, fail, ok } from "../lib/colors";
 import { ensureDaemon, isDaemonRunning } from "../lib/ensure-daemon";
 import { formatAge } from "../lib/format";
 import { connectIpcAsClient, type IpcClient } from "../lib/ipc-client";
@@ -299,26 +305,17 @@ async function pairDelete(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
-  if (await isDaemonRunning()) {
-    console.error(
-      fail(
-        "Daemon is running. Stop it first with `tp daemon stop` (or via the app's Daemons screen) before running `tp pair delete`, to avoid relay conflicts.",
-      ),
-    );
-    process.exit(1);
-  }
-
+  // Resolve the prefix locally from the store to give clear error messages
+  // *before* we bother the daemon. The daemon holds the same state, so this
+  // read is safe regardless of whether the daemon is running.
   const store = new Store();
+  let target: { daemonId: string; relayUrl: string };
   try {
-    const pairings = store.listPairings();
-
-    const candidates = pairings.map((p) => ({
+    const candidates = store.listPairings().map((p) => ({
       daemonId: p.daemonId,
       relayUrl: p.relayUrl,
     }));
-
     const matches = matchPairings(candidates, prefix);
-
     if (matches.length === 0) {
       console.error(fail(`No pairing matches '${prefix}'.`));
       if (candidates.length > 0) {
@@ -327,53 +324,67 @@ async function pairDelete(argv: string[]): Promise<void> {
       }
       process.exit(1);
     }
-
     if (matches.length > 1) {
       console.error(fail(`Prefix '${prefix}' is ambiguous. Candidates:`));
       for (const c of matches) console.error(`  ${c.daemonId}  ${c.relayUrl}`);
       process.exit(1);
     }
-
-    const target = matches[0]!;
-    const fullPairing = store
-      .loadPairings()
-      .find((p) => p.daemonId === target.daemonId);
-
-    if (!values.yes) {
-      if (!process.stdin.isTTY) {
-        console.error(
-          fail("Refusing to delete without confirmation — pass --yes."),
-        );
-        process.exit(1);
-      }
-      const answer = await prompt(
-        `Delete pairing for ${target.daemonId} (relay ${target.relayUrl})? [y/N] `,
-      );
-      if (!/^y(es)?$/i.test(answer.trim())) {
-        console.log("Aborted.");
-        return;
-      }
-    }
-
-    if (fullPairing) {
-      // TP_UNPAIR_* env vars gate both unpair and rename notifications — same flow.
-      const { timeoutMs, connectCutoffMs } = readNotifyTimeouts();
-      try {
-        await notifyPeerUnpair(fullPairing, { timeoutMs, connectCutoffMs });
-      } catch (err) {
-        console.warn(`[pair] could not notify peer: ${err}`);
-      }
-    }
-
-    store.deletePairing(target.daemonId);
-
-    console.log(ok(`Deleted pairing ${target.daemonId}`));
-    console.log(
-      `${warn("Daemon may still hold an active relay connection.")} ${dim("Restart the daemon to fully disconnect.")}`,
-    );
+    target = matches[0]!;
   } finally {
     store.close();
   }
+
+  if (!values.yes) {
+    if (!process.stdin.isTTY) {
+      console.error(
+        fail("Refusing to delete without confirmation — pass --yes."),
+      );
+      process.exit(1);
+    }
+    const answer = await prompt(
+      `Delete pairing for ${target.daemonId} (relay ${target.relayUrl})? [y/N] `,
+    );
+    if (!/^y(es)?$/i.test(answer.trim())) {
+      console.log("Aborted.");
+      return;
+    }
+  }
+
+  // Prefer the daemon path when one is already running: it holds the
+  // authoritative RelayClient for this pairing and can cleanly notify the
+  // peer before tearing the client down. When no daemon is running we fall
+  // back to a local store delete — any connected peer will learn about the
+  // unpair on its own next connect attempt.
+  if (await isDaemonRunning()) {
+    const result = await requestPairOp({
+      t: "pair.remove",
+      daemonId: target.daemonId,
+    });
+
+    if (result.t === "pair.remove.err") {
+      console.error(
+        fail(
+          `Pair delete failed: ${result.reason}${result.message ? ` — ${result.message}` : ""}`,
+        ),
+      );
+      process.exit(1);
+    }
+
+    console.log(ok(`Deleted pairing ${result.daemonId}`));
+    if (result.notifiedPeers > 0) {
+      console.log(dim(`Notified ${result.notifiedPeers} frontend(s).`));
+    }
+    return;
+  }
+
+  // Daemon-less path: delete from the store directly.
+  const deleteStore = new Store();
+  try {
+    deleteStore.deletePairing(target.daemonId);
+  } finally {
+    deleteStore.close();
+  }
+  console.log(ok(`Deleted pairing ${target.daemonId}`));
 }
 
 async function pairRename(argv: string[]): Promise<void> {
@@ -395,30 +406,19 @@ async function pairRename(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
-  // CLI is source of truth when stopped; label is already written to store
-  // before we notify the peer, so even if notification fails the rename
-  // persists locally.
-  if (await isDaemonRunning()) {
-    console.error(
-      fail(
-        "Daemon is running. Stop it first with `tp daemon stop` (or via the app's Daemons screen) before running `tp pair rename`, to avoid relay conflicts.",
-      ),
-    );
-    process.exit(1);
-  }
-
   const [prefix, ...labelParts] = positionals;
   if (!prefix) {
     console.error(fail("Usage: tp pair rename <daemon-id-prefix> <label...>"));
     process.exit(1);
   }
   const newLabel = labelParts.join(" ").trim();
+  const label = newLabel === "" ? null : newLabel;
 
   const store = new Store();
+  let target: { daemonId: string; relayUrl: string };
   try {
     const pairings = store.listPairings();
     const matches = matchPairings(pairings, prefix);
-
     if (matches.length === 0) {
       console.error(fail(`No pairing matches '${prefix}'.`));
       if (pairings.length > 0) {
@@ -427,156 +427,105 @@ async function pairRename(argv: string[]): Promise<void> {
       }
       process.exit(1);
     }
-
     if (matches.length > 1) {
       console.error(fail(`Prefix '${prefix}' is ambiguous. Candidates:`));
       for (const m of matches) console.error(`  ${m.daemonId}  ${m.relayUrl}`);
       process.exit(1);
     }
-
-    const target = matches[0]!;
-    const full = store
-      .loadPairings()
-      .find((p) => p.daemonId === target.daemonId);
-
-    store.updatePairingLabel(
-      target.daemonId,
-      newLabel === "" ? null : newLabel,
-    );
-
-    console.log(
-      ok(
-        `Renamed ${target.daemonId} → ${newLabel === "" ? "(cleared)" : `"${newLabel}"`}`,
-      ),
-    );
-
-    if (full) {
-      // TP_UNPAIR_* env vars gate both unpair and rename notifications — same flow.
-      const { timeoutMs, connectCutoffMs } = readNotifyTimeouts();
-      try {
-        await notifyPeerRename(full, newLabel, { timeoutMs, connectCutoffMs });
-      } catch (err) {
-        console.warn(`[pair] could not notify peer: ${err}`);
-      }
-    }
+    target = matches[0]!;
   } finally {
     store.close();
   }
-}
 
-const DEFAULT_UNPAIR_TIMEOUT_MS = 3000;
-const DEFAULT_UNPAIR_GRACE_MS = 100;
-const UNPAIR_CONNECT_CUTOFF_MS = 1500;
+  // Prefer the daemon path when one is already running so connected peers
+  // get a live `control.rename` frame. When no daemon is running we update
+  // the store directly — connected peers (if any) will sync on reconnect.
+  if (await isDaemonRunning()) {
+    const result = await requestPairOp({
+      t: "pair.rename",
+      daemonId: target.daemonId,
+      label,
+    });
 
-/**
- * Read peer-notification timeouts from env. Used by both `tp pair delete`
- * (control.unpair) and `tp pair rename` (control.rename). Env var names are
- * kept as `TP_UNPAIR_*` for backward compatibility.
- */
-function readNotifyTimeouts(): {
-  timeoutMs: number;
-  connectCutoffMs: number;
-} {
-  const raw = Number(process.env.TP_UNPAIR_TIMEOUT_MS);
-  const timeoutMs =
-    Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_UNPAIR_TIMEOUT_MS;
-  const cutoffRaw = Number(process.env.TP_UNPAIR_CONNECT_CUTOFF_MS);
-  const connectCutoffMs =
-    Number.isFinite(cutoffRaw) && cutoffRaw > 0
-      ? cutoffRaw
-      : UNPAIR_CONNECT_CUTOFF_MS;
-  return { timeoutMs, connectCutoffMs };
-}
-
-type FullPairing = ReturnType<Store["loadPairings"]>[number];
-
-/**
- * Best-effort peer notification over a short-lived relay connection.
- *
- * `timeoutMs` is the maximum wall-clock time spent waiting for at least one
- * frontend to complete kx before we give up on notification. Once any peer
- * appears, we send immediately and then wait DEFAULT_UNPAIR_GRACE_MS for the
- * relay to forward the encrypted control frame before disconnecting.
- *
- * Used by `tp pair delete` (control.unpair) and `tp pair rename`
- * (control.rename). Keeps CLI ⇄ daemon separation: the CLI opens its own
- * short-lived RelayClient while the daemon is stopped.
- */
-async function notifyPeer(
-  pairing: FullPairing,
-  opts: { timeoutMs: number; connectCutoffMs: number },
-  send: (client: RelayClient, frontendId: string) => Promise<boolean>,
-): Promise<void> {
-  const client = new RelayClient(
-    {
-      daemonId: pairing.daemonId,
-      relayUrl: pairing.relayUrl,
-      token: pairing.relayToken,
-      registrationProof: pairing.registrationProof,
-      keyPair: {
-        publicKey: pairing.publicKey,
-        secretKey: pairing.secretKey,
-      },
-      pairingSecret: pairing.pairingSecret,
-    },
-    {},
-  );
-
-  const connectStart = Date.now();
-  const deadline = connectStart + opts.timeoutMs;
-  try {
-    await client.connect();
-    client.subscribe(RELAY_CHANNEL_CONTROL);
-
-    while (Date.now() < deadline) {
-      if (client.listPeerFrontendIds().length > 0) break;
-      // Early exit: relay unreachable (never connected) and cutoff elapsed.
-      if (
-        !client.isConnected() &&
-        Date.now() - connectStart >= opts.connectCutoffMs
-      ) {
-        break;
-      }
-      await Bun.sleep(DEFAULT_UNPAIR_GRACE_MS);
+    if (result.t === "pair.rename.err") {
+      console.error(
+        fail(
+          `Pair rename failed: ${result.reason}${result.message ? ` — ${result.message}` : ""}`,
+        ),
+      );
+      process.exit(1);
     }
 
-    const peers = client.listPeerFrontendIds();
-    let notified = 0;
-    for (const fid of peers) {
-      try {
-        if (await send(client, fid)) notified++;
-      } catch {
-        // best effort
-      }
+    console.log(
+      ok(
+        `Renamed ${result.daemonId} → ${result.label === null ? "(cleared)" : `"${result.label}"`}`,
+      ),
+    );
+    if (result.notifiedPeers > 0) {
+      console.log(dim(`Notified ${result.notifiedPeers} frontend(s).`));
     }
-    if (peers.length > 0) {
-      console.log(dim(`Notified ${notified}/${peers.length} frontend(s).`));
-    }
-
-    // Grace period so the relay can forward the control frame before we
-    // disconnect. If the peer was still completing kx at send time, the
-    // frame waits in the relay's per-session 10-frame cache.
-    await Bun.sleep(DEFAULT_UNPAIR_GRACE_MS);
-  } finally {
-    client.dispose();
+    return;
   }
-}
 
-async function notifyPeerUnpair(
-  pairing: FullPairing,
-  opts: { timeoutMs: number; connectCutoffMs: number },
-): Promise<void> {
-  return notifyPeer(pairing, opts, (c, fid) =>
-    c.sendUnpairNotice(fid, "user-initiated"),
+  // Daemon-less path: update the store directly.
+  const renameStore = new Store();
+  try {
+    renameStore.updatePairingLabel(target.daemonId, label);
+  } finally {
+    renameStore.close();
+  }
+  console.log(
+    ok(
+      `Renamed ${target.daemonId} → ${label === null ? "(cleared)" : `"${label}"`}`,
+    ),
   );
 }
 
-async function notifyPeerRename(
-  pairing: FullPairing,
-  label: string,
-  opts: { timeoutMs: number; connectCutoffMs: number },
-): Promise<void> {
-  return notifyPeer(pairing, opts, (c, fid) => c.sendRenameNotice(fid, label));
+type PairRemoveResult = IpcPairRemoveOk | IpcPairRemoveErr;
+type PairRenameResult = IpcPairRenameOk | IpcPairRenameErr;
+
+/**
+ * Send a `pair.remove` / `pair.rename` request to the running daemon and
+ * await its single-shot reply. The daemon already holds the authoritative
+ * RelayClient for that pairing, so we never open our own relay connection.
+ */
+async function requestPairOp(
+  msg: IpcPairRemove,
+): Promise<PairRemoveResult>;
+async function requestPairOp(
+  msg: IpcPairRename,
+): Promise<PairRenameResult>;
+async function requestPairOp(
+  msg: IpcPairRemove | IpcPairRename,
+): Promise<PairRemoveResult | PairRenameResult> {
+  const ipc = await connectIpcAsClient(getSocketPath());
+  try {
+    return await new Promise<PairRemoveResult | PairRenameResult>(
+      (resolve, reject) => {
+        ipc.onMessage((raw) => {
+          const r = raw as PairRemoveResult | PairRenameResult;
+          switch (r.t) {
+            case "pair.remove.ok":
+            case "pair.remove.err":
+            case "pair.rename.ok":
+            case "pair.rename.err":
+              resolve(r);
+              return;
+          }
+        });
+        ipc.onClose(() =>
+          reject(new Error("Daemon disconnected before replying")),
+        );
+        ipc.send(msg);
+      },
+    );
+  } finally {
+    try {
+      ipc.close();
+    } catch {
+      /* best effort */
+    }
+  }
 }
 
 function prompt(question: string): Promise<string> {

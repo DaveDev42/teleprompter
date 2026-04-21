@@ -337,43 +337,43 @@ export class RelayClient {
   }
 
   /**
-   * Encrypt and publish a WS record to all connected frontends via relay.
+   * Encrypt `payload` for `peer` and push it into the outbound `relay.pub`
+   * frame carrying the given `sid`/`seq`. The single private helper that all
+   * higher-level publish methods funnel through — centralising the
+   * JSON.stringify → TextEncoder → encrypt → send sequence so future protocol
+   * shifts only need to touch one place.
    */
-  async publishRecord(rec: WsRec): Promise<void> {
+  private async sendEncrypted(
+    peer: FrontendPeer,
+    sid: string,
+    seq: number,
+    payload: unknown,
+  ): Promise<void> {
+    const plaintext = new TextEncoder().encode(JSON.stringify(payload));
+    const ct = await encrypt(plaintext, peer.sessionKeys.tx);
+    this.send({ t: "relay.pub", sid, ct, seq });
+  }
+
+  /** Broadcast `payload` to every connected peer under `sid`/`seq`. */
+  private async broadcastEncrypted(
+    sid: string,
+    seq: number,
+    payload: unknown,
+  ): Promise<void> {
     if (!this.authenticated || this.peers.size === 0) return;
-
-    const json = JSON.stringify(rec);
-    const plaintext = new TextEncoder().encode(json);
-
     for (const peer of this.peers.values()) {
-      const ct = await encrypt(plaintext, peer.sessionKeys.tx);
-      this.send({
-        t: "relay.pub",
-        sid: rec.sid,
-        ct,
-        seq: rec.seq,
-      });
+      await this.sendEncrypted(peer, sid, seq, payload);
     }
   }
 
-  /**
-   * Encrypt and publish a state update to all connected frontends via relay.
-   */
+  /** Encrypt and publish a WS record to all connected frontends via relay. */
+  async publishRecord(rec: WsRec): Promise<void> {
+    return this.broadcastEncrypted(rec.sid, rec.seq, rec);
+  }
+
+  /** Encrypt and publish a state update to all connected frontends via relay. */
   async publishState(sid: string, stateMsg: unknown): Promise<void> {
-    if (!this.authenticated || this.peers.size === 0) return;
-
-    const json = JSON.stringify(stateMsg);
-    const plaintext = new TextEncoder().encode(json);
-
-    for (const peer of this.peers.values()) {
-      const ct = await encrypt(plaintext, peer.sessionKeys.tx);
-      this.send({
-        t: "relay.pub",
-        sid,
-        ct,
-        seq: 0,
-      });
-    }
+    return this.broadcastEncrypted(sid, 0, stateMsg);
   }
 
   /**
@@ -388,99 +388,72 @@ export class RelayClient {
     if (!this.authenticated) return;
     const peer = this.peers.get(frontendId);
     if (!peer) return;
+    await this.sendEncrypted(peer, sid, 0, msg);
+  }
 
-    const plaintext = new TextEncoder().encode(JSON.stringify(msg));
-    const ct = await encrypt(plaintext, peer.sessionKeys.tx);
-    this.send({ t: "relay.pub", sid, ct, seq: 0 });
+  /**
+   * Send an encrypted control frame (unpair / rename) to `frontendId` on the
+   * virtual `RELAY_CHANNEL_CONTROL` sid. Returns `true` if the frame was
+   * handed to the transport. Missing authentication or peer session returns
+   * `false` after logging — the caller's retry/notification logic owns the
+   * "peer never appeared" branch.
+   */
+  private async sendControl(
+    method: "sendUnpairNotice" | "sendRenameNotice",
+    frontendId: string,
+    msg: ControlUnpair | ControlRename,
+  ): Promise<boolean> {
+    if (!this.authenticated) {
+      log.warn(
+        `${method}: not authenticated; skipping notice for ${frontendId}`,
+      );
+      return false;
+    }
+    const peer = this.peers.get(frontendId);
+    if (!peer) {
+      log.warn(
+        `${method}: no peer session for frontend ${frontendId}; skipping`,
+      );
+      return false;
+    }
+    try {
+      await this.sendEncrypted(peer, RELAY_CHANNEL_CONTROL, 0, msg);
+      return true;
+    } catch (err) {
+      log.warn(`${method}: send failed for ${frontendId}: ${err}`);
+      return false;
+    }
   }
 
   /**
    * Send an unpair control notice to a specific frontend peer.
    * The payload rides the existing encrypted data channel on the virtual
    * control session (RELAY_CHANNEL_CONTROL) — the relay never sees plaintext.
-   * If no session exists for the given frontendId (no key exchange completed),
-   * this logs a warning and returns without sending.
    */
   async sendUnpairNotice(
     frontendId: string,
     reason: ControlUnpair["reason"] = "user-initiated",
   ): Promise<boolean> {
-    if (!this.authenticated) {
-      log.warn(
-        `sendUnpairNotice: not authenticated; skipping notice for ${frontendId}`,
-      );
-      return false;
-    }
-    const peer = this.peers.get(frontendId);
-    // Defensive: under normal flow Daemon.removePairing only iterates peers
-    // that completed kx, so this branch is rarely hit.
-    if (!peer) {
-      log.warn(
-        `sendUnpairNotice: no peer session for frontend ${frontendId}; skipping`,
-      );
-      return false;
-    }
-
-    try {
-      const msg: ControlUnpair = {
-        t: CONTROL_UNPAIR,
-        daemonId: this.config.daemonId,
-        frontendId,
-        reason,
-        ts: Date.now(),
-      };
-      const plaintext = new TextEncoder().encode(JSON.stringify(msg));
-      const ct = await encrypt(plaintext, peer.sessionKeys.tx);
-      this.send({
-        t: "relay.pub",
-        sid: RELAY_CHANNEL_CONTROL,
-        ct,
-        seq: 0,
-      });
-      return true;
-    } catch (err) {
-      log.warn(`sendUnpairNotice: send failed for ${frontendId}: ${err}`);
-      return false;
-    }
+    const msg: ControlUnpair = {
+      t: CONTROL_UNPAIR,
+      daemonId: this.config.daemonId,
+      frontendId,
+      reason,
+      ts: Date.now(),
+    };
+    return this.sendControl("sendUnpairNotice", frontendId, msg);
   }
 
   /** Encrypted control.rename notice to `frontendId`; see sendUnpairNotice for mechanics. */
   async sendRenameNotice(frontendId: string, label: string): Promise<boolean> {
-    if (!this.authenticated) {
-      log.warn(
-        `sendRenameNotice: not authenticated; skipping notice for ${frontendId}`,
-      );
-      return false;
-    }
-    const peer = this.peers.get(frontendId);
-    if (!peer) {
-      log.warn(
-        `sendRenameNotice: no peer session for frontend ${frontendId}; skipping`,
-      );
-      return false;
-    }
-
-    try {
-      const msg: ControlRename = {
-        t: CONTROL_RENAME,
-        daemonId: this.config.daemonId,
-        frontendId,
-        label,
-        ts: Date.now(),
-      };
-      const plaintext = new TextEncoder().encode(JSON.stringify(msg));
-      const ct = await encrypt(plaintext, peer.sessionKeys.tx);
-      this.send({
-        t: "relay.pub",
-        sid: RELAY_CHANNEL_CONTROL,
-        ct,
-        seq: 0,
-      });
-      return true;
-    } catch (err) {
-      log.warn(`sendRenameNotice: send failed for ${frontendId}: ${err}`);
-      return false;
-    }
+    const msg: ControlRename = {
+      t: CONTROL_RENAME,
+      daemonId: this.config.daemonId,
+      frontendId,
+      label,
+      ts: Date.now(),
+    };
+    return this.sendControl("sendRenameNotice", frontendId, msg);
   }
 
   /**

@@ -44,13 +44,23 @@ const { values } = parseArgs({
 
 mkdirSync(OUT_DIR, { recursive: true });
 
+// Shared build flags across all modes:
+//   --minify  — drops ~2 MB off the compiled SEA via tree-shaking + renaming.
+//
+// Flags considered but deliberately left off:
+//   --sourcemap=none  Already the default for --compile.
+//   --bytecode        +9 MB for ~20 ms faster warm start. Download size matters
+//                     more than 20 ms. Revisit if cold-start becomes the
+//                     dominant bottleneck (e.g. for `tp status` polling).
+const COMMON_FLAGS = ["--compile", "--minify"] as const;
+
 if (values.all) {
   console.log("Building for all platforms...\n");
   for (const target of TARGETS) {
     for (const bin of BINARIES) {
       const out = outFile(bin.name, target);
       console.log(`  ${bin.name} ${target} → ${out}`);
-      await $`bun build ${bin.entry} --compile --target=${target} --outfile ${out}`;
+      await $`bun build ${bin.entry} ${COMMON_FLAGS} --target=${target} --outfile ${out}`;
     }
   }
   console.log("\nDone. Binaries in dist/");
@@ -64,14 +74,14 @@ if (values.all) {
   for (const bin of BINARIES) {
     const out = outFile(bin.name, target);
     console.log(`Building ${bin.name} ${target} → ${out}`);
-    await $`bun build ${bin.entry} --compile --target=${target} --outfile ${out}`;
+    await $`bun build ${bin.entry} ${COMMON_FLAGS} --target=${target} --outfile ${out}`;
   }
 } else {
   // Local build for current platform
   for (const bin of BINARIES) {
     const out = `${OUT_DIR}/${bin.name}`;
     console.log(`Building for current platform → ${out}`);
-    await $`bun build ${bin.entry} --compile --outfile ${out}`;
+    await $`bun build ${bin.entry} ${COMMON_FLAGS} --outfile ${out}`;
   }
   console.log("Done.");
 }

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Store } from "@teleprompter/daemon";
+import { rmRetry } from "@teleprompter/protocol/test-utils";
 import { type Subprocess, spawn } from "bun";
-import { existsSync, mkdtempSync, rmSync } from "fs";
+import { existsSync, mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -34,19 +35,14 @@ describe("tp pair new (blocking)", () => {
     } as Record<string, string>;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     try {
       daemon?.kill();
     } catch {
       /* noop */
     }
     daemon = null;
-    rmSync(home, {
-      recursive: true,
-      force: true,
-      maxRetries: 10,
-      retryDelay: 100,
-    });
+    await rmRetry(home);
   });
 
   test("SIGINT before frontend scan → exit 130, empty store", async () => {

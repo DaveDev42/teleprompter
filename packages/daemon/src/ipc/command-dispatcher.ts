@@ -9,7 +9,6 @@ import type {
   RelayControlMessage,
   WsRec,
   WsSessionExport,
-  WsSessionMeta,
 } from "@teleprompter/protocol";
 import {
   createLogger,
@@ -24,7 +23,7 @@ import type {
 } from "../session/session-manager";
 import type { Store } from "../store";
 import type { StoredRecord } from "../store/session-db";
-import type { SessionMeta } from "../store/store";
+import { toWsSessionMeta } from "../store/session-meta";
 import type { RelayClient } from "../transport/relay-client";
 import type { WorktreeManager } from "../worktree/worktree-manager";
 import type { ConnectedRunner, IpcServer } from "./server";
@@ -35,9 +34,10 @@ const log = createLogger("IpcDispatcher");
  * Dependencies injected into {@link IpcCommandDispatcher}.
  *
  * Pairing lifecycle hooks (`onPairBegin`, `onPairCancel`, `onCliDisconnect`)
- * are callbacks because the pending-pairing state machine still lives on
- * the Daemon. Extracting a PairingOrchestrator is a follow-up (see CLAUDE.md
- * / TODO.md C2/C3 notes).
+ * remain callbacks because IPC-frame ownership (`ConnectedRunner` wiring,
+ * `pair.begin.ok`/`pair.begin.err` responses, CLI-disconnect cancellation)
+ * stays on the Daemon. The pending-pairing state machine itself lives in
+ * {@link PairingOrchestrator} (see `../pairing/pairing-orchestrator.ts`).
  */
 export interface IpcCommandDispatcherDeps {
   ipcServer: IpcServer;
@@ -49,8 +49,8 @@ export interface IpcCommandDispatcherDeps {
   getWorktreeManager: () => WorktreeManager | null;
   /** Spawn a runner for `sid` using the daemon's current socketPath. */
   createSession: (sid: string, cwd: string, opts?: SpawnRunnerOptions) => void;
-  /** Pairing callbacks — delegated back to Daemon until the orchestrator
-   * is extracted. */
+  /** Pairing callbacks — delegated to Daemon, which forwards the state
+   * transitions to `PairingOrchestrator` and owns the IPC response framing. */
   onPairBegin: (runner: ConnectedRunner, msg: IpcPairBegin) => void;
   onPairCancel: (runner: ConnectedRunner, msg: IpcPairCancel) => void;
   onCliDisconnect: (runner: ConnectedRunner) => void;
@@ -583,11 +583,6 @@ export class IpcCommandDispatcher {
   }
 }
 
-// ---------------------------------------------------------------------
-// Helpers (duplicated from daemon.ts — TODO: centralize once more
-// modules share them)
-// ---------------------------------------------------------------------
-
 const NAMESPACE_VALUES: ReadonlySet<Namespace> = new Set([
   "claude",
   "tp",
@@ -612,17 +607,4 @@ function toWsRecs(sid: string, records: StoredRecord[]): WsRec[] {
     d: Buffer.from(r.payload).toString("base64"),
     ts: r.ts,
   }));
-}
-
-function toWsSessionMeta(meta: SessionMeta): WsSessionMeta {
-  return {
-    sid: meta.sid,
-    state: meta.state,
-    cwd: meta.cwd,
-    worktreePath: meta.worktree_path ?? undefined,
-    claudeVersion: meta.claude_version ?? undefined,
-    createdAt: meta.created_at,
-    updatedAt: meta.updated_at,
-    lastSeq: meta.last_seq,
-  };
 }

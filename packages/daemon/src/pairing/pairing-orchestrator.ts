@@ -81,7 +81,7 @@ export class PairingOrchestrator {
     }
 
     let relayRef: RelayClient | null = null;
-    const events = this.deps.relayManager.buildEvents(daemonId, () => relayRef);
+    const events = this.deps.relayManager.buildEvents(() => relayRef);
     const pp = new PendingPairing({
       relayUrl: args.relayUrl,
       daemonId,
@@ -163,7 +163,7 @@ export class PairingOrchestrator {
     const pp = this.pending;
     if (pp) {
       const relay = pp.releaseRelay();
-      this.deps.relayManager.registerClient(relay);
+      if (relay) this.deps.relayManager.registerClient(relay);
     }
     this.pending = null;
   }
@@ -172,10 +172,22 @@ export class PairingOrchestrator {
    * Defensive: clear the pending slot without running cancel/promote.
    * Used when `promote()` fails partway — the caller has already logged /
    * reported the failure and needs the slot freed so subsequent `begin()`
-   * can proceed.
+   * can proceed. If the pending still owns a RelayClient (e.g. `promote()`
+   * threw before `releaseRelay()`), dispose it explicitly so it does not
+   * leak outside the manager's pool.
    */
   clearPending(): void {
+    const pp = this.pending;
     this.pending = null;
+    if (!pp) return;
+    const relay = pp.releaseRelay();
+    if (relay) {
+      try {
+        relay.dispose();
+      } catch (err) {
+        log.warn(`orphan relay dispose during clearPending failed: ${err}`);
+      }
+    }
   }
 
   /**

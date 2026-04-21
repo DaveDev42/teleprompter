@@ -171,14 +171,14 @@ export class PendingPairing {
   }
 
   /**
-   * Hand off the RelayClient to the daemon on successful completion. After
-   * this call, PendingPairing has no reference to the client and will not
-   * dispose it. Throws if the client was already released or never started.
+   * Hand off the RelayClient to the daemon on successful completion. Returns
+   * `null` if already released or never started, so callers that run after
+   * `cancel()` / a previous `releaseRelay()` can idempotently handle both
+   * cases.
    */
-  releaseRelay(): RelayClient {
+  releaseRelay(): RelayClient | null {
     const c = this.relay;
     this.relay = null;
-    if (!c) throw new Error("relay client already released or never started");
     return c;
   }
 }

@@ -416,7 +416,7 @@ PRD and internal docs are written in Korean. Code, comments, and commit messages
 
 향후 Apple Watch 앱, 네이티브 libghostty 터미널 등을 위해 Expo Go 호환성 제약을 해제할 예정.
 현재는 WASM/asm.js 기반으로 동작하지만, development build 전환 후 네이티브 모듈 사용 가능:
-- ✓ libsodium-wrappers-sumo (WASM on Web/Bun, asm.js fallback on Hermes)
+- ✓ libsodium-wrappers (WASM on Web/Bun, asm.js fallback on Hermes)
 - ✓ expo-crypto (Expo SDK 내장 — `getRandomValues` polyfill 제공)
 - ✓ ghostty-web (libghostty WASM — Canvas 2D 터미널 렌더링)
 - 🔜 react-native-quick-crypto (JSI — development build 전환 후)

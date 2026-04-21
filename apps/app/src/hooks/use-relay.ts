@@ -38,6 +38,21 @@ export const useRelayConnectionStore = create<RelayConnectionState>((set) => ({
   clear: () => set({ connections: new Map() }),
 }));
 
+/**
+ * Derived hook: true when at least one paired daemon has an active relay
+ * connection. Previous implementations tracked a global `connected` bool
+ * on `useSessionStore`, but that was a last-write-wins summary across N
+ * daemons — a single daemon's disconnect would blank the badge even if
+ * other daemons remained online. Deriving from the per-daemon map makes
+ * the UI accurately reflect "any connection" semantics.
+ */
+export function useAnyRelayConnected(): boolean {
+  return useRelayConnectionStore((s) => {
+    for (const v of s.connections.values()) if (v) return true;
+    return false;
+  });
+}
+
 /** Per-daemon relay clients */
 const relayClients = new Map<string, FrontendRelayClient>();
 
@@ -87,7 +102,6 @@ export function useRelay() {
     }
 
     const {
-      setConnected,
       setSid,
       setLastSeq,
       setSessions,
@@ -115,7 +129,6 @@ export function useRelay() {
         },
         {
           onConnected: () => {
-            setConnected(true);
             setError(null);
             relayConn.setConnected(daemonId, true);
             // Re-send push token on reconnect so daemon always has a fresh token
@@ -130,7 +143,6 @@ export function useRelay() {
             }
           },
           onDisconnected: () => {
-            setConnected(false);
             incrementReconnect();
             relayConn.setConnected(daemonId, false);
           },

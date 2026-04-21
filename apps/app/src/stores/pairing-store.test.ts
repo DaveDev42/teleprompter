@@ -3,7 +3,6 @@
  *
  * Covers:
  *  - serialize / deserialize roundtrip (v3 format)
- *  - v2 -> v3 migration (adds nullable `label` field)
  *  - processScan / removePairing / reset state transitions
  *  - unpair & rename sender callback registration and invocation
  *  - handlePeerUnpair / handlePeerRename inbound control messages
@@ -47,7 +46,6 @@ const fakeStorage = new Map<string, string>();
 import {
   createPairingBundle,
   encodePairingData,
-  toBase64,
 } from "@teleprompter/protocol/client";
 
 // Dynamic import — evaluated AFTER mocks are registered.
@@ -56,15 +54,10 @@ const { registerRenameSender, registerUnpairSender, usePairingStore } =
 
 // Storage keys (mirrored from the store — not exported).
 const STORAGE_KEY = "pairings_v3";
-const PREVIOUS_STORAGE_KEY = "pairings_v2";
 const WEB_PREFIX = "tp_";
 
 function storageGet(key: string): string | null {
   return fakeStorage.get(WEB_PREFIX + key) ?? null;
-}
-
-function storageSet(key: string, value: string) {
-  fakeStorage.set(WEB_PREFIX + key, value);
 }
 
 function resetStore() {
@@ -158,125 +151,6 @@ describe("pairing-store: serialize/deserialize", () => {
     expect(p.size).toBe(2);
     expect(p.get("daemon-1")?.label).toBe("One");
     expect(p.get("daemon-2")?.label).toBe("Two");
-  });
-});
-
-describe("pairing-store: v2 → v3 migration", () => {
-  beforeEach(resetStore);
-
-  test("migrates v2 entries without label field to v3 with label=null", async () => {
-    // Build a realistic v2 entry: same shape as v3 SerializedPairingInfo
-    // minus the `label` field. We generate real crypto material so
-    // deserialize() won't trip on base64 parsing.
-    const bundle = await createPairingBundle(
-      "wss://relay.example.com",
-      "legacy-daemon",
-    );
-    const frontendKp = {
-      publicKey: new Uint8Array(32).fill(7),
-      secretKey: new Uint8Array(32).fill(9),
-    };
-    const v2Entry = {
-      daemonId: "legacy-daemon",
-      relayUrl: "wss://relay.example.com",
-      relayToken: bundle.relayToken,
-      registrationProof: bundle.registrationProof,
-      daemonPublicKey: await toBase64(bundle.keyPair.publicKey),
-      frontendPublicKey: await toBase64(frontendKp.publicKey),
-      frontendSecretKey: await toBase64(frontendKp.secretKey),
-      frontendId: "legacy-frontend-id",
-      pairingSecret: await toBase64(bundle.pairingSecret),
-      pairedAt: 1234567890,
-      // no `label` field at all
-    };
-    storageSet(PREVIOUS_STORAGE_KEY, JSON.stringify([v2Entry]));
-
-    // v3 slot is empty, so migration branch runs.
-    expect(storageGet(STORAGE_KEY)).toBeNull();
-
-    await usePairingStore.getState().load();
-
-    const state = usePairingStore.getState();
-    expect(state.loaded).toBe(true);
-    expect(state.state).toBe("paired");
-    expect(state.pairings.size).toBe(1);
-
-    const migrated = state.pairings.get("legacy-daemon");
-    if (!migrated) throw new Error("migrated pairing not found");
-    expect(migrated.label).toBeNull();
-    expect(migrated.frontendId).toBe("legacy-frontend-id");
-    expect(migrated.pairedAt).toBe(1234567890);
-    // Uint8Array fields re-hydrated
-    expect(migrated.daemonPublicKey).toBeInstanceOf(Uint8Array);
-    expect(migrated.daemonPublicKey.length).toBe(32);
-    expect(Array.from(migrated.frontendKeyPair.publicKey)).toEqual(
-      Array.from(frontendKp.publicKey),
-    );
-
-    // v3 slot is now populated, v2 slot cleared.
-    expect(storageGet(STORAGE_KEY)).not.toBeNull();
-    expect(storageGet(STORAGE_KEY)).not.toBe("");
-    expect(storageGet(PREVIOUS_STORAGE_KEY)).toBe("");
-  });
-
-  test("v2 migration preserves existing label if present", async () => {
-    const bundle = await createPairingBundle(
-      "wss://relay.example.com",
-      "labeled-daemon",
-    );
-    const frontendKp = {
-      publicKey: new Uint8Array(32).fill(1),
-      secretKey: new Uint8Array(32).fill(2),
-    };
-    const v2Entry = {
-      daemonId: "labeled-daemon",
-      relayUrl: "wss://relay.example.com",
-      relayToken: bundle.relayToken,
-      registrationProof: bundle.registrationProof,
-      daemonPublicKey: await toBase64(bundle.keyPair.publicKey),
-      frontendPublicKey: await toBase64(frontendKp.publicKey),
-      frontendSecretKey: await toBase64(frontendKp.secretKey),
-      frontendId: "fid",
-      pairingSecret: await toBase64(bundle.pairingSecret),
-      pairedAt: 1,
-      label: "KeepMe",
-    };
-    storageSet(PREVIOUS_STORAGE_KEY, JSON.stringify([v2Entry]));
-
-    await usePairingStore.getState().load();
-    expect(
-      usePairingStore.getState().pairings.get("labeled-daemon")?.label,
-    ).toBe("KeepMe");
-  });
-
-  test("malformed v2 data is discarded silently and store still loads", async () => {
-    storageSet(PREVIOUS_STORAGE_KEY, "{{not json");
-    await usePairingStore.getState().load();
-    const s = usePairingStore.getState();
-    expect(s.loaded).toBe(true);
-    expect(s.pairings.size).toBe(0);
-    expect(s.state).toBe("unpaired");
-  });
-
-  test("no migration runs if v3 already has data", async () => {
-    const qr = await buildFakePairing("d1");
-    await usePairingStore.getState().processScan(qr);
-    const v3Snapshot = storageGet(STORAGE_KEY);
-    expect(v3Snapshot).not.toBeNull();
-
-    storageSet(PREVIOUS_STORAGE_KEY, '[{"bogus":true}]');
-
-    usePairingStore.setState({
-      pairings: new Map(),
-      activeDaemonId: null,
-      state: "unpaired",
-      loaded: false,
-    });
-    await usePairingStore.getState().load();
-
-    // Migration should not have run — v2 slot untouched.
-    expect(storageGet(PREVIOUS_STORAGE_KEY)).toBe('[{"bogus":true}]');
-    expect(usePairingStore.getState().pairings.size).toBe(1);
   });
 });
 

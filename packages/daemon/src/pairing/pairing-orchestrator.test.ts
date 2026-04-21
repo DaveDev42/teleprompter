@@ -351,6 +351,13 @@ describe("PairingOrchestrator", () => {
     orch.clearPending();
     expect(relay.dispose).toHaveBeenCalledTimes(1);
     expect(orch.hasPending).toBe(false);
+
+    // Slot is truly freed — a subsequent begin() must succeed. Swap in a
+    // healthy savePairing so we can verify the round-trip.
+    throwingStore.savePairing = mock(() => {});
+    const info = await orch.begin({ relayUrl: "wss://r", daemonId: "d2" });
+    expect(info.daemonId).toBe("d2");
+    expect(orch.hasPending).toBe(true);
   });
 
   test("clearPending() after promote() is a no-op (relay already released)", async () => {

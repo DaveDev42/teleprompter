@@ -43,7 +43,6 @@ interface SerializedPairingInfo {
 }
 
 const STORAGE_KEY = "pairings_v3";
-const PREVIOUS_STORAGE_KEY = "pairings_v2";
 
 type UnpairSender = (daemonId: string) => Promise<void>;
 let unpairSender: UnpairSender | null = null;
@@ -170,30 +169,7 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
 
   load: async () => {
     try {
-      let raw = await secureGet(STORAGE_KEY);
-      if (!raw) {
-        // One-time migration from v2 → v3 (adds nullable `label` field)
-        // TODO: delete v2 migration after N releases
-        try {
-          const prev = await secureGet(PREVIOUS_STORAGE_KEY);
-          if (prev) {
-            const parsed = JSON.parse(prev) as SerializedPairingInfo[];
-            const migrated = parsed.map((p) => ({
-              ...p,
-              label: p.label ?? null,
-            }));
-            raw = JSON.stringify(migrated);
-            await secureSet(STORAGE_KEY, raw);
-            await secureSet(PREVIOUS_STORAGE_KEY, "");
-          }
-        } catch (err) {
-          console.warn(
-            "[pairing] v2 migration failed; previous pairings discarded",
-            err,
-          );
-          // Malformed v2 data — start fresh
-        }
-      }
+      const raw = await secureGet(STORAGE_KEY);
       if (raw) {
         const pairings = await deserializePairings(raw);
         const firstId =

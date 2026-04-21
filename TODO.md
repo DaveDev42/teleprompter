@@ -10,8 +10,8 @@
 
 ### 미검증 항목 (잠재 이슈)
 - [ ] Push Notifications 실기기 미검증 — Simulator에서는 push token 생성 불가, 실제 iOS/Android 디바이스에서 E2E 테스트 필요
-- [ ] Windows PTY/IPC 실환경 미검증 — CI unit test만 통과, 실제 Windows 환경에서 `tp` passthrough + daemon 동작 E2E 검증 필요
-- [ ] Windows install.ps1 실환경 미검증 — PowerShell 설치 스크립트 (v0.1.9 기준), 실제 Windows 기기에서 `irm ... | iex` → `tp version` → `tp upgrade` 플로우 확인 필요
+- [ ] Windows PTY/IPC 실환경 미검증 — CI unit test만 통과, 실제 Windows 환경에서 `tp` passthrough + daemon 동작 E2E 검증 필요 (유저가 Windows 개발 환경 제공 시 진행 예정)
+- [ ] Windows install.ps1 실환경 미검증 — PowerShell 설치 스크립트 (v0.1.9 기준), 실제 Windows 기기에서 `irm ... | iex` → `tp version` → `tp upgrade` 플로우 확인 필요 (유저가 Windows 개발 환경 제공 시 진행 예정)
 - [ ] Session Export 대규모 세션 성능 미검증 — 10,000+ records 세션에서 export 속도/메모리 사용량 확인 필요 (현재 limit 50,000)
 
 ### 발견된 버그
@@ -34,17 +34,17 @@
 ### Phase 1 follow-up (land-on-reality)
 - [x] **Windows CLI pair flow 실제 구현 (2026-04-20)** — `apps/cli/src/lib/ipc-client-windows.ts`의 스텁 `throw`를 제거하고 실제 Named Pipe 클라이언트로 교체. `packages/runner/src/ipc/client-windows.ts`의 `connectWindows`와 동일한 전략(Bun native pipe → `node:net` fallback). Windows 전용 단위 테스트를 `apps/cli/src/lib/ipc-client-windows.test.ts`에 추가 (`describe.skipIf(process.platform !== "win32")`). `pair-blocking.test.ts`는 Windows에서도 실행되도록 skip을 풀고 Named Pipe 경로 대응을 추가. `pair.test.ts`의 list/delete 스위트는 SQLite 파일 핸들 지속 이슈(위 Windows 섹션의 bun#25964)로 여전히 Windows skip 유지 — IPC와 무관한 별도 문제. `ipc-client.test.ts`의 POSIX 전용 테스트는 `\\.\pipe\...` 경로 요구 때문에 Windows 스킵 유지, 그 대체가 새로 추가한 `ipc-client-windows.test.ts`.
 
-### Phase 2 — 진행 중 (daemon.ts 분해)
-`daemon.ts` 같은 파일을 순차 수정해야 하므로 C1 → C2 → C3 순서.
+### Phase 2 — 완료 (2026-04-20 ~ 2026-04-21)
+`daemon.ts` 1190 → 464 LOC (-61%). 3개 추출 모두 완료, 후속 리뷰-픽스 루프(5-pass) PR #128로 마감.
 
-- [ ] **C1: `IpcCommandDispatcher` 추출** — `daemon.ts`의 `onMessage` + relay control / worktree / session export 라우팅을 별도 클래스로 분리 (`daemon.ts:91-102`, `561-1008` 영역). B1(PR #120)이 만든 타입드 경계 위에서 분해하므로 cast 재도입 없이 가능.
-- [ ] **C2: `RelayConnectionManager` 추출** — `relayClients: RelayClient[]`, 연결/재연결, push fan-out (`daemon.ts:55, 73-79, 248-560`). C1 선행.
-- [ ] **C3: `PairingOrchestrator` 추출** — `pendingPairing` / `__handlePairBegin` / `__handlePairCancel` lifecycle (`daemon.ts:59-60, 297-509`). C2 선행.
+- [x] **C1: `IpcCommandDispatcher` 추출 (2026-04-20)** — PR #123. `onMessage` + relay control / worktree / session export 라우팅을 `packages/daemon/src/ipc/command-dispatcher.ts`로 분리. B1(PR #120)의 타입드 경계 위에서 cast 재도입 없이 분해.
+- [x] **C2: `RelayConnectionManager` 추출 (2026-04-20)** — PR #124. `relayClients` 풀, 연결/재연결, push fan-out, `buildEvents`/`attachHandlers`/`registerClient` DI 지점을 `packages/daemon/src/transport/relay-manager.ts`로 분리.
+- [x] **C3: `PairingOrchestrator` 추출 (2026-04-20)** — PR #125. `pendingPairing` 단일 슬롯 상태머신 + `begin`/`cancel`/`promote`/`clearPending`/`stop` lifecycle을 `packages/daemon/src/pairing/pairing-orchestrator.ts`로 분리. RelayClient 생성은 `relayManager`에 위임.
+- [x] **Phase 2 review-fix loop (2026-04-21)** — PR #128. 5-pass 리뷰→수정 반복. 핵심 수정: `clearPending`/`stop`에서 orphan RelayClient 명시적 dispose (리소스 누수 차단), `RelayConnectionManager.removePairing`의 concurrent `indexOf` 재조회 race 수정, `toWsSessionMeta` 공유 헬퍼로 중복 제거, `RelayConnectionManager` 전용 테스트 10개 신설.
 
-분해 후 `Daemon` 클래스는 DI 컨테이너 성격으로 200–300 LOC 목표.
-
-### Phase 3 — A4 완료 후 대기
-- [ ] **D1: `pairing-store.ts` v2 마이그레이션 제거** — 파일 내 `TODO: delete v2 migration after N releases` 코멘트 참조. 기준 릴리즈(예: v0.1.15) 결정 후 그 이후 첫 PR에서 마이그레이션 블록 제거. A4(PR #121) 테스트가 안전망.
+### Phase 3 — 완료 (2026-04-21)
+- [x] **D1: `pairing-store.ts` v2 마이그레이션 제거 (2026-04-21)** — PR #126. `apps/app/src/stores/pairing-store.ts`의 v2→v3 migration 블록을 제거. A4(PR #121) 테스트가 안전망.
+- [x] **Windows CLI IPC 실제 구현 (2026-04-21)** — PR #127. `apps/cli/src/lib/ipc-client-windows.ts` Named Pipe 클라이언트 실구현 + `pair-blocking.test.ts` Windows 복원.
 
 ---
 

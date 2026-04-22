@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.15](https://github.com/DaveDev42/teleprompter/compare/v0.1.14...v0.1.15) (2026-04-22)
+
+
+### Miscellaneous Chores
+
+* trigger v0.1.15 release ([9f607cd](https://github.com/DaveDev42/teleprompter/commit/9f607cdee8662d13cdd835373561d599b44694da))
+
 ## [0.1.14](https://github.com/DaveDev42/teleprompter/compare/v0.1.13...v0.1.14) (2026-04-22)
 
 

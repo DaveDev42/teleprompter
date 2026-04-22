@@ -1,6 +1,9 @@
 import { existsSync } from "fs";
 import { mkdir, unlink, writeFile } from "fs/promises";
 import { join } from "path";
+import { resolveTpBinary } from "./paths";
+
+export { resolveTpBinary };
 
 const LABEL = "dev.tpmt.daemon";
 
@@ -28,19 +31,6 @@ function getLogDir(): string {
     "teleprompter",
     "logs",
   );
-}
-
-export function resolveTpBinary(): string {
-  // Prefer the compiled binary
-  const candidates = [
-    join(process.env.HOME ?? "", ".local", "bin", "tp"),
-    "/usr/local/bin/tp",
-  ];
-  for (const c of candidates) {
-    if (existsSync(c)) return c;
-  }
-  // Fallback: use process.argv path (running from bun)
-  return process.argv[0];
 }
 
 export function generatePlist(tpBinary: string, logDir: string): string {

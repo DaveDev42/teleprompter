@@ -6,8 +6,6 @@ export type RecHandler = (rec: WsRec) => void;
 export interface SessionState {
   /** Current session ID */
   sid: string | null;
-  /** Whether connected to Daemon WebSocket */
-  connected: boolean;
   /** Last received sequence number */
   lastSeq: number;
   /** All known sessions */
@@ -21,7 +19,6 @@ export interface SessionState {
 
   // Actions
   setSid: (sid: string | null) => void;
-  setConnected: (connected: boolean) => void;
   setLastSeq: (seq: number) => void;
   setError: (error: string | null) => void;
   incrementReconnect: () => void;
@@ -35,7 +32,6 @@ export interface SessionState {
 
 export const useSessionStore = create<SessionState>((set, get) => ({
   sid: null,
-  connected: false,
   lastSeq: 0,
   lastError: null,
   reconnectCount: 0,
@@ -43,8 +39,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   _recHandlers: new Set(),
 
   setSid: (sid) => set({ sid }),
-  setConnected: (connected) =>
-    set({ connected, lastError: connected ? null : get().lastError }),
   setLastSeq: (seq) => set({ lastSeq: seq }),
   setError: (error) => set({ lastError: error }),
   incrementReconnect: () =>
@@ -75,7 +69,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   reset: () =>
     set({
       sid: null,
-      connected: false,
       lastSeq: 0,
       lastError: null,
       reconnectCount: 0,

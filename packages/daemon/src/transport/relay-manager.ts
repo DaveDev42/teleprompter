@@ -207,14 +207,15 @@ export class RelayConnectionManager {
   }
 
   /**
-   * Reconnect to all saved relay pairings from the store. Returns the
-   * number of pairings that reconnected successfully.
+   * Reconnect to all saved relay pairings from the store in parallel.
+   * Returns the number of pairings that reconnected successfully. Sequential
+   * awaits here used to delay startup by N × handshake latency — the relays
+   * are independent transports so `Promise.allSettled` is the right shape.
    */
   async reconnectSaved(): Promise<number> {
     const pairings = this.deps.store.loadPairings();
-    let count = 0;
-    for (const p of pairings) {
-      try {
+    const results = await Promise.allSettled(
+      pairings.map(async (p) => {
         await this.addClient({
           relayUrl: p.relayUrl,
           daemonId: p.daemonId,
@@ -224,12 +225,20 @@ export class RelayConnectionManager {
           pairingSecret: p.pairingSecret,
           label: p.label,
         });
-        count++;
         log.info(`reconnected to relay ${p.relayUrl} (daemon ${p.daemonId})`);
-      } catch (err) {
-        log.error(`failed to reconnect to relay ${p.relayUrl}:`, err);
+      }),
+    );
+    let count = 0;
+    results.forEach((r, i) => {
+      if (r.status === "fulfilled") {
+        count++;
+      } else {
+        log.error(
+          `failed to reconnect to relay ${pairings[i]?.relayUrl}:`,
+          r.reason,
+        );
       }
-    }
+    });
     return count;
   }
 

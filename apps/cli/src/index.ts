@@ -1,17 +1,4 @@
 import { CLAUDE_UTILITY_SUBCOMMANDS } from "./claude-subcommands";
-import { completionsCommand } from "./commands/completions";
-import { daemonCommand } from "./commands/daemon";
-import { doctorCommand } from "./commands/doctor";
-import { forwardToClaudeCommand } from "./commands/forward-claude";
-import { logsCommand } from "./commands/logs";
-import { pairCommand } from "./commands/pair";
-import { passthroughCommand } from "./commands/passthrough";
-import { relayCommand } from "./commands/relay";
-import { runCommand } from "./commands/run";
-import { statusCommand } from "./commands/status";
-import { checkForUpdates, upgradeCommand } from "./commands/upgrade";
-import { versionCommand } from "./commands/version";
-import { yellow } from "./lib/colors";
 
 const command = process.argv[2];
 
@@ -28,10 +15,14 @@ const SUBCOMMANDS = new Set([
   "version",
 ]);
 
-// Background version check (non-blocking).
-// Skip in passthrough AND `run` modes — PTY owns the terminal and stray
-// stderr corrupts the display. Other subcommands (status, doctor, etc.)
-// are skipped because they print machine-readable output.
+/**
+ * Commands where a "new version available" stderr line is acceptable and
+ * genuinely useful for the interactive user. Everything else — status/logs,
+ * daemon/relay long-running processes, run-under-PTY, version output parsed
+ * by scripts — should not pay the cost or risk stderr contamination.
+ */
+const VERSION_CHECK_COMMANDS = new Set(["upgrade", "doctor", "pair"]);
+
 const isPassthrough =
   !SUBCOMMANDS.has(command ?? "") &&
   !CLAUDE_UTILITY_SUBCOMMANDS.has(command ?? "") &&
@@ -40,81 +31,99 @@ const isPassthrough =
   command !== "-h" &&
   command !== undefined;
 
-// Skip in passthrough (PTY owns terminal), run (runner child), version
-// (machine-readable), --help/--/undefined, and claude utility forwards.
-const skipVersionCheck =
+const shouldCheckVersion =
   isPassthrough ||
-  command === "run" ||
-  command === "version" ||
-  command === "--version" ||
-  command === "-v" ||
-  command === "--" ||
-  command === "--help" ||
-  command === "-h" ||
-  command === undefined ||
-  CLAUDE_UTILITY_SUBCOMMANDS.has(command);
-
-if (!skipVersionCheck) {
-  checkForUpdates().then((newVersion) => {
-    if (newVersion) {
-      console.error(
-        yellow(
-          `[tp] New version available: ${newVersion}. Run 'tp upgrade' to update.`,
-        ),
-      );
-    }
-  });
-}
+  (command !== undefined && VERSION_CHECK_COMMANDS.has(command));
 
 async function main(): Promise<void> {
+  if (shouldCheckVersion) {
+    // Fire and forget; errors inside are already swallowed.
+    void import("./commands/upgrade").then(({ checkForUpdates }) =>
+      checkForUpdates().then(async (newVersion) => {
+        if (!newVersion) return;
+        const { yellow } = await import("./lib/colors");
+        console.error(
+          yellow(
+            `[tp] New version available: ${newVersion}. Run 'tp upgrade' to update.`,
+          ),
+        );
+      }),
+    );
+  }
+
   switch (command) {
-    case "daemon":
+    case "daemon": {
+      const { daemonCommand } = await import("./commands/daemon");
       await daemonCommand(process.argv.slice(3));
       break;
-    case "run":
+    }
+    case "run": {
+      const { runCommand } = await import("./commands/run");
       await runCommand(process.argv.slice(3));
       break;
-    case "relay":
+    }
+    case "relay": {
+      const { relayCommand } = await import("./commands/relay");
       await relayCommand(process.argv.slice(3));
       break;
-    case "pair":
+    }
+    case "pair": {
+      const { pairCommand } = await import("./commands/pair");
       await pairCommand(process.argv.slice(3));
       break;
-    case "status":
+    }
+    case "status": {
+      const { statusCommand } = await import("./commands/status");
       await statusCommand(process.argv.slice(3));
       break;
-    case "logs":
+    }
+    case "logs": {
+      const { logsCommand } = await import("./commands/logs");
       await logsCommand(process.argv.slice(3));
       break;
-    case "doctor":
+    }
+    case "doctor": {
+      const { doctorCommand } = await import("./commands/doctor");
       await doctorCommand(process.argv.slice(3));
       break;
-    case "upgrade":
+    }
+    case "upgrade": {
+      const { upgradeCommand } = await import("./commands/upgrade");
       await upgradeCommand(process.argv.slice(3));
       break;
-    case "completions":
+    }
+    case "completions": {
+      const { completionsCommand } = await import("./commands/completions");
       completionsCommand(process.argv.slice(3));
       break;
+    }
     case "version":
     case "--version":
-    case "-v":
+    case "-v": {
+      const { versionCommand } = await import("./commands/version");
       await versionCommand(process.argv.slice(3));
       break;
-    case "--":
-      // `tp -- <args>` → forward everything after -- directly to claude
+    }
+    case "--": {
+      const { forwardToClaudeCommand } = await import(
+        "./commands/forward-claude"
+      );
       await forwardToClaudeCommand(process.argv.slice(3));
       break;
+    }
     case "--help":
     case "-h":
     case undefined:
       printUsage();
       break;
     default:
-      // Claude utility subcommands → forward directly without daemon
       if (CLAUDE_UTILITY_SUBCOMMANDS.has(command)) {
+        const { forwardToClaudeCommand } = await import(
+          "./commands/forward-claude"
+        );
         await forwardToClaudeCommand(process.argv.slice(2));
       } else {
-        // No recognized subcommand → passthrough to claude via daemon+runner
+        const { passthroughCommand } = await import("./commands/passthrough");
         await passthroughCommand(process.argv.slice(2));
       }
       break;

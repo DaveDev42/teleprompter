@@ -1,7 +1,9 @@
 import { getSocketPath } from "@teleprompter/protocol";
-import { existsSync, statSync } from "fs";
+import { statSync } from "fs";
 import { join } from "path";
 import { dim, fail, green, warn } from "../lib/colors";
+import { isDaemonRunning } from "../lib/ensure-daemon";
+import { formatAge } from "../lib/format";
 
 /**
  * tp daemon status — inspect the daemon service and its running state.
@@ -18,7 +20,7 @@ import { dim, fail, green, warn } from "../lib/colors";
 export async function daemonStatusCommand(_argv: string[]): Promise<void> {
   const platform = process.platform;
   const socketPath = getSocketPath();
-  const backgroundRunning = existsSync(socketPath);
+  const backgroundRunning = await isDaemonRunning();
 
   let installed = false;
   let managerHint = "";
@@ -135,14 +137,4 @@ function formatLogPath(logPath: string): string {
   } catch {
     return `${logPath} ${dim("(not created yet)")}`;
   }
-}
-
-function formatAge(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
 }

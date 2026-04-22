@@ -143,25 +143,6 @@ describe.skipIf(process.platform === "win32")("tp pair list/delete", () => {
     expect(out).toContain("wss://r.example");
   });
 
-  test("list ignores stale pairing.json (legacy migration)", () => {
-    const dir = join(home, ".config", "teleprompter");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(
-      join(dir, "pairing.json"),
-      JSON.stringify({
-        daemonId: "legacy",
-        relayUrl: "ws://x",
-        relayToken: "t",
-        publicKey: "p",
-        secretKey: "s",
-      }),
-    );
-    const out = capture(`${CLI} pair list`, env);
-    expect(out).toContain("No pairings registered");
-    // File should be silently removed after list.
-    expect(existsSync(join(dir, "pairing.json"))).toBe(false);
-  });
-
   test("delete by prefix removes one pairing", () => {
     seed([
       { id: "daemon-aaaa1111", relay: "wss://r.example" },

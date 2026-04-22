@@ -446,10 +446,7 @@ export class Daemon {
    *
    * Thin delegate to {@link RelayConnectionManager.renamePairing}.
    */
-  async renamePairing(
-    daemonId: string,
-    label: string | null,
-  ): Promise<number> {
+  async renamePairing(daemonId: string, label: string | null): Promise<number> {
     return this.relayManager.renamePairing(daemonId, label);
   }
 

@@ -317,6 +317,18 @@ export class FrontendRelayClient implements TransportClient {
           console.warn(`[FrontendRelay] unknown message type: ${msg.t}`);
       }
     } catch (err) {
+      // Daemon broadcasts control messages (unpair/rename) to every paired
+      // frontend, but each frame is encrypted with a per-frontend session
+      // key. So the N-1 frames that aren't ours will fail to decrypt — this
+      // is expected traffic, not an error. Demote to debug and skip onError
+      // so it never surfaces as a user-visible toast.
+      if (frame.sid === RELAY_CHANNEL_CONTROL) {
+        console.debug(
+          `[FrontendRelay] decrypt skipped on ${RELAY_CHANNEL_CONTROL} (not addressed to us):`,
+          err,
+        );
+        return;
+      }
       console.error(
         `[FrontendRelay] decrypt failed for sid=${frame.sid}:`,
         err,

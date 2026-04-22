@@ -20,6 +20,7 @@ import { stripAnsi } from "../../src/lib/ansi-strip";
 import { getPlatformProps } from "../../src/lib/get-platform-props";
 import type { TerminalSearch } from "../../src/lib/terminal-search";
 import {
+  addOptimisticUserMessage,
   type ChatMessage,
   processHookEvent,
   useChatStore,
@@ -117,6 +118,7 @@ function ChatView({ sid }: { sid: string }) {
     setOnPromptReady((prompt: string) => {
       const client = getTransport();
       if (sid && client) {
+        addOptimisticUserMessage(prompt);
         client.sendChat(sid, prompt);
       }
     });
@@ -178,6 +180,7 @@ function ChatView({ sid }: { sid: string }) {
     if (!text || !sid) return;
     const client = getTransport();
     if (!client) return;
+    addOptimisticUserMessage(text);
     client.sendChat(sid, text);
     setInput("");
   }, [input, sid]);

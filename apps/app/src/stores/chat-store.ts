@@ -27,6 +27,12 @@ export interface ChatMessage {
   choices?: string[];
   /** For permission: the tool requesting permission */
   permissionTool?: string;
+  /**
+   * Origin of the message. "local" marks optimistic user bubbles added before
+   * the daemon round-trip; the matching `UserPromptSubmit` hook event is then
+   * de-duplicated so the same text does not render twice.
+   */
+  source?: "local" | "remote";
   ts: number;
 }
 
@@ -48,6 +54,24 @@ export interface ChatState {
 let nextId = 0;
 export function makeId(): string {
   return `msg-${++nextId}-${Date.now()}`;
+}
+
+/**
+ * Optimistically append a local user bubble to the chat store. Called by
+ * `sendChat` callers so the user sees their own message immediately, without
+ * waiting for the daemon's `UserPromptSubmit` round-trip. The echoed hook
+ * event is de-duplicated against the `source: "local"` marker.
+ */
+export function addOptimisticUserMessage(text: string): void {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  useChatStore.getState().addMessage({
+    id: makeId(),
+    type: "user",
+    text: trimmed,
+    source: "local",
+    ts: Date.now(),
+  });
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -107,11 +131,27 @@ export function processHookEvent(event: HookEventBase) {
     case "UserPromptSubmit": {
       // Finalize any streaming text before user message
       store.finalizeStreaming();
+      const promptText =
+        (event.user_prompt as string) ?? (event.prompt as string) ?? "";
+      // De-dup against a freshly added optimistic local user bubble.
+      // sendChat adds `source: "local"` immediately; the daemon then echoes
+      // the same prompt back via this hook event, which would otherwise
+      // duplicate the bubble.
+      const msgs = store.messages;
+      const last = msgs[msgs.length - 1];
+      if (
+        last &&
+        last.type === "user" &&
+        last.source === "local" &&
+        last.text === promptText
+      ) {
+        break;
+      }
       store.addMessage({
         id: makeId(),
         type: "user",
         event: name,
-        text: (event.user_prompt as string) ?? (event.prompt as string) ?? "",
+        text: promptText,
         ts: Date.now(),
       });
       break;

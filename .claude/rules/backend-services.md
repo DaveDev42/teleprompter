@@ -17,10 +17,12 @@ paths:
 
 ## Daemon
 - Store: append-only Record 저장 (`sessions.sqlite`)
-- Session: SessionManager가 Runner spawn/kill 관리
-- IPC: Unix domain socket, framed JSON (Runner↔Daemon)
+- Session: SessionManager가 Runner spawn/kill 관리 (= mux: 세션당 1 Runner)
+- IPC: Unix domain socket / Named Pipe, framed JSON. Runner↔Daemon io/event/meta + CLI↔Daemon 명령 (`pair.begin`, `pair.remove`, `pair.rename`, 등)
 - Vault key storage: plaintext BLOBs in SQLite — filesystem 권한으로 보호
 - Worktree: `git worktree add/remove/list` 직접 관리 (외부 도구 의존 없음)
+- Relay outbound client: `RelayConnectionManager`가 pairing당 1 `RelayClient` 유지. **Daemon은 relay의 유일한 클라이언트** (invariant) — CLI는 직접 relay WS를 열지 않음.
+- Pair ops handler (`IpcCommandDispatcher`): `pair.remove` → `RelayConnectionManager.removePairing` (peer에 `control.unpair` → client.dispose → store.deletePairing). `pair.rename` → `RelayConnectionManager.renamePairing` (store.updatePairingLabel → 연결된 peer에 `control.rename`). 양쪽 다 notified peer 수를 ok 응답에 반환.
 
 ## Runner
 - PTY: `Bun.spawn({ terminal })` — ANSI 출력 수집

@@ -37,7 +37,7 @@ e2e/           # Playwright E2E tests (.spec.ts)
 ## Architecture
 
 - **Runner** spawns Claude Code in a PTY (macOS/Linux: `PtyBun` via `Bun.spawn({ terminal })`; Windows: `PtyWindows` via Node.js subprocess + `@aspect-build/node-pty` ConPTY), collects io streams and hooks events, sends Records to Daemon via IPC (macOS/Linux: Unix domain socket; Windows: Named Pipe)
-- **Daemon** manages sessions, stores Records in Store (append-only per session, with session delete/prune support), persists pairings in store DB for auto-reconnect, encrypts with libsodium per-frontend keys, connects to Relay(s)
+- **Daemon** is a long-running mux that (a) spawns and supervises one Runner per session, (b) manages git worktrees (`git worktree add/remove/list`), (c) stores Records in Store (append-only per session, with session delete/prune support), (d) persists pairings in store DB for auto-reconnect, (e) encrypts with libsodium per-frontend keys, (f) holds the **only** outbound WebSocket client to the Relay(s), and (g) handles pair-ops IPC (`pair.remove` / `pair.rename`) from the CLI so the CLI never opens its own RelayClient
 - **Relay** is a stateless ciphertext forwarder — holds only recent 10 encrypted frames per session
 - **Frontend** decrypts and renders: Terminal tab (xterm.js) + Chat tab (hooks events + PTY parsing hybrid)
 - Data flow: Runner → Daemon → Relay → Frontend (and reverse for input)
@@ -65,8 +65,8 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - `relay.kx` / `relay.kx.frame` — in-band pubkey exchange (encrypted with `deriveKxKey(pairingSecret)`)
 - `relay.pub` / `relay.frame` — encrypted data frames, includes `frontendId` for N:N routing
 - `relay.presence` — daemon online/offline with session list
-- `control.unpair` — E2EE control message on the `__control__` sid (rides the existing `relay.pub` channel as ciphertext). Sent by either side when a pairing is removed (`tp pair delete` or the app's Daemons list). The receiving peer auto-removes the matching pairing and surfaces a toast/log. Stateless: if the peer is offline, the message is lost and the pairing heals on the next connect attempt.
-- `control.rename` — E2EE control message on `__control__` sid; updates the peer's pairing label. Sent when either side runs `tp pair rename` or edits the label in the app.
+- `control.unpair` — E2EE control message on the `__control__` sid (rides the existing `relay.pub` channel as ciphertext). Sent by either side when a pairing is removed (`tp pair delete` or the app's Daemons list). The receiving peer auto-removes the matching pairing and surfaces a toast/log. Stateless: if the peer is offline, the message is lost and the pairing heals on the next connect attempt. Emitted by the **daemon's existing RelayClient**; the CLI delegates via the `pair.remove` IPC (fallback when daemon is stopped: direct `Store` write, peer learns on next reconnect).
+- `control.rename` — E2EE control message on `__control__` sid; updates the peer's pairing label. Sent when either side runs `tp pair rename` or edits the label in the app. Emitted by the **daemon's existing RelayClient**; the CLI delegates via the `pair.rename` IPC (fallback when daemon is stopped: direct `Store` write, peer syncs on next reconnect).
 - Connection flow: daemon `register → auth → broadcast pubkey via kx`; frontend `auth → send pubkey via kx → subscribe`
 
 ## Key Design Decisions

@@ -100,6 +100,59 @@ export interface IpcPairError {
   message?: string;
 }
 
+/**
+ * CLI → Daemon: delete a pairing. Daemon sends a `control.unpair` to any
+ * connected peer on that pairing, tears down the RelayClient, and removes
+ * the pairing from the store. The reply mirrors the matched daemonId so the
+ * CLI can print it alongside the user's prefix input.
+ */
+export interface IpcPairRemove {
+  t: "pair.remove";
+  daemonId: string;
+}
+
+export interface IpcPairRemoveOk {
+  t: "pair.remove.ok";
+  daemonId: string;
+  notifiedPeers: number;
+}
+
+export type IpcPairRemoveErrReason = "not-found" | "internal";
+
+export interface IpcPairRemoveErr {
+  t: "pair.remove.err";
+  daemonId: string;
+  reason: IpcPairRemoveErrReason;
+  message?: string;
+}
+
+/**
+ * CLI → Daemon: rename a pairing's label. Daemon updates the store and
+ * pushes a `control.rename` frame to any connected peer. `label: null`
+ * clears the label.
+ */
+export interface IpcPairRename {
+  t: "pair.rename";
+  daemonId: string;
+  label: string | null;
+}
+
+export interface IpcPairRenameOk {
+  t: "pair.rename.ok";
+  daemonId: string;
+  label: string | null;
+  notifiedPeers: number;
+}
+
+export type IpcPairRenameErrReason = "not-found" | "internal";
+
+export interface IpcPairRenameErr {
+  t: "pair.rename.err";
+  daemonId: string;
+  reason: IpcPairRenameErrReason;
+  message?: string;
+}
+
 export type IpcMessage =
   | IpcHello
   | IpcRec
@@ -113,4 +166,10 @@ export type IpcMessage =
   | IpcPairCancel
   | IpcPairCompleted
   | IpcPairCancelled
-  | IpcPairError;
+  | IpcPairError
+  | IpcPairRemove
+  | IpcPairRemoveOk
+  | IpcPairRemoveErr
+  | IpcPairRename
+  | IpcPairRenameOk
+  | IpcPairRenameErr;

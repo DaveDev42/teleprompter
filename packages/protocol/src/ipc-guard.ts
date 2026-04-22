@@ -18,6 +18,8 @@ import type {
   IpcMessage,
   IpcPairBeginErrReason,
   IpcPairErrorReason,
+  IpcPairRemoveErrReason,
+  IpcPairRenameErrReason,
 } from "./types/ipc";
 import type { Namespace, RecordKind } from "./types/record";
 
@@ -58,6 +60,14 @@ const PAIR_ERROR_REASONS: ReadonlySet<IpcPairErrorReason> = new Set([
   "kx-decrypt-failed",
   "internal",
 ]);
+const PAIR_REMOVE_REASONS: ReadonlySet<IpcPairRemoveErrReason> = new Set([
+  "not-found",
+  "internal",
+]);
+const PAIR_RENAME_REASONS: ReadonlySet<IpcPairRenameErrReason> = new Set([
+  "not-found",
+  "internal",
+]);
 
 function isRecordKind(v: unknown): v is RecordKind {
   return typeof v === "string" && RECORD_KINDS.has(v as RecordKind);
@@ -77,6 +87,20 @@ function isPairBeginReason(v: unknown): v is IpcPairBeginErrReason {
 function isPairErrorReason(v: unknown): v is IpcPairErrorReason {
   return (
     typeof v === "string" && PAIR_ERROR_REASONS.has(v as IpcPairErrorReason)
+  );
+}
+
+function isPairRemoveReason(v: unknown): v is IpcPairRemoveErrReason {
+  return (
+    typeof v === "string" &&
+    PAIR_REMOVE_REASONS.has(v as IpcPairRemoveErrReason)
+  );
+}
+
+function isPairRenameReason(v: unknown): v is IpcPairRenameErrReason {
+  return (
+    typeof v === "string" &&
+    PAIR_RENAME_REASONS.has(v as IpcPairRenameErrReason)
   );
 }
 
@@ -212,6 +236,67 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
       return {
         t: "pair.error",
         pairingId: raw.pairingId,
+        reason: raw.reason,
+        message: raw.message,
+      };
+    }
+
+    case "pair.remove": {
+      if (!isString(raw.daemonId)) return null;
+      return { t: "pair.remove", daemonId: raw.daemonId };
+    }
+
+    case "pair.remove.ok": {
+      if (!isString(raw.daemonId)) return null;
+      if (!isNumber(raw.notifiedPeers)) return null;
+      return {
+        t: "pair.remove.ok",
+        daemonId: raw.daemonId,
+        notifiedPeers: raw.notifiedPeers,
+      };
+    }
+
+    case "pair.remove.err": {
+      if (!isString(raw.daemonId)) return null;
+      if (!isPairRemoveReason(raw.reason)) return null;
+      if (!isOptionalString(raw.message)) return null;
+      return {
+        t: "pair.remove.err",
+        daemonId: raw.daemonId,
+        reason: raw.reason,
+        message: raw.message,
+      };
+    }
+
+    case "pair.rename": {
+      if (!isString(raw.daemonId)) return null;
+      if (raw.label !== null && !isString(raw.label)) return null;
+      return {
+        t: "pair.rename",
+        daemonId: raw.daemonId,
+        label: raw.label,
+      };
+    }
+
+    case "pair.rename.ok": {
+      if (!isString(raw.daemonId)) return null;
+      if (raw.label !== null && !isString(raw.label)) return null;
+      if (!isNumber(raw.notifiedPeers)) return null;
+      return {
+        t: "pair.rename.ok",
+        daemonId: raw.daemonId,
+        label: raw.label,
+        notifiedPeers: raw.notifiedPeers,
+      };
+    }
+
+    case "pair.rename.err": {
+      if (!isString(raw.daemonId)) return null;
+      if (!isPairRenameReason(raw.reason)) return null;
+      if (!isOptionalString(raw.message)) return null;
+      return {
+        t: "pair.rename.err",
+        daemonId: raw.daemonId,
         reason: raw.reason,
         message: raw.message,
       };

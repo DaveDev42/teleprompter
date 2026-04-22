@@ -24,6 +24,7 @@ import {
 type StubClient = RelayClient & {
   __peers: string[];
   __unpairSent: string[];
+  __renameSent: Array<{ frontendId: string; label: string }>;
   __disposed: boolean;
 };
 
@@ -40,12 +41,17 @@ function makeStubClient(daemonId: string, peers: string[] = []): StubClient {
   const self = stub as StubClient;
   self.__peers = peers;
   self.__unpairSent = [];
+  self.__renameSent = [];
   self.__disposed = false;
   self.dispose = mock(() => {
     self.__disposed = true;
   });
   self.sendUnpairNotice = mock(async (frontendId: string) => {
     self.__unpairSent.push(frontendId);
+    return true;
+  });
+  self.sendRenameNotice = mock(async (frontendId: string, label: string) => {
+    self.__renameSent.push({ frontendId, label });
     return true;
   });
   return self;
@@ -56,6 +62,7 @@ interface DepsOverrides {
   listPairings?: () => unknown[];
   loadPairings?: () => unknown[];
   savePairing?: (data: unknown) => void;
+  updatePairingLabel?: (daemonId: string, label: string | null) => void;
 }
 
 function makeDeps(overrides: DepsOverrides = {}): RelayConnectionManagerDeps {
@@ -69,7 +76,7 @@ function makeDeps(overrides: DepsOverrides = {}): RelayConnectionManagerDeps {
     loadPairings: overrides.loadPairings ?? (() => []),
     savePairing: overrides.savePairing ?? (() => {}),
     deletePairing: () => {},
-    updatePairingLabel: () => {},
+    updatePairingLabel: overrides.updatePairingLabel ?? (() => {}),
   };
   const fakePushNotifier = {
     registerToken: () => {},
@@ -267,6 +274,69 @@ describe("RelayConnectionManager", () => {
     mgr.dispatchPush("frontend-x", "tok", "hi", "body");
     expect(stub1.sendPush).toHaveBeenCalledTimes(1);
     expect(stub2.sendPush).toHaveBeenCalledTimes(1);
+  });
+
+  test("renamePairing updates the store and notifies every peer", async () => {
+    const labelWrites: Array<[string, string | null]> = [];
+    const mgr = new RelayConnectionManager(
+      makeDeps({
+        updatePairingLabel: (daemonId, label) => {
+          labelWrites.push([daemonId, label]);
+        },
+      }),
+    );
+    const stub = makeStubClient("d1", ["f1", "f2"]);
+    mgr.__setFactory(() => stub);
+
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: null });
+    const count = await mgr.renamePairing("d1", "Office Mac");
+
+    expect(labelWrites).toEqual([["d1", "Office Mac"]]);
+    expect(stub.__renameSent).toEqual([
+      { frontendId: "f1", label: "Office Mac" },
+      { frontendId: "f2", label: "Office Mac" },
+    ]);
+    expect(count).toBe(2);
+    // Rename must not dispose the client — the pairing remains live.
+    expect(stub.__disposed).toBe(false);
+  });
+
+  test("renamePairing with null label sends empty string to peers (control.rename 'clear')", async () => {
+    const mgr = new RelayConnectionManager(makeDeps());
+    const stub = makeStubClient("d1", ["f1"]);
+    mgr.__setFactory(() => stub);
+
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: null });
+    await mgr.renamePairing("d1", null);
+
+    expect(stub.__renameSent).toEqual([{ frontendId: "f1", label: "" }]);
+  });
+
+  test("renamePairing still writes to the store when the pairing has no live client", async () => {
+    const labelWrites: Array<[string, string | null]> = [];
+    const mgr = new RelayConnectionManager(
+      makeDeps({
+        updatePairingLabel: (daemonId, label) => {
+          labelWrites.push([daemonId, label]);
+        },
+      }),
+    );
+
+    // No addClient call — the pool is empty.
+    const count = await mgr.renamePairing("d-offline", "New");
+
+    expect(labelWrites).toEqual([["d-offline", "New"]]);
+    expect(count).toBe(0);
+  });
+
+  test("removePairing returns the peer notify count", async () => {
+    const mgr = new RelayConnectionManager(makeDeps());
+    const stub = makeStubClient("d1", ["f1", "f2"]);
+    mgr.__setFactory(() => stub);
+
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: null });
+    const notified = await mgr.removePairing("d1", { notifyPeer: true });
+    expect(notified).toBe(2);
   });
 
   test("stop() disposes every client and clears the pool", async () => {

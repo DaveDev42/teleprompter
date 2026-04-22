@@ -246,14 +246,17 @@ export class RelayConnectionManager {
    * Remove a pairing by daemonId: optionally notify the peer with a
    * control.unpair frame, tear down the relay client, and delete the
    * persisted pairing record from the store.
+   *
+   * Returns the number of peers successfully notified (0 when
+   * `notifyPeer: false`, or when no active client matches `daemonId`).
    */
   async removePairing(
     daemonId: string,
     opts: { notifyPeer: boolean } = { notifyPeer: true },
-  ): Promise<void> {
+  ): Promise<number> {
     const client = this.clients.find((c) => c.daemonId === daemonId);
+    let notified = 0;
     if (client && opts.notifyPeer) {
-      let notified = 0;
       const peers = client.listPeerFrontendIds();
       for (const frontendId of peers) {
         try {
@@ -280,6 +283,41 @@ export class RelayConnectionManager {
       if (i >= 0) this.clients.splice(i, 1);
     }
     this.deps.store.deletePairing(daemonId);
+    return notified;
+  }
+
+  /**
+   * Rename a pairing's label. Updates the store immediately, then pushes a
+   * `control.rename` frame to every connected peer on that pairing.
+   *
+   * Returns the number of peers successfully notified (0 when no active
+   * client matches `daemonId`, e.g. the pairing exists in the store but has
+   * no live relay connection).
+   */
+  async renamePairing(daemonId: string, label: string | null): Promise<number> {
+    this.deps.store.updatePairingLabel(daemonId, label);
+
+    const client = this.clients.find((c) => c.daemonId === daemonId);
+    if (!client) return 0;
+
+    let notified = 0;
+    const peers = client.listPeerFrontendIds();
+    for (const frontendId of peers) {
+      try {
+        if (await client.sendRenameNotice(frontendId, label ?? "")) {
+          notified++;
+        }
+      } catch (err) {
+        log.warn(
+          `sendRenameNotice failed for frontend ${frontendId}: ${String(err)}`,
+        );
+      }
+    }
+    const logFn = peers.length === 0 ? log.debug : log.info;
+    logFn(
+      `renamePairing(${daemonId}): notified ${notified}/${peers.length} peers`,
+    );
+    return notified;
   }
 
   /**

@@ -18,7 +18,12 @@ import type {
   PreToolUseEvent,
   StopEvent,
 } from "@teleprompter/protocol/client";
-import { makeId, processHookEvent, useChatStore } from "./chat-store";
+import {
+  addOptimisticUserMessage,
+  makeId,
+  processHookEvent,
+  useChatStore,
+} from "./chat-store";
 
 function resetStore() {
   useChatStore.getState().clear();
@@ -84,6 +89,23 @@ describe("chat-store: basic actions", () => {
       ts: Date.now(),
     });
     expect(useChatStore.getState().showTerminalFallback).toBe(false);
+  });
+
+  test("addOptimisticUserMessage appends a local-origin user message", () => {
+    addOptimisticUserMessage("hello world");
+    const msgs = useChatStore.getState().messages;
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].type).toBe("user");
+    expect(msgs[0].text).toBe("hello world");
+    expect(msgs[0].source).toBe("local");
+  });
+
+  test("addOptimisticUserMessage trims text and ignores whitespace-only input", () => {
+    addOptimisticUserMessage("  padded  ");
+    addOptimisticUserMessage("   \n\t ");
+    const msgs = useChatStore.getState().messages;
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].text).toBe("padded");
   });
 
   test("dismissTerminalFallback clears the banner", () => {
@@ -364,6 +386,108 @@ describe("chat-store: processHookEvent", () => {
     expect(msgs.length).toBe(1);
     expect(msgs[0].type).toBe("system");
     expect(msgs[0].event).toBe("SessionStart");
+  });
+
+  test("UserPromptSubmit de-dups optimistic local user message with same text", () => {
+    // Simulate optimistic add from sendChat call
+    useChatStore.getState().addMessage({
+      id: makeId(),
+      type: "user",
+      text: "ping",
+      source: "local",
+      ts: Date.now(),
+    });
+    expect(useChatStore.getState().messages.length).toBe(1);
+
+    // Daemon echoes the same prompt back via hook event
+    processHookEvent(
+      baseEvent({
+        hook_event_name: "UserPromptSubmit",
+        user_prompt: "ping",
+      }),
+    );
+
+    const msgs = useChatStore.getState().messages;
+    // Should still be 1 — the optimistic local message covers the echo
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].type).toBe("user");
+    expect(msgs[0].text).toBe("ping");
+  });
+
+  test("UserPromptSubmit with different text does NOT de-dup (appends)", () => {
+    useChatStore.getState().addMessage({
+      id: makeId(),
+      type: "user",
+      text: "first",
+      source: "local",
+      ts: Date.now(),
+    });
+
+    processHookEvent(
+      baseEvent({
+        hook_event_name: "UserPromptSubmit",
+        user_prompt: "second",
+      }),
+    );
+
+    const msgs = useChatStore.getState().messages;
+    expect(msgs.length).toBe(2);
+    expect(msgs[0].text).toBe("first");
+    expect(msgs[1].text).toBe("second");
+  });
+
+  test("UserPromptSubmit does NOT de-dup non-local user messages", () => {
+    // Prior user message without source: "local" (e.g. from previous session replay)
+    useChatStore.getState().addMessage({
+      id: makeId(),
+      type: "user",
+      text: "echo",
+      ts: Date.now(),
+    });
+
+    processHookEvent(
+      baseEvent({
+        hook_event_name: "UserPromptSubmit",
+        user_prompt: "echo",
+      }),
+    );
+
+    const msgs = useChatStore.getState().messages;
+    // Both should exist — dedup only applies when a local-origin optimistic
+    // message is the most recent user message.
+    expect(msgs.length).toBe(2);
+  });
+
+  test("optimistic send -> daemon echo -> streaming -> stop (no duplicate user bubble)", () => {
+    // UI calls addOptimisticUserMessage then transport.sendChat
+    addOptimisticUserMessage("How are you?");
+    expect(useChatStore.getState().messages.length).toBe(1);
+
+    // Daemon echoes the prompt back via hook event
+    processHookEvent(
+      baseEvent({
+        hook_event_name: "UserPromptSubmit",
+        user_prompt: "How are you?",
+      }),
+    );
+    // Streaming response
+    useChatStore.getState().appendStreaming("I'm ");
+    useChatStore.getState().appendStreaming("fine.");
+    processHookEvent({
+      session_id: "sess",
+      hook_event_name: "Stop",
+      cwd: "/tmp",
+      last_assistant_message: "I'm fine.",
+    } as StopEvent);
+
+    const msgs = useChatStore.getState().messages;
+    // Exactly: user (local optimistic) → streaming → assistant
+    expect(msgs.length).toBe(3);
+    expect(msgs[0].type).toBe("user");
+    expect(msgs[0].text).toBe("How are you?");
+    expect(msgs[0].source).toBe("local");
+    expect(msgs[1].type).toBe("streaming");
+    expect(msgs[2].type).toBe("assistant");
   });
 
   test("full conversation: prompt -> streaming chunks -> stop finalizes", () => {

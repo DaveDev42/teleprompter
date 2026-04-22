@@ -502,6 +502,100 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
     client.dispose();
   });
 
+  test("decrypt fail on __control__ sid is demoted to debug and skips onError", async () => {
+    // When the daemon broadcasts control.unpair to N frontends, each frontend
+    // can only decrypt its own per-frontend ciphertext; the other (N-1)
+    // frames are "wrong-key" decrypts by design. Those must not surface as
+    // errors or toasts — they are normal traffic on the __control__ channel.
+    const p = await setupPairing();
+    const errors: string[] = [];
+    const client = new FrontendRelayClient(makeConfig(p), {
+      onError: (e) => errors.push(e),
+    });
+
+    const originalError = console.error;
+    const originalDebug = console.debug;
+    const errorCalls: unknown[][] = [];
+    const debugCalls: unknown[][] = [];
+    console.error = (...args: unknown[]) => {
+      errorCalls.push(args);
+    };
+    console.debug = (...args: unknown[]) => {
+      debugCalls.push(args);
+    };
+
+    try {
+      const ws = await authenticate(client);
+
+      // Simulate a broadcast frame addressed to a different frontend — we
+      // cannot decrypt it with our session keys. This is the N-1 case.
+      ws.simulateMessage({
+        t: "relay.frame",
+        sid: "__control__",
+        ct: "AAAAAAAAAAAAAA", // undecryptable with our keys
+        seq: 1,
+        from: "daemon",
+      } as RelayServerMessage);
+      await flushPromises();
+
+      // Should NOT emit onError — decrypt failure on __control__ is expected.
+      expect(errors).toEqual([]);
+      // Should NOT be logged as console.error (noisy).
+      const relayErrorCalls = errorCalls.filter(
+        (call) =>
+          typeof call[0] === "string" &&
+          (call[0] as string).includes("[FrontendRelay]"),
+      );
+      expect(relayErrorCalls).toEqual([]);
+      // Should be logged as console.debug instead (quiet).
+      const relayDebugCalls = debugCalls.filter(
+        (call) =>
+          typeof call[0] === "string" &&
+          (call[0] as string).includes("[FrontendRelay]"),
+      );
+      expect(relayDebugCalls.length).toBe(1);
+      expect(client.isConnected()).toBe(true);
+    } finally {
+      console.error = originalError;
+      console.debug = originalDebug;
+      client.dispose();
+    }
+  });
+
+  test("decrypt fail on non-control sid still logs as error", async () => {
+    const p = await setupPairing();
+    const client = new FrontendRelayClient(makeConfig(p));
+
+    const originalError = console.error;
+    const errorCalls: unknown[][] = [];
+    console.error = (...args: unknown[]) => {
+      errorCalls.push(args);
+    };
+
+    try {
+      const ws = await authenticate(client);
+
+      ws.simulateMessage({
+        t: "relay.frame",
+        sid: "s1",
+        ct: "AAAAAAAAAAAAAA",
+        seq: 1,
+        from: "daemon",
+      } as RelayServerMessage);
+      await flushPromises();
+
+      const relayErrorCalls = errorCalls.filter(
+        (call) =>
+          typeof call[0] === "string" &&
+          (call[0] as string).includes("[FrontendRelay] decrypt failed"),
+      );
+      expect(relayErrorCalls.length).toBe(1);
+    } finally {
+      console.error = originalError;
+      client.dispose();
+    }
+  });
+
   test("relay.presence → onPresence", async () => {
     const p = await setupPairing();
     const seen: Array<{ online: boolean; sessions: string[] }> = [];

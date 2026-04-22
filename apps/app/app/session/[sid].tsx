@@ -14,7 +14,9 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChatCard } from "../../src/components/ChatCard";
 import { VoiceButton } from "../../src/components/VoiceButton";
+import { useAnyRelayConnected } from "../../src/hooks/use-relay";
 import { getTransport } from "../../src/hooks/use-transport";
+import { stripAnsi } from "../../src/lib/ansi-strip";
 import { getPlatformProps } from "../../src/lib/get-platform-props";
 import type { TerminalSearch } from "../../src/lib/terminal-search";
 import {
@@ -104,7 +106,7 @@ function ChatView({ sid }: { sid: string }) {
   const appendStreaming = useChatStore((s) => s.appendStreaming);
   const addRecHandler = useSessionStore((s) => s.addRecHandler);
   const removeRecHandler = useSessionStore((s) => s.removeRecHandler);
-  const connected = useSessionStore((s) => s.connected);
+  const connected = useAnyRelayConnected();
   const flatListRef = useRef<FlatList>(null);
   const [input, setInput] = useState("");
   const setOnPromptReady = useVoiceStore((s) => s.setOnPromptReady);
@@ -148,14 +150,7 @@ function ChatView({ sid }: { sid: string }) {
         try {
           const bytes = Uint8Array.from(atob(rec.d), (c) => c.charCodeAt(0));
           const text = new TextDecoder("utf-8").decode(bytes);
-          const clean = text
-            .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "")
-            .replace(/\x1b\][^\x07]*\x07/g, "")
-            .replace(/\x1b[()][A-Z0-9]/g, "")
-            .replace(/\x1b[>=<]/g, "")
-            .replace(/\x1b\x1b/g, "")
-            .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "")
-            .replace(/\r\n?/g, "\n");
+          const clean = stripAnsi(text);
           if (clean.trim()) {
             appendStreaming(clean);
           }
@@ -337,7 +332,6 @@ export default function SessionDetailScreen() {
   const { sid } = useLocalSearchParams<{ sid: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const _connected = useSessionStore((s) => s.connected);
   const sessions = useSessionStore((s) => s.sessions);
   const setSid = useSessionStore((s) => s.setSid);
   const [mode, setMode] = useState<ViewMode>("chat");

@@ -35,9 +35,22 @@ export interface SessionMeta {
   last_seq: number;
 }
 
+/**
+ * Soft cap on how many per-session SQLite handles stay open concurrently.
+ * Historical sessions accessed once (e.g. via `getRecordsSince`) used to keep
+ * their handle alive forever — with WAL+SHM sidecars that's 3 open files
+ * per session accumulating across weeks of a long-running daemon.
+ */
+const DEFAULT_MAX_OPEN_SESSION_DBS = 32;
+
 export class Store {
   private metaDb: Database;
+  /**
+   * Insertion-ordered Map doubles as an LRU: every access re-inserts the key,
+   * so iteration order reflects least-recent → most-recent.
+   */
   private sessionDbs = new Map<string, SessionDb>();
+  private readonly maxOpenSessionDbs: number;
   private storeDir: string;
 
   private createStmt: ReturnType<Database["prepare"]>;
@@ -46,8 +59,10 @@ export class Store {
   private getSessionStmt: ReturnType<Database["prepare"]>;
   private listSessionsStmt: ReturnType<Database["prepare"]>;
 
-  constructor(storeDir?: string) {
+  constructor(storeDir?: string, opts: { maxOpenSessionDbs?: number } = {}) {
     this.storeDir = storeDir ?? getStoreDir();
+    this.maxOpenSessionDbs =
+      opts.maxOpenSessionDbs ?? DEFAULT_MAX_OPEN_SESSION_DBS;
     mkdirSync(join(this.storeDir, "sessions"), { recursive: true });
     this.metaDb = new Database(join(this.storeDir, "sessions.sqlite"));
 
@@ -116,23 +131,42 @@ export class Store {
 
     const dbPath = join(this.storeDir, "sessions", `${sid}.sqlite`);
     const sessionDb = new SessionDb(dbPath);
-    this.sessionDbs.set(sid, sessionDb);
+    this.trackSessionDb(sid, sessionDb);
     return sessionDb;
   }
 
   getSessionDb(sid: SID): SessionDb | undefined {
-    if (this.sessionDbs.has(sid)) {
-      return this.sessionDbs.get(sid) as SessionDb;
+    const cached = this.sessionDbs.get(sid);
+    if (cached) {
+      // Touch: re-insert at the tail so iteration order stays LRU.
+      this.sessionDbs.delete(sid);
+      this.sessionDbs.set(sid, cached);
+      return cached;
     }
 
     // Try opening existing db
     const dbPath = join(this.storeDir, "sessions", `${sid}.sqlite`);
     try {
       const sessionDb = new SessionDb(dbPath);
-      this.sessionDbs.set(sid, sessionDb);
+      this.trackSessionDb(sid, sessionDb);
       return sessionDb;
     } catch {
       return undefined;
+    }
+  }
+
+  private trackSessionDb(sid: SID, db: SessionDb): void {
+    this.sessionDbs.set(sid, db);
+    while (this.sessionDbs.size > this.maxOpenSessionDbs) {
+      const oldest = this.sessionDbs.keys().next().value;
+      if (!oldest) break;
+      const evict = this.sessionDbs.get(oldest);
+      this.sessionDbs.delete(oldest);
+      try {
+        evict?.close();
+      } catch (err) {
+        log.warn(`LRU evict close failed for ${oldest}: ${err}`);
+      }
     }
   }
 

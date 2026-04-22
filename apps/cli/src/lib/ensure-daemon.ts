@@ -3,30 +3,13 @@ import { spawn } from "child_process";
 import { existsSync, lstatSync, unlinkSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import { Socket } from "net";
-import { platform } from "os";
 import { join } from "path";
 import { isCompiled } from "../spawn";
 import { dim, ok } from "./colors";
 import { errorWithHints } from "./format";
+import { getConfigDir } from "./paths";
+import { isServiceInstalled, startService } from "./service";
 import { spinner } from "./spinner";
-
-/**
- * Platform-appropriate config directory for tp state files.
- * Windows: `%APPDATA%\teleprompter` (with `%USERPROFILE%\AppData\Roaming` fallback).
- * Unix: `$HOME/.config/teleprompter` (POSIX XDG-style).
- */
-function getConfigDir(): string {
-  const base =
-    process.platform === "win32"
-      ? (process.env.APPDATA ??
-        join(
-          process.env.USERPROFILE ?? "C:\\Users\\Default",
-          "AppData",
-          "Roaming",
-        ))
-      : join(process.env.HOME ?? "/tmp", ".config");
-  return join(base, "teleprompter");
-}
 
 const HINT_FILE = join(getConfigDir(), ".daemon-hint-shown");
 
@@ -92,6 +75,19 @@ export async function isDaemonRunning(): Promise<boolean> {
 }
 
 /**
+ * Poll `isDaemonRunning` until it resolves true, for up to `timeoutMs` (default
+ * 10s at 500ms intervals). Returns `true` on success, `false` on timeout.
+ */
+async function waitForDaemonReady(timeoutMs = 10_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 500));
+    if (await isDaemonRunning()) return true;
+  }
+  return false;
+}
+
+/**
  * Ensure daemon is running. If not, try to start it:
  * 1. If OS service is installed → kickstart it
  * 2. Otherwise → spawn in background + show install hint once
@@ -103,13 +99,10 @@ export async function ensureDaemon(): Promise<boolean> {
   const stop = spinner("Starting daemon...");
 
   // Try kickstarting the OS service if installed
-  if (await tryKickstartService()) {
-    for (let i = 0; i < 20; i++) {
-      await new Promise((r) => setTimeout(r, 500));
-      if (await isDaemonRunning()) {
-        stop(ok(`Daemon started via system service`));
-        return true;
-      }
+  if (await startService()) {
+    if (await waitForDaemonReady()) {
+      stop(ok(`Daemon started via system service`));
+      return true;
     }
     // fall through to manual spawn
   }
@@ -138,13 +131,10 @@ export async function ensureDaemon(): Promise<boolean> {
   });
   proc.unref();
 
-  for (let i = 0; i < 20; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    if (await isDaemonRunning()) {
-      stop(ok(`Daemon started (pid=${proc.pid})`));
-      await showInstallHint();
-      return true;
-    }
+  if (await waitForDaemonReady()) {
+    stop(ok(`Daemon started (pid=${proc.pid})`));
+    await showInstallHint();
+    return true;
   }
 
   stop();
@@ -158,48 +148,6 @@ export async function ensureDaemon(): Promise<boolean> {
 }
 
 /**
- * Check if OS service is installed and try to kickstart it.
- * Returns true if kickstart was attempted.
- */
-async function tryKickstartService(): Promise<boolean> {
-  const os = platform();
-
-  if (os === "darwin") {
-    const { isServiceInstalled, getServiceLabel } = await import(
-      "./service-darwin"
-    );
-    if (!isServiceInstalled()) return false;
-
-    const uid = process.getuid?.() ?? 501;
-    const label = getServiceLabel();
-    Bun.spawnSync(["launchctl", "kickstart", `gui/${uid}/${label}`]);
-    return true;
-  }
-
-  if (os === "linux") {
-    const { isServiceInstalled, getServiceName } = await import(
-      "./service-linux"
-    );
-    if (!isServiceInstalled()) return false;
-
-    Bun.spawnSync(["systemctl", "--user", "start", getServiceName()]);
-    return true;
-  }
-
-  if (os === "win32") {
-    const { isServiceInstalled, getTaskName } = await import(
-      "./service-windows"
-    );
-    if (!isServiceInstalled()) return false;
-
-    Bun.spawnSync(["schtasks", "/Run", "/TN", getTaskName()]);
-    return true;
-  }
-
-  return false;
-}
-
-/**
  * On the first real run, offer to install the daemon as an OS service so it
  * starts automatically on login. Non-interactive environments (CI, scripts
  * piping stdin) fall back to a one-time dim hint. Setting
@@ -208,7 +156,7 @@ async function tryKickstartService(): Promise<boolean> {
 async function showInstallHint(): Promise<void> {
   const mode = decideInstallPromptMode({
     hintFileExists: existsSync(HINT_FILE),
-    serviceInstalled: await isServiceInstalledAny(),
+    serviceInstalled: await isServiceInstalled(),
     stdinIsTTY: process.stdin.isTTY === true,
     stderrIsTTY: process.stderr.isTTY === true,
     noAutoInstallEnv: process.env.TP_NO_AUTO_INSTALL === "1",
@@ -255,23 +203,6 @@ async function showInstallHint(): Promise<void> {
       ),
     );
   }
-}
-
-async function isServiceInstalledAny(): Promise<boolean> {
-  const os = platform();
-  if (os === "darwin") {
-    const { isServiceInstalled } = await import("./service-darwin");
-    return isServiceInstalled();
-  }
-  if (os === "linux") {
-    const { isServiceInstalled } = await import("./service-linux");
-    return isServiceInstalled();
-  }
-  if (os === "win32") {
-    const { isServiceInstalled } = await import("./service-windows");
-    return isServiceInstalled();
-  }
-  return false;
 }
 
 async function markHinted(): Promise<void> {

@@ -12,14 +12,23 @@ export function encodeFrame(data: unknown): Uint8Array {
 }
 
 export class FrameDecoder {
-  private buf = new Uint8Array(0);
+  // ArrayBufferLike (vs the stricter default ArrayBuffer) so that incoming
+  // chunks backed by SharedArrayBuffer or Buffer are assignable without a
+  // copy — the decode path only reads, it never resizes or transfers.
+  private buf: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
 
-  decode(chunk: Uint8Array): unknown[] {
-    // Append chunk to buffer
-    const next = new Uint8Array(this.buf.byteLength + chunk.byteLength);
-    next.set(this.buf);
-    next.set(chunk, this.buf.byteLength);
-    this.buf = next;
+  decode(chunk: Uint8Array<ArrayBufferLike>): unknown[] {
+    // Common case: the previous chunk left nothing pending. Skip the concat
+    // entirely — `chunk` is sufficient as-is. For a 1 MiB burst split into N
+    // chunks this avoids O(N²) bytes of buffer growth.
+    if (this.buf.byteLength === 0) {
+      this.buf = chunk;
+    } else {
+      const next = new Uint8Array(this.buf.byteLength + chunk.byteLength);
+      next.set(this.buf);
+      next.set(chunk, this.buf.byteLength);
+      this.buf = next;
+    }
 
     const results: unknown[] = [];
 
@@ -37,6 +46,13 @@ export class FrameDecoder {
       );
       results.push(JSON.parse(json));
       this.buf = this.buf.subarray(HEADER_SIZE + len);
+    }
+
+    // Detach the tail from `chunk` when it's only a partial frame, so the
+    // caller's chunk buffer can be GC'd and so the next `decode` doesn't
+    // alias into caller-owned memory.
+    if (this.buf.byteLength > 0 && this.buf.buffer === chunk.buffer) {
+      this.buf = new Uint8Array(this.buf);
     }
 
     return results;

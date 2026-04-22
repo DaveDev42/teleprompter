@@ -1,6 +1,8 @@
-import { existsSync } from "fs";
 import { mkdir } from "fs/promises";
 import { join } from "path";
+import { resolveTpBinary } from "./paths";
+
+export { resolveTpBinary };
 
 const TASK_NAME = "TeleprompterDaemon";
 
@@ -9,17 +11,6 @@ export function getLogDir(): string {
     process.env.LOCALAPPDATA ??
     join(process.env.USERPROFILE ?? "C:\\Users\\Default", "AppData", "Local");
   return join(localAppData, "teleprompter", "logs");
-}
-
-export function resolveTpBinary(): string {
-  const candidates = [
-    join(process.env.LOCALAPPDATA ?? "", "Programs", "teleprompter", "tp.exe"),
-    join(process.env.USERPROFILE ?? "", ".local", "bin", "tp.exe"),
-  ];
-  for (const c of candidates) {
-    if (existsSync(c)) return c;
-  }
-  return process.argv[0];
 }
 
 export function isServiceInstalled(): boolean {

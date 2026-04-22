@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import type { TerminalSearch } from "../lib/terminal-search";
+import { TERMINAL_COLORS } from "../lib/tokens";
 import { useSettingsStore } from "../stores/settings-store";
 
 /**
@@ -49,11 +50,7 @@ export function GhosttyTerminal({
         cursorBlink: true,
         fontSize: settings.fontSize,
         fontFamily: `${settings.terminalFont}, Menlo, Monaco, 'Courier New', monospace`,
-        theme: {
-          background: "#000000",
-          foreground: "#ffffff",
-          cursor: "#ffffff",
-        },
+        theme: { ...TERMINAL_COLORS },
         scrollback: 10000,
       });
 

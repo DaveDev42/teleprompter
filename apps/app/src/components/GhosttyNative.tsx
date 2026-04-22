@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
+import { TERMINAL_COLORS } from "../lib/tokens";
 import { useSettingsStore } from "../stores/settings-store";
 
 /**
@@ -216,7 +217,7 @@ export function GhosttyNative({
     <WebView
       ref={webViewRef}
       source={{ html }}
-      style={{ flex: 1, backgroundColor: "#000" }}
+      style={{ flex: 1, backgroundColor: TERMINAL_COLORS.background }}
       onMessage={handleMessage}
       javaScriptEnabled
       originWhitelist={["*"]}

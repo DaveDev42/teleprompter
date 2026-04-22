@@ -9,18 +9,18 @@ import type {
   IpcPairError,
 } from "@teleprompter/protocol";
 import { getSocketPath, RELAY_CHANNEL_CONTROL } from "@teleprompter/protocol";
-import { unlink } from "fs/promises";
 import { hostname } from "os";
 import { join } from "path";
 import qrcode from "qrcode-terminal";
 import { parseArgs } from "util";
 import { dim, fail, ok, warn } from "../lib/colors";
 import { ensureDaemon, isDaemonRunning } from "../lib/ensure-daemon";
+import { formatAge } from "../lib/format";
 import { connectIpcAsClient, type IpcClient } from "../lib/ipc-client";
 import { acquirePairLock, releasePairLock } from "../lib/pair-lock";
+import { getConfigDir } from "../lib/paths";
 
-const PAIRING_DIR = join(process.env.HOME ?? "/tmp", ".config", "teleprompter");
-const PAIRING_FILE = join(PAIRING_DIR, "pairing.json");
+const PAIRING_DIR = getConfigDir();
 
 export async function pairCommand(argv: string[]): Promise<void> {
   const sub = argv[0];
@@ -186,14 +186,6 @@ async function pairNew(argv: string[]): Promise<void> {
     };
     ipc.send(begin);
 
-    // Migration: silently remove stale pairing.json from the pre-blocking-pair
-    // era so old handoff files don't linger.
-    try {
-      await unlink(PAIRING_FILE);
-    } catch {
-      /* best effort */
-    }
-
     const code = await done;
     process.off("SIGINT", onSigint);
     await cleanup(code);
@@ -249,15 +241,6 @@ async function pairList(argv: string[]): Promise<void> {
     allowPositionals: false,
     strict: true,
   });
-
-  // Migration: silently unlink any stale pairing.json from the pre-blocking-pair
-  // era. The new flow never writes this file; its presence means a legacy
-  // install is being upgraded in place.
-  try {
-    await unlink(PAIRING_FILE);
-  } catch {
-    /* best effort */
-  }
 
   const store = new Store();
   let pairings: ReturnType<Store["listPairings"]>;
@@ -614,18 +597,6 @@ function prompt(question: string): Promise<string> {
     process.stdin.once("end", onEnd);
     process.stdin.once("close", onEnd);
   });
-}
-
-function formatAge(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(Date.now() - ms).toISOString().slice(0, 10);
 }
 
 function printPairUsage(): void {

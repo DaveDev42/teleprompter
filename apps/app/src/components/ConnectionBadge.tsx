@@ -1,4 +1,5 @@
 import { Text, View } from "react-native";
+import { useAnyRelayConnected } from "../hooks/use-relay";
 import { useSessionStore } from "../stores/session-store";
 
 function formatRelativeTime(ts: number): string {
@@ -17,7 +18,7 @@ function formatRelativeTime(ts: number): string {
  * Pill-style connection badge with themed colors.
  */
 export function ConnectionBadge() {
-  const connected = useSessionStore((s) => s.connected);
+  const connected = useAnyRelayConnected();
   const sid = useSessionStore((s) => s.sid);
   const sessions = useSessionStore((s) => s.sessions);
 

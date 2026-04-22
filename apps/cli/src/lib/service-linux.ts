@@ -1,6 +1,9 @@
 import { existsSync } from "fs";
 import { mkdir, unlink, writeFile } from "fs/promises";
 import { join } from "path";
+import { resolveTpBinary } from "./paths";
+
+export { resolveTpBinary };
 
 const SERVICE_NAME = "teleprompter-daemon";
 
@@ -22,17 +25,6 @@ export function isServiceInstalled(): boolean {
 
 export function getServiceName(): string {
   return SERVICE_NAME;
-}
-
-export function resolveTpBinary(): string {
-  const candidates = [
-    join(process.env.HOME ?? "", ".local", "bin", "tp"),
-    "/usr/local/bin/tp",
-  ];
-  for (const c of candidates) {
-    if (existsSync(c)) return c;
-  }
-  return process.argv[0];
 }
 
 export function generateUnit(tpBinary: string): string {

@@ -2,7 +2,7 @@
  * Unit tests for session-store.
  *
  * Covers:
- *  - simple field setters (sid, connected, lastSeq, lastError, reconnectCount)
+ *  - simple field setters (sid, lastSeq, lastError, reconnectCount)
  *  - session list updates (setSessions, updateSession)
  *  - record handler multicast: 2 handlers + one dispatch -> both invoked
  *  - handler unsubscribe stops future invocations
@@ -43,13 +43,10 @@ function resetStore() {
 describe("session-store: simple setters", () => {
   beforeEach(resetStore);
 
-  test("setSid / setConnected / setLastSeq / setError / incrementReconnect", () => {
+  test("setSid / setLastSeq / setError / incrementReconnect", () => {
     const s = useSessionStore.getState();
     s.setSid("abc");
     expect(useSessionStore.getState().sid).toBe("abc");
-
-    s.setConnected(true);
-    expect(useSessionStore.getState().connected).toBe(true);
 
     s.setLastSeq(42);
     expect(useSessionStore.getState().lastSeq).toBe(42);
@@ -60,20 +57,6 @@ describe("session-store: simple setters", () => {
     s.incrementReconnect();
     s.incrementReconnect();
     expect(useSessionStore.getState().reconnectCount).toBe(2);
-  });
-
-  test("setConnected(true) clears existing error", () => {
-    const s = useSessionStore.getState();
-    s.setError("fail");
-    s.setConnected(true);
-    expect(useSessionStore.getState().lastError).toBeNull();
-  });
-
-  test("setConnected(false) preserves existing error", () => {
-    const s = useSessionStore.getState();
-    s.setError("fail");
-    s.setConnected(false);
-    expect(useSessionStore.getState().lastError).toBe("fail");
   });
 });
 
@@ -182,7 +165,6 @@ describe("session-store: reset", () => {
     const s = useSessionStore.getState();
 
     s.setSid("x");
-    s.setConnected(true);
     s.setLastSeq(99);
     s.setError("oops");
     s.incrementReconnect();
@@ -193,7 +175,6 @@ describe("session-store: reset", () => {
 
     const after = useSessionStore.getState();
     expect(after.sid).toBeNull();
-    expect(after.connected).toBe(false);
     expect(after.lastSeq).toBe(0);
     expect(after.lastError).toBeNull();
     expect(after.reconnectCount).toBe(0);

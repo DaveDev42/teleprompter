@@ -1,7 +1,10 @@
 import type { WsSessionMeta } from "@teleprompter/protocol/client";
 import { useCallback, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
-import { useRelayConnectionStore } from "../hooks/use-relay";
+import {
+  useAnyRelayConnected,
+  useRelayConnectionStore,
+} from "../hooks/use-relay";
 import { getTransport } from "../hooks/use-transport";
 import { checkCryptoAvailability } from "../lib/crypto-native";
 import { getPlatformProps } from "../lib/get-platform-props";
@@ -70,7 +73,7 @@ function SessionDiagnostics({ session }: { session: WsSessionMeta }) {
 }
 
 export function DiagnosticsPanel() {
-  const connected = useSessionStore((s) => s.connected);
+  const connected = useAnyRelayConnected();
   const lastSeq = useSessionStore((s) => s.lastSeq);
   const sid = useSessionStore((s) => s.sid);
   const sessions = useSessionStore((s) => s.sessions);

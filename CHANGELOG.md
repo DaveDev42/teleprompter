@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.16](https://github.com/DaveDev42/teleprompter/compare/v0.1.15...v0.1.16) (2026-04-22)
+
+
+### Features
+
+* **cli:** route tp pair delete/rename through the running daemon ([6d31788](https://github.com/DaveDev42/teleprompter/commit/6d31788fac18375ee9128c0b4a2f45d17a597b0f))
+* **daemon:** handle pair.remove/pair.rename IPC via RelayConnectionManager ([f5b061e](https://github.com/DaveDev42/teleprompter/commit/f5b061e6b6365012261b59b6e693c61c111b2b8f))
+* **pair:** route tp pair delete/rename through daemon IPC ([91f208b](https://github.com/DaveDev42/teleprompter/commit/91f208b50069763fe040de982239a7434765045b))
+* **protocol:** add pair.remove/pair.rename IPC message types ([6b2b3bd](https://github.com/DaveDev42/teleprompter/commit/6b2b3bdd7844e2879e01f73e03b02db77a7e3c41))
+
+
+### Performance Improvements
+
+* fix hot-path bottlenecks and long-running memory leaks ([1ac583b](https://github.com/DaveDev42/teleprompter/commit/1ac583be40856035929c8742cd1adc5251644969))
+
 ## [0.1.15](https://github.com/DaveDev42/teleprompter/compare/v0.1.14...v0.1.15) (2026-04-22)
 
 

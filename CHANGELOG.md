@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.14](https://github.com/DaveDev42/teleprompter/compare/v0.1.13...v0.1.14) (2026-04-22)
+
+
+### Bug Fixes
+
+* **cli:** harden download lifecycle (timers, abort reasons, drain race) ([785a04b](https://github.com/DaveDev42/teleprompter/commit/785a04bff31c70acc481d28127bcb1efad2e2ec4))
+* **cli:** stream tp upgrade download with live progress ([0b47f22](https://github.com/DaveDev42/teleprompter/commit/0b47f223fc44bfbfe5c739b3205da735271a9be5))
+* **cli:** stream tp upgrade download with live progress ([94580e3](https://github.com/DaveDev42/teleprompter/commit/94580e32bd9996763151b31c2926f43faf10a2e5))
+
+
+### Performance Improvements
+
+* **cli:** shrink binary ~4MB via --minify and prep for bytecode ([231f221](https://github.com/DaveDev42/teleprompter/commit/231f221ad5af04f7460ebc4cec06a44bdaee4753))
+* **cli:** shrink binary ~4MB via --minify and prep for bytecode ([d177223](https://github.com/DaveDev42/teleprompter/commit/d17722335b3922b8594abecb8a653874c8819d7b))
+* **cli:** UPX-compress linux/windows binaries; drop libsodium sumo ([30f2534](https://github.com/DaveDev42/teleprompter/commit/30f253441133be74e29bbe1a6eec2840cc78f41b))
+* **cli:** UPX-compress linux/windows binaries; drop libsodium sumo ([2fbe898](https://github.com/DaveDev42/teleprompter/commit/2fbe8983c2200a112dd841606a391e9c0923d86a))
+
 ## [0.1.13](https://github.com/DaveDev42/teleprompter/compare/v0.1.12...v0.1.13) (2026-04-21)
 
 

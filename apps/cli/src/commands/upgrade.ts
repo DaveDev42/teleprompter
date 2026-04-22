@@ -14,6 +14,7 @@ import { version as pkgVersion } from "../../../../package.json" with {
   type: "json",
 };
 import { ok, warn } from "../lib/colors";
+import { downloadWithProgress } from "../lib/download";
 import { errorWithHints } from "../lib/format";
 import { spinner } from "../lib/spinner";
 
@@ -480,7 +481,6 @@ async function upgradeTp(tag: string): Promise<void> {
   const asset = getAssetName();
   const url = `https://github.com/${REPO}/releases/download/${tag}/${asset}`;
 
-  const stop = spinner(`Downloading tp ${tag}...`);
   let tmpPath = "";
   let bakPath = "";
   let targetPath = "";
@@ -492,16 +492,14 @@ async function upgradeTp(tag: string): Promise<void> {
         ? `tp-upgrade-${Date.now()}.exe`
         : `tp-upgrade-${Date.now()}`;
     tmpPath = join(tmpdir(), tmpName);
-    const res = await fetch(url, {
-      redirect: "follow",
-      signal: AbortSignal.timeout(120000),
+
+    await downloadWithProgress(url, tmpPath, {
+      label: `Downloading tp ${tag}`,
     });
-    if (!res.ok) throw new Error(`Download failed: HTTP ${res.status}`);
-    await Bun.write(tmpPath, res);
     if (process.platform !== "win32") {
       await $`chmod +x ${tmpPath}`.quiet();
     }
-    stop(ok(`Downloaded tp ${tag}`));
+    console.log(ok(`Downloaded tp ${tag}`));
 
     // Verify checksum
     const stopCheck = spinner("Verifying checksum...");
@@ -582,8 +580,6 @@ async function upgradeTp(tag: string): Promise<void> {
     // Restart daemon if running as a service
     await restartDaemon();
   } catch (err) {
-    stop();
-
     // Clean up downloaded temp file if it still exists
     if (tmpPath && existsSync(tmpPath)) {
       try {

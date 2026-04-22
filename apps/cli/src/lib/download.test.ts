@@ -1,5 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
+  downloadWithProgress,
   formatBytes,
   formatProgressLine,
   formatSpeed,
@@ -139,17 +143,126 @@ describe("shouldLogDecile", () => {
 });
 
 describe("pickRenderMode", () => {
-  test("'tty' when stderr is a TTY and NO_COLOR is unset", () => {
-    expect(pickRenderMode({ isTTY: true, noColor: false })).toBe("tty");
-  });
-
-  test("'tty' still when NO_COLOR is set (progress uses no colors — only reuses line)", () => {
-    // The progress line is color-free by construction; NO_COLOR should NOT
-    // force us down to the decile logger if the terminal supports `\r`.
-    expect(pickRenderMode({ isTTY: true, noColor: true })).toBe("tty");
+  test("'tty' when stderr is a TTY", () => {
+    expect(pickRenderMode({ isTTY: true })).toBe("tty");
   });
 
   test("'log' when stderr is not a TTY", () => {
-    expect(pickRenderMode({ isTTY: false, noColor: false })).toBe("log");
+    expect(pickRenderMode({ isTTY: false })).toBe("log");
+  });
+});
+
+/**
+ * Build a `fetch`-shaped stub that returns a stream you can drive from
+ * outside, so the stall/abort paths can be exercised without a real network.
+ */
+function makeFakeFetch(opts: {
+  status?: number;
+  contentLength?: number | null;
+  chunks?: Uint8Array[];
+  chunkDelayMs?: number;
+}): typeof fetch {
+  const status = opts.status ?? 200;
+  const chunks = opts.chunks ?? [];
+  const chunkDelayMs = opts.chunkDelayMs ?? 0;
+  return (async (_url: string, init?: { signal?: AbortSignal }) => {
+    const headers = new Headers();
+    if (opts.contentLength != null) {
+      headers.set("content-length", String(opts.contentLength));
+    }
+    const signal = init?.signal;
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        try {
+          for (const chunk of chunks) {
+            if (signal?.aborted) throw signal.reason ?? new Error("aborted");
+            if (chunkDelayMs > 0) {
+              await new Promise<void>((resolve, reject) => {
+                const t = setTimeout(resolve, chunkDelayMs);
+                signal?.addEventListener(
+                  "abort",
+                  () => {
+                    clearTimeout(t);
+                    reject(signal.reason ?? new Error("aborted"));
+                  },
+                  { once: true },
+                );
+              });
+            }
+            controller.enqueue(chunk);
+          }
+          controller.close();
+        } catch (err) {
+          controller.error(err);
+        }
+      },
+    });
+    return new Response(status === 200 ? body : null, { status, headers });
+  }) as unknown as typeof fetch;
+}
+
+describe("downloadWithProgress", () => {
+  let workDir: string;
+
+  afterEach(() => {
+    if (workDir) rmSync(workDir, { recursive: true, force: true });
+  });
+
+  function destPath(name = "tp-download"): string {
+    workDir = mkdtempSync(join(tmpdir(), "tp-dl-"));
+    return join(workDir, name);
+  }
+
+  test("rejects HTTP non-2xx and leaves no partial file at destPath", async () => {
+    const dest = destPath();
+    await expect(
+      downloadWithProgress("https://example.test/asset", dest, {
+        label: "Downloading tp test",
+        fetchImpl: makeFakeFetch({ status: 404 }),
+        stderr: process.stderr,
+      }),
+    ).rejects.toThrow(/HTTP 404/);
+    expect(existsSync(dest)).toBe(false);
+  });
+
+  test("completes when Content-Length is missing (chunked-style response)", async () => {
+    const dest = destPath();
+    const payload = new TextEncoder().encode("hello world from chunked body");
+    await downloadWithProgress("https://example.test/asset", dest, {
+      label: "Downloading tp test",
+      fetchImpl: makeFakeFetch({
+        contentLength: null,
+        chunks: [payload.slice(0, 10), payload.slice(10)],
+      }),
+      stderr: process.stderr,
+    });
+    expect(existsSync(dest)).toBe(true);
+    expect(readFileSync(dest, "utf8")).toBe("hello world from chunked body");
+  });
+
+  test("stall timeout aborts with a descriptive message", async () => {
+    const dest = destPath();
+    // Two chunks with a 200ms gap, but stallTimeoutMs is 50ms → second chunk
+    // never arrives in time.
+    const chunks = [
+      new Uint8Array([1, 2, 3, 4, 5]),
+      new Uint8Array([6, 7, 8, 9, 10]),
+    ];
+    await expect(
+      downloadWithProgress("https://example.test/asset", dest, {
+        label: "Downloading tp test",
+        fetchImpl: makeFakeFetch({
+          contentLength: 10,
+          chunks,
+          chunkDelayMs: 200,
+        }),
+        stallTimeoutMs: 50,
+        hardTimeoutMs: 5_000,
+        stderr: process.stderr,
+      }),
+    ).rejects.toThrow(/stalled/);
+    // Partial file must be cleaned up so the caller doesn't mistake it for
+    // a complete download.
+    expect(existsSync(dest)).toBe(false);
   });
 });

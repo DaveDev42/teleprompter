@@ -1,4 +1,4 @@
-import { createWriteStream } from "fs";
+import { createWriteStream, unlinkSync } from "fs";
 
 const KB = 1024;
 const MB = 1024 * 1024;
@@ -53,6 +53,8 @@ function splitValueAndUnit(done: number, total: number): [string, string] {
 
 /**
  * Render one redrawable progress line. Caller is responsible for \r + padding.
+ * The label is assumed to be a single line of printable text — do not pass
+ * content containing `\n`, `\r`, or raw ANSI escapes, or the repaint breaks.
  *
  * Shape when total known:
  *   "<label> [====      ] 45% (29.1 / 63.0 MB) 28.3 MB/s"
@@ -108,13 +110,10 @@ export type RenderMode = "tty" | "log";
  * Pick the rendering strategy. TTY → live line rewrite via `\r`.
  * Non-TTY (CI, pipes) → one log line per 10% crossing.
  *
- * The progress line itself uses no ANSI colors, so NO_COLOR does not downgrade
- * us to decile logging — the deciding factor is whether `\r` works.
+ * The progress line itself uses no ANSI colors, so NO_COLOR does not affect
+ * this decision — the only signal that matters is whether `\r` will work.
  */
-export function pickRenderMode(opts: {
-  isTTY: boolean;
-  noColor: boolean;
-}): RenderMode {
+export function pickRenderMode(opts: { isTTY: boolean }): RenderMode {
   return opts.isTTY ? "tty" : "log";
 }
 
@@ -126,7 +125,7 @@ type ProgressState = {
 };
 
 type DownloadOpts = {
-  /** User-visible label, e.g. "Downloading tp v0.1.13". */
+  /** User-visible label, e.g. "Downloading tp v0.1.13". Must be single-line. */
   label: string;
   /** Stall timeout: abort if zero bytes received in this many ms. Default 30s. */
   stallTimeoutMs?: number;
@@ -146,7 +145,9 @@ type DownloadOpts = {
  * - Renders a progress bar on a TTY, logs 10% markers elsewhere.
  * - Uses a stall timeout (no bytes for `stallTimeoutMs`) + absolute cap
  *   (`hardTimeoutMs`) instead of a single fetch-wide deadline that penalises
- *   slow-but-steady links on 100MB+ assets.
+ *   slow-but-steady links on 100MB+ assets. Abort reasons are forwarded to
+ *   the caller so stalls surface as `"no bytes received for 30000ms (stalled)"`
+ *   rather than the generic `"The operation was aborted."`.
  */
 export async function downloadWithProgress(
   url: string,
@@ -160,13 +161,29 @@ export async function downloadWithProgress(
   const fetchFn = opts.fetchImpl ?? fetch;
 
   const controller = new AbortController();
-  const hardTimer = setTimeout(() => {
+  let hardTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
     controller.abort(new Error(`download exceeded ${hardTimeoutMs}ms`));
   }, hardTimeoutMs);
+  let stallTimer: ReturnType<typeof setTimeout> | null = null;
+  let ticker: ReturnType<typeof setInterval> | null = null;
+
+  const clearAllTimers = () => {
+    if (hardTimer) {
+      clearTimeout(hardTimer);
+      hardTimer = null;
+    }
+    if (stallTimer) {
+      clearTimeout(stallTimer);
+      stallTimer = null;
+    }
+    if (ticker) {
+      clearInterval(ticker);
+      ticker = null;
+    }
+  };
 
   // Stall timer — reset on each chunk. Fires only when the stream genuinely
   // halts for stallTimeoutMs, which is the signal users actually care about.
-  let stallTimer: ReturnType<typeof setTimeout> | null = null;
   const resetStallTimer = () => {
     if (stallTimer) clearTimeout(stallTimer);
     stallTimer = setTimeout(() => {
@@ -176,12 +193,30 @@ export async function downloadWithProgress(
     }, stallTimeoutMs);
   };
 
-  const res = await fetchFn(url, {
-    redirect: "follow",
-    signal: controller.signal,
-  });
+  // Convert an AbortError into the abort reason so callers see a meaningful
+  // "(stalled)" / "exceeded Xms" message instead of "The operation was aborted."
+  const rethrow = (err: unknown): never => {
+    if (controller.signal.aborted) {
+      const reason = controller.signal.reason;
+      if (reason instanceof Error) throw reason;
+      if (typeof reason === "string") throw new Error(reason);
+    }
+    throw err;
+  };
+
+  let res: Response;
+  try {
+    res = await fetchFn(url, {
+      redirect: "follow",
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearAllTimers();
+    return rethrow(err);
+  }
+
   if (!res.ok || !res.body) {
-    clearTimeout(hardTimer);
+    clearAllTimers();
     throw new Error(`Download failed: HTTP ${res.status}`);
   }
 
@@ -189,10 +224,7 @@ export async function downloadWithProgress(
   const bytesTotal =
     lenHeader && /^\d+$/.test(lenHeader) ? Number(lenHeader) : null;
 
-  const mode = pickRenderMode({
-    isTTY: Boolean(stderr.isTTY),
-    noColor: !!process.env.NO_COLOR,
-  });
+  const mode = pickRenderMode({ isTTY: Boolean(stderr.isTTY) });
 
   const state: ProgressState = {
     bytesDone: 0,
@@ -218,7 +250,7 @@ export async function downloadWithProgress(
     state.bytesPerSec = span > 0 ? (delta / span) * 1000 : 0;
   };
 
-  let lastLineLen = 0;
+  let maxLineLen = 0;
   const writeTtyLine = () => {
     const line = formatProgressLine({
       label: opts.label,
@@ -227,27 +259,33 @@ export async function downloadWithProgress(
       bytesPerSec: state.bytesPerSec,
       barWidth: 24,
     });
-    // pad to overwrite a longer previous line
+    // pad to overwrite a longer previous line — track the widest line we've
+    // ever drawn so variable-width tails (speed jitter, eta) don't leave
+    // stale characters behind.
     const padded =
-      line.length < lastLineLen
-        ? line + " ".repeat(lastLineLen - line.length)
+      line.length < maxLineLen
+        ? line + " ".repeat(maxLineLen - line.length)
         : line;
     stderr.write(`\r${padded}`);
-    lastLineLen = line.length;
+    if (line.length > maxLineLen) maxLineLen = line.length;
   };
 
-  let prevPct = 0;
+  // Separate milestone counters so the "% decile" and "MB heartbeat" branches
+  // don't share state — reuse was bug-prone even though the branches never
+  // interleave in practice.
+  let prevDecilePct = 0;
+  let prevMbMilestone = 0;
   const writeLogLine = () => {
     if (state.bytesTotal == null) {
       // Unknown total → log every MB crossing as a rough heartbeat.
       const mbDone = Math.floor(state.bytesDone / MB);
-      if (mbDone > prevPct) {
+      if (mbDone > prevMbMilestone) {
         stderr.write(
           `${opts.label}: ${formatBytes(state.bytesDone)}${
             state.bytesPerSec > 0 ? ` (${formatSpeed(state.bytesPerSec)})` : ""
           }\n`,
         );
-        prevPct = mbDone;
+        prevMbMilestone = mbDone;
       }
       return;
     }
@@ -255,13 +293,13 @@ export async function downloadWithProgress(
       100,
       Math.floor((state.bytesDone / state.bytesTotal) * 100),
     );
-    if (shouldLogDecile({ prevPct, curPct })) {
+    if (shouldLogDecile({ prevPct: prevDecilePct, curPct })) {
       stderr.write(
         `${opts.label}: ${curPct}% (${formatBytes(state.bytesDone)} / ${formatBytes(
           state.bytesTotal,
         )})${state.bytesPerSec > 0 ? ` ${formatSpeed(state.bytesPerSec)}` : ""}\n`,
       );
-      prevPct = curPct;
+      prevDecilePct = curPct;
     }
   };
 
@@ -271,8 +309,7 @@ export async function downloadWithProgress(
     else writeLogLine();
   };
 
-  const ticker =
-    mode === "tty" ? setInterval(writeTtyLine, tickIntervalMs) : null;
+  ticker = mode === "tty" ? setInterval(writeTtyLine, tickIntervalMs) : null;
 
   const file = createWriteStream(destPath);
   const fileClosed = new Promise<void>((resolve, reject) => {
@@ -280,9 +317,9 @@ export async function downloadWithProgress(
     file.on("error", reject);
   });
 
+  const reader = res.body.getReader();
   resetStallTimer();
   try {
-    const reader = res.body.getReader();
     // initial seed sample at t0 so the first real chunk yields a speed
     recordSample(0);
     for (;;) {
@@ -292,7 +329,24 @@ export async function downloadWithProgress(
       state.bytesDone += value.byteLength;
       resetStallTimer();
       if (!file.write(value)) {
-        await new Promise<void>((r) => file.once("drain", () => r()));
+        // Race the drain event against abort — if the stream is torn down
+        // while we're waiting, `drain` never fires and we'd hang forever.
+        await new Promise<void>((resolve, reject) => {
+          const onDrain = () => {
+            controller.signal.removeEventListener("abort", onAbort);
+            resolve();
+          };
+          const onAbort = () => {
+            file.off("drain", onDrain);
+            reject(
+              controller.signal.reason instanceof Error
+                ? controller.signal.reason
+                : new Error("aborted"),
+            );
+          };
+          file.once("drain", onDrain);
+          controller.signal.addEventListener("abort", onAbort, { once: true });
+        });
       }
       render();
     }
@@ -300,20 +354,23 @@ export async function downloadWithProgress(
     await fileClosed;
   } catch (err) {
     file.destroy();
+    // Swallow any secondary rejection from fileClosed (e.g. destroy-emitted
+    // 'error') so the original error is the one that surfaces to the caller.
+    fileClosed.catch(() => {});
     // On any failure, drop the partial file so callers don't mistake it for a
     // complete download. Best-effort.
     try {
-      const { unlinkSync } = await import("fs");
       unlinkSync(destPath);
     } catch {}
-    throw err;
+    return rethrow(err);
   } finally {
-    if (ticker) clearInterval(ticker);
-    if (stallTimer) clearTimeout(stallTimer);
-    clearTimeout(hardTimer);
+    try {
+      reader.releaseLock();
+    } catch {}
+    clearAllTimers();
     if (mode === "tty") {
       // Clear the progress line so the caller can write its own success message.
-      stderr.write(`\r${" ".repeat(lastLineLen)}\r`);
+      stderr.write(`\r${" ".repeat(maxLineLen)}\r`);
     }
   }
 }

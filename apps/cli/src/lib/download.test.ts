@@ -242,8 +242,9 @@ describe("downloadWithProgress", () => {
 
   test("stall timeout aborts with a descriptive message", async () => {
     const dest = destPath();
-    // Two chunks with a 200ms gap, but stallTimeoutMs is 50ms → second chunk
-    // never arrives in time.
+    // `makeFakeFetch` gates every enqueue behind a 200ms delay, so the first
+    // chunk arrives at t=200ms. stallTimeoutMs is 50ms → the stall fires
+    // before any bytes arrive, aborting the stream.
     const chunks = [
       new Uint8Array([1, 2, 3, 4, 5]),
       new Uint8Array([6, 7, 8, 9, 10]),

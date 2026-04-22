@@ -195,14 +195,18 @@ export async function downloadWithProgress(
 
   // Convert an AbortError into the abort reason so callers see a meaningful
   // "(stalled)" / "exceeded Xms" message instead of "The operation was aborted."
-  const rethrow = (err: unknown): never => {
+  // Declared as a `function` (not an arrow assigned to a const) so TS applies
+  // its `never`-return narrowing at each call site — callers can `rethrow(err)`
+  // without a surrounding `return`/`throw` and subsequent code is still
+  // correctly seen as unreachable.
+  function rethrow(err: unknown): never {
     if (controller.signal.aborted) {
       const reason = controller.signal.reason;
       if (reason instanceof Error) throw reason;
       if (typeof reason === "string") throw new Error(reason);
     }
     throw err;
-  };
+  }
 
   let res: Response;
   try {
@@ -212,7 +216,7 @@ export async function downloadWithProgress(
     });
   } catch (err) {
     clearAllTimers();
-    return rethrow(err);
+    rethrow(err);
   }
 
   if (!res.ok || !res.body) {
@@ -309,17 +313,21 @@ export async function downloadWithProgress(
     else writeLogLine();
   };
 
-  ticker = mode === "tty" ? setInterval(writeTtyLine, tickIntervalMs) : null;
-
-  const file = createWriteStream(destPath);
-  const fileClosed = new Promise<void>((resolve, reject) => {
-    file.on("finish", () => resolve());
-    file.on("error", reject);
-  });
-
-  const reader = res.body.getReader();
-  resetStallTimer();
+  // Widen the try so `clearAllTimers()` in the finally covers every path on
+  // which `ticker` / `stallTimer` / `fileClosed` could have been set, even if
+  // `getReader()` / stream-setup throws synchronously.
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  let file: ReturnType<typeof createWriteStream> | null = null;
+  let fileClosed: Promise<void> | null = null;
   try {
+    ticker = mode === "tty" ? setInterval(writeTtyLine, tickIntervalMs) : null;
+    file = createWriteStream(destPath);
+    fileClosed = new Promise<void>((resolve, reject) => {
+      file?.on("finish", () => resolve());
+      file?.on("error", reject);
+    });
+    reader = res.body.getReader();
+    resetStallTimer();
     // initial seed sample at t0 so the first real chunk yields a speed
     recordSample(0);
     for (;;) {
@@ -331,20 +339,23 @@ export async function downloadWithProgress(
       if (!file.write(value)) {
         // Race the drain event against abort — if the stream is torn down
         // while we're waiting, `drain` never fires and we'd hang forever.
+        // Alias into a const so TS keeps the non-null narrowing inside the
+        // closure (the outer `let file` loses it across callback boundaries).
+        const stream = file;
         await new Promise<void>((resolve, reject) => {
           const onDrain = () => {
             controller.signal.removeEventListener("abort", onAbort);
             resolve();
           };
           const onAbort = () => {
-            file.off("drain", onDrain);
+            stream.off("drain", onDrain);
             reject(
               controller.signal.reason instanceof Error
                 ? controller.signal.reason
                 : new Error("aborted"),
             );
           };
-          file.once("drain", onDrain);
+          stream.once("drain", onDrain);
           controller.signal.addEventListener("abort", onAbort, { once: true });
         });
       }
@@ -353,19 +364,19 @@ export async function downloadWithProgress(
     file.end();
     await fileClosed;
   } catch (err) {
-    file.destroy();
+    file?.destroy();
     // Swallow any secondary rejection from fileClosed (e.g. destroy-emitted
     // 'error') so the original error is the one that surfaces to the caller.
-    fileClosed.catch(() => {});
+    fileClosed?.catch(() => {});
     // On any failure, drop the partial file so callers don't mistake it for a
     // complete download. Best-effort.
     try {
       unlinkSync(destPath);
     } catch {}
-    return rethrow(err);
+    rethrow(err);
   } finally {
     try {
-      reader.releaseLock();
+      reader?.releaseLock();
     } catch {}
     clearAllTimers();
     if (mode === "tty") {

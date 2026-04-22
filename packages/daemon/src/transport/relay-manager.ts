@@ -294,10 +294,7 @@ export class RelayConnectionManager {
    * client matches `daemonId`, e.g. the pairing exists in the store but has
    * no live relay connection).
    */
-  async renamePairing(
-    daemonId: string,
-    label: string | null,
-  ): Promise<number> {
+  async renamePairing(daemonId: string, label: string | null): Promise<number> {
     this.deps.store.updatePairingLabel(daemonId, label);
 
     const client = this.clients.find((c) => c.daemonId === daemonId);

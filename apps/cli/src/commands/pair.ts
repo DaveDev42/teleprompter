@@ -489,12 +489,8 @@ type PairRenameResult = IpcPairRenameOk | IpcPairRenameErr;
  * await its single-shot reply. The daemon already holds the authoritative
  * RelayClient for that pairing, so we never open our own relay connection.
  */
-async function requestPairOp(
-  msg: IpcPairRemove,
-): Promise<PairRemoveResult>;
-async function requestPairOp(
-  msg: IpcPairRename,
-): Promise<PairRenameResult>;
+async function requestPairOp(msg: IpcPairRemove): Promise<PairRemoveResult>;
+async function requestPairOp(msg: IpcPairRename): Promise<PairRenameResult>;
 async function requestPairOp(
   msg: IpcPairRemove | IpcPairRename,
 ): Promise<PairRemoveResult | PairRenameResult> {

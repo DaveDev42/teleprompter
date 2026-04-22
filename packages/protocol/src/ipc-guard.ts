@@ -92,13 +92,15 @@ function isPairErrorReason(v: unknown): v is IpcPairErrorReason {
 
 function isPairRemoveReason(v: unknown): v is IpcPairRemoveErrReason {
   return (
-    typeof v === "string" && PAIR_REMOVE_REASONS.has(v as IpcPairRemoveErrReason)
+    typeof v === "string" &&
+    PAIR_REMOVE_REASONS.has(v as IpcPairRemoveErrReason)
   );
 }
 
 function isPairRenameReason(v: unknown): v is IpcPairRenameErrReason {
   return (
-    typeof v === "string" && PAIR_RENAME_REASONS.has(v as IpcPairRenameErrReason)
+    typeof v === "string" &&
+    PAIR_RENAME_REASONS.has(v as IpcPairRenameErrReason)
   );
 }
 

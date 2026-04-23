@@ -15,10 +15,59 @@
 - [ ] Session Export 대규모 세션 성능 미검증 — 10,000+ records 세션에서 export 속도/메모리 사용량 확인 필요 (현재 limit 50,000)
 
 ### 발견된 버그
-- [ ] **Bug #1 (PR #146 QA) — zombie sessions**: stopped 세션이 앱 세션 리스트에 배너/상태 표시 없이 살아 있고, Chat 입력이 비활성화되지 않음. ⇒ CLI 정리 수단은 PR #150 (`tp session list/delete/prune`) 로 추가. 앱 UI 상태 배너/입력 disable 은 별도 PR 에서 후속.
-- [ ] **Bug #2 (PR #146 QA) — Chat 무반응**: `sendChat()` optimistic user message 미적용 (`apps/app/src/lib/relay-client.ts:440`) + 세션 진입 시 ChatView 타이머가 kx 완료 전 `resume()` 호출로 drop (`apps/app/app/session/[sid].tsx:131`). 두 개 독립 버그.
-- [ ] **Bug #3 (PR #146 QA) — Terminal blank on stopped**: stopped 세션 진입 시 과거 io records replay 가 없어 완전 빈 화면. 안내 배너 + 마지막 io 스냅샷 렌더 필요.
-- [ ] **신규 (PR #146 QA) — control.unpair decrypt-fail toast flood**: pairing 삭제 시 daemon 이 모든 frontendId 로 암호화 broadcast. 자신의 키가 아닌 frame 의 decrypt fail 이 에러 토스트로 노출됨. `sid=__control__` decrypt fail 은 debug 로 격하 필요.
+
+- [x] ~~**Bug #1 (PR #146 QA) — zombie sessions**~~: stopped 세션이 앱 세션 리스트에 배너/상태 표시 없이 살아 있고, Chat 입력이 비활성화되지 않음. ⇒ CLI 정리: PR #150 (`tp session list/delete/prune`, merged). 앱 UI 상태 배너/입력 disable: PR #151 (merged).
+- [x] ~~**Bug #2 (PR #146 QA) — Chat 무반응**~~: `sendChat()` optimistic user message 미적용 (`apps/app/src/lib/relay-client.ts:440`) + 세션 진입 시 ChatView 타이머가 kx 완료 전 `resume()` 호출로 drop (`apps/app/app/session/[sid].tsx:131`). ⇒ (a) optimistic bubble: PR #148 (merged). (b) kx-race pending queue: PR #149 (merged).
+- [x] ~~**Bug #3 (PR #146 QA) — Terminal blank on stopped**~~: stopped 세션 진입 시 과거 io records replay 가 없어 완전 빈 화면. ⇒ PR #151 fallback 배너 + 안내 (merged).
+- [x] ~~**신규 (PR #146 QA) — control.unpair decrypt-fail toast flood**~~: pairing 삭제 시 daemon 이 모든 frontendId 로 암호화 broadcast. 자신의 키가 아닌 frame 의 decrypt fail 이 에러 토스트로 노출됨. ⇒ `sid=__control__` decrypt fail 을 debug 로 격하: PR #147 (merged).
+
+#### QA 관찰 원본 (PR #146 세션 기록)
+
+<details>
+<summary>Web Playwright live QA 2026-04-23 — 세부 관찰 / 재현 절차 / 스크린샷 경로</summary>
+
+- [관찰 — web QA 2026-04-23] 데몬이 실제로 4개의 stopped 세션을 보유 확인
+  - 재현 절차: `tp status` 실행 → 5개 세션 표시 (1 running, 4 stopped)
+  - 증상: session-1776878046400(11m ago), session-1776877958296(6m ago), session-1776759230491(1d ago), session-1776617541450(3d ago)
+  - 가설: 앱의 세션 리스트가 daemon에서 받은 전체 세션 목록을 그대로 표시 (running/stopped 구분 UI 없음)
+
+- [관찰 — web QA 2026-04-23] 세션 구독 및 데이터 흐름 분석 (Bug #2 & #3 공통 원인 가설)
+  - 재현 절차: 코드 트레이스 (app/_layout.tsx → useRelay → relay-client.ts)
+  - 가설: 버그 #2 & #3은 동일 root cause — resume 메시지가 daemon에 도달하지 못하거나 E2EE 해독 실패
+  - 코드 위치: `apps/app/src/lib/relay-client.ts:506-510`, `apps/app/src/hooks/use-relay.ts:149-156`, `apps/app/app/session/[sid].tsx:126-134, 138-164`
+
+- [관찰 — web live QA 2026-04-23] Bug #1: 웹에서도 5개 세션 모두 표시됨, running/stopped 색상 구분은 존재
+  - 재현 절차: web-qa 페어링 완료 → Sessions 탭 → 5개 세션 모두 목록에 나타남
+  - 증상: 세션 뷰 내부에 "stopped" 상태 배너 전혀 없음. stopped 세션 클릭 시 chat 입력창이 그대로 활성화됨
+  - 스크린샷: /tmp/qa-live-02-sessions.png
+
+- [관찰 — web live QA 2026-04-23] Bug #2: Chat 무반응 원인 세분화 — optimistic update 없음 + kx-race
+  - 재현 절차: web-qa 페어링 → /session/session-1776878046700 직접 이동 → Chat 입력 "HELLO QA TEST" → send 버튼 클릭
+  - 증상: `relay.pub {t:"in.chat"}` 프레임은 relay로 정상 전송됨. 전송 후 15초 동안 daemon 으로부터 응답 0개. User message bubble 미표시. Chat 탭 "Listening to Claude Code..." 고정.
+  - 가설 (확정):
+    1. `sendChat()`이 chat-store에 optimistic user message를 추가하지 않음 (`apps/app/src/lib/relay-client.ts:440`)
+    2. 세션 진입 시 새 WS kx 완료 전 500ms timer 가 `resume()` 호출 → `sendEncrypted` 내 `not authenticated` 체크로 drop (`apps/app/app/session/[sid].tsx:131`, `apps/app/src/lib/relay-client.ts:398-399`)
+  - 스크린샷: /tmp/qa-live-06-after-30s.png
+
+- [관찰 — web live QA 2026-04-23] Bug #3: Terminal 탭 — running 세션은 정상, stopped 세션은 완전 빈 화면
+  - 재현 절차: /session/session-1776878046700 (running) → Terminal 탭 vs /session/session-1776877958296 (stopped) → Terminal 탭
+  - 증상: running 세션은 Claude `--help` 스크롤백 정상 렌더링. stopped 세션은 완전 빈 화면 (흰색 커서만).
+  - 가설: resume frame 이 dropped 되면 daemon 이 io records 를 재전송하지 않아 Terminal 이 빔.
+  - 스크린샷: /tmp/qa-live-06-terminal.png, /tmp/qa-live-07-stopped-terminal.png
+
+- [관찰 — web live QA 2026-04-23] 신규 버그: control.unpair broadcast 시 decrypt flood
+  - 재현 절차: web-qa 페어링 → `tp pair delete daemon-moac2h7d -y` → 앱 화면 관찰
+  - 증상: daemon 이 15개 frontendId 에 broadcast → 본인 키 아닌 14개 `[FrontendRelay] decrypt failed for sid=__control__` → 각 decrypt fail 이 에러 토스트로 사용자에게 노출됨
+  - 스크린샷: /tmp/qa-live-14-after-delete.png
+
+- [관찰 — regression QA 2026-04-23 (after merges)] 5 fix PASS 검증
+  - Fix #2-a (PR #148): 옵티미스틱 버블 ~100ms 이내 표시 — `/tmp/qa-regress-fix2a-final.png`
+  - Fix #2-b (PR #149): cold navigation 후 ~4s 내 콘텐츠 로드, `relay-client.test.ts` 35 pass (kx-race flush 회귀 테스트 포함)
+  - Fix #1/#3 UX (PR #151): "Session ended — read-only view" 배너 + placeholder 교체 + "No terminal output captured..." 폴백 — `/tmp/qa-regress-fix3-stopped-session.png`, `/tmp/qa-regress-fix3-terminal-tab.png`
+  - Fix #4 (PR #147): `tp pair delete` 후 decrypt fail 은 `[debug]` 로만 남고 토스트 미발생 — `/tmp/qa-regress-fix4-after-unpair.png`
+  - Fix #5 (PR #150): `tp session list/delete/prune` 서브커맨드 정상 동작 (source-daemon 교체 후 end-to-end 확인)
+
+</details>
 
 ---
 

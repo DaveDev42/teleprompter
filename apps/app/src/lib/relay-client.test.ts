@@ -206,6 +206,46 @@ async function flushPromises(ticks = 5): Promise<void> {
   }
 }
 
+/**
+ * Swap in `console.error` / `console.debug` spies so tests can assert on
+ * what the SUT logged without polluting the test runner's stdout. The
+ * returned `restore()` must be called in a `finally` so globals are
+ * reinstated even if an assertion throws.
+ */
+function captureConsole(): {
+  errorCalls: unknown[][];
+  debugCalls: unknown[][];
+  restore: () => void;
+} {
+  const origError = console.error;
+  const origDebug = console.debug;
+  const errorCalls: unknown[][] = [];
+  const debugCalls: unknown[][] = [];
+  console.error = (...args: unknown[]) => {
+    errorCalls.push(args);
+  };
+  console.debug = (...args: unknown[]) => {
+    debugCalls.push(args);
+  };
+  return {
+    errorCalls,
+    debugCalls,
+    restore: () => {
+      console.error = origError;
+      console.debug = origDebug;
+    },
+  };
+}
+
+/** Filter captured console calls to those originating from FrontendRelayClient. */
+function relayCalls(calls: unknown[][]): unknown[][] {
+  return calls.filter(
+    (call) =>
+      typeof call[0] === "string" &&
+      (call[0] as string).includes("[FrontendRelay]"),
+  );
+}
+
 // ── Shared fixtures ─────────────────────────────────────────────────────────
 
 let realWebSocket: typeof globalThis.WebSocket;
@@ -484,22 +524,27 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
       onRec: (r) => recs.push(r),
     });
 
-    const ws = await authenticate(client);
+    const spy = captureConsole();
+    try {
+      const ws = await authenticate(client);
 
-    // Send a well-formed relay.frame envelope with bogus ciphertext.
-    ws.simulateMessage({
-      t: "relay.frame",
-      sid: "s1",
-      ct: "AAAAAAAAAAAAAA", // clearly not a valid XChaCha20-Poly1305 ciphertext
-      seq: 1,
-      from: "daemon",
-    } as RelayServerMessage);
-    await flushPromises();
+      // Send a well-formed relay.frame envelope with bogus ciphertext.
+      ws.simulateMessage({
+        t: "relay.frame",
+        sid: "s1",
+        ct: "AAAAAAAAAAAAAA", // clearly not a valid XChaCha20-Poly1305 ciphertext
+        seq: 1,
+        from: "daemon",
+      } as RelayServerMessage);
+      await flushPromises();
 
-    expect(recs.length).toBe(0);
-    // Client is still alive.
-    expect(client.isConnected()).toBe(true);
-    client.dispose();
+      expect(recs.length).toBe(0);
+      // Client is still alive.
+      expect(client.isConnected()).toBe(true);
+    } finally {
+      spy.restore();
+      client.dispose();
+    }
   });
 
   test("decrypt fail on __control__ sid is demoted to debug and skips onError", async () => {
@@ -512,17 +557,7 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
     const client = new FrontendRelayClient(makeConfig(p), {
       onError: (e) => errors.push(e),
     });
-
-    const originalError = console.error;
-    const originalDebug = console.debug;
-    const errorCalls: unknown[][] = [];
-    const debugCalls: unknown[][] = [];
-    console.error = (...args: unknown[]) => {
-      errorCalls.push(args);
-    };
-    console.debug = (...args: unknown[]) => {
-      debugCalls.push(args);
-    };
+    const spy = captureConsole();
 
     try {
       const ws = await authenticate(client);
@@ -541,23 +576,12 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
       // Should NOT emit onError — decrypt failure on __control__ is expected.
       expect(errors).toEqual([]);
       // Should NOT be logged as console.error (noisy).
-      const relayErrorCalls = errorCalls.filter(
-        (call) =>
-          typeof call[0] === "string" &&
-          (call[0] as string).includes("[FrontendRelay]"),
-      );
-      expect(relayErrorCalls).toEqual([]);
+      expect(relayCalls(spy.errorCalls)).toEqual([]);
       // Should be logged as console.debug instead (quiet).
-      const relayDebugCalls = debugCalls.filter(
-        (call) =>
-          typeof call[0] === "string" &&
-          (call[0] as string).includes("[FrontendRelay]"),
-      );
-      expect(relayDebugCalls.length).toBe(1);
+      expect(relayCalls(spy.debugCalls).length).toBe(1);
       expect(client.isConnected()).toBe(true);
     } finally {
-      console.error = originalError;
-      console.debug = originalDebug;
+      spy.restore();
       client.dispose();
     }
   });
@@ -573,17 +597,7 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
     const client = new FrontendRelayClient(makeConfig(p), {
       onError: (e) => errors.push(e),
     });
-
-    const originalError = console.error;
-    const originalDebug = console.debug;
-    const errorCalls: unknown[][] = [];
-    const debugCalls: unknown[][] = [];
-    console.error = (...args: unknown[]) => {
-      errorCalls.push(args);
-    };
-    console.debug = (...args: unknown[]) => {
-      debugCalls.push(args);
-    };
+    const spy = captureConsole();
 
     try {
       const ws = await authenticate(client);
@@ -601,21 +615,10 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
       await flushPromises();
 
       expect(errors).toEqual([]);
-      const relayErrorCalls = errorCalls.filter(
-        (call) =>
-          typeof call[0] === "string" &&
-          (call[0] as string).includes("[FrontendRelay]"),
-      );
-      expect(relayErrorCalls).toEqual([]);
-      const relayDebugCalls = debugCalls.filter(
-        (call) =>
-          typeof call[0] === "string" &&
-          (call[0] as string).includes("[FrontendRelay]"),
-      );
-      expect(relayDebugCalls.length).toBe(N);
+      expect(relayCalls(spy.errorCalls)).toEqual([]);
+      expect(relayCalls(spy.debugCalls).length).toBe(N);
     } finally {
-      console.error = originalError;
-      console.debug = originalDebug;
+      spy.restore();
       client.dispose();
     }
   });
@@ -629,17 +632,7 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
     const client = new FrontendRelayClient(makeConfig(p), {
       onError: (e) => errors.push(e),
     });
-
-    const originalError = console.error;
-    const originalDebug = console.debug;
-    const errorCalls: unknown[][] = [];
-    const debugCalls: unknown[][] = [];
-    console.error = (...args: unknown[]) => {
-      errorCalls.push(args);
-    };
-    console.debug = (...args: unknown[]) => {
-      debugCalls.push(args);
-    };
+    const spy = captureConsole();
 
     try {
       const ws = await authenticate(client);
@@ -653,21 +646,43 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
       await flushPromises();
 
       expect(errors).toEqual([]);
-      const relayErrorCalls = errorCalls.filter(
-        (call) =>
-          typeof call[0] === "string" &&
-          (call[0] as string).includes("[FrontendRelay]"),
-      );
-      expect(relayErrorCalls).toEqual([]);
-      const relayDebugCalls = debugCalls.filter(
-        (call) =>
-          typeof call[0] === "string" &&
-          (call[0] as string).includes("[FrontendRelay]"),
-      );
-      expect(relayDebugCalls.length).toBe(1);
+      expect(relayCalls(spy.errorCalls)).toEqual([]);
+      expect(relayCalls(spy.debugCalls).length).toBe(1);
     } finally {
-      console.error = originalError;
-      console.debug = originalDebug;
+      spy.restore();
+      client.dispose();
+    }
+  });
+
+  test("decrypt fail with missing sid falls through to error path", async () => {
+    // Malformed frames (sid undefined/empty) are a real anomaly — the
+    // RelayFrame protocol type declares sid as a required string. The
+    // guard compares against specific sentinel strings, so undefined
+    // correctly falls through to console.error.
+    const p = await setupPairing();
+    const errors: string[] = [];
+    const client = new FrontendRelayClient(makeConfig(p), {
+      onError: (e) => errors.push(e),
+    });
+    const spy = captureConsole();
+
+    try {
+      const ws = await authenticate(client);
+
+      ws.simulateMessage({
+        t: "relay.frame",
+        // sid intentionally omitted
+        ct: "AAAAAAAAAAAAAA",
+        seq: 1,
+        from: "daemon",
+      } as unknown as RelayServerMessage);
+      await flushPromises();
+
+      expect(relayCalls(spy.errorCalls).length).toBe(1);
+      expect(relayCalls(spy.debugCalls)).toEqual([]);
+      expect(errors).toEqual([]);
+    } finally {
+      spy.restore();
       client.dispose();
     }
   });
@@ -682,12 +697,7 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
     const client = new FrontendRelayClient(makeConfig(p), {
       onError: (e) => errors.push(e),
     });
-
-    const originalError = console.error;
-    const errorCalls: unknown[][] = [];
-    console.error = (...args: unknown[]) => {
-      errorCalls.push(args);
-    };
+    const spy = captureConsole();
 
     try {
       const ws = await authenticate(client);
@@ -701,15 +711,15 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
       } as RelayServerMessage);
       await flushPromises();
 
-      const relayErrorCalls = errorCalls.filter(
+      const errorCalls = relayCalls(spy.errorCalls).filter(
         (call) =>
           typeof call[0] === "string" &&
-          (call[0] as string).includes("[FrontendRelay] decrypt failed"),
+          (call[0] as string).includes("decrypt failed"),
       );
-      expect(relayErrorCalls.length).toBe(1);
+      expect(errorCalls.length).toBe(1);
       expect(errors).toEqual([]);
     } finally {
-      console.error = originalError;
+      spy.restore();
       client.dispose();
     }
   });

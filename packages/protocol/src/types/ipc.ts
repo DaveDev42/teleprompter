@@ -206,9 +206,11 @@ export interface IpcSessionPruneOk {
   dryRun: boolean;
 }
 
+export type IpcSessionPruneErrReason = "internal";
+
 export interface IpcSessionPruneErr {
   t: "session.prune.err";
-  reason: "internal";
+  reason: IpcSessionPruneErrReason;
   message?: string;
   /**
    * Sids already deleted before the throw occurred, so the CLI can report
@@ -216,6 +218,12 @@ export interface IpcSessionPruneErr {
    * Always present (possibly empty) so callers don't branch on undefined.
    */
   partialSids: string[];
+  /**
+   * Runners killed before the throw (<= partialSids.length). Lets the CLI
+   * distinguish "2 stopped rows deleted" from "2 live sessions killed and
+   * deleted" in the partial-failure report.
+   */
+  partialRunningKilled: number;
 }
 
 export type IpcMessage =

@@ -270,8 +270,9 @@ async function sessionPrune(argv: string[]): Promise<void> {
   );
 
   // `default: "7d"` on the option guarantees this is always a string at
-  // runtime; the `?? "7d"` is a belt-and-suspenders fallback that also
-  // narrows the type for TS without casting.
+  // runtime; the `typeof` narrow here is a belt-and-suspenders fallback
+  // that also sidesteps the `as string` cast TS would otherwise want,
+  // since `parseArgs`'s return type is `string | boolean | undefined`.
   const olderThanRaw =
     typeof values["older-than"] === "string" ? values["older-than"] : "7d";
   let olderThanMs: number | null;
@@ -354,6 +355,11 @@ async function sessionPrune(argv: string[]): Promise<void> {
           ),
         );
         for (const sid of reply.partialSids) console.error(dim(`  ${sid}`));
+        if (reply.partialRunningKilled > 0) {
+          console.error(
+            dim(`Killed ${reply.partialRunningKilled} running runner(s).`),
+          );
+        }
       }
       process.exit(1);
     }
@@ -394,16 +400,18 @@ async function sessionPrune(argv: string[]): Promise<void> {
         };
       }
     } catch (err) {
-      console.error(
-        fail(
-          `Session prune failed: ${err instanceof Error ? err.message : String(err)}`,
-        ),
-      );
+      // Mirror the daemon path's "internal — <message>" prefix so the two
+      // failure surfaces look the same to the user.
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(fail(`Session prune failed: internal — ${msg}`));
       if (deleted.length > 0) {
         console.error(
           dim(`Deleted ${deleted.length} session(s) before the error:`),
         );
         for (const sid of deleted) console.error(dim(`  ${sid}`));
+        if (runningKilled > 0) {
+          console.error(dim(`Killed ${runningKilled} running runner(s).`));
+        }
       }
       process.exit(1);
     } finally {

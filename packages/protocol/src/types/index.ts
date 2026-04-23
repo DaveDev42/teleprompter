@@ -38,6 +38,7 @@ export type {
   IpcSessionDeleteOk,
   IpcSessionPrune,
   IpcSessionPruneErr,
+  IpcSessionPruneErrReason,
   IpcSessionPruneOk,
 } from "./ipc";
 export type { Namespace, Record, RecordKind } from "./record";

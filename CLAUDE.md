@@ -321,7 +321,7 @@ tp session delete <sid> [-y]           # 세션 삭제 (sid prefix 허용, runni
 tp session prune [options] # stopped 세션 일괄 삭제
   --older-than <Nd|Nh|Nm|Ns>   # 나이 컷오프 (기본 7d)
   --all                         # 모든 stopped 세션 (older-than 무시)
-  --running                     # running 도 포함 (killer — 2중 confirmation)
+  --running                     # running 도 포함 (위험 — 2중 confirmation)
   --dry-run                     # 삭제 대상만 출력
   -y, --yes                     # confirmation 생략
 tp status                  # 세션 & daemon 상태 확인 (자동 시작)

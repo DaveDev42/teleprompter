@@ -206,6 +206,46 @@ async function flushPromises(ticks = 5): Promise<void> {
   }
 }
 
+/**
+ * Swap in `console.error` / `console.debug` spies so tests can assert on
+ * what the SUT logged without polluting the test runner's stdout. The
+ * returned `restore()` must be called in a `finally` so globals are
+ * reinstated even if an assertion throws.
+ */
+function captureConsole(): {
+  errorCalls: unknown[][];
+  debugCalls: unknown[][];
+  restore: () => void;
+} {
+  const origError = console.error;
+  const origDebug = console.debug;
+  const errorCalls: unknown[][] = [];
+  const debugCalls: unknown[][] = [];
+  console.error = (...args: unknown[]) => {
+    errorCalls.push(args);
+  };
+  console.debug = (...args: unknown[]) => {
+    debugCalls.push(args);
+  };
+  return {
+    errorCalls,
+    debugCalls,
+    restore: () => {
+      console.error = origError;
+      console.debug = origDebug;
+    },
+  };
+}
+
+/** Filter captured console calls to those originating from FrontendRelayClient. */
+function relayCalls(calls: unknown[][]): unknown[][] {
+  return calls.filter(
+    (call) =>
+      typeof call[0] === "string" &&
+      (call[0] as string).includes("[FrontendRelay]"),
+  );
+}
+
 // ── Shared fixtures ─────────────────────────────────────────────────────────
 
 let realWebSocket: typeof globalThis.WebSocket;
@@ -484,22 +524,204 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
       onRec: (r) => recs.push(r),
     });
 
-    const ws = await authenticate(client);
+    const spy = captureConsole();
+    try {
+      const ws = await authenticate(client);
 
-    // Send a well-formed relay.frame envelope with bogus ciphertext.
-    ws.simulateMessage({
-      t: "relay.frame",
-      sid: "s1",
-      ct: "AAAAAAAAAAAAAA", // clearly not a valid XChaCha20-Poly1305 ciphertext
-      seq: 1,
-      from: "daemon",
-    } as RelayServerMessage);
-    await flushPromises();
+      // Send a well-formed relay.frame envelope with bogus ciphertext.
+      ws.simulateMessage({
+        t: "relay.frame",
+        sid: "s1",
+        ct: "AAAAAAAAAAAAAA", // clearly not a valid XChaCha20-Poly1305 ciphertext
+        seq: 1,
+        from: "daemon",
+      } as RelayServerMessage);
+      await flushPromises();
 
-    expect(recs.length).toBe(0);
-    // Client is still alive.
-    expect(client.isConnected()).toBe(true);
-    client.dispose();
+      expect(recs.length).toBe(0);
+      // Client is still alive.
+      expect(client.isConnected()).toBe(true);
+    } finally {
+      spy.restore();
+      client.dispose();
+    }
+  });
+
+  test("decrypt fail on __control__ sid is demoted to debug and skips onError", async () => {
+    // When the daemon broadcasts control.unpair to N frontends, each frontend
+    // can only decrypt its own per-frontend ciphertext; the other (N-1)
+    // frames are "wrong-key" decrypts by design. Those must not surface as
+    // errors or toasts — they are normal traffic on the __control__ channel.
+    const p = await setupPairing();
+    const errors: string[] = [];
+    const client = new FrontendRelayClient(makeConfig(p), {
+      onError: (e) => errors.push(e),
+    });
+    const spy = captureConsole();
+
+    try {
+      const ws = await authenticate(client);
+
+      // Simulate a broadcast frame addressed to a different frontend — we
+      // cannot decrypt it with our session keys. This is the N-1 case.
+      ws.simulateMessage({
+        t: "relay.frame",
+        sid: "__control__",
+        ct: "AAAAAAAAAAAAAA", // undecryptable with our keys
+        seq: 1,
+        from: "daemon",
+      } as RelayServerMessage);
+      await flushPromises();
+
+      // Should NOT emit onError — decrypt failure on __control__ is expected.
+      expect(errors).toEqual([]);
+      // Should NOT be logged as console.error (noisy).
+      expect(relayCalls(spy.errorCalls)).toEqual([]);
+      // Should be logged as console.debug instead (quiet).
+      expect(relayCalls(spy.debugCalls).length).toBe(1);
+      expect(client.isConnected()).toBe(true);
+    } finally {
+      spy.restore();
+      client.dispose();
+    }
+  });
+
+  test("15-frontend broadcast produces N-1 debug logs and zero errors", async () => {
+    // Reproduction of the original QA scenario: daemon sent control.unpair
+    // to 15 paired frontends, so this frontend received 14 undecryptable
+    // frames on __control__ plus its own (which we don't simulate here to
+    // keep the test focused on the wrong-key path). Each of the 14 should
+    // produce exactly one debug log and zero errors.
+    const p = await setupPairing();
+    const errors: string[] = [];
+    const client = new FrontendRelayClient(makeConfig(p), {
+      onError: (e) => errors.push(e),
+    });
+    const spy = captureConsole();
+
+    try {
+      const ws = await authenticate(client);
+
+      const N = 14;
+      for (let i = 0; i < N; i++) {
+        ws.simulateMessage({
+          t: "relay.frame",
+          sid: "__control__",
+          ct: "AAAAAAAAAAAAAA",
+          seq: i + 1,
+          from: "daemon",
+        } as RelayServerMessage);
+      }
+      await flushPromises();
+
+      expect(errors).toEqual([]);
+      expect(relayCalls(spy.errorCalls)).toEqual([]);
+      expect(relayCalls(spy.debugCalls).length).toBe(N);
+    } finally {
+      spy.restore();
+      client.dispose();
+    }
+  });
+
+  test("decrypt fail on __meta__ sid is also demoted to debug", async () => {
+    // __meta__ is the other broadcast-plane channel; mirrors the
+    // __control__ treatment so a future meta-broadcast feature doesn't
+    // regress the toast noise.
+    const p = await setupPairing();
+    const errors: string[] = [];
+    const client = new FrontendRelayClient(makeConfig(p), {
+      onError: (e) => errors.push(e),
+    });
+    const spy = captureConsole();
+
+    try {
+      const ws = await authenticate(client);
+      ws.simulateMessage({
+        t: "relay.frame",
+        sid: "__meta__",
+        ct: "AAAAAAAAAAAAAA",
+        seq: 1,
+        from: "daemon",
+      } as RelayServerMessage);
+      await flushPromises();
+
+      expect(errors).toEqual([]);
+      expect(relayCalls(spy.errorCalls)).toEqual([]);
+      expect(relayCalls(spy.debugCalls).length).toBe(1);
+    } finally {
+      spy.restore();
+      client.dispose();
+    }
+  });
+
+  test("decrypt fail with missing sid falls through to error path", async () => {
+    // Malformed frames (sid undefined/empty) are a real anomaly — the
+    // RelayFrame protocol type declares sid as a required string. The
+    // guard compares against specific sentinel strings, so undefined
+    // correctly falls through to console.error.
+    const p = await setupPairing();
+    const errors: string[] = [];
+    const client = new FrontendRelayClient(makeConfig(p), {
+      onError: (e) => errors.push(e),
+    });
+    const spy = captureConsole();
+
+    try {
+      const ws = await authenticate(client);
+
+      ws.simulateMessage({
+        t: "relay.frame",
+        // sid intentionally omitted
+        ct: "AAAAAAAAAAAAAA",
+        seq: 1,
+        from: "daemon",
+      } as unknown as RelayServerMessage);
+      await flushPromises();
+
+      expect(relayCalls(spy.errorCalls).length).toBe(1);
+      expect(relayCalls(spy.debugCalls)).toEqual([]);
+      expect(errors).toEqual([]);
+    } finally {
+      spy.restore();
+      client.dispose();
+    }
+  });
+
+  test("decrypt fail on non-control sid still logs as error and skips onError", async () => {
+    // Non-broadcast sids are real anomalies (tampered frame, key mismatch,
+    // protocol bug). Keep them loud on console.error. onError should NOT
+    // fire from the decrypt catch today; lock that invariant so a future
+    // refactor doesn't accidentally re-route decrypt failures into toasts.
+    const p = await setupPairing();
+    const errors: string[] = [];
+    const client = new FrontendRelayClient(makeConfig(p), {
+      onError: (e) => errors.push(e),
+    });
+    const spy = captureConsole();
+
+    try {
+      const ws = await authenticate(client);
+
+      ws.simulateMessage({
+        t: "relay.frame",
+        sid: "s1",
+        ct: "AAAAAAAAAAAAAA",
+        seq: 1,
+        from: "daemon",
+      } as RelayServerMessage);
+      await flushPromises();
+
+      const errorCalls = relayCalls(spy.errorCalls).filter(
+        (call) =>
+          typeof call[0] === "string" &&
+          (call[0] as string).includes("decrypt failed"),
+      );
+      expect(errorCalls.length).toBe(1);
+      expect(errors).toEqual([]);
+    } finally {
+      spy.restore();
+      client.dispose();
+    }
   });
 
   test("relay.presence → onPresence", async () => {

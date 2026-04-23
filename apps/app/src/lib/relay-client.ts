@@ -317,6 +317,29 @@ export class FrontendRelayClient implements TransportClient {
           console.warn(`[FrontendRelay] unknown message type: ${msg.t}`);
       }
     } catch (err) {
+      // Daemon broadcasts control-plane messages (unpair/rename on
+      // __control__, and potentially future fan-out on __meta__) to every
+      // paired frontend, but each frame is encrypted with a per-frontend
+      // session key. So the N-1 frames that aren't ours will fail AEAD
+      // verification — expected traffic, not an error. Demote to debug
+      // and skip onError so it never surfaces as a user-visible toast.
+      //
+      // Note the asymmetry with the switch above: valid control messages
+      // arriving on the *wrong* sid (e.g. CONTROL_UNPAIR on "s1") are
+      // rejected earlier with console.warn. This branch only fires when
+      // AEAD itself fails. Missing/undefined frame.sid intentionally
+      // falls through to the error path — that is a truly malformed
+      // frame worth surfacing loudly.
+      if (
+        frame.sid === RELAY_CHANNEL_CONTROL ||
+        frame.sid === RELAY_CHANNEL_META
+      ) {
+        console.debug(
+          `[FrontendRelay] decrypt failed on ${frame.sid} (expected — frame not addressed to us):`,
+          err,
+        );
+        return;
+      }
       console.error(
         `[FrontendRelay] decrypt failed for sid=${frame.sid}:`,
         err,

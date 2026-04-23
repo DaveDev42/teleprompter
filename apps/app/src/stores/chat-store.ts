@@ -129,19 +129,18 @@ export function processHookEvent(event: HookEventBase) {
 
   switch (name) {
     case "UserPromptSubmit": {
-      // Finalize any streaming text before user message. Note: this mutates
-      // the store, so the pre-captured `store.messages` snapshot above would
-      // be stale — we re-read live state below for the dedup check.
+      // finalizeStreaming() mutates the store, so re-read live messages for
+      // the dedup scan below.
       store.finalizeStreaming();
       const promptText =
         (event.user_prompt as string) ?? (event.prompt as string) ?? "";
       // De-dup against a freshly added optimistic local user bubble.
       // sendChat adds `source: "local"` immediately; the daemon then echoes
       // the same prompt back via this hook event, which would otherwise
-      // duplicate the bubble. Scan backward for the most recent *user*
-      // message (skipping any streaming message that finalizeStreaming may
-      // have just appended) and match on trimmed text (daemon appends `\n`
-      // before writing to PTY, but Claude's hook may round-trip either form).
+      // duplicate the bubble. Scan backward skipping non-user messages (a
+      // streaming message may have been appended by finalizeStreaming just
+      // above), and match on trimmed text — the daemon appends `\n` before
+      // writing to the PTY, but Claude's hook may round-trip either form.
       const liveMsgs = useChatStore.getState().messages;
       const trimmedPrompt = promptText.trim();
       for (let i = liveMsgs.length - 1; i >= 0; i--) {
@@ -150,6 +149,8 @@ export function processHookEvent(event: HookEventBase) {
         if (m.source === "local" && m.text.trim() === trimmedPrompt) {
           return;
         }
+        // The most-recent user message isn't a dedup match; stop here —
+        // earlier user messages in the stack are from prior round-trips.
         break;
       }
       store.addMessage({

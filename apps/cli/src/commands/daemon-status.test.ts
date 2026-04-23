@@ -2,14 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { capture } from "../test-util";
 
 // End-to-end smoke — run the compiled subcommand and check the output shape.
-// Service install/uninstall is platform-specific and heavy; we only verify the
-// render path by running with no service installed (the default CI state) and
-// asserting the banner + hint are present.
+// Service install/uninstall is platform-specific and heavy; we verify the
+// render path in both states. The `tp daemon install` hint is only expected
+// when the service is not installed; a developer machine with an installed
+// daemon should still pass.
 const TIMEOUT = 15000;
 
 describe("tp daemon status", () => {
   test(
-    "prints service banner and hint when nothing is installed",
+    "prints service banner with all fields (install hint only when not installed)",
     () => {
       const result = capture("bun run apps/cli/src/index.ts daemon status");
       expect(result).toContain("Daemon Service");
@@ -19,8 +20,13 @@ describe("tp daemon status", () => {
       expect(result).toContain("Binary:");
       expect(result).toContain("Config:");
       expect(result).toContain("Logs:");
-      // CI has no daemon installed, so the install hint should appear.
-      expect(result).toContain("tp daemon install");
+      // Service-not-registered banner + install hint only appear when the
+      // service is not installed. A developer machine that already has
+      // `tp daemon install` run against it reaches the `installed` branch
+      // instead, so the hint is absent — still a valid render.
+      if (result.includes("Service is not registered.")) {
+        expect(result).toContain("tp daemon install");
+      }
     },
     TIMEOUT,
   );

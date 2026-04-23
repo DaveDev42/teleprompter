@@ -1,4 +1,4 @@
-import type { WsRec } from "@teleprompter/protocol/client";
+import type { WsRec, WsSessionMeta } from "@teleprompter/protocol/client";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -18,6 +18,11 @@ import { useAnyRelayConnected } from "../../src/hooks/use-relay";
 import { getTransport } from "../../src/hooks/use-transport";
 import { stripAnsi } from "../../src/lib/ansi-strip";
 import { getPlatformProps } from "../../src/lib/get-platform-props";
+import {
+  deriveInputGates,
+  isSessionRunning,
+  isSessionStopped,
+} from "../../src/lib/session-ux";
 import type { TerminalSearch } from "../../src/lib/terminal-search";
 import {
   addOptimisticUserMessage,
@@ -101,7 +106,15 @@ function SegmentedControl({
   );
 }
 
-function ChatView({ sid }: { sid: string }) {
+function ChatView({
+  sid,
+  session,
+  stopped,
+}: {
+  sid: string;
+  session: WsSessionMeta | undefined;
+  stopped: boolean;
+}) {
   const messages = useChatStore((s) => s.messages);
   const streamingText = useChatStore((s) => s.streamingText);
   const appendStreaming = useChatStore((s) => s.appendStreaming);
@@ -112,10 +125,12 @@ function ChatView({ sid }: { sid: string }) {
   const [input, setInput] = useState("");
   const setOnPromptReady = useVoiceStore((s) => s.setOnPromptReady);
   const pp = getPlatformProps();
+  const { isEditable, canSend } = deriveInputGates(session, connected, sid);
 
   // Wire voice prompt to chat send
   useEffect(() => {
     setOnPromptReady((prompt: string) => {
+      if (stopped) return;
       const trimmed = prompt.trim();
       if (!trimmed) return;
       const client = getTransport();
@@ -126,7 +141,13 @@ function ChatView({ sid }: { sid: string }) {
       }
     });
     return () => setOnPromptReady(null);
-  }, [sid, setOnPromptReady]);
+  }, [sid, stopped, setOnPromptReady]);
+
+  // Reset composer draft on session switch.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sid drives the per-session reset
+  useEffect(() => {
+    setInput("");
+  }, [sid]);
 
   // Request record replay on mount. The relay client queues the frame if
   // key exchange hasn't finished yet and flushes on auth.ok, so we no longer
@@ -179,14 +200,14 @@ function ChatView({ sid }: { sid: string }) {
 
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
-    if (!trimmed || !sid) return;
+    if (!trimmed || !sid || stopped) return;
     const client = getTransport();
     if (!client) return;
     // Optimistic add must precede sendChat so the echoed hook event dedups.
     addOptimisticUserMessage(trimmed);
     client.sendChat(sid, trimmed);
     setInput("");
-  }, [input, sid]);
+  }, [input, sid, stopped]);
 
   const displayMessages: ChatMessage[] = [...messages];
   if (streamingText.trim()) {
@@ -229,32 +250,38 @@ function ChatView({ sid }: { sid: string }) {
 
       {/* Input bar */}
       <View className="flex-row items-end px-3 py-2 bg-tp-bg-secondary border-t border-tp-border">
-        <VoiceButton />
+        <VoiceButton disabled={stopped} />
         <TextInput
           testID="chat-input"
           className={`flex-1 bg-tp-bg-input text-tp-text-primary rounded-full px-4 py-2 mr-2 max-h-24 text-[15px] ${pp.className}`}
-          placeholder="Send a message..."
+          placeholder={stopped ? "Session ended" : "Send a message..."}
           placeholderTextColor="var(--tp-text-tertiary)"
           value={input}
           onChangeText={setInput}
           onSubmitEditing={handleSend}
           multiline
           returnKeyType="send"
-          editable={connected && !!sid}
+          editable={isEditable}
           accessibilityLabel="Message input"
-          accessibilityHint="Type a message to send to Claude"
+          accessibilityHint={
+            stopped
+              ? "This session has ended. New prompts cannot be sent."
+              : !connected
+                ? "Disconnected. Compose a message to send when reconnected."
+                : "Type a message to send to Claude"
+          }
           tabIndex={pp.tabIndex}
         />
         <Pressable
           testID="chat-send"
           onPress={handleSend}
-          disabled={!input.trim() || !connected || !sid}
+          disabled={!input.trim() || !canSend}
           className={`bg-tp-accent rounded-full w-9 h-9 items-center justify-center ${pp.className}`}
           tabIndex={pp.tabIndex}
-          style={{ opacity: input.trim() && connected && sid ? 1 : 0.4 }}
+          style={{ opacity: input.trim() && canSend ? 1 : 0.4 }}
           accessibilityRole="button"
           accessibilityLabel="Send message"
-          accessibilityState={{ disabled: !input.trim() || !connected || !sid }}
+          accessibilityState={{ disabled: !input.trim() || !canSend }}
         >
           <Text className="text-white text-lg font-bold">↑</Text>
         </Pressable>
@@ -263,11 +290,35 @@ function ChatView({ sid }: { sid: string }) {
   );
 }
 
-function TerminalView({ sid }: { sid: string }) {
+function TerminalView({ sid, stopped }: { sid: string; stopped: boolean }) {
   const addRecHandler = useSessionStore((s) => s.addRecHandler);
   const removeRecHandler = useSessionStore((s) => s.removeRecHandler);
   const termRef = useRef<any>(null);
   const searchRef = useRef<TerminalSearch | null>(null);
+  // `hasIo` flips true once any io record arrives (live or replayed).
+  // `replaySettled` flips true only after 500ms of silence from the
+  // daemon — every record of any kind (io, event, meta) rearms the
+  // window by resetting replaySettled to false and restarting the timer.
+  // The overlay only renders when all three align: stopped, no io seen,
+  // and the daemon has been quiet long enough that more records are
+  // unlikely to arrive.
+  const [hasIo, setHasIo] = useState(false);
+  const [replaySettled, setReplaySettled] = useState(false);
+  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const armSettleTimer = useCallback(() => {
+    if (settleTimerRef.current) {
+      clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    }
+    // Flip replaySettled back to false — a late record arriving after the
+    // window elapsed should reopen it, not leave a stale "settled" latch.
+    setReplaySettled(false);
+    settleTimerRef.current = setTimeout(() => {
+      settleTimerRef.current = null;
+      setReplaySettled(true);
+    }, 500);
+  }, []);
 
   useEffect(() => {
     setGlobalTermRef(termRef.current);
@@ -282,9 +333,28 @@ function TerminalView({ sid }: { sid: string }) {
     }
   }, [sid]);
 
+  // Reset per-session overlay state when switching sessions and start the
+  // initial silence window.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sid drives the per-session reset
+  useEffect(() => {
+    setHasIo(false);
+    setReplaySettled(false);
+    armSettleTimer();
+    return () => {
+      if (settleTimerRef.current) {
+        clearTimeout(settleTimerRef.current);
+        settleTimerRef.current = null;
+      }
+    };
+  }, [sid, armSettleTimer]);
+
   useEffect(() => {
     const handler = (rec: WsRec) => {
+      // Any record arriving means replay/stream is still flowing — push
+      // the empty-state overlay back by restarting the silence window.
+      armSettleTimer();
       if (rec.k !== "io") return;
+      setHasIo(true);
       const term = termRef.current;
       if (!term) return;
       try {
@@ -298,26 +368,30 @@ function TerminalView({ sid }: { sid: string }) {
     };
     addRecHandler(handler);
     return () => removeRecHandler(handler);
-  }, [addRecHandler, removeRecHandler]);
+  }, [addRecHandler, removeRecHandler, armSettleTimer]);
 
   const handleData = useCallback(
     (data: string) => {
+      if (stopped) return;
       const client = getTransport();
       if (!sid || !client) return;
       client.sendTermInput(sid, btoa(data));
     },
-    [sid],
+    [sid, stopped],
   );
 
   const handleResize = useCallback(
     (cols: number, rows: number) => {
+      if (stopped) return;
       const client = getTransport();
       if (sid && client) {
         client.send({ t: "resize", sid, cols, rows });
       }
     },
-    [sid],
+    [sid, stopped],
   );
+
+  const showEmptyFallback = stopped && !hasIo && replaySettled;
 
   return (
     <View className="flex-1 bg-black">
@@ -329,6 +403,17 @@ function TerminalView({ sid }: { sid: string }) {
           onReady={handleTermReady}
           searchRef={searchRef}
         />
+      )}
+      {showEmptyFallback && (
+        <View
+          testID="terminal-empty-fallback"
+          className="absolute inset-0 items-center justify-center px-6"
+          pointerEvents="none"
+        >
+          <Text className="text-tp-text-tertiary text-[13px] text-center">
+            No terminal output captured for this session.
+          </Text>
+        </View>
       )}
     </View>
   );
@@ -344,7 +429,8 @@ export default function SessionDetailScreen() {
   const pp = getPlatformProps();
 
   const session = sessions.find((s) => s.sid === sid);
-  const isRunning = session?.state === "running";
+  const stopped = isSessionStopped(session);
+  const isRunning = isSessionRunning(session);
 
   // Attach to session on mount
   useEffect(() => {
@@ -354,8 +440,9 @@ export default function SessionDetailScreen() {
       client.attach(sid);
       setSid(sid);
     }
-    // Clear chat for fresh state
+    // Clear chat and reset to chat tab for fresh state on session switch
     useChatStore.getState().clear();
+    setMode("chat");
 
     return () => {
       const c = getTransport();
@@ -406,12 +493,32 @@ export default function SessionDetailScreen() {
         <View className="w-20" />
       </View>
 
+      {/* Stopped session banner */}
+      {stopped && (
+        <View
+          testID="session-stopped-banner"
+          role="status"
+          accessibilityLiveRegion="polite"
+          accessibilityLabel="Session ended. Read-only view."
+          className="flex-row items-center px-4 py-2 bg-tp-bg-secondary border-b border-tp-border"
+        >
+          <View className="w-1.5 h-1.5 rounded-full bg-tp-warning mr-2" />
+          <Text className="text-tp-text-secondary text-[12px] font-medium">
+            Session ended — read-only view
+          </Text>
+        </View>
+      )}
+
       {/* Segmented control */}
       <SegmentedControl mode={mode} onModeChange={setMode} />
 
       {/* Content */}
-      {sid && mode === "chat" && <ChatView sid={sid} />}
-      {sid && mode === "terminal" && <TerminalView sid={sid} />}
+      {sid && mode === "chat" && (
+        <ChatView sid={sid} session={session} stopped={stopped} />
+      )}
+      {sid && mode === "terminal" && (
+        <TerminalView sid={sid} stopped={stopped} />
+      )}
 
       {/* Safe area bottom */}
       <View

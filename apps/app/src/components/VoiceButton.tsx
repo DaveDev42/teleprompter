@@ -1,8 +1,9 @@
+import { useEffect } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { getPlatformProps } from "../lib/get-platform-props";
 import { useVoiceStore } from "../stores/voice-store";
 
-export function VoiceButton() {
+export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
   const state = useVoiceStore((s) => s.state);
   const transcript = useVoiceStore((s) => s.transcript);
   const isSpeaking = useVoiceStore((s) => s.isSpeaking);
@@ -12,12 +13,25 @@ export function VoiceButton() {
   const stopVoice = useVoiceStore((s) => s.stopVoice);
   const toggleTerminalContext = useVoiceStore((s) => s.toggleTerminalContext);
 
+  // If voice capture is running when the session becomes read-only, stop it.
+  // Hiding the button alone would orphan the mic/network session with no UI
+  // exit until the user navigates away.
+  useEffect(() => {
+    if (disabled && state !== "idle") {
+      stopVoice();
+    }
+  }, [disabled, state, stopVoice]);
+
   if (Platform.OS !== "web") {
     return null; // Web only for now
   }
 
   if (!apiKey) {
     return null; // Need API key first
+  }
+
+  if (disabled) {
+    return null; // Hide mic on stopped / read-only sessions
   }
 
   const isActive = state !== "idle";

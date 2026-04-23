@@ -21,12 +21,15 @@ describe("tp completions", () => {
       expect(result).toContain("daemon");
       expect(result).toContain("relay");
       expect(result).toContain("pair");
+      expect(result).toContain("session");
       expect(result).toContain("status");
       expect(result).toContain("logs");
       expect(result).toContain("doctor");
       expect(result).toContain("upgrade");
       expect(result).toContain("completions");
       expect(result).toContain("version");
+      // session subcommands
+      expect(result).toContain("list delete prune");
       // claude utility subcommands
       expect(result).toContain("auth");
       expect(result).toContain("mcp");
@@ -79,6 +82,29 @@ describe("tp completions", () => {
   );
 
   test(
+    "fish completions include session prune subcommand and flags",
+    () => {
+      const result = capture("bun run apps/cli/src/index.ts completions fish");
+      expect(result).toContain(
+        "__fish_seen_subcommand_from session' -a 'prune'",
+      );
+      expect(result).toContain("-l older-than");
+      expect(result).toContain("-l dry-run");
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "zsh completions include session subcommands",
+    () => {
+      const result = capture("bun run apps/cli/src/index.ts completions zsh");
+      expect(result).toContain("session subcommand");
+      expect(result).toContain("'prune'");
+    },
+    TIMEOUT,
+  );
+
+  test(
     "powershell completions include Register-ArgumentCompleter and all subcommands",
     () => {
       const result = capture(
@@ -104,6 +130,9 @@ describe("tp completions", () => {
       // pair subcommands
       expect(result).toContain("'new'");
       expect(result).toContain("'delete'");
+      // session subcommands
+      expect(result).toContain("'session'");
+      expect(result).toContain("'prune'");
     },
     TIMEOUT,
   );

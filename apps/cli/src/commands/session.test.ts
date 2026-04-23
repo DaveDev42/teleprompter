@@ -312,7 +312,10 @@ describe.skipIf(process.platform === "win32")(
     test("prune with no match reports 0 selected", () => {
       seed([{ sid: "new-session", state: "stopped", ageMs: 60_000 }]);
       const out = capture(`${CLI} session prune --older-than 7d --yes`, env);
-      expect(out.toLowerCase()).toMatch(/0|no session/);
+      // Tight match: the literal "No sessions selected (0 matched)." line
+      // from the CLI. A loose `/0|no session/` would also match "10 sessions"
+      // if a future refactor accidentally changed the output shape.
+      expect(out).toMatch(/No sessions selected \(0 matched\)\./);
     });
 
     test("prune rejects invalid duration", () => {

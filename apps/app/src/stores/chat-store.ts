@@ -159,6 +159,7 @@ export function processHookEvent(event: HookEventBase) {
         type: "user",
         event: name,
         text: promptText,
+        source: "remote",
         ts: Date.now(),
       });
       break;

@@ -436,6 +436,59 @@ describe("chat-store: processHookEvent", () => {
     expect(msgs[1].text).toBe("second");
   });
 
+  test("UserPromptSubmit de-dups even after streaming text is finalized between add and echo", () => {
+    // Simulate: user sends optimistically, PTY streams partial bytes
+    // (which the app stores in streamingText), then the echoed hook
+    // event fires. finalizeStreaming inside processHookEvent will append
+    // a "streaming" message, which must NOT fool the dedup scan.
+    useChatStore.getState().addMessage({
+      id: makeId(),
+      type: "user",
+      text: "ping",
+      source: "local",
+      ts: Date.now(),
+    });
+    useChatStore.getState().appendStreaming("partial bytes before echo");
+
+    processHookEvent(
+      baseEvent({
+        hook_event_name: "UserPromptSubmit",
+        user_prompt: "ping",
+      }),
+    );
+
+    const msgs = useChatStore.getState().messages;
+    // Expected: user (local) + streaming (finalized), NO duplicate user.
+    expect(msgs.length).toBe(2);
+    expect(msgs[0].type).toBe("user");
+    expect(msgs[0].text).toBe("ping");
+    expect(msgs[1].type).toBe("streaming");
+    expect(msgs[1].text).toBe("partial bytes before echo");
+  });
+
+  test("UserPromptSubmit de-dups against daemon-echoed text with trailing newline", () => {
+    // Daemon appends "\n" before writing to PTY; the hook event may round-
+    // trip either form. Dedup compares trimmed text so both match.
+    useChatStore.getState().addMessage({
+      id: makeId(),
+      type: "user",
+      text: "hi",
+      source: "local",
+      ts: Date.now(),
+    });
+
+    processHookEvent(
+      baseEvent({
+        hook_event_name: "UserPromptSubmit",
+        user_prompt: "hi\n",
+      }),
+    );
+
+    const msgs = useChatStore.getState().messages;
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].text).toBe("hi");
+  });
+
   test("UserPromptSubmit does NOT de-dup non-local user messages", () => {
     // Prior user message without source: "local" (e.g. from previous session replay)
     useChatStore.getState().addMessage({

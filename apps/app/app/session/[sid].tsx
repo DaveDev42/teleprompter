@@ -116,10 +116,14 @@ function ChatView({ sid }: { sid: string }) {
   // Wire voice prompt to chat send
   useEffect(() => {
     setOnPromptReady((prompt: string) => {
+      const trimmed = prompt.trim();
+      if (!trimmed) return;
       const client = getTransport();
       if (sid && client) {
-        addOptimisticUserMessage(prompt);
-        client.sendChat(sid, prompt);
+        // Pass the normalized text to both sides so the optimistic bubble
+        // and the daemon-echoed UserPromptSubmit match exactly for dedup.
+        addOptimisticUserMessage(trimmed);
+        client.sendChat(sid, trimmed);
       }
     });
     return () => setOnPromptReady(null);

@@ -56,24 +56,6 @@ export function makeId(): string {
   return `msg-${++nextId}-${Date.now()}`;
 }
 
-/**
- * Optimistically append a local user bubble to the chat store. Called by
- * `sendChat` callers so the user sees their own message immediately, without
- * waiting for the daemon's `UserPromptSubmit` round-trip. The echoed hook
- * event is de-duplicated against the `source: "local"` marker.
- */
-export function addOptimisticUserMessage(text: string): void {
-  const trimmed = text.trim();
-  if (!trimmed) return;
-  useChatStore.getState().addMessage({
-    id: makeId(),
-    type: "user",
-    text: trimmed,
-    source: "local",
-    ts: Date.now(),
-  });
-}
-
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   streamingText: "",
@@ -121,6 +103,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
 }));
 
 /**
+ * Optimistically append a local user bubble to the chat store. Called by
+ * `sendChat` callers so the user sees their own message immediately, without
+ * waiting for the daemon's `UserPromptSubmit` round-trip. The echoed hook
+ * event is de-duplicated against the `source: "local"` marker.
+ */
+export function addOptimisticUserMessage(text: string): void {
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  useChatStore.getState().addMessage({
+    id: makeId(),
+    type: "user",
+    text: trimmed,
+    source: "local",
+    ts: Date.now(),
+  });
+}
+
+/**
  * Process a hook event record into chat messages.
  */
 export function processHookEvent(event: HookEventBase) {
@@ -129,22 +129,27 @@ export function processHookEvent(event: HookEventBase) {
 
   switch (name) {
     case "UserPromptSubmit": {
-      // Finalize any streaming text before user message
+      // Finalize any streaming text before user message. Note: this mutates
+      // the store, so the pre-captured `store.messages` snapshot above would
+      // be stale — we re-read live state below for the dedup check.
       store.finalizeStreaming();
       const promptText =
         (event.user_prompt as string) ?? (event.prompt as string) ?? "";
       // De-dup against a freshly added optimistic local user bubble.
       // sendChat adds `source: "local"` immediately; the daemon then echoes
       // the same prompt back via this hook event, which would otherwise
-      // duplicate the bubble.
-      const msgs = store.messages;
-      const last = msgs[msgs.length - 1];
-      if (
-        last &&
-        last.type === "user" &&
-        last.source === "local" &&
-        last.text === promptText
-      ) {
+      // duplicate the bubble. Scan backward for the most recent *user*
+      // message (skipping any streaming message that finalizeStreaming may
+      // have just appended) and match on trimmed text (daemon appends `\n`
+      // before writing to PTY, but Claude's hook may round-trip either form).
+      const liveMsgs = useChatStore.getState().messages;
+      const trimmedPrompt = promptText.trim();
+      for (let i = liveMsgs.length - 1; i >= 0; i--) {
+        const m = liveMsgs[i];
+        if (m.type !== "user") continue;
+        if (m.source === "local" && m.text.trim() === trimmedPrompt) {
+          return;
+        }
         break;
       }
       store.addMessage({

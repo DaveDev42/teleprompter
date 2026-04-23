@@ -153,6 +153,65 @@ export interface IpcPairRenameErr {
   message?: string;
 }
 
+/**
+ * CLI → Daemon: delete a single session. If the session is currently running
+ * the daemon kills the Runner first, then removes the metadata row and the
+ * per-session record database. The reply mirrors the matched sid so the CLI
+ * can print it alongside the user's prefix input.
+ */
+export interface IpcSessionDelete {
+  t: "session.delete";
+  sid: string;
+}
+
+export interface IpcSessionDeleteOk {
+  t: "session.delete.ok";
+  sid: string;
+  /** Whether the session was running at the moment of deletion. */
+  wasRunning: boolean;
+}
+
+export type IpcSessionDeleteErrReason = "not-found" | "internal";
+
+export interface IpcSessionDeleteErr {
+  t: "session.delete.err";
+  sid: string;
+  reason: IpcSessionDeleteErrReason;
+  message?: string;
+}
+
+/**
+ * CLI → Daemon: prune sessions matching a filter. `olderThanMs` scopes to
+ * stopped/error sessions whose `updated_at` is older than the given age.
+ * `includeRunning` forces running sessions into the selection (their Runner
+ * is killed first). `dryRun` returns the selection without deleting.
+ */
+export interface IpcSessionPrune {
+  t: "session.prune";
+  /** Milliseconds; stopped/error sessions whose `updated_at` is older than
+   * this cutoff are selected. `null` means no age filter (all). */
+  olderThanMs: number | null;
+  /** When true, running sessions are also selected and killed before delete. */
+  includeRunning: boolean;
+  /** When true, return the selection without deleting. */
+  dryRun: boolean;
+}
+
+export interface IpcSessionPruneOk {
+  t: "session.prune.ok";
+  /** sids selected (and deleted, unless `dryRun` was true). */
+  sids: string[];
+  /** How many of the deleted sessions were running (kill count). */
+  runningKilled: number;
+  dryRun: boolean;
+}
+
+export interface IpcSessionPruneErr {
+  t: "session.prune.err";
+  reason: "internal";
+  message?: string;
+}
+
 export type IpcMessage =
   | IpcHello
   | IpcRec
@@ -172,4 +231,10 @@ export type IpcMessage =
   | IpcPairRemoveErr
   | IpcPairRename
   | IpcPairRenameOk
-  | IpcPairRenameErr;
+  | IpcPairRenameErr
+  | IpcSessionDelete
+  | IpcSessionDeleteOk
+  | IpcSessionDeleteErr
+  | IpcSessionPrune
+  | IpcSessionPruneOk
+  | IpcSessionPruneErr;

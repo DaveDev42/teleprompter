@@ -19,6 +19,7 @@ const SUBCOMMANDS = [
   "run",
   "relay",
   "pair",
+  "session",
   "status",
   "logs",
   "doctor",

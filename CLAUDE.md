@@ -316,6 +316,14 @@ tp pair new [--relay URL] [--label NAME]  # 새 페어링 생성 (QR 출력, lab
 tp pair list               # 등록된 페어링 목록 (label + daemon ID 표시)
 tp pair rename <id-prefix> <label...>  # 페어링 label 변경 (peer 알림)
 tp pair delete <id> [-y]   # 페어링 삭제 (daemon-id prefix 허용)
+tp session list            # 저장된 세션 목록 (running + stopped, cwd/updated 컬럼)
+tp session delete <sid> [-y]           # 세션 삭제 (sid prefix 허용, running 이면 Runner kill 후 삭제)
+tp session prune [options] # stopped 세션 일괄 삭제
+  --older-than <Nd|Nh|Nm|Ns>   # 나이 컷오프 (기본 7d)
+  --all                         # 모든 stopped 세션 (older-than 무시)
+  --running                     # running 도 포함 (killer — 2중 confirmation)
+  --dry-run                     # 삭제 대상만 출력
+  -y, --yes                     # confirmation 생략
 tp status                  # 세션 & daemon 상태 확인 (자동 시작)
 tp logs [session]          # 세션 라이브 출력 tail
 tp doctor                  # 환경 진단 + relay 연결 + E2EE 검증

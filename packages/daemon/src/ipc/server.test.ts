@@ -7,6 +7,8 @@ import {
   type IpcHello,
   type IpcMessage,
   type IpcRec,
+  type IpcSessionDelete,
+  type IpcSessionPrune,
 } from "@teleprompter/protocol";
 import { mkdtemp, rm } from "fs/promises";
 import { connect } from "net";
@@ -190,5 +192,33 @@ describe("IpcServer", () => {
 
     client1.end();
     client2.end();
+  });
+
+  // Regression for PR #150 — `session.delete` / `session.prune` commands sent
+  // from the CLI were dropped by `parseIpcMessage` (missing cases), so the
+  // dispatcher never saw them and the CLI hit its 30s timeout. This test
+  // pushes both frames through the real IPC server and asserts they arrive
+  // at `onMessage` with the full payload, which only happens if the guard
+  // accepts them.
+  test("session.delete and session.prune survive the guard", async () => {
+    const client = await connectClient();
+
+    const del: IpcSessionDelete = { t: "session.delete", sid: "to-delete" };
+    const prune: IpcSessionPrune = {
+      t: "session.prune",
+      olderThanMs: 86_400_000,
+      includeRunning: false,
+      dryRun: true,
+    };
+
+    client.write(Buffer.from(encodeFrame(del)));
+    client.write(Buffer.from(encodeFrame(prune)));
+    await Bun.sleep(50);
+
+    expect(receivedMessages.length).toBe(2);
+    expect(receivedMessages[0]).toEqual(del);
+    expect(receivedMessages[1]).toEqual(prune);
+
+    client.end();
   });
 });

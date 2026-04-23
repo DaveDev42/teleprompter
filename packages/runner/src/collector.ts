@@ -1,5 +1,10 @@
 import type { HookEventBase, IpcRec, Namespace } from "@teleprompter/protocol";
 
+export interface IoFrame {
+  msg: IpcRec;
+  binary: Uint8Array<ArrayBufferLike>;
+}
+
 /**
  * Converts PTY data and hook events into IpcRec messages.
  */
@@ -10,14 +15,22 @@ export class Collector {
     this.sid = sid;
   }
 
-  /** Convert raw PTY output to an IPC record */
-  ioRecord(data: Uint8Array): IpcRec {
+  /**
+   * Convert raw PTY output to an IPC record. The bytes ride as a binary
+   * sidecar in the frame — `msg.payload` stays empty — so we skip the
+   * ~33% base64 overhead on the hot path. The receiver recognises the
+   * sidecar via the FrameDecoder's `binary` field.
+   */
+  ioRecord(data: Uint8Array<ArrayBufferLike>): IoFrame {
     return {
-      t: "rec",
-      sid: this.sid,
-      kind: "io",
-      ts: Date.now(),
-      payload: Buffer.from(data).toString("base64"),
+      msg: {
+        t: "rec",
+        sid: this.sid,
+        kind: "io",
+        ts: Date.now(),
+        payload: "",
+      },
+      binary: data,
     };
   }
 

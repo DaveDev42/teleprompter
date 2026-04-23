@@ -37,6 +37,12 @@ import type { TransportClient, TransportEventHandler } from "./transport";
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
+/**
+ * Max frames queued while waiting for relay auth + key exchange to complete.
+ * Flushed on `relay.auth.ok` (after sendKeyExchange), cleared on WS close.
+ * Guards against unbounded growth if the peer never authenticates.
+ */
+const MAX_PENDING_ENCRYPTED = 32;
 
 export interface FrontendRelayConfig {
   relayUrl: string;
@@ -78,6 +84,21 @@ export class FrontendRelayClient implements TransportClient {
   private disposed = false;
   private authenticated = false;
   private subscribedSessions = new Set<string>();
+  /**
+   * Frames that were submitted to an encrypt-and-publish helper before the
+   * relay was authenticated. Drained on auth.ok (after kx). Previously
+   * dropped silently, which caused ChatView's early resume() to be lost on
+   * cold session URL access — daemon never replayed records, Chat/Terminal
+   * stayed blank. Push-token, unpair, and rename notices share the same
+   * race class and funnel through this queue too.
+   *
+   * `sid` is the relay-envelope channel; when omitted, sendEncrypted falls
+   * back to the control channel (matches its direct-send behavior).
+   */
+  private pendingEncrypted: Array<{
+    msg: Record<string, unknown>;
+    sid?: string;
+  }> = [];
 
   /** Called when daemon notifies this frontend that its pairing was removed. */
   onUnpair:
@@ -152,6 +173,11 @@ export class FrontendRelayClient implements TransportClient {
 
     ws.onclose = () => {
       this.authenticated = false;
+      // Clear any frames still parked waiting for auth — a brand-new
+      // connection cycle will re-run kx and the stale queue is meaningless
+      // (and `resume`/`attach` will be re-issued by callers or by the
+      // auto-resume path in handleMessage).
+      this.pendingEncrypted = [];
       this.events.onClose?.();
       this.events.onDisconnected?.();
       this.scheduleReconnect();
@@ -176,6 +202,9 @@ export class FrontendRelayClient implements TransportClient {
         }
         // Send key exchange: deliver frontend's public key to daemon
         await this.sendKeyExchange();
+        // Drain any frames queued while kx was pending. Must happen AFTER
+        // the kx envelope is sent so the daemon can decrypt them.
+        await this.flushPendingEncrypted();
         // Auto-resume if we were previously attached
         if (this.hasConnectedBefore && this.attachedSid) {
           this.resume(this.attachedSid, this.lastSeq);
@@ -358,12 +387,10 @@ export class FrontendRelayClient implements TransportClient {
     token: string,
     platform: "ios" | "android",
   ): Promise<void> {
-    if (!this.authenticated || !this.sessionKeys) return;
-    const msg = { t: "pushToken", token, platform };
-    const json = JSON.stringify(msg);
-    const plaintext = new TextEncoder().encode(json);
-    const ct = await encrypt(plaintext, this.sessionKeys.tx);
-    this.sendRelay({ t: "relay.pub", sid: RELAY_CHANNEL_META, ct, seq: 0 });
+    await this.sendEncrypted(
+      { t: "pushToken", token, platform },
+      RELAY_CHANNEL_META,
+    );
   }
 
   /**
@@ -375,7 +402,6 @@ export class FrontendRelayClient implements TransportClient {
   async sendUnpairNotice(
     reason: ControlUnpair["reason"] = "user-initiated",
   ): Promise<void> {
-    if (!this.authenticated || !this.sessionKeys) return;
     const msg: ControlUnpair = {
       t: CONTROL_UNPAIR,
       daemonId: this.config.daemonId,
@@ -383,14 +409,10 @@ export class FrontendRelayClient implements TransportClient {
       reason,
       ts: Date.now(),
     };
-    const plaintext = new TextEncoder().encode(JSON.stringify(msg));
-    const ct = await encrypt(plaintext, this.sessionKeys.tx);
-    this.sendRelay({
-      t: "relay.pub",
-      sid: RELAY_CHANNEL_CONTROL,
-      ct,
-      seq: 0,
-    });
+    await this.sendEncrypted(
+      msg as unknown as Record<string, unknown>,
+      RELAY_CHANNEL_CONTROL,
+    );
   }
 
   /**
@@ -398,7 +420,6 @@ export class FrontendRelayClient implements TransportClient {
    * Mirrors `sendUnpairNotice` structurally.
    */
   async sendRenameNotice(label: string): Promise<void> {
-    if (!this.authenticated || !this.sessionKeys) return;
     const msg: ControlRename = {
       t: CONTROL_RENAME,
       daemonId: this.config.daemonId,
@@ -406,21 +427,20 @@ export class FrontendRelayClient implements TransportClient {
       label,
       ts: Date.now(),
     };
-    const plaintext = new TextEncoder().encode(JSON.stringify(msg));
-    const ct = await encrypt(plaintext, this.sessionKeys.tx);
-    this.sendRelay({
-      t: "relay.pub",
-      sid: RELAY_CHANNEL_CONTROL,
-      ct,
-      seq: 0,
-    });
+    await this.sendEncrypted(
+      msg as unknown as Record<string, unknown>,
+      RELAY_CHANNEL_CONTROL,
+    );
   }
 
   // ── Encrypted control message sender ──
 
-  private async sendEncrypted(msg: Record<string, unknown>): Promise<void> {
+  private async sendEncrypted(
+    msg: Record<string, unknown>,
+    sidOverride?: string,
+  ): Promise<void> {
     if (!this.authenticated || !this.sessionKeys) {
-      console.warn(`[FrontendRelay] dropping ${msg.t} — not authenticated`);
+      this.enqueuePending(msg, sidOverride);
       return;
     }
 
@@ -430,10 +450,43 @@ export class FrontendRelayClient implements TransportClient {
         this.sessionKeys.tx,
       );
 
-      const sid = (msg.sid as string) ?? RELAY_CHANNEL_CONTROL;
+      const sid = sidOverride ?? (msg.sid as string) ?? RELAY_CHANNEL_CONTROL;
       this.sendRelay({ t: "relay.pub", sid, ct, seq: 0 });
     } catch {
       console.error(`[FrontendRelay] encrypt failed for ${msg.t}`);
+    }
+  }
+
+  /**
+   * Park a frame until relay auth + key exchange finishes. Bounded at
+   * MAX_PENDING_ENCRYPTED; the oldest frame is dropped when the cap is hit
+   * so a misbehaving peer can't grow this unboundedly.
+   */
+  private enqueuePending(msg: Record<string, unknown>, sid?: string): void {
+    if (this.pendingEncrypted.length >= MAX_PENDING_ENCRYPTED) {
+      const dropped = this.pendingEncrypted.shift();
+      console.warn(
+        `[FrontendRelay] pending queue full, dropping oldest ${
+          dropped?.msg.t ?? "?"
+        }`,
+      );
+    }
+    this.pendingEncrypted.push({ msg, sid });
+  }
+
+  /**
+   * Called right after sendKeyExchange on relay.auth.ok. Drains everything
+   * that was queued during the kx race (e.g. ChatView's resume-on-mount).
+   * Swapping the buffer first means any new enqueues triggered mid-flush
+   * (which shouldn't happen — we're authenticated now — but defensively)
+   * go into a fresh array rather than mutating the one we're iterating.
+   */
+  private async flushPendingEncrypted(): Promise<void> {
+    if (this.pendingEncrypted.length === 0) return;
+    const pending = this.pendingEncrypted;
+    this.pendingEncrypted = [];
+    for (const { msg, sid } of pending) {
+      await this.sendEncrypted(msg, sid);
     }
   }
 

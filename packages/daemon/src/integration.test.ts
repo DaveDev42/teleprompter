@@ -46,9 +46,9 @@ describe("Integration", () => {
       unix: socketPath,
       socket: {
         data(_socket, data) {
-          const messages = decoder.decode(new Uint8Array(data));
-          for (const msg of messages) {
-            acks.push(msg as IpcAck);
+          const frames = decoder.decode(new Uint8Array(data));
+          for (const frame of frames) {
+            acks.push(frame.data as IpcAck);
           }
         },
         open() {},

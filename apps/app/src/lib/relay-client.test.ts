@@ -246,6 +246,39 @@ function relayCalls(calls: unknown[][]): unknown[][] {
   );
 }
 
+/**
+ * Yield enough microtasks for the full auth.ok pipeline to settle:
+ * handleMessage (async) → sendKeyExchange (async encrypt) →
+ * flushPendingEncrypted (one async encrypt per queued frame) → auto-resume.
+ *
+ * `frameCount` is the number of queued frames expected to flush; each adds
+ * roughly one encrypt's worth of microtask depth. The 20-tick base covers
+ * the non-flush stages with headroom.
+ */
+async function settleAuthPipeline(frameCount = 0): Promise<void> {
+  const perFrameTicks = 5;
+  await flushPromises(20 + frameCount * perFrameTicks);
+}
+
+/** Return the most recently constructed MockWebSocket or throw. */
+function latestWs(): MockWebSocket {
+  const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+  if (!ws) throw new Error("no MockWebSocket constructed yet");
+  return ws;
+}
+
+/** Extract a relay.pub frame by sid, asserting it exists. */
+function expectPub(
+  ws: MockWebSocket,
+  sid: string,
+): { t: string; sid: string; ct: string; seq: number } {
+  const pub = ws
+    .parsedSent()
+    .find((m) => m.t === "relay.pub" && (m as { sid?: string }).sid === sid);
+  if (!pub) throw new Error(`no relay.pub on sid=${sid}`);
+  return pub as { t: string; sid: string; ct: string; seq: number };
+}
+
 // ── Shared fixtures ─────────────────────────────────────────────────────────
 
 let realWebSocket: typeof globalThis.WebSocket;
@@ -937,7 +970,7 @@ describe("FrontendRelayClient — outbound encrypted senders", () => {
     client.dispose();
   });
 
-  test("outbound encrypted messages are dropped before auth", async () => {
+  test("outbound encrypted messages are queued before auth, not sent", async () => {
     const p = await setupPairing();
     const client = new FrontendRelayClient(makeConfig(p));
     await client.connect();
@@ -947,6 +980,7 @@ describe("FrontendRelayClient — outbound encrypted senders", () => {
     client.sendChat("s1", "nope");
     await flushPromises();
 
+    // Nothing on the wire yet — queued in pendingEncrypted.
     const pubs = ws.parsedSent().filter((m) => m.t === "relay.pub");
     expect(pubs.length).toBe(0);
     client.dispose();
@@ -977,6 +1011,214 @@ describe("FrontendRelayClient — outbound encrypted senders", () => {
     );
     expect(decoded).toEqual({ t: "attach", sid: "s1" });
     client.dispose();
+  });
+});
+
+describe("FrontendRelayClient — pending-encrypted queue", () => {
+  /**
+   * Regression: ChatView's ~500ms resume-on-mount timer used to race the
+   * relay key-exchange handshake. On a cold session URL open, the frame
+   * landed in sendEncrypted() before `authenticated` flipped, and was
+   * silently dropped, leaving Chat/Terminal blank. Now those frames park
+   * in a bounded queue and flush once auth.ok fires (after kx).
+   */
+  test("frames sent before auth are flushed once auth.ok arrives", async () => {
+    const p = await setupPairing();
+    const client = new FrontendRelayClient(makeConfig(p));
+
+    await client.connect();
+    const ws = latestWs();
+    ws.simulateOpen();
+
+    // Simulate ChatView's early resume: fires before relay.auth.ok.
+    client.resume("s1", 0);
+    await flushPromises();
+
+    // Nothing encrypted is on the wire yet — queued, not dropped.
+    expect(ws.parsedSent().filter((m) => m.t === "relay.pub").length).toBe(0);
+
+    // Complete the handshake.
+    ws.simulateMessage({ t: "relay.auth.ok" });
+    await settleAuthPipeline(1);
+
+    // The queued resume is now flushed to the daemon.
+    const pub = expectPub(ws, "s1");
+    const decoded = JSON.parse(
+      new TextDecoder().decode(await decrypt(pub.ct, p.daemonRx)),
+    );
+    expect(decoded).toEqual({ t: "resume", sid: "s1", c: 0 });
+    client.dispose();
+  });
+
+  test("queue is capped at MAX_PENDING_ENCRYPTED, oldest dropped", async () => {
+    const p = await setupPairing();
+    const client = new FrontendRelayClient(makeConfig(p));
+
+    await client.connect();
+    const ws = latestWs();
+    ws.simulateOpen();
+
+    // Overfill by 5 so we can observe the oldest-drop behavior.
+    const overflow = 5;
+    const cap = 32;
+    for (let i = 0; i < cap + overflow; i++) {
+      client.sendChat(`s${i}`, `msg-${i}`);
+    }
+    await flushPromises();
+
+    // Still nothing on the wire — all parked in queue.
+    expect(ws.parsedSent().filter((m) => m.t === "relay.pub").length).toBe(0);
+
+    // Authenticate → queue drains. Because we overflowed by `overflow`,
+    // the first `overflow` sends (sid=s0..s4) were dropped; the remaining
+    // cap frames (sid=s5..s36) should arrive in order.
+    ws.simulateMessage({ t: "relay.auth.ok" });
+    await settleAuthPipeline(cap);
+
+    const pubs = ws.parsedSent().filter((m) => m.t === "relay.pub") as Array<{
+      sid: string;
+      ct: string;
+    }>;
+    expect(pubs.length).toBe(cap);
+
+    const first = pubs[0];
+    const last = pubs[pubs.length - 1];
+    if (!first || !last) throw new Error("expected flush to produce frames");
+
+    const firstDecoded = JSON.parse(
+      new TextDecoder().decode(await decrypt(first.ct, p.daemonRx)),
+    );
+    expect(firstDecoded).toEqual({
+      t: "in.chat",
+      sid: `s${overflow}`,
+      d: `msg-${overflow}`,
+    });
+
+    const lastDecoded = JSON.parse(
+      new TextDecoder().decode(await decrypt(last.ct, p.daemonRx)),
+    );
+    expect(lastDecoded).toEqual({
+      t: "in.chat",
+      sid: `s${cap + overflow - 1}`,
+      d: `msg-${cap + overflow - 1}`,
+    });
+    client.dispose();
+  });
+
+  test("sendPushToken/sendUnpairNotice/sendRenameNotice also queue pre-auth", async () => {
+    // Push-token, unpair, and rename notices previously had their own
+    // silent `if (!authenticated) return` drops. They now funnel through
+    // sendEncrypted() so they share the same queue semantics as resume().
+    const p = await setupPairing();
+    const client = new FrontendRelayClient(makeConfig(p));
+
+    await client.connect();
+    const ws = latestWs();
+    ws.simulateOpen();
+    // Pre-auth: queue three different sender types.
+    await client.sendPushToken("expo-token-xyz", "ios");
+    await client.sendUnpairNotice("user-initiated");
+    await client.sendRenameNotice("My Mac");
+    await flushPromises();
+    // Nothing on the wire yet.
+    expect(ws.parsedSent().filter((m) => m.t === "relay.pub").length).toBe(0);
+
+    // Authenticate → queue drains.
+    ws.simulateMessage({ t: "relay.auth.ok" });
+    await settleAuthPipeline(3);
+
+    const pubs = ws.parsedSent().filter((m) => m.t === "relay.pub") as Array<{
+      t: string;
+      sid: string;
+      ct: string;
+    }>;
+    expect(pubs.length).toBe(3);
+
+    // Channel routing is preserved: push-token goes to __meta__, the two
+    // control notices to __control__.
+    expect(pubs.map((p2) => p2.sid)).toEqual([
+      "__meta__",
+      "__control__",
+      "__control__",
+    ]);
+
+    const [pushPub, unpairPub, renamePub] = pubs;
+    if (!pushPub || !unpairPub || !renamePub) {
+      throw new Error("expected three flushed frames");
+    }
+
+    const pushDecoded = JSON.parse(
+      new TextDecoder().decode(await decrypt(pushPub.ct, p.daemonRx)),
+    );
+    expect(pushDecoded).toEqual({
+      t: "pushToken",
+      token: "expo-token-xyz",
+      platform: "ios",
+    });
+
+    const unpairDecoded = JSON.parse(
+      new TextDecoder().decode(await decrypt(unpairPub.ct, p.daemonRx)),
+    );
+    expect(unpairDecoded.t).toBe(CONTROL_UNPAIR);
+    expect(unpairDecoded.reason).toBe("user-initiated");
+
+    const renameDecoded = JSON.parse(
+      new TextDecoder().decode(await decrypt(renamePub.ct, p.daemonRx)),
+    );
+    expect(renameDecoded.t).toBe(CONTROL_RENAME);
+    expect(renameDecoded.label).toBe("My Mac");
+    client.dispose();
+  });
+
+  test("queue is cleared on WS close before auth.ok", async () => {
+    const p = await setupPairing();
+    const client = new FrontendRelayClient(makeConfig(p));
+
+    // Stub setTimeout so scheduleReconnect() doesn't spawn a third
+    // MockWebSocket behind our back during this test. Matches the pattern
+    // used by the "reconnect backoff" describe block below.
+    const originalSetTimeout = globalThis.setTimeout;
+    (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((
+      _cb: () => void,
+      _ms: number,
+    ) =>
+      0 as unknown as ReturnType<
+        typeof setTimeout
+      >) as unknown as typeof setTimeout;
+
+    try {
+      await client.connect();
+      const ws1 = latestWs();
+      ws1.simulateOpen();
+      // Queue a frame before auth.
+      client.sendChat("s1", "queued");
+      await flushPromises();
+
+      // Socket closes before auth ever completes.
+      ws1.simulateClose();
+      await flushPromises();
+
+      // Reconnect + authenticate a fresh socket. The old queued frame
+      // should NOT be resurrected — it was tied to the previous connection
+      // cycle. Callers (ChatView, auto-resume path) are responsible for
+      // re-issuing their state on the new cycle.
+      await client.connect();
+      const ws2 = latestWs();
+      ws2.simulateOpen();
+      ws2.simulateMessage({ t: "relay.auth.ok" });
+      await settleAuthPipeline(0);
+
+      const pubs = ws2
+        .parsedSent()
+        .filter(
+          (m) => m.t === "relay.pub" && (m as { sid?: string }).sid === "s1",
+        );
+      expect(pubs.length).toBe(0);
+    } finally {
+      (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
+        originalSetTimeout;
+      client.dispose();
+    }
   });
 });
 

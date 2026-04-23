@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.1.17](https://github.com/DaveDev42/teleprompter/compare/v0.1.16...v0.1.17) (2026-04-23)
+
+
+### Bug Fixes
+
+* **app:** align Expo SDK 55 packages with expo-doctor ([cdbb7de](https://github.com/DaveDev42/teleprompter/commit/cdbb7def82868105f8a669e4eb893dd4b964deb3))
+* **app:** bump Expo SDK 55 packages to expo-doctor 'expected' versions ([f8ca6b8](https://github.com/DaveDev42/teleprompter/commit/f8ca6b8318bd6f560b6c9f693574d69fe1ee071e))
+* **app:** clarify optimistic chat dedup comments and test wording ([4cffb80](https://github.com/DaveDev42/teleprompter/commit/4cffb806560f733b2c32453e524abc036d4efeb7))
+* **app:** extend control-plane decrypt silence to __meta__ and harden tests ([44f8e1b](https://github.com/DaveDev42/teleprompter/commit/44f8e1b2f51b1eed68386d410e9d12e05cb7b32c))
+* **app:** harden optimistic chat dedup against streaming + voice paths ([953bda0](https://github.com/DaveDev42/teleprompter/commit/953bda0abc9ce0fa5b6d9aee992e46494e0b33a6))
+* **app:** queue encrypted frames until relay kx completes ([14e504d](https://github.com/DaveDev42/teleprompter/commit/14e504d72146bdddec7c627e099d96b13c002b3f))
+* **app:** queue encrypted frames until relay kx completes ([a73b409](https://github.com/DaveDev42/teleprompter/commit/a73b4095ffc4ede2a75b677f59569a027a80bfb9))
+* **app:** render optimistic user bubble on chat send ([44fd04f](https://github.com/DaveDev42/teleprompter/commit/44fd04f78e68cab8205fd855cb2461436c0e066a))
+* **app:** render optimistic user bubble on chat send ([aaddbf3](https://github.com/DaveDev42/teleprompter/commit/aaddbf3cc944a73c01b606f4fbe741c26a923c4c))
+* **app:** silence per-frontend decrypt failures on __control__ sid ([e045780](https://github.com/DaveDev42/teleprompter/commit/e0457804c8f307f6ed084df43326521445c041db))
+* **app:** silence per-frontend decrypt failures on __control__ sid ([6f3846b](https://github.com/DaveDev42/teleprompter/commit/6f3846b04d72b72fd5b16637c998d6983f060844))
+* **app:** surface stopped-session state with banner, disabled inputs, and terminal fallback ([c66e016](https://github.com/DaveDev42/teleprompter/commit/c66e0162220953bafec41cb9a4c3754b54c9604b))
+* **app:** surface stopped-session state with banner, disabled inputs, and terminal fallback ([70ee3f2](https://github.com/DaveDev42/teleprompter/commit/70ee3f28c58845ccad83677d9051ba6e11d91403))
+* **cli:** add `tp session list/delete/prune` for zombie cleanup ([d033126](https://github.com/DaveDev42/teleprompter/commit/d033126f9012ac7cc6b3b9ebb9129037440b0d9c))
+* **cli:** add tp session list/delete/prune for zombie cleanup ([95a52d1](https://github.com/DaveDev42/teleprompter/commit/95a52d1b4a12e22b5477129dab2fc4ec0ce3490d))
+* **protocol:** accept session.delete/prune frames in IPC guard ([ba1032f](https://github.com/DaveDev42/teleprompter/commit/ba1032f4259eefcb2cf96f746da2ab4c8fd22bfe))
+* **protocol:** accept session.delete/prune frames in IPC guard ([8670c0e](https://github.com/DaveDev42/teleprompter/commit/8670c0ef77823292230036e3eba551ca4f450671))
+
 ## [0.1.16](https://github.com/DaveDev42/teleprompter/compare/v0.1.15...v0.1.16) (2026-04-22)
 
 

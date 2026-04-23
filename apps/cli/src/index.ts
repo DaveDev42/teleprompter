@@ -7,6 +7,7 @@ const SUBCOMMANDS = new Set([
   "run",
   "relay",
   "pair",
+  "session",
   "status",
   "logs",
   "doctor",
@@ -70,6 +71,11 @@ async function main(): Promise<void> {
     case "pair": {
       const { pairCommand } = await import("./commands/pair");
       await pairCommand(process.argv.slice(3));
+      break;
+    }
+    case "session": {
+      const { sessionCommand } = await import("./commands/session");
+      await sessionCommand(process.argv.slice(3));
       break;
     }
     case "status": {
@@ -142,6 +148,7 @@ tp — Teleprompter: remote Claude Code controller
 Usage:
   tp [flags] [claude args]            Run claude through teleprompter
   tp pair [new|list|delete]           Manage mobile app pairings (QR code)
+  tp session [list|delete|prune]      Manage stored sessions (clean up zombies)
   tp status                           Show sessions & daemon status
   tp logs [session]                   Tail live session output
   tp doctor                           Diagnose environment & connectivity

@@ -33,6 +33,7 @@ interface Calls {
   storeCreateSession: Array<[string, string, string?, string?]>;
   storeUpdateState: Array<[string, string]>;
   storeUpdateLastSeq: Array<[string, number]>;
+  storeDeleteSession: string[];
   sessionRegister: Array<[string, number, string, string?, string?]>;
   sessionUnregister: string[];
   killRunner: string[];
@@ -44,6 +45,19 @@ interface Calls {
   recordObserver: Array<[string, string, Buffer, string | undefined]>;
   removePairing: string[];
   renamePairing: Array<[string, string | null]>;
+}
+
+function mkMeta(sid: string, state: string, updated_at: number): SessionMeta {
+  return {
+    sid,
+    state,
+    cwd: "/cwd",
+    worktree_path: null,
+    claude_version: null,
+    created_at: updated_at,
+    updated_at,
+    last_seq: 0,
+  };
 }
 
 function makeRunner(sid?: string): ConnectedRunner {
@@ -61,6 +75,7 @@ function makeHarness(
   opts: {
     getWorktreeManager?: () => WorktreeManager | null;
     sessionMeta?: SessionMeta;
+    sessions?: SessionMeta[];
     sessionDb?: SessionDb;
     relayClients?: RelayClient[];
     pairings?: Array<{ daemonId: string }>;
@@ -69,6 +84,8 @@ function makeHarness(
       daemonId: string,
       label: string | null,
     ) => Promise<number>;
+    runningSids?: string[];
+    deleteSessionThrows?: (sid: string) => Error | null;
   } = {},
 ) {
   const calls: Calls = {
@@ -76,6 +93,7 @@ function makeHarness(
     storeCreateSession: [],
     storeUpdateState: [],
     storeUpdateLastSeq: [],
+    storeDeleteSession: [],
     sessionRegister: [],
     sessionUnregister: [],
     killRunner: [],
@@ -89,9 +107,12 @@ function makeHarness(
     renamePairing: [],
   };
 
-  const fakeSessions: SessionMeta[] = opts.sessionMeta
-    ? [opts.sessionMeta]
-    : [];
+  const fakeSessions: SessionMeta[] = opts.sessions
+    ? [...opts.sessions]
+    : opts.sessionMeta
+      ? [opts.sessionMeta]
+      : [];
+  const runningSet = new Set(opts.runningSids ?? []);
 
   const ipcServer: Pick<IpcServer, "send" | "findRunnerBySid"> = {
     send: (runner, msg) => {
@@ -111,6 +132,7 @@ function makeHarness(
     | "getSession"
     | "getSessionDb"
     | "listPairings"
+    | "deleteSession"
   > = {
     createSession: (sid, cwd, worktreePath, claudeVersion) => {
       calls.storeCreateSession.push([sid, cwd, worktreePath, claudeVersion]);
@@ -124,10 +146,7 @@ function makeHarness(
       calls.storeUpdateLastSeq.push([sid, seq]);
     },
     listSessions: () => fakeSessions,
-    getSession: (sid) =>
-      opts.sessionMeta && opts.sessionMeta.sid === sid
-        ? opts.sessionMeta
-        : undefined,
+    getSession: (sid) => fakeSessions.find((s) => s.sid === sid),
     getSessionDb: () => fakeDb,
     listPairings: () =>
       (opts.pairings ?? []).map((p) => ({
@@ -136,6 +155,13 @@ function makeHarness(
         label: null,
         createdAt: 0,
       })),
+    deleteSession: (sid) => {
+      const err = opts.deleteSessionThrows?.(sid) ?? null;
+      if (err) throw err;
+      calls.storeDeleteSession.push(sid);
+      const idx = fakeSessions.findIndex((s) => s.sid === sid);
+      if (idx >= 0) fakeSessions.splice(idx, 1);
+    },
   };
 
   const sessionManager: Pick<
@@ -150,6 +176,10 @@ function makeHarness(
     },
     killRunner: (sid) => {
       calls.killRunner.push(sid);
+      if (runningSet.has(sid)) {
+        runningSet.delete(sid);
+        return true;
+      }
       return sid === "present";
     },
   };
@@ -340,6 +370,250 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     expect(calls.ipcSends).toEqual([
       { t: "pair.rename.err", daemonId: "missing", reason: "not-found" },
     ]);
+  });
+
+  test("session.delete on a stopped session replies ok without killing a runner", async () => {
+    const meta: SessionMeta = {
+      sid: "s-stopped",
+      state: "stopped",
+      cwd: "/cwd",
+      worktree_path: null,
+      claude_version: null,
+      created_at: 1,
+      updated_at: 2,
+      last_seq: 0,
+    };
+    const { dispatcher, calls } = makeHarness({ sessionMeta: meta });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "session.delete",
+      sid: "s-stopped",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls.killRunner).toEqual([]);
+    expect(calls.storeDeleteSession).toEqual(["s-stopped"]);
+    expect(calls.ipcSends).toEqual([
+      { t: "session.delete.ok", sid: "s-stopped", wasRunning: false },
+    ]);
+  });
+
+  test("session.delete on a running session kills the runner then deletes", async () => {
+    const meta: SessionMeta = {
+      sid: "s-running",
+      state: "running",
+      cwd: "/cwd",
+      worktree_path: null,
+      claude_version: null,
+      created_at: 1,
+      updated_at: 2,
+      last_seq: 0,
+    };
+    const { dispatcher, calls } = makeHarness({
+      sessionMeta: meta,
+      runningSids: ["s-running"],
+    });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "session.delete",
+      sid: "s-running",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls.killRunner).toEqual(["s-running"]);
+    expect(calls.storeDeleteSession).toEqual(["s-running"]);
+    expect(calls.ipcSends).toEqual([
+      { t: "session.delete.ok", sid: "s-running", wasRunning: true },
+    ]);
+  });
+
+  test("session.delete replies not-found when sid missing", async () => {
+    const { dispatcher, calls } = makeHarness();
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "session.delete",
+      sid: "missing",
+    });
+    await Promise.resolve();
+    expect(calls.storeDeleteSession).toEqual([]);
+    expect(calls.ipcSends).toEqual([
+      { t: "session.delete.err", sid: "missing", reason: "not-found" },
+    ]);
+  });
+
+  test("session.delete replies internal when deleteSession throws", async () => {
+    const meta: SessionMeta = {
+      sid: "s-err",
+      state: "stopped",
+      cwd: "/cwd",
+      worktree_path: null,
+      claude_version: null,
+      created_at: 1,
+      updated_at: 2,
+      last_seq: 0,
+    };
+    const { dispatcher, calls } = makeHarness({
+      sessionMeta: meta,
+      deleteSessionThrows: () => new Error("disk full"),
+    });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "session.delete",
+      sid: "s-err",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls.ipcSends).toEqual([
+      {
+        t: "session.delete.err",
+        sid: "s-err",
+        reason: "internal",
+        message: "disk full",
+      },
+    ]);
+  });
+
+  test("session.prune selects stopped/error sessions older than cutoff", async () => {
+    const now = Date.now();
+    const sessions: SessionMeta[] = [
+      mkMeta("old-stopped", "stopped", now - 10_000),
+      mkMeta("new-stopped", "stopped", now - 100),
+      mkMeta("old-running", "running", now - 10_000),
+      mkMeta("old-error", "error", now - 10_000),
+    ];
+    const { dispatcher, calls } = makeHarness({ sessions });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "session.prune",
+      olderThanMs: 5_000,
+      includeRunning: false,
+      dryRun: false,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls.storeDeleteSession.sort()).toEqual([
+      "old-error",
+      "old-stopped",
+    ]);
+    expect(calls.killRunner).toEqual([]);
+    const reply = calls.ipcSends[0] as {
+      t: string;
+      sids: string[];
+      runningKilled: number;
+      dryRun: boolean;
+    };
+    expect(reply.t).toBe("session.prune.ok");
+    expect(reply.sids.sort()).toEqual(["old-error", "old-stopped"]);
+    expect(reply.runningKilled).toBe(0);
+    expect(reply.dryRun).toBe(false);
+  });
+
+  test("session.prune with dryRun reports selection without deleting", async () => {
+    const now = Date.now();
+    const sessions: SessionMeta[] = [
+      mkMeta("s1", "stopped", now - 10_000),
+      mkMeta("s2", "stopped", now - 10_000),
+    ];
+    const { dispatcher, calls } = makeHarness({ sessions });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "session.prune",
+      olderThanMs: 5_000,
+      includeRunning: false,
+      dryRun: true,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls.storeDeleteSession).toEqual([]);
+    const reply = calls.ipcSends[0] as { sids: string[]; dryRun: boolean };
+    expect(reply.sids.sort()).toEqual(["s1", "s2"]);
+    expect(reply.dryRun).toBe(true);
+  });
+
+  test("session.prune with includeRunning kills running sessions first", async () => {
+    const now = Date.now();
+    const sessions: SessionMeta[] = [
+      mkMeta("r1", "running", now - 10_000),
+      mkMeta("s1", "stopped", now - 10_000),
+    ];
+    const { dispatcher, calls } = makeHarness({
+      sessions,
+      runningSids: ["r1"],
+    });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "session.prune",
+      olderThanMs: 5_000,
+      includeRunning: true,
+      dryRun: false,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls.killRunner).toEqual(["r1"]);
+    expect(calls.storeDeleteSession.sort()).toEqual(["r1", "s1"]);
+    const reply = calls.ipcSends[0] as { runningKilled: number };
+    expect(reply.runningKilled).toBe(1);
+  });
+
+  test("session.prune with olderThanMs=null and includeRunning=true matches everything", async () => {
+    const now = Date.now();
+    const sessions: SessionMeta[] = [
+      mkMeta("r1", "running", now),
+      mkMeta("s1", "stopped", now),
+    ];
+    const { dispatcher, calls } = makeHarness({
+      sessions,
+      runningSids: ["r1"],
+    });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "session.prune",
+      olderThanMs: null,
+      includeRunning: true,
+      dryRun: false,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls.storeDeleteSession.sort()).toEqual(["r1", "s1"]);
+  });
+
+  test("session.prune with no matches still replies ok with empty sids", async () => {
+    const { dispatcher, calls } = makeHarness({ sessions: [] });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "session.prune",
+      olderThanMs: 5_000,
+      includeRunning: false,
+      dryRun: false,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    const reply = calls.ipcSends[0] as {
+      t: string;
+      sids: string[];
+      runningKilled: number;
+      dryRun: boolean;
+    };
+    expect(reply).toEqual({
+      t: "session.prune.ok",
+      sids: [],
+      runningKilled: 0,
+      dryRun: false,
+    });
+  });
+
+  test("session.prune replies internal when a deleteSession throws mid-run", async () => {
+    const now = Date.now();
+    const sessions: SessionMeta[] = [
+      mkMeta("s1", "stopped", now - 10_000),
+      mkMeta("s2", "stopped", now - 10_000),
+    ];
+    const { dispatcher, calls } = makeHarness({
+      sessions,
+      deleteSessionThrows: (sid) => (sid === "s2" ? new Error("locked") : null),
+    });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "session.prune",
+      olderThanMs: 5_000,
+      includeRunning: false,
+      dryRun: false,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    const reply = calls.ipcSends[0] as { t: string; reason?: string };
+    expect(reply.t).toBe("session.prune.err");
+    expect(reply.reason).toBe("internal");
   });
 
   test("hello creates session row, registers runner, and notifies relays", () => {

@@ -86,6 +86,11 @@ describe("matchSessions", () => {
   });
 
   test("exact match wins over ambiguous prefix", () => {
+    // The sessions table has `sid TEXT PRIMARY KEY`, so at runtime the
+    // Store can never hand us two rows where one's sid equals the search
+    // and another's starts with it. This test pins the pure-function
+    // behavior of `matchSessions` under a hypothetical so a future refactor
+    // (e.g. searching a different collection) can't silently regress it.
     const cands = [{ sid: "abc" }, { sid: "abcdef" }];
     const out = matchSessions(cands, "abc");
     expect(out).toHaveLength(1);

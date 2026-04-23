@@ -439,4 +439,275 @@ describe("parseIpcMessage", () => {
       ).toBeNull();
     });
   });
+
+  describe("session.delete", () => {
+    test("session.delete parses required sid", () => {
+      expect(parseIpcMessage({ t: "session.delete", sid: "s-1" })).toEqual({
+        t: "session.delete",
+        sid: "s-1",
+      });
+    });
+
+    test("session.delete rejects missing or non-string sid", () => {
+      expect(parseIpcMessage({ t: "session.delete" })).toBeNull();
+      expect(parseIpcMessage({ t: "session.delete", sid: 42 })).toBeNull();
+    });
+
+    test("session.delete.ok requires sid and boolean wasRunning", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.delete.ok",
+          sid: "s-1",
+          wasRunning: true,
+        }),
+      ).toEqual({ t: "session.delete.ok", sid: "s-1", wasRunning: true });
+      expect(
+        parseIpcMessage({
+          t: "session.delete.ok",
+          sid: "s-1",
+          wasRunning: false,
+        }),
+      ).toEqual({ t: "session.delete.ok", sid: "s-1", wasRunning: false });
+    });
+
+    test("session.delete.ok rejects non-boolean wasRunning", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.delete.ok",
+          sid: "s-1",
+          wasRunning: "true",
+        }),
+      ).toBeNull();
+      expect(
+        parseIpcMessage({ t: "session.delete.ok", sid: "s-1" }),
+      ).toBeNull();
+    });
+
+    test("session.delete.err validates reason enum", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.delete.err",
+          sid: "s-1",
+          reason: "not-found",
+        }),
+      ).toEqual({
+        t: "session.delete.err",
+        sid: "s-1",
+        reason: "not-found",
+        message: undefined,
+      });
+      expect(
+        parseIpcMessage({
+          t: "session.delete.err",
+          sid: "s-1",
+          reason: "internal",
+          message: "boom",
+        }),
+      ).toEqual({
+        t: "session.delete.err",
+        sid: "s-1",
+        reason: "internal",
+        message: "boom",
+      });
+      expect(
+        parseIpcMessage({
+          t: "session.delete.err",
+          sid: "s-1",
+          reason: "bogus",
+        }),
+      ).toBeNull();
+      expect(
+        parseIpcMessage({ t: "session.delete.err", reason: "not-found" }),
+      ).toBeNull();
+    });
+  });
+
+  describe("session.prune", () => {
+    test("session.prune parses with numeric olderThanMs", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.prune",
+          olderThanMs: 60_000,
+          includeRunning: false,
+          dryRun: false,
+        }),
+      ).toEqual({
+        t: "session.prune",
+        olderThanMs: 60_000,
+        includeRunning: false,
+        dryRun: false,
+      });
+    });
+
+    test("session.prune accepts null olderThanMs (all sessions)", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.prune",
+          olderThanMs: null,
+          includeRunning: true,
+          dryRun: true,
+        }),
+      ).toEqual({
+        t: "session.prune",
+        olderThanMs: null,
+        includeRunning: true,
+        dryRun: true,
+      });
+    });
+
+    test("session.prune rejects missing fields", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.prune",
+          includeRunning: false,
+          dryRun: false,
+        }),
+      ).toBeNull();
+      expect(
+        parseIpcMessage({
+          t: "session.prune",
+          olderThanMs: 0,
+          dryRun: false,
+        }),
+      ).toBeNull();
+      expect(
+        parseIpcMessage({
+          t: "session.prune",
+          olderThanMs: 0,
+          includeRunning: false,
+        }),
+      ).toBeNull();
+    });
+
+    test("session.prune rejects wrong field types", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.prune",
+          olderThanMs: "1000",
+          includeRunning: false,
+          dryRun: false,
+        }),
+      ).toBeNull();
+      expect(
+        parseIpcMessage({
+          t: "session.prune",
+          olderThanMs: 0,
+          includeRunning: "yes",
+          dryRun: false,
+        }),
+      ).toBeNull();
+      expect(
+        parseIpcMessage({
+          t: "session.prune",
+          olderThanMs: 0,
+          includeRunning: false,
+          dryRun: 1,
+        }),
+      ).toBeNull();
+    });
+
+    test("session.prune.ok parses full shape", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.prune.ok",
+          sids: ["a", "b"],
+          runningKilled: 1,
+          dryRun: false,
+        }),
+      ).toEqual({
+        t: "session.prune.ok",
+        sids: ["a", "b"],
+        runningKilled: 1,
+        dryRun: false,
+      });
+    });
+
+    test("session.prune.ok rejects non-string array entries", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.prune.ok",
+          sids: ["a", 42],
+          runningKilled: 0,
+          dryRun: false,
+        }),
+      ).toBeNull();
+    });
+
+    test("session.prune.ok rejects missing fields", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.prune.ok",
+          sids: [],
+          runningKilled: 0,
+        }),
+      ).toBeNull();
+      expect(
+        parseIpcMessage({
+          t: "session.prune.ok",
+          runningKilled: 0,
+          dryRun: false,
+        }),
+      ).toBeNull();
+    });
+
+    test("session.prune.err validates reason and partial fields", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.prune.err",
+          reason: "internal",
+          message: "boom",
+          partialSids: ["a"],
+          partialRunningKilled: 1,
+        }),
+      ).toEqual({
+        t: "session.prune.err",
+        reason: "internal",
+        message: "boom",
+        partialSids: ["a"],
+        partialRunningKilled: 1,
+      });
+    });
+
+    test("session.prune.err accepts missing optional message", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.prune.err",
+          reason: "internal",
+          partialSids: [],
+          partialRunningKilled: 0,
+        }),
+      ).toEqual({
+        t: "session.prune.err",
+        reason: "internal",
+        message: undefined,
+        partialSids: [],
+        partialRunningKilled: 0,
+      });
+    });
+
+    test("session.prune.err rejects bogus reason and missing partials", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.prune.err",
+          reason: "not-found",
+          partialSids: [],
+          partialRunningKilled: 0,
+        }),
+      ).toBeNull();
+      expect(
+        parseIpcMessage({
+          t: "session.prune.err",
+          reason: "internal",
+          partialRunningKilled: 0,
+        }),
+      ).toBeNull();
+      expect(
+        parseIpcMessage({
+          t: "session.prune.err",
+          reason: "internal",
+          partialSids: [],
+        }),
+      ).toBeNull();
+    });
+  });
 });

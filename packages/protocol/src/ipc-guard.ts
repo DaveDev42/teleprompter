@@ -20,6 +20,8 @@ import type {
   IpcPairErrorReason,
   IpcPairRemoveErrReason,
   IpcPairRenameErrReason,
+  IpcSessionDeleteErrReason,
+  IpcSessionPruneErrReason,
 } from "./types/ipc";
 import type { Namespace, RecordKind } from "./types/record";
 
@@ -68,6 +70,13 @@ const PAIR_RENAME_REASONS: ReadonlySet<IpcPairRenameErrReason> = new Set([
   "not-found",
   "internal",
 ]);
+const SESSION_DELETE_REASONS: ReadonlySet<IpcSessionDeleteErrReason> = new Set([
+  "not-found",
+  "internal",
+]);
+const SESSION_PRUNE_REASONS: ReadonlySet<IpcSessionPruneErrReason> = new Set([
+  "internal",
+]);
 
 function isRecordKind(v: unknown): v is RecordKind {
   return typeof v === "string" && RECORD_KINDS.has(v as RecordKind);
@@ -102,6 +111,24 @@ function isPairRenameReason(v: unknown): v is IpcPairRenameErrReason {
     typeof v === "string" &&
     PAIR_RENAME_REASONS.has(v as IpcPairRenameErrReason)
   );
+}
+
+function isSessionDeleteReason(v: unknown): v is IpcSessionDeleteErrReason {
+  return (
+    typeof v === "string" &&
+    SESSION_DELETE_REASONS.has(v as IpcSessionDeleteErrReason)
+  );
+}
+
+function isSessionPruneReason(v: unknown): v is IpcSessionPruneErrReason {
+  return (
+    typeof v === "string" &&
+    SESSION_PRUNE_REASONS.has(v as IpcSessionPruneErrReason)
+  );
+}
+
+function isStringArray(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every((x) => typeof x === "string");
 }
 
 /**
@@ -299,6 +326,71 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
         daemonId: raw.daemonId,
         reason: raw.reason,
         message: raw.message,
+      };
+    }
+
+    case "session.delete": {
+      if (!isString(raw.sid)) return null;
+      return { t: "session.delete", sid: raw.sid };
+    }
+
+    case "session.delete.ok": {
+      if (!isString(raw.sid)) return null;
+      if (typeof raw.wasRunning !== "boolean") return null;
+      return {
+        t: "session.delete.ok",
+        sid: raw.sid,
+        wasRunning: raw.wasRunning,
+      };
+    }
+
+    case "session.delete.err": {
+      if (!isString(raw.sid)) return null;
+      if (!isSessionDeleteReason(raw.reason)) return null;
+      if (!isOptionalString(raw.message)) return null;
+      return {
+        t: "session.delete.err",
+        sid: raw.sid,
+        reason: raw.reason,
+        message: raw.message,
+      };
+    }
+
+    case "session.prune": {
+      if (raw.olderThanMs !== null && !isNumber(raw.olderThanMs)) return null;
+      if (typeof raw.includeRunning !== "boolean") return null;
+      if (typeof raw.dryRun !== "boolean") return null;
+      return {
+        t: "session.prune",
+        olderThanMs: raw.olderThanMs,
+        includeRunning: raw.includeRunning,
+        dryRun: raw.dryRun,
+      };
+    }
+
+    case "session.prune.ok": {
+      if (!isStringArray(raw.sids)) return null;
+      if (!isNumber(raw.runningKilled)) return null;
+      if (typeof raw.dryRun !== "boolean") return null;
+      return {
+        t: "session.prune.ok",
+        sids: raw.sids,
+        runningKilled: raw.runningKilled,
+        dryRun: raw.dryRun,
+      };
+    }
+
+    case "session.prune.err": {
+      if (!isSessionPruneReason(raw.reason)) return null;
+      if (!isOptionalString(raw.message)) return null;
+      if (!isStringArray(raw.partialSids)) return null;
+      if (!isNumber(raw.partialRunningKilled)) return null;
+      return {
+        t: "session.prune.err",
+        reason: raw.reason,
+        message: raw.message,
+        partialSids: raw.partialSids,
+        partialRunningKilled: raw.partialRunningKilled,
       };
     }
 

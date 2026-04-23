@@ -466,7 +466,7 @@ describe("chat-store: processHookEvent", () => {
     expect(msgs[1].text).toBe("partial bytes before echo");
   });
 
-  test("back-to-back optimistic sends with a delayed first echo preserve all three bubbles", () => {
+  test("backward scan stops after first non-match so delayed echoes are not swallowed", () => {
     // Documents the deliberate `break` in the backward scan: once the most
     // recent user message fails to match, older user messages are NOT
     // revisited. User types "A", then "B" (both optimistic), then the
@@ -490,7 +490,7 @@ describe("chat-store: processHookEvent", () => {
     expect(msgs[1].text).toBe("B");
     expect(msgs[1].source).toBe("local");
     expect(msgs[2].text).toBe("A");
-    expect(msgs[2].source).toBeUndefined();
+    expect(msgs[2].source).toBe("remote");
   });
 
   test("UserPromptSubmit de-dups against daemon-echoed text with trailing newline", () => {

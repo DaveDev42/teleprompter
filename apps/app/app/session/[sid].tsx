@@ -183,6 +183,7 @@ function ChatView({ sid }: { sid: string }) {
     if (!trimmed || !sid) return;
     const client = getTransport();
     if (!client) return;
+    // Optimistic add must precede sendChat so the echoed hook event dedups.
     addOptimisticUserMessage(trimmed);
     client.sendChat(sid, trimmed);
     setInput("");

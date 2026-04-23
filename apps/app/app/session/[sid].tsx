@@ -20,6 +20,7 @@ import { stripAnsi } from "../../src/lib/ansi-strip";
 import { getPlatformProps } from "../../src/lib/get-platform-props";
 import type { TerminalSearch } from "../../src/lib/terminal-search";
 import {
+  addOptimisticUserMessage,
   type ChatMessage,
   processHookEvent,
   useChatStore,
@@ -115,9 +116,13 @@ function ChatView({ sid }: { sid: string }) {
   // Wire voice prompt to chat send
   useEffect(() => {
     setOnPromptReady((prompt: string) => {
+      const trimmed = prompt.trim();
+      if (!trimmed) return;
       const client = getTransport();
       if (sid && client) {
-        client.sendChat(sid, prompt);
+        // Trim for display + empty-prompt guard; dedup comparison trims separately.
+        addOptimisticUserMessage(trimmed);
+        client.sendChat(sid, trimmed);
       }
     });
     return () => setOnPromptReady(null);
@@ -174,11 +179,13 @@ function ChatView({ sid }: { sid: string }) {
   }, [messages.length]);
 
   const handleSend = useCallback(() => {
-    const text = input.trim();
-    if (!text || !sid) return;
+    const trimmed = input.trim();
+    if (!trimmed || !sid) return;
     const client = getTransport();
     if (!client) return;
-    client.sendChat(sid, text);
+    // Optimistic add must precede sendChat so the echoed hook event dedups.
+    addOptimisticUserMessage(trimmed);
+    client.sendChat(sid, trimmed);
     setInput("");
   }, [input, sid]);
 

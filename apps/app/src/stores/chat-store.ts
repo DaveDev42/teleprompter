@@ -106,7 +106,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
  * Optimistically append a local user bubble to the chat store. Called by
  * `sendChat` callers so the user sees their own message immediately, without
  * waiting for the daemon's `UserPromptSubmit` round-trip. The echoed hook
- * event is de-duplicated against the `source: "local"` marker.
+ * event is de-duplicated against the `source: "local"` marker — but only
+ * when the optimistic message is still the most recent user message when
+ * the echo arrives (see `processHookEvent` backward-scan semantics).
  */
 export function addOptimisticUserMessage(text: string): void {
   const trimmed = text.trim();
@@ -151,7 +153,7 @@ export function processHookEvent(event: HookEventBase) {
           return;
         }
         // The most-recent user message isn't a dedup match; stop here —
-        // earlier user messages in the stack are from prior round-trips.
+        // earlier user messages in the stack belong to prior turns.
         break;
       }
       store.addMessage({

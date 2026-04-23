@@ -238,6 +238,7 @@ describe("chat-store: processHookEvent", () => {
     expect(msgs[0].text).toBe("partial response");
     expect(msgs[1].type).toBe("user");
     expect(msgs[1].text).toBe("hello");
+    expect(msgs[1].source).toBe("remote");
     expect(useChatStore.getState().streamingText).toBe("");
   });
 
@@ -538,6 +539,30 @@ describe("chat-store: processHookEvent", () => {
     expect(msgs.length).toBe(2);
   });
 
+  test("UserPromptSubmit does NOT de-dup against a prior source: 'remote' user message", () => {
+    // Prior remote-origin user message (e.g. replay from another frontend).
+    // Only source === "local" triggers dedup; "remote" is informational.
+    useChatStore.getState().addMessage({
+      id: makeId(),
+      type: "user",
+      text: "echo",
+      source: "remote",
+      ts: Date.now(),
+    });
+
+    processHookEvent(
+      baseEvent({
+        hook_event_name: "UserPromptSubmit",
+        user_prompt: "echo",
+      }),
+    );
+
+    const msgs = useChatStore.getState().messages;
+    expect(msgs.length).toBe(2);
+    expect(msgs[0].source).toBe("remote");
+    expect(msgs[1].source).toBe("remote");
+  });
+
   test("optimistic send -> daemon echo -> streaming -> stop (no duplicate user bubble)", () => {
     // UI calls addOptimisticUserMessage then transport.sendChat
     addOptimisticUserMessage("How are you?");
@@ -592,6 +617,7 @@ describe("chat-store: processHookEvent", () => {
     expect(msgs.length).toBe(3);
     expect(msgs[0].type).toBe("user");
     expect(msgs[0].text).toBe("How are you?");
+    expect(msgs[0].source).toBe("remote");
     expect(msgs[1].type).toBe("streaming");
     expect(msgs[1].text).toBe("I'm fine, thanks.");
     expect(msgs[2].type).toBe("assistant");

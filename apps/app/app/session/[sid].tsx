@@ -120,7 +120,7 @@ function ChatView({ sid }: { sid: string }) {
       if (!trimmed) return;
       const client = getTransport();
       if (sid && client) {
-        // Same trim as daemon-side normalization; keeps dedup tight.
+        // Trim for display + empty-prompt guard; dedup comparison trims separately.
         addOptimisticUserMessage(trimmed);
         client.sendChat(sid, trimmed);
       }

@@ -221,6 +221,11 @@ async function sessionDelete(argv: string[]): Promise<void> {
   // Runner process reference and will kill it cleanly before deleting the
   // store rows. Without a daemon the session cannot be "running" anymore
   // (daemon death already orphans Runners), so a direct Store write is safe.
+  //
+  // Note: the lookup Store above is already closed by the `finally` block
+  // before we reach here — we must not hold a reader open across an await,
+  // especially across an interactive prompt, so the daemon-less branch
+  // opens a fresh Store instance for the delete write.
   if (await isDaemonRunning()) {
     const result = await requestSessionOp<
       IpcSessionDeleteOk | IpcSessionDeleteErr
@@ -418,9 +423,13 @@ async function sessionPrune(argv: string[]): Promise<void> {
         );
         for (const sid of deleted) console.error(dim(`  ${sid}`));
       }
-      // Print kill count unconditionally (see daemon-path comment above).
+      // Print the running-row count unconditionally (see daemon-path comment
+      // above). Daemon-less path never actually kills a Runner — the daemon
+      // is down — so these are stale rows being swept, not live kills.
       if (runningKilled > 0) {
-        console.error(dim(`Killed ${runningKilled} running runner(s).`));
+        console.error(
+          dim(`Swept ${runningKilled} stale running row(s) (daemon was down).`),
+        );
       }
       process.exit(1);
     } finally {
@@ -442,7 +451,15 @@ async function sessionPrune(argv: string[]): Promise<void> {
   console.log(ok(`Pruned ${result.sids.length} session(s):`));
   for (const sid of result.sids) console.log(`  ${sid}`);
   if (result.runningKilled > 0) {
-    console.log(dim(`Killed ${result.runningKilled} running runner(s).`));
+    // Daemon path killed live runners; daemon-less path swept stale rows.
+    // Distinguishing them prevents "I thought my session was live" confusion.
+    console.log(
+      daemonUp
+        ? dim(`Killed ${result.runningKilled} running runner(s).`)
+        : dim(
+            `Swept ${result.runningKilled} stale running row(s) (daemon was down).`,
+          ),
+    );
   }
 }
 

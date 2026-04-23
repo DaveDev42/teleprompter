@@ -137,6 +137,7 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `apps/cli/src/commands/status.test.ts` — daemon status display
 - `apps/cli/src/commands/pair.test.ts` — pairing data generation
 - `apps/cli/src/commands/passthrough.test.ts` — arg splitting
+- `apps/cli/src/commands/session.test.ts` — `tp session list/delete/prune` (parseDuration, matchSessions, daemon-less Store fallback integration)
 - `apps/cli/src/commands/upgrade.test.ts` — checksum parsing, file hashing, backup/rollback
 - `apps/cli/src/commands/completions.test.ts` — 각 쉘 completion 스크립트 출력에 tp/claude 서브커맨드 포함 여부
 - `apps/cli/src/commands/completions-install.test.ts` — bash/zsh/fish/powershell rc 파일 marker 블록 install/uninstall

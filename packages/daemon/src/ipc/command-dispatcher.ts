@@ -297,6 +297,10 @@ export class IpcCommandDispatcher {
         t: "session.prune.err",
         reason: "internal",
         message: e instanceof Error ? e.message : String(e),
+        // Partial state: the rows in `deleted` are already gone from the store.
+        // Reporting them lets the CLI surface "deleted N/M then errored" instead
+        // of implying nothing happened.
+        partialSids: deleted,
       };
       this.deps.ipcServer.send(runner, err);
       return;

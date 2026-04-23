@@ -210,6 +210,12 @@ export interface IpcSessionPruneErr {
   t: "session.prune.err";
   reason: "internal";
   message?: string;
+  /**
+   * Sids already deleted before the throw occurred, so the CLI can report
+   * "deleted 2/5, then error" instead of suggesting nothing happened.
+   * Always present (possibly empty) so callers don't branch on undefined.
+   */
+  partialSids: string[];
 }
 
 export type IpcMessage =

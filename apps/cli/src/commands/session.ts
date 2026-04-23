@@ -12,7 +12,7 @@ import { type ParseArgsConfig, parseArgs } from "util";
 import { dim, fail, ok, yellow } from "../lib/colors";
 import { isDaemonRunning } from "../lib/ensure-daemon";
 import { formatAge } from "../lib/format";
-import { connectIpcAsClient, type IpcClient } from "../lib/ipc-client";
+import { connectIpcAsClient } from "../lib/ipc-client";
 
 /** Wraps `parseArgs` so unknown flags / malformed input exit 1 with a human
  * message instead of a raw node TypeError stack trace. */
@@ -155,11 +155,11 @@ async function sessionDelete(argv: string[]): Promise<void> {
     "Usage: tp session delete <sid> [--yes]",
   );
 
-  if (positionals.length !== 1) {
+  const prefix = positionals[0];
+  if (positionals.length !== 1 || !prefix) {
     console.error(fail("Usage: tp session delete <sid> [--yes]"));
     process.exit(1);
   }
-  const prefix = positionals[0]!;
 
   const store = new Store();
   let target: { sid: string };
@@ -169,8 +169,20 @@ async function sessionDelete(argv: string[]): Promise<void> {
     if (matches.length === 0) {
       console.error(fail(`No session matches '${prefix}'.`));
       if (candidates.length > 0) {
+        // Cap the "Known sids:" hint so a store with hundreds of rows
+        // doesn't flood the terminal. Users with that many sessions
+        // typically already know the sid anyway.
+        const MAX_HINT = 20;
+        const shown = candidates.slice(0, MAX_HINT);
         console.error(dim("Known sids:"));
-        for (const c of candidates) console.error(dim(`  ${c.sid}`));
+        for (const c of shown) console.error(dim(`  ${c.sid}`));
+        if (candidates.length > MAX_HINT) {
+          console.error(
+            dim(
+              `  … ${candidates.length - MAX_HINT} more (run 'tp session list')`,
+            ),
+          );
+        }
       }
       process.exit(1);
     }
@@ -179,7 +191,14 @@ async function sessionDelete(argv: string[]): Promise<void> {
       for (const c of matches) console.error(`  ${c.sid}`);
       process.exit(1);
     }
-    target = matches[0]!;
+    const first = matches[0];
+    // matches.length === 1 already asserted by the branches above; this
+    // narrows away the nullable for TS without a non-null assertion.
+    if (!first) {
+      console.error(fail("internal: empty match set"));
+      process.exit(1);
+    }
+    target = first;
   } finally {
     store.close();
   }
@@ -250,12 +269,17 @@ async function sessionPrune(argv: string[]): Promise<void> {
     "Usage: tp session prune [--older-than <Nd|Nh|Nm|Ns>] [--all] [--running] [--dry-run] [-y]",
   );
 
+  // `default: "7d"` on the option guarantees this is always a string at
+  // runtime; the `?? "7d"` is a belt-and-suspenders fallback that also
+  // narrows the type for TS without casting.
+  const olderThanRaw =
+    typeof values["older-than"] === "string" ? values["older-than"] : "7d";
   let olderThanMs: number | null;
   if (values.all) {
     olderThanMs = null;
   } else {
     try {
-      olderThanMs = parseDuration(values["older-than"] as string);
+      olderThanMs = parseDuration(olderThanRaw);
     } catch (err) {
       console.error(fail(err instanceof Error ? err.message : String(err)));
       process.exit(1);
@@ -284,8 +308,8 @@ async function sessionPrune(argv: string[]): Promise<void> {
       process.exit(1);
     }
     const question = includeRunning
-      ? `Prune stopped + running sessions (older than ${values["older-than"]})? [y/N] `
-      : `Prune stopped sessions (older than ${values["older-than"]})? [y/N] `;
+      ? `Prune stopped + running sessions (older than ${olderThanRaw})? [y/N] `
+      : `Prune stopped sessions (older than ${olderThanRaw})? [y/N] `;
     const answer = await prompt(question);
     if (!/^y(es)?$/i.test(answer.trim())) {
       console.log("Aborted.");
@@ -323,6 +347,14 @@ async function sessionPrune(argv: string[]): Promise<void> {
           `Session prune failed: ${reply.reason}${reply.message ? ` — ${reply.message}` : ""}`,
         ),
       );
+      if (reply.partialSids.length > 0) {
+        console.error(
+          dim(
+            `Deleted ${reply.partialSids.length} session(s) before the error:`,
+          ),
+        );
+        for (const sid of reply.partialSids) console.error(dim(`  ${sid}`));
+      }
       process.exit(1);
     }
     result = reply;
@@ -331,10 +363,11 @@ async function sessionPrune(argv: string[]): Promise<void> {
     // Runner is attached, so `includeRunning` only affects whether stale
     // "running" rows from a prior crash get swept.
     const store = new Store();
-    let candidates: ReturnType<Store["listSessions"]>;
+    const deleted: string[] = [];
+    let runningKilled = 0;
     try {
       const now = Date.now();
-      candidates = store.listSessions().filter((s) => {
+      const candidates = store.listSessions().filter((s) => {
         if (s.state === "running" && !includeRunning) return false;
         if (olderThanMs === null) return true;
         return s.updated_at < now - olderThanMs;
@@ -348,8 +381,6 @@ async function sessionPrune(argv: string[]): Promise<void> {
           dryRun: true,
         };
       } else {
-        const deleted: string[] = [];
-        let runningKilled = 0;
         for (const s of candidates) {
           if (s.state === "running") runningKilled++;
           store.deleteSession(s.sid);
@@ -362,6 +393,19 @@ async function sessionPrune(argv: string[]): Promise<void> {
           dryRun: false,
         };
       }
+    } catch (err) {
+      console.error(
+        fail(
+          `Session prune failed: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+      if (deleted.length > 0) {
+        console.error(
+          dim(`Deleted ${deleted.length} session(s) before the error:`),
+        );
+        for (const sid of deleted) console.error(dim(`  ${sid}`));
+      }
+      process.exit(1);
     } finally {
       store.close();
     }
@@ -397,9 +441,8 @@ async function requestSessionOp<R extends { t: string }>(
   msg: IpcSessionDelete | IpcSessionPrune,
   expectedTypes: readonly string[],
 ): Promise<R> {
-  let ipc: IpcClient | null = null;
+  const ipc = await connectIpcAsClient(getSocketPath());
   try {
-    ipc = await connectIpcAsClient(getSocketPath());
     return await new Promise<R>((resolve, reject) => {
       const timer = setTimeout(() => {
         reject(
@@ -412,41 +455,38 @@ async function requestSessionOp<R extends { t: string }>(
         clearTimeout(timer);
         settle();
       };
-      ipc!.onMessage((raw) => {
+      ipc.onMessage((raw) => {
         const r = raw as R;
         if (expectedTypes.includes(r.t)) done(() => resolve(r));
       });
-      ipc!.onClose(() =>
+      ipc.onClose(() =>
         done(() => reject(new Error("Daemon disconnected before replying"))),
       );
-      ipc!.send(msg);
+      ipc.send(msg);
     });
   } finally {
     try {
-      ipc?.close();
+      ipc.close();
     } catch {
       /* best effort */
     }
   }
 }
 
-function prompt(question: string): Promise<string> {
+async function prompt(question: string): Promise<string> {
+  // readline's line buffering yields one resolved answer per newline, which
+  // is the right semantics for y/N and challenge-phrase confirmations —
+  // raw `once("data")` can truncate a chunked paste.
+  const readline = await import("node:readline");
   return new Promise((resolve) => {
-    process.stdout.write(question);
-    process.stdin.resume();
-    process.stdin.setEncoding("utf8");
-    const done = (value: string) => {
-      process.stdin.off("data", onData);
-      process.stdin.off("end", onEnd);
-      process.stdin.off("close", onEnd);
-      process.stdin.pause();
-      resolve(value);
-    };
-    const onData = (data: string) => done(data);
-    const onEnd = () => done("");
-    process.stdin.once("data", onData);
-    process.stdin.once("end", onEnd);
-    process.stdin.once("close", onEnd);
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer);
+    });
   });
 }
 

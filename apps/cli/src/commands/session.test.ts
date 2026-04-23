@@ -292,6 +292,23 @@ describe.skipIf(process.platform === "win32")(
       expect(remaining).toEqual(["s-running"]);
     });
 
+    test("prune --all --running --yes sweeps stale running rows", () => {
+      // Simulates a crashed daemon leaving a "running" row behind. With no
+      // live daemon attached, --running + --yes must sweep it.
+      seed([
+        { sid: "stale-running", state: "running" },
+        { sid: "stopped-normal", state: "stopped" },
+      ]);
+      const out = capture(`${CLI} session prune --all --running --yes`, env);
+      expect(out).toContain("stale-running");
+      expect(out).toContain("stopped-normal");
+
+      const store = new Store(storeDir);
+      const remaining = store.listSessions();
+      store.close();
+      expect(remaining).toEqual([]);
+    });
+
     test("prune with no match reports 0 selected", () => {
       seed([{ sid: "new-session", state: "stopped", ageMs: 60_000 }]);
       const out = capture(`${CLI} session prune --older-than 7d --yes`, env);

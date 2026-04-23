@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Store } from "@teleprompter/daemon";
 import { existsSync, mkdtempSync, rmSync } from "fs";
@@ -76,6 +77,20 @@ describe("matchSessions", () => {
     const out = matchSessions(sessions, "nope");
     expect(out).toHaveLength(0);
   });
+
+  test("rejects middle-of-string substring match", () => {
+    // 'ncx9' occurs mid-sid in 'session-mncx9824' but is neither prefix
+    // nor exact — the contract is that substring matches never hit.
+    const out = matchSessions(sessions, "ncx9");
+    expect(out).toHaveLength(0);
+  });
+
+  test("exact match wins over ambiguous prefix", () => {
+    const cands = [{ sid: "abc" }, { sid: "abcdef" }];
+    const out = matchSessions(cands, "abc");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.sid).toBe("abc");
+  });
 });
 
 describe("tp session", () => {
@@ -141,13 +156,12 @@ describe.skipIf(process.platform === "win32")(
           if (state !== "running") {
             store.updateSessionState(r.sid, state);
           }
-          // Backdate via direct SQL — Store has no setter. We reach into the
-          // same meta db by opening it through a fresh Store instance is
-          // unnecessary; we rely on the fact that deleteSession/prune read
-          // updated_at. To backdate we run UPDATE via Bun sqlite through
-          // a raw connection on the same file.
+          // Backdate via direct SQL — Store exposes no `updated_at` setter.
+          // Only `updated_at` matters here: the dispatcher's prune filter
+          // reads `updated_at` (not `created_at`), so leaving `created_at`
+          // at `now` is fine. If a future change switches to `created_at`,
+          // backdate both columns here to keep this helper honest.
           if (r.ageMs && r.ageMs > 0) {
-            const { Database } = require("bun:sqlite");
             const metaDb = new Database(join(storeDir, "sessions.sqlite"));
             metaDb.run("UPDATE sessions SET updated_at = ? WHERE sid = ?", [
               now - r.ageMs,

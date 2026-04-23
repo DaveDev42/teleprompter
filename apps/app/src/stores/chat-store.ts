@@ -135,12 +135,13 @@ export function processHookEvent(event: HookEventBase) {
       const promptText =
         (event.user_prompt as string) ?? (event.prompt as string) ?? "";
       // De-dup against a freshly added optimistic local user bubble.
-      // sendChat adds `source: "local"` immediately; the daemon then echoes
-      // the same prompt back via this hook event, which would otherwise
-      // duplicate the bubble. Scan backward skipping non-user messages (a
-      // streaming message may have been appended by finalizeStreaming just
-      // above), and match on trimmed text — the daemon appends `\n` before
-      // writing to the PTY, but Claude's hook may round-trip either form.
+      // The view layer adds `source: "local"` immediately before calling
+      // `client.sendChat`; the daemon then echoes the same prompt back via
+      // this hook event, which would otherwise duplicate the bubble. Scan
+      // backward skipping non-user messages (a streaming message may have
+      // been appended by finalizeStreaming just above), and match on
+      // trimmed text — the daemon appends `\n` before writing to the PTY,
+      // but Claude's hook may round-trip either form.
       const liveMsgs = useChatStore.getState().messages;
       const trimmedPrompt = promptText.trim();
       for (let i = liveMsgs.length - 1; i >= 0; i--) {

@@ -120,8 +120,7 @@ function ChatView({ sid }: { sid: string }) {
       if (!trimmed) return;
       const client = getTransport();
       if (sid && client) {
-        // Pass the normalized text to both sides so the optimistic bubble
-        // and the daemon-echoed UserPromptSubmit match exactly for dedup.
+        // Same trim as daemon-side normalization; keeps dedup tight.
         addOptimisticUserMessage(trimmed);
         client.sendChat(sid, trimmed);
       }
@@ -180,12 +179,12 @@ function ChatView({ sid }: { sid: string }) {
   }, [messages.length]);
 
   const handleSend = useCallback(() => {
-    const text = input.trim();
-    if (!text || !sid) return;
+    const trimmed = input.trim();
+    if (!trimmed || !sid) return;
     const client = getTransport();
     if (!client) return;
-    addOptimisticUserMessage(text);
-    client.sendChat(sid, text);
+    addOptimisticUserMessage(trimmed);
+    client.sendChat(sid, trimmed);
     setInput("");
   }, [input, sid]);
 

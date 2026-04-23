@@ -593,11 +593,12 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     });
   });
 
-  test("session.prune replies internal when a deleteSession throws mid-run", async () => {
+  test("session.prune replies internal with partialSids when a deleteSession throws mid-run", async () => {
     const now = Date.now();
     const sessions: SessionMeta[] = [
       mkMeta("s1", "stopped", now - 10_000),
       mkMeta("s2", "stopped", now - 10_000),
+      mkMeta("s3", "stopped", now - 10_000),
     ];
     const { dispatcher, calls } = makeHarness({
       sessions,
@@ -611,9 +612,15 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     });
     await Promise.resolve();
     await Promise.resolve();
-    const reply = calls.ipcSends[0] as { t: string; reason?: string };
+    const reply = calls.ipcSends[0] as {
+      t: string;
+      reason?: string;
+      partialSids?: string[];
+    };
     expect(reply.t).toBe("session.prune.err");
     expect(reply.reason).toBe("internal");
+    // s1 succeeded before s2 threw; s3 never ran. partialSids must name s1.
+    expect(reply.partialSids).toEqual(["s1"]);
   });
 
   test("hello creates session row, registers runner, and notifies relays", () => {

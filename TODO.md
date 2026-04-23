@@ -15,7 +15,10 @@
 - [ ] Session Export 대규모 세션 성능 미검증 — 10,000+ records 세션에서 export 속도/메모리 사용량 확인 필요 (현재 limit 50,000)
 
 ### 발견된 버그
-(현재 없음)
+- [ ] **Bug #1 (PR #146 QA) — zombie sessions**: stopped 세션이 앱 세션 리스트에 배너/상태 표시 없이 살아 있고, Chat 입력이 비활성화되지 않음. ⇒ CLI 정리 수단은 PR #150 (`tp session list/delete/prune`) 로 추가. 앱 UI 상태 배너/입력 disable 은 별도 PR 에서 후속.
+- [ ] **Bug #2 (PR #146 QA) — Chat 무반응**: `sendChat()` optimistic user message 미적용 (`apps/app/src/lib/relay-client.ts:440`) + 세션 진입 시 ChatView 타이머가 kx 완료 전 `resume()` 호출로 drop (`apps/app/app/session/[sid].tsx:131`). 두 개 독립 버그.
+- [ ] **Bug #3 (PR #146 QA) — Terminal blank on stopped**: stopped 세션 진입 시 과거 io records replay 가 없어 완전 빈 화면. 안내 배너 + 마지막 io 스냅샷 렌더 필요.
+- [ ] **신규 (PR #146 QA) — control.unpair decrypt-fail toast flood**: pairing 삭제 시 daemon 이 모든 frontendId 로 암호화 broadcast. 자신의 키가 아닌 frame 의 decrypt fail 이 에러 토스트로 노출됨. `sid=__control__` decrypt fail 은 debug 로 격하 필요.
 
 ---
 

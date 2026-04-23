@@ -11,6 +11,12 @@ import type {
   IpcPairRenameErr,
   IpcPairRenameOk,
   IpcRec,
+  IpcSessionDelete,
+  IpcSessionDeleteErr,
+  IpcSessionDeleteOk,
+  IpcSessionPrune,
+  IpcSessionPruneErr,
+  IpcSessionPruneOk,
   Namespace,
   RelayControlMessage,
   WsRec,
@@ -109,6 +115,12 @@ export class IpcCommandDispatcher {
       case "pair.rename":
         void this.handlePairRename(runner, msg);
         return;
+      case "session.delete":
+        this.handleSessionDelete(runner, msg);
+        return;
+      case "session.prune":
+        this.handleSessionPrune(runner, msg);
+        return;
       case "hello":
         this.handleHello(msg);
         return;
@@ -193,6 +205,117 @@ export class IpcCommandDispatcher {
       };
       this.deps.ipcServer.send(runner, err);
     }
+  }
+
+  /**
+   * Delete a single session. Kills the runner first when the session is still
+   * marked running, then removes the metadata row and per-session DB file via
+   * `Store.deleteSession`. Replies `session.delete.ok { wasRunning }` so the
+   * CLI can report whether a live Runner was killed.
+   */
+  private handleSessionDelete(
+    runner: ConnectedRunner,
+    msg: IpcSessionDelete,
+  ): void {
+    const meta = this.deps.store.getSession(msg.sid);
+    if (!meta) {
+      const err: IpcSessionDeleteErr = {
+        t: "session.delete.err",
+        sid: msg.sid,
+        reason: "not-found",
+      };
+      this.deps.ipcServer.send(runner, err);
+      return;
+    }
+    const wasRunning = meta.state === "running";
+    try {
+      if (wasRunning) {
+        this.deps.sessionManager.killRunner(msg.sid);
+      }
+      this.deps.store.deleteSession(msg.sid);
+    } catch (e) {
+      const err: IpcSessionDeleteErr = {
+        t: "session.delete.err",
+        sid: msg.sid,
+        reason: "internal",
+        message: e instanceof Error ? e.message : String(e),
+      };
+      this.deps.ipcServer.send(runner, err);
+      return;
+    }
+    const ok: IpcSessionDeleteOk = {
+      t: "session.delete.ok",
+      sid: msg.sid,
+      wasRunning,
+    };
+    this.deps.ipcServer.send(runner, ok);
+  }
+
+  /**
+   * Prune sessions matching a filter. By default only stopped/error sessions
+   * older than `olderThanMs` are selected; `includeRunning: true` also kills
+   * running runners before delete. `dryRun: true` returns the selection
+   * without mutating anything.
+   */
+  private handleSessionPrune(
+    runner: ConnectedRunner,
+    msg: IpcSessionPrune,
+  ): void {
+    const now = Date.now();
+    const cutoff = msg.olderThanMs === null ? null : now - msg.olderThanMs;
+
+    const candidates = this.deps.store.listSessions().filter((s) => {
+      if (s.state === "running" && !msg.includeRunning) return false;
+      if (cutoff === null) return true;
+      return s.updated_at < cutoff;
+    });
+
+    if (msg.dryRun) {
+      const reply: IpcSessionPruneOk = {
+        t: "session.prune.ok",
+        sids: candidates.map((s) => s.sid),
+        runningKilled: 0,
+        dryRun: true,
+      };
+      this.deps.ipcServer.send(runner, reply);
+      return;
+    }
+
+    const deleted: string[] = [];
+    let runningKilled = 0;
+    try {
+      for (const s of candidates) {
+        if (s.state === "running") {
+          this.deps.sessionManager.killRunner(s.sid);
+          runningKilled++;
+        }
+        this.deps.store.deleteSession(s.sid);
+        deleted.push(s.sid);
+      }
+    } catch (e) {
+      const err: IpcSessionPruneErr = {
+        t: "session.prune.err",
+        reason: "internal",
+        message: e instanceof Error ? e.message : String(e),
+        // Partial state: the rows in `deleted` are already gone from the store.
+        // Reporting them lets the CLI surface "deleted N/M then errored" instead
+        // of implying nothing happened. `runningKilled` may exceed deleted.length
+        // if the throw came from `deleteSession` after `killRunner` succeeded —
+        // the CLI can render both numbers in the partial-failure report.
+        partialSids: deleted,
+        partialRunningKilled: runningKilled,
+      };
+      this.deps.ipcServer.send(runner, err);
+      return;
+    }
+
+    const reply: IpcSessionPruneOk = {
+      t: "session.prune.ok",
+      sids: deleted,
+      runningKilled,
+      dryRun: false,
+    };
+    this.deps.ipcServer.send(runner, reply);
   }
 
   /**

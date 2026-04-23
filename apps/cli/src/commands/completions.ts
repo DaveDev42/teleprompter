@@ -19,6 +19,7 @@ const SUBCOMMANDS = [
   "run",
   "relay",
   "pair",
+  "session",
   "status",
   "logs",
   "doctor",
@@ -39,6 +40,8 @@ const SUBCOMMANDS = [
 
 // Mirrors the verbs in pairCommand() router in pair.ts. No show/qr/export exist.
 const PAIR_SUBCOMMANDS = ["new", "list", "delete", "rename"];
+// Mirrors the verbs in sessionCommand() router in session.ts.
+const SESSION_SUBCOMMANDS = ["list", "delete", "prune"];
 const DAEMON_SUBCOMMANDS = ["start", "status", "install", "uninstall"];
 
 const DAEMON_FLAGS = [
@@ -61,6 +64,7 @@ const SUBCOMMAND_NAME_RE = /^[a-z0-9-]+$/;
 for (const name of [
   ...SUBCOMMANDS,
   ...PAIR_SUBCOMMANDS,
+  ...SESSION_SUBCOMMANDS,
   ...DAEMON_SUBCOMMANDS,
 ]) {
   if (!SUBCOMMAND_NAME_RE.test(name)) {
@@ -269,6 +273,10 @@ _tp_completions() {
     COMPREPLY=( $(compgen -W "${PAIR_SUBCOMMANDS.join(" ")}" -- "$cur") )
   elif [ "\${COMP_WORDS[1]}" = "pair" ] && [ "\${COMP_WORDS[2]}" = "new" ] && [ "$COMP_CWORD" -ge 3 ]; then
     COMPREPLY=( $(compgen -W "--relay --label" -- "$cur") )
+  elif [ "\${COMP_WORDS[1]}" = "session" ] && [ "$COMP_CWORD" -eq 2 ]; then
+    COMPREPLY=( $(compgen -W "${SESSION_SUBCOMMANDS.join(" ")}" -- "$cur") )
+  elif [ "\${COMP_WORDS[1]}" = "session" ] && [ "\${COMP_WORDS[2]}" = "prune" ] && [ "$COMP_CWORD" -ge 3 ]; then
+    COMPREPLY=( $(compgen -W "--older-than --all --running --dry-run --yes" -- "$cur") )
   elif [ "\${COMP_WORDS[1]}" = "doctor" ] || [ "\${COMP_WORDS[1]}" = "version" ] || [ "\${COMP_WORDS[1]}" = "upgrade" ]; then
     COMPREPLY=( $(compgen -W "--claude" -- "$cur") )
   fi
@@ -309,6 +317,13 @@ ${DAEMON_FLAGS.map((f) => `              '${f}[${f.replace(/^--/, "")}]'`).join(
             _arguments '--relay[relay URL]' '--label[pairing label]'
           fi
           ;;
+        session)
+          if [ "\${#words[@]}" -le 2 ]; then
+            _values 'session subcommand' ${SESSION_SUBCOMMANDS.map((s) => `'${s}'`).join(" ")}
+          elif [ "\${words[2]}" = "prune" ]; then
+            _arguments '--older-than[age cutoff (Nd|Nh|Nm|Ns)]' '--all[all stopped]' '--running[include running]' '--dry-run[preview only]' '--yes[skip confirmation]'
+          fi
+          ;;
       esac
       ;;
   esac
@@ -336,6 +351,15 @@ function generateFish(): string {
     ),
     `complete -c tp -n '__fish_seen_subcommand_from pair; and __fish_seen_subcommand_from new' -l relay -d 'relay URL'`,
     `complete -c tp -n '__fish_seen_subcommand_from pair; and __fish_seen_subcommand_from new' -l label -d 'pairing label'`,
+    ...SESSION_SUBCOMMANDS.map(
+      (s) =>
+        `complete -c tp -n '__fish_seen_subcommand_from session' -a '${s}' -d '${s}'`,
+    ),
+    `complete -c tp -n '__fish_seen_subcommand_from session; and __fish_seen_subcommand_from prune' -l older-than -d 'age cutoff (Nd|Nh|Nm|Ns)'`,
+    `complete -c tp -n '__fish_seen_subcommand_from session; and __fish_seen_subcommand_from prune' -l all -d 'all stopped sessions'`,
+    `complete -c tp -n '__fish_seen_subcommand_from session; and __fish_seen_subcommand_from prune' -l running -d 'also include running'`,
+    `complete -c tp -n '__fish_seen_subcommand_from session; and __fish_seen_subcommand_from prune' -l dry-run -d 'preview only'`,
+    `complete -c tp -n '__fish_seen_subcommand_from session; and __fish_seen_subcommand_from prune' -l yes -d 'skip confirmation'`,
   ];
   return lines.join("\n");
 }
@@ -347,6 +371,7 @@ function generatePowerShell(): string {
   const commands = SUBCOMMANDS.map((c) => `'${c}'`).join(", ");
   const daemonSubs = DAEMON_SUBCOMMANDS.map((s) => `'${s}'`).join(", ");
   const pairSubs = PAIR_SUBCOMMANDS.map((s) => `'${s}'`).join(", ");
+  const sessionSubs = SESSION_SUBCOMMANDS.map((s) => `'${s}'`).join(", ");
   const daemonFlags = DAEMON_FLAGS.map((f) => `'${f}'`).join(", ");
 
   return `# tp powershell completion
@@ -356,6 +381,7 @@ Register-ArgumentCompleter -Native -CommandName tp -ScriptBlock {
     $commands = @(${commands})
     $daemonSubs = @(${daemonSubs})
     $pairSubs = @(${pairSubs})
+    $sessionSubs = @(${sessionSubs})
     $daemonFlags = @(${daemonFlags})
 
     $tokens = $commandAst.CommandElements | ForEach-Object { $_.ToString() }
@@ -375,6 +401,10 @@ Register-ArgumentCompleter -Native -CommandName tp -ScriptBlock {
     }
     elseif ($tokens[1] -eq 'pair' -and $pos -eq 2) {
         $pairSubs | Where-Object { $_ -like "$wordToComplete*" } |
+            ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
+    }
+    elseif ($tokens[1] -eq 'session' -and $pos -eq 2) {
+        $sessionSubs | Where-Object { $_ -like "$wordToComplete*" } |
             ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
     }
 }`;

@@ -32,6 +32,14 @@ export type {
   IpcPairRenameOk,
   IpcRec,
   IpcResize,
+  IpcSessionDelete,
+  IpcSessionDeleteErr,
+  IpcSessionDeleteErrReason,
+  IpcSessionDeleteOk,
+  IpcSessionPrune,
+  IpcSessionPruneErr,
+  IpcSessionPruneErrReason,
+  IpcSessionPruneOk,
 } from "./ipc";
 export type { Namespace, Record, RecordKind } from "./record";
 export type {

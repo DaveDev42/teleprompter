@@ -355,11 +355,15 @@ async function sessionPrune(argv: string[]): Promise<void> {
           ),
         );
         for (const sid of reply.partialSids) console.error(dim(`  ${sid}`));
-        if (reply.partialRunningKilled > 0) {
-          console.error(
-            dim(`Killed ${reply.partialRunningKilled} running runner(s).`),
-          );
-        }
+      }
+      // partialRunningKilled can be non-zero even when partialSids is empty
+      // (killRunner succeeded, then deleteSession threw on the same sid) —
+      // print it unconditionally so the user never silently loses "a live
+      // session was killed before we failed" telemetry.
+      if (reply.partialRunningKilled > 0) {
+        console.error(
+          dim(`Killed ${reply.partialRunningKilled} running runner(s).`),
+        );
       }
       process.exit(1);
     }
@@ -401,17 +405,22 @@ async function sessionPrune(argv: string[]): Promise<void> {
       }
     } catch (err) {
       // Mirror the daemon path's "internal — <message>" prefix so the two
-      // failure surfaces look the same to the user.
+      // failure surfaces look the same to the user. Suppress the trailing
+      // em-dash when the error has no message (matches daemon-path output
+      // which also omits it when message is empty/undefined).
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(fail(`Session prune failed: internal — ${msg}`));
+      console.error(
+        fail(`Session prune failed: internal${msg ? ` — ${msg}` : ""}`),
+      );
       if (deleted.length > 0) {
         console.error(
           dim(`Deleted ${deleted.length} session(s) before the error:`),
         );
         for (const sid of deleted) console.error(dim(`  ${sid}`));
-        if (runningKilled > 0) {
-          console.error(dim(`Killed ${runningKilled} running runner(s).`));
-        }
+      }
+      // Print kill count unconditionally (see daemon-path comment above).
+      if (runningKilled > 0) {
+        console.error(dim(`Killed ${runningKilled} running runner(s).`));
       }
       process.exit(1);
     } finally {

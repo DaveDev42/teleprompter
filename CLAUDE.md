@@ -137,6 +137,7 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `apps/cli/src/commands/status.test.ts` — daemon status display
 - `apps/cli/src/commands/pair.test.ts` — pairing data generation
 - `apps/cli/src/commands/passthrough.test.ts` — arg splitting
+- `apps/cli/src/commands/session.test.ts` — `tp session list/delete/prune` (parseDuration, matchSessions, daemon-less Store fallback integration)
 - `apps/cli/src/commands/upgrade.test.ts` — checksum parsing, file hashing, backup/rollback
 - `apps/cli/src/commands/completions.test.ts` — 각 쉘 completion 스크립트 출력에 tp/claude 서브커맨드 포함 여부
 - `apps/cli/src/commands/completions-install.test.ts` — bash/zsh/fish/powershell rc 파일 marker 블록 install/uninstall
@@ -316,6 +317,14 @@ tp pair new [--relay URL] [--label NAME]  # 새 페어링 생성 (QR 출력, lab
 tp pair list               # 등록된 페어링 목록 (label + daemon ID 표시)
 tp pair rename <id-prefix> <label...>  # 페어링 label 변경 (peer 알림)
 tp pair delete <id> [-y]   # 페어링 삭제 (daemon-id prefix 허용)
+tp session list            # 저장된 세션 목록 (running + stopped, cwd/updated 컬럼)
+tp session delete <sid> [-y]           # 세션 삭제 (sid prefix 허용, running 이면 Runner kill 후 삭제)
+tp session prune [options] # stopped 세션 일괄 삭제
+  --older-than <Nd|Nh|Nm|Ns>   # 나이 컷오프 (기본 7d)
+  --all                         # 모든 stopped 세션 (older-than 무시)
+  --running                     # running 도 포함 (위험 — 2중 confirmation)
+  --dry-run                     # 삭제 대상만 출력
+  -y, --yes                     # confirmation 생략
 tp status                  # 세션 & daemon 상태 확인 (자동 시작)
 tp logs [session]          # 세션 라이브 출력 tail
 tp doctor                  # 환경 진단 + relay 연결 + E2EE 검증

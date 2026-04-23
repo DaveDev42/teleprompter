@@ -562,9 +562,126 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
     }
   });
 
-  test("decrypt fail on non-control sid still logs as error", async () => {
+  test("15-frontend broadcast produces N-1 debug logs and zero errors", async () => {
+    // Reproduction of the original QA scenario: daemon sent control.unpair
+    // to 15 paired frontends, so this frontend received 14 undecryptable
+    // frames on __control__ plus its own (which we don't simulate here to
+    // keep the test focused on the wrong-key path). Each of the 14 should
+    // produce exactly one debug log and zero errors.
     const p = await setupPairing();
-    const client = new FrontendRelayClient(makeConfig(p));
+    const errors: string[] = [];
+    const client = new FrontendRelayClient(makeConfig(p), {
+      onError: (e) => errors.push(e),
+    });
+
+    const originalError = console.error;
+    const originalDebug = console.debug;
+    const errorCalls: unknown[][] = [];
+    const debugCalls: unknown[][] = [];
+    console.error = (...args: unknown[]) => {
+      errorCalls.push(args);
+    };
+    console.debug = (...args: unknown[]) => {
+      debugCalls.push(args);
+    };
+
+    try {
+      const ws = await authenticate(client);
+
+      const N = 14;
+      for (let i = 0; i < N; i++) {
+        ws.simulateMessage({
+          t: "relay.frame",
+          sid: "__control__",
+          ct: "AAAAAAAAAAAAAA",
+          seq: i + 1,
+          from: "daemon",
+        } as RelayServerMessage);
+      }
+      await flushPromises();
+
+      expect(errors).toEqual([]);
+      const relayErrorCalls = errorCalls.filter(
+        (call) =>
+          typeof call[0] === "string" &&
+          (call[0] as string).includes("[FrontendRelay]"),
+      );
+      expect(relayErrorCalls).toEqual([]);
+      const relayDebugCalls = debugCalls.filter(
+        (call) =>
+          typeof call[0] === "string" &&
+          (call[0] as string).includes("[FrontendRelay]"),
+      );
+      expect(relayDebugCalls.length).toBe(N);
+    } finally {
+      console.error = originalError;
+      console.debug = originalDebug;
+      client.dispose();
+    }
+  });
+
+  test("decrypt fail on __meta__ sid is also demoted to debug", async () => {
+    // __meta__ is the other broadcast-plane channel; mirrors the
+    // __control__ treatment so a future meta-broadcast feature doesn't
+    // regress the toast noise.
+    const p = await setupPairing();
+    const errors: string[] = [];
+    const client = new FrontendRelayClient(makeConfig(p), {
+      onError: (e) => errors.push(e),
+    });
+
+    const originalError = console.error;
+    const originalDebug = console.debug;
+    const errorCalls: unknown[][] = [];
+    const debugCalls: unknown[][] = [];
+    console.error = (...args: unknown[]) => {
+      errorCalls.push(args);
+    };
+    console.debug = (...args: unknown[]) => {
+      debugCalls.push(args);
+    };
+
+    try {
+      const ws = await authenticate(client);
+      ws.simulateMessage({
+        t: "relay.frame",
+        sid: "__meta__",
+        ct: "AAAAAAAAAAAAAA",
+        seq: 1,
+        from: "daemon",
+      } as RelayServerMessage);
+      await flushPromises();
+
+      expect(errors).toEqual([]);
+      const relayErrorCalls = errorCalls.filter(
+        (call) =>
+          typeof call[0] === "string" &&
+          (call[0] as string).includes("[FrontendRelay]"),
+      );
+      expect(relayErrorCalls).toEqual([]);
+      const relayDebugCalls = debugCalls.filter(
+        (call) =>
+          typeof call[0] === "string" &&
+          (call[0] as string).includes("[FrontendRelay]"),
+      );
+      expect(relayDebugCalls.length).toBe(1);
+    } finally {
+      console.error = originalError;
+      console.debug = originalDebug;
+      client.dispose();
+    }
+  });
+
+  test("decrypt fail on non-control sid still logs as error and skips onError", async () => {
+    // Non-broadcast sids are real anomalies (tampered frame, key mismatch,
+    // protocol bug). Keep them loud on console.error. onError should NOT
+    // fire from the decrypt catch today; lock that invariant so a future
+    // refactor doesn't accidentally re-route decrypt failures into toasts.
+    const p = await setupPairing();
+    const errors: string[] = [];
+    const client = new FrontendRelayClient(makeConfig(p), {
+      onError: (e) => errors.push(e),
+    });
 
     const originalError = console.error;
     const errorCalls: unknown[][] = [];
@@ -590,6 +707,7 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
           (call[0] as string).includes("[FrontendRelay] decrypt failed"),
       );
       expect(relayErrorCalls.length).toBe(1);
+      expect(errors).toEqual([]);
     } finally {
       console.error = originalError;
       client.dispose();

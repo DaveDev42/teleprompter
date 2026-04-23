@@ -299,8 +299,11 @@ export class IpcCommandDispatcher {
         message: e instanceof Error ? e.message : String(e),
         // Partial state: the rows in `deleted` are already gone from the store.
         // Reporting them lets the CLI surface "deleted N/M then errored" instead
-        // of implying nothing happened.
+        // of implying nothing happened. `runningKilled` may exceed deleted.length
+        // if the throw came from `deleteSession` after `killRunner` succeeded —
+        // the CLI can render both numbers in the partial-failure report.
         partialSids: deleted,
+        partialRunningKilled: runningKilled,
       };
       this.deps.ipcServer.send(runner, err);
       return;

@@ -616,11 +616,47 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
       t: string;
       reason?: string;
       partialSids?: string[];
+      partialRunningKilled?: number;
     };
     expect(reply.t).toBe("session.prune.err");
     expect(reply.reason).toBe("internal");
     // s1 succeeded before s2 threw; s3 never ran. partialSids must name s1.
     expect(reply.partialSids).toEqual(["s1"]);
+    // No runners were running, so no kills happened.
+    expect(reply.partialRunningKilled).toBe(0);
+  });
+
+  test("session.prune err tracks partialRunningKilled alongside partialSids", async () => {
+    const now = Date.now();
+    const sessions: SessionMeta[] = [
+      mkMeta("r1", "running", now - 10_000),
+      mkMeta("r2", "running", now - 10_000),
+      mkMeta("r3", "stopped", now - 10_000),
+    ];
+    const { dispatcher, calls } = makeHarness({
+      sessions,
+      runningSids: ["r1", "r2"],
+      // killRunner for r2 succeeds; then deleteSession(r2) throws.
+      deleteSessionThrows: (sid) => (sid === "r2" ? new Error("locked") : null),
+    });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "session.prune",
+      olderThanMs: 5_000,
+      includeRunning: true,
+      dryRun: false,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    const reply = calls.ipcSends[0] as {
+      t: string;
+      partialSids?: string[];
+      partialRunningKilled?: number;
+    };
+    expect(reply.t).toBe("session.prune.err");
+    // r1 fully processed; r2 killed but delete threw; r3 never reached.
+    expect(reply.partialSids).toEqual(["r1"]);
+    // r1 + r2 were both killed — partialRunningKilled can exceed partialSids.
+    expect(reply.partialRunningKilled).toBe(2);
   });
 
   test("hello creates session row, registers runner, and notifies relays", () => {

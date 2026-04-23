@@ -128,14 +128,13 @@ function ChatView({ sid }: { sid: string }) {
     return () => setOnPromptReady(null);
   }, [sid, setOnPromptReady]);
 
-  // Request record replay on mount
+  // Request record replay on mount. The relay client queues the frame if
+  // key exchange hasn't finished yet and flushes on auth.ok, so we no longer
+  // need the 500ms timer hack that previously raced the kx handshake.
   useEffect(() => {
     if (!sid) return;
     const client = getTransport();
-    if (client) {
-      const timer = setTimeout(() => client.resume(sid, 0), 500);
-      return () => clearTimeout(timer);
-    }
+    if (client) client.resume(sid, 0);
   }, [sid]);
 
   // Wire records to chat store

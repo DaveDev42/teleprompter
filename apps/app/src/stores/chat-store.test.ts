@@ -466,6 +466,33 @@ describe("chat-store: processHookEvent", () => {
     expect(msgs[1].text).toBe("partial bytes before echo");
   });
 
+  test("back-to-back optimistic sends with a delayed first echo preserve all three bubbles", () => {
+    // Documents the deliberate `break` in the backward scan: once the most
+    // recent user message fails to match, older user messages are NOT
+    // revisited. User types "A", then "B" (both optimistic), then the
+    // delayed echo for "A" arrives; we want A(local) + B(local) + A(remote),
+    // not a silent swallow of the echo.
+    addOptimisticUserMessage("A");
+    addOptimisticUserMessage("B");
+    expect(useChatStore.getState().messages.length).toBe(2);
+
+    processHookEvent(
+      baseEvent({
+        hook_event_name: "UserPromptSubmit",
+        user_prompt: "A",
+      }),
+    );
+
+    const msgs = useChatStore.getState().messages;
+    expect(msgs.length).toBe(3);
+    expect(msgs[0].text).toBe("A");
+    expect(msgs[0].source).toBe("local");
+    expect(msgs[1].text).toBe("B");
+    expect(msgs[1].source).toBe("local");
+    expect(msgs[2].text).toBe("A");
+    expect(msgs[2].source).toBeUndefined();
+  });
+
   test("UserPromptSubmit de-dups against daemon-echoed text with trailing newline", () => {
     // Daemon appends "\n" before writing to PTY; the hook event may round-
     // trip either form. Dedup compares trimmed text so both match.

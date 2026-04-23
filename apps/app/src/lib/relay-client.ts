@@ -37,6 +37,12 @@ import type { TransportClient, TransportEventHandler } from "./transport";
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
+/**
+ * Max frames queued while waiting for relay auth + key exchange to complete.
+ * Flushed on `relay.auth.ok` (after sendKeyExchange), cleared on WS close.
+ * Guards against unbounded growth if the peer never authenticates.
+ */
+const MAX_PENDING_ENCRYPTED = 32;
 
 export interface FrontendRelayConfig {
   relayUrl: string;
@@ -78,6 +84,13 @@ export class FrontendRelayClient implements TransportClient {
   private disposed = false;
   private authenticated = false;
   private subscribedSessions = new Set<string>();
+  /**
+   * Frames that were submitted to sendEncrypted() before the relay was
+   * authenticated. Drained on auth.ok (after kx). Previously dropped silently,
+   * which caused ChatView's early resume() to be lost on cold session URL
+   * access — daemon never replayed records, Chat/Terminal stayed blank.
+   */
+  private pendingEncrypted: Record<string, unknown>[] = [];
 
   /** Called when daemon notifies this frontend that its pairing was removed. */
   onUnpair:
@@ -152,6 +165,11 @@ export class FrontendRelayClient implements TransportClient {
 
     ws.onclose = () => {
       this.authenticated = false;
+      // Clear any frames still parked waiting for auth — a brand-new
+      // connection cycle will re-run kx and the stale queue is meaningless
+      // (and `resume`/`attach` will be re-issued by callers or by the
+      // auto-resume path in handleMessage).
+      this.pendingEncrypted = [];
       this.events.onClose?.();
       this.events.onDisconnected?.();
       this.scheduleReconnect();
@@ -176,6 +194,9 @@ export class FrontendRelayClient implements TransportClient {
         }
         // Send key exchange: deliver frontend's public key to daemon
         await this.sendKeyExchange();
+        // Drain any frames queued while kx was pending. Must happen AFTER
+        // the kx envelope is sent so the daemon can decrypt them.
+        await this.flushPendingEncrypted();
         // Auto-resume if we were previously attached
         if (this.hasConnectedBefore && this.attachedSid) {
           this.resume(this.attachedSid, this.lastSeq);
@@ -420,7 +441,7 @@ export class FrontendRelayClient implements TransportClient {
 
   private async sendEncrypted(msg: Record<string, unknown>): Promise<void> {
     if (!this.authenticated || !this.sessionKeys) {
-      console.warn(`[FrontendRelay] dropping ${msg.t} — not authenticated`);
+      this.enqueuePending(msg);
       return;
     }
 
@@ -434,6 +455,39 @@ export class FrontendRelayClient implements TransportClient {
       this.sendRelay({ t: "relay.pub", sid, ct, seq: 0 });
     } catch {
       console.error(`[FrontendRelay] encrypt failed for ${msg.t}`);
+    }
+  }
+
+  /**
+   * Park a frame until relay auth + key exchange finishes. Bounded at
+   * MAX_PENDING_ENCRYPTED; the oldest frame is dropped when the cap is hit
+   * so a misbehaving peer can't grow this unboundedly.
+   */
+  private enqueuePending(msg: Record<string, unknown>): void {
+    if (this.pendingEncrypted.length >= MAX_PENDING_ENCRYPTED) {
+      const dropped = this.pendingEncrypted.shift();
+      console.warn(
+        `[FrontendRelay] pending queue full, dropping oldest ${
+          dropped?.t ?? "?"
+        }`,
+      );
+    }
+    this.pendingEncrypted.push(msg);
+  }
+
+  /**
+   * Called right after sendKeyExchange on relay.auth.ok. Drains everything
+   * that was queued during the kx race (e.g. ChatView's resume-on-mount).
+   * Swapping the buffer first means any new enqueues triggered mid-flush
+   * (which shouldn't happen — we're authenticated now — but defensively)
+   * go into a fresh array rather than mutating the one we're iterating.
+   */
+  private async flushPendingEncrypted(): Promise<void> {
+    if (this.pendingEncrypted.length === 0) return;
+    const pending = this.pendingEncrypted;
+    this.pendingEncrypted = [];
+    for (const msg of pending) {
+      await this.sendEncrypted(msg);
     }
   }
 

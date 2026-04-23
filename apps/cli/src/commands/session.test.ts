@@ -59,13 +59,13 @@ describe("matchSessions", () => {
   test("matches by exact sid", () => {
     const out = matchSessions(sessions, "session-aaaa1111");
     expect(out).toHaveLength(1);
-    expect(out[0]!.sid).toBe("session-aaaa1111");
+    expect(out[0]?.sid).toBe("session-aaaa1111");
   });
 
   test("matches by prefix", () => {
     const out = matchSessions(sessions, "session-mncx");
     expect(out).toHaveLength(1);
-    expect(out[0]!.sid).toBe("session-mncx9824");
+    expect(out[0]?.sid).toBe("session-mncx9824");
   });
 
   test("returns multiple on ambiguous prefix", () => {
@@ -89,7 +89,7 @@ describe("matchSessions", () => {
     const cands = [{ sid: "abc" }, { sid: "abcdef" }];
     const out = matchSessions(cands, "abc");
     expect(out).toHaveLength(1);
-    expect(out[0]!.sid).toBe("abc");
+    expect(out[0]?.sid).toBe("abc");
   });
 });
 

@@ -22,7 +22,10 @@ export class IpcClient {
   private writer = new QueuedWriter();
   private decoder = new FrameDecoder();
   private onMessage: MessageHandler;
-  private winConn: { send(msg: IpcMessage): void; close(): void } | null = null;
+  private winConn: {
+    send(msg: IpcMessage, binary?: Uint8Array<ArrayBufferLike> | null): void;
+    close(): void;
+  } | null = null;
 
   constructor(onMessage: MessageHandler) {
     this.onMessage = onMessage;
@@ -45,9 +48,9 @@ export class IpcClient {
       unix: path,
       socket: {
         data(_socket, data) {
-          const messages = self.decoder.decode(new Uint8Array(data));
-          for (const msg of messages) {
-            self.onMessage(msg as IncomingMessage);
+          const frames = self.decoder.decode(new Uint8Array(data));
+          for (const frame of frames) {
+            self.onMessage(frame.data as IncomingMessage);
           }
         },
         drain(socket) {
@@ -63,12 +66,12 @@ export class IpcClient {
     });
   }
 
-  send(msg: IpcMessage): void {
+  send(msg: IpcMessage, binary?: Uint8Array<ArrayBufferLike> | null): void {
     if (this.winConn) {
-      this.winConn.send(msg);
+      this.winConn.send(msg, binary);
       return;
     }
-    const frame = encodeFrame(msg);
+    const frame = encodeFrame(msg, binary ?? null);
     this.writer.write(this.socket, frame);
   }
 

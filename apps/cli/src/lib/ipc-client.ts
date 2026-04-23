@@ -29,9 +29,9 @@ export async function connectIpcAsClient(
     unix: socketPath,
     socket: {
       data(_s, data) {
-        const msgs = decoder.decode(new Uint8Array(data));
-        for (const m of msgs) {
-          for (const h of messageHandlers) h(m);
+        const frames = decoder.decode(new Uint8Array(data));
+        for (const frame of frames) {
+          for (const h of messageHandlers) h(frame.data);
         }
       },
       close() {

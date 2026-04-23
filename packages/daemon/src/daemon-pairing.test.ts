@@ -249,9 +249,10 @@ describe("Daemon.beginPairing", () => {
       socket: {},
       writer: {
         write: (_s: unknown, frame: Uint8Array) => {
-          // FrameDecoder understands the 4-byte length prefix; feed it the frame.
+          // FrameDecoder now returns `{ data, binary }` tuples; the pairing
+          // flow never uses the binary sidecar, so we just collect `data`.
           const dec = new FrameDecoder();
-          for (const m of dec.decode(frame)) messages.push(m);
+          for (const f of dec.decode(frame)) messages.push(f.data);
         },
         drain: () => {},
       },

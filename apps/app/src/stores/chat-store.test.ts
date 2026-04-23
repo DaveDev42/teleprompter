@@ -389,7 +389,7 @@ describe("chat-store: processHookEvent", () => {
   });
 
   test("UserPromptSubmit de-dups optimistic local user message with same text", () => {
-    // Simulate optimistic add from sendChat call
+    // Simulate optimistic add from the view layer (before sendChat)
     useChatStore.getState().addMessage({
       id: makeId(),
       type: "user",

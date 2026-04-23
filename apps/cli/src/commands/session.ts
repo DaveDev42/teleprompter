@@ -8,11 +8,27 @@ import type {
   IpcSessionPruneOk,
 } from "@teleprompter/protocol";
 import { getSocketPath } from "@teleprompter/protocol";
-import { parseArgs } from "util";
-import { dim, fail, ok } from "../lib/colors";
+import { type ParseArgsConfig, parseArgs } from "util";
+import { dim, fail, ok, yellow } from "../lib/colors";
 import { isDaemonRunning } from "../lib/ensure-daemon";
 import { formatAge } from "../lib/format";
 import { connectIpcAsClient, type IpcClient } from "../lib/ipc-client";
+
+/** Wraps `parseArgs` so unknown flags / malformed input exit 1 with a human
+ * message instead of a raw node TypeError stack trace. */
+function parseArgsFriendly<T extends ParseArgsConfig>(
+  config: T,
+  usage: string,
+): ReturnType<typeof parseArgs<T>> {
+  try {
+    return parseArgs(config);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(fail(message));
+    console.error(dim(usage));
+    process.exit(1);
+  }
+}
 
 export async function sessionCommand(argv: string[]): Promise<void> {
   const sub = argv[0];
@@ -38,6 +54,15 @@ export async function sessionCommand(argv: string[]): Promise<void> {
   }
 }
 
+const DURATION_MULTIPLIERS = {
+  s: 1_000,
+  m: 60_000,
+  h: 3_600_000,
+  d: 86_400_000,
+} as const satisfies Record<string, number>;
+
+type DurationUnit = keyof typeof DURATION_MULTIPLIERS;
+
 /**
  * Parse a human duration like `7d`, `24h`, `30m`, `45s` into milliseconds.
  * Throws on unknown or non-positive inputs — the CLI converts the throw into
@@ -51,17 +76,11 @@ export function parseDuration(raw: string): number {
     );
   }
   const n = Number(match[1]);
-  const unit = match[2]!;
+  const unit = match[2] as DurationUnit;
   if (!Number.isFinite(n) || n <= 0) {
     throw new Error(`Invalid duration '${raw}'. Must be a positive integer.`);
   }
-  const multipliers: Record<string, number> = {
-    s: 1000,
-    m: 60 * 1000,
-    h: 60 * 60 * 1000,
-    d: 24 * 60 * 60 * 1000,
-  };
-  return n * multipliers[unit]!;
+  return n * DURATION_MULTIPLIERS[unit];
 }
 
 /**
@@ -79,12 +98,15 @@ export function matchSessions<T extends { sid: string }>(
 }
 
 async function sessionList(argv: string[]): Promise<void> {
-  parseArgs({
-    args: argv,
-    options: {},
-    allowPositionals: false,
-    strict: true,
-  });
+  parseArgsFriendly(
+    {
+      args: argv,
+      options: {},
+      allowPositionals: false,
+      strict: true,
+    },
+    "Usage: tp session list",
+  );
 
   const store = new Store();
   let sessions: ReturnType<Store["listSessions"]>;
@@ -121,14 +143,17 @@ async function sessionList(argv: string[]): Promise<void> {
 }
 
 async function sessionDelete(argv: string[]): Promise<void> {
-  const { values, positionals } = parseArgs({
-    args: argv,
-    options: {
-      yes: { type: "boolean", short: "y", default: false },
+  const { values, positionals } = parseArgsFriendly(
+    {
+      args: argv,
+      options: {
+        yes: { type: "boolean", short: "y", default: false },
+      },
+      allowPositionals: true,
+      strict: true,
     },
-    allowPositionals: true,
-    strict: true,
-  });
+    "Usage: tp session delete <sid> [--yes]",
+  );
 
   if (positionals.length !== 1) {
     console.error(fail("Usage: tp session delete <sid> [--yes]"));
@@ -209,18 +234,21 @@ async function sessionDelete(argv: string[]): Promise<void> {
 }
 
 async function sessionPrune(argv: string[]): Promise<void> {
-  const { values } = parseArgs({
-    args: argv,
-    options: {
-      "older-than": { type: "string", default: "7d" },
-      all: { type: "boolean", default: false },
-      running: { type: "boolean", default: false },
-      "dry-run": { type: "boolean", default: false },
-      yes: { type: "boolean", short: "y", default: false },
+  const { values } = parseArgsFriendly(
+    {
+      args: argv,
+      options: {
+        "older-than": { type: "string", default: "7d" },
+        all: { type: "boolean", default: false },
+        running: { type: "boolean", default: false },
+        "dry-run": { type: "boolean", default: false },
+        yes: { type: "boolean", short: "y", default: false },
+      },
+      allowPositionals: false,
+      strict: true,
     },
-    allowPositionals: false,
-    strict: true,
-  });
+    "Usage: tp session prune [--older-than <Nd|Nh|Nm|Ns>] [--all] [--running] [--dry-run] [-y]",
+  );
 
   let olderThanMs: number | null;
   if (values.all) {
@@ -237,10 +265,16 @@ async function sessionPrune(argv: string[]): Promise<void> {
   const includeRunning = Boolean(values.running);
   const dryRun = Boolean(values["dry-run"]);
 
-  // Confirmation gate: running-session inclusion is the dangerous mode and
-  // requires an explicit --yes (two "walls" — --running flag + --yes). For a
-  // pure stopped-session prune a single --yes covers it; --dry-run never
-  // needs confirmation.
+  // Confirmation gates:
+  //   - dry-run: always proceeds, never prompts (read-only).
+  //   - --yes: accepted both as a blanket bypass (non-TTY) AND (on TTY) is
+  //     equivalent to a single "y" at the prompt. `--running` needs an extra
+  //     challenge phrase on TTY — `--yes` still bypasses it, matching the
+  //     spirit of the spec's "confirmation 2회" (two deliberate acts: the
+  //     `--running` flag itself is the first act, `--yes` is the second).
+  //   - non-TTY + no --yes: always refuse (never silently destroy).
+  //   - TTY + no --yes: one y/N prompt for stopped-only, plus a typed
+  //     challenge ("RUNNING") for `--running` to force a deliberate act.
   if (!dryRun && !values.yes) {
     if (!process.stdin.isTTY) {
       const msg = includeRunning
@@ -258,10 +292,10 @@ async function sessionPrune(argv: string[]): Promise<void> {
       return;
     }
     if (includeRunning) {
-      const answer2 = await prompt(
-        "This will KILL running Claude sessions. Are you sure? [y/N] ",
+      const challenge = await prompt(
+        `${yellow("This will KILL running Claude sessions.")} Type 'RUNNING' to confirm: `,
       );
-      if (!/^y(es)?$/i.test(answer2.trim())) {
+      if (challenge.trim() !== "RUNNING") {
         console.log("Aborted.");
         return;
       }
@@ -351,6 +385,14 @@ async function sessionPrune(argv: string[]): Promise<void> {
   }
 }
 
+/**
+ * Fallback for a daemon that accepts the request but never sends a reply
+ * of the expected shape (e.g. protocol drift, bug). `--all` on a giant store
+ * still fits well under this cap because each delete is a single SQLite
+ * write — 30s buys >> 1000 rows.
+ */
+const SESSION_OP_TIMEOUT_MS = 30_000;
+
 async function requestSessionOp<R extends { t: string }>(
   msg: IpcSessionDelete | IpcSessionPrune,
   expectedTypes: readonly string[],
@@ -359,12 +401,23 @@ async function requestSessionOp<R extends { t: string }>(
   try {
     ipc = await connectIpcAsClient(getSocketPath());
     return await new Promise<R>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(
+          new Error(
+            `Daemon did not reply within ${SESSION_OP_TIMEOUT_MS / 1000}s; try 'tp daemon status' or restart the daemon`,
+          ),
+        );
+      }, SESSION_OP_TIMEOUT_MS);
+      const done = (settle: () => void): void => {
+        clearTimeout(timer);
+        settle();
+      };
       ipc!.onMessage((raw) => {
         const r = raw as R;
-        if (expectedTypes.includes(r.t)) resolve(r);
+        if (expectedTypes.includes(r.t)) done(() => resolve(r));
       });
       ipc!.onClose(() =>
-        reject(new Error("Daemon disconnected before replying")),
+        done(() => reject(new Error("Daemon disconnected before replying"))),
       );
       ipc!.send(msg);
     });
@@ -407,7 +460,7 @@ Usage:
   tp session prune [options]                       Bulk-delete stopped sessions
     --older-than <Nd|Nh|Nm|Ns>   Age cutoff (default: 7d)
     --all                        Delete every stopped session (overrides --older-than)
-    --running                    Also kill & delete running sessions (dangerous)
+    ${yellow("--running")}                    Also kill & delete running sessions (${yellow("dangerous")})
     --dry-run                    Print selection without deleting
     -y, --yes                    Skip confirmation
 

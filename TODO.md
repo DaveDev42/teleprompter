@@ -7,6 +7,7 @@
 
 ### Windows
 - [ ] Bun `bun:sqlite` Windows finalizer 지연 — Bun 1.3.12 업그레이드 및 `Store.deleteSession`의 double-GC(`Bun.gc(true) → sleep 50ms → Bun.gc(true)`) 보강에도 불구하고 Windows CI에서 `unlinkRetry`의 모든 retry(1.575s budget)를 소진해도 lock이 풀리지 않는 케이스 확인됨. 실제 timeout 문제가 아니라 lock 자체의 지속성 문제라, retry budget을 키우면 다른 `auto-cleanup` 테스트들이 연쇄 timeout. `store-cleanup.test.ts`의 2개 테스트는 `describe.skipIf(win32)`로 skip 유지. 추가로 `auto-cleanup.test.ts` 전체와 `store-cleanup.test.ts`의 `pruneOldSessions removes error sessions` 테스트도 Windows CI 속도 개선을 위해 skip 확장 (macOS/Linux에서 동일 경로 검증됨). Bun upstream issue [oven-sh/bun#25964](https://github.com/oven-sh/bun/issues/25964) (WAL mode file lock on Windows after close) 해결 시 재시도 — 2026-04 현재 open, assignee/milestone 없음.
+- [ ] **`checkForUpdates` Windows CI flake** — `apps/cli/src/lib/check-for-updates.test.ts` 의 두 테스트 (`treats unknown schema version as cache miss`, `writes cache after running so failed network calls still rate-limit`) 가 5초 타임아웃으로 산발적으로 fail. PR #154, #136, #158 에서 재현 — 모두 첫 실행 fail / rerun pass 패턴. Cache write/read 의 fs sleep 가 Windows tmp dir 에서 jitter 발생하는 것으로 추정. Mac/Linux 에서는 안정. 임시 해결: rerun. 근본 해결: 두 테스트의 timeout 을 5s → 10s 로 늘리거나, fs.writeFile 호출을 fakeTimer 로 격리.
 
 ### 미검증 항목 (잠재 이슈)
 - [ ] Push Notifications 실기기 미검증 — Simulator에서는 push token 생성 불가, 실제 iOS/Android 디바이스에서 E2E 테스트 필요

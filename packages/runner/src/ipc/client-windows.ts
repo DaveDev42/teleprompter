@@ -12,7 +12,7 @@ const log = createLogger("IpcClient:Windows");
 type IncomingHandler = (msg: unknown) => void;
 
 interface WindowsIpcConnection {
-  send(msg: IpcMessage): void;
+  send(msg: IpcMessage, binary?: Uint8Array<ArrayBufferLike> | null): void;
   close(): void;
 }
 
@@ -29,9 +29,9 @@ export async function connectWindows(
       unix: path,
       socket: {
         data(_socket, data) {
-          const messages = decoder.decode(new Uint8Array(data));
-          for (const msg of messages) {
-            onMessage(msg);
+          const frames = decoder.decode(new Uint8Array(data));
+          for (const frame of frames) {
+            onMessage(frame.data);
           }
         },
         drain(socket) {
@@ -48,8 +48,8 @@ export async function connectWindows(
 
     log.info(`connected to ${path} (bun native pipe)`);
     return {
-      send(msg: IpcMessage) {
-        const frame = encodeFrame(msg);
+      send(msg: IpcMessage, binary?: Uint8Array<ArrayBufferLike> | null) {
+        const frame = encodeFrame(msg, binary ?? null);
         writer.write(socket, frame);
       },
       close() {
@@ -66,8 +66,8 @@ export async function connectWindows(
     const socket: Socket = netConnect(path, () => {
       log.info(`connected to ${path} (node:net fallback)`);
       resolve({
-        send(msg: IpcMessage) {
-          const frame = encodeFrame(msg);
+        send(msg: IpcMessage, binary?: Uint8Array<ArrayBufferLike> | null) {
+          const frame = encodeFrame(msg, binary ?? null);
           socket.write(Buffer.from(frame));
         },
         close() {
@@ -77,11 +77,11 @@ export async function connectWindows(
     });
 
     socket.on("data", (data: Buffer) => {
-      const messages = decoder.decode(
+      const frames = decoder.decode(
         new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
       );
-      for (const msg of messages) {
-        onMessage(msg);
+      for (const frame of frames) {
+        onMessage(frame.data);
       }
     });
 

@@ -77,8 +77,8 @@ export class Daemon {
           log.info(`runner disconnected sid=${runner.sid}`);
         }
       },
-      onMessage: (runner, msg) => {
-        this.dispatcher.dispatchIpc(runner, msg);
+      onMessage: (runner, msg, binary) => {
+        this.dispatcher.dispatchIpc(runner, msg, binary);
       },
     });
 

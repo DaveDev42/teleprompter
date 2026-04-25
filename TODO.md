@@ -122,7 +122,7 @@
 ### 그룹 B
 - [x] **B1: 레거시 `pairing.json` 마이그레이션 제거** — unlink 블록 + 상수 + 테스트 제거.
 - [x] **B2: CLI `pair delete`/`pair rename` → daemon IPC 이관 (2026-04-21)** — "daemon must be stopped" 제약 제거. daemon이 running이면 새 `pair.remove`/`pair.rename` IPC를 보내 daemon이 기존 RelayClient로 peer notify + store 업데이트를 한 번에 수행. daemon이 running이 아니면 store를 직접 수정 (fallback). `RelayConnectionManager`에 `renamePairing` 메서드 신설 + `removePairing`이 notify된 peer 수를 반환하도록 시그니처 변경. 프로토콜에 `IpcPairRemove{,Ok,Err}` / `IpcPairRename{,Ok,Err}` 타입 + `parseIpcMessage` guard 확장. 단위 테스트 6 (dispatcher) + 4 (RelayConnectionManager) + 6 (ipc-guard) 추가.
-- [ ] **B3: IPC 바이너리 프레이밍 (io records)** — scope 과대로 보류. 프로토콜 버전 bump + runner/daemon/relay 전역 테스트 업데이트 필요. 별도 브랜치.
+- [x] **B3: IPC 바이너리 프레이밍 (io records) (PR #136)** — `encodeFrame(data, binary?)` + `FrameDecoder`가 `{ data, binary }` 튜플을 반환하도록 codec 확장. 프레임 헤더가 8 bytes(u32 jsonLen + u32 binLen)로 커졌고, binLen=0이면 JSON-only. Runner의 `Collector.ioRecord`는 이제 `{ msg, binary }`를 반환해 PTY 바이트를 base64 인코딩 없이 sidecar로 전송 (~33% 오버헤드 제거). Daemon의 `handleRec`은 binary sidecar가 있으면 그대로 Store에 쓰고, 상위 relay 전송 시에만 한 번 base64 인코딩. IPC만 적용 — WS 경로(Daemon↔Relay)는 여전히 JSON+base64 (별건).
 - [x] **B4: Relay 상태 TTL eviction** — offline 1시간 후 `daemonStates` + `recentFrames` evict.
 - [x] **B5: `cacheFrame` 배치 업데이트** — Map in-place mutate + 120ms throttled flush; PTY 버스트 시 rerender 폭주 해소.
 - [x] **B6: ANSI strip 추출** — `lib/ansi-strip.ts` + 7 단위 테스트.

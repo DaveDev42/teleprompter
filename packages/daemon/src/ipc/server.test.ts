@@ -145,10 +145,10 @@ describe("IpcServer", () => {
     const received: unknown[] = [];
 
     client.on("data", (data: Buffer) => {
-      const msgs = decoder.decode(
+      const frames = decoder.decode(
         new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
       );
-      received.push(...msgs);
+      for (const frame of frames) received.push(frame.data);
     });
 
     const hello: IpcHello = {

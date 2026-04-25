@@ -19,7 +19,11 @@ export interface ConnectedRunner {
 }
 
 export interface IpcServerEvents {
-  onMessage: (runner: ConnectedRunner, msg: IpcMessage) => void;
+  onMessage: (
+    runner: ConnectedRunner,
+    msg: IpcMessage,
+    binary: Uint8Array<ArrayBufferLike> | null,
+  ) => void;
   onConnect: (runner: ConnectedRunner) => void;
   onDisconnect: (runner: ConnectedRunner) => void;
 }
@@ -70,9 +74,9 @@ export class IpcServer {
         data(socket, data) {
           const runner = (socket as unknown as { _runner: ConnectedRunner })
             ._runner;
-          const messages = runner.decoder.decode(new Uint8Array(data));
-          for (const raw of messages) {
-            const msg = parseIpcMessage(raw);
+          const frames = runner.decoder.decode(new Uint8Array(data));
+          for (const frame of frames) {
+            const msg = parseIpcMessage(frame.data);
             if (!msg) {
               log.warn("dropped malformed IPC message");
               continue;
@@ -81,7 +85,7 @@ export class IpcServer {
             if (msg.t === "hello") {
               runner.sid = msg.sid;
             }
-            self.events.onMessage(runner, msg);
+            self.events.onMessage(runner, msg, frame.binary);
           }
         },
         drain(socket) {
@@ -105,8 +109,12 @@ export class IpcServer {
     return path;
   }
 
-  send(runner: ConnectedRunner, msg: IpcMessage): void {
-    const frame = encodeFrame(msg);
+  send(
+    runner: ConnectedRunner,
+    msg: IpcMessage,
+    binary?: Uint8Array<ArrayBufferLike> | null,
+  ): void {
+    const frame = encodeFrame(msg, binary ?? null);
     runner.writer.write(
       runner.socket as Parameters<QueuedWriter["write"]>[0],
       frame,

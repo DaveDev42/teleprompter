@@ -48,9 +48,9 @@ export function startWindowsServer(
         data(socket, data) {
           const runner = (socket as unknown as { _runner: ConnectedRunner })
             ._runner;
-          const messages = runner.decoder.decode(new Uint8Array(data));
-          for (const raw of messages) {
-            const msg = parseIpcMessage(raw);
+          const frames = runner.decoder.decode(new Uint8Array(data));
+          for (const frame of frames) {
+            const msg = parseIpcMessage(frame.data);
             if (!msg) {
               log.warn("dropped malformed IPC message");
               continue;
@@ -58,7 +58,7 @@ export function startWindowsServer(
             if (msg.t === "hello") {
               runner.sid = msg.sid;
             }
-            events.onMessage(runner, msg);
+            events.onMessage(runner, msg, frame.binary);
           }
         },
         drain(socket) {
@@ -99,11 +99,11 @@ export function startWindowsServer(
     events.onConnect(runner);
 
     socket.on("data", (data: Buffer) => {
-      const messages = runner.decoder.decode(
+      const frames = runner.decoder.decode(
         new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
       );
-      for (const raw of messages) {
-        const msg = parseIpcMessage(raw);
+      for (const frame of frames) {
+        const msg = parseIpcMessage(frame.data);
         if (!msg) {
           log.warn("dropped malformed IPC message");
           continue;
@@ -111,7 +111,7 @@ export function startWindowsServer(
         if (msg.t === "hello") {
           runner.sid = msg.sid;
         }
-        events.onMessage(runner, msg);
+        events.onMessage(runner, msg, frame.binary);
       }
     });
 

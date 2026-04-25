@@ -101,7 +101,11 @@ export class IpcCommandDispatcher {
    * are delegated to the injected callbacks; session lifecycle messages are
    * handled inline.
    */
-  dispatchIpc(runner: ConnectedRunner, msg: IpcMessage): void {
+  dispatchIpc(
+    runner: ConnectedRunner,
+    msg: IpcMessage,
+    binary: Uint8Array<ArrayBufferLike> | null = null,
+  ): void {
     switch (msg.t) {
       case "pair.begin":
         this.deps.onPairBegin(runner, msg);
@@ -125,7 +129,7 @@ export class IpcCommandDispatcher {
         this.handleHello(msg);
         return;
       case "rec":
-        this.handleRec(runner, msg);
+        this.handleRec(runner, msg, binary);
         return;
       case "bye":
         this.handleBye(msg);
@@ -506,14 +510,24 @@ export class IpcCommandDispatcher {
     }
   }
 
-  private handleRec(runner: ConnectedRunner, msg: IpcRec): void {
+  private handleRec(
+    runner: ConnectedRunner,
+    msg: IpcRec,
+    binary: Uint8Array<ArrayBufferLike> | null,
+  ): void {
     const db = this.deps.store.getSessionDb(msg.sid);
     if (!db) {
       log.error(`unknown session sid=${msg.sid}`);
       return;
     }
 
-    const payload = Buffer.from(msg.payload, "base64");
+    // Runner may either send the payload base64-encoded in `msg.payload`
+    // (event/meta records, small enough that the wire overhead doesn't
+    // matter) or as the frame's binary sidecar (io records, which carry
+    // raw PTY bytes and skip base64 entirely). Use whichever is present.
+    const payload = binary
+      ? Buffer.from(binary.buffer, binary.byteOffset, binary.byteLength)
+      : Buffer.from(msg.payload, "base64");
     const seq = db.append(msg.kind, msg.ts, payload, msg.ns, msg.name);
 
     this.deps.store.updateLastSeq(msg.sid, seq);
@@ -525,7 +539,11 @@ export class IpcCommandDispatcher {
       seq,
     });
 
-    // Publish to relay(s) for remote frontends
+    // Publish to relay(s) for remote frontends. The WS protocol still
+    // sends payloads as base64 text (WebSocket frames are JSON), so if
+    // the runner handed us raw bytes we base64-encode once here before
+    // fanning out to relays.
+    const wsPayload = binary ? payload.toString("base64") : msg.payload;
     const wsRec: WsRec = {
       t: "rec",
       sid: msg.sid,
@@ -533,7 +551,7 @@ export class IpcCommandDispatcher {
       k: msg.kind,
       ns: msg.ns,
       n: msg.name,
-      d: msg.payload, // already base64
+      d: wsPayload,
       ts: msg.ts,
     };
     for (const relay of this.deps.getRelayClients()) {

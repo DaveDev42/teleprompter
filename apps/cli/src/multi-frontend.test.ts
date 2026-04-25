@@ -300,11 +300,12 @@ describe("Multi-Frontend N:N E2E", () => {
     const decoder = new FrameDecoder();
     const ipcMessages: IpcMessage[] = [];
     ipc.on("data", (data: Buffer) => {
-      ipcMessages.push(
-        ...(decoder.decode(
-          new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
-        ) as IpcMessage[]),
+      const frames = decoder.decode(
+        new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
       );
+      for (const frame of frames) {
+        ipcMessages.push(frame.data as IpcMessage);
+      }
     });
 
     // Frontend sends encrypted input

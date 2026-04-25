@@ -4,17 +4,17 @@ import { Collector } from "./collector";
 describe("Collector", () => {
   const collector = new Collector("test-session");
 
-  test("ioRecord creates io record with base64 payload", () => {
+  test("ioRecord returns the bytes as a binary sidecar (no base64)", () => {
     const data = new TextEncoder().encode("Hello, World!");
-    const rec = collector.ioRecord(data);
+    const io = collector.ioRecord(data);
 
-    expect(rec.t).toBe("rec");
-    expect(rec.sid).toBe("test-session");
-    expect(rec.kind).toBe("io");
-    expect(rec.ts).toBeGreaterThan(0);
-
-    const decoded = Buffer.from(rec.payload, "base64").toString();
-    expect(decoded).toBe("Hello, World!");
+    expect(io.msg.t).toBe("rec");
+    expect(io.msg.sid).toBe("test-session");
+    expect(io.msg.kind).toBe("io");
+    expect(io.msg.ts).toBeGreaterThan(0);
+    // Payload stays empty — the bytes ride as the frame's binary sidecar.
+    expect(io.msg.payload).toBe("");
+    expect(new TextDecoder().decode(io.binary)).toBe("Hello, World!");
   });
 
   test("eventRecord creates event record from hook event", () => {
@@ -50,17 +50,16 @@ describe("Collector", () => {
     expect(decoded.pid).toBe(1234);
   });
 
-  test("ioRecord handles binary data with null bytes", () => {
+  test("ioRecord preserves null bytes and high bytes verbatim", () => {
     const data = new Uint8Array([0, 1, 2, 255, 0, 128]);
-    const rec = collector.ioRecord(data);
-    const decoded = Buffer.from(rec.payload, "base64");
-    expect(new Uint8Array(decoded)).toEqual(data);
+    const io = collector.ioRecord(data);
+    expect(Array.from(io.binary)).toEqual(Array.from(data));
   });
 
-  test("each record has a unique timestamp", async () => {
-    const rec1 = collector.ioRecord(new Uint8Array([1]));
+  test("each io record has a unique timestamp", async () => {
+    const a = collector.ioRecord(new Uint8Array([1]));
     await Bun.sleep(2);
-    const rec2 = collector.ioRecord(new Uint8Array([2]));
-    expect(rec2.ts).toBeGreaterThanOrEqual(rec1.ts);
+    const b = collector.ioRecord(new Uint8Array([2]));
+    expect(b.msg.ts).toBeGreaterThanOrEqual(a.msg.ts);
   });
 });

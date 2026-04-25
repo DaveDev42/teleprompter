@@ -63,8 +63,8 @@ export async function connectWindowsIpc(path: string): Promise<IpcClient> {
       unix: path,
       socket: {
         data(_socket, data) {
-          const messages = decoder.decode(new Uint8Array(data));
-          for (const msg of messages) dispatch(msg);
+          const frames = decoder.decode(new Uint8Array(data));
+          for (const frame of frames) dispatch(frame.data);
         },
         drain(sock) {
           writer.drain(sock);
@@ -133,10 +133,10 @@ export async function connectWindowsIpc(path: string): Promise<IpcClient> {
     });
 
     socket.on("data", (data: Buffer) => {
-      const messages = decoder.decode(
+      const frames = decoder.decode(
         new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
       );
-      for (const msg of messages) dispatch(msg);
+      for (const frame of frames) dispatch(frame.data);
     });
 
     socket.on("error", (err) => {

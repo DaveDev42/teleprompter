@@ -91,7 +91,8 @@ export class Runner {
         rows: this.opts.rows,
         onData: (data) => {
           if (this.state === "running") {
-            this.ipc.send(this.collector.ioRecord(data));
+            const io = this.collector.ioRecord(data);
+            this.ipc.send(io.msg, io.binary);
           }
         },
         onExit: (exitCode) => {

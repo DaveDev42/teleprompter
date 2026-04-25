@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.18](https://github.com/DaveDev42/teleprompter/compare/v0.1.17...v0.1.18) (2026-04-25)
+
+
+### Bug Fixes
+
+* **cli:** make daemon-status test tolerate installed service ([8f06e3e](https://github.com/DaveDev42/teleprompter/commit/8f06e3ed8670d0a8eaddfd24efcb351c0b65f1a3))
+* **cli:** make daemon-status test tolerate installed service ([91abf0b](https://github.com/DaveDev42/teleprompter/commit/91abf0b3817178b79163668c096b292b95372eca))
+
 ## [0.1.17](https://github.com/DaveDev42/teleprompter/compare/v0.1.16...v0.1.17) (2026-04-23)
 
 

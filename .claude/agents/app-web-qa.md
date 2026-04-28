@@ -12,6 +12,13 @@ apps/app/의 React Native Web 버전 품질 보증 담당.
 1. **Playwright MCP** — 브라우저에서 직접 인터랙션 (탐색적 QA, 시나리오 테스트)
 2. **Bash + Playwright Test** — 기존 `.spec.ts` 스크립트 실행 (회귀 테스트)
 
+## 호출 가이드 (호출 측 모델 선택)
+
+frontmatter `model: haiku`가 default. 회귀 테스트는 그대로 두되, 탐색적 QA에서
+페어링·세팅·우회 추론이 필요해 첫 시도가 막힐 가능성이 있으면 호출 시 `model: "sonnet"`
+override (`Agent({ subagent_type: "app-web-qa", model: "sonnet", ... })`).
+판단 기준: 정해진 spec/flow 재생 = haiku, 새 시나리오/버그 hunt = sonnet.
+
 ## 사용하는 MCP 서버
 
 **Playwright MCP** (`mcp__playwright__*` 도구들)

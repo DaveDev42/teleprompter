@@ -90,6 +90,19 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 - Tests: `bun:test`, 소스 옆 co-located. Biome = lint + format (ESLint/Prettier 금지). Platform-guarded tests: `describe.skipIf(process.platform !== "win32")` / `describe.skipIf(process.platform === "win32")`.
 - 영역별 상세 컨벤션은 `.claude/rules/`에서 자동 로드됨.
 
+## Subagent Dispatch
+
+Agent 호출 시 항상 `model` 명시. plugin agent (e.g., `superpowers:code-reviewer`)는
+frontmatter가 `model: inherit`이라 미명시 시 부모 Opus 상속.
+
+- **탐색/grep/짧은 요약**: `model: "haiku"` (e.g., `Explore`, file lookups)
+- **코드 작업/리뷰/구현**: `model: "sonnet"` (e.g., `superpowers:code-reviewer`,
+  `general-purpose`)
+- **어려운 설계/추론만 opus**: 명확히 필요할 때만
+- **QA**: 회귀(`.spec.ts` 실행, Maestro flow 재생) = `haiku`,
+  탐색적 QA (버그 hunt, 새 시나리오, 페어링/세팅 우회 추론 필요) = `sonnet`
+  (`app-web-qa` / `expo-mcp:qa` 모두 동일 룰)
+
 ## Testing Strategy
 
 4계층 테스트, 모두 `bun:test` 사용 (Tier 4는 Expo MCP Plugin + Playwright MCP).
@@ -102,101 +115,12 @@ pnpm test:e2e          # Playwright E2E (local, 전체)
 pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 ```
 
-### Tier 1: Unit Tests
-외부 의존성 없이 빠르게 실행.
-- `packages/protocol/src/codec.test.ts` — framed JSON encode/decode
-- `packages/protocol/src/codec-edge.test.ts` — partial frames, unicode, 100KB payloads
-- `packages/protocol/src/queued-writer.test.ts` — backpressure queue
-- `packages/protocol/src/crypto.test.ts` — E2EE encrypt/decrypt, key exchange, ratchet, kxKey/registrationProof derivation
-- `packages/protocol/src/crypto-edge.test.ts` — empty/large payloads, tampered ciphertext
-- `packages/protocol/src/pairing.test.ts` — QR pairing bundle, encode/decode
-- `packages/protocol/src/control.test.ts` — control.unpair/control.rename 타입 상수 및 discriminated union shape
-- `packages/protocol/src/test-utils.test.ts` — `rmRetry` 디렉터리 삭제 헬퍼 (EBUSY 재시도)
-- `packages/daemon/src/store/store.test.ts` — append-only Record 저장
-- `packages/daemon/src/session/session-manager.test.ts` — register/unregister, spawn, kill
-- `packages/daemon/src/ipc/server.test.ts` — connection lifecycle, framed messaging, findBySid
-- `packages/daemon/src/index.test.ts` — daemon entry point이 legacy `--ws-port`/`startWs`를 import하지 않는지 소스 검증
-- `packages/daemon/src/daemon-passthrough-helpers.test.ts` — `Daemon.onRecord` 콜백, passthrough 세션 helper 동작
-- `packages/daemon/src/export-formatter.test.ts` — 세션 export markdown formatter (event/io records)
-- `packages/daemon/src/pairing/pending-pairing.test.ts` — `PendingPairing.begin()` 키/QR 생성, relay open 흐름
-- `packages/runner/src/hooks/settings-builder.test.ts` — settings merge
-- `packages/runner/src/hooks/hook-receiver.test.ts` — unix socket event reception
-- `packages/runner/src/hooks/capture-hook.test.ts` — hook command generation
-- `packages/runner/src/collector.test.ts` — io/event/meta record creation
-- `packages/daemon/src/store/session-db.test.ts` — append, cursor, payloads
-- `packages/daemon/src/store/store-cleanup.test.ts` — deleteSession, pruneOldSessions
-- `packages/daemon/src/auto-cleanup.test.ts` — daemon auto-cleanup on startup, periodic scheduler, TTL config
-- `packages/daemon/src/push/push-notifier.test.ts` — hook event detection, token registration, push dispatch
-- `packages/relay/src/push.test.ts` — Expo Push API client, rate limiting, dedup
-- `packages/protocol/src/socket-path.test.ts` — path format
-- `packages/protocol/src/logger.test.ts` — level filtering, prefix formatting
-- `apps/cli/src/args.test.ts` — `--tp-*` 인자 분리
-- `apps/cli/src/spawn.test.ts` — runner command resolution
-- `apps/cli/src/install-script.test.ts` — `scripts/install.sh` syntax + `NO_COMPLETIONS` / TTY gate / PATH gate 검증
-- `apps/cli/src/commands/version.test.ts` — version output
-- `apps/cli/src/commands/status.test.ts` — daemon status display
-- `apps/cli/src/commands/pair.test.ts` — pairing data generation
-- `apps/cli/src/commands/passthrough.test.ts` — arg splitting
-- `apps/cli/src/commands/session.test.ts` — `tp session list/delete/prune` (parseDuration, matchSessions, daemon-less Store fallback integration)
-- `apps/cli/src/commands/upgrade.test.ts` — checksum parsing, file hashing, backup/rollback
-- `apps/cli/src/commands/completions.test.ts` — 각 쉘 completion 스크립트 출력에 tp/claude 서브커맨드 포함 여부
-- `apps/cli/src/commands/completions-install.test.ts` — bash/zsh/fish/powershell rc 파일 marker 블록 install/uninstall
-- `apps/cli/src/commands/daemon.test.ts` — daemon.ts 소스가 legacy `loadPairingData`/`pairing.json`을 참조하지 않는지 정적 검증
-- `apps/cli/src/commands/daemon-status.test.ts` — `tp daemon status` 출력 배너/힌트 스모크
-- `apps/cli/src/commands/forward-claude.test.ts` — `CLAUDE_UTILITY_SUBCOMMANDS` set 구성
-- `apps/cli/src/lib/colors.test.ts` — ANSI color wrapper (NO_COLOR honor)
-- `apps/cli/src/lib/e2ee-verify.test.ts` — `verifyE2EECrypto` 자가검증 (daemon↔frontend, relay isolation)
-- `apps/cli/src/lib/ensure-daemon.test.ts` — `isDaemonRunning` / install prompt 결정 / yes-no 파싱
-- `apps/cli/src/lib/format.test.ts` — `errorWithHints` 에러 메시지 포매터
-- `apps/cli/src/lib/ipc-client.test.ts` — `connectIpcAsClient` framed JSON 송수신 (POSIX unix socket 경로)
-- `apps/cli/src/lib/ipc-client-windows.test.ts` — `connectWindowsIpc` Named Pipe 송수신 — `process.platform !== "win32"`에서 skip
-- `apps/cli/src/lib/pair-lock.test.ts` — `acquirePairLock`/`releasePairLock` 동시성 (proper-lockfile)
-- `apps/cli/src/lib/shell-detect.test.ts` — `$SHELL`/`$PSModulePath` 기반 쉘 감지
-- `apps/cli/src/lib/spinner.test.ts` — spinner start/stop 라이프사이클
-- `apps/cli/src/lib/service.test.ts` — OS service plist/unit generation
-- `packages/protocol/src/compat.test.ts` — protocol version compatibility
-- `packages/runner/src/pty/pty-manager.test.ts` — PTY spawn, resize, lifecycle
-- `packages/runner/src/pty/pty-host-installer.test.ts` — pty-host 설치 디렉터리/버전 마커 (`needsInstall`)
-- `packages/runner/src/pty/pty-windows.test.ts` — Windows PtyWindows (node-pty ConPTY) — `process.platform !== "win32"`에서 skip
+또는 슬래시 커맨드 사용 — 변경 파일 기반 자동 dispatch:
+- `/test [auto|protocol|daemon|runner|relay|cli|app|e2e|unit|all]` — 변경 범위 감지 후 실행
+- `/qa [web|mobile]` — Tier 4 QA agent에 위임 (Playwright/Expo MCP)
+- `/deploy-check` — CI와 동일한 로컬 사전 검증
 
-### Tier 2: Integration Tests (stub runner)
-Stub 프로세스로 전체 파이프라인 검증.
-- `packages/daemon/src/integration.test.ts` — IPC 파이프라인 (mock Runner→Daemon→Store)
-- `packages/daemon/src/daemon-pairing.test.ts` — `Daemon.beginPairing`/`completePairing` + fake RelayClient
-- `packages/daemon/src/transport/relay-client.test.ts` — Daemon→Relay E2E with v2 self-registration + key exchange
-- `packages/relay/src/relay-server.test.ts` — Relay auth, routing, caching, presence, relay.push handling
-- `packages/relay/src/relay-edge.test.ts` — malformed JSON, multi-frontend, unsubscribe
-- `packages/daemon/src/worktree/worktree-manager.test.ts` — git worktree add/remove/list
-- `apps/cli/src/relay.test.ts` — relay CLI integration
-- `packages/protocol/src/pairing-e2e.test.ts` — full QR pairing → ratchet → E2E encrypt
-- `packages/runner/src/ipc/client.test.ts` — Runner↔Daemon IPC client connection
-- `apps/cli/src/multi-frontend.test.ts` — N:N multi-frontend E2EE (2 frontends, independent keys, cross-decrypt rejection)
-- `apps/cli/src/pair-blocking.test.ts` — `tp pair new`가 실제 daemon subprocess에서 frontend kx 완료까지 블록 (SIGINT 경로 포함)
-- `apps/cli/src/rename-e2e.test.ts` — `control.rename` 라운드트립 (Daemon + 실제 RelayServer)
-- `apps/cli/src/unpair-e2e.test.ts` — `control.unpair` 라운드트립 (Daemon + 실제 RelayServer)
-
-### Tier 3: Real E2E Tests (requires claude CLI)
-실제 claude PTY를 통한 전체 tp 파이프라인. `claude`가 PATH에 없으면 skip.
-- 현재 비어있음 — UI 수준 claude PTY E2E는 Playwright(`e2e/app-real-e2e.spec.ts`)로 이관됨.
-
-### Benchmarks
-- `packages/relay/src/bench.test.ts` — relay throughput benchmark
-
-### Tier 4: QA Agent Tests (Expo MCP Plugin + Playwright MCP)
-`/qa` 커맨드로 QA agent에 위임:
-- `expo-mcp:qa` — iOS Simulator / Android Emulator (Expo MCP Plugin `DaveDev42/expo-mcp` + Maestro)
-- `app-web-qa` — React Native Web (Playwright MCP + Playwright Test)
-- Playwright E2E: `pnpm test:e2e`
-  - `e2e/app-web.spec.ts` — UI smoke tests (Sessions header, empty state, tabs, dark theme)
-  - `e2e/app-settings.spec.ts` — settings tab (appearance, theme toggle, fonts, diagnostics, version)
-  - `e2e/app-daemon.spec.ts` — daemon-connected session list
-  - `e2e/app-session-switch.spec.ts` — session list and navigation
-  - `e2e/app-resume.spec.ts` — daemon restart recovery
-  - `e2e/app-keyboard-nav.spec.ts` — keyboard navigation (Tab focus, Enter activation, Escape modal dismiss, focus ring)
-  - `e2e/app-relay-e2e.spec.ts` — full relay pipeline (pair → relay → daemon → E2EE) (local only)
-  - `e2e/app-roundtrip.spec.ts` — input/output roundtrip (local only)
-  - `e2e/app-real-e2e.spec.ts` — real Claude PTY E2E (local only)
-  - `e2e/app-chat-roundtrip.spec.ts` — chat input/output roundtrip (local only)
+Tier 1-4 분류 및 전체 test 파일 인벤토리는 `.claude/rules/testing-inventory.md` 참조 — `*.test.ts` / `e2e/**` / `packages/**` / `apps/**` 파일 작업 시 자동 로드됨.
 
 ## Documentation Maintenance
 

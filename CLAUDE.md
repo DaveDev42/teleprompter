@@ -133,26 +133,29 @@ update the relevant documentation files in the same commit.
 - **main**: 보호 브랜치 — PR merge로만 변경. 직접 push 금지.
 - **Feature branches**: `feat/`, `fix/`, `chore/`, `refactor/` prefix. PR 생성 후 CI 통과 → merge.
 - **Release tags**: `v*` — Release Please가 자동 생성.
-- **Merge 방식**: rebase onto `origin/main` → merge commit (squash 아님).
+- **Merge 방식**: **squash merge only**. PR 하나가 main 위에 단일 commit으로 떨어진다.
 
 ### PR Merge 절차
 
 ```bash
-# 1. rebase
-git fetch origin main && git rebase origin/main
+# 1. (선택) main 변경이 충돌할 가능성이 있으면 rebase
+git fetch origin main && git rebase origin/main && git push --force-with-lease
 
-# 2. conflict 해결 후 force push
-git push --force-with-lease
-
-# 3. CI 통과 확인
+# 2. CI 통과 확인
 gh pr checks <number>
 
-# 4. merge (worktree 환경에서는 gh pr merge가 main checkout 실패할 수 있음 — API 사용)
-gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=merge
+# 3. squash merge (worktree 환경에서는 gh pr merge가 main checkout 실패할 수 있음 — API 사용)
+gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=squash
 ```
 
 > **주의**: `gh pr merge`는 로컬에서 main을 checkout하려 하므로, git worktree 환경에서는 실패한다.
 > 항상 `gh api` PUT 방식을 사용할 것.
+>
+> **GitHub repo 설정**: `allow_squash_merge=true`, `allow_merge_commit=false`, `allow_rebase_merge=false`,
+> `squash_merge_commit_title=PR_TITLE`, `squash_merge_commit_message=PR_BODY`, `delete_branch_on_merge=true`.
+> squash commit subject는 **PR title이 그대로 들어간다** — 그래서 PR title이 conventional-commit
+> prefix를 꼭 따라야 한다 (`feat:` / `fix:` / `chore:` / `refactor:` / `perf:` / `revert:`).
+> PR 브랜치 위 개별 commit message는 자유 형식이어도 무방 (squash 시 main 히스토리에서 사라짐).
 
 ## Commit Discipline
 
@@ -165,15 +168,17 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 ## Commit & Release Convention
 
 - **Default to patch version bumps.** Unless the user explicitly asks for a major or minor bump, every change (including API-breaking ones in 0.x) must ship as a patch release. release-please drives version bumps from conventional-commit prefixes.
-- **Never use `feat!`, `fix!`, or a `BREAKING CHANGE:` footer** in PR titles, squash-merge messages, or commit messages. These escalate release-please to major bumps automatically (e.g. 0.x → 1.0.0). Use plain `feat:` / `fix:` / `refactor:` / `chore:` instead, and describe breaking changes in the PR body and migration notes rather than the commit prefix.
+- **PR title is the conventional-commit input** for release-please (squash merge → PR title becomes the commit subject on main). 모든 PR title은 `feat:` / `fix:` / `chore:` / `refactor:` / `perf:` / `revert:` / `docs:` / `test:` 중 하나로 시작해야 한다.
+- **Never use `feat!`, `fix!`, or a `BREAKING CHANGE:` footer** in PR titles. These escalate release-please to major bumps automatically (e.g. 0.x → 1.0.0). Use plain `feat:` / `fix:` / `refactor:` / `chore:` instead, and describe breaking changes in the PR body and migration notes rather than the title prefix.
 - **Manual major/minor bump**: when a major/minor release is explicitly requested, push a commit to `main` with a `Release-As: x.y.z` footer (release-please auto-detects it), or temporarily set `release-as` in `release-please-config.json` via a chore PR, then remove it in a follow-up chore PR after the release ships.
-- Since this repo uses merge commits (not squash), every commit on the PR branch is visible to release-please; make sure no commit on the branch uses the banned prefixes.
+- PR 브랜치 위 개별 commit messages는 conventional-commit 규칙을 따르지 않아도 된다 — squash merge가 합쳐서 PR title 하나로 main에 들어가므로 release-please는 PR title만 본다. 단, 커밋 본문에 `BREAKING CHANGE:` footer는 squash 시에도 main까지 따라가서 release-please가 잡으므로 절대 쓰지 말 것.
 
 ## Git Merge Strategy
 
-- **Squash merge is disabled** on this repository. Use `gh pr merge --merge` (merge commit).
-- This repo often uses **git worktrees**. When merging from a worktree, the local `main` branch may belong to another worktree. Always merge via `gh pr merge` (GitHub API) instead of local git merge.
-- After merge, clean up remote branch with `--delete-branch` flag.
+- **Squash merge only.** PR 하나당 main 위에 단일 commit. GitHub repo 설정에서 squash 외 모든 merge 방식이 비활성화되어 있다.
+- **PR title = main commit subject**: squash 시 GitHub이 PR title을 그대로 commit subject로, PR body를 commit body로 쓴다. PR title을 작성/수정할 때 release-please / changelog 입력으로서의 무게를 의식할 것.
+- This repo often uses **git worktrees**. 로컬 `main`이 다른 worktree에 체크아웃되어 있을 수 있으므로 `gh pr merge` 대신 `gh api repos/DaveDev42/teleprompter/pulls/<n>/merge -X PUT -f merge_method=squash` 사용.
+- After merge, GitHub이 자동으로 remote branch를 삭제 (`delete_branch_on_merge=true`).
 
 ## Deployment Pipeline
 

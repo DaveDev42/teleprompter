@@ -68,17 +68,26 @@ tp daemon uninstall    # Remove
 | Command | Description |
 |---------|-------------|
 | `tp [flags] [claude args]` | Run Claude through tp pipeline (default) |
-| `tp pair [--relay URL]` | Generate QR pairing data |
+| `tp pair [--relay URL] [--label NAME]` | Generate QR pairing data (alias for `tp pair new`) |
+| `tp pair list` | List registered pairings (label + daemon ID) |
+| `tp pair rename <id-prefix> <label...>` | Rename a pairing (notifies peer) |
+| `tp pair delete <id> [-y]` | Delete a pairing (daemon-id prefix accepted) |
+| `tp session list` | List stored sessions (running + stopped) |
+| `tp session delete <sid> [-y]` | Delete a session (sid prefix accepted) |
+| `tp session prune [--older-than 7d] [--all] [--dry-run] [-y]` | Bulk-delete stopped sessions |
 | `tp status` | Show daemon status and sessions |
 | `tp logs [session]` | Tail live session output |
-| `tp doctor` | Environment diagnostics |
+| `tp doctor` | Environment diagnostics + relay E2EE check |
 | `tp upgrade` | Upgrade tp + Claude Code |
 | `tp version` | Print version |
 | `tp daemon start [opts]` | Start daemon in foreground |
-| `tp daemon install` | Register as OS service (launchd/systemd) |
+| `tp daemon install` | Register as OS service (launchd / systemd / Task Scheduler) |
 | `tp daemon uninstall` | Remove OS service |
 | `tp relay start [--port]` | Start a relay server (self-hosted) |
-| `tp completions <shell>` | Generate shell completions (bash/zsh/fish) |
+| `tp completions <bash\|zsh\|fish\|powershell>` | Print shell completion script |
+| `tp completions install [shell]` | Install completion into the current shell rc / profile |
+| `tp completions uninstall [shell]` | Remove installed completion |
+| `tp auth` / `mcp` / `install` / `update` / `agents` / `auto-mode` / `plugin` / `setup-token` | Forward to `claude` (daemon bypass) |
 
 ## Architecture
 
@@ -117,15 +126,21 @@ scripts/
 ```bash
 pnpm install
 
-# Run all tests (unit/integration across 41 test files + 6 Playwright E2E specs)
+# Run all bun:test suites across the workspace (unit + integration)
 pnpm test
 
-# Type check all 5 packages
+# Run Playwright E2E specs (CI subset — daemon-free)
+pnpm test:e2e:ci
+
+# Run Playwright E2E specs (local — full, includes real-daemon flows)
+pnpm test:e2e
+
+# Type check every workspace package
 pnpm type-check:all
 
 # Build CLI binary
 pnpm build:cli:local    # current platform
-pnpm build:cli          # all 4 platforms
+pnpm build:cli          # every release target (see scripts/build.ts TARGETS)
 
 # Frontend dev server
 pnpm dev:app

@@ -258,7 +258,7 @@ Tests use `bun:test` exclusively — no Jest or Vitest. Test files are co-locate
 
 ```bash
 pnpm build:cli:local    # current platform only
-pnpm build:cli          # all 5 targets (darwin/linux x arm64/x64 + windows x64)
+pnpm build:cli          # every release target (see scripts/build.ts TARGETS)
 ```
 
 Builds use `bun build --compile` to produce standalone binaries.

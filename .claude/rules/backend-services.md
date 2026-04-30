@@ -41,7 +41,7 @@ paths:
 - **Unix socket path 길이**: macOS/Linux의 sockaddr_un은 path 길이가 104/108 bytes로 제한. `$TMPDIR`이 긴 CI 러너에서 socket path가 초과하면 `ENAMETOOLONG`. `packages/protocol/src/socket-path.ts`는 이미 hash 단축으로 회피 — 신규 IPC 엔드포인트 추가 시 이 헬퍼를 재사용할 것.
 - **Windows Named Pipe vs POSIX socket**: IPC 클라이언트 (`apps/cli/src/lib/ipc-client*.ts`, `packages/runner/src/ipc/client.ts`)는 platform 분기 필요. `process.platform === "win32"` 로 `connectWindowsIpc`(node:net, `\\.\pipe\...`) vs `Bun.connect`(unix socket). 새 IPC 클라이언트 만들 때 분기 누락 방지.
 - **`tp pair new` concurrency**: 동시 실행을 `proper-lockfile`로 막는다 (`pair.lock`). pair-related 변경 시 이 lock을 건너뛰는 코드경로를 만들지 말 것 — 동시에 두 개의 PendingPairing이 relay에 떠서 identity 꼬인다.
-- **RelayClient reconnect/ping**: `packages/daemon/src/transport/relay-client.ts`의 `RECONNECT_MAX_MS` / `PING_INTERVAL_MS` (현재 30s/30s)를 줄이면 Windows에서 ConPTY 초기 비용이 겹칠 때 재연결 폭주가 날 수 있다. 수치를 바꾸기 전에 이 파일의 테스트(`relay-client.test.ts`)가 handshake/reconnect race를 재현하는 fake relay로 검증하는지 확인.
+- **RelayClient reconnect/ping**: `packages/daemon/src/transport/relay-client.ts`의 `RECONNECT_MAX_MS` / `PING_INTERVAL_MS`를 줄이면 Windows에서 ConPTY 초기 비용이 겹칠 때 재연결 폭주가 날 수 있다. 수치를 바꾸기 전에 이 파일의 테스트(`relay-client.test.ts`)가 handshake/reconnect race를 재현하는 fake relay로 검증하는지 확인.
 
 ## CLI (`apps/cli/src`)
 - Entry: `index.ts` — subcommand router wrapped in `async main()` (no top-level await; enables future `--bytecode` builds).

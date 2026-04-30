@@ -393,23 +393,33 @@ describe("checkForUpdates", () => {
   });
 
   test("treats unknown schema version as cache miss", async () => {
-    // Future schema bump → reader must refuse old shape. Without a network
-    // short-circuit we can't assert the return value cheaply, but the cache
-    // file should be rewritten with the current schema version.
+    // Future schema bump → reader must refuse old shape. Inject a stub fetcher
+    // so the test never touches the network — the GitHub API/`gh` shell-out
+    // path is exercised in integration, and on Windows CI it can exceed the
+    // 5s test budget when fs.writeFile jitter compounds with subprocess spawn.
     writeFileSync(
       cachePath,
       JSON.stringify({ version: 99, lastCheck: Date.now() }),
     );
-    await checkForUpdates({ cachePath, now: 1_700_000_000_000 });
+    await checkForUpdates({
+      cachePath,
+      now: 1_700_000_000_000,
+      fetchLatest: async () => null,
+    });
     const cached = JSON.parse(readFileSync(cachePath, "utf-8"));
     expect(cached.version).toBe(1);
     expect(cached.lastCheck).toBe(1_700_000_000_000);
   });
 
   test("writes cache after running so failed network calls still rate-limit", async () => {
-    // No cache file → check runs (network call may fail offline; that's fine).
-    // We only assert that the cache file is written so the next call short-circuits.
-    await checkForUpdates({ cachePath, now: 1_700_000_000_000 });
+    // Stub fetcher simulating a failed network call. We only assert that the
+    // cache file is written so the next call short-circuits — same Windows
+    // flake mitigation as above.
+    await checkForUpdates({
+      cachePath,
+      now: 1_700_000_000_000,
+      fetchLatest: async () => null,
+    });
     expect(existsSync(cachePath)).toBe(true);
     const cached = JSON.parse(readFileSync(cachePath, "utf-8"));
     expect(cached.lastCheck).toBe(1_700_000_000_000);

@@ -151,12 +151,17 @@ export function isOlderVersion(a: string, b: string): boolean {
  *   package.json version equals latest).
  */
 export async function checkForUpdates(
-  opts: { cachePath?: string; now?: number } = {},
+  opts: {
+    cachePath?: string;
+    now?: number;
+    fetchLatest?: () => Promise<{ tag: string; url: string } | null>;
+  } = {},
 ): Promise<string | null> {
   if (process.env.TP_NO_UPDATE_CHECK === "1") return null;
 
   const cachePath = opts.cachePath ?? getCachePath();
   const now = opts.now ?? Date.now();
+  const fetchLatest = opts.fetchLatest ?? getLatestRelease;
 
   try {
     const cached = JSON.parse(readFileSync(cachePath, "utf-8")) as {
@@ -191,7 +196,7 @@ export async function checkForUpdates(
 
   try {
     const current = getCurrentVersion();
-    const latest = await getLatestRelease();
+    const latest = await fetchLatest();
 
     if (latest && isOlderVersion(current, latest.tag)) {
       return latest.tag;

@@ -185,10 +185,10 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 ### main push
 | Target | Workflow | Condition |
 |--------|----------|-----------|
-| CI | GitHub Actions `ci.yml` | 항상 (5 parallel jobs: lint, type-check, test, build-cli, e2e) |
+| CI | GitHub Actions `ci.yml` | 항상 (parallel jobs defined in `ci.yml`: lint, type-check, test, test-windows, build-cli, e2e) |
 | Relay | GitHub Actions `deploy-relay.yml` | packages/relay,protocol,daemon 변경 시 |
 | Web | Vercel (자동) | 항상 → `tpmt.dev` |
-| EAS Gate | GitHub Actions `ci.yml` eas-gate job | CI 5 jobs pass + apps/app,packages/protocol 변경 시 |
+| EAS Gate | GitHub Actions `ci.yml` eas-gate job | All `ci.yml` jobs pass + apps/app,packages/protocol 변경 시 |
 | iOS TestFlight | EAS Workflow `preview.yaml` via eas-gate | Fingerprint → 빌드/OTA → TestFlight 제출 |
 | Android Internal | EAS Workflow `preview.yaml` via eas-gate | Fingerprint → 빌드/OTA → Internal track 제출 |
 

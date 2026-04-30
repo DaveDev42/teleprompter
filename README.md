@@ -135,12 +135,12 @@ pnpm test:e2e:ci
 # Run Playwright E2E specs (local — full, includes real-daemon flows)
 pnpm test:e2e
 
-# Type check all 5 packages
+# Type check every workspace package
 pnpm type-check:all
 
 # Build CLI binary
 pnpm build:cli:local    # current platform
-pnpm build:cli          # all 4 platforms
+pnpm build:cli          # every release target (see scripts/build.ts TARGETS)
 
 # Frontend dev server
 pnpm dev:app

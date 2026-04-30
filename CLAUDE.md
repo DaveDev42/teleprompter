@@ -211,7 +211,7 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 - **네이티브 변경**: 풀빌드 + 스토어 제출
 - **paths 필터**: `dorny/paths-filter`로 apps/app/, packages/protocol/ 변경 감지 → 변경 없으면 EAS skip
 - **CI 게이트**: EAS Workflow는 git push로 자동 트리거되지 않음. CI eas-gate가 `eas workflow:run --ref` 로 트리거 (lint/test/type-check 통과 후)
-- **EAS 게이트**: CI 5개 job 전부 pass → `expo doctor` → `eas build` (EXPO_TOKEN secret 필요)
+- **EAS 게이트**: `ci.yml`의 모든 job (lint, type-check, test, test-windows, build-cli, e2e) 전부 pass → `expo doctor` → `eas build` (EXPO_TOKEN secret 필요)
 
 ### 릴리즈 절차
 ```bash

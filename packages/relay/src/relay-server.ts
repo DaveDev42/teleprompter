@@ -1,4 +1,5 @@
 import type {
+  RelayAuthOk,
   RelayClientMessage,
   RelayFrame,
   RelayKeyExchangeFrame,
@@ -7,6 +8,7 @@ import type {
 } from "@teleprompter/protocol";
 import { createLogger } from "@teleprompter/protocol";
 import { PushService } from "./push";
+import { ResumeTokenSigner } from "./resume-token";
 
 type ServerWebSocket = Bun.ServerWebSocket<unknown>;
 type BunServer = ReturnType<typeof Bun.serve>;
@@ -75,6 +77,14 @@ export interface RelayServerOptions {
   backpressureBytes?: number;
   /** Auth handshake timeout in ms (default: 10000, env: TP_RELAY_AUTH_TIMEOUT_MS) */
   authTimeoutMs?: number;
+  /**
+   * HMAC secret for issuing resume tokens. Defaults to env
+   * TP_RELAY_RESUME_SECRET; if neither is set, an ephemeral secret is
+   * generated at startup (resume tokens stop working across restarts).
+   */
+  resumeSecret?: string;
+  /** Resume token TTL in ms (default: 1h, env: TP_RELAY_RESUME_TTL_MS) */
+  resumeTtlMs?: number;
 }
 
 /**
@@ -90,6 +100,9 @@ interface RelayMetrics {
   authTimeouts: number;
   oversizedDrops: number;
   evictions: number;
+  resumesAttempted: number;
+  resumesAccepted: number;
+  resumesRejected: number;
 }
 
 interface CachedFrame {
@@ -175,7 +188,12 @@ export class RelayServer {
     authTimeouts: 0,
     oversizedDrops: 0,
     evictions: 0,
+    resumesAttempted: 0,
+    resumesAccepted: 0,
+    resumesRejected: 0,
   };
+
+  private readonly resumeSigner: ResumeTokenSigner;
 
   constructor(options?: RelayServerOptions) {
     const envInt = (key: string) => {
@@ -206,6 +224,15 @@ export class RelayServer {
       options?.authTimeoutMs ??
       envInt("TP_RELAY_AUTH_TIMEOUT_MS") ??
       AUTH_TIMEOUT_MS;
+    this.resumeSigner = new ResumeTokenSigner({
+      secret: options?.resumeSecret,
+      ttlMs: options?.resumeTtlMs ?? envInt("TP_RELAY_RESUME_TTL_MS"),
+    });
+    if (this.resumeSigner.ephemeral) {
+      log.info(
+        "resume tokens use an ephemeral secret; set TP_RELAY_RESUME_SECRET to keep resume working across restarts",
+      );
+    }
   }
 
   /**
@@ -299,6 +326,9 @@ export class RelayServer {
           lines.push(`relay_auth_timeouts ${m.authTimeouts}`);
           lines.push(`relay_oversized_drops ${m.oversizedDrops}`);
           lines.push(`relay_evictions ${m.evictions}`);
+          lines.push(`relay_resumes_attempted ${m.resumesAttempted}`);
+          lines.push(`relay_resumes_accepted ${m.resumesAccepted}`);
+          lines.push(`relay_resumes_rejected ${m.resumesRejected}`);
           lines.push(`relay_uptime_seconds ${Math.floor(process.uptime())}`);
           return new Response(`${lines.join("\n")}\n`, {
             headers: { "Content-Type": "text/plain; version=0.0.4" },
@@ -494,6 +524,9 @@ ${daemons
       case "relay.auth":
         this.handleAuth(ws, msg);
         break;
+      case "relay.auth.resume":
+        this.handleAuthResume(ws, msg);
+        break;
       case "relay.kx":
         this.handleKeyExchange(ws, msg);
         break;
@@ -609,11 +642,118 @@ ${daemons
       }
     }
 
-    this.send(ws, { t: "relay.auth.ok", daemonId: msg.daemonId });
+    const ok: RelayAuthOk = this.buildAuthOk(client, false);
+    this.send(ws, ok);
     log.info(`${msg.role} authenticated for daemon ${msg.daemonId}`);
 
     // Send presence to frontends
     this.broadcastPresence(msg.daemonId);
+  }
+
+  /**
+   * Fast-path resume. Verifies the HMAC token; on success the socket gets
+   * the same ConnectedClient state as a full relay.auth would produce.
+   * On any failure we return relay.auth.err so the client falls back to
+   * the full auth path (token + role + daemonId).
+   */
+  private handleAuthResume(
+    ws: ServerWebSocket,
+    msg: RelayClientMessage & { t: "relay.auth.resume" },
+  ) {
+    this.metrics.resumesAttempted++;
+    const payload = this.resumeSigner.verify(msg.token);
+    if (!payload) {
+      this.metrics.resumesRejected++;
+      this.send(ws, {
+        t: "relay.auth.err",
+        e: "Resume token invalid or expired",
+      });
+      return;
+    }
+    // Daemon must still be a known token holder; resume cannot bypass
+    // pairing revocation. (Tokens issued before unregister stay valid until
+    // expiry — same trust model as the full relay.auth check.) Check
+    // validTokens rather than registrations because tokens can also be
+    // populated via registerToken() without a relay.register handshake.
+    let stillRegistered = false;
+    for (const did of this.validTokens.values()) {
+      if (did === payload.daemonId) {
+        stillRegistered = true;
+        break;
+      }
+    }
+    if (!stillRegistered) {
+      this.metrics.resumesRejected++;
+      this.send(ws, {
+        t: "relay.auth.err",
+        e: "Daemon no longer registered",
+      });
+      return;
+    }
+
+    this.clearPendingAuth(ws);
+
+    const client: ConnectedClient = {
+      ws,
+      role: payload.role,
+      daemonId: payload.daemonId,
+      frontendId: payload.frontendId,
+      rateLimiter: { count: 0, windowStart: Date.now() },
+      subscriptions: new Set(),
+    };
+    this.clients.set(ws, client);
+
+    if (!this.daemonGroups.has(payload.daemonId)) {
+      this.daemonGroups.set(payload.daemonId, new Set());
+    }
+    this.daemonGroups.get(payload.daemonId)?.add(ws);
+
+    if (payload.role === "daemon") {
+      const existing = this.daemonStates.get(payload.daemonId);
+      this.daemonStates.set(payload.daemonId, {
+        online: true,
+        sessions: existing?.sessions ?? new Set(),
+        lastSeen: Date.now(),
+        attached: existing?.attached ?? new Map(),
+        rateLimiter: existing?.rateLimiter ?? {
+          count: 0,
+          windowStart: Date.now(),
+        },
+      });
+    } else if (!this.daemonStates.has(payload.daemonId)) {
+      this.daemonStates.set(payload.daemonId, {
+        online: false,
+        sessions: new Set(),
+        lastSeen: Date.now(),
+        attached: new Map(),
+        rateLimiter: { count: 0, windowStart: Date.now() },
+      });
+    }
+
+    this.metrics.resumesAccepted++;
+    const ok = this.buildAuthOk(client, true);
+    this.send(ws, ok);
+    log.info(
+      `${payload.role} resumed for daemon ${payload.daemonId}${
+        payload.frontendId ? ` (frontendId=${payload.frontendId})` : ""
+      }`,
+    );
+    this.broadcastPresence(payload.daemonId);
+  }
+
+  private buildAuthOk(client: ConnectedClient, resumed: boolean): RelayAuthOk {
+    const { token, expiresAt } = this.resumeSigner.issue({
+      role: client.role,
+      daemonId: client.daemonId,
+      frontendId: client.frontendId,
+    });
+    return {
+      t: "relay.auth.ok",
+      daemonId: client.daemonId,
+      resumeToken: token,
+      resumeExpiresAt: expiresAt,
+      resumed,
+    };
   }
 
   private handleKeyExchange(

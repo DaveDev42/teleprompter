@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { RelayError, RelayServerMessage } from "@teleprompter/protocol";
+import type {
+  RelayAuthErr,
+  RelayAuthOk,
+  RelayError,
+  RelayServerMessage,
+} from "@teleprompter/protocol";
 import { RelayServer } from "./relay-server";
 
 function connectWs(port: number): Promise<WebSocket> {
@@ -219,5 +224,150 @@ describe("RelayServer capacity hardening", () => {
     const res = await fetch(`http://localhost:${port}/health`);
     const body = (await res.json()) as { metrics: { authTimeouts: number } };
     expect(body.metrics.authTimeouts).toBeGreaterThanOrEqual(1);
+  });
+
+  test("relay.auth.ok includes a resume token", async () => {
+    relay = new RelayServer({ resumeSecret: "z".repeat(64) });
+    port = relay.start(0);
+    relay.registerToken(TOKEN, DAEMON_ID);
+
+    const ws = await connectWs(port);
+    ws.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "daemon",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+      }),
+    );
+    const ok = (await waitForMessage(
+      ws,
+      (m) => m.t === "relay.auth.ok",
+    )) as RelayAuthOk;
+    expect(ok.resumeToken).toBeTruthy();
+    expect(typeof ok.resumeToken).toBe("string");
+    expect(ok.resumeExpiresAt).toBeGreaterThan(Date.now());
+    expect(ok.resumed).toBe(false);
+    ws.close();
+  });
+
+  test("relay.auth.resume reconnects without re-sending token", async () => {
+    relay = new RelayServer({ resumeSecret: "z".repeat(64) });
+    port = relay.start(0);
+    relay.registerToken(TOKEN, DAEMON_ID);
+
+    // First connection: full auth, capture resume token.
+    const first = await connectWs(port);
+    first.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "daemon",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+      }),
+    );
+    const ok1 = (await waitForMessage(
+      first,
+      (m) => m.t === "relay.auth.ok",
+    )) as RelayAuthOk;
+    const resumeToken = ok1.resumeToken;
+    expect(resumeToken).toBeTruthy();
+    first.close();
+    await Bun.sleep(50);
+
+    // Reconnect with relay.auth.resume only.
+    const second = await connectWs(port);
+    second.send(
+      JSON.stringify({ t: "relay.auth.resume", v: 1, token: resumeToken }),
+    );
+    const ok2 = (await waitForMessage(
+      second,
+      (m) => m.t === "relay.auth.ok",
+    )) as RelayAuthOk;
+    expect(ok2.daemonId).toBe(DAEMON_ID);
+    expect(ok2.resumed).toBe(true);
+    expect(ok2.resumeToken).toBeTruthy();
+
+    const res = await fetch(`http://localhost:${port}/health`);
+    const body = (await res.json()) as {
+      metrics: { resumesAccepted: number; resumesAttempted: number };
+    };
+    expect(body.metrics.resumesAttempted).toBe(1);
+    expect(body.metrics.resumesAccepted).toBe(1);
+
+    second.close();
+  });
+
+  test("relay.auth.resume rejects bad tokens with relay.auth.err", async () => {
+    relay = new RelayServer({ resumeSecret: "z".repeat(64) });
+    port = relay.start(0);
+
+    const ws = await connectWs(port);
+    ws.send(
+      JSON.stringify({
+        t: "relay.auth.resume",
+        v: 1,
+        token: "garbage-not-a-real-token",
+      }),
+    );
+    const err = (await waitForMessage(
+      ws,
+      (m) => m.t === "relay.auth.err",
+    )) as RelayAuthErr;
+    expect(err.t).toBe("relay.auth.err");
+    expect(err.e).toContain("invalid");
+
+    const res = await fetch(`http://localhost:${port}/health`);
+    const body = (await res.json()) as {
+      metrics: { resumesRejected: number };
+    };
+    expect(body.metrics.resumesRejected).toBeGreaterThanOrEqual(1);
+    ws.close();
+  });
+
+  test("relay.auth.resume rejects tokens for unregistered daemons", async () => {
+    relay = new RelayServer({ resumeSecret: "z".repeat(64) });
+    port = relay.start(0);
+    relay.registerToken(TOKEN, DAEMON_ID);
+
+    // Auth once to obtain a valid token.
+    const first = await connectWs(port);
+    first.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "daemon",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+      }),
+    );
+    const ok = (await waitForMessage(
+      first,
+      (m) => m.t === "relay.auth.ok",
+    )) as RelayAuthOk;
+    const resumeToken = ok.resumeToken;
+    expect(resumeToken).toBeTruthy();
+    first.close();
+    await Bun.sleep(50);
+
+    // Unregister the daemon and stop / restart relay would be too heavy;
+    // instead just delete the registration via a fresh server with the
+    // same resume secret but no registerToken call.
+    relay.stop();
+    relay = new RelayServer({ resumeSecret: "z".repeat(64) });
+    port = relay.start(0);
+
+    const second = await connectWs(port);
+    second.send(
+      JSON.stringify({ t: "relay.auth.resume", v: 1, token: resumeToken }),
+    );
+    const err = (await waitForMessage(
+      second,
+      (m) => m.t === "relay.auth.err",
+    )) as RelayAuthErr;
+    expect(err.e).toContain("no longer registered");
+    second.close();
   });
 });

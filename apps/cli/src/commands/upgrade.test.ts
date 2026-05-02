@@ -15,6 +15,7 @@ import {
   checkForUpdates,
   cleanupBackup,
   computeFileHash,
+  detectHomebrewInstall,
   getAssetName,
   isOlderVersion,
   parseChecksums,
@@ -518,5 +519,32 @@ describe("analyzeVerificationOutput", () => {
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toMatch(/signal SIGKILL|killed by signal/);
+  });
+});
+
+describe("detectHomebrewInstall", () => {
+  test("returns null for non-brew paths", async () => {
+    const result = await detectHomebrewInstall("/usr/local/bin/tp-not-brew");
+    // /usr/local is the Intel Homebrew prefix; this fixture path doesn't
+    // include /Cellar/tp/ so it must not match.
+    expect(result).toBeNull();
+  });
+
+  test("returns null for empty input", async () => {
+    expect(await detectHomebrewInstall("")).toBeNull();
+  });
+
+  test("detects Apple Silicon brew Cellar layout", async () => {
+    const result = await detectHomebrewInstall(
+      "/opt/homebrew/Cellar/tp/0.1.19/bin/tp",
+    );
+    expect(result).toBe("/opt/homebrew");
+  });
+
+  test("detects Intel brew Cellar layout", async () => {
+    const result = await detectHomebrewInstall(
+      "/usr/local/Cellar/tp/0.1.19/bin/tp",
+    );
+    expect(result).toBe("/usr/local");
   });
 });

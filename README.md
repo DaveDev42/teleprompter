@@ -8,7 +8,13 @@ Remote Claude Code session controller with E2EE relay, dual Chat/Terminal UI, an
 
 ## Quick Start
 
-### macOS / Linux
+### macOS (Homebrew)
+
+```bash
+brew install daveddev42/tap/tp
+```
+
+### macOS / Linux (curl)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts/install.sh | bash

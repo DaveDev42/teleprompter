@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.19](https://github.com/DaveDev42/teleprompter/compare/v0.1.18...v0.1.19) (2026-05-02)
+
+
+### Features
+
+* **relay:** tune for 10k connections + HMAC resume tokens + kx skip ([#170](https://github.com/DaveDev42/teleprompter/issues/170)) ([04c93de](https://github.com/DaveDev42/teleprompter/commit/04c93deb612d061041cdfb55f691a65e705cf097))
+
+
+### Bug Fixes
+
+* **cli:** inject fetchLatest into checkForUpdates to kill Windows flake ([86360b6](https://github.com/DaveDev42/teleprompter/commit/86360b63d7ffbb1dd2717f8601669f5f26bbc383))
+* **cli:** inject fetchLatest into checkForUpdates to kill Windows flake ([e372274](https://github.com/DaveDev42/teleprompter/commit/e372274eebd68b53f9a047e6bc630ab2cb731fbd))
+
+
+### Refactor
+
+* route bare tp to claude passthrough and combine help/version/doctor/upgrade output ([#168](https://github.com/DaveDev42/teleprompter/issues/168)) ([6cd7189](https://github.com/DaveDev42/teleprompter/commit/6cd71890a3de2a290c5d8b8146e40b906bab8fac))
+
 ## [0.1.18](https://github.com/DaveDev42/teleprompter/compare/v0.1.17...v0.1.18) (2026-04-25)
 
 

@@ -1,4 +1,5 @@
 import type {
+  RelayAuthOk,
   RelayClientMessage,
   RelayFrame,
   RelayKeyExchangeFrame,
@@ -7,6 +8,7 @@ import type {
 } from "@teleprompter/protocol";
 import { createLogger } from "@teleprompter/protocol";
 import { PushService } from "./push";
+import { ResumeTokenSigner } from "./resume-token";
 
 type ServerWebSocket = Bun.ServerWebSocket<unknown>;
 type BunServer = ReturnType<typeof Bun.serve>;
@@ -16,8 +18,39 @@ const log = createLogger("Relay");
 const DEFAULT_MAX_RECENT_FRAMES = 10;
 const DEFAULT_MAX_FRAME_SIZE = 1024 * 1024; // 1 MB
 const RATE_LIMIT_WINDOW_MS = 1000;
-const RATE_LIMIT_MAX_MESSAGES = 100;
+/**
+ * Per-client rate limit. Sized for PTY io bursts (Claude streaming output can
+ * exceed 100 frames/sec on heavy responses). Keep in sync with daemon-side
+ * batching expectations.
+ */
+const RATE_LIMIT_MAX_MESSAGES = 500;
+/**
+ * Per-daemon-group rate limit (sum across daemon + all attached frontends).
+ * Acts as a second-level budget so one runaway frontend does not pin the
+ * relay's CPU even if it stays under the per-client cap.
+ */
+const DAEMON_GROUP_RATE_LIMIT = 5_000;
 const MAX_SUBSCRIPTIONS_PER_CLIENT = 50;
+/**
+ * How long an unauthenticated socket may stay open before the relay closes it.
+ * Daemons / frontends that dial in must send `relay.register` or `relay.auth`
+ * within this window — anything longer is treated as slowloris.
+ */
+const AUTH_TIMEOUT_MS = 10_000;
+/**
+ * Maximum send-buffer (bytes) tolerated on a slow consumer before the relay
+ * disconnects it. With 1 MB max frame size, 4 MB is roughly four queued
+ * worst-case frames — anything beyond that means the peer has stalled and
+ * we'd rather force a reconnect than buffer indefinitely.
+ */
+const BACKPRESSURE_THRESHOLD_BYTES = 4 * 1024 * 1024;
+/**
+ * Bun ServerWebSocket idleTimeout (seconds). Daemons send `relay.ping` every
+ * 30s (see `packages/daemon/src/transport/relay-client.ts`), so 90s tolerates
+ * three missed pings before the kernel-level cleanup kicks in. Active traffic
+ * resets this timer continuously, so connected users never trip it.
+ */
+const WS_IDLE_TIMEOUT_S = 90;
 /** How long without a ping before a daemon is considered stale (ms) */
 const STALE_TIMEOUT_MS = 90_000;
 /** How often to check for stale daemons (ms) */
@@ -36,6 +69,40 @@ export interface RelayServerOptions {
   cacheSize?: number;
   /** Max WebSocket frame size in bytes (default: 1MB, env: TP_RELAY_MAX_FRAME_SIZE) */
   maxFrameSize?: number;
+  /** Per-client messages per second (default: 500, env: TP_RELAY_RATE_PER_CLIENT) */
+  ratePerClient?: number;
+  /** Per-daemon-group messages per second (default: 5000, env: TP_RELAY_RATE_PER_DAEMON) */
+  ratePerDaemon?: number;
+  /** Slow-consumer disconnect threshold in bytes (default: 4MB, env: TP_RELAY_BACKPRESSURE_BYTES) */
+  backpressureBytes?: number;
+  /** Auth handshake timeout in ms (default: 10000, env: TP_RELAY_AUTH_TIMEOUT_MS) */
+  authTimeoutMs?: number;
+  /**
+   * HMAC secret for issuing resume tokens. Defaults to env
+   * TP_RELAY_RESUME_SECRET; if neither is set, an ephemeral secret is
+   * generated at startup (resume tokens stop working across restarts).
+   */
+  resumeSecret?: string;
+  /** Resume token TTL in ms (default: 1h, env: TP_RELAY_RESUME_TTL_MS) */
+  resumeTtlMs?: number;
+}
+
+/**
+ * Counters surfaced via `/health` for capacity monitoring. All values are
+ * since-last-restart; pulled by external Prometheus / scraper if needed.
+ */
+interface RelayMetrics {
+  framesIn: number;
+  framesOut: number;
+  rateLimitedDrops: number;
+  daemonRateLimitedDrops: number;
+  backpressureDisconnects: number;
+  authTimeouts: number;
+  oversizedDrops: number;
+  evictions: number;
+  resumesAttempted: number;
+  resumesAccepted: number;
+  resumesRejected: number;
 }
 
 interface CachedFrame {
@@ -69,6 +136,8 @@ interface DaemonState {
   lastSeen: number;
   /** Number of frontends attached per session */
   attached: Map<string, number>;
+  /** Group-wide rate limiter (daemon + all attached frontends share budget) */
+  rateLimiter: RateLimiter;
 }
 
 export class RelayServer {
@@ -92,6 +161,12 @@ export class RelayServer {
   /** daemonId → { token, proof } for self-registration */
   private registrations = new Map<string, { token: string; proof: string }>();
 
+  /** Sockets that are open but not yet authenticated (for slowloris timeout) */
+  private pendingAuth = new Map<
+    ServerWebSocket,
+    ReturnType<typeof setTimeout>
+  >();
+
   /** Port the server is listening on */
   private port = 0;
   private server: BunServer | null = null;
@@ -99,16 +174,65 @@ export class RelayServer {
 
   private readonly maxRecentFrames: number;
   private readonly maxFrameSize: number;
+  private readonly ratePerClient: number;
+  private readonly ratePerDaemon: number;
+  private readonly backpressureBytes: number;
+  private readonly authTimeoutMs: number;
+
+  private readonly metrics: RelayMetrics = {
+    framesIn: 0,
+    framesOut: 0,
+    rateLimitedDrops: 0,
+    daemonRateLimitedDrops: 0,
+    backpressureDisconnects: 0,
+    authTimeouts: 0,
+    oversizedDrops: 0,
+    evictions: 0,
+    resumesAttempted: 0,
+    resumesAccepted: 0,
+    resumesRejected: 0,
+  };
+
+  private readonly resumeSigner: ResumeTokenSigner;
 
   constructor(options?: RelayServerOptions) {
-    const envCache = parseInt(process.env.TP_RELAY_CACHE_SIZE ?? "", 10);
-    const envFrame = parseInt(process.env.TP_RELAY_MAX_FRAME_SIZE ?? "", 10);
+    const envInt = (key: string) => {
+      const n = parseInt(process.env[key] ?? "", 10);
+      return Number.isFinite(n) ? n : undefined;
+    };
     this.maxRecentFrames =
       options?.cacheSize ??
-      (Number.isFinite(envCache) ? envCache : DEFAULT_MAX_RECENT_FRAMES);
+      envInt("TP_RELAY_CACHE_SIZE") ??
+      DEFAULT_MAX_RECENT_FRAMES;
     this.maxFrameSize =
       options?.maxFrameSize ??
-      (Number.isFinite(envFrame) ? envFrame : DEFAULT_MAX_FRAME_SIZE);
+      envInt("TP_RELAY_MAX_FRAME_SIZE") ??
+      DEFAULT_MAX_FRAME_SIZE;
+    this.ratePerClient =
+      options?.ratePerClient ??
+      envInt("TP_RELAY_RATE_PER_CLIENT") ??
+      RATE_LIMIT_MAX_MESSAGES;
+    this.ratePerDaemon =
+      options?.ratePerDaemon ??
+      envInt("TP_RELAY_RATE_PER_DAEMON") ??
+      DAEMON_GROUP_RATE_LIMIT;
+    this.backpressureBytes =
+      options?.backpressureBytes ??
+      envInt("TP_RELAY_BACKPRESSURE_BYTES") ??
+      BACKPRESSURE_THRESHOLD_BYTES;
+    this.authTimeoutMs =
+      options?.authTimeoutMs ??
+      envInt("TP_RELAY_AUTH_TIMEOUT_MS") ??
+      AUTH_TIMEOUT_MS;
+    this.resumeSigner = new ResumeTokenSigner({
+      secret: options?.resumeSecret,
+      ttlMs: options?.resumeTtlMs ?? envInt("TP_RELAY_RESUME_TTL_MS"),
+    });
+    if (this.resumeSigner.ephemeral) {
+      log.info(
+        "resume tokens use an ephemeral secret; set TP_RELAY_RESUME_SECRET to keep resume working across restarts",
+      );
+    }
   }
 
   /**
@@ -161,6 +285,7 @@ export class RelayServer {
             version: "0.1.5",
             protocolVersion: 2,
             clients: self.clients.size,
+            pendingAuth: self.pendingAuth.size,
             daemons: [...self.daemonStates.entries()].filter(
               ([, s]) => s.online,
             ).length,
@@ -173,6 +298,40 @@ export class RelayServer {
               0,
             ),
             uptime: Math.floor(process.uptime()),
+            metrics: { ...self.metrics },
+          });
+        }
+
+        // Prometheus-style metrics endpoint
+        if (url.pathname === "/metrics") {
+          const lines: string[] = [];
+          const m = self.metrics;
+          lines.push(`relay_clients ${self.clients.size}`);
+          lines.push(`relay_pending_auth ${self.pendingAuth.size}`);
+          lines.push(
+            `relay_daemons_online ${[...self.daemonStates.values()].filter((s) => s.online).length}`,
+          );
+          lines.push(
+            `relay_sessions_total ${[...self.daemonStates.values()].reduce((sum, s) => sum + s.sessions.size, 0)}`,
+          );
+          lines.push(`relay_frames_in ${m.framesIn}`);
+          lines.push(`relay_frames_out ${m.framesOut}`);
+          lines.push(`relay_rate_limited_drops ${m.rateLimitedDrops}`);
+          lines.push(
+            `relay_daemon_rate_limited_drops ${m.daemonRateLimitedDrops}`,
+          );
+          lines.push(
+            `relay_backpressure_disconnects ${m.backpressureDisconnects}`,
+          );
+          lines.push(`relay_auth_timeouts ${m.authTimeouts}`);
+          lines.push(`relay_oversized_drops ${m.oversizedDrops}`);
+          lines.push(`relay_evictions ${m.evictions}`);
+          lines.push(`relay_resumes_attempted ${m.resumesAttempted}`);
+          lines.push(`relay_resumes_accepted ${m.resumesAccepted}`);
+          lines.push(`relay_resumes_rejected ${m.resumesRejected}`);
+          lines.push(`relay_uptime_seconds ${Math.floor(process.uptime())}`);
+          return new Response(`${lines.join("\n")}\n`, {
+            headers: { "Content-Type": "text/plain; version=0.0.4" },
           });
         }
 
@@ -222,8 +381,21 @@ ${daemons
         return new Response("Teleprompter Relay", { status: 200 });
       },
       websocket: {
-        open(_ws) {
-          // Wait for auth or register message
+        idleTimeout: WS_IDLE_TIMEOUT_S,
+        open(ws) {
+          // Slowloris guard: drop sockets that never authenticate.
+          const timer = setTimeout(() => {
+            if (self.pendingAuth.has(ws) && !self.clients.has(ws)) {
+              self.metrics.authTimeouts++;
+              log.warn("closing socket: auth handshake timeout");
+              try {
+                ws.close(1008, "Auth timeout");
+              } catch {
+                // already closing
+              }
+            }
+          }, self.authTimeoutMs);
+          self.pendingAuth.set(ws, timer);
         },
         message(ws, message) {
           self.handleMessage(ws, message);
@@ -243,6 +415,10 @@ ${daemons
   stop() {
     this.stopStaleCheck();
     this.pushService.dispose();
+    for (const timer of this.pendingAuth.values()) {
+      clearTimeout(timer);
+    }
+    this.pendingAuth.clear();
     this.server?.stop();
     this.clients.clear();
     this.daemonGroups.clear();
@@ -256,8 +432,29 @@ ${daemons
   }
 
   private send(ws: ServerWebSocket, msg: RelayServerMessage) {
+    // Slow consumer guard: if the per-socket send buffer is already past the
+    // threshold, the peer is not draining and additional frames would just
+    // pile up RAM. Force-close so the client reconnects via the recent-frames
+    // cache instead.
+    if (ws.readyState !== 1) {
+      return;
+    }
+    const buffered = (ws as { bufferedAmount?: number }).bufferedAmount ?? 0;
+    if (buffered > this.backpressureBytes) {
+      this.metrics.backpressureDisconnects++;
+      log.warn(
+        `closing socket: backpressure ${buffered} bytes exceeds ${this.backpressureBytes}`,
+      );
+      try {
+        ws.close(1013, "Backpressure");
+      } catch {
+        // already closed
+      }
+      return;
+    }
     try {
       ws.send(JSON.stringify(msg));
+      this.metrics.framesOut++;
     } catch {
       // client disconnected
     }
@@ -267,12 +464,14 @@ ${daemons
     ws: ServerWebSocket,
     raw: string | Buffer | ArrayBuffer,
   ) {
+    this.metrics.framesIn++;
     // Check frame size limit
     const rawSize =
       typeof raw === "string"
         ? Buffer.byteLength(raw)
         : (raw as ArrayBuffer).byteLength;
     if (rawSize > this.maxFrameSize) {
+      this.metrics.oversizedDrops++;
       log.warn(
         `closing connection: frame size ${rawSize} exceeds limit ${this.maxFrameSize}`,
       );
@@ -295,14 +494,24 @@ ${daemons
       return;
     }
 
-    // Rate limiting for authenticated clients
+    // Rate limiting for authenticated clients (per-client + per-daemon group)
     const client = this.clients.get(ws);
     if (client && msg.t !== "relay.ping") {
       if (!this.checkRateLimit(client)) {
+        this.metrics.rateLimitedDrops++;
         this.send(ws, {
           t: "relay.err",
           e: "RATE_LIMITED",
           m: "Too many messages. Slow down.",
+        });
+        return;
+      }
+      if (!this.checkDaemonGroupRateLimit(client)) {
+        this.metrics.daemonRateLimitedDrops++;
+        this.send(ws, {
+          t: "relay.err",
+          e: "RATE_LIMITED",
+          m: "Daemon group budget exceeded. Slow down.",
         });
         return;
       }
@@ -314,6 +523,9 @@ ${daemons
         break;
       case "relay.auth":
         this.handleAuth(ws, msg);
+        break;
+      case "relay.auth.resume":
+        this.handleAuthResume(ws, msg);
         break;
       case "relay.kx":
         this.handleKeyExchange(ws, msg);
@@ -382,6 +594,9 @@ ${daemons
       return;
     }
 
+    // Auth completed — cancel slowloris timer.
+    this.clearPendingAuth(ws);
+
     const client: ConnectedClient = {
       ws,
       role: msg.role,
@@ -398,21 +613,147 @@ ${daemons
     }
     this.daemonGroups.get(msg.daemonId)?.add(ws);
 
-    // Update daemon state
+    // Update daemon state — preserve existing rateLimiter if the daemon is
+    // resuming (frontend may have created the entry first via group rate-limit
+    // path, though current ordering is daemon-first).
     if (msg.role === "daemon") {
+      const existing = this.daemonStates.get(msg.daemonId);
       this.daemonStates.set(msg.daemonId, {
         online: true,
-        sessions: new Set(),
+        sessions: existing?.sessions ?? new Set(),
         lastSeen: Date.now(),
-        attached: new Map(),
+        attached: existing?.attached ?? new Map(),
+        rateLimiter: existing?.rateLimiter ?? {
+          count: 0,
+          windowStart: Date.now(),
+        },
       });
+    } else {
+      // Frontend auth: ensure a DaemonState exists so group rate-limit works
+      // even if the daemon is still offline (frontend reconnects before daemon).
+      if (!this.daemonStates.has(msg.daemonId)) {
+        this.daemonStates.set(msg.daemonId, {
+          online: false,
+          sessions: new Set(),
+          lastSeen: Date.now(),
+          attached: new Map(),
+          rateLimiter: { count: 0, windowStart: Date.now() },
+        });
+      }
     }
 
-    this.send(ws, { t: "relay.auth.ok", daemonId: msg.daemonId });
+    const ok: RelayAuthOk = this.buildAuthOk(client, false);
+    this.send(ws, ok);
     log.info(`${msg.role} authenticated for daemon ${msg.daemonId}`);
 
     // Send presence to frontends
     this.broadcastPresence(msg.daemonId);
+  }
+
+  /**
+   * Fast-path resume. Verifies the HMAC token; on success the socket gets
+   * the same ConnectedClient state as a full relay.auth would produce.
+   * On any failure we return relay.auth.err so the client falls back to
+   * the full auth path (token + role + daemonId).
+   */
+  private handleAuthResume(
+    ws: ServerWebSocket,
+    msg: RelayClientMessage & { t: "relay.auth.resume" },
+  ) {
+    this.metrics.resumesAttempted++;
+    const payload = this.resumeSigner.verify(msg.token);
+    if (!payload) {
+      this.metrics.resumesRejected++;
+      this.send(ws, {
+        t: "relay.auth.err",
+        e: "Resume token invalid or expired",
+      });
+      return;
+    }
+    // Daemon must still be a known token holder; resume cannot bypass
+    // pairing revocation. (Tokens issued before unregister stay valid until
+    // expiry — same trust model as the full relay.auth check.) Check
+    // validTokens rather than registrations because tokens can also be
+    // populated via registerToken() without a relay.register handshake.
+    let stillRegistered = false;
+    for (const did of this.validTokens.values()) {
+      if (did === payload.daemonId) {
+        stillRegistered = true;
+        break;
+      }
+    }
+    if (!stillRegistered) {
+      this.metrics.resumesRejected++;
+      this.send(ws, {
+        t: "relay.auth.err",
+        e: "Daemon no longer registered",
+      });
+      return;
+    }
+
+    this.clearPendingAuth(ws);
+
+    const client: ConnectedClient = {
+      ws,
+      role: payload.role,
+      daemonId: payload.daemonId,
+      frontendId: payload.frontendId,
+      rateLimiter: { count: 0, windowStart: Date.now() },
+      subscriptions: new Set(),
+    };
+    this.clients.set(ws, client);
+
+    if (!this.daemonGroups.has(payload.daemonId)) {
+      this.daemonGroups.set(payload.daemonId, new Set());
+    }
+    this.daemonGroups.get(payload.daemonId)?.add(ws);
+
+    if (payload.role === "daemon") {
+      const existing = this.daemonStates.get(payload.daemonId);
+      this.daemonStates.set(payload.daemonId, {
+        online: true,
+        sessions: existing?.sessions ?? new Set(),
+        lastSeen: Date.now(),
+        attached: existing?.attached ?? new Map(),
+        rateLimiter: existing?.rateLimiter ?? {
+          count: 0,
+          windowStart: Date.now(),
+        },
+      });
+    } else if (!this.daemonStates.has(payload.daemonId)) {
+      this.daemonStates.set(payload.daemonId, {
+        online: false,
+        sessions: new Set(),
+        lastSeen: Date.now(),
+        attached: new Map(),
+        rateLimiter: { count: 0, windowStart: Date.now() },
+      });
+    }
+
+    this.metrics.resumesAccepted++;
+    const ok = this.buildAuthOk(client, true);
+    this.send(ws, ok);
+    log.info(
+      `${payload.role} resumed for daemon ${payload.daemonId}${
+        payload.frontendId ? ` (frontendId=${payload.frontendId})` : ""
+      }`,
+    );
+    this.broadcastPresence(payload.daemonId);
+  }
+
+  private buildAuthOk(client: ConnectedClient, resumed: boolean): RelayAuthOk {
+    const { token, expiresAt } = this.resumeSigner.issue({
+      role: client.role,
+      daemonId: client.daemonId,
+      frontendId: client.frontendId,
+    });
+    return {
+      t: "relay.auth.ok",
+      daemonId: client.daemonId,
+      resumeToken: token,
+      resumeExpiresAt: expiresAt,
+      resumed,
+    };
   }
 
   private handleKeyExchange(
@@ -584,6 +925,7 @@ ${daemons
   }
 
   private handleClose(ws: ServerWebSocket) {
+    this.clearPendingAuth(ws);
     const client = this.clients.get(ws);
     if (!client) return;
 
@@ -612,18 +954,37 @@ ${daemons
   }
 
   private checkRateLimit(client: ConnectedClient): boolean {
-    const now = Date.now();
-    const rl = client.rateLimiter;
+    return this.tickWindow(client.rateLimiter, this.ratePerClient);
+  }
 
+  /**
+   * Group budget shared across daemon + all attached frontends. Protects the
+   * relay event loop from any single pairing pinning CPU even if every
+   * individual client stays under their per-client cap.
+   */
+  private checkDaemonGroupRateLimit(client: ConnectedClient): boolean {
+    const state = this.daemonStates.get(client.daemonId);
+    if (!state) return true;
+    return this.tickWindow(state.rateLimiter, this.ratePerDaemon);
+  }
+
+  private tickWindow(rl: RateLimiter, max: number): boolean {
+    const now = Date.now();
     if (now - rl.windowStart > RATE_LIMIT_WINDOW_MS) {
-      // New window
       rl.count = 1;
       rl.windowStart = now;
       return true;
     }
-
     rl.count++;
-    return rl.count <= RATE_LIMIT_MAX_MESSAGES;
+    return rl.count <= max;
+  }
+
+  private clearPendingAuth(ws: ServerWebSocket) {
+    const timer = this.pendingAuth.get(ws);
+    if (timer) {
+      clearTimeout(timer);
+      this.pendingAuth.delete(ws);
+    }
   }
 
   private handlePing(
@@ -742,6 +1103,7 @@ ${daemons
         this.recentFrames.delete(key);
       }
     }
+    this.metrics.evictions++;
     log.info(`daemon ${daemonId} evicted from relay state after offline TTL`);
   }
 

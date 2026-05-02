@@ -719,4 +719,156 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     frontendWs.close();
     client.dispose();
   });
+
+  test("reconnect uses relay.auth.resume after first auth.ok", async () => {
+    const daemonKp = await generateKeyPair();
+    const client = new RelayClient(
+      {
+        relayUrl: `ws://localhost:${relayPort}`,
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        registrationProof,
+        keyPair: daemonKp,
+        pairingSecret,
+      },
+      {},
+    );
+
+    await client.connect();
+    await Bun.sleep(300);
+    expect(client.isConnected()).toBe(true);
+
+    // Force a clean reconnect — connect() tears down the existing socket and
+    // opens a new one. The cached resume token should drive the auth.resume
+    // fast path on the second open.
+    await client.connect();
+    await Bun.sleep(300);
+    expect(client.isConnected()).toBe(true);
+
+    const res = await fetch(`http://localhost:${relayPort}/health`);
+    const body = (await res.json()) as {
+      metrics: { resumesAttempted: number; resumesAccepted: number };
+    };
+    expect(body.metrics.resumesAttempted).toBeGreaterThanOrEqual(1);
+    expect(body.metrics.resumesAccepted).toBeGreaterThanOrEqual(1);
+
+    client.dispose();
+  });
+
+  test("resume skips daemon kx broadcast when peers already known", async () => {
+    const daemonKp = await generateKeyPair();
+    const frontendKp = await generateKeyPair();
+    const frontendId = "test-frontend-kx-skip";
+    const kxKey = await deriveKxKey(pairingSecret);
+
+    const client = new RelayClient(
+      {
+        relayUrl: `ws://localhost:${relayPort}`,
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        registrationProof,
+        keyPair: daemonKp,
+        pairingSecret,
+      },
+      {},
+    );
+    await client.connect();
+    await Bun.sleep(200);
+
+    const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
+    await new Promise<void>((r) => {
+      frontendWs.onopen = () => r();
+    });
+    frontendWs.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 2,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        frontendId,
+      }),
+    );
+    await Bun.sleep(100);
+
+    let kxFramesReceived = 0;
+    frontendWs.addEventListener("message", (e) => {
+      const m = JSON.parse(e.data as string);
+      if (m.t === "relay.kx.frame" && m.from === "daemon") {
+        kxFramesReceived++;
+      }
+    });
+
+    // First exchange: daemon → frontend (via daemon's auth.ok broadcast that
+    // happened before the listener was attached). Send frontend → daemon kx
+    // so the daemon registers this peer.
+    const kxPayload = JSON.stringify({
+      pk: await toBase64(frontendKp.publicKey),
+      frontendId,
+      role: "frontend",
+    });
+    const kxCt = await encrypt(new TextEncoder().encode(kxPayload), kxKey);
+    frontendWs.send(
+      JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }),
+    );
+    await Bun.sleep(200);
+    expect(client.getPeerCount()).toBe(1);
+
+    // Now reconnect daemon — should resume, peers Map non-empty → skip kx.
+    await client.connect();
+    await Bun.sleep(400);
+    expect(client.isConnected()).toBe(true);
+
+    // No new daemon-origin kx.frame should have reached the frontend on the
+    // resume path.
+    expect(kxFramesReceived).toBe(0);
+
+    frontendWs.close();
+    client.dispose();
+  });
+
+  test("falls back to full auth when resume token is rejected", async () => {
+    const daemonKp = await generateKeyPair();
+    const client = new RelayClient(
+      {
+        relayUrl: `ws://localhost:${relayPort}`,
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        registrationProof,
+        keyPair: daemonKp,
+        pairingSecret,
+      },
+      {},
+    );
+
+    await client.connect();
+    await Bun.sleep(300);
+    expect(client.isConnected()).toBe(true);
+
+    // Restart the relay with a different secret so the cached token verifies
+    // as garbage. Existing client retains its token; reconnect must fall back.
+    relay.stop();
+    relay = new RelayServer({ resumeSecret: "Z".repeat(64) });
+    relayPort = relay.start(relayPort);
+    // Re-register the token on the new server (simulates daemon's normal
+    // self-registration path being available on the slow path).
+    relay.registerToken(relayToken, DAEMON_ID);
+
+    // Trigger reconnect via the client's own retry loop: close the current
+    // socket from outside isn't exposed, so we just call connect() again —
+    // it tears down and reopens.
+    await client.connect();
+    // Resume attempt → auth.err → close → schedule reconnect → full auth.
+    await Bun.sleep(2000);
+    expect(client.isConnected()).toBe(true);
+
+    const res = await fetch(`http://localhost:${relayPort}/health`);
+    const body = (await res.json()) as {
+      metrics: { resumesAttempted: number; resumesRejected: number };
+    };
+    expect(body.metrics.resumesAttempted).toBeGreaterThanOrEqual(1);
+    expect(body.metrics.resumesRejected).toBeGreaterThanOrEqual(1);
+
+    client.dispose();
+  });
 });

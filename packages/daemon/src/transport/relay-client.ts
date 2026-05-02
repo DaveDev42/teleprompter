@@ -101,6 +101,20 @@ export class RelayClient {
   private disposed = false;
   private authenticated = false;
   private subscribedSessions = new Set<string>();
+  /**
+   * Resume token issued by the relay on the previous successful auth. Used to
+   * skip register+auth on reconnect; a single failed resume falls back to the
+   * full handshake on the next connection attempt.
+   */
+  private resumeToken: string | null = null;
+  private resumeExpiresAt = 0;
+  /**
+   * True while the current connection is mid-resume — set after sending
+   * `relay.auth.resume`, cleared on auth.ok or auth.err. Used so an
+   * `auth.err` on a resume attempt schedules a fresh full-auth reconnect
+   * instead of giving up.
+   */
+  private resuming = false;
 
   /** Called when an inbound control.unpair frame is received from a frontend. */
   onUnpair:
@@ -131,7 +145,19 @@ export class RelayClient {
 
     ws.onopen = () => {
       this.reconnectAttempt = 0;
-      // Step 1: Self-register token
+      // Fast path: try resume if we have a non-expired token from a previous
+      // session. The relay still issues a fresh token in resume.ok, so the
+      // window keeps rolling forward as long as connectivity is healthy.
+      if (this.resumeToken && Date.now() < this.resumeExpiresAt) {
+        this.resuming = true;
+        this.send({
+          t: "relay.auth.resume",
+          token: this.resumeToken,
+          v: 2,
+        });
+        return;
+      }
+      // Slow path: full self-register + auth.
       this.send({
         t: "relay.register",
         daemonId: this.config.daemonId,
@@ -180,19 +206,43 @@ export class RelayClient {
 
       case "relay.auth.ok":
         this.authenticated = true;
+        // Cache the rolling resume token for the next reconnect.
+        if (msg.resumeToken && msg.resumeExpiresAt) {
+          this.resumeToken = msg.resumeToken;
+          this.resumeExpiresAt = msg.resumeExpiresAt;
+        }
+        this.resuming = false;
         this.events.onConnected?.();
         // Re-subscribe to all sessions
         for (const sid of this.subscribedSessions) {
           this.send({ t: "relay.sub", sid });
         }
-        // Step 3: Broadcast daemon's public key for key exchange
-        await this.broadcastDaemonPublicKey();
+        // Step 3: Broadcast daemon's public key for key exchange. Skip when
+        // we resumed AND we already have peers — the keypair is stable across
+        // reconnects so existing peers' sessionKeys are still valid. Saves
+        // one encrypted frame per resume per pairing without weakening kx
+        // (any frontend that joined while we were offline will trigger kx
+        // via its own auth.ok path).
+        if (!(msg.resumed && this.peers.size > 0)) {
+          await this.broadcastDaemonPublicKey();
+        }
         // Step 4: Start heartbeat ping
         this.startPing();
-        log.info(`authenticated to relay`);
+        log.info(`${msg.resumed ? "resumed" : "authenticated"} to relay`);
         break;
 
       case "relay.auth.err":
+        if (this.resuming) {
+          // Resume failed (token expired / rotated secret / daemon
+          // unregistered). Drop the token and reconnect; ws.onopen will pick
+          // the slow path.
+          this.resuming = false;
+          this.resumeToken = null;
+          this.resumeExpiresAt = 0;
+          log.warn(`resume rejected (${msg.e}); falling back to full auth`);
+          this.ws?.close();
+          break;
+        }
         log.error(`auth failed: ${msg.e}`);
         break;
 

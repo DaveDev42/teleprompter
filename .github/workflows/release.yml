@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build (e.g. v0.1.19)"
+        required: true
 
 permissions:
   contents: write
@@ -22,6 +27,8 @@ jobs:
         target: [bun-darwin-arm64, bun-darwin-x64]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: oven-sh/setup-bun@v2
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
@@ -52,6 +59,8 @@ jobs:
         target: [bun-linux-x64, bun-linux-arm64, bun-windows-x64, bun-windows-arm64]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: oven-sh/setup-bun@v2
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
@@ -118,6 +127,7 @@ jobs:
           subject-path: "artifacts/tp-*"
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
           files: |
             artifacts/tp-*
             artifacts/checksums.txt

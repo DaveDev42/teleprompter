@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.20](https://github.com/DaveDev42/teleprompter/compare/v0.1.19...v0.1.20) (2026-05-02)
+
+
+### Features
+
+* **app:** wire resume token + kx skip into FrontendRelayClient ([#173](https://github.com/DaveDev42/teleprompter/issues/173)) ([4058d38](https://github.com/DaveDev42/teleprompter/commit/4058d38a026d6ca2e9daff45a7554c8773e799f4))
+* automate Homebrew tap updates + add /release command ([#174](https://github.com/DaveDev42/teleprompter/issues/174)) ([e7d2506](https://github.com/DaveDev42/teleprompter/commit/e7d2506208af60f7adc63d5acdeedb257de06556))
+* encode pairing QR as teleprompter:// deep link ([#177](https://github.com/DaveDev42/teleprompter/issues/177)) ([7a544b7](https://github.com/DaveDev42/teleprompter/commit/7a544b72a7765119b15661e56ca5af0004169868))
+
+
+### Bug Fixes
+
+* notify on Notification hook + forward all hooks during spawning ([#175](https://github.com/DaveDev42/teleprompter/issues/175)) ([ecb0da6](https://github.com/DaveDev42/teleprompter/commit/ecb0da66cc155c3d1e91696e1d2135afbc04d6b3))
+
 ## [0.1.19](https://github.com/DaveDev42/teleprompter/compare/v0.1.18...v0.1.19) (2026-05-02)
 
 

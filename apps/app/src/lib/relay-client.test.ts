@@ -18,7 +18,40 @@
  *   bun test apps/app/src/lib/relay-client.test.ts
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+// secure-storage.ts (transitively imported by relay-client) reads
+// `Platform.OS` and may `require("expo-secure-store")`. Bun has no native
+// `react-native` module, so we mock both before importing the SUT. The
+// SUT (relay-client) is loaded via dynamic import below — static imports
+// would be hoisted above these mock.module() calls.
+mock.module("react-native", () => ({ Platform: { OS: "web" } }));
+mock.module("expo-secure-store", () => ({
+  getItemAsync: async () => null,
+  setItemAsync: async () => {},
+  deleteItemAsync: async () => {},
+}));
+
+// In-memory localStorage shim for secure-storage's web branch (used to
+// inspect cached resume tokens in the resume tests below).
+const fakeStorage = new Map<string, string>();
+(globalThis as unknown as { localStorage: Storage }).localStorage = {
+  getItem: (k: string) => fakeStorage.get(k) ?? null,
+  setItem: (k: string, v: string) => {
+    fakeStorage.set(k, String(v));
+  },
+  removeItem: (k: string) => {
+    fakeStorage.delete(k);
+  },
+  clear: () => {
+    fakeStorage.clear();
+  },
+  get length() {
+    return fakeStorage.size;
+  },
+  key: (i: number) => Array.from(fakeStorage.keys())[i] ?? null,
+};
+
 import {
   CONTROL_RENAME,
   CONTROL_UNPAIR,
@@ -35,7 +68,13 @@ import {
   ratchetSessionKeys,
   toBase64,
 } from "@teleprompter/protocol/client";
-import { FrontendRelayClient, type FrontendRelayConfig } from "./relay-client";
+
+// Dynamic import — evaluated AFTER mocks are registered. Static imports
+// would be hoisted above the mock.module() calls.
+const relayClientModule = await import("./relay-client");
+const { FrontendRelayClient } = relayClientModule;
+type FrontendRelayClient = InstanceType<typeof FrontendRelayClient>;
+type FrontendRelayConfig = ConstructorParameters<typeof FrontendRelayClient>[0];
 
 // ── Mock WebSocket ──────────────────────────────────────────────────────────
 
@@ -1338,5 +1377,152 @@ describe("FrontendRelayClient — reconnect backoff", () => {
       (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
         originalSetTimeout;
     }
+  });
+});
+
+describe("FrontendRelayClient — resume token", () => {
+  beforeEach(() => {
+    fakeStorage.clear();
+  });
+
+  test("auth.ok caches rolling token and persists to localStorage", async () => {
+    const p = await setupPairing();
+    const client = new FrontendRelayClient(makeConfig(p));
+
+    await client.connect();
+    const ws = latestWs();
+    ws.simulateOpen();
+    ws.simulateMessage({
+      t: "relay.auth.ok",
+      daemonId: "daemon-test",
+      resumeToken: "tok-1",
+      resumeExpiresAt: Date.now() + 60_000,
+    } as RelayServerMessage);
+    await flushPromises(20);
+
+    // Persisted under the relay_resume_<daemonId> key with the tp_ prefix.
+    const stored = fakeStorage.get("tp_relay_resume_daemon-test");
+    expect(stored).toBeTruthy();
+    const parsed = JSON.parse(stored as string) as {
+      token: string;
+      expiresAt: number;
+    };
+    expect(parsed.token).toBe("tok-1");
+    expect(parsed.expiresAt).toBeGreaterThan(Date.now());
+
+    client.dispose();
+  });
+
+  test("subsequent connect uses relay.auth.resume when token is cached", async () => {
+    const p = await setupPairing();
+    fakeStorage.set(
+      "tp_relay_resume_daemon-test",
+      JSON.stringify({ token: "cached-tok", expiresAt: Date.now() + 60_000 }),
+    );
+
+    const client = new FrontendRelayClient(makeConfig(p));
+    await client.connect();
+    const ws = latestWs();
+    ws.simulateOpen();
+
+    const sent = ws.findSent<{ t: string; token: string; v: number }>(
+      "relay.auth.resume",
+    );
+    expect(sent).toBeDefined();
+    expect(sent?.token).toBe("cached-tok");
+    expect(sent?.v).toBe(1);
+
+    // Slow-path relay.auth must NOT have been sent.
+    expect(ws.findSent("relay.auth")).toBeUndefined();
+
+    client.dispose();
+  });
+
+  test("resume happy path skips kx (auth.ok with resumed=true)", async () => {
+    const p = await setupPairing();
+    fakeStorage.set(
+      "tp_relay_resume_daemon-test",
+      JSON.stringify({ token: "cached-tok", expiresAt: Date.now() + 60_000 }),
+    );
+
+    const client = new FrontendRelayClient(makeConfig(p));
+    await client.connect();
+    const ws = latestWs();
+    ws.simulateOpen();
+
+    ws.simulateMessage({
+      t: "relay.auth.ok",
+      daemonId: "daemon-test",
+      resumed: true,
+      resumeToken: "tok-2",
+      resumeExpiresAt: Date.now() + 60_000,
+    } as RelayServerMessage);
+    await settleAuthPipeline();
+
+    // No relay.kx sent on the resumed path — daemon already has our pubkey.
+    expect(ws.findSent("relay.kx")).toBeUndefined();
+    // Rolling token replaces the cached one.
+    const stored = fakeStorage.get("tp_relay_resume_daemon-test");
+    const parsed = JSON.parse(stored as string) as { token: string };
+    expect(parsed.token).toBe("tok-2");
+
+    client.dispose();
+  });
+
+  test("auth.err during resume drops cached token and closes for retry", async () => {
+    const p = await setupPairing();
+    fakeStorage.set(
+      "tp_relay_resume_daemon-test",
+      JSON.stringify({ token: "stale-tok", expiresAt: Date.now() + 60_000 }),
+    );
+
+    const errors: string[] = [];
+    const client = new FrontendRelayClient(makeConfig(p), {
+      onError: (e) => errors.push(e),
+    });
+    await client.connect();
+    const ws = latestWs();
+    ws.simulateOpen();
+    // Confirm we attempted resume.
+    expect(ws.findSent("relay.auth.resume")).toBeDefined();
+
+    ws.simulateMessage({
+      t: "relay.auth.err",
+      e: "resume token invalid",
+    } as RelayServerMessage);
+    await flushPromises(20);
+
+    // Rejected resume must NOT bubble up as a fatal error.
+    expect(errors.length).toBe(0);
+    // Cached token cleared from storage so the next reconnect uses the slow
+    // path.
+    expect(fakeStorage.get("tp_relay_resume_daemon-test")).toBeUndefined();
+    // WS was closed so the reconnect path can re-open with full auth.
+    expect(ws.readyState).toBe(MockWebSocket.CLOSED);
+
+    client.dispose();
+  });
+
+  test("expired cached token is purged and slow auth is used", async () => {
+    const p = await setupPairing();
+    fakeStorage.set(
+      "tp_relay_resume_daemon-test",
+      JSON.stringify({ token: "old-tok", expiresAt: Date.now() - 1000 }),
+    );
+
+    const client = new FrontendRelayClient(makeConfig(p));
+    await client.connect();
+    const ws = latestWs();
+    ws.simulateOpen();
+
+    // Expired token must not be sent.
+    expect(ws.findSent("relay.auth.resume")).toBeUndefined();
+    // Full auth path took over.
+    expect(ws.findSent("relay.auth")).toBeDefined();
+    // Storage entry was cleaned up.
+    await flushPromises(5);
+    expect(fakeStorage.get("tp_relay_resume_daemon-test")).toBeUndefined();
+
+    client.dispose();
   });
 });

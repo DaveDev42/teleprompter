@@ -26,7 +26,14 @@ import {
 
 const PAIRING_URL_SCHEME = "teleprompter://pair";
 const PAIRING_BINARY_MAGIC = "tp"; // 2 bytes
-const PAIRING_BINARY_VERSION = 1;
+const PAIRING_BINARY_VERSION = 2;
+/**
+ * Production relay URL. When the QR encodes this exact URL, the binary form
+ * stores `relay_len = 0` to save ~22 bytes (`wss://relay.tpmt.dev`). Decoder
+ * treats `relay_len = 0` as "use the default relay". Self-hosted relays still
+ * encode the full URL inline and round-trip verbatim.
+ */
+export const DEFAULT_PAIRING_RELAY_URL = "wss://relay.tpmt.dev";
 
 export interface PairingData {
   /** Pairing secret (base64, 32 bytes) */
@@ -74,7 +81,7 @@ export async function createPairingBundle(
     pk: await toBase64(keyPair.publicKey),
     relay: relayUrl,
     did: daemonId,
-    v: 1,
+    v: PAIRING_BINARY_VERSION,
     ...(opts?.label ? { label: opts.label } : {}),
   };
 
@@ -94,11 +101,16 @@ export async function createPairingBundle(
  *   label_len(1) | label_bytes
  *
  * `did`/`relay`/`label` are utf-8 encoded, each capped at 255 bytes.
+ *
+ * `relay_len = 0` is the wire signal for "default relay" — see
+ * `DEFAULT_PAIRING_RELAY_URL`. Saves ~22 bytes on the most common case
+ * (production relay) and shaves a noticeable chunk off the QR module count.
  */
 export function encodePairingData(data: PairingData): string {
   const enc = new TextEncoder();
   const did = enc.encode(data.did);
-  const relay = enc.encode(data.relay);
+  const useDefaultRelay = data.relay === DEFAULT_PAIRING_RELAY_URL;
+  const relay = useDefaultRelay ? new Uint8Array(0) : enc.encode(data.relay);
   const label = enc.encode(data.label ?? "");
   const ps = base64ToBytes(data.ps);
   const pk = base64ToBytes(data.pk);
@@ -170,6 +182,9 @@ function decodeBinaryPairing(b64: string): PairingData {
     throw new Error("Invalid pairing data format");
   }
   const version = buf[o++];
+  if (version !== PAIRING_BINARY_VERSION) {
+    throw new Error("Invalid pairing data format");
+  }
 
   const didLen = buf[o++];
   if (didLen === 0) throw new Error("Invalid pairing data format");
@@ -178,9 +193,12 @@ function decodeBinaryPairing(b64: string): PairingData {
   o += didLen;
 
   const relayLen = buf[o++];
-  if (relayLen === 0) throw new Error("Invalid pairing data format");
   if (o + relayLen > buf.length) throw new Error("Invalid pairing data format");
-  const relay = dec.decode(buf.subarray(o, o + relayLen));
+  // relay_len=0 is the wire signal for the default production relay.
+  const relay =
+    relayLen === 0
+      ? DEFAULT_PAIRING_RELAY_URL
+      : dec.decode(buf.subarray(o, o + relayLen));
   o += relayLen;
 
   if (o + 32 + 32 + 1 > buf.length) {

@@ -23,6 +23,9 @@ SSH_PORT="${SSH_PORT:-22}"
 WSS_PORT="${WSS_PORT:-443}"
 HTTP_PORT="${HTTP_PORT:-80}"
 RELAY_INTERNAL_PORT="${RELAY_INTERNAL_PORT:-7090}"
+RELAY_SERVICE="${RELAY_SERVICE:-tp-relay}"
+RELAY_NOFILE="${RELAY_NOFILE:-200000}"
+RELAY_NPROC="${RELAY_NPROC:-100000}"
 
 BEGIN_MARK="# >>> tp-relay-harden BEGIN (managed by scripts/relay-harden.sh)"
 END_MARK="# <<< tp-relay-harden END"
@@ -107,6 +110,36 @@ echo "==> reloading UFW"
 ufw --force reload
 
 # ---------------------------------------------------------------------------
+# systemd resource limits for the relay (10k concurrent connections target)
+# ---------------------------------------------------------------------------
+# Each WS connection consumes 1 fd. Default LimitNOFILE on Ubuntu is 1024,
+# which caps the relay far below the 10k target. We write a drop-in override
+# so package upgrades / unit replacements do not clobber it. Skip silently if
+# the relay service is not yet installed on this host.
+if systemctl list-unit-files --no-legend "$RELAY_SERVICE.service" 2>/dev/null \
+    | grep -q "$RELAY_SERVICE.service"; then
+  echo "==> writing systemd limits override for $RELAY_SERVICE"
+  install -d -m 0755 "/etc/systemd/system/$RELAY_SERVICE.service.d"
+  cat > "/etc/systemd/system/$RELAY_SERVICE.service.d/limits.conf" <<EOF
+# Managed by scripts/relay-harden.sh — capacity target: ~10k concurrent
+# WebSocket connections (daemon + app combined). One fd per connection plus
+# headroom for accept(2) bursts and Caddy reverse-proxy peers.
+[Service]
+LimitNOFILE=$RELAY_NOFILE
+LimitNPROC=$RELAY_NPROC
+TasksMax=infinity
+EOF
+
+  systemctl daemon-reload
+  if systemctl is-active --quiet "$RELAY_SERVICE.service"; then
+    echo "==> restarting $RELAY_SERVICE to pick up new limits"
+    systemctl restart "$RELAY_SERVICE.service"
+  fi
+else
+  echo "==> $RELAY_SERVICE.service not installed; skipping systemd limits override"
+fi
+
+# ---------------------------------------------------------------------------
 # fail2ban: SSH only.
 # ---------------------------------------------------------------------------
 echo "==> configuring fail2ban (sshd jail)"
@@ -139,6 +172,14 @@ iptables -L ufw-before-input -n -v --line-numbers | grep -E "hashlimit|connlimit
 echo
 echo "--- fail2ban status ---"
 fail2ban-client status sshd 2>&1 | head -10
+echo
+echo "--- relay systemd limits ---"
+if systemctl list-unit-files --no-legend "$RELAY_SERVICE.service" 2>/dev/null \
+    | grep -q "$RELAY_SERVICE.service"; then
+  systemctl show "$RELAY_SERVICE.service" -p LimitNOFILE -p LimitNPROC -p TasksMax 2>&1 | head -5
+else
+  echo "(service not installed)"
+fi
 
 echo
 echo "✅ relay hardened."
@@ -146,4 +187,6 @@ echo "Rollback:"
 echo "  - remove block between '$BEGIN_MARK' and '$END_MARK' from $BEFORE"
 echo "  - ufw allow 22/tcp; ufw delete deny ${RELAY_INTERNAL_PORT}/tcp"
 echo "  - apt remove --purge fail2ban"
+echo "  - rm /etc/systemd/system/$RELAY_SERVICE.service.d/limits.conf"
+echo "  - systemctl daemon-reload && systemctl restart $RELAY_SERVICE"
 echo "  - ufw reload"

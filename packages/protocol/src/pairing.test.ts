@@ -78,7 +78,7 @@ describe("pairing", () => {
     expect(encoded.startsWith("teleprompter://pair?d=")).toBe(true);
   });
 
-  test("decodePairingData accepts the bare base64url payload", async () => {
+  test("decodePairingData rejects bare base64url payload (no scheme)", async () => {
     const bundle = await createPairingBundle(
       "wss://relay.tpmt.dev",
       "daemon-bare",
@@ -86,25 +86,17 @@ describe("pairing", () => {
     );
     const url = encodePairingData(bundle.qrData);
     const bare = url.slice("teleprompter://pair?d=".length);
-    const decoded = decodePairingData(bare);
-    expect(decoded.did).toBe(bundle.qrData.did);
-    expect(decoded.label).toBe("label");
+    expect(() => decodePairingData(bare)).toThrow(
+      "Invalid pairing data format",
+    );
   });
 
-  test("decodePairingData accepts legacy JSON form", async () => {
-    const bundle = await createPairingBundle(
-      "wss://relay.tpmt.dev",
-      "daemon-legacy",
-      { label: "old-app" },
-    );
-    const legacyJson = JSON.stringify(bundle.qrData);
-    const decoded = decodePairingData(legacyJson);
-    expect(decoded.did).toBe(bundle.qrData.did);
-    expect(decoded.relay).toBe(bundle.qrData.relay);
-    expect(decoded.ps).toBe(bundle.qrData.ps);
-    expect(decoded.pk).toBe(bundle.qrData.pk);
-    expect(decoded.label).toBe("old-app");
-    expect(decoded.v).toBe(1);
+  test("decodePairingData rejects legacy JSON form", () => {
+    expect(() =>
+      decodePairingData(
+        '{"ps":"AAAA","pk":"BBBB","relay":"wss://r","did":"x","v":1}',
+      ),
+    ).toThrow("Invalid pairing data format");
   });
 
   test("encoded form fits comfortably under 200 chars with typical label", async () => {
@@ -127,6 +119,72 @@ describe("pairing", () => {
     const encoded = encodePairingData(bundle.qrData);
     const decoded = decodePairingData(encoded);
     expect(decoded.label).toBe("데이브-iPhone-📱");
+  });
+
+  test("decodePairingData rejects deep link with no query", () => {
+    expect(() => decodePairingData("teleprompter://pair")).toThrow(
+      "Invalid pairing data format",
+    );
+  });
+
+  test("decodePairingData rejects deep link with empty d= param", () => {
+    expect(() => decodePairingData("teleprompter://pair?d=")).toThrow(
+      "Invalid pairing data format",
+    );
+  });
+
+  test("decodePairingData rejects deep link with invalid base64url", () => {
+    expect(() =>
+      decodePairingData("teleprompter://pair?d=!!!not-base64url!!!"),
+    ).toThrow("Invalid pairing data format");
+  });
+
+  test("decodePairingData rejects binary payload with empty did", () => {
+    // Manually craft: magic(2)='tp' | ver(1)=1 | didLen=0 | relayLen=1 | r |
+    // ps(32) | pk(32) | labelLen=0
+    const buf = new Uint8Array(2 + 1 + 1 + 1 + 1 + 32 + 32 + 1);
+    buf[0] = 0x74; // 't'
+    buf[1] = 0x70; // 'p'
+    buf[2] = 1;
+    buf[3] = 0; // didLen
+    buf[4] = 1; // relayLen
+    buf[5] = 0x78; // 'x'
+    // ps + pk + labelLen left as zeros
+    const b64 = btoa(String.fromCharCode(...buf))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    expect(() => decodePairingData(`teleprompter://pair?d=${b64}`)).toThrow(
+      "Invalid pairing data format",
+    );
+  });
+
+  test("decodePairingData rejects binary payload with empty relay", () => {
+    const buf = new Uint8Array(2 + 1 + 1 + 1 + 1 + 32 + 32 + 1);
+    buf[0] = 0x74; // 't'
+    buf[1] = 0x70; // 'p'
+    buf[2] = 1;
+    buf[3] = 1; // didLen=1
+    buf[4] = 0x78; // 'x'
+    buf[5] = 0; // relayLen=0
+    // ps + pk + labelLen left as zeros
+    const b64 = btoa(String.fromCharCode(...buf))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    expect(() => decodePairingData(`teleprompter://pair?d=${b64}`)).toThrow(
+      "Invalid pairing data format",
+    );
+  });
+
+  test("decodePairingData strips a UTF-8 BOM before parsing", async () => {
+    const bundle = await createPairingBundle("wss://relay.tpmt.dev", "d-bom", {
+      label: "bom-test",
+    });
+    const url = encodePairingData(bundle.qrData);
+    const decoded = decodePairingData(`﻿${url}`);
+    expect(decoded.did).toBe("d-bom");
+    expect(decoded.label).toBe("bom-test");
   });
 
   test("full pairing flow: daemon creates, frontend parses, keys match", async () => {

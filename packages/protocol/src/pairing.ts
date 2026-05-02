@@ -12,9 +12,6 @@
  * Wire format: `teleprompter://pair?d=<base64url(binary)>`
  * The deep-link form lets the iPhone system camera open the app directly,
  * and stays compact enough for terminal QR rendering even with longer labels.
- *
- * Decoding accepts the deep-link form, the raw base64url payload, and the
- * legacy JSON form so old terminals/QRs keep working.
  */
 
 import {
@@ -136,34 +133,22 @@ export function encodePairingData(data: PairingData): string {
 }
 
 /**
- * Parse pairing data from a QR code scan result.
- *
- * Accepts (in order):
- *   1. `teleprompter://pair?d=<base64url>` (current)
- *   2. raw `<base64url>` payload (without scheme — manual paste convenience)
- *   3. legacy JSON object string (pre-deep-link daemons)
+ * Parse pairing data from a `teleprompter://pair?d=<base64url>` deep link.
  */
 export function decodePairingData(raw: string): PairingData {
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) throw new Error("Invalid pairing data format");
-
-  // Form 1: deep link
-  if (trimmed.startsWith(PAIRING_URL_SCHEME)) {
-    const queryIdx = trimmed.indexOf("?");
-    if (queryIdx < 0) throw new Error("Invalid pairing data format");
-    const params = new URLSearchParams(trimmed.slice(queryIdx + 1));
-    const d = params.get("d");
-    if (!d) throw new Error("Invalid pairing data format");
-    return decodeBinaryPairing(d);
+  // Strip ASCII whitespace and a UTF-8 BOM (clipboards on Windows can prepend
+  // a BOM that survives copy/paste through iOS).
+  const trimmed = raw.trim().replace(/^\uFEFF/, "");
+  if (!trimmed.startsWith(PAIRING_URL_SCHEME)) {
+    throw new Error("Invalid pairing data format");
   }
 
-  // Form 3: legacy JSON
-  if (trimmed.startsWith("{")) {
-    return decodeJsonPairing(trimmed);
-  }
-
-  // Form 2: bare base64url payload
-  return decodeBinaryPairing(trimmed);
+  const queryIdx = trimmed.indexOf("?");
+  if (queryIdx < 0) throw new Error("Invalid pairing data format");
+  const params = new URLSearchParams(trimmed.slice(queryIdx + 1));
+  const d = params.get("d");
+  if (!d) throw new Error("Invalid pairing data format");
+  return decodeBinaryPairing(d);
 }
 
 function decodeBinaryPairing(b64: string): PairingData {
@@ -187,11 +172,13 @@ function decodeBinaryPairing(b64: string): PairingData {
   const version = buf[o++];
 
   const didLen = buf[o++];
+  if (didLen === 0) throw new Error("Invalid pairing data format");
   if (o + didLen > buf.length) throw new Error("Invalid pairing data format");
   const did = dec.decode(buf.subarray(o, o + didLen));
   o += didLen;
 
   const relayLen = buf[o++];
+  if (relayLen === 0) throw new Error("Invalid pairing data format");
   if (o + relayLen > buf.length) throw new Error("Invalid pairing data format");
   const relay = dec.decode(buf.subarray(o, o + relayLen));
   o += relayLen;
@@ -216,29 +203,6 @@ function decodeBinaryPairing(b64: string): PairingData {
     v: version,
     ...(label.length > 0 ? { label } : {}),
   };
-}
-
-function decodeJsonPairing(raw: string): PairingData {
-  let data: unknown;
-  try {
-    data = JSON.parse(raw);
-  } catch {
-    throw new Error("Invalid pairing data format");
-  }
-  const obj = data as Record<string, unknown>;
-  if (
-    typeof obj.ps !== "string" ||
-    typeof obj.pk !== "string" ||
-    typeof obj.relay !== "string" ||
-    typeof obj.did !== "string" ||
-    typeof obj.v !== "number"
-  ) {
-    throw new Error("Invalid pairing data format");
-  }
-  if (obj.label !== undefined && typeof obj.label !== "string") {
-    throw new Error("Invalid pairing data format");
-  }
-  return obj as unknown as PairingData;
 }
 
 // ── base64/base64url helpers ──

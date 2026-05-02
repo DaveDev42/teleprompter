@@ -123,7 +123,9 @@ async function pairNew(argv: string[]): Promise<void> {
             console.log(`\nDaemon ID:    ${m.daemonId}`);
             console.log(`Label:        ${label}`);
             console.log(`Relay:        ${relayUrl}`);
-            console.log(`\nPairing data (paste into frontend):`);
+            console.log(
+              `\n${dim("Scan with the iPhone Camera app, or paste this URL in Teleprompter:")}`,
+            );
             console.log(m.qrString);
             console.log(
               `\n${dim("Waiting for your app to scan the QR...")} (Ctrl+C to cancel)`,

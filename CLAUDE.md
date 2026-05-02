@@ -240,7 +240,10 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 ## CLI Commands
 
 ```bash
-tp [flags] [claude args]   # Claude를 tp를 통해 실행 (기본 모드)
+tp                         # Claude REPL (인자 없이 실행하면 passthrough로 claude 인터랙티브 진입)
+tp [flags] [claude args]   # Claude를 tp를 통해 실행 (기본 모드 — 알 수 없는 첫 인자는 passthrough)
+tp --help, -h              # tp 자체 도움말 + claude --help 합쳐서 출력
+tp --version, -v           # tp 버전 + claude 버전 합쳐서 출력 (= `tp version`)
 tp pair [--relay URL] [--label NAME]   # QR 페어링 데이터 생성 (모바일 앱 연결) — 기본적으로 `pair new` 실행
 tp pair new [--relay URL] [--label NAME]  # 새 페어링 생성 (QR 출력, label 기본값 = hostname)
 tp pair list               # 등록된 페어링 목록 (label + daemon ID 표시)
@@ -256,9 +259,9 @@ tp session prune [options] # stopped 세션 일괄 삭제
   -y, --yes                     # confirmation 생략
 tp status                  # 세션 & daemon 상태 확인 (자동 시작)
 tp logs [session]          # 세션 라이브 출력 tail
-tp doctor                  # 환경 진단 + relay 연결 + E2EE 검증
-tp upgrade                 # tp + Claude Code 업그레이드
-tp version                 # 버전 출력
+tp doctor                  # 환경 진단 + relay 연결 + E2EE 검증, 끝에서 `claude doctor` 도 실행
+tp upgrade                 # tp 바이너리 업그레이드 후 `claude update` 도 실행
+tp version                 # tp + claude 버전 출력
 tp -- <claude args>        # claude에 직접 포워딩 (daemon 없이)
 
 # Claude 유틸리티 서브커맨드 (daemon 없이 직접 포워딩)

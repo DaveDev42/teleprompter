@@ -34,6 +34,20 @@ export interface RelayAuth {
   frontendId?: string;
 }
 
+/**
+ * Fast-path resume after a previously successful relay.auth. Carries an
+ * opaque HMAC-signed token issued by the relay; the relay verifies the
+ * signature without any per-daemon state. On expiry / signature failure
+ * the relay returns relay.auth.err and the client falls back to full auth.
+ */
+export interface RelayAuthResume {
+  t: "relay.auth.resume";
+  /** Opaque token issued by the relay in a previous relay.auth.ok */
+  token: string;
+  /** Protocol version */
+  v: number;
+}
+
 export interface RelayRegister {
   t: "relay.register";
   /** Daemon ID to register */
@@ -103,6 +117,7 @@ export interface RelayPush {
 
 export type RelayClientMessage =
   | RelayAuth
+  | RelayAuthResume
   | RelayRegister
   | RelayKeyExchange
   | RelayPublish
@@ -116,6 +131,24 @@ export type RelayClientMessage =
 export interface RelayAuthOk {
   t: "relay.auth.ok";
   daemonId: string;
+  /**
+   * Opaque token the client may send via relay.auth.resume on its next
+   * connect to skip re-validation. HMAC-signed by the relay; clients treat
+   * it as a black box. May be omitted if the relay has resume disabled.
+   */
+  resumeToken?: string;
+  /**
+   * Suggested expiry hint (epoch ms) so clients know when to fall back to
+   * full auth without waiting for an error round-trip. The relay still
+   * enforces expiry on its side regardless of this hint.
+   */
+  resumeExpiresAt?: number;
+  /**
+   * Whether this auth.ok was the result of a fast-path resume (true) or
+   * full re-authentication (false/undefined). Lets the daemon skip a
+   * `relay.kx` round-trip when the cached session keys are still valid.
+   */
+  resumed?: boolean;
 }
 
 export interface RelayAuthErr {

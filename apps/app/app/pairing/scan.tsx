@@ -1,7 +1,7 @@
 import type { PermissionResponse } from "expo-modules-core";
 import { useRouter } from "expo-router";
 import type { ComponentType } from "react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { usePairingStore } from "../../src/stores/pairing-store";
 
@@ -34,8 +34,11 @@ if (Platform.OS !== "web") {
 
 export default function ScanScreen() {
   const router = useRouter();
-  const { processScan } = usePairingStore();
-  const [scanned, setScanned] = useState(false);
+  const processScan = usePairingStore((s) => s.processScan);
+  const [scanError, setScanError] = useState<string | null>(null);
+  // Ref-based dedup so the camera's continuous detection loop only triggers
+  // processScan once per QR even if the JS re-renders before we navigate away.
+  const scanningRef = useRef(false);
 
   // Camera permissions (native only)
   const [permission, requestPermission] = useCameraPermissions?.() ?? [
@@ -49,17 +52,26 @@ export default function ScanScreen() {
     }
   }, [permission, requestPermission]);
 
-  const handleBarCodeScanned = async ({ data }: { data: string }) => {
-    if (scanned) return;
-    setScanned(true);
+  // Stable callback so CameraView doesn't re-bind the listener on each render.
+  const handleBarCodeScanned = useCallback(
+    async ({ data }: { data: string }) => {
+      if (scanningRef.current) return;
+      scanningRef.current = true;
+      setScanError(null);
 
-    await processScan(data);
-    if (usePairingStore.getState().state === "paired") {
-      router.replace("/");
-    } else {
-      setScanned(false); // Allow retry
-    }
-  };
+      await processScan(data);
+      const { state, error } = usePairingStore.getState();
+      if (state === "paired") {
+        router.replace("/");
+        return;
+      }
+      // Surface the failure inline and re-arm the scanner so the user can
+      // retry without leaving the screen.
+      setScanError(error ?? "Could not read pairing data from this QR code.");
+      scanningRef.current = false;
+    },
+    [processScan, router],
+  );
 
   if (Platform.OS === "web") {
     return (
@@ -106,8 +118,16 @@ export default function ScanScreen() {
       <CameraView
         style={{ flex: 1 }}
         barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-        onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+        onBarcodeScanned={handleBarCodeScanned}
       />
+      {scanError ? (
+        <View className="absolute top-16 left-4 right-4 bg-tp-error rounded-card px-4 py-3">
+          <Text className="text-white text-[13px] font-semibold mb-1">
+            Pairing failed
+          </Text>
+          <Text className="text-white/90 text-xs">{scanError}</Text>
+        </View>
+      ) : null}
       <View className="absolute bottom-10 left-0 right-0 items-center">
         <Pressable
           onPress={() => router.back()}

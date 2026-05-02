@@ -161,6 +161,9 @@ export default function DaemonsScreen() {
   const removePairing = usePairingStore((s) => s.removePairing);
   const [renameTarget, setRenameTarget] = useState<PairingInfo | null>(null);
   const [unpairTarget, setUnpairTarget] = useState<PairingInfo | null>(null);
+  // Snapshot of unpair target's display name so the modal's a11y label stays
+  // stable during the close animation after `unpairTarget` is cleared.
+  const [unpairDisplayName, setUnpairDisplayName] = useState("");
   const pp = getPlatformProps();
 
   useEffect(() => {
@@ -203,7 +206,12 @@ export default function DaemonsScreen() {
               key={info.daemonId}
               info={info}
               onRename={setRenameTarget}
-              onUnpair={setUnpairTarget}
+              onUnpair={(target) => {
+                setUnpairDisplayName(
+                  target.label?.trim() || target.daemonId.slice(0, 8),
+                );
+                setUnpairTarget(target);
+              }}
             />
           ))}
         </ScrollView>
@@ -263,11 +271,7 @@ export default function DaemonsScreen() {
       />
       <ConfirmUnpairModal
         visible={unpairTarget !== null}
-        displayName={
-          unpairTarget?.label?.trim() ||
-          unpairTarget?.daemonId.slice(0, 8) ||
-          ""
-        }
+        displayName={unpairDisplayName}
         daemonId={unpairTarget?.daemonId}
         onCancel={() => setUnpairTarget(null)}
         onConfirm={async () => {

@@ -39,6 +39,14 @@ export default function ScanScreen() {
   // Ref-based dedup so the camera's continuous detection loop only triggers
   // processScan once per QR even if the JS re-renders before we navigate away.
   const scanningRef = useRef(false);
+  // Drop late processScan results if the user already cancelled out.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Camera permissions (native only)
   const [permission, requestPermission] = useCameraPermissions?.() ?? [
@@ -60,6 +68,7 @@ export default function ScanScreen() {
       setScanError(null);
 
       await processScan(data);
+      if (!mountedRef.current) return;
       const { state, error } = usePairingStore.getState();
       if (state === "paired") {
         router.replace("/");

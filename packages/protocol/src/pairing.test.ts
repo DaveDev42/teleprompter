@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { decrypt, deriveSessionKeys, encrypt, generateKeyPair } from "./crypto";
 import {
   createPairingBundle,
+  DEFAULT_PAIRING_RELAY_URL,
   decodePairingData,
   encodePairingData,
   parsePairingForFrontend,
@@ -112,7 +113,7 @@ describe("pairing", () => {
 
   test("default relay URL is omitted from binary form to shrink the QR", async () => {
     const defaultBundle = await createPairingBundle(
-      "wss://relay.tpmt.dev",
+      DEFAULT_PAIRING_RELAY_URL,
       "daemon-default",
     );
     const customBundle = await createPairingBundle(
@@ -127,7 +128,25 @@ describe("pairing", () => {
     expect(customLen).toBeGreaterThan(defaultLen + 20);
     // And the default form still round-trips back to the canonical URL.
     const decoded = decodePairingData(encodePairingData(defaultBundle.qrData));
-    expect(decoded.relay).toBe("wss://relay.tpmt.dev");
+    expect(decoded.relay).toBe(DEFAULT_PAIRING_RELAY_URL);
+  });
+
+  test("default relay detection tolerates trailing slash and case variants", async () => {
+    // Daemon spawned with `wss://Relay.TPMT.dev/` (trailing slash + uppercase
+    // host) should still get the compact form. The decoded URL is the
+    // canonical default — we drop the variant rather than try to round-trip it.
+    const bundle = await createPairingBundle(
+      "wss://Relay.TPMT.dev/",
+      "daemon-norm",
+    );
+    const encodedLen = encodePairingData(bundle.qrData).length;
+    const customLen = encodePairingData({
+      ...bundle.qrData,
+      relay: "wss://relay.example.org",
+    }).length;
+    expect(customLen).toBeGreaterThan(encodedLen + 20);
+    const decoded = decodePairingData(encodePairingData(bundle.qrData));
+    expect(decoded.relay).toBe(DEFAULT_PAIRING_RELAY_URL);
   });
 
   test("round-trips utf-8 label safely", async () => {
@@ -195,7 +214,7 @@ describe("pairing", () => {
       .replace(/\//g, "_")
       .replace(/=+$/, "");
     const decoded = decodePairingData(`teleprompter://pair?d=${b64}`);
-    expect(decoded.relay).toBe("wss://relay.tpmt.dev");
+    expect(decoded.relay).toBe(DEFAULT_PAIRING_RELAY_URL);
     expect(decoded.did).toBe("x");
   });
 

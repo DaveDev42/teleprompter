@@ -106,10 +106,26 @@ export async function createPairingBundle(
  * `DEFAULT_PAIRING_RELAY_URL`. Saves ~22 bytes on the most common case
  * (production relay) and shaves a noticeable chunk off the QR module count.
  */
+/**
+ * Normalize a relay URL for default-detection only. Strict equality on the
+ * raw input would silently fall back to inline encoding for trivial variants
+ * like a trailing slash or accidental whitespace. We do not mutate the
+ * outgoing `data.relay` — the round-trip still preserves whatever the daemon
+ * generated, this is purely the comparison key for "is this the default?".
+ */
+function normalizeRelayForDefaultMatch(url: string): string {
+  return url.trim().replace(/\/+$/, "").toLowerCase();
+}
+
+const NORMALIZED_DEFAULT_RELAY = normalizeRelayForDefaultMatch(
+  DEFAULT_PAIRING_RELAY_URL,
+);
+
 export function encodePairingData(data: PairingData): string {
   const enc = new TextEncoder();
   const did = enc.encode(data.did);
-  const useDefaultRelay = data.relay === DEFAULT_PAIRING_RELAY_URL;
+  const useDefaultRelay =
+    normalizeRelayForDefaultMatch(data.relay) === NORMALIZED_DEFAULT_RELAY;
   const relay = useDefaultRelay ? new Uint8Array(0) : enc.encode(data.relay);
   const label = enc.encode(data.label ?? "");
   const ps = base64ToBytes(data.ps);

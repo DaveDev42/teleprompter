@@ -33,10 +33,13 @@ import {
   RELAY_CHANNEL_META,
   toBase64,
 } from "@teleprompter/protocol/client";
+import { secureDelete, secureGet, secureSet } from "./secure-storage";
 import type { TransportClient, TransportEventHandler } from "./transport";
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
+/** secure-storage key prefix for cached resume tokens (per daemonId). */
+const RESUME_TOKEN_KEY_PREFIX = "relay_resume_";
 /**
  * Max frames queued while waiting for relay auth + key exchange to complete.
  * Flushed on `relay.auth.ok` (after sendKeyExchange), cleared on WS close.
@@ -115,6 +118,21 @@ export class FrontendRelayClient implements TransportClient {
   private pingStart = 0;
   /** Last measured round-trip time in ms */
   private rtt = -1;
+  /**
+   * Resume token from the previous successful relay.auth.ok. Sent via
+   * relay.auth.resume on the next connect to skip register+auth+kx. Null
+   * until the relay issues one or until secure-storage hydration finishes.
+   */
+  private resumeToken: string | null = null;
+  private resumeExpiresAt = 0;
+  /**
+   * True between sending relay.auth.resume and receiving auth.ok / auth.err.
+   * Used so an auth.err during resume drops the cached token and reconnects
+   * via the slow path instead of bubbling up as a fatal error.
+   */
+  private resuming = false;
+  /** True once we've tried to hydrate the cached token from secure-storage. */
+  private hydratedResume = false;
 
   constructor(config: FrontendRelayConfig, events: FrontendRelayEvents = {}) {
     this.config = config;
@@ -144,6 +162,35 @@ export class FrontendRelayClient implements TransportClient {
       this.kxKey = await deriveKxKey(this.config.pairingSecret);
     }
 
+    // Hydrate cached resume token on first connect. Done lazily here so the
+    // constructor stays sync. If hydration fails or the cached entry has
+    // expired we just fall through to the slow auth path — no error
+    // surfaced to the user.
+    if (!this.hydratedResume) {
+      this.hydratedResume = true;
+      try {
+        const cached = await secureGet(
+          `${RESUME_TOKEN_KEY_PREFIX}${this.config.daemonId}`,
+        );
+        if (cached) {
+          const parsed = JSON.parse(cached) as {
+            token: string;
+            expiresAt: number;
+          };
+          if (parsed.token && parsed.expiresAt > Date.now()) {
+            this.resumeToken = parsed.token;
+            this.resumeExpiresAt = parsed.expiresAt;
+          } else {
+            await secureDelete(
+              `${RESUME_TOKEN_KEY_PREFIX}${this.config.daemonId}`,
+            );
+          }
+        }
+      } catch {
+        // ignore — slow path is always safe
+      }
+    }
+
     this.cleanup();
 
     const ws = new WebSocket(this.config.relayUrl);
@@ -152,6 +199,15 @@ export class FrontendRelayClient implements TransportClient {
     ws.onopen = () => {
       this.reconnectAttempt = 0;
       this.events.onOpen?.();
+      if (this.resumeToken && this.resumeExpiresAt > Date.now()) {
+        this.resuming = true;
+        this.sendRelay({
+          t: "relay.auth.resume",
+          v: 1,
+          token: this.resumeToken,
+        });
+        return;
+      }
       this.sendRelay({
         t: "relay.auth",
         role: "frontend",
@@ -190,8 +246,22 @@ export class FrontendRelayClient implements TransportClient {
 
   private async handleMessage(msg: RelayServerMessage): Promise<void> {
     switch (msg.t) {
-      case "relay.auth.ok":
+      case "relay.auth.ok": {
         this.authenticated = true;
+        const resumed = this.resuming && msg.resumed === true;
+        this.resuming = false;
+        if (msg.resumeToken && msg.resumeExpiresAt) {
+          this.resumeToken = msg.resumeToken;
+          this.resumeExpiresAt = msg.resumeExpiresAt;
+          // Persist async — never block the auth flow on storage.
+          void secureSet(
+            `${RESUME_TOKEN_KEY_PREFIX}${this.config.daemonId}`,
+            JSON.stringify({
+              token: msg.resumeToken,
+              expiresAt: msg.resumeExpiresAt,
+            }),
+          ).catch(() => {});
+        }
         this.events.onConnected?.();
         // Subscribe to meta + control channels
         this.sendRelay({ t: "relay.sub", sid: RELAY_CHANNEL_META });
@@ -200,10 +270,14 @@ export class FrontendRelayClient implements TransportClient {
         for (const sid of this.subscribedSessions) {
           this.sendRelay({ t: "relay.sub", sid });
         }
-        // Send key exchange: deliver frontend's public key to daemon
-        await this.sendKeyExchange();
-        // Drain any frames queued while kx was pending. Must happen AFTER
-        // the kx envelope is sent so the daemon can decrypt them.
+        // On resume the daemon already holds our public key — skip kx and
+        // its session-key derivation. On a fresh auth we must run kx so the
+        // daemon can decrypt our frames.
+        if (!resumed) {
+          await this.sendKeyExchange();
+        }
+        // Drain any frames queued while auth/kx was pending. Must happen
+        // AFTER kx (when applicable) so the daemon can decrypt them.
         await this.flushPendingEncrypted();
         // Auto-resume if we were previously attached
         if (this.hasConnectedBefore && this.attachedSid) {
@@ -211,8 +285,22 @@ export class FrontendRelayClient implements TransportClient {
         }
         this.hasConnectedBefore = true;
         break;
+      }
 
       case "relay.auth.err":
+        if (this.resuming) {
+          // Resume rejected — drop the cached token and reconnect via the
+          // slow path. The onclose handler schedules the retry; we just
+          // need to make sure we don't surface this as a fatal error.
+          this.resuming = false;
+          this.resumeToken = null;
+          this.resumeExpiresAt = 0;
+          void secureDelete(
+            `${RESUME_TOKEN_KEY_PREFIX}${this.config.daemonId}`,
+          ).catch(() => {});
+          this.ws?.close();
+          break;
+        }
         this.events.onError?.(`Relay auth failed: ${msg.e}`);
         break;
 

@@ -1,5 +1,5 @@
 import "../global.css";
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { useColorScheme, View } from "react-native";
@@ -7,6 +7,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { InAppToast } from "../src/components/InAppToast";
 import { UpdateBanner } from "../src/components/UpdateBanner";
 import { useOtaUpdate } from "../src/hooks/use-ota-update";
+import { usePairingDeepLink } from "../src/hooks/use-pairing-deep-link";
 import { usePushNotifications } from "../src/hooks/use-push-notifications";
 import { useRelay } from "../src/hooks/use-relay";
 import { usePairingStore } from "../src/stores/pairing-store";
@@ -15,6 +16,7 @@ import { useThemeStore } from "../src/stores/theme-store";
 import { useVoiceStore } from "../src/stores/voice-store";
 
 export default function RootLayout() {
+  const router = useRouter();
   const loadPairings = usePairingStore((s) => s.load);
   const loadSettings = useSettingsStore((s) => s.load);
   const loadTheme = useThemeStore((s) => s.load);
@@ -23,6 +25,15 @@ export default function RootLayout() {
   const isDark = useThemeStore((s) => s.isDark);
   const setTheme = useThemeStore((s) => s.setTheme);
   const _systemScheme = useColorScheme();
+
+  // Route incoming `teleprompter://pair?d=…` deep links to the pairing screen
+  // so the user explicitly confirms before keys are persisted.
+  usePairingDeepLink((pairingData) => {
+    router.push({
+      pathname: "/pairing",
+      params: { pairingData },
+    });
+  });
 
   // Load saved settings on mount
   useEffect(() => {

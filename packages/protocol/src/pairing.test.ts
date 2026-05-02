@@ -68,6 +68,67 @@ describe("pairing", () => {
     );
   });
 
+  test("encoded form is a teleprompter:// deep link", async () => {
+    const bundle = await createPairingBundle(
+      "wss://relay.tpmt.dev",
+      "daemon-deeplinktest",
+      { label: "My iPhone" },
+    );
+    const encoded = encodePairingData(bundle.qrData);
+    expect(encoded.startsWith("teleprompter://pair?d=")).toBe(true);
+  });
+
+  test("decodePairingData accepts the bare base64url payload", async () => {
+    const bundle = await createPairingBundle(
+      "wss://relay.tpmt.dev",
+      "daemon-bare",
+      { label: "label" },
+    );
+    const url = encodePairingData(bundle.qrData);
+    const bare = url.slice("teleprompter://pair?d=".length);
+    const decoded = decodePairingData(bare);
+    expect(decoded.did).toBe(bundle.qrData.did);
+    expect(decoded.label).toBe("label");
+  });
+
+  test("decodePairingData accepts legacy JSON form", async () => {
+    const bundle = await createPairingBundle(
+      "wss://relay.tpmt.dev",
+      "daemon-legacy",
+      { label: "old-app" },
+    );
+    const legacyJson = JSON.stringify(bundle.qrData);
+    const decoded = decodePairingData(legacyJson);
+    expect(decoded.did).toBe(bundle.qrData.did);
+    expect(decoded.relay).toBe(bundle.qrData.relay);
+    expect(decoded.ps).toBe(bundle.qrData.ps);
+    expect(decoded.pk).toBe(bundle.qrData.pk);
+    expect(decoded.label).toBe("old-app");
+    expect(decoded.v).toBe(1);
+  });
+
+  test("encoded form fits comfortably under 200 chars with typical label", async () => {
+    // Real-world fields: relay 20 chars, daemon id 17 chars, label 14 chars.
+    const bundle = await createPairingBundle(
+      "wss://relay.tpmt.dev",
+      "daemon-mob73tr0xx",
+      { label: "iPhone-build51" },
+    );
+    const encoded = encodePairingData(bundle.qrData);
+    expect(encoded.length).toBeLessThan(200);
+  });
+
+  test("round-trips utf-8 label safely", async () => {
+    const bundle = await createPairingBundle(
+      "wss://relay.tpmt.dev",
+      "daemon-utf8",
+      { label: "데이브-iPhone-📱" },
+    );
+    const encoded = encodePairingData(bundle.qrData);
+    const decoded = decodePairingData(encoded);
+    expect(decoded.label).toBe("데이브-iPhone-📱");
+  });
+
   test("full pairing flow: daemon creates, frontend parses, keys match", async () => {
     // Step 1: Daemon creates pairing bundle
     const bundle = await createPairingBundle("wss://relay.test", "d1");

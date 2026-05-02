@@ -1,5 +1,6 @@
-import { useRouter } from "expo-router";
-import { useState } from "react";
+import { decodePairingData } from "@teleprompter/protocol/client";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -12,8 +13,35 @@ import { usePairingStore } from "../../src/stores/pairing-store";
 
 export default function PairingScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ pairingData?: string }>();
   const { state, error, processScan } = usePairingStore();
-  const [manualInput, setManualInput] = useState("");
+  const [manualInput, setManualInput] = useState(params.pairingData ?? "");
+
+  // Preview the daemon being requested when arriving via deep link, so the
+  // user has to explicitly confirm rather than be paired automatically.
+  const preview = useMemo(() => {
+    const text = manualInput.trim();
+    if (!text) return null;
+    try {
+      const data = decodePairingData(text);
+      return {
+        did: data.did,
+        relay: data.relay,
+        label: data.label ?? null,
+      };
+    } catch {
+      return null;
+    }
+  }, [manualInput]);
+
+  // Sync incoming deep-link payload into the input on mount/update.
+  useEffect(() => {
+    if (params.pairingData && params.pairingData !== manualInput) {
+      setManualInput(params.pairingData);
+    }
+    // We intentionally do not depend on manualInput — only react to the param.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
+  }, [params.pairingData]);
 
   const handlePaste = async () => {
     const text = manualInput.trim();
@@ -49,19 +77,38 @@ export default function PairingScreen() {
       )}
 
       {/* Manual paste input (works on all platforms) */}
-      <Text className="text-gray-400 text-sm mb-2">
-        Paste pairing data (JSON):
-      </Text>
+      <Text className="text-gray-400 text-sm mb-2">Paste pairing data:</Text>
       <TextInput
         className="bg-zinc-800 text-white rounded-lg px-4 py-3 font-mono text-xs mb-4"
-        placeholder='{"ps":"...","pk":"...","relay":"...","did":"...","v":1}'
+        placeholder="teleprompter://pair?d=..."
         placeholderTextColor="#555"
         value={manualInput}
         onChangeText={setManualInput}
         multiline
         numberOfLines={4}
+        autoCapitalize="none"
+        autoCorrect={false}
         style={{ minHeight: 100, textAlignVertical: "top" }}
       />
+
+      {preview && (
+        <View className="bg-zinc-900 border border-zinc-700 rounded-lg px-4 py-3 mb-4">
+          <Text className="text-gray-500 text-xs uppercase mb-1">
+            Pairing with
+          </Text>
+          <Text className="text-white text-base font-semibold">
+            {preview.label ?? preview.did}
+          </Text>
+          {preview.label && (
+            <Text className="text-gray-400 text-xs font-mono mt-0.5">
+              {preview.did}
+            </Text>
+          )}
+          <Text className="text-gray-500 text-xs mt-1">
+            via {preview.relay.replace(/^wss:\/\//, "")}
+          </Text>
+        </View>
+      )}
 
       <Pressable
         onPress={handlePaste}
@@ -69,7 +116,9 @@ export default function PairingScreen() {
         className="bg-blue-600 rounded-lg py-3 items-center"
         style={{ opacity: manualInput.trim() ? 1 : 0.4 }}
       >
-        <Text className="text-white font-bold">Connect</Text>
+        <Text className="text-white font-bold">
+          {preview ? "Confirm pairing" : "Connect"}
+        </Text>
       </Pressable>
 
       {Platform.OS !== "web" && (

@@ -246,6 +246,86 @@ describe("Integration", () => {
     receiver.stop();
   });
 
+  test("pushNotifier: Notification event triggers sendPush with parsed payload", async () => {
+    const sid = "test-push-pipeline";
+    const decoder = new FrameDecoder();
+
+    type PushCall = [string, string, string, string, unknown];
+    const pushCalls: PushCall[] = [];
+
+    // Replace the PushNotifier deps with a spy. Reach into the daemon to
+    // register a token so the notifier doesn't short-circuit on empty map.
+    // biome-ignore lint/suspicious/noExplicitAny: test reaches private field
+    const pn: any = (daemon as any).pushNotifier;
+    pn.deps.sendPush = (
+      frontendId: string,
+      token: string,
+      title: string,
+      body: string,
+      data: { sid: string; event: string },
+    ) => {
+      pushCalls.push([frontendId, token, title, body, data]);
+    };
+    pn.registerToken("fe-test", "tok-test", "ios");
+
+    // Open the runner IPC socket, hello + Notification record + bye.
+    const socket = await Bun.connect({
+      unix: socketPath,
+      socket: {
+        data(_socket, data) {
+          decoder.decode(new Uint8Array(data));
+        },
+        open() {},
+        close() {},
+        error() {},
+      },
+    });
+
+    const hello: IpcHello = {
+      t: "hello",
+      sid,
+      cwd: join(tmpdir(), "project"),
+      pid: process.pid,
+    };
+    socket.write(encodeFrame(hello));
+    await Bun.sleep(30);
+
+    const rec: IpcRec = {
+      t: "rec",
+      sid,
+      kind: "event",
+      ts: Date.now(),
+      ns: "claude",
+      name: "Notification",
+      payload: Buffer.from(
+        JSON.stringify({
+          session_id: sid,
+          hook_event_name: "Notification",
+          cwd: "/tmp",
+          message: "Claude needs your permission to use Bash",
+        }),
+      ).toString("base64"),
+    };
+    socket.write(encodeFrame(rec));
+    await Bun.sleep(50);
+
+    const bye: IpcBye = { t: "bye", sid, exitCode: 0 };
+    socket.write(encodeFrame(bye));
+    socket.end();
+
+    await Bun.sleep(50);
+
+    expect(pushCalls.length).toBe(1);
+    const call = pushCalls[0];
+    if (!call) throw new Error("expected push call");
+    const [frontendId, token, title, body, data] = call;
+    expect(frontendId).toBe("fe-test");
+    expect(token).toBe("tok-test");
+    expect(title).toBe("Permission needed");
+    expect(body).toBe("Claude needs your permission to use Bash");
+    expect(data).toEqual({ sid, event: "Notification" });
+  });
+
   test("self-spawn: daemon.createSession() spawns stub runner via setRunnerCommand", async () => {
     const sid = "test-self-spawn";
 

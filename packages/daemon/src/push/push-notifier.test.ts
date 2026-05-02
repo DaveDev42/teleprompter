@@ -1,8 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
 import { setLogLevel } from "@teleprompter/protocol";
-import { PushNotifier } from "./push-notifier";
+import { buildPushMessage, PushNotifier } from "./push-notifier";
 
-// Suppress log noise during tests
 beforeAll(() => setLogLevel("silent"));
 afterAll(() => setLogLevel("info"));
 
@@ -53,6 +52,51 @@ describe("PushNotifier", () => {
     ]);
   });
 
+  it("uses tool_name in PermissionRequest body when provided", () => {
+    const sendPush = makeSendPush();
+    const notifier = new PushNotifier({ sendPush });
+    notifier.registerToken("fe-1", "tok", "ios");
+
+    notifier.onRecord({
+      sid: "s1",
+      kind: "event",
+      name: "PermissionRequest",
+      payload: { tool_name: "Bash" },
+    });
+
+    expect(sendPush.mock.calls[0][3]).toBe("Approve Bash to continue");
+  });
+
+  it("triggers push for Notification event", () => {
+    const sendPush = makeSendPush();
+    const notifier = new PushNotifier({ sendPush });
+    notifier.registerToken("fe-1", "tok", "ios");
+
+    notifier.onRecord({
+      sid: "s1",
+      kind: "event",
+      name: "Notification",
+      payload: { message: "Claude needs your permission to use Bash" },
+    });
+
+    expect(sendPush).toHaveBeenCalledTimes(1);
+    expect(sendPush.mock.calls[0][2]).toBe("Permission needed");
+    expect(sendPush.mock.calls[0][3]).toBe(
+      "Claude needs your permission to use Bash",
+    );
+  });
+
+  it("falls back to generic Notification copy when message is missing", () => {
+    const sendPush = makeSendPush();
+    const notifier = new PushNotifier({ sendPush });
+    notifier.registerToken("fe-1", "tok", "ios");
+
+    notifier.onRecord({ sid: "s1", kind: "event", name: "Notification" });
+
+    expect(sendPush.mock.calls[0][2]).toBe("Claude needs attention");
+    expect(sendPush.mock.calls[0][3]).toBe("Tap to open the session");
+  });
+
   it("does NOT trigger for Stop event", () => {
     const sendPush = makeSendPush();
     const notifier = new PushNotifier({ sendPush });
@@ -87,7 +131,7 @@ describe("PushNotifier", () => {
     const sendPush = makeSendPush();
     const notifier = new PushNotifier({ sendPush });
 
-    notifier.onRecord({ sid: "s1", kind: "event", name: "Elicitation" });
+    notifier.onRecord({ sid: "s1", kind: "event", name: "Notification" });
 
     expect(sendPush).not.toHaveBeenCalled();
   });
@@ -132,5 +176,43 @@ describe("PushNotifier", () => {
 
     expect(sendPush).toHaveBeenCalledTimes(1);
     expect(sendPush.mock.calls[0][0]).toBe("fe-2");
+  });
+});
+
+describe("buildPushMessage", () => {
+  it("Notification with idle/wait phrasing maps to Waiting title", () => {
+    const m = buildPushMessage("Notification", {
+      message: "Claude is waiting for your input",
+    });
+    expect(m.title).toBe("Waiting for input");
+    expect(m.body).toBe("Claude is waiting for your input");
+  });
+
+  it("Notification with permission phrasing maps to Permission title", () => {
+    const m = buildPushMessage("Notification", {
+      message: "Permission required to run Bash",
+    });
+    expect(m.title).toBe("Permission needed");
+  });
+
+  it("truncates long Notification messages with ellipsis", () => {
+    const long = "a".repeat(300);
+    const m = buildPushMessage("Notification", { message: long });
+    expect(m.body.endsWith("…")).toBe(true);
+    expect(m.body.length).toBeLessThanOrEqual(178);
+  });
+
+  it("Elicitation prefers `message` field, falls back to `question`", () => {
+    expect(buildPushMessage("Elicitation", { message: "What now?" }).body).toBe(
+      "What now?",
+    );
+    expect(buildPushMessage("Elicitation", { question: "Pick one" }).body).toBe(
+      "Pick one",
+    );
+  });
+
+  it("unknown event name returns safe default", () => {
+    const m = buildPushMessage("ZZZ");
+    expect(m.title).toBe("Claude needs attention");
   });
 });

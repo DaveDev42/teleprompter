@@ -564,12 +564,31 @@ export class IpcCommandDispatcher {
       onRecord(msg.sid, msg.kind, payload, msg.name);
     }
 
-    // Check if this record should trigger a push notification
+    // Check if this record should trigger a push notification. Decode the
+    // payload defensively — non-event records (io/meta) skip this branch
+    // because PushNotifier short-circuits on `kind !== "event"`, but the
+    // payload of an event record is the JSON the hook script wrote.
+    let parsedPayload: Record<string, unknown> | undefined;
+    if (msg.kind === "event") {
+      try {
+        const text = payload.toString("utf-8");
+        if (text.length > 0) {
+          const parsed = JSON.parse(text);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            parsedPayload = parsed as Record<string, unknown>;
+          }
+        }
+      } catch {
+        // Hooks should always produce valid JSON; if parsing fails we fall
+        // back to generic copy in PushNotifier — no error path needed.
+      }
+    }
     this.deps.pushNotifier.onRecord({
       sid: msg.sid,
       kind: msg.kind,
       name: msg.name,
       ns: msg.ns,
+      payload: parsedPayload,
     });
   }
 

@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ConfirmUnpairModal } from "../../src/components/ConfirmUnpairModal";
 import { RenamePairingModal } from "../../src/components/RenamePairingModal";
 import { useRelayConnectionStore } from "../../src/hooks/use-relay";
 import { getPlatformProps } from "../../src/lib/get-platform-props";
@@ -25,9 +26,11 @@ function timeAgo(ts: number): string {
 function DaemonCard({
   info,
   onRename,
+  onUnpair,
 }: {
   info: PairingInfo;
   onRename: (info: PairingInfo) => void;
+  onUnpair: (info: PairingInfo) => void;
 }) {
   const connections = useRelayConnectionStore((s) => s.connections);
   const sessions = useSessionStore((s) => s.sessions);
@@ -76,6 +79,15 @@ function DaemonCard({
           accessibilityLabel={`Rename ${displayName}`}
         >
           <Text className="text-tp-text-secondary text-xs">Rename</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => onUnpair(info)}
+          className={`bg-tp-bg-tertiary rounded-badge px-2 py-1 mr-2 ${pp.className}`}
+          tabIndex={pp.tabIndex}
+          accessibilityRole="button"
+          accessibilityLabel={`Remove pairing with ${displayName}`}
+        >
+          <Text className="text-tp-error text-xs">Unpair</Text>
         </Pressable>
         <Text
           className={`text-xs font-medium ${
@@ -146,7 +158,9 @@ export default function DaemonsScreen() {
   const lastPeerUnpair = usePairingStore((s) => s.lastPeerUnpair);
   const clearLastPeerUnpair = usePairingStore((s) => s.clearLastPeerUnpair);
   const renamePairing = usePairingStore((s) => s.renamePairing);
+  const removePairing = usePairingStore((s) => s.removePairing);
   const [renameTarget, setRenameTarget] = useState<PairingInfo | null>(null);
+  const [unpairTarget, setUnpairTarget] = useState<PairingInfo | null>(null);
   const pp = getPlatformProps();
 
   useEffect(() => {
@@ -189,6 +203,7 @@ export default function DaemonsScreen() {
               key={info.daemonId}
               info={info}
               onRename={setRenameTarget}
+              onUnpair={setUnpairTarget}
             />
           ))}
         </ScrollView>
@@ -244,6 +259,21 @@ export default function DaemonsScreen() {
           const target = renameTarget;
           setRenameTarget(null);
           if (target) await renamePairing(target.daemonId, val);
+        }}
+      />
+      <ConfirmUnpairModal
+        visible={unpairTarget !== null}
+        displayName={
+          unpairTarget?.label?.trim() ||
+          unpairTarget?.daemonId.slice(0, 8) ||
+          ""
+        }
+        daemonId={unpairTarget?.daemonId}
+        onCancel={() => setUnpairTarget(null)}
+        onConfirm={async () => {
+          const target = unpairTarget;
+          setUnpairTarget(null);
+          if (target) await removePairing(target.daemonId);
         }}
       />
     </View>

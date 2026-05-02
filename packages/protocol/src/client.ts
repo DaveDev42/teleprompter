@@ -30,6 +30,7 @@ export { createLogger, setLogLevel } from "./logger";
 export type { PairingBundle, PairingData } from "./pairing";
 export {
   createPairingBundle,
+  DEFAULT_PAIRING_RELAY_URL,
   decodePairingData,
   encodePairingData,
   parsePairingForFrontend,

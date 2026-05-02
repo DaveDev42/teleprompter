@@ -11,6 +11,13 @@ interface CameraViewLikeProps {
   style?: Record<string, unknown>;
   barcodeScannerSettings?: { barcodeTypes: string[] };
   onBarcodeScanned?: ((result: { data: string }) => void) | undefined;
+  // iOS-only: expo-camera defaults autofocus to "off", which leaves the lens
+  // on a hyperfocal-ish setting that is too coarse to resolve dense QR codes
+  // (~80x80 modules). Without this, scanning the terminal QR silently fails
+  // even though iOS's system Camera reads the same code instantly. Android
+  // CameraX uses continuous AF natively for barcode mode, so the prop is
+  // silently ignored there — leaving it on doesn't hurt cross-platform.
+  autofocus?: "on" | "off";
 }
 
 type UseCameraPermissionsHook = () => [
@@ -126,6 +133,7 @@ export default function ScanScreen() {
     <View className="flex-1 bg-black">
       <CameraView
         style={{ flex: 1 }}
+        autofocus="on"
         barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
         onBarcodeScanned={handleBarCodeScanned}
       />

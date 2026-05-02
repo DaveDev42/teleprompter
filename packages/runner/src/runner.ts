@@ -48,9 +48,14 @@ export class Runner {
 
     const hookSocketPath = HookReceiver.defaultSocketPath(opts.sid);
     this.hookReceiver = new HookReceiver(hookSocketPath, (event) => {
-      if (this.state === "running") {
-        this.ipc.send(this.collector.eventRecord(event));
-      }
+      // Forward every hook claude emits while the IPC channel is up. We
+      // deliberately accept events during "spawning" because claude's
+      // SessionStart fires before the PTY has produced the first byte that
+      // would flip us to "running". Dropping during stop/stopped prevents
+      // races with daemon teardown.
+      if (this.state === "stopping" || this.state === "stopped") return;
+      log.info(`forwarding hook ${event.hook_event_name} to daemon`);
+      this.ipc.send(this.collector.eventRecord(event));
     });
   }
 

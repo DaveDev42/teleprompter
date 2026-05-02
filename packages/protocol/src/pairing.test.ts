@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { decrypt, deriveSessionKeys, encrypt, generateKeyPair } from "./crypto";
 import {
   createPairingBundle,
+  DEFAULT_PAIRING_RELAY_URL,
   decodePairingData,
   encodePairingData,
   parsePairingForFrontend,
@@ -14,7 +15,7 @@ describe("pairing", () => {
       "daemon-123",
     );
 
-    expect(bundle.qrData.v).toBe(1);
+    expect(bundle.qrData.v).toBe(2);
     expect(bundle.qrData.relay).toBe("wss://relay.example.com");
     expect(bundle.qrData.did).toBe("daemon-123");
     expect(bundle.qrData.ps).toBeTruthy();
@@ -34,7 +35,7 @@ describe("pairing", () => {
     expect(decoded.pk).toBe(bundle.qrData.pk);
     expect(decoded.relay).toBe(bundle.qrData.relay);
     expect(decoded.did).toBe(bundle.qrData.did);
-    expect(decoded.v).toBe(1);
+    expect(decoded.v).toBe(2);
   });
 
   test("createPairingBundle includes label when provided", async () => {
@@ -110,6 +111,44 @@ describe("pairing", () => {
     expect(encoded.length).toBeLessThan(200);
   });
 
+  test("default relay URL is omitted from binary form to shrink the QR", async () => {
+    const defaultBundle = await createPairingBundle(
+      DEFAULT_PAIRING_RELAY_URL,
+      "daemon-default",
+    );
+    const customBundle = await createPairingBundle(
+      "wss://relay.example.org",
+      "daemon-custom",
+    );
+    const defaultLen = encodePairingData(defaultBundle.qrData).length;
+    const customLen = encodePairingData(customBundle.qrData).length;
+    // Custom relay encodes inline; default omits the 21-byte URL. Same daemon
+    // id length here, so the gap should reflect the relay savings (~28 chars
+    // of base64url for 21 bytes).
+    expect(customLen).toBeGreaterThan(defaultLen + 20);
+    // And the default form still round-trips back to the canonical URL.
+    const decoded = decodePairingData(encodePairingData(defaultBundle.qrData));
+    expect(decoded.relay).toBe(DEFAULT_PAIRING_RELAY_URL);
+  });
+
+  test("default relay detection tolerates trailing slash and case variants", async () => {
+    // Daemon spawned with `wss://Relay.TPMT.dev/` (trailing slash + uppercase
+    // host) should still get the compact form. The decoded URL is the
+    // canonical default — we drop the variant rather than try to round-trip it.
+    const bundle = await createPairingBundle(
+      "wss://Relay.TPMT.dev/",
+      "daemon-norm",
+    );
+    const encodedLen = encodePairingData(bundle.qrData).length;
+    const customLen = encodePairingData({
+      ...bundle.qrData,
+      relay: "wss://relay.example.org",
+    }).length;
+    expect(customLen).toBeGreaterThan(encodedLen + 20);
+    const decoded = decodePairingData(encodePairingData(bundle.qrData));
+    expect(decoded.relay).toBe(DEFAULT_PAIRING_RELAY_URL);
+  });
+
   test("round-trips utf-8 label safely", async () => {
     const bundle = await createPairingBundle(
       "wss://relay.tpmt.dev",
@@ -140,12 +179,12 @@ describe("pairing", () => {
   });
 
   test("decodePairingData rejects binary payload with empty did", () => {
-    // Manually craft: magic(2)='tp' | ver(1)=1 | didLen=0 | relayLen=1 | r |
+    // Manually craft: magic(2)='tp' | ver(1)=2 | didLen=0 | relayLen=1 | r |
     // ps(32) | pk(32) | labelLen=0
     const buf = new Uint8Array(2 + 1 + 1 + 1 + 1 + 32 + 32 + 1);
     buf[0] = 0x74; // 't'
     buf[1] = 0x70; // 'p'
-    buf[2] = 1;
+    buf[2] = 2;
     buf[3] = 0; // didLen
     buf[4] = 1; // relayLen
     buf[5] = 0x78; // 'x'
@@ -159,15 +198,35 @@ describe("pairing", () => {
     );
   });
 
-  test("decodePairingData rejects binary payload with empty relay", () => {
+  test("decodePairingData treats empty relay as default relay URL", () => {
+    // magic(2)='tp' | ver(1)=2 | didLen=1 | did | relayLen=0 |
+    // ps(32) | pk(32) | labelLen=0
     const buf = new Uint8Array(2 + 1 + 1 + 1 + 1 + 32 + 32 + 1);
     buf[0] = 0x74; // 't'
     buf[1] = 0x70; // 'p'
-    buf[2] = 1;
+    buf[2] = 2;
     buf[3] = 1; // didLen=1
     buf[4] = 0x78; // 'x'
     buf[5] = 0; // relayLen=0
     // ps + pk + labelLen left as zeros
+    const b64 = btoa(String.fromCharCode(...buf))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    const decoded = decodePairingData(`teleprompter://pair?d=${b64}`);
+    expect(decoded.relay).toBe(DEFAULT_PAIRING_RELAY_URL);
+    expect(decoded.did).toBe("x");
+  });
+
+  test("decodePairingData rejects unknown binary version", () => {
+    const buf = new Uint8Array(2 + 1 + 1 + 1 + 1 + 32 + 32 + 1);
+    buf[0] = 0x74;
+    buf[1] = 0x70;
+    buf[2] = 99; // unknown version
+    buf[3] = 1;
+    buf[4] = 0x78;
+    buf[5] = 1;
+    buf[6] = 0x79;
     const b64 = btoa(String.fromCharCode(...buf))
       .replace(/\+/g, "-")
       .replace(/\//g, "_")

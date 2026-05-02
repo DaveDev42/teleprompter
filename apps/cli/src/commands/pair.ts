@@ -14,7 +14,10 @@ import type {
   IpcPairRenameErr,
   IpcPairRenameOk,
 } from "@teleprompter/protocol";
-import { getSocketPath } from "@teleprompter/protocol";
+import {
+  DEFAULT_PAIRING_RELAY_URL,
+  getSocketPath,
+} from "@teleprompter/protocol";
 import { hostname } from "os";
 import { join } from "path";
 import qrcode from "qrcode-terminal";
@@ -57,7 +60,7 @@ async function pairNew(argv: string[]): Promise<void> {
   const { values } = parseArgs({
     args: argv,
     options: {
-      relay: { type: "string", default: "wss://relay.tpmt.dev" },
+      relay: { type: "string", default: DEFAULT_PAIRING_RELAY_URL },
       "daemon-id": { type: "string" },
       label: { type: "string" },
       help: { type: "boolean", short: "h" },

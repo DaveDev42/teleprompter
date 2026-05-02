@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   createPairingBundle,
+  DEFAULT_PAIRING_RELAY_URL,
   decodePairingData,
   decrypt,
   deriveSessionKeys,
@@ -107,5 +108,21 @@ describe("Full QR Pairing E2E Flow", () => {
     );
     // Other session's key cannot decrypt this session's ciphertext
     await expect(decrypt(ct1, otherKeys.rx)).rejects.toThrow();
+  });
+
+  test("default relay URL round-trips through parsePairingForFrontend", async () => {
+    // The compact-form path: daemon uses the production relay → encoder
+    // omits the URL → decoder hydrates it back → frontend ends up with the
+    // canonical default URL ready to dial.
+    const bundle = await createPairingBundle(
+      DEFAULT_PAIRING_RELAY_URL,
+      "daemon-default",
+    );
+    const qr = encodePairingData(bundle.qrData);
+    const scanned = decodePairingData(qr);
+    expect(scanned.relay).toBe(DEFAULT_PAIRING_RELAY_URL);
+    const parsed = await parsePairingForFrontend(scanned);
+    expect(parsed.relayUrl).toBe(DEFAULT_PAIRING_RELAY_URL);
+    expect(parsed.relayToken).toBe(bundle.relayToken);
   });
 });

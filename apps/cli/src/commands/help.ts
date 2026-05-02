@@ -11,10 +11,18 @@ import { dim } from "../lib/colors";
 export async function helpCommand(): Promise<void> {
   printTpUsage();
 
-  const check = Bun.spawnSync(["claude", "--version"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  let check: ReturnType<typeof Bun.spawnSync>;
+  try {
+    check = Bun.spawnSync(["claude", "--version"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  } catch {
+    console.log(
+      dim("\n(claude not found on PATH — skipping `claude --help` output.)"),
+    );
+    return;
+  }
   if (check.exitCode !== 0) {
     console.log(
       dim("\n(claude not found on PATH — skipping `claude --help` output.)"),

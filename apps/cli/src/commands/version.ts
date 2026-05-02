@@ -15,10 +15,16 @@ import { dim } from "../lib/colors";
 export async function versionCommand(_argv: string[] = []): Promise<void> {
   console.log(`tp v${pkg.version}`);
 
-  const check = Bun.spawnSync(["claude", "--version"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  let check: ReturnType<typeof Bun.spawnSync>;
+  try {
+    check = Bun.spawnSync(["claude", "--version"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  } catch {
+    console.log(dim("claude: not found on PATH"));
+    return;
+  }
   if (check.exitCode !== 0) {
     console.log(dim("claude: not found on PATH"));
     return;

@@ -40,7 +40,8 @@ export function decideRoute(command: string | undefined): Route {
   if (command === undefined) return { kind: "passthrough" };
   if (SUBCOMMAND_SET.has(command))
     return { kind: "subcommand", name: command as TpSubcommand };
-  if (CLAUDE_UTILITY_SUBCOMMANDS.has(command)) return { kind: "claude-utility" };
+  if (CLAUDE_UTILITY_SUBCOMMANDS.has(command))
+    return { kind: "claude-utility" };
   if (command === "--") return { kind: "forward-double-dash" };
   if (HELP_FLAGS.has(command)) return { kind: "help" };
   if (VERSION_FLAGS.has(command)) return { kind: "version" };
@@ -53,7 +54,11 @@ export function decideRoute(command: string | undefined): Route {
  * daemon/relay long-running processes, run-under-PTY, version output parsed
  * by scripts — should not pay the cost or risk stderr contamination.
  */
-const VERSION_CHECK_SUBCOMMANDS = new Set<string>(["upgrade", "doctor", "pair"]);
+const VERSION_CHECK_SUBCOMMANDS = new Set<string>([
+  "upgrade",
+  "doctor",
+  "pair",
+]);
 
 export function shouldCheckForUpdates(route: Route): boolean {
   if (route.kind === "passthrough") return true;

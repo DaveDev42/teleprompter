@@ -70,12 +70,12 @@ describe("shouldCheckForUpdates", () => {
   });
 
   test("upgrade/doctor/pair subcommands trigger update check", () => {
-    expect(
-      shouldCheckForUpdates({ kind: "subcommand", name: "upgrade" }),
-    ).toBe(true);
-    expect(
-      shouldCheckForUpdates({ kind: "subcommand", name: "doctor" }),
-    ).toBe(true);
+    expect(shouldCheckForUpdates({ kind: "subcommand", name: "upgrade" })).toBe(
+      true,
+    );
+    expect(shouldCheckForUpdates({ kind: "subcommand", name: "doctor" })).toBe(
+      true,
+    );
     expect(shouldCheckForUpdates({ kind: "subcommand", name: "pair" })).toBe(
       true,
     );

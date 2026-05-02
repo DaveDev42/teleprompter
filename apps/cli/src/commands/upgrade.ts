@@ -21,6 +21,30 @@ import { spinner } from "../lib/spinner";
 const REPO = "DaveDev42/teleprompter";
 
 /**
+ * Detect whether the running tp binary lives under a Homebrew prefix.
+ * Returns the prefix path when detected so the caller can craft the brew
+ * upgrade hint with the user's actual prefix (Apple Silicon vs Intel
+ * differ: /opt/homebrew vs /usr/local).
+ */
+export async function detectHomebrewInstall(
+  binaryPath: string,
+): Promise<string | null> {
+  if (!binaryPath) return null;
+  // The binary itself usually lives under <prefix>/Cellar/tp/<ver>/bin/tp
+  // and is symlinked from <prefix>/bin/tp. Resolve via realpath to catch
+  // both, then check for the Homebrew Cellar layout.
+  let resolved = binaryPath;
+  try {
+    resolved = (await $`readlink -f ${binaryPath}`.text()).trim() || binaryPath;
+  } catch {
+    // readlink missing (rare on macOS) — fall through to a substring match
+  }
+  const cellarMatch = resolved.match(/^(.*)\/Cellar\/tp\//);
+  if (cellarMatch) return cellarMatch[1];
+  return null;
+}
+
+/**
  * tp upgrade — upgrade tp binary, then run `claude update` afterwards.
  *
  * argv is ignored — past versions accepted `--claude` to skip tp and update
@@ -53,6 +77,18 @@ export async function upgradeCommand(_argv: string[] = []): Promise<void> {
   if (latest.tag === `v${currentVersion}`) {
     console.log(`\n${ok("tp is already up to date!")}`);
   } else {
+    // Homebrew installs are managed by `brew upgrade`. Self-updating would
+    // either fail on permissions (writing under /opt/homebrew or /usr/local)
+    // or succeed and leave brew's metadata out of sync. Print a hint and bail.
+    const currentPath = await resolveCurrentBinaryPath();
+    const brewPrefix = await detectHomebrewInstall(currentPath);
+    if (brewPrefix) {
+      console.log(
+        `\n${warn("tp was installed via Homebrew — skip self-update.")}`,
+      );
+      console.log(`Run: brew upgrade daveddev42/tap/tp`);
+      return;
+    }
     console.log(`\nUpgrading tp ${currentVersion} → ${latest.tag}...`);
     await upgradeTp(latest.tag);
   }

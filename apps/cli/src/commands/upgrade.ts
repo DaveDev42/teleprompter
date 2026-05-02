@@ -339,6 +339,52 @@ export type VerificationResult =
   | { ok: true; version: string }
   | { ok: false; reason: string };
 
+export type VerificationOutput = {
+  exitCode: number | null;
+  signal: NodeJS.Signals | string | null;
+  stdout: string;
+  stderr: string;
+};
+
+/**
+ * Pure decision logic for verifyNewBinary, factored out so tests can drive it
+ * with synthetic outputs. A bug in `bun:test` (v1.3.x) intercepts child stdio
+ * pipes when run from the workspace root, making subprocess-based tests of
+ * this function flaky. Testing the logic directly avoids the bug.
+ */
+export function analyzeVerificationOutput(
+  out: VerificationOutput,
+): VerificationResult {
+  if (out.exitCode !== 0) {
+    if (out.signal) {
+      return {
+        ok: false,
+        reason:
+          `binary killed by signal ${out.signal} (exit ${out.exitCode}). ` +
+          `On macOS this usually means the download was rejected by Gatekeeper ` +
+          `because the binary is unsigned. Re-run with a signed release.`,
+      };
+    }
+    const err = out.stderr.trim() || out.stdout.trim() || "no output";
+    return {
+      ok: false,
+      reason: `exit ${out.exitCode}: ${err}`,
+    };
+  }
+
+  const stdout = out.stdout.trim();
+  if (!stdout) {
+    return { ok: false, reason: "no output on stdout" };
+  }
+  if (!/^tp v\d/.test(stdout)) {
+    return { ok: false, reason: `unexpected output: ${stdout}` };
+  }
+  // `tp version` now prints two lines (tp + claude); return only the tp line
+  // so the verification banner stays focused on the tp identity check.
+  const firstLine = stdout.split("\n")[0]?.trim() ?? stdout;
+  return { ok: true, version: firstLine };
+}
+
 /**
  * Run `<binary> version` and confirm it produced a plausible tp version banner.
  * Fails loudly on signal kills (SIGKILL/SIGTERM — common when macOS Gatekeeper
@@ -356,36 +402,12 @@ export async function verifyNewBinary(
     new Response(proc.stderr).text(),
     proc.exited,
   ]);
-  const signal = proc.signalCode;
-
-  if (exitCode !== 0) {
-    if (signal) {
-      return {
-        ok: false,
-        reason:
-          `binary killed by signal ${signal} (exit ${exitCode}). ` +
-          `On macOS this usually means the download was rejected by Gatekeeper ` +
-          `because the binary is unsigned. Re-run with a signed release.`,
-      };
-    }
-    const err = stderr.trim() || stdout.trim() || "no output";
-    return {
-      ok: false,
-      reason: `exit ${exitCode}: ${err}`,
-    };
-  }
-
-  const out = stdout.trim();
-  if (!out) {
-    return { ok: false, reason: "no output on stdout" };
-  }
-  if (!/^tp v\d/.test(out)) {
-    return { ok: false, reason: `unexpected output: ${out}` };
-  }
-  // `tp version` now prints two lines (tp + claude); return only the tp line
-  // so the verification banner stays focused on the tp identity check.
-  const firstLine = out.split("\n")[0]?.trim() ?? out;
-  return { ok: true, version: firstLine };
+  return analyzeVerificationOutput({
+    exitCode,
+    signal: proc.signalCode,
+    stdout,
+    stderr,
+  });
 }
 
 /** Restart daemon service after binary upgrade. */

@@ -199,13 +199,13 @@ describe("tp completions", () => {
     () => {
       const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
       try {
-        const output = execSync(
+        // Use capture() (shell redirect) instead of execSync({stdio:"pipe"})
+        // because bun:test (1.3.x) intercepts child stdio pipes when run from
+        // the workspace root, returning empty output.
+        const output = capture(
           "bun run apps/cli/src/index.ts completions install --help",
-          {
-            env: { ...process.env, HOME: tmpHome, SHELL: "/bin/bash" },
-            stdio: "pipe",
-          },
-        ).toString();
+          { HOME: tmpHome, SHELL: "/bin/bash" },
+        );
         expect(output).toContain("Usage: tp completions install");
         expect(existsSync(join(tmpHome, ".bashrc"))).toBe(false);
       } finally {

@@ -97,7 +97,7 @@
     },
     "owner": "davedev42",
     "runtimeVersion": {
-      "policy": "appVersion"
+      "policy": "fingerprint"
     },
     "updates": {
       "url": "https://u.expo.dev/d10223aa-49ba-4dd6-8025-f7f6d723f6bf"

@@ -365,25 +365,32 @@ Fish와 PowerShell은 완성 스크립트를 디스크에 기록하므로 `tp up
 - Release Please handles version bumps automatically via Conventional Commits — `bump-patch-for-minor-pre-major` is enabled so `feat:` commits stay patch-level while pre-1.0.
 - Do not manually edit `version` fields in any package.json, app.json, or `.release-please-manifest.json`.
 
-### 단일 버전 전략 (tp 바이너리 = Expo 앱 = OTA)
+### OTA 정책 (fingerprint runtimeVersion)
 
-`tp` CLI 바이너리, Expo 앱(TestFlight/Play), OTA 업데이트는 **모두 동일한 `X.Y.Z`를 사용**한다. 단일 소스는 release-please가 관리하는 `package.json` + `apps/app/app.json` (`expo.version`).
+`tp` CLI 바이너리는 release-please가 관리하는 `package.json`의 `version`을 따른다. Expo 앱은 `runtimeVersion: { "policy": "fingerprint" }` 정책을 사용해 **JS-only 변경은 OTA로 도달, 네이티브 변경(Podfile, 새 expo plugin, 네이티브 모듈 추가/업그레이드 등)만 풀빌드를 강제**한다. CLI 버전과 앱 표시 버전이 분리되는 대신 OTA가 의미 있게 작동한다.
 
 버전은 두 축으로 나뉜다:
-- **사람 버전** (`expo.version`, `CFBundleShortVersionString`, `versionName`) — release-please가 `app.json`에 기록. `"appVersionSource": "remote"`는 빌드 카운터만 EAS 서버에서 관리할 뿐 사람 버전에는 관여하지 않는다 ([EAS 문서](https://docs.expo.dev/build-reference/app-versions/): 사람 버전은 새 릴리즈 때마다 개발자가 직접 설정/갱신해야 한다고 안내).
+- **사람 버전** (`expo.version`, `CFBundleShortVersionString`, `versionName`) — `apps/app/app.json`에 손으로 관리. release-please는 더 이상 이 값을 건드리지 않는다. App Store / Play 제출에 새 사람 버전이 필요할 때만 chore commit으로 bump한다.
 - **빌드 카운터** (`ios.buildNumber`, `android.versionCode`) — EAS가 remote에 저장하고 `autoIncrement: true`로 빌드당 +1. Store의 단조증가 제약을 EAS가 책임진다. release-please는 이 값을 건드리지 않는다. iOS와 Android는 독립 카운터이므로 두 플랫폼 사이 숫자가 달라도 정상.
+- **OTA runtimeVersion** — `@expo/fingerprint`가 네이티브 의존성/플러그인/Pods를 해시한 값. `app.json` 자체도 입력에 들어가지만 release-please가 더 이상 `app.json`을 자동 편집하지 않으므로 JS-only 변경 사이에서 안정적으로 유지된다.
 
 #### 설정
 
+- `apps/app/app.json`: `"runtimeVersion": { "policy": "fingerprint" }` — JS-only 변경은 같은 fingerprint를 유지하므로 OTA로 도달. 네이티브 변경 시 fingerprint가 갈리며 자동으로 OTA 격리.
 - `apps/app/eas.json`: `"appVersionSource": "remote"` — 빌드 카운터를 EAS 서버에서 관리.
-- `apps/app/app.json`: `"runtimeVersion": { "policy": "appVersion" }` — OTA runtime 키가 `expo.version` 문자열과 일치. 같은 `0.1.x` 안에서는 OTA 가능, 버전 bump 시에만 네이티브 재빌드 필요.
+- `release-please-config.json`: `extra-files`에 `app.json` 항목을 두지 않는다. release-please는 `package.json`만 bump하고, `app.json`의 `expo.version`은 사람 버전이므로 별도 chore commit으로 손수 관리.
 - `eas.json`의 store 제출용 profile (`preview`, `production`)에서 `"autoIncrement": true`가 `ios.buildNumber` / `android.versionCode`를 증분 (`development` profile은 해당 없음).
-- **연동 메커니즘**: `release-please-config.json`의 `extra-files` 항목 (`path: apps/app/app.json`, `jsonpath: $.expo.version`)이 `app.json`의 `expo.version`을 `package.json`과 동일 버전으로 bump한다. 이 항목을 제거하면 tp 바이너리와 앱 사이 버전 정렬이 깨진다.
+
+#### 운영 규칙
+
+- **JS / TS / 자산만 변경되는 PR**: release-please patch bump → CI 통과 → EAS Workflow가 새 OTA 발행 → 기존 TestFlight/Internal 설치본이 OTA로 받는다. 풀빌드 불필요.
+- **네이티브 의존성 변경 PR** (`expo-*` 패키지 메이저/마이너 bump, plugin 추가/제거, `expo-build-properties` 변경, Podfile 영향): fingerprint가 갈리므로 EAS Workflow가 자동으로 풀빌드 + 새 TestFlight 빌드 발행. 사용자는 새 빌드를 받아야 OTA 채널이 다시 살아난다.
+- **사람 버전 bump가 필요한 시점**: App Store / Play 제출 직전 marketing 버전을 올릴 때만 `apps/app/app.json`의 `expo.version`을 chore commit으로 직접 수정. 평상시 patch release에는 건드리지 않는다.
 
 #### 안티패턴
 
 - `"appVersionSource": "local"` + `autoIncrement`: EAS가 빌드 시점에 `app.json`의 `buildNumber`/`versionCode`를 편집하지만 CI에서는 이 변경이 커밋되지 않는다. 결과적으로 다음 빌드가 낮은 카운터로 시작해 Store submit 단계에서 기존 카운터와 충돌해 거부된다. (PR #108 merge 직후 iOS `buildNumber 2`가 실제로 생성되었고 App Store Connect에는 이미 `44`가 존재. 해당 Expo workflow run은 submit 단계 이전에 `CANCELED` 상태로 종료(Android 빌드 포함)되어 Apple 측에는 도달하지 않음.)
-- `"runtimeVersion": { "policy": "fingerprint" }` + release-please `extra-files`로 `app.json` 편집: release-please가 매 릴리즈마다 `app.json`을 수정하면 fingerprint 해시가 그 편집을 따라 매번 달라지고, 기존 TestFlight 설치본과 OTA 매칭 실패 — 매 릴리즈가 네이티브 풀빌드를 강제함. fingerprint policy를 유지하려면 `extra-files`에서 `app.json`을 제거해야 하는데, 그러면 단일 버전 전략이 깨진다. `policy: appVersion`이 올바른 선택.
+- `"runtimeVersion": { "policy": "appVersion" }` + release-please가 `app.json` 편집: 매 patch release마다 runtimeVersion 문자열이 갈리고, 기존 TestFlight 설치본은 새 OTA를 받지 못한다 (격리). OTA 채널이 사실상 죽고, 매 릴리즈마다 새 TestFlight 빌드를 받아야 다음 OTA를 받을 수 있다. 0.1.16 → 0.1.19 사이에 실제로 OTA가 모두 격리됐다 (PR #176에서 fingerprint policy로 전환).
 
 ## Language
 

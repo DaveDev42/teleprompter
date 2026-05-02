@@ -597,7 +597,7 @@ bun run build:cli          # → dist/tp-{darwin_arm64,darwin_x64,linux_x64,linu
 ### GitHub Release (Release Please + EAS)
 
 릴리즈 플로우:
-1. `release-please.yml` (수동 트리거) → 버전 PR 자동 생성 (CHANGELOG, package.json, app.json 업데이트)
+1. `release-please.yml` (수동 트리거) → 버전 PR 자동 생성 (CHANGELOG, package.json 업데이트)
 2. PR 머지 → `release/v*` 태그 자동 생성
 3. `release.yml` (태그 트리거) → 4플랫폼 바이너리 빌드 + GitHub Release 업로드
 4. 동일 워크플로우에서 EAS production build (iOS/Android) 자동 트리거
@@ -607,9 +607,10 @@ bun run build:cli          # → dist/tp-{darwin_arm64,darwin_x64,linux_x64,linu
 curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts/install.sh | bash
 ```
 
-통합 버전 관리:
-- Root `package.json` 단일 버전 → Release Please가 관리
-- `apps/app/app.json` expo.version → `release-please-config.json`의 `extra-files`로 자동 동기화
+버전 관리:
+- Root `package.json` 단일 버전 → Release Please가 관리 (tp CLI 바이너리 버전)
+- `apps/app/app.json` `expo.version` → 사람 버전, 손으로 관리 (release-please는 건드리지 않음)
+- OTA runtimeVersion → `policy: fingerprint` — 네이티브 의존성 해시 기반. JS-only 변경은 같은 runtime, 네이티브 변경 시 자동 격리. 자세한 사항은 `CLAUDE.md` "OTA 정책" 참조.
 - 태그 패턴: `release/v*` (release-please-config.json의 `tag-prefix`)
 
 ### 10.2 Relay 서버

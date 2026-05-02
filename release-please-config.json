@@ -6,13 +6,6 @@
       "bump-major-pre-major": false,
       "bump-minor-pre-major": false,
       "bump-patch-for-minor-pre-major": true,
-      "extra-files": [
-        {
-          "type": "json",
-          "path": "apps/app/app.json",
-          "jsonpath": "$.expo.version"
-        }
-      ],
       "changelog-sections": [
         { "type": "feat", "section": "Features" },
         { "type": "fix", "section": "Bug Fixes" },

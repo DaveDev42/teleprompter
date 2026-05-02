@@ -24,6 +24,7 @@ export class HookReceiver {
 
     const self = this;
 
+    log.info(`listening on ${this.socketPath}`);
     this.server = Bun.listen({
       unix: this.socketPath,
       socket: {
@@ -31,6 +32,7 @@ export class HookReceiver {
           try {
             const text = Buffer.from(data).toString("utf-8");
             const event = JSON.parse(text) as HookEventBase;
+            log.info(`received hook ${event.hook_event_name}`);
             self.onEvent(event);
           } catch (err) {
             log.error("parse error:", err);

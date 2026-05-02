@@ -172,7 +172,7 @@ tp logs              # tail live session output
 tp logs <session-id> # tail a specific session
 ```
 
-For additional diagnostics, run `tp doctor --claude` to also run Claude Code's own doctor. You can also check the system service logs directly:
+For additional diagnostics, run `tp doctor` — it now runs Claude Code's own doctor right after tp's checks. You can also check the system service logs directly:
 
 ```bash
 # macOS (launchd)
@@ -214,10 +214,10 @@ This will:
 ### How do I upgrade only Claude Code?
 
 ```bash
-tp upgrade --claude
+tp update
 ```
 
-This runs `claude update` directly, skipping the tp upgrade.
+This forwards directly to `claude update` and skips the tp upgrade path.
 
 ### What if an upgrade fails?
 

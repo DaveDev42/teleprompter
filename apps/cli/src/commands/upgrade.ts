@@ -21,21 +21,12 @@ import { spinner } from "../lib/spinner";
 const REPO = "DaveDev42/teleprompter";
 
 /**
- * tp upgrade — upgrade tp binary and optionally claude code.
+ * tp upgrade — upgrade tp binary, then run `claude update` afterwards.
  *
- * With --claude flag, runs `claude update` directly and skips tp upgrade.
+ * argv is ignored — past versions accepted `--claude` to skip tp and update
+ * only claude. Run `tp update` (the claude utility forward) for that case now.
  */
-export async function upgradeCommand(argv: string[] = []): Promise<void> {
-  if (argv.includes("--claude")) {
-    const proc = Bun.spawn(["claude", "update"], {
-      stdin: "inherit",
-      stdout: "inherit",
-      stderr: "inherit",
-    });
-    const exitCode = await proc.exited;
-    process.exit(exitCode);
-  }
-
+export async function upgradeCommand(_argv: string[] = []): Promise<void> {
   console.log("Teleprompter Upgrade\n");
 
   // 1. Check current version
@@ -391,7 +382,10 @@ export async function verifyNewBinary(
   if (!/^tp v\d/.test(out)) {
     return { ok: false, reason: `unexpected output: ${out}` };
   }
-  return { ok: true, version: out };
+  // `tp version` now prints two lines (tp + claude); return only the tp line
+  // so the verification banner stays focused on the tp identity check.
+  const firstLine = out.split("\n")[0]?.trim() ?? out;
+  return { ok: true, version: firstLine };
 }
 
 /** Restart daemon service after binary upgrade. */

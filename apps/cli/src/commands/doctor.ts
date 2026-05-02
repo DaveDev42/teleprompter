@@ -8,13 +8,14 @@ import { spinner } from "../lib/spinner";
 
 /**
  * tp doctor — diagnose the environment and connectivity.
- * Checks for required tools, permissions, configuration, relay, and E2EE.
+ * Checks for required tools, permissions, configuration, relay, and E2EE,
+ * then forwards to `claude doctor` so the user sees Claude Code's own
+ * diagnostics in the same run.
  *
- * With --claude flag, also runs `claude doctor` after tp's own checks.
+ * argv is ignored — past versions accepted `--claude` to opt in to the
+ * claude-doctor pass, but running both is now the default.
  */
-export async function doctorCommand(argv: string[] = []): Promise<void> {
-  const runClaudeDoctor = argv.includes("--claude");
-
+export async function doctorCommand(_argv: string[] = []): Promise<void> {
   console.log("Teleprompter Doctor\n");
 
   let issues = 0;
@@ -126,16 +127,22 @@ export async function doctorCommand(argv: string[] = []): Promise<void> {
     }
   }
 
-  // --- Claude doctor (if --claude flag) ---
+  // --- Claude doctor ---
 
-  if (runClaudeDoctor) {
-    console.log("\n--- Claude Code Doctor ---\n");
+  console.log("\n--- Claude Code Doctor ---\n");
+  const claudeCheck = Bun.spawnSync(["claude", "--version"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (claudeCheck.exitCode === 0) {
     const proc = Bun.spawn(["claude", "doctor"], {
       stdin: "inherit",
       stdout: "inherit",
       stderr: "inherit",
     });
     await proc.exited;
+  } else {
+    console.log("  claude not found on PATH — skipping `claude doctor`.");
   }
 
   // --- Summary ---

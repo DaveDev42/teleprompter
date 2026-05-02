@@ -67,7 +67,11 @@ tp daemon uninstall    # Remove
 
 | Command | Description |
 |---------|-------------|
-| `tp [flags] [claude args]` | Run Claude through tp pipeline (default) |
+| `tp` | Run Claude through tp pipeline (default — bare invocation drops you into Claude) |
+| `tp [flags] [claude args]` | Run Claude with passthrough args (e.g. `tp -p "..."`, `tp --model sonnet`) |
+| `tp -- <claude args>` | Forward args directly to claude, bypassing the daemon |
+| `tp --help` / `-h` | Print tp's banner, then `claude --help` underneath |
+| `tp --version` / `-v` | Print tp + claude versions (same as `tp version`) |
 | `tp pair [--relay URL] [--label NAME]` | Generate QR pairing data (alias for `tp pair new`) |
 | `tp pair list` | List registered pairings (label + daemon ID) |
 | `tp pair rename <id-prefix> <label...>` | Rename a pairing (notifies peer) |
@@ -77,9 +81,9 @@ tp daemon uninstall    # Remove
 | `tp session prune [--older-than 7d] [--all] [--dry-run] [-y]` | Bulk-delete stopped sessions |
 | `tp status` | Show daemon status and sessions |
 | `tp logs [session]` | Tail live session output |
-| `tp doctor` | Environment diagnostics + relay E2EE check |
-| `tp upgrade` | Upgrade tp + Claude Code |
-| `tp version` | Print version |
+| `tp doctor` | Environment diagnostics + relay E2EE check, then runs `claude doctor` |
+| `tp upgrade` | Upgrade tp binary, then runs `claude update` |
+| `tp version` | Print tp + claude versions |
 | `tp daemon start [opts]` | Start daemon in foreground |
 | `tp daemon install` | Register as OS service (launchd / systemd / Task Scheduler) |
 | `tp daemon uninstall` | Remove OS service |

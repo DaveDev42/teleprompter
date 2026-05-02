@@ -277,8 +277,6 @@ _tp_completions() {
     COMPREPLY=( $(compgen -W "${SESSION_SUBCOMMANDS.join(" ")}" -- "$cur") )
   elif [ "\${COMP_WORDS[1]}" = "session" ] && [ "\${COMP_WORDS[2]}" = "prune" ] && [ "$COMP_CWORD" -ge 3 ]; then
     COMPREPLY=( $(compgen -W "--older-than --all --running --dry-run --yes" -- "$cur") )
-  elif [ "\${COMP_WORDS[1]}" = "doctor" ] || [ "\${COMP_WORDS[1]}" = "version" ] || [ "\${COMP_WORDS[1]}" = "upgrade" ]; then
-    COMPREPLY=( $(compgen -W "--claude" -- "$cur") )
   fi
 }
 complete -F _tp_completions tp`;

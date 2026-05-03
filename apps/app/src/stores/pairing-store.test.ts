@@ -414,4 +414,31 @@ describe("pairing-store: inbound control messages", () => {
     expect(info?.label).toBe("My Mac");
     expect(info?.labelSource).toBe("user");
   });
+
+  test("handleDaemonHello with the same label is idempotent", async () => {
+    const qr = await buildFakePairing("daemon-d1");
+    await usePairingStore.getState().processScan(qr);
+    await usePairingStore.getState().handleDaemonHello("daemon-d1", "Foo");
+    const before = usePairingStore.getState().pairings.get("daemon-d1");
+
+    await usePairingStore.getState().handleDaemonHello("daemon-d1", "Foo");
+    const after = usePairingStore.getState().pairings.get("daemon-d1");
+    expect(after).toBe(before);
+    expect(after?.label).toBe("Foo");
+    expect(after?.labelSource).toBe("daemon");
+  });
+
+  test("subsequent daemon hello overwrites a daemon-sourced label", async () => {
+    const qr = await buildFakePairing("daemon-d1");
+    await usePairingStore.getState().processScan(qr);
+    await usePairingStore.getState().handleDaemonHello("daemon-d1", "Foo");
+    expect(
+      usePairingStore.getState().pairings.get("daemon-d1")?.labelSource,
+    ).toBe("daemon");
+
+    await usePairingStore.getState().handleDaemonHello("daemon-d1", "Bar");
+    const info = usePairingStore.getState().pairings.get("daemon-d1");
+    expect(info?.label).toBe("Bar");
+    expect(info?.labelSource).toBe("daemon");
+  });
 });

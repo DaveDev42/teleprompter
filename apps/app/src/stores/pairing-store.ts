@@ -174,6 +174,11 @@ async function deserializePairings(
         pairingSecret: await fromBase64(e.pairingSecret),
         pairedAt: e.pairedAt,
         label: e.label ?? null,
+        // Defaults to `qr` for legacy entries persisted before `labelSource`
+        // existed. Caveat: a user-renamed label from a pre-`labelSource` build
+        // is indistinguishable from a daemon/QR label here, so the next
+        // `handleDaemonHello` may overwrite it. The user can re-rename in the
+        // app to re-tag as `user` and lock the label against further drift.
         labelSource: e.labelSource ?? "qr",
       });
     }

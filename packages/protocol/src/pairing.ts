@@ -9,9 +9,10 @@
  *  - protocol version
  *  - optional human-readable label
  *
- * Wire format: `teleprompter://pair?d=<base64url(binary)>`
+ * Wire format: `tp://p?d=<base64url(binary)>`
  * The deep-link form lets the iPhone system camera open the app directly,
  * and stays compact enough for terminal QR rendering even with longer labels.
+ * Short scheme + path keeps the prefix at 9 chars so module count stays low.
  */
 
 import {
@@ -24,7 +25,7 @@ import {
   toBase64,
 } from "./crypto";
 
-const PAIRING_URL_SCHEME = "teleprompter://pair";
+const PAIRING_URL_SCHEME = "tp://p";
 const PAIRING_BINARY_MAGIC = "tp"; // 2 bytes
 const PAIRING_BINARY_VERSION = 2;
 /**
@@ -91,7 +92,7 @@ export async function createPairingBundle(
 /**
  * Serialize pairing data to a QR-friendly deep-link string.
  *
- * Output: `teleprompter://pair?d=<base64url(binary)>`
+ * Output: `tp://p?d=<base64url(binary)>`
  *
  * Binary layout:
  *   magic(2) | version(1) |
@@ -161,7 +162,7 @@ export function encodePairingData(data: PairingData): string {
 }
 
 /**
- * Parse pairing data from a `teleprompter://pair?d=<base64url>` deep link.
+ * Parse pairing data from a `tp://p?d=<base64url>` deep link.
  */
 export function decodePairingData(raw: string): PairingData {
   // Strip ASCII whitespace and a UTF-8 BOM (clipboards on Windows can prepend

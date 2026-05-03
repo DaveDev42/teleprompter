@@ -3,7 +3,7 @@
     "name": "Teleprompter",
     "slug": "teleprompter",
     "version": "0.1.19",
-    "scheme": "teleprompter",
+    "scheme": "tp",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",

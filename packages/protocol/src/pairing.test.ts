@@ -69,14 +69,14 @@ describe("pairing", () => {
     );
   });
 
-  test("encoded form is a teleprompter:// deep link", async () => {
+  test("encoded form is a tp:// deep link", async () => {
     const bundle = await createPairingBundle(
       "wss://relay.tpmt.dev",
       "daemon-deeplinktest",
       { label: "My iPhone" },
     );
     const encoded = encodePairingData(bundle.qrData);
-    expect(encoded.startsWith("teleprompter://pair?d=")).toBe(true);
+    expect(encoded.startsWith("tp://p?d=")).toBe(true);
   });
 
   test("decodePairingData rejects bare base64url payload (no scheme)", async () => {
@@ -86,7 +86,7 @@ describe("pairing", () => {
       { label: "label" },
     );
     const url = encodePairingData(bundle.qrData);
-    const bare = url.slice("teleprompter://pair?d=".length);
+    const bare = url.slice("tp://p?d=".length);
     expect(() => decodePairingData(bare)).toThrow(
       "Invalid pairing data format",
     );
@@ -100,15 +100,30 @@ describe("pairing", () => {
     ).toThrow("Invalid pairing data format");
   });
 
-  test("encoded form fits comfortably under 200 chars with typical label", async () => {
+  test("decodePairingData rejects the legacy teleprompter:// scheme", async () => {
+    // We deliberately dropped backwards-compat with the long scheme. A
+    // payload that decoded fine under the old prefix must now fail — this
+    // catches anyone hand-editing PAIRING_URL_SCHEME back or introducing a
+    // looser prefix match.
+    const bundle = await createPairingBundle("wss://relay.tpmt.dev", "d-old");
+    const newUrl = encodePairingData(bundle.qrData);
+    const payload = newUrl.slice("tp://p?d=".length);
+    expect(() => decodePairingData(`teleprompter://pair?d=${payload}`)).toThrow(
+      "Invalid pairing data format",
+    );
+  });
+
+  test("encoded form fits comfortably under 175 chars with typical label", async () => {
     // Real-world fields: relay 20 chars, daemon id 17 chars, label 14 chars.
+    // Prefix is `tp://p?d=` (9 chars), and the default relay shrinks the
+    // binary by ~22 bytes, so the typical pairing URL lands around 170 chars.
     const bundle = await createPairingBundle(
       "wss://relay.tpmt.dev",
       "daemon-mob73tr0xx",
       { label: "iPhone-build51" },
     );
     const encoded = encodePairingData(bundle.qrData);
-    expect(encoded.length).toBeLessThan(200);
+    expect(encoded.length).toBeLessThan(175);
   });
 
   test("default relay URL is omitted from binary form to shrink the QR", async () => {
@@ -161,21 +176,21 @@ describe("pairing", () => {
   });
 
   test("decodePairingData rejects deep link with no query", () => {
-    expect(() => decodePairingData("teleprompter://pair")).toThrow(
+    expect(() => decodePairingData("tp://p")).toThrow(
       "Invalid pairing data format",
     );
   });
 
   test("decodePairingData rejects deep link with empty d= param", () => {
-    expect(() => decodePairingData("teleprompter://pair?d=")).toThrow(
+    expect(() => decodePairingData("tp://p?d=")).toThrow(
       "Invalid pairing data format",
     );
   });
 
   test("decodePairingData rejects deep link with invalid base64url", () => {
-    expect(() =>
-      decodePairingData("teleprompter://pair?d=!!!not-base64url!!!"),
-    ).toThrow("Invalid pairing data format");
+    expect(() => decodePairingData("tp://p?d=!!!not-base64url!!!")).toThrow(
+      "Invalid pairing data format",
+    );
   });
 
   test("decodePairingData rejects binary payload with empty did", () => {
@@ -193,7 +208,7 @@ describe("pairing", () => {
       .replace(/\+/g, "-")
       .replace(/\//g, "_")
       .replace(/=+$/, "");
-    expect(() => decodePairingData(`teleprompter://pair?d=${b64}`)).toThrow(
+    expect(() => decodePairingData(`tp://p?d=${b64}`)).toThrow(
       "Invalid pairing data format",
     );
   });
@@ -213,7 +228,7 @@ describe("pairing", () => {
       .replace(/\+/g, "-")
       .replace(/\//g, "_")
       .replace(/=+$/, "");
-    const decoded = decodePairingData(`teleprompter://pair?d=${b64}`);
+    const decoded = decodePairingData(`tp://p?d=${b64}`);
     expect(decoded.relay).toBe(DEFAULT_PAIRING_RELAY_URL);
     expect(decoded.did).toBe("x");
   });
@@ -231,7 +246,7 @@ describe("pairing", () => {
       .replace(/\+/g, "-")
       .replace(/\//g, "_")
       .replace(/=+$/, "");
-    expect(() => decodePairingData(`teleprompter://pair?d=${b64}`)).toThrow(
+    expect(() => decodePairingData(`tp://p?d=${b64}`)).toThrow(
       "Invalid pairing data format",
     );
   });

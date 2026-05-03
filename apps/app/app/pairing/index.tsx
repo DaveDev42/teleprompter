@@ -80,7 +80,7 @@ export default function PairingScreen() {
       <Text className="text-gray-400 text-sm mb-2">Paste pairing data:</Text>
       <TextInput
         className="bg-zinc-800 text-white rounded-lg px-4 py-3 font-mono text-xs mb-4"
-        placeholder="teleprompter://pair?d=..."
+        placeholder="tp://p?d=..."
         placeholderTextColor="#555"
         value={manualInput}
         onChangeText={setManualInput}

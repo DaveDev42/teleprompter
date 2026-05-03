@@ -68,9 +68,10 @@ export default function ScanScreen() {
   // twice before navigation.
   const handlingRef = useRef(false);
   // Monotonic counter that identifies the "current" launchScanner call.
-  // The effect re-runs (e.g. permission flips, parent remount) could leave a
-  // stale launchScanner promise in flight; when it eventually resolves we
-  // must not let it stomp on the newer launch's `scannerOpen` state.
+  // A parent remount re-running the lifecycle effect, or a retry tapped
+  // while a prior launch is still pending, can leave a stale launchScanner
+  // promise in flight. When it eventually resolves we must not let it stomp
+  // on the newer launch's `scannerOpen` state.
   const launchIdRef = useRef(0);
 
   const [permission, requestPermission] = useCameraPermissions?.() ?? [

@@ -1,23 +1,23 @@
 import type { PermissionResponse } from "expo-modules-core";
 import { useRouter } from "expo-router";
-import type { ComponentType } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { usePairingStore } from "../../src/stores/pairing-store";
 
-// Dynamic import for camera (native only)
-/** Props subset of CameraView that we use */
-interface CameraViewLikeProps {
-  style?: Record<string, unknown>;
-  barcodeScannerSettings?: { barcodeTypes: string[] };
-  onBarcodeScanned?: ((result: { data: string }) => void) | undefined;
-  // iOS-only: expo-camera defaults autofocus to "off", which leaves the lens
-  // on a hyperfocal-ish setting that is too coarse to resolve dense QR codes
-  // (~80x80 modules). Without this, scanning the terminal QR silently fails
-  // even though iOS's system Camera reads the same code instantly. Android
-  // CameraX uses continuous AF natively for barcode mode, so the prop is
-  // silently ignored there — leaving it on doesn't hurt cross-platform.
-  autofocus?: "on" | "off";
+// Native-only API surface from expo-camera. We avoid `import` at module top so
+// the web bundle does not pull in the native module.
+type ScanningResult = { data: string; type: string };
+type ScanningOptions = {
+  barcodeTypes: string[];
+  isPinchToZoomEnabled?: boolean;
+};
+interface CameraStatic {
+  isModernBarcodeScannerAvailable: boolean;
+  launchScanner: (options?: ScanningOptions) => Promise<void>;
+  dismissScanner: () => Promise<void>;
+  onModernBarcodeScanned: (listener: (event: ScanningResult) => void) => {
+    remove: () => void;
+  };
 }
 
 type UseCameraPermissionsHook = () => [
@@ -26,7 +26,7 @@ type UseCameraPermissionsHook = () => [
   () => Promise<PermissionResponse>,
 ];
 
-let CameraView: ComponentType<CameraViewLikeProps> | null = null;
+let CameraView: CameraStatic | null = null;
 let useCameraPermissions: UseCameraPermissionsHook | null = null;
 
 if (Platform.OS !== "web") {
@@ -39,15 +39,38 @@ if (Platform.OS !== "web") {
   }
 }
 
+/**
+ * QR pairing scan screen.
+ *
+ * Uses expo-camera's "modern" scanner — `CameraView.launchScanner()` — which
+ * presents iOS 16+ `DataScannerViewController` (the same VisionKit engine that
+ * powers the system Camera app) and Android Google ML Kit code scanner. This
+ * is materially better at decoding dense QR codes than the in-app `CameraView`
+ * preview (which uses the older `AVCaptureMetadataOutput` on iOS) and matches
+ * what the user sees when they scan with the system camera.
+ *
+ * No camera preview is rendered here — `launchScanner` is a full-screen modal
+ * controlled by the OS. We only render fallback UI (permission ask, "scanner
+ * unavailable" notice on iOS <16 or unsupported Android, web).
+ */
 export default function ScanScreen() {
   const router = useRouter();
   const processScan = usePairingStore((s) => s.processScan);
   const [scanError, setScanError] = useState<string | null>(null);
-  // Ref-based dedup so the camera's continuous detection loop only triggers
-  // processScan once per QR even if the JS re-renders before we navigate away.
-  const scanningRef = useRef(false);
   // Drop late processScan results if the user already cancelled out.
   const mountedRef = useRef(true);
+  // Dedup so a quick double-detect from VisionKit doesn't fire processScan
+  // twice before navigation.
+  const handlingRef = useRef(false);
+  // Whether the OS scanner modal is currently up. Used to suppress relaunch
+  // loops if `launchScanner` fails sync.
+  const launchedRef = useRef(false);
+
+  const [permission, requestPermission] = useCameraPermissions?.() ?? [
+    null,
+    (() => {}) as () => Promise<PermissionResponse>,
+  ];
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -55,24 +78,21 @@ export default function ScanScreen() {
     };
   }, []);
 
-  // Camera permissions (native only)
-  const [permission, requestPermission] = useCameraPermissions?.() ?? [
-    null,
-    (() => {}) as () => Promise<PermissionResponse>,
-  ];
-
   useEffect(() => {
     if (permission && !permission.granted) {
       requestPermission();
     }
   }, [permission, requestPermission]);
 
-  // Stable callback so CameraView doesn't re-bind the listener on each render.
-  const handleBarCodeScanned = useCallback(
-    async ({ data }: { data: string }) => {
-      if (scanningRef.current) return;
-      scanningRef.current = true;
+  const handleScanned = useCallback(
+    async (data: string) => {
+      if (handlingRef.current) return;
+      handlingRef.current = true;
       setScanError(null);
+
+      // Tear the modal down so it doesn't keep firing while we process.
+      await CameraView?.dismissScanner().catch(() => {});
+      launchedRef.current = false;
 
       await processScan(data);
       if (!mountedRef.current) return;
@@ -81,13 +101,54 @@ export default function ScanScreen() {
         router.replace("/");
         return;
       }
-      // Surface the failure inline and re-arm the scanner so the user can
-      // retry without leaving the screen.
       setScanError(error ?? "Could not read pairing data from this QR code.");
-      scanningRef.current = false;
+      handlingRef.current = false;
     },
     [processScan, router],
   );
+
+  // Subscribe to scan events for the lifetime of the screen, then launch the
+  // OS scanner. Listener stays alive across retries (Try Again button).
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    if (!CameraView) return;
+    if (!permission?.granted) return;
+    if (!CameraView.isModernBarcodeScannerAvailable) return;
+
+    const sub = CameraView.onModernBarcodeScanned((event) => {
+      if (event?.data) handleScanned(event.data);
+    });
+
+    if (!launchedRef.current) {
+      launchedRef.current = true;
+      CameraView.launchScanner({ barcodeTypes: ["qr"] }).catch(() => {
+        launchedRef.current = false;
+        if (mountedRef.current) {
+          setScanError("Could not open the camera scanner.");
+        }
+      });
+    }
+
+    return () => {
+      sub.remove();
+      CameraView?.dismissScanner().catch(() => {});
+      launchedRef.current = false;
+    };
+  }, [permission?.granted, handleScanned]);
+
+  const retry = useCallback(() => {
+    if (Platform.OS === "web" || !CameraView) return;
+    setScanError(null);
+    handlingRef.current = false;
+    if (launchedRef.current) return;
+    launchedRef.current = true;
+    CameraView.launchScanner({ barcodeTypes: ["qr"] }).catch(() => {
+      launchedRef.current = false;
+      if (mountedRef.current) {
+        setScanError("Could not open the camera scanner.");
+      }
+    });
+  }, []);
 
   if (Platform.OS === "web") {
     return (
@@ -101,6 +162,14 @@ export default function ScanScreen() {
         >
           <Text className="text-white">Go Back</Text>
         </Pressable>
+      </View>
+    );
+  }
+
+  if (!CameraView) {
+    return (
+      <View className="flex-1 bg-black items-center justify-center">
+        <Text className="text-gray-400">Camera not available</Text>
       </View>
     );
   }
@@ -121,34 +190,41 @@ export default function ScanScreen() {
     );
   }
 
-  if (!CameraView) {
-    return (
-      <View className="flex-1 bg-black items-center justify-center">
-        <Text className="text-gray-400">Camera not available</Text>
-      </View>
-    );
-  }
-
+  // The OS scanner is presented as a modal on top of this view, so the user
+  // never actually sees this background. It's here as fallback for the rare
+  // device where `isModernBarcodeScannerAvailable === false` (iOS <16, certain
+  // Android OEMs without Google Play Services), and as the surface that holds
+  // the error/retry/cancel UI when the modal is dismissed.
   return (
-    <View className="flex-1 bg-black">
-      <CameraView
-        style={{ flex: 1 }}
-        autofocus="on"
-        barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-        onBarcodeScanned={handleBarCodeScanned}
-      />
-      {scanError ? (
-        <View className="absolute top-16 left-4 right-4 bg-tp-error rounded-card px-4 py-3">
+    <View className="flex-1 bg-black items-center justify-center px-6">
+      {!CameraView.isModernBarcodeScannerAvailable ? (
+        <Text className="text-gray-400 text-center">
+          QR scanning isn't available on this device. Please update to iOS 16 or
+          newer, or paste the pairing link manually.
+        </Text>
+      ) : scanError ? (
+        <View className="w-full bg-tp-error rounded-card px-4 py-3 mb-6">
           <Text className="text-white text-[13px] font-semibold mb-1">
             Pairing failed
           </Text>
           <Text className="text-white/90 text-xs">{scanError}</Text>
         </View>
-      ) : null}
-      <View className="absolute bottom-10 left-0 right-0 items-center">
+      ) : (
+        <Text className="text-gray-400">Opening scanner…</Text>
+      )}
+
+      <View className="flex-row gap-3 mt-4">
+        {scanError && CameraView.isModernBarcodeScannerAvailable ? (
+          <Pressable
+            onPress={retry}
+            className="bg-blue-600 px-6 py-3 rounded-full"
+          >
+            <Text className="text-white">Try again</Text>
+          </Pressable>
+        ) : null}
         <Pressable
           onPress={() => router.back()}
-          className="bg-black/70 px-6 py-3 rounded-full"
+          className="bg-black/70 px-6 py-3 rounded-full border border-white/20"
         >
           <Text className="text-white">Cancel</Text>
         </Pressable>

@@ -26,7 +26,7 @@ export default function RootLayout() {
   const setTheme = useThemeStore((s) => s.setTheme);
   const _systemScheme = useColorScheme();
 
-  // Route incoming `teleprompter://pair?d=…` deep links to the pairing screen
+  // Route incoming `tp://p?d=…` deep links to the pairing screen
   // so the user explicitly confirms before keys are persisted.
   usePairingDeepLink((pairingData) => {
     router.push({

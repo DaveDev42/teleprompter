@@ -7,7 +7,7 @@ import { useEffect, useRef } from "react";
 let initialUrlConsumed = false;
 
 /**
- * Listens for `teleprompter://pair?d=<base64url>` deep links (cold-start and
+ * Listens for `tp://p?d=<base64url>` deep links (cold-start and
  * while-running) and forwards the full URL to the caller. The caller is
  * responsible for routing the user to a confirmation screen — this hook never
  * pairs automatically.
@@ -22,8 +22,7 @@ export function usePairingDeepLink(onPairingUrl: (url: string) => void): void {
   useEffect(() => {
     let active = true;
 
-    const isPairingUrl = (url: string) =>
-      url.startsWith("teleprompter://pair?");
+    const isPairingUrl = (url: string) => url.startsWith("tp://p?");
 
     const handleRuntime = (url: string | null) => {
       if (!active || !url) return;

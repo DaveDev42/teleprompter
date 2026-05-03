@@ -100,6 +100,19 @@ describe("pairing", () => {
     ).toThrow("Invalid pairing data format");
   });
 
+  test("decodePairingData rejects the legacy teleprompter:// scheme", async () => {
+    // We deliberately dropped backwards-compat with the long scheme. A
+    // payload that decoded fine under the old prefix must now fail — this
+    // catches anyone hand-editing PAIRING_URL_SCHEME back or introducing a
+    // looser prefix match.
+    const bundle = await createPairingBundle("wss://relay.tpmt.dev", "d-old");
+    const newUrl = encodePairingData(bundle.qrData);
+    const payload = newUrl.slice("tp://p?d=".length);
+    expect(() => decodePairingData(`teleprompter://pair?d=${payload}`)).toThrow(
+      "Invalid pairing data format",
+    );
+  });
+
   test("encoded form fits comfortably under 175 chars with typical label", async () => {
     // Real-world fields: relay 20 chars, daemon id 17 chars, label 14 chars.
     // Prefix is `tp://p?d=` (9 chars), and the default relay shrinks the

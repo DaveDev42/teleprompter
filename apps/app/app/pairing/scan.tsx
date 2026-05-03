@@ -57,14 +57,16 @@ export default function ScanScreen() {
   const router = useRouter();
   const processScan = usePairingStore((s) => s.processScan);
   const [scanError, setScanError] = useState<string | null>(null);
+  // Tracks whether the OS scanner modal is currently visible. Goes false in
+  // three cases: (a) user scanned a code (handleScanned tears it down),
+  // (b) user swipe-dismissed the modal (launchScanner resolves normally),
+  // (c) launchScanner threw. Drives the "Tap to scan again" retry UI.
+  const [scannerOpen, setScannerOpen] = useState(false);
   // Drop late processScan results if the user already cancelled out.
   const mountedRef = useRef(true);
   // Dedup so a quick double-detect from VisionKit doesn't fire processScan
   // twice before navigation.
   const handlingRef = useRef(false);
-  // Whether the OS scanner modal is currently up. Used to suppress relaunch
-  // loops if `launchScanner` fails sync.
-  const launchedRef = useRef(false);
 
   const [permission, requestPermission] = useCameraPermissions?.() ?? [
     null,
@@ -84,6 +86,26 @@ export default function ScanScreen() {
     }
   }, [permission, requestPermission]);
 
+  // Open the OS scanner modal. Wraps both the open call and resolution
+  // bookkeeping so the lifecycle effect and the retry button share one path.
+  const openScanner = useCallback(() => {
+    if (!CameraView) return;
+    setScannerOpen(true);
+    CameraView.launchScanner({ barcodeTypes: ["qr"] })
+      .then(() => {
+        // Resolves when the modal dismisses for any reason — scan, swipe-down,
+        // programmatic dismiss. The handleScanned path will already have set
+        // scannerOpen=false; this no-ops in that case.
+        if (mountedRef.current) setScannerOpen(false);
+      })
+      .catch(() => {
+        if (mountedRef.current) {
+          setScannerOpen(false);
+          setScanError("Could not open the camera scanner.");
+        }
+      });
+  }, []);
+
   const handleScanned = useCallback(
     async (data: string) => {
       if (handlingRef.current) return;
@@ -92,7 +114,7 @@ export default function ScanScreen() {
 
       // Tear the modal down so it doesn't keep firing while we process.
       await CameraView?.dismissScanner().catch(() => {});
-      launchedRef.current = false;
+      setScannerOpen(false);
 
       await processScan(data);
       if (!mountedRef.current) return;
@@ -108,7 +130,7 @@ export default function ScanScreen() {
   );
 
   // Subscribe to scan events for the lifetime of the screen, then launch the
-  // OS scanner. Listener stays alive across retries (Try Again button).
+  // OS scanner once permissions are ready.
   useEffect(() => {
     if (Platform.OS === "web") return;
     if (!CameraView) return;
@@ -119,36 +141,21 @@ export default function ScanScreen() {
       if (event?.data) handleScanned(event.data);
     });
 
-    if (!launchedRef.current) {
-      launchedRef.current = true;
-      CameraView.launchScanner({ barcodeTypes: ["qr"] }).catch(() => {
-        launchedRef.current = false;
-        if (mountedRef.current) {
-          setScanError("Could not open the camera scanner.");
-        }
-      });
-    }
+    openScanner();
 
     return () => {
       sub.remove();
       CameraView?.dismissScanner().catch(() => {});
-      launchedRef.current = false;
     };
-  }, [permission?.granted, handleScanned]);
+  }, [permission?.granted, handleScanned, openScanner]);
 
   const retry = useCallback(() => {
     if (Platform.OS === "web" || !CameraView) return;
     setScanError(null);
     handlingRef.current = false;
-    if (launchedRef.current) return;
-    launchedRef.current = true;
-    CameraView.launchScanner({ barcodeTypes: ["qr"] }).catch(() => {
-      launchedRef.current = false;
-      if (mountedRef.current) {
-        setScanError("Could not open the camera scanner.");
-      }
-    });
-  }, []);
+    if (scannerOpen) return;
+    openScanner();
+  }, [openScanner, scannerOpen]);
 
   if (Platform.OS === "web") {
     return (
@@ -194,10 +201,16 @@ export default function ScanScreen() {
   // never actually sees this background. It's here as fallback for the rare
   // device where `isModernBarcodeScannerAvailable === false` (iOS <16, certain
   // Android OEMs without Google Play Services), and as the surface that holds
-  // the error/retry/cancel UI when the modal is dismissed.
+  // the error/retry/cancel UI when the modal is dismissed (either by
+  // swipe-down or after a failed scan).
+  const modernAvailable = CameraView.isModernBarcodeScannerAvailable;
+  // Show the retry button whenever the modal is closed and the device
+  // supports the modern scanner — covers both the post-error path and a
+  // user-initiated swipe-down dismiss with no error.
+  const showRetry = modernAvailable && !scannerOpen;
   return (
     <View className="flex-1 bg-black items-center justify-center px-6">
-      {!CameraView.isModernBarcodeScannerAvailable ? (
+      {!modernAvailable ? (
         <Text className="text-gray-400 text-center">
           QR scanning isn't available on this device. Please update to iOS 16 or
           newer, or paste the pairing link manually.
@@ -209,17 +222,23 @@ export default function ScanScreen() {
           </Text>
           <Text className="text-white/90 text-xs">{scanError}</Text>
         </View>
-      ) : (
+      ) : scannerOpen ? (
         <Text className="text-gray-400">Opening scanner…</Text>
+      ) : (
+        <Text className="text-gray-400 text-center">
+          Scanner closed. Tap "Scan again" or paste the pairing link.
+        </Text>
       )}
 
       <View className="flex-row gap-3 mt-4">
-        {scanError && CameraView.isModernBarcodeScannerAvailable ? (
+        {showRetry ? (
           <Pressable
             onPress={retry}
-            className="bg-blue-600 px-6 py-3 rounded-full"
+            className="bg-tp-accent px-6 py-3 rounded-full"
           >
-            <Text className="text-white">Try again</Text>
+            <Text className="text-white">
+              {scanError ? "Try again" : "Scan again"}
+            </Text>
           </Pressable>
         ) : null}
         <Pressable

@@ -7,11 +7,14 @@
  *  - relay URL (string)
  *  - daemon ID (string)
  *  - protocol version
- *  - optional human-readable label
+ *
+ * Label is **not** in the QR — daemons broadcast it to the frontend during
+ * `relay.kx` (see `RelayClient.broadcastDaemonPublicKey`). Keeping label out
+ * of the QR shaves the typical pairing URL by ~20 base64url chars and lets
+ * users rename their daemon without re-pairing.
  *
  * Wire format: `tp://p?d=<base64url(binary)>`
- * The deep-link form lets the iPhone system camera open the app directly,
- * and stays compact enough for terminal QR rendering even with longer labels.
+ * The deep-link form lets the iPhone system camera open the app directly.
  * Short scheme + path keeps the prefix at 9 chars so module count stays low.
  */
 
@@ -36,6 +39,14 @@ const PAIRING_BINARY_VERSION = 2;
  */
 export const DEFAULT_PAIRING_RELAY_URL = "wss://relay.tpmt.dev";
 
+/**
+ * The daemon ID generator (`pairing-orchestrator.ts`) always prefixes IDs
+ * with `daemon-`. Storing those 7 bytes in every QR is wasted space — the
+ * encoder strips the prefix before serialization and the decoder restores
+ * it. IDs that lack the prefix (e.g. test fixtures) round-trip verbatim.
+ */
+const DAEMON_ID_PREFIX = "daemon-";
+
 export interface PairingData {
   /** Pairing secret (base64, 32 bytes) */
   ps: string;
@@ -47,8 +58,6 @@ export interface PairingData {
   did: string;
   /** Protocol version */
   v: number;
-  /** Optional human-readable daemon label */
-  label?: string;
 }
 
 export interface PairingBundle {
@@ -66,11 +75,16 @@ export interface PairingBundle {
 
 /**
  * Generate everything needed for a new pairing QR code.
+ *
+ * `label` is intentionally not part of the QR — it is delivered to the
+ * frontend in-band via `relay.kx`. The argument is accepted (and ignored
+ * for QR purposes) for compatibility with the daemon's pairing setup which
+ * still threads it through to the RelayClient config.
  */
 export async function createPairingBundle(
   relayUrl: string,
   daemonId: string,
-  opts?: { label?: string },
+  _opts?: { label?: string },
 ): Promise<PairingBundle> {
   const keyPair = await generateKeyPair();
   const pairingSecret = await generatePairingSecret();
@@ -83,7 +97,6 @@ export async function createPairingBundle(
     relay: relayUrl,
     did: daemonId,
     v: PAIRING_BINARY_VERSION,
-    ...(opts?.label ? { label: opts.label } : {}),
   };
 
   return { qrData, keyPair, pairingSecret, relayToken, registrationProof };
@@ -96,16 +109,19 @@ export async function createPairingBundle(
  *
  * Binary layout:
  *   magic(2) | version(1) |
- *   did_len(1) | did_bytes |
+ *   did_len(1) | did_bytes (with `daemon-` prefix stripped) |
  *   relay_len(1) | relay_bytes |
- *   ps(32) | pk(32) |
- *   label_len(1) | label_bytes
+ *   ps(32) | pk(32)
  *
- * `did`/`relay`/`label` are utf-8 encoded, each capped at 255 bytes.
+ * `did`/`relay` are utf-8 encoded, each capped at 255 bytes.
  *
  * `relay_len = 0` is the wire signal for "default relay" — see
  * `DEFAULT_PAIRING_RELAY_URL`. Saves ~22 bytes on the most common case
  * (production relay) and shaves a noticeable chunk off the QR module count.
+ *
+ * The encoder strips the canonical `daemon-` prefix from did and the decoder
+ * reattaches it, saving 7 bytes per QR without changing the in-memory or
+ * stored representation.
  */
 /**
  * Normalize a relay URL for default-detection only. Strict equality on the
@@ -124,22 +140,28 @@ const NORMALIZED_DEFAULT_RELAY = normalizeRelayForDefaultMatch(
 
 export function encodePairingData(data: PairingData): string {
   const enc = new TextEncoder();
-  const did = enc.encode(data.did);
+  // The daemon ID generator always prefixes with `daemon-`. Encode the
+  // suffix only — decoder reattaches the prefix. We enforce the invariant
+  // here rather than silently encoding raw IDs to keep the wire format
+  // unambiguous: every decoded did is prefix + suffix.
+  if (!data.did.startsWith(DAEMON_ID_PREFIX)) {
+    throw new Error(`daemon id must start with "${DAEMON_ID_PREFIX}"`);
+  }
+  const wireDid = data.did.slice(DAEMON_ID_PREFIX.length);
+  const did = enc.encode(wireDid);
   const useDefaultRelay =
     normalizeRelayForDefaultMatch(data.relay) === NORMALIZED_DEFAULT_RELAY;
   const relay = useDefaultRelay ? new Uint8Array(0) : enc.encode(data.relay);
-  const label = enc.encode(data.label ?? "");
   const ps = base64ToBytes(data.ps);
   const pk = base64ToBytes(data.pk);
 
+  if (did.length === 0) throw new Error("daemon id must not be empty");
   if (did.length > 255) throw new Error("daemon id exceeds 255 bytes");
   if (relay.length > 255) throw new Error("relay url exceeds 255 bytes");
-  if (label.length > 255) throw new Error("label exceeds 255 bytes");
   if (ps.length !== 32) throw new Error("pairing secret must be 32 bytes");
   if (pk.length !== 32) throw new Error("daemon public key must be 32 bytes");
 
-  const totalLen =
-    2 + 1 + 1 + did.length + 1 + relay.length + 32 + 32 + 1 + label.length;
+  const totalLen = 2 + 1 + 1 + did.length + 1 + relay.length + 32 + 32;
   const buf = new Uint8Array(totalLen);
   let o = 0;
   buf.set(enc.encode(PAIRING_BINARY_MAGIC), o);
@@ -154,9 +176,6 @@ export function encodePairingData(data: PairingData): string {
   buf.set(ps, o);
   o += 32;
   buf.set(pk, o);
-  o += 32;
-  buf[o++] = label.length;
-  buf.set(label, o);
 
   return `${PAIRING_URL_SCHEME}?d=${bytesToBase64Url(buf)}`;
 }
@@ -187,7 +206,7 @@ function decodeBinaryPairing(b64: string): PairingData {
   } catch {
     throw new Error("Invalid pairing data format");
   }
-  if (buf.length < 2 + 1 + 1 + 1 + 32 + 32 + 1) {
+  if (buf.length < 2 + 1 + 1 + 1 + 32 + 32) {
     throw new Error("Invalid pairing data format");
   }
 
@@ -206,8 +225,10 @@ function decodeBinaryPairing(b64: string): PairingData {
   const didLen = buf[o++];
   if (didLen === 0) throw new Error("Invalid pairing data format");
   if (o + didLen > buf.length) throw new Error("Invalid pairing data format");
-  const did = dec.decode(buf.subarray(o, o + didLen));
+  const wireDid = dec.decode(buf.subarray(o, o + didLen));
   o += didLen;
+  // Restore the canonical `daemon-` prefix the encoder stripped.
+  const did = `${DAEMON_ID_PREFIX}${wireDid}`;
 
   const relayLen = buf[o++];
   if (o + relayLen > buf.length) throw new Error("Invalid pairing data format");
@@ -218,17 +239,12 @@ function decodeBinaryPairing(b64: string): PairingData {
       : dec.decode(buf.subarray(o, o + relayLen));
   o += relayLen;
 
-  if (o + 32 + 32 + 1 > buf.length) {
+  if (o + 32 + 32 > buf.length) {
     throw new Error("Invalid pairing data format");
   }
   const ps = buf.subarray(o, o + 32);
   o += 32;
   const pk = buf.subarray(o, o + 32);
-  o += 32;
-
-  const labelLen = buf[o++];
-  if (o + labelLen > buf.length) throw new Error("Invalid pairing data format");
-  const label = labelLen > 0 ? dec.decode(buf.subarray(o, o + labelLen)) : "";
 
   return {
     ps: bytesToBase64(ps),
@@ -236,7 +252,6 @@ function decodeBinaryPairing(b64: string): PairingData {
     relay,
     did,
     v: version,
-    ...(label.length > 0 ? { label } : {}),
   };
 }
 

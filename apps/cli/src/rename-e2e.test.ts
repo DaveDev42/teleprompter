@@ -53,7 +53,7 @@ describe("Rename Notification E2E", () => {
   });
 
   test("daemon sendRenameNotice notifies frontend via control.rename", async () => {
-    const daemonId = "rename-daemon-A";
+    const daemonId = "daemon-rename-A";
     const frontendId = "rename-frontend-A";
 
     const bundle = await createPairingBundle(
@@ -150,7 +150,7 @@ describe("Rename Notification E2E", () => {
   });
 
   test("frontend-initiated control.rename updates daemon store label", async () => {
-    const daemonId = "rename-daemon-B";
+    const daemonId = "daemon-rename-B";
     const frontendId = "rename-frontend-B";
 
     const bundle = await createPairingBundle(

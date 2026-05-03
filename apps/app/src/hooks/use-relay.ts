@@ -193,6 +193,9 @@ export function useRelay() {
       client.onRename = ({ daemonId: did, label }) => {
         void usePairingStore.getState().handlePeerRename(did, label);
       };
+      client.onDaemonHello = ({ daemonId: did, label }) => {
+        void usePairingStore.getState().handleDaemonHello(did, label);
+      };
       relayClients.set(daemonId, client);
       if (!activeRelayClients.includes(client)) {
         activeRelayClients.push(client);

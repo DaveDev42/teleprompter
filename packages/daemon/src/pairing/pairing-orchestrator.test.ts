@@ -231,7 +231,9 @@ describe("PairingOrchestrator", () => {
     if (result.kind !== "completed") throw new Error("unreachable");
     orch.promote(result);
 
-    expect(store.__pairings.some((p) => p.daemonId === "daemon-d-race")).toBe(true);
+    expect(store.__pairings.some((p) => p.daemonId === "daemon-d-race")).toBe(
+      true,
+    );
     expect(manager.__registered).toContain(relay);
     expect(orch.hasPending).toBe(false);
   });
@@ -257,7 +259,10 @@ describe("PairingOrchestrator", () => {
     orch.clearPending();
     expect(orch.hasPending).toBe(false);
     // Slot is free for a subsequent begin().
-    const info = await orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d2" });
+    const info = await orch.begin({
+      relayUrl: "wss://r",
+      daemonId: "daemon-d2",
+    });
     expect(info.daemonId).toBe("daemon-d2");
   });
 
@@ -395,7 +400,10 @@ describe("PairingOrchestrator", () => {
     throwingStore.savePairing.mockImplementation(() => {
       /* noop */
     });
-    const info = await orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d2" });
+    const info = await orch.begin({
+      relayUrl: "wss://r",
+      daemonId: "daemon-d2",
+    });
     expect(info.daemonId).toBe("daemon-d2");
     expect(orch.hasPending).toBe(true);
     expect(relays).toHaveLength(2);

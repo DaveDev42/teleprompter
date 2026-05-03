@@ -276,7 +276,9 @@ describe("pairing-store: unpair/rename sender callbacks", () => {
     const sender = mock(async (_id: string, _label: string) => {});
     registerRenameSender(sender);
 
-    await usePairingStore.getState().renamePairing("daemon-d1", "  New Label  ");
+    await usePairingStore
+      .getState()
+      .renamePairing("daemon-d1", "  New Label  ");
 
     expect(usePairingStore.getState().pairings.get("daemon-d1")?.label).toBe(
       "New Label",
@@ -295,7 +297,9 @@ describe("pairing-store: unpair/rename sender callbacks", () => {
 
     await usePairingStore.getState().renamePairing("daemon-d1", "   ");
 
-    expect(usePairingStore.getState().pairings.get("daemon-d1")?.label).toBeNull();
+    expect(
+      usePairingStore.getState().pairings.get("daemon-d1")?.label,
+    ).toBeNull();
     expect(sender.mock.calls[0][1]).toBe("");
   });
 
@@ -315,7 +319,9 @@ describe("pairing-store: inbound control messages", () => {
     const qr = await buildFakePairing("daemon-d1");
     await usePairingStore.getState().processScan(qr);
 
-    await usePairingStore.getState().handlePeerUnpair("daemon-d1", "user-initiated");
+    await usePairingStore
+      .getState()
+      .handlePeerUnpair("daemon-d1", "user-initiated");
 
     const s = usePairingStore.getState();
     expect(s.pairings.has("daemon-d1")).toBe(false);
@@ -341,7 +347,9 @@ describe("pairing-store: inbound control messages", () => {
     const sender = mock(async () => {});
     registerRenameSender(sender);
 
-    await usePairingStore.getState().handlePeerRename("daemon-d1", "  Peer Name  ");
+    await usePairingStore
+      .getState()
+      .handlePeerRename("daemon-d1", "  Peer Name  ");
 
     expect(usePairingStore.getState().pairings.get("daemon-d1")?.label).toBe(
       "Peer Name",
@@ -354,7 +362,9 @@ describe("pairing-store: inbound control messages", () => {
     const qr = await buildFakePairing("daemon-d1", { label: "Old" });
     await usePairingStore.getState().processScan(qr);
     await usePairingStore.getState().handlePeerRename("daemon-d1", "");
-    expect(usePairingStore.getState().pairings.get("daemon-d1")?.label).toBeNull();
+    expect(
+      usePairingStore.getState().pairings.get("daemon-d1")?.label,
+    ).toBeNull();
   });
 
   test("handlePeerRename ignores unknown daemonId", async () => {

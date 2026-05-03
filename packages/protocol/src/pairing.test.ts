@@ -135,7 +135,8 @@ describe("pairing", () => {
     const payload = encoded.slice("tp://p?d=".length);
     // Decode the base64url payload back to bytes and inspect them directly.
     const padLen = (4 - (payload.length % 4)) % 4;
-    const b64 = payload.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(padLen);
+    const b64 =
+      payload.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(padLen);
     const bin = atob(b64);
     expect(bin).not.toContain("daemon-");
     expect(bin).toContain("abcdef");

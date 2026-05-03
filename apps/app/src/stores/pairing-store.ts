@@ -116,10 +116,7 @@ export interface PairingStore {
    * Handle the daemon's relay.kx hello — adopts the daemon's label.
    * `label === null` means the daemon has no label set; keep current.
    */
-  handleDaemonHello: (
-    daemonId: string,
-    label: string | null,
-  ) => Promise<void>;
+  handleDaemonHello: (daemonId: string, label: string | null) => Promise<void>;
 }
 
 type RenameSender = (daemonId: string, label: string) => Promise<void>;

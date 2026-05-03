@@ -15,7 +15,7 @@ describe("pairing", () => {
       "daemon-123",
     );
 
-    expect(bundle.qrData.v).toBe(2);
+    expect(bundle.qrData.v).toBe(3);
     expect(bundle.qrData.relay).toBe("wss://relay.example.com");
     expect(bundle.qrData.did).toBe("daemon-123");
     expect(bundle.qrData.ps).toBeTruthy();
@@ -35,7 +35,7 @@ describe("pairing", () => {
     expect(decoded.pk).toBe(bundle.qrData.pk);
     expect(decoded.relay).toBe(bundle.qrData.relay);
     expect(decoded.did).toBe(bundle.qrData.did);
-    expect(decoded.v).toBe(2);
+    expect(decoded.v).toBe(3);
   });
 
   test("PairingData has no label field — label travels via relay.kx", async () => {
@@ -233,12 +233,12 @@ describe("pairing", () => {
   });
 
   test("decodePairingData treats empty relay as default relay URL", () => {
-    // magic(2)='tp' | ver(1)=2 | didLen=1 | did='x' | relayLen=0 |
+    // magic(2)='tp' | ver(1)=3 | didLen=1 | did='x' | relayLen=0 |
     // ps(32) | pk(32). Decoder restores `daemon-` prefix on the way out.
     const buf = new Uint8Array(2 + 1 + 1 + 1 + 1 + 32 + 32);
     buf[0] = 0x74; // 't'
     buf[1] = 0x70; // 'p'
-    buf[2] = 2;
+    buf[2] = 3;
     buf[3] = 1; // didLen=1
     buf[4] = 0x78; // 'x'
     buf[5] = 0; // relayLen=0
@@ -250,6 +250,40 @@ describe("pairing", () => {
     const decoded = decodePairingData(`tp://p?d=${b64}`);
     expect(decoded.relay).toBe(DEFAULT_PAIRING_RELAY_URL);
     expect(decoded.did).toBe("daemon-x");
+  });
+
+  test("decodePairingData accepts legacy v2 payload and ignores trailing label", () => {
+    // v2 layout: magic(2)='tp' | ver(1)=2 | didLen | did_verbatim |
+    //   relayLen | relay | ps(32) | pk(32) | labelLen | label
+    // The did was stored verbatim including the `daemon-` prefix; the v3
+    // decoder must NOT prepend the prefix again on v2 payloads.
+    const enc = new TextEncoder();
+    const did = enc.encode("daemon-legacy");
+    const label = enc.encode("Old Mac");
+    const buf = new Uint8Array(
+      2 + 1 + 1 + did.length + 1 + 0 + 32 + 32 + 1 + label.length,
+    );
+    let o = 0;
+    buf[o++] = 0x74; // 't'
+    buf[o++] = 0x70; // 'p'
+    buf[o++] = 2; // legacy version
+    buf[o++] = did.length;
+    buf.set(did, o);
+    o += did.length;
+    buf[o++] = 0; // relayLen=0 (default relay)
+    o += 32; // ps zeros
+    o += 32; // pk zeros
+    buf[o++] = label.length;
+    buf.set(label, o);
+
+    const b64 = btoa(String.fromCharCode(...buf))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    const decoded = decodePairingData(`tp://p?d=${b64}`);
+    expect(decoded.v).toBe(2);
+    expect(decoded.did).toBe("daemon-legacy"); // verbatim, not double-prefixed
+    expect(decoded.relay).toBe(DEFAULT_PAIRING_RELAY_URL);
   });
 
   test("decodePairingData rejects unknown binary version", () => {

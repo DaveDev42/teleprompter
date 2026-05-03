@@ -366,14 +366,9 @@ export class FrontendRelayClient implements TransportClient {
         label?: unknown;
       };
       // `label` is optional on the wire so older daemons stay compatible —
-      // a missing field maps to null (no change), which the store treats
+      // a missing or non-string value maps to null, which the store treats
       // as "keep current label".
-      const label =
-        typeof data.label === "string"
-          ? data.label
-          : data.label === null
-            ? null
-            : null;
+      const label = typeof data.label === "string" ? data.label : null;
       this.onDaemonHello?.({ daemonId: this.config.daemonId, label });
     } catch {
       // Decrypt or parse failure — ignore, fallback label stays in effect.

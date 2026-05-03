@@ -90,8 +90,13 @@ describe("pairing-store: serialize/deserialize", () => {
   beforeEach(resetStore);
 
   test("v3 roundtrip preserves all fields including label", async () => {
-    const qr = await buildFakePairing("daemon-a", { label: "Alpha" });
+    // Label no longer travels in the QR — it's seeded from the device name
+    // at scan time and upgraded later via handleDaemonHello. We exercise
+    // both paths here: scan seeds the device name; a hello upgrades it; the
+    // resulting label survives serialize/deserialize.
+    const qr = await buildFakePairing("daemon-a");
     await usePairingStore.getState().processScan(qr);
+    await usePairingStore.getState().handleDaemonHello("daemon-a", "Alpha");
 
     const before = usePairingStore.getState().pairings.get("daemon-a");
     expect(before).toBeDefined();
@@ -114,6 +119,7 @@ describe("pairing-store: serialize/deserialize", () => {
     expect(after.registrationProof).toBe(before.registrationProof);
     expect(after.frontendId).toBe(before.frontendId);
     expect(after.label).toBe("Alpha");
+    expect(after.labelSource).toBe("daemon");
     expect(after.pairedAt).toBe(before.pairedAt);
     // Uint8Array round-trip
     expect(Array.from(after.daemonPublicKey)).toEqual(
@@ -131,11 +137,14 @@ describe("pairing-store: serialize/deserialize", () => {
   });
 
   test("handles multiple pairings and restores them all", async () => {
-    const qr1 = await buildFakePairing("daemon-1", { label: "One" });
-    const qr2 = await buildFakePairing("daemon-2", { label: "Two" });
+    const qr1 = await buildFakePairing("daemon-1");
+    const qr2 = await buildFakePairing("daemon-2");
 
     await usePairingStore.getState().processScan(qr1);
     await usePairingStore.getState().processScan(qr2);
+    // Simulate the daemon's relay.kx hello upgrading the seeded label.
+    await usePairingStore.getState().handleDaemonHello("daemon-1", "One");
+    await usePairingStore.getState().handleDaemonHello("daemon-2", "Two");
 
     expect(usePairingStore.getState().pairings.size).toBe(2);
 
@@ -170,19 +179,14 @@ describe("pairing-store: state transitions", () => {
     expect(s.error).toBeNull();
   });
 
-  test("processScan uses QR label when provided", async () => {
-    const qr = await buildFakePairing("daemon-d1", { label: "Custom" });
-    await usePairingStore.getState().processScan(qr);
-    expect(usePairingStore.getState().pairings.get("daemon-d1")?.label).toBe("Custom");
-  });
-
-  test("processScan falls back to Device.deviceName when QR has no label", async () => {
+  test("processScan seeds label from Device.deviceName (QR carries no label)", async () => {
     const qr = await buildFakePairing("daemon-d2");
     await usePairingStore.getState().processScan(qr);
     // mocked expo-device.deviceName is "TestDevice"
-    expect(usePairingStore.getState().pairings.get("daemon-d2")?.label).toBe(
-      "TestDevice",
-    );
+    const info = usePairingStore.getState().pairings.get("daemon-d2");
+    expect(info?.label).toBe("TestDevice");
+    // Seed origin is `qr` so handleDaemonHello can later upgrade it.
+    expect(info?.labelSource).toBe("qr");
   });
 
   test("processScan with bogus QR data sets error and stays unpaired", async () => {
@@ -356,5 +360,58 @@ describe("pairing-store: inbound control messages", () => {
   test("handlePeerRename ignores unknown daemonId", async () => {
     await usePairingStore.getState().handlePeerRename("ghost", "X");
     expect(usePairingStore.getState().pairings.size).toBe(0);
+  });
+
+  test("handleDaemonHello adopts label and tags source as 'daemon'", async () => {
+    const qr = await buildFakePairing("daemon-d1");
+    await usePairingStore.getState().processScan(qr);
+    await usePairingStore
+      .getState()
+      .handleDaemonHello("daemon-d1", "MacBook Pro");
+    const info = usePairingStore.getState().pairings.get("daemon-d1");
+    expect(info?.label).toBe("MacBook Pro");
+    expect(info?.labelSource).toBe("daemon");
+  });
+
+  test("handleDaemonHello with null label is a no-op", async () => {
+    const qr = await buildFakePairing("daemon-d1");
+    await usePairingStore.getState().processScan(qr);
+    const before = usePairingStore.getState().pairings.get("daemon-d1")?.label;
+    await usePairingStore.getState().handleDaemonHello("daemon-d1", null);
+    expect(usePairingStore.getState().pairings.get("daemon-d1")?.label).toBe(
+      before,
+    );
+  });
+
+  test("handleDaemonHello with empty/whitespace label is a no-op", async () => {
+    const qr = await buildFakePairing("daemon-d1");
+    await usePairingStore.getState().processScan(qr);
+    const before = usePairingStore.getState().pairings.get("daemon-d1")?.label;
+    await usePairingStore.getState().handleDaemonHello("daemon-d1", "   ");
+    expect(usePairingStore.getState().pairings.get("daemon-d1")?.label).toBe(
+      before,
+    );
+  });
+
+  test("handleDaemonHello for unknown daemonId is a no-op", async () => {
+    await usePairingStore.getState().handleDaemonHello("ghost", "X");
+    expect(usePairingStore.getState().pairings.size).toBe(0);
+  });
+
+  test("handleDaemonHello does not overwrite a user-renamed label", async () => {
+    const qr = await buildFakePairing("daemon-d1");
+    await usePairingStore.getState().processScan(qr);
+    await usePairingStore.getState().renamePairing("daemon-d1", "My Mac");
+    expect(
+      usePairingStore.getState().pairings.get("daemon-d1")?.labelSource,
+    ).toBe("user");
+
+    // Daemon broadcast arrives with a different label — must not clobber.
+    await usePairingStore
+      .getState()
+      .handleDaemonHello("daemon-d1", "Old Daemon Label");
+    const info = usePairingStore.getState().pairings.get("daemon-d1");
+    expect(info?.label).toBe("My Mac");
+    expect(info?.labelSource).toBe("user");
   });
 });

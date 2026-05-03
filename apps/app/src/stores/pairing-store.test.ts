@@ -423,6 +423,8 @@ describe("pairing-store: inbound control messages", () => {
 
     await usePairingStore.getState().handleDaemonHello("daemon-d1", "Foo");
     const after = usePairingStore.getState().pairings.get("daemon-d1");
+    // Reference equality verifies the early-return path: a write would
+    // produce a fresh object via `pairings.set(...)` + `set({ pairings })`.
     expect(after).toBe(before);
     expect(after?.label).toBe("Foo");
     expect(after?.labelSource).toBe("daemon");

@@ -13,6 +13,17 @@ import { secureGet, secureSet } from "../lib/secure-storage";
 
 export type PairingState = "unpaired" | "pairing" | "paired";
 
+/**
+ * Origin of the current `label` value. Used by `handleDaemonHello` to skip
+ * overwriting a label the user explicitly set in the app — otherwise an
+ * unrelated daemon-side broadcast would silently clobber the rename.
+ *
+ * - `qr` : seeded from the device name at scan time (no real source yet)
+ * - `daemon` : adopted from the daemon's relay.kx broadcast or peer rename
+ * - `user` : the user renamed it locally via `renamePairing`
+ */
+export type LabelSource = "qr" | "daemon" | "user";
+
 export interface PairingInfo {
   daemonId: string;
   relayUrl: string;
@@ -25,6 +36,8 @@ export interface PairingInfo {
   pairedAt: number;
   /** Optional human-readable label for this pairing */
   label?: string | null;
+  /** Provenance of `label`. Defaults to `qr` for legacy stored entries. */
+  labelSource?: LabelSource;
 }
 
 /** Serializable format for secure storage */
@@ -40,6 +53,7 @@ interface SerializedPairingInfo {
   pairingSecret: string; // base64
   pairedAt: number;
   label?: string | null;
+  labelSource?: LabelSource;
 }
 
 const STORAGE_KEY = "pairings_v3";
@@ -98,6 +112,11 @@ export interface PairingStore {
   renamePairing: (daemonId: string, newLabel: string) => Promise<void>;
   /** Handle an inbound control.rename from the daemon — receive-only, no echo. */
   handlePeerRename: (daemonId: string, label: string) => Promise<void>;
+  /**
+   * Handle the daemon's relay.kx hello — adopts the daemon's label.
+   * `label === null` means the daemon has no label set; keep current.
+   */
+  handleDaemonHello: (daemonId: string, label: string | null) => Promise<void>;
 }
 
 type RenameSender = (daemonId: string, label: string) => Promise<void>;
@@ -125,6 +144,7 @@ async function serializePairings(
       pairingSecret: await toBase64(info.pairingSecret),
       pairedAt: info.pairedAt,
       label: info.label ?? null,
+      labelSource: info.labelSource ?? "qr",
     });
   }
   return JSON.stringify(entries);
@@ -151,6 +171,12 @@ async function deserializePairings(
         pairingSecret: await fromBase64(e.pairingSecret),
         pairedAt: e.pairedAt,
         label: e.label ?? null,
+        // Defaults to `qr` for legacy entries persisted before `labelSource`
+        // existed. Caveat: a user-renamed label from a pre-`labelSource` build
+        // is indistinguishable from a daemon/QR label here, so the next
+        // `handleDaemonHello` may overwrite it. The user can re-rename in the
+        // app to re-tag as `user` and lock the label against further drift.
+        labelSource: e.labelSource ?? "qr",
       });
     }
   } catch {
@@ -196,8 +222,10 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
       const frontendKeyPair = await generateKeyPair();
       const frontendId = generateFrontendId();
 
-      // Seed label from QR bundle, falling back to device name.
-      const seedLabel = data.label ?? Device.deviceName ?? "Daemon";
+      // QR no longer carries a label — daemon broadcasts it via relay.kx.
+      // Until that frame arrives we display the device name; handleDaemonHello
+      // upgrades the label as soon as the relay session opens.
+      const seedLabel = Device.deviceName ?? "Daemon";
 
       const info: PairingInfo = {
         daemonId: parsed.daemonId,
@@ -210,6 +238,7 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
         pairingSecret: parsed.pairingSecret,
         pairedAt: Date.now(),
         label: seedLabel,
+        labelSource: "qr",
       };
 
       const pairings = new Map(get().pairings);
@@ -300,7 +329,11 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
     if (!existing) return;
     // Protocol: empty string clears the label — store as null locally.
     const localLabel = trimmed === "" ? null : trimmed;
-    pairings.set(daemonId, { ...existing, label: localLabel });
+    pairings.set(daemonId, {
+      ...existing,
+      label: localLabel,
+      labelSource: "user",
+    });
 
     set({ pairings });
     await secureSet(STORAGE_KEY, await serializePairings(pairings));
@@ -326,8 +359,42 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
     // Protocol: empty string clears the label — store as null locally.
     const trimmed = label.trim();
     const localLabel = trimmed === "" ? null : trimmed;
-    pairings.set(daemonId, { ...existing, label: localLabel });
+    // `control.rename` is an explicit user action on the daemon side and
+    // expresses authoritative intent — adopt it even if the local label
+    // was previously user-edited.
+    pairings.set(daemonId, {
+      ...existing,
+      label: localLabel,
+      labelSource: "daemon",
+    });
 
+    set({ pairings });
+    await secureSet(STORAGE_KEY, await serializePairings(pairings));
+  },
+
+  handleDaemonHello: async (daemonId: string, label: string | null) => {
+    // Daemon's relay.kx broadcast carries its label. We adopt it so that an
+    // unrelated rename via the daemon CLI converges here even if a
+    // `control.rename` was missed (peer offline at the time). However we
+    // must not clobber a label the user explicitly edited in the app —
+    // that's a separate authority. Skip when `labelSource === "user"`.
+    //
+    // `label === null` means the daemon has no label set — keep whatever
+    // the frontend already has (typically the device-name seed from the
+    // initial scan, or the last-known label from a previous session).
+    if (label === null) return;
+    const pairings = new Map(get().pairings);
+    const existing = pairings.get(daemonId);
+    if (!existing) return;
+    if (existing.labelSource === "user") return;
+    const trimmed = label.trim();
+    if (trimmed === "") return;
+    if (existing.label === trimmed) return;
+    pairings.set(daemonId, {
+      ...existing,
+      label: trimmed,
+      labelSource: "daemon",
+    });
     set({ pairings });
     await secureSet(STORAGE_KEY, await serializePairings(pairings));
   },

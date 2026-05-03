@@ -111,6 +111,16 @@ export class FrontendRelayClient implements TransportClient {
   /** Called when daemon notifies this frontend that the pairing label was changed. */
   onRename: ((info: { daemonId: string; label: string }) => void) | null = null;
 
+  /**
+   * Called when the daemon broadcasts its public key after auth (relay.kx).
+   * Carries the label the daemon was paired with so the frontend can adopt
+   * it without burning bytes in the QR. `label === null` means the daemon
+   * has no label set; the frontend should keep its existing fallback.
+   */
+  onDaemonHello:
+    | ((info: { daemonId: string; label: string | null }) => void)
+    | null = null;
+
   /** Track attached session and last seq for auto-resume on reconnect */
   private attachedSid: string | null = null;
   private lastSeq = 0;
@@ -305,7 +315,11 @@ export class FrontendRelayClient implements TransportClient {
         break;
 
       case "relay.kx.frame":
-        // Daemon sent its public key (confirmation). We already have it from QR.
+        // Daemon broadcasted its public key (we already have it from QR).
+        // The encrypted payload also carries the daemon's label — decrypt
+        // it so the frontend can adopt the daemon's name without it taking
+        // up bytes in the QR.
+        await this.handleDaemonKxFrame(msg);
         break;
 
       case "relay.frame":
@@ -328,6 +342,36 @@ export class FrontendRelayClient implements TransportClient {
         this.events.onError?.(`Relay error: ${errMsg.m ?? errMsg.e}`);
         break;
       }
+    }
+  }
+
+  /**
+   * Decrypt the daemon's relay.kx broadcast and surface its label.
+   * The pubkey itself is redundant (we already have it from QR), but the
+   * label arrives here instead of in the QR to keep the QR small.
+   * Decryption failures are swallowed — the worst case is the frontend
+   * keeps its fallback label, which is acceptable.
+   */
+  private async handleDaemonKxFrame(frame: {
+    ct: string;
+    from: "daemon" | "frontend";
+  }): Promise<void> {
+    if (frame.from !== "daemon") return;
+    if (!this.kxKey) return;
+    try {
+      const plaintext = await decrypt(frame.ct, this.kxKey);
+      const data = JSON.parse(new TextDecoder().decode(plaintext)) as {
+        pk?: unknown;
+        role?: unknown;
+        label?: unknown;
+      };
+      // `label` is optional on the wire so older daemons stay compatible —
+      // a missing or non-string value maps to null, which the store treats
+      // as "keep current label".
+      const label = typeof data.label === "string" ? data.label : null;
+      this.onDaemonHello?.({ daemonId: this.config.daemonId, label });
+    } catch {
+      // Decrypt or parse failure — ignore, fallback label stays in effect.
     }
   }
 

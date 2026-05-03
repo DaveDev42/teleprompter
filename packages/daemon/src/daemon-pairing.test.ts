@@ -31,12 +31,12 @@ describe("Daemon.beginPairing", () => {
 
     const info = await daemon.beginPairing({
       relayUrl: "wss://r",
-      daemonId: "d1",
+      daemonId: "daemon-d1",
       label: "host-1",
     });
     expect(info.pairingId.length).toBeGreaterThan(0);
     expect(info.qrString.length).toBeGreaterThan(0);
-    expect(info.daemonId).toBe("d1");
+    expect(info.daemonId).toBe("daemon-d1");
 
     daemon.cancelPendingPairing();
     daemon.stop();
@@ -59,9 +59,9 @@ describe("Daemon.beginPairing", () => {
     const daemon = new Daemon(dir);
     daemon.__setRelayFactory(() => fakeRelay());
 
-    await daemon.beginPairing({ relayUrl: "wss://r", daemonId: "d1" });
+    await daemon.beginPairing({ relayUrl: "wss://r", daemonId: "daemon-d1" });
     await expect(
-      daemon.beginPairing({ relayUrl: "wss://r", daemonId: "d2" }),
+      daemon.beginPairing({ relayUrl: "wss://r", daemonId: "daemon-d2" }),
     ).rejects.toMatchObject({ reason: "already-pending" });
 
     daemon.cancelPendingPairing();
@@ -79,7 +79,7 @@ describe("Daemon.beginPairing", () => {
         };
       }
     ).store.savePairing({
-      daemonId: "taken",
+      daemonId: "daemon-taken",
       relayUrl: "wss://r",
       relayToken: "t",
       registrationProof: "p",
@@ -91,7 +91,7 @@ describe("Daemon.beginPairing", () => {
     daemon.__setRelayFactory(() => fakeRelay());
 
     await expect(
-      daemon.beginPairing({ relayUrl: "wss://r", daemonId: "taken" }),
+      daemon.beginPairing({ relayUrl: "wss://r", daemonId: "daemon-taken" }),
     ).rejects.toMatchObject({ reason: "daemon-id-taken" });
     daemon.stop();
   });
@@ -101,7 +101,7 @@ describe("Daemon.beginPairing", () => {
     const daemon = new Daemon(dir);
     daemon.__setRelayFactory(() => fakeRelay());
 
-    await daemon.beginPairing({ relayUrl: "wss://r", daemonId: "d1" });
+    await daemon.beginPairing({ relayUrl: "wss://r", daemonId: "daemon-d1" });
     const p = daemon.awaitPendingPairing();
     expect(p).not.toBeNull();
     daemon.cancelPendingPairing();
@@ -117,7 +117,7 @@ describe("Daemon.beginPairing", () => {
 
     await daemon.beginPairing({
       relayUrl: "wss://r",
-      daemonId: "d1",
+      daemonId: "daemon-d1",
       label: "my-host",
     });
     // Simulate completion
@@ -140,7 +140,7 @@ describe("Daemon.beginPairing", () => {
         };
       }
     ).store.listPairings();
-    expect(pairings.some((p) => p.daemonId === "d1")).toBe(true);
+    expect(pairings.some((p) => p.daemonId === "daemon-d1")).toBe(true);
 
     // Relay pool should now contain the promoted client
     expect(daemon.getActivePairingIds().length).toBeGreaterThanOrEqual(1);
@@ -162,7 +162,7 @@ describe("Daemon.beginPairing", () => {
 
     const info = await daemon.beginPairing({
       relayUrl: "wss://r",
-      daemonId: "d1",
+      daemonId: "daemon-d1",
     });
     daemon.cancelPendingPairing("wrong-id");
     // Pending still active
@@ -188,7 +188,7 @@ describe("Daemon.beginPairing", () => {
     );
 
     await expect(
-      daemon.beginPairing({ relayUrl: "wss://r", daemonId: "d1" }),
+      daemon.beginPairing({ relayUrl: "wss://r", daemonId: "daemon-d1" }),
     ).rejects.toMatchObject({ reason: "relay-unreachable" });
     daemon.stop();
   });
@@ -200,7 +200,7 @@ describe("Daemon.beginPairing", () => {
 
     await daemon.beginPairing({
       relayUrl: "wss://r",
-      daemonId: "d-race",
+      daemonId: "daemon-d-race",
       label: "x",
     });
     const pp = (
@@ -224,7 +224,7 @@ describe("Daemon.beginPairing", () => {
         store: { listPairings: () => Array<{ daemonId: string }> };
       }
     ).store.listPairings();
-    expect(pairings.some((p) => p.daemonId === "d-race")).toBe(true);
+    expect(pairings.some((p) => p.daemonId === "daemon-d-race")).toBe(true);
 
     expect(daemon.getActivePairingIds().length).toBeGreaterThanOrEqual(1);
 
@@ -271,13 +271,13 @@ describe("Daemon.beginPairing", () => {
     await daemon.__handlePairBegin(cli.runner, {
       t: "pair.begin",
       relayUrl: "wss://r",
-      daemonId: "d-ipc-ok",
+      daemonId: "daemon-ipc-ok",
       label: "ipc-host",
     });
 
     expect(cli.messages[0]).toMatchObject({
       t: "pair.begin.ok",
-      daemonId: "d-ipc-ok",
+      daemonId: "daemon-ipc-ok",
     });
     expect(
       (cli.messages[0] as { qrString: string }).qrString.length,
@@ -297,7 +297,7 @@ describe("Daemon.beginPairing", () => {
     );
     expect(completed).toMatchObject({
       t: "pair.completed",
-      daemonId: "d-ipc-ok",
+      daemonId: "daemon-ipc-ok",
       label: "ipc-host",
     });
 
@@ -313,14 +313,14 @@ describe("Daemon.beginPairing", () => {
     await daemon.__handlePairBegin(cli.runner, {
       t: "pair.begin",
       relayUrl: "wss://r",
-      daemonId: "d1",
+      daemonId: "daemon-d1",
     });
 
     const cli2 = makeFakeCli();
     await daemon.__handlePairBegin(cli2.runner, {
       t: "pair.begin",
       relayUrl: "wss://r",
-      daemonId: "d2",
+      daemonId: "daemon-d2",
     });
 
     expect(cli2.messages[0]).toMatchObject({
@@ -341,7 +341,7 @@ describe("Daemon.beginPairing", () => {
     await daemon.__handlePairBegin(cli.runner, {
       t: "pair.begin",
       relayUrl: "wss://r",
-      daemonId: "d-cancel",
+      daemonId: "daemon-cancel",
     });
     const pairingId = (cli.messages[0] as { pairingId: string }).pairingId;
 
@@ -365,7 +365,7 @@ describe("Daemon.beginPairing", () => {
     await daemon.__handlePairBegin(cli.runner, {
       t: "pair.begin",
       relayUrl: "wss://r",
-      daemonId: "d-disc",
+      daemonId: "daemon-disc",
     });
 
     daemon.__handleCliDisconnect(cli.runner);
@@ -386,7 +386,7 @@ describe("Daemon.beginPairing", () => {
     await daemon.__handlePairBegin(cli.runner, {
       t: "pair.begin",
       relayUrl: "wss://r",
-      daemonId: "d-disc-after",
+      daemonId: "daemon-disc-after",
     });
     (
       daemon as unknown as {
@@ -418,7 +418,7 @@ describe("Daemon.beginPairing", () => {
     await daemon.__handlePairBegin(cli.runner, {
       t: "pair.begin",
       relayUrl: "wss://r",
-      daemonId: "d-mismatch",
+      daemonId: "daemon-mismatch",
     });
 
     daemon.__handlePairCancel(cli.runner, {
@@ -444,7 +444,7 @@ describe("Daemon.beginPairing", () => {
     await daemon.__handlePairBegin(owner.runner, {
       t: "pair.begin",
       relayUrl: "wss://r",
-      daemonId: "d-non-owner",
+      daemonId: "daemon-non-owner",
     });
     const pairingId = (owner.messages[0] as { pairingId: string }).pairingId;
 
@@ -478,7 +478,7 @@ describe("Daemon.beginPairing", () => {
     await daemon.__handlePairBegin(cli.runner, {
       t: "pair.begin",
       relayUrl: "wss://r",
-      daemonId: "d-promote-fail",
+      daemonId: "daemon-promote-fail",
     });
     (
       daemon as unknown as {

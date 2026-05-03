@@ -51,7 +51,7 @@ describe("Unpair Notification E2E", () => {
   });
 
   test("daemon.removePairing notifies frontend via control.unpair", async () => {
-    const daemonId = "unpair-daemon-A";
+    const daemonId = "daemon-unpair-A";
     const frontendId = "unpair-frontend-A";
 
     const bundle = await createPairingBundle(
@@ -141,7 +141,7 @@ describe("Unpair Notification E2E", () => {
   });
 
   test("frontend-initiated control.unpair makes daemon remove pairing", async () => {
-    const daemonId = "unpair-daemon-B";
+    const daemonId = "daemon-unpair-B";
     const frontendId = "unpair-frontend-B";
 
     const bundle = await createPairingBundle(

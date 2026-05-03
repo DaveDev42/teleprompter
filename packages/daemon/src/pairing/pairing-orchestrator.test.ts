@@ -83,13 +83,13 @@ describe("PairingOrchestrator", () => {
 
     const info = await orch.begin({
       relayUrl: "wss://r",
-      daemonId: "d1",
+      daemonId: "daemon-d1",
       label: "host",
     });
 
     expect(info.pairingId.length).toBeGreaterThan(0);
     expect(info.qrString.length).toBeGreaterThan(0);
-    expect(info.daemonId).toBe("d1");
+    expect(info.daemonId).toBe("daemon-d1");
     expect(orch.hasPending).toBe(true);
     expect(orch.current).not.toBeNull();
   });
@@ -112,12 +112,12 @@ describe("PairingOrchestrator", () => {
     const store = makeFakeStore();
     const orch = makeOrchestrator(manager, store);
 
-    await orch.begin({ relayUrl: "wss://r", daemonId: "d1" });
+    await orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d1" });
     await expect(
-      orch.begin({ relayUrl: "wss://r", daemonId: "d2" }),
+      orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d2" }),
     ).rejects.toBeInstanceOf(BeginPairingError);
     await expect(
-      orch.begin({ relayUrl: "wss://r", daemonId: "d2" }),
+      orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d2" }),
     ).rejects.toMatchObject({ reason: "already-pending" });
   });
 
@@ -125,11 +125,11 @@ describe("PairingOrchestrator", () => {
     const manager = makeFakeRelayManager({
       factory: () => makeFakeRelayClient(),
     });
-    const store = makeFakeStore([{ daemonId: "taken" }]);
+    const store = makeFakeStore([{ daemonId: "daemon-taken" }]);
     const orch = makeOrchestrator(manager, store);
 
     await expect(
-      orch.begin({ relayUrl: "wss://r", daemonId: "taken" }),
+      orch.begin({ relayUrl: "wss://r", daemonId: "daemon-taken" }),
     ).rejects.toMatchObject({ reason: "daemon-id-taken" });
     expect(orch.hasPending).toBe(false);
   });
@@ -148,7 +148,7 @@ describe("PairingOrchestrator", () => {
     const orch = makeOrchestrator(manager, store);
 
     await expect(
-      orch.begin({ relayUrl: "wss://r", daemonId: "d1" }),
+      orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d1" }),
     ).rejects.toMatchObject({ reason: "relay-unreachable" });
     expect(orch.hasPending).toBe(false);
   });
@@ -160,7 +160,7 @@ describe("PairingOrchestrator", () => {
     const store = makeFakeStore();
     const orch = makeOrchestrator(manager, store);
 
-    await orch.begin({ relayUrl: "wss://r", daemonId: "d1" });
+    await orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d1" });
     const p = orch.awaitPending();
     expect(p).not.toBeNull();
     orch.cancel();
@@ -176,7 +176,7 @@ describe("PairingOrchestrator", () => {
     const store = makeFakeStore();
     const orch = makeOrchestrator(manager, store);
 
-    await orch.begin({ relayUrl: "wss://r", daemonId: "d1" });
+    await orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d1" });
     orch.cancel("wrong-id");
     expect(orch.hasPending).toBe(true);
   });
@@ -189,7 +189,7 @@ describe("PairingOrchestrator", () => {
 
     await orch.begin({
       relayUrl: "wss://r",
-      daemonId: "d1",
+      daemonId: "daemon-d1",
       label: "my-host",
     });
     // Simulate completion
@@ -201,7 +201,7 @@ describe("PairingOrchestrator", () => {
     orch.promote(result);
 
     expect(store.savePairing).toHaveBeenCalledTimes(1);
-    expect(store.__pairings.some((p) => p.daemonId === "d1")).toBe(true);
+    expect(store.__pairings.some((p) => p.daemonId === "daemon-d1")).toBe(true);
     expect(manager.__registered).toContain(relay);
     expect(orch.hasPending).toBe(false);
   });
@@ -214,7 +214,7 @@ describe("PairingOrchestrator", () => {
 
     await orch.begin({
       relayUrl: "wss://r",
-      daemonId: "d-race",
+      daemonId: "daemon-d-race",
       label: "x",
     });
     orch.current!.__markCompleted("f1");
@@ -231,7 +231,9 @@ describe("PairingOrchestrator", () => {
     if (result.kind !== "completed") throw new Error("unreachable");
     orch.promote(result);
 
-    expect(store.__pairings.some((p) => p.daemonId === "d-race")).toBe(true);
+    expect(store.__pairings.some((p) => p.daemonId === "daemon-d-race")).toBe(
+      true,
+    );
     expect(manager.__registered).toContain(relay);
     expect(orch.hasPending).toBe(false);
   });
@@ -251,14 +253,17 @@ describe("PairingOrchestrator", () => {
     const store = makeFakeStore();
     const orch = makeOrchestrator(manager, store);
 
-    await orch.begin({ relayUrl: "wss://r", daemonId: "d1" });
+    await orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d1" });
     expect(orch.hasPending).toBe(true);
 
     orch.clearPending();
     expect(orch.hasPending).toBe(false);
     // Slot is free for a subsequent begin().
-    const info = await orch.begin({ relayUrl: "wss://r", daemonId: "d2" });
-    expect(info.daemonId).toBe("d2");
+    const info = await orch.begin({
+      relayUrl: "wss://r",
+      daemonId: "daemon-d2",
+    });
+    expect(info.daemonId).toBe("daemon-d2");
   });
 
   test("stop() cancels pending pairing", async () => {
@@ -267,7 +272,7 @@ describe("PairingOrchestrator", () => {
     const store = makeFakeStore();
     const orch = makeOrchestrator(manager, store);
 
-    await orch.begin({ relayUrl: "wss://r", daemonId: "d1" });
+    await orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d1" });
     const p = orch.awaitPending();
 
     orch.stop();
@@ -295,7 +300,7 @@ describe("PairingOrchestrator", () => {
     const store = makeFakeStore();
     const orch = makeOrchestrator(manager, store);
 
-    await orch.begin({ relayUrl: "wss://r", daemonId: "d1" });
+    await orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d1" });
     orch.current!.__markCompleted("frontend-x");
     // Drain the completion promise so the pairing is fully settled.
     const result = await orch.awaitPending()!;
@@ -316,9 +321,9 @@ describe("PairingOrchestrator", () => {
     const store = makeFakeStore();
     const orch = makeOrchestrator(manager, store);
 
-    await orch.begin({ relayUrl: "wss://r", daemonId: "d1" });
+    await orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d1" });
     expect(manager.attachHandlers).toHaveBeenCalledTimes(1);
-    expect(manager.attachHandlers).toHaveBeenCalledWith(relay, "d1");
+    expect(manager.attachHandlers).toHaveBeenCalledWith(relay, "daemon-d1");
   });
 
   test("clearPending() disposes the orphan relay client", async () => {
@@ -327,7 +332,7 @@ describe("PairingOrchestrator", () => {
     const store = makeFakeStore();
     const orch = makeOrchestrator(manager, store);
 
-    await orch.begin({ relayUrl: "wss://r", daemonId: "d1" });
+    await orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d1" });
 
     // Simulate the failed-promote path: caller clears the slot without
     // running cancel (which would fire the completion promise) or promote
@@ -374,7 +379,7 @@ describe("PairingOrchestrator", () => {
       >,
     });
 
-    await orch.begin({ relayUrl: "wss://r", daemonId: "d1" });
+    await orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d1" });
     const firstRelay = relays[0]!;
     const pending = orch.current;
     if (!pending) throw new Error("expected pending pairing");
@@ -395,8 +400,11 @@ describe("PairingOrchestrator", () => {
     throwingStore.savePairing.mockImplementation(() => {
       /* noop */
     });
-    const info = await orch.begin({ relayUrl: "wss://r", daemonId: "d2" });
-    expect(info.daemonId).toBe("d2");
+    const info = await orch.begin({
+      relayUrl: "wss://r",
+      daemonId: "daemon-d2",
+    });
+    expect(info.daemonId).toBe("daemon-d2");
     expect(orch.hasPending).toBe(true);
     expect(relays).toHaveLength(2);
     expect(relays[1]!.dispose).not.toHaveBeenCalled();
@@ -408,7 +416,7 @@ describe("PairingOrchestrator", () => {
     const store = makeFakeStore();
     const orch = makeOrchestrator(manager, store);
 
-    await orch.begin({ relayUrl: "wss://r", daemonId: "d1" });
+    await orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d1" });
     // Force PendingPairing into the completed state so promote() is valid.
     const pending = orch.current;
     if (!pending) throw new Error("expected pending pairing");

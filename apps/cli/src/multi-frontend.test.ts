@@ -54,13 +54,13 @@ describe("Multi-Frontend N:N E2E", () => {
   test("two frontends receive independently encrypted records", async () => {
     const bundle = await createPairingBundle(
       `ws://localhost:${relayPort}`,
-      "multi-daemon",
+      "daemon-multi",
     );
 
     // Daemon connects to relay (self-registers)
     await daemon.connectRelay({
       relayUrl: `ws://localhost:${relayPort}`,
-      daemonId: "multi-daemon",
+      daemonId: "daemon-multi",
       token: bundle.relayToken,
       registrationProof: bundle.registrationProof,
       keyPair: bundle.keyPair,
@@ -83,7 +83,7 @@ describe("Multi-Frontend N:N E2E", () => {
         t: "relay.auth",
         v: 2,
         role: "frontend",
-        daemonId: "multi-daemon",
+        daemonId: "daemon-multi",
         token: bundle.relayToken,
         frontendId: "frontend-A",
       }),
@@ -115,7 +115,7 @@ describe("Multi-Frontend N:N E2E", () => {
         t: "relay.auth",
         v: 2,
         role: "frontend",
-        daemonId: "multi-daemon",
+        daemonId: "daemon-multi",
         token: bundle.relayToken,
         frontendId: "frontend-B",
       }),
@@ -229,12 +229,12 @@ describe("Multi-Frontend N:N E2E", () => {
   test("input from either frontend reaches daemon", async () => {
     const bundle = await createPairingBundle(
       `ws://localhost:${relayPort}`,
-      "multi-input",
+      "daemon-multi-input",
     );
 
     await daemon.connectRelay({
       relayUrl: `ws://localhost:${relayPort}`,
-      daemonId: "multi-input",
+      daemonId: "daemon-multi-input",
       token: bundle.relayToken,
       registrationProof: bundle.registrationProof,
       keyPair: bundle.keyPair,
@@ -255,7 +255,7 @@ describe("Multi-Frontend N:N E2E", () => {
         t: "relay.auth",
         v: 2,
         role: "frontend",
-        daemonId: "multi-input",
+        daemonId: "daemon-multi-input",
         token: bundle.relayToken,
         frontendId: "input-frontend",
       }),

@@ -19,6 +19,8 @@ export default function PairingScreen() {
 
   // Preview the daemon being requested when arriving via deep link, so the
   // user has to explicitly confirm rather than be paired automatically.
+  // Label is no longer in the QR — the daemon broadcasts it during relay
+  // key exchange — so the preview shows the daemon ID until kx completes.
   const preview = useMemo(() => {
     const text = manualInput.trim();
     if (!text) return null;
@@ -27,7 +29,6 @@ export default function PairingScreen() {
       return {
         did: data.did,
         relay: data.relay,
-        label: data.label ?? null,
       };
     } catch {
       return null;
@@ -96,14 +97,9 @@ export default function PairingScreen() {
           <Text className="text-gray-500 text-xs uppercase mb-1">
             Pairing with
           </Text>
-          <Text className="text-white text-base font-semibold">
-            {preview.label ?? preview.did}
+          <Text className="text-white text-base font-semibold font-mono">
+            {preview.did}
           </Text>
-          {preview.label && (
-            <Text className="text-gray-400 text-xs font-mono mt-0.5">
-              {preview.did}
-            </Text>
-          )}
           <Text className="text-gray-500 text-xs mt-1">
             via {preview.relay.replace(/^wss:\/\//, "")}
           </Text>

@@ -270,6 +270,12 @@ export class RelayClient {
   /**
    * Broadcast the daemon's public key to all connected frontends.
    * Encrypted with kxKey so only holders of the pairing secret can read it.
+   *
+   * The payload also carries this pairing's `label` so the frontend can
+   * adopt the daemon's name without it taking up bytes in the QR. Sending
+   * `label: null` is a positive signal that the daemon has no label
+   * configured — the frontend keeps whatever fallback it already has
+   * (typically the device name).
    */
   private async broadcastDaemonPublicKey(): Promise<void> {
     if (!this.kxKey) return;
@@ -277,6 +283,7 @@ export class RelayClient {
     const payload = JSON.stringify({
       pk: await toBase64(this.config.keyPair.publicKey),
       role: "daemon",
+      label: this.config.label ?? null,
     });
     const ct = await encrypt(new TextEncoder().encode(payload), this.kxKey);
     this.send({ t: "relay.kx", ct, role: "daemon" });

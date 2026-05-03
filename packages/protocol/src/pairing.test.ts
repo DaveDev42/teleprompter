@@ -15,7 +15,7 @@ describe("pairing", () => {
       "daemon-123",
     );
 
-    expect(bundle.qrData.v).toBe(2);
+    expect(bundle.qrData.v).toBe(3);
     expect(bundle.qrData.relay).toBe("wss://relay.example.com");
     expect(bundle.qrData.did).toBe("daemon-123");
     expect(bundle.qrData.ps).toBeTruthy();
@@ -27,7 +27,7 @@ describe("pairing", () => {
   });
 
   test("encode/decode pairing data round-trip", async () => {
-    const bundle = await createPairingBundle("wss://relay.test", "d1");
+    const bundle = await createPairingBundle("wss://relay.test", "daemon-d1");
     const encoded = encodePairingData(bundle.qrData);
     const decoded = decodePairingData(encoded);
 
@@ -35,31 +35,26 @@ describe("pairing", () => {
     expect(decoded.pk).toBe(bundle.qrData.pk);
     expect(decoded.relay).toBe(bundle.qrData.relay);
     expect(decoded.did).toBe(bundle.qrData.did);
-    expect(decoded.v).toBe(2);
+    expect(decoded.v).toBe(3);
   });
 
-  test("createPairingBundle includes label when provided", async () => {
+  test("PairingData has no label field — label travels via relay.kx", async () => {
+    // Label was removed from the QR to shrink it; the daemon now broadcasts
+    // its label in the encrypted relay.kx envelope after auth. This test
+    // pins the wire shape so anyone re-adding `label` to PairingData has to
+    // re-think the migration.
+    const bundle = await createPairingBundle("wss://relay.test", "daemon-x");
+    expect("label" in bundle.qrData).toBe(false);
+    const decoded = decodePairingData(encodePairingData(bundle.qrData));
+    expect("label" in decoded).toBe(false);
+  });
+
+  test("createPairingBundle ignores label opt for QR purposes", async () => {
+    // Label can still be passed for daemon-side bookkeeping (RelayClient
+    // config picks it up), but it must not surface on the QR payload.
     const bundle = await createPairingBundle("wss://relay.test", "daemon-lbl", {
       label: "My MacBook",
     });
-    expect(bundle.qrData.label).toBe("My MacBook");
-  });
-
-  test("encoded pairing data round-trips label", async () => {
-    const bundle = await createPairingBundle("wss://relay.test", "daemon-lbl", {
-      label: "My MacBook",
-    });
-    const encoded = encodePairingData(bundle.qrData);
-    const decoded = decodePairingData(encoded);
-    expect(decoded.label).toBe("My MacBook");
-  });
-
-  test("pairing bundle omits label cleanly when not provided", async () => {
-    const bundle = await createPairingBundle(
-      "wss://relay.test",
-      "daemon-nolbl",
-    );
-    expect(bundle.qrData.label).toBeUndefined();
     expect("label" in bundle.qrData).toBe(false);
   });
 
@@ -73,7 +68,6 @@ describe("pairing", () => {
     const bundle = await createPairingBundle(
       "wss://relay.tpmt.dev",
       "daemon-deeplinktest",
-      { label: "My iPhone" },
     );
     const encoded = encodePairingData(bundle.qrData);
     expect(encoded.startsWith("tp://p?d=")).toBe(true);
@@ -83,7 +77,6 @@ describe("pairing", () => {
     const bundle = await createPairingBundle(
       "wss://relay.tpmt.dev",
       "daemon-bare",
-      { label: "label" },
     );
     const url = encodePairingData(bundle.qrData);
     const bare = url.slice("tp://p?d=".length);
@@ -105,7 +98,10 @@ describe("pairing", () => {
     // payload that decoded fine under the old prefix must now fail — this
     // catches anyone hand-editing PAIRING_URL_SCHEME back or introducing a
     // looser prefix match.
-    const bundle = await createPairingBundle("wss://relay.tpmt.dev", "d-old");
+    const bundle = await createPairingBundle(
+      "wss://relay.tpmt.dev",
+      "daemon-old",
+    );
     const newUrl = encodePairingData(bundle.qrData);
     const payload = newUrl.slice("tp://p?d=".length);
     expect(() => decodePairingData(`teleprompter://pair?d=${payload}`)).toThrow(
@@ -113,17 +109,52 @@ describe("pairing", () => {
     );
   });
 
-  test("encoded form fits comfortably under 175 chars with typical label", async () => {
-    // Real-world fields: relay 20 chars, daemon id 17 chars, label 14 chars.
-    // Prefix is `tp://p?d=` (9 chars), and the default relay shrinks the
-    // binary by ~22 bytes, so the typical pairing URL lands around 170 chars.
+  test("typical pairing URL fits comfortably under 130 chars", async () => {
+    // Real-world fields: relay 20 chars (wss://relay.tpmt.dev — replaced by
+    // relay_len=0 sentinel), daemon id 17 chars (daemon-mob73tr0xx —
+    // `daemon-` prefix is stripped on the wire and restored on decode),
+    // no label. Prefix is `tp://p?d=` (9 chars).
     const bundle = await createPairingBundle(
       "wss://relay.tpmt.dev",
       "daemon-mob73tr0xx",
-      { label: "iPhone-build51" },
     );
     const encoded = encodePairingData(bundle.qrData);
-    expect(encoded.length).toBeLessThan(175);
+    expect(encoded.length).toBeLessThan(130);
+  });
+
+  test("encoder strips daemon- prefix on wire and decoder restores it", async () => {
+    // Verifies the prefix-stripping optimisation directly: encoding a
+    // `daemon-XXXX` id should produce a binary payload that does NOT
+    // contain the literal `daemon-` substring (otherwise the optimisation
+    // is a no-op).
+    const bundle = await createPairingBundle(
+      "wss://relay.tpmt.dev",
+      "daemon-abcdef",
+    );
+    const encoded = encodePairingData(bundle.qrData);
+    const payload = encoded.slice("tp://p?d=".length);
+    // Decode the base64url payload back to bytes and inspect them directly.
+    const padLen = (4 - (payload.length % 4)) % 4;
+    const b64 =
+      payload.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat(padLen);
+    const bin = atob(b64);
+    expect(bin).not.toContain("daemon-");
+    expect(bin).toContain("abcdef");
+    // And the round-trip still recovers the full id.
+    expect(decodePairingData(encoded).did).toBe("daemon-abcdef");
+  });
+
+  test("encodePairingData rejects daemon ids without daemon- prefix", async () => {
+    // The wire format relies on the prefix being implicit. Encoding an id
+    // that doesn't carry it would hand a partially-correct id to the
+    // frontend on decode, so we reject it loudly at the source.
+    const bundle = await createPairingBundle(
+      "wss://relay.tpmt.dev",
+      "daemon-anchor",
+    );
+    expect(() =>
+      encodePairingData({ ...bundle.qrData, did: "anchor" }),
+    ).toThrow(/daemon id must start with/);
   });
 
   test("default relay URL is omitted from binary form to shrink the QR", async () => {
@@ -164,17 +195,6 @@ describe("pairing", () => {
     expect(decoded.relay).toBe(DEFAULT_PAIRING_RELAY_URL);
   });
 
-  test("round-trips utf-8 label safely", async () => {
-    const bundle = await createPairingBundle(
-      "wss://relay.tpmt.dev",
-      "daemon-utf8",
-      { label: "데이브-iPhone-📱" },
-    );
-    const encoded = encodePairingData(bundle.qrData);
-    const decoded = decodePairingData(encoded);
-    expect(decoded.label).toBe("데이브-iPhone-📱");
-  });
-
   test("decodePairingData rejects deep link with no query", () => {
     expect(() => decodePairingData("tp://p")).toThrow(
       "Invalid pairing data format",
@@ -195,15 +215,15 @@ describe("pairing", () => {
 
   test("decodePairingData rejects binary payload with empty did", () => {
     // Manually craft: magic(2)='tp' | ver(1)=2 | didLen=0 | relayLen=1 | r |
-    // ps(32) | pk(32) | labelLen=0
-    const buf = new Uint8Array(2 + 1 + 1 + 1 + 1 + 32 + 32 + 1);
+    // ps(32) | pk(32)
+    const buf = new Uint8Array(2 + 1 + 1 + 1 + 1 + 32 + 32);
     buf[0] = 0x74; // 't'
     buf[1] = 0x70; // 'p'
     buf[2] = 2;
     buf[3] = 0; // didLen
     buf[4] = 1; // relayLen
     buf[5] = 0x78; // 'x'
-    // ps + pk + labelLen left as zeros
+    // ps + pk left as zeros
     const b64 = btoa(String.fromCharCode(...buf))
       .replace(/\+/g, "-")
       .replace(/\//g, "_")
@@ -214,27 +234,61 @@ describe("pairing", () => {
   });
 
   test("decodePairingData treats empty relay as default relay URL", () => {
-    // magic(2)='tp' | ver(1)=2 | didLen=1 | did | relayLen=0 |
-    // ps(32) | pk(32) | labelLen=0
-    const buf = new Uint8Array(2 + 1 + 1 + 1 + 1 + 32 + 32 + 1);
+    // magic(2)='tp' | ver(1)=3 | didLen=1 | did='x' | relayLen=0 |
+    // ps(32) | pk(32). Decoder restores `daemon-` prefix on the way out.
+    const buf = new Uint8Array(2 + 1 + 1 + 1 + 1 + 32 + 32);
     buf[0] = 0x74; // 't'
     buf[1] = 0x70; // 'p'
-    buf[2] = 2;
+    buf[2] = 3;
     buf[3] = 1; // didLen=1
     buf[4] = 0x78; // 'x'
     buf[5] = 0; // relayLen=0
-    // ps + pk + labelLen left as zeros
+    // ps + pk left as zeros
     const b64 = btoa(String.fromCharCode(...buf))
       .replace(/\+/g, "-")
       .replace(/\//g, "_")
       .replace(/=+$/, "");
     const decoded = decodePairingData(`tp://p?d=${b64}`);
     expect(decoded.relay).toBe(DEFAULT_PAIRING_RELAY_URL);
-    expect(decoded.did).toBe("x");
+    expect(decoded.did).toBe("daemon-x");
+  });
+
+  test("decodePairingData accepts legacy v2 payload and ignores trailing label", () => {
+    // v2 layout: magic(2)='tp' | ver(1)=2 | didLen | did_verbatim |
+    //   relayLen | relay | ps(32) | pk(32) | labelLen | label
+    // The did was stored verbatim including the `daemon-` prefix; the v3
+    // decoder must NOT prepend the prefix again on v2 payloads.
+    const enc = new TextEncoder();
+    const did = enc.encode("daemon-legacy");
+    const label = enc.encode("Old Mac");
+    const buf = new Uint8Array(
+      2 + 1 + 1 + did.length + 1 + 0 + 32 + 32 + 1 + label.length,
+    );
+    let o = 0;
+    buf[o++] = 0x74; // 't'
+    buf[o++] = 0x70; // 'p'
+    buf[o++] = 2; // legacy version
+    buf[o++] = did.length;
+    buf.set(did, o);
+    o += did.length;
+    buf[o++] = 0; // relayLen=0 (default relay)
+    o += 32; // ps zeros
+    o += 32; // pk zeros
+    buf[o++] = label.length;
+    buf.set(label, o);
+
+    const b64 = btoa(String.fromCharCode(...buf))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    const decoded = decodePairingData(`tp://p?d=${b64}`);
+    expect(decoded.v).toBe(2);
+    expect(decoded.did).toBe("daemon-legacy"); // verbatim, not double-prefixed
+    expect(decoded.relay).toBe(DEFAULT_PAIRING_RELAY_URL);
   });
 
   test("decodePairingData rejects unknown binary version", () => {
-    const buf = new Uint8Array(2 + 1 + 1 + 1 + 1 + 32 + 32 + 1);
+    const buf = new Uint8Array(2 + 1 + 1 + 1 + 1 + 32 + 32);
     buf[0] = 0x74;
     buf[1] = 0x70;
     buf[2] = 99; // unknown version
@@ -252,18 +306,18 @@ describe("pairing", () => {
   });
 
   test("decodePairingData strips a UTF-8 BOM before parsing", async () => {
-    const bundle = await createPairingBundle("wss://relay.tpmt.dev", "d-bom", {
-      label: "bom-test",
-    });
+    const bundle = await createPairingBundle(
+      "wss://relay.tpmt.dev",
+      "daemon-bom",
+    );
     const url = encodePairingData(bundle.qrData);
     const decoded = decodePairingData(`﻿${url}`);
-    expect(decoded.did).toBe("d-bom");
-    expect(decoded.label).toBe("bom-test");
+    expect(decoded.did).toBe("daemon-bom");
   });
 
   test("full pairing flow: daemon creates, frontend parses, keys match", async () => {
     // Step 1: Daemon creates pairing bundle
-    const bundle = await createPairingBundle("wss://relay.test", "d1");
+    const bundle = await createPairingBundle("wss://relay.test", "daemon-d1");
 
     // Step 2: QR code contains encoded pairing data
     const qrString = encodePairingData(bundle.qrData);
@@ -274,7 +328,7 @@ describe("pairing", () => {
 
     // Both sides derive the same relay token
     expect(frontendParsed.relayToken).toBe(bundle.relayToken);
-    expect(frontendParsed.daemonId).toBe("d1");
+    expect(frontendParsed.daemonId).toBe("daemon-d1");
     expect(frontendParsed.relayUrl).toBe("wss://relay.test");
 
     // Step 4: Frontend generates its own key pair

@@ -67,6 +67,11 @@ export default function ScanScreen() {
   // Dedup so a quick double-detect from VisionKit doesn't fire processScan
   // twice before navigation.
   const handlingRef = useRef(false);
+  // Monotonic counter that identifies the "current" launchScanner call.
+  // The effect re-runs (e.g. permission flips, parent remount) could leave a
+  // stale launchScanner promise in flight; when it eventually resolves we
+  // must not let it stomp on the newer launch's `scannerOpen` state.
+  const launchIdRef = useRef(0);
 
   const [permission, requestPermission] = useCameraPermissions?.() ?? [
     null,
@@ -90,16 +95,21 @@ export default function ScanScreen() {
   // bookkeeping so the lifecycle effect and the retry button share one path.
   const openScanner = useCallback(() => {
     if (!CameraView) return;
+    const id = ++launchIdRef.current;
     setScannerOpen(true);
     CameraView.launchScanner({ barcodeTypes: ["qr"] })
       .then(() => {
         // Resolves when the modal dismisses for any reason — scan, swipe-down,
         // programmatic dismiss. The handleScanned path will already have set
-        // scannerOpen=false; this no-ops in that case.
-        if (mountedRef.current) setScannerOpen(false);
+        // scannerOpen=false; this no-ops in that case. The id check drops a
+        // stale resolution from a prior launch so it doesn't flip a newer
+        // launch's state to closed.
+        if (mountedRef.current && launchIdRef.current === id) {
+          setScannerOpen(false);
+        }
       })
       .catch(() => {
-        if (mountedRef.current) {
+        if (mountedRef.current && launchIdRef.current === id) {
           setScannerOpen(false);
           setScanError("Could not open the camera scanner.");
         }

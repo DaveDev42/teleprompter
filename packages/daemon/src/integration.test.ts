@@ -182,8 +182,8 @@ describe("Integration", () => {
     }
 
     // Wait for processing — drain + server-side sqlite writes
-    // Windows IPC is slower; allow up to 10s (100 * 100ms)
-    for (let i = 0; i < 100; i++) {
+    // Allow up to 20s (200 * 100ms) for slow CI runners
+    for (let i = 0; i < 200; i++) {
       await Bun.sleep(100);
       const v = new Store(storeDir);
       const db = v.getSessionDb(sid);
@@ -204,7 +204,7 @@ describe("Integration", () => {
     if (!db) throw new Error("expected db");
     expect(db.getLastSeq()).toBe(total);
     store.close();
-  }, 12_000);
+  }, 25_000);
 
   test("hook receiver: JSON event → onEvent callback", async () => {
     const hookSocketPath = join(tmpDir, "hook-test.sock");

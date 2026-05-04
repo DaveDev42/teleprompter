@@ -66,7 +66,7 @@ Daemon management:
 
 Advanced:
   tp relay start [--port 7090]        Run a relay server
-  tp completions <bash|zsh|fish|powershell>   Print shell completions to stdout
+  tp completions <bash|zsh|fish>      Print shell completions to stdout
   tp completions install [shell]      Install completions (--force, --dry-run)
   tp completions uninstall [shell]    Remove installed completions
 

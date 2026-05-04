@@ -5,14 +5,12 @@
 ### Voice
 - [ ] `VoiceButton`이 iOS/Android에서 `null` 반환 — 네이티브 오디오 캡처/재생 미구현 (expo-av 등 필요)
 
-### Windows
-- [ ] Bun `bun:sqlite` Windows finalizer 지연 — Bun 1.3.12 업그레이드 및 `Store.deleteSession`의 double-GC(`Bun.gc(true) → sleep 50ms → Bun.gc(true)`) 보강에도 불구하고 Windows CI에서 `unlinkRetry`의 모든 retry(1.575s budget)를 소진해도 lock이 풀리지 않는 케이스 확인됨. 실제 timeout 문제가 아니라 lock 자체의 지속성 문제라, retry budget을 키우면 다른 `auto-cleanup` 테스트들이 연쇄 timeout. `store-cleanup.test.ts`의 2개 테스트는 `describe.skipIf(win32)`로 skip 유지. 추가로 `auto-cleanup.test.ts` 전체와 `store-cleanup.test.ts`의 `pruneOldSessions removes error sessions` 테스트도 Windows CI 속도 개선을 위해 skip 확장 (macOS/Linux에서 동일 경로 검증됨). Bun upstream issue [oven-sh/bun#25964](https://github.com/oven-sh/bun/issues/25964) (WAL mode file lock on Windows after close) 해결 시 재시도 — 2026-04 현재 open, assignee/milestone 없음.
-- [x] ~~**`checkForUpdates` Windows CI flake**~~ — `apps/cli/src/commands/upgrade.test.ts`의 두 테스트가 5초 타임아웃으로 산발 fail (PR #154, #136, #158 재현). 원인: `getLatestRelease()`가 `gh` CLI shell-out + GitHub API fetch를 직접 호출 → Windows에서 subprocess spawn + fs jitter가 5s budget 초과. 해결 (2026-04-30): `checkForUpdates`에 `fetchLatest` dependency injection 추가, 두 테스트가 `async () => null` stub을 주입해 network 의존성 완전 제거. 6 checkForUpdates 테스트 모두 329ms로 deterministic 통과.
+### Windows (dropped — see "Drop native Windows support" below)
+- [x] ~~Bun `bun:sqlite` Windows finalizer 지연~~ — moot. Native Windows support was dropped; Windows users run the Linux build inside WSL where the SQLite finalizer behavior matches Linux. Entry point now exits with a WSL pointer on `process.platform === "win32"`.
+- [x] ~~`checkForUpdates` Windows CI flake~~ — fixed via `fetchLatest` DI in PR #154 era; subsequently the entire Windows CI matrix was removed when native Windows support was dropped.
 
 ### 미검증 항목 (잠재 이슈)
 - [ ] Push Notifications 실기기 미검증 — Simulator에서는 push token 생성 불가, 실제 iOS/Android 디바이스에서 E2E 테스트 필요
-- [ ] Windows PTY/IPC 실환경 미검증 — CI unit test만 통과, 실제 Windows 환경에서 `tp` passthrough + daemon 동작 E2E 검증 필요 (유저가 Windows 개발 환경 제공 시 진행 예정)
-- [ ] Windows install.ps1 실환경 미검증 — PowerShell 설치 스크립트 (v0.1.9 기준), 실제 Windows 기기에서 `irm ... | iex` → `tp version` → `tp upgrade` 플로우 확인 필요 (유저가 Windows 개발 환경 제공 시 진행 예정)
 - [ ] Session Export 대규모 세션 성능 미검증 — 10,000+ records 세션에서 export 속도/메모리 사용량 확인 필요 (현재 limit 50,000)
 
 ### 발견된 버그

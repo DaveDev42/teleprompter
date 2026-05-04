@@ -9,12 +9,12 @@ This guide walks you through installation, your first session, and connecting th
 
 | Requirement | Version | Check |
 |-------------|---------|-------|
-| **OS** | macOS, Linux, or Windows | `uname -s` (macOS/Linux) / `$PSVersionTable.OS` (Windows) |
+| **OS** | macOS or Linux (Windows: run under WSL) | `uname -s` |
 | **Claude Code CLI** | Latest | `claude --version` |
 | **pnpm** (build from source only) | Latest | `pnpm --version` |
 | **Bun** (build from source only) | 1.3.12+ | `bun --version` |
 
-> **Note:** Windows support uses ConPTY for terminal rendering and Task Scheduler for background services. See [Windows-specific notes](#windows-specific-notes) below.
+> **Windows users:** native Windows is not supported. Install WSL (`wsl --install` in PowerShell as Administrator), then follow the Linux instructions below from inside your WSL distro.
 
 ## Quick Install
 
@@ -29,11 +29,7 @@ This downloads the latest `tp` binary to `~/.local/bin/tp`. If `~/.local/bin` is
 
 ### Windows
 
-```powershell
-irm https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts/install.ps1 | iex
-```
-
-Installs `tp.exe` to `$env:LOCALAPPDATA\Programs\teleprompter`. The installer prints the PATH command to run.
+Native Windows is not supported. Inside WSL, run the macOS/Linux installer above.
 
 To verify the installation:
 
@@ -110,7 +106,7 @@ Install the daemon as an OS service so it starts automatically on login:
 tp daemon install
 ```
 
-This creates a launchd plist (macOS), a systemd user unit (Linux), or a Task Scheduler task named `TeleprompterDaemon` (Windows). To uninstall later:
+This creates a launchd plist (macOS) or a systemd user unit (Linux). To uninstall later:
 
 ```bash
 tp daemon uninstall
@@ -202,7 +198,6 @@ All other flags are forwarded directly to `claude`.
   export PATH="$HOME/.local/bin:$PATH"
   ```
   Add this to your `~/.zshrc` or `~/.bashrc` to make it permanent.
-- Windows: see the [Windows-specific notes](#windows-specific-notes) for the PATH command.
 
 **Daemon won't start**
 - Check if another daemon is already running: `tp status`
@@ -219,13 +214,13 @@ All other flags are forwarded directly to `claude`.
 - Check the Diagnostics panel in the app for connection status
 - Ensure pairing is active (Diagnostics > Relay / Pairing)
 
-## Windows-specific notes
+## Windows users
 
-- **PATH**: the installer places `tp.exe` in `%LOCALAPPDATA%\Programs\teleprompter`. Add that directory to `PATH` (the installer prints the exact command).
-- **Service**: `tp daemon install` registers a Task Scheduler task named `TeleprompterDaemon` that launches on login. `tp daemon uninstall` removes it.
-- **PTY**: terminal rendering uses a bundled Node.js PTY host (`@aspect-build/node-pty` via ConPTY) since Bun's PTY support is not yet available on Windows.
-- **IPC**: Runner ↔ Daemon uses Named Pipes instead of Unix domain sockets.
-- **Upgrade**: `tp upgrade` downloads the `.exe`, verifies the SHA-256 checksum, replaces the current binary, and restarts the Task Scheduler task if installed.
+Native Windows is not supported. Run `tp` inside [WSL](https://learn.microsoft.com/windows/wsl/) (Windows Subsystem for Linux) using the Linux build:
+
+1. Install WSL: open PowerShell as Administrator and run `wsl --install`. Reboot when prompted.
+2. Launch your WSL distro (Ubuntu by default), then follow the macOS / Linux installer above from inside WSL.
+3. The app on your phone connects through the relay just like on a native Linux box — no extra Windows-side setup needed.
 
 For more help, search [existing issues](https://github.com/DaveDev42/teleprompter/issues)
 or open a new one on GitHub.

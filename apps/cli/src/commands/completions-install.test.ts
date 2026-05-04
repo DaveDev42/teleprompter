@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
   existsSync,
-  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -92,25 +91,22 @@ describe("installCompletion — zsh", () => {
   });
 });
 
-describe.skipIf(process.platform === "win32")(
-  "installCompletion — safety (POSIX mode bits)",
-  () => {
-    test("preserves existing .zshrc mode when installing", () => {
-      const file = join(home, ".zshrc");
-      writeFileSync(file, "# prior\n");
-      chmodSync(file, 0o600);
-      installCompletion({ shell: "zsh", home });
-      const mode = statSync(file).mode & 0o777;
-      expect(mode).toBe(0o600);
-    });
+describe("installCompletion — safety (POSIX mode bits)", () => {
+  test("preserves existing .zshrc mode when installing", () => {
+    const file = join(home, ".zshrc");
+    writeFileSync(file, "# prior\n");
+    chmodSync(file, 0o600);
+    installCompletion({ shell: "zsh", home });
+    const mode = statSync(file).mode & 0o777;
+    expect(mode).toBe(0o600);
+  });
 
-    test("new .bashrc gets mode 0o644", () => {
-      installCompletion({ shell: "bash", home });
-      const mode = statSync(join(home, ".bashrc")).mode & 0o777;
-      expect(mode).toBe(0o644);
-    });
-  },
-);
+  test("new .bashrc gets mode 0o644", () => {
+    installCompletion({ shell: "bash", home });
+    const mode = statSync(join(home, ".bashrc")).mode & 0o777;
+    expect(mode).toBe(0o644);
+  });
+});
 
 describe("installCompletion — safety", () => {
   test("dry-run distinguishes fresh / already-installed / force-rewrite", () => {
@@ -183,108 +179,6 @@ describe("uninstallCompletion — fish", () => {
   });
 });
 
-describe("installCompletion — powershell heal", () => {
-  test("heals when script exists but profile marker is missing", () => {
-    installCompletion({ shell: "powershell", home });
-    // Remove the marker block from Profile.ps1, leaving the script file in place.
-    const profileFile = join(home, "Documents", "PowerShell", "Profile.ps1");
-    writeFileSync(profileFile, "# just user content\n");
-    const r = installCompletion({ shell: "powershell", home });
-    expect(r.status).toBe("installed");
-    const profile = readFileSync(profileFile, "utf-8");
-    expect(profile).toContain("# >>> tp completions");
-    expect(profile).toContain("# just user content");
-  });
-
-  test("heals when profile marker exists but script is missing", () => {
-    installCompletion({ shell: "powershell", home });
-    const scriptFile = join(
-      home,
-      "Documents",
-      "PowerShell",
-      "tp-completions.ps1",
-    );
-    rmSync(scriptFile);
-    const r = installCompletion({ shell: "powershell", home });
-    expect(r.status).toBe("installed");
-    expect(existsSync(scriptFile)).toBe(true);
-  });
-});
-
-describe("installCompletion — powershell", () => {
-  test("writes managed file and appends dot-source to profile", () => {
-    const result = installCompletion({ shell: "powershell", home });
-    expect(result.status).toBe("installed");
-
-    const scriptFile = join(
-      home,
-      "Documents",
-      "PowerShell",
-      "tp-completions.ps1",
-    );
-    const profileFile = join(home, "Documents", "PowerShell", "Profile.ps1");
-
-    expect(existsSync(scriptFile)).toBe(true);
-    expect(readFileSync(scriptFile, "utf-8")).toContain(
-      "Register-ArgumentCompleter",
-    );
-
-    const profile = readFileSync(profileFile, "utf-8");
-    expect(profile).toContain("# >>> tp completions");
-    expect(profile).toContain(`. "${scriptFile}"`);
-    expect(profile).toContain("# <<< tp completions");
-  });
-
-  test("uses WindowsPowerShell path when legacyPowerShell=true", () => {
-    installCompletion({ shell: "powershell", home, legacyPowerShell: true });
-    expect(
-      existsSync(
-        join(home, "Documents", "WindowsPowerShell", "tp-completions.ps1"),
-      ),
-    ).toBe(true);
-  });
-
-  test("idempotent second install", () => {
-    installCompletion({ shell: "powershell", home });
-    const result = installCompletion({ shell: "powershell", home });
-    expect(result.status).toBe("already-installed");
-  });
-
-  test("uninstall removes managed file and profile marker block", () => {
-    const dir = join(home, "Documents", "PowerShell");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "Profile.ps1"), "# user profile content\n");
-    installCompletion({ shell: "powershell", home });
-
-    const result = uninstallCompletion({ shell: "powershell", home });
-    expect(result.status).toBe("uninstalled");
-    expect(existsSync(join(dir, "tp-completions.ps1"))).toBe(false);
-
-    const profile = readFileSync(join(dir, "Profile.ps1"), "utf-8");
-    expect(profile).toContain("# user profile content");
-    expect(profile).not.toContain("# >>> tp completions");
-  });
-
-  test("uninstall reports not-installed when nothing exists", () => {
-    const result = uninstallCompletion({ shell: "powershell", home });
-    expect(result.status).toBe("not-installed");
-  });
-});
-
-describe("installCompletion — powershell profile override", () => {
-  test("powerShellProfileDir overrides the default path", () => {
-    const custom = join(home, "custom-profile-dir");
-    const result = installCompletion({
-      shell: "powershell",
-      home,
-      powerShellProfileDir: custom,
-    });
-    expect(result.status).toBe("installed");
-    expect(existsSync(join(custom, "tp-completions.ps1"))).toBe(true);
-    expect(existsSync(join(custom, "Profile.ps1"))).toBe(true);
-  });
-});
-
 describe("installCompletion — full cycle", () => {
   test("bash: install → force → uninstall → install", () => {
     const bashrc = join(home, ".bashrc");
@@ -321,47 +215,5 @@ describe("installCompletion — full cycle", () => {
     expect(existsSync(file)).toBe(false);
     expect(installCompletion({ shell: "fish", home }).status).toBe("installed");
     expect(readFileSync(file, "utf-8")).toContain("complete -c tp");
-  });
-
-  test("powershell: install → force → uninstall → install", () => {
-    const scriptFile = join(
-      home,
-      "Documents",
-      "PowerShell",
-      "tp-completions.ps1",
-    );
-    const profileFile = join(home, "Documents", "PowerShell", "Profile.ps1");
-
-    expect(installCompletion({ shell: "powershell", home }).status).toBe(
-      "installed",
-    );
-    expect(readFileSync(scriptFile, "utf-8")).toContain(
-      "Register-ArgumentCompleter",
-    );
-    expect(readFileSync(profileFile, "utf-8")).toContain(
-      "# >>> tp completions",
-    );
-
-    expect(
-      installCompletion({ shell: "powershell", home, force: true }).status,
-    ).toBe("installed");
-    const afterForce = readFileSync(profileFile, "utf-8");
-    expect((afterForce.match(/# >>> tp completions/g) ?? []).length).toBe(1);
-    expect(afterForce).toMatch(/# <<< tp completions <<<\n$/);
-
-    expect(uninstallCompletion({ shell: "powershell", home }).status).toBe(
-      "uninstalled",
-    );
-    expect(existsSync(scriptFile)).toBe(false);
-    expect(readFileSync(profileFile, "utf-8")).not.toContain(
-      "# >>> tp completions",
-    );
-
-    expect(installCompletion({ shell: "powershell", home }).status).toBe(
-      "installed",
-    );
-    expect(readFileSync(scriptFile, "utf-8")).toContain(
-      "Register-ArgumentCompleter",
-    );
   });
 });

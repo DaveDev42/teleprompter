@@ -7,16 +7,10 @@ import { WorktreeManager } from "./worktree-manager";
 
 /**
  * Normalize a path so it matches the form `git worktree list --porcelain`
- * emits on the current platform:
- * - Windows: 8.3 short names → long names (realpath.native), `\` → `/`.
- * - macOS/Linux: realpathSync already handles symlinks (e.g. `/var` → `/private/var`).
+ * emits — on macOS, realpathSync resolves symlinks (e.g. `/var` → `/private/var`).
  */
 function normalizeGitPath(p: string): string {
-  const resolved =
-    process.platform === "win32" && realpathSync.native
-      ? realpathSync.native(p)
-      : realpathSync(p);
-  return process.platform === "win32" ? resolved.replace(/\\/g, "/") : resolved;
+  return realpathSync(p);
 }
 
 /** Run git synchronously to avoid Bun.spawn cwd issues in bun test runner */

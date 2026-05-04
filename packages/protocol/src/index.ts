@@ -38,5 +38,5 @@ export {
 export { QueuedWriter } from "./queued-writer";
 export type { RelayControlMessage } from "./relay-guard";
 export { parseRelayControlMessage } from "./relay-guard";
-export { getSocketPath, getWindowsSocketPath } from "./socket-path";
+export { getSocketPath } from "./socket-path";
 export * from "./types";

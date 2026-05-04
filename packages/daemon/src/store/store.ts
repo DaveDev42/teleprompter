@@ -38,8 +38,8 @@ export interface SessionMeta {
 /**
  * Soft cap on how many per-session SQLite handles stay open concurrently.
  * Historical sessions accessed once (e.g. via `getRecordsSince`) used to keep
- * their handle alive forever — with WAL+SHM sidecars that's 3 open files
- * per session accumulating across weeks of a long-running daemon.
+ * their handle alive forever, accumulating fd usage across weeks of a
+ * long-running daemon.
  */
 const DEFAULT_MAX_OPEN_SESSION_DBS = 32;
 
@@ -200,31 +200,13 @@ export class Store {
     // Delete metadata
     this.metaDb.run("DELETE FROM sessions WHERE sid = ?", [sid]);
 
-    // Force a synchronous GC so Bun's bun:sqlite finalizer releases the
-    // underlying OS file handle before we try to unlink. On Windows this
-    // is the difference between an immediate unlink and ~20s of EBUSY.
-    // Run twice with a brief pause: the first GC schedules the finalizer,
-    // the sleep lets the OS release the handle, the second GC sweeps any
-    // stragglers.
-    if (process.platform === "win32") {
-      Bun.gc(true);
-      Bun.sleepSync(50);
-      Bun.gc(true);
-    }
-
     // Delete session database file
     const dbPath = join(this.storeDir, "sessions", `${sid}.sqlite`);
     this.unlinkRetry(dbPath);
-    // Also remove WAL/SHM files
-    for (const suffix of ["-wal", "-shm"]) {
-      this.unlinkRetry(dbPath + suffix);
-    }
   }
 
   private unlinkRetry(path: string): void {
-    // Windows: Bun sqlite occasionally holds the WAL/SHM file handle after
-    // db.close() returns. The caller should run Bun.gc(true) first to
-    // trigger the finalizer; this retry is a safety net.
+    // Retry on transient EBUSY/EPERM (rare on POSIX after db.close()).
     // Budget: 25 + 50 + 100 + 200 + 400 + 800 = 1575 ms across 6 attempts,
     // keeps startAutoCleanup within the default 5000 ms test timeout when
     // it walks several sessions at once.
@@ -240,9 +222,6 @@ export class Store {
         if (code === "ENOENT") return;
         if (code === "EBUSY" || code === "EPERM") {
           if (attempt === maxAttempts - 1) break;
-          if (process.platform === "win32") {
-            Bun.gc(true);
-          }
           Bun.sleepSync(25 * 2 ** attempt);
           continue;
         }
@@ -372,63 +351,25 @@ export class Store {
   /**
    * Test-only: clear metadata rows, close cached session dbs, and sweep the
    * per-session `.sqlite` files on disk. The meta db itself is kept open so
-   * shared-fixture blocks can reuse it — avoids the per-test bun:sqlite
-   * open/close churn that is especially expensive on Windows. Callers
-   * should still prefer unique sids per test as defense in depth.
+   * shared-fixture blocks can reuse it.
    */
   resetForTest(): void {
-    const hadOpenDbs = this.sessionDbs.size > 0;
     for (const db of this.sessionDbs.values()) {
       db.close();
     }
     this.sessionDbs.clear();
     this.metaDb.run("DELETE FROM sessions");
     this.metaDb.run("DELETE FROM pairings");
-    // Keep the meta WAL from growing across long shared-fixture runs.
-    try {
-      this.metaDb.run("PRAGMA wal_checkpoint(TRUNCATE);");
-    } catch {
-      // Benign: checkpoint can fail if WAL is already truncated.
-    }
     // Sweep per-session files so later tests cannot observe stale data via
     // getSessionDb(sid) reopening an on-disk leftover.
     const sessionsDir = join(this.storeDir, "sessions");
-    if (hadOpenDbs && process.platform === "win32") {
-      // Mirror deleteSession(): two GCs with a sleep between so bun:sqlite
-      // finalizers actually release OS handles before we unlink.
-      Bun.gc(true);
-      Bun.sleepSync(50);
-      Bun.gc(true);
-    }
-    // Retry on Windows EBUSY/EPERM/ENOTEMPTY — matches unlinkRetry budget.
-    const maxAttempts = 6;
-    let swept = false;
-    let lastCode: string | undefined;
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        rmSync(sessionsDir, { recursive: true, force: true });
-        swept = true;
-        break;
-      } catch (err: unknown) {
-        const code = (err as NodeJS.ErrnoException).code;
-        lastCode = code;
-        if (code === "ENOENT") {
-          swept = true;
-          break;
-        }
-        if (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY") {
-          if (attempt === maxAttempts - 1) break;
-          if (process.platform === "win32") Bun.gc(true);
-          Bun.sleepSync(25 * 2 ** attempt);
-          continue;
-        }
-        throw err;
+    try {
+      rmSync(sessionsDir, { recursive: true, force: true });
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") {
+        log.warn(`resetForTest: failed to sweep ${sessionsDir} (${code})`);
       }
-    }
-    if (!swept) {
-      log.warn(
-        `resetForTest: failed to sweep ${sessionsDir} after ${maxAttempts} retries (${lastCode ?? "locked"})`,
-      );
     }
     mkdirSync(sessionsDir, { recursive: true });
   }
@@ -438,16 +379,6 @@ export class Store {
       db.close();
     }
     this.sessionDbs.clear();
-    // Checkpoint the meta db WAL so its sidecar files release their
-    // Windows handles before close (mirrors SessionDb.close()).
-    try {
-      this.metaDb.run("PRAGMA wal_checkpoint(TRUNCATE);");
-    } catch {
-      // Ignore — checkpoint may fail if another connection holds the db.
-    }
     this.metaDb.close();
-    if (process.platform === "win32") {
-      Bun.gc(true);
-    }
   }
 }

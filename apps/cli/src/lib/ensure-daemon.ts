@@ -26,10 +26,6 @@ export async function isDaemonRunning(): Promise<boolean> {
   const sockPath = getSocketPath();
   if (!existsSync(sockPath)) return false;
 
-  // Windows named pipes: existence check is sufficient — the pipe disappears
-  // when the daemon process exits.
-  if (process.platform === "win32") return true;
-
   // If the path exists but is not a socket (e.g. a leftover regular file from
   // a misconfigured run), it's safe to remove.
   try {

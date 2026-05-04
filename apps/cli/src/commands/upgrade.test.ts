@@ -67,11 +67,11 @@ describe("parseChecksums", () => {
   test("handles CRLF line endings", () => {
     const hashA = "a".repeat(64);
     const hashB = "b".repeat(64);
-    const text = `${hashA}  tp-windows_x64.exe\r\n${hashB}  tp-windows_arm64.exe\r\n`;
+    const text = `${hashA}  tp-linux_x64\r\n${hashB}  tp-linux_arm64\r\n`;
     const map = parseChecksums(text);
     expect(map.size).toBe(2);
-    expect(map.get("tp-windows_x64.exe")).toBe(hashA);
-    expect(map.get("tp-windows_arm64.exe")).toBe(hashB);
+    expect(map.get("tp-linux_x64")).toBe(hashA);
+    expect(map.get("tp-linux_arm64")).toBe(hashB);
   });
 });
 
@@ -111,57 +111,7 @@ describe("computeFileHash", () => {
 describe("getAssetName", () => {
   test("returns platform-specific asset name", () => {
     const name = getAssetName();
-    expect(name).toMatch(/^tp-(darwin|linux|windows)_(arm64|x64)(\.exe)?$/);
-  });
-
-  test("returns .exe on Windows x64", () => {
-    const origPlatform = process.platform;
-    const origArch = process.arch;
-    Object.defineProperty(process, "platform", {
-      value: "win32",
-      configurable: true,
-    });
-    Object.defineProperty(process, "arch", {
-      value: "x64",
-      configurable: true,
-    });
-    try {
-      expect(getAssetName()).toBe("tp-windows_x64.exe");
-    } finally {
-      Object.defineProperty(process, "platform", {
-        value: origPlatform,
-        configurable: true,
-      });
-      Object.defineProperty(process, "arch", {
-        value: origArch,
-        configurable: true,
-      });
-    }
-  });
-
-  test("returns .exe on Windows arm64", () => {
-    const origPlatform = process.platform;
-    const origArch = process.arch;
-    Object.defineProperty(process, "platform", {
-      value: "win32",
-      configurable: true,
-    });
-    Object.defineProperty(process, "arch", {
-      value: "arm64",
-      configurable: true,
-    });
-    try {
-      expect(getAssetName()).toBe("tp-windows_arm64.exe");
-    } finally {
-      Object.defineProperty(process, "platform", {
-        value: origPlatform,
-        configurable: true,
-      });
-      Object.defineProperty(process, "arch", {
-        value: origArch,
-        configurable: true,
-      });
-    }
+    expect(name).toMatch(/^tp-(darwin|linux)_(arm64|x64)$/);
   });
 
   test("returns plain name on darwin arm64", () => {
@@ -310,32 +260,6 @@ describe("resolveCurrentBinaryPath", () => {
       });
     }
   });
-
-  test("returns execPath on Windows (compiled tp.exe)", async () => {
-    const origExecPath = process.execPath;
-    const origPlatform = process.platform;
-    Object.defineProperty(process, "execPath", {
-      value: "C:\\Users\\x\\tp.exe",
-      configurable: true,
-    });
-    Object.defineProperty(process, "platform", {
-      value: "win32",
-      configurable: true,
-    });
-    try {
-      const result = await resolveCurrentBinaryPath();
-      expect(result).toBe("C:\\Users\\x\\tp.exe");
-    } finally {
-      Object.defineProperty(process, "execPath", {
-        value: origExecPath,
-        configurable: true,
-      });
-      Object.defineProperty(process, "platform", {
-        value: origPlatform,
-        configurable: true,
-      });
-    }
-  });
 });
 
 describe("checkForUpdates", () => {
@@ -395,8 +319,7 @@ describe("checkForUpdates", () => {
   test("treats unknown schema version as cache miss", async () => {
     // Future schema bump → reader must refuse old shape. Inject a stub fetcher
     // so the test never touches the network — the GitHub API/`gh` shell-out
-    // path is exercised in integration, and on Windows CI it can exceed the
-    // 5s test budget when fs.writeFile jitter compounds with subprocess spawn.
+    // path is exercised in integration tests instead.
     writeFileSync(
       cachePath,
       JSON.stringify({ version: 99, lastCheck: Date.now() }),
@@ -413,8 +336,7 @@ describe("checkForUpdates", () => {
 
   test("writes cache after running so failed network calls still rate-limit", async () => {
     // Stub fetcher simulating a failed network call. We only assert that the
-    // cache file is written so the next call short-circuits — same Windows
-    // flake mitigation as above.
+    // cache file is written so the next call short-circuits.
     await checkForUpdates({
       cachePath,
       now: 1_700_000_000_000,

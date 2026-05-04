@@ -123,39 +123,8 @@ jobs:
       - name: Playwright E2E
         run: npx playwright test --project=ci
 
-  test-windows:
-    runs-on: windows-2022
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-
-      - name: Test
-        # Bun panics after tests pass on Windows (oven-sh/bun#27471).
-        # Ignore panic exit code, then check for real test failures via "(fail)" pattern.
-        run: |
-          bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay 2>&1 | tee test-output.txt || true
-          if grep -q "^(fail)" test-output.txt; then
-            echo "Test failures detected:"
-            grep "^(fail)" test-output.txt
-            exit 1
-          fi
-          echo "All tests passed (ignoring Bun panic on exit)"
-        shell: bash
-
-      - name: Build CLI
-        run: bun run scripts/build.ts
-        shell: bash
-
-      - name: Smoke test
-        run: |
-          $bin = if (Test-Path "./dist/tp.exe") { "./dist/tp.exe" } else { "./dist/tp" }
-          & $bin version
-          & $bin --help
-        shell: pwsh
-
   eas-gate:
-    needs: [lint, type-check, test, build-cli, e2e, test-windows]
+    needs: [lint, type-check, test, build-cli, e2e]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30

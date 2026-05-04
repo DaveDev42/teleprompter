@@ -197,8 +197,8 @@ export function encodePairingData(data: PairingData): string {
  * Parse pairing data from a `tp://p?d=<base64url>` deep link.
  */
 export function decodePairingData(raw: string): PairingData {
-  // Strip ASCII whitespace and a UTF-8 BOM (clipboards on Windows can prepend
-  // a BOM that survives copy/paste through iOS).
+  // Strip ASCII whitespace and a UTF-8 BOM (some clipboards prepend a BOM
+  // that survives copy/paste through iOS).
   const trimmed = raw.trim().replace(/^\uFEFF/, "");
   if (!trimmed.startsWith(PAIRING_URL_SCHEME)) {
     throw new Error("Invalid pairing data format");

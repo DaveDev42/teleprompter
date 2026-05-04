@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Store } from "@teleprompter/daemon";
-import { getWindowsSocketPath } from "@teleprompter/protocol";
 import { rmRetry } from "@teleprompter/protocol/test-utils";
 import { type Subprocess, spawn } from "bun";
 import { mkdtempSync } from "fs";
@@ -16,14 +15,6 @@ describe("tp pair new (blocking)", () => {
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), "tp-pair-blocking-"));
-    // On Windows, getSocketPath() keys the Named Pipe name on
-    // process.env.USERNAME, which would collide across parallel test runs
-    // and across developer machines. Scope it to a unique per-test value
-    // so we can run the test in isolation.
-    const winUser =
-      process.platform === "win32"
-        ? `tp-blk-${process.pid}-${Date.now()}`
-        : undefined;
     env = {
       ...process.env,
       HOME: home,
@@ -32,7 +23,6 @@ describe("tp pair new (blocking)", () => {
       LOG_LEVEL: "error",
       // Prevent the first-run install prompt from waiting on stdin
       TP_NO_AUTO_INSTALL: "1",
-      ...(winUser ? { USERNAME: winUser } : {}),
     } as Record<string, string>;
   });
 
@@ -57,12 +47,8 @@ describe("tp pair new (blocking)", () => {
     });
 
     // Wait for daemon to accept connections. A successful connect + close is
-    // the definitive readiness signal (more reliable than existsSync, which
-    // is inconsistent for Windows Named Pipes across Bun/Node versions).
-    const socketPath =
-      process.platform === "win32"
-        ? getWindowsSocketPath(env.USERNAME)
-        : join(home, "runtime", "daemon.sock");
+    // the definitive readiness signal.
+    const socketPath = join(home, "runtime", "daemon.sock");
     const deadline = Date.now() + 5000;
     let ready = false;
     while (!ready && Date.now() < deadline) {

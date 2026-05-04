@@ -14,17 +14,12 @@ describe("resolveRunnerCommand", () => {
   test("dev mode resolves to bun + real file path", () => {
     // In dev mode (bun test), should resolve to bun + index.ts
     const cmd = resolveRunnerCommand();
-    expect(cmd[0]).toMatch(/^bun(\.exe)?$/);
+    expect(cmd[0]).toBe("bun");
     expect(cmd[1]).toBe("run");
     // The CLI entry file must actually exist on disk
     const cliEntry = cmd[2];
     expect(cliEntry).toContain("index.ts");
-    // On Windows, URL.pathname may include leading slash: /C:/...
-    const normalizedPath =
-      process.platform === "win32" && cliEntry.startsWith("/")
-        ? cliEntry.slice(1)
-        : cliEntry;
-    expect(existsSync(normalizedPath)).toBe(true);
+    expect(existsSync(cliEntry)).toBe(true);
     expect(cmd[3]).toBe("run");
   });
 

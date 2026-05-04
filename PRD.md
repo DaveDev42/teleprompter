@@ -4,7 +4,7 @@ Teleprompter PRD
 
 1.1 한줄 요약
 
-Teleprompter는 Expo(React Native + RN Web) Frontend에서 원격의 Daemon(Windows/macOS/Linux)을 통해 Claude Code Session을 제어하는 제품이다. 핵심은 hooks + PTY 하이브리드 Chat UI, PTY terminal streaming, git worktree 직접 관리, QR 기반 E2EE 페어링, ciphertext-only relay, 그리고 음성 친화 Chat UI다.
+Teleprompter는 Expo(React Native + RN Web) Frontend에서 원격의 Daemon(macOS/Linux; Windows는 WSL 안에서 Linux 빌드)을 통해 Claude Code Session을 제어하는 제품이다. 핵심은 hooks + PTY 하이브리드 Chat UI, PTY terminal streaming, git worktree 직접 관리, QR 기반 E2EE 페어링, ciphertext-only relay, 그리고 음성 친화 Chat UI다.
 
 1.2 문제 정의
 
@@ -70,7 +70,7 @@ Teleprompter는 다음을 제공한다.
 
 5.1 컴포넌트
 	•	Frontend: Expo(React Native + RN Web) 기반 UI
-	•	Daemon: PC side(Windows/macOS/Linux) 상주 에이전트. bun build --compile 단일 바이너리로 배포.
+	•	Daemon: PC side(macOS/Linux; Windows 사용자는 WSL) 상주 에이전트. bun build --compile 단일 바이너리로 배포.
 	•	Runner: Claude Code를 실제로 실행하는 Session 단위 실행기. Session당 1개 프로세스.
 	•	Relay Server: ciphertext-only 중계 서버. 공식 호스팅 + 셀프 호스팅 지원.
 	•	Vault: Daemon이 소유하는 로컬 저장소
@@ -98,7 +98,7 @@ Teleprompter는 다음을 제공한다.
 
 5.4.2 PTY
 	•	macOS/Linux: Bun.spawn({ terminal }) — Bun v1.3.5+ 네이티브 PTY
-	•	Windows: `@aspect-build/node-pty` via Node.js subprocess (ConPTY). Node.js 필요. pty-host 자동 설치 (`%LOCALAPPDATA%\teleprompter\pty-host\`)
+	•	Windows 네이티브 실행은 지원하지 않으며, Windows 사용자는 WSL 안에서 Linux 빌드를 사용한다.
 
 5.4.3 Frontend 기술
 	•	상태 관리: Zustand
@@ -219,9 +219,7 @@ Relay Server
 	•	범용 하위호환성보다 최신 환경 최적화를 우선하되, WebSocket의 폭넓은 지원성과 구현 단순성을 활용
 
 8.3 Runner ↔ Daemon IPC
-	•	cross-platform local socket abstraction 사용
-	•	macOS/Linux: Unix domain socket
-	•	Windows: Named Pipes (`\\.\pipe\teleprompter-{username}-daemon`)
+	•	Unix domain socket (macOS/Linux). Windows 네이티브는 지원하지 않으며, WSL 안에서는 동일하게 Unix domain socket 경로를 사용한다.
 	•	backpressure 처리 필수: Bun socket.write()가 버퍼 가득 시 0을 반환하며 데이터를 버림 → write queue + drain 기반 flow control 구현
 
 8.4 Relay 상태 모델

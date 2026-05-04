@@ -79,27 +79,21 @@ for (const flag of DAEMON_FLAGS) {
 
 const INSTALL_USAGE = `Usage: tp completions install [shell] [flags]
 
-Shells: bash, zsh, fish, powershell (alias: pwsh)
+Shells: bash, zsh, fish
 Flags:
   --force                Overwrite existing installation
   --uninstall            Remove installed completions
   --dry-run              Show what would change without writing
-  --legacy-powershell    Use Windows PowerShell 5.1 profile path
-  --profile-dir PATH     PowerShell profile directory override (powershell only)
   --help, -h             Show this help
 
 Notes:
-  --profile-dir must be followed by a path (not another flag).
-  --profile-dir is used only when <shell> is powershell.
-  Fish and PowerShell write completion files to disk; rerun
-  'tp completions install <shell> --force' after 'tp upgrade' to refresh.`;
+  Fish writes completion files to disk; rerun
+  'tp completions install fish --force' after 'tp upgrade' to refresh.`;
 
 const INSTALL_FLAG_ALLOWLIST = new Set([
   "--force",
   "--dry-run",
   "--uninstall",
-  "--legacy-powershell",
-  "--profile-dir",
   "--help",
   "-h",
 ]);
@@ -116,9 +110,8 @@ export function completionsCommand(argv: string[]): void {
   }
 
   const shell = argv[0] ?? "bash";
-  const normalized = shell === "pwsh" ? "powershell" : shell;
 
-  switch (normalized) {
+  switch (shell) {
     case "bash":
       console.log(generateBash());
       break;
@@ -128,40 +121,14 @@ export function completionsCommand(argv: string[]): void {
     case "fish":
       console.log(generateFish());
       break;
-    case "powershell":
-      console.log(generatePowerShell());
-      break;
     default:
       console.error(`Unknown shell: ${shell}`);
-      console.error("Supported: bash, zsh, fish, powershell");
+      console.error("Supported: bash, zsh, fish");
       process.exit(1);
   }
 }
 
 function runInstall(argv: string[]): void {
-  // Extract --profile-dir value (last occurrence wins) before the help check
-  // so that `--profile-dir --help` (allowlist collision) is caught as an error.
-  const profileDirIdx = argv.lastIndexOf("--profile-dir");
-  let powerShellProfileDir: string | undefined;
-
-  // Build a set of indices consumed by --profile-dir so they don't appear as positionals.
-  const consumedIndices = new Set<number>();
-  if (profileDirIdx >= 0) {
-    const value = argv[profileDirIdx + 1];
-    if (
-      value === undefined ||
-      INSTALL_FLAG_ALLOWLIST.has(value) ||
-      value === "--profile-dir"
-    ) {
-      console.error("--profile-dir requires a path argument.");
-      console.error(INSTALL_USAGE);
-      process.exit(1);
-    }
-    powerShellProfileDir = value;
-    consumedIndices.add(profileDirIdx);
-    consumedIndices.add(profileDirIdx + 1);
-  }
-
   // Help flag check.
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(INSTALL_USAGE);
@@ -171,28 +138,18 @@ function runInstall(argv: string[]): void {
   const force = argv.includes("--force");
   const dryRun = argv.includes("--dry-run");
   const uninstall = argv.includes("--uninstall");
-  const legacyPowerShell = argv.includes("--legacy-powershell");
 
   // Reject unknown flags.
-  // consumedIndices skips --profile-dir and its value so they're not re-checked.
-  for (const [i, a] of argv.entries()) {
-    if (
-      a.startsWith("-") &&
-      a !== "-" &&
-      !INSTALL_FLAG_ALLOWLIST.has(a) &&
-      !consumedIndices.has(i)
-    ) {
+  for (const a of argv) {
+    if (a.startsWith("-") && a !== "-" && !INSTALL_FLAG_ALLOWLIST.has(a)) {
       console.error(`Unknown flag: ${a}`);
       console.error(INSTALL_USAGE);
       process.exit(1);
     }
   }
 
-  const positional = argv.find(
-    (a, i) => !a.startsWith("-") && !consumedIndices.has(i),
-  );
-  const requested =
-    positional === "pwsh" ? "powershell" : (positional as Shell | undefined);
+  const positional = argv.find((a) => !a.startsWith("-"));
+  const requested = positional as Shell | undefined;
 
   const shell: Shell | null =
     requested ?? detectShell(process.env, process.platform);
@@ -202,18 +159,13 @@ function runInstall(argv: string[]): void {
       ? `Detected $SHELL=${process.env.SHELL} (unsupported).`
       : "$SHELL is not set and no $ZSH_VERSION / $BASH_VERSION / $FISH_VERSION detected.";
     console.error(
-      `Could not detect shell. ${hint} Run 'tp completions install <bash|zsh|fish|powershell>'.`,
+      `Could not detect shell. ${hint} Run 'tp completions install <bash|zsh|fish>'.`,
     );
     process.exit(1);
   }
 
   if (uninstall) {
-    const r = uninstallCompletion({
-      shell,
-      legacyPowerShell,
-      dryRun,
-      powerShellProfileDir,
-    });
+    const r = uninstallCompletion({ shell, dryRun });
     if (r.status === "dry-run") {
       console.log(r.plan);
     } else if (r.status === "uninstalled") {
@@ -224,13 +176,7 @@ function runInstall(argv: string[]): void {
     return;
   }
 
-  const r = installCompletion({
-    shell,
-    force,
-    dryRun,
-    legacyPowerShell,
-    powerShellProfileDir,
-  });
+  const r = installCompletion({ shell, force, dryRun });
 
   if (r.status === "dry-run") {
     console.log(r.plan);
@@ -250,8 +196,6 @@ export function renderCompletion(shell: InstallShell): string {
       return generateZsh();
     case "fish":
       return generateFish();
-    case "powershell":
-      return generatePowerShell();
   }
 }
 
@@ -360,50 +304,4 @@ function generateFish(): string {
     `complete -c tp -n '__fish_seen_subcommand_from session; and __fish_seen_subcommand_from prune' -l yes -d 'skip confirmation'`,
   ];
   return lines.join("\n");
-}
-
-function generatePowerShell(): string {
-  // The emitted PowerShell completer is fully self-contained — it needs
-  // no profile-dir or external state. --profile-dir only affects the
-  // install-time location of this script, not its runtime behavior.
-  const commands = SUBCOMMANDS.map((c) => `'${c}'`).join(", ");
-  const daemonSubs = DAEMON_SUBCOMMANDS.map((s) => `'${s}'`).join(", ");
-  const pairSubs = PAIR_SUBCOMMANDS.map((s) => `'${s}'`).join(", ");
-  const sessionSubs = SESSION_SUBCOMMANDS.map((s) => `'${s}'`).join(", ");
-  const daemonFlags = DAEMON_FLAGS.map((f) => `'${f}'`).join(", ");
-
-  return `# tp powershell completion
-Register-ArgumentCompleter -Native -CommandName tp -ScriptBlock {
-    param($wordToComplete, $commandAst, $cursorPosition)
-
-    $commands = @(${commands})
-    $daemonSubs = @(${daemonSubs})
-    $pairSubs = @(${pairSubs})
-    $sessionSubs = @(${sessionSubs})
-    $daemonFlags = @(${daemonFlags})
-
-    $tokens = $commandAst.CommandElements | ForEach-Object { $_.ToString() }
-    $pos = $tokens.Count
-
-    if ($pos -le 1) {
-        $commands | Where-Object { $_ -like "$wordToComplete*" } |
-            ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
-    }
-    elseif ($tokens[1] -eq 'daemon' -and $pos -eq 2) {
-        $daemonSubs | Where-Object { $_ -like "$wordToComplete*" } |
-            ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
-    }
-    elseif ($tokens[1] -eq 'daemon' -and $pos -ge 3) {
-        $daemonFlags | Where-Object { $_ -like "$wordToComplete*" } |
-            ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterName', $_) }
-    }
-    elseif ($tokens[1] -eq 'pair' -and $pos -eq 2) {
-        $pairSubs | Where-Object { $_ -like "$wordToComplete*" } |
-            ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
-    }
-    elseif ($tokens[1] -eq 'session' -and $pos -eq 2) {
-        $sessionSubs | Where-Object { $_ -like "$wordToComplete*" } |
-            ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }
-    }
-}`;
 }

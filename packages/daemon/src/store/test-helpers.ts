@@ -1,11 +1,7 @@
 import { rmSync } from "fs";
 import type { Store } from "./store";
 
-/**
- * Recursive rm with retries for Windows, where SQLite WAL sidecar handles
- * may not be released immediately after `db.close()`. Mirrors the retry
- * policy in `Store.unlinkRetry`.
- */
+/** Recursive rm with retries for transient filesystem errors. */
 export function rmRetry(path: string, maxAttempts = 6): void {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
@@ -15,10 +11,6 @@ export function rmRetry(path: string, maxAttempts = 6): void {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === "ENOENT") return;
       if (code === "EBUSY" || code === "EPERM" || code === "ENOTEMPTY") {
-        // Force sqlite finalizer to run and release OS handles on Windows.
-        if (process.platform === "win32") {
-          Bun.gc(true);
-        }
         Bun.sleepSync(25 * 2 ** attempt);
         continue;
       }

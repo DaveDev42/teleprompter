@@ -56,7 +56,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [bun-linux-x64, bun-linux-arm64, bun-windows-x64, bun-windows-arm64]
+        target: [bun-linux-x64, bun-linux-arm64]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,20 +65,15 @@ jobs:
       - uses: pnpm/action-setup@v4
       - run: pnpm install --frozen-lockfile
       - run: bun run scripts/build.ts --target ${{ matrix.target }}
-      # UPX compression for Linux/Windows x64: ~55% size reduction at the cost
-      # of a one-time decompression at startup (<200ms). Measured on the CI
-      # runner: linux-x64 102MB → 46MB, windows-x64 117MB → 55MB.
+      # UPX compression for Linux: ~55% size reduction at the cost of a
+      # one-time decompression at startup (<200ms). Measured on the CI
+      # runner: linux-x64 102MB → 46MB.
       #
-      # Excluded platforms:
-      # - Darwin (any arch): macOS Gatekeeper SIGKILLs UPX-packed Mach-O
-      #   regardless of ad-hoc codesigning.
-      # - windows-arm64: UPX (as of 4.2.2) does not yet support win64/arm64
-      #   and returns CantPackException. Ship uncompressed.
+      # Darwin (any arch) is excluded: macOS Gatekeeper SIGKILLs UPX-packed
+      # Mach-O regardless of ad-hoc codesigning.
       - name: Install UPX
-        if: matrix.target != 'bun-windows-arm64'
         run: sudo apt-get update && sudo apt-get install -y upx-ucl
       - name: Compress binary with UPX
-        if: matrix.target != 'bun-windows-arm64'
         run: |
           for f in dist/tp-*; do
             if [ -f "$f" ]; then

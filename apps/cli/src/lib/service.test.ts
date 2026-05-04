@@ -55,45 +55,6 @@ describe("service", () => {
     });
   }
 
-  describe("windows", () => {
-    test("generateSchtasksArgs produces correct arguments", async () => {
-      const { generateSchtasksArgs } = await import("./service-windows");
-      const args = generateSchtasksArgs(
-        "C:\\Users\\Test\\.local\\bin\\tp.exe",
-        "C:\\Users\\Test\\AppData\\Local\\teleprompter\\logs",
-      );
-
-      expect(args).toContain("/Create");
-      expect(args).toContain("/TN");
-      expect(args).toContain("TeleprompterDaemon");
-      expect(args).toContain("/SC");
-      expect(args).toContain("ONLOGON");
-      expect(args).toContain("/RL");
-      expect(args).toContain("LIMITED");
-      expect(args).toContain("/F");
-
-      const trIndex = args.indexOf("/TR");
-      const trValue = args[trIndex + 1];
-      expect(trValue).toContain("tp.exe");
-      expect(trValue).toContain("daemon start");
-      expect(trValue).toContain("daemon.log");
-    });
-
-    test("resolveTpBinary returns a string", async () => {
-      const { resolveTpBinary } = await import("./service-windows");
-      const binary = resolveTpBinary();
-      expect(typeof binary).toBe("string");
-      expect(binary.length).toBeGreaterThan(0);
-    });
-
-    test("getLogDir returns path containing teleprompter and logs", async () => {
-      const { getLogDir } = await import("./service-windows");
-      const dir = getLogDir();
-      expect(dir).toContain("teleprompter");
-      expect(dir).toContain("logs");
-    });
-  });
-
   test("platform dispatcher exports install/uninstall", async () => {
     const { installService, uninstallService } = await import("./service");
     expect(typeof installService).toBe("function");

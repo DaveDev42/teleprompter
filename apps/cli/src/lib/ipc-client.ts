@@ -16,11 +16,6 @@ export interface IpcClient {
 export async function connectIpcAsClient(
   socketPath: string,
 ): Promise<IpcClient> {
-  if (process.platform === "win32") {
-    const { connectWindowsIpc } = await import("./ipc-client-windows");
-    return connectWindowsIpc(socketPath);
-  }
-
   const decoder = new FrameDecoder();
   const messageHandlers: Array<(m: unknown) => void> = [];
   const closeHandlers: Array<() => void> = [];

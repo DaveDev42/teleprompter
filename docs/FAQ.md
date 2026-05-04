@@ -12,7 +12,7 @@ curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts
 
 This installs the `tp` binary to `~/.local/bin`. You can override the install location with `INSTALL_DIR`.
 
-**From source (all platforms including Windows):**
+**From source (macOS / Linux; Windows users build inside WSL):**
 
 ```bash
 git clone https://github.com/DaveDev42/teleprompter.git
@@ -27,7 +27,7 @@ pnpm build:cli:local    # builds for current platform → dist/tp
 |----------|-------------|--------|
 | macOS | arm64, x64 | Fully supported |
 | Linux | arm64, x64 | Fully supported |
-| Windows | x64 | Supported (PTY via Node.js subprocess + ConPTY) |
+| Windows | — | Not supported natively. Run the Linux build inside [WSL](https://learn.microsoft.com/windows/wsl/). |
 
 The mobile app (Expo) runs on iOS, Android, and Web. Platform priority: iOS > Web > Android.
 
@@ -327,7 +327,7 @@ This means the key exchange between daemon and frontend didn't complete. The dae
 ## Known Limitations
 
 - **Voice input**: Web-only; not available on iOS/Android
-- **Windows PTY**: Works via Node.js subprocess fallback (not native Bun PTY)
+- **Windows**: native Windows is not supported. Windows users run the Linux build inside WSL.
 - **Pre-1.0**: Expect breaking changes. Version scheme: `0.0.x` patches only until App Store public release
 - **Session export**: 50,000 record limit per export
 - **Relay presence**: 90-second window where a dead daemon may appear online

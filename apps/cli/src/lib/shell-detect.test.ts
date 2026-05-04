@@ -16,15 +16,6 @@ describe("detectShell", () => {
     );
   });
 
-  test("detects powershell from $PSModulePath on win32", () => {
-    expect(
-      detectShell(
-        { PSModulePath: "C:\\Program Files\\PowerShell\\Modules" },
-        "win32",
-      ),
-    ).toBe("powershell");
-  });
-
   test("returns null for unknown shell on posix", () => {
     expect(detectShell({ SHELL: "/bin/sh" }, "linux")).toBeNull();
   });
@@ -32,10 +23,6 @@ describe("detectShell", () => {
   test("returns null for empty $SHELL on posix", () => {
     expect(detectShell({ SHELL: "" }, "linux")).toBeNull();
     expect(detectShell({}, "linux")).toBeNull();
-  });
-
-  test("returns null on win32 without $PSModulePath", () => {
-    expect(detectShell({}, "win32")).toBeNull();
   });
 
   test("falls back to BASH_VERSION when SHELL unset", () => {

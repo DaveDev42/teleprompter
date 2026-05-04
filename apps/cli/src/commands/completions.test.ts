@@ -5,7 +5,6 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { capture } from "../test-util";
 
-// Windows can exceed the 5s default when bun startup imports heavy deps.
 const TIMEOUT = 15000;
 
 describe("tp completions", () => {
@@ -105,48 +104,6 @@ describe("tp completions", () => {
   );
 
   test(
-    "powershell completions include Register-ArgumentCompleter and all subcommands",
-    () => {
-      const result = capture(
-        "bun run apps/cli/src/index.ts completions powershell",
-      );
-      expect(result).toContain("Register-ArgumentCompleter");
-      expect(result).toContain("-CommandName tp");
-      // tp subcommands
-      expect(result).toContain("'daemon'");
-      expect(result).toContain("'run'");
-      expect(result).toContain("'relay'");
-      expect(result).toContain("'pair'");
-      expect(result).toContain("'status'");
-      expect(result).toContain("'logs'");
-      expect(result).toContain("'doctor'");
-      expect(result).toContain("'upgrade'");
-      expect(result).toContain("'completions'");
-      expect(result).toContain("'version'");
-      // daemon subcommands
-      expect(result).toContain("'start'");
-      expect(result).toContain("'install'");
-      expect(result).toContain("'uninstall'");
-      // pair subcommands
-      expect(result).toContain("'new'");
-      expect(result).toContain("'delete'");
-      // session subcommands
-      expect(result).toContain("'session'");
-      expect(result).toContain("'prune'");
-    },
-    TIMEOUT,
-  );
-
-  test(
-    "pwsh is accepted as an alias for powershell",
-    () => {
-      const result = capture("bun run apps/cli/src/index.ts completions pwsh");
-      expect(result).toContain("Register-ArgumentCompleter");
-    },
-    TIMEOUT,
-  );
-
-  test.skipIf(process.platform === "win32")(
     "completions install writes to a tmp HOME (bash)",
     () => {
       const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
@@ -165,7 +122,7 @@ describe("tp completions", () => {
     TIMEOUT,
   );
 
-  test.skipIf(process.platform === "win32")(
+  test(
     "completions install without shell arg auto-detects from $SHELL",
     () => {
       const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
@@ -182,7 +139,7 @@ describe("tp completions", () => {
     TIMEOUT,
   );
 
-  test.skipIf(process.platform === "win32")(
+  test(
     "completions install prints error when shell cannot be detected",
     () => {
       const result = capture(
@@ -199,65 +156,12 @@ describe("tp completions", () => {
     () => {
       const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
       try {
-        // Use capture() (shell redirect) instead of execSync({stdio:"pipe"})
-        // because bun:test (1.3.x) intercepts child stdio pipes when run from
-        // the workspace root, returning empty output.
         const output = capture(
           "bun run apps/cli/src/index.ts completions install --help",
           { HOME: tmpHome, SHELL: "/bin/bash" },
         );
         expect(output).toContain("Usage: tp completions install");
         expect(existsSync(join(tmpHome, ".bashrc"))).toBe(false);
-      } finally {
-        rmSync(tmpHome, { recursive: true, force: true });
-      }
-    },
-    TIMEOUT,
-  );
-
-  test(
-    "completions install --profile-dir without value errors",
-    () => {
-      const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
-      try {
-        let exitCode = 0;
-        try {
-          execSync(
-            "bun run apps/cli/src/index.ts completions install powershell --profile-dir",
-            {
-              env: { ...process.env, HOME: tmpHome },
-              stdio: "pipe",
-            },
-          );
-        } catch (e: unknown) {
-          exitCode = (e as { status: number }).status;
-        }
-        expect(exitCode).toBe(1);
-      } finally {
-        rmSync(tmpHome, { recursive: true, force: true });
-      }
-    },
-    TIMEOUT,
-  );
-
-  test(
-    "completions install --profile-dir --help errors (allowlist collision)",
-    () => {
-      const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
-      try {
-        let exitCode = 0;
-        try {
-          execSync(
-            "bun run apps/cli/src/index.ts completions install powershell --profile-dir --help",
-            {
-              env: { ...process.env, HOME: tmpHome },
-              stdio: "pipe",
-            },
-          );
-        } catch (e: unknown) {
-          exitCode = (e as { status: number }).status;
-        }
-        expect(exitCode).toBe(1);
       } finally {
         rmSync(tmpHome, { recursive: true, force: true });
       }
@@ -284,26 +188,6 @@ describe("tp completions", () => {
   );
 
   test(
-    "completions install --profile-dir overrides PowerShell profile location",
-    () => {
-      const tmpHome = mkdtempSync(join(tmpdir(), "tp-ci-"));
-      const customProfile = join(tmpHome, "custom-ps");
-      try {
-        capture(
-          `bun run apps/cli/src/index.ts completions install powershell --profile-dir "${customProfile}"`,
-          { HOME: tmpHome },
-        );
-        expect(existsSync(join(customProfile, "tp-completions.ps1"))).toBe(
-          true,
-        );
-      } finally {
-        rmSync(tmpHome, { recursive: true, force: true });
-      }
-    },
-    TIMEOUT,
-  );
-
-  test.skipIf(process.platform === "win32")(
     "completions install exits non-zero when shell cannot be detected",
     () => {
       let exitCode = 0;

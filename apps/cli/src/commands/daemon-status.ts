@@ -54,13 +54,6 @@ export async function daemonStatusCommand(_argv: string[]): Promise<void> {
       `${svc.getServiceName()}.service`,
     );
     logPath = "journalctl --user -u " + svc.getServiceName();
-  } else if (platform === "win32") {
-    const svc = await import("../lib/service-windows");
-    installed = svc.isServiceInstalled();
-    managerHint = `Task Scheduler (${svc.getTaskName()})`;
-    binaryPath = svc.resolveTpBinary();
-    configPath = `schtasks /Query /TN "${svc.getTaskName()}"`;
-    logPath = join(svc.getLogDir(), "daemon.log");
   } else {
     managerHint = `unsupported platform (${platform})`;
   }

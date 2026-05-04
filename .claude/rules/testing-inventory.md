@@ -56,7 +56,7 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `apps/cli/src/commands/session.test.ts` — `tp session list/delete/prune` (parseDuration, matchSessions, daemon-less Store fallback integration)
 - `apps/cli/src/commands/upgrade.test.ts` — checksum parsing, file hashing, backup/rollback
 - `apps/cli/src/commands/completions.test.ts` — 각 쉘 completion 스크립트 출력에 tp/claude 서브커맨드 포함 여부
-- `apps/cli/src/commands/completions-install.test.ts` — bash/zsh/fish/powershell rc 파일 marker 블록 install/uninstall
+- `apps/cli/src/commands/completions-install.test.ts` — bash/zsh/fish rc 파일 marker 블록 install/uninstall
 - `apps/cli/src/commands/daemon.test.ts` — daemon.ts 소스가 legacy `loadPairingData`/`pairing.json`을 참조하지 않는지 정적 검증
 - `apps/cli/src/commands/daemon-status.test.ts` — `tp daemon status` 출력 배너/힌트 스모크
 - `apps/cli/src/commands/forward-claude.test.ts` — `CLAUDE_UTILITY_SUBCOMMANDS` set 구성
@@ -65,15 +65,12 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `apps/cli/src/lib/ensure-daemon.test.ts` — `isDaemonRunning` / install prompt 결정 / yes-no 파싱
 - `apps/cli/src/lib/format.test.ts` — `errorWithHints` 에러 메시지 포매터
 - `apps/cli/src/lib/ipc-client.test.ts` — `connectIpcAsClient` framed JSON 송수신 (POSIX unix socket 경로)
-- `apps/cli/src/lib/ipc-client-windows.test.ts` — `connectWindowsIpc` Named Pipe 송수신 — `process.platform !== "win32"`에서 skip
 - `apps/cli/src/lib/pair-lock.test.ts` — `acquirePairLock`/`releasePairLock` 동시성 (proper-lockfile)
-- `apps/cli/src/lib/shell-detect.test.ts` — `$SHELL`/`$PSModulePath` 기반 쉘 감지
+- `apps/cli/src/lib/shell-detect.test.ts` — `$SHELL` 기반 POSIX 쉘 감지
 - `apps/cli/src/lib/spinner.test.ts` — spinner start/stop 라이프사이클
 - `apps/cli/src/lib/service.test.ts` — OS service plist/unit generation
 - `packages/protocol/src/compat.test.ts` — protocol version compatibility
 - `packages/runner/src/pty/pty-manager.test.ts` — PTY spawn, resize, lifecycle
-- `packages/runner/src/pty/pty-host-installer.test.ts` — pty-host 설치 디렉터리/버전 마커 (`needsInstall`)
-- `packages/runner/src/pty/pty-windows.test.ts` — Windows PtyWindows (node-pty ConPTY) — `process.platform !== "win32"`에서 skip
 
 ## Tier 2: Integration Tests (stub runner)
 Stub 프로세스로 전체 파이프라인 검증.

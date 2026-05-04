@@ -41,7 +41,7 @@ export const PAIRINGS_MIGRATIONS: string[] = [
 ];
 
 export const PRAGMAS = [
-  "PRAGMA journal_mode = WAL;",
+  "PRAGMA journal_mode = DELETE;",
   "PRAGMA synchronous = NORMAL;",
   "PRAGMA cache_size = -2000;",
 ];

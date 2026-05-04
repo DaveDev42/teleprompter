@@ -1,5 +1,13 @@
 import { decideRoute, shouldCheckForUpdates } from "./router";
 
+if (process.platform === "win32") {
+  console.error(
+    "tp does not support native Windows. Run it inside WSL (Windows Subsystem for Linux) and install the Linux build.",
+  );
+  console.error("See https://learn.microsoft.com/windows/wsl/install");
+  process.exit(1);
+}
+
 const command = process.argv[2];
 const route = decideRoute(command);
 

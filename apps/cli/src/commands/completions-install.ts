@@ -16,21 +16,13 @@ import { homedir } from "os";
 import { dirname, join } from "path";
 import { renderCompletion } from "./completions";
 
-export type InstallShell = "bash" | "zsh" | "fish" | "powershell";
+export type InstallShell = "bash" | "zsh" | "fish";
 
 export type InstallOptions = {
   shell: InstallShell;
   home?: string;
   force?: boolean;
   dryRun?: boolean;
-  legacyPowerShell?: boolean;
-  /**
-   * Override the PowerShell profile directory. If unset, derived from
-   * `home`. On Windows with OneDrive redirection the correct path is
-   * `%OneDrive%\Documents\PowerShell` — callers that have access to
-   * `$PROFILE` (e.g. install.ps1) should pass it in.
-   */
-  powerShellProfileDir?: string;
 };
 
 export type InstallResult =
@@ -53,7 +45,6 @@ function atomicWrite(file: string, contents: string, mode?: number): void {
   const tmp = `${file}.tp-tmp-${suffix}`;
   let fd: number | null = null;
   try {
-    // Exclusive create (O_CREAT|O_EXCL) defeats symlink pre-creation attacks.
     fd = openSync(tmp, "wx", mode ?? 0o644);
     writeSync(fd, contents);
     if (mode !== undefined) fchmodSync(fd, mode);
@@ -77,31 +68,6 @@ function atomicWrite(file: string, contents: string, mode?: number): void {
 export const MARKER_START =
   "# >>> tp completions (managed by `tp completions install`) >>>";
 export const MARKER_END = "# <<< tp completions <<<";
-
-function powershellDir(
-  home: string,
-  legacy: boolean,
-  override?: string,
-): string {
-  if (override) return override;
-  return join(home, "Documents", legacy ? "WindowsPowerShell" : "PowerShell");
-}
-
-export function powershellScriptPath(
-  home: string,
-  legacy: boolean,
-  override?: string,
-): string {
-  return join(powershellDir(home, legacy, override), "tp-completions.ps1");
-}
-
-export function powershellProfilePath(
-  home: string,
-  legacy: boolean,
-  override?: string,
-): string {
-  return join(powershellDir(home, legacy, override), "Profile.ps1");
-}
 
 export function rcFilePath(shell: "bash" | "zsh", home: string): string {
   return join(home, shell === "bash" ? ".bashrc" : ".zshrc");
@@ -161,54 +127,6 @@ export function installCompletion(opts: InstallOptions): InstallResult {
     );
   }
 
-  if (opts.shell === "powershell") {
-    const legacy = !!opts.legacyPowerShell;
-    const psDir = opts.powerShellProfileDir;
-    const scriptFile = powershellScriptPath(home, legacy, psDir);
-    const profileFile = powershellProfilePath(home, legacy, psDir);
-    const dotSource = `. "${scriptFile}"`;
-
-    // NOTE: concurrent external edits to Profile.ps1 between this read and the
-    // atomic write below are not preserved. Real-world risk is low (rc files
-    // are rarely edited during install), but worth noting.
-    const existingProfile = existsSync(profileFile)
-      ? readFileSync(profileFile, "utf-8")
-      : "";
-    const scriptExists = existsSync(scriptFile);
-    const profileHasMarker = containsMarker(existingProfile);
-    const isFullyInstalled = scriptExists && profileHasMarker;
-
-    if (opts.dryRun) {
-      let action: string;
-      if (isFullyInstalled && !opts.force) {
-        action = `Would skip (already installed)`;
-      } else if (isFullyInstalled && opts.force) {
-        action = `Would rewrite tp completions in ${scriptFile} and ${profileFile}`;
-      } else {
-        action = `Would write ${scriptFile} and append dot-source to ${profileFile}`;
-      }
-      return { status: "dry-run", plan: action };
-    }
-
-    if (isFullyInstalled && !opts.force) {
-      return { status: "already-installed", file: scriptFile };
-    }
-
-    mkdirSync(powershellDir(home, legacy, psDir), { recursive: true });
-    atomicWrite(scriptFile, `${renderCompletion("powershell")}\n`, 0o644);
-
-    const baseProfile = containsMarker(existingProfile)
-      ? stripMarkerBlock(existingProfile)
-      : existingProfile;
-    const nextProfile =
-      (baseProfile.endsWith("\n") || baseProfile === ""
-        ? baseProfile
-        : `${baseProfile}\n`) + markerBlock(dotSource);
-    atomicWrite(profileFile, nextProfile, preservedMode(profileFile));
-
-    return { status: "installed", file: scriptFile };
-  }
-
   const _exhaustive: never = opts.shell;
   throw new Error(`Unsupported shell: ${String(_exhaustive)}`);
 }
@@ -222,9 +140,6 @@ function installRcLine(
   const line = `eval "$(tp completions ${shell})"`;
   const block = markerBlock(line);
 
-  // NOTE: concurrent external edits to the rc file between this read and
-  // the atomic write below are not preserved. Real-world risk is low (rc
-  // files are rarely edited during install).
   const existing = existsSync(file) ? readFileSync(file, "utf-8") : "";
   const hasMarker = containsMarker(existing);
 
@@ -275,37 +190,6 @@ export function uninstallCompletion(opts: InstallOptions): UninstallResult {
     }
     rmSync(file);
     return { status: "uninstalled", file };
-  }
-
-  if (opts.shell === "powershell") {
-    const legacy = !!opts.legacyPowerShell;
-    const psDir = opts.powerShellProfileDir;
-    const scriptFile = powershellScriptPath(home, legacy, psDir);
-    const profileFile = powershellProfilePath(home, legacy, psDir);
-
-    const scriptExists = existsSync(scriptFile);
-    const profileHasMarker =
-      existsSync(profileFile) &&
-      containsMarker(readFileSync(profileFile, "utf-8"));
-
-    if (!scriptExists && !profileHasMarker) {
-      return { status: "not-installed" };
-    }
-
-    if (opts.dryRun) {
-      const parts: string[] = [];
-      if (scriptExists) parts.push(`Would remove ${scriptFile}`);
-      if (profileHasMarker)
-        parts.push(`Would remove tp completions block from ${profileFile}`);
-      return { status: "dry-run", plan: parts.join("; ") };
-    }
-
-    if (scriptExists) rmSync(scriptFile);
-    if (profileHasMarker) {
-      const next = stripMarkerBlock(readFileSync(profileFile, "utf-8"));
-      atomicWrite(profileFile, next, preservedMode(profileFile));
-    }
-    return { status: "uninstalled", file: scriptFile };
   }
 
   const _exhaustive: never = opts.shell;

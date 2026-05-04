@@ -118,10 +118,7 @@ describe("tp session", () => {
   });
 });
 
-// SQLite file handles linger on Windows (matches pair.test.ts pattern).
-describe.skipIf(process.platform === "win32")(
-  "tp session list/delete/prune (daemon-less fallback)",
-  () => {
+describe("tp session list/delete/prune (daemon-less fallback)", () => {
     let home: string;
     let env: Record<string, string>;
     let storeDir: string;
@@ -345,5 +342,5 @@ describe.skipIf(process.platform === "win32")(
       capture(`${CLI} session delete session-cleanup --yes`, env);
       expect(existsSync(dbPath)).toBe(false);
     });
-  },
-);
+  });
+

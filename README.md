@@ -22,11 +22,11 @@ curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts
 
 ### Windows
 
-```powershell
-irm https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts/install.ps1 | iex
-```
+Native Windows is not supported. Run `tp` inside [WSL](https://learn.microsoft.com/windows/wsl/) using the Linux installer:
 
-Installs `tp.exe` to `$env:LOCALAPPDATA\Programs\teleprompter`. Add that directory to `PATH` per the installer's final message.
+```bash
+curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts/install.sh | bash
+```
 
 ### Build from source
 
@@ -65,7 +65,7 @@ Scan the QR code with the Teleprompter app (iOS TestFlight / Android Internal / 
 ### Auto-start on Login
 
 ```bash
-tp daemon install      # macOS launchd / Linux systemd / Windows Task Scheduler
+tp daemon install      # macOS launchd / Linux systemd
 tp daemon uninstall    # Remove
 ```
 
@@ -91,10 +91,10 @@ tp daemon uninstall    # Remove
 | `tp upgrade` | Upgrade tp binary, then runs `claude update` |
 | `tp version` | Print tp + claude versions |
 | `tp daemon start [opts]` | Start daemon in foreground |
-| `tp daemon install` | Register as OS service (launchd / systemd / Task Scheduler) |
+| `tp daemon install` | Register as OS service (launchd / systemd) |
 | `tp daemon uninstall` | Remove OS service |
 | `tp relay start [--port]` | Start a relay server (self-hosted) |
-| `tp completions <bash\|zsh\|fish\|powershell>` | Print shell completion script |
+| `tp completions <bash\|zsh\|fish>` | Print shell completion script |
 | `tp completions install [shell]` | Install completion into the current shell rc / profile |
 | `tp completions uninstall [shell]` | Remove installed completion |
 | `tp auth` / `mcp` / `install` / `update` / `agents` / `auto-mode` / `plugin` / `setup-token` | Forward to `claude` (daemon bypass) |
@@ -106,7 +106,7 @@ Runner ──IPC──→ Daemon ──WSS (E2EE)──→ Relay ──WSS (E2EE
  (PTY)          (Store)                (forwarder)           (Expo)
 ```
 
-- **Runner**: Spawns Claude Code in a PTY, collects io streams and hooks events, communicates with Daemon via IPC (Unix domain socket / Named Pipe on Windows)
+- **Runner**: Spawns Claude Code in a PTY, collects io streams and hooks events, communicates with Daemon via IPC (Unix domain socket)
 - **Daemon**: Manages sessions, stores records, encrypts with libsodium per-frontend keys, connects to Relay(s) as a client
 - **Relay**: Stateless ciphertext forwarder (zero-trust, 10 encrypted frames cached per session). Never sees plaintext.
 - **App**: Expo app (iOS/Web/Android) with Chat + Terminal + Voice UI. Connects to paired daemon(s) via Relay only.
@@ -127,8 +127,7 @@ packages/
   tsconfig/       # Shared TypeScript configs
 scripts/
   build.ts        # Multi-platform bun build --compile
-  install.sh      # curl-pipe-sh installer (macOS/Linux)
-  install.ps1     # PowerShell installer (Windows)
+  install.sh      # curl-pipe-sh installer (macOS/Linux; Windows users run under WSL)
 ```
 
 ## Development

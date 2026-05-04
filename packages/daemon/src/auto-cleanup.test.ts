@@ -115,4 +115,3 @@ describe("Daemon auto-cleanup", () => {
     expect(store.getSession("running-old")).toBeDefined();
   });
 });
-

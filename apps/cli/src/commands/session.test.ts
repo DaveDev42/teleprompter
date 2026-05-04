@@ -119,228 +119,224 @@ describe("tp session", () => {
 });
 
 describe("tp session list/delete/prune (daemon-less fallback)", () => {
-    let home: string;
-    let env: Record<string, string>;
-    let storeDir: string;
+  let home: string;
+  let env: Record<string, string>;
+  let storeDir: string;
 
-    beforeEach(() => {
-      home = mkdtempSync(join(tmpdir(), "tp-session-"));
-      env = {
-        HOME: home,
-        XDG_DATA_HOME: join(home, "xdg"),
-        XDG_RUNTIME_DIR: join(home, "runtime"),
-      };
-      storeDir = join(home, "xdg", "teleprompter", "vault");
-    });
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), "tp-session-"));
+    env = {
+      HOME: home,
+      XDG_DATA_HOME: join(home, "xdg"),
+      XDG_RUNTIME_DIR: join(home, "runtime"),
+    };
+    storeDir = join(home, "xdg", "teleprompter", "vault");
+  });
 
-    afterEach(() => {
-      rmSync(home, {
-        recursive: true,
-        force: true,
-        maxRetries: 10,
-        retryDelay: 100,
-      });
-    });
-
-    function seed(
-      rows: Array<{
-        sid: string;
-        state?: "running" | "stopped" | "error";
-        ageMs?: number;
-      }>,
-    ) {
-      const store = new Store(storeDir);
-      try {
-        const now = Date.now();
-        for (const r of rows) {
-          store.createSession(r.sid, "/cwd");
-          const state = r.state ?? "stopped";
-          if (state !== "running") {
-            store.updateSessionState(r.sid, state);
-          }
-          // Backdate via direct SQL — Store exposes no `updated_at` setter.
-          // Only `updated_at` matters here: the dispatcher's prune filter
-          // reads `updated_at` (not `created_at`), so leaving `created_at`
-          // at `now` is fine. If a future change switches to `created_at`,
-          // backdate both columns here to keep this helper honest.
-          if (r.ageMs && r.ageMs > 0) {
-            const metaDb = new Database(join(storeDir, "sessions.sqlite"));
-            metaDb.run("UPDATE sessions SET updated_at = ? WHERE sid = ?", [
-              now - r.ageMs,
-              r.sid,
-            ]);
-            metaDb.close();
-          }
-        }
-      } finally {
-        store.close();
-      }
-    }
-
-    test("list shows empty state", () => {
-      const out = capture(`${CLI} session list`, env);
-      expect(out).toContain("No sessions");
-    });
-
-    test("list shows seeded sessions", () => {
-      seed([
-        { sid: "session-aaaa", state: "stopped" },
-        { sid: "session-bbbb", state: "stopped" },
-      ]);
-      const out = capture(`${CLI} session list`, env);
-      expect(out).toContain("session-aaaa");
-      expect(out).toContain("session-bbbb");
-      expect(out).toContain("stopped");
-    });
-
-    test("delete by exact sid removes one session", () => {
-      seed([
-        { sid: "session-aaaa", state: "stopped" },
-        { sid: "session-bbbb", state: "stopped" },
-      ]);
-      const out = capture(`${CLI} session delete session-aaaa --yes`, env);
-      expect(out).toContain("Deleted session session-aaaa");
-      const store = new Store(storeDir);
-      const remaining = store.listSessions().map((s) => s.sid);
-      store.close();
-      expect(remaining).toEqual(["session-bbbb"]);
-    });
-
-    test("delete by prefix match", () => {
-      seed([{ sid: "session-mncx9824", state: "stopped" }]);
-      const out = capture(`${CLI} session delete session-mncx --yes`, env);
-      expect(out).toContain("Deleted session session-mncx9824");
-    });
-
-    test("delete errors on no match", () => {
-      seed([{ sid: "session-aaaa", state: "stopped" }]);
-      const out = capture(`${CLI} session delete nope --yes`, env);
-      expect(out).toContain("No session matches");
-    });
-
-    test("delete errors on ambiguous prefix", () => {
-      seed([
-        { sid: "session-aaaa1", state: "stopped" },
-        { sid: "session-aaaa2", state: "stopped" },
-      ]);
-      const out = capture(`${CLI} session delete session-aaaa --yes`, env);
-      expect(out).toContain("ambiguous");
-      expect(out).toContain("session-aaaa1");
-      expect(out).toContain("session-aaaa2");
-    });
-
-    test("delete without --yes on non-TTY refuses", () => {
-      seed([{ sid: "session-aaaa", state: "stopped" }]);
-      const out = capture(`${CLI} session delete session-aaaa`, env);
-      expect(out).toContain("Refusing to delete");
-      const store = new Store(storeDir);
-      expect(store.listSessions()).toHaveLength(1);
-      store.close();
-    });
-
-    test("prune --dry-run lists candidates without deleting", () => {
-      seed([
-        { sid: "old-session", state: "stopped", ageMs: 8 * 24 * 60 * 60_000 },
-        { sid: "new-session", state: "stopped", ageMs: 60_000 },
-      ]);
-      const out = capture(
-        `${CLI} session prune --older-than 7d --dry-run`,
-        env,
-      );
-      expect(out).toContain("old-session");
-      expect(out).not.toContain("new-session");
-      expect(out.toLowerCase()).toContain("dry");
-
-      const store = new Store(storeDir);
-      const remaining = store
-        .listSessions()
-        .map((s) => s.sid)
-        .sort();
-      store.close();
-      expect(remaining).toEqual(["new-session", "old-session"]);
-    });
-
-    test("prune --older-than 7d --yes deletes old stopped sessions", () => {
-      seed([
-        { sid: "old-session", state: "stopped", ageMs: 8 * 24 * 60 * 60_000 },
-        { sid: "new-session", state: "stopped", ageMs: 60_000 },
-        { sid: "running-old", state: "running", ageMs: 8 * 24 * 60 * 60_000 },
-      ]);
-      const out = capture(`${CLI} session prune --older-than 7d --yes`, env);
-      expect(out).toContain("old-session");
-
-      const store = new Store(storeDir);
-      const remaining = store
-        .listSessions()
-        .map((s) => s.sid)
-        .sort();
-      store.close();
-      expect(remaining).toEqual(["new-session", "running-old"]);
-    });
-
-    test("prune --all --yes deletes every stopped session", () => {
-      seed([
-        { sid: "s-1", state: "stopped" },
-        { sid: "s-2", state: "stopped" },
-        { sid: "s-running", state: "running" },
-      ]);
-      const out = capture(`${CLI} session prune --all --yes`, env);
-      expect(out).toContain("s-1");
-      expect(out).toContain("s-2");
-
-      const store = new Store(storeDir);
-      const remaining = store.listSessions().map((s) => s.sid);
-      store.close();
-      expect(remaining).toEqual(["s-running"]);
-    });
-
-    test("prune --all --running --yes sweeps stale running rows", () => {
-      // Simulates a crashed daemon leaving a "running" row behind. With no
-      // live daemon attached, --running + --yes must sweep it.
-      seed([
-        { sid: "stale-running", state: "running" },
-        { sid: "stopped-normal", state: "stopped" },
-      ]);
-      const out = capture(`${CLI} session prune --all --running --yes`, env);
-      expect(out).toContain("stale-running");
-      expect(out).toContain("stopped-normal");
-
-      const store = new Store(storeDir);
-      const remaining = store.listSessions();
-      store.close();
-      expect(remaining).toEqual([]);
-    });
-
-    test("prune with no match reports 0 selected", () => {
-      seed([{ sid: "new-session", state: "stopped", ageMs: 60_000 }]);
-      const out = capture(`${CLI} session prune --older-than 7d --yes`, env);
-      // Tight match: the literal "No sessions selected (0 matched)." line
-      // from the CLI. A loose `/0|no session/` would also match "10 sessions"
-      // if a future refactor accidentally changed the output shape.
-      expect(out).toMatch(/No sessions selected \(0 matched\)\./);
-    });
-
-    test("prune rejects invalid duration", () => {
-      const out = capture(`${CLI} session prune --older-than 7w --yes`, env);
-      expect(out.toLowerCase()).toContain("invalid");
-    });
-
-    test("prune --running without --yes twice refuses on non-TTY", () => {
-      seed([{ sid: "running-old", state: "running" }]);
-      const out = capture(`${CLI} session prune --all --running`, env);
-      // Requires two confirmations — non-TTY should refuse without --yes.
-      expect(out).toContain("Refusing");
-      const store = new Store(storeDir);
-      expect(store.listSessions()).toHaveLength(1);
-      store.close();
-    });
-
-    test("delete removes session db file from disk", () => {
-      seed([{ sid: "session-cleanup", state: "stopped" }]);
-      const dbPath = join(storeDir, "sessions", "session-cleanup.sqlite");
-      expect(existsSync(dbPath)).toBe(true);
-      capture(`${CLI} session delete session-cleanup --yes`, env);
-      expect(existsSync(dbPath)).toBe(false);
+  afterEach(() => {
+    rmSync(home, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100,
     });
   });
 
+  function seed(
+    rows: Array<{
+      sid: string;
+      state?: "running" | "stopped" | "error";
+      ageMs?: number;
+    }>,
+  ) {
+    const store = new Store(storeDir);
+    try {
+      const now = Date.now();
+      for (const r of rows) {
+        store.createSession(r.sid, "/cwd");
+        const state = r.state ?? "stopped";
+        if (state !== "running") {
+          store.updateSessionState(r.sid, state);
+        }
+        // Backdate via direct SQL — Store exposes no `updated_at` setter.
+        // Only `updated_at` matters here: the dispatcher's prune filter
+        // reads `updated_at` (not `created_at`), so leaving `created_at`
+        // at `now` is fine. If a future change switches to `created_at`,
+        // backdate both columns here to keep this helper honest.
+        if (r.ageMs && r.ageMs > 0) {
+          const metaDb = new Database(join(storeDir, "sessions.sqlite"));
+          metaDb.run("UPDATE sessions SET updated_at = ? WHERE sid = ?", [
+            now - r.ageMs,
+            r.sid,
+          ]);
+          metaDb.close();
+        }
+      }
+    } finally {
+      store.close();
+    }
+  }
+
+  test("list shows empty state", () => {
+    const out = capture(`${CLI} session list`, env);
+    expect(out).toContain("No sessions");
+  });
+
+  test("list shows seeded sessions", () => {
+    seed([
+      { sid: "session-aaaa", state: "stopped" },
+      { sid: "session-bbbb", state: "stopped" },
+    ]);
+    const out = capture(`${CLI} session list`, env);
+    expect(out).toContain("session-aaaa");
+    expect(out).toContain("session-bbbb");
+    expect(out).toContain("stopped");
+  });
+
+  test("delete by exact sid removes one session", () => {
+    seed([
+      { sid: "session-aaaa", state: "stopped" },
+      { sid: "session-bbbb", state: "stopped" },
+    ]);
+    const out = capture(`${CLI} session delete session-aaaa --yes`, env);
+    expect(out).toContain("Deleted session session-aaaa");
+    const store = new Store(storeDir);
+    const remaining = store.listSessions().map((s) => s.sid);
+    store.close();
+    expect(remaining).toEqual(["session-bbbb"]);
+  });
+
+  test("delete by prefix match", () => {
+    seed([{ sid: "session-mncx9824", state: "stopped" }]);
+    const out = capture(`${CLI} session delete session-mncx --yes`, env);
+    expect(out).toContain("Deleted session session-mncx9824");
+  });
+
+  test("delete errors on no match", () => {
+    seed([{ sid: "session-aaaa", state: "stopped" }]);
+    const out = capture(`${CLI} session delete nope --yes`, env);
+    expect(out).toContain("No session matches");
+  });
+
+  test("delete errors on ambiguous prefix", () => {
+    seed([
+      { sid: "session-aaaa1", state: "stopped" },
+      { sid: "session-aaaa2", state: "stopped" },
+    ]);
+    const out = capture(`${CLI} session delete session-aaaa --yes`, env);
+    expect(out).toContain("ambiguous");
+    expect(out).toContain("session-aaaa1");
+    expect(out).toContain("session-aaaa2");
+  });
+
+  test("delete without --yes on non-TTY refuses", () => {
+    seed([{ sid: "session-aaaa", state: "stopped" }]);
+    const out = capture(`${CLI} session delete session-aaaa`, env);
+    expect(out).toContain("Refusing to delete");
+    const store = new Store(storeDir);
+    expect(store.listSessions()).toHaveLength(1);
+    store.close();
+  });
+
+  test("prune --dry-run lists candidates without deleting", () => {
+    seed([
+      { sid: "old-session", state: "stopped", ageMs: 8 * 24 * 60 * 60_000 },
+      { sid: "new-session", state: "stopped", ageMs: 60_000 },
+    ]);
+    const out = capture(`${CLI} session prune --older-than 7d --dry-run`, env);
+    expect(out).toContain("old-session");
+    expect(out).not.toContain("new-session");
+    expect(out.toLowerCase()).toContain("dry");
+
+    const store = new Store(storeDir);
+    const remaining = store
+      .listSessions()
+      .map((s) => s.sid)
+      .sort();
+    store.close();
+    expect(remaining).toEqual(["new-session", "old-session"]);
+  });
+
+  test("prune --older-than 7d --yes deletes old stopped sessions", () => {
+    seed([
+      { sid: "old-session", state: "stopped", ageMs: 8 * 24 * 60 * 60_000 },
+      { sid: "new-session", state: "stopped", ageMs: 60_000 },
+      { sid: "running-old", state: "running", ageMs: 8 * 24 * 60 * 60_000 },
+    ]);
+    const out = capture(`${CLI} session prune --older-than 7d --yes`, env);
+    expect(out).toContain("old-session");
+
+    const store = new Store(storeDir);
+    const remaining = store
+      .listSessions()
+      .map((s) => s.sid)
+      .sort();
+    store.close();
+    expect(remaining).toEqual(["new-session", "running-old"]);
+  });
+
+  test("prune --all --yes deletes every stopped session", () => {
+    seed([
+      { sid: "s-1", state: "stopped" },
+      { sid: "s-2", state: "stopped" },
+      { sid: "s-running", state: "running" },
+    ]);
+    const out = capture(`${CLI} session prune --all --yes`, env);
+    expect(out).toContain("s-1");
+    expect(out).toContain("s-2");
+
+    const store = new Store(storeDir);
+    const remaining = store.listSessions().map((s) => s.sid);
+    store.close();
+    expect(remaining).toEqual(["s-running"]);
+  });
+
+  test("prune --all --running --yes sweeps stale running rows", () => {
+    // Simulates a crashed daemon leaving a "running" row behind. With no
+    // live daemon attached, --running + --yes must sweep it.
+    seed([
+      { sid: "stale-running", state: "running" },
+      { sid: "stopped-normal", state: "stopped" },
+    ]);
+    const out = capture(`${CLI} session prune --all --running --yes`, env);
+    expect(out).toContain("stale-running");
+    expect(out).toContain("stopped-normal");
+
+    const store = new Store(storeDir);
+    const remaining = store.listSessions();
+    store.close();
+    expect(remaining).toEqual([]);
+  });
+
+  test("prune with no match reports 0 selected", () => {
+    seed([{ sid: "new-session", state: "stopped", ageMs: 60_000 }]);
+    const out = capture(`${CLI} session prune --older-than 7d --yes`, env);
+    // Tight match: the literal "No sessions selected (0 matched)." line
+    // from the CLI. A loose `/0|no session/` would also match "10 sessions"
+    // if a future refactor accidentally changed the output shape.
+    expect(out).toMatch(/No sessions selected \(0 matched\)\./);
+  });
+
+  test("prune rejects invalid duration", () => {
+    const out = capture(`${CLI} session prune --older-than 7w --yes`, env);
+    expect(out.toLowerCase()).toContain("invalid");
+  });
+
+  test("prune --running without --yes twice refuses on non-TTY", () => {
+    seed([{ sid: "running-old", state: "running" }]);
+    const out = capture(`${CLI} session prune --all --running`, env);
+    // Requires two confirmations — non-TTY should refuse without --yes.
+    expect(out).toContain("Refusing");
+    const store = new Store(storeDir);
+    expect(store.listSessions()).toHaveLength(1);
+    store.close();
+  });
+
+  test("delete removes session db file from disk", () => {
+    seed([{ sid: "session-cleanup", state: "stopped" }]);
+    const dbPath = join(storeDir, "sessions", "session-cleanup.sqlite");
+    expect(existsSync(dbPath)).toBe(true);
+    capture(`${CLI} session delete session-cleanup --yes`, env);
+    expect(existsSync(dbPath)).toBe(false);
+  });
+});

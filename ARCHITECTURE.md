@@ -339,15 +339,11 @@ Relay는 이 암호화된 blob만 중계한다. 내용을 알 수 없다.
 
 ## 6. Runner PTY 관리
 
-### 6.1 PTY 관리 (플랫폼별)
+### 6.1 PTY 관리
 
-**macOS/Linux**: `PtyBun` — `Bun.spawn({ terminal })` 네이티브 PTY.
+**`PtyBun`** (macOS/Linux): `Bun.spawn({ terminal })` 네이티브 PTY. `PtyManager` 인터페이스로 추상화되어 있어 Runner 코드는 플랫폼을 직접 참조하지 않는다. Windows 네이티브 실행은 지원하지 않으며, Windows 사용자는 WSL 안에서 Linux 빌드를 실행한다.
 
-**Windows**: `PtyWindows` — Node.js subprocess + `@aspect-build/node-pty` (ConPTY). JSON lines stdio 프로토콜로 pty-host 프로세스와 통신. pty-host는 `%LOCALAPPDATA%\teleprompter\pty-host\`에 자동 설치됨. Node.js 필요.
-
-`PtyManager` 인터페이스로 추상화되어 Runner 코드는 플랫폼을 직접 참조하지 않는다. `createPtyManager()` factory가 `process.platform`에 따라 적절한 구현체를 반환한다.
-
-### 6.1a Bun.spawn PTY (macOS/Linux 상세)
+### 6.1a Bun.spawn PTY 상세
 
 Runner는 `claude --settings <json>` 플래그로 hooks 설정을 인라인 주입한다.
 `.claude/settings.local.json`을 수정하지 않으므로 사용자 설정과 충돌하지 않는다.
@@ -497,10 +493,6 @@ PTY raw bytes ─────┘
 macOS/Linux: Unix domain socket
   경로: $XDG_RUNTIME_DIR/teleprompter/daemon.sock
   또는: /tmp/teleprompter-{uid}/daemon.sock
-
-Windows: Named Pipe
-  경로: \\.\pipe\teleprompter-{username}-daemon
-  구현: Bun native pipe 시도 → node:net fallback
 ```
 
 ### 9.2 프로토콜
@@ -587,7 +579,7 @@ tp version
 bun run build:cli:local   # → dist/tp
 
 # 멀티 플랫폼 빌드
-bun run build:cli          # → dist/tp-{darwin_arm64,darwin_x64,linux_x64,linux_arm64}, tp-windows_x64.exe
+bun run build:cli          # → dist/tp-{darwin_arm64,darwin_x64,linux_x64,linux_arm64}
 
 # Self-spawn 메커니즘
 # compiled 바이너리: tp daemon start → tp run (같은 바이너리로 Runner spawn)

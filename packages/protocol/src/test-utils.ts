@@ -3,11 +3,9 @@ import { rm } from "fs/promises";
 /**
  * @internal Test-only utility. Import via `@teleprompter/protocol/test-utils`.
  *
- * rm with retry for Windows EBUSY errors.
- * On Windows, files locked by open handles (sockets, SQLite) can't be
- * deleted immediately. This retries with exponential backoff.
- * After all retries exhausted, silently gives up — cleanup failure
- * should never fail a test whose assertions already passed.
+ * rm with retry for transient EBUSY/EPERM. After all retries exhausted,
+ * silently gives up — cleanup failure should never fail a test whose
+ * assertions already passed.
  */
 export async function rmRetry(
   path: string,

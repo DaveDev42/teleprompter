@@ -8,9 +8,9 @@ paths:
 # CI/CD & Deployment Conventions
 
 ## GitHub Actions
-- CI: Node 22 + Bun 1.3.12 + pnpm, 6개 독립 병렬 job (`lint`, `type-check`, `test`, `build-cli`, `e2e`, `test-windows`) + 1 gate (`eas-gate`)
+- CI: Node 22 + Bun 1.3.12 + pnpm, 5개 독립 병렬 job (`lint`, `type-check`, `test`, `build-cli`, `e2e`) + 1 gate (`eas-gate`)
 - 캐시: Playwright browsers (`playwright-{os}-`), Expo web build (`expo-web-{os}-`)
-- EAS 게이트: 6개 병렬 job 전부 pass + `dorny/paths-filter`로 app/protocol 변경 감지 → `expo-doctor` → `eas build`
+- EAS 게이트: 5개 병렬 job 전부 pass + `dorny/paths-filter`로 app/protocol 변경 감지 → `expo-doctor` → `eas build`
 - Secrets: `RELAY_HOST`, `RELAY_USER`, `RELAY_SSH_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `EXPO_TOKEN` (EAS gate)
 
 ## EAS Workflows
@@ -23,7 +23,7 @@ paths:
 - Tag prefix: `v*` (e.g. `v0.1.13`) — `release/v*` is legacy, removed in PR #96
 - 수동 편집 금지: version 필드는 Release Please가 관리
 - `build-darwin` job runs on `macos-latest`; Bun embeds an ad-hoc signature, so we `codesign --remove-signature` + re-sign with Hardened Runtime options.
-- `build-cross` job runs on `ubuntu-latest`, then `apt-get install upx-ucl` + `upx -1 dist/tp-*` to shrink linux/windows binaries (-55% typical). macOS is deliberately **not** UPX-compressed — Gatekeeper/Hardened Runtime SIGKILLs packed Mach-O even with `--force-macos`.
+- `build-cross` job runs on `ubuntu-latest`, then `apt-get install upx-ucl` + `upx -1 dist/tp-*` to shrink linux binaries (-55% typical). macOS is deliberately **not** UPX-compressed — Gatekeeper/Hardened Runtime SIGKILLs packed Mach-O even with `--force-macos`.
 - `release` job signs `checksums.txt` via cosign keyless OIDC + attest-build-provenance, then publishes via `softprops/action-gh-release@v2`.
 
 ## Relay Deploy
@@ -32,7 +32,6 @@ paths:
 - Port: 7090
 
 ## Scripts
-- `scripts/build.ts`: multi-platform `bun build --compile --minify` (darwin/linux × arm64/x64, windows × x64/arm64). Always passes `--minify`; `--bytecode` is deliberately off (+9 MB for -20 ms warm start is a bad trade; download size dominates install UX).
-- `scripts/install.sh`: curl-pipe-sh installer
-- `scripts/install.ps1`: PowerShell installer for Windows
+- `scripts/build.ts`: multi-platform `bun build --compile --minify` (darwin/linux × arm64/x64). Always passes `--minify`; `--bytecode` is deliberately off (+9 MB for -20 ms warm start is a bad trade; download size dominates install UX). Native Windows is unsupported — Windows users run the Linux build under WSL.
+- `scripts/install.sh`: curl-pipe-sh installer (macOS/Linux; Windows users run inside WSL)
 - `scripts/deploy-relay.sh`: SSH 배포 (arch 자동 감지)

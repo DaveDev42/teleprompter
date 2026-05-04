@@ -121,15 +121,15 @@ describe("PushService", () => {
       // First 3 should go through (using different events to avoid dedup)
       const r1 = await service.sendOrDeliver({
         ...req,
-        data: { ...req.data!, event: "e1" },
+        data: { sid: "session-1", daemonId: "daemon-1", event: "e1" },
       });
       const r2 = await service.sendOrDeliver({
         ...req,
-        data: { ...req.data!, event: "e2" },
+        data: { sid: "session-1", daemonId: "daemon-1", event: "e2" },
       });
       const r3 = await service.sendOrDeliver({
         ...req,
-        data: { ...req.data!, event: "e3" },
+        data: { sid: "session-1", daemonId: "daemon-1", event: "e3" },
       });
       expect(r1).toBe("push");
       expect(r2).toBe("push");
@@ -138,7 +138,7 @@ describe("PushService", () => {
       // 4th should be rate limited
       const r4 = await service.sendOrDeliver({
         ...req,
-        data: { ...req.data!, event: "e4" },
+        data: { sid: "session-1", daemonId: "daemon-1", event: "e4" },
       });
       expect(r4).toBe("rate_limited");
     });
@@ -159,7 +159,7 @@ describe("PushService", () => {
 
       const r2 = await service.sendOrDeliver({
         ...req1,
-        data: { ...req1.data!, event: "e2" },
+        data: { sid: "session-1", daemonId: "daemon-1", event: "e2" },
       });
       expect(r2).toBe("rate_limited");
 
@@ -220,7 +220,11 @@ describe("PushService", () => {
 
       const r2 = await service.sendOrDeliver({
         ...req,
-        data: { ...req.data!, event: "different-event" },
+        data: {
+          sid: "session-1",
+          daemonId: "daemon-1",
+          event: "different-event",
+        },
       });
       expect(r2).toBe("push");
     });

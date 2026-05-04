@@ -2,8 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { tmpdir } from "os";
 import { createPtyManager } from "./pty-manager";
 
-// PtyBun tests — only run on macOS/Linux (Bun.spawn terminal is Unix-only)
-describe.skipIf(process.platform === "win32")("PtyManager", () => {
+describe("PtyManager", () => {
   test("spawns a command and receives output", async () => {
     const pty = createPtyManager();
     const chunks: Uint8Array[] = [];

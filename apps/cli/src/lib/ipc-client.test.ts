@@ -7,9 +7,6 @@ import { connectIpcAsClient } from "./ipc-client";
 
 describe("connectIpcAsClient", () => {
   test("sends and receives framed JSON", async () => {
-    // POSIX Unix domain socket path — Named Pipe coverage lives in
-    // ipc-client-windows.test.ts (same shape, `\\.\pipe\...` path).
-    if (process.platform === "win32") return;
     const dir = mkdtempSync(join(tmpdir(), "tp-ipc-"));
     const sockPath = join(dir, "s.sock");
 
@@ -40,9 +37,6 @@ describe("connectIpcAsClient", () => {
   });
 
   test("onClose fires when server disconnects", async () => {
-    // POSIX Unix domain socket path — Named Pipe coverage lives in
-    // ipc-client-windows.test.ts.
-    if (process.platform === "win32") return;
     const dir = mkdtempSync(join(tmpdir(), "tp-ipc-"));
     const sockPath = join(dir, "s.sock");
 

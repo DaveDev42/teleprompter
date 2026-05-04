@@ -80,9 +80,7 @@ describe("tp pair", () => {
   });
 });
 
-// SQLite file handles linger on Windows, causing EBUSY on rmSync in cleanup.
-// Matches the pattern used by daemon store-cleanup tests.
-describe.skipIf(process.platform === "win32")("tp pair list/delete", () => {
+describe("tp pair list/delete", () => {
   let home: string;
   let env: Record<string, string>;
   let storeDir: string;

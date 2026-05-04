@@ -12,8 +12,7 @@ import {
   readYesNoLine,
 } from "./ensure-daemon";
 
-// Unix-only: Windows named pipes take a different path in isDaemonRunning.
-describe.skipIf(process.platform === "win32")("isDaemonRunning", () => {
+describe("isDaemonRunning", () => {
   let runtime: string;
   let sockPath: string;
   const origRuntime = process.env.XDG_RUNTIME_DIR;

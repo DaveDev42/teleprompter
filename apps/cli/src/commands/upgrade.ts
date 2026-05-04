@@ -110,14 +110,7 @@ const CACHE_SCHEMA_VERSION = 1;
 
 function getCachePath(): string {
   const xdg = process.env.XDG_CACHE_HOME;
-  let base: string;
-  if (xdg && xdg.length > 0) {
-    base = xdg;
-  } else if (process.platform === "win32") {
-    base = process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
-  } else {
-    base = join(homedir(), ".cache");
-  }
+  const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".cache");
   return join(base, "teleprompter", "upgrade-check.json");
 }
 
@@ -272,13 +265,9 @@ async function getLatestRelease(): Promise<{
 
 /** Build the asset name for the current platform. */
 export function getAssetName(): string {
-  let os: string;
-  if (process.platform === "darwin") os = "darwin";
-  else if (process.platform === "win32") os = "windows";
-  else os = "linux";
+  const os = process.platform === "darwin" ? "darwin" : "linux";
   const arch = process.arch === "arm64" ? "arm64" : "x64";
-  const suffix = process.platform === "win32" ? ".exe" : "";
-  return `tp-${os}_${arch}${suffix}`;
+  return `tp-${os}_${arch}`;
 }
 
 /** Resolve the path to the currently running tp binary. */
@@ -286,8 +275,7 @@ export async function resolveCurrentBinaryPath(): Promise<string> {
   if (process.execPath && !process.execPath.includes("bun")) {
     return process.execPath;
   }
-  const cmd = process.platform === "win32" ? "where" : "which";
-  const found = (await $`${cmd} tp`.text().catch(() => "")).trim();
+  const found = (await $`which tp`.text().catch(() => "")).trim();
   return found ? found.split(/\r?\n/)[0] : "";
 }
 
@@ -472,28 +460,6 @@ export async function restartDaemon(): Promise<void> {
       }
       return;
     }
-  } else if (process.platform === "win32") {
-    const { isServiceInstalled, getTaskName } = await import(
-      "../lib/service-windows"
-    );
-    if (isServiceInstalled()) {
-      const name = getTaskName();
-      // /End may fail if task isn't running — that's OK
-      Bun.spawnSync(["schtasks", "/End", "/TN", name]);
-      const runResult = Bun.spawnSync(["schtasks", "/Run", "/TN", name]);
-      // schtasks /Run returns 1 when the task is already running (SCHED_E_TASK_ATTEMPTED_TO_RUN_WITHOUT_INSTANCES).
-      // Treat exit 0 and 1 both as success for the purposes of restart messaging.
-      if (runResult.exitCode === 0 || runResult.exitCode === 1) {
-        console.log(ok(`Daemon restarted via Task Scheduler (${name}).`));
-      } else {
-        console.log(
-          warn(
-            `Daemon restart failed (schtasks exit ${runResult.exitCode}). Restart manually: tp daemon start`,
-          ),
-        );
-      }
-      return;
-    }
   } else {
     // Linux
     const { isServiceInstalled, getServiceName } = await import(
@@ -516,10 +482,6 @@ export async function restartDaemon(): Promise<void> {
   }
 
   // No service installed — check for running daemon process
-  if (process.platform === "win32") {
-    // pgrep is not available on Windows; skip process check
-    return;
-  }
   try {
     const pidResult = await $`pgrep -x "tp"`.text().catch(() => "");
     if (pidResult.trim()) {
@@ -544,18 +506,12 @@ async function upgradeTp(tag: string): Promise<void> {
 
   try {
     // Download binary to temp
-    const tmpName =
-      process.platform === "win32"
-        ? `tp-upgrade-${Date.now()}.exe`
-        : `tp-upgrade-${Date.now()}`;
-    tmpPath = join(tmpdir(), tmpName);
+    tmpPath = join(tmpdir(), `tp-upgrade-${Date.now()}`);
 
     await downloadWithProgress(url, tmpPath, {
       label: `Downloading tp ${tag}`,
     });
-    if (process.platform !== "win32") {
-      await $`chmod +x ${tmpPath}`.quiet();
-    }
+    await $`chmod +x ${tmpPath}`.quiet();
     console.log(ok(`Downloaded tp ${tag}`));
 
     // Verify checksum
@@ -590,11 +546,6 @@ async function upgradeTp(tag: string): Promise<void> {
     const currentPath = await resolveCurrentBinaryPath();
     if (currentPath) {
       targetPath = currentPath;
-    } else if (process.platform === "win32") {
-      const base =
-        process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
-      targetPath = join(base, "Programs", "teleprompter", "tp.exe");
-      mkdirSync(dirname(targetPath), { recursive: true });
     } else {
       targetPath = join(homedir(), ".local", "bin", "tp");
       mkdirSync(dirname(targetPath), { recursive: true });
@@ -654,10 +605,7 @@ async function upgradeTp(tag: string): Promise<void> {
       }
     }
 
-    const manualHint =
-      process.platform === "win32"
-        ? `Manual: irm https://raw.githubusercontent.com/${REPO}/main/scripts/install.ps1 | iex`
-        : `Manual: curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash`;
+    const manualHint = `Manual: curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash`;
     console.error(
       errorWithHints(
         `Upgrade failed: ${err instanceof Error ? err.message : err}`,

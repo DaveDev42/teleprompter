@@ -8,7 +8,7 @@ paths:
 # CI/CD & Deployment Conventions
 
 ## GitHub Actions
-- CI: Node 22 + Bun 1.3.12 + pnpm, 5개 독립 병렬 job (`lint`, `type-check`, `test`, `build-cli`, `e2e`) + 1 gate (`eas-gate`)
+- CI: Node 22 + Bun 1.3.13 + pnpm, 5개 독립 병렬 job (`lint`, `type-check`, `test`, `build-cli`, `e2e`) + 1 gate (`eas-gate`)
 - 캐시: Playwright browsers (`playwright-{os}-`), Expo web build (`expo-web-{os}-`)
 - EAS 게이트: 5개 병렬 job 전부 pass + `dorny/paths-filter`로 app/protocol 변경 감지 → `expo-doctor` → `eas build`
 - Secrets: `RELAY_HOST`, `RELAY_USER`, `RELAY_SSH_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `EXPO_TOKEN` (EAS gate)

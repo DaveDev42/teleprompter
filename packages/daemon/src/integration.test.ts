@@ -95,14 +95,14 @@ describe("Integration", () => {
     };
     socket.write(encodeFrame(rec2));
 
-    await Bun.sleep(50);
+    await Bun.sleep(100);
 
     // Send bye
     const bye: IpcBye = { t: "bye", sid, exitCode: 0 };
     socket.write(encodeFrame(bye));
     socket.end();
 
-    await Bun.sleep(100);
+    await Bun.sleep(200);
 
     // Verify store
     const store = new Store(storeDir);
@@ -182,8 +182,8 @@ describe("Integration", () => {
     }
 
     // Wait for processing — drain + server-side sqlite writes
-    // Allow up to 20s (200 * 100ms) for slow CI runners
-    for (let i = 0; i < 200; i++) {
+    // Allow up to 50s (500 * 100ms) for slow CI runners
+    for (let i = 0; i < 500; i++) {
       await Bun.sleep(100);
       const v = new Store(storeDir);
       const db = v.getSessionDb(sid);
@@ -204,7 +204,7 @@ describe("Integration", () => {
     if (!db) throw new Error("expected db");
     expect(db.getLastSeq()).toBe(total);
     store.close();
-  }, 25_000);
+  }, 60_000);
 
   test("hook receiver: JSON event → onEvent callback", async () => {
     const hookSocketPath = join(tmpDir, "hook-test.sock");

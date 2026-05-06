@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.21](https://github.com/DaveDev42/teleprompter/compare/v0.1.20...v0.1.21) (2026-05-06)
+
+
+### Features
+
+* **app:** add unpair UI + fix in-app QR scanner ([#179](https://github.com/DaveDev42/teleprompter/issues/179)) ([4ddfd5b](https://github.com/DaveDev42/teleprompter/commit/4ddfd5b7f3521f0a9f03a1802333755345038b50))
+* drop native Windows support; require WSL on Windows ([#183](https://github.com/DaveDev42/teleprompter/issues/183)) ([5716338](https://github.com/DaveDev42/teleprompter/commit/57163387afa09bb3d46d424253701c1e2c6d4189))
+
+
+### Bug Fixes
+
+* **app:** autofocus camera + shrink default-relay QR ([#180](https://github.com/DaveDev42/teleprompter/issues/180)) ([6e7ce29](https://github.com/DaveDev42/teleprompter/commit/6e7ce293e9f334eda7588e811e5de4295c7751ce))
+* **app:** use OS modern scanner + shorten QR scheme to tp:// ([#181](https://github.com/DaveDev42/teleprompter/issues/181)) ([9ea0582](https://github.com/DaveDev42/teleprompter/commit/9ea05826ed403f9a4d2cdb444c3b1a33178ce78f))
+* correct davedev42 tap name (was daveddev42 with extra d) ([#186](https://github.com/DaveDev42/teleprompter/issues/186)) ([4f41e56](https://github.com/DaveDev42/teleprompter/commit/4f41e56a1cbf32884a415ff8ddee92ed1756f59e))
+* **protocol:** shrink pairing QR — drop label, strip daemon- prefix ([#182](https://github.com/DaveDev42/teleprompter/issues/182)) ([0700559](https://github.com/DaveDev42/teleprompter/commit/07005598f8942b2b03f53d3c20b81764ceaff87f))
+
 ## [0.1.20](https://github.com/DaveDev42/teleprompter/compare/v0.1.19...v0.1.20) (2026-05-02)
 
 

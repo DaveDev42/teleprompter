@@ -229,7 +229,7 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 | Target | Workflow | 설명 |
 |--------|----------|------|
 | tp 바이너리 | GitHub Actions `release.yml` | 4 플랫폼 빌드 → GitHub Release |
-| Homebrew tap | GitHub Actions `release.yml` (`Update Homebrew formula` step) | `checksums.txt`에서 darwin sha256 추출 → `Formula/tp.rb` 렌더 → `daveddev42/homebrew-tap` repo에 직접 push (PR 없음). `HOMEBREW_TAP_TOKEN` secret 미설정 또는 push 실패 시 `::warning::`로 swallow되어 release 자체는 성공으로 끝남 — 이 경우 `/release` 명령이 catch함. |
+| Homebrew tap | GitHub Actions `release.yml` (`Update Homebrew formula` step) | `checksums.txt`에서 darwin sha256 추출 → `Formula/tp.rb` 렌더 → `davedev42/homebrew-tap` repo에 직접 push (PR 없음). `HOMEBREW_TAP_TOKEN` secret 미설정 또는 push 실패 시 `::warning::`로 swallow되어 release 자체는 성공으로 끝남 — 이 경우 `/release` 명령이 catch함. |
 | iOS App Store | EAS Workflow `production.yaml` (수동) | Fingerprint → 빌드/OTA → 제출 |
 | Android Play Store | EAS Workflow `production.yaml` (수동) | Fingerprint → 빌드/OTA → 제출 |
 
@@ -266,7 +266,7 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 | `RELAY_HOST` | Relay 서버 IP |
 | `RELAY_USER` | Relay SSH 사용자 |
 | `RELAY_SSH_KEY` | Relay SSH 키 |
-| `HOMEBREW_TAP_TOKEN` | `daveddev42/homebrew-tap`에 push할 PAT (fine-grained, Contents: R/W). 미설정 시 release.yml의 tap update step이 `::warning::HOMEBREW_TAP_TOKEN not set`로 swallow하고 통과. |
+| `HOMEBREW_TAP_TOKEN` | `davedev42/homebrew-tap`에 push할 PAT (fine-grained, Contents: R/W). 미설정 시 release.yml의 tap update step이 `::warning::HOMEBREW_TAP_TOKEN not set`로 swallow하고 통과. |
 
 ### EAS Credentials (Expo 서버 저장)
 - iOS: Distribution Certificate + App Store Connect API Key (ascAppId: 6761056150)

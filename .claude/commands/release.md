@@ -59,23 +59,31 @@ The PR title format is `chore(main): release X.Y.Z`. Extract `X.Y.Z` —
 this is the **target version**. All later steps reference it as
 `<VERSION>` and the tag as `v<VERSION>`.
 
-### Step 2 — CI gate
+### Step 2 — Mergeability gate
 
-Confirm every required check on the PR is green:
+The release-please PR only edits `CHANGELOG.md`, `package.json`
+(version bump), and `.release-please-manifest.json`. **None of these
+paths trigger the main `ci.yml` workflow's path filters**, so
+`gh pr checks` will only show Vercel preview status (no
+lint/type-check/test/build-cli/e2e). Don't poll `gh pr checks`
+expecting a "full green" — it never gets one on a release-please PR.
+
+Instead use the merge-state rollup:
 
 ```sh
-gh pr checks <num>
+gh pr view <num> --json mergeable,mergeStateStatus,statusCheckRollup
 ```
 
-- All `SUCCESS` → continue.
-- Anything `IN_PROGRESS` / `PENDING` → poll every 30 seconds, max 15
-  minutes (CI runs lint/type-check/test/test-windows/build-cli/e2e in
-  parallel; e2e is the long pole). Then abort if still not green.
-- Any `FAILURE` / `CANCELLED` → abort immediately, surface the failing
-  check URL.
+- `mergeable == "MERGEABLE"` and `mergeStateStatus == "CLEAN"` → continue.
+- Any other state (`BEHIND`, `BLOCKED`, `DIRTY`, `UNSTABLE`) → abort
+  with the rollup payload.
+
+If the PR were a normal feature PR, `ci.yml` would gate it. The release
+PR is exempt by design — release-please-only path edits — so branch
+protection's "required checks" list excludes them.
 
 Do not run `bun test` / `pnpm type-check:all` / `pnpm test:e2e` locally
-— CI covers all of these.
+— `ci.yml` covers all of these on every non-release PR.
 
 ### Step 3 — Merge
 
@@ -104,21 +112,48 @@ MERGE_SHA=$(git rev-parse origin/main)
 The squash subject is the PR title (`chore(main): release X.Y.Z`),
 which is the conventional commit release-please needs to fire next.
 
-### Step 4 — Watch the `release.yml` run
+### Step 4 — Push the `v<VERSION>` tag (dispatch #2)
 
-Find the run triggered by the merge and watch it:
+`release-please.yml` is `workflow_dispatch` only (no `push:` trigger).
+A single dispatch only does whichever action release-please decides
+based on current main state — either *create the release PR* or *push
+the tag*, not both. Since the previous dispatch (Step 1) created the
+PR, **a second dispatch is required after the merge** to push the tag:
 
 ```sh
-RUN_ID=$(gh run list --workflow=release.yml --branch=main --limit=1 \
-  --json databaseId,headSha \
-  --jq ".[] | select(.headSha==\"$MERGE_SHA\") | .databaseId")
+gh workflow run release-please.yml --ref main
+```
 
-# If RUN_ID is empty, the run has not appeared yet — poll every 15s for
-# up to 2 minutes. release-please pushes the v* tag after merge, then
-# release.yml triggers on the tag push, so a brief gap is normal.
+Poll for the tag every 15 seconds, max 5 minutes:
 
+```sh
+gh api repos/DaveDev42/teleprompter/git/refs/tags/v<VERSION> \
+  --jq '.ref'        # poll until: refs/tags/v<VERSION>
+```
+
+If the tag never appears, abort with the release-please-action run log.
+
+### Step 5 — Trigger and watch `release.yml`
+
+`release.yml` is wired to `push: tags: [v*]`, **but GitHub API tag
+creation does not reliably fire `push` events** (#172). In practice
+this trigger is unreliable enough that we always dispatch manually:
+
+```sh
+gh workflow run release.yml -f tag=v<VERSION>
+```
+
+Capture the new run id:
+
+```sh
+RUN_ID=$(gh run list --workflow=release.yml --limit=1 \
+  --json databaseId --jq '.[0].databaseId')
 gh run watch "$RUN_ID" --exit-status
 ```
+
+> If `release.yml` *does* auto-fire from the tag push, you'll see a
+> `push`-event run sitting next to the manual dispatch. They build the
+> same tag, so harmlessly redundant — let both finish, then continue.
 
 - `--exit-status` fails the watch on any job failure. On non-zero exit:
 
@@ -140,16 +175,19 @@ gh run watch "$RUN_ID" --exit-status
   Homebrew formula" step falls back to non-fatal warnings, which is the
   exact failure mode this command exists to catch.
 
-### Step 5 — Tap repo sanity check
+### Step 6 — Tap repo sanity check
 
 ```sh
 gh api repos/DaveDev42/homebrew-tap/commits/main \
   --jq '.commit.message'
 ```
 
-Expected: `chore: update tp to <VERSION>` (matching the `<VERSION>`
-from Step 1). If absent, mismatched, or stale, abort with the actual
-message.
+Expected: a commit message containing `<VERSION>` (the
+`homebrew-tap-release@v1` reusable action introduced by #185 writes
+`tp <VERSION>` as the subject; older releases used
+`chore: update tp to <VERSION>`). What matters is that the **version
+string appears in the latest commit subject**. If absent or stale,
+abort with the actual message.
 
 Capture the tap commit SHA for the summary:
 
@@ -157,7 +195,7 @@ Capture the tap commit SHA for the summary:
 TAP_SHA=$(gh api repos/DaveDev42/homebrew-tap/commits/main --jq '.sha')
 ```
 
-### Step 6 — Real `brew upgrade` smoke test
+### Step 7 — Real `brew upgrade` smoke test
 
 ```sh
 brew update
@@ -173,7 +211,7 @@ If the tap was not previously installed, `brew upgrade` will fail with
 "No such keg". In that case run `brew install davedev42/tap/tp`
 instead. Re-run `tp version` afterward to confirm.
 
-### Step 7 — Final summary
+### Step 8 — Final summary
 
 Print:
 
@@ -195,5 +233,9 @@ Re-running this command after a partial failure is safe and idempotent:
 - Step 1 finds the existing release PR.
 - Step 3 detects an already-merged PR via `gh pr view --json state` →
   `MERGED`, and skips merge.
-- Step 4 finds the most recent run regardless of who triggered it.
-- Steps 5-7 are read-only verification and always safe.
+- Step 4 detects an existing `v<VERSION>` tag and skips the second
+  release-please dispatch.
+- Step 5 finds the most recent `release.yml` run regardless of who
+  triggered it. If a `push`-event run already succeeded, the manual
+  dispatch is harmlessly redundant.
+- Steps 6-8 are read-only verification and always safe.

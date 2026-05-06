@@ -11,7 +11,7 @@ Remote Claude Code session controller with E2EE relay, dual Chat/Terminal UI, an
 ### macOS (Homebrew)
 
 ```bash
-brew install daveddev42/tap/tp
+brew install davedev42/tap/tp
 ```
 
 ### macOS / Linux (curl)

@@ -12,7 +12,7 @@ This guide walks you through installation, your first session, and connecting th
 | **OS** | macOS or Linux (Windows: run under WSL) | `uname -s` |
 | **Claude Code CLI** | Latest | `claude --version` |
 | **pnpm** (build from source only) | Latest | `pnpm --version` |
-| **Bun** (build from source only) | 1.3.12+ | `bun --version` |
+| **Bun** (build from source only) | 1.3.13+ | `bun --version` |
 
 > **Windows users:** native Windows is not supported. Install WSL (`wsl --install` in PowerShell as Administrator), then follow the Linux instructions below from inside your WSL distro.
 

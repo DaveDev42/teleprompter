@@ -161,7 +161,7 @@ TAP_SHA=$(gh api repos/DaveDev42/homebrew-tap/commits/main --jq '.sha')
 
 ```sh
 brew update
-brew upgrade daveddev42/tap/tp
+brew upgrade davedev42/tap/tp
 tp version
 ```
 
@@ -170,7 +170,7 @@ Verify `tp version` output contains `<VERSION>`. Mismatch → abort
 bottle cache is stale or the tap push is still in flight").
 
 If the tap was not previously installed, `brew upgrade` will fail with
-"No such keg". In that case run `brew install daveddev42/tap/tp`
+"No such keg". In that case run `brew install davedev42/tap/tp`
 instead. Re-run `tp version` afterward to confirm.
 
 ### Step 7 — Final summary

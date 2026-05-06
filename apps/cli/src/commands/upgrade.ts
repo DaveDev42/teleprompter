@@ -86,7 +86,7 @@ export async function upgradeCommand(_argv: string[] = []): Promise<void> {
       console.log(
         `\n${warn("tp was installed via Homebrew — skip self-update.")}`,
       );
-      console.log(`Run: brew upgrade daveddev42/tap/tp`);
+      console.log(`Run: brew upgrade davedev42/tap/tp`);
       return;
     }
     console.log(`\nUpgrading tp ${currentVersion} → ${latest.tag}...`);

@@ -44,7 +44,7 @@ tp doctor
 ### What are the prerequisites?
 
 **Runtime (required):**
-- **Bun** v1.3.12+ (runtime for daemon, runner, relay)
+- **Bun** v1.3.13+ (runtime for daemon, runner, relay)
 - **Claude Code** CLI (`claude` in PATH)
 - **Git** (for worktree features)
 

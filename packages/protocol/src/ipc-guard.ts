@@ -394,6 +394,29 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
       };
     }
 
+    case "doctor.probe":
+      return { t: "doctor.probe" };
+
+    case "doctor.probe.ok": {
+      if (!Array.isArray(raw.relays)) return null;
+      for (const r of raw.relays) {
+        if (!isObject(r)) return null;
+        if (!isString(r.daemonId)) return null;
+        if (!isString(r.relayUrl)) return null;
+        if (typeof r.connected !== "boolean") return null;
+        if (!isNumber(r.peerCount)) return null;
+      }
+      return {
+        t: "doctor.probe.ok",
+        relays: (raw.relays as PlainObject[]).map((r) => ({
+          daemonId: r.daemonId as string,
+          relayUrl: r.relayUrl as string,
+          connected: r.connected as boolean,
+          peerCount: r.peerCount as number,
+        })),
+      };
+    }
+
     default:
       return null;
   }

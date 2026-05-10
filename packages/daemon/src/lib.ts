@@ -1,4 +1,11 @@
 export { Daemon } from "./daemon";
+export {
+  acquireDaemonLock,
+  checkDaemonLockAlive,
+  getDaemonLockPath,
+  readDaemonLockPid,
+  releaseDaemonLock,
+} from "./daemon-lock";
 export type { SpawnRunnerOptions } from "./session/session-manager";
 export { SessionManager } from "./session/session-manager";
 export { Store } from "./store";

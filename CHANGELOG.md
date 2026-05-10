@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.24](https://github.com/DaveDev42/teleprompter/compare/v0.1.23...v0.1.24) (2026-05-10)
+
+
+### Bug Fixes
+
+* **daemon:** subscribe to stopped sessions so Chat tab can resume their history ([#196](https://github.com/DaveDev42/teleprompter/issues/196)) ([44dec35](https://github.com/DaveDev42/teleprompter/commit/44dec3507edf30d0d8ac488e11c48ee26448c727))
+
 ## [0.1.23](https://github.com/DaveDev42/teleprompter/compare/v0.1.22...v0.1.23) (2026-05-10)
 
 

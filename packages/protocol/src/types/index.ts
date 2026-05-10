@@ -10,6 +10,9 @@ export type {
 export type {
   IpcAck,
   IpcBye,
+  IpcDoctorProbe,
+  IpcDoctorProbeOk,
+  IpcDoctorRelayStatus,
   IpcHello,
   IpcInput,
   IpcMessage,

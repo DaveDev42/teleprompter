@@ -633,4 +633,9 @@ export class RelayClient {
   get daemonId(): string {
     return this.config.daemonId;
   }
+
+  /** The relay URL this client connects to. */
+  get relayUrl(): string {
+    return this.config.relayUrl;
+  }
 }

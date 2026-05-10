@@ -230,6 +230,13 @@ function makeHarness(
     },
     getOnRecord: () => recordObserver,
     getRelayClients: () => relayClients,
+    getRelayHealth: () =>
+      relayClients.map((c) => ({
+        daemonId: c.daemonId,
+        relayUrl: c.relayUrl,
+        connected: c.isConnected(),
+        peerCount: c.getPeerCount(),
+      })),
   });
 
   return { dispatcher, calls };
@@ -799,6 +806,41 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     const { dispatcher, calls } = makeHarness();
     dispatcher.handleRunnerDisconnect(makeRunner());
     expect(calls.cliDisconnect).toBe(1);
+  });
+
+  test("doctor.probe replies with relay health from live clients", () => {
+    // Build a minimal fake RelayClient with the public surface the handler uses.
+    const fakeClient = {
+      daemonId: "d1",
+      relayUrl: "wss://relay.example.com",
+      isConnected: () => true,
+      getPeerCount: () => 2,
+    } as unknown as RelayClient;
+
+    const { dispatcher, calls } = makeHarness({ relayClients: [fakeClient] });
+    const runner = makeRunner();
+    dispatcher.dispatchIpc(runner, { t: "doctor.probe" });
+
+    expect(calls.ipcSends).toEqual([
+      {
+        t: "doctor.probe.ok",
+        relays: [
+          {
+            daemonId: "d1",
+            relayUrl: "wss://relay.example.com",
+            connected: true,
+            peerCount: 2,
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("doctor.probe replies with empty relays when no pairings", () => {
+    const { dispatcher, calls } = makeHarness({ relayClients: [] });
+    const runner = makeRunner();
+    dispatcher.dispatchIpc(runner, { t: "doctor.probe" });
+    expect(calls.ipcSends).toEqual([{ t: "doctor.probe.ok", relays: [] }]);
   });
 });
 

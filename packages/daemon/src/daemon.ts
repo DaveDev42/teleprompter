@@ -114,6 +114,13 @@ export class Daemon {
       renamePairing: (daemonId, label) => this.renamePairing(daemonId, label),
       getOnRecord: () => this.onRecord,
       getRelayClients: () => [...this.relayManager.listClients()],
+      getRelayHealth: () =>
+        this.relayManager.listClients().map((c) => ({
+          daemonId: c.daemonId,
+          relayUrl: c.relayUrl,
+          connected: c.isConnected(),
+          peerCount: c.getPeerCount(),
+        })),
     });
   }
 

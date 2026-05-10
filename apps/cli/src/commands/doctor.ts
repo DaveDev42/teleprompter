@@ -185,23 +185,32 @@ async function checkRelayConnectivityViaIpc(): Promise<boolean> {
     const client = await connectIpcAsClient(socketPath);
 
     const result = await new Promise<IpcDoctorProbeOk | null>((resolve) => {
+      let settled = false;
+      const finish = (value: IpcDoctorProbeOk | null) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+      };
       const timeout = setTimeout(() => {
         client.close();
-        resolve(null);
+        finish(null);
       }, 5000);
 
       client.onMessage((msg) => {
         const m = msg as { t?: string };
         if (m?.t === "doctor.probe.ok") {
           clearTimeout(timeout);
+          // Resolve BEFORE close — Bun's sock.end() fires the close
+          // handler synchronously, and that handler's finish(null) would
+          // otherwise win the race against finish(msg).
+          finish(msg as IpcDoctorProbeOk);
           client.close();
-          resolve(msg as IpcDoctorProbeOk);
         }
       });
 
       client.onClose(() => {
         clearTimeout(timeout);
-        resolve(null);
+        finish(null);
       });
 
       client.send({ t: "doctor.probe" });

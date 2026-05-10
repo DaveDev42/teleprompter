@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.22](https://github.com/DaveDev42/teleprompter/compare/v0.1.21...v0.1.22) (2026-05-10)
+
+
+### Bug Fixes
+
+* **daemon:** switch metadata DB to WAL so CLI can read while daemon writes ([#190](https://github.com/DaveDev42/teleprompter/issues/190)) ([538248f](https://github.com/DaveDev42/teleprompter/commit/538248fa6d759fc5f6e646948f69e0f2ad5440fe))
+
 ## [0.1.21](https://github.com/DaveDev42/teleprompter/compare/v0.1.20...v0.1.21) (2026-05-06)
 
 

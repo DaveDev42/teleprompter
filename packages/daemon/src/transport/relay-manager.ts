@@ -103,10 +103,16 @@ export class RelayConnectionManager {
         c.publishToPeer(frontendId, RELAY_CHANNEL_META, helloMsg).catch(
           () => {},
         );
+        // Subscribe to ALL sessions, not just running ones. The frontend may
+        // open a stopped/completed session in the Chat tab and send a
+        // `relay.pub <sid>` resume request — relay only forwards that frame
+        // to peers who are subscribed to <sid>, so without a subscription
+        // the daemon never receives the resume and the historical records
+        // never get replayed. New frames for stopped sessions never arrive
+        // (the Runner is gone), so the cost of subscribing is just a tiny
+        // per-sid registry entry on the relay.
         for (const s of sessions) {
-          if (s.state === "running") {
-            c.subscribe(s.sid);
-          }
+          c.subscribe(s.sid);
         }
       },
       onPushToken: (frontendId, token, platform) => {
@@ -167,13 +173,16 @@ export class RelayConnectionManager {
 
     await client.connect();
 
-    // Subscribe to meta, control, and all existing sessions
+    // Subscribe to meta, control, and all existing sessions (running OR
+    // stopped). A stopped session still needs a subscription so that the
+    // frontend's `relay.pub <sid>` resume request reaches us — relay forwards
+    // a frame only to peers subscribed to that sid. New frames for stopped
+    // sessions never arrive (Runner is gone) so this is purely a registry
+    // entry on the relay.
     client.subscribe(RELAY_CHANNEL_META);
     client.subscribe(RELAY_CHANNEL_CONTROL);
     for (const meta of this.deps.store.listSessions()) {
-      if (meta.state === "running") {
-        client.subscribe(meta.sid);
-      }
+      client.subscribe(meta.sid);
     }
 
     // Persist pairing data for auto-reconnect on daemon restart.

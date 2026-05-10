@@ -60,6 +60,58 @@ describe("matchPairings", () => {
     expect(out).toHaveLength(1);
     expect(out[0]!.daemonId).toBe("abc");
   });
+
+  test("matches by exact label (case-insensitive) when daemon-id rules miss", () => {
+    const labelled = [
+      { daemonId: "daemon-aaaa1111", label: "Office Mac" },
+      { daemonId: "daemon-bbbb2222", label: "Home Linux" },
+    ];
+    const out = matchPairings(labelled, "office mac");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.daemonId).toBe("daemon-aaaa1111");
+  });
+
+  test("falls back to label substring match (case-insensitive)", () => {
+    const labelled = [
+      { daemonId: "daemon-aaaa1111", label: "Office Mac" },
+      { daemonId: "daemon-bbbb2222", label: "Home Linux" },
+    ];
+    const out = matchPairings(labelled, "office");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.daemonId).toBe("daemon-aaaa1111");
+  });
+
+  test("returns multiple on ambiguous label substring", () => {
+    const labelled = [
+      { daemonId: "daemon-aaaa1111", label: "Office Mac" },
+      { daemonId: "daemon-bbbb2222", label: "Office Linux" },
+    ];
+    const out = matchPairings(labelled, "office");
+    expect(out).toHaveLength(2);
+  });
+
+  test("daemon-id rules win over label match", () => {
+    // A fragment that is both a daemon-id prefix and a label substring of
+    // another row must resolve via the id rule — labels are only a fallback.
+    const labelled = [
+      { daemonId: "daemon-officepc", label: "Other" },
+      { daemonId: "daemon-bbbb2222", label: "Office Mac" },
+    ];
+    const out = matchPairings(labelled, "daemon-office");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.daemonId).toBe("daemon-officepc");
+  });
+
+  test("ignores rows with null/empty label when matching by label", () => {
+    const mixed = [
+      { daemonId: "daemon-aaaa1111", label: null },
+      { daemonId: "daemon-bbbb2222", label: "" },
+      { daemonId: "daemon-cccc3333", label: "Office Mac" },
+    ];
+    const out = matchPairings(mixed, "office");
+    expect(out).toHaveLength(1);
+    expect(out[0]!.daemonId).toBe("daemon-cccc3333");
+  });
 });
 
 describe("pair.ts onClose race guard (static)", () => {
@@ -300,6 +352,44 @@ describe("tp pair list/delete", () => {
     seed([{ id: "daemon-mncx9824", relay: "wss://r.example" }]);
     const out = capture(`${CLI} pair delete mncx9824 --yes`, env);
     expect(out).toContain("Deleted pairing daemon-mncx9824");
+  });
+
+  test("delete matches by label (case-insensitive substring)", () => {
+    seed([
+      {
+        id: "daemon-aaaa1111",
+        relay: "wss://r.example",
+        label: "Office Mac",
+      },
+      { id: "daemon-bbbb2222", relay: "wss://r2.example", label: "Home" },
+    ]);
+    const out = capture(`${CLI} pair delete office --yes`, env);
+    expect(out).toContain("Deleted pairing daemon-aaaa1111");
+
+    const store = new Store(storeDir);
+    expect(store.listPairings().map((p) => p.daemonId)).toEqual([
+      "daemon-bbbb2222",
+    ]);
+    store.close();
+  });
+
+  test("rename matches by label", () => {
+    seed([
+      {
+        id: "daemon-aaaa1111",
+        relay: "ws://127.0.0.1:1",
+        label: "Office Mac",
+      },
+    ]);
+    const out = capture(`${CLI} pair rename "office mac" New Label`, env);
+    expect(out).toContain("Renamed daemon-aaaa1111");
+
+    const store = new Store(storeDir);
+    const row = store
+      .listPairings()
+      .find((p) => p.daemonId === "daemon-aaaa1111");
+    store.close();
+    expect(row?.label).toBe("New Label");
   });
 
   test("rename succeeds with stale daemon socket present", () => {

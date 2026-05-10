@@ -222,29 +222,42 @@ async function pairNew(argv: string[]): Promise<void> {
 }
 
 /**
- * Resolve a daemon ID fragment against a list of pairings.
+ * Resolve a daemon ID fragment OR label against a list of pairings.
  *
  * Match precedence (first non-empty result wins):
  *   1. Exact daemon ID
- *   2. Prefix match (e.g. `daemon-mncx`)
- *   3. `daemon-<fragment>` shorthand (e.g. `mncx9824` → `daemon-mncx9824`)
+ *   2. Exact label (case-insensitive)
+ *   3. Daemon ID prefix (e.g. `daemon-mncx`)
+ *   4. `daemon-<fragment>` shorthand (e.g. `mncx9824` → `daemon-mncx9824`)
+ *   5. Label substring (case-insensitive)
  *
  * `rename` and `delete` share this helper so users get identical matching in
- * both. Substring/middle matches are intentionally excluded — they collide
- * far too easily on real installs.
+ * both. ID substring/middle matches are intentionally excluded — they collide
+ * far too easily on real installs. Labels admit a final substring fallback
+ * because users routinely refer to pairings by their human-readable name
+ * (`tp pair list` shows the LABEL column first), and a label collision is
+ * surfaced as an "ambiguous" error rather than silently picking one.
  */
-export function matchPairings<T extends { daemonId: string }>(
-  candidates: readonly T[],
-  fragment: string,
-): T[] {
+export function matchPairings<
+  T extends { daemonId: string; label?: string | null },
+>(candidates: readonly T[], fragment: string): T[] {
   const exact = candidates.filter((c) => c.daemonId === fragment);
   if (exact.length > 0) return exact;
+
+  const fragLower = fragment.toLowerCase();
+  const labelExact = candidates.filter(
+    (c) => c.label?.toLowerCase() === fragLower,
+  );
+  if (labelExact.length > 0) return labelExact;
 
   const prefix = candidates.filter((c) => c.daemonId.startsWith(fragment));
   if (prefix.length > 0) return prefix;
 
   const shorthand = `daemon-${fragment}`;
-  return candidates.filter((c) => c.daemonId === shorthand);
+  const shorthandMatches = candidates.filter((c) => c.daemonId === shorthand);
+  if (shorthandMatches.length > 0) return shorthandMatches;
+
+  return candidates.filter((c) => c.label?.toLowerCase().includes(fragLower));
 }
 
 function defaultLabel(): string {
@@ -330,6 +343,7 @@ async function pairDelete(argv: string[]): Promise<void> {
     const candidates = store.listPairings().map((p) => ({
       daemonId: p.daemonId,
       relayUrl: p.relayUrl,
+      label: p.label,
     }));
     const matches = matchPairings(candidates, prefix);
     if (matches.length === 0) {
@@ -341,7 +355,7 @@ async function pairDelete(argv: string[]): Promise<void> {
       process.exit(1);
     }
     if (matches.length > 1) {
-      console.error(fail(`Prefix '${prefix}' is ambiguous. Candidates:`));
+      console.error(fail(`'${prefix}' is ambiguous. Candidates:`));
       for (const c of matches) console.error(`  ${c.daemonId}  ${c.relayUrl}`);
       process.exit(1);
     }

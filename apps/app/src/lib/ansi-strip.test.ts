@@ -36,4 +36,36 @@ describe("stripAnsi", () => {
   test("round-trips plain text unchanged", () => {
     expect(stripAnsi("hello world")).toBe("hello world");
   });
+
+  test("strips CSI sequences with private-use prefixes (>, <, =, ?)", () => {
+    // PR #193 regression: claude code's PTY emits `ESC [ > 4 m` (modify
+    // keyboard mode) and `ESC [ < u` (mouse-mode query). The original
+    // CSI regex `[0-9;?]*` rejected `>`/`<`/`=`, leaving the `>4m` /
+    // `<u` characters visible in the chat bubble.
+    expect(stripAnsi("\x1b[>4mvisible")).toBe("visible");
+    expect(stripAnsi("a\x1b[>4;2mb")).toBe("ab");
+    expect(stripAnsi("\x1b[<ucontent")).toBe("content");
+    expect(stripAnsi("\x1b[=1htext")).toBe("text");
+    expect(stripAnsi("\x1b[?25hcursor")).toBe("cursor");
+  });
+
+  test("strips OSC sequences terminated by ST (ESC \\\\)", () => {
+    // OSC may end with ST (ESC \) instead of BEL. The original regex only
+    // accepted BEL, so an ST-terminated OSC would leak the trailing
+    // characters into the chat bubble.
+    expect(stripAnsi("\x1b]0;title\x1b\\body")).toBe("body");
+    expect(stripAnsi("\x1b]8;;https://x\x1b\\link\x1b]8;;\x1b\\")).toBe("link");
+  });
+
+  test("strips ESC 7 / ESC 8 cursor save/restore", () => {
+    expect(stripAnsi("a\x1b7b\x1b8c")).toBe("abc");
+  });
+
+  test("handles the v0.1.22 QA reproduction (claude PTY epilogue)", () => {
+    // Captured from a passthrough session's Chat-tab streaming bubble during
+    // 2026-05-11 QA: claude emits a save+OSC+CSI epilogue that previously
+    // leaked `[>4m[<u78]0;` and similar artifacts.
+    const captured = "Done.\x1b7\x1b[>4m\x1b[<u\x1b[?78l\x1b]0;claude\x07\x1b8";
+    expect(stripAnsi(captured)).toBe("Done.");
+  });
 });

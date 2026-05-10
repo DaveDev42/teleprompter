@@ -1,4 +1,9 @@
-import { Daemon, SessionManager } from "@teleprompter/daemon";
+import {
+  checkDaemonLockAlive,
+  Daemon,
+  getDaemonLockPath,
+  SessionManager,
+} from "@teleprompter/daemon";
 import { setLogLevel } from "@teleprompter/protocol";
 import { parseArgs } from "util";
 import { isDaemonRunning } from "../lib/ensure-daemon";
@@ -10,6 +15,8 @@ export async function daemonCommand(argv: string[]): Promise<void> {
   switch (subcommand) {
     case "start":
       break; // fall through to existing start logic
+    case "stop":
+      return daemonStop();
     case "install": {
       const { installService } = await import("../lib/service");
       return installService();
@@ -24,8 +31,9 @@ export async function daemonCommand(argv: string[]): Promise<void> {
     }
     default:
       console.error(
-        `Usage: tp daemon <start|status|install|uninstall> [options]\n` +
+        `Usage: tp daemon <start|stop|status|install|uninstall> [options]\n` +
           `  start      Start daemon in foreground\n` +
+          `  stop       Stop the running daemon\n` +
           `  status     Show service registration + running state\n` +
           `  install    Register as OS service (launchd/systemd/Task Scheduler)\n` +
           `  uninstall  Remove OS service registration`,
@@ -56,6 +64,16 @@ export async function daemonCommand(argv: string[]): Promise<void> {
 
   // Inject self-spawn runner command so SessionManager uses `tp run` instead of relative path
   SessionManager.setRunnerCommand(resolveRunnerCommand());
+
+  // Fast path: check pid lock before the slower IPC socket probe.
+  // The authoritative singleton guard is in packages/daemon/src/index.ts which
+  // holds the lock for its full lifetime. This check prevents the CLI from
+  // spawning a second daemon when it's already running.
+  const lockPid = checkDaemonLockAlive(getDaemonLockPath());
+  if (lockPid !== null) {
+    console.log(`[Daemon] already running (pid=${lockPid}) — exiting`);
+    return;
+  }
 
   if (await isDaemonRunning()) {
     console.log("[Daemon] already running — exiting");
@@ -130,5 +148,69 @@ export async function daemonCommand(argv: string[]): Promise<void> {
       );
       // Don't restart for rejections — they're usually non-fatal
     });
+  }
+}
+
+/**
+ * Stop the running daemon.
+ *
+ * On macOS: bootout the launchd service first so launchd doesn't immediately
+ * respawn the daemon after we SIGTERM it. On Linux: stop the systemd unit first.
+ * Then send SIGTERM to the running pid (read from the pid lock file).
+ */
+async function daemonStop(): Promise<void> {
+  const { platform } = await import("os");
+  const os = platform();
+
+  // Step 1: tell the service manager to stop / unload so it won't respawn
+  if (os === "darwin") {
+    const { isServiceInstalled, getServiceLabel } = await import(
+      "../lib/service-darwin"
+    );
+    if (isServiceInstalled()) {
+      const uid = process.getuid?.() ?? 501;
+      const label = getServiceLabel();
+      // `bootout` removes the job from launchd's registry — no auto-respawn
+      const result = Bun.spawnSync([
+        "launchctl",
+        "bootout",
+        `gui/${uid}/${label}`,
+      ]);
+      if (result.exitCode === 0) {
+        console.log(`[Daemon] unloaded launchd service ${label}`);
+      }
+    }
+  } else if (os === "linux") {
+    const { isServiceInstalled, getServiceName } = await import(
+      "../lib/service-linux"
+    );
+    if (isServiceInstalled()) {
+      const name = getServiceName();
+      Bun.spawnSync(["systemctl", "--user", "stop", name]);
+      console.log(`[Daemon] stopped systemd unit ${name}`);
+    }
+  }
+
+  // Step 2: SIGTERM the daemon pid from the lock file
+  const lockPath = getDaemonLockPath();
+  const { readDaemonLockPid } = await import("@teleprompter/daemon");
+  const pid = readDaemonLockPid(lockPath);
+  if (pid === null) {
+    console.log("[Daemon] no running daemon found (no pid file)");
+    return;
+  }
+
+  try {
+    process.kill(pid, "SIGTERM");
+    console.log(`[Daemon] sent SIGTERM to pid=${pid}`);
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") {
+      console.log(`[Daemon] pid=${pid} is no longer running`);
+    } else {
+      console.error(
+        `[Daemon] failed to send SIGTERM to pid=${pid}: ${(err as Error).message}`,
+      );
+    }
   }
 }

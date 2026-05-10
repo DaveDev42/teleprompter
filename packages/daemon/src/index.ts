@@ -1,8 +1,24 @@
 import { createLogger } from "@teleprompter/protocol";
 import { parseArgs } from "util";
 import { Daemon } from "./daemon";
+import {
+  acquireDaemonLock,
+  getDaemonLockPath,
+  releaseDaemonLock,
+} from "./daemon-lock";
 
 const log = createLogger("Daemon");
+
+// ── Singleton guard ──────────────────────────────────────────────────────────
+// Acquire the pid-file lock before starting the IPC server.  If a live daemon
+// already holds the lock we exit 0 so launchd / systemd restarts don't pile up.
+const _lockPath = getDaemonLockPath();
+const _lockPid = acquireDaemonLock(_lockPath);
+if (_lockPid === null) {
+  log.info("daemon already running — exiting");
+  process.exit(0);
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 const { values } = parseArgs({
   args: Bun.argv.slice(2),
@@ -35,6 +51,7 @@ if (values.spawn) {
 
 function shutdown() {
   log.info("shutting down...");
+  releaseDaemonLock(_lockPath);
   daemon.stop();
   process.exit(0);
 }

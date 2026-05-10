@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.26](https://github.com/DaveDev42/teleprompter/compare/v0.1.25...v0.1.26) (2026-05-10)
+
+
+### Bug Fixes
+
+* **app:** persist session list across browser reload ([#201](https://github.com/DaveDev42/teleprompter/issues/201)) ([c0c80bb](https://github.com/DaveDev42/teleprompter/commit/c0c80bbe4ba8e7473245e22050ea75ed5ada1ee5))
+* **app:** show daemon label on Daemons tab via pairing bundle + hello broadcast ([#204](https://github.com/DaveDev42/teleprompter/issues/204)) ([cf51b4b](https://github.com/DaveDev42/teleprompter/commit/cf51b4b7c0cb7e17fe059b09566f7c7d4a349127))
+* **cli:** delegate doctor relay probe to daemon via IPC ([#203](https://github.com/DaveDev42/teleprompter/issues/203)) ([f984f1a](https://github.com/DaveDev42/teleprompter/commit/f984f1a2a29624c83da1a1cb8b609fbb7080b29b))
+* **daemon:** make daemon start a singleton via pid lockfile ([#202](https://github.com/DaveDev42/teleprompter/issues/202)) ([0c3063c](https://github.com/DaveDev42/teleprompter/commit/0c3063ca86c0f4cf316e7ef783e050d073f55130))
+
 ## [0.1.25](https://github.com/DaveDev42/teleprompter/compare/v0.1.24...v0.1.25) (2026-05-10)
 
 

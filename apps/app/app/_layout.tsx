@@ -11,6 +11,7 @@ import { usePairingDeepLink } from "../src/hooks/use-pairing-deep-link";
 import { usePushNotifications } from "../src/hooks/use-push-notifications";
 import { useRelay } from "../src/hooks/use-relay";
 import { usePairingStore } from "../src/stores/pairing-store";
+import { useSessionStore } from "../src/stores/session-store";
 import { useSettingsStore } from "../src/stores/settings-store";
 import { useThemeStore } from "../src/stores/theme-store";
 import { useVoiceStore } from "../src/stores/voice-store";
@@ -18,6 +19,7 @@ import { useVoiceStore } from "../src/stores/voice-store";
 export default function RootLayout() {
   const router = useRouter();
   const loadPairings = usePairingStore((s) => s.load);
+  const loadSessions = useSessionStore((s) => s.load);
   const loadSettings = useSettingsStore((s) => s.load);
   const loadTheme = useThemeStore((s) => s.load);
   const loadVoice = useVoiceStore((s) => s.load);
@@ -38,10 +40,11 @@ export default function RootLayout() {
   // Load saved settings on mount
   useEffect(() => {
     loadPairings();
+    loadSessions();
     loadSettings();
     loadTheme();
     loadVoice();
-  }, [loadVoice, loadPairings, loadTheme, loadSettings]);
+  }, [loadVoice, loadPairings, loadSessions, loadTheme, loadSettings]);
 
   // Re-resolve theme when system color scheme changes
   useEffect(() => {

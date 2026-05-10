@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.27](https://github.com/DaveDev42/teleprompter/compare/v0.1.26...v0.1.27) (2026-05-10)
+
+
+### Bug Fixes
+
+* **cli:** resolve doctor IPC probe before close to win Bun race ([#206](https://github.com/DaveDev42/teleprompter/issues/206)) ([bbee01c](https://github.com/DaveDev42/teleprompter/commit/bbee01c0b439631b326737b63cd92e9ccbda0841))
+
 ## [0.1.26](https://github.com/DaveDev42/teleprompter/compare/v0.1.25...v0.1.26) (2026-05-10)
 
 

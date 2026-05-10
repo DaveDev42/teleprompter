@@ -155,7 +155,7 @@ export function useRelay() {
             dispatchRec(rec);
           },
           onSessionList: (sessions: WsSessionMeta[]) => {
-            setSessions(sessions);
+            setSessions(daemonId, sessions);
           },
           onState: (sid: string, meta: WsSessionMeta) => {
             updateSession(sid, meta);

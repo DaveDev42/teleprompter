@@ -27,10 +27,12 @@ function DaemonCard({
   info,
   onRename,
   onUnpair,
+  onViewSessions,
 }: {
   info: PairingInfo;
   onRename: (info: PairingInfo) => void;
   onUnpair: (info: PairingInfo) => void;
+  onViewSessions: (info: PairingInfo) => void;
 }) {
   const connections = useRelayConnectionStore((s) => s.connections);
   const sessions = useSessionStore((s) => s.sessions);
@@ -116,31 +118,23 @@ function DaemonCard({
         </View>
       </View>
 
-      {/* Action buttons */}
+      {/* Action buttons. The frontend can't spawn sessions on a daemon —
+          users start them with `tp` on the daemon machine. So this card
+          offers a single navigational shortcut to the Sessions tab where
+          the live session list lives. */}
       <View className="flex-row px-4 pb-4 gap-2">
         {isOnline ? (
-          <>
-            <Pressable
-              className={`flex-1 bg-tp-accent rounded-btn py-2 items-center ${pp.className}`}
-              tabIndex={pp.tabIndex}
-              accessibilityRole="button"
-              accessibilityLabel={`New session on ${displayName}`}
-            >
-              <Text className="text-white text-[13px] font-medium">
-                New Session
-              </Text>
-            </Pressable>
-            <Pressable
-              className={`flex-1 bg-tp-bg-tertiary rounded-btn py-2 items-center ${pp.className}`}
-              tabIndex={pp.tabIndex}
-              accessibilityRole="button"
-              accessibilityLabel={`View status of ${displayName}`}
-            >
-              <Text className="text-tp-text-primary text-[13px] font-medium">
-                View Status
-              </Text>
-            </Pressable>
-          </>
+          <Pressable
+            onPress={() => onViewSessions(info)}
+            className={`flex-1 bg-tp-bg-tertiary rounded-btn py-2 items-center ${pp.className}`}
+            tabIndex={pp.tabIndex}
+            accessibilityRole="button"
+            accessibilityLabel={`View sessions on ${displayName}`}
+          >
+            <Text className="text-tp-text-primary text-[13px] font-medium">
+              View Sessions
+            </Text>
+          </Pressable>
         ) : (
           <Text className="text-tp-text-tertiary text-xs py-2">
             Waiting for daemon to come online...
@@ -212,6 +206,7 @@ export default function DaemonsScreen() {
                 );
                 setUnpairTarget(target);
               }}
+              onViewSessions={() => router.push("/(tabs)/")}
             />
           ))}
         </ScrollView>

@@ -21,8 +21,8 @@
 
 ### P1 — 사용자 가시 동작 버그
 
-- [ ] **`tp pair new` "disconnect" 토스트 오발화** (2026-05-11 v0.1.22 재현 확인) — 페어링 정상 완료 직후에도 "Daemon disconnected — pairing aborted." 에러 메시지가 출력됨. 실제 페어링은 DB에 정상 저장되며 앱에서도 정상 인식. `apps/cli/src/commands/pair.ts:170-174` onClose 핸들러가 resolve와 race. resolve 시 onClose unhook 또는 race-free flag로 가드.
-- [ ] **`resolveTpBinary()`가 brew 경로를 후보에 포함 안 함** (2026-05-11 신규) — `apps/cli/src/lib/paths.ts:20` candidates에 `~/.local/bin/tp`, `/usr/local/bin/tp`만 있고 `/opt/homebrew/bin/tp`가 없음. brew(`davedev42/tap/tp`) 사용자가 `tp daemon install` 실행 시 plist `ProgramArguments`가 `~/.local/bin/tp` (없거나 stale 빌드) 또는 `process.argv[0]` (bun runtime) 을 가리켜 launchd가 잘못된 binary로 daemon을 spawn함. brew 경로를 candidates 맨 앞에 추가하거나 macOS에서 우선순위 부여.
+- [x] **`tp pair new` "disconnect" 토스트 오발화** (2026-05-11 v0.1.22 재현 확인 → PR #192 fix) — 페어링 정상 완료 직후에도 "Daemon disconnected — pairing aborted." 에러 메시지가 출력되던 race. `apps/cli/src/commands/pair.ts`의 onClose 핸들러를 `settled` flag로 가드. 정적 회귀 테스트 추가. R5 QA 클린 통과.
+- [x] **`resolveTpBinary()`가 brew 경로를 후보에 포함 안 함** (2026-05-11 신규 → PR #192 fix) — `apps/cli/src/lib/paths.ts`가 `process.argv[0]`을 우선 사용해 실제 실행된 binary 위치(brew, ~/.local, dev 모두)를 잡도록 수정. 후보 목록도 `/opt/homebrew/bin/tp`를 맨 앞에 추가. `paths.test.ts` 신규 + R5 QA에서 plist `ProgramArguments[0]=/opt/homebrew/bin/tp` 검증.
 - [ ] **first-run wizard가 stale `pair.lock`에 막힘** — daemon crash / pkill 후 `~/.config/teleprompter/pair.lock.lock` 디렉터리가 남아 있고, pairing이 0개라서 첫 실행 시 `showFirstRunPairing()`이 자동 `tp pair new` 호출 → "Another `tp pair new` is already running" 으로 즉시 실패. proper-lockfile `stale: 30000ms`가 디렉터리 lock에는 효과적으로 작동하지 않는 것으로 보임. wizard 진입 전 stale lock 정리 단계 또는 lock TTL을 더 짧게.
 - [ ] **daemon 다중 spawn / orphan 누적** — `pkill -9` 시 launchd가 자식을 PID 1로 reparent하는 와중에 새 daemon이 spawn돼 동시에 4개 프로세스가 떠 있는 상황을 관찰. 소켓 bind는 1개만 잡히지만 fd/메모리 leak. spawn 전 기존 PID 검사 + lockfile, 또는 `tp daemon stop`이 launchd unload 우선 처리.
 - [ ] **passthrough 세션 Chat 탭 무반응** — passthrough로 시작한 세션을 React Native Web Chat 탭에서 열면 Claude 응답이 streaming되지 않음. Terminal 탭에서 클로드의 INSERT-mode 에디터로 진입하는 시나리오에서 재현. hooks event 발화 vs PTY 파싱 hybrid 경로 중 어느 쪽에서 끊기는지 trace 필요. **(2026-05-11 update)**: passthrough `-p` 모드 (one-shot prompt) 시나리오에서는 정상 작동 확인 — Chat에 "Count 1 to 20 + QA_BEACON_OK_R3" 지시 → 응답 streaming + final 정상. 인터랙티브 INSERT 모드에서만 재현되는 듯.
@@ -39,7 +39,7 @@
 
 ### P3 — minor
 
-- [ ] **`tp pair delete <prefix>`가 label에는 매칭 안 됨** — daemon-id prefix만 매칭. `tp pair list`에 label이 표시되므로 사용자는 label로 지울 거라 기대. label substring 매칭 또는 명확한 에러 메시지.
+- [x] **`tp pair delete <prefix>`가 label에는 매칭 안 됨** (2026-05-11 PR #194 fix) — `apps/cli/src/commands/pair.ts`의 `matchPairings`에 label 매칭 두 단계 추가: (a) exact label (case-insensitive) — id 매칭이 다 miss했을 때 우선, (b) label substring (case-insensitive) — 마지막 fallback. ID 규칙이 항상 우선이라 기존 동작은 깨지지 않음. `pair.test.ts`에 6 test cases 추가 (label exact / substring / null 무시 / id-우선 / 모호성 ambiguous 에러 / CLI 통합).
 
 ### 2026-05-11 v0.1.22 end-to-end QA 결과 (참고)
 

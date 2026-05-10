@@ -1,3 +1,4 @@
+import { Database } from "bun:sqlite";
 import {
   afterAll,
   afterEach,
@@ -191,6 +192,55 @@ describe("Store (isolated)", () => {
       expect(records.length).toBe(1);
     } finally {
       second.close();
+      rmRetry(storeDir);
+    }
+  });
+});
+
+// Regression for SQLITE_BUSY when the daemon (long-running writer) shares
+// the metadata DB with short-lived CLI processes (occasional readers /
+// writers). Before the WAL switch, opening a second Store while the first
+// one held a write transaction would synchronously throw SQLITE_BUSY because
+// the rollback journal serializes everything.
+describe("Store (concurrent reader regression)", () => {
+  test("WAL + busy_timeout lets a reader open while writer is mid-txn", () => {
+    const storeDir = mkdtempSync(join(tmpdir(), "tp-vault-concurrent-"));
+    const writer = new Store(storeDir);
+    try {
+      writer.createSession("s-concurrent", "/tmp/project");
+
+      const reader = new Store(storeDir);
+      try {
+        // A second open must succeed without SQLITE_BUSY — proves WAL mode is
+        // active and busy_timeout would absorb any transient lock contention.
+        expect(reader.listSessions().length).toBe(1);
+        expect(reader.getSession("s-concurrent")?.cwd).toBe("/tmp/project");
+      } finally {
+        reader.close();
+      }
+    } finally {
+      writer.close();
+      rmRetry(storeDir);
+    }
+  });
+
+  test("metadata DB is configured for WAL journal mode", () => {
+    const storeDir = mkdtempSync(join(tmpdir(), "tp-vault-pragmas-"));
+    const store = new Store(storeDir);
+    try {
+      // Re-opening through a fresh sqlite handle is the public way to assert
+      // the persisted journal mode — Store doesn't expose its metaDb.
+      const probe = new Database(join(storeDir, "sessions.sqlite"));
+      try {
+        const row = probe.prepare("PRAGMA journal_mode").get() as
+          | { journal_mode: string }
+          | undefined;
+        expect(row?.journal_mode?.toLowerCase()).toBe("wal");
+      } finally {
+        probe.close();
+      }
+    } finally {
+      store.close();
       rmRetry(storeDir);
     }
   });

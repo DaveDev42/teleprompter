@@ -232,9 +232,9 @@ describe("Store (concurrent reader regression)", () => {
       // the persisted journal mode — Store doesn't expose its metaDb.
       const probe = new Database(join(storeDir, "sessions.sqlite"));
       try {
-        const row = probe
-          .prepare("PRAGMA journal_mode")
-          .get() as { journal_mode: string } | undefined;
+        const row = probe.prepare("PRAGMA journal_mode").get() as
+          | { journal_mode: string }
+          | undefined;
         expect(row?.journal_mode?.toLowerCase()).toBe("wal");
       } finally {
         probe.close();

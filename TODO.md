@@ -35,6 +35,7 @@
 - [ ] **앱 "Remove daemon" 버튼 a11y 누락** — Daemons 화면 삭제 버튼에 `accessibilityRole="button"` 부재. Playwright `getByRole('button')` 매칭 실패 + 스크린리더 경험 저하.
 - [ ] **앱 "New Session" 버튼 onPress 미구현** (2026-05-11 신규) — `apps/app/app/(tabs)/daemons.tsx:123` 근처 Pressable에 핸들러가 없어 클릭해도 아무 동작 없음. 의도가 daemon별 새 세션 trigger라면 IPC `session.start` 또는 새 페어링 시작 흐름과 연결 필요.
 - [ ] **Daemons 탭이 daemon-id를 표시 (label 미반영)** (2026-05-11 신규) — 페어링에 `--label "web-qa-r3"` 줬어도 앱 Daemons 탭은 `daemon-mozpo5s5` 형식의 id를 표시. relay kx 후 label broadcast 흐름이 빠지거나 frontend store에 매핑이 없는 듯. `apps/app/src/stores/pairing-store.ts` 또는 daemon presence handler 확인.
+- [x] **Chat 탭 PTY-fallback 버블에 ANSI escape 누출** (2026-05-11 신규, PR #193 fix) — passthrough 세션 SessionEnd 직후 dimmed assistant bubble에 `[>4m[<u78]0;` 같은 raw bytes가 남았음. 원인: `apps/app/src/lib/ansi-strip.ts`의 CSI regex `[0-9;?]*`가 private-prefix bytes (`<`, `>`, `=`, `?`)를 놓침. 수정: CSI 표준 형식 `[\x30-\x3F]*[\x20-\x2F]*[\x40-\x7E]`로 확장 + OSC ST(`ESC \\`) terminator 지원 + `ESC 7 / 8` cursor save/restore 추가 + 회귀 테스트 6개 (실 captured epilogue 포함).
 
 ### P3 — minor
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.23](https://github.com/DaveDev42/teleprompter/compare/v0.1.22...v0.1.23) (2026-05-10)
+
+
+### Bug Fixes
+
+* **app:** strip CSI private-prefix and ST-terminated OSC sequences ([#193](https://github.com/DaveDev42/teleprompter/issues/193)) ([5c40e7b](https://github.com/DaveDev42/teleprompter/commit/5c40e7b1f1686774325fcb0d685eae2b48894ad5))
+* **cli:** match pairings by label as a fallback in tp pair delete/rename ([#194](https://github.com/DaveDev42/teleprompter/issues/194)) ([213a786](https://github.com/DaveDev42/teleprompter/commit/213a7863b0dd3430dca1469440ebb763d84fad7f))
+* **cli:** resolve tp binary via argv[0] + suppress bogus disconnect toast ([#192](https://github.com/DaveDev42/teleprompter/issues/192)) ([04dc4b3](https://github.com/DaveDev42/teleprompter/commit/04dc4b33ae29ffb604c91aa7abf3b659404a044f))
+
 ## [0.1.22](https://github.com/DaveDev42/teleprompter/compare/v0.1.21...v0.1.22) (2026-05-10)
 
 

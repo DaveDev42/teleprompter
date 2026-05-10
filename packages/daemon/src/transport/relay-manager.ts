@@ -77,8 +77,16 @@ export class RelayConnectionManager {
    *
    * `getClient` is a lazy reference so the closures can call back into the
    * RelayClient instance that is about to be constructed.
+   *
+   * `label` is the daemon's human-readable pairing label. When supplied it is
+   * included in the encrypted `hello` frame so the frontend can adopt it even
+   * if it missed the initial `relay.kx` broadcast (e.g. frontend connected
+   * while daemon was already online and had already sent its kx).
    */
-  buildEvents(getClient: () => RelayClient | null): RelayClientEvents {
+  buildEvents(
+    getClient: () => RelayClient | null,
+    label?: string | null,
+  ): RelayClientEvents {
     return {
       onInput: (kind, sid, data) => {
         const runner = this.deps.ipcServer.findRunnerBySid(sid);
@@ -99,7 +107,15 @@ export class RelayConnectionManager {
         const c = getClient();
         if (!c) return;
         const sessions = this.deps.store.listSessions().map(toWsSessionMeta);
-        const helloMsg = { t: "hello", v: 1, d: { sessions } };
+        // Include `daemonLabel` so the frontend can adopt the pairing label
+        // even when it connects after the daemon's initial relay.kx broadcast
+        // (which only reaches peers online at that moment). `null` means no
+        // label set — the frontend keeps its existing fallback.
+        const helloMsg = {
+          t: "hello",
+          v: 1,
+          d: { sessions, daemonLabel: label ?? null },
+        };
         c.publishToPeer(frontendId, RELAY_CHANNEL_META, helloMsg).catch(
           () => {},
         );
@@ -164,7 +180,7 @@ export class RelayConnectionManager {
    */
   async addClient(config: RelayClientConfig): Promise<RelayClient> {
     let clientRef: RelayClient | null = null;
-    const events = this.buildEvents(() => clientRef);
+    const events = this.buildEvents(() => clientRef, config.label ?? null);
     const client = this.factory
       ? this.factory(config)
       : new RelayClient(config, events);

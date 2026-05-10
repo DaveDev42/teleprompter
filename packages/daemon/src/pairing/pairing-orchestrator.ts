@@ -81,7 +81,10 @@ export class PairingOrchestrator {
     }
 
     let relayRef: RelayClient | null = null;
-    const events = this.deps.relayManager.buildEvents(() => relayRef);
+    const events = this.deps.relayManager.buildEvents(
+      () => relayRef,
+      args.label ?? null,
+    );
     const pp = new PendingPairing({
       relayUrl: args.relayUrl,
       daemonId,

@@ -62,6 +62,22 @@ describe("matchPairings", () => {
   });
 });
 
+describe("pair.ts onClose race guard (static)", () => {
+  // Regression for the v0.1.22 QA bug where `tp pair new` printed
+  // "Daemon disconnected — pairing aborted." right after a successful pairing
+  // because the IPC socket close handler raced the resolved promise. The fix
+  // is a `settled` flag that gates the onClose error path. Verify the source
+  // still wires the guard so future refactors don't silently regress it.
+  test("onClose handler is gated by the `settled` flag", async () => {
+    const src = await Bun.file(
+      new URL("./pair.ts", import.meta.url).pathname,
+    ).text();
+    // The guard must short-circuit before printing the disconnect line.
+    expect(src).toMatch(/let settled = false;/);
+    expect(src).toMatch(/ipc!\.onClose\(\(\) => \{\s*if \(settled\) return;/);
+  });
+});
+
 describe("tp pair", () => {
   test("tp pair --help prints usage", () => {
     const home = mkdtempSync(join(tmpdir(), "tp-pair-help-"));

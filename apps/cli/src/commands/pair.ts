@@ -109,6 +109,16 @@ async function pairNew(argv: string[]): Promise<void> {
     ipc = await connectIpcAsClient(getSocketPath());
     let pairingId: string | null = null;
 
+    // `settled` guards onClose from racing a real terminal frame: once the
+    // daemon emits `pair.completed` / `pair.cancelled` / `pair.error`, the
+    // socket may close as part of normal teardown and we must NOT print the
+    // bogus "Daemon disconnected" line on top of a successful pairing.
+    let settled = false;
+    const settle = (resolve: (n: number) => void, code: number): void => {
+      if (settled) return;
+      settled = true;
+      resolve(code);
+    };
     const done = new Promise<number>((resolve) => {
       ipc!.onMessage((raw) => {
         const m = raw as
@@ -141,15 +151,15 @@ async function pairNew(argv: string[]): Promise<void> {
                 `Pairing failed: ${m.reason}${m.message ? ` — ${m.message}` : ""}`,
               ),
             );
-            resolve(1);
+            settle(resolve, 1);
             return;
           case "pair.completed":
             console.log(ok(`Paired ${m.label ?? m.daemonId} (${m.daemonId})`));
-            resolve(0);
+            settle(resolve, 0);
             return;
           case "pair.cancelled":
             console.error(dim("Pairing cancelled."));
-            resolve(130);
+            settle(resolve, 130);
             return;
           case "pair.error":
             console.error(
@@ -157,19 +167,20 @@ async function pairNew(argv: string[]): Promise<void> {
                 `Pairing error: ${m.reason}${m.message ? ` — ${m.message}` : ""}`,
               ),
             );
-            resolve(1);
+            settle(resolve, 1);
             return;
           default: {
             const _exhaustive: never = m;
             void _exhaustive;
-            resolve(1);
+            settle(resolve, 1);
             return;
           }
         }
       });
       ipc!.onClose(() => {
+        if (settled) return;
         console.error(fail("Daemon disconnected — pairing aborted."));
-        resolve(1);
+        settle(resolve, 1);
       });
     });
 

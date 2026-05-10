@@ -1,5 +1,6 @@
 import type {
   IpcBye,
+  IpcDoctorProbeOk,
   IpcHello,
   IpcMessage,
   IpcPairBegin,
@@ -79,6 +80,14 @@ export interface IpcCommandDispatcherDeps {
   /** All active relay clients. Getter so newly added relays are picked up
    * on each IPC rec. */
   getRelayClients: () => RelayClient[];
+  /** Returns relay health snapshots from the daemon's live RelayClients.
+   * Used by `doctor.probe` so the CLI never opens a second daemon-role WS. */
+  getRelayHealth: () => Array<{
+    daemonId: string;
+    relayUrl: string;
+    connected: boolean;
+    peerCount: number;
+  }>;
 }
 
 /**
@@ -124,6 +133,9 @@ export class IpcCommandDispatcher {
         return;
       case "session.prune":
         this.handleSessionPrune(runner, msg);
+        return;
+      case "doctor.probe":
+        this.handleDoctorProbe(runner);
         return;
       case "hello":
         this.handleHello(msg);
@@ -320,6 +332,18 @@ export class IpcCommandDispatcher {
       dryRun: false,
     };
     this.deps.ipcServer.send(runner, reply);
+  }
+
+  /**
+   * Handle `doctor.probe`: collect relay health from live RelayClients and
+   * reply with `doctor.probe.ok`. No new WebSocket is opened — the daemon
+   * reports from its existing authenticated connections, avoiding the dual
+   * daemon-role WS conflict that caused `tp doctor` to hang.
+   */
+  private handleDoctorProbe(runner: ConnectedRunner): void {
+    const relays = this.deps.getRelayHealth();
+    const ok: IpcDoctorProbeOk = { t: "doctor.probe.ok", relays };
+    this.deps.ipcServer.send(runner, ok);
   }
 
   /**

@@ -226,6 +226,29 @@ export interface IpcSessionPruneErr {
   partialRunningKilled: number;
 }
 
+/**
+ * CLI → Daemon: request relay connection health from the daemon's live
+ * RelayClient instances. The daemon replies with per-pairing status without
+ * opening a second WebSocket connection to the relay.
+ */
+export interface IpcDoctorProbe {
+  t: "doctor.probe";
+}
+
+/** Per-pairing relay health snapshot returned by the daemon. */
+export interface IpcDoctorRelayStatus {
+  daemonId: string;
+  relayUrl: string;
+  connected: boolean;
+  /** Number of frontends that have completed key exchange. */
+  peerCount: number;
+}
+
+export interface IpcDoctorProbeOk {
+  t: "doctor.probe.ok";
+  relays: IpcDoctorRelayStatus[];
+}
+
 export type IpcMessage =
   | IpcHello
   | IpcRec
@@ -251,4 +274,6 @@ export type IpcMessage =
   | IpcSessionDeleteErr
   | IpcSessionPrune
   | IpcSessionPruneOk
-  | IpcSessionPruneErr;
+  | IpcSessionPruneErr
+  | IpcDoctorProbe
+  | IpcDoctorProbeOk;

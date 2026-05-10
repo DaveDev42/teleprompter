@@ -1,9 +1,13 @@
 import { Store } from "@teleprompter/daemon";
+import type { IpcDoctorProbeOk } from "@teleprompter/protocol";
+import { getSocketPath } from "@teleprompter/protocol";
 import { $ } from "bun";
 import { existsSync } from "fs";
 import { join } from "path";
 import { green, yellow } from "../lib/colors";
 import { verifyE2EECrypto } from "../lib/e2ee-verify";
+import { isDaemonRunning } from "../lib/ensure-daemon";
+import { connectIpcAsClient } from "../lib/ipc-client";
 import { spinner } from "../lib/spinner";
 
 /**
@@ -109,8 +113,16 @@ export async function doctorCommand(_argv: string[] = []): Promise<void> {
 
   if (pairing?.relayUrl) {
     console.log("");
-    const relayOk = await checkRelayConnectivity(pairing);
-    if (!relayOk) issues++;
+    const daemonRunning = await isDaemonRunning();
+    if (daemonRunning) {
+      // Delegate to the daemon's live RelayClient(s) via IPC to avoid opening a
+      // second daemon-role WebSocket to the relay (which would hang or conflict).
+      const relayOk = await checkRelayConnectivityViaIpc();
+      if (!relayOk) issues++;
+    } else {
+      const relayOk = await checkRelayConnectivity(pairing);
+      if (!relayOk) issues++;
+    }
   }
 
   // --- E2EE self-test (if paired) ---
@@ -158,6 +170,74 @@ export async function doctorCommand(_argv: string[] = []): Promise<void> {
 function check(name: string, value: string, passed: boolean): void {
   const icon = passed ? `${green("✓")}` : `${yellow("!")}`;
   console.log(`  ${icon} ${name}: ${value}`);
+}
+
+/**
+ * Delegate relay health check to the daemon's live RelayClient(s) via IPC.
+ * Avoids opening a second daemon-role WebSocket (which hangs when daemon is
+ * already holding the outbound connection). Returns true if all pairings
+ * report as connected.
+ */
+async function checkRelayConnectivityViaIpc(): Promise<boolean> {
+  const stop = spinner("Checking relay via daemon...");
+  try {
+    const socketPath = getSocketPath();
+    const client = await connectIpcAsClient(socketPath);
+
+    const result = await new Promise<IpcDoctorProbeOk | null>((resolve) => {
+      const timeout = setTimeout(() => {
+        client.close();
+        resolve(null);
+      }, 5000);
+
+      client.onMessage((msg) => {
+        const m = msg as { t?: string };
+        if (m?.t === "doctor.probe.ok") {
+          clearTimeout(timeout);
+          client.close();
+          resolve(msg as IpcDoctorProbeOk);
+        }
+      });
+
+      client.onClose(() => {
+        clearTimeout(timeout);
+        resolve(null);
+      });
+
+      client.send({ t: "doctor.probe" });
+    });
+
+    stop();
+
+    if (!result) {
+      check("Relay", "daemon did not respond to health probe", false);
+      return false;
+    }
+
+    if (result.relays.length === 0) {
+      check(
+        "Relay",
+        "no active relay connections (daemon has no pairings)",
+        false,
+      );
+      return false;
+    }
+
+    let allOk = true;
+    for (const relay of result.relays) {
+      const status = relay.connected
+        ? `connected (${relay.peerCount} peer${relay.peerCount !== 1 ? "s" : ""})`
+        : "disconnected (relay unreachable or auth failed)";
+      check(`Relay ${relay.relayUrl}`, status, relay.connected);
+      if (!relay.connected) allOk = false;
+    }
+    return allOk;
+  } catch (err) {
+    stop();
+    const msg = err instanceof Error ? err.message : String(err);
+    check("Relay", `IPC probe failed (${msg})`, false);
+    return false;
+  }
 }
 
 /**

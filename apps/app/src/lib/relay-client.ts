@@ -416,6 +416,18 @@ export class FrontendRelayClient implements TransportClient {
           break;
         case "hello":
           this.events.onSessionList?.(msg.d.sessions as WsSessionMeta[]);
+          // `daemonLabel` is included since the label-broadcast fix so the
+          // frontend can adopt the label even when it missed the initial
+          // relay.kx broadcast (e.g. frontend reconnected while daemon was
+          // already online). Older daemons omit the field — treat as null.
+          if (this.onDaemonHello) {
+            const daemonLabel =
+              typeof msg.d.daemonLabel === "string" ? msg.d.daemonLabel : null;
+            this.onDaemonHello({
+              daemonId: this.config.daemonId,
+              label: daemonLabel,
+            });
+          }
           break;
         case "pong":
           if (this.pingStart > 0) {

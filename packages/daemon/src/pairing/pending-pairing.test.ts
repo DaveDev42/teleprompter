@@ -29,6 +29,28 @@ describe("PendingPairing", () => {
     expect(relay.connect).toHaveBeenCalledTimes(1);
   });
 
+  test("begin() passes the label to the createRelayClient factory", async () => {
+    // Regression: before the fix, `createRelayClient` was called without
+    // `label`, so RelayClient.config.label was undefined and
+    // `broadcastDaemonPublicKey` sent `label: null` — the frontend kept its
+    // device-name fallback rather than adopting the daemon's label.
+    let capturedLabel: string | null | undefined;
+    const relay = makeFakeRelayClient();
+    const pp = new PendingPairing({
+      relayUrl: "wss://relay.test",
+      daemonId: "daemon-label-test",
+      label: "web-qa-r3",
+      createRelayClient: (args) => {
+        capturedLabel = args.label;
+        return relay as unknown as RelayClient;
+      },
+    });
+
+    await pp.begin();
+
+    expect(capturedLabel).toBe("web-qa-r3");
+  });
+
   test("awaitCompletion resolves on kx frame", async () => {
     const relay = makeFakeRelayClient();
     const pp = new PendingPairing({

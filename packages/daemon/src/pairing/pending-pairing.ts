@@ -30,6 +30,7 @@ export interface PendingPairingOptions {
     registrationProof: string;
     keyPair: KeyPair;
     pairingSecret: Uint8Array;
+    label: string | null;
   }) => RelayClient;
 }
 
@@ -105,6 +106,7 @@ export class PendingPairing {
       registrationProof: this.registrationProof,
       keyPair: this.keyPair,
       pairingSecret: this.pairingSecret,
+      label: this.opts.label,
     });
 
     await this.relay.connect();

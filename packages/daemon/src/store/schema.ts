@@ -41,7 +41,13 @@ export const PAIRINGS_MIGRATIONS: string[] = [
 ];
 
 export const PRAGMAS = [
-  "PRAGMA journal_mode = DELETE;",
+  // WAL lets the daemon (writer) and short-lived CLI processes (readers / occasional writers)
+  // share the same DB without colliding on a single-writer rollback journal.
+  "PRAGMA journal_mode = WAL;",
   "PRAGMA synchronous = NORMAL;",
   "PRAGMA cache_size = -2000;",
+  // Wait up to 5s for the writer to release the lock before raising SQLITE_BUSY.
+  // CLI commands open the store, do one quick op, and close — this gives them
+  // headroom even when the daemon is mid-write.
+  "PRAGMA busy_timeout = 5000;",
 ];

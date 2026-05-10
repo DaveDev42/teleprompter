@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.25](https://github.com/DaveDev42/teleprompter/compare/v0.1.24...v0.1.25) (2026-05-10)
+
+
+### Bug Fixes
+
+* **app:** replace dead daemon-card buttons with View Sessions ([#199](https://github.com/DaveDev42/teleprompter/issues/199)) ([5a1371d](https://github.com/DaveDev42/teleprompter/commit/5a1371db18beeebaf86ac53d627083e6196e82ea))
+* **cli:** shorten pair lock TTL so first-run wizard recovers from stale locks ([#198](https://github.com/DaveDev42/teleprompter/issues/198)) ([9cfb491](https://github.com/DaveDev42/teleprompter/commit/9cfb4912534e031f92d87acb0ab23dafc4b3512e))
+
 ## [0.1.24](https://github.com/DaveDev42/teleprompter/compare/v0.1.23...v0.1.24) (2026-05-10)
 
 

@@ -339,6 +339,55 @@ describe("RelayConnectionManager", () => {
     expect(notified).toBe(2);
   });
 
+  test("addClient subscribes to ALL sessions including stopped ones", async () => {
+    // Regression for the R6 QA bug: a stopped passthrough session's Chat
+    // tab stayed empty because the daemon only subscribed to running sids.
+    // The frontend's `relay.pub <sid>` resume request was therefore never
+    // forwarded to the daemon (relay only routes a frame to peers
+    // subscribed to that sid), so the historical records from the store
+    // never got replayed to the Chat UI.
+    const deps = makeDeps({
+      listSessions: () => [
+        { sid: "running-1", state: "running" },
+        { sid: "stopped-1", state: "stopped" },
+        { sid: "errored-1", state: "error" },
+      ],
+    });
+    const mgr = new RelayConnectionManager(deps);
+    const stub = makeStubClient("d1");
+    mgr.__setFactory(() => stub);
+
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: null });
+
+    const subscribed = (stub.subscribe as ReturnType<typeof mock>).mock.calls
+      .map((c) => c[0] as string)
+      .filter((sid) => sid !== "__meta__" && sid !== "__control__");
+    expect(subscribed).toEqual(["running-1", "stopped-1", "errored-1"]);
+  });
+
+  test("buildEvents.onFrontendJoined subscribes to ALL sessions, not just running", async () => {
+    // Same regression but on the late-join path: when a frontend connects
+    // *after* the daemon's initial subscribe pass, `onFrontendJoined` must
+    // also subscribe to stopped sessions so the freshly-joined frontend
+    // can resume their historical records.
+    const deps = makeDeps({
+      listSessions: () => [
+        { sid: "running-1", state: "running" },
+        { sid: "stopped-1", state: "stopped" },
+      ],
+    });
+    const mgr = new RelayConnectionManager(deps);
+    const stub = makeStubClient("d1");
+    const events = mgr.buildEvents(() => stub);
+
+    events.onFrontendJoined?.("frontend-1");
+
+    const subscribed = (stub.subscribe as ReturnType<typeof mock>).mock.calls
+      .map((c) => c[0] as string)
+      .filter((sid) => sid !== "__meta__" && sid !== "__control__");
+    expect(subscribed).toEqual(["running-1", "stopped-1"]);
+  });
+
   test("stop() disposes every client and clears the pool", async () => {
     const mgr = new RelayConnectionManager(makeDeps());
     const stub1 = makeStubClient("d1");

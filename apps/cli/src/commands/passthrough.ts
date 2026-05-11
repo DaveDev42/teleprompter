@@ -60,6 +60,9 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
 
   const daemon = new Daemon();
   daemon.start(tmpSocket);
+  // Reconnect saved pairings so the runner's records fan out to the frontend
+  // via relay. Without this the relay path is dark and Chat/Terminal stay empty.
+  await daemon.reconnectSavedRelays();
 
   // Pipe runner PTY io records → local stdout
   daemon.onRecord = (_sid, kind, payload) => {

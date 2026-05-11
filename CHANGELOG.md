@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.30](https://github.com/DaveDev42/teleprompter/compare/v0.1.29...v0.1.30) (2026-05-11)
+
+
+### Bug Fixes
+
+* **app:** replay __meta__ + __control__ cache on relay reconnect ([#216](https://github.com/DaveDev42/teleprompter/issues/216)) ([9eab4c5](https://github.com/DaveDev42/teleprompter/commit/9eab4c528a220352931735d3b988064e6128a1ad))
+* gate PTY chat streaming to assistant turn (INSERT-mode dropouts) ([#217](https://github.com/DaveDev42/teleprompter/issues/217)) ([fbc6d4c](https://github.com/DaveDev42/teleprompter/commit/fbc6d4c4b5dba6251c84070ee0c8cac038e2b2fb))
+
 ## [0.1.29](https://github.com/DaveDev42/teleprompter/compare/v0.1.28...v0.1.29) (2026-05-11)
 
 

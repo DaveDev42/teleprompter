@@ -45,6 +45,8 @@
 ### P3 — minor
 
 - [x] **`tp pair delete <prefix>`가 label에는 매칭 안 됨** (2026-05-11 PR #194 fix) — `apps/cli/src/commands/pair.ts`의 `matchPairings`에 label 매칭 두 단계 추가: (a) exact label (case-insensitive) — id 매칭이 다 miss했을 때 우선, (b) label substring (case-insensitive) — 마지막 fallback. ID 규칙이 항상 우선이라 기존 동작은 깨지지 않음. `pair.test.ts`에 6 test cases 추가 (label exact / substring / null 무시 / id-우선 / 모호성 ambiguous 에러 / CLI 통합).
+- [ ] **Edit tool card에 old_string/new_string diff 미표시** (2026-05-12 R16 QA, v0.1.31 신규 발견) — Chat 탭의 Edit tool PreToolUse 카드가 raw tool_input JSON만 표시하고 `old_string` / `new_string` 필드의 실제 diff는 카드에 노출되지 않음. 사용자는 어떤 변경이 일어났는지 알려면 별도로 Claude 응답 bubble을 봐야 함. **회귀 아님** — 기존 hooks-event 카드 렌더링이 그대로지만 UX 개선 여지 있음. Edit 카드를 인식해서 unified diff 또는 side-by-side로 렌더하는 전용 카드 컴포넌트 추가 필요 (`apps/app/src/components/chat/cards/`).
+- [ ] **Bash tool stdout이 카드 body에 inline 표시 안 됨** (2026-05-12 R16 QA, v0.1.31 신규 발견) — Chat 탭의 Bash PostToolUse 카드가 stdout 본문을 카드 안에 inline으로 표시하지 않음. 사용자는 명령 결과를 보려면 별도 카드 expand나 Claude 응답 bubble의 인용을 봐야 함. **회귀 아님** — 기존 디자인 의도일 수 있으나, 짧은 stdout(예: `ls -la` 결과)은 카드 안에 inline 노출하는 게 일반적 expectation. 임계치 기준 (예: 첫 20줄 또는 2KB까지) inline rendering 추가 검토.
 
 ### 2026-05-11 v0.1.22 end-to-end QA 결과 (참고)
 

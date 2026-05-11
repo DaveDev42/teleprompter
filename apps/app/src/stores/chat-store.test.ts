@@ -29,9 +29,7 @@ function resetStore() {
   useChatStore.getState().clear();
 }
 
-function baseEvent<T extends Partial<HookEventBase>>(
-  extra: T,
-): HookEventBase {
+function baseEvent<T extends Partial<HookEventBase>>(extra: T): HookEventBase {
   return {
     session_id: "sess",
     hook_event_name: "SessionStart",

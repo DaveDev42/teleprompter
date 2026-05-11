@@ -124,12 +124,155 @@ function AssistantCard({
   );
 }
 
-function ToolCard({ msg }: { msg: ChatMessage }) {
+function asRecord(v: unknown): Record<string, unknown> | null {
+  return v != null && typeof v === "object"
+    ? (v as Record<string, unknown>)
+    : null;
+}
+
+function asString(v: unknown): string | null {
+  return typeof v === "string" ? v : null;
+}
+
+/** Best-effort extraction of stdout/stderr from a Bash PostToolUse result. */
+function extractBashOutput(
+  result: unknown,
+): { stdout?: string; stderr?: string; interrupted?: boolean } | null {
+  if (typeof result === "string") return { stdout: result };
+  const obj = asRecord(result);
+  if (!obj) return null;
+  const stdout = asString(obj.stdout) ?? undefined;
+  const stderr = asString(obj.stderr) ?? undefined;
+  const interrupted = obj.interrupted === true || undefined;
+  if (stdout || stderr || interrupted) return { stdout, stderr, interrupted };
+  return null;
+}
+
+function EditDiff({
+  oldStr,
+  newStr,
+  codeFontStyle,
+}: {
+  oldStr: string;
+  newStr: string;
+  codeFontStyle: { fontFamily: string };
+}) {
+  const oldLines = oldStr.split("\n");
+  const newLines = newStr.split("\n");
+  return (
+    <View className="mt-1.5 bg-tp-bg border border-tp-border-subtle rounded-lg overflow-hidden">
+      {oldLines.map((line, i) => (
+        <View key={`old-${i}`} className="flex-row px-2 py-0.5">
+          <Text className="text-tp-error text-[11px] w-3" style={codeFontStyle}>
+            -
+          </Text>
+          <Text
+            className="text-tp-error text-[11px] flex-1"
+            style={codeFontStyle}
+            selectable
+          >
+            {line || " "}
+          </Text>
+        </View>
+      ))}
+      {newLines.map((line, i) => (
+        <View key={`new-${i}`} className="flex-row px-2 py-0.5">
+          <Text
+            className="text-tp-success text-[11px] w-3"
+            style={codeFontStyle}
+          >
+            +
+          </Text>
+          <Text
+            className="text-tp-success text-[11px] flex-1"
+            style={codeFontStyle}
+            selectable
+          >
+            {line || " "}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function BashOutput({
+  stdout,
+  stderr,
+  interrupted,
+  codeFontStyle,
+}: {
+  stdout?: string;
+  stderr?: string;
+  interrupted?: boolean;
+  codeFontStyle: { fontFamily: string };
+}) {
+  return (
+    <View className="mt-1.5 bg-tp-bg border border-tp-border-subtle rounded-lg px-2.5 py-1.5">
+      {stdout ? (
+        <Text
+          className="text-tp-text-secondary text-[11px]"
+          style={codeFontStyle}
+          numberOfLines={20}
+          selectable
+        >
+          {stdout.trimEnd()}
+        </Text>
+      ) : null}
+      {stderr ? (
+        <Text
+          className="text-tp-error text-[11px] mt-1"
+          style={codeFontStyle}
+          numberOfLines={10}
+          selectable
+        >
+          {stderr.trimEnd()}
+        </Text>
+      ) : null}
+      {interrupted ? (
+        <Text className="text-tp-warning text-[10px] mt-1 italic">
+          (interrupted)
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
+function ToolCard({
+  msg,
+  codeFontStyle,
+}: {
+  msg: ChatMessage;
+  codeFontStyle: { fontFamily: string };
+}) {
   const isResult = msg.event === "PostToolUse";
+  const toolName = msg.toolName ?? "";
+  const inputObj = asRecord(msg.toolInput);
+
+  // Edit / MultiEdit: render a unified diff instead of raw JSON.
+  const editOld = inputObj && asString(inputObj.old_string);
+  const editNew = inputObj && asString(inputObj.new_string);
+  const isEdit =
+    (toolName === "Edit" || toolName === "MultiEdit") &&
+    editOld !== null &&
+    editNew !== null;
+
+  // Write: render the new file content as additions.
+  const writeContent = inputObj && asString(inputObj.content);
+  const isWrite = toolName === "Write" && writeContent !== null;
+
+  // Bash: extract stdout/stderr for inline rendering.
+  const bashOutput =
+    toolName === "Bash" && isResult ? extractBashOutput(msg.toolResult) : null;
+
+  // Bash command on the pre-call card.
+  const bashCommand =
+    toolName === "Bash" && inputObj ? asString(inputObj.command) : null;
+
   return (
     <View
       className="self-stretch bg-tp-surface border border-tp-border rounded-card px-3.5 py-2.5"
-      accessibilityLabel={`Tool ${msg.toolName}, ${isResult ? "completed" : "running"}`}
+      accessibilityLabel={`Tool ${toolName}, ${isResult ? "completed" : "running"}`}
     >
       <View className="flex-row items-center justify-between">
         <View className="flex-row items-center flex-1">
@@ -140,7 +283,7 @@ function ToolCard({ msg }: { msg: ChatMessage }) {
             className="text-tp-text-primary text-[13px] font-medium"
             numberOfLines={1}
           >
-            {msg.toolName}
+            {toolName}
           </Text>
         </View>
         <Text
@@ -149,7 +292,29 @@ function ToolCard({ msg }: { msg: ChatMessage }) {
           {isResult ? "Done" : "Running"}
         </Text>
       </View>
-      {msg.toolInput != null && !isResult && (
+
+      {!isResult && msg.toolInput != null && bashCommand ? (
+        <Text
+          className="text-tp-text-secondary text-xs mt-1.5"
+          style={codeFontStyle}
+          numberOfLines={4}
+          selectable
+        >
+          $ {bashCommand}
+        </Text>
+      ) : !isResult && msg.toolInput != null && isEdit ? (
+        <EditDiff
+          oldStr={editOld as string}
+          newStr={editNew as string}
+          codeFontStyle={codeFontStyle}
+        />
+      ) : !isResult && msg.toolInput != null && isWrite ? (
+        <EditDiff
+          oldStr=""
+          newStr={writeContent as string}
+          codeFontStyle={codeFontStyle}
+        />
+      ) : !isResult && msg.toolInput != null ? (
         <Text
           className="text-tp-text-tertiary text-xs mt-1.5"
           numberOfLines={3}
@@ -159,8 +324,12 @@ function ToolCard({ msg }: { msg: ChatMessage }) {
             ? msg.toolInput
             : JSON.stringify(msg.toolInput, null, 2)}
         </Text>
-      )}
-      {msg.toolResult != null && isResult && (
+      ) : null}
+
+      {/* Post-call body */}
+      {isResult && bashOutput ? (
+        <BashOutput {...bashOutput} codeFontStyle={codeFontStyle} />
+      ) : isResult && msg.toolResult != null ? (
         <Text
           className="text-tp-text-secondary text-xs mt-1.5"
           numberOfLines={5}
@@ -170,7 +339,7 @@ function ToolCard({ msg }: { msg: ChatMessage }) {
             ? msg.toolResult
             : JSON.stringify(msg.toolResult, null, 2)}
         </Text>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -277,7 +446,7 @@ export function ChatCard({ msg }: { msg: ChatMessage }) {
         />
       );
     case "tool":
-      return <ToolCard msg={msg} />;
+      return <ToolCard msg={msg} codeFontStyle={codeFontStyle} />;
     case "elicitation":
       return <ElicitationCard msg={msg} />;
     case "permission":

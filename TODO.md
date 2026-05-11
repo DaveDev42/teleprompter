@@ -10,19 +10,6 @@
 
 ---
 
-## 📋 v0.1.x 안정화 결과 요약
-
-2026-05-10 ~ 2026-05-12 사이 R3 ~ R16 16 라운드 exploratory QA를 통해 발견된 P0/P1/P2/P3 버그를 모두 수정해 v0.1.31에서 안정화 확정. 주요 fix:
-
-- **P0**: SQLITE_BUSY (PR #190, WAL journal)
-- **P1**: pair new disconnect toast race, paths.ts brew detection, pair.lock TTL, daemon singleton lock, passthrough relay reconnect, stopped session historical replay, Sessions 빈 race, 브라우저 reload 후 sessions persistence
-- **P2**: `tp doctor` hang (PR #203 + #206), Daemons label 표시, Chat ANSI escape 누출 (PR #193), New Session 버튼 dead, INSERT-mode chat dropout (PR #217), relay reconnect cache replay (PR #216), DiagnosticsPanel crypto self-test 크래시 (PR #221)
-- **P3**: pair delete label matching (PR #194), session export 50k perf 검증
-
-모든 fix는 git 히스토리에서 추적 가능 (`git log --oneline origin/main`).
-
----
-
 ## 🌟 Future (v0.x 이후 / 별도 트랙)
 
 - [ ] Claude Code channels 양방향(output 구독) 지원 시 Chat UI 통합 재검토

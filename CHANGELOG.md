@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.34](https://github.com/DaveDev42/teleprompter/compare/v0.1.33...v0.1.34) (2026-05-11)
+
+
+### chore
+
+* cut 0.1.34 release ([#233](https://github.com/DaveDev42/teleprompter/issues/233)) ([262b987](https://github.com/DaveDev42/teleprompter/commit/262b987bae2f52f904bcc17f851cf5d09ab51edd))
+
 ## [0.1.33](https://github.com/DaveDev42/teleprompter/compare/v0.1.32...v0.1.33) (2026-05-11)
 
 

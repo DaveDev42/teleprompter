@@ -1,15 +1,18 @@
 /**
- * Native crypto availability for all platforms.
+ * Native crypto availability check.
  *
- * libsodium-wrappers includes a JS-based WebAssembly polyfill
- * (asm.js fallback) that works on Hermes without native WASM support.
- * This means E2EE crypto is available on all platforms including
- * iOS/Android via Expo Go — no custom native modules required.
+ * libsodium-wrappers ships a Wasm2js polyfill, but in practice it can still
+ * fail on some Hermes runtimes (iOS simulator on certain SDK versions) where
+ * the embedded `new WebAssembly.Module(...)` shim aborts. We treat crypto as
+ * a probe — call `checkCryptoAvailability()` early, surface the boolean to
+ * the UI, and short-circuit features that require E2EE on failure rather
+ * than letting the abort propagate as an unhandled rejection.
  *
  * Platform behavior:
- * - Web: libsodium uses WASM (fast)
- * - Bun: libsodium uses WASM (fast)
- * - Hermes (iOS/Android): libsodium uses asm.js polyfill (slower but functional)
+ * - Web: libsodium uses native WASM (fast)
+ * - Bun: libsodium uses native WASM (fast)
+ * - Hermes (iOS/Android): libsodium uses bundled Wasm2js polyfill when
+ *   available; if the runtime rejects it, this probe returns false.
  */
 
 let _cryptoChecked = false;

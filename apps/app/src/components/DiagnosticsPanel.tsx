@@ -117,46 +117,61 @@ export function DiagnosticsPanel() {
     else if (typeof document !== "undefined") result.platform = "web";
     else result.platform = "unknown";
 
-    // 1. Sodium init
-    let t0 = Date.now();
+    // Wrap the entire self-test so any unexpected throw (e.g. libsodium WASM
+    // abort on platforms without WebAssembly) is contained in the UI handler
+    // and cannot bring the app down via an unhandled rejection.
     try {
-      const ok = await checkCryptoAvailability();
-      result.sodiumInit = { ok, ms: Date.now() - t0 };
-    } catch {
-      result.sodiumInit = { ok: false, ms: Date.now() - t0 };
-    }
+      let t0 = Date.now();
+      try {
+        const ok = await checkCryptoAvailability();
+        result.sodiumInit = { ok, ms: Date.now() - t0 };
+      } catch {
+        result.sodiumInit = { ok: false, ms: Date.now() - t0 };
+      }
 
-    if (!result.sodiumInit.ok) {
-      setCryptoTest(result);
-      return;
-    }
+      if (!result.sodiumInit.ok) {
+        setCryptoTest(result);
+        return;
+      }
 
-    // 2. Key generation
-    const { generateKeyPair, encrypt, decrypt, deriveSessionKeys } =
-      await import("@teleprompter/protocol/client");
-    t0 = Date.now();
-    try {
-      await generateKeyPair();
-      result.keyGen = { ok: true, ms: Date.now() - t0 };
-    } catch {
-      result.keyGen = { ok: false, ms: Date.now() - t0 };
-    }
+      let mod: typeof import("@teleprompter/protocol/client") | null = null;
+      try {
+        mod = await import("@teleprompter/protocol/client");
+      } catch {
+        result.keyGen = { ok: false, ms: 0 };
+        result.encDec = { ok: false, ms: 0 };
+        setCryptoTest(result);
+        return;
+      }
+      const { generateKeyPair, encrypt, decrypt, deriveSessionKeys } = mod;
 
-    // 3. Encrypt/decrypt round-trip (using derived session keys)
-    t0 = Date.now();
-    try {
-      const kpA = await generateKeyPair();
-      const kpB = await generateKeyPair();
-      const keysA = await deriveSessionKeys(kpA, kpB.publicKey, "daemon");
-      const keysB = await deriveSessionKeys(kpB, kpA.publicKey, "frontend");
-      const plaintext = new TextEncoder().encode("E2EE self-test payload");
-      const ct = await encrypt(plaintext, keysA.tx);
-      const decrypted = await decrypt(ct, keysB.rx);
-      const ok =
-        new TextDecoder().decode(decrypted) === "E2EE self-test payload";
-      result.encDec = { ok, ms: Date.now() - t0 };
+      t0 = Date.now();
+      try {
+        await generateKeyPair();
+        result.keyGen = { ok: true, ms: Date.now() - t0 };
+      } catch {
+        result.keyGen = { ok: false, ms: Date.now() - t0 };
+      }
+
+      t0 = Date.now();
+      try {
+        const kpA = await generateKeyPair();
+        const kpB = await generateKeyPair();
+        const keysA = await deriveSessionKeys(kpA, kpB.publicKey, "daemon");
+        const keysB = await deriveSessionKeys(kpB, kpA.publicKey, "frontend");
+        const plaintext = new TextEncoder().encode("E2EE self-test payload");
+        const ct = await encrypt(plaintext, keysA.tx);
+        const decrypted = await decrypt(ct, keysB.rx);
+        const ok =
+          new TextDecoder().decode(decrypted) === "E2EE self-test payload";
+        result.encDec = { ok, ms: Date.now() - t0 };
+      } catch {
+        result.encDec = { ok: false, ms: Date.now() - t0 };
+      }
     } catch {
-      result.encDec = { ok: false, ms: Date.now() - t0 };
+      result.sodiumInit ??= { ok: false, ms: 0 };
+      result.keyGen ??= { ok: false, ms: 0 };
+      result.encDec ??= { ok: false, ms: 0 };
     }
 
     setCryptoTest(result);

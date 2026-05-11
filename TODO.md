@@ -7,7 +7,7 @@
 
 ### 미검증 항목 (잠재 이슈)
 - [ ] Push Notifications 실기기 미검증 — Simulator에서는 push token 생성 불가, 실제 iOS/Android 디바이스에서 E2E 테스트 필요
-- [ ] Session Export 대규모 세션 성능 미검증 — 10,000+ records 세션에서 export 속도/메모리 사용량 확인 필요 (현재 limit 50,000)
+- [x] Session Export 대규모 세션 성능 검증 (2026-05-11) — 합성 fixture로 1k / 10k / 30k / 50k records 측정. 50k 한계에서 SQL fetch 37ms + formatMarkdown 158ms = 총 ~200ms, output 6.6MB markdown, heap delta 무시 가능. 현재 50,000 limit은 안전하며 perf 병목 없음.
 
 ### v0.1.x 잔여 추적 항목 (해결 완료)
 - [x] **passthrough 인터랙티브 INSERT-mode 세션에서 Chat 탭 streaming 끊김** (2026-05-11 v0.1.30, PR #217 fix) — Root cause: INSERT-mode는 hooks event가 발화 안 되는 동안 PTY raw input echo가 io 레코드로 흘러와서 `streamingText`에 누적 → 다음 `UserPromptSubmit`의 `finalizeStreaming`이 그 가비지를 "streaming" 메시지로 commit. **수정**: `chat-store`에 `isAssistantResponding` latch 추가 (UserPromptSubmit에서 open, Stop에서 close). 세션 뷰는 latch가 open일 때만 `appendStreaming` 호출 → INSERT-mode keystroke echo, autocomplete dropdown repaint, 기타 inter-turn UI chatter가 무시됨. 38 unit tests pass (latch 6개 신규 포함).

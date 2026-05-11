@@ -9,9 +9,9 @@
 - [ ] Push Notifications 실기기 미검증 — Simulator에서는 push token 생성 불가, 실제 iOS/Android 디바이스에서 E2E 테스트 필요
 - [ ] Session Export 대규모 세션 성능 미검증 — 10,000+ records 세션에서 export 속도/메모리 사용량 확인 필요 (현재 limit 50,000)
 
-### v0.1.x 잔여 추적 항목
-- [ ] **passthrough 인터랙티브 INSERT-mode 세션에서 Chat 탭 streaming 끊김** — `tp` 일반 prompt / `-p` one-shot 경로는 v0.1.28 PR #208에서 해결 (`daemon.reconnectSavedRelays()` 추가). 그러나 Claude가 INSERT-mode 에디터로 진입한 시점부터 Chat 탭에 추가 응답이 흐르지 않는 케이스는 별도 미해결. 가설: INSERT-mode가 PTY raw input을 직접 잡는 동안 hooks event가 발화 안 되고, PTY 파싱 fallback도 ANSI control sequence 폭주에 밀려 chat 메시지 경계를 못 잡는다. trace 필요.
-- [ ] **production relay 한정 Sessions empty race** (재현 조건 좁음) — `wss://relay.tpmt.dev` 페어링 시 Sessions 탭이 빈 채로 남는 케이스 관찰. 같은 daemonId 재페어링 race는 v0.1.28 PR #209로 해결 (`clearResumeToken`). 남은 케이스는 다중 daemon 동시 페어링 또는 페어링 직후 빠른 탭 전환 같은 좁은 시나리오일 가능성. presence 메시지 / frame replay cache (size=10) 사이드 분석 필요.
+### v0.1.x 잔여 추적 항목 (해결 완료)
+- [x] **passthrough 인터랙티브 INSERT-mode 세션에서 Chat 탭 streaming 끊김** (2026-05-11 v0.1.30, PR #217 fix) — Root cause: INSERT-mode는 hooks event가 발화 안 되는 동안 PTY raw input echo가 io 레코드로 흘러와서 `streamingText`에 누적 → 다음 `UserPromptSubmit`의 `finalizeStreaming`이 그 가비지를 "streaming" 메시지로 commit. **수정**: `chat-store`에 `isAssistantResponding` latch 추가 (UserPromptSubmit에서 open, Stop에서 close). 세션 뷰는 latch가 open일 때만 `appendStreaming` 호출 → INSERT-mode keystroke echo, autocomplete dropdown repaint, 기타 inter-turn UI chatter가 무시됨. 38 unit tests pass (latch 6개 신규 포함).
+- [x] **production relay 한정 Sessions empty race** (2026-05-11 v0.1.30, PR #216 fix) — Root cause: resume reconnect 경로에서 daemon의 `onFrontendJoined`가 발화하지 않으므로 `hello` 프레임이 새로 안 오고, 프론트엔드는 `relay.sub`에 `after` 필드를 빼서 relay cache replay도 silent skip → Sessions 탭이 빈 채로 stuck. **수정**: `apps/app/src/lib/relay-client.ts`에서 `__meta__` 와 `__control__` sub 호출에 `after: 0` 추가 → relay가 cached `hello` 프레임을 즉시 replay. Session re-subscribe loop는 의도적으로 그대로 둠 (자체 seq cursor 사용).
 
 ---
 

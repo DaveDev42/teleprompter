@@ -172,6 +172,13 @@ function ChatView({
           // ignore
         }
       } else if (rec.k === "io") {
+        // Only buffer PTY text while Claude is actively producing a response
+        // (UserPromptSubmit ... Stop). Otherwise the user's INSERT-mode
+        // keystroke echoes, autocomplete dropdown repaints, and other UI
+        // chatter would accumulate in streamingText and pollute the next
+        // committed bubble. Reads the latest store state so the gate
+        // reflects events processed earlier in this same record batch.
+        if (!useChatStore.getState().isAssistantResponding) return;
         try {
           const bytes = Uint8Array.from(atob(rec.d), (c) => c.charCodeAt(0));
           const text = new TextDecoder("utf-8").decode(bytes);

@@ -29,6 +29,15 @@ function resetStore() {
   useChatStore.getState().clear();
 }
 
+function baseEvent<T extends Partial<HookEventBase>>(extra: T): HookEventBase {
+  return {
+    session_id: "sess",
+    hook_event_name: "SessionStart",
+    cwd: "/tmp",
+    ...extra,
+  } as HookEventBase;
+}
+
 describe("chat-store: basic actions", () => {
   beforeEach(resetStore);
 
@@ -208,17 +217,6 @@ describe("chat-store: streaming text accumulation", () => {
 
 describe("chat-store: processHookEvent", () => {
   beforeEach(resetStore);
-
-  function baseEvent<T extends Partial<HookEventBase>>(
-    extra: T,
-  ): HookEventBase {
-    return {
-      session_id: "sess",
-      hook_event_name: "SessionStart",
-      cwd: "/tmp",
-      ...extra,
-    } as HookEventBase;
-  }
 
   test("UserPromptSubmit finalizes streaming + appends user message", () => {
     useChatStore.getState().appendStreaming("partial response");
@@ -622,6 +620,109 @@ describe("chat-store: processHookEvent", () => {
     expect(msgs[1].text).toBe("I'm fine, thanks.");
     expect(msgs[2].type).toBe("assistant");
     expect(msgs[2].text).toBe("I'm fine, thanks.");
+    expect(useChatStore.getState().streamingText).toBe("");
+  });
+});
+
+describe("chat-store: isAssistantResponding latch", () => {
+  beforeEach(resetStore);
+
+  test("starts closed", () => {
+    expect(useChatStore.getState().isAssistantResponding).toBe(false);
+  });
+
+  test("UserPromptSubmit opens the gate", () => {
+    processHookEvent(
+      baseEvent({
+        hook_event_name: "UserPromptSubmit",
+        user_prompt: "hi",
+      }),
+    );
+    expect(useChatStore.getState().isAssistantResponding).toBe(true);
+  });
+
+  test("Stop closes the gate", () => {
+    processHookEvent(
+      baseEvent({
+        hook_event_name: "UserPromptSubmit",
+        user_prompt: "hi",
+      }),
+    );
+    expect(useChatStore.getState().isAssistantResponding).toBe(true);
+
+    processHookEvent({
+      session_id: "sess",
+      hook_event_name: "Stop",
+      cwd: "/tmp",
+    } as StopEvent);
+
+    expect(useChatStore.getState().isAssistantResponding).toBe(false);
+  });
+
+  test("clear() resets the gate", () => {
+    useChatStore.getState().setAssistantResponding(true);
+    expect(useChatStore.getState().isAssistantResponding).toBe(true);
+
+    useChatStore.getState().clear();
+    expect(useChatStore.getState().isAssistantResponding).toBe(false);
+  });
+
+  test("setAssistantResponding can be toggled directly", () => {
+    const s = useChatStore.getState();
+    s.setAssistantResponding(true);
+    expect(useChatStore.getState().isAssistantResponding).toBe(true);
+    s.setAssistantResponding(false);
+    expect(useChatStore.getState().isAssistantResponding).toBe(false);
+  });
+
+  test("INSERT-mode scenario: PTY io between Stop and next UserPromptSubmit does NOT pollute streaming", () => {
+    // Reproduces the v0.1.x P1: after a turn ends with Stop, the user enters
+    // INSERT-mode in claude's editor. Many PTY io frames arrive (autocomplete
+    // dropdown, repaints, echoed keystrokes). If we naively appendStreaming
+    // each one, the next UserPromptSubmit's finalizeStreaming would commit
+    // that garbage as a "streaming" ChatMessage. The view layer guards
+    // appendStreaming on `isAssistantResponding === true` — this test
+    // verifies the latch state that drives that guard.
+    processHookEvent(
+      baseEvent({
+        hook_event_name: "UserPromptSubmit",
+        user_prompt: "first question",
+      }),
+    );
+    useChatStore.getState().appendStreaming("real answer");
+    processHookEvent({
+      session_id: "sess",
+      hook_event_name: "Stop",
+      cwd: "/tmp",
+      last_assistant_message: "real answer",
+    } as StopEvent);
+
+    // Gate is now closed — view layer would skip appendStreaming for PTY
+    // io frames arriving here.
+    expect(useChatStore.getState().isAssistantResponding).toBe(false);
+
+    // Simulate: user is in INSERT mode. View skips appendStreaming because
+    // gate is closed. (If buggy: would call appendStreaming("garbage echo").)
+    // No state change in test — we are verifying the contract.
+
+    processHookEvent(
+      baseEvent({
+        hook_event_name: "UserPromptSubmit",
+        user_prompt: "second question",
+      }),
+    );
+
+    const msgs = useChatStore.getState().messages;
+    // user(first) -> streaming(real answer) -> assistant(real answer) ->
+    // user(second). No "garbage echo" streaming bubble.
+    expect(msgs.length).toBe(4);
+    expect(msgs[0].type).toBe("user");
+    expect(msgs[0].text).toBe("first question");
+    expect(msgs[1].type).toBe("streaming");
+    expect(msgs[1].text).toBe("real answer");
+    expect(msgs[2].type).toBe("assistant");
+    expect(msgs[3].type).toBe("user");
+    expect(msgs[3].text).toBe("second question");
     expect(useChatStore.getState().streamingText).toBe("");
   });
 });

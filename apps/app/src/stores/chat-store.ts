@@ -40,6 +40,16 @@ export interface ChatState {
   messages: ChatMessage[];
   /** Partial streaming text from PTY output (between events) */
   streamingText: string;
+  /**
+   * True from UserPromptSubmit through Stop — i.e., while Claude is actively
+   * producing assistant output. Gates the PTY-fallback streaming append in
+   * the session view, so user keystroke echoes during INSERT-mode editor
+   * composition don't pollute the chat history. Without this latch, every
+   * keystroke in claude's prompt editor (autocomplete dropdown, multi-line
+   * paste, etc.) would echo into `streamingText` and get committed as a
+   * "streaming" ChatMessage on the next UserPromptSubmit/Stop.
+   */
+  isAssistantResponding: boolean;
   /** Show terminal fallback banner when chat can't handle the interaction */
   showTerminalFallback: boolean;
 
@@ -47,6 +57,7 @@ export interface ChatState {
   addMessage: (msg: ChatMessage) => void;
   appendStreaming: (text: string) => void;
   finalizeStreaming: () => void;
+  setAssistantResponding: (v: boolean) => void;
   dismissTerminalFallback: () => void;
   clear: () => void;
 }
@@ -59,6 +70,7 @@ export function makeId(): string {
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   streamingText: "",
+  isAssistantResponding: false,
   showTerminalFallback: false,
 
   addMessage: (msg) => {
@@ -96,10 +108,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  setAssistantResponding: (v) => set({ isAssistantResponding: v }),
+
   dismissTerminalFallback: () => set({ showTerminalFallback: false }),
 
   clear: () =>
-    set({ messages: [], streamingText: "", showTerminalFallback: false }),
+    set({
+      messages: [],
+      streamingText: "",
+      isAssistantResponding: false,
+      showTerminalFallback: false,
+    }),
 }));
 
 /**
@@ -134,6 +153,10 @@ export function processHookEvent(event: HookEventBase) {
       // finalizeStreaming() mutates the store, so re-read live messages for
       // the dedup scan below.
       store.finalizeStreaming();
+      // Claude is now actively producing output — open the streaming gate.
+      // Any PTY io records arriving until the next Stop hook represent
+      // assistant content (or tool repaints, which stripAnsi handles).
+      store.setAssistantResponding(true);
       const promptText =
         (event.user_prompt as string) ?? (event.prompt as string) ?? "";
       // De-dup against a freshly added optimistic local user bubble.
@@ -167,8 +190,12 @@ export function processHookEvent(event: HookEventBase) {
       break;
     }
     case "Stop": {
-      // Finalize streaming text as assistant message
+      // Finalize streaming text as assistant message and close the gate.
+      // Subsequent PTY io records (the user resuming input, INSERT-mode
+      // editor noise, autocomplete dropdown repaints) must NOT enter
+      // streamingText until the next UserPromptSubmit.
       store.finalizeStreaming();
+      store.setAssistantResponding(false);
       const stopEvent = event as StopEvent;
       const lastMsg = stopEvent.last_assistant_message;
       if (lastMsg) {

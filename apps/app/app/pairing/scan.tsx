@@ -170,15 +170,15 @@ export default function ScanScreen() {
 
   if (Platform.OS === "web") {
     return (
-      <View className="flex-1 bg-black items-center justify-center">
-        <Text className="text-gray-400">
+      <View className="flex-1 bg-tp-bg items-center justify-center">
+        <Text className="text-tp-text-secondary">
           QR scanning is not available on web.
         </Text>
         <Pressable
           onPress={() => router.back()}
-          className="mt-4 bg-zinc-800 px-6 py-2 rounded-lg"
+          className="mt-4 bg-tp-bg-input px-6 py-2 rounded-lg"
         >
-          <Text className="text-white">Go Back</Text>
+          <Text className="text-tp-text-primary">Go Back</Text>
         </Pressable>
       </View>
     );
@@ -186,23 +186,23 @@ export default function ScanScreen() {
 
   if (!CameraView) {
     return (
-      <View className="flex-1 bg-black items-center justify-center">
-        <Text className="text-gray-400">Camera not available</Text>
+      <View className="flex-1 bg-tp-bg items-center justify-center">
+        <Text className="text-tp-text-secondary">Camera not available</Text>
       </View>
     );
   }
 
   if (!permission?.granted) {
     return (
-      <View className="flex-1 bg-black items-center justify-center">
-        <Text className="text-gray-400 text-center px-8">
+      <View className="flex-1 bg-tp-bg items-center justify-center">
+        <Text className="text-tp-text-secondary text-center px-8">
           Camera permission is required to scan QR codes.
         </Text>
         <Pressable
           onPress={requestPermission}
-          className="mt-4 bg-blue-600 px-6 py-2 rounded-lg"
+          className="mt-4 bg-tp-accent px-6 py-2 rounded-lg"
         >
-          <Text className="text-white">Grant Permission</Text>
+          <Text className="text-tp-text-on-color">Grant Permission</Text>
         </Pressable>
       </View>
     );
@@ -220,23 +220,23 @@ export default function ScanScreen() {
   // user-initiated swipe-down dismiss with no error.
   const showRetry = modernAvailable && !scannerOpen;
   return (
-    <View className="flex-1 bg-black items-center justify-center px-6">
+    <View className="flex-1 bg-tp-bg items-center justify-center px-6">
       {!modernAvailable ? (
-        <Text className="text-gray-400 text-center">
+        <Text className="text-tp-text-secondary text-center">
           QR scanning isn't available on this device. Please update to iOS 16 or
           newer, or paste the pairing link manually.
         </Text>
       ) : scanError ? (
         <View className="w-full bg-tp-error rounded-card px-4 py-3 mb-6">
-          <Text className="text-white text-[13px] font-semibold mb-1">
+          <Text className="text-tp-text-on-color text-[13px] font-semibold mb-1">
             Pairing failed
           </Text>
-          <Text className="text-white/90 text-xs">{scanError}</Text>
+          <Text className="text-tp-text-on-color/90 text-xs">{scanError}</Text>
         </View>
       ) : scannerOpen ? (
-        <Text className="text-gray-400">Opening scanner…</Text>
+        <Text className="text-tp-text-secondary">Opening scanner…</Text>
       ) : (
-        <Text className="text-gray-400 text-center">
+        <Text className="text-tp-text-secondary text-center">
           Scanner closed. Tap "Scan again" or paste the pairing link.
         </Text>
       )}
@@ -247,16 +247,16 @@ export default function ScanScreen() {
             onPress={retry}
             className="bg-tp-accent px-6 py-3 rounded-full"
           >
-            <Text className="text-white">
+            <Text className="text-tp-text-on-color">
               {scanError ? "Try again" : "Scan again"}
             </Text>
           </Pressable>
         ) : null}
         <Pressable
           onPress={() => router.back()}
-          className="bg-black/70 px-6 py-3 rounded-full border border-white/20"
+          className="bg-tp-bg-input px-6 py-3 rounded-full border border-tp-border"
         >
-          <Text className="text-white">Cancel</Text>
+          <Text className="text-tp-text-primary">Cancel</Text>
         </Pressable>
       </View>
     </View>

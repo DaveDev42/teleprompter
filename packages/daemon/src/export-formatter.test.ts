@@ -274,4 +274,53 @@ describe("formatMarkdown", () => {
     );
     expect(result).toContain("Export truncated");
   });
+
+  test("formats 50k mixed records under 1000ms (perf SLA)", () => {
+    const records: StoredRecord[] = [];
+    const N = 50_000;
+    const eventNames = [
+      "UserPromptSubmit",
+      "Stop",
+      "PreToolUse",
+      "PostToolUse",
+    ];
+    for (let i = 0; i < N; i++) {
+      const r = i % 20;
+      if (r < 14) {
+        records.push(
+          makeIoRecord(i, `line ${i} ${"x".repeat(80)}\n`, 1000 + i),
+        );
+      } else if (r < 19) {
+        const name = eventNames[i % eventNames.length];
+        records.push(
+          makeEventRecord(
+            i,
+            name,
+            name === "Stop"
+              ? { last_assistant_message: `done ${i}` }
+              : { prompt: `prompt ${i}` },
+            1000 + i,
+          ),
+        );
+      } else {
+        records.push(makeMetaRecord(i, "meta", { key: i }, 1000 + i));
+      }
+    }
+    const t = performance.now();
+    const md = formatMarkdown(
+      {
+        sid: "perf",
+        state: "stopped",
+        cwd: "/",
+        createdAt: 0,
+        updatedAt: 0,
+        lastSeq: N,
+      },
+      records,
+      false,
+    );
+    const elapsed = performance.now() - t;
+    expect(md.length).toBeGreaterThan(1_000_000);
+    expect(elapsed).toBeLessThan(1000);
+  });
 });

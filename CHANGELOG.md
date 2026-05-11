@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.29](https://github.com/DaveDev42/teleprompter/compare/v0.1.28...v0.1.29) (2026-05-11)
+
+
+### Bug Fixes
+
+* **app:** migrate pairing screens to tp-* semantic tokens ([#213](https://github.com/DaveDev42/teleprompter/issues/213)) ([ab6323f](https://github.com/DaveDev42/teleprompter/commit/ab6323f45842a7dc937254c78cf7893aec8a5e68))
+* **app:** re-resolve system theme when OS appearance flips ([#212](https://github.com/DaveDev42/teleprompter/issues/212)) ([9f987af](https://github.com/DaveDev42/teleprompter/commit/9f987afa43cdf6d6f861e869887980e608e46855))
+
 ## [0.1.28](https://github.com/DaveDev42/teleprompter/compare/v0.1.27...v0.1.28) (2026-05-11)
 
 

@@ -19,4 +19,3 @@
 - [ ] 글로벌 키보드 단축키 (Cmd+K, Cmd+1/2/3 등) — useKeyboard 훅 확장
 - [ ] 게임패드(8BitDo 등) 내비게이션 — Web Gamepad API 기반 D-pad 포커스 이동, A/B 버튼 매핑, useGamepad 훅. 네이티브는 MFi/Android InputDevice 모듈 필요
 - [ ] 게임패드 음성인식 트리거 — 특정 버튼으로 VoiceButton 토글 (useInputAction 추상화로 키보드/게임패드/음성 통합 액션 시스템)
-- [ ] **macOS 바이너리 Developer ID signing + notarization (필요 시)** — v0.1.33부터 `release.yml`은 Bun의 native 서명을 그대로 보존한다 (`--compile` 결과물은 `Developer ID Application: Jarred Sumner` 로 서명되어 있음, unnotarized — `codesign -dvv $(which tp)` 로 검증 가능). 우리 배포 경로(`brew install`, `curl … | bash`)는 `com.apple.quarantine` xattr를 붙이지 않아서 Gatekeeper가 발동하지 않으며, launchd Login Items에 "Jarred Sumner" 가 표시되는 것은 기능적 영향 없음. 향후 GUI 다운로드(브라우저, .dmg 배포)를 추가한다면 quarantine bit이 붙어 unnotarized Developer ID 경고가 뜰 수 있고, 그때 본인 명의의 Developer ID Application 인증서 + `notarytool submit --wait` + `stapler staple` 가 필요해진다. CLI-only 동안은 우선순위 낮음.

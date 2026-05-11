@@ -285,9 +285,21 @@ export class FrontendRelayClient implements TransportClient {
           ).catch(() => {});
         }
         this.events.onConnected?.();
-        // Subscribe to meta + control channels
-        this.sendRelay({ t: "relay.sub", sid: RELAY_CHANNEL_META });
-        this.sendRelay({ t: "relay.sub", sid: RELAY_CHANNEL_CONTROL });
+        // Subscribe to meta + control channels with `after: 0` so the relay
+        // replays anything cached on these sids. The daemon publishes its
+        // `hello` (with session list + daemonLabel) to __meta__ once per
+        // `onFrontendJoined`, but `onFrontendJoined` only fires on a fresh kx
+        // — not on a resume reconnect. Without cache replay, a resumed
+        // frontend has no path to refresh Sessions and the tab stays empty
+        // (or stale from session-store persistence) until the next manual
+        // re-pair. Replaying __meta__ resurrects `hello`; replaying
+        // __control__ resurrects any in-flight control.unpair/control.rename.
+        this.sendRelay({ t: "relay.sub", sid: RELAY_CHANNEL_META, after: 0 });
+        this.sendRelay({
+          t: "relay.sub",
+          sid: RELAY_CHANNEL_CONTROL,
+          after: 0,
+        });
         // Re-subscribe to all sessions
         for (const sid of this.subscribedSessions) {
           this.sendRelay({ t: "relay.sub", sid });

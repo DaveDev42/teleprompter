@@ -278,11 +278,18 @@ describe("formatMarkdown", () => {
   test("formats 50k mixed records under 1000ms (perf SLA)", () => {
     const records: StoredRecord[] = [];
     const N = 50_000;
-    const eventNames = ["UserPromptSubmit", "Stop", "PreToolUse", "PostToolUse"];
+    const eventNames = [
+      "UserPromptSubmit",
+      "Stop",
+      "PreToolUse",
+      "PostToolUse",
+    ];
     for (let i = 0; i < N; i++) {
       const r = i % 20;
       if (r < 14) {
-        records.push(makeIoRecord(i, `line ${i} ${"x".repeat(80)}\n`, 1000 + i));
+        records.push(
+          makeIoRecord(i, `line ${i} ${"x".repeat(80)}\n`, 1000 + i),
+        );
       } else if (r < 19) {
         const name = eventNames[i % eventNames.length];
         records.push(

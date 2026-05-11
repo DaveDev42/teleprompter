@@ -46,12 +46,14 @@ export default function RootLayout() {
     loadVoice();
   }, [loadVoice, loadPairings, loadSessions, loadTheme, loadSettings]);
 
-  // Re-resolve theme when system color scheme changes
+  // Re-resolve theme when system color scheme changes. _systemScheme must be
+  // in the dep array — useColorScheme()'s return value is what flips on OS
+  // appearance changes, so without it the effect never re-fires after mount.
   useEffect(() => {
     if (theme === "system") {
       setTheme("system");
     }
-  }, [theme, setTheme]);
+  }, [theme, setTheme, _systemScheme]);
 
   // E2EE relay connections for all paired daemons
   useRelay();

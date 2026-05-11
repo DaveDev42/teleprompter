@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.28](https://github.com/DaveDev42/teleprompter/compare/v0.1.27...v0.1.28) (2026-05-11)
+
+
+### Bug Fixes
+
+* **app:** clear resume token on fresh pairing to populate Sessions tab ([#209](https://github.com/DaveDev42/teleprompter/issues/209)) ([a8d4ddc](https://github.com/DaveDev42/teleprompter/commit/a8d4ddcce04acef06d0d7db785f24a2fd7f5e2d5))
+* **cli:** reconnect saved relays in passthrough mode ([#208](https://github.com/DaveDev42/teleprompter/issues/208)) ([91adbab](https://github.com/DaveDev42/teleprompter/commit/91adbabf7334335a6df735b6482600a20a36214e))
+
 ## [0.1.27](https://github.com/DaveDev42/teleprompter/compare/v0.1.26...v0.1.27) (2026-05-10)
 
 

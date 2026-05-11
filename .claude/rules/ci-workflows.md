@@ -22,7 +22,7 @@ paths:
 - Release Please: Conventional Commits → 자동 version bump + CHANGELOG → PR
 - Tag prefix: `v*` (e.g. `v0.1.13`) — `release/v*` is legacy, removed in PR #96
 - 수동 편집 금지: version 필드는 Release Please가 관리
-- `build-darwin` job runs on `macos-latest`; Bun embeds an ad-hoc signature, so we `codesign --remove-signature` + re-sign with Hardened Runtime options.
+- `build-darwin` job runs on `macos-latest`; we **preserve Bun's native Developer ID signature** (`Developer ID Application: Jarred Sumner`, unnotarized — verifiable via `codesign -dvv`). brew/curl install paths don't apply the `com.apple.quarantine` xattr, so Gatekeeper never fires on our distribution channels — re-signing was unnecessary and was removed in v0.1.33 (previously we stripped + re-signed ad-hoc, which actually *worsened* Gatekeeper UX on quarantined downloads). If GUI download distribution is ever added (browser, .dmg), our own Developer ID Application certificate + notarization (`notarytool submit --wait` + `stapler staple`) will be needed.
 - `build-cross` job runs on `ubuntu-latest`, then `apt-get install upx-ucl` + `upx -1 dist/tp-*` to shrink linux binaries (-55% typical). macOS is deliberately **not** UPX-compressed — Gatekeeper/Hardened Runtime SIGKILLs packed Mach-O even with `--force-macos`.
 - `release` job signs `checksums.txt` via cosign keyless OIDC + attest-build-provenance, then publishes via `softprops/action-gh-release@v2`.
 

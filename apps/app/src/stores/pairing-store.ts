@@ -9,6 +9,7 @@ import {
 } from "@teleprompter/protocol/client";
 import * as Device from "expo-device";
 import { create } from "zustand";
+import { clearResumeToken } from "../lib/relay-client";
 import { secureGet, secureSet } from "../lib/secure-storage";
 
 export type PairingState = "unpaired" | "pairing" | "paired";
@@ -243,6 +244,12 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
 
       const pairings = new Map(get().pairings);
       pairings.set(info.daemonId, info);
+
+      // Re-pairing with the same daemonId would otherwise re-use the prior
+      // resume token; the relay would accept it and the daemon would skip
+      // re-broadcasting its pubkey, so the freshly-generated frontendKeyPair
+      // never completes ECDH and Sessions stays empty.
+      await clearResumeToken(info.daemonId);
 
       // Persist
       await secureSet(STORAGE_KEY, await serializePairings(pairings));

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.32](https://github.com/DaveDev42/teleprompter/compare/v0.1.31...v0.1.32) (2026-05-11)
+
+
+### Features
+
+* **app:** inline diff + Bash stdout in Chat tool cards ([#223](https://github.com/DaveDev42/teleprompter/issues/223)) ([43581ff](https://github.com/DaveDev42/teleprompter/commit/43581ffa890fe87194d1e941863bfdc140c20796))
+
 ## [0.1.31](https://github.com/DaveDev42/teleprompter/compare/v0.1.30...v0.1.31) (2026-05-11)
 
 

@@ -40,6 +40,18 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 /** secure-storage key prefix for cached resume tokens (per daemonId). */
 const RESUME_TOKEN_KEY_PREFIX = "relay_resume_";
+
+/**
+ * Drop any cached resume token for a daemonId. Call after creating a fresh
+ * pairing with the same daemonId — without this, the new frontend keypair
+ * would attempt `relay.auth.resume`, the relay would accept it, and the
+ * daemon-side `sendKeyExchange()` would be skipped. Daemon never learns
+ * the new frontend's pubkey → `onFrontendJoined` never fires → `hello`
+ * is never sent → Sessions tab stays empty.
+ */
+export async function clearResumeToken(daemonId: string): Promise<void> {
+  await secureDelete(`${RESUME_TOKEN_KEY_PREFIX}${daemonId}`);
+}
 /**
  * Max frames queued while waiting for relay auth + key exchange to complete.
  * Flushed on `relay.auth.ok` (after sendKeyExchange), cleared on WS close.

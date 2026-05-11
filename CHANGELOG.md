@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.31](https://github.com/DaveDev42/teleprompter/compare/v0.1.30...v0.1.31) (2026-05-11)
+
+
+### Bug Fixes
+
+* **app:** contain crypto self-test failures in DiagnosticsPanel ([#221](https://github.com/DaveDev42/teleprompter/issues/221)) ([35ec73c](https://github.com/DaveDev42/teleprompter/commit/35ec73c87f25d06a8f669f7454a0d3c9251762bf))
+
 ## [0.1.30](https://github.com/DaveDev42/teleprompter/compare/v0.1.29...v0.1.30) (2026-05-11)
 
 

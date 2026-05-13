@@ -1,4 +1,4 @@
-import { type Page, expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 // Use mobile viewport so tab bar is visible
 test.use({ viewport: { width: 390, height: 844 } });

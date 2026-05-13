@@ -37,7 +37,7 @@ export function GhosttyTerminal({
     let disposed = false;
 
     async function setup() {
-      const { init, Terminal, FitAddon } = await import("ghostty-web");
+      const { init, Terminal } = await import("ghostty-web");
       const { TerminalSearch: Search } = await import("../lib/terminal-search");
 
       // Load WASM (safe to call multiple times — returns cached instance)
@@ -54,11 +54,30 @@ export function GhosttyTerminal({
         scrollback: 10000,
       });
 
-      const fitAddon = new FitAddon();
-      term.loadAddon(fitAddon);
       // NOTE: Use dispose() only. Never call free() — causes WASM memory corruption.
       term.open(containerRef.current);
-      fitAddon.fit();
+
+      // Custom fit: ghostty-web's FitAddon reserves 15px on the right for the
+      // scrollbar, which on a 375px mobile viewport eats 2 columns and makes
+      // claude TUI's status bar look clipped. Skip the reservation — the
+      // scrollbar fades in/out and overlays the last column briefly, which
+      // is the standard behavior in xterm/Alacritty/iTerm and is much less
+      // jarring than a permanently empty gutter.
+      const fit = () => {
+        if (!containerRef.current || !term.renderer) return;
+        const metrics = term.renderer.getMetrics();
+        if (!metrics || metrics.width === 0 || metrics.height === 0) return;
+        const el = containerRef.current;
+        const w = el.clientWidth;
+        const h = el.clientHeight;
+        if (w === 0 || h === 0) return;
+        const cols = Math.max(2, Math.floor(w / metrics.width));
+        const rows = Math.max(1, Math.floor(h / metrics.height));
+        if (cols !== term.cols || rows !== term.rows) {
+          term.resize(cols, rows);
+        }
+      };
+      fit();
 
       termInstanceRef.current = term;
       if (termRef) termRef.current = term;
@@ -92,13 +111,13 @@ export function GhosttyTerminal({
         if (pending) clearTimeout(pending);
         pending = setTimeout(() => {
           pending = null;
-          fitAddon.fit();
-          // `fit()` calls term.resize() internally, which fires onResize
-          // when dimensions actually change. But if the proposed dimensions
-          // are unchanged (e.g. layout settled and the next observe fires
-          // at the same size) the event is suppressed. Emit explicitly so
-          // the daemon always learns the post-layout size — cheap and
-          // self-healing if the runner missed an earlier resize.
+          fit();
+          // `term.resize()` fires onResize only when dimensions actually
+          // change. If the proposed dimensions are unchanged (e.g. layout
+          // settled and the next observe fires at the same size) the event
+          // is suppressed. Emit explicitly so the daemon always learns the
+          // post-layout size — cheap and self-healing if the runner missed
+          // an earlier resize.
           onResizeRef.current?.(term.cols, term.rows);
         }, 100);
       });

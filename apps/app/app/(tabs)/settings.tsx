@@ -1,3 +1,4 @@
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import Constants from "expo-constants";
 import { useState } from "react";
 import {
@@ -134,6 +135,7 @@ function UpdateStatusValue({
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
   const chatFont = useSettingsStore((s) => s.chatFont);
@@ -184,7 +186,10 @@ export default function SettingsScreen() {
   return (
     <ScrollView
       className="flex-1 bg-tp-bg"
-      contentContainerStyle={{ paddingTop: insets.top, paddingBottom: 40 }}
+      contentContainerStyle={{
+        paddingTop: insets.top,
+        paddingBottom: tabBarHeight + 24,
+      }}
     >
       {/* Header */}
       <View className="px-4 pt-2 pb-1">

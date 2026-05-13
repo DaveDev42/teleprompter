@@ -95,7 +95,7 @@ export function ModalContainer({
       <Pressable className="flex-1 bg-tp-overlay" onPress={onClose}>
         <View className="flex-1" />
         <View
-          className="bg-tp-bg-elevated rounded-t-2xl"
+          className="bg-tp-bg-elevated rounded-t-2xl w-full max-w-[540px] mx-auto"
           accessibilityLabel={accessibilityLabel}
           {...(Platform.OS === "web"
             ? {

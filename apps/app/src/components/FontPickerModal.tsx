@@ -129,6 +129,8 @@ export function FontSizeModal({
     setSize(next);
     onChangeSize(next);
   };
+  const atMin = size <= 10;
+  const atMax = size >= 24;
 
   return (
     <ModalContainer
@@ -155,11 +157,13 @@ export function FontSizeModal({
       </View>
       <View className="flex-row items-center justify-center gap-8 py-8 pb-12">
         <Pressable
-          className={`w-12 h-12 rounded-full bg-tp-surface items-center justify-center ${pp.className}`}
+          className={`w-12 h-12 rounded-full bg-tp-surface items-center justify-center ${pp.className} ${atMin ? "opacity-30" : ""}`}
           tabIndex={pp.tabIndex}
           onPress={() => adjust(-1)}
+          disabled={atMin}
           accessibilityRole="button"
           accessibilityLabel="Decrease font size"
+          accessibilityState={{ disabled: atMin }}
         >
           <Text className="text-tp-text-primary text-2xl font-bold">−</Text>
         </Pressable>
@@ -171,11 +175,13 @@ export function FontSizeModal({
           {size}
         </Text>
         <Pressable
-          className={`w-12 h-12 rounded-full bg-tp-surface items-center justify-center ${pp.className}`}
+          className={`w-12 h-12 rounded-full bg-tp-surface items-center justify-center ${pp.className} ${atMax ? "opacity-30" : ""}`}
           tabIndex={pp.tabIndex}
           onPress={() => adjust(1)}
+          disabled={atMax}
           accessibilityRole="button"
           accessibilityLabel="Increase font size"
+          accessibilityState={{ disabled: atMax }}
         >
           <Text className="text-tp-text-primary text-2xl font-bold">+</Text>
         </Pressable>

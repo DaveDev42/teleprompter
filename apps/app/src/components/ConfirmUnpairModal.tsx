@@ -18,7 +18,11 @@ export function ConfirmUnpairModal({
   const pp = getPlatformProps();
 
   return (
-    <ModalContainer visible={visible} onClose={onCancel}>
+    <ModalContainer
+      visible={visible}
+      onClose={onCancel}
+      accessibilityLabel="Remove Daemon"
+    >
       <View className="px-5 pt-5 pb-6">
         <View className="flex-row items-center justify-between pb-3">
           <Pressable

@@ -9,10 +9,13 @@ export function ModalContainer({
   visible,
   onClose,
   children,
+  accessibilityLabel,
 }: {
   visible: boolean;
   onClose: () => void;
   children: React.ReactNode;
+  /** Accessible name for the dialog (announced by screen readers when opened). */
+  accessibilityLabel?: string;
 }) {
   const containerRef = useRef<View>(null);
   const previousFocusRef = useRef<Element | null>(null);
@@ -93,10 +96,14 @@ export function ModalContainer({
         <View className="flex-1" />
         <View
           className="bg-tp-bg-elevated rounded-t-2xl"
+          accessibilityLabel={accessibilityLabel}
           {...(Platform.OS === "web"
             ? {
                 onClick: (e: { stopPropagation: () => void }) =>
                   e.stopPropagation(),
+                ...(accessibilityLabel
+                  ? { "aria-label": accessibilityLabel }
+                  : {}),
               }
             : {})}
         >

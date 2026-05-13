@@ -60,6 +60,13 @@ function SegmentedControl({
   onModeChange: (mode: ViewMode) => void;
 }) {
   const pp = getPlatformProps();
+  // RN Web's Pressable doesn't translate `accessibilityState.selected` into
+  // `aria-selected`, so screen readers can't tell which tab is active. Pass
+  // the raw ARIA attribute via a web-only spread; native ignores it.
+  const ariaSelectedChat =
+    Platform.OS === "web" ? { "aria-selected": mode === "chat" } : {};
+  const ariaSelectedTerminal =
+    Platform.OS === "web" ? { "aria-selected": mode === "terminal" } : {};
   return (
     <View className="px-4 py-2 bg-tp-bg-secondary">
       <View
@@ -72,6 +79,7 @@ function SegmentedControl({
           accessibilityRole="tab"
           accessibilityLabel="Chat"
           accessibilityState={{ selected: mode === "chat" }}
+          {...(ariaSelectedChat as object)}
           tabIndex={pp.tabIndex}
           className={`flex-1 py-1.5 rounded-badge items-center ${
             mode === "chat" ? "bg-tp-surface" : ""
@@ -93,6 +101,7 @@ function SegmentedControl({
           accessibilityRole="tab"
           accessibilityLabel="Terminal"
           accessibilityState={{ selected: mode === "terminal" }}
+          {...(ariaSelectedTerminal as object)}
           tabIndex={pp.tabIndex}
           className={`flex-1 py-1.5 rounded-badge items-center ${
             mode === "terminal" ? "bg-tp-surface" : ""
@@ -238,34 +247,48 @@ function ChatView({
     });
   }
 
+  // On web, announce new chat messages to screen readers via aria-live.
+  // `polite` queues announcements without interrupting the user's current
+  // reading. FlatList doesn't forward arbitrary ARIA props cleanly, so we
+  // wrap it in a host View that carries the attribute.
+  const liveRegionProps =
+    Platform.OS === "web"
+      ? {
+          "aria-live": "polite" as const,
+          "aria-relevant": "additions" as const,
+        }
+      : {};
+
   return (
     <>
-      <FlatList
-        ref={flatListRef}
-        data={displayMessages}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View className="px-4 py-1">
-            <ChatCard msg={item} />
-          </View>
-        )}
-        className="flex-1"
-        contentContainerStyle={{ paddingVertical: 8 }}
-        keyboardDismissMode="interactive"
-        keyboardShouldPersistTaps="handled"
-        onScrollBeginDrag={() => Keyboard.dismiss()}
-        accessibilityRole="list"
-        accessibilityLabel="Chat messages"
-        ListEmptyComponent={
-          <View className="flex-1 items-center justify-center pt-20">
-            <Text className="text-tp-text-tertiary text-[15px]">
-              {!connected
-                ? "Connecting to daemon..."
-                : "Listening to Claude Code..."}
-            </Text>
-          </View>
-        }
-      />
+      <View className="flex-1" {...(liveRegionProps as object)}>
+        <FlatList
+          ref={flatListRef}
+          data={displayMessages}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <View className="px-4 py-1">
+              <ChatCard msg={item} />
+            </View>
+          )}
+          className="flex-1"
+          contentContainerStyle={{ paddingVertical: 8 }}
+          keyboardDismissMode="interactive"
+          keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={() => Keyboard.dismiss()}
+          accessibilityRole="list"
+          accessibilityLabel="Chat messages"
+          ListEmptyComponent={
+            <View className="flex-1 items-center justify-center pt-20">
+              <Text className="text-tp-text-tertiary text-[15px]">
+                {!connected
+                  ? "Connecting to daemon..."
+                  : "Listening to Claude Code..."}
+              </Text>
+            </View>
+          }
+        />
+      </View>
 
       {/* Input bar */}
       <View className="flex-row items-end px-3 py-2 bg-tp-bg-secondary border-t border-tp-border">

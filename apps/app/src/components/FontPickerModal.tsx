@@ -47,7 +47,11 @@ export function FontPickerModal({
         : "Terminal Font";
 
   return (
-    <ModalContainer visible={visible} onClose={onClose}>
+    <ModalContainer
+      visible={visible}
+      onClose={onClose}
+      accessibilityLabel={title}
+    >
       <View className="max-h-[60vh]">
         <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
           <Text
@@ -127,7 +131,11 @@ export function FontSizeModal({
   };
 
   return (
-    <ModalContainer visible={visible} onClose={onClose}>
+    <ModalContainer
+      visible={visible}
+      onClose={onClose}
+      accessibilityLabel="Font Size"
+    >
       <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
         <Text
           className="text-tp-text-primary text-lg font-bold"

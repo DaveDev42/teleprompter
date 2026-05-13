@@ -153,10 +153,14 @@ export function parseRelayControlMessage(
     case "session.create": {
       if (!isString(raw.cwd)) return null;
       if (!isOptionalString(raw.sid)) return null;
+      if (!isOptionalNumber(raw.cols)) return null;
+      if (!isOptionalNumber(raw.rows)) return null;
       return {
         t: "session.create",
         cwd: raw.cwd,
         sid: raw.sid,
+        cols: raw.cols,
+        rows: raw.rows,
       } satisfies WsSessionCreate;
     }
 

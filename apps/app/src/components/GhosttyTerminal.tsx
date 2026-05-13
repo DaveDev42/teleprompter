@@ -74,12 +74,38 @@ export function GhosttyTerminal({
         onResizeRef.current?.(cols, rows);
       });
 
+      // Emit an initial size so the consumer (and the PTY behind it) starts
+      // at the actual canvas dimensions, not the runner's hard-coded 120x40.
+      // claude TUI paints its splash on first byte from the PTY; if the
+      // child's winsize is wrong at that moment, the splash anchors at the
+      // wrong column count and a later SIGWINCH only partially repaints —
+      // leaving the orange-box pixel residue users saw on viewport changes.
+      onResizeRef.current?.(term.cols, term.rows);
+
+      // Debounce resize callbacks: ResizeObserver fires frequently during
+      // window drag, and every one of these turns into a relay round-trip
+      // and a SIGWINCH on the PTY. Coalesce to 100ms to keep the wire and
+      // the child process from being hammered.
+      let pending: ReturnType<typeof setTimeout> | null = null;
       const resizeObserver = new ResizeObserver(() => {
-        if (!disposed) fitAddon.fit();
+        if (disposed) return;
+        if (pending) clearTimeout(pending);
+        pending = setTimeout(() => {
+          pending = null;
+          fitAddon.fit();
+          // `fit()` calls term.resize() internally, which fires onResize
+          // when dimensions actually change. But if the proposed dimensions
+          // are unchanged (e.g. layout settled and the next observe fires
+          // at the same size) the event is suppressed. Emit explicitly so
+          // the daemon always learns the post-layout size — cheap and
+          // self-healing if the runner missed an earlier resize.
+          onResizeRef.current?.(term.cols, term.rows);
+        }, 100);
       });
       resizeObserver.observe(containerRef.current);
 
       return () => {
+        if (pending) clearTimeout(pending);
         resizeObserver.disconnect();
       };
     }

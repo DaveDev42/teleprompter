@@ -43,7 +43,11 @@ export interface TransportClient {
   send(msg: WsClientMessage): void;
 
   // ── Session management ──
-  createSession(cwd: string, sid?: string): void;
+  createSession(
+    cwd: string,
+    sid?: string,
+    size?: { cols: number; rows: number },
+  ): void;
   stopSession(sid: string): void;
   restartSession(sid: string): void;
   exportSession(

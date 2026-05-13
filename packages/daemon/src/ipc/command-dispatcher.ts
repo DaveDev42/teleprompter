@@ -424,7 +424,10 @@ export class IpcCommandDispatcher {
       case "session.create": {
         const sid = msg.sid ?? `session-${Date.now().toString(36)}`;
         try {
-          this.deps.createSession(sid, msg.cwd);
+          this.deps.createSession(sid, msg.cwd, {
+            cols: msg.cols,
+            rows: msg.rows,
+          });
         } catch (err) {
           replyError(
             sid,

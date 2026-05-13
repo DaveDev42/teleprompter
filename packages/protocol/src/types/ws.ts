@@ -88,6 +88,14 @@ export interface WsSessionCreate {
   cwd: string;
   /** Optional session ID (auto-generated if omitted) */
   sid?: string;
+  /**
+   * Optional initial PTY dimensions. When supplied, the runner spawns
+   * claude at this winsize so the TUI splash anchors correctly and a
+   * later SIGWINCH isn't needed to rectify the layout. Frontends sending
+   * `session.create` should pass their current terminal canvas size.
+   */
+  cols?: number;
+  rows?: number;
 }
 
 export interface WsSessionStop {

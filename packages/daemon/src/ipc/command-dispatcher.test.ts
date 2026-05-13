@@ -921,7 +921,21 @@ describe("IpcCommandDispatcher.dispatchRelayControl", () => {
       { t: "session.create", cwd: "/cwd", sid: "new" },
       "f1",
     );
-    expect(calls.createSession).toEqual([["new", "/cwd", undefined]]);
+    expect(calls.createSession).toEqual([
+      ["new", "/cwd", { cols: undefined, rows: undefined }],
+    ]);
+  });
+
+  test("session.create forwards cols/rows to the createSession injector", () => {
+    const { dispatcher, calls } = makeHarness();
+    dispatcher.dispatchRelayControl(
+      fakeRelay([]),
+      { t: "session.create", cwd: "/cwd", sid: "new", cols: 150, rows: 50 },
+      "f1",
+    );
+    expect(calls.createSession).toEqual([
+      ["new", "/cwd", { cols: 150, rows: 50 }],
+    ]);
   });
 
   test("session.stop returns NO_RUNNER when killRunner reports false", async () => {

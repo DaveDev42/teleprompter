@@ -128,17 +128,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
  * event is de-duplicated against the `source: "local"` marker — but only
  * when the optimistic message is still the most recent user message when
  * the echo arrives (see `processHookEvent` backward-scan semantics).
+ *
+ * Also opens the streaming gate so PTY io that arrives before (or instead
+ * of) a `UserPromptSubmit` hook can accumulate into the assistant bubble.
+ * This is the fallback path when claude's hooks never fire — e.g. the user
+ * sends a prompt while claude's TUI is still in splash/permission cycle and
+ * `\n` isn't interpreted as a submit. Without this latch the message and
+ * response would be dropped silently.
  */
 export function addOptimisticUserMessage(text: string): void {
   const trimmed = text.trim();
   if (!trimmed) return;
-  useChatStore.getState().addMessage({
+  const store = useChatStore.getState();
+  store.addMessage({
     id: makeId(),
     type: "user",
     text: trimmed,
     source: "local",
     ts: Date.now(),
   });
+  store.setAssistantResponding(true);
 }
 
 /**

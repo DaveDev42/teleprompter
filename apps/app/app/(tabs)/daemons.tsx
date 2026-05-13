@@ -212,45 +212,48 @@ export default function DaemonsScreen() {
         </ScrollView>
       ) : (
         <View className="flex-1 items-center justify-center px-8">
-          <View className="w-16 h-16 rounded-2xl bg-tp-bg-secondary items-center justify-center mb-6">
-            <Text className="text-[28px]">🖥</Text>
+          <View className="w-full max-w-sm items-center">
+            <View className="w-16 h-16 rounded-2xl bg-tp-bg-secondary items-center justify-center mb-6">
+              <Text className="text-[28px]">🖥</Text>
+            </View>
+            <Text className="text-tp-text-primary text-xl font-semibold mb-2">
+              No daemons connected
+            </Text>
+            <Text className="text-tp-text-secondary text-[15px] text-center leading-6 mb-6">
+              Connect to a daemon to start{"\n"}controlling Claude Code
+              remotely.
+            </Text>
+
+            <Text className="text-tp-text-tertiary text-[13px] text-center leading-5 mb-6">
+              1. Run tp daemon start on your machine{"\n"}
+              2. Run tp pair to generate a QR code{"\n"}
+              3. Scan the QR code below to connect
+            </Text>
+
+            <Pressable
+              onPress={() => router.push("/pairing/scan")}
+              className={`w-full bg-tp-accent rounded-card py-4 items-center mb-3 ${pp.className}`}
+              tabIndex={pp.tabIndex}
+              accessibilityRole="button"
+              accessibilityLabel="Scan QR code to pair"
+            >
+              <Text className="text-white font-semibold text-base">
+                Scan QR Code to Pair
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => router.push("/pairing")}
+              tabIndex={pp.tabIndex}
+              className={pp.className}
+              accessibilityRole="link"
+              accessibilityLabel="Enter pairing data manually"
+            >
+              <Text className="text-tp-accent text-[13px]">
+                or enter pairing data manually
+              </Text>
+            </Pressable>
           </View>
-          <Text className="text-tp-text-primary text-xl font-semibold mb-2">
-            No daemons connected
-          </Text>
-          <Text className="text-tp-text-secondary text-[15px] text-center leading-6 mb-6">
-            Connect to a daemon to start{"\n"}controlling Claude Code remotely.
-          </Text>
-
-          <Text className="text-tp-text-tertiary text-[13px] text-center leading-5 mb-6">
-            1. Run tp daemon start on your machine{"\n"}
-            2. Run tp pair to generate a QR code{"\n"}
-            3. Scan the QR code below to connect
-          </Text>
-
-          <Pressable
-            onPress={() => router.push("/pairing/scan")}
-            className={`w-full bg-tp-accent rounded-card py-4 items-center mb-3 ${pp.className}`}
-            tabIndex={pp.tabIndex}
-            accessibilityRole="button"
-            accessibilityLabel="Scan QR code to pair"
-          >
-            <Text className="text-white font-semibold text-base">
-              Scan QR Code to Pair
-            </Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => router.push("/pairing")}
-            tabIndex={pp.tabIndex}
-            className={pp.className}
-            accessibilityRole="link"
-            accessibilityLabel="Enter pairing data manually"
-          >
-            <Text className="text-tp-accent text-[13px]">
-              or enter pairing data manually
-            </Text>
-          </Pressable>
         </View>
       )}
       <RenamePairingModal

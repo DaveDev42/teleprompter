@@ -23,8 +23,11 @@ function resolveIsDark(theme: Theme): boolean {
 }
 
 export const useThemeStore = create<ThemeStore>((set) => ({
-  theme: "dark",
-  isDark: true,
+  // Default to "system" so first-time visitors on a light-mode OS don't
+  // get force-flipped to dark before `load()` resolves. Existing users
+  // with a stored preference keep their choice via `load()`.
+  theme: "system",
+  isDark: resolveIsDark("system"),
   loaded: false,
 
   load: async () => {

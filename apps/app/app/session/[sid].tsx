@@ -301,6 +301,24 @@ function ChatView({
           value={input}
           onChangeText={setInput}
           onSubmitEditing={handleSend}
+          // Web: react-native-web's multiline TextInput inserts a newline on
+          // Enter regardless of returnKeyType. Intercept onKeyPress so Enter
+          // (without Shift) submits like every other chat UI. Native keeps
+          // onSubmitEditing as the trigger.
+          onKeyPress={
+            Platform.OS === "web"
+              ? (e) => {
+                  const ne = e.nativeEvent as unknown as {
+                    key: string;
+                    shiftKey?: boolean;
+                  };
+                  if (ne.key === "Enter" && !ne.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }
+              : undefined
+          }
           multiline
           returnKeyType="send"
           editable={isEditable}
@@ -310,7 +328,7 @@ function ChatView({
               ? "This session has ended. New prompts cannot be sent."
               : !connected
                 ? "Disconnected. Compose a message to send when reconnected."
-                : "Type a message to send to Claude"
+                : "Type a message to send to Claude (Shift+Enter for newline)"
           }
           tabIndex={pp.tabIndex}
         />

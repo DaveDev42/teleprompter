@@ -218,6 +218,21 @@ export function processHookEvent(event: HookEventBase) {
       }
       break;
     }
+    case "StopFailure": {
+      // Same terminal-state semantics as Stop. Without this, the gate stays
+      // open after a failed response and every subsequent PTY chunk (user
+      // keystrokes, editor repaints) leaks into streamingText.
+      store.finalizeStreaming();
+      store.setAssistantResponding(false);
+      store.addMessage({
+        id: makeId(),
+        type: "system",
+        event: name,
+        text: (event.error as string) ?? "Assistant response failed",
+        ts: Date.now(),
+      });
+      break;
+    }
     case "PreToolUse": {
       store.finalizeStreaming();
       const toolEvent = event as PreToolUseEvent;

@@ -31,8 +31,12 @@ function SessionRow({
   const running = session.state === "running";
   const pp = getPlatformProps();
 
-  // Extract a description from cwd (last path segment)
-  const desc = session.cwd.split("/").pop() ?? session.cwd;
+  // Extract a description from cwd (last path segment). Strip a trailing
+  // slash first so "/Users/dave/proj/" yields "proj" rather than "". Then
+  // fall back through cwd → sid → "Session" because `??` only catches
+  // null/undefined and `pop()` returns "" for empty input.
+  const lastSeg = session.cwd.replace(/\/+$/, "").split("/").pop() ?? "";
+  const desc = lastSeg || session.cwd || session.sid || "Session";
 
   return (
     <Pressable

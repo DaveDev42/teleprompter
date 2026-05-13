@@ -20,10 +20,16 @@ type InlineSeg =
   | { t: "code"; s: string };
 
 /** Split a line into bold/italic/code/plain inline segments.
- *  Recognises `**bold**`, `__bold__`, `*italic*`, `_italic_`, and `` `code` ``. */
+ *  Recognises `**bold**`, `__bold__`, `*italic*`, `_italic_`, and `` `code` ``.
+ *
+ *  Underscore emphasis requires non-word characters (or string edges) on
+ *  the outside of the delimiter — otherwise identifiers like `tool_name`
+ *  or `session_id` would be captured as italic across the snake_case
+ *  boundary. Asterisk emphasis has no such restriction since `*` doesn't
+ *  appear inside identifiers in practice. */
 function parseInline(raw: string): InlineSeg[] {
   const INLINE_RE =
-    /(\*\*[\s\S]+?\*\*|__[\s\S]+?__|\*[\s\S]+?\*|_[\s\S]+?_|`[^`]+`)/g;
+    /(\*\*[\s\S]+?\*\*|(?<![A-Za-z0-9_])__[\s\S]+?__(?![A-Za-z0-9_])|\*[\s\S]+?\*|(?<![A-Za-z0-9_])_[\s\S]+?_(?![A-Za-z0-9_])|`[^`]+`)/g;
   const segs: InlineSeg[] = [];
   let last = 0;
   let m: RegExpExecArray | null;
@@ -661,9 +667,20 @@ function ToolCard({
 }
 
 function SystemCard({ msg }: { msg: ChatMessage }) {
+  // Errors (StopFailure) need to be visually distinct from informational
+  // notifications — they signal that the assistant response failed and the
+  // user may need to retry. Use the error color and a leading warning glyph.
+  const isError = msg.event === "StopFailure";
   return (
-    <View className="self-center py-1">
-      <Text className="text-tp-text-tertiary text-xs">{msg.text}</Text>
+    <View className="self-center py-1 px-3 max-w-full">
+      <Text
+        className={`text-xs text-center ${
+          isError ? "text-tp-error font-medium" : "text-tp-text-tertiary"
+        }`}
+        selectable
+      >
+        {isError ? `⚠ ${msg.text}` : msg.text}
+      </Text>
     </View>
   );
 }

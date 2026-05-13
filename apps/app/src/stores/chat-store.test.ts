@@ -240,7 +240,7 @@ describe("chat-store: processHookEvent", () => {
     expect(useChatStore.getState().streamingText).toBe("");
   });
 
-  test("Stop finalizes streaming text into one message (streaming) and appends assistant message when last_assistant_message is present", () => {
+  test("Stop with last_assistant_message discards streamingText (hook message is canonical, PTY buffer is a noisy duplicate)", () => {
     const s = useChatStore.getState();
     s.appendStreaming("I'm thinking");
     s.appendStreaming(" about it");
@@ -254,11 +254,13 @@ describe("chat-store: processHookEvent", () => {
     processHookEvent(event);
 
     const msgs = useChatStore.getState().messages;
-    expect(msgs.length).toBe(2);
-    expect(msgs[0].type).toBe("streaming");
-    expect(msgs[0].text).toBe("I'm thinking about it");
-    expect(msgs[1].type).toBe("assistant");
-    expect(msgs[1].text).toBe("Done!");
+    // Only the hook-derived assistant message survives — the streamingText
+    // buffer would duplicate the same response with PTY noise (cursor
+    // moves, ANSI residue) and unparsed markdown.
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].type).toBe("assistant");
+    expect(msgs[0].text).toBe("Done!");
+    expect(useChatStore.getState().streamingText).toBe("");
   });
 
   test("Stop without last_assistant_message only finalizes streaming", () => {
@@ -591,13 +593,14 @@ describe("chat-store: processHookEvent", () => {
     } as StopEvent);
 
     const msgs = useChatStore.getState().messages;
-    // Exactly: user (local optimistic) → streaming → assistant
-    expect(msgs.length).toBe(3);
+    // Exactly: user (local optimistic) → assistant. The hook message wins
+    // when present, so the PTY-buffered streaming chunk is discarded.
+    expect(msgs.length).toBe(2);
     expect(msgs[0].type).toBe("user");
     expect(msgs[0].text).toBe("How are you?");
     expect(msgs[0].source).toBe("local");
-    expect(msgs[1].type).toBe("streaming");
-    expect(msgs[2].type).toBe("assistant");
+    expect(msgs[1].type).toBe("assistant");
+    expect(msgs[1].text).toBe("I'm fine.");
   });
 
   test("full conversation: prompt -> streaming chunks -> stop finalizes", () => {
@@ -618,15 +621,14 @@ describe("chat-store: processHookEvent", () => {
     } as StopEvent);
 
     const msgs = useChatStore.getState().messages;
-    // user → streaming → assistant
-    expect(msgs.length).toBe(3);
+    // user → assistant. The PTY streaming chunk is discarded because the
+    // hook message is canonical.
+    expect(msgs.length).toBe(2);
     expect(msgs[0].type).toBe("user");
     expect(msgs[0].text).toBe("How are you?");
     expect(msgs[0].source).toBe("remote");
-    expect(msgs[1].type).toBe("streaming");
+    expect(msgs[1].type).toBe("assistant");
     expect(msgs[1].text).toBe("I'm fine, thanks.");
-    expect(msgs[2].type).toBe("assistant");
-    expect(msgs[2].text).toBe("I'm fine, thanks.");
     expect(useChatStore.getState().streamingText).toBe("");
   });
 });
@@ -748,16 +750,16 @@ describe("chat-store: isAssistantResponding latch", () => {
     );
 
     const msgs = useChatStore.getState().messages;
-    // user(first) -> streaming(real answer) -> assistant(real answer) ->
-    // user(second). No "garbage echo" streaming bubble.
-    expect(msgs.length).toBe(4);
+    // user(first) -> assistant(real answer) -> user(second). No "garbage
+    // echo" streaming bubble, and no duplicate streaming bubble from the
+    // PTY chunk (Stop discards it when last_assistant_message is present).
+    expect(msgs.length).toBe(3);
     expect(msgs[0].type).toBe("user");
     expect(msgs[0].text).toBe("first question");
-    expect(msgs[1].type).toBe("streaming");
+    expect(msgs[1].type).toBe("assistant");
     expect(msgs[1].text).toBe("real answer");
-    expect(msgs[2].type).toBe("assistant");
-    expect(msgs[3].type).toBe("user");
-    expect(msgs[3].text).toBe("second question");
+    expect(msgs[2].type).toBe("user");
+    expect(msgs[2].text).toBe("second question");
     expect(useChatStore.getState().streamingText).toBe("");
   });
 });

@@ -199,15 +199,18 @@ export function processHookEvent(event: HookEventBase) {
       break;
     }
     case "Stop": {
-      // Finalize streaming text as assistant message and close the gate.
-      // Subsequent PTY io records (the user resuming input, INSERT-mode
-      // editor noise, autocomplete dropdown repaints) must NOT enter
-      // streamingText until the next UserPromptSubmit.
-      store.finalizeStreaming();
+      // Close the streaming gate. Subsequent PTY io records (the user
+      // resuming input, INSERT-mode editor noise, autocomplete dropdown
+      // repaints) must NOT enter streamingText until the next
+      // UserPromptSubmit.
       store.setAssistantResponding(false);
       const stopEvent = event as StopEvent;
       const lastMsg = stopEvent.last_assistant_message;
       if (lastMsg) {
+        // The hook-derived message is canonical (full markdown, ANSI-free).
+        // The buffered PTY streamingText is a noisy duplicate of the same
+        // response, so discard it instead of committing a second bubble.
+        useChatStore.setState({ streamingText: "" });
         store.addMessage({
           id: makeId(),
           type: "assistant",
@@ -215,6 +218,10 @@ export function processHookEvent(event: HookEventBase) {
           text: lastMsg,
           ts: Date.now(),
         });
+      } else {
+        // No hook message — keep the PTY fallback as the only record of
+        // the response.
+        store.finalizeStreaming();
       }
       break;
     }

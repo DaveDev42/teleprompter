@@ -22,7 +22,11 @@ export function ApiKeyModal({
   }, [currentKey]);
 
   return (
-    <ModalContainer visible={visible} onClose={onClose}>
+    <ModalContainer
+      visible={visible}
+      onClose={onClose}
+      accessibilityLabel="OpenAI API Key"
+    >
       <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
         <Text
           className="text-tp-text-primary text-lg font-bold"

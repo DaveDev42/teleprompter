@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { getPlatformProps } from "../lib/get-platform-props";
 import type { ChatMessage } from "../stores/chat-store";
@@ -10,7 +11,190 @@ async function copyText(text: string) {
   // Native: would use expo-clipboard
 }
 
-/** Render text with code blocks (```...```) styled differently */
+// ─── Inline markdown parser ──────────────────────────────────────────────────
+
+type InlineSeg =
+  | { t: "text"; s: string }
+  | { t: "bold"; s: string }
+  | { t: "italic"; s: string }
+  | { t: "code"; s: string };
+
+/** Split a line into bold/italic/code/plain inline segments. */
+function parseInline(raw: string): InlineSeg[] {
+  const INLINE_RE = /(\*\*[\s\S]*?\*\*|\*[\s\S]*?\*|`[^`]+`)/g;
+  const segs: InlineSeg[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: intentional loop
+  while ((m = INLINE_RE.exec(raw)) !== null) {
+    if (m.index > last) segs.push({ t: "text", s: raw.slice(last, m.index) });
+    const tok = m[0];
+    if (tok.startsWith("**")) segs.push({ t: "bold", s: tok.slice(2, -2) });
+    else if (tok.startsWith("`")) segs.push({ t: "code", s: tok.slice(1, -1) });
+    else segs.push({ t: "italic", s: tok.slice(1, -1) });
+    last = m.index + tok.length;
+  }
+  if (last < raw.length) segs.push({ t: "text", s: raw.slice(last) });
+  return segs;
+}
+
+function InlineText({
+  raw,
+  textClass,
+  fontStyle,
+  codeFontStyle,
+}: {
+  raw: string;
+  textClass?: string;
+  fontStyle?: { fontFamily: string; fontSize: number };
+  codeFontStyle?: { fontFamily: string };
+}) {
+  const segs = parseInline(raw);
+  if (segs.length === 1 && segs[0].t === "text") {
+    return (
+      <Text className={textClass} style={fontStyle} selectable>
+        {raw}
+      </Text>
+    );
+  }
+  return (
+    <Text className={textClass} style={fontStyle} selectable>
+      {segs.map((seg, i) => {
+        switch (seg.t) {
+          case "bold":
+            return (
+              <Text
+                key={i}
+                className={textClass}
+                style={{ ...fontStyle, fontWeight: "700" }}
+              >
+                {seg.s}
+              </Text>
+            );
+          case "italic":
+            return (
+              <Text
+                key={i}
+                className={textClass}
+                style={{ ...fontStyle, fontStyle: "italic" }}
+              >
+                {seg.s}
+              </Text>
+            );
+          case "code":
+            return (
+              <Text
+                key={i}
+                className="text-tp-success bg-tp-bg rounded px-0.5 text-xs"
+                style={codeFontStyle}
+              >
+                {seg.s}
+              </Text>
+            );
+          default:
+            return <Text key={i}>{seg.s}</Text>;
+        }
+      })}
+    </Text>
+  );
+}
+
+// ─── Block markdown parser ───────────────────────────────────────────────────
+
+type Block =
+  | { type: "heading"; level: 1 | 2 | 3; text: string }
+  | { type: "code"; lang: string; code: string }
+  | { type: "list"; ordered: boolean; items: string[] }
+  | { type: "para"; text: string };
+
+function parseBlocks(markdown: string): Block[] {
+  const blocks: Block[] = [];
+  // Normalise line endings; ensure trailing newline for the fence detector.
+  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // ── fenced code block ──────────────────────────────────────────
+    if (line.trimStart().startsWith("```")) {
+      const lang = line.trimStart().slice(3).trim();
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].trimStart().startsWith("```")) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      i++; // consume closing fence
+      blocks.push({ type: "code", lang, code: codeLines.join("\n") });
+      continue;
+    }
+
+    // ── ATX heading ───────────────────────────────────────────────
+    const hMatch = line.match(/^(#{1,3})\s+(.*)/);
+    if (hMatch) {
+      blocks.push({
+        type: "heading",
+        level: Math.min(hMatch[1].length, 3) as 1 | 2 | 3,
+        text: hMatch[2].trim(),
+      });
+      i++;
+      continue;
+    }
+
+    // ── unordered list item ───────────────────────────────────────
+    const ulMatch = line.match(/^\s*[-*]\s+(.*)/);
+    if (ulMatch) {
+      const items: string[] = [ulMatch[1]];
+      i++;
+      while (i < lines.length && lines[i].match(/^\s*[-*]\s+(.*)/)) {
+        items.push((lines[i].match(/^\s*[-*]\s+(.*)/) as RegExpMatchArray)[1]);
+        i++;
+      }
+      blocks.push({ type: "list", ordered: false, items });
+      continue;
+    }
+
+    // ── ordered list item ─────────────────────────────────────────
+    const olMatch = line.match(/^\s*\d+\.\s+(.*)/);
+    if (olMatch) {
+      const items: string[] = [olMatch[1]];
+      i++;
+      while (i < lines.length && lines[i].match(/^\s*\d+\.\s+(.*)/)) {
+        items.push((lines[i].match(/^\s*\d+\.\s+(.*)/) as RegExpMatchArray)[1]);
+        i++;
+      }
+      blocks.push({ type: "list", ordered: true, items });
+      continue;
+    }
+
+    // ── blank line (skip) ─────────────────────────────────────────
+    if (line.trim() === "") {
+      i++;
+      continue;
+    }
+
+    // ── paragraph (accumulate until blank/heading/list/fence) ─────
+    const paraLines: string[] = [line];
+    i++;
+    while (
+      i < lines.length &&
+      lines[i].trim() !== "" &&
+      !lines[i].trimStart().startsWith("```") &&
+      !lines[i].match(/^#{1,3}\s/) &&
+      !lines[i].match(/^\s*[-*]\s/) &&
+      !lines[i].match(/^\s*\d+\.\s/)
+    ) {
+      paraLines.push(lines[i]);
+      i++;
+    }
+    blocks.push({ type: "para", text: paraLines.join("\n") });
+  }
+
+  return blocks;
+}
+
+/** Render text with full markdown support (headings, lists, code, inline). */
 function RichText({
   text,
   className: textClass,
@@ -22,50 +206,112 @@ function RichText({
   fontStyle?: { fontFamily: string; fontSize: number };
   codeFontStyle?: { fontFamily: string };
 }) {
-  const parts = text.split(/(```[\s\S]*?```)/g);
-  if (parts.length === 1) {
+  // Fast path: if there is no markdown syntax, skip parsing entirely.
+  const hasMd = /```|^#{1,3}\s|^\s*[-*]\s|^\s*\d+\.\s|\*\*|\*[^*]|`[^`]/m.test(
+    text,
+  );
+  if (!hasMd) {
     return (
       <Text className={textClass} style={fontStyle} selectable>
         {text}
       </Text>
     );
   }
+
+  const blocks = parseBlocks(text);
+  if (blocks.length === 0) {
+    return (
+      <Text className={textClass} style={fontStyle} selectable>
+        {text}
+      </Text>
+    );
+  }
+
   return (
     <View>
-      {parts.map((part, i) => {
-        if (part.startsWith("```") && part.endsWith("```")) {
-          const lines = part.slice(3, -3).split("\n");
-          const lang = lines[0]?.trim();
-          const code = (lang ? lines.slice(1) : lines).join("\n").trim();
-          return (
-            <Pressable
-              key={i}
-              className="bg-tp-bg border border-tp-border rounded-lg px-3 py-2 my-1"
-              onLongPress={() => copyText(code)}
-              accessibilityRole="text"
-              accessibilityLabel={`Code block${lang ? `, ${lang}` : ""}`}
-              accessibilityHint="Long press to copy"
-            >
-              {lang ? (
-                <Text className="text-tp-text-tertiary text-[10px] mb-1">
-                  {lang}
-                </Text>
-              ) : null}
+      {blocks.map((block, bi) => {
+        switch (block.type) {
+          case "heading": {
+            const hClass =
+              block.level === 1
+                ? "text-tp-text-primary text-[18px] font-bold mt-2 mb-0.5"
+                : block.level === 2
+                  ? "text-tp-text-primary text-[16px] font-bold mt-1.5 mb-0.5"
+                  : "text-tp-text-primary text-[14px] font-semibold mt-1";
+            return (
               <Text
-                className="text-tp-success text-xs"
-                style={codeFontStyle}
+                key={bi}
+                className={hClass}
+                style={{ fontFamily: fontStyle?.fontFamily }}
                 selectable
               >
-                {code}
+                {block.text}
               </Text>
-            </Pressable>
-          );
+            );
+          }
+          case "code": {
+            return (
+              <Pressable
+                key={bi}
+                className="bg-tp-bg border border-tp-border rounded-lg px-3 py-2 my-1"
+                onLongPress={() => copyText(block.code)}
+                accessibilityRole="text"
+                accessibilityLabel={`Code block${block.lang ? `, ${block.lang}` : ""}`}
+                accessibilityHint="Long press to copy"
+              >
+                {block.lang ? (
+                  <Text className="text-tp-text-tertiary text-[10px] mb-1">
+                    {block.lang}
+                  </Text>
+                ) : null}
+                <Text
+                  className="text-tp-success text-xs"
+                  style={codeFontStyle}
+                  selectable
+                >
+                  {block.code}
+                </Text>
+              </Pressable>
+            );
+          }
+          case "list": {
+            return (
+              <View key={bi} className="my-0.5">
+                {block.items.map((item, ii) => (
+                  <View key={ii} className="flex-row items-start mb-0.5">
+                    <Text
+                      className={`${textClass} mr-1.5 mt-0.5`}
+                      style={fontStyle}
+                    >
+                      {block.ordered ? `${ii + 1}.` : "•"}
+                    </Text>
+                    <View className="flex-1">
+                      <InlineText
+                        raw={item}
+                        textClass={textClass}
+                        fontStyle={fontStyle}
+                        codeFontStyle={codeFontStyle}
+                      />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            );
+          }
+          case "para": {
+            return (
+              <InlineText
+                key={bi}
+                raw={block.text}
+                textClass={textClass}
+                fontStyle={fontStyle}
+                codeFontStyle={codeFontStyle}
+              />
+            );
+          }
+          default:
+            return null;
         }
-        return part ? (
-          <Text key={i} className={textClass} style={fontStyle} selectable>
-            {part}
-          </Text>
-        ) : null;
       })}
     </View>
   );
@@ -201,11 +447,13 @@ function BashOutput({
   stderr,
   interrupted,
   codeFontStyle,
+  expanded,
 }: {
   stdout?: string;
   stderr?: string;
   interrupted?: boolean;
   codeFontStyle: { fontFamily: string };
+  expanded: boolean;
 }) {
   return (
     <View className="mt-1.5 bg-tp-bg border border-tp-border-subtle rounded-lg px-2.5 py-1.5">
@@ -213,7 +461,7 @@ function BashOutput({
         <Text
           className="text-tp-text-secondary text-[11px]"
           style={codeFontStyle}
-          numberOfLines={20}
+          numberOfLines={expanded ? undefined : 20}
           selectable
         >
           {stdout.trimEnd()}
@@ -223,7 +471,7 @@ function BashOutput({
         <Text
           className="text-tp-error text-[11px] mt-1"
           style={codeFontStyle}
-          numberOfLines={10}
+          numberOfLines={expanded ? undefined : 10}
           selectable
         >
           {stderr.trimEnd()}
@@ -245,6 +493,7 @@ function ToolCard({
   msg: ChatMessage;
   codeFontStyle: { fontFamily: string };
 }) {
+  const [expanded, setExpanded] = useState(false);
   const isResult = msg.event === "PostToolUse";
   const toolName = msg.toolName ?? "";
   const inputObj = asRecord(msg.toolInput);
@@ -269,15 +518,40 @@ function ToolCard({
   const bashCommand =
     toolName === "Bash" && inputObj ? asString(inputObj.command) : null;
 
+  // Detect output that exceeds the collapsed numberOfLines so we know whether
+  // to show the "Show more" affordance. Cheap line count — splits on \n once.
+  const collapsedThreshold = bashOutput ? 20 : 5;
+  const truncatedSource = bashOutput
+    ? (bashOutput.stdout ?? "") + (bashOutput.stderr ?? "")
+    : isResult && msg.toolResult != null
+      ? typeof msg.toolResult === "string"
+        ? msg.toolResult
+        : JSON.stringify(msg.toolResult, null, 2)
+      : "";
+  const isTruncatable =
+    truncatedSource.split("\n").length > collapsedThreshold ||
+    truncatedSource.length > collapsedThreshold * 80;
+
   return (
-    <View
+    <Pressable
+      onPress={() => {
+        if (isResult && isTruncatable) setExpanded((v) => !v);
+      }}
       className="self-stretch bg-tp-surface border border-tp-border rounded-card px-3.5 py-2.5"
-      accessibilityLabel={`Tool ${toolName}, ${isResult ? "completed" : "running"}`}
+      accessibilityLabel={`Tool ${toolName}, ${isResult ? "completed" : "running"}${isTruncatable ? `, ${expanded ? "expanded" : "collapsed"}` : ""}`}
+      accessibilityRole={isResult && isTruncatable ? "button" : undefined}
+      accessibilityHint={
+        isResult && isTruncatable
+          ? expanded
+            ? "Tap to collapse"
+            : "Tap to expand full output"
+          : undefined
+      }
     >
       <View className="flex-row items-center justify-between">
         <View className="flex-row items-center flex-1">
           <Text className="text-tp-text-tertiary text-xs mr-1.5">
-            {isResult ? "▾" : "▸"}
+            {isResult ? (expanded ? "▾" : "▸") : "▸"}
           </Text>
           <Text
             className="text-tp-text-primary text-[13px] font-medium"
@@ -328,11 +602,15 @@ function ToolCard({
 
       {/* Post-call body */}
       {isResult && bashOutput ? (
-        <BashOutput {...bashOutput} codeFontStyle={codeFontStyle} />
+        <BashOutput
+          {...bashOutput}
+          codeFontStyle={codeFontStyle}
+          expanded={expanded}
+        />
       ) : isResult && msg.toolResult != null ? (
         <Text
           className="text-tp-text-secondary text-xs mt-1.5"
-          numberOfLines={5}
+          numberOfLines={expanded ? undefined : 5}
           selectable
         >
           {typeof msg.toolResult === "string"
@@ -340,7 +618,13 @@ function ToolCard({
             : JSON.stringify(msg.toolResult, null, 2)}
         </Text>
       ) : null}
-    </View>
+
+      {isResult && isTruncatable ? (
+        <Text className="text-tp-accent text-[11px] mt-1.5">
+          {expanded ? "Show less" : "Show more"}
+        </Text>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -379,10 +663,10 @@ function StreamingCard({
 function ElicitationCard({ msg }: { msg: ChatMessage }) {
   return (
     <View
-      className="self-start bg-indigo-900/50 border border-indigo-600 rounded-card px-4 py-3 max-w-[85%]"
+      className="self-start bg-tp-surface border border-tp-accent rounded-card px-4 py-3 max-w-[85%]"
       accessibilityLabel={`Input requested: ${msg.text}`}
     >
-      <Text className="text-indigo-300 text-xs font-bold mb-1">
+      <Text className="text-tp-accent text-xs font-bold mb-1">
         Input Requested
       </Text>
       <Text className="text-tp-text-primary text-sm" selectable>
@@ -391,8 +675,8 @@ function ElicitationCard({ msg }: { msg: ChatMessage }) {
       {msg.choices && msg.choices.length > 0 && (
         <View className="mt-2 gap-1">
           {msg.choices.map((choice, i) => (
-            <View key={i} className="bg-indigo-800/50 rounded-lg px-3 py-1.5">
-              <Text className="text-indigo-200 text-sm">{choice}</Text>
+            <View key={i} className="bg-tp-bg-secondary rounded-lg px-3 py-1.5">
+              <Text className="text-tp-text-primary text-sm">{choice}</Text>
             </View>
           ))}
         </View>
@@ -404,15 +688,15 @@ function ElicitationCard({ msg }: { msg: ChatMessage }) {
 function PermissionCard({ msg }: { msg: ChatMessage }) {
   return (
     <View
-      className="self-start bg-amber-900/50 border border-amber-600 rounded-card px-4 py-3 max-w-[85%]"
+      className="self-start bg-tp-surface border border-tp-warning rounded-card px-4 py-3 max-w-[85%]"
       accessibilityLabel={`Permission required: ${msg.text}${msg.permissionTool ? `, tool: ${msg.permissionTool}` : ""}`}
     >
-      <Text className="text-amber-300 text-xs font-bold mb-1">
+      <Text className="text-tp-warning text-xs font-bold mb-1">
         Permission Required
       </Text>
       <Text className="text-tp-text-primary text-sm">{msg.text}</Text>
       {msg.permissionTool && (
-        <Text className="text-amber-400 text-xs mt-1">
+        <Text className="text-tp-warning text-xs mt-1">
           {msg.permissionTool}
         </Text>
       )}

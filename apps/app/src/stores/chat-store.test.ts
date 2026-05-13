@@ -374,17 +374,24 @@ describe("chat-store: processHookEvent", () => {
     expect(msgs[0].text).toBe("Heads up!");
   });
 
-  test("unknown / default hook events become a system message", () => {
-    processHookEvent(
-      baseEvent({
-        hook_event_name: "SessionStart",
-      }),
-    );
+  test("session lifecycle hook events are silent (no chat noise)", () => {
+    for (const name of [
+      "SessionStart",
+      "SessionEnd",
+      "SubagentStart",
+      "SubagentStop",
+    ]) {
+      processHookEvent(baseEvent({ hook_event_name: name }));
+    }
+    expect(useChatStore.getState().messages.length).toBe(0);
+  });
 
+  test("truly unknown hook events fall through to a system message", () => {
+    processHookEvent(baseEvent({ hook_event_name: "TotallyMadeUpEvent" }));
     const msgs = useChatStore.getState().messages;
     expect(msgs.length).toBe(1);
     expect(msgs[0].type).toBe("system");
-    expect(msgs[0].event).toBe("SessionStart");
+    expect(msgs[0].event).toBe("TotallyMadeUpEvent");
   });
 
   test("UserPromptSubmit de-dups optimistic local user message with same text", () => {

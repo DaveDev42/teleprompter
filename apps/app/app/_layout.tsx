@@ -2,7 +2,7 @@ import "../global.css";
 import { Stack, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
-import { useColorScheme, View } from "react-native";
+import { Platform, useColorScheme, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { InAppToast } from "../src/components/InAppToast";
 import { UpdateBanner } from "../src/components/UpdateBanner";
@@ -54,6 +54,19 @@ export default function RootLayout() {
       setTheme("system");
     }
   }, [theme, setTheme, _systemScheme]);
+
+  // Sync dark/light class to <html> element on web so :root CSS variables
+  // defined in global.css (.dark { --tp-* }) are reachable by the browser's
+  // selector engine. The View-based toggle still applies for native.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const root = document.documentElement;
+    if (isDark) {
+      root.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+    }
+  }, [isDark]);
 
   // E2EE relay connections for all paired daemons
   useRelay();

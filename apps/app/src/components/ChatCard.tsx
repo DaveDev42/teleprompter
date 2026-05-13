@@ -19,9 +19,11 @@ type InlineSeg =
   | { t: "italic"; s: string }
   | { t: "code"; s: string };
 
-/** Split a line into bold/italic/code/plain inline segments. */
+/** Split a line into bold/italic/code/plain inline segments.
+ *  Recognises `**bold**`, `__bold__`, `*italic*`, `_italic_`, and `` `code` ``. */
 function parseInline(raw: string): InlineSeg[] {
-  const INLINE_RE = /(\*\*[\s\S]*?\*\*|\*[\s\S]*?\*|`[^`]+`)/g;
+  const INLINE_RE =
+    /(\*\*[\s\S]+?\*\*|__[\s\S]+?__|\*[\s\S]+?\*|_[\s\S]+?_|`[^`]+`)/g;
   const segs: InlineSeg[] = [];
   let last = 0;
   let m: RegExpExecArray | null;
@@ -30,6 +32,8 @@ function parseInline(raw: string): InlineSeg[] {
     if (m.index > last) segs.push({ t: "text", s: raw.slice(last, m.index) });
     const tok = m[0];
     if (tok.startsWith("**")) segs.push({ t: "bold", s: tok.slice(2, -2) });
+    else if (tok.startsWith("__"))
+      segs.push({ t: "bold", s: tok.slice(2, -2) });
     else if (tok.startsWith("`")) segs.push({ t: "code", s: tok.slice(1, -1) });
     else segs.push({ t: "italic", s: tok.slice(1, -1) });
     last = m.index + tok.length;
@@ -499,12 +503,29 @@ function ToolCard({
   const inputObj = asRecord(msg.toolInput);
 
   // Edit / MultiEdit: render a unified diff instead of raw JSON.
+  // MultiEdit nests its hunks under `edits: [{old_string, new_string}, …]`
+  // and only carries `file_path` at the top level, so the top-level
+  // old_string/new_string check would miss it.
   const editOld = inputObj && asString(inputObj.old_string);
   const editNew = inputObj && asString(inputObj.new_string);
+  const multiEdits =
+    toolName === "MultiEdit" && inputObj && Array.isArray(inputObj.edits)
+      ? (inputObj.edits as unknown[])
+          .map((e) => asRecord(e))
+          .filter(
+            (e): e is Record<string, unknown> =>
+              e !== null &&
+              asString(e.old_string) !== null &&
+              asString(e.new_string) !== null,
+          )
+          .map((e) => ({
+            oldStr: e.old_string as string,
+            newStr: e.new_string as string,
+          }))
+      : null;
   const isEdit =
-    (toolName === "Edit" || toolName === "MultiEdit") &&
-    editOld !== null &&
-    editNew !== null;
+    (toolName === "Edit" && editOld !== null && editNew !== null) ||
+    (multiEdits !== null && multiEdits.length > 0);
 
   // Write: render the new file content as additions.
   const writeContent = inputObj && asString(inputObj.content);
@@ -576,6 +597,17 @@ function ToolCard({
         >
           $ {bashCommand}
         </Text>
+      ) : !isResult && msg.toolInput != null && multiEdits ? (
+        <View>
+          {multiEdits.map((edit, i) => (
+            <EditDiff
+              key={`${i}-${edit.oldStr.length}-${edit.newStr.length}`}
+              oldStr={edit.oldStr}
+              newStr={edit.newStr}
+              codeFontStyle={codeFontStyle}
+            />
+          ))}
+        </View>
       ) : !isResult && msg.toolInput != null && isEdit ? (
         <EditDiff
           oldStr={editOld as string}

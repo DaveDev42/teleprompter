@@ -23,6 +23,7 @@ export default defineConfig({
         "app-web.spec.ts",
         "app-settings.spec.ts",
         "app-keyboard-nav.spec.ts",
+        "app-modal-escape.spec.ts",
       ],
     },
     {

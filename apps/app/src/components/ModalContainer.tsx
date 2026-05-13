@@ -73,11 +73,11 @@ export function ModalContainer({
       }
     };
 
-    document.addEventListener("keydown", trapHandler);
+    document.addEventListener("keydown", trapHandler, true);
 
     return () => {
       clearTimeout(timer);
-      document.removeEventListener("keydown", trapHandler);
+      document.removeEventListener("keydown", trapHandler, true);
       // Restore focus
       if (previousFocusRef.current instanceof HTMLElement) {
         previousFocusRef.current.focus();

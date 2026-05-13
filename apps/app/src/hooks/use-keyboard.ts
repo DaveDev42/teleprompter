@@ -8,6 +8,10 @@ type KeyMap = Record<string, () => void>;
  * NOTE: Calls e.preventDefault() for every matched key.
  * Only use for keys that should be globally intercepted (e.g., Escape in modals).
  * For form-level keys (Enter, Space), use component-level onKeyDown instead.
+ *
+ * Uses capture phase because react-native-web's TextInput calls
+ * `e.stopPropagation()` on every keydown — without capture, Escape pressed
+ * while focused inside a TextInput never bubbles up to close the modal.
  */
 export function useKeyboard(keyMap: KeyMap): void {
   useEffect(() => {
@@ -21,7 +25,7 @@ export function useKeyboard(keyMap: KeyMap): void {
       }
     };
 
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
+    document.addEventListener("keydown", handler, true);
+    return () => document.removeEventListener("keydown", handler, true);
   }, [keyMap]);
 }

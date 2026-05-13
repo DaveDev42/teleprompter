@@ -1,6 +1,21 @@
-import { expect, test } from "@playwright/test";
+import { type Page, expect, test } from "@playwright/test";
 
 test.use({ viewport: { width: 390, height: 844 } });
+
+/**
+ * Click a settings row by aria-label via JS evaluate, bypassing the tab bar
+ * overlay that intercepts Playwright's native pointer-event-based clicks on
+ * mobile viewport. Buttons deeper in the scroll area sit under a fixed tab
+ * bar <div>, so JS click is the reliable path.
+ */
+async function clickSettingsRow(page: Page, ariaLabelPrefix: string) {
+  await page.evaluate((prefix) => {
+    const btn = Array.from(document.querySelectorAll("[aria-label]")).find(
+      (el) => el.getAttribute("aria-label")?.startsWith(prefix),
+    ) as HTMLElement | null;
+    btn?.click();
+  }, ariaLabelPrefix);
+}
 
 test.describe("App Keyboard Navigation", () => {
   test.beforeEach(async ({ page }) => {
@@ -31,8 +46,8 @@ test.describe("App Keyboard Navigation", () => {
     await page.getByTestId("tab-settings").click();
     await page.locator("text=Settings").first().waitFor();
 
-    const themeButton = page.getByText("Theme").first();
-    await themeButton.focus();
+    // Focus the theme button using its aria-label
+    await page.locator('[aria-label*="Theme"]').first().focus();
     await page.keyboard.press("Enter");
 
     // Verify page is still responsive after theme cycle
@@ -75,7 +90,8 @@ test.describe("App Keyboard Navigation", () => {
     await page.getByTestId("tab-settings").click();
     await page.locator("text=Settings").first().waitFor();
 
-    await page.getByText("Chat Font").click();
+    // Click Chat Font button via JS evaluate to bypass tab bar overlay
+    await clickSettingsRow(page, "Chat Font");
     await page.locator("text=Chat Font").nth(1).waitFor({ timeout: 5_000 });
 
     await expect(page.locator("text=Done").first()).toBeVisible();

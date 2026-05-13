@@ -288,7 +288,18 @@ export function processHookEvent(event: HookEventBase) {
       break;
     }
     default: {
-      // Other events: SessionStart, SessionEnd, SubagentStart, etc.
+      // Suppress noisy lifecycle events that don't carry user-facing info.
+      // SessionStart / SessionEnd / SubagentStart / SubagentStop are emitted
+      // automatically by claude and clutter the chat history without adding value.
+      const SILENT_EVENTS = new Set([
+        "SessionStart",
+        "SessionEnd",
+        "SubagentStart",
+        "SubagentStop",
+      ]);
+      if (SILENT_EVENTS.has(name)) break;
+      // Other unrecognised events: render as a small system chip so nothing
+      // is silently swallowed, but keep it visually minimal.
       store.addMessage({
         id: makeId(),
         type: "system",

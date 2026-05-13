@@ -221,7 +221,7 @@ function ChatView({
     displayMessages.push({
       id: "streaming-live",
       type: "streaming",
-      text: streamingText.slice(-500),
+      text: streamingText,
       ts: Date.now(),
     });
   }

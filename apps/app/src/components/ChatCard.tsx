@@ -10,7 +10,190 @@ async function copyText(text: string) {
   // Native: would use expo-clipboard
 }
 
-/** Render text with code blocks (```...```) styled differently */
+// ─── Inline markdown parser ──────────────────────────────────────────────────
+
+type InlineSeg =
+  | { t: "text"; s: string }
+  | { t: "bold"; s: string }
+  | { t: "italic"; s: string }
+  | { t: "code"; s: string };
+
+/** Split a line into bold/italic/code/plain inline segments. */
+function parseInline(raw: string): InlineSeg[] {
+  const INLINE_RE = /(\*\*[\s\S]*?\*\*|\*[\s\S]*?\*|`[^`]+`)/g;
+  const segs: InlineSeg[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: intentional loop
+  while ((m = INLINE_RE.exec(raw)) !== null) {
+    if (m.index > last) segs.push({ t: "text", s: raw.slice(last, m.index) });
+    const tok = m[0];
+    if (tok.startsWith("**")) segs.push({ t: "bold", s: tok.slice(2, -2) });
+    else if (tok.startsWith("`")) segs.push({ t: "code", s: tok.slice(1, -1) });
+    else segs.push({ t: "italic", s: tok.slice(1, -1) });
+    last = m.index + tok.length;
+  }
+  if (last < raw.length) segs.push({ t: "text", s: raw.slice(last) });
+  return segs;
+}
+
+function InlineText({
+  raw,
+  textClass,
+  fontStyle,
+  codeFontStyle,
+}: {
+  raw: string;
+  textClass?: string;
+  fontStyle?: { fontFamily: string; fontSize: number };
+  codeFontStyle?: { fontFamily: string };
+}) {
+  const segs = parseInline(raw);
+  if (segs.length === 1 && segs[0].t === "text") {
+    return (
+      <Text className={textClass} style={fontStyle} selectable>
+        {raw}
+      </Text>
+    );
+  }
+  return (
+    <Text className={textClass} style={fontStyle} selectable>
+      {segs.map((seg, i) => {
+        switch (seg.t) {
+          case "bold":
+            return (
+              <Text
+                key={i}
+                className={textClass}
+                style={{ ...fontStyle, fontWeight: "700" }}
+              >
+                {seg.s}
+              </Text>
+            );
+          case "italic":
+            return (
+              <Text
+                key={i}
+                className={textClass}
+                style={{ ...fontStyle, fontStyle: "italic" }}
+              >
+                {seg.s}
+              </Text>
+            );
+          case "code":
+            return (
+              <Text
+                key={i}
+                className="text-tp-success bg-tp-bg rounded px-0.5 text-xs"
+                style={codeFontStyle}
+              >
+                {seg.s}
+              </Text>
+            );
+          default:
+            return <Text key={i}>{seg.s}</Text>;
+        }
+      })}
+    </Text>
+  );
+}
+
+// ─── Block markdown parser ───────────────────────────────────────────────────
+
+type Block =
+  | { type: "heading"; level: 1 | 2 | 3; text: string }
+  | { type: "code"; lang: string; code: string }
+  | { type: "list"; ordered: boolean; items: string[] }
+  | { type: "para"; text: string };
+
+function parseBlocks(markdown: string): Block[] {
+  const blocks: Block[] = [];
+  // Normalise line endings; ensure trailing newline for the fence detector.
+  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // ── fenced code block ──────────────────────────────────────────
+    if (line.trimStart().startsWith("```")) {
+      const lang = line.trimStart().slice(3).trim();
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].trimStart().startsWith("```")) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      i++; // consume closing fence
+      blocks.push({ type: "code", lang, code: codeLines.join("\n") });
+      continue;
+    }
+
+    // ── ATX heading ───────────────────────────────────────────────
+    const hMatch = line.match(/^(#{1,3})\s+(.*)/);
+    if (hMatch) {
+      blocks.push({
+        type: "heading",
+        level: Math.min(hMatch[1].length, 3) as 1 | 2 | 3,
+        text: hMatch[2].trim(),
+      });
+      i++;
+      continue;
+    }
+
+    // ── unordered list item ───────────────────────────────────────
+    const ulMatch = line.match(/^\s*[-*]\s+(.*)/);
+    if (ulMatch) {
+      const items: string[] = [ulMatch[1]];
+      i++;
+      while (i < lines.length && lines[i].match(/^\s*[-*]\s+(.*)/)) {
+        items.push((lines[i].match(/^\s*[-*]\s+(.*)/) as RegExpMatchArray)[1]);
+        i++;
+      }
+      blocks.push({ type: "list", ordered: false, items });
+      continue;
+    }
+
+    // ── ordered list item ─────────────────────────────────────────
+    const olMatch = line.match(/^\s*\d+\.\s+(.*)/);
+    if (olMatch) {
+      const items: string[] = [olMatch[1]];
+      i++;
+      while (i < lines.length && lines[i].match(/^\s*\d+\.\s+(.*)/)) {
+        items.push((lines[i].match(/^\s*\d+\.\s+(.*)/) as RegExpMatchArray)[1]);
+        i++;
+      }
+      blocks.push({ type: "list", ordered: true, items });
+      continue;
+    }
+
+    // ── blank line (skip) ─────────────────────────────────────────
+    if (line.trim() === "") {
+      i++;
+      continue;
+    }
+
+    // ── paragraph (accumulate until blank/heading/list/fence) ─────
+    const paraLines: string[] = [line];
+    i++;
+    while (
+      i < lines.length &&
+      lines[i].trim() !== "" &&
+      !lines[i].trimStart().startsWith("```") &&
+      !lines[i].match(/^#{1,3}\s/) &&
+      !lines[i].match(/^\s*[-*]\s/) &&
+      !lines[i].match(/^\s*\d+\.\s/)
+    ) {
+      paraLines.push(lines[i]);
+      i++;
+    }
+    blocks.push({ type: "para", text: paraLines.join("\n") });
+  }
+
+  return blocks;
+}
+
+/** Render text with full markdown support (headings, lists, code, inline). */
 function RichText({
   text,
   className: textClass,
@@ -22,50 +205,112 @@ function RichText({
   fontStyle?: { fontFamily: string; fontSize: number };
   codeFontStyle?: { fontFamily: string };
 }) {
-  const parts = text.split(/(```[\s\S]*?```)/g);
-  if (parts.length === 1) {
+  // Fast path: if there is no markdown syntax, skip parsing entirely.
+  const hasMd = /```|^#{1,3}\s|^\s*[-*]\s|^\s*\d+\.\s|\*\*|\*[^*]|`[^`]/m.test(
+    text,
+  );
+  if (!hasMd) {
     return (
       <Text className={textClass} style={fontStyle} selectable>
         {text}
       </Text>
     );
   }
+
+  const blocks = parseBlocks(text);
+  if (blocks.length === 0) {
+    return (
+      <Text className={textClass} style={fontStyle} selectable>
+        {text}
+      </Text>
+    );
+  }
+
   return (
     <View>
-      {parts.map((part, i) => {
-        if (part.startsWith("```") && part.endsWith("```")) {
-          const lines = part.slice(3, -3).split("\n");
-          const lang = lines[0]?.trim();
-          const code = (lang ? lines.slice(1) : lines).join("\n").trim();
-          return (
-            <Pressable
-              key={i}
-              className="bg-tp-bg border border-tp-border rounded-lg px-3 py-2 my-1"
-              onLongPress={() => copyText(code)}
-              accessibilityRole="text"
-              accessibilityLabel={`Code block${lang ? `, ${lang}` : ""}`}
-              accessibilityHint="Long press to copy"
-            >
-              {lang ? (
-                <Text className="text-tp-text-tertiary text-[10px] mb-1">
-                  {lang}
-                </Text>
-              ) : null}
+      {blocks.map((block, bi) => {
+        switch (block.type) {
+          case "heading": {
+            const hClass =
+              block.level === 1
+                ? "text-tp-text-primary text-[18px] font-bold mt-2 mb-0.5"
+                : block.level === 2
+                  ? "text-tp-text-primary text-[16px] font-bold mt-1.5 mb-0.5"
+                  : "text-tp-text-primary text-[14px] font-semibold mt-1";
+            return (
               <Text
-                className="text-tp-success text-xs"
-                style={codeFontStyle}
+                key={bi}
+                className={hClass}
+                style={{ fontFamily: fontStyle?.fontFamily }}
                 selectable
               >
-                {code}
+                {block.text}
               </Text>
-            </Pressable>
-          );
+            );
+          }
+          case "code": {
+            return (
+              <Pressable
+                key={bi}
+                className="bg-tp-bg border border-tp-border rounded-lg px-3 py-2 my-1"
+                onLongPress={() => copyText(block.code)}
+                accessibilityRole="text"
+                accessibilityLabel={`Code block${block.lang ? `, ${block.lang}` : ""}`}
+                accessibilityHint="Long press to copy"
+              >
+                {block.lang ? (
+                  <Text className="text-tp-text-tertiary text-[10px] mb-1">
+                    {block.lang}
+                  </Text>
+                ) : null}
+                <Text
+                  className="text-tp-success text-xs"
+                  style={codeFontStyle}
+                  selectable
+                >
+                  {block.code}
+                </Text>
+              </Pressable>
+            );
+          }
+          case "list": {
+            return (
+              <View key={bi} className="my-0.5">
+                {block.items.map((item, ii) => (
+                  <View key={ii} className="flex-row items-start mb-0.5">
+                    <Text
+                      className={`${textClass} mr-1.5 mt-0.5`}
+                      style={fontStyle}
+                    >
+                      {block.ordered ? `${ii + 1}.` : "•"}
+                    </Text>
+                    <View className="flex-1">
+                      <InlineText
+                        raw={item}
+                        textClass={textClass}
+                        fontStyle={fontStyle}
+                        codeFontStyle={codeFontStyle}
+                      />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            );
+          }
+          case "para": {
+            return (
+              <InlineText
+                key={bi}
+                raw={block.text}
+                textClass={textClass}
+                fontStyle={fontStyle}
+                codeFontStyle={codeFontStyle}
+              />
+            );
+          }
+          default:
+            return null;
         }
-        return part ? (
-          <Text key={i} className={textClass} style={fontStyle} selectable>
-            {part}
-          </Text>
-        ) : null;
       })}
     </View>
   );

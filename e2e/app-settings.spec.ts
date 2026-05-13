@@ -1,7 +1,22 @@
-import { expect, test } from "@playwright/test";
+import { type Page, expect, test } from "@playwright/test";
 
 // Use mobile viewport so tab bar is visible
 test.use({ viewport: { width: 390, height: 844 } });
+
+/**
+ * Click a settings row by aria-label via JS evaluate, bypassing the tab bar
+ * overlay that intercepts Playwright's native pointer-event-based clicks on
+ * mobile viewport. Buttons deeper in the scroll area sit under a fixed tab
+ * bar <div>, so JS click is the reliable path.
+ */
+async function clickSettingsRow(page: Page, ariaLabelPrefix: string) {
+  await page.evaluate((prefix) => {
+    const btn = Array.from(document.querySelectorAll("[aria-label]")).find(
+      (el) => el.getAttribute("aria-label")?.startsWith(prefix),
+    ) as HTMLElement | null;
+    btn?.click();
+  }, ariaLabelPrefix);
+}
 
 test.describe("App Web — Settings", () => {
   test.beforeEach(async ({ page }) => {
@@ -19,19 +34,19 @@ test.describe("App Web — Settings", () => {
 
   test("theme toggle cycles through dark/light/system", async ({ page }) => {
     // Default is Dark
-    await expect(page.locator("text=Dark")).toBeVisible();
+    await expect(page.locator("text=Dark").first()).toBeVisible();
 
-    // Click Theme row to cycle to Light
-    await page.locator("text=Theme").click();
-    await expect(page.locator("text=Light")).toBeVisible();
+    // Click Theme row to cycle to Light (JS click bypasses tab bar overlay)
+    await clickSettingsRow(page, "Theme");
+    await expect(page.locator("text=Light").first()).toBeVisible();
 
     // Click again to cycle to System
-    await page.locator("text=Theme").click();
-    await expect(page.locator("text=System")).toBeVisible();
+    await clickSettingsRow(page, "Theme");
+    await expect(page.locator("text=System").first()).toBeVisible();
 
     // Click again back to Dark
-    await page.locator("text=Theme").click();
-    await expect(page.locator("text=Dark")).toBeVisible();
+    await clickSettingsRow(page, "Theme");
+    await expect(page.locator("text=Dark").first()).toBeVisible();
   });
 
   test("diagnostics button exists", async ({ page }) => {

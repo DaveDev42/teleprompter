@@ -1,11 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import { useLayout } from "../../src/hooks/use-layout";
 import { getPalette } from "../../src/lib/tokens";
 import { useThemeStore } from "../../src/stores/theme-store";
 
 export default function TabsLayout() {
-  const { isMobile } = useLayout();
   const isDark = useThemeStore((s) => s.isDark);
   const palette = getPalette(isDark);
 
@@ -16,8 +14,6 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: palette.bgSecondary,
           borderTopColor: palette.border,
-          // Hide tab bar on desktop (sidebar replaces it)
-          display: isMobile ? "flex" : "none",
         },
         tabBarActiveTintColor: palette.accent,
         tabBarInactiveTintColor: palette.textSecondary,

@@ -32,21 +32,23 @@ test.describe("App Web — Settings", () => {
     await expect(page.locator("text=Theme")).toBeVisible();
   });
 
-  test("theme toggle cycles through dark/light/system", async ({ page }) => {
-    // Default is Dark
+  test("theme toggle cycles through system/dark/light", async ({ page }) => {
+    // Default is System for first-time visitors (no stored preference).
+    // The store cycle is dark → light → system → dark, so from system
+    // we go dark → light → system.
+    await expect(page.locator("text=System").first()).toBeVisible();
+
+    // Click Theme row to cycle to Dark (JS click bypasses tab bar overlay)
+    await clickSettingsRow(page, "Theme");
     await expect(page.locator("text=Dark").first()).toBeVisible();
 
-    // Click Theme row to cycle to Light (JS click bypasses tab bar overlay)
+    // Click again to cycle to Light
     await clickSettingsRow(page, "Theme");
     await expect(page.locator("text=Light").first()).toBeVisible();
 
-    // Click again to cycle to System
+    // Click again back to System
     await clickSettingsRow(page, "Theme");
     await expect(page.locator("text=System").first()).toBeVisible();
-
-    // Click again back to Dark
-    await clickSettingsRow(page, "Theme");
-    await expect(page.locator("text=Dark").first()).toBeVisible();
   });
 
   test("diagnostics button exists", async ({ page }) => {

@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ConfirmUnpairModal } from "../../src/components/ConfirmUnpairModal";
 import { RenamePairingModal } from "../../src/components/RenamePairingModal";
@@ -225,34 +225,50 @@ export default function DaemonsScreen() {
             </Text>
 
             <Text className="text-tp-text-tertiary text-[13px] text-center leading-5 mb-6">
-              1. Run tp daemon start on your machine{"\n"}
-              2. Run tp pair to generate a QR code{"\n"}
-              3. Scan the QR code below to connect
+              {Platform.OS === "web"
+                ? `1. Run tp daemon start on your machine\n2. Run tp pair to generate pairing data\n3. Paste the pairing data below to connect`
+                : `1. Run tp daemon start on your machine\n2. Run tp pair to generate a QR code\n3. Scan the QR code below to connect`}
             </Text>
 
-            <Pressable
-              onPress={() => router.push("/pairing/scan")}
-              className={`w-full bg-tp-accent rounded-card py-4 items-center mb-3 ${pp.className}`}
-              tabIndex={pp.tabIndex}
-              accessibilityRole="button"
-              accessibilityLabel="Scan QR code to pair"
-            >
-              <Text className="text-white font-semibold text-base">
-                Scan QR Code to Pair
-              </Text>
-            </Pressable>
+            {Platform.OS === "web" ? (
+              <Pressable
+                onPress={() => router.push("/pairing")}
+                className={`w-full bg-tp-accent rounded-card py-4 items-center ${pp.className}`}
+                tabIndex={pp.tabIndex}
+                accessibilityRole="button"
+                accessibilityLabel="Enter pairing data"
+              >
+                <Text className="text-white font-semibold text-base">
+                  Enter Pairing Data
+                </Text>
+              </Pressable>
+            ) : (
+              <>
+                <Pressable
+                  onPress={() => router.push("/pairing/scan")}
+                  className={`w-full bg-tp-accent rounded-card py-4 items-center mb-3 ${pp.className}`}
+                  tabIndex={pp.tabIndex}
+                  accessibilityRole="button"
+                  accessibilityLabel="Scan QR code to pair"
+                >
+                  <Text className="text-white font-semibold text-base">
+                    Scan QR Code to Pair
+                  </Text>
+                </Pressable>
 
-            <Pressable
-              onPress={() => router.push("/pairing")}
-              tabIndex={pp.tabIndex}
-              className={pp.className}
-              accessibilityRole="link"
-              accessibilityLabel="Enter pairing data manually"
-            >
-              <Text className="text-tp-accent text-[13px]">
-                or enter pairing data manually
-              </Text>
-            </Pressable>
+                <Pressable
+                  onPress={() => router.push("/pairing")}
+                  tabIndex={pp.tabIndex}
+                  className={pp.className}
+                  accessibilityRole="link"
+                  accessibilityLabel="Enter pairing data manually"
+                >
+                  <Text className="text-tp-accent text-[13px]">
+                    or enter pairing data manually
+                  </Text>
+                </Pressable>
+              </>
+            )}
           </View>
         </View>
       )}

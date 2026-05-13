@@ -24,6 +24,7 @@ export default defineConfig({
         "app-settings.spec.ts",
         "app-keyboard-nav.spec.ts",
         "app-modal-escape.spec.ts",
+        "app-chat-enter.spec.ts",
       ],
     },
     {

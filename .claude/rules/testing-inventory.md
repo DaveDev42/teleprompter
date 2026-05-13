@@ -108,6 +108,7 @@ Stub 프로세스로 전체 파이프라인 검증.
   - `e2e/app-resume.spec.ts` — daemon restart recovery
   - `e2e/app-keyboard-nav.spec.ts` — keyboard navigation (Tab focus, Enter activation, Escape modal dismiss, focus ring)
   - `e2e/app-modal-escape.spec.ts` — Escape key closes modal even when focus is inside a TextInput (RN Web stopPropagation regression)
+  - `e2e/app-chat-enter.spec.ts` — chat input Enter-to-send / Shift+Enter-newline (RN Web multiline TextInput regression)
   - `e2e/app-relay-e2e.spec.ts` — full relay pipeline (pair → relay → daemon → E2EE) (local only)
   - `e2e/app-roundtrip.spec.ts` — input/output roundtrip (local only)
   - `e2e/app-real-e2e.spec.ts` — real Claude PTY E2E (local only)

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { getPlatformProps } from "../lib/get-platform-props";
 import type { ChatMessage } from "../stores/chat-store";
@@ -446,11 +447,13 @@ function BashOutput({
   stderr,
   interrupted,
   codeFontStyle,
+  expanded,
 }: {
   stdout?: string;
   stderr?: string;
   interrupted?: boolean;
   codeFontStyle: { fontFamily: string };
+  expanded: boolean;
 }) {
   return (
     <View className="mt-1.5 bg-tp-bg border border-tp-border-subtle rounded-lg px-2.5 py-1.5">
@@ -458,7 +461,7 @@ function BashOutput({
         <Text
           className="text-tp-text-secondary text-[11px]"
           style={codeFontStyle}
-          numberOfLines={20}
+          numberOfLines={expanded ? undefined : 20}
           selectable
         >
           {stdout.trimEnd()}
@@ -468,7 +471,7 @@ function BashOutput({
         <Text
           className="text-tp-error text-[11px] mt-1"
           style={codeFontStyle}
-          numberOfLines={10}
+          numberOfLines={expanded ? undefined : 10}
           selectable
         >
           {stderr.trimEnd()}
@@ -490,6 +493,7 @@ function ToolCard({
   msg: ChatMessage;
   codeFontStyle: { fontFamily: string };
 }) {
+  const [expanded, setExpanded] = useState(false);
   const isResult = msg.event === "PostToolUse";
   const toolName = msg.toolName ?? "";
   const inputObj = asRecord(msg.toolInput);
@@ -514,15 +518,40 @@ function ToolCard({
   const bashCommand =
     toolName === "Bash" && inputObj ? asString(inputObj.command) : null;
 
+  // Detect output that exceeds the collapsed numberOfLines so we know whether
+  // to show the "Show more" affordance. Cheap line count — splits on \n once.
+  const collapsedThreshold = bashOutput ? 20 : 5;
+  const truncatedSource = bashOutput
+    ? (bashOutput.stdout ?? "") + (bashOutput.stderr ?? "")
+    : isResult && msg.toolResult != null
+      ? typeof msg.toolResult === "string"
+        ? msg.toolResult
+        : JSON.stringify(msg.toolResult, null, 2)
+      : "";
+  const isTruncatable =
+    truncatedSource.split("\n").length > collapsedThreshold ||
+    truncatedSource.length > collapsedThreshold * 80;
+
   return (
-    <View
+    <Pressable
+      onPress={() => {
+        if (isResult && isTruncatable) setExpanded((v) => !v);
+      }}
       className="self-stretch bg-tp-surface border border-tp-border rounded-card px-3.5 py-2.5"
-      accessibilityLabel={`Tool ${toolName}, ${isResult ? "completed" : "running"}`}
+      accessibilityLabel={`Tool ${toolName}, ${isResult ? "completed" : "running"}${isTruncatable ? `, ${expanded ? "expanded" : "collapsed"}` : ""}`}
+      accessibilityRole={isResult && isTruncatable ? "button" : undefined}
+      accessibilityHint={
+        isResult && isTruncatable
+          ? expanded
+            ? "Tap to collapse"
+            : "Tap to expand full output"
+          : undefined
+      }
     >
       <View className="flex-row items-center justify-between">
         <View className="flex-row items-center flex-1">
           <Text className="text-tp-text-tertiary text-xs mr-1.5">
-            {isResult ? "▾" : "▸"}
+            {isResult ? (expanded ? "▾" : "▸") : "▸"}
           </Text>
           <Text
             className="text-tp-text-primary text-[13px] font-medium"
@@ -573,11 +602,15 @@ function ToolCard({
 
       {/* Post-call body */}
       {isResult && bashOutput ? (
-        <BashOutput {...bashOutput} codeFontStyle={codeFontStyle} />
+        <BashOutput
+          {...bashOutput}
+          codeFontStyle={codeFontStyle}
+          expanded={expanded}
+        />
       ) : isResult && msg.toolResult != null ? (
         <Text
           className="text-tp-text-secondary text-xs mt-1.5"
-          numberOfLines={5}
+          numberOfLines={expanded ? undefined : 5}
           selectable
         >
           {typeof msg.toolResult === "string"
@@ -585,7 +618,13 @@ function ToolCard({
             : JSON.stringify(msg.toolResult, null, 2)}
         </Text>
       ) : null}
-    </View>
+
+      {isResult && isTruncatable ? (
+        <Text className="text-tp-accent text-[11px] mt-1.5">
+          {expanded ? "Show less" : "Show more"}
+        </Text>
+      ) : null}
+    </Pressable>
   );
 }
 
@@ -624,10 +663,10 @@ function StreamingCard({
 function ElicitationCard({ msg }: { msg: ChatMessage }) {
   return (
     <View
-      className="self-start bg-indigo-900/50 border border-indigo-600 rounded-card px-4 py-3 max-w-[85%]"
+      className="self-start bg-tp-surface border border-tp-accent rounded-card px-4 py-3 max-w-[85%]"
       accessibilityLabel={`Input requested: ${msg.text}`}
     >
-      <Text className="text-indigo-300 text-xs font-bold mb-1">
+      <Text className="text-tp-accent text-xs font-bold mb-1">
         Input Requested
       </Text>
       <Text className="text-tp-text-primary text-sm" selectable>
@@ -636,8 +675,8 @@ function ElicitationCard({ msg }: { msg: ChatMessage }) {
       {msg.choices && msg.choices.length > 0 && (
         <View className="mt-2 gap-1">
           {msg.choices.map((choice, i) => (
-            <View key={i} className="bg-indigo-800/50 rounded-lg px-3 py-1.5">
-              <Text className="text-indigo-200 text-sm">{choice}</Text>
+            <View key={i} className="bg-tp-bg-secondary rounded-lg px-3 py-1.5">
+              <Text className="text-tp-text-primary text-sm">{choice}</Text>
             </View>
           ))}
         </View>
@@ -649,15 +688,15 @@ function ElicitationCard({ msg }: { msg: ChatMessage }) {
 function PermissionCard({ msg }: { msg: ChatMessage }) {
   return (
     <View
-      className="self-start bg-amber-900/50 border border-amber-600 rounded-card px-4 py-3 max-w-[85%]"
+      className="self-start bg-tp-surface border border-tp-warning rounded-card px-4 py-3 max-w-[85%]"
       accessibilityLabel={`Permission required: ${msg.text}${msg.permissionTool ? `, tool: ${msg.permissionTool}` : ""}`}
     >
-      <Text className="text-amber-300 text-xs font-bold mb-1">
+      <Text className="text-tp-warning text-xs font-bold mb-1">
         Permission Required
       </Text>
       <Text className="text-tp-text-primary text-sm">{msg.text}</Text>
       {msg.permissionTool && (
-        <Text className="text-amber-400 text-xs mt-1">
+        <Text className="text-tp-warning text-xs mt-1">
           {msg.permissionTool}
         </Text>
       )}

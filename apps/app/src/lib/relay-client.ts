@@ -695,8 +695,18 @@ export class FrontendRelayClient implements TransportClient {
 
   // ── TransportClient: Session management ──
 
-  createSession(cwd: string, sid?: string): void {
-    this.sendEncrypted({ t: "session.create", cwd, sid });
+  createSession(
+    cwd: string,
+    sid?: string,
+    size?: { cols: number; rows: number },
+  ): void {
+    this.sendEncrypted({
+      t: "session.create",
+      cwd,
+      sid,
+      cols: size?.cols,
+      rows: size?.rows,
+    });
   }
 
   stopSession(sid: string): void {

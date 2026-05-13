@@ -666,6 +666,34 @@ describe("chat-store: isAssistantResponding latch", () => {
     expect(useChatStore.getState().isAssistantResponding).toBe(false);
   });
 
+  test("StopFailure closes the gate and emits a system error chip", () => {
+    processHookEvent(
+      baseEvent({
+        hook_event_name: "UserPromptSubmit",
+        user_prompt: "hi",
+      }),
+    );
+    useChatStore.getState().appendStreaming("partial response");
+    expect(useChatStore.getState().isAssistantResponding).toBe(true);
+
+    processHookEvent(
+      baseEvent({
+        hook_event_name: "StopFailure",
+        error: "timeout",
+      }),
+    );
+
+    const s = useChatStore.getState();
+    expect(s.isAssistantResponding).toBe(false);
+    // streamingText was committed as a streaming message + system error chip
+    const lastTwo = s.messages.slice(-2);
+    expect(lastTwo[0].type).toBe("streaming");
+    expect(lastTwo[0].text).toBe("partial response");
+    expect(lastTwo[1].type).toBe("system");
+    expect(lastTwo[1].event).toBe("StopFailure");
+    expect(lastTwo[1].text).toBe("timeout");
+  });
+
   test("clear() resets the gate", () => {
     useChatStore.getState().setAssistantResponding(true);
     expect(useChatStore.getState().isAssistantResponding).toBe(true);

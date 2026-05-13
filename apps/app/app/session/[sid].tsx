@@ -195,15 +195,18 @@ function ChatView({
     return () => removeRecHandler(handler);
   }, [addRecHandler, removeRecHandler, appendStreaming]);
 
-  // Auto-scroll
+  // Auto-scroll on new messages AND on streaming growth so the live
+  // assistant bubble stays in view while Claude is mid-response. The 100ms
+  // debounce coalesces the PTY-chunk firehose so we don't queue a scroll
+  // per frame.
   useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(
-        () => flatListRef.current?.scrollToEnd({ animated: true }),
-        100,
-      );
-    }
-  }, [messages.length]);
+    if (messages.length === 0 && !streamingText) return;
+    const t = setTimeout(
+      () => flatListRef.current?.scrollToEnd({ animated: true }),
+      100,
+    );
+    return () => clearTimeout(t);
+  }, [messages.length, streamingText]);
 
   const handleSend = useCallback(() => {
     const trimmed = input.trim();

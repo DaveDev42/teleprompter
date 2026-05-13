@@ -31,7 +31,14 @@ import {
   useChatStore,
 } from "../../src/stores/chat-store";
 import { useSessionStore } from "../../src/stores/session-store";
+import { useThemeStore } from "../../src/stores/theme-store";
 import { setGlobalTermRef, useVoiceStore } from "../../src/stores/voice-store";
+
+// Concrete placeholder colors per theme. `var(--tp-text-tertiary)` resolves
+// natively on web but React Native's TextInput needs a plain color literal —
+// passing a CSS variable string falls back to the platform default on iOS/Android.
+const PLACEHOLDER_LIGHT = "#a1a1aa";
+const PLACEHOLDER_DARK = "#71717a";
 
 // Platform-specific terminal component
 let TerminalComponent: any = null;
@@ -125,6 +132,8 @@ function ChatView({
   const [input, setInput] = useState("");
   const setOnPromptReady = useVoiceStore((s) => s.setOnPromptReady);
   const pp = getPlatformProps();
+  const isDark = useThemeStore((s) => s.isDark);
+  const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
   const { isEditable, canSend } = deriveInputGates(session, connected, sid);
 
   // Wire voice prompt to chat send
@@ -265,7 +274,7 @@ function ChatView({
           testID="chat-input"
           className={`flex-1 bg-tp-bg-input text-tp-text-primary rounded-full px-4 py-2 mr-2 max-h-24 text-[15px] ${pp.className}`}
           placeholder={stopped ? "Session ended" : "Send a message..."}
-          placeholderTextColor="var(--tp-text-tertiary)"
+          placeholderTextColor={placeholderColor}
           value={input}
           onChangeText={setInput}
           onSubmitEditing={handleSend}
@@ -460,8 +469,10 @@ export default function SessionDetailScreen() {
     };
   }, [sid, setSid]);
 
-  // Derive display name from cwd
-  const displayName = session?.cwd.split("/").pop() ?? sid ?? "Session";
+  // Derive display name from cwd. Strip a trailing slash first so a path like
+  // "/Users/dave/proj/" yields "proj" rather than an empty string.
+  const displayName =
+    session?.cwd.replace(/\/+$/, "").split("/").pop() ?? sid ?? "Session";
 
   return (
     <KeyboardAvoidingView

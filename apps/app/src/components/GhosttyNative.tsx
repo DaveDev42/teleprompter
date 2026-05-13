@@ -128,10 +128,12 @@ function buildGhosttyHtml(
 export function GhosttyNative({
   onData,
   onResize,
+  onReady,
   termRef,
 }: {
   onData?: (data: string) => void;
   onResize?: (cols: number, rows: number) => void;
+  onReady?: () => void;
   termRef?: React.MutableRefObject<any>;
 }) {
   const webViewRef = useRef<any>(null);
@@ -201,14 +203,14 @@ export function GhosttyNative({
             onResize?.(msg.cols, msg.rows);
             break;
           case "ready":
-            // Terminal is ready
+            onReady?.();
             break;
         }
       } catch {
         // ignore
       }
     },
-    [onData, onResize],
+    [onData, onResize, onReady],
   );
 
   if (!WebView || !html) return null;

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.35](https://github.com/DaveDev42/teleprompter/compare/v0.1.34...v0.1.35) (2026-05-13)
+
+
+### Bug Fixes
+
+* friendly CLI errors for unknown options in tp pair subcommands ([#235](https://github.com/DaveDev42/teleprompter/issues/235)) ([c7d610f](https://github.com/DaveDev42/teleprompter/commit/c7d610ff3f5da26cf92d8a43e3ba273f8501f8f4))
+
 ## [0.1.34](https://github.com/DaveDev42/teleprompter/compare/v0.1.33...v0.1.34) (2026-05-11)
 
 

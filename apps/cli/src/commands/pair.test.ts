@@ -246,6 +246,33 @@ describe("tp pair list/delete", () => {
     expect(out).toContain("Usage: tp pair delete");
   });
 
+  test("list errors cleanly on unknown option (no stack trace)", () => {
+    const out = capture(`${CLI} pair list --bogus`, env);
+    expect(out).toContain("Unknown option");
+    expect(out).toContain("Usage: tp pair list");
+    expect(out).not.toMatch(/\bat\s+\S+ \(/); // no stack frames
+    expect(out).not.toContain("ERR_PARSE_ARGS");
+    expect(out).not.toContain("node:internal");
+  });
+
+  test("delete errors cleanly on unknown option (no stack trace)", () => {
+    const out = capture(`${CLI} pair delete --bogus`, env);
+    expect(out).toContain("Unknown option");
+    expect(out).toContain("Usage: tp pair delete");
+    expect(out).not.toMatch(/\bat\s+\S+ \(/); // no stack frames
+    expect(out).not.toContain("ERR_PARSE_ARGS");
+    expect(out).not.toContain("node:internal");
+  });
+
+  test("rename errors cleanly on unknown option (no stack trace)", () => {
+    const out = capture(`${CLI} pair rename --bogus`, env);
+    expect(out).toContain("Unknown option");
+    expect(out).toContain("Usage: tp pair rename");
+    expect(out).not.toMatch(/\bat\s+\S+ \(/); // no stack frames
+    expect(out).not.toContain("ERR_PARSE_ARGS");
+    expect(out).not.toContain("node:internal");
+  });
+
   test("delete removes pairing even when relay unreachable", () => {
     seed([{ id: "daemon-aaaa1111", relay: "ws://127.0.0.1:1" }]);
     const out = capture(`${CLI} pair delete daemon-aaaa --yes`, env);

@@ -8,27 +8,11 @@ import type {
   IpcSessionPruneOk,
 } from "@teleprompter/protocol";
 import { getSocketPath } from "@teleprompter/protocol";
-import { type ParseArgsConfig, parseArgs } from "util";
 import { dim, fail, ok, yellow } from "../lib/colors";
 import { isDaemonRunning } from "../lib/ensure-daemon";
 import { formatAge } from "../lib/format";
 import { connectIpcAsClient } from "../lib/ipc-client";
-
-/** Wraps `parseArgs` so unknown flags / malformed input exit 1 with a human
- * message instead of a raw node TypeError stack trace. */
-function parseArgsFriendly<T extends ParseArgsConfig>(
-  config: T,
-  usage: string,
-): ReturnType<typeof parseArgs<T>> {
-  try {
-    return parseArgs(config);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(fail(message));
-    console.error(dim(usage));
-    process.exit(1);
-  }
-}
+import { parseArgsFriendly } from "../lib/parse-args";
 
 export async function sessionCommand(argv: string[]): Promise<void> {
   const sub = argv[0];

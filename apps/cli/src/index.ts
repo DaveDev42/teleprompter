@@ -128,6 +128,18 @@ async function dispatchSubcommand(name: string): Promise<void> {
 }
 
 main().catch((err) => {
+  // Node's `parseArgs` throws `ERR_PARSE_ARGS_*` TypeErrors on unknown flags /
+  // malformed input. Most call sites wrap it (`parseArgsFriendly`), but treat
+  // any that slip through as a user error — a clean message, not a stack dump.
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    typeof (err as { code?: unknown }).code === "string" &&
+    (err as { code: string }).code.startsWith("ERR_PARSE_ARGS_")
+  ) {
+    console.error(`tp: ${(err as Error).message}`);
+    process.exit(1);
+  }
   console.error(err);
   process.exit(1);
 });

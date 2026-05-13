@@ -27,6 +27,7 @@ import { ensureDaemon, isDaemonRunning } from "../lib/ensure-daemon";
 import { formatAge } from "../lib/format";
 import { connectIpcAsClient, type IpcClient } from "../lib/ipc-client";
 import { acquirePairLock, releasePairLock } from "../lib/pair-lock";
+import { parseArgsFriendly } from "../lib/parse-args";
 import { getConfigDir } from "../lib/paths";
 
 const PAIRING_DIR = getConfigDir();
@@ -270,12 +271,15 @@ function defaultLabel(): string {
 }
 
 async function pairList(argv: string[]): Promise<void> {
-  parseArgs({
-    args: argv,
-    options: {},
-    allowPositionals: false,
-    strict: true,
-  });
+  parseArgsFriendly(
+    {
+      args: argv,
+      options: {},
+      allowPositionals: false,
+      strict: true,
+    },
+    "Usage: tp pair list",
+  );
 
   const store = new Store();
   let pairings: ReturnType<Store["listPairings"]>;
@@ -314,14 +318,17 @@ async function pairList(argv: string[]): Promise<void> {
 }
 
 async function pairDelete(argv: string[]): Promise<void> {
-  const { values, positionals } = parseArgs({
-    args: argv,
-    options: {
-      yes: { type: "boolean", short: "y", default: false },
+  const { values, positionals } = parseArgsFriendly(
+    {
+      args: argv,
+      options: {
+        yes: { type: "boolean", short: "y", default: false },
+      },
+      allowPositionals: true,
+      strict: true,
     },
-    allowPositionals: true,
-    strict: true,
-  });
+    "Usage: tp pair delete <daemon-id> [--yes]",
+  );
 
   if (positionals.length > 1) {
     console.error(fail("Usage: tp pair delete <daemon-id> [--yes]"));
@@ -418,14 +425,17 @@ async function pairDelete(argv: string[]): Promise<void> {
 }
 
 async function pairRename(argv: string[]): Promise<void> {
-  const { values, positionals } = parseArgs({
-    args: argv,
-    options: {
-      help: { type: "boolean", short: "h" },
+  const { values, positionals } = parseArgsFriendly(
+    {
+      args: argv,
+      options: {
+        help: { type: "boolean", short: "h" },
+      },
+      allowPositionals: true,
+      strict: true,
     },
-    allowPositionals: true,
-    strict: true,
-  });
+    "Usage: tp pair rename <daemon-id> <label...>",
+  );
 
   if (values.help) {
     printPairUsage();

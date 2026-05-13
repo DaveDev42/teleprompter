@@ -36,7 +36,13 @@ export function ModalContainer({
       if (!container) return;
       const focusable = container.querySelectorAll(FOCUSABLE_SELECTOR);
       if (focusable.length > 0) {
-        (focusable[0] as HTMLElement).focus();
+        // Prefer a text input over decorative "Done" headers so users can
+        // type immediately on open (e.g. ApiKeyModal).
+        const primary =
+          Array.from(focusable).find(
+            (el) => el.tagName === "INPUT" || el.tagName === "TEXTAREA",
+          ) ?? focusable[0];
+        (primary as HTMLElement).focus();
       }
     }, 100);
 

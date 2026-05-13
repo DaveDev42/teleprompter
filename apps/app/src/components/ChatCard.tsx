@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Platform, Pressable, Text, View } from "react-native";
+import { Linking, Platform, Pressable, Text, View } from "react-native";
 import { getPlatformProps } from "../lib/get-platform-props";
 import type { ChatMessage } from "../stores/chat-store";
 import { useSettingsStore } from "../stores/settings-store";
@@ -17,7 +17,8 @@ type InlineSeg =
   | { t: "text"; s: string }
   | { t: "bold"; s: string }
   | { t: "italic"; s: string }
-  | { t: "code"; s: string };
+  | { t: "code"; s: string }
+  | { t: "link"; s: string; href: string };
 
 /** Split a line into bold/italic/code/plain inline segments.
  *  Recognises `**bold**`, `__bold__`, `*italic*`, `_italic_`, and `` `code` ``.
@@ -28,8 +29,12 @@ type InlineSeg =
  *  boundary. Asterisk emphasis has no such restriction since `*` doesn't
  *  appear inside identifiers in practice. */
 function parseInline(raw: string): InlineSeg[] {
+  // Order matters: link `[text](url)` is matched before emphasis so the
+  // brackets/parens don't get re-interpreted. Only http(s):// and mailto:
+  // URLs are permitted — keeps the regex tight and avoids accidental link
+  // construction from text that happens to contain `(...)` after a `[...]`.
   const INLINE_RE =
-    /(\*\*[\s\S]+?\*\*|(?<![A-Za-z0-9_])__[\s\S]+?__(?![A-Za-z0-9_])|\*[\s\S]+?\*|(?<![A-Za-z0-9_])_[\s\S]+?_(?![A-Za-z0-9_])|`[^`]+`)/g;
+    /(\[[^\]]+\]\((?:https?:\/\/|mailto:)[^\s)]+\)|\*\*[\s\S]+?\*\*|(?<![A-Za-z0-9_])__[\s\S]+?__(?![A-Za-z0-9_])|\*[\s\S]+?\*|(?<![A-Za-z0-9_])_[\s\S]+?_(?![A-Za-z0-9_])|`[^`]+`)/g;
   const segs: InlineSeg[] = [];
   let last = 0;
   let m: RegExpExecArray | null;
@@ -37,7 +42,14 @@ function parseInline(raw: string): InlineSeg[] {
   while ((m = INLINE_RE.exec(raw)) !== null) {
     if (m.index > last) segs.push({ t: "text", s: raw.slice(last, m.index) });
     const tok = m[0];
-    if (tok.startsWith("**")) segs.push({ t: "bold", s: tok.slice(2, -2) });
+    if (tok.startsWith("[")) {
+      // [text](href) — split at the boundary between the bracket and paren.
+      const close = tok.indexOf("](");
+      const text = tok.slice(1, close);
+      const href = tok.slice(close + 2, -1);
+      segs.push({ t: "link", s: text, href });
+    } else if (tok.startsWith("**"))
+      segs.push({ t: "bold", s: tok.slice(2, -2) });
     else if (tok.startsWith("__"))
       segs.push({ t: "bold", s: tok.slice(2, -2) });
     else if (tok.startsWith("`")) segs.push({ t: "code", s: tok.slice(1, -1) });
@@ -97,6 +109,27 @@ function InlineText({
                 key={i}
                 className="text-tp-success bg-tp-bg rounded px-0.5 text-xs"
                 style={codeFontStyle}
+              >
+                {seg.s}
+              </Text>
+            );
+          case "link":
+            return (
+              <Text
+                key={i}
+                className="text-tp-accent underline"
+                style={fontStyle}
+                onPress={() => {
+                  Linking.openURL(seg.href).catch(() => {
+                    // openURL rejects on unsupported schemes; swallow so the
+                    // press isn't a hard crash. The user sees no-op behavior
+                    // for malformed URLs, which is acceptable given the
+                    // parser already restricts to http/https/mailto.
+                  });
+                }}
+                accessibilityRole="link"
+                accessibilityLabel={`Link: ${seg.s}`}
+                accessibilityHint={`Opens ${seg.href}`}
               >
                 {seg.s}
               </Text>
@@ -217,9 +250,10 @@ function RichText({
   codeFontStyle?: { fontFamily: string };
 }) {
   // Fast path: if there is no markdown syntax, skip parsing entirely.
-  const hasMd = /```|^#{1,3}\s|^\s*[-*]\s|^\s*\d+\.\s|\*\*|\*[^*]|`[^`]/m.test(
-    text,
-  );
+  const hasMd =
+    /```|^#{1,3}\s|^\s*[-*]\s|^\s*\d+\.\s|\*\*|\*[^*]|`[^`]|\[[^\]]+\]\(/m.test(
+      text,
+    );
   if (!hasMd) {
     return (
       <Text className={textClass} style={fontStyle} selectable>

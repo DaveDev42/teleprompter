@@ -83,7 +83,6 @@ function SettingsRow({
           )}
         </View>
       </View>
-      {!last && <View className="h-[0.5px] bg-tp-border ml-4 bg-tp-surface" />}
       {!last && <View className="h-[0.5px] bg-tp-border ml-4" />}
     </Pressable>
   );
@@ -189,148 +188,155 @@ export default function SettingsScreen() {
       contentContainerStyle={{
         paddingTop: insets.top,
         paddingBottom: tabBarHeight + 24,
+        alignItems: "center",
       }}
     >
-      {/* Header */}
-      <View className="px-4 pt-2 pb-1">
-        <Text
-          accessibilityRole="header"
-          className="text-tp-text-primary text-[28px] font-bold"
-        >
-          Settings
-        </Text>
-      </View>
-
-      {/* Appearance */}
-      <SectionLabel>Appearance</SectionLabel>
-      <SettingsRow
-        label="Theme"
-        value={themeLabel}
-        first
-        onPress={() => {
-          // Cycle through themes
-          const next: Theme =
-            theme === "dark" ? "light" : theme === "light" ? "system" : "dark";
-          setTheme(next);
-        }}
-      />
-      <SettingsRow
-        label="Chat Font"
-        value={chatFont}
-        onPress={() => setFontPickerMode("chat")}
-      />
-      <SettingsRow
-        label="Code Font"
-        value={codeFont}
-        onPress={() => setFontPickerMode("code")}
-      />
-      <SettingsRow
-        label="Terminal Font"
-        value={terminalFont}
-        onPress={() => setFontPickerMode("terminal")}
-      />
-      <SettingsRow
-        label="Font Size"
-        value={`${fontSize}px`}
-        last
-        onPress={() => setShowFontSize(true)}
-      />
-
-      {/* Voice */}
-      <SectionLabel>Voice</SectionLabel>
-      <SettingsRow
-        label="OpenAI API Key"
-        value={apiKey ? "sk-...configured" : "Not set"}
-        first
-        last
-        onPress={() => setShowApiKey(true)}
-      />
-
-      {/* About */}
-      <SectionLabel>About</SectionLabel>
-      <SettingsRow
-        label="Version"
-        value={Constants.expoConfig?.version ?? "dev"}
-        first
-      />
-      <SettingsRow
-        label="Updates"
-        first={false}
-        last
-        onPress={
-          otaStatus === "ready"
-            ? restart
-            : otaStatus === "up-to-date" || otaStatus === "error"
-              ? checkAndFetch
-              : undefined
-        }
-        value={undefined}
-      >
-        <UpdateStatusValue status={otaStatus} />
-      </SettingsRow>
-
-      {otaStatus === "ready" && (
-        <View className="mx-4 mt-3">
-          <View className="bg-tp-surface rounded-card p-4">
-            <Text className="text-tp-text-primary text-[15px] font-semibold">
-              New version available
-            </Text>
-            <Text className="text-tp-text-secondary text-[13px] mt-1">
-              A new update is ready to install.{"\n"}Restart the app to apply
-              changes.
-            </Text>
-            <Pressable
-              onPress={restart}
-              className={`bg-tp-accent rounded-btn items-center py-2.5 mt-3 ${pp.className}`}
-              tabIndex={pp.tabIndex}
-              accessibilityRole="button"
-              accessibilityLabel="Restart to update"
-            >
-              <Text className="text-white text-[14px] font-semibold">
-                Restart to Update
-              </Text>
-            </Pressable>
-          </View>
+      <View className="w-full max-w-2xl">
+        {/* Header */}
+        <View className="px-4 pt-2 pb-1">
+          <Text
+            accessibilityRole="header"
+            className="text-tp-text-primary text-[28px] font-bold"
+          >
+            Settings
+          </Text>
         </View>
-      )}
 
-      <View className={otaStatus === "ready" ? "" : "mt-3"}>
+        {/* Appearance */}
+        <SectionLabel>Appearance</SectionLabel>
         <SettingsRow
-          label="Diagnostics"
+          label="Theme"
+          value={themeLabel}
+          first
+          onPress={() => {
+            // Cycle through themes
+            const next: Theme =
+              theme === "dark"
+                ? "light"
+                : theme === "light"
+                  ? "system"
+                  : "dark";
+            setTheme(next);
+          }}
+        />
+        <SettingsRow
+          label="Chat Font"
+          value={chatFont}
+          onPress={() => setFontPickerMode("chat")}
+        />
+        <SettingsRow
+          label="Code Font"
+          value={codeFont}
+          onPress={() => setFontPickerMode("code")}
+        />
+        <SettingsRow
+          label="Terminal Font"
+          value={terminalFont}
+          onPress={() => setFontPickerMode("terminal")}
+        />
+        <SettingsRow
+          label="Font Size"
+          value={`${fontSize}px`}
+          last
+          onPress={() => setShowFontSize(true)}
+        />
+
+        {/* Voice */}
+        <SectionLabel>Voice</SectionLabel>
+        <SettingsRow
+          label="OpenAI API Key"
+          value={apiKey ? "sk-...configured" : "Not set"}
           first
           last
-          onPress={() => setShowDiagnostics(true)}
+          onPress={() => setShowApiKey(true)}
+        />
+
+        {/* About */}
+        <SectionLabel>About</SectionLabel>
+        <SettingsRow
+          label="Version"
+          value={Constants.expoConfig?.version ?? "dev"}
+          first
+        />
+        <SettingsRow
+          label="Updates"
+          first={false}
+          last
+          onPress={
+            otaStatus === "ready"
+              ? restart
+              : otaStatus === "up-to-date" || otaStatus === "error"
+                ? checkAndFetch
+                : undefined
+          }
+          value={undefined}
+        >
+          <UpdateStatusValue status={otaStatus} />
+        </SettingsRow>
+
+        {otaStatus === "ready" && (
+          <View className="mx-4 mt-3">
+            <View className="bg-tp-surface rounded-card p-4">
+              <Text className="text-tp-text-primary text-[15px] font-semibold">
+                New version available
+              </Text>
+              <Text className="text-tp-text-secondary text-[13px] mt-1">
+                A new update is ready to install.{"\n"}Restart the app to apply
+                changes.
+              </Text>
+              <Pressable
+                onPress={restart}
+                className={`bg-tp-accent rounded-btn items-center py-2.5 mt-3 ${pp.className}`}
+                tabIndex={pp.tabIndex}
+                accessibilityRole="button"
+                accessibilityLabel="Restart to update"
+              >
+                <Text className="text-white text-[14px] font-semibold">
+                  Restart to Update
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        <View className={otaStatus === "ready" ? "" : "mt-3"}>
+          <SettingsRow
+            label="Diagnostics"
+            first
+            last
+            onPress={() => setShowDiagnostics(true)}
+          />
+        </View>
+        <FontPickerModal
+          visible={fontPickerMode !== null}
+          mode={fontPickerMode ?? "chat"}
+          currentFont={
+            fontPickerMode === "chat"
+              ? chatFont
+              : fontPickerMode === "code"
+                ? codeFont
+                : terminalFont
+          }
+          onSelect={(font) => {
+            if (fontPickerMode === "chat") setChatFont(font);
+            else if (fontPickerMode === "code") setCodeFont(font);
+            else setTerminalFont(font);
+          }}
+          onClose={() => setFontPickerMode(null)}
+        />
+        <FontSizeModal
+          visible={showFontSize}
+          currentSize={fontSize}
+          onChangeSize={setFontSize}
+          onClose={() => setShowFontSize(false)}
+        />
+        <ApiKeyModal
+          visible={showApiKey}
+          currentKey={apiKey}
+          onSave={setApiKey}
+          onClose={() => setShowApiKey(false)}
         />
       </View>
-      <FontPickerModal
-        visible={fontPickerMode !== null}
-        mode={fontPickerMode ?? "chat"}
-        currentFont={
-          fontPickerMode === "chat"
-            ? chatFont
-            : fontPickerMode === "code"
-              ? codeFont
-              : terminalFont
-        }
-        onSelect={(font) => {
-          if (fontPickerMode === "chat") setChatFont(font);
-          else if (fontPickerMode === "code") setCodeFont(font);
-          else setTerminalFont(font);
-        }}
-        onClose={() => setFontPickerMode(null)}
-      />
-      <FontSizeModal
-        visible={showFontSize}
-        currentSize={fontSize}
-        onChangeSize={setFontSize}
-        onClose={() => setShowFontSize(false)}
-      />
-      <ApiKeyModal
-        visible={showApiKey}
-        currentKey={apiKey}
-        onSave={setApiKey}
-        onClose={() => setShowApiKey(false)}
-      />
     </ScrollView>
   );
 }

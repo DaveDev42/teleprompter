@@ -38,6 +38,7 @@ export default defineConfig({
         "app-session-back-nav.spec.ts",
         "app-settings-updates-aria.spec.ts",
         "app-chat-send-unpaired.spec.ts",
+        "app-pairing-scan-back-nav.spec.ts",
       ],
     },
     {

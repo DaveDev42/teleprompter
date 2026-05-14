@@ -170,6 +170,12 @@ export default function ScanScreen() {
     openScanner();
   }, [openScanner, scannerOpen]);
 
+  // canGoBack() guards the case where the user opens /pairing/scan directly
+  // (deep link, browser refresh) — router.back() is a no-op when there's no
+  // history entry, leaving the user stranded on this dead-end screen.
+  const goBack = () =>
+    router.canGoBack() ? router.back() : router.replace("/(tabs)/");
+
   if (Platform.OS === "web") {
     return (
       <View className="flex-1 bg-tp-bg items-center justify-center">
@@ -177,7 +183,7 @@ export default function ScanScreen() {
           QR scanning is not available on web.
         </Text>
         <Pressable
-          onPress={() => router.back()}
+          onPress={goBack}
           accessibilityRole="button"
           accessibilityLabel="Go back"
           tabIndex={pp.tabIndex}
@@ -264,7 +270,7 @@ export default function ScanScreen() {
           </Pressable>
         ) : null}
         <Pressable
-          onPress={() => router.back()}
+          onPress={goBack}
           accessibilityRole="button"
           accessibilityLabel="Cancel"
           tabIndex={pp.tabIndex}

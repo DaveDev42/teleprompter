@@ -638,6 +638,16 @@ function ToolCard({
   const isActionable = isResult && isTruncatable;
   const pp = getPlatformProps({ focusable: isActionable });
 
+  // RN Web's Pressable forwards aria-expanded only when the attribute is
+  // passed directly — accessibilityState.expanded is silently dropped
+  // (same gap as aria-checked/busy/disabled). The disclosure semantics
+  // matter here: SR users rely on aria-expanded to scan a chat for
+  // collapsed tool outputs they could open. Spread on web only.
+  const ariaExpandedTool =
+    Platform.OS === "web" && isActionable
+      ? { "aria-expanded": expanded }
+      : {};
+
   return (
     <Pressable
       onPress={isActionable ? () => setExpanded((v) => !v) : undefined}
@@ -652,6 +662,7 @@ function ToolCard({
             : "Tap to expand full output"
           : undefined
       }
+      {...(ariaExpandedTool as object)}
     >
       <View className="flex-row items-center justify-between">
         <View className="flex-row items-center flex-1">

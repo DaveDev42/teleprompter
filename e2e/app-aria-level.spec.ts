@@ -4,9 +4,10 @@ test.use({ viewport: { width: 1280, height: 800 } });
 
 // RN Web maps accessibilityRole="header" → role="heading" but does NOT emit
 // aria-level — it must be passed as a direct prop. This regression test
-// pins the explicit aria-level={N} pattern on a representative header per
-// level (page=1, modal/sub=2, section=3) so a future contributor refactoring
-// the helper cannot silently flatten heading hierarchy back to "no level".
+// pins the explicit aria-level={N} pattern on page-level headers so a
+// future contributor refactoring the helper cannot silently flatten
+// heading hierarchy back to "no level". Per-screen section-level coverage
+// lives in app-settings-heading-levels.spec.ts (level 2 in Settings).
 test.describe("Heading aria-level", () => {
   test("page headers expose aria-level=1", async ({ page }) => {
     await page.goto("/");
@@ -26,17 +27,6 @@ test.describe("Heading aria-level", () => {
       level: 1,
     });
     await expect(settings).toBeVisible();
-  });
-
-  test("settings section labels expose aria-level=3", async ({ page }) => {
-    await page.goto("/settings");
-    await page.waitForLoadState("networkidle");
-    // "Appearance" is the first SectionLabel above the theme row.
-    const section = page.getByRole("heading", {
-      name: "Appearance",
-      level: 3,
-    });
-    await expect(section).toBeVisible();
   });
 
   test("pairing screen header exposes aria-level=1", async ({ page }) => {

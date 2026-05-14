@@ -31,10 +31,14 @@ const INDICATOR_LIGHT = "#71717a";
 const INDICATOR_DARK = "#a1a1aa";
 
 function SectionLabel({ children }: { children: string }) {
+  // The Settings screen heading is level 1. These section labels sit directly
+  // under it (Appearance / Voice / About), so they should be level 2 —
+  // jumping straight to level 3 breaks "headings only" navigation in
+  // screen readers.
   return (
     <Text
       accessibilityRole="header"
-      {...ariaLevel(3)}
+      {...ariaLevel(2)}
       className="text-tp-text-tertiary text-[13px] font-medium tracking-wide uppercase px-4 mb-2 mt-6"
     >
       {children}

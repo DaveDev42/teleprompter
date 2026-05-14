@@ -1,0 +1,23 @@
+import { expect, test } from "@playwright/test";
+
+test.use({ viewport: { width: 1280, height: 800 } });
+
+// Regression: InAppToast used to return null when no toast was active, so
+// the live region was inserted into the DOM only after the first
+// notification. NVDA/JAWS don't reliably announce updates for regions
+// that didn't exist at page load (ARIA19 / APG live-region pattern
+// requires the container to be present upfront). The fix keeps the
+// role=status wrapper mounted at all times and hides it with
+// display:none + pointerEvents=none while empty.
+test.describe("InAppToast live region", () => {
+  test("role=status container is mounted before any toast fires", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    const liveRegion = page.getByRole("status");
+    await expect(liveRegion).toHaveCount(1);
+    await expect(liveRegion).toHaveAttribute("aria-live", "polite");
+  });
+});

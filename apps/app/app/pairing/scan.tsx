@@ -2,6 +2,7 @@ import type { PermissionResponse } from "expo-modules-core";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
+import { getPlatformProps } from "../../src/lib/get-platform-props";
 import { usePairingStore } from "../../src/stores/pairing-store";
 
 // Native-only API surface from expo-camera. We avoid `import` at module top so
@@ -56,6 +57,7 @@ if (Platform.OS !== "web") {
 export default function ScanScreen() {
   const router = useRouter();
   const processScan = usePairingStore((s) => s.processScan);
+  const pp = getPlatformProps();
   const [scanError, setScanError] = useState<string | null>(null);
   // Tracks whether the OS scanner modal is currently visible. Goes false in
   // three cases: (a) user scanned a code (handleScanned tears it down),
@@ -171,12 +173,15 @@ export default function ScanScreen() {
   if (Platform.OS === "web") {
     return (
       <View className="flex-1 bg-tp-bg items-center justify-center">
-        <Text className="text-tp-text-secondary">
+        <Text accessibilityRole="header" className="text-tp-text-secondary">
           QR scanning is not available on web.
         </Text>
         <Pressable
           onPress={() => router.back()}
-          className="mt-4 bg-tp-bg-input px-6 py-2 rounded-lg"
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          tabIndex={pp.tabIndex}
+          className={`mt-4 bg-tp-bg-input px-6 py-2 rounded-lg ${pp.className}`}
         >
           <Text className="text-tp-text-primary">Go Back</Text>
         </Pressable>
@@ -200,7 +205,10 @@ export default function ScanScreen() {
         </Text>
         <Pressable
           onPress={requestPermission}
-          className="mt-4 bg-tp-accent px-6 py-2 rounded-lg"
+          accessibilityRole="button"
+          accessibilityLabel="Grant camera permission"
+          tabIndex={pp.tabIndex}
+          className={`mt-4 bg-tp-accent px-6 py-2 rounded-lg ${pp.className}`}
         >
           <Text className="text-tp-text-on-color">Grant Permission</Text>
         </Pressable>
@@ -245,7 +253,10 @@ export default function ScanScreen() {
         {showRetry ? (
           <Pressable
             onPress={retry}
-            className="bg-tp-accent px-6 py-3 rounded-full"
+            accessibilityRole="button"
+            accessibilityLabel={scanError ? "Try again" : "Scan again"}
+            tabIndex={pp.tabIndex}
+            className={`bg-tp-accent px-6 py-3 rounded-full ${pp.className}`}
           >
             <Text className="text-tp-text-on-color">
               {scanError ? "Try again" : "Scan again"}
@@ -254,7 +265,10 @@ export default function ScanScreen() {
         ) : null}
         <Pressable
           onPress={() => router.back()}
-          className="bg-tp-bg-input px-6 py-3 rounded-full border border-tp-border"
+          accessibilityRole="button"
+          accessibilityLabel="Cancel"
+          tabIndex={pp.tabIndex}
+          className={`bg-tp-bg-input px-6 py-3 rounded-full border border-tp-border ${pp.className}`}
         >
           <Text className="text-tp-text-primary">Cancel</Text>
         </Pressable>

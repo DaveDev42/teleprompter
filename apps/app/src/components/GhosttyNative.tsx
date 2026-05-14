@@ -40,7 +40,7 @@ function buildGhosttyHtml(
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
-  body { margin: 0; background: #000; overflow: hidden; }
+  body { margin: 0; background: ${TERMINAL_COLORS.background}; overflow: hidden; }
   #terminal { width: 100%; height: 100vh; }
 </style>
 </head>
@@ -81,7 +81,7 @@ function buildGhosttyHtml(
     cursorBlink: true,
     fontSize: ${fontSize},
     fontFamily: "${safeFont}, Menlo, Monaco, 'Courier New', monospace",
-    theme: { background: '#000000', foreground: '#ffffff', cursor: '#ffffff' },
+    theme: { background: '${TERMINAL_COLORS.background}', foreground: '${TERMINAL_COLORS.foreground}', cursor: '${TERMINAL_COLORS.cursor}' },
     scrollback: 10000,
   });
 

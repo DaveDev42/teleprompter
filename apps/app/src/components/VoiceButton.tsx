@@ -116,6 +116,8 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
         <Text
           className="text-tp-text-tertiary text-xs max-w-32"
           numberOfLines={1}
+          accessibilityLiveRegion="polite"
+          accessibilityLabel={`Transcript: ${transcript}`}
         >
           {transcript}
         </Text>

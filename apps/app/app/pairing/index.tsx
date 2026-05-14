@@ -157,6 +157,20 @@ export default function PairingScreen() {
             : {})}
         />
 
+        {/* Inline validation hint: non-empty input that can't be decoded.
+            Surfaces feedback while typing instead of waiting for the user
+            to click Connect and get an after-the-fact error toast. Hidden
+            when an async `error` is already on screen to avoid stacking. */}
+        {manualInput.trim().length > 0 && !preview && !error && (
+          <Text
+            testID="pairing-input-hint"
+            className="text-tp-text-tertiary text-xs mb-4"
+          >
+            Doesn't look like pairing data — should start with{" "}
+            <Text className="font-mono">tp://p?d=</Text>
+          </Text>
+        )}
+
         {preview && (
           <View className="bg-tp-bg-elevated border border-tp-border rounded-lg px-4 py-3 mb-4">
             <Text className="text-tp-text-tertiary text-xs uppercase mb-1">

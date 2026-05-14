@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { useEffect, useRef } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getPlatformProps } from "../lib/get-platform-props";
@@ -11,6 +12,17 @@ export function InAppToast() {
   const insets = useSafeAreaInsets();
   const pp = getPlatformProps();
 
+  // RN Web's createDOMProps strips `aria-atomic` when spread on a <View>
+  // (only a curated allowlist of aria-* attrs round-trips). Set it on the
+  // underlying DOM node imperatively so screen readers receive the full
+  // announcement on every update.
+  const liveRegionRef = useRef<View>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const el = liveRegionRef.current as unknown as HTMLElement | null;
+    if (el) el.setAttribute("aria-atomic", "true");
+  }, []);
+
   const handlePress = () => {
     if (!toast) return;
     dismiss();
@@ -19,11 +31,16 @@ export function InAppToast() {
     }
   };
 
-  // role=status is implicit aria-live=polite + aria-atomic=true. We used to
-  // set role=alert (implicit aria-live=assertive) AND aria-live=polite, which
-  // conflict — screen readers got mixed signals about urgency. The toast is
-  // a non-critical notification (Claude session events), so polite is right.
-  // Spread role/aria-live on web only; native still relies on
+  // role=status has implicit aria-live=polite + aria-atomic=true per ARIA
+  // 1.2, but NVDA/JAWS historically (still in some versions) ignore the
+  // implicit aria-atomic and read only the diff when toast text changes —
+  // the user hears the new chars without context. Set aria-atomic=true
+  // explicitly (via the imperative liveRegionRef effect above) so the
+  // whole region is announced as one unit on every update. We used to set
+  // role=alert (implicit aria-live=assertive) AND aria-live=polite, which
+  // conflict — screen readers got mixed signals about urgency. The toast
+  // is a non-critical notification (Claude session events), so polite is
+  // right. Spread role/aria-live on web only; native still relies on
   // accessibilityLiveRegion which RN translates to TalkBack/VoiceOver.
   //
   // Keep the live region mounted at all times. NVDA/JAWS won't announce
@@ -35,6 +52,7 @@ export function InAppToast() {
   // keeps the empty placeholder from blocking touches behind it.
   return (
     <View
+      ref={liveRegionRef}
       accessibilityLiveRegion="polite"
       {...((Platform.OS === "web"
         ? { role: "status", "aria-live": "polite" }

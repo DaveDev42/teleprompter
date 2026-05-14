@@ -19,5 +19,10 @@ test.describe("InAppToast live region", () => {
     const liveRegion = page.getByRole("status");
     await expect(liveRegion).toHaveCount(1);
     await expect(liveRegion).toHaveAttribute("aria-live", "polite");
+    // role=status has implicit aria-atomic=true per ARIA 1.2, but several
+    // SR/version combos ignore the implicit default and read only the
+    // diff when text changes. The container must carry the attribute
+    // explicitly so updates are announced atomically.
+    await expect(liveRegion).toHaveAttribute("aria-atomic", "true");
   });
 });

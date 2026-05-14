@@ -13,11 +13,14 @@ import { getPlatformProps } from "../../src/lib/get-platform-props";
 import { usePairingStore } from "../../src/stores/pairing-store";
 import { useThemeStore } from "../../src/stores/theme-store";
 
-// Mirrors `--tp-text-tertiary` in global.css. TextInput.placeholderTextColor
-// only resolves CSS variables on web; native silently falls back to the
-// system default, which is often unreadable on light themes.
+// Mirrors `--tp-text-tertiary` / `--tp-text-secondary` in global.css.
+// TextInput.placeholderTextColor and ActivityIndicator.color expect
+// literals — CSS variables only resolve on web; native silently falls
+// back to the platform default, leaving these surfaces unreadable.
 const PLACEHOLDER_LIGHT = "#a1a1aa";
 const PLACEHOLDER_DARK = "#71717a";
+const INDICATOR_LIGHT = "#71717a";
+const INDICATOR_DARK = "#a1a1aa";
 
 export default function PairingScreen() {
   const router = useRouter();
@@ -27,6 +30,7 @@ export default function PairingScreen() {
   const pp = getPlatformProps();
   const isDark = useThemeStore((s) => s.isDark);
   const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
+  const indicatorColor = isDark ? INDICATOR_DARK : INDICATOR_LIGHT;
   const canSubmit = manualInput.trim().length > 0;
 
   // Preview the daemon being requested when arriving via deep link, so the
@@ -68,7 +72,7 @@ export default function PairingScreen() {
   if (state === "pairing") {
     return (
       <View className="flex-1 bg-tp-bg items-center justify-center">
-        <ActivityIndicator size="large" />
+        <ActivityIndicator size="large" color={indicatorColor} />
         <Text className="text-tp-text-secondary mt-4">
           Processing pairing data...
         </Text>

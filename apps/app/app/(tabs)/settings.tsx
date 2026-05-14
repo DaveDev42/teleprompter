@@ -22,6 +22,12 @@ import { useSettingsStore } from "../../src/stores/settings-store";
 import { type Theme, useThemeStore } from "../../src/stores/theme-store";
 import { useVoiceStore } from "../../src/stores/voice-store";
 
+// Mirrors `--tp-text-secondary` in global.css. ActivityIndicator.color
+// expects a literal — CSS variables only resolve on web. Keep these in
+// sync with the secondary text token across themes.
+const INDICATOR_LIGHT = "#71717a";
+const INDICATOR_DARK = "#a1a1aa";
+
 function SectionLabel({ children }: { children: string }) {
   return (
     <Text
@@ -93,10 +99,12 @@ function UpdateStatusValue({
 }: {
   status: import("../../src/hooks/use-ota-update").OtaStatus;
 }) {
+  const isDark = useThemeStore((s) => s.isDark);
+  const indicatorColor = isDark ? INDICATOR_DARK : INDICATOR_LIGHT;
   if (status === "checking" || status === "downloading") {
     return (
       <View className="flex-row items-center">
-        <ActivityIndicator size="small" className="mr-2" />
+        <ActivityIndicator size="small" color={indicatorColor} className="mr-2" />
         <Text className="text-tp-text-secondary text-[13px]">
           {status === "checking" ? "Checking..." : "Downloading..."}
         </Text>

@@ -558,6 +558,10 @@ function ToolCard({
   const isResult = msg.event === "PostToolUse";
   const toolName = msg.toolName ?? "";
   const inputObj = asRecord(msg.toolInput);
+  // The card only acts as a button when it can actually expand/collapse — i.e.
+  // a PostToolUse result whose output exceeds the collapsed line/char budget.
+  // Static cards (running tools, short results) must not steal Tab focus on
+  // web nor announce as buttons to screen readers.
 
   // Edit / MultiEdit: render a unified diff instead of raw JSON.
   // MultiEdit nests its hunks under `edits: [{old_string, new_string}, …]`
@@ -609,17 +613,18 @@ function ToolCard({
   const isTruncatable =
     truncatedSource.split("\n").length > collapsedThreshold ||
     truncatedSource.length > collapsedThreshold * 80;
+  const isActionable = isResult && isTruncatable;
+  const pp = getPlatformProps({ focusable: isActionable });
 
   return (
     <Pressable
-      onPress={() => {
-        if (isResult && isTruncatable) setExpanded((v) => !v);
-      }}
-      className="self-stretch bg-tp-surface border border-tp-border rounded-card px-3.5 py-2.5"
+      onPress={isActionable ? () => setExpanded((v) => !v) : undefined}
+      tabIndex={pp.tabIndex}
+      className={`self-stretch bg-tp-surface border border-tp-border rounded-card px-3.5 py-2.5 ${pp.className}`}
       accessibilityLabel={`Tool ${toolName}, ${isResult ? "completed" : "running"}${isTruncatable ? `, ${expanded ? "expanded" : "collapsed"}` : ""}`}
-      accessibilityRole={isResult && isTruncatable ? "button" : undefined}
+      accessibilityRole={isActionable ? "button" : undefined}
       accessibilityHint={
-        isResult && isTruncatable
+        isActionable
           ? expanded
             ? "Tap to collapse"
             : "Tap to expand full output"
@@ -764,6 +769,8 @@ function ElicitationCard({ msg }: { msg: ChatMessage }) {
   return (
     <View
       className="self-start bg-tp-surface border border-tp-accent rounded-card px-4 py-3 max-w-[85%]"
+      accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
       accessibilityLabel={`Input requested: ${msg.text}`}
     >
       <Text className="text-tp-accent text-xs font-bold mb-1">
@@ -789,6 +796,8 @@ function PermissionCard({ msg }: { msg: ChatMessage }) {
   return (
     <View
       className="self-start bg-tp-surface border border-tp-warning rounded-card px-4 py-3 max-w-[85%]"
+      accessibilityRole="alert"
+      accessibilityLiveRegion="assertive"
       accessibilityLabel={`Permission required: ${msg.text}${msg.permissionTool ? `, tool: ${msg.permissionTool}` : ""}`}
     >
       <Text className="text-tp-warning text-xs font-bold mb-1">

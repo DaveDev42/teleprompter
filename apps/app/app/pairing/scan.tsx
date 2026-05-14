@@ -176,6 +176,20 @@ export default function ScanScreen() {
   const goBack = () =>
     router.canGoBack() ? router.back() : router.replace("/(tabs)/");
 
+  // Web fallback: route arrival leaves focus on <body>, so a screen reader
+  // user lands on the page with nothing announced. Move focus to the only
+  // actionable control (Go Back) on mount, deferred via rAF because RN Web
+  // mounts the DOM node asynchronously.
+  const webBackRef = useRef<View>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const raf = requestAnimationFrame(() => {
+      const el = webBackRef.current as unknown as HTMLElement | null;
+      el?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
   if (Platform.OS === "web") {
     return (
       <View className="flex-1 bg-tp-bg items-center justify-center">
@@ -187,11 +201,13 @@ export default function ScanScreen() {
           QR scanning is not available on web.
         </Text>
         <Pressable
+          ref={webBackRef}
           onPress={goBack}
           accessibilityRole="button"
           accessibilityLabel="Go back"
           tabIndex={pp.tabIndex}
           className={`mt-4 bg-tp-bg-input px-6 py-2 rounded-lg ${pp.className}`}
+          testID="scan-web-go-back"
         >
           <Text className="text-tp-text-primary">Go Back</Text>
         </Pressable>

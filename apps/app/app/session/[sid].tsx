@@ -146,6 +146,7 @@ function ChatView({
   const removeRecHandler = useSessionStore((s) => s.removeRecHandler);
   const connected = useAnyRelayConnected();
   const flatListRef = useRef<FlatList>(null);
+  const sendRef = useRef<View>(null);
   const [input, setInput] = useState("");
   const setOnPromptReady = useVoiceStore((s) => s.setOnPromptReady);
   const pp = getPlatformProps();
@@ -183,6 +184,19 @@ function ChatView({
     const client = getTransport();
     if (client) client.resume(sid, 0);
   }, [sid]);
+
+  // Mirror disabled state to aria-disabled on the Send button. RN Web's
+  // Pressable only emits aria-disabled when the native `disabled` prop is
+  // also set, which would remove the button from Tab order. We keep it
+  // focusable and announce the disabled state via this side-channel.
+  const sendDisabled = !input.trim() || !canSend;
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const el = sendRef.current as unknown as HTMLElement | null;
+    if (!el) return;
+    if (sendDisabled) el.setAttribute("aria-disabled", "true");
+    else el.removeAttribute("aria-disabled");
+  }, [sendDisabled]);
 
   // Wire records to chat store
   useEffect(() => {
@@ -359,8 +373,21 @@ function ChatView({
         />
         <Pressable
           testID="chat-send"
-          onPress={handleSend}
-          disabled={!input.trim() || !canSend}
+          ref={sendRef}
+          // `disabled` maps to HTML `disabled` on RN Web, which removes the
+          // button from the browser's Tab order entirely. Keyboard-only
+          // users typing in the composer would Tab straight past Send to
+          // the rest of the page with no way back. Drop the native
+          // `disabled` and use an onPress guard so the button stays
+          // focusable and no-ops on activation when not ready. We still
+          // want screen readers to hear "disabled" while the composer is
+          // empty — RN Web's Pressable strips a spread `aria-disabled`
+          // unless the native `disabled` prop is also set, so we apply it
+          // via a layout effect on the underlying DOM node.
+          onPress={() => {
+            if (!input.trim() || !canSend) return;
+            handleSend();
+          }}
           className={`bg-tp-accent rounded-full w-9 h-9 items-center justify-center ${pp.className}`}
           tabIndex={pp.tabIndex}
           style={{ opacity: input.trim() && canSend ? 1 : 0.4 }}

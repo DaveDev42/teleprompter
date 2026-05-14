@@ -97,10 +97,18 @@ export function ModalContainer({
         <View
           className="bg-tp-bg-elevated rounded-t-2xl w-full max-w-[540px] mx-auto"
           accessibilityLabel={accessibilityLabel}
+          accessibilityViewIsModal
           {...(Platform.OS === "web"
             ? {
                 onClick: (e: { stopPropagation: () => void }) =>
                   e.stopPropagation(),
+                // RN Web ignores accessibilityRole="dialog" (not in its
+                // ARIA role allowlist) and doesn't translate
+                // accessibilityViewIsModal to aria-modal. Spread both
+                // attributes directly so SRs announce "dialog" on open
+                // and trap their virtual cursor inside.
+                role: "dialog",
+                "aria-modal": true,
                 ...(accessibilityLabel
                   ? { "aria-label": accessibilityLabel }
                   : {}),

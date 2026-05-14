@@ -68,11 +68,17 @@ function SegmentedControl({
     Platform.OS === "web" ? { "aria-selected": mode === "chat" } : {};
   const ariaSelectedTerminal =
     Platform.OS === "web" ? { "aria-selected": mode === "terminal" } : {};
+  // RN propagates accessibilityRole verbatim to web — but "tabbar" is not a
+  // valid ARIA role (the standard is "tablist"). Without a web override SR
+  // and DOM tooling see role="tabbar" and skip the tab semantics. Override
+  // via the `role` prop on web; native keeps tabbar which RN recognizes.
+  const tablistRole = Platform.OS === "web" ? { role: "tablist" as const } : {};
   return (
     <View className="px-4 py-2 bg-tp-bg-secondary">
       <View
         className="flex-row bg-tp-bg-tertiary rounded-btn p-1"
         accessibilityRole="tabbar"
+        {...tablistRole}
       >
         <Pressable
           testID="tab-chat"

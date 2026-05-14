@@ -52,7 +52,13 @@ function DaemonCard({
   return (
     <View
       className="mx-4 mb-4 rounded-bubble bg-tp-surface border border-tp-border overflow-hidden"
+      // ARIA: aria-label on a roleless <div> is ignored by NVDA/JAWS — only
+      // when the element has a role does the accessible name surface. Use
+      // role="group" so the card announces as one named unit (matching
+      // ARIA APG's "group of related controls" pattern).
+      accessibilityRole="group"
       accessibilityLabel={`${a11yName}, ${isOnline ? "connected" : "offline"}, ${sessionCount} sessions`}
+      testID="daemon-card"
     >
       {/* Header row */}
       <View className="flex-row items-center px-4 pt-4 pb-2">

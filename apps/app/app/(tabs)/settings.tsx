@@ -205,6 +205,17 @@ export default function SettingsScreen() {
   const wasShowingRef = useRef(false);
   useEffect(() => {
     if (Platform.OS !== "web") return;
+    if (!wasShowingRef.current && showDiagnostics) {
+      // Move focus into the panel on open so keyboard users land inside it
+      // instead of being dumped onto the tab bar (the Settings row that
+      // triggered the swap unmounts during the state transition).
+      const t = setTimeout(() => {
+        const done = document.querySelector<HTMLElement>('[aria-label="Done"]');
+        done?.focus();
+      }, 50);
+      wasShowingRef.current = showDiagnostics;
+      return () => clearTimeout(t);
+    }
     if (wasShowingRef.current && !showDiagnostics) {
       const el = document.querySelector<HTMLElement>(
         '[aria-label="Diagnostics"]',

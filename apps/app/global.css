@@ -38,6 +38,14 @@
     --tp-overlay: rgba(0, 0, 0, 0.5);
   }
 
+  /* Without this, overscroll rubber-banding reveals the browser's default
+     background (often white) under the dark theme, producing a flash of
+     bright pixels at the top/bottom of the viewport. */
+  html,
+  body {
+    background-color: var(--tp-bg);
+  }
+
   .dark {
     --tp-bg: #09090b;
     --tp-bg-secondary: #18181b;

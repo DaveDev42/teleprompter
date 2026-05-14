@@ -34,6 +34,27 @@ test.describe("Diagnostics panel a11y", () => {
     expect(focusedLabel).toBe("Diagnostics");
   });
 
+  test("opening moves focus into the panel", async ({ page }) => {
+    await page.goto("/settings");
+    await page.waitForLoadState("networkidle");
+
+    const trigger = page.getByRole("button", { name: /^Diagnostics/ });
+    await trigger.click();
+
+    // Focus should land on the Done button — it's the panel's anchor.
+    // Without focus-on-open, keyboard users get dumped onto the tab bar
+    // because the trigger row unmounts during the state swap.
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(
+            () => document.activeElement?.getAttribute("aria-label") ?? null,
+          ),
+        { timeout: 2_000 },
+      )
+      .toBe("Done");
+  });
+
   test("Done button restores focus to the Diagnostics row", async ({
     page,
   }) => {

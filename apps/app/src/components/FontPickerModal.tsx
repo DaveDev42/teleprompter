@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FlatList, Platform, Pressable, Text, View } from "react-native";
 import { ariaLevel, getPlatformProps } from "../lib/get-platform-props";
 import { ModalContainer } from "./ModalContainer";
@@ -46,6 +46,49 @@ export function FontPickerModal({
         ? "Code Font"
         : "Terminal Font";
 
+  // Roving tabindex for the APG listbox keyboard pattern (web only). The
+  // option matching `currentFont` is the initial tab stop; ArrowDown/Up/
+  // Home/End on the listbox container move the active option, and the
+  // matching DOM node is focused so screen readers re-announce it.
+  const initialIndex = Math.max(0, fonts.indexOf(currentFont));
+  const [activeIndex, setActiveIndex] = useState(initialIndex);
+  const optionRefs = useRef<Array<HTMLElement | null>>([]);
+
+  useEffect(() => {
+    if (!visible) return;
+    setActiveIndex(Math.max(0, fonts.indexOf(currentFont)));
+  }, [visible, currentFont, fonts]);
+
+  const focusOption = (index: number) => {
+    if (Platform.OS !== "web") return;
+    const el = optionRefs.current[index];
+    el?.focus();
+  };
+
+  const onListboxKeyDown = (e: { key: string; preventDefault: () => void }) => {
+    if (Platform.OS !== "web") return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const next = Math.min(fonts.length - 1, activeIndex + 1);
+      setActiveIndex(next);
+      focusOption(next);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const prev = Math.max(0, activeIndex - 1);
+      setActiveIndex(prev);
+      focusOption(prev);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      setActiveIndex(0);
+      focusOption(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      const last = fonts.length - 1;
+      setActiveIndex(last);
+      focusOption(last);
+    }
+  };
+
   return (
     <ModalContainer
       visible={visible}
@@ -73,26 +116,41 @@ export function FontPickerModal({
         </View>
         <View
           {...((Platform.OS === "web"
-            ? { role: "listbox", "aria-label": title }
+            ? {
+                role: "listbox",
+                "aria-label": title,
+                onKeyDown: onListboxKeyDown,
+              }
             : {}) as object)}
         >
           <FlatList
             data={fonts}
             keyExtractor={(item) => item}
-            renderItem={({ item }) => {
+            renderItem={({ item, index }) => {
               const isCurrent = item === currentFont;
+              const isActive = index === activeIndex;
               // RN Web's accessibilityRole allowlist excludes "option" and
               // doesn't translate accessibilityState.selected into
               // aria-selected, so we spread the raw ARIA attributes on web.
               // Native gets a "button" role with selected state instead.
+              // Roving tabindex: only the active option is in tab order, so
+              // ArrowDown/Up from the listbox container reaches all
+              // options without Tab cycling through each one.
               const webOptionProps =
                 Platform.OS === "web"
-                  ? { role: "option", "aria-selected": isCurrent }
+                  ? {
+                      role: "option",
+                      "aria-selected": isCurrent,
+                      tabIndex: isActive ? 0 : -1,
+                      ref: (el: unknown) => {
+                        optionRefs.current[index] = el as HTMLElement | null;
+                      },
+                    }
                   : {};
               return (
                 <Pressable
                   className={`flex-row items-center justify-between px-5 py-3.5 ${pp.className}`}
-                  tabIndex={pp.tabIndex}
+                  tabIndex={Platform.OS === "web" ? undefined : pp.tabIndex}
                   onPress={() => {
                     onSelect(item);
                     onClose();

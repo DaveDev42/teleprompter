@@ -54,6 +54,7 @@ export default function RootLayout() {
   // defaults to "system", and without the gate this effect would write
   // "system" to storage before load() had a chance to read the user's saved
   // preference, clobbering it on the next reload.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: _systemScheme is intentionally a dep — see comment above
   useEffect(() => {
     if (!themeLoaded) return;
     if (theme === "system") {

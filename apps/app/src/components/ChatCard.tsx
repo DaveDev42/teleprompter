@@ -644,9 +644,7 @@ function ToolCard({
   // matter here: SR users rely on aria-expanded to scan a chat for
   // collapsed tool outputs they could open. Spread on web only.
   const ariaExpandedTool =
-    Platform.OS === "web" && isActionable
-      ? { "aria-expanded": expanded }
-      : {};
+    Platform.OS === "web" && isActionable ? { "aria-expanded": expanded } : {};
 
   return (
     <Pressable

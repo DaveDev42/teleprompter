@@ -67,6 +67,7 @@ export default defineConfig({
         "app-rename-modal-tab-reachable.spec.ts",
         "app-session-tabpanel-aria.spec.ts",
         "app-font-picker-initial-focus.spec.ts",
+        "app-pairing-input-hint-live-region.spec.ts",
       ],
     },
     {

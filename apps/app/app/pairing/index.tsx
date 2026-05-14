@@ -160,15 +160,29 @@ export default function PairingScreen() {
         {/* Inline validation hint: non-empty input that can't be decoded.
             Surfaces feedback while typing instead of waiting for the user
             to click Connect and get an after-the-fact error toast. Hidden
-            when an async `error` is already on screen to avoid stacking. */}
+            when an async `error` is already on screen to avoid stacking.
+
+            Wrap in a polite live region so a screen reader announces the
+            validation feedback as it appears — without this the hint is
+            invisible to SR users and they only learn the input is invalid
+            after pressing Connect and hitting the after-the-fact error.
+            role=status (assertive=false, polite) is the right intensity
+            here: the user is still typing, so this is informational, not
+            an interruption. RN's accessibilityRole union excludes
+            "status", so spread role on web only; native gets the
+            accessibilityLiveRegion + accessibilityRole="text" combo. */}
         {manualInput.trim().length > 0 && !preview && !error && (
-          <Text
+          <View
             testID="pairing-input-hint"
-            className="text-tp-text-tertiary text-xs mb-4"
+            accessibilityLiveRegion="polite"
+            {...(Platform.OS === "web" ? { role: "status" } : {})}
+            className="mb-4"
           >
-            Doesn't look like pairing data — should start with{" "}
-            <Text className="font-mono">tp://p?d=</Text>
-          </Text>
+            <Text className="text-tp-text-tertiary text-xs">
+              Doesn't look like pairing data — should start with{" "}
+              <Text className="font-mono">tp://p?d=</Text>
+            </Text>
+          </View>
         )}
 
         {preview && (

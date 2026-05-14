@@ -50,6 +50,8 @@ export default defineConfig({
         "app-toast-live-region.spec.ts",
         "app-settings-heading-levels.spec.ts",
         "app-chat-send-tab-reachable.spec.ts",
+        "app-pairing-connect-tab-reachable.spec.ts",
+        "app-text-tertiary-contrast.spec.ts",
       ],
     },
     {

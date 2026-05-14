@@ -11,6 +11,13 @@ import {
 } from "react-native";
 import { getPlatformProps } from "../../src/lib/get-platform-props";
 import { usePairingStore } from "../../src/stores/pairing-store";
+import { useThemeStore } from "../../src/stores/theme-store";
+
+// Mirrors `--tp-text-tertiary` in global.css. TextInput.placeholderTextColor
+// only resolves CSS variables on web; native silently falls back to the
+// system default, which is often unreadable on light themes.
+const PLACEHOLDER_LIGHT = "#a1a1aa";
+const PLACEHOLDER_DARK = "#71717a";
 
 export default function PairingScreen() {
   const router = useRouter();
@@ -18,6 +25,8 @@ export default function PairingScreen() {
   const { state, error, processScan } = usePairingStore();
   const [manualInput, setManualInput] = useState(params.pairingData ?? "");
   const pp = getPlatformProps();
+  const isDark = useThemeStore((s) => s.isDark);
+  const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
   const canSubmit = manualInput.trim().length > 0;
 
   // Preview the daemon being requested when arriving via deep link, so the
@@ -102,7 +111,7 @@ export default function PairingScreen() {
           testID="pairing-input"
           className={`bg-tp-bg-input text-tp-text-primary rounded-lg px-4 py-3 font-mono text-xs mb-4 ${pp.className}`}
           placeholder="tp://p?d=..."
-          placeholderTextColor="var(--tp-text-tertiary)"
+          placeholderTextColor={placeholderColor}
           value={manualInput}
           onChangeText={setManualInput}
           multiline

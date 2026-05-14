@@ -1,7 +1,14 @@
 import type { WsSessionMeta } from "@teleprompter/protocol/client";
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { FlatList, Pressable, Text, TextInput, View } from "react-native";
+import {
+  FlatList,
+  Platform,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getPlatformProps } from "../../src/lib/get-platform-props";
 import { useSessionStore } from "../../src/stores/session-store";
@@ -171,12 +178,20 @@ export default function SessionsScreen() {
         data={filteredSessions}
         keyExtractor={(item) => item.sid}
         accessibilityRole="list"
+        // Wrap each row in a listitem so the parent role="list" reflects
+        // valid ARIA semantics on web — FlatList's internal cell wrapper
+        // is a plain div there. SessionRow itself is a button, so the
+        // listitem must be on a separate ancestor element. RN's
+        // AccessibilityRole union doesn't include "listitem", so spread
+        // `role` directly on web.
         renderItem={({ item }) => (
-          <SessionRow
-            session={item}
-            isActive={item.sid === currentSid}
-            onPress={() => handleSessionPress(item)}
-          />
+          <View {...(Platform.OS === "web" ? { role: "listitem" } : {})}>
+            <SessionRow
+              session={item}
+              isActive={item.sid === currentSid}
+              onPress={() => handleSessionPress(item)}
+            />
+          </View>
         )}
         ListEmptyComponent={
           <View className="flex-1 items-center justify-center pt-40">

@@ -34,6 +34,7 @@ export default defineConfig({
         "app-modal-dialog-aria.spec.ts",
         "app-tablist-aria.spec.ts",
         "app-voice-button-aria.spec.ts",
+        "app-listitem-aria.spec.ts",
       ],
     },
     {

@@ -413,7 +413,11 @@ function UserCard({
       accessibilityLabel={`You: ${msg.text.length > 100 ? `${msg.text.slice(0, 100)}...` : msg.text}`}
       accessibilityHint="Long press to copy"
     >
-      <Text className="text-white leading-[22px]" style={fontStyle} selectable>
+      <Text
+        className="text-tp-text-on-color leading-[22px]"
+        style={fontStyle}
+        selectable
+      >
         {msg.text}
       </Text>
     </Pressable>

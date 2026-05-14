@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Platform, Pressable, Text, TextInput, View } from "react-native";
 import { ariaLevel, getPlatformProps } from "../lib/get-platform-props";
 import { useThemeStore } from "../stores/theme-store";
 import { ModalContainer } from "./ModalContainer";
@@ -40,6 +40,21 @@ export function RenamePairingModal({
     void onSave(value);
   };
 
+  // Mirror disabled state to aria-disabled on web. RN Web's Pressable
+  // `disabled` prop strips the button from the Tab order, hiding it from
+  // keyboard users who would otherwise discover it and learn that
+  // editing the label re-enables Save. Match ApiKeyModal's pattern:
+  // keep the button focusable and announce inert state via aria-disabled.
+  const saveRef = useRef<View>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (!visible) return;
+    const el = saveRef.current as unknown as HTMLElement | null;
+    if (!el) return;
+    if (isUnchanged) el.setAttribute("aria-disabled", "true");
+    else el.removeAttribute("aria-disabled");
+  }, [visible, isUnchanged]);
+
   return (
     <ModalContainer
       visible={visible}
@@ -65,10 +80,10 @@ export function RenamePairingModal({
             Rename Daemon
           </Text>
           <Pressable
+            ref={saveRef}
             className={`${pp.className} ${isUnchanged ? "opacity-40" : ""}`}
             tabIndex={pp.tabIndex}
             onPress={handleSave}
-            disabled={isUnchanged}
             accessibilityRole="button"
             accessibilityLabel="Save pairing label"
             accessibilityState={{ disabled: isUnchanged }}

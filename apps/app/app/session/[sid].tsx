@@ -31,6 +31,7 @@ import {
   processHookEvent,
   useChatStore,
 } from "../../src/stores/chat-store";
+import { useNotificationStore } from "../../src/stores/notification-store";
 import { useSessionStore } from "../../src/stores/session-store";
 import { useThemeStore } from "../../src/stores/theme-store";
 import { setGlobalTermRef, useVoiceStore } from "../../src/stores/voice-store";
@@ -237,7 +238,17 @@ function ChatView({
     const trimmed = input.trim();
     if (!trimmed || !sid || stopped) return;
     const client = getTransport();
-    if (!client) return;
+    if (!client) {
+      // No paired daemon — clearing the input + a toast tells the user
+      // their keystrokes weren't lost into a void. Previously this was a
+      // silent return, so users couldn't tell why nothing happened.
+      useNotificationStore.getState().showToast({
+        title: "Not paired",
+        body: "Pair a daemon to send messages.",
+      });
+      setInput("");
+      return;
+    }
     // Optimistic add must precede sendChat so the echoed hook event dedups.
     addOptimisticUserMessage(trimmed);
     client.sendChat(sid, trimmed);

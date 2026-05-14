@@ -434,6 +434,14 @@ function AssistantCard({
   codeFontStyle: { fontFamily: string };
 }) {
   const pp = getPlatformProps();
+  // Skip rendering when the assistant message has no visible content.
+  // The PTY-parsing path can land an empty / whitespace-only assistant
+  // message (e.g. the Stop hook arrives with last_assistant_message=""
+  // after a transport hiccup, or a streaming message is finalized with
+  // only whitespace). Rendering an empty bubble leaves a small padded
+  // box with no text — looks like a UI glitch and produces an empty
+  // "Claude: " announcement for screen readers.
+  if (!msg.text.trim()) return null;
   return (
     <Pressable
       className={`self-start bg-tp-assistant-bubble rounded-bubble rounded-tl-sm px-4 py-2.5 max-w-[80%] ${pp.className}`}

@@ -60,6 +60,7 @@ export default defineConfig({
         "app-api-key-save-tab-reachable.spec.ts",
         "app-font-size-boundary-tab-reachable.spec.ts",
         "app-diagnostics-heading-hierarchy.spec.ts",
+        "app-chat-input-autogrow.spec.ts",
       ],
     },
     {

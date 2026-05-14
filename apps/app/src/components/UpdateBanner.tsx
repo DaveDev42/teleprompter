@@ -22,11 +22,13 @@ export function UpdateBanner({
       // role="alert" announces the banner when it appears so screen reader
       // users learn about the available update without sighted prompts.
       // RN's AccessibilityRole union excludes "alert", so spread on web only.
+      // role="alert" carries an implicit `aria-live="assertive"` and
+      // `aria-atomic="true"` — explicitly setting aria-live="polite" alongside
+      // it downgrades the announcement and produces SR-implementation-
+      // dependent behavior (some announce, some don't). Leave it implicit.
       className="absolute left-0 right-0 z-50 px-4"
       style={{ top: insets.top + 8 }}
-      {...(Platform.OS === "web"
-        ? { role: "alert", "aria-live": "polite" as const }
-        : {})}
+      {...(Platform.OS === "web" ? { role: "alert" } : {})}
     >
       <Pressable
         onPress={onRestart}

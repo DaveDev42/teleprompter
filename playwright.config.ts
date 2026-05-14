@@ -64,6 +64,7 @@ export default defineConfig({
         "app-terminal-tab-escape.spec.ts",
         "app-session-initial-focus.spec.ts",
         "app-daemon-card-a11y.spec.ts",
+        "app-rename-modal-tab-reachable.spec.ts",
       ],
     },
     {

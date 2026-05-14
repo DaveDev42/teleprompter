@@ -53,31 +53,76 @@ function contrast(
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+// Backgrounds the tertiary text can actually land on. Each entry pairs
+// the surface var with a human label for the failure message.
+const LIGHT_BG_VARS = [
+  ["--tp-bg", "page bg"],
+  ["--tp-bg-secondary", "secondary surface"],
+  [
+    "--tp-bg-tertiary",
+    "tertiary surface (SessionDrawer pills, FontSize badge)",
+  ],
+  ["--tp-assistant-bubble", "assistant chat bubble"],
+] as const;
+
+const DARK_BG_VARS = LIGHT_BG_VARS;
+
 test.describe("tp-text-tertiary contrast meets WCAG AA", () => {
-  test("light mode tp-text-tertiary on tp-bg ≥ 4.5:1", async ({ page }) => {
-    await page.goto("/settings");
-    await page.waitForLoadState("networkidle");
+  for (const [bgVar, label] of LIGHT_BG_VARS) {
+    test(`light mode tp-text-tertiary on ${label} ≥ 4.5:1`, async ({
+      page,
+    }) => {
+      await page.goto("/settings");
+      await page.waitForLoadState("networkidle");
 
-    // Force light mode by clearing any persisted dark class.
-    await page.evaluate(() => {
-      document.documentElement.classList.remove("dark");
+      // Force light mode by clearing any persisted dark class.
+      await page.evaluate(() => {
+        document.documentElement.classList.remove("dark");
+      });
+
+      const fg = await readRgb(page, "--tp-text-tertiary");
+      const bg = await readRgb(page, bgVar);
+      expect(contrast(fg, bg)).toBeGreaterThanOrEqual(4.5);
     });
+  }
 
-    const fg = await readRgb(page, "--tp-text-tertiary");
-    const bg = await readRgb(page, "--tp-bg");
-    expect(contrast(fg, bg)).toBeGreaterThanOrEqual(4.5);
-  });
+  for (const [bgVar, label] of DARK_BG_VARS) {
+    test(`dark mode tp-text-tertiary on ${label} ≥ 4.5:1`, async ({ page }) => {
+      await page.goto("/settings");
+      await page.waitForLoadState("networkidle");
 
-  test("dark mode tp-text-tertiary on tp-bg ≥ 4.5:1", async ({ page }) => {
-    await page.goto("/settings");
-    await page.waitForLoadState("networkidle");
+      await page.evaluate(() => {
+        document.documentElement.classList.add("dark");
+      });
 
-    await page.evaluate(() => {
-      document.documentElement.classList.add("dark");
+      const fg = await readRgb(page, "--tp-text-tertiary");
+      const bg = await readRgb(page, bgVar);
+      expect(contrast(fg, bg)).toBeGreaterThanOrEqual(4.5);
     });
+  }
+});
 
-    const fg = await readRgb(page, "--tp-text-tertiary");
-    const bg = await readRgb(page, "--tp-bg");
-    expect(contrast(fg, bg)).toBeGreaterThanOrEqual(4.5);
-  });
+// Regression: dark mode `--tp-accent: #3b82f6` paired with white button
+// label text produced 3.68:1 — fails AA for the normal-weight button
+// labels (Connect, Enter Pairing Data, Go to Daemons). The token was
+// realigned to #2563eb (the light-mode accent, 5.17:1 on white) so the
+// primary action buttons clear AA in both themes.
+test.describe("tp-accent button label contrast meets WCAG AA", () => {
+  for (const theme of ["light", "dark"] as const) {
+    test(`${theme} mode tp-text-on-color on tp-accent ≥ 4.5:1`, async ({
+      page,
+    }) => {
+      await page.goto("/settings");
+      await page.waitForLoadState("networkidle");
+
+      await page.evaluate((t) => {
+        if (t === "dark") document.documentElement.classList.add("dark");
+        else document.documentElement.classList.remove("dark");
+      }, theme);
+
+      const fg = await readRgb(page, "--tp-text-on-color");
+      const bg = await readRgb(page, "--tp-accent");
+      expect(contrast(fg, bg)).toBeGreaterThanOrEqual(4.5);
+    });
+  }
 });

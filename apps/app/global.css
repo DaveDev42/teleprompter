@@ -22,10 +22,13 @@
     /* WCAG 2.1 SC 1.4.3 (AA): #a1a1aa on white is 2.56:1, below the
        4.5:1 threshold for normal body text. tp-text-tertiary backs
        section labels (role=heading), badge metadata, and other text
-       readers actually have to parse, so it has to clear AA. #696969
-       lands at ~5.4:1 on white while still reading visually as a
-       softer tertiary tone than tp-text-secondary. */
-    --tp-text-tertiary: #696969;
+       readers actually have to parse, so it has to clear AA against
+       every surface it lands on — `tp-bg-tertiary` (#e4e4e7, used for
+       SessionDrawer pills and FontSize badge backgrounds) is the
+       tightest pairing. #636363 reaches 4.73:1 on #e4e4e7 and 5.85:1
+       on white while still reading as a softer tertiary tone than
+       tp-text-secondary. */
+    --tp-text-tertiary: #636363;
     --tp-text-on-color: #ffffff;
     --tp-accent: #2563eb;
     --tp-accent-hover: #1d4ed8;
@@ -91,12 +94,21 @@
     --tp-text-primary: #fafafa;
     --tp-text-secondary: #a1a1aa;
     /* WCAG 2.1 SC 1.4.3 (AA): #71717a on tp-bg #09090b is 4.12:1, just
-       under the 4.5:1 threshold for normal body text. #808080 reaches
-       ~5.1:1 while keeping the softer tertiary tone in dark mode. */
-    --tp-text-tertiary: #808080;
+       under the 4.5:1 threshold for normal body text. tp-text-tertiary
+       also lands on `tp-assistant-bubble` (#27272a, the chat assistant
+       bubble) which is the tightest pairing in dark mode — #808080
+       there is 3.77:1, still under AA. #8e8e8e clears 4.55:1 on the
+       bubble and 6.18:1 on tp-bg while keeping the softer tertiary
+       tone. */
+    --tp-text-tertiary: #8e8e8e;
     --tp-text-on-color: #ffffff;
-    --tp-accent: #3b82f6;
-    --tp-accent-hover: #2563eb;
+    /* WCAG 2.1 SC 1.4.3 (AA): #3b82f6 with white text (`tp-text-on-color`)
+       on a primary action button is only 3.68:1 — fails AA for the
+       button label (which is normal-weight 16px text, not large-text).
+       #2563eb (the light mode accent) hits 5.17:1 with white. Hover
+       stays one step darker. */
+    --tp-accent: #2563eb;
+    --tp-accent-hover: #1d4ed8;
     --tp-success: #22c55e;
     --tp-warning: #f59e0b;
     --tp-error: #ef4444;

@@ -47,6 +47,8 @@ export default defineConfig({
         "app-input-autocomplete.spec.ts",
         "app-api-key-modal.spec.ts",
         "app-modal-focus-trap-disabled.spec.ts",
+        "app-toast-live-region.spec.ts",
+        "app-settings-heading-levels.spec.ts",
       ],
     },
     {

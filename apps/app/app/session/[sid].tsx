@@ -487,6 +487,7 @@ export default function SessionDetailScreen() {
   const setSid = useSessionStore((s) => s.setSid);
   const [mode, setMode] = useState<ViewMode>("chat");
   const pp = getPlatformProps();
+  const connected = useAnyRelayConnected();
 
   const session = sessions.find((s) => s.sid === sid);
   const stopped = isSessionStopped(session);
@@ -567,6 +568,23 @@ export default function SessionDetailScreen() {
           <View className="w-1.5 h-1.5 rounded-full bg-tp-warning mr-2" />
           <Text className="text-tp-text-secondary text-[12px] font-medium">
             Session ended — read-only view
+          </Text>
+        </View>
+      )}
+
+      {/* Disconnected banner — shown when the relay link is down on a live
+          session so the user understands why pressing Send appears to no-op. */}
+      {!stopped && !connected && (
+        <View
+          testID="session-disconnected-banner"
+          role="status"
+          accessibilityLiveRegion="polite"
+          accessibilityLabel="Disconnected. Messages will send after reconnect."
+          className="flex-row items-center px-4 py-2 bg-tp-bg-secondary border-b border-tp-border"
+        >
+          <View className="w-1.5 h-1.5 rounded-full bg-tp-text-tertiary mr-2" />
+          <Text className="text-tp-text-secondary text-[12px] font-medium">
+            Disconnected — messages will send after reconnect
           </Text>
         </View>
       )}

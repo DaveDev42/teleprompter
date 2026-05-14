@@ -63,6 +63,7 @@ export default defineConfig({
         "app-chat-input-autogrow.spec.ts",
         "app-terminal-tab-escape.spec.ts",
         "app-session-initial-focus.spec.ts",
+        "app-daemon-card-a11y.spec.ts",
       ],
     },
     {

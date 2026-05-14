@@ -26,6 +26,7 @@ export default defineConfig({
         "app-modal-escape.spec.ts",
         "app-chat-enter.spec.ts",
         "app-daemons-empty.spec.ts",
+        "app-session-disconnect-banner.spec.ts",
       ],
     },
     {

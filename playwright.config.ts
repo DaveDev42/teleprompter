@@ -30,6 +30,7 @@ export default defineConfig({
         "app-pairing-a11y.spec.ts",
         "app-pairing-scan-web.spec.ts",
         "app-font-picker-a11y.spec.ts",
+        "app-aria-disabled.spec.ts",
       ],
     },
     {

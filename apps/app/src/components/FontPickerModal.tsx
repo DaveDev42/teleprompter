@@ -209,6 +209,31 @@ export function FontSizeModal({
   const atMin = size <= 10;
   const atMax = size >= 24;
 
+  // Mirror at-boundary state to aria-disabled on web. RN Web's Pressable
+  // only emits the native HTML `disabled` attribute, which strips the
+  // button from Tab order. Keep both buttons focusable so a keyboard user
+  // can still see they exist at the boundary, and announce inertness via
+  // aria-disabled. `visible` is in the dep array so the effect fires once
+  // the modal mounts the refs — the at-boundary value can be true on the
+  // very first render, so without re-firing on mount aria-disabled would
+  // be absent from the freshly-mounted DOM node.
+  const decRef = useRef<View>(null);
+  const incRef = useRef<View>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (!visible) return;
+    const dec = decRef.current as unknown as HTMLElement | null;
+    const inc = incRef.current as unknown as HTMLElement | null;
+    if (dec) {
+      if (atMin) dec.setAttribute("aria-disabled", "true");
+      else dec.removeAttribute("aria-disabled");
+    }
+    if (inc) {
+      if (atMax) inc.setAttribute("aria-disabled", "true");
+      else inc.removeAttribute("aria-disabled");
+    }
+  }, [visible, atMin, atMax]);
+
   return (
     <ModalContainer
       visible={visible}
@@ -235,10 +260,13 @@ export function FontSizeModal({
       </View>
       <View className="flex-row items-center justify-center gap-8 py-8 pb-12">
         <Pressable
+          ref={decRef}
           className={`w-12 h-12 rounded-full bg-tp-surface items-center justify-center ${pp.className} ${atMin ? "opacity-30" : ""}`}
           tabIndex={pp.tabIndex}
-          onPress={() => adjust(-1)}
-          disabled={atMin}
+          onPress={() => {
+            if (atMin) return;
+            adjust(-1);
+          }}
           accessibilityRole="button"
           accessibilityLabel="Decrease font size"
           accessibilityState={{ disabled: atMin }}
@@ -253,10 +281,13 @@ export function FontSizeModal({
           {size}
         </Text>
         <Pressable
+          ref={incRef}
           className={`w-12 h-12 rounded-full bg-tp-surface items-center justify-center ${pp.className} ${atMax ? "opacity-30" : ""}`}
           tabIndex={pp.tabIndex}
-          onPress={() => adjust(1)}
-          disabled={atMax}
+          onPress={() => {
+            if (atMax) return;
+            adjust(1);
+          }}
           accessibilityRole="button"
           accessibilityLabel="Increase font size"
           accessibilityState={{ disabled: atMax }}

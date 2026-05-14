@@ -7,6 +7,12 @@ import { getPlatformProps } from "../../src/lib/get-platform-props";
 import { useSessionStore } from "../../src/stores/session-store";
 import { useThemeStore } from "../../src/stores/theme-store";
 
+// Mirrors `--tp-text-tertiary` in global.css. TextInput.placeholderTextColor
+// only resolves CSS variables on web; native silently falls back to the
+// system default, which is often unreadable on light themes.
+const PLACEHOLDER_LIGHT = "#a1a1aa";
+const PLACEHOLDER_DARK = "#71717a";
+
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
   const mins = Math.floor(diff / 60000);
@@ -107,6 +113,8 @@ export default function SessionsScreen() {
   const currentSid = useSessionStore((s) => s.sid);
   const [filter, setFilter] = useState("");
   const pp = getPlatformProps();
+  const isDark = useThemeStore((s) => s.isDark);
+  const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
 
   // Sort by updatedAt desc, filter by search
   const filteredSessions = useMemo(() => {
@@ -147,7 +155,7 @@ export default function SessionsScreen() {
             testID="session-search"
             className={`bg-tp-bg-secondary text-tp-text-primary rounded-search px-4 py-2.5 text-[15px] ${pp.className}`}
             placeholder="Search sessions..."
-            placeholderTextColor="var(--tp-text-tertiary)"
+            placeholderTextColor={placeholderColor}
             value={filter}
             onChangeText={setFilter}
             autoCapitalize="none"

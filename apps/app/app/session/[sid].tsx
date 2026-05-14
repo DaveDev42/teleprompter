@@ -64,11 +64,26 @@ function SegmentedControl({
   const pp = getPlatformProps();
   // RN Web's Pressable doesn't translate `accessibilityState.selected` into
   // `aria-selected`, so screen readers can't tell which tab is active. Pass
-  // the raw ARIA attribute via a web-only spread; native ignores it.
-  const ariaSelectedChat =
-    Platform.OS === "web" ? { "aria-selected": mode === "chat" } : {};
-  const ariaSelectedTerminal =
-    Platform.OS === "web" ? { "aria-selected": mode === "terminal" } : {};
+  // the raw ARIA attribute via a web-only spread; native ignores it. Same
+  // pattern for `id` + `aria-controls` — without those the APG Tabs pattern
+  // is incomplete (no tab↔panel relationship in the a11y tree), so screen
+  // readers don't know which content region belongs to which tab.
+  const webTabChat =
+    Platform.OS === "web"
+      ? {
+          "aria-selected": mode === "chat",
+          id: SESSION_TAB_CHAT_ID,
+          "aria-controls": SESSION_TABPANEL_CHAT_ID,
+        }
+      : {};
+  const webTabTerminal =
+    Platform.OS === "web"
+      ? {
+          "aria-selected": mode === "terminal",
+          id: SESSION_TAB_TERMINAL_ID,
+          "aria-controls": SESSION_TABPANEL_TERMINAL_ID,
+        }
+      : {};
   // RN propagates accessibilityRole verbatim to web — but "tabbar" is not a
   // valid ARIA role (the standard is "tablist"). Without a web override SR
   // and DOM tooling see role="tabbar" and skip the tab semantics. Override
@@ -87,7 +102,7 @@ function SegmentedControl({
           accessibilityRole="tab"
           accessibilityLabel="Chat"
           accessibilityState={{ selected: mode === "chat" }}
-          {...(ariaSelectedChat as object)}
+          {...(webTabChat as object)}
           tabIndex={pp.tabIndex}
           className={`flex-1 py-1.5 rounded-badge items-center ${
             mode === "chat" ? "bg-tp-surface" : ""
@@ -109,7 +124,7 @@ function SegmentedControl({
           accessibilityRole="tab"
           accessibilityLabel="Terminal"
           accessibilityState={{ selected: mode === "terminal" }}
-          {...(ariaSelectedTerminal as object)}
+          {...(webTabTerminal as object)}
           tabIndex={pp.tabIndex}
           className={`flex-1 py-1.5 rounded-badge items-center ${
             mode === "terminal" ? "bg-tp-surface" : ""
@@ -129,6 +144,14 @@ function SegmentedControl({
     </View>
   );
 }
+
+// APG Tabs pattern: tab ↔ tabpanel are bidirectionally linked by id /
+// aria-controls / aria-labelledby. Centralise the ids so SegmentedControl
+// and the tabpanel wrappers below stay in lock-step.
+const SESSION_TAB_CHAT_ID = "session-tab-chat";
+const SESSION_TAB_TERMINAL_ID = "session-tab-terminal";
+const SESSION_TABPANEL_CHAT_ID = "session-tabpanel-chat";
+const SESSION_TABPANEL_TERMINAL_ID = "session-tabpanel-terminal";
 
 function ChatView({
   sid,
@@ -697,12 +720,39 @@ export default function SessionDetailScreen() {
       {/* Segmented control */}
       <SegmentedControl mode={mode} onModeChange={setMode} />
 
-      {/* Content */}
+      {/* Content — wrapped as role=tabpanel so the APG Tabs pattern is
+          complete (tab↔panel bidirectional link via id/aria-controls
+          /aria-labelledby). RN's accessibilityRole union excludes
+          "tabpanel" so we spread the raw ARIA attrs on web only. flex-1
+          keeps the underlying views filling the same space they did
+          before this wrapper. */}
       {sid && mode === "chat" && (
-        <ChatView sid={sid} session={session} stopped={stopped} />
+        <View
+          className="flex-1"
+          {...(Platform.OS === "web"
+            ? {
+                role: "tabpanel" as const,
+                id: SESSION_TABPANEL_CHAT_ID,
+                "aria-labelledby": SESSION_TAB_CHAT_ID,
+              }
+            : {})}
+        >
+          <ChatView sid={sid} session={session} stopped={stopped} />
+        </View>
       )}
       {sid && mode === "terminal" && (
-        <TerminalView sid={sid} stopped={stopped} />
+        <View
+          className="flex-1"
+          {...(Platform.OS === "web"
+            ? {
+                role: "tabpanel" as const,
+                id: SESSION_TABPANEL_TERMINAL_ID,
+                "aria-labelledby": SESSION_TAB_TERMINAL_ID,
+              }
+            : {})}
+        >
+          <TerminalView sid={sid} stopped={stopped} />
+        </View>
       )}
 
       {/* Safe area bottom */}

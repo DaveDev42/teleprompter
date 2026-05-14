@@ -32,5 +32,13 @@ test.describe("ModalContainer dialog ARIA", () => {
     const dialog = page.locator('[role="dialog"][aria-label="OpenAI API Key"]');
     await expect(dialog).toBeVisible({ timeout: 5_000 });
     await expect(dialog).toHaveAttribute("aria-modal", "true");
+
+    // Exactly one role=dialog should be on the page. RN Web's <Modal>
+    // hard-codes role=dialog + aria-modal on its outer wrapper; we used to
+    // add a second role=dialog on our inner card, producing two unnamed
+    // and named dialogs in the a11y tree. The label now lives on the
+    // single Modal wrapper.
+    const allDialogs = page.locator('[role="dialog"]');
+    await expect(allDialogs).toHaveCount(1);
   });
 });

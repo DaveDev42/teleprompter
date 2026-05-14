@@ -52,6 +52,28 @@
     background-color: var(--tp-bg);
   }
 
+  /* WCAG 2.1 SC 2.3.3: honor the user's reduced-motion preference. Cuts
+     transitions and animations to ~0 so motion-sensitive users don't get
+     unsolicited movement. Keep a tiny non-zero duration so transitionend
+     listeners still fire — otherwise some React libs that expect the
+     event will hang waiting for it. `!important` is required because
+     Tailwind utilities like `transition-*` apply via class selectors
+     that beat the universal `*` selector on specificity alone. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      /* biome-ignore lint/complexity/noImportantStyles: needed to beat Tailwind utility class specificity */
+      animation-duration: 0.01ms !important;
+      /* biome-ignore lint/complexity/noImportantStyles: needed to beat Tailwind utility class specificity */
+      animation-iteration-count: 1 !important;
+      /* biome-ignore lint/complexity/noImportantStyles: needed to beat Tailwind utility class specificity */
+      transition-duration: 0.01ms !important;
+      /* biome-ignore lint/complexity/noImportantStyles: needed to beat Tailwind utility class specificity */
+      scroll-behavior: auto !important;
+    }
+  }
+
   .dark {
     --tp-bg: #09090b;
     --tp-bg-secondary: #18181b;

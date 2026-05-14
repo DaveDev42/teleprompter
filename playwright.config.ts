@@ -54,6 +54,8 @@ export default defineConfig({
         "app-text-tertiary-contrast.spec.ts",
         "app-theme-persistence.spec.ts",
         "app-pairing-input-hint.spec.ts",
+        "app-font-picker-keyboard.spec.ts",
+        "app-reduced-motion.spec.ts",
       ],
     },
     {

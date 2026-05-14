@@ -24,6 +24,7 @@ import {
   isSessionStopped,
 } from "../../src/lib/session-ux";
 import type { TerminalSearch } from "../../src/lib/terminal-search";
+import { TERMINAL_COLORS } from "../../src/lib/tokens";
 import {
   addOptimisticUserMessage,
   type ChatMessage,
@@ -454,7 +455,10 @@ function TerminalView({ sid, stopped }: { sid: string; stopped: boolean }) {
   const showEmptyFallback = stopped && !hasIo && replaySettled;
 
   return (
-    <View className="flex-1 bg-black">
+    <View
+      className="flex-1"
+      style={{ backgroundColor: TERMINAL_COLORS.background }}
+    >
       {TerminalComponent && (
         <TerminalComponent
           onData={handleData}

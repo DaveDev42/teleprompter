@@ -18,39 +18,42 @@ export function InAppToast() {
     }
   };
 
+  // Outer View carries role=alert so screen readers announce the toast
+  // contents on appearance. The body and dismiss buttons are independent
+  // children — ARIA disallows merging role=alert with a clickable
+  // role=button on the same element, which previously hid the actionable
+  // nature of the toast from assistive tech.
   return (
-    <Pressable
-      onPress={handlePress}
+    <View
       accessibilityRole="alert"
       accessibilityLiveRegion="polite"
-      accessibilityLabel={`${toast.title}: ${toast.body}`}
-      className="absolute left-4 right-4 bg-tp-bg-elevated rounded-card border border-tp-border p-4 shadow-lg z-50"
+      className="absolute left-4 right-4 bg-tp-bg-elevated rounded-card border border-tp-border shadow-lg z-50"
       style={{ top: insets.top + 8 }}
     >
       <View className="flex-row items-center justify-between">
-        <View className="flex-1 mr-2">
+        <Pressable
+          onPress={handlePress}
+          accessibilityRole="button"
+          accessibilityLabel={`Open: ${toast.title}: ${toast.body}`}
+          className="flex-1 p-4"
+        >
           <Text className="text-tp-text-primary font-semibold text-sm">
             {toast.title}
           </Text>
           <Text className="text-tp-text-secondary text-sm mt-1">
             {toast.body}
           </Text>
-        </View>
+        </Pressable>
         <Pressable
-          onPress={(e) => {
-            // Without stopPropagation, the outer alert Pressable's onPress
-            // also fires — dismissing the toast AND navigating to the
-            // session. Match the pattern UpdateBanner already uses.
-            e.stopPropagation();
-            dismiss();
-          }}
+          onPress={dismiss}
           hitSlop={8}
           accessibilityLabel="Dismiss notification"
           accessibilityRole="button"
+          className="px-4 py-4"
         >
           <Text className="text-tp-text-tertiary text-lg">✕</Text>
         </Pressable>
       </View>
-    </Pressable>
+    </View>
   );
 }

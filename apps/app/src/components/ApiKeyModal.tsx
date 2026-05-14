@@ -27,9 +27,15 @@ export function ApiKeyModal({
   const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
   const [value, setValue] = useState(currentKey ?? "");
 
+  // Reset the local input each time the modal opens so unsaved drafts from
+  // the previous open don't leak across closes. `currentKey` alone is
+  // insufficient — when the key stays null (most common case), the effect
+  // wouldn't re-run and the stale draft would persist.
   useEffect(() => {
-    setValue(currentKey ?? "");
-  }, [currentKey]);
+    if (visible) setValue(currentKey ?? "");
+  }, [visible, currentKey]);
+
+  const canSave = value.trim().length > 0;
 
   return (
     <ModalContainer
@@ -81,13 +87,16 @@ export function ApiKeyModal({
           className={`bg-tp-accent rounded-btn items-center py-3 mt-4 ${pp.className}`}
           tabIndex={pp.tabIndex}
           onPress={() => {
-            if (value.trim()) {
+            if (canSave) {
               onSave(value.trim());
+              onClose();
             }
-            onClose();
           }}
+          disabled={!canSave}
           accessibilityRole="button"
           accessibilityLabel="Save API key"
+          accessibilityState={{ disabled: !canSave }}
+          style={{ opacity: canSave ? 1 : 0.5 }}
         >
           <Text className="text-tp-text-on-color text-[15px] font-semibold">
             Save

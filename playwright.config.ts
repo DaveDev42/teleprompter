@@ -45,6 +45,7 @@ export default defineConfig({
         "app-sessions-empty-tab-order.spec.ts",
         "app-diagnostics-a11y.spec.ts",
         "app-input-autocomplete.spec.ts",
+        "app-api-key-modal.spec.ts",
       ],
     },
     {

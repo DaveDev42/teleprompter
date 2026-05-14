@@ -10,7 +10,6 @@ import { useNotificationStore } from "../../src/stores/notification-store";
 import type { PairingInfo } from "../../src/stores/pairing-store";
 import { usePairingStore } from "../../src/stores/pairing-store";
 import { useSessionStore } from "../../src/stores/session-store";
-import { useThemeStore } from "../../src/stores/theme-store";
 
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
@@ -36,7 +35,6 @@ function DaemonCard({
 }) {
   const connections = useRelayConnectionStore((s) => s.connections);
   const sessions = useSessionStore((s) => s.sessions);
-  useThemeStore((s) => s.isDark);
   const pp = getPlatformProps();
   const isOnline = connections.get(info.daemonId) ?? false;
 

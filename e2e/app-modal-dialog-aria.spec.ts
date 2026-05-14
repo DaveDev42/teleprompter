@@ -29,9 +29,7 @@ test.describe("ModalContainer dialog ARIA", () => {
     });
 
     // Modal content surface is identified by its aria-label.
-    const dialog = page.locator(
-      '[role="dialog"][aria-label="OpenAI API Key"]',
-    );
+    const dialog = page.locator('[role="dialog"][aria-label="OpenAI API Key"]');
     await expect(dialog).toBeVisible({ timeout: 5_000 });
     await expect(dialog).toHaveAttribute("aria-modal", "true");
   });

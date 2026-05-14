@@ -273,7 +273,9 @@ export function DiagnosticsPanel() {
           <Pressable
             onPress={handleCryptoTest}
             disabled={cryptoTest.running}
-            className={`bg-tp-surface px-3 py-1 rounded ${pp.className}`}
+            className={`border border-tp-border bg-tp-bg-elevated px-3 py-1.5 rounded-btn ${
+              cryptoTest.running ? "opacity-50" : ""
+            } ${pp.className}`}
             tabIndex={pp.tabIndex}
             accessibilityRole="button"
             accessibilityLabel={
@@ -283,8 +285,8 @@ export function DiagnosticsPanel() {
             }
             accessibilityState={{ disabled: cryptoTest.running }}
           >
-            <Text className="text-tp-text-tertiary text-xs">
-              {cryptoTest.running ? "Running..." : "Run Self-Test"}
+            <Text className="text-tp-accent text-xs font-medium">
+              {cryptoTest.running ? "Running…" : "Run Self-Test"}
             </Text>
           </Pressable>
         </View>

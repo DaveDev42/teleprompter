@@ -120,6 +120,14 @@ export function ModalContainer({
       transparent
       animationType="slide"
       onRequestClose={onClose}
+      // RN Web's <Modal> hard-codes role="dialog" + aria-modal=true on its
+      // outer wrapper. Spreading aria-label here gives that single dialog a
+      // name so screen readers don't announce an unnamed dialog. We do NOT
+      // add a second role=dialog on the inner card — duplicating the role
+      // produces two dialogs in the a11y tree.
+      {...(Platform.OS === "web" && accessibilityLabel
+        ? ({ "aria-label": accessibilityLabel } as object)
+        : {})}
     >
       <Pressable className="flex-1 bg-tp-overlay" onPress={onClose}>
         <View className="flex-1" />
@@ -127,21 +135,10 @@ export function ModalContainer({
           ref={dialogRef}
           className="bg-tp-bg-elevated rounded-t-2xl w-full max-w-[540px] mx-auto"
           accessibilityLabel={accessibilityLabel}
-          accessibilityViewIsModal
           {...(Platform.OS === "web"
             ? {
                 onClick: (e: { stopPropagation: () => void }) =>
                   e.stopPropagation(),
-                // RN Web ignores accessibilityRole="dialog" (not in its
-                // ARIA role allowlist) and doesn't translate
-                // accessibilityViewIsModal to aria-modal. Spread both
-                // attributes directly so SRs announce "dialog" on open
-                // and trap their virtual cursor inside.
-                role: "dialog",
-                "aria-modal": true,
-                ...(accessibilityLabel
-                  ? { "aria-label": accessibilityLabel }
-                  : {}),
               }
             : {})}
         >

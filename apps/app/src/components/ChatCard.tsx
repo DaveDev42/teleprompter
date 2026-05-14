@@ -119,14 +119,31 @@ function InlineText({
                 key={i}
                 className="text-tp-accent underline"
                 style={fontStyle}
-                onPress={() => {
-                  Linking.openURL(seg.href).catch(() => {
-                    // openURL rejects on unsupported schemes; swallow so the
-                    // press isn't a hard crash. The user sees no-op behavior
-                    // for malformed URLs, which is acceptable given the
-                    // parser already restricts to http/https/mailto.
-                  });
-                }}
+                // Passing `href` lets RN Web render this as a real <a>, which
+                // gives browsers the affordances they expect: right-click
+                // "Open in New Tab" / "Copy Link", Cmd+click for a new tab,
+                // and a proper context menu. Without href RN Web emits a
+                // <div role="link"> that the browser doesn't recognize as a
+                // link. `hrefAttrs` adds the standard noopener pair.
+                {...(Platform.OS === "web"
+                  ? {
+                      href: seg.href,
+                      hrefAttrs: {
+                        target: "_blank",
+                        rel: "noopener noreferrer",
+                      },
+                    }
+                  : {
+                      onPress: () => {
+                        Linking.openURL(seg.href).catch(() => {
+                          // openURL rejects on unsupported schemes; swallow
+                          // so the press isn't a hard crash. The user sees
+                          // no-op behavior for malformed URLs, which is
+                          // acceptable given the parser already restricts to
+                          // http/https/mailto.
+                        });
+                      },
+                    })}
                 accessibilityRole="link"
                 accessibilityLabel={`Link: ${seg.s}`}
                 accessibilityHint={`Opens ${seg.href}`}

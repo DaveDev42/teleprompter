@@ -36,6 +36,7 @@ export default defineConfig({
         "app-voice-button-aria.spec.ts",
         "app-listitem-aria.spec.ts",
         "app-session-back-nav.spec.ts",
+        "app-settings-updates-aria.spec.ts",
       ],
     },
     {

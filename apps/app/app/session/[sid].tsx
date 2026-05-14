@@ -177,6 +177,29 @@ function ChatView({
     setInput("");
   }, [sid]);
 
+  // Move focus to the Back button on first mount / session change. Without
+  // this, focus stays on <body> after navigation (especially deep links and
+  // browser refreshes on /session/:sid) — keyboard and screen-reader users
+  // get dropped onto the page with no announced focus point and have to
+  // press Tab blindly to find an anchor. Defer until next frame so RN Web
+  // has actually mounted the Pressable's underlying DOM node. Skip if the
+  // user has already focused something themselves (e.g. clicked into the
+  // chat input before this fires).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sid drives the focus reset
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const raf = requestAnimationFrame(() => {
+      if (document.activeElement && document.activeElement !== document.body) {
+        return;
+      }
+      const back = document.querySelector<HTMLElement>(
+        '[data-testid="session-back"]',
+      );
+      back?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [sid]);
+
   // RN Web's `multiline` TextInput renders as <textarea rows="2"> with a
   // fixed height — Shift+Enter newlines stack invisibly inside the same
   // 52px box. Resize the textarea to fit content on every change (clamped

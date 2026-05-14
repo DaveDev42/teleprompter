@@ -62,6 +62,7 @@ export default defineConfig({
         "app-diagnostics-heading-hierarchy.spec.ts",
         "app-chat-input-autogrow.spec.ts",
         "app-terminal-tab-escape.spec.ts",
+        "app-session-initial-focus.spec.ts",
       ],
     },
     {

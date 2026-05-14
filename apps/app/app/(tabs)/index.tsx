@@ -189,7 +189,7 @@ export default function SessionsScreen() {
               accessibilityRole="button"
               accessibilityLabel="Go to Daemons"
             >
-              <Text className="text-white font-semibold text-base">
+              <Text className="text-tp-text-on-color font-semibold text-base">
                 Go to Daemons
               </Text>
             </Pressable>

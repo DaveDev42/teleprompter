@@ -44,6 +44,13 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
     processing: "Thinking",
   }[state];
 
+  // RN Web doesn't translate accessibilityState.checked into aria-checked,
+  // so a screen reader landing on the switch wouldn't know if terminal
+  // context is on or off. Pass aria-checked directly on web. Matches the
+  // SegmentedControl / FontPickerModal pattern.
+  const ariaCheckedTerminal =
+    Platform.OS === "web" ? { "aria-checked": includeTerminal } : {};
+
   const bgColor = isActive
     ? isSpeaking
       ? "bg-tp-voice-active"
@@ -62,6 +69,7 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
         accessibilityRole="switch"
         accessibilityLabel="Include terminal context"
         accessibilityState={{ checked: includeTerminal }}
+        {...(ariaCheckedTerminal as object)}
       >
         <Text className="text-xs text-tp-text-secondary">T</Text>
       </Pressable>
@@ -84,9 +92,15 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
         </Text>
       </Pressable>
 
-      {/* Status */}
+      {/* Status — wrap in a polite live region so state transitions
+          (connecting → listening → processing) announce to screen readers. */}
       {isActive && (
-        <Text className="text-tp-text-tertiary text-xs">{stateLabel}</Text>
+        <Text
+          className="text-tp-text-tertiary text-xs"
+          accessibilityLiveRegion="polite"
+        >
+          {stateLabel}
+        </Text>
       )}
       {transcript && isActive && (
         <Text

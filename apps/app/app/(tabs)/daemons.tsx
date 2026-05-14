@@ -189,7 +189,7 @@ export default function DaemonsScreen() {
           accessibilityRole="button"
           accessibilityLabel="Add daemon"
         >
-          <Text className="text-white text-xl leading-5">+</Text>
+          <Text className="text-tp-text-on-color text-xl leading-5">+</Text>
         </Pressable>
       </View>
 
@@ -238,7 +238,7 @@ export default function DaemonsScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Enter pairing data"
               >
-                <Text className="text-white font-semibold text-base">
+                <Text className="text-tp-text-on-color font-semibold text-base">
                   Enter Pairing Data
                 </Text>
               </Pressable>
@@ -251,7 +251,7 @@ export default function DaemonsScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Scan QR code to pair"
                 >
-                  <Text className="text-white font-semibold text-base">
+                  <Text className="text-tp-text-on-color font-semibold text-base">
                     Scan QR Code to Pair
                   </Text>
                 </Pressable>

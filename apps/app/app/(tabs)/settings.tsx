@@ -291,7 +291,7 @@ export default function SettingsScreen() {
                 accessibilityRole="button"
                 accessibilityLabel="Restart to update"
               >
-                <Text className="text-white text-[14px] font-semibold">
+                <Text className="text-tp-text-on-color text-[14px] font-semibold">
                   Restart to Update
                 </Text>
               </Pressable>

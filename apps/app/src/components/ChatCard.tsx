@@ -766,8 +766,23 @@ function SystemCard({ msg }: { msg: ChatMessage }) {
   // notifications — they signal that the assistant response failed and the
   // user may need to retry. Use the error color and a leading warning glyph.
   const isError = msg.event === "StopFailure";
+  // Announce StopFailure to screen readers so users aren't silently stuck on
+  // a chat that visually shows an error. Mirrors ElicitationCard /
+  // PermissionCard — they use role=alert + accessibilityLiveRegion so the
+  // failure is spoken when it appears. Plain system notifications stay
+  // silent (no live region) — there can be many of them per session and
+  // making each one shout would drown out the conversation.
   return (
-    <View className="self-center py-1 px-3 max-w-full">
+    <View
+      className="self-center py-1 px-3 max-w-full"
+      {...(isError
+        ? {
+            accessibilityRole: "alert" as const,
+            accessibilityLiveRegion: "polite" as const,
+            accessibilityLabel: `Error: ${msg.text}`,
+          }
+        : {})}
+    >
       <Text
         className={`text-xs text-center ${
           isError ? "text-tp-error font-medium" : "text-tp-text-tertiary"

@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { OtaStatus } from "../hooks/use-ota-update";
+import { getPlatformProps } from "../lib/get-platform-props";
 
 export function UpdateBanner({
   status,
@@ -12,19 +13,27 @@ export function UpdateBanner({
 }) {
   const insets = useSafeAreaInsets();
   const [dismissed, setDismissed] = useState(false);
+  const pp = getPlatformProps();
 
   if (status !== "ready" || dismissed) return null;
 
   return (
     <View
+      // role="alert" announces the banner when it appears so screen reader
+      // users learn about the available update without sighted prompts.
+      // RN's AccessibilityRole union excludes "alert", so spread on web only.
       className="absolute left-0 right-0 z-50 px-4"
       style={{ top: insets.top + 8 }}
+      {...(Platform.OS === "web"
+        ? { role: "alert", "aria-live": "polite" as const }
+        : {})}
     >
       <Pressable
         onPress={onRestart}
         accessibilityRole="button"
         accessibilityLabel="Update available, tap to restart"
-        className="flex-row bg-tp-surface border border-tp-border rounded-card overflow-hidden"
+        tabIndex={pp.tabIndex}
+        className={`flex-row bg-tp-surface border border-tp-border rounded-card overflow-hidden ${pp.className}`}
       >
         {/* Blue accent bar */}
         <View className="w-[3px] bg-tp-accent" />
@@ -45,7 +54,8 @@ export function UpdateBanner({
           }}
           accessibilityRole="button"
           accessibilityLabel="Dismiss update banner"
-          className="px-3 justify-center"
+          tabIndex={pp.tabIndex}
+          className={`px-3 justify-center ${pp.className}`}
           hitSlop={8}
         >
           <Text className="text-tp-text-tertiary text-[13px]">✕</Text>

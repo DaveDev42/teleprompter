@@ -49,6 +49,7 @@ export default defineConfig({
         "app-modal-focus-trap-disabled.spec.ts",
         "app-toast-live-region.spec.ts",
         "app-settings-heading-levels.spec.ts",
+        "app-chat-send-tab-reachable.spec.ts",
       ],
     },
     {

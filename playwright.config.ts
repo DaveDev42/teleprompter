@@ -44,6 +44,7 @@ export default defineConfig({
         "app-testid-stability.spec.ts",
         "app-sessions-empty-tab-order.spec.ts",
         "app-diagnostics-a11y.spec.ts",
+        "app-input-autocomplete.spec.ts",
       ],
     },
     {

@@ -68,6 +68,11 @@ export function ApiKeyModal({
           placeholderTextColor={placeholderColor}
           autoCapitalize="none"
           autoCorrect={false}
+          // secureTextEntry maps to type=password on web; without explicit
+          // autoComplete="off" the browser password manager treats this API
+          // key like a saved credential, which is wrong and leaks the key
+          // into the OS keychain unprompted.
+          autoComplete="off"
           secureTextEntry
           accessibilityLabel="OpenAI API key"
           accessibilityHint="Enter your OpenAI API key for voice input"

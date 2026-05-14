@@ -141,5 +141,20 @@ export function GhosttyTerminal({
 
   if (Platform.OS !== "web") return null;
 
-  return <div ref={containerRef} className="w-full h-full bg-black" />;
+  // The ghostty-web canvas paints over this background, but the parent div
+  // shows through briefly before the WASM renderer initializes. Match the
+  // canvas background exactly (TERMINAL_COLORS.background) so first paint
+  // doesn't flash a different color. Inline style — `bg-black` would be a
+  // raw Tailwind color and the terminal palette intentionally lives outside
+  // the tp-* semantic system (see tokens.ts).
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        width: "100%",
+        height: "100%",
+        backgroundColor: TERMINAL_COLORS.background,
+      }}
+    />
+  );
 }

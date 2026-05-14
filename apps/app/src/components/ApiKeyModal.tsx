@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Platform, Pressable, Text, TextInput, View } from "react-native";
 import { ariaLevel, getPlatformProps } from "../lib/get-platform-props";
 import { useThemeStore } from "../stores/theme-store";
 import { ModalContainer } from "./ModalContainer";
@@ -36,6 +36,24 @@ export function ApiKeyModal({
   }, [visible, currentKey]);
 
   const canSave = value.trim().length > 0;
+
+  // Mirror disabled state to aria-disabled on web. RN Web's Pressable only
+  // emits the native HTML `disabled` attribute, which strips the button from
+  // the Tab order. Keep it focusable and announce the disabled state via
+  // aria-disabled instead so keyboard users can still discover the Save
+  // button and the screen reader announces why it's inert. `visible` is in
+  // the dep array so the effect re-fires after the modal mounts the ref —
+  // canSave starts false on open, so without this the initial render would
+  // never run the effect against the freshly-mounted DOM node.
+  const saveRef = useRef<View>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (!visible) return;
+    const el = saveRef.current as unknown as HTMLElement | null;
+    if (!el) return;
+    if (!canSave) el.setAttribute("aria-disabled", "true");
+    else el.removeAttribute("aria-disabled");
+  }, [visible, canSave]);
 
   return (
     <ModalContainer
@@ -84,6 +102,7 @@ export function ApiKeyModal({
           accessibilityHint="Enter your OpenAI API key for voice input"
         />
         <Pressable
+          ref={saveRef}
           className={`bg-tp-accent rounded-btn items-center py-3 mt-4 ${pp.className}`}
           tabIndex={pp.tabIndex}
           onPress={() => {
@@ -92,7 +111,6 @@ export function ApiKeyModal({
               onClose();
             }
           }}
-          disabled={!canSave}
           accessibilityRole="button"
           accessibilityLabel="Save API key"
           accessibilityState={{ disabled: !canSave }}

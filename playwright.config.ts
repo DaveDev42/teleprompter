@@ -27,6 +27,7 @@ export default defineConfig({
         "app-chat-enter.spec.ts",
         "app-daemons-empty.spec.ts",
         "app-session-disconnect-banner.spec.ts",
+        "app-pairing-a11y.spec.ts",
       ],
     },
     {

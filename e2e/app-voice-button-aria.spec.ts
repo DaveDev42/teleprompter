@@ -31,4 +31,33 @@ test.describe("VoiceButton ARIA", () => {
     await termSwitch.click();
     await expect(termSwitch).toHaveAttribute("aria-checked", "true");
   });
+
+  // Regression: the `connecting` state used "..." as both the visible label
+  // and the screen-reader announcement. VoiceOver and NVDA both expand bare
+  // "..." into "dot dot dot", which is meaningless during a brief connection
+  // hop. The fix uses the word "Connecting" so both the visible Text and the
+  // aria-label round-trip the same human-readable state. The state is set
+  // synchronously inside startVoice() (before any async getUserMedia work)
+  // so we can assert immediately after the click without needing a real mic.
+  test("connecting state announces 'Connecting' not '...'", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("tp_voice_api_key", "sk-test-fixture");
+    });
+
+    await page.goto("/session/test-voice-connecting");
+    await page.getByTestId("tab-chat").waitFor({ timeout: 10_000 });
+
+    const mic = page.locator('[aria-label="Start voice input"]');
+    await expect(mic).toBeVisible({ timeout: 5_000 });
+    await mic.click();
+
+    // After click, the same Pressable's aria-label flips to the active form.
+    const activeMic = page.locator('[aria-label="Stop voice, Connecting"]');
+    await expect(activeMic).toBeVisible({ timeout: 5_000 });
+
+    // No element should expose the bare "..." as its accessible name.
+    await expect(page.locator('[aria-label="Stop voice, ..."]')).toHaveCount(0);
+  });
 });

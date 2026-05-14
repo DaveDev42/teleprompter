@@ -37,9 +37,13 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
   const isActive = state !== "idle";
   const pp = getPlatformProps();
 
+  // Visible text is short ("Connecting…" reads naturally and stays under the
+  // 32px max-width). The screen-reader label uses the same word so VoiceOver
+  // doesn't announce "dot dot dot" from a bare "..." — keep visible label
+  // and announcement in sync.
   const stateLabel = {
     idle: "Mic",
-    connecting: "...",
+    connecting: "Connecting",
     listening: "Listening",
     processing: "Thinking",
   }[state];

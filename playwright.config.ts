@@ -46,6 +46,7 @@ export default defineConfig({
         "app-diagnostics-a11y.spec.ts",
         "app-input-autocomplete.spec.ts",
         "app-api-key-modal.spec.ts",
+        "app-modal-focus-trap-disabled.spec.ts",
       ],
     },
     {

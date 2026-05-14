@@ -139,6 +139,64 @@ export function GhosttyTerminal({
     };
   }, [termRef, searchRef]);
 
+  // Keyboard escape from the terminal. ghostty-web mounts internal
+  // tabIndex=0 elements (a hidden textarea + an a11y mirror div) that
+  // Tab cycles between forever — keyboard users get trapped inside the
+  // Terminal tab with no way out. Intercept Tab/Shift+Tab at the
+  // container in the capture phase and manually move focus to the
+  // next/previous focusable outside, so keyboard users can leave the
+  // terminal the same way they leave any other widget. Tab as a typed
+  // character is rarely useful in claude TUI (which navigates with
+  // arrow keys), so we don't forward it to the PTY.
+  //
+  // Use a native capture-phase listener (not React onKeyDownCapture)
+  // because ghostty's internal handlers may call stopPropagation in the
+  // capture phase before React's synthetic event system runs.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const root = containerRef.current;
+    if (!root) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const focusables = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          'a[href], button, input, textarea, select, [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter(
+        (el) => !el.hasAttribute("disabled") && el.offsetParent !== null,
+      );
+      const outside = focusables.filter((el) => !root.contains(el));
+      if (outside.length === 0) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      // compareDocumentPosition(root) returns flags relative to `el`: if
+      // root comes AFTER el in DOM order, the flag is
+      // DOCUMENT_POSITION_FOLLOWING (so el is "before" root). The reverse
+      // is DOCUMENT_POSITION_PRECEDING.
+      if (e.shiftKey) {
+        const before = outside.filter(
+          (el) =>
+            !!(
+              el.compareDocumentPosition(root) &
+              Node.DOCUMENT_POSITION_FOLLOWING
+            ),
+        );
+        (before[before.length - 1] ?? outside[outside.length - 1])?.focus();
+      } else {
+        const after = outside.find(
+          (el) =>
+            !!(
+              el.compareDocumentPosition(root) &
+              Node.DOCUMENT_POSITION_PRECEDING
+            ),
+        );
+        (after ?? outside[0])?.focus();
+      }
+    };
+    root.addEventListener("keydown", onKey, { capture: true });
+    return () => root.removeEventListener("keydown", onKey, { capture: true });
+  }, []);
+
   if (Platform.OS !== "web") return null;
 
   // The ghostty-web canvas paints over this background, but the parent div
@@ -150,6 +208,7 @@ export function GhosttyTerminal({
   return (
     <div
       ref={containerRef}
+      data-testid="terminal-container"
       style={{
         width: "100%",
         height: "100%",

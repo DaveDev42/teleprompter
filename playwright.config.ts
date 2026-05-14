@@ -61,6 +61,7 @@ export default defineConfig({
         "app-font-size-boundary-tab-reachable.spec.ts",
         "app-diagnostics-heading-hierarchy.spec.ts",
         "app-chat-input-autogrow.spec.ts",
+        "app-terminal-tab-escape.spec.ts",
       ],
     },
     {

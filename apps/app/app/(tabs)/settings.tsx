@@ -249,7 +249,11 @@ export default function SettingsScreen() {
     return (
       <View className="flex-1 bg-tp-bg" style={{ paddingTop: insets.top }}>
         <View className="flex-row items-center justify-between px-4 py-3">
-          <Text className="text-tp-text-primary text-xl font-bold">
+          <Text
+            className="text-tp-text-primary text-xl font-bold"
+            accessibilityRole="header"
+            {...ariaLevel(1)}
+          >
             Diagnostics
           </Text>
           <Pressable

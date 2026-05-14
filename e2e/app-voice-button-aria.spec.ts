@@ -39,7 +39,9 @@ test.describe("VoiceButton ARIA", () => {
   // aria-label round-trip the same human-readable state. The state is set
   // synchronously inside startVoice() (before any async getUserMedia work)
   // so we can assert immediately after the click without needing a real mic.
-  test("connecting state announces 'Connecting' not '...'", async ({ page }) => {
+  test("connecting state announces 'Connecting' not '...'", async ({
+    page,
+  }) => {
     await page.addInitScript(() => {
       localStorage.setItem("tp_voice_api_key", "sk-test-fixture");
     });

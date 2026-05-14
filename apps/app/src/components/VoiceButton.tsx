@@ -51,6 +51,15 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
   const ariaCheckedTerminal =
     Platform.OS === "web" ? { "aria-checked": includeTerminal } : {};
 
+  // Same gap for `accessibilityState.busy` — createDOMProps emits
+  // aria-busy only when it sees aria-busy/accessibilityBusy directly,
+  // so connecting/processing states wouldn't be announced. Pass it
+  // through on web for the mic Pressable.
+  const ariaBusyMic =
+    Platform.OS === "web"
+      ? { "aria-busy": state === "connecting" || state === "processing" }
+      : {};
+
   const bgColor = isActive
     ? isSpeaking
       ? "bg-tp-voice-active"
@@ -86,6 +95,7 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
         accessibilityState={{
           busy: state === "connecting" || state === "processing",
         }}
+        {...(ariaBusyMic as object)}
       >
         <Text className="text-tp-text-on-color text-sm">
           {isActive ? "■" : "Mic"}

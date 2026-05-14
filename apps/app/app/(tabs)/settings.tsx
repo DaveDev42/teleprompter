@@ -104,7 +104,11 @@ function UpdateStatusValue({
   if (status === "checking" || status === "downloading") {
     return (
       <View className="flex-row items-center">
-        <ActivityIndicator size="small" color={indicatorColor} className="mr-2" />
+        <ActivityIndicator
+          size="small"
+          color={indicatorColor}
+          className="mr-2"
+        />
         <Text className="text-tp-text-secondary text-[13px]">
           {status === "checking" ? "Checking..." : "Downloading..."}
         </Text>

@@ -154,6 +154,7 @@ export default function PairingScreen() {
         )}
 
         <Pressable
+          testID="pairing-connect"
           onPress={handlePaste}
           disabled={!canSubmit}
           accessibilityRole="button"

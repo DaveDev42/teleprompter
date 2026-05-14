@@ -53,6 +53,7 @@ export default defineConfig({
         "app-pairing-connect-tab-reachable.spec.ts",
         "app-text-tertiary-contrast.spec.ts",
         "app-theme-persistence.spec.ts",
+        "app-pairing-input-hint.spec.ts",
       ],
     },
     {

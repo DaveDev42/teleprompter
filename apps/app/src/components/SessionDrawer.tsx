@@ -13,6 +13,17 @@ import { getTransport } from "../hooks/use-transport";
 import { getPlatformProps } from "../lib/get-platform-props";
 import { useChatStore } from "../stores/chat-store";
 import { useSessionStore } from "../stores/session-store";
+import { useThemeStore } from "../stores/theme-store";
+
+// Mirror the placeholder + activity-indicator literals already used in
+// session/[sid].tsx and ApiKeyModal. RN's TextInput.placeholderTextColor
+// and ActivityIndicator.color want a plain string, not a CSS var, so a
+// theme-aware constant is the cleanest path while keeping the rest of the
+// drawer on tp-* classes.
+const PLACEHOLDER_LIGHT = "#a1a1aa";
+const PLACEHOLDER_DARK = "#71717a";
+const INDICATOR_LIGHT = "#71717a";
+const INDICATOR_DARK = "#a1a1aa";
 
 function SessionItem({
   session,
@@ -38,6 +49,8 @@ function SessionItem({
         ? "bg-tp-text-tertiary"
         : "bg-tp-error";
   const pp = getPlatformProps();
+  const isDark = useThemeStore((s) => s.isDark);
+  const indicatorColor = isDark ? INDICATOR_DARK : INDICATOR_LIGHT;
 
   return (
     <Pressable
@@ -115,7 +128,7 @@ function SessionItem({
             style={{ opacity: isExporting ? 0.5 : 1 }}
           >
             {isExporting ? (
-              <ActivityIndicator size="small" color="#999" />
+              <ActivityIndicator size="small" color={indicatorColor} />
             ) : (
               <Text className="text-tp-text-secondary text-xs">Export</Text>
             )}
@@ -135,6 +148,8 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
   const [branchInput, setBranchInput] = useState("");
   const [exportingSid, setExportingSid] = useState<string | null>(null);
   const pp = getPlatformProps();
+  const isDark = useThemeStore((s) => s.isDark);
+  const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
   const exportCallbackRef = useRef<
     ((sid: string, format: string, content: string) => void) | null
   >(null);
@@ -312,7 +327,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
             className={`bg-tp-bg-tertiary text-tp-text-primary rounded-lg px-3 py-1.5 text-sm ${pp.className}`}
             tabIndex={pp.tabIndex}
             placeholder="Search sessions..."
-            placeholderTextColor="#555"
+            placeholderTextColor={placeholderColor}
             value={filter}
             onChangeText={setFilter}
             autoCapitalize="none"
@@ -365,7 +380,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
             <TextInput
               className="flex-1 bg-tp-bg-tertiary text-tp-text-primary rounded-lg px-3 py-1.5 text-sm font-mono"
               placeholder="branch-name"
-              placeholderTextColor="#555"
+              placeholderTextColor={placeholderColor}
               value={branchInput}
               onChangeText={setBranchInput}
               autoCapitalize="none"

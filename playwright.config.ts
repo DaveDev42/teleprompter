@@ -52,6 +52,7 @@ export default defineConfig({
         "app-chat-send-tab-reachable.spec.ts",
         "app-pairing-connect-tab-reachable.spec.ts",
         "app-text-tertiary-contrast.spec.ts",
+        "app-theme-persistence.spec.ts",
       ],
     },
     {

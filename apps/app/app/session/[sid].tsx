@@ -344,7 +344,7 @@ function ChatView({
           accessibilityLabel="Send message"
           accessibilityState={{ disabled: !input.trim() || !canSend }}
         >
-          <Text className="text-white text-lg font-bold">↑</Text>
+          <Text className="text-tp-text-on-color text-lg font-bold">↑</Text>
         </Pressable>
       </View>
     </>

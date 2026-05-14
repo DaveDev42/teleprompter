@@ -147,6 +147,7 @@ function ChatView({
   const connected = useAnyRelayConnected();
   const flatListRef = useRef<FlatList>(null);
   const sendRef = useRef<View>(null);
+  const chatInputRef = useRef<TextInput>(null);
   const [input, setInput] = useState("");
   const setOnPromptReady = useVoiceStore((s) => s.setOnPromptReady);
   const pp = getPlatformProps();
@@ -175,6 +176,20 @@ function ChatView({
   useEffect(() => {
     setInput("");
   }, [sid]);
+
+  // RN Web's `multiline` TextInput renders as <textarea rows="2"> with a
+  // fixed height — Shift+Enter newlines stack invisibly inside the same
+  // 52px box. Resize the textarea to fit content on every change (clamped
+  // by the existing `max-h-24` Tailwind class via CSS max-height, then
+  // internal scroll takes over). Reset to "auto" first so shrinking works
+  // when the user deletes lines.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const el = chatInputRef.current as unknown as HTMLTextAreaElement | null;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [input]);
 
   // Request record replay on mount. The relay client queues the frame if
   // key exchange hasn't finished yet and flushes on auth.ok, so we no longer
@@ -333,6 +348,7 @@ function ChatView({
       <View className="flex-row items-end px-3 py-2 bg-tp-bg-secondary border-t border-tp-border">
         <VoiceButton disabled={stopped} />
         <TextInput
+          ref={chatInputRef}
           testID="chat-input"
           className={`flex-1 bg-tp-bg-input text-tp-text-primary rounded-full px-4 py-2 mr-2 max-h-24 text-[15px] ${pp.className}`}
           placeholder={stopped ? "Session ended" : "Send a message..."}

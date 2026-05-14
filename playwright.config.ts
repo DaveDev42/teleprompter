@@ -42,6 +42,8 @@ export default defineConfig({
         "app-aria-level.spec.ts",
         "app-modal-inert-bg.spec.ts",
         "app-testid-stability.spec.ts",
+        "app-sessions-empty-tab-order.spec.ts",
+        "app-diagnostics-a11y.spec.ts",
       ],
     },
     {

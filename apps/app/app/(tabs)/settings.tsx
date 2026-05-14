@@ -1,8 +1,9 @@
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import Constants from "expo-constants";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -16,6 +17,7 @@ import {
   type FontPickerMode,
   FontSizeModal,
 } from "../../src/components/FontPickerModal";
+import { useKeyboard } from "../../src/hooks/use-keyboard";
 import { useOtaUpdate } from "../../src/hooks/use-ota-update";
 import { ariaLevel, getPlatformProps } from "../../src/lib/get-platform-props";
 import { useSettingsStore } from "../../src/stores/settings-store";
@@ -196,6 +198,29 @@ export default function SettingsScreen() {
   const apiKey = useVoiceStore((s) => s.apiKey);
   const setApiKey = useVoiceStore((s) => s.setApiKey);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  // Restore focus to the Diagnostics row when the user closes the panel.
+  // Without this, focus drops to <body> and keyboard users lose their place.
+  // The trigger is a SettingsRow which we look up by aria-label rather than
+  // threading a ref through the shared row component.
+  const wasShowingRef = useRef(false);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (wasShowingRef.current && !showDiagnostics) {
+      const el = document.querySelector<HTMLElement>(
+        '[aria-label="Diagnostics"]',
+      );
+      el?.focus();
+    }
+    wasShowingRef.current = showDiagnostics;
+  }, [showDiagnostics]);
+  const diagnosticsKeyMap = useMemo<Record<string, () => void>>(
+    () =>
+      showDiagnostics
+        ? { Escape: () => setShowDiagnostics(false) }
+        : ({} as Record<string, () => void>),
+    [showDiagnostics],
+  );
+  useKeyboard(diagnosticsKeyMap);
   const [fontPickerMode, setFontPickerMode] = useState<FontPickerMode | null>(
     null,
   );

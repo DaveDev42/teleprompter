@@ -209,7 +209,12 @@ export default function SessionsScreen() {
             <Pressable
               onPress={() => router.push("/(tabs)/daemons")}
               className={`mt-6 bg-tp-accent rounded-card px-8 py-3 ${pp.className}`}
-              tabIndex={pp.tabIndex}
+              // Removed from keyboard tab order: react-navigation renders the
+              // tab bar after the scene in DOM, so leaving this CTA tabbable
+              // captures Tab 1 ahead of the persistent navigation. Mouse/touch
+              // users keep the CTA; keyboard users reach Daemons via the tab
+              // bar (also documented in the instructional text above).
+              tabIndex={-1}
               accessibilityRole="button"
               accessibilityLabel="Go to Daemons"
             >

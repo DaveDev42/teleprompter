@@ -24,9 +24,7 @@ test.describe("VoiceButton ARIA", () => {
     await page.goto("/session/test-voice-aria");
     await page.getByTestId("tab-chat").waitFor({ timeout: 10_000 });
 
-    const termSwitch = page.locator(
-      '[aria-label="Include terminal context"]',
-    );
+    const termSwitch = page.locator('[aria-label="Include terminal context"]');
     await expect(termSwitch).toBeVisible({ timeout: 5_000 });
     await expect(termSwitch).toHaveAttribute("aria-checked", "false");
 

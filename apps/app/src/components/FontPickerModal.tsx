@@ -53,6 +53,17 @@ export function FontPickerModal({
   const initialIndex = Math.max(0, fonts.indexOf(currentFont));
   const [activeIndex, setActiveIndex] = useState(initialIndex);
   const optionRefs = useRef<Array<HTMLElement | null>>([]);
+  // Bridge ref for ModalContainer's initial-focus override. Without this the
+  // first focusable in DOM order (the trailing "Done" button) wins, so a
+  // screen reader announces "Done, button" instead of the current font
+  // option, and ArrowDown does nothing until the user Shift+Tab's into the
+  // listbox first. Sync the bridge on every render so the freshly-rendered
+  // DOM node is in scope by the time ModalContainer's 100 ms focus timer
+  // fires.
+  const initialFocusRef = useRef<unknown>(null);
+  useEffect(() => {
+    initialFocusRef.current = optionRefs.current[activeIndex] ?? null;
+  });
 
   useEffect(() => {
     if (!visible) return;
@@ -94,6 +105,7 @@ export function FontPickerModal({
       visible={visible}
       onClose={onClose}
       accessibilityLabel={title}
+      initialFocusRef={initialFocusRef}
     >
       <View className="max-h-[60vh]">
         <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
@@ -149,6 +161,7 @@ export function FontPickerModal({
                   : {};
               return (
                 <Pressable
+                  testID={`font-option-${item}`}
                   className={`flex-row items-center justify-between px-5 py-3.5 ${pp.className}`}
                   tabIndex={Platform.OS === "web" ? undefined : pp.tabIndex}
                   onPress={() => {

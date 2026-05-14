@@ -19,7 +19,13 @@
     --tp-border-focus: #3b82f6;
     --tp-text-primary: #09090b;
     --tp-text-secondary: #71717a;
-    --tp-text-tertiary: #a1a1aa;
+    /* WCAG 2.1 SC 1.4.3 (AA): #a1a1aa on white is 2.56:1, below the
+       4.5:1 threshold for normal body text. tp-text-tertiary backs
+       section labels (role=heading), badge metadata, and other text
+       readers actually have to parse, so it has to clear AA. #696969
+       lands at ~5.4:1 on white while still reading visually as a
+       softer tertiary tone than tp-text-secondary. */
+    --tp-text-tertiary: #696969;
     --tp-text-on-color: #ffffff;
     --tp-accent: #2563eb;
     --tp-accent-hover: #1d4ed8;
@@ -62,7 +68,10 @@
     --tp-border-focus: #3b82f6;
     --tp-text-primary: #fafafa;
     --tp-text-secondary: #a1a1aa;
-    --tp-text-tertiary: #71717a;
+    /* WCAG 2.1 SC 1.4.3 (AA): #71717a on tp-bg #09090b is 4.12:1, just
+       under the 4.5:1 threshold for normal body text. #808080 reaches
+       ~5.1:1 while keeping the softer tertiary tone in dark mode. */
+    --tp-text-tertiary: #808080;
     --tp-text-on-color: #ffffff;
     --tp-accent: #3b82f6;
     --tp-accent-hover: #2563eb;

@@ -1,6 +1,6 @@
 import { decodePairingData } from "@teleprompter/protocol/client";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -32,6 +32,20 @@ export default function PairingScreen() {
   const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
   const indicatorColor = isDark ? INDICATOR_DARK : INDICATOR_LIGHT;
   const canSubmit = manualInput.trim().length > 0;
+  const connectRef = useRef<View>(null);
+
+  // Mirror disabled state to aria-disabled on the Connect button. RN
+  // Web's Pressable only emits aria-disabled when the native `disabled`
+  // prop is also set, but native `disabled` removes the button from the
+  // browser's Tab order — a keyboard-only user would Tab past the
+  // textarea straight to <body>. Same pattern as the chat Send button.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const el = connectRef.current as unknown as HTMLElement | null;
+    if (!el) return;
+    if (!canSubmit) el.setAttribute("aria-disabled", "true");
+    else el.removeAttribute("aria-disabled");
+  }, [canSubmit]);
 
   // Preview the daemon being requested when arriving via deep link, so the
   // user has to explicitly confirm rather than be paired automatically.
@@ -159,8 +173,14 @@ export default function PairingScreen() {
 
         <Pressable
           testID="pairing-connect"
-          onPress={handlePaste}
-          disabled={!canSubmit}
+          ref={connectRef}
+          // Drop the native `disabled` prop so the browser keeps the
+          // button in Tab order (see ref useEffect above for the
+          // aria-disabled mirror). Guard the press handler instead.
+          onPress={() => {
+            if (!canSubmit) return;
+            handlePaste();
+          }}
           accessibilityRole="button"
           accessibilityLabel={buttonLabel}
           accessibilityState={{ disabled: !canSubmit }}

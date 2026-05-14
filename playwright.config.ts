@@ -32,6 +32,7 @@ export default defineConfig({
         "app-font-picker-a11y.spec.ts",
         "app-aria-disabled.spec.ts",
         "app-modal-dialog-aria.spec.ts",
+        "app-tablist-aria.spec.ts",
       ],
     },
     {

@@ -40,6 +40,7 @@ export default defineConfig({
         "app-chat-send-unpaired.spec.ts",
         "app-pairing-scan-back-nav.spec.ts",
         "app-aria-level.spec.ts",
+        "app-modal-inert-bg.spec.ts",
       ],
     },
     {

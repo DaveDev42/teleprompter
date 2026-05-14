@@ -18,6 +18,7 @@ export function ModalContainer({
   accessibilityLabel?: string;
 }) {
   const containerRef = useRef<View>(null);
+  const dialogRef = useRef<View>(null);
   const previousFocusRef = useRef<Element | null>(null);
 
   const keyMap = useMemo<Record<string, () => void>>(
@@ -32,6 +33,33 @@ export function ModalContainer({
 
     // Save previous focus
     previousFocusRef.current = document.activeElement;
+
+    // Mark every sibling of the dialog's ancestor chain as inert so screen
+    // readers cannot virtual-cursor into background content and Tab cannot
+    // escape into it. RN Web's <Modal> renders inline (not into a portal),
+    // so we walk from the dialog up to <body> and inert the off-path
+    // siblings at each level. Restore previous values on unmount.
+    const dialogEl = dialogRef.current as unknown as HTMLElement | null;
+    const inertRestores: Array<() => void> = [];
+    let node: HTMLElement | null = dialogEl;
+    while (node && node !== document.body) {
+      const parent: HTMLElement | null = node.parentElement;
+      if (!parent) break;
+      for (const sib of Array.from(parent.children)) {
+        if (sib === node) continue;
+        const el = sib as HTMLElement;
+        const hadInert = el.hasAttribute("inert");
+        const hadAriaHidden = el.getAttribute("aria-hidden");
+        el.setAttribute("inert", "");
+        el.setAttribute("aria-hidden", "true");
+        inertRestores.push(() => {
+          if (!hadInert) el.removeAttribute("inert");
+          if (hadAriaHidden === null) el.removeAttribute("aria-hidden");
+          else el.setAttribute("aria-hidden", hadAriaHidden);
+        });
+      }
+      node = parent;
+    }
 
     // Wait for Modal's slide animation to mount DOM before focusing
     const timer = setTimeout(() => {
@@ -78,6 +106,7 @@ export function ModalContainer({
     return () => {
       clearTimeout(timer);
       document.removeEventListener("keydown", trapHandler, true);
+      for (const restore of inertRestores) restore();
       // Restore focus
       if (previousFocusRef.current instanceof HTMLElement) {
         previousFocusRef.current.focus();
@@ -95,6 +124,7 @@ export function ModalContainer({
       <Pressable className="flex-1 bg-tp-overlay" onPress={onClose}>
         <View className="flex-1" />
         <View
+          ref={dialogRef}
           className="bg-tp-bg-elevated rounded-t-2xl w-full max-w-[540px] mx-auto"
           accessibilityLabel={accessibilityLabel}
           accessibilityViewIsModal

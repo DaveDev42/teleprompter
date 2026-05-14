@@ -25,6 +25,7 @@ export default function RootLayout() {
   const loadVoice = useVoiceStore((s) => s.load);
   const theme = useThemeStore((s) => s.theme);
   const isDark = useThemeStore((s) => s.isDark);
+  const themeLoaded = useThemeStore((s) => s.loaded);
   const setTheme = useThemeStore((s) => s.setTheme);
   const _systemScheme = useColorScheme();
 
@@ -49,11 +50,16 @@ export default function RootLayout() {
   // Re-resolve theme when system color scheme changes. _systemScheme must be
   // in the dep array — useColorScheme()'s return value is what flips on OS
   // appearance changes, so without it the effect never re-fires after mount.
+  // The `themeLoaded` gate avoids racing the async load(): on mount the store
+  // defaults to "system", and without the gate this effect would write
+  // "system" to storage before load() had a chance to read the user's saved
+  // preference, clobbering it on the next reload.
   useEffect(() => {
+    if (!themeLoaded) return;
     if (theme === "system") {
       setTheme("system");
     }
-  }, [theme, setTheme, _systemScheme]);
+  }, [theme, themeLoaded, setTheme, _systemScheme]);
 
   // Sync dark/light class to <html> element on web so :root CSS variables
   // defined in global.css (.dark { --tp-* }) are reachable by the browser's

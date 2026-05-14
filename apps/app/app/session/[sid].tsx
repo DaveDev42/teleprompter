@@ -545,7 +545,12 @@ export default function SessionDetailScreen() {
       {/* Nav header */}
       <View className="flex-row items-center px-2 py-2.5 bg-tp-bg-secondary border-b border-tp-border">
         <Pressable
-          onPress={() => router.back()}
+          // canGoBack() guards the case where the user opens /session/:sid
+          // directly (deep link, browser refresh) — router.back() is a no-op
+          // when there's no history entry, leaving the user stranded.
+          onPress={() =>
+            router.canGoBack() ? router.back() : router.replace("/(tabs)/")
+          }
           className={`px-2 ${pp.className}`}
           tabIndex={pp.tabIndex}
           accessibilityRole="button"

@@ -17,7 +17,7 @@ import {
   FontSizeModal,
 } from "../../src/components/FontPickerModal";
 import { useOtaUpdate } from "../../src/hooks/use-ota-update";
-import { getPlatformProps } from "../../src/lib/get-platform-props";
+import { ariaLevel, getPlatformProps } from "../../src/lib/get-platform-props";
 import { useSettingsStore } from "../../src/stores/settings-store";
 import { type Theme, useThemeStore } from "../../src/stores/theme-store";
 import { useVoiceStore } from "../../src/stores/voice-store";
@@ -32,6 +32,7 @@ function SectionLabel({ children }: { children: string }) {
   return (
     <Text
       accessibilityRole="header"
+      {...ariaLevel(3)}
       className="text-tp-text-tertiary text-[13px] font-medium tracking-wide uppercase px-4 mb-2 mt-6"
     >
       {children}
@@ -243,6 +244,7 @@ export default function SettingsScreen() {
         <View className="px-4 pt-2 pb-1">
           <Text
             accessibilityRole="header"
+            {...ariaLevel(1)}
             className="text-tp-text-primary text-[28px] font-bold"
           >
             Settings

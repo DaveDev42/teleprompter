@@ -58,6 +58,7 @@ export default defineConfig({
         "app-reduced-motion.spec.ts",
         "app-chat-ime-composition.spec.ts",
         "app-api-key-save-tab-reachable.spec.ts",
+        "app-font-size-boundary-tab-reachable.spec.ts",
       ],
     },
     {

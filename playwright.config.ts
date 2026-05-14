@@ -66,6 +66,7 @@ export default defineConfig({
         "app-daemon-card-a11y.spec.ts",
         "app-rename-modal-tab-reachable.spec.ts",
         "app-session-tabpanel-aria.spec.ts",
+        "app-font-picker-initial-focus.spec.ts",
       ],
     },
     {

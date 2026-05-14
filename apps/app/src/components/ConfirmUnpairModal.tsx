@@ -1,5 +1,5 @@
 import { Pressable, Text, View } from "react-native";
-import { getPlatformProps } from "../lib/get-platform-props";
+import { ariaLevel, getPlatformProps } from "../lib/get-platform-props";
 import { ModalContainer } from "./ModalContainer";
 
 export function ConfirmUnpairModal({
@@ -37,6 +37,7 @@ export function ConfirmUnpairModal({
           <Text
             className="text-tp-text-primary text-lg font-bold"
             accessibilityRole="header"
+            {...ariaLevel(2)}
           >
             Remove Daemon
           </Text>

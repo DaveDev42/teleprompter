@@ -7,7 +7,7 @@ import {
 } from "../hooks/use-relay";
 import { getTransport } from "../hooks/use-transport";
 import { checkCryptoAvailability } from "../lib/crypto-native";
-import { getPlatformProps } from "../lib/get-platform-props";
+import { ariaLevel, getPlatformProps } from "../lib/get-platform-props";
 import { useOfflineStore } from "../stores/offline-store";
 import { usePairingStore } from "../stores/pairing-store";
 import { useSessionStore } from "../stores/session-store";
@@ -33,6 +33,7 @@ function Section({
       <Text
         className="text-tp-text-tertiary text-xs font-bold mb-1"
         accessibilityRole="header"
+        {...ariaLevel(3)}
       >
         {title}
       </Text>
@@ -190,6 +191,7 @@ export function DiagnosticsPanel() {
       <Text
         className="text-tp-text-primary text-lg font-bold mb-4"
         accessibilityRole="header"
+        {...ariaLevel(2)}
       >
         Diagnostics
       </Text>
@@ -305,6 +307,7 @@ export function DiagnosticsPanel() {
       <Text
         className="text-tp-text-tertiary text-xs font-bold mb-2"
         accessibilityRole="header"
+        {...ariaLevel(3)}
       >
         SESSIONS ({sessions.length})
       </Text>

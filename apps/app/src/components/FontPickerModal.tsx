@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { FlatList, Platform, Pressable, Text, View } from "react-native";
-import { getPlatformProps } from "../lib/get-platform-props";
+import { ariaLevel, getPlatformProps } from "../lib/get-platform-props";
 import { ModalContainer } from "./ModalContainer";
 
 const SANS_FONTS = [
@@ -57,6 +57,7 @@ export function FontPickerModal({
           <Text
             className="text-tp-text-primary text-lg font-bold"
             accessibilityRole="header"
+            {...ariaLevel(2)}
           >
             {title}
           </Text>
@@ -153,6 +154,7 @@ export function FontSizeModal({
         <Text
           className="text-tp-text-primary text-lg font-bold"
           accessibilityRole="header"
+          {...ariaLevel(2)}
         >
           Font Size
         </Text>

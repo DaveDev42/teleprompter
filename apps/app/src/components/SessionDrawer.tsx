@@ -10,7 +10,7 @@ import {
   View,
 } from "react-native";
 import { getTransport } from "../hooks/use-transport";
-import { getPlatformProps } from "../lib/get-platform-props";
+import { ariaLevel, getPlatformProps } from "../lib/get-platform-props";
 import { useChatStore } from "../stores/chat-store";
 import { useSessionStore } from "../stores/session-store";
 import { useThemeStore } from "../stores/theme-store";
@@ -315,6 +315,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
           <Text
             className="text-tp-text-primary font-bold"
             accessibilityRole="header"
+            {...ariaLevel(2)}
           >
             Sessions
           </Text>
@@ -348,6 +349,7 @@ export function SessionDrawer({ onClose }: { onClose?: () => void }) {
                 <Text
                   className="text-tp-text-tertiary text-xs font-mono"
                   accessibilityRole="header"
+                  {...ariaLevel(3)}
                 >
                   {item.key}
                 </Text>

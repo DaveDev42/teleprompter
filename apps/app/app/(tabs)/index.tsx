@@ -10,7 +10,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getPlatformProps } from "../../src/lib/get-platform-props";
+import { ariaLevel, getPlatformProps } from "../../src/lib/get-platform-props";
 import { useSessionStore } from "../../src/stores/session-store";
 import { useThemeStore } from "../../src/stores/theme-store";
 
@@ -149,6 +149,7 @@ export default function SessionsScreen() {
       <View className="px-4 pt-2 pb-1">
         <Text
           accessibilityRole="header"
+          {...ariaLevel(1)}
           className="text-tp-text-primary text-[28px] font-bold"
         >
           Sessions

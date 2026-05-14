@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { getPlatformProps } from "../../src/lib/get-platform-props";
+import { ariaLevel, getPlatformProps } from "../../src/lib/get-platform-props";
 import { usePairingStore } from "../../src/stores/pairing-store";
 import { useThemeStore } from "../../src/stores/theme-store";
 
@@ -87,6 +87,7 @@ export default function PairingScreen() {
       <View className="w-full max-w-2xl px-6">
         <Text
           accessibilityRole="header"
+          {...ariaLevel(1)}
           className="text-tp-text-primary text-2xl font-bold text-center"
         >
           Pair with Daemon

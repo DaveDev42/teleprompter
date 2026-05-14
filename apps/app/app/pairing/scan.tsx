@@ -2,7 +2,7 @@ import type { PermissionResponse } from "expo-modules-core";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
-import { getPlatformProps } from "../../src/lib/get-platform-props";
+import { ariaLevel, getPlatformProps } from "../../src/lib/get-platform-props";
 import { usePairingStore } from "../../src/stores/pairing-store";
 
 // Native-only API surface from expo-camera. We avoid `import` at module top so
@@ -179,7 +179,11 @@ export default function ScanScreen() {
   if (Platform.OS === "web") {
     return (
       <View className="flex-1 bg-tp-bg items-center justify-center">
-        <Text accessibilityRole="header" className="text-tp-text-secondary">
+        <Text
+          accessibilityRole="header"
+          {...ariaLevel(1)}
+          className="text-tp-text-secondary"
+        >
           QR scanning is not available on web.
         </Text>
         <Pressable

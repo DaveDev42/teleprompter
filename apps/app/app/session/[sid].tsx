@@ -153,6 +153,85 @@ const SESSION_TAB_TERMINAL_ID = "session-tab-terminal";
 const SESSION_TABPANEL_CHAT_ID = "session-tabpanel-chat";
 const SESSION_TABPANEL_TERMINAL_ID = "session-tabpanel-terminal";
 
+// Duration the transient "Reconnected" confirmation stays visible after the
+// relay link is restored. Short enough that it doesn't linger as visual
+// noise, long enough that AT polite-queue flushers reliably announce it.
+const RECONNECT_BANNER_MS = 2500;
+
+// Persistent connection-state live region. Mounted for the lifetime of an
+// active session so a screen reader can announce both the loss of
+// connectivity and its recovery — if the disconnected banner was
+// conditionally mounted on !connected and unmounted on reconnect, AT would
+// hear "Disconnected..." but nothing on recovery, leaving users uncertain
+// whether their pending messages went out. Wrapper is always in the tree;
+// the chrome is only rendered when the message slot is non-empty so the
+// header layout collapses to zero rows during steady-state.
+function ConnectionLiveRegion({ connected }: { connected: boolean }) {
+  const [message, setMessage] = useState<"" | "disconnected" | "reconnected">(
+    "",
+  );
+  // Track whether we've seen a disconnect so we don't fire a spurious
+  // "Reconnected" on initial mount (connected starts true on a healthy
+  // session — announcing recovery for a state that was never lost is noise).
+  const hasBeenDisconnected = useRef(false);
+
+  useEffect(() => {
+    if (!connected) {
+      hasBeenDisconnected.current = true;
+      setMessage("disconnected");
+      return;
+    }
+    // connected === true
+    if (!hasBeenDisconnected.current) {
+      setMessage("");
+      return;
+    }
+    setMessage("reconnected");
+    const t = setTimeout(() => setMessage(""), RECONNECT_BANNER_MS);
+    return () => clearTimeout(t);
+  }, [connected]);
+
+  // Render the wrapper unconditionally so AT keeps a stable live region
+  // attached. The visible chrome is the only thing that toggles.
+  return (
+    <View
+      testID="session-connection-live-region"
+      accessibilityLiveRegion="polite"
+      accessibilityLabel={
+        message === "disconnected"
+          ? "Disconnected. Messages will send after reconnect."
+          : message === "reconnected"
+            ? "Reconnected."
+            : undefined
+      }
+      {...(Platform.OS === "web" ? { role: "status" as const } : {})}
+    >
+      {message === "disconnected" && (
+        <View
+          testID="session-disconnected-banner"
+          className="flex-row items-center px-4 py-2 bg-tp-bg-secondary border-b border-tp-border"
+        >
+          <View className="w-1.5 h-1.5 rounded-full bg-tp-text-tertiary mr-2" />
+          <Text className="text-tp-text-secondary text-[12px] font-medium">
+            Disconnected — messages will send after reconnect
+          </Text>
+        </View>
+      )}
+      {message === "reconnected" && (
+        <View
+          testID="session-reconnected-banner"
+          className="flex-row items-center px-4 py-2 bg-tp-bg-secondary border-b border-tp-border"
+        >
+          <View className="w-1.5 h-1.5 rounded-full bg-tp-success mr-2" />
+          <Text className="text-tp-text-secondary text-[12px] font-medium">
+            Reconnected
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
 function ChatView({
   sid,
   session,
@@ -700,22 +779,16 @@ export default function SessionDetailScreen() {
         </View>
       )}
 
-      {/* Disconnected banner — shown when the relay link is down on a live
-          session so the user understands why pressing Send appears to no-op. */}
-      {!stopped && !connected && (
-        <View
-          testID="session-disconnected-banner"
-          role="status"
-          accessibilityLiveRegion="polite"
-          accessibilityLabel="Disconnected. Messages will send after reconnect."
-          className="flex-row items-center px-4 py-2 bg-tp-bg-secondary border-b border-tp-border"
-        >
-          <View className="w-1.5 h-1.5 rounded-full bg-tp-text-tertiary mr-2" />
-          <Text className="text-tp-text-secondary text-[12px] font-medium">
-            Disconnected — messages will send after reconnect
-          </Text>
-        </View>
-      )}
+      {/* Connection-state live region. We keep the wrapper mounted at all
+          times on a live session so a screen reader's polite queue gets to
+          announce the reconnect transition — if the banner unmounts when
+          connected flips true, the live region vanishes with it and AT
+          users hear nothing about recovery. The visible chrome only
+          appears when there's something to say, so sighted users still see
+          a clean header when everything is fine. The transient
+          "Reconnected" text clears itself after a few seconds so it
+          doesn't linger in the layout. */}
+      {!stopped && <ConnectionLiveRegion connected={connected} />}
 
       {/* Segmented control */}
       <SegmentedControl mode={mode} onModeChange={setMode} />

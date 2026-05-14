@@ -68,6 +68,7 @@ export default defineConfig({
         "app-session-tabpanel-aria.spec.ts",
         "app-font-picker-initial-focus.spec.ts",
         "app-pairing-input-hint-live-region.spec.ts",
+        "app-session-reconnect-announce.spec.ts",
       ],
     },
     {

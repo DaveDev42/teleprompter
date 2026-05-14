@@ -82,9 +82,9 @@ function SessionItem({
             accessibilityRole="button"
             accessibilityLabel={`Stop session ${session.sid}`}
             tabIndex={pp.tabIndex}
-            className={`bg-red-900/50 px-2 py-1 rounded ${pp.className}`}
+            className={`bg-tp-error-soft px-2 py-1 rounded ${pp.className}`}
           >
-            <Text className="text-red-300 text-xs">Stop</Text>
+            <Text className="text-tp-error-on-soft text-xs">Stop</Text>
           </Pressable>
         )}
         {session.state === "error" && (
@@ -96,9 +96,9 @@ function SessionItem({
             accessibilityRole="button"
             accessibilityLabel={`Restart session ${session.sid}`}
             tabIndex={pp.tabIndex}
-            className={`bg-orange-900/50 px-2 py-1 rounded ${pp.className}`}
+            className={`bg-tp-warning-soft px-2 py-1 rounded ${pp.className}`}
           >
-            <Text className="text-orange-300 text-xs">Restart</Text>
+            <Text className="text-tp-warning-on-soft text-xs">Restart</Text>
           </Pressable>
         )}
         {session.state === "stopped" && (

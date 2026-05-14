@@ -1,6 +1,7 @@
 import { useRouter } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { getPlatformProps } from "../lib/get-platform-props";
 import { useNotificationStore } from "../stores/notification-store";
 
 export function InAppToast() {
@@ -8,6 +9,7 @@ export function InAppToast() {
   const dismiss = useNotificationStore((s) => s.dismissToast);
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const pp = getPlatformProps();
 
   if (!toast) return null;
 
@@ -35,7 +37,8 @@ export function InAppToast() {
           onPress={handlePress}
           accessibilityRole="button"
           accessibilityLabel={`Open: ${toast.title}: ${toast.body}`}
-          className="flex-1 p-4"
+          tabIndex={pp.tabIndex}
+          className={`flex-1 p-4 ${pp.className}`}
         >
           <Text className="text-tp-text-primary font-semibold text-sm">
             {toast.title}
@@ -49,7 +52,8 @@ export function InAppToast() {
           hitSlop={8}
           accessibilityLabel="Dismiss notification"
           accessibilityRole="button"
-          className="px-4 py-4"
+          tabIndex={pp.tabIndex}
+          className={`px-4 py-4 ${pp.className}`}
         >
           <Text className="text-tp-text-tertiary text-lg">✕</Text>
         </Pressable>

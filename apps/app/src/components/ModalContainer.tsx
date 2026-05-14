@@ -82,11 +82,17 @@ export function ModalContainer({
       if (e.key !== "Tab") return;
       const container = containerRef.current as unknown as HTMLElement;
       if (!container) return;
-      const focusable = container.querySelectorAll(FOCUSABLE_SELECTOR);
+      // Filter out disabled controls — the browser skips them in Tab order,
+      // so if the trailing focusable in DOM order is disabled, the trap
+      // never sees focus reach `last` and Tab escapes the modal to <body>.
+      // Compute first/last from the same set the browser actually uses.
+      const focusable = Array.from(
+        container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      ).filter((el) => !(el as HTMLButtonElement).disabled);
       if (focusable.length === 0) return;
 
-      const first = focusable[0] as HTMLElement;
-      const last = focusable[focusable.length - 1] as HTMLElement;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
 
       if (e.shiftKey) {
         if (document.activeElement === first) {

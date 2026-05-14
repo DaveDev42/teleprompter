@@ -1,7 +1,15 @@
 import { useEffect, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { getPlatformProps } from "../lib/get-platform-props";
+import { useThemeStore } from "../stores/theme-store";
 import { ModalContainer } from "./ModalContainer";
+
+// React Native's TextInput placeholderTextColor needs a plain color literal —
+// passing a CSS variable string falls back to the platform default on
+// iOS/Android. Mirror the values from app/session/[sid].tsx so the chat
+// composer and this modal stay in sync if the palette is retuned.
+const PLACEHOLDER_LIGHT = "#a1a1aa";
+const PLACEHOLDER_DARK = "#71717a";
 
 export function ApiKeyModal({
   visible,
@@ -15,6 +23,8 @@ export function ApiKeyModal({
   onClose: () => void;
 }) {
   const pp = getPlatformProps();
+  const isDark = useThemeStore((s) => s.isDark);
+  const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
   const [value, setValue] = useState(currentKey ?? "");
 
   useEffect(() => {
@@ -54,7 +64,7 @@ export function ApiKeyModal({
           value={value}
           onChangeText={setValue}
           placeholder="sk-..."
-          placeholderTextColor="var(--tp-text-tertiary)"
+          placeholderTextColor={placeholderColor}
           autoCapitalize="none"
           autoCorrect={false}
           secureTextEntry
@@ -73,7 +83,9 @@ export function ApiKeyModal({
           accessibilityRole="button"
           accessibilityLabel="Save API key"
         >
-          <Text className="text-white text-[15px] font-semibold">Save</Text>
+          <Text className="text-tp-text-on-color text-[15px] font-semibold">
+            Save
+          </Text>
         </Pressable>
         {currentKey && (
           <Pressable

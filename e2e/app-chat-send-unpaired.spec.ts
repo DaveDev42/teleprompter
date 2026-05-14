@@ -17,7 +17,11 @@ test.describe("Chat send when unpaired", () => {
     await page.keyboard.press("Enter");
 
     await expect(input).toHaveValue("", { timeout: 5_000 });
-    const toast = page.getByRole("alert").filter({ hasText: "Not paired" });
+    // Toast uses role=status (polite, non-interrupting) — see InAppToast.
+    // role=alert implies aria-live=assertive which conflicted with the
+    // explicit polite hint and produced mixed signals to screen readers.
+    const toast = page.getByRole("status").filter({ hasText: "Not paired" });
     await expect(toast).toBeVisible({ timeout: 5_000 });
+    await expect(toast).toHaveAttribute("aria-live", "polite");
   });
 });

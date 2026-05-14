@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getPlatformProps } from "../lib/get-platform-props";
 import { useNotificationStore } from "../stores/notification-store";
@@ -20,15 +20,18 @@ export function InAppToast() {
     }
   };
 
-  // Outer View carries role=alert so screen readers announce the toast
-  // contents on appearance. The body and dismiss buttons are independent
-  // children — ARIA disallows merging role=alert with a clickable
-  // role=button on the same element, which previously hid the actionable
-  // nature of the toast from assistive tech.
+  // role=status is implicit aria-live=polite + aria-atomic=true. We used to
+  // set role=alert (implicit aria-live=assertive) AND aria-live=polite, which
+  // conflict — screen readers got mixed signals about urgency. The toast is
+  // a non-critical notification (Claude session events), so polite is right.
+  // Spread role/aria-live on web only; native still relies on
+  // accessibilityLiveRegion which RN translates to TalkBack/VoiceOver.
   return (
     <View
-      accessibilityRole="alert"
       accessibilityLiveRegion="polite"
+      {...((Platform.OS === "web"
+        ? { role: "status", "aria-live": "polite" }
+        : {}) as object)}
       className="absolute left-4 right-4 bg-tp-bg-elevated rounded-card border border-tp-border shadow-lg z-50"
       style={{ top: insets.top + 8 }}
     >

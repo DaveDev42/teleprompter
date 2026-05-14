@@ -53,7 +53,7 @@ export async function daemonStatusCommand(_argv: string[]): Promise<void> {
       "user",
       `${svc.getServiceName()}.service`,
     );
-    logPath = "journalctl --user -u " + svc.getServiceName();
+    logPath = `journalctl --user -u ${svc.getServiceName()}`;
   } else {
     managerHint = `unsupported platform (${platform})`;
   }

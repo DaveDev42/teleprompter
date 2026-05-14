@@ -41,6 +41,7 @@ export default defineConfig({
         "app-pairing-scan-back-nav.spec.ts",
         "app-aria-level.spec.ts",
         "app-modal-inert-bg.spec.ts",
+        "app-testid-stability.spec.ts",
       ],
     },
     {

@@ -556,6 +556,7 @@ export default function SessionDetailScreen() {
       {/* Nav header */}
       <View className="flex-row items-center px-2 py-2.5 bg-tp-bg-secondary border-b border-tp-border">
         <Pressable
+          testID="session-back"
           // canGoBack() guards the case where the user opens /session/:sid
           // directly (deep link, browser refresh) — router.back() is a no-op
           // when there's no history entry, leaving the user stranded.

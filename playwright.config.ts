@@ -33,6 +33,7 @@ export default defineConfig({
         "app-aria-disabled.spec.ts",
         "app-modal-dialog-aria.spec.ts",
         "app-tablist-aria.spec.ts",
+        "app-voice-button-aria.spec.ts",
       ],
     },
     {

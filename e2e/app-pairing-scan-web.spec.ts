@@ -37,4 +37,23 @@ test.describe("Pairing scan web fallback accessibility", () => {
     }
     expect(found).toBe(true);
   });
+
+  // Regression: arriving at /pairing/scan on web left focus on <body>, so a
+  // screen reader user landed on the dead-end fallback with nothing
+  // announced. Mount-time focus shifts to Go Back (the only action) so the
+  // screen reader speaks the page state and a keyboard user can press
+  // Enter without first hunting for the control.
+  test("Go Back receives focus on mount", async ({ page }) => {
+    await page.goto("/pairing/scan");
+    await page.waitForLoadState("networkidle");
+
+    // Wait briefly for the rAF-deferred focus to fire.
+    await page.waitForFunction(
+      () =>
+        document.activeElement?.getAttribute("data-testid") ===
+        "scan-web-go-back",
+      undefined,
+      { timeout: 3_000 },
+    );
+  });
 });

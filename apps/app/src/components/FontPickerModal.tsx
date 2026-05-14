@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FlatList, Pressable, Text, View } from "react-native";
+import { FlatList, Platform, Pressable, Text, View } from "react-native";
 import { getPlatformProps } from "../lib/get-platform-props";
 import { ModalContainer } from "./ModalContainer";
 
@@ -73,29 +73,40 @@ export function FontPickerModal({
         <FlatList
           data={fonts}
           keyExtractor={(item) => item}
-          renderItem={({ item }) => (
-            <Pressable
-              className={`flex-row items-center justify-between px-5 py-3.5 ${pp.className}`}
-              tabIndex={pp.tabIndex}
-              onPress={() => {
-                onSelect(item);
-                onClose();
-              }}
-              accessibilityRole="button"
-              accessibilityLabel={item}
-              accessibilityState={{ selected: item === currentFont }}
-            >
-              <Text
-                className="text-tp-text-primary text-[15px]"
-                style={{ fontFamily: item }}
+          renderItem={({ item }) => {
+            const isCurrent = item === currentFont;
+            // RN Web doesn't translate accessibilityState.selected into
+            // aria-selected, so screen readers can't tell which font is
+            // active. Pass the raw ARIA attribute via a web-only spread
+            // (native ignores it). Matches the SegmentedControl pattern in
+            // app/session/[sid].tsx.
+            const ariaSelected =
+              Platform.OS === "web" ? { "aria-selected": isCurrent } : {};
+            return (
+              <Pressable
+                className={`flex-row items-center justify-between px-5 py-3.5 ${pp.className}`}
+                tabIndex={pp.tabIndex}
+                onPress={() => {
+                  onSelect(item);
+                  onClose();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={item}
+                accessibilityState={{ selected: isCurrent }}
+                {...(ariaSelected as object)}
               >
-                {item}
-              </Text>
-              {item === currentFont && (
-                <Text className="text-tp-accent text-base">✓</Text>
-              )}
-            </Pressable>
-          )}
+                <Text
+                  className="text-tp-text-primary text-[15px]"
+                  style={{ fontFamily: item }}
+                >
+                  {item}
+                </Text>
+                {isCurrent && (
+                  <Text className="text-tp-accent text-base">✓</Text>
+                )}
+              </Pressable>
+            );
+          }}
           ItemSeparatorComponent={() => (
             <View className="h-[0.5px] bg-tp-border mx-5" />
           )}

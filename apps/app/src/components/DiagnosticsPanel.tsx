@@ -33,7 +33,7 @@ function Section({
       <Text
         className="text-tp-text-tertiary text-xs font-bold mb-1"
         accessibilityRole="header"
-        {...ariaLevel(3)}
+        {...ariaLevel(2)}
       >
         {title}
       </Text>
@@ -188,14 +188,6 @@ export function DiagnosticsPanel() {
 
   return (
     <ScrollView className="flex-1 bg-tp-bg px-4 pt-4">
-      <Text
-        className="text-tp-text-primary text-lg font-bold mb-4"
-        accessibilityRole="header"
-        {...ariaLevel(2)}
-      >
-        Diagnostics
-      </Text>
-
       {/* Connection */}
       <Section title="CONNECTION">
         <MetricRow
@@ -307,7 +299,7 @@ export function DiagnosticsPanel() {
       <Text
         className="text-tp-text-tertiary text-xs font-bold mb-2"
         accessibilityRole="header"
-        {...ariaLevel(3)}
+        {...ariaLevel(2)}
       >
         SESSIONS ({sessions.length})
       </Text>

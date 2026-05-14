@@ -26,6 +26,14 @@
     --tp-success: #16a34a;
     --tp-warning: #d97706;
     --tp-error: #dc2626;
+    /* Tinted backgrounds for status badges (Stop/Restart pills in
+       SessionDrawer). Pre-computed instead of `<color>/50` modifiers
+       because the CSS-var tokens above don't carry an `<alpha-value>`
+       channel, so Tailwind's slash-opacity syntax won't compose. */
+    --tp-error-soft: #fee2e2;
+    --tp-error-on-soft: #b91c1c;
+    --tp-warning-soft: #ffedd5;
+    --tp-warning-on-soft: #c2410c;
     --tp-voice-active: #9333ea;
     --tp-overlay: rgba(0, 0, 0, 0.5);
   }
@@ -53,6 +61,10 @@
     --tp-success: #22c55e;
     --tp-warning: #f59e0b;
     --tp-error: #ef4444;
+    --tp-error-soft: #4c1d1d;
+    --tp-error-on-soft: #fca5a5;
+    --tp-warning-soft: #4a2810;
+    --tp-warning-on-soft: #fdba74;
     --tp-voice-active: #a855f7;
     --tp-overlay: rgba(0, 0, 0, 0.5);
   }

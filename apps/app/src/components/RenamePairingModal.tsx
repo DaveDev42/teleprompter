@@ -1,7 +1,15 @@
 import { useEffect, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { getPlatformProps } from "../lib/get-platform-props";
+import { useThemeStore } from "../stores/theme-store";
 import { ModalContainer } from "./ModalContainer";
+
+// Mirrors `--tp-text-tertiary` in apps/app/global.css. TextInput's
+// placeholderTextColor takes a literal — CSS variable strings work on
+// web but native silently falls back to the system default, leaving
+// placeholders unreadable. Keep these in sync with the CSS tokens.
+const PLACEHOLDER_LIGHT = "#a1a1aa";
+const PLACEHOLDER_DARK = "#71717a";
 
 export function RenamePairingModal({
   visible,
@@ -17,6 +25,8 @@ export function RenamePairingModal({
   onSave: (value: string) => void | Promise<void>;
 }) {
   const pp = getPlatformProps();
+  const isDark = useThemeStore((s) => s.isDark);
+  const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
   const [value, setValue] = useState(initialValue);
 
   useEffect(() => {
@@ -69,8 +79,7 @@ export function RenamePairingModal({
           value={value}
           onChangeText={setValue}
           placeholder="Label (leave empty to clear)"
-          // CSS var resolves on web; native falls back to platform default.
-          placeholderTextColor="var(--tp-text-tertiary)"
+          placeholderTextColor={placeholderColor}
           autoFocus
           autoCorrect={false}
           maxLength={64}

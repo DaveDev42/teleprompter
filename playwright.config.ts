@@ -57,6 +57,7 @@ export default defineConfig({
         "app-font-picker-keyboard.spec.ts",
         "app-reduced-motion.spec.ts",
         "app-chat-ime-composition.spec.ts",
+        "app-api-key-save-tab-reachable.spec.ts",
       ],
     },
     {

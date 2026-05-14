@@ -274,7 +274,14 @@ function ChatView({
           data={displayMessages}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <View className="px-4 py-1">
+            // role=listitem so the parent role=list has valid ARIA
+            // children on web — FlatList's internal cell wrapper is a
+            // plain div there. RN's AccessibilityRole union doesn't
+            // include "listitem", so spread `role` directly on web.
+            <View
+              className="px-4 py-1"
+              {...(Platform.OS === "web" ? { role: "listitem" } : {})}
+            >
               <ChatCard msg={item} />
             </View>
           )}

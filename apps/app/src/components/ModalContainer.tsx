@@ -10,12 +10,22 @@ export function ModalContainer({
   onClose,
   children,
   accessibilityLabel,
+  initialFocusRef,
 }: {
   visible: boolean;
   onClose: () => void;
   children: React.ReactNode;
   /** Accessible name for the dialog (announced by screen readers when opened). */
   accessibilityLabel?: string;
+  /**
+   * Web-only opt-in: this element receives initial focus instead of the
+   * first focusable in DOM order. Use when the dialog has a meaningful
+   * "primary" target that isn't the first focusable — e.g. the currently
+   * selected option of a listbox should get focus over the trailing "Done"
+   * button so a screen reader announces the current value on open and the
+   * arrow keys are immediately useful.
+   */
+  initialFocusRef?: React.RefObject<unknown>;
 }) {
   const containerRef = useRef<View>(null);
   const dialogRef = useRef<View>(null);
@@ -27,7 +37,11 @@ export function ModalContainer({
   );
   useKeyboard(keyMap);
 
-  // Focus trap (Web only)
+  // Focus trap (Web only). initialFocusRef is a ref whose .current is read
+  // inside the timer at call-time, so it doesn't belong in the dep array
+  // (refs never re-trigger effects). biome-ignore must be the last comment
+  // line directly above the hook for the suppression to apply.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: initialFocusRef is a ref read at timer fire-time, not a state dep
   useEffect(() => {
     if (Platform.OS !== "web" || !visible) return;
 
@@ -63,6 +77,15 @@ export function ModalContainer({
 
     // Wait for Modal's slide animation to mount DOM before focusing
     const timer = setTimeout(() => {
+      // Caller-provided primary target wins over the heuristic search.
+      const explicit = initialFocusRef?.current as unknown as
+        | HTMLElement
+        | null
+        | undefined;
+      if (explicit?.focus) {
+        explicit.focus();
+        return;
+      }
       const container = containerRef.current as unknown as HTMLElement;
       if (!container) return;
       const focusable = container.querySelectorAll(FOCUSABLE_SELECTOR);

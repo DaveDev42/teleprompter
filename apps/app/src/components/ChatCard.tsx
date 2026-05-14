@@ -299,9 +299,16 @@ function RichText({
                 : block.level === 2
                   ? "text-tp-text-primary text-[16px] font-bold mt-1.5 mb-0.5"
                   : "text-tp-text-primary text-[14px] font-semibold mt-1";
+            // RN Web maps accessibilityRole="header" to role="heading" with an
+            // implicit aria-level=2. Pass aria-level explicitly so screen
+            // readers see the same heading hierarchy the user sees visually.
+            const ariaLevel =
+              Platform.OS === "web" ? { "aria-level": block.level } : {};
             return (
               <Text
                 key={bi}
+                accessibilityRole="header"
+                {...(ariaLevel as object)}
                 className={hClass}
                 style={{ fontFamily: fontStyle?.fontFamily }}
                 selectable
@@ -311,14 +318,25 @@ function RichText({
             );
           }
           case "code": {
+            // On native the Pressable's onLongPress is the only way to copy
+            // the block (no native text-select on a Text inside a Pressable).
+            // On web the inner Text is already `selectable`, so keyboard
+            // users can Cmd/Ctrl+C after selecting; the Pressable wrapper
+            // would otherwise grab a Tab stop with no visible focus ring or
+            // discoverable action. Make it non-focusable on web.
+            const ppCode = getPlatformProps({ focusable: false });
             return (
               <Pressable
                 key={bi}
-                className="bg-tp-bg border border-tp-border rounded-lg px-3 py-2 my-1"
+                className={`bg-tp-bg border border-tp-border rounded-lg px-3 py-2 my-1 ${ppCode.className}`}
+                tabIndex={ppCode.tabIndex}
                 onLongPress={() => copyText(block.code)}
-                accessibilityRole="text"
                 accessibilityLabel={`Code block${block.lang ? `, ${block.lang}` : ""}`}
-                accessibilityHint="Long press to copy"
+                accessibilityHint={
+                  Platform.OS === "web"
+                    ? "Select the text to copy"
+                    : "Long press to copy"
+                }
               >
                 {block.lang ? (
                   <Text className="text-tp-text-tertiary text-[10px] mb-1">

@@ -71,48 +71,55 @@ export function FontPickerModal({
             <Text className="text-tp-accent text-base">Done</Text>
           </Pressable>
         </View>
-        <FlatList
-          data={fonts}
-          keyExtractor={(item) => item}
-          renderItem={({ item }) => {
-            const isCurrent = item === currentFont;
-            // RN Web doesn't translate accessibilityState.selected into
-            // aria-selected, so screen readers can't tell which font is
-            // active. Pass the raw ARIA attribute via a web-only spread
-            // (native ignores it). Matches the SegmentedControl pattern in
-            // app/session/[sid].tsx.
-            const ariaSelected =
-              Platform.OS === "web" ? { "aria-selected": isCurrent } : {};
-            return (
-              <Pressable
-                className={`flex-row items-center justify-between px-5 py-3.5 ${pp.className}`}
-                tabIndex={pp.tabIndex}
-                onPress={() => {
-                  onSelect(item);
-                  onClose();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={item}
-                accessibilityState={{ selected: isCurrent }}
-                {...(ariaSelected as object)}
-              >
-                <Text
-                  className="text-tp-text-primary text-[15px]"
-                  style={{ fontFamily: item }}
+        <View
+          {...((Platform.OS === "web"
+            ? { role: "listbox", "aria-label": title }
+            : {}) as object)}
+        >
+          <FlatList
+            data={fonts}
+            keyExtractor={(item) => item}
+            renderItem={({ item }) => {
+              const isCurrent = item === currentFont;
+              // RN Web's accessibilityRole allowlist excludes "option" and
+              // doesn't translate accessibilityState.selected into
+              // aria-selected, so we spread the raw ARIA attributes on web.
+              // Native gets a "button" role with selected state instead.
+              const webOptionProps =
+                Platform.OS === "web"
+                  ? { role: "option", "aria-selected": isCurrent }
+                  : {};
+              return (
+                <Pressable
+                  className={`flex-row items-center justify-between px-5 py-3.5 ${pp.className}`}
+                  tabIndex={pp.tabIndex}
+                  onPress={() => {
+                    onSelect(item);
+                    onClose();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={item}
+                  accessibilityState={{ selected: isCurrent }}
+                  {...(webOptionProps as object)}
                 >
-                  {item}
-                </Text>
-                {isCurrent && (
-                  <Text className="text-tp-accent text-base">✓</Text>
-                )}
-              </Pressable>
-            );
-          }}
-          ItemSeparatorComponent={() => (
-            <View className="h-[0.5px] bg-tp-border mx-5" />
-          )}
-          contentContainerStyle={{ paddingBottom: 40 }}
-        />
+                  <Text
+                    className="text-tp-text-primary text-[15px]"
+                    style={{ fontFamily: item }}
+                  >
+                    {item}
+                  </Text>
+                  {isCurrent && (
+                    <Text className="text-tp-accent text-base">✓</Text>
+                  )}
+                </Pressable>
+              );
+            }}
+            ItemSeparatorComponent={() => (
+              <View className="h-[0.5px] bg-tp-border mx-5" />
+            )}
+            contentContainerStyle={{ paddingBottom: 40 }}
+          />
+        </View>
       </View>
     </ModalContainer>
   );

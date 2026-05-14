@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ConfirmUnpairModal } from "../../src/components/ConfirmUnpairModal";
 import { RenamePairingModal } from "../../src/components/RenamePairingModal";
 import { useRelayConnectionStore } from "../../src/hooks/use-relay";
-import { getPlatformProps } from "../../src/lib/get-platform-props";
+import { ariaLevel, getPlatformProps } from "../../src/lib/get-platform-props";
 import { useNotificationStore } from "../../src/stores/notification-store";
 import type { PairingInfo } from "../../src/stores/pairing-store";
 import { usePairingStore } from "../../src/stores/pairing-store";
@@ -177,6 +177,7 @@ export default function DaemonsScreen() {
         <Text
           className="text-tp-text-primary text-[28px] font-bold"
           accessibilityRole="header"
+          {...ariaLevel(1)}
         >
           Daemons
         </Text>

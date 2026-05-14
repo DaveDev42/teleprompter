@@ -28,3 +28,10 @@ export function getPlatformProps(options?: {
 
   return DEFAULT_PROPS;
 }
+
+// RN Web maps accessibilityRole="header" to role="heading" but does NOT emit
+// aria-level — it must be passed as a direct prop. Use this helper to keep the
+// Platform check + spread-as-object cast contained in one place.
+export function ariaLevel(level: 1 | 2 | 3 | 4 | 5 | 6): object {
+  return Platform.OS === "web" ? { "aria-level": level } : {};
+}

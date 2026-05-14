@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
-import { getPlatformProps } from "../lib/get-platform-props";
+import { ariaLevel, getPlatformProps } from "../lib/get-platform-props";
 import { useThemeStore } from "../stores/theme-store";
 import { ModalContainer } from "./ModalContainer";
 
@@ -60,6 +60,7 @@ export function RenamePairingModal({
           <Text
             className="text-tp-text-primary text-lg font-bold"
             accessibilityRole="header"
+            {...ariaLevel(2)}
           >
             Rename Daemon
           </Text>

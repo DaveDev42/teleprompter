@@ -28,6 +28,7 @@ export default defineConfig({
         "app-daemons-empty.spec.ts",
         "app-session-disconnect-banner.spec.ts",
         "app-pairing-a11y.spec.ts",
+        "app-pairing-scan-web.spec.ts",
       ],
     },
     {

@@ -112,6 +112,7 @@ Stub 프로세스로 전체 파이프라인 검증.
   - `e2e/app-daemons-empty.spec.ts` — daemons empty state on web routes to manual-entry, not the QR-scan dead-end
   - `e2e/app-session-disconnect-banner.spec.ts` — session view shows a "Disconnected — messages will send after reconnect" banner when relay isn't connected
   - `e2e/app-pairing-a11y.spec.ts` — manual pairing screen heading/button roles + textarea label + Connect button keyboard reachability
+  - `e2e/app-pairing-scan-web.spec.ts` — /pairing/scan web fallback "Go Back" button has role=button + aria-label and is keyboard-reachable
   - `e2e/app-relay-e2e.spec.ts` — full relay pipeline (pair → relay → daemon → E2EE) (local only)
   - `e2e/app-roundtrip.spec.ts` — input/output roundtrip (local only)
   - `e2e/app-real-e2e.spec.ts` — real Claude PTY E2E (local only)

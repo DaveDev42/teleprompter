@@ -22,6 +22,7 @@ export function InAppToast() {
     <Pressable
       onPress={handlePress}
       accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
       accessibilityLabel={`${toast.title}: ${toast.body}`}
       className="absolute left-4 right-4 bg-tp-bg-elevated rounded-card border border-tp-border p-4 shadow-lg z-50"
       style={{ top: insets.top + 8 }}
@@ -36,7 +37,13 @@ export function InAppToast() {
           </Text>
         </View>
         <Pressable
-          onPress={dismiss}
+          onPress={(e) => {
+            // Without stopPropagation, the outer alert Pressable's onPress
+            // also fires — dismissing the toast AND navigating to the
+            // session. Match the pattern UpdateBanner already uses.
+            e.stopPropagation();
+            dismiss();
+          }}
           hitSlop={8}
           accessibilityLabel="Dismiss notification"
           accessibilityRole="button"

@@ -56,6 +56,7 @@ export default defineConfig({
         "app-pairing-input-hint.spec.ts",
         "app-font-picker-keyboard.spec.ts",
         "app-reduced-motion.spec.ts",
+        "app-chat-ime-composition.spec.ts",
       ],
     },
     {

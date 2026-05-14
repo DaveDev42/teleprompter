@@ -344,14 +344,19 @@ function ChatView({
           // Enter regardless of returnKeyType. Intercept onKeyPress so Enter
           // (without Shift) submits like every other chat UI. Native keeps
           // onSubmitEditing as the trigger.
+          // `isComposing` guards CJK IME: pressing Enter to commit a Hangul/
+          // Kana/Pinyin candidate fires keydown with key="Enter" AND
+          // isComposing=true. Without this check the message sends mid-
+          // composition and the candidate text is dropped.
           onKeyPress={
             Platform.OS === "web"
               ? (e) => {
                   const ne = e.nativeEvent as unknown as {
                     key: string;
                     shiftKey?: boolean;
+                    isComposing?: boolean;
                   };
-                  if (ne.key === "Enter" && !ne.shiftKey) {
+                  if (ne.key === "Enter" && !ne.shiftKey && !ne.isComposing) {
                     e.preventDefault();
                     handleSend();
                   }

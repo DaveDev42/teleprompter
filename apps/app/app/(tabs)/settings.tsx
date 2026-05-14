@@ -42,6 +42,7 @@ function SectionLabel({ children }: { children: string }) {
 function SettingsRow({
   label,
   value,
+  valueLabel,
   onPress,
   first,
   last,
@@ -50,6 +51,11 @@ function SettingsRow({
 }: {
   label: string;
   value?: string;
+  // Spoken status when the visible value lives inside `children` (e.g.
+  // the OTA "Updates" row uses a status pill component, not plain text).
+  // aria-label hides nested text from assistive tech, so the spoken
+  // label has to be composed at the row.
+  valueLabel?: string;
   onPress?: () => void;
   first?: boolean;
   last?: boolean;
@@ -57,13 +63,16 @@ function SettingsRow({
   children?: React.ReactNode;
 }) {
   const pp = getPlatformProps({ focusable: !!onPress });
+  const spokenValue = value ?? valueLabel;
   return (
     <Pressable
       onPress={onPress}
       className={`mx-4 ${pp.className}`}
       tabIndex={pp.tabIndex}
       accessibilityRole={onPress ? "button" : undefined}
-      accessibilityLabel={value !== undefined ? `${label}, ${value}` : label}
+      accessibilityLabel={
+        spokenValue !== undefined ? `${label}, ${spokenValue}` : label
+      }
     >
       <View
         className={`flex-row items-center justify-between px-4 py-3.5 bg-tp-surface ${
@@ -92,6 +101,32 @@ function SettingsRow({
       {!last && <View className="h-[0.5px] bg-tp-border ml-4" />}
     </Pressable>
   );
+}
+
+// Human-readable status text for screen readers — mirrors the visual
+// state shown by UpdateStatusValue. `SettingsRow` uses `aria-label` to
+// announce the row, and aria-label hides child text from assistive tech,
+// so we have to compose the spoken label ourselves.
+function updateStatusLabel(
+  status: import("../../src/hooks/use-ota-update").OtaStatus,
+): string {
+  switch (status) {
+    case "checking":
+      return "Checking…";
+    case "downloading":
+      return "Downloading…";
+    case "up-to-date":
+      return "Up to date";
+    case "available":
+    case "ready":
+      return "Update available";
+    case "error":
+      return "Check failed";
+    case "unavailable":
+      return "Dev build";
+    default:
+      return "";
+  }
 }
 
 function UpdateStatusValue({
@@ -281,7 +316,7 @@ export default function SettingsScreen() {
                 ? checkAndFetch
                 : undefined
           }
-          value={undefined}
+          valueLabel={updateStatusLabel(otaStatus)}
         >
           <UpdateStatusValue status={otaStatus} />
         </SettingsRow>

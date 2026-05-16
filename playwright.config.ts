@@ -78,6 +78,8 @@ export default defineConfig({
         "app-session-chat-log-role.spec.ts",
         "app-session-header-role.spec.ts",
         "app-input-aria-description.spec.ts",
+        "app-settings-info-row-role.spec.ts",
+        "app-diagnostics-rtt-announce.spec.ts",
       ],
     },
     {

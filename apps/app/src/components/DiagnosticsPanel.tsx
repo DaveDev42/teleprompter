@@ -89,6 +89,10 @@ export function DiagnosticsPanel() {
     ? (relayConnections.get(activeDaemonId) ?? false)
     : false;
   const [rtt, setRtt] = useState(-1);
+  // Announce ping result. Starts empty so the initial mount is silent —
+  // we only want speech after the user clicks Ping. Mirror of the
+  // crypto-selftest-announcement pattern below.
+  const [rttAnnouncement, setRttAnnouncement] = useState("");
   const [cryptoTest, setCryptoTest] = useState<{
     running: boolean;
     sodiumInit?: { ok: boolean; ms: number };
@@ -101,7 +105,12 @@ export function DiagnosticsPanel() {
     const client = getTransport();
     if (client) {
       client.ping();
-      setTimeout(() => setRtt(client.getRtt()), 500);
+      setRttAnnouncement("Pinging daemon");
+      setTimeout(() => {
+        const ms = client.getRtt();
+        setRtt(ms);
+        setRttAnnouncement(ms >= 0 ? `RTT: ${ms}ms` : "Ping failed");
+      }, 500);
     }
   };
 
@@ -231,6 +240,28 @@ export function DiagnosticsPanel() {
               <Text className="text-tp-text-tertiary text-xs">Ping</Text>
             </Pressable>
           </View>
+        </View>
+        {/* SR-only polite live region for Ping result. Visually 1×1
+            hidden; AT picks up the announcement when handlePing's
+            setTimeout fires and flips rtt from "—" to "Xms". */}
+        <View
+          testID="rtt-announcement"
+          accessibilityLiveRegion="polite"
+          {...(Platform.OS === "web"
+            ? {
+                role: "status" as const,
+                "aria-live": "polite" as const,
+              }
+            : {})}
+          style={{
+            position: "absolute",
+            width: 1,
+            height: 1,
+            overflow: "hidden",
+          }}
+          pointerEvents="none"
+        >
+          <Text className="text-tp-text-primary">{rttAnnouncement}</Text>
         </View>
       </Section>
 

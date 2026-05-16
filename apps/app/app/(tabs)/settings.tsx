@@ -71,6 +71,16 @@ function SettingsRow({
 }) {
   const pp = getPlatformProps({ focusable: !!onPress });
   const spokenValue = value ?? valueLabel;
+  // Info-only rows (no onPress) render as a Pressable without an
+  // accessibilityRole, which RN Web emits as a bare <div>. aria-label
+  // on a generic div is ignored by ARIA, so VoiceOver/NVDA either
+  // concatenate the raw child text ("Version0.1.19") or read them as
+  // unrelated nodes. Fall back to role="group" on web so the row has
+  // an ARIA-valid container and the composed aria-label is honored.
+  // Native AT picks up `accessibilityLabel` from a Pressable without
+  // role, so no native change is needed.
+  const webRoleProps =
+    Platform.OS === "web" && !onPress ? { role: "group" as const } : {};
   return (
     <Pressable
       onPress={onPress}
@@ -80,6 +90,7 @@ function SettingsRow({
       accessibilityLabel={
         spokenValue !== undefined ? `${label}, ${spokenValue}` : label
       }
+      {...webRoleProps}
     >
       <View
         className={`flex-row items-center justify-between px-4 py-3.5 bg-tp-surface ${

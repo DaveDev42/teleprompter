@@ -169,9 +169,7 @@ export function FontPickerModal({
                 : {};
             return (
               <Fragment key={item}>
-                {index > 0 && (
-                  <View className="h-[0.5px] bg-tp-border mx-5" />
-                )}
+                {index > 0 && <View className="h-[0.5px] bg-tp-border mx-5" />}
                 <Pressable
                   testID={`font-option-${item}`}
                   className={`flex-row items-center justify-between px-5 py-3.5 ${pp.className}`}

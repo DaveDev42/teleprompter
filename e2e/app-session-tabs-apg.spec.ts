@@ -94,9 +94,11 @@ test.describe("Session view APG Tabs", () => {
       )
       .toMatch(/^(tab-terminal|terminal-container)$/);
 
-    // ArrowLeft cycles back. The terminal tab is active going in, so
-    // the rAF focus move lands on the chat tab which has no competing
-    // auto-focus, so the id check is reliable here.
+    // ArrowLeft cycles back — but only works when focus is on a tab element
+    // inside the tablist. GhosttyTerminal may have stolen focus to
+    // terminal-container (outside the tablist), so we must explicitly move
+    // focus back to the terminal tab before pressing ArrowLeft.
+    await page.locator("#session-tab-terminal").focus();
     await page.keyboard.press("ArrowLeft");
     await expect(page.locator("#session-tab-chat")).toHaveAttribute(
       "aria-selected",

@@ -80,6 +80,7 @@ export default defineConfig({
         "app-input-aria-description.spec.ts",
         "app-settings-info-row-role.spec.ts",
         "app-diagnostics-rtt-announce.spec.ts",
+        "app-font-picker-listbox-ownership.spec.ts",
       ],
     },
     {

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { FlatList, Platform, Pressable, Text, View } from "react-native";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { ariaLevel, getPlatformProps } from "../lib/get-platform-props";
 import { ModalContainer } from "./ModalContainer";
 
@@ -126,7 +126,18 @@ export function FontPickerModal({
             <Text className="text-tp-accent text-base">Done</Text>
           </Pressable>
         </View>
-        <View
+        {/* ScrollView + .map() instead of FlatList: RN Web's FlatList
+            wraps each cell in 3 generic <div>s (VirtualizedList outer,
+            inner, CellRenderer) between the listbox container and the
+            option Pressable. That extra nesting violates ARIA's
+            required-context rule (listbox must directly own its
+            options). Chromium auto-repairs the ownership tree but
+            Firefox/Safari are less forgiving, so the options can drop
+            out of the AX tree for NVDA/JAWS/VoiceOver users. Font
+            lists are short (≤7), so virtualization isn't worth the
+            ownership hole. */}
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 40 }}
           {...((Platform.OS === "web"
             ? {
                 role: "listbox",
@@ -135,31 +146,32 @@ export function FontPickerModal({
               }
             : {}) as object)}
         >
-          <FlatList
-            data={fonts}
-            keyExtractor={(item) => item}
-            renderItem={({ item, index }) => {
-              const isCurrent = item === currentFont;
-              const isActive = index === activeIndex;
-              // RN Web's accessibilityRole allowlist excludes "option" and
-              // doesn't translate accessibilityState.selected into
-              // aria-selected, so we spread the raw ARIA attributes on web.
-              // Native gets a "button" role with selected state instead.
-              // Roving tabindex: only the active option is in tab order, so
-              // ArrowDown/Up from the listbox container reaches all
-              // options without Tab cycling through each one.
-              const webOptionProps =
-                Platform.OS === "web"
-                  ? {
-                      role: "option",
-                      "aria-selected": isCurrent,
-                      tabIndex: isActive ? 0 : -1,
-                      ref: (el: unknown) => {
-                        optionRefs.current[index] = el as HTMLElement | null;
-                      },
-                    }
-                  : {};
-              return (
+          {fonts.map((item, index) => {
+            const isCurrent = item === currentFont;
+            const isActive = index === activeIndex;
+            // RN Web's accessibilityRole allowlist excludes "option" and
+            // doesn't translate accessibilityState.selected into
+            // aria-selected, so we spread the raw ARIA attributes on web.
+            // Native gets a "button" role with selected state instead.
+            // Roving tabindex: only the active option is in tab order, so
+            // ArrowDown/Up from the listbox container reaches all
+            // options without Tab cycling through each one.
+            const webOptionProps =
+              Platform.OS === "web"
+                ? {
+                    role: "option",
+                    "aria-selected": isCurrent,
+                    tabIndex: isActive ? 0 : -1,
+                    ref: (el: unknown) => {
+                      optionRefs.current[index] = el as HTMLElement | null;
+                    },
+                  }
+                : {};
+            return (
+              <Fragment key={item}>
+                {index > 0 && (
+                  <View className="h-[0.5px] bg-tp-border mx-5" />
+                )}
                 <Pressable
                   testID={`font-option-${item}`}
                   className={`flex-row items-center justify-between px-5 py-3.5 ${pp.className}`}
@@ -183,14 +195,10 @@ export function FontPickerModal({
                     <Text className="text-tp-accent text-base">✓</Text>
                   )}
                 </Pressable>
-              );
-            }}
-            ItemSeparatorComponent={() => (
-              <View className="h-[0.5px] bg-tp-border mx-5" />
-            )}
-            contentContainerStyle={{ paddingBottom: 40 }}
-          />
-        </View>
+              </Fragment>
+            );
+          })}
+        </ScrollView>
       </View>
     </ModalContainer>
   );

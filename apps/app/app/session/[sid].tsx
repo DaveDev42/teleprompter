@@ -7,6 +7,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   View,
@@ -389,6 +390,11 @@ function ChatView({
   const removeRecHandler = useSessionStore((s) => s.removeRecHandler);
   const connected = useAnyRelayConnected();
   const flatListRef = useRef<FlatList>(null);
+  // Web uses ScrollView + .map() to keep `role="listitem"` direct
+  // descendants of `role="list"` (ARIA §4.3.3 owned-element rule;
+  // mirrors the Sessions list ownership fix). FlatList stays on
+  // native where virtualization is still needed.
+  const chatScrollRef = useRef<ScrollView>(null);
   const sendRef = useRef<View>(null);
   const chatInputRef = useRef<TextInput>(null);
   const [input, setInput] = useState("");
@@ -545,10 +551,13 @@ function ChatView({
   // per frame.
   useEffect(() => {
     if (messages.length === 0 && !streamingText) return;
-    const t = setTimeout(
-      () => flatListRef.current?.scrollToEnd({ animated: true }),
-      100,
-    );
+    const t = setTimeout(() => {
+      if (Platform.OS === "web") {
+        chatScrollRef.current?.scrollToEnd({ animated: true });
+      } else {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 100);
     return () => clearTimeout(t);
   }, [messages.length, streamingText]);
 
@@ -594,42 +603,81 @@ function ChatView({
   // the wrapping View.
   const liveRegionProps = Platform.OS === "web" ? { role: "log" as const } : {};
 
+  const emptyMessage = !connected
+    ? "Connecting to daemon..."
+    : "Listening to Claude Code...";
+
   return (
     <>
       <View className="flex-1" {...(liveRegionProps as object)}>
-        <FlatList
-          ref={flatListRef}
-          data={displayMessages}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            // role=listitem so the parent role=list has valid ARIA
-            // children on web — FlatList's internal cell wrapper is a
-            // plain div there. RN's AccessibilityRole union doesn't
-            // include "listitem", so spread `role` directly on web.
+        {Platform.OS === "web" ? (
+          // Web: ScrollView + .map() so each `role="listitem"` sits
+          // directly under `role="list"` (ARIA §4.3.3 required-context
+          // for listitem). FlatList inserts at least two roleless
+          // wrapper <div>s between the list container and each item,
+          // which Chromium auto-repairs but Firefox/Safari don't —
+          // NVDA / VoiceOver lose the list semantics entirely there.
+          <ScrollView
+            ref={chatScrollRef}
+            className="flex-1"
+            contentContainerStyle={{ paddingVertical: 8 }}
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
+            onScrollBeginDrag={() => Keyboard.dismiss()}
+          >
+            {/* List container always mounts — keeps the `role="list"`
+                landmark stable for AT and matches `app-listitem-aria`'s
+                "list role exists" invariant. Empty state nests inside
+                so the role doesn't disappear between renders. */}
             <View
-              className="px-4 py-1"
-              {...(Platform.OS === "web" ? { role: "listitem" } : {})}
+              accessibilityLabel="Chat messages"
+              {...({ role: "list" } as object)}
             >
-              <ChatCard msg={item} />
+              {displayMessages.length === 0 ? (
+                <View className="flex-1 items-center justify-center pt-20">
+                  <Text className="text-tp-text-tertiary text-[15px]">
+                    {emptyMessage}
+                  </Text>
+                </View>
+              ) : (
+                displayMessages.map((item) => (
+                  <View
+                    key={item.id}
+                    className="px-4 py-1"
+                    {...({ role: "listitem" } as object)}
+                  >
+                    <ChatCard msg={item} />
+                  </View>
+                ))
+              )}
             </View>
-          )}
-          className="flex-1"
-          contentContainerStyle={{ paddingVertical: 8 }}
-          keyboardDismissMode="interactive"
-          keyboardShouldPersistTaps="handled"
-          onScrollBeginDrag={() => Keyboard.dismiss()}
-          accessibilityRole="list"
-          accessibilityLabel="Chat messages"
-          ListEmptyComponent={
-            <View className="flex-1 items-center justify-center pt-20">
-              <Text className="text-tp-text-tertiary text-[15px]">
-                {!connected
-                  ? "Connecting to daemon..."
-                  : "Listening to Claude Code..."}
-              </Text>
-            </View>
-          }
-        />
+          </ScrollView>
+        ) : (
+          <FlatList
+            ref={flatListRef}
+            data={displayMessages}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <View className="px-4 py-1">
+                <ChatCard msg={item} />
+              </View>
+            )}
+            className="flex-1"
+            contentContainerStyle={{ paddingVertical: 8 }}
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
+            onScrollBeginDrag={() => Keyboard.dismiss()}
+            accessibilityRole="list"
+            accessibilityLabel="Chat messages"
+            ListEmptyComponent={
+              <View className="flex-1 items-center justify-center pt-20">
+                <Text className="text-tp-text-tertiary text-[15px]">
+                  {emptyMessage}
+                </Text>
+              </View>
+            }
+          />
+        )}
       </View>
 
       {/* Input bar */}

@@ -74,6 +74,7 @@ export default defineConfig({
         "app-pairing-textarea-describedby.spec.ts",
         "app-font-size-announce.spec.ts",
         "app-theme-toggle-announce.spec.ts",
+        "app-diagnostics-selftest-announce.spec.ts",
       ],
     },
     {

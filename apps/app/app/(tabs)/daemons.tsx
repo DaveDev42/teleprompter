@@ -87,6 +87,13 @@ function DaemonCard({
           tabIndex={pp.tabIndex}
           accessibilityRole="button"
           accessibilityLabel={`Rename ${displayName}`}
+          // APG §6.6: the button opens RenamePairingModal — advertise
+          // the popup so screen readers announce "Rename <name>,
+          // button, has popup dialog" before the user activates it.
+          // RN Web doesn't bridge aria-haspopup so spread it raw.
+          {...(Platform.OS === "web"
+            ? ({ "aria-haspopup": "dialog" } as object)
+            : {})}
         >
           <Text className="text-tp-text-secondary text-xs">Rename</Text>
         </Pressable>
@@ -96,6 +103,11 @@ function DaemonCard({
           tabIndex={pp.tabIndex}
           accessibilityRole="button"
           accessibilityLabel={`Remove pairing with ${displayName}`}
+          // Opens ConfirmUnpairModal — destructive confirmation
+          // dialog. Same APG §6.6 rationale.
+          {...(Platform.OS === "web"
+            ? ({ "aria-haspopup": "dialog" } as object)
+            : {})}
         >
           <Text className="text-tp-error text-xs">Unpair</Text>
         </Pressable>

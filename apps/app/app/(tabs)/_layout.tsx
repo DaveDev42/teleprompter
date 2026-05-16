@@ -130,19 +130,45 @@ export default function TabsLayout() {
   // matching the tablist that contains the `tab-sessions` testID so we
   // never collide with the session-view tablist (which sets its own
   // aria-label in app/session/[sid].tsx).
+  //
+  // ARIA 1.2 §6.3.26 also requires `role="tab"` elements to be owned by
+  // their `role="tablist"`. React Navigation wraps each tab anchor in a
+  // sibling <div>, so the tabs are grandchildren of the tablist rather
+  // than direct children — the accessibility tree may not treat them
+  // as owned tabs without an explicit `aria-owns` bridge. Set the
+  // ownership in the same pass: give each tab an `id` and list the
+  // ids on the tablist's `aria-owns`.
   useEffect(() => {
     if (Platform.OS !== "web") return;
-    const setLabel = () => {
+    const sync = () => {
       const sessionsTab = document.querySelector(
         '[data-testid="tab-sessions"]',
       );
       const tablist = sessionsTab?.closest('[role="tablist"]');
-      if (tablist && !tablist.getAttribute("aria-label")) {
+      if (!tablist) return;
+      if (!tablist.getAttribute("aria-label")) {
         tablist.setAttribute("aria-label", "Main navigation");
       }
+      // Map each known testID to a stable id, then publish them via
+      // aria-owns so the tablist's accessibility subtree matches the
+      // ARIA requirement even though the DOM has wrapper <div>s in
+      // between.
+      const slugs = ["tab-sessions", "tab-daemons", "tab-settings"];
+      const ownedIds: string[] = [];
+      for (const slug of slugs) {
+        const tab = document.querySelector<HTMLElement>(
+          `[data-testid="${slug}"]`,
+        );
+        if (!tab) continue;
+        if (!tab.id) tab.id = slug;
+        ownedIds.push(tab.id);
+      }
+      if (ownedIds.length > 0) {
+        tablist.setAttribute("aria-owns", ownedIds.join(" "));
+      }
     };
-    setLabel();
-    const id = requestAnimationFrame(setLabel);
+    sync();
+    const id = requestAnimationFrame(sync);
     return () => cancelAnimationFrame(id);
   }, []);
 

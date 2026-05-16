@@ -85,6 +85,7 @@ export default defineConfig({
         "app-connection-live-region-atomic.spec.ts",
         "app-pairing-error-alert.spec.ts",
         "app-session-tabs-space-activate.spec.ts",
+        "app-voice-switch-space-toggle.spec.ts",
       ],
     },
     {

@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import type { BottomTabBarButtonProps } from "@react-navigation/bottom-tabs";
 import { PlatformPressable } from "@react-navigation/elements";
 import { Tabs } from "expo-router";
+import { useEffect } from "react";
 import { Platform } from "react-native";
 import { enableScreens } from "react-native-screens";
 import { getPalette } from "../../src/lib/tokens";
@@ -120,6 +121,28 @@ if (Platform.OS === "web") {
 export default function TabsLayout() {
   const isDark = useThemeStore((s) => s.isDark);
   const palette = getPalette(isDark);
+
+  // APG §3.21 Tabs: tablist requires `aria-label` (or `aria-labelledby`)
+  // so AT users hear "Main navigation, tablist" instead of an anonymous
+  // "tablist". The bottom tablist is rendered inside React Navigation's
+  // BottomTabBar — the library exposes no prop to set ARIA attributes on
+  // the tablist container, so set it imperatively. Scope the lookup by
+  // matching the tablist that contains the `tab-sessions` testID so we
+  // never collide with the session-view tablist (which sets its own
+  // aria-label in app/session/[sid].tsx).
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const setLabel = () => {
+      const sessionsTab = document.querySelector('[data-testid="tab-sessions"]');
+      const tablist = sessionsTab?.closest('[role="tablist"]');
+      if (tablist && !tablist.getAttribute("aria-label")) {
+        tablist.setAttribute("aria-label", "Main navigation");
+      }
+    };
+    setLabel();
+    const id = requestAnimationFrame(setLabel);
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   return (
     <Tabs

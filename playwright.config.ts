@@ -116,6 +116,7 @@ export default defineConfig({
         "app-diagnostics-aria-controls.spec.ts",
         "app-diagnostics-live-region-atomic.spec.ts",
         "app-pairing-loading-announce.spec.ts",
+        "app-session-main-landmark.spec.ts",
       ],
     },
     {

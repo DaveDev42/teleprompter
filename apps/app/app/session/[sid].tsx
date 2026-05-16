@@ -62,6 +62,47 @@ function SegmentedControl({
   onModeChange: (mode: ViewMode) => void;
 }) {
   const pp = getPlatformProps();
+  // APG Tabs keyboard model (automatic activation): ArrowLeft/Right cycle
+  // focus across the two tabs *and* activate the focused tab; Home/End jump
+  // to the first/last. Without this a keyboard-only user is stuck — the
+  // sighted-user workaround is clicking, but a SR user with focus on Chat
+  // has no announced way to reach Terminal short of tab-cycling past the
+  // tablist entirely. RN's Pressable doesn't surface key events on web, so
+  // we attach the handler to the role=tablist container instead.
+  const tabOrder: ViewMode[] = ["chat", "terminal"];
+  const handleTablistKeyDown = (e: {
+    key: string;
+    preventDefault: () => void;
+  }) => {
+    let next: ViewMode | null = null;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      const idx = tabOrder.indexOf(mode);
+      next = tabOrder[(idx + 1) % tabOrder.length];
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      const idx = tabOrder.indexOf(mode);
+      next = tabOrder[(idx - 1 + tabOrder.length) % tabOrder.length];
+    } else if (e.key === "Home") {
+      next = tabOrder[0];
+    } else if (e.key === "End") {
+      next = tabOrder[tabOrder.length - 1];
+    }
+    if (next && next !== mode) {
+      e.preventDefault();
+      onModeChange(next);
+      // Move DOM focus to the newly-activated tab so AT announces the new
+      // selection (otherwise focus stays on the previously-focused tab
+      // node, which is now visually inactive — confusing to SR users).
+      if (Platform.OS === "web") {
+        const id =
+          next === "chat" ? SESSION_TAB_CHAT_ID : SESSION_TAB_TERMINAL_ID;
+        // Defer to the next frame so the re-render that updates aria-selected
+        // has settled before we move focus to the freshly-selected tab.
+        requestAnimationFrame(() => {
+          document.getElementById(id)?.focus();
+        });
+      }
+    }
+  };
   // RN Web's Pressable doesn't translate `accessibilityState.selected` into
   // `aria-selected`, so screen readers can't tell which tab is active. Pass
   // the raw ARIA attribute via a web-only spread; native ignores it. Same
@@ -88,13 +129,19 @@ function SegmentedControl({
   // valid ARIA role (the standard is "tablist"). Without a web override SR
   // and DOM tooling see role="tabbar" and skip the tab semantics. Override
   // via the `role` prop on web; native keeps tabbar which RN recognizes.
-  const tablistRole = Platform.OS === "web" ? { role: "tablist" as const } : {};
+  const tablistWebProps =
+    Platform.OS === "web"
+      ? {
+          role: "tablist" as const,
+          onKeyDown: handleTablistKeyDown,
+        }
+      : {};
   return (
     <View className="px-4 py-2 bg-tp-bg-secondary">
       <View
         className="flex-row bg-tp-bg-tertiary rounded-btn p-1"
         accessibilityRole="tabbar"
-        {...tablistRole}
+        {...tablistWebProps}
       >
         <Pressable
           testID="tab-chat"
@@ -796,35 +843,47 @@ export default function SessionDetailScreen() {
       {/* Content — wrapped as role=tabpanel so the APG Tabs pattern is
           complete (tab↔panel bidirectional link via id/aria-controls
           /aria-labelledby). RN's accessibilityRole union excludes
-          "tabpanel" so we spread the raw ARIA attrs on web only. flex-1
-          keeps the underlying views filling the same space they did
-          before this wrapper. */}
-      {sid && mode === "chat" && (
+          "tabpanel" so we spread the raw ARIA attrs on web only.
+
+          Both panel wrappers stay mounted unconditionally so the
+          `aria-controls` reference from the inactive tab always points
+          at a node that actually exists in the DOM — APG requires the
+          referenced element to be present (hidden is fine, missing is
+          not). The inactive wrapper gets `hidden` (HTML attr) which
+          collapses layout, removes it from the tab order, and lets AT
+          skip it. The heavy child views (ChatView's record subscription,
+          TerminalView's ghostty-web module) only mount when their tab
+          is active so we don't double the steady-state cost. */}
+      {sid && (
         <View
-          className="flex-1"
+          className={mode === "chat" ? "flex-1" : ""}
           {...(Platform.OS === "web"
             ? {
                 role: "tabpanel" as const,
                 id: SESSION_TABPANEL_CHAT_ID,
                 "aria-labelledby": SESSION_TAB_CHAT_ID,
+                hidden: mode !== "chat",
               }
             : {})}
         >
-          <ChatView sid={sid} session={session} stopped={stopped} />
+          {mode === "chat" && (
+            <ChatView sid={sid} session={session} stopped={stopped} />
+          )}
         </View>
       )}
-      {sid && mode === "terminal" && (
+      {sid && (
         <View
-          className="flex-1"
+          className={mode === "terminal" ? "flex-1" : ""}
           {...(Platform.OS === "web"
             ? {
                 role: "tabpanel" as const,
                 id: SESSION_TABPANEL_TERMINAL_ID,
                 "aria-labelledby": SESSION_TAB_TERMINAL_ID,
+                hidden: mode !== "terminal",
               }
             : {})}
         >
-          <TerminalView sid={sid} stopped={stopped} />
+          {mode === "terminal" && <TerminalView sid={sid} stopped={stopped} />}
         </View>
       )}
 

@@ -22,9 +22,7 @@ test.describe("Session chat list role=list/listitem ownership", () => {
     await page.goto("/session/test-chat-list-ownership");
     await page.waitForLoadState("networkidle");
 
-    const labeled = page.locator(
-      '[role="list"][aria-label="Chat messages"]',
-    );
+    const labeled = page.locator('[role="list"][aria-label="Chat messages"]');
     const present = await labeled.count();
     // Empty-state branch renders no `role="list"` element at all —
     // the regression only manifests once messages exist. Without a
@@ -38,15 +36,11 @@ test.describe("Session chat list role=list/listitem ownership", () => {
 
     const maxDepth = await page.evaluate(() => {
       const lists = Array.from(
-        document.querySelectorAll(
-          '[role="list"][aria-label="Chat messages"]',
-        ),
+        document.querySelectorAll('[role="list"][aria-label="Chat messages"]'),
       );
       let worst = -1;
       for (const lb of lists) {
-        const items = Array.from(
-          lb.querySelectorAll('[role="listitem"]'),
-        );
+        const items = Array.from(lb.querySelectorAll('[role="listitem"]'));
         for (const it of items) {
           let depth = 0;
           let node: Element | null = it.parentElement;
@@ -67,9 +61,7 @@ test.describe("Session chat list role=list/listitem ownership", () => {
     expect(maxDepth).toBeLessThanOrEqual(1);
   });
 
-  test("ScrollView path renders on web without crashing", async ({
-    page,
-  }) => {
+  test("ScrollView path renders on web without crashing", async ({ page }) => {
     // Sanity: navigating to a session view must not throw — covers the
     // emptyMessage / displayMessages.length === 0 web branch as a
     // smoke test so the new ScrollView render doesn't regress the

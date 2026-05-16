@@ -77,9 +77,9 @@ describe("codec edge cases", () => {
     const decoder = new FrameDecoder();
     const results = decoder.decode(frame);
     expect(results.length).toBe(1);
-    expect((results[0]?.data as { payload: string } | undefined)?.payload.length).toBe(
-      100_000,
-    );
+    expect(
+      (results[0]?.data as { payload: string } | undefined)?.payload.length,
+    ).toBe(100_000);
   });
 
   test("reset clears decoder state", () => {

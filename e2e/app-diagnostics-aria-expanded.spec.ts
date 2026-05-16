@@ -23,7 +23,9 @@ test.describe("Diagnostics disclosure trigger exposes aria-expanded", () => {
     await expect(trigger).toHaveAttribute("aria-expanded", "false");
 
     await trigger.click();
-    await page.getByRole("button", { name: "Done" }).waitFor({ timeout: 5_000 });
+    await page
+      .getByRole("button", { name: "Done" })
+      .waitFor({ timeout: 5_000 });
 
     // Trigger unmounts after the disclosure expands (the Settings subtree
     // is swapped for the inline panel), so we re-query by aria-label —

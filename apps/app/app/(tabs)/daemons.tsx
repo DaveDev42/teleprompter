@@ -241,7 +241,10 @@ export default function DaemonsScreen() {
       ) : (
         <View className="flex-1 items-center justify-center px-8">
           <View className="w-full max-w-sm items-center">
-            <View className="w-16 h-16 rounded-2xl bg-tp-bg-secondary items-center justify-center mb-6">
+            <View
+              className="w-16 h-16 rounded-2xl bg-tp-bg-secondary items-center justify-center mb-6"
+              {...(Platform.OS === "web" ? { "aria-hidden": true } : {})}
+            >
               <Text className="text-[28px]">🖥</Text>
             </View>
             <Text className="text-tp-text-primary text-xl font-semibold mb-2">

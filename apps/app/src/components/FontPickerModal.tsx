@@ -317,7 +317,23 @@ export function FontSizeModal({
           <Text className="text-tp-accent text-base">Done</Text>
         </Pressable>
       </View>
-      <View className="flex-row items-center justify-center gap-8 py-8 pb-12">
+      {/* role="spinbutton" container exposes the numeric value state to AT
+          (APG Spinbutton Pattern, WCAG 4.1.2). The −/+ Pressables stay as
+          activatable buttons; this wrapper carries aria-valuenow/min/max
+          so a screen reader reads "Font size in pixels, 15, minimum 10,
+          maximum 24" when the user enters the group. */}
+      <View
+        className="flex-row items-center justify-center gap-8 py-8 pb-12"
+        {...(Platform.OS === "web"
+          ? ({
+              role: "spinbutton" as const,
+              "aria-label": "Font size in pixels",
+              "aria-valuenow": size,
+              "aria-valuemin": 10,
+              "aria-valuemax": 24,
+            } as object)
+          : {})}
+      >
         <Pressable
           ref={decRef}
           className={`w-12 h-12 rounded-full bg-tp-surface items-center justify-center ${pp.className} ${atMin ? "opacity-30" : ""}`}

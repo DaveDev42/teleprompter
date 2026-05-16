@@ -120,6 +120,7 @@ export default defineConfig({
         "app-empty-state-emoji-aria-hidden.spec.ts",
         "app-chat-log-aria-label.spec.ts",
         "app-modal-aria-labelledby.spec.ts",
+        "app-font-size-spinbutton.spec.ts",
       ],
     },
     {

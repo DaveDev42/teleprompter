@@ -107,6 +107,7 @@ export default defineConfig({
         "app-tabbar-navigation-landmark.spec.ts",
         "app-tablist-aria-orientation.spec.ts",
         "app-document-title.spec.ts",
+        "app-pairing-aria-invalid.spec.ts",
       ],
     },
     {

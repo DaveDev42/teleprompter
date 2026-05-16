@@ -185,7 +185,17 @@ export default function PairingScreen() {
                 "aria-describedby": "pairing-error",
               }
             : Platform.OS === "web" && showInputHint
-              ? { "aria-describedby": "pairing-input-hint" }
+              ? {
+                  // WAI-ARIA 1.2 §6.6.7 + WCAG 4.1.2 (Level A): when the
+                  // typed value is in an unacceptable format the field's
+                  // invalid state must be programmatically determinable.
+                  // The inline hint via aria-describedby announces the
+                  // error message, but without aria-invalid screen
+                  // readers don't mark the field itself as in an error
+                  // state — matching the `error` branch closes the gap.
+                  "aria-invalid": true,
+                  "aria-describedby": "pairing-input-hint",
+                }
               : {})}
           // WCAG 2.1 SC 1.3.1 / 4.1.2: Connect is disabled until a value is
           // typed, so the input is programmatically mandatory. Expose that

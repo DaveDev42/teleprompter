@@ -55,6 +55,24 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
   const ariaCheckedTerminal =
     Platform.OS === "web" ? { "aria-checked": includeTerminal } : {};
 
+  // WAI-ARIA §3.22 (Switch Pattern) requires Space to toggle the switch.
+  // Pressable on web renders a <div role="switch">, not a native <button>,
+  // so the browser's "Space clicks the focused button" shortcut doesn't
+  // apply. Enter happens to work via Pressable's synthetic onClick, but
+  // Space falls through silently — the spec-canonical key for switches.
+  // Same pattern as the session view's role=tab Space handler (PR #340).
+  const switchKeyHandler =
+    Platform.OS === "web"
+      ? {
+          onKeyDown: (e: { key: string; preventDefault: () => void }) => {
+            if (e.key === " ") {
+              e.preventDefault();
+              toggleTerminalContext();
+            }
+          },
+        }
+      : {};
+
   // Same gap for `accessibilityState.busy` — createDOMProps emits
   // aria-busy only when it sees aria-busy/accessibilityBusy directly,
   // so connecting/processing states wouldn't be announced. Pass it
@@ -83,6 +101,7 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
         accessibilityLabel="Include terminal context"
         accessibilityState={{ checked: includeTerminal }}
         {...(ariaCheckedTerminal as object)}
+        {...(switchKeyHandler as object)}
       >
         <Text className="text-xs text-tp-text-secondary">T</Text>
       </Pressable>

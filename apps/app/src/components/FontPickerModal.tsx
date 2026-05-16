@@ -320,8 +320,10 @@ export function FontSizeModal({
       {/* role="spinbutton" container exposes the numeric value state to AT
           (APG Spinbutton Pattern, WCAG 4.1.2). The −/+ Pressables stay as
           activatable buttons; this wrapper carries aria-valuenow/min/max
-          so a screen reader reads "Font size in pixels, 15, minimum 10,
-          maximum 24" when the user enters the group. */}
+          so a screen reader reads "Font size in pixels, 15 pixels, minimum
+          10, maximum 24" when the user enters the group. tabIndex=0 makes
+          it focusable for keyboard use, and ArrowUp/Down/Home/End handle
+          the canonical APG spinbutton interactions. */}
       <View
         className="flex-row items-center justify-center gap-8 py-8 pb-12"
         {...(Platform.OS === "web"
@@ -331,6 +333,29 @@ export function FontSizeModal({
               "aria-valuenow": size,
               "aria-valuemin": 10,
               "aria-valuemax": 24,
+              "aria-valuetext": `${size} pixels`,
+              tabIndex: 0,
+              onKeyDown: (e: { key: string; preventDefault: () => void }) => {
+                if (e.key === "ArrowUp" || e.key === "ArrowRight") {
+                  e.preventDefault();
+                  if (!atMax) adjust(1);
+                } else if (e.key === "ArrowDown" || e.key === "ArrowLeft") {
+                  e.preventDefault();
+                  if (!atMin) adjust(-1);
+                } else if (e.key === "Home") {
+                  e.preventDefault();
+                  if (!atMin) {
+                    setSize(10);
+                    onChangeSize(10);
+                  }
+                } else if (e.key === "End") {
+                  e.preventDefault();
+                  if (!atMax) {
+                    setSize(24);
+                    onChangeSize(24);
+                  }
+                }
+              },
             } as object)
           : {})}
       >

@@ -121,6 +121,7 @@ export default defineConfig({
         "app-chat-log-aria-label.spec.ts",
         "app-modal-aria-labelledby.spec.ts",
         "app-font-size-spinbutton.spec.ts",
+        "app-font-size-spinbutton-keyboard.spec.ts",
       ],
     },
     {

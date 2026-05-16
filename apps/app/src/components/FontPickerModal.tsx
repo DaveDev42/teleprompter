@@ -97,6 +97,20 @@ export function FontPickerModal({
       const last = fonts.length - 1;
       setActiveIndex(last);
       focusOption(last);
+    } else if (e.key === " ") {
+      // APG Single-Select Listbox §3.14: Space on a focused option
+      // must commit the selection. The `role="option"` elements are
+      // rendered as <div> on web (RN Web's Pressable doesn't emit a
+      // native <button>), so the browser's "Space clicks a focused
+      // button" shortcut doesn't apply. Enter happens to work because
+      // Pressable's synthetic onClick catches it, but Space falls
+      // through with no effect — keyboard-only users can navigate
+      // with Arrow keys but can't activate the focused font. Forward
+      // the keystroke to the underlying Pressable's onClick by
+      // click()-ing the active option's DOM node; that path already
+      // calls onSelect → setFont → onClose.
+      e.preventDefault();
+      optionRefs.current[activeIndex]?.click();
     }
   };
 

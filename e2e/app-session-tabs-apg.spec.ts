@@ -81,9 +81,7 @@ test.describe("Session view APG Tabs", () => {
     // `page.evaluate` would race with the rAF callback.
     await expect
       .poll(() =>
-        page.evaluate(
-          () => document.activeElement?.getAttribute("id") ?? null,
-        ),
+        page.evaluate(() => document.activeElement?.getAttribute("id") ?? null),
       )
       .toBe("session-tab-terminal");
 
@@ -95,9 +93,7 @@ test.describe("Session view APG Tabs", () => {
     );
     await expect
       .poll(() =>
-        page.evaluate(
-          () => document.activeElement?.getAttribute("id") ?? null,
-        ),
+        page.evaluate(() => document.activeElement?.getAttribute("id") ?? null),
       )
       .toBe("session-tab-chat");
   });

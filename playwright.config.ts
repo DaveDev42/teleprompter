@@ -99,6 +99,7 @@ export default defineConfig({
         "app-font-picker-space-activates.spec.ts",
         "app-modal-trigger-haspopup.spec.ts",
         "app-tablist-aria-label.spec.ts",
+        "app-input-aria-required.spec.ts",
       ],
     },
     {

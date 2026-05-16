@@ -187,6 +187,15 @@ export default function PairingScreen() {
             : Platform.OS === "web" && showInputHint
               ? { "aria-describedby": "pairing-input-hint" }
               : {})}
+          // WCAG 2.1 SC 1.3.1 / 4.1.2: Connect is disabled until a value is
+          // typed, so the input is programmatically mandatory. Expose that
+          // via aria-required so screen readers announce "Pairing data,
+          // required, text area" instead of leaving the user to infer the
+          // constraint from the disabled submit button. RN doesn't bridge
+          // accessibilityRequired, so spread aria-required raw on web.
+          {...(Platform.OS === "web"
+            ? ({ "aria-required": "true" } as object)
+            : {})}
         />
 
         {/* Inline validation hint: non-empty input that can't be decoded.

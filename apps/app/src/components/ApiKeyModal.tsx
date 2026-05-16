@@ -120,6 +120,13 @@ export function ApiKeyModal({
           // The matching aria-description is set imperatively when the
           // modal opens (see useEffect above).
           accessibilityHint="Enter your OpenAI API key for voice input"
+          // WCAG 2.1 SC 1.3.1 / 4.1.2: Save is disabled until a key is
+          // entered. Expose the requirement via aria-required so screen
+          // readers announce the field as mandatory. RN doesn't bridge
+          // accessibilityRequired so spread aria-required raw on web.
+          {...(Platform.OS === "web"
+            ? ({ "aria-required": "true" } as object)
+            : {})}
         />
         <Pressable
           ref={saveRef}

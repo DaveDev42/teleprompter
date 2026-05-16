@@ -5,6 +5,7 @@ import {
   FlatList,
   Platform,
   Pressable,
+  ScrollView,
   Text,
   TextInput,
   View,
@@ -194,60 +195,78 @@ export default function SessionsScreen() {
         </View>
       )}
 
-      {/* Session list */}
-      <FlatList
-        data={filteredSessions}
-        keyExtractor={(item) => item.sid}
-        accessibilityRole="list"
-        // Wrap each row in a listitem so the parent role="list" reflects
-        // valid ARIA semantics on web — FlatList's internal cell wrapper
-        // is a plain div there. SessionRow itself is a button, so the
-        // listitem must be on a separate ancestor element. RN's
-        // AccessibilityRole union doesn't include "listitem", so spread
-        // `role` directly on web.
-        renderItem={({ item }) => (
-          <View {...(Platform.OS === "web" ? { role: "listitem" } : {})}>
+      {/* Session list. Web uses ScrollView + .map() so role=list owns
+          role=listitem children directly — FlatList's internal cell
+          wrapper inserts two roleless <div>s between the list and each
+          listitem, which violates ARIA's required-context rule (§4.3.3)
+          and drops listitems out of the AX tree on Firefox/Safari.
+          Native keeps FlatList for virtualization on long lists. */}
+      {filteredSessions.length === 0 ? (
+        // Keep the list landmark even in the empty branch so screen
+        // readers and pre-existing specs (app-listitem-aria.spec.ts)
+        // still find `role="list"` on the Sessions screen. The empty
+        // CTA sits visually inside it; AT will announce the list as
+        // having zero items.
+        <View
+          className="flex-1 items-center justify-center pt-40"
+          {...(Platform.OS === "web" ? { role: "list" as const } : {})}
+          accessibilityRole="list"
+        >
+          <View className="w-16 h-16 rounded-2xl bg-tp-bg-secondary items-center justify-center mb-6">
+            <Text className="text-[28px]">💬</Text>
+          </View>
+          <Text className="text-tp-text-primary text-xl font-semibold mb-2">
+            No active sessions
+          </Text>
+          <Text className="text-tp-text-secondary text-[15px] text-center leading-6 px-8">
+            Start a new session from the{"\n"}Daemons tab or run tp on your
+            machine.
+          </Text>
+          <Pressable
+            onPress={() => router.push("/(tabs)/daemons")}
+            className={`mt-6 bg-tp-accent rounded-card px-8 py-3 ${pp.className}`}
+            // Removed from keyboard tab order: react-navigation renders the
+            // tab bar after the scene in DOM, so leaving this CTA tabbable
+            // captures Tab 1 ahead of the persistent navigation. Mouse/touch
+            // users keep the CTA; keyboard users reach Daemons via the tab
+            // bar (also documented in the instructional text above).
+            tabIndex={-1}
+            accessibilityRole="button"
+            accessibilityLabel="Go to Daemons"
+          >
+            <Text className="text-tp-text-on-color font-semibold text-base">
+              Go to Daemons
+            </Text>
+          </Pressable>
+        </View>
+      ) : Platform.OS === "web" ? (
+        <ScrollView>
+          <View role="list">
+            {filteredSessions.map((item) => (
+              <View key={item.sid} role="listitem">
+                <SessionRow
+                  session={item}
+                  isActive={item.sid === currentSid}
+                  onPress={() => handleSessionPress(item)}
+                />
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+      ) : (
+        <FlatList
+          data={filteredSessions}
+          keyExtractor={(item) => item.sid}
+          accessibilityRole="list"
+          renderItem={({ item }) => (
             <SessionRow
               session={item}
               isActive={item.sid === currentSid}
               onPress={() => handleSessionPress(item)}
             />
-          </View>
-        )}
-        ListEmptyComponent={
-          <View className="flex-1 items-center justify-center pt-40">
-            <View className="w-16 h-16 rounded-2xl bg-tp-bg-secondary items-center justify-center mb-6">
-              <Text className="text-[28px]">💬</Text>
-            </View>
-            <Text className="text-tp-text-primary text-xl font-semibold mb-2">
-              No active sessions
-            </Text>
-            <Text className="text-tp-text-secondary text-[15px] text-center leading-6 px-8">
-              Start a new session from the{"\n"}Daemons tab or run tp on your
-              machine.
-            </Text>
-            <Pressable
-              onPress={() => router.push("/(tabs)/daemons")}
-              className={`mt-6 bg-tp-accent rounded-card px-8 py-3 ${pp.className}`}
-              // Removed from keyboard tab order: react-navigation renders the
-              // tab bar after the scene in DOM, so leaving this CTA tabbable
-              // captures Tab 1 ahead of the persistent navigation. Mouse/touch
-              // users keep the CTA; keyboard users reach Daemons via the tab
-              // bar (also documented in the instructional text above).
-              tabIndex={-1}
-              accessibilityRole="button"
-              accessibilityLabel="Go to Daemons"
-            >
-              <Text className="text-tp-text-on-color font-semibold text-base">
-                Go to Daemons
-              </Text>
-            </Pressable>
-          </View>
-        }
-        contentContainerStyle={
-          filteredSessions.length === 0 ? { flex: 1 } : undefined
-        }
-      />
+          )}
+        />
+      )}
     </View>
   );
 }

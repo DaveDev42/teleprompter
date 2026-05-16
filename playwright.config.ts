@@ -123,6 +123,7 @@ export default defineConfig({
         "app-font-size-spinbutton.spec.ts",
         "app-font-size-spinbutton-keyboard.spec.ts",
         "app-tabbar-aria-controls.spec.ts",
+        "app-sessions-search-aria-controls.spec.ts",
       ],
     },
     {

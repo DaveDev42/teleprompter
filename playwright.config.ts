@@ -69,6 +69,7 @@ export default defineConfig({
         "app-font-picker-initial-focus.spec.ts",
         "app-pairing-input-hint-live-region.spec.ts",
         "app-session-reconnect-announce.spec.ts",
+        "app-session-tabs-apg.spec.ts",
       ],
     },
     {

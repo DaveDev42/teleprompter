@@ -232,6 +232,7 @@ export function FontSizeModal({
   // be absent from the freshly-mounted DOM node.
   const decRef = useRef<View>(null);
   const incRef = useRef<View>(null);
+  const sizeRef = useRef<View>(null);
   useEffect(() => {
     if (Platform.OS !== "web") return;
     if (!visible) return;
@@ -246,6 +247,19 @@ export function FontSizeModal({
       else inc.removeAttribute("aria-disabled");
     }
   }, [visible, atMin, atMax]);
+
+  // aria-atomic on the size live region is set via setAttribute because
+  // RN Web 0.21 passes the `aria-atomic` prop through a buggy code path
+  // that swaps it with aria-activedescendant on the way to the DOM. The
+  // role / aria-live / aria-label pass through fine; only aria-atomic
+  // needs the imperative escape hatch.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (!visible) return;
+    const el = sizeRef.current as unknown as HTMLElement | null;
+    if (!el) return;
+    el.setAttribute("aria-atomic", "true");
+  }, [visible]);
 
   return (
     <ModalContainer
@@ -286,13 +300,31 @@ export function FontSizeModal({
         >
           <Text className="text-tp-text-primary text-2xl font-bold">−</Text>
         </Pressable>
-        <Text
-          className="text-tp-text-primary text-4xl font-bold w-20 text-center"
-          accessibilityLabel={`Font size ${size} pixels`}
-          accessibilityRole="text"
+        {/* Wrap the size number in a polite live region so a screen
+            reader announces the new value whenever +/- changes it.
+            RN Web emits the bare <Text> as a role-less <div>, which
+            means an `aria-label` on it is silently ignored by AT (it
+            only matters on elements with a role). Move the role to a
+            wrapping View on web; aria-atomic is set imperatively in
+            the effect above because RN Web 0.21 garbles the
+            aria-atomic prop pass-through. Native gets the same
+            announcement via accessibilityLiveRegion. */}
+        <View
+          ref={sizeRef}
+          accessibilityLiveRegion="polite"
+          {...(Platform.OS === "web"
+            ? {
+                role: "status" as const,
+                "aria-live": "polite" as const,
+                "aria-label": `Font size ${size} pixels`,
+              }
+            : {})}
+          className="w-20 items-center justify-center"
         >
-          {size}
-        </Text>
+          <Text className="text-tp-text-primary text-4xl font-bold text-center">
+            {size}
+          </Text>
+        </View>
         <Pressable
           ref={incRef}
           className={`w-12 h-12 rounded-full bg-tp-surface items-center justify-center ${pp.className} ${atMax ? "opacity-30" : ""}`}

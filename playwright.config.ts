@@ -72,6 +72,7 @@ export default defineConfig({
         "app-session-tabs-apg.spec.ts",
         "app-tabbar-aria-label.spec.ts",
         "app-pairing-textarea-describedby.spec.ts",
+        "app-font-size-announce.spec.ts",
       ],
     },
     {

@@ -73,6 +73,7 @@ export default defineConfig({
         "app-tabbar-aria-label.spec.ts",
         "app-pairing-textarea-describedby.spec.ts",
         "app-font-size-announce.spec.ts",
+        "app-theme-toggle-announce.spec.ts",
       ],
     },
     {

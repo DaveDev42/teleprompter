@@ -191,6 +191,13 @@ export default function SettingsScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
+  // Toggling Theme cycles its label (System → Dark → Light → ...) but
+  // focus stays on the row button, so screen readers don't re-announce
+  // anything — the user pressed Enter and heard silence. Mirror the
+  // freshly-cycled theme into a small polite live region so AT speaks
+  // it. Stored as state (rather than derived from `theme`) so we can
+  // skip the initial mount announcement.
+  const [themeAnnouncement, setThemeAnnouncement] = useState("");
   const chatFont = useSettingsStore((s) => s.chatFont);
   const codeFont = useSettingsStore((s) => s.codeFont);
   const terminalFont = useSettingsStore((s) => s.terminalFont);
@@ -310,8 +317,32 @@ export default function SettingsScreen() {
                   ? "system"
                   : "dark";
             setTheme(next);
+            const nextLabel =
+              next === "dark" ? "Dark" : next === "light" ? "Light" : "System";
+            setThemeAnnouncement(`Theme: ${nextLabel}`);
           }}
         />
+        {/* SR-only polite live region for theme cycling. Visually
+            collapsed; AT picks up changes because aria-live=polite. */}
+        <View
+          testID="theme-announcement"
+          accessibilityLiveRegion="polite"
+          {...(Platform.OS === "web"
+            ? {
+                role: "status" as const,
+                "aria-live": "polite" as const,
+              }
+            : {})}
+          style={{
+            position: "absolute",
+            width: 1,
+            height: 1,
+            overflow: "hidden",
+          }}
+          pointerEvents="none"
+        >
+          <Text className="text-tp-text-primary">{themeAnnouncement}</Text>
+        </View>
         <SettingsRow
           label="Chat Font"
           value={chatFont}

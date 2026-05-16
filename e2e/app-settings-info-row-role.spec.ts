@@ -21,9 +21,7 @@ test.describe("Settings info-only row ARIA role", () => {
     // Match the version number loosely — release-please bumps it on
     // every patch release. We only care that it's a numeric semver
     // suffix, not the specific value.
-    const versionRow = page.locator(
-      '[role="group"][aria-label^="Version, "]',
-    );
+    const versionRow = page.locator('[role="group"][aria-label^="Version, "]');
     await expect(versionRow).toBeAttached({ timeout: 5_000 });
     const label = await versionRow.getAttribute("aria-label");
     expect(label).toMatch(/^Version, \S+/);
@@ -38,9 +36,7 @@ test.describe("Settings info-only row ARIA role", () => {
 
     // OTA status is `unavailable` ("Dev build") under the static dist
     // bundle — same fixture pattern as app-settings-updates-aria.spec.ts.
-    const row = page.locator(
-      '[role="group"][aria-label="Updates, Dev build"]',
-    );
+    const row = page.locator('[role="group"][aria-label="Updates, Dev build"]');
     await expect(row).toBeAttached({ timeout: 5_000 });
   });
 });

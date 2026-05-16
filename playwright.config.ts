@@ -100,6 +100,7 @@ export default defineConfig({
         "app-modal-trigger-haspopup.spec.ts",
         "app-tablist-aria-label.spec.ts",
         "app-input-aria-required.spec.ts",
+        "app-tablist-aria-owns.spec.ts",
       ],
     },
     {

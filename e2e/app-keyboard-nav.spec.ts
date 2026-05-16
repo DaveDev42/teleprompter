@@ -69,8 +69,7 @@ test.describe("App Keyboard Navigation", () => {
     // no longer on the chat tab. It ends up on either the terminal tab
     // (brief window) or terminal-container (GhosttyTerminal auto-focus).
     await page.waitForFunction(() => {
-      const testid =
-        document.activeElement?.getAttribute("data-testid") ?? "";
+      const testid = document.activeElement?.getAttribute("data-testid") ?? "";
       return testid !== "tab-chat";
     });
     const activeTestId = await page.evaluate(

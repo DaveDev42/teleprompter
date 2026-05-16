@@ -70,6 +70,8 @@ export default defineConfig({
         "app-pairing-input-hint-live-region.spec.ts",
         "app-session-reconnect-announce.spec.ts",
         "app-session-tabs-apg.spec.ts",
+        "app-tabbar-aria-label.spec.ts",
+        "app-pairing-textarea-describedby.spec.ts",
       ],
     },
     {

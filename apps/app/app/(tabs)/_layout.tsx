@@ -39,7 +39,10 @@ export default function TabsLayout() {
         options={{
           title: "Sessions",
           tabBarLabel: "Sessions",
-          tabBarAccessibilityLabel: "Sessions tab",
+          // Avoid the " tab" suffix — the button already has role=tab, so
+          // assistive tech announces "Sessions, tab" on its own. Adding
+          // "tab" to the label produces "Sessions tab, tab" duplication.
+          tabBarAccessibilityLabel: "Sessions",
           tabBarButtonTestID: "tab-sessions",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="list-outline" size={size} color={color} />
@@ -51,7 +54,7 @@ export default function TabsLayout() {
         options={{
           title: "Daemons",
           tabBarLabel: "Daemons",
-          tabBarAccessibilityLabel: "Daemons tab",
+          tabBarAccessibilityLabel: "Daemons",
           tabBarButtonTestID: "tab-daemons",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="server-outline" size={size} color={color} />
@@ -63,7 +66,7 @@ export default function TabsLayout() {
         options={{
           title: "Settings",
           tabBarLabel: "Settings",
-          tabBarAccessibilityLabel: "Settings tab",
+          tabBarAccessibilityLabel: "Settings",
           tabBarButtonTestID: "tab-settings",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="settings-outline" size={size} color={color} />

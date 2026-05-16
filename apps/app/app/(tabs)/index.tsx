@@ -138,6 +138,11 @@ export default function SessionsScreen() {
       "aria-description",
       "Filter sessions by name, path, or status",
     );
+    // APG Combobox/Search pattern: the input is a control over the
+    // sessions list — without `aria-controls` AT users hear keystrokes
+    // but cannot programmatically navigate to the filtered result
+    // container, so the filter feels orphaned.
+    el.setAttribute("aria-controls", "sessions-list");
   });
 
   // Sort by updatedAt desc, filter by search
@@ -221,6 +226,7 @@ export default function SessionsScreen() {
         // having zero items.
         <View
           className="flex-1 items-center justify-center pt-40"
+          nativeID="sessions-list"
           {...(Platform.OS === "web" ? { role: "list" as const } : {})}
           accessibilityRole="list"
         >
@@ -256,7 +262,7 @@ export default function SessionsScreen() {
         </View>
       ) : Platform.OS === "web" ? (
         <ScrollView>
-          <View role="list">
+          <View role="list" nativeID="sessions-list">
             {filteredSessions.map((item) => (
               <View key={item.sid} role="listitem">
                 <SessionRow

@@ -82,6 +82,7 @@ export default defineConfig({
         "app-diagnostics-rtt-announce.spec.ts",
         "app-font-picker-listbox-ownership.spec.ts",
         "app-sessions-list-ownership.spec.ts",
+        "app-connection-live-region-atomic.spec.ts",
       ],
     },
     {

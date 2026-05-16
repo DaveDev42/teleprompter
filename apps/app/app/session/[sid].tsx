@@ -238,10 +238,26 @@ function ConnectionLiveRegion({ connected }: { connected: boolean }) {
     return () => clearTimeout(t);
   }, [connected]);
 
+  // role=status implies aria-atomic=true per ARIA 1.2, but NVDA/JAWS in
+  // some shipped versions ignore the implicit value and read only the
+  // text diff between updates — the user hears the new word ("Reconnected")
+  // without the surrounding context. RN Web 0.21's createDOMProps also
+  // strips `aria-atomic` when spread on a <View>, so the explicit prop
+  // never lands. Mirror the InAppToast imperative escape hatch: set
+  // aria-atomic on the underlying DOM node so the whole label is
+  // announced as one unit on every update.
+  const liveRegionRef = useRef<View>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const el = liveRegionRef.current as unknown as HTMLElement | null;
+    if (el) el.setAttribute("aria-atomic", "true");
+  }, []);
+
   // Render the wrapper unconditionally so AT keeps a stable live region
   // attached. The visible chrome is the only thing that toggles.
   return (
     <View
+      ref={liveRegionRef}
       testID="session-connection-live-region"
       accessibilityLiveRegion="polite"
       accessibilityLabel={

@@ -326,6 +326,48 @@ function ConnectionLiveRegion({ connected }: { connected: boolean }) {
   );
 }
 
+// Same always-mounted live region pattern as ConnectionLiveRegion:
+// wrapper stays attached so AT observes the text insertion when the
+// session flips from running to stopped. Without this, mounting the
+// banner together with its content drops the first announcement —
+// the observer is attached at insertion time, not at content-change
+// time, so a node that appears with content is observed too late.
+function SessionStoppedLiveRegion({ stopped }: { stopped: boolean }) {
+  // role=status implies aria-atomic=true per ARIA 1.2, but NVDA/JAWS
+  // and RN Web 0.21 both have gaps — mirror the imperative escape
+  // hatch from ConnectionLiveRegion / InAppToast.
+  const liveRegionRef = useRef<View>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const el = liveRegionRef.current as unknown as HTMLElement | null;
+    if (el) el.setAttribute("aria-atomic", "true");
+  }, []);
+
+  return (
+    <View
+      ref={liveRegionRef}
+      testID="session-stopped-banner"
+      accessibilityLiveRegion="polite"
+      accessibilityLabel={
+        stopped ? "Session ended. Read-only view." : undefined
+      }
+      {...(Platform.OS === "web" ? { role: "status" as const } : {})}
+    >
+      {stopped && (
+        <View
+          testID="session-stopped-banner-chrome"
+          className="flex-row items-center px-4 py-2 bg-tp-bg-secondary border-b border-tp-border"
+        >
+          <View className="w-1.5 h-1.5 rounded-full bg-tp-warning mr-2" />
+          <Text className="text-tp-text-secondary text-[12px] font-medium">
+            Session ended — read-only view
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
 function ChatView({
   sid,
   session,
@@ -884,21 +926,16 @@ export default function SessionDetailScreen() {
         <View className="w-20" />
       </View>
 
-      {/* Stopped session banner */}
-      {stopped && (
-        <View
-          testID="session-stopped-banner"
-          role="status"
-          accessibilityLiveRegion="polite"
-          accessibilityLabel="Session ended. Read-only view."
-          className="flex-row items-center px-4 py-2 bg-tp-bg-secondary border-b border-tp-border"
-        >
-          <View className="w-1.5 h-1.5 rounded-full bg-tp-warning mr-2" />
-          <Text className="text-tp-text-secondary text-[12px] font-medium">
-            Session ended — read-only view
-          </Text>
-        </View>
-      )}
+      {/* Stopped session banner — wrapper is always mounted so a
+          screen reader's polite queue gets the "Session ended"
+          announcement when the session transitions from running to
+          stopped. If the banner is conditionally mounted alongside its
+          content, NVDA / JAWS won't observe the text insertion (the
+          mutation observer attaches when the live region enters the
+          a11y tree, not when text changes on an already-present node)
+          and the read-only transition is silently dropped. Matches the
+          ConnectionLiveRegion pattern above. */}
+      <SessionStoppedLiveRegion stopped={stopped} />
 
       {/* Connection-state live region. We keep the wrapper mounted at all
           times on a live session so a screen reader's polite queue gets to

@@ -92,6 +92,7 @@ export default defineConfig({
         "app-voice-state-live-region-mount.spec.ts",
         "app-session-stopped-banner-mount.spec.ts",
         "app-confirm-unpair-describedby.spec.ts",
+        "app-rename-modal-aria-description.spec.ts",
       ],
     },
     {

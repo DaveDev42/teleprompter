@@ -55,6 +55,25 @@ export function RenamePairingModal({
     else el.removeAttribute("aria-disabled");
   }, [visible, isUnchanged]);
 
+  // RN Web's createDOMProps doesn't whitelist `aria-description` and
+  // doesn't map `accessibilityHint` to any ARIA attribute. Mirror the
+  // visible helper text ("Empty value clears the label …") onto the
+  // input via setAttribute when the modal opens so screen-reader users
+  // get the same context sighted users do — otherwise the input
+  // announces only its accessibleLabel and the user can save an empty
+  // value without ever hearing what happens. Matches ApiKeyModal.
+  const inputRef = useRef<TextInput>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (!visible) return;
+    const el = inputRef.current as unknown as HTMLElement | null;
+    if (!el) return;
+    el.setAttribute(
+      "aria-description",
+      "Empty value clears the label and falls back to the daemon ID",
+    );
+  }, [visible]);
+
   return (
     <ModalContainer
       visible={visible}
@@ -92,6 +111,7 @@ export function RenamePairingModal({
           </Pressable>
         </View>
         <TextInput
+          ref={inputRef}
           value={value}
           onChangeText={setValue}
           placeholder="Label (leave empty to clear)"

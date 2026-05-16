@@ -23,24 +23,12 @@ test.describe("App Keyboard Navigation", () => {
     await page.getByTestId("tab-sessions").waitFor({ timeout: 30_000 });
   });
 
-  test("Tab navigates through tab bar items", async ({ page }) => {
-    const sessionsTab = page.getByTestId("tab-sessions");
-    const daemonsTab = page.getByTestId("tab-daemons");
-    const settingsTab = page.getByTestId("tab-settings");
-
-    await sessionsTab.focus();
-    await expect(sessionsTab).toBeFocused();
-
-    await page.keyboard.press("Tab");
-    await expect(daemonsTab).toBeFocused();
-
-    await page.keyboard.press("Tab");
-    await expect(settingsTab).toBeFocused();
-
-    // Enter activates the focused tab
-    await page.keyboard.press("Enter");
-    await expect(page.locator("text=Settings").first()).toBeVisible();
-  });
+  // The original "Tab navigates through tab bar items" test pre-dated APG
+  // Tabs roving tabindex (BUG-20) — it stepped through every nav tab with
+  // Tab, which is exactly the behaviour roving tabindex eliminates.
+  // Coverage moved to `app-tabbar-roving-tabindex.spec.ts` (active tab has
+  // tabindex=0, inactive tabs have tabindex=-1, per `_layout.tsx`'s
+  // `tabBarButton`).
 
   test("Enter activates settings rows", async ({ page }) => {
     await page.getByTestId("tab-settings").click();

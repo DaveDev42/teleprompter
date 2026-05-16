@@ -22,6 +22,33 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
     }
   }, [disabled, state, stopVoice]);
 
+  // NVDA / JAWS announce only the diff between live-region updates when
+  // aria-atomic isn't set, so transitions like "Connecting" → "Listening"
+  // and the first word of an incoming transcript get dropped. ARIA 1.2
+  // §6.3.2 says role=status implies aria-atomic=true, but the screen
+  // readers ignore the implicit value — and RN Web 0.21 silently drops
+  // prop-level `aria-atomic` on Text/View, so the attribute has to be
+  // applied imperatively. Matches InAppToast / ConnectionLiveRegion /
+  // theme-announcement / DiagnosticsPanel. WCAG 4.1.3 Status Messages.
+  // RN Web's <Text> ref returns the host React component, not the DOM
+  // node directly — querying the testID after mount is the reliable
+  // way to reach the underlying element. Re-run when the visibility
+  // conditions change (apiKey load, disabled flip) so the attribute is
+  // applied whenever the live regions enter the DOM.
+  const liveRegionsMounted = !!apiKey && !disabled;
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (!liveRegionsMounted) return;
+    const stateEl = document.querySelector(
+      '[data-testid="voice-state-live-region"]',
+    );
+    const transcriptEl = document.querySelector(
+      '[data-testid="voice-transcript-live-region"]',
+    );
+    stateEl?.setAttribute("aria-atomic", "true");
+    transcriptEl?.setAttribute("aria-atomic", "true");
+  }, [liveRegionsMounted]);
+
   if (Platform.OS !== "web") {
     return null; // Web only for now
   }

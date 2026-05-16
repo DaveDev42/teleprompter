@@ -761,18 +761,20 @@ function SystemCard({ msg }: { msg: ChatMessage }) {
   // user may need to retry. Use the error color and a leading warning glyph.
   const isError = msg.event === "StopFailure";
   // Announce StopFailure to screen readers so users aren't silently stuck on
-  // a chat that visually shows an error. Mirrors ElicitationCard /
-  // PermissionCard — they use role=alert + accessibilityLiveRegion so the
-  // failure is spoken when it appears. Plain system notifications stay
-  // silent (no live region) — there can be many of them per session and
-  // making each one shout would drown out the conversation.
+  // a chat that visually shows an error. Mirrors PermissionCard — role=alert
+  // already implies aria-live="assertive" per ARIA 1.2 §6.3.3, so don't set
+  // an explicit accessibilityLiveRegion: a "polite" value would land as
+  // aria-live="polite" and *override* the implicit assertive (ARIA 1.2
+  // §6.2.1), silently downgrading the failure announcement to a queued
+  // background message. Plain system notifications stay silent (no live
+  // region) — there can be many of them per session and making each one
+  // shout would drown out the conversation.
   return (
     <View
       className="self-center py-1 px-3 max-w-full"
       {...(isError
         ? {
             accessibilityRole: "alert" as const,
-            accessibilityLiveRegion: "polite" as const,
             accessibilityLabel: `Error: ${msg.text}`,
           }
         : {})}
@@ -814,11 +816,16 @@ function StreamingCard({
 }
 
 function ElicitationCard({ msg }: { msg: ChatMessage }) {
+  // role=alert already implies aria-live="assertive" per ARIA 1.2 §6.3.3.
+  // Setting accessibilityLiveRegion="polite" would emit aria-live="polite"
+  // which *overrides* the implicit assertive (ARIA 1.2 §6.2.1) — Claude
+  // waiting on user input would get queued behind in-flight speech and
+  // the user might miss it entirely. PermissionCard correctly uses
+  // assertive; this card matches that intent now.
   return (
     <View
       className="self-start bg-tp-surface border border-tp-accent rounded-card px-4 py-3 max-w-[85%]"
       accessibilityRole="alert"
-      accessibilityLiveRegion="polite"
       accessibilityLabel={`Input requested: ${msg.text}`}
     >
       <Text className="text-tp-accent text-xs font-bold mb-1">

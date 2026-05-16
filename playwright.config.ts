@@ -96,6 +96,7 @@ export default defineConfig({
         "app-font-picker-aria-selected-follows-focus.spec.ts",
         "app-tabbar-arrow-nav.spec.ts",
         "app-session-tabpanel-hidden.spec.ts",
+        "app-font-picker-space-activates.spec.ts",
       ],
     },
     {

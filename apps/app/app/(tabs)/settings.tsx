@@ -282,7 +282,16 @@ export default function SettingsScreen() {
 
   if (showDiagnostics) {
     return (
-      <View className="flex-1 bg-tp-bg" style={{ paddingTop: insets.top }}>
+      <View
+        className="flex-1 bg-tp-bg"
+        style={{ paddingTop: insets.top }}
+        // The Settings tab's normal branch sets `role="main"` (WCAG 2.4.1
+        // Bypass Blocks). The Diagnostics subview replaces the entire
+        // subtree via early return, so without re-applying `role="main"`
+        // here the landmark vanishes when the panel mounts — AT users
+        // lose their landmark-navigation jump target mid-flow.
+        {...(Platform.OS === "web" ? { role: "main" as const } : {})}
+      >
         <View className="flex-row items-center justify-between px-4 py-3">
           <Text
             className="text-tp-text-primary text-xl font-bold"

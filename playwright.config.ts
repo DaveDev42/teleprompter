@@ -103,6 +103,7 @@ export default defineConfig({
         "app-tablist-aria-owns.spec.ts",
         "app-chat-list-ownership.spec.ts",
         "app-main-landmark.spec.ts",
+        "app-diagnostics-main-landmark.spec.ts",
       ],
     },
     {

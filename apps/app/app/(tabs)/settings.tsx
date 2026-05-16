@@ -51,6 +51,7 @@ function SettingsRow({
   value,
   valueLabel,
   onPress,
+  hasPopup,
   first,
   last,
   destructive,
@@ -64,6 +65,13 @@ function SettingsRow({
   // label has to be composed at the row.
   valueLabel?: string;
   onPress?: () => void;
+  // APG §6.6: a control that opens a dialog should advertise that via
+  // `aria-haspopup="dialog"` so the screen reader announces
+  // "<label>, button, has popup dialog" — without it the user pressing
+  // Enter/Space gets the dialog open with no prior cue. Pass `true`
+  // when the row opens a true ARIA dialog (FontPickerModal,
+  // FontSizeModal, ApiKeyModal, etc).
+  hasPopup?: boolean;
   first?: boolean;
   last?: boolean;
   destructive?: boolean;
@@ -81,6 +89,14 @@ function SettingsRow({
   // role, so no native change is needed.
   const webRoleProps =
     Platform.OS === "web" && !onPress ? { role: "group" as const } : {};
+  // RN Web's accessibility prop bridge doesn't translate any
+  // `accessibilityHasPopup` equivalent, so spread the raw ARIA
+  // attribute on web. Native screen readers don't have a true
+  // `has-popup-dialog` announcement so this is a web-only signal.
+  const webHasPopupProps =
+    Platform.OS === "web" && hasPopup && onPress
+      ? { "aria-haspopup": "dialog" as const }
+      : {};
   return (
     <Pressable
       onPress={onPress}
@@ -91,6 +107,7 @@ function SettingsRow({
         spokenValue !== undefined ? `${label}, ${spokenValue}` : label
       }
       {...webRoleProps}
+      {...webHasPopupProps}
     >
       <View
         className={`flex-row items-center justify-between px-4 py-3.5 bg-tp-surface ${
@@ -358,22 +375,26 @@ export default function SettingsScreen() {
           label="Chat Font"
           value={chatFont}
           onPress={() => setFontPickerMode("chat")}
+          hasPopup
         />
         <SettingsRow
           label="Code Font"
           value={codeFont}
           onPress={() => setFontPickerMode("code")}
+          hasPopup
         />
         <SettingsRow
           label="Terminal Font"
           value={terminalFont}
           onPress={() => setFontPickerMode("terminal")}
+          hasPopup
         />
         <SettingsRow
           label="Font Size"
           value={`${fontSize}px`}
           last
           onPress={() => setShowFontSize(true)}
+          hasPopup
         />
 
         {/* Voice */}
@@ -384,6 +405,7 @@ export default function SettingsScreen() {
           first
           last
           onPress={() => setShowApiKey(true)}
+          hasPopup
         />
 
         {/* About */}

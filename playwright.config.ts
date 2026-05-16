@@ -115,6 +115,7 @@ export default defineConfig({
         "app-voice-live-region-atomic.spec.ts",
         "app-diagnostics-aria-controls.spec.ts",
         "app-diagnostics-live-region-atomic.spec.ts",
+        "app-pairing-loading-announce.spec.ts",
       ],
     },
     {

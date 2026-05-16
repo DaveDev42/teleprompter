@@ -90,6 +90,7 @@ export default defineConfig({
         "app-tabbar-roving-tabindex.spec.ts",
         "app-font-size-content-announce.spec.ts",
         "app-voice-state-live-region-mount.spec.ts",
+        "app-session-stopped-banner-mount.spec.ts",
       ],
     },
     {

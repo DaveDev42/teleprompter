@@ -1,6 +1,6 @@
 import type { WsSessionMeta } from "@teleprompter/protocol/client";
 import { useCallback, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, Text, View } from "react-native";
 import {
   useAnyRelayConnected,
   useRelayConnectionStore,
@@ -178,6 +178,25 @@ export function DiagnosticsPanel() {
     setCryptoTest(result);
   }, []);
 
+  // Build a SR announcement summarizing the latest self-test outcome.
+  // Empty until the user actually clicks Run Self-Test, otherwise an
+  // SR would speak "Running…" on initial mount. Without this, the
+  // results visually flip from "—" to "OK (Xms)" but a screen reader
+  // hears nothing — the user has to manually re-traverse the rows.
+  const cryptoAnnouncement = (() => {
+    if (cryptoTest.running) return "Running crypto self-test";
+    if (!cryptoTest.sodiumInit && !cryptoTest.keyGen && !cryptoTest.encDec)
+      return "";
+    const parts: string[] = [];
+    if (cryptoTest.sodiumInit)
+      parts.push(`Sodium Init: ${cryptoTest.sodiumInit.ok ? "OK" : "FAIL"}`);
+    if (cryptoTest.keyGen)
+      parts.push(`Key Gen: ${cryptoTest.keyGen.ok ? "OK" : "FAIL"}`);
+    if (cryptoTest.encDec)
+      parts.push(`Encrypt/Decrypt: ${cryptoTest.encDec.ok ? "OK" : "FAIL"}`);
+    return `Self-test complete. ${parts.join(". ")}`;
+  })();
+
   const pp = getPlatformProps();
   const runningSessions = sessions.filter((s) => s.state === "running").length;
   const stoppedSessions = sessions.filter((s) => s.state === "stopped").length;
@@ -263,6 +282,29 @@ export function DiagnosticsPanel() {
               : "—"
           }
         />
+        {/* SR-only polite live region for Run Self-Test result.
+            Visually 1×1 hidden; AT picks up announcement string when
+            handleCryptoTest finishes and setCryptoTest flips the row
+            values from "—" to OK/FAIL. */}
+        <View
+          testID="crypto-selftest-announcement"
+          accessibilityLiveRegion="polite"
+          {...(Platform.OS === "web"
+            ? {
+                role: "status" as const,
+                "aria-live": "polite" as const,
+              }
+            : {})}
+          style={{
+            position: "absolute",
+            width: 1,
+            height: 1,
+            overflow: "hidden",
+          }}
+          pointerEvents="none"
+        >
+          <Text className="text-tp-text-primary">{cryptoAnnouncement}</Text>
+        </View>
         <View className="flex-row justify-end py-1">
           <Pressable
             onPress={handleCryptoTest}

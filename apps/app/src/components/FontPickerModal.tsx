@@ -313,23 +313,58 @@ export function FontSizeModal({
             only matters on elements with a role). Move the role to a
             wrapping View on web; aria-atomic is set imperatively in
             the effect above because RN Web 0.21 garbles the
-            aria-atomic prop pass-through. Native gets the same
-            announcement via accessibilityLiveRegion. */}
+            aria-atomic prop pass-through.
+
+            ARIA live region announcements use the region's TEXT
+            CONTENT, not its `aria-label` (the label is the accessible
+            name for focus-context; it does not fire on content
+            changes). A bare numeral like "16" announced in isolation
+            fails WCAG 4.1.3 — the user hears a series of numbers with
+            no frame of reference. Put the unit + prefix inside the
+            region (visually hidden so the big number stays the only
+            visible element). Native gets the same announcement via
+            accessibilityLiveRegion + accessibilityLabel. */}
         <View
           ref={sizeRef}
           accessibilityLiveRegion="polite"
+          accessibilityLabel={`Font size ${size} pixels`}
           {...(Platform.OS === "web"
             ? {
                 role: "status" as const,
                 "aria-live": "polite" as const,
-                "aria-label": `Font size ${size} pixels`,
               }
             : {})}
           className="w-20 items-center justify-center"
         >
+          {Platform.OS === "web" && (
+            <Text
+              style={{
+                position: "absolute",
+                width: 1,
+                height: 1,
+                overflow: "hidden",
+                opacity: 0,
+              }}
+            >
+              {"Font size "}
+            </Text>
+          )}
           <Text className="text-tp-text-primary text-4xl font-bold text-center">
             {size}
           </Text>
+          {Platform.OS === "web" && (
+            <Text
+              style={{
+                position: "absolute",
+                width: 1,
+                height: 1,
+                overflow: "hidden",
+                opacity: 0,
+              }}
+            >
+              {" pixels"}
+            </Text>
+          )}
         </View>
         <Pressable
           ref={incRef}

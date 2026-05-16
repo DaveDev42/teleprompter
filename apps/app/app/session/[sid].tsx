@@ -85,6 +85,23 @@ function SegmentedControl({
       next = tabOrder[0];
     } else if (e.key === "End") {
       next = tabOrder[tabOrder.length - 1];
+    } else if (e.key === " " || e.key === "Enter") {
+      // APG Tabs §3.23: Space and Enter must activate the focused tab. The
+      // tabs render as <div role="tab"> (RN Web Pressable doesn't emit a
+      // native <button>), so the browser's "Space clicks the focused button"
+      // shortcut doesn't apply. Enter happens to work because Pressable's
+      // synthetic onClick listener catches it, but Space falls through with
+      // no effect — keyboard-only users can navigate with arrows but can't
+      // activate Chat/Terminal from a fresh focus. Read which tab DOM focus
+      // is on and route the activation through onModeChange.
+      if (Platform.OS === "web") {
+        const focusedId = document.activeElement?.id;
+        if (focusedId === SESSION_TAB_CHAT_ID) next = "chat";
+        else if (focusedId === SESSION_TAB_TERMINAL_ID) next = "terminal";
+      }
+      // preventDefault so Space doesn't scroll the page when the tab is
+      // already selected (no-op activation still consumes the key).
+      e.preventDefault();
     }
     if (next && next !== mode) {
       e.preventDefault();

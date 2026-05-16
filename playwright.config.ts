@@ -86,6 +86,7 @@ export default defineConfig({
         "app-pairing-error-alert.spec.ts",
         "app-session-tabs-space-activate.spec.ts",
         "app-voice-switch-space-toggle.spec.ts",
+        "app-session-tabs-roving-tabindex.spec.ts",
       ],
     },
     {

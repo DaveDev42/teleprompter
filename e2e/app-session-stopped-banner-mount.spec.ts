@@ -52,9 +52,9 @@ test.describe("session-stopped-banner live region is always mounted", () => {
 
     // Pre-stop: no inner chrome (no warning dot, no text), but the
     // wrapper element itself stays present.
-    await expect(
-      page.getByTestId("session-stopped-banner-chrome"),
-    ).toHaveCount(0);
+    await expect(page.getByTestId("session-stopped-banner-chrome")).toHaveCount(
+      0,
+    );
 
     // `display: none` or `aria-hidden="true"` on the wrapper would
     // remove it from the accessibility tree and re-create the original

@@ -52,6 +52,7 @@ function SettingsRow({
   valueLabel,
   onPress,
   hasPopup,
+  expanded,
   first,
   last,
   destructive,
@@ -72,6 +73,14 @@ function SettingsRow({
   // when the row opens a true ARIA dialog (FontPickerModal,
   // FontSizeModal, ApiKeyModal, etc).
   hasPopup?: boolean;
+  // APG Disclosure pattern: a control that toggles a sibling region
+  // (not a dialog) must expose `aria-expanded` so AT users can tell
+  // whether the panel is currently open. `hasPopup` rows open modal
+  // dialogs where `aria-haspopup="dialog"` is the right signal; this
+  // is for the Diagnostics row, which swaps the Settings subtree for
+  // an inline panel. `undefined` (default) omits the attribute so
+  // dialog/info rows aren't mislabelled.
+  expanded?: boolean;
   first?: boolean;
   last?: boolean;
   destructive?: boolean;
@@ -97,6 +106,15 @@ function SettingsRow({
     Platform.OS === "web" && hasPopup && onPress
       ? { "aria-haspopup": "dialog" as const }
       : {};
+  // WCAG 4.1.2 Name, Role, Value: when the row toggles an inline
+  // disclosure region, mirror its open/closed state as `aria-expanded`
+  // so screen readers announce "expanded" / "collapsed" alongside the
+  // button. RN Web doesn't bridge any `accessibilityExpanded`
+  // equivalent, so emit the raw ARIA attribute on web.
+  const webExpandedProps =
+    Platform.OS === "web" && onPress && expanded !== undefined
+      ? { "aria-expanded": expanded }
+      : {};
   return (
     <Pressable
       onPress={onPress}
@@ -108,6 +126,7 @@ function SettingsRow({
       }
       {...webRoleProps}
       {...webHasPopupProps}
+      {...webExpandedProps}
     >
       <View
         className={`flex-row items-center justify-between px-4 py-3.5 bg-tp-surface ${
@@ -474,6 +493,7 @@ export default function SettingsScreen() {
             label="Diagnostics"
             first
             last
+            expanded={showDiagnostics}
             onPress={() => setShowDiagnostics(true)}
           />
         </View>

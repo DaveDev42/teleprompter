@@ -84,6 +84,7 @@ export default defineConfig({
         "app-sessions-list-ownership.spec.ts",
         "app-connection-live-region-atomic.spec.ts",
         "app-pairing-error-alert.spec.ts",
+        "app-session-tabs-space-activate.spec.ts",
       ],
     },
     {

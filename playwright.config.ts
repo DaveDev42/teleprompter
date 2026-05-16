@@ -87,6 +87,7 @@ export default defineConfig({
         "app-session-tabs-space-activate.spec.ts",
         "app-voice-switch-space-toggle.spec.ts",
         "app-session-tabs-roving-tabindex.spec.ts",
+        "app-tabbar-roving-tabindex.spec.ts",
       ],
     },
     {

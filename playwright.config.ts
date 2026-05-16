@@ -111,6 +111,7 @@ export default defineConfig({
         "app-pairing-main-landmark.spec.ts",
         "app-diagnostics-aria-expanded.spec.ts",
         "app-theme-announce-atomic.spec.ts",
+        "app-chat-card-alert-no-polite.spec.ts",
       ],
     },
     {

@@ -32,7 +32,9 @@ test.describe("Alerts must not be downgraded to aria-live=polite", () => {
   ];
 
   for (const route of routesToScan) {
-    test(`role=alert without aria-live=polite on ${route}`, async ({ page }) => {
+    test(`role=alert without aria-live=polite on ${route}`, async ({
+      page,
+    }) => {
       await page.goto(route);
       await page.waitForLoadState("networkidle");
 

@@ -127,16 +127,17 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
 
       {/* Status — polite live regions for state transitions
           (connecting → listening → processing) and transcript updates.
-          Always mounted: NVDA / JAWS attach mutation observers when a
-          live region node enters the DOM and watch the parent for text
-          content changes. Mounting the container together with its
-          first content drops the first announcement (no observer was
-          watching the parent at insertion time). Matches InAppToast and
-          ConnectionLiveRegion. */}
+          Always mounted *and* always in the a11y tree: NVDA / JAWS
+          attach mutation observers when a live region enters the DOM
+          and watch the parent for text content changes. `display: none`
+          would remove the node from the a11y tree, defeating the
+          purpose — the observer never attaches, and the first
+          announcement is dropped. Empty text content keeps the node
+          visually inert without hiding it from assistive tech. Matches
+          InAppToast and ConnectionLiveRegion. */}
       <Text
         testID="voice-state-live-region"
         className="text-tp-text-tertiary text-xs"
-        style={isActive ? undefined : { display: "none" }}
         accessibilityLiveRegion="polite"
       >
         {isActive ? stateLabel : ""}
@@ -144,7 +145,6 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
       <Text
         testID="voice-transcript-live-region"
         className="text-tp-text-tertiary text-xs max-w-32"
-        style={transcript && isActive ? undefined : { display: "none" }}
         numberOfLines={1}
         accessibilityLiveRegion="polite"
       >

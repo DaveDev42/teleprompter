@@ -149,6 +149,28 @@ export default function TabsLayout() {
       if (!tablist.getAttribute("aria-label")) {
         tablist.setAttribute("aria-label", "Main navigation");
       }
+      // WCAG 2.4.1 Bypass Blocks (Level A) + ARIA 1.2 §5.3.10: the bottom
+      // tablist needs a `role="navigation"` landmark wrapper so AT users
+      // can jump to it via landmark-navigation ("D" in NVDA, "W" in
+      // VoiceOver). A `role="tablist"` is a widget role, not a landmark
+      // — without the navigation wrapper, the only landmark on each
+      // screen is `role="main"` and there's no way to reach the tablist
+      // by landmark mode at all. React Navigation renders its bottom
+      // tab bar wrapper without a role, so promote the tablist's parent
+      // <div> in the same imperative pass (mirrors the existing
+      // aria-label / aria-owns setup).
+      const wrapper = tablist.parentElement;
+      if (wrapper && wrapper.getAttribute("role") !== "navigation") {
+        wrapper.setAttribute("role", "navigation");
+        // Label the landmark so it announces as "Main navigation,
+        // navigation" rather than an anonymous one. Keep the tablist's
+        // own aria-label too — duplicate naming is the lesser evil
+        // versus removing it and breaking the existing
+        // `app-tablist-aria-label.spec.ts` invariant.
+        if (!wrapper.getAttribute("aria-label")) {
+          wrapper.setAttribute("aria-label", "Main navigation");
+        }
+      }
       // Map each known testID to a stable id, then publish them via
       // aria-owns so the tablist's accessibility subtree matches the
       // ARIA requirement even though the DOM has wrapper <div>s in

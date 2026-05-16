@@ -44,9 +44,7 @@ test.describe("Bottom tab bar has role=navigation landmark", () => {
       await page.waitForLoadState("networkidle");
       // Either <nav> or `[role="navigation"]` counts — RN Web emits the
       // role attribute and may map it to <nav>.
-      const count = await page
-        .locator('nav, [role="navigation"]')
-        .count();
+      const count = await page.locator('nav, [role="navigation"]').count();
       expect(count, `route ${path}`).toBe(1);
     }
   });

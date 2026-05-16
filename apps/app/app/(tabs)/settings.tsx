@@ -317,6 +317,10 @@ export default function SettingsScreen() {
         paddingBottom: tabBarHeight + 24,
         alignItems: "center",
       }}
+      // See `apps/app/app/(tabs)/index.tsx` for the rationale — WCAG 2.4.1
+      // landmark for AT skip navigation. Web-only because RN's
+      // `AccessibilityRole` union excludes "main".
+      {...(Platform.OS === "web" ? { role: "main" as const } : {})}
     >
       <View className="w-full max-w-2xl">
         {/* Header */}

@@ -10,6 +10,7 @@ export function ModalContainer({
   onClose,
   children,
   accessibilityLabel,
+  accessibilityDescribedBy,
   initialFocusRef,
 }: {
   visible: boolean;
@@ -17,6 +18,15 @@ export function ModalContainer({
   children: React.ReactNode;
   /** Accessible name for the dialog (announced by screen readers when opened). */
   accessibilityLabel?: string;
+  /**
+   * Web-only: id of an element inside the dialog whose text should be
+   * announced as the dialog's description (after the label) when a
+   * screen reader enters the dialog. Per APG Dialog Pattern, destructive
+   * confirmation dialogs MUST expose their warning text via
+   * `aria-describedby` — otherwise only the dialog name is announced and
+   * the user has to Tab through the content to discover the consequences.
+   */
+  accessibilityDescribedBy?: string;
   /**
    * Web-only opt-in: this element receives initial focus instead of the
    * first focusable in DOM order. Use when the dialog has a meaningful
@@ -154,8 +164,15 @@ export function ModalContainer({
       // name so screen readers don't announce an unnamed dialog. We do NOT
       // add a second role=dialog on the inner card — duplicating the role
       // produces two dialogs in the a11y tree.
+      // aria-describedby is the APG-canonical way to attach the dialog's
+      // body text to its accessible name. RN Web's createDOMProps doesn't
+      // forward `accessibilityDescribedBy` as `aria-describedby` on a
+      // <Modal>, so spread the raw aria attribute on web.
       {...(Platform.OS === "web" && accessibilityLabel
         ? ({ "aria-label": accessibilityLabel } as object)
+        : {})}
+      {...(Platform.OS === "web" && accessibilityDescribedBy
+        ? ({ "aria-describedby": accessibilityDescribedBy } as object)
         : {})}
     >
       <Pressable className="flex-1 bg-tp-overlay" onPress={onClose}>

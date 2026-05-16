@@ -17,11 +17,20 @@ export function ConfirmUnpairModal({
 }) {
   const pp = getPlatformProps();
 
+  // Per APG Dialog Pattern, destructive confirmation dialogs must wire
+  // their warning text into the dialog's accessible description so the
+  // screen reader announces the consequences ("You'll need to scan a new
+  // QR code…") as soon as the dialog opens, not only when the user Tabs
+  // onto the body text. Without this, the keyboard user could activate
+  // the focused "Remove" button without ever hearing the warning.
+  const DESCRIPTION_ID = "confirm-unpair-description";
+
   return (
     <ModalContainer
       visible={visible}
       onClose={onCancel}
       accessibilityLabel="Remove Daemon"
+      accessibilityDescribedBy={DESCRIPTION_ID}
     >
       <View className="px-5 pt-5 pb-6">
         <View className="flex-row items-center justify-between pb-3">
@@ -53,7 +62,10 @@ export function ConfirmUnpairModal({
             </Text>
           </Pressable>
         </View>
-        <Text className="text-tp-text-primary text-[15px] leading-6">
+        <Text
+          nativeID={DESCRIPTION_ID}
+          className="text-tp-text-primary text-[15px] leading-6"
+        >
           Remove pairing with{" "}
           <Text className="font-semibold">{displayName}</Text>? You'll need to
           scan a new QR code from the daemon to reconnect.

@@ -91,6 +91,7 @@ export default defineConfig({
         "app-font-size-content-announce.spec.ts",
         "app-voice-state-live-region-mount.spec.ts",
         "app-session-stopped-banner-mount.spec.ts",
+        "app-confirm-unpair-describedby.spec.ts",
       ],
     },
     {

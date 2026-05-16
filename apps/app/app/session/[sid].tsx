@@ -112,10 +112,17 @@ function SegmentedControl({
       if (Platform.OS === "web") {
         const id =
           next === "chat" ? SESSION_TAB_CHAT_ID : SESSION_TAB_TERMINAL_ID;
-        // Defer to the next frame so the re-render that updates aria-selected
-        // has settled before we move focus to the freshly-selected tab.
+        // React state updates are scheduled as microtasks (React 18 automatic
+        // batching) while requestAnimationFrame is a macrotask — in CI /
+        // headless Chromium the first raf can fire before React's re-render
+        // has flushed the new tabIndex to the DOM, leaving the target element
+        // at tabindex=-1 exactly when focus() is called. Double-rAF: the
+        // first frame lets React commit its render, the second moves focus
+        // after the DOM reflects the updated tabIndex=0 on the target tab.
         requestAnimationFrame(() => {
-          document.getElementById(id)?.focus();
+          requestAnimationFrame(() => {
+            document.getElementById(id)?.focus();
+          });
         });
       }
     }

@@ -119,6 +119,7 @@ export default defineConfig({
         "app-session-main-landmark.spec.ts",
         "app-empty-state-emoji-aria-hidden.spec.ts",
         "app-chat-log-aria-label.spec.ts",
+        "app-modal-aria-labelledby.spec.ts",
       ],
     },
     {

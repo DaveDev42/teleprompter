@@ -76,9 +76,11 @@ export function ApiKeyModal({
       visible={visible}
       onClose={onClose}
       accessibilityLabel="OpenAI API Key"
+      accessibilityLabelledBy="api-key-modal-title"
     >
       <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
         <Text
+          nativeID="api-key-modal-title"
           className="text-tp-text-primary text-lg font-bold"
           accessibilityRole="header"
           {...ariaLevel(2)}

@@ -1,5 +1,5 @@
 import "../global.css";
-import { Stack, useRouter } from "expo-router";
+import { Stack, usePathname, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { Platform, useColorScheme, View } from "react-native";
@@ -74,6 +74,34 @@ export default function RootLayout() {
       root.classList.remove("dark");
     }
   }, [isDark]);
+
+  // WCAG 2.4.2 Page Titled (Level A): `document.title` must describe the
+  // current page. Expo Router's `Tabs.Screen` / `Stack.Screen` `title`
+  // option only feeds the (hidden) native header — it does NOT propagate
+  // to `document.title` on web. Without this, every route stays
+  // "Teleprompter" and SR users who switch browser tabs can't tell which
+  // page they're on. Drive the title from the active pathname here in the
+  // root layout so the rule applies to every route (tabs, session,
+  // pairing) from one place.
+  const pathname = usePathname();
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const titles: Record<string, string> = {
+      "/": "Sessions — Teleprompter",
+      "/daemons": "Daemons — Teleprompter",
+      "/settings": "Settings — Teleprompter",
+      "/pairing": "Pairing — Teleprompter",
+      "/pairing/scan": "Scan QR — Teleprompter",
+    };
+    const exact = titles[pathname];
+    if (exact) {
+      document.title = exact;
+    } else if (pathname.startsWith("/session/")) {
+      document.title = "Session — Teleprompter";
+    } else {
+      document.title = "Teleprompter";
+    }
+  }, [pathname]);
 
   // E2EE relay connections for all paired daemons
   useRelay();

@@ -59,5 +59,31 @@ test.describe("VoiceButton state live region is always mounted", () => {
     // Pre-activation: empty text content (idle state).
     await expect(stateRegion).toHaveText("");
     await expect(transcriptRegion).toHaveText("");
+
+    // `display: none` would remove the node from the accessibility tree,
+    // so NVDA / JAWS would never attach a mutation observer at page
+    // load — and the first text insertion ("Connecting") would be
+    // dropped silently. Empty text keeps the node visually inert
+    // without hiding it from assistive tech. Assert the computed style
+    // explicitly so a regression that re-introduces `display: none`
+    // (or any equivalent like visibility:hidden / aria-hidden=true)
+    // fails this spec.
+    const stateDisplay = await stateRegion.evaluate(
+      (el) => window.getComputedStyle(el).display,
+    );
+    const transcriptDisplay = await transcriptRegion.evaluate(
+      (el) => window.getComputedStyle(el).display,
+    );
+    expect(stateDisplay).not.toBe("none");
+    expect(transcriptDisplay).not.toBe("none");
+
+    // aria-hidden=true would also remove the node from the a11y tree.
+    // RN Web doesn't set aria-hidden by default; assert it's not
+    // present (or, if present, not "true").
+    const stateAriaHidden = await stateRegion.getAttribute("aria-hidden");
+    const transcriptAriaHidden =
+      await transcriptRegion.getAttribute("aria-hidden");
+    expect(stateAriaHidden).not.toBe("true");
+    expect(transcriptAriaHidden).not.toBe("true");
   });
 });

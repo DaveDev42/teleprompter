@@ -161,7 +161,19 @@ export default function SessionsScreen() {
   };
 
   return (
-    <View className="flex-1 bg-tp-bg" style={{ paddingTop: insets.top }}>
+    <View
+      className="flex-1 bg-tp-bg"
+      style={{ paddingTop: insets.top }}
+      // WCAG 2.4.1 Bypass Blocks (Level A) + ARIA landmark navigation:
+      // screen readers expose `role="main"` as a jump target so AT users
+      // can skip the bottom tablist and land on the page body. RN's
+      // `AccessibilityRole` union doesn't include "main", so use the
+      // `role` prop directly — RN Web passes it through to the DOM
+      // `role` attribute verbatim (and also emits a `<main>` element).
+      // Native ignores `role` (Pressable et al. read
+      // `accessibilityRole`), so this is web-only by design.
+      {...(Platform.OS === "web" ? { role: "main" as const } : {})}
+    >
       {/* Header */}
       <View className="px-4 pt-2 pb-1">
         <Text

@@ -1,15 +1,9 @@
 import { useState } from "react";
 import { Linking, Platform, Pressable, Text, View } from "react-native";
+import { copyText } from "../lib/copy-text";
 import { getPlatformProps } from "../lib/get-platform-props";
 import type { ChatMessage } from "../stores/chat-store";
 import { useSettingsStore } from "../stores/settings-store";
-
-async function copyText(text: string) {
-  if (Platform.OS === "web" && navigator.clipboard) {
-    await navigator.clipboard.writeText(text);
-  }
-  // Native: would use expo-clipboard
-}
 
 // ─── Inline markdown parser ──────────────────────────────────────────────────
 

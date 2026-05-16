@@ -172,6 +172,13 @@ function SegmentedControl({
       ? {
           role: "tablist" as const,
           "aria-label": "Session view",
+          // WAI-ARIA 1.2 §6.6.21: declare horizontal orientation so AT
+          // (JAWS in particular) routes ArrowLeft/ArrowRight to tab
+          // switching. Without this hint, JAWS treats unspecified
+          // orientation as vertical and expects ArrowUp/ArrowDown —
+          // since the tablist handler only listens for left/right, JAWS
+          // users can never reach inactive tabs at all (WCAG 2.1.1 A).
+          "aria-orientation": "horizontal" as const,
           onKeyDown: handleTablistKeyDown,
         }
       : {};

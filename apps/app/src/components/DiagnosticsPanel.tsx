@@ -1,5 +1,5 @@
 import type { WsSessionMeta } from "@teleprompter/protocol/client";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, Text, View } from "react-native";
 import {
   useAnyRelayConnected,
@@ -207,6 +207,25 @@ export function DiagnosticsPanel() {
   })();
 
   const pp = getPlatformProps();
+  // ARIA 1.2 says role=status implies aria-atomic=true, but NVDA and
+  // some JAWS builds only announce the diff between updates — so
+  // updating "RTT: 12ms" → "RTT: 18ms" speaks only "18ms" with no
+  // "RTT" prefix, and the self-test summary gets fragmented to a single
+  // changed token. Set the attribute imperatively because RN Web 0.21
+  // silently drops the prop-level value on <View>. Same pattern
+  // InAppToast / ConnectionLiveRegion / theme-announcement already use.
+  // WCAG 4.1.3.
+  const rttAnnouncementRef = useRef<View>(null);
+  const cryptoAnnouncementRef = useRef<View>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    (
+      rttAnnouncementRef.current as unknown as HTMLElement | null
+    )?.setAttribute("aria-atomic", "true");
+    (
+      cryptoAnnouncementRef.current as unknown as HTMLElement | null
+    )?.setAttribute("aria-atomic", "true");
+  }, []);
   const runningSessions = sessions.filter((s) => s.state === "running").length;
   const stoppedSessions = sessions.filter((s) => s.state === "stopped").length;
   const errorSessions = sessions.filter((s) => s.state === "error").length;
@@ -245,6 +264,7 @@ export function DiagnosticsPanel() {
             hidden; AT picks up the announcement when handlePing's
             setTimeout fires and flips rtt from "—" to "Xms". */}
         <View
+          ref={rttAnnouncementRef}
           testID="rtt-announcement"
           accessibilityLiveRegion="polite"
           {...(Platform.OS === "web"
@@ -318,6 +338,7 @@ export function DiagnosticsPanel() {
             handleCryptoTest finishes and setCryptoTest flips the row
             values from "—" to OK/FAIL. */}
         <View
+          ref={cryptoAnnouncementRef}
           testID="crypto-selftest-announcement"
           accessibilityLiveRegion="polite"
           {...(Platform.OS === "web"

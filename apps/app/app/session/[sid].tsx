@@ -609,7 +609,10 @@ function ChatView({
   // this is a chat transcript (vs a generic status region). FlatList
   // doesn't forward arbitrary ARIA props cleanly, so the role rides on
   // the wrapping View.
-  const liveRegionProps = Platform.OS === "web" ? { role: "log" as const } : {};
+  const liveRegionProps =
+    Platform.OS === "web"
+      ? { role: "log" as const, "aria-label": "Chat log" }
+      : {};
 
   const emptyMessage = !connected
     ? "Connecting to daemon..."

@@ -118,6 +118,7 @@ export default defineConfig({
         "app-pairing-loading-announce.spec.ts",
         "app-session-main-landmark.spec.ts",
         "app-empty-state-emoji-aria-hidden.spec.ts",
+        "app-chat-log-aria-label.spec.ts",
       ],
     },
     {

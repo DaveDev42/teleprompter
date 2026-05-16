@@ -94,6 +94,7 @@ export default defineConfig({
         "app-confirm-unpair-describedby.spec.ts",
         "app-rename-modal-aria-description.spec.ts",
         "app-font-picker-aria-selected-follows-focus.spec.ts",
+        "app-tabbar-arrow-nav.spec.ts",
       ],
     },
     {

@@ -44,6 +44,7 @@ const PLACEHOLDER_LIGHT = "#a1a1aa";
 const PLACEHOLDER_DARK = "#71717a";
 
 // Platform-specific terminal component
+// biome-ignore lint/suspicious/noExplicitAny: dynamic require of platform-specific component; no shared interface to reference
 let TerminalComponent: any = null;
 if (Platform.OS === "web") {
   TerminalComponent =
@@ -767,6 +768,7 @@ function ChatView({
 function TerminalView({ sid, stopped }: { sid: string; stopped: boolean }) {
   const addRecHandler = useSessionStore((s) => s.addRecHandler);
   const removeRecHandler = useSessionStore((s) => s.removeRecHandler);
+  // biome-ignore lint/suspicious/noExplicitAny: termRef is a cross-platform handle; GhosttyTerminal and GhosttyNative both type their own ref as MutableRefObject<any>
   const termRef = useRef<any>(null);
   const searchRef = useRef<TerminalSearch | null>(null);
   // `hasIo` flips true once any io record arrives (live or replayed).

@@ -114,6 +114,7 @@ export default defineConfig({
         "app-chat-card-alert-no-polite.spec.ts",
         "app-voice-live-region-atomic.spec.ts",
         "app-diagnostics-aria-controls.spec.ts",
+        "app-diagnostics-live-region-atomic.spec.ts",
       ],
     },
     {

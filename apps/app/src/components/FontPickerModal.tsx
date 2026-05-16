@@ -156,11 +156,21 @@ export function FontPickerModal({
             // Roving tabindex: only the active option is in tab order, so
             // ArrowDown/Up from the listbox container reaches all
             // options without Tab cycling through each one.
+            //
+            // `aria-selected` follows keyboard focus (the APG single-
+            // select listbox pattern). Without this, ArrowDown moves
+            // focus to the next option but its `aria-selected` stays
+            // false, and the screen reader announces "<font>, option,
+            // 2 of N, not selected" — making the user feel like
+            // nothing is being preselected as they navigate. The
+            // committed `currentFont` is still surfaced visually via
+            // the trailing check mark and remains the source of truth
+            // until the user activates an option with Enter / click.
             const webOptionProps =
               Platform.OS === "web"
                 ? {
                     role: "option",
-                    "aria-selected": isCurrent,
+                    "aria-selected": isActive,
                     tabIndex: isActive ? 0 : -1,
                     ref: (el: unknown) => {
                       optionRefs.current[index] = el as HTMLElement | null;

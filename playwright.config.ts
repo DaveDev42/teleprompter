@@ -110,6 +110,7 @@ export default defineConfig({
         "app-pairing-aria-invalid.spec.ts",
         "app-pairing-main-landmark.spec.ts",
         "app-diagnostics-aria-expanded.spec.ts",
+        "app-theme-announce-atomic.spec.ts",
       ],
     },
     {

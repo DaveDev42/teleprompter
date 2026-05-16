@@ -79,13 +79,24 @@ test.describe("Session view APG Tabs", () => {
     // newly-selected tab has the updated aria-selected attribute before
     // it receives focus). Poll for it instead of reading once — a single
     // `page.evaluate` would race with the rAF callback.
+    //
+    // GhosttyTerminal mounts when the Terminal tab becomes active and
+    // may steal focus from the tab to its own container (terminal-container)
+    // so the canvas is keyboard-ready. Both outcomes are valid: the tab
+    // briefly held focus before GhosttyTerminal mounted, or GhosttyTerminal
+    // has already taken over. Verify focus left the chat tab and landed
+    // somewhere inside the terminal area (tab or container).
     await expect
       .poll(() =>
-        page.evaluate(() => document.activeElement?.getAttribute("id") ?? null),
+        page.evaluate(
+          () => document.activeElement?.getAttribute("data-testid") ?? null,
+        ),
       )
-      .toBe("session-tab-terminal");
+      .toMatch(/^(tab-terminal|terminal-container)$/);
 
-    // ArrowLeft cycles back.
+    // ArrowLeft cycles back. The terminal tab is active going in, so
+    // the rAF focus move lands on the chat tab which has no competing
+    // auto-focus, so the id check is reliable here.
     await page.keyboard.press("ArrowLeft");
     await expect(page.locator("#session-tab-chat")).toHaveAttribute(
       "aria-selected",

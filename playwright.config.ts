@@ -75,6 +75,8 @@ export default defineConfig({
         "app-font-size-announce.spec.ts",
         "app-theme-toggle-announce.spec.ts",
         "app-diagnostics-selftest-announce.spec.ts",
+        "app-session-chat-log-role.spec.ts",
+        "app-session-header-role.spec.ts",
       ],
     },
     {

@@ -469,17 +469,16 @@ function ChatView({
     });
   }
 
-  // On web, announce new chat messages to screen readers via aria-live.
-  // `polite` queues announcements without interrupting the user's current
-  // reading. FlatList doesn't forward arbitrary ARIA props cleanly, so we
-  // wrap it in a host View that carries the attribute.
-  const liveRegionProps =
-    Platform.OS === "web"
-      ? {
-          "aria-live": "polite" as const,
-          "aria-relevant": "additions" as const,
-        }
-      : {};
+  // On web, expose the chat messages container as a `log` landmark.
+  // role=log implies `aria-live=polite` + `aria-relevant=additions text`
+  // (ARIA spec), so AT announces appended messages without interrupting
+  // the user. Setting `aria-live` / `aria-relevant` directly doesn't
+  // work: RN Web's createDOMProps drops `aria-relevant` entirely, and
+  // `aria-live=polite` without a landmark role doesn't tell AT that
+  // this is a chat transcript (vs a generic status region). FlatList
+  // doesn't forward arbitrary ARIA props cleanly, so the role rides on
+  // the wrapping View.
+  const liveRegionProps = Platform.OS === "web" ? { role: "log" as const } : {};
 
   return (
     <>
@@ -795,9 +794,16 @@ export default function SessionDetailScreen() {
             ‹ Sessions
           </Text>
         </Pressable>
+        {/* Surface the session title + running-state to AT. A bare
+            <div> with aria-label is silently ignored by screen readers
+            (ARIA: aria-label on role=generic has no effect). role=group
+            gives the wrapper a meaningful role so the composed label
+            ("Session foo, running") is actually spoken when focus
+            enters the header. */}
         <View
           className="flex-1 items-center flex-row justify-center"
           accessibilityLabel={`Session ${displayName}${isRunning ? ", running" : ""}`}
+          {...(Platform.OS === "web" ? { role: "group" as const } : {})}
         >
           <Text
             className="text-tp-text-primary text-[15px] font-semibold"

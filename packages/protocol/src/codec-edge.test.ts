@@ -7,8 +7,8 @@ describe("codec edge cases", () => {
     const decoder = new FrameDecoder();
     const results = decoder.decode(frame);
     expect(results.length).toBe(1);
-    expect(results[0]!.data).toEqual({});
-    expect(results[0]!.binary).toBeNull();
+    expect(results[0]?.data).toEqual({});
+    expect(results[0]?.binary).toBeNull();
   });
 
   test("encode/decode object with unicode", () => {
@@ -17,7 +17,7 @@ describe("codec edge cases", () => {
     const decoder = new FrameDecoder();
     const results = decoder.decode(frame);
     expect(results.length).toBe(1);
-    expect(results[0]!.data).toEqual(data);
+    expect(results[0]?.data).toEqual(data);
   });
 
   test("decode handles partial frames across multiple chunks", () => {
@@ -34,7 +34,7 @@ describe("codec edge cases", () => {
 
     const results2 = decoder.decode(chunk2);
     expect(results2.length).toBe(1);
-    expect(results2[0]!.data).toEqual({ msg: "hello world" });
+    expect(results2[0]?.data).toEqual({ msg: "hello world" });
   });
 
   test("decode handles multiple frames in single chunk", () => {
@@ -52,9 +52,9 @@ describe("codec edge cases", () => {
 
     const results = decoder.decode(combined);
     expect(results.length).toBe(3);
-    expect(results[0]!.data).toEqual({ a: 1 });
-    expect(results[1]!.data).toEqual({ b: 2 });
-    expect(results[2]!.data).toEqual({ c: 3 });
+    expect(results[0]?.data).toEqual({ a: 1 });
+    expect(results[1]?.data).toEqual({ b: 2 });
+    expect(results[2]?.data).toEqual({ c: 3 });
   });
 
   test("decode handles byte-at-a-time delivery", () => {
@@ -68,7 +68,7 @@ describe("codec edge cases", () => {
     }
     // Only the last byte completes the frame
     expect(lastResults.length).toBe(1);
-    expect(lastResults[0]!.data).toEqual({ slow: true });
+    expect(lastResults[0]?.data).toEqual({ slow: true });
   });
 
   test("encode large payload (100KB JSON)", () => {
@@ -77,7 +77,7 @@ describe("codec edge cases", () => {
     const decoder = new FrameDecoder();
     const results = decoder.decode(frame);
     expect(results.length).toBe(1);
-    expect((results[0]!.data as { payload: string }).payload.length).toBe(
+    expect((results[0]?.data as { payload: string } | undefined)?.payload.length).toBe(
       100_000,
     );
   });
@@ -95,7 +95,7 @@ describe("codec edge cases", () => {
     // Feed a complete frame — should decode normally
     const results = decoder.decode(encodeFrame({ after: "reset" }));
     expect(results.length).toBe(1);
-    expect(results[0]!.data).toEqual({ after: "reset" });
+    expect(results[0]?.data).toEqual({ after: "reset" });
   });
 
   test("large binary sidecar (1 MiB) round-trips", () => {

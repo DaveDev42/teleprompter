@@ -193,7 +193,14 @@ export default function DaemonsScreen() {
   const pairingList = [...pairings.values()];
 
   return (
-    <View className="flex-1 bg-tp-bg" style={{ paddingTop: insets.top }}>
+    <View
+      className="flex-1 bg-tp-bg"
+      style={{ paddingTop: insets.top }}
+      // See `apps/app/app/(tabs)/index.tsx` for the rationale — WCAG 2.4.1
+      // landmark for AT skip navigation. Web-only because RN's
+      // `AccessibilityRole` union excludes "main".
+      {...(Platform.OS === "web" ? { role: "main" as const } : {})}
+    >
       {/* Header */}
       <View className="flex-row items-center justify-between px-4 pt-2 pb-4">
         <Text

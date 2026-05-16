@@ -102,6 +102,7 @@ export default defineConfig({
         "app-input-aria-required.spec.ts",
         "app-tablist-aria-owns.spec.ts",
         "app-chat-list-ownership.spec.ts",
+        "app-main-landmark.spec.ts",
       ],
     },
     {

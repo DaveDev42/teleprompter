@@ -162,10 +162,15 @@ function SegmentedControl({
   // valid ARIA role (the standard is "tablist"). Without a web override SR
   // and DOM tooling see role="tabbar" and skip the tab semantics. Override
   // via the `role` prop on web; native keeps tabbar which RN recognizes.
+  // APG §3.21 Tabs: tablist requires `aria-label` (or `aria-labelledby`) so
+  // AT users hear "Session view, tablist" instead of an anonymous "tablist"
+  // — important when more than one tablist exists in the document
+  // (the bottom nav is also `role="tablist"`).
   const tablistWebProps =
     Platform.OS === "web"
       ? {
           role: "tablist" as const,
+          "aria-label": "Session view",
           onKeyDown: handleTablistKeyDown,
         }
       : {};

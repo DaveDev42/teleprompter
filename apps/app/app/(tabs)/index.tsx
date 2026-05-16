@@ -1,6 +1,6 @@
 import type { WsSessionMeta } from "@teleprompter/protocol/client";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   Platform,
@@ -122,6 +122,22 @@ export default function SessionsScreen() {
   const pp = getPlatformProps();
   const isDark = useThemeStore((s) => s.isDark);
   const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
+  const searchRef = useRef<TextInput>(null);
+
+  // RN Web's createDOMProps does not whitelist `aria-description`, so
+  // any prop-level spread is silently dropped. `accessibilityHint` is
+  // also dropped — native AT reads it, web AT hears silence. Set the
+  // attribute imperatively when the search input mounts so screen
+  // readers on web get the same hint as native.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const el = searchRef.current as unknown as HTMLElement | null;
+    if (!el) return;
+    el.setAttribute(
+      "aria-description",
+      "Filter sessions by name, path, or status",
+    );
+  });
 
   // Sort by updatedAt desc, filter by search
   const filteredSessions = useMemo(() => {
@@ -160,6 +176,7 @@ export default function SessionsScreen() {
       {sessions.length > 2 && (
         <View className="px-4 py-2">
           <TextInput
+            ref={searchRef}
             testID="session-search"
             className={`bg-tp-bg-secondary text-tp-text-primary rounded-search px-4 py-2.5 text-[15px] ${pp.className}`}
             placeholder="Search sessions..."
@@ -168,6 +185,9 @@ export default function SessionsScreen() {
             onChangeText={setFilter}
             autoCapitalize="none"
             accessibilityLabel="Search sessions"
+            // accessibilityHint is read by native AT but dropped by RN
+            // Web; the matching aria-description is set imperatively on
+            // mount (see useEffect above).
             accessibilityHint="Filter sessions by name, path, or status"
             tabIndex={pp.tabIndex}
           />

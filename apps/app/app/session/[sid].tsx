@@ -304,6 +304,26 @@ function ChatView({
   const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
   const { isEditable, canSend } = deriveInputGates(session, connected, sid);
 
+  // Derive once so both accessibilityHint (native) and aria-description
+  // (web setAttribute) share the same string and stay in lock-step as
+  // state flips between stopped / disconnected / live.
+  const chatInputHint = stopped
+    ? "This session has ended. New prompts cannot be sent."
+    : !connected
+      ? "Disconnected. Compose a message to send when reconnected."
+      : "Type a message to send to Claude (Shift+Enter for newline)";
+
+  // RN Web doesn't whitelist `aria-description` in createDOMProps nor
+  // map `accessibilityHint` to any ARIA attribute, so a screen reader
+  // on web never hears the chat input's contextual hint. Mirror it via
+  // setAttribute so the hint stays current as the session transitions.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const el = chatInputRef.current as unknown as HTMLElement | null;
+    if (!el) return;
+    el.setAttribute("aria-description", chatInputHint);
+  }, [chatInputHint]);
+
   // Wire voice prompt to chat send
   useEffect(() => {
     setOnPromptReady((prompt: string) => {
@@ -557,13 +577,11 @@ function ChatView({
           returnKeyType="send"
           editable={isEditable}
           accessibilityLabel="Message input"
-          accessibilityHint={
-            stopped
-              ? "This session has ended. New prompts cannot be sent."
-              : !connected
-                ? "Disconnected. Compose a message to send when reconnected."
-                : "Type a message to send to Claude (Shift+Enter for newline)"
-          }
+          // accessibilityHint is read by native AT but RN Web drops the
+          // hint and never maps it to aria-description. The matching
+          // aria-description is set imperatively in the effect above so
+          // it stays in lock-step with the stopped/disconnected state.
+          accessibilityHint={chatInputHint}
           tabIndex={pp.tabIndex}
         />
         <Pressable

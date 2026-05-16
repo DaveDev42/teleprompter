@@ -55,6 +55,22 @@ export function ApiKeyModal({
     else el.removeAttribute("aria-disabled");
   }, [visible, canSave]);
 
+  // RN Web's createDOMProps doesn't whitelist `aria-description` and
+  // doesn't map `accessibilityHint` to any ARIA attribute. Mirror the
+  // hint via setAttribute when the modal opens so screen readers on
+  // web hear the same context native AT gets from accessibilityHint.
+  const inputRef = useRef<TextInput>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (!visible) return;
+    const el = inputRef.current as unknown as HTMLElement | null;
+    if (!el) return;
+    el.setAttribute(
+      "aria-description",
+      "Enter your OpenAI API key for voice input",
+    );
+  }, [visible]);
+
   return (
     <ModalContainer
       visible={visible}
@@ -84,6 +100,7 @@ export function ApiKeyModal({
           Required for voice input. Your key is stored locally on this device.
         </Text>
         <TextInput
+          ref={inputRef}
           className={`bg-tp-bg-input text-tp-text-primary text-[15px] rounded-btn px-4 py-3 border border-tp-border ${pp.className}`}
           tabIndex={pp.tabIndex}
           value={value}
@@ -99,6 +116,9 @@ export function ApiKeyModal({
           autoComplete="off"
           secureTextEntry
           accessibilityLabel="OpenAI API key"
+          // accessibilityHint is read by native AT but RN Web drops it.
+          // The matching aria-description is set imperatively when the
+          // modal opens (see useEffect above).
           accessibilityHint="Enter your OpenAI API key for voice input"
         />
         <Pressable

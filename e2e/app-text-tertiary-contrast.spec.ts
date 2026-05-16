@@ -58,10 +58,7 @@ function contrast(
 const LIGHT_BG_VARS = [
   ["--tp-bg", "page bg"],
   ["--tp-bg-secondary", "secondary surface"],
-  [
-    "--tp-bg-tertiary",
-    "tertiary surface (SessionDrawer pills, FontSize badge)",
-  ],
+  ["--tp-bg-tertiary", "tertiary surface (FontSize badge)"],
   ["--tp-assistant-bubble", "assistant chat bubble"],
 ] as const;
 

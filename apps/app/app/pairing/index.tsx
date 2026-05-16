@@ -115,10 +115,24 @@ export default function PairingScreen() {
         // early-return fix).
         {...(Platform.OS === "web" ? { role: "main" as const } : {})}
       >
-        <ActivityIndicator size="large" color={indicatorColor} />
-        <Text className="text-tp-text-secondary mt-4">
-          Processing pairing data...
-        </Text>
+        {/* WCAG 4.1.3 Status Messages (Level AA): when the Connect press
+            unmounts the form and this view takes over, focus drops to
+            <body> and the static "Processing pairing data..." text is
+            invisible to AT. Wrap it in a role=status / polite live
+            region so screen readers announce the transition without
+            requiring focus movement. Matches ConnectionLiveRegion and
+            InAppToast. */}
+        <View
+          testID="pairing-loading-status"
+          accessibilityLiveRegion="polite"
+          className="items-center"
+          {...(Platform.OS === "web" ? { role: "status" as const } : {})}
+        >
+          <ActivityIndicator size="large" color={indicatorColor} />
+          <Text className="text-tp-text-secondary mt-4">
+            Processing pairing data...
+          </Text>
+        </View>
       </View>
     );
   }

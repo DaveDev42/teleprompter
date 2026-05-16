@@ -107,7 +107,14 @@ export default function PairingScreen() {
 
   if (state === "pairing") {
     return (
-      <View className="flex-1 bg-tp-bg items-center justify-center">
+      <View
+        className="flex-1 bg-tp-bg items-center justify-center"
+        // The main branch below sets role="main"; this early-return
+        // replaces the subtree while pairing is in flight, so re-apply
+        // the landmark here too (same pattern as #361's Diagnostics
+        // early-return fix).
+        {...(Platform.OS === "web" ? { role: "main" as const } : {})}
+      >
         <ActivityIndicator size="large" color={indicatorColor} />
         <Text className="text-tp-text-secondary mt-4">
           Processing pairing data...
@@ -119,7 +126,16 @@ export default function PairingScreen() {
   const buttonLabel = preview ? "Confirm pairing" : "Connect";
 
   return (
-    <View className="flex-1 bg-tp-bg pt-20 items-center">
+    <View
+      className="flex-1 bg-tp-bg pt-20 items-center"
+      // WCAG 2.4.1 Bypass Blocks (Level A): expose the screen body as
+      // the main landmark so AT users can jump straight to the pairing
+      // form via landmark navigation. The same web-only `role="main"`
+      // spread is used on the bottom-tab screens (#360); the pairing
+      // routes are reached via deep link / modal stack and were missed
+      // in that pass.
+      {...(Platform.OS === "web" ? { role: "main" as const } : {})}
+    >
       <View className="w-full max-w-2xl px-6">
         <Text
           accessibilityRole="header"

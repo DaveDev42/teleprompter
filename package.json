@@ -13,6 +13,7 @@
     "build:web": "cd apps/app && npx expo export --platform web",
     "dev": "turbo run dev",
     "dev:app": "cd apps/app && npx expo start --web",
+    "dev:pair": "bun run scripts/dev-pair.ts",
     "test": "bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay",
     "test:e2e": "npx playwright test --project=local",
     "test:e2e:ci": "npx playwright test --project=ci",

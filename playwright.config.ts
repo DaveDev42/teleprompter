@@ -117,6 +117,7 @@ export default defineConfig({
         "app-diagnostics-live-region-atomic.spec.ts",
         "app-pairing-loading-announce.spec.ts",
         "app-session-main-landmark.spec.ts",
+        "app-empty-state-emoji-aria-hidden.spec.ts",
       ],
     },
     {

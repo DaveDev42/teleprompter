@@ -192,7 +192,16 @@ export default function ScanScreen() {
 
   if (Platform.OS === "web") {
     return (
-      <View className="flex-1 bg-tp-bg items-center justify-center">
+      <View
+        className="flex-1 bg-tp-bg items-center justify-center"
+        // WCAG 2.4.1 Bypass Blocks (Level A): expose the scan-fallback
+        // body as the main landmark so AT users can jump straight to
+        // the "Go Back" button. The tab screens get this via #360;
+        // pairing routes were missed in that pass. This branch only
+        // renders on web (see the if-guard above), so the role prop is
+        // safe to set directly without a Platform.OS spread.
+        role="main"
+      >
         <Text
           accessibilityRole="header"
           {...ariaLevel(1)}

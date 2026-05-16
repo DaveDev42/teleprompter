@@ -75,10 +75,17 @@ test.describe("Session view APG Tabs", () => {
       "false",
     );
 
-    const activeId = await page.evaluate(
-      () => document.activeElement?.getAttribute("id") ?? null,
-    );
-    expect(activeId).toBe("session-tab-terminal");
+    // Focus moves inside requestAnimationFrame on the app side (so the
+    // newly-selected tab has the updated aria-selected attribute before
+    // it receives focus). Poll for it instead of reading once — a single
+    // `page.evaluate` would race with the rAF callback.
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => document.activeElement?.getAttribute("id") ?? null,
+        ),
+      )
+      .toBe("session-tab-terminal");
 
     // ArrowLeft cycles back.
     await page.keyboard.press("ArrowLeft");
@@ -86,9 +93,12 @@ test.describe("Session view APG Tabs", () => {
       "aria-selected",
       "true",
     );
-    const activeIdBack = await page.evaluate(
-      () => document.activeElement?.getAttribute("id") ?? null,
-    );
-    expect(activeIdBack).toBe("session-tab-chat");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => document.activeElement?.getAttribute("id") ?? null,
+        ),
+      )
+      .toBe("session-tab-chat");
   });
 });

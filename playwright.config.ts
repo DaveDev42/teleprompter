@@ -81,6 +81,7 @@ export default defineConfig({
         "app-settings-info-row-role.spec.ts",
         "app-diagnostics-rtt-announce.spec.ts",
         "app-font-picker-listbox-ownership.spec.ts",
+        "app-sessions-list-ownership.spec.ts",
       ],
     },
     {

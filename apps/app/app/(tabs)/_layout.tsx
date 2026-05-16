@@ -183,8 +183,11 @@ export default function TabsLayout() {
       // Map each known testID to a stable id, then publish them via
       // aria-owns so the tablist's accessibility subtree matches the
       // ARIA requirement even though the DOM has wrapper <div>s in
-      // between.
-      const slugs = ["tab-sessions", "tab-daemons", "tab-settings"];
+      // between. Each tab also gets `aria-controls` pointing to its
+      // content panel — WAI-ARIA 1.2 §6.3.26 + WCAG 4.1.2 require
+      // `role="tab"` to reference its `role="tabpanel"` so AT users have
+      // a programmatic path from the tab to the controlled panel.
+      const slugs = ["tab-sessions", "tab-daemons", "tab-settings"] as const;
       const ownedIds: string[] = [];
       for (const slug of slugs) {
         const tab = document.querySelector<HTMLElement>(
@@ -192,15 +195,127 @@ export default function TabsLayout() {
         );
         if (!tab) continue;
         if (!tab.id) tab.id = slug;
+        const panelId = `panel-${slug}`;
+        if (tab.getAttribute("aria-controls") !== panelId) {
+          tab.setAttribute("aria-controls", panelId);
+        }
         ownedIds.push(tab.id);
       }
       if (ownedIds.length > 0) {
         tablist.setAttribute("aria-owns", ownedIds.join(" "));
       }
+      // Promote the active screen's `role="main"` PARENT (the <Screen>
+      // wrapper rendered by react-native-screens) to `role="tabpanel"`
+      // with the matching panel id, so ARIA's tab→panel relationship
+      // resolves without disturbing the inner `role="main"` landmark.
+      // Inner main keeps its landmark role (preserves WCAG 2.4.1 Bypass
+      // Blocks and the existing app-main-landmark / diagnostics-main-
+      // landmark regression specs); the outer Screen wrapper carries
+      // the tabpanel role + id + aria-labelledby for tab→panel binding.
+      const activeTab = Array.from(
+        tablist.querySelectorAll<HTMLElement>('[role="tab"]'),
+      ).find((t) => t.getAttribute("aria-selected") === "true");
+      const activeSlug = activeTab?.getAttribute("data-testid");
+      if (activeTab && activeSlug) {
+        const activePanelId = `panel-${activeSlug}`;
+        const mains = Array.from(
+          document.querySelectorAll<HTMLElement>('[role="main"]'),
+        );
+        const visibleMain = mains.find((m) => m.offsetParent !== null);
+        const parent = visibleMain?.parentElement;
+        if (parent) {
+          if (parent.getAttribute("role") !== "tabpanel") {
+            parent.setAttribute("role", "tabpanel");
+          }
+          if (parent.id !== activePanelId) parent.id = activePanelId;
+          if (parent.getAttribute("aria-labelledby") !== activeTab.id) {
+            parent.setAttribute("aria-labelledby", activeTab.id);
+          }
+          // The OTHER (previously-active) tabpanel wrappers should drop
+          // their role/id so AT doesn't see stale "Daemons" tabpanels
+          // sitting in the DOM with display:none. Clear any
+          // [role="tabpanel"] that no longer wraps the visible main.
+          const stale = Array.from(
+            document.querySelectorAll<HTMLElement>('[role="tabpanel"]'),
+          );
+          for (const el of stale) {
+            if (el === parent) continue;
+            // Only touch our own wrappers — never strip a tabpanel that
+            // some other component (session-view tablist) put there.
+            if (!el.id.startsWith("panel-tab-")) continue;
+            el.removeAttribute("role");
+            el.removeAttribute("aria-labelledby");
+            // Keep the id off too so the spec's `#${panelId}` lookup
+            // doesn't accidentally hit a hidden previous-tab wrapper.
+            el.removeAttribute("id");
+          }
+        }
+        // Inactive tabs still need a DOM target for their aria-controls —
+        // detachInactiveScreens removes the inactive Screen wrappers, so
+        // we mount hidden stub <div role="tabpanel" hidden> elements
+        // appended to <body> for each non-active slug. The wrappers are
+        // empty and hidden, but they satisfy the ARIA invariant: every
+        // tab's aria-controls resolves to an element in the DOM with
+        // role="tabpanel". Active tab's panel is the real <Screen>
+        // wrapper above; inactive tabs point at these stubs.
+        for (const slug of slugs) {
+          if (slug === activeSlug) continue;
+          const stubId = `panel-${slug}`;
+          // Skip if a real <Screen> wrapper already carries this id
+          // (covers the brief moment after a tab switch when the
+          // previous active panel still has the role/id before stale-
+          // cleanup runs).
+          const existing = document.getElementById(stubId);
+          if (existing && existing.getAttribute("role") === "tabpanel") {
+            continue;
+          }
+          const stubAttr = `data-tabpanel-stub`;
+          let stub = document.querySelector<HTMLElement>(
+            `[${stubAttr}="${slug}"]`,
+          );
+          if (!stub) {
+            stub = document.createElement("div");
+            stub.setAttribute(stubAttr, slug);
+            stub.setAttribute("hidden", "");
+            document.body.appendChild(stub);
+          }
+          if (stub.id !== stubId) stub.id = stubId;
+          if (stub.getAttribute("role") !== "tabpanel") {
+            stub.setAttribute("role", "tabpanel");
+          }
+          const tabEl = document.getElementById(slug);
+          if (tabEl && stub.getAttribute("aria-labelledby") !== tabEl.id) {
+            stub.setAttribute("aria-labelledby", tabEl.id);
+          }
+        }
+        // If a stub exists for the active slug (from a previous render),
+        // remove it — the real Screen wrapper carries the role now.
+        const orphan = document.querySelector(
+          `[data-tabpanel-stub="${activeSlug}"]`,
+        );
+        if (orphan) orphan.remove();
+      }
     };
     sync();
-    const id = requestAnimationFrame(sync);
-    return () => cancelAnimationFrame(id);
+    // Re-sync on tab changes. expo-router swaps the visible <main> via
+    // react-native-screens, which mutates the DOM without firing a
+    // useEffect dep. Poll on a slow rAF cadence instead of MutationObserver
+    // — the observer's callback runs as a microtask after every DOM
+    // change, which on a busy expo-router mount thrashes the main thread
+    // and effectively hangs the page. A 250ms timer is more than enough
+    // to catch tab switches without the cost.
+    let rafId = 0;
+    let stopped = false;
+    const tick = () => {
+      if (stopped) return;
+      sync();
+      rafId = window.setTimeout(tick, 250) as unknown as number;
+    };
+    rafId = window.setTimeout(tick, 250) as unknown as number;
+    return () => {
+      stopped = true;
+      window.clearTimeout(rafId);
+    };
   }, []);
 
   return (

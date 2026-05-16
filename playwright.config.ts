@@ -122,6 +122,7 @@ export default defineConfig({
         "app-modal-aria-labelledby.spec.ts",
         "app-font-size-spinbutton.spec.ts",
         "app-font-size-spinbutton-keyboard.spec.ts",
+        "app-tabbar-aria-controls.spec.ts",
       ],
     },
     {

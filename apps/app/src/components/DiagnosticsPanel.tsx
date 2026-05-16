@@ -219,9 +219,10 @@ export function DiagnosticsPanel() {
   const cryptoAnnouncementRef = useRef<View>(null);
   useEffect(() => {
     if (Platform.OS !== "web") return;
-    (
-      rttAnnouncementRef.current as unknown as HTMLElement | null
-    )?.setAttribute("aria-atomic", "true");
+    (rttAnnouncementRef.current as unknown as HTMLElement | null)?.setAttribute(
+      "aria-atomic",
+      "true",
+    );
     (
       cryptoAnnouncementRef.current as unknown as HTMLElement | null
     )?.setAttribute("aria-atomic", "true");

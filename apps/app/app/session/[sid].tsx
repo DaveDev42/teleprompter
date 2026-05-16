@@ -846,6 +846,32 @@ export default function SessionDetailScreen() {
   const pp = getPlatformProps();
   const connected = useAnyRelayConnected();
 
+  // RN Web's createDOMProps doesn't whitelist `hidden` on <View>, so
+  // passing `hidden={mode !== "chat"}` to the tabpanel View silently
+  // drops the attribute — the inactive tabpanel stays in layout and
+  // remains in the AT tree. APG Tabs §3.23 requires the inactive
+  // tabpanel to be removed from AT navigation; the canonical way is
+  // the HTML `hidden` attribute. Mirror the imperative-setAttribute
+  // pattern used elsewhere (ApiKeyModal aria-description, etc.) — set
+  // it on the underlying DOM nodes after the mode flips so the panel
+  // wrappers actually reflect the active tab.
+  const chatPanelRef = useRef<View>(null);
+  const terminalPanelRef = useRef<View>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const chatEl = chatPanelRef.current as unknown as HTMLElement | null;
+    const terminalEl =
+      terminalPanelRef.current as unknown as HTMLElement | null;
+    if (chatEl) {
+      if (mode === "chat") chatEl.removeAttribute("hidden");
+      else chatEl.setAttribute("hidden", "");
+    }
+    if (terminalEl) {
+      if (mode === "terminal") terminalEl.removeAttribute("hidden");
+      else terminalEl.setAttribute("hidden", "");
+    }
+  }, [mode]);
+
   const session = sessions.find((s) => s.sid === sid);
   const stopped = isSessionStopped(session);
   const isRunning = isSessionRunning(session);
@@ -967,13 +993,17 @@ export default function SessionDetailScreen() {
           is active so we don't double the steady-state cost. */}
       {sid && (
         <View
+          ref={chatPanelRef}
           className={mode === "chat" ? "flex-1" : ""}
           {...(Platform.OS === "web"
             ? {
                 role: "tabpanel" as const,
                 id: SESSION_TABPANEL_CHAT_ID,
                 "aria-labelledby": SESSION_TAB_CHAT_ID,
-                hidden: mode !== "chat",
+                // `hidden` itself is set imperatively in the
+                // chatPanelRef/terminalPanelRef effect above —
+                // RN Web's createDOMProps drops it from the JSX
+                // attribute pass-through.
               }
             : {})}
         >
@@ -984,13 +1014,13 @@ export default function SessionDetailScreen() {
       )}
       {sid && (
         <View
+          ref={terminalPanelRef}
           className={mode === "terminal" ? "flex-1" : ""}
           {...(Platform.OS === "web"
             ? {
                 role: "tabpanel" as const,
                 id: SESSION_TABPANEL_TERMINAL_ID,
                 "aria-labelledby": SESSION_TAB_TERMINAL_ID,
-                hidden: mode !== "terminal",
               }
             : {})}
         >

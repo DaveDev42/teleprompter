@@ -296,9 +296,11 @@ export function FontSizeModal({
       visible={visible}
       onClose={onClose}
       accessibilityLabel="Font Size"
+      accessibilityLabelledBy="font-size-modal-title"
     >
       <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
         <Text
+          nativeID="font-size-modal-title"
           className="text-tp-text-primary text-lg font-bold"
           accessibilityRole="header"
           {...ariaLevel(2)}

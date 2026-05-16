@@ -10,6 +10,7 @@ export function ModalContainer({
   onClose,
   children,
   accessibilityLabel,
+  accessibilityLabelledBy,
   accessibilityDescribedBy,
   initialFocusRef,
 }: {
@@ -18,6 +19,15 @@ export function ModalContainer({
   children: React.ReactNode;
   /** Accessible name for the dialog (announced by screen readers when opened). */
   accessibilityLabel?: string;
+  /**
+   * Web-only: id of the visible heading inside the dialog. When set,
+   * `aria-labelledby` is added alongside `aria-label` so the dialog's
+   * accessible name is associated with the rendered heading text
+   * (APG Dialog Pattern §3.2.2, WCAG 4.1.2). Per ARIA spec
+   * `aria-labelledby` takes precedence over `aria-label`, while existing
+   * regression specs that read the literal `aria-label` keep working.
+   */
+  accessibilityLabelledBy?: string;
   /**
    * Web-only: id of an element inside the dialog whose text should be
    * announced as the dialog's description (after the label) when a
@@ -170,6 +180,9 @@ export function ModalContainer({
       // <Modal>, so spread the raw aria attribute on web.
       {...(Platform.OS === "web" && accessibilityLabel
         ? ({ "aria-label": accessibilityLabel } as object)
+        : {})}
+      {...(Platform.OS === "web" && accessibilityLabelledBy
+        ? ({ "aria-labelledby": accessibilityLabelledBy } as object)
         : {})}
       {...(Platform.OS === "web" && accessibilityDescribedBy
         ? ({ "aria-describedby": accessibilityDescribedBy } as object)

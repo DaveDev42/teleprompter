@@ -106,6 +106,7 @@ export default defineConfig({
         "app-diagnostics-main-landmark.spec.ts",
         "app-tabbar-navigation-landmark.spec.ts",
         "app-tablist-aria-orientation.spec.ts",
+        "app-document-title.spec.ts",
       ],
     },
     {

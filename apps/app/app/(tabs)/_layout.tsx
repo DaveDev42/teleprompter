@@ -133,7 +133,9 @@ export default function TabsLayout() {
   useEffect(() => {
     if (Platform.OS !== "web") return;
     const setLabel = () => {
-      const sessionsTab = document.querySelector('[data-testid="tab-sessions"]');
+      const sessionsTab = document.querySelector(
+        '[data-testid="tab-sessions"]',
+      );
       const tablist = sessionsTab?.closest('[role="tablist"]');
       if (tablist && !tablist.getAttribute("aria-label")) {
         tablist.setAttribute("aria-label", "Main navigation");

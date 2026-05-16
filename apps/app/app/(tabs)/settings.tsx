@@ -245,6 +245,18 @@ export default function SettingsScreen() {
   // it. Stored as state (rather than derived from `theme`) so we can
   // skip the initial mount announcement.
   const [themeAnnouncement, setThemeAnnouncement] = useState("");
+  // RN Web 0.21 silently drops the prop-level `aria-atomic` when
+  // spread on a <View>, and even with `role="status"` (which implies
+  // atomic=true per ARIA 1.2) NVDA/JAWS only announce the diff between
+  // updates — so cycling "System" → "Dark" speaks only "Dark", losing
+  // the "Theme:" prefix. Set the attribute imperatively, matching
+  // InAppToast / ConnectionLiveRegion. WCAG 4.1.3.
+  const themeAnnouncementRef = useRef<View>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const el = themeAnnouncementRef.current as unknown as HTMLElement | null;
+    el?.setAttribute("aria-atomic", "true");
+  }, []);
   const chatFont = useSettingsStore((s) => s.chatFont);
   const codeFont = useSettingsStore((s) => s.codeFont);
   const terminalFont = useSettingsStore((s) => s.terminalFont);
@@ -385,6 +397,7 @@ export default function SettingsScreen() {
         {/* SR-only polite live region for theme cycling. Visually
             collapsed; AT picks up changes because aria-live=polite. */}
         <View
+          ref={themeAnnouncementRef}
           testID="theme-announcement"
           accessibilityLiveRegion="polite"
           {...(Platform.OS === "web"

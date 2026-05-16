@@ -134,11 +134,16 @@ export default function PairingScreen() {
         </Text>
 
         {error && (
+          // role="alert" already implies aria-live="assertive" + aria-atomic="true"
+          // per ARIA 1.2 §6.3.3. Adding an explicit aria-live="polite" here would
+          // override the implicit assertive value (per ARIA 1.2 §6.2.1) and downgrade
+          // a blocking validation error to a polite announcement that NVDA/JAWS/VoiceOver
+          // queue behind in-flight speech. Same fix InAppToast and UpdateBanner already
+          // adopted — we just missed this banner the first time around.
           <View
             testID="pairing-error"
             nativeID="pairing-error"
             role="alert"
-            accessibilityLiveRegion="polite"
             className="bg-tp-error/20 border border-tp-error rounded-lg px-4 py-3 mb-4"
           >
             <Text className="text-tp-error text-sm">{error}</Text>

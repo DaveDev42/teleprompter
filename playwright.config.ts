@@ -83,6 +83,7 @@ export default defineConfig({
         "app-font-picker-listbox-ownership.spec.ts",
         "app-sessions-list-ownership.spec.ts",
         "app-connection-live-region-atomic.spec.ts",
+        "app-pairing-error-alert.spec.ts",
       ],
     },
     {

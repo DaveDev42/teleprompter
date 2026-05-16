@@ -149,6 +149,15 @@ export default function TabsLayout() {
       if (!tablist.getAttribute("aria-label")) {
         tablist.setAttribute("aria-label", "Main navigation");
       }
+      // WAI-ARIA 1.2 §6.6.21: a horizontal tablist must declare
+      // `aria-orientation="horizontal"` so AT routes ArrowLeft/ArrowRight
+      // to tab switching. JAWS in particular treats unspecified
+      // orientation as vertical and expects ArrowUp/ArrowDown — but the
+      // handler in this file only listens for left/right, so JAWS users
+      // can never reach inactive tabs without this hint (WCAG 2.1.1 A).
+      if (tablist.getAttribute("aria-orientation") !== "horizontal") {
+        tablist.setAttribute("aria-orientation", "horizontal");
+      }
       // WCAG 2.4.1 Bypass Blocks (Level A) + ARIA 1.2 §5.3.10: the bottom
       // tablist needs a `role="navigation"` landmark wrapper so AT users
       // can jump to it via landmark-navigation ("D" in NVDA, "W" in

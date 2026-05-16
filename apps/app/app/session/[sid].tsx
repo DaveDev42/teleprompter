@@ -126,12 +126,20 @@ function SegmentedControl({
   // pattern for `id` + `aria-controls` — without those the APG Tabs pattern
   // is incomplete (no tab↔panel relationship in the a11y tree), so screen
   // readers don't know which content region belongs to which tab.
+  //
+  // APG Tabs also requires "roving tabindex": only the currently-selected
+  // tab is in the document tab sequence (tabindex=0); the inactive tab gets
+  // tabindex=-1 so Tab exits the tablist instead of cycling inside it. With
+  // both tabs at tabindex=0 a keyboard user has to Tab through every tab
+  // before reaching content, and SR users lose the Tab vs Arrow distinction
+  // that signals tablist semantics. Native ignores tabIndex (no DOM).
   const webTabChat =
     Platform.OS === "web"
       ? {
           "aria-selected": mode === "chat",
           id: SESSION_TAB_CHAT_ID,
           "aria-controls": SESSION_TABPANEL_CHAT_ID,
+          tabIndex: mode === "chat" ? 0 : -1,
         }
       : {};
   const webTabTerminal =
@@ -140,6 +148,7 @@ function SegmentedControl({
           "aria-selected": mode === "terminal",
           id: SESSION_TAB_TERMINAL_ID,
           "aria-controls": SESSION_TABPANEL_TERMINAL_ID,
+          tabIndex: mode === "terminal" ? 0 : -1,
         }
       : {};
   // RN propagates accessibilityRole verbatim to web — but "tabbar" is not a
@@ -167,7 +176,6 @@ function SegmentedControl({
           accessibilityLabel="Chat"
           accessibilityState={{ selected: mode === "chat" }}
           {...(webTabChat as object)}
-          tabIndex={pp.tabIndex}
           className={`flex-1 py-1.5 rounded-badge items-center ${
             mode === "chat" ? "bg-tp-surface" : ""
           } ${pp.className}`}
@@ -189,7 +197,6 @@ function SegmentedControl({
           accessibilityLabel="Terminal"
           accessibilityState={{ selected: mode === "terminal" }}
           {...(webTabTerminal as object)}
-          tabIndex={pp.tabIndex}
           className={`flex-1 py-1.5 rounded-badge items-center ${
             mode === "terminal" ? "bg-tp-surface" : ""
           } ${pp.className}`}

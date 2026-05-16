@@ -61,10 +61,12 @@ test.describe("App Keyboard Navigation", () => {
 
     await chatTab.waitFor({ timeout: 10_000 });
 
+    // APG Tabs pattern: active tab has tabindex=0 (Tab enters tablist),
+    // arrow keys move between tabs (inactive tabs have tabindex=-1).
     await chatTab.focus();
     await expect(chatTab).toBeFocused();
 
-    await page.keyboard.press("Tab");
+    await page.keyboard.press("ArrowRight");
     await expect(terminalTab).toBeFocused();
 
     await page.keyboard.press("Enter");
@@ -116,8 +118,10 @@ test.describe("App Keyboard Navigation", () => {
     await chatTab.waitFor({ timeout: 10_000 });
     await expect(chatTab).toHaveAttribute("tabindex", "0");
 
+    // APG roving tabindex: active tab (Chat) is tabindex=0,
+    // inactive tab (Terminal) is tabindex=-1.
     const terminalTab = page.getByTestId("tab-terminal");
-    await expect(terminalTab).toHaveAttribute("tabindex", "0");
+    await expect(terminalTab).toHaveAttribute("tabindex", "-1");
 
     const chatInput = page.getByTestId("chat-input");
     await expect(chatInput).toBeVisible();

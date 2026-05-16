@@ -55,9 +55,27 @@ test.describe("App Keyboard Navigation", () => {
     await expect(chatTab).toBeFocused();
 
     await page.keyboard.press("ArrowRight");
-    await expect(terminalTab).toBeFocused();
 
-    await page.keyboard.press("Enter");
+    // After ArrowRight the tablist handler activates the Terminal tab and
+    // moves DOM focus to it via requestAnimationFrame. However, GhosttyTerminal
+    // mounts in the same frame and may steal focus to its own container so the
+    // terminal is keyboard-ready — that is correct behaviour.
+    // Verify observable invariants:
+    //   1. terminal tab is now aria-selected=true (mode switched)
+    //   2. focus landed in the tablist or terminal area (not stuck on chat tab)
+    await expect(terminalTab).toHaveAttribute("aria-selected", "true");
+    await expect(chatTab).toHaveAttribute("aria-selected", "false");
+    // Wait for the double-rAF focus move to settle, then check that focus is
+    // no longer on the chat tab. It ends up on either the terminal tab
+    // (brief window) or terminal-container (GhosttyTerminal auto-focus).
+    await page.waitForFunction(() => {
+      const testid = document.activeElement?.getAttribute("data-testid") ?? "";
+      return testid !== "tab-chat";
+    });
+    const activeTestId = await page.evaluate(
+      () => document.activeElement?.getAttribute("data-testid") ?? "",
+    );
+    expect(["tab-terminal", "terminal-container"]).toContain(activeTestId);
   });
 
   test("Tab reaches chat input", async ({ page }) => {

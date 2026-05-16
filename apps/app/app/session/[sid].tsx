@@ -966,6 +966,12 @@ export default function SessionDetailScreen() {
       className="flex-1 bg-tp-bg"
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
+      // WCAG 2.4.1 Bypass Blocks (Level A): expose the screen body as
+      // the main landmark so AT users can jump straight to the chat /
+      // terminal via landmark navigation. All other screens (/, /daemons,
+      // /settings, /pairing, /pairing/scan) already do this; the session
+      // detail view was missed.
+      {...(Platform.OS === "web" ? { role: "main" as const } : {})}
     >
       {/* Safe area top */}
       <View className="bg-tp-bg-secondary" style={{ paddingTop: insets.top }} />

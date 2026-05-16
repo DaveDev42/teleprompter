@@ -53,6 +53,7 @@ function SettingsRow({
   onPress,
   hasPopup,
   expanded,
+  controlsId,
   first,
   last,
   destructive,
@@ -81,6 +82,12 @@ function SettingsRow({
   // an inline panel. `undefined` (default) omits the attribute so
   // dialog/info rows aren't mislabelled.
   expanded?: boolean;
+  // APG Disclosure pattern §3.9: pair `aria-expanded` with
+  // `aria-controls` pointing at the `id` of the controlled region so
+  // AT users can programmatically jump from the trigger to the panel
+  // it discloses. Only meaningful when `expanded` is also set —
+  // disclosure pattern only.
+  controlsId?: string;
   first?: boolean;
   last?: boolean;
   destructive?: boolean;
@@ -115,6 +122,10 @@ function SettingsRow({
     Platform.OS === "web" && onPress && expanded !== undefined
       ? { "aria-expanded": expanded }
       : {};
+  const webControlsProps =
+    Platform.OS === "web" && onPress && controlsId
+      ? { "aria-controls": controlsId }
+      : {};
   return (
     <Pressable
       onPress={onPress}
@@ -127,6 +138,7 @@ function SettingsRow({
       {...webRoleProps}
       {...webHasPopupProps}
       {...webExpandedProps}
+      {...webControlsProps}
     >
       <View
         className={`flex-row items-center justify-between px-4 py-3.5 bg-tp-surface ${
@@ -321,7 +333,13 @@ export default function SettingsScreen() {
         // subtree via early return, so without re-applying `role="main"`
         // here the landmark vanishes when the panel mounts — AT users
         // lose their landmark-navigation jump target mid-flow.
-        {...(Platform.OS === "web" ? { role: "main" as const } : {})}
+        // The `id` matches the `aria-controls` value on the Diagnostics
+        // disclosure trigger above (APG Disclosure Pattern §3.9). RN
+        // Web doesn't surface a typed `nativeID` for View, so spread
+        // the raw `id` on web.
+        {...(Platform.OS === "web"
+          ? { role: "main" as const, id: "settings-diagnostics-panel" }
+          : {})}
       >
         <View className="flex-row items-center justify-between px-4 py-3">
           <Text
@@ -507,6 +525,7 @@ export default function SettingsScreen() {
             first
             last
             expanded={showDiagnostics}
+            controlsId="settings-diagnostics-panel"
             onPress={() => setShowDiagnostics(true)}
           />
         </View>

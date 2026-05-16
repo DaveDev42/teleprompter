@@ -113,6 +113,7 @@ export default defineConfig({
         "app-theme-announce-atomic.spec.ts",
         "app-chat-card-alert-no-polite.spec.ts",
         "app-voice-live-region-atomic.spec.ts",
+        "app-diagnostics-aria-controls.spec.ts",
       ],
     },
     {

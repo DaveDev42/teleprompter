@@ -354,7 +354,10 @@ function ChatView({
   // 52px box. Resize the textarea to fit content on every change (clamped
   // by the existing `max-h-24` Tailwind class via CSS max-height, then
   // internal scroll takes over). Reset to "auto" first so shrinking works
-  // when the user deletes lines.
+  // when the user deletes lines. `input` is not read directly inside the
+  // effect body, but its change is the trigger — el.scrollHeight reflects the
+  // updated DOM after RN Web re-renders with the new value.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — input drives re-run via DOM side-effect
   useEffect(() => {
     if (Platform.OS !== "web") return;
     const el = chatInputRef.current as unknown as HTMLTextAreaElement | null;

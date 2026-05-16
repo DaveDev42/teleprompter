@@ -93,8 +93,7 @@ const tabBarButton = (props: BottomTabBarButtonProps) => {
   // Pressable abstraction omits keyboard events; RN Web's underlying
   // <View> does forward it though). Cast through a web-only extra-props
   // bag so the JSX prop reaches the DOM node without TS rejecting it.
-  const webExtra =
-    Platform.OS === "web" ? { onKeyDown: handleTabKeyDown } : {};
+  const webExtra = Platform.OS === "web" ? { onKeyDown: handleTabKeyDown } : {};
   return (
     <PlatformPressable
       {...props}

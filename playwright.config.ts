@@ -77,6 +77,7 @@ export default defineConfig({
         "app-diagnostics-selftest-announce.spec.ts",
         "app-session-chat-log-role.spec.ts",
         "app-session-header-role.spec.ts",
+        "app-input-aria-description.spec.ts",
       ],
     },
     {

@@ -125,26 +125,31 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
         </Text>
       </Pressable>
 
-      {/* Status — wrap in a polite live region so state transitions
-          (connecting → listening → processing) announce to screen readers. */}
-      {isActive && (
-        <Text
-          className="text-tp-text-tertiary text-xs"
-          accessibilityLiveRegion="polite"
-        >
-          {stateLabel}
-        </Text>
-      )}
-      {transcript && isActive && (
-        <Text
-          className="text-tp-text-tertiary text-xs max-w-32"
-          numberOfLines={1}
-          accessibilityLiveRegion="polite"
-          accessibilityLabel={`Transcript: ${transcript}`}
-        >
-          {transcript}
-        </Text>
-      )}
+      {/* Status — polite live regions for state transitions
+          (connecting → listening → processing) and transcript updates.
+          Always mounted: NVDA / JAWS attach mutation observers when a
+          live region node enters the DOM and watch the parent for text
+          content changes. Mounting the container together with its
+          first content drops the first announcement (no observer was
+          watching the parent at insertion time). Matches InAppToast and
+          ConnectionLiveRegion. */}
+      <Text
+        testID="voice-state-live-region"
+        className="text-tp-text-tertiary text-xs"
+        style={isActive ? undefined : { display: "none" }}
+        accessibilityLiveRegion="polite"
+      >
+        {isActive ? stateLabel : ""}
+      </Text>
+      <Text
+        testID="voice-transcript-live-region"
+        className="text-tp-text-tertiary text-xs max-w-32"
+        style={transcript && isActive ? undefined : { display: "none" }}
+        numberOfLines={1}
+        accessibilityLiveRegion="polite"
+      >
+        {transcript && isActive ? `Transcript: ${transcript}` : ""}
+      </Text>
     </View>
   );
 }

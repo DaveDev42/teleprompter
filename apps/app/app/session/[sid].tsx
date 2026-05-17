@@ -602,16 +602,23 @@ function ChatView({
 
   // On web, expose the chat messages container as a `log` landmark.
   // role=log implies `aria-live=polite` + `aria-relevant=additions text`
-  // (ARIA spec), so AT announces appended messages without interrupting
-  // the user. Setting `aria-live` / `aria-relevant` directly doesn't
-  // work: RN Web's createDOMProps drops `aria-relevant` entirely, and
-  // `aria-live=polite` without a landmark role doesn't tell AT that
-  // this is a chat transcript (vs a generic status region). FlatList
-  // doesn't forward arbitrary ARIA props cleanly, so the role rides on
-  // the wrapping View.
+  // per the ARIA spec, but NVDA/JAWS historically (still in some
+  // versions) do NOT honor the implicit aria-live on role=log — they
+  // only announce appended messages when aria-live is set explicitly.
+  // Every other live region in the app (InAppToast, VoiceButton,
+  // DiagnosticsPanel, FontPickerModal) sets aria-live explicitly for
+  // exactly this reason. RN Web's createDOMProps passes `aria-live`
+  // through to the DOM (the `aria-relevant` claim in an earlier
+  // version of this comment was wrong — only relevant gets dropped).
+  // FlatList doesn't forward arbitrary ARIA props cleanly, so the role
+  // and aria-live ride on the wrapping View.
   const liveRegionProps =
     Platform.OS === "web"
-      ? { role: "log" as const, "aria-label": "Chat log" }
+      ? {
+          role: "log" as const,
+          "aria-live": "polite" as const,
+          "aria-label": "Chat log",
+        }
       : {};
 
   const emptyMessage = !connected

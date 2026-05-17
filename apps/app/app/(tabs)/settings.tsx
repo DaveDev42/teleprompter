@@ -221,12 +221,27 @@ function UpdateStatusValue({
   const isDark = useThemeStore((s) => s.isDark);
   const indicatorColor = isDark ? INDICATOR_DARK : INDICATOR_LIGHT;
   if (status === "checking" || status === "downloading") {
+    const spinnerLabel =
+      status === "checking" ? "Checking for updates" : "Downloading update";
     return (
       <View className="flex-row items-center">
+        {/* ActivityIndicator renders as <div role="progressbar"> on
+            web (react-native-web) but does NOT propagate any
+            accessible name. ARIA 1.2 §6.3.20 requires role=progressbar
+            to have an accessible name, otherwise NVDA / JAWS /
+            VoiceOver announce "progress bar" with no context.
+            accessibilityLabel doesn't reach the inner progressbar div
+            on web, so pass aria-label imperatively. Native AT reads
+            accessibilityLabel from the underlying View.
+            WCAG 4.1.2 (Name, Role, Value). */}
         <ActivityIndicator
           size="small"
           color={indicatorColor}
           className="mr-2"
+          accessibilityLabel={spinnerLabel}
+          {...(Platform.OS === "web"
+            ? ({ "aria-label": spinnerLabel } as object)
+            : {})}
         />
         <Text className="text-tp-text-secondary text-[13px]">
           {status === "checking" ? "Checking..." : "Downloading..."}

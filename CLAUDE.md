@@ -183,6 +183,7 @@ Tier 1-4 분류 및 전체 test 파일 인벤토리는 `.claude/rules/testing-in
 - **daemon 재기동은 `tp daemon install` 한 번이면 충분.** launchd/systemd unit 이 새 바이너리 경로를 가리키도록 idempotent 하게 재등록하고 자동 restart. `pkill tp-daemon` 후 수동 재시작 같은 동작은 금지 (서비스 등록 안 된 일회성 프로세스로 살아남아서 OTA 안 됨).
 - **daemon 재기동 후 검증**: `tp version` 으로 새 commit hash / version 이 찍히는지 확인. 안 찍히면 PATH 의 다른 `tp` 가 우선순위에 있다는 신호.
 - **이 룰의 목표는 사용자의 "즉시 만져보기" 사이클을 0초로 만드는 것** — 사용자가 PR 머지 후에 "어디서 어떻게 깔지" 를 고민하게 두면 dogfood 가 망가진다. 의심스러우면 그냥 위 시퀀스를 한 번 더 돌려라 (idempotent).
+- **Subagent worktree 가 active 인 동안 메인 worktree 에서 install 금지.** Subagent 가 `isolation: "worktree"` 로 격리되어 있어도 메인 worktree 의 git index 를 점유하는 케이스가 종종 있다 (브랜치 전환, working tree 수정 등). 그 동안 `pnpm build:cli:local && sudo install` 을 돌리면 build 산출물이 subagent 의 in-flight 변경과 섞일 수 있다. **PR 머지 후 install 은 모든 subagent 의 완료 알림이 도착한 뒤** 한꺼번에 처리. 메인 worktree 의 `git status` 가 깨끗하지 않으면 install 보류.
 
 ### 라이브 디버그 워크플로우 (권장)
 

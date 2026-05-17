@@ -4,6 +4,7 @@ import { existsSync, lstatSync, unlinkSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import { Socket } from "net";
 import { join } from "path";
+import { promptYesNo } from "../components/ink/yes-no-prompt";
 import { isCompiled } from "../spawn";
 import { dim, ok } from "./colors";
 import { errorWithHints } from "./format";
@@ -175,9 +176,10 @@ async function showInstallHint(): Promise<void> {
       "tp daemon is now running in the background. It can also auto-start on login.",
     ),
   );
-  const accepted = await promptYesNo(
-    "Install daemon as an OS service so it auto-starts on login? [Y/n] ",
-  );
+  const accepted = await promptYesNo({
+    question: "Install daemon as an OS service so it auto-starts on login?",
+    defaultValue: true,
+  });
   await markHinted();
 
   if (!accepted) {
@@ -271,12 +273,6 @@ export async function readYesNoLine(stream: YesNoReadable): Promise<boolean> {
     stream.once("end", onEnd);
     stream.once("close", onEnd);
   });
-}
-
-/** Write the prompt to stderr and read a single y/n line from stdin. */
-async function promptYesNo(prompt: string): Promise<boolean> {
-  process.stderr.write(prompt);
-  return readYesNoLine(process.stdin);
 }
 
 /**

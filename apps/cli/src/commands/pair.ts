@@ -18,10 +18,14 @@ import {
   DEFAULT_PAIRING_RELAY_URL,
   getSocketPath,
 } from "@teleprompter/protocol";
+import { render } from "ink";
 import { hostname } from "os";
 import { join } from "path";
 import qrcode from "qrcode-terminal";
+import { createElement } from "react";
 import { parseArgs } from "util";
+import { KeyHandler } from "../components/ink/key-handler";
+import { Spinner } from "../components/ink/spinner";
 import { promptYesNo } from "../components/ink/yes-no-prompt";
 import { dim, fail, green, ok } from "../lib/colors";
 import { ensureDaemon, isDaemonRunning } from "../lib/ensure-daemon";
@@ -92,24 +96,23 @@ async function pairNew(argv: string[]): Promise<void> {
 
   let ipc: IpcClient | null = null;
   let cleanedUp = false;
-  let rawModeActive = false;
+  let inkInstance: ReturnType<typeof render> | null = null;
 
-  const teardownRawMode = (): void => {
-    if (rawModeActive) {
-      rawModeActive = false;
+  const teardownInkApp = (): void => {
+    if (inkInstance) {
       try {
-        if (process.stdin.isTTY) process.stdin.setRawMode(false);
+        inkInstance.unmount();
       } catch {
         /* best effort */
       }
-      process.stdin.pause();
+      inkInstance = null;
     }
   };
 
   const cleanup = async (code: number): Promise<never> => {
     if (!cleanedUp) {
       cleanedUp = true;
-      teardownRawMode();
+      teardownInkApp();
       try {
         ipc?.close();
       } catch {
@@ -135,7 +138,7 @@ async function pairNew(argv: string[]): Promise<void> {
     const settle = (resolve: (n: number) => void, code: number): void => {
       if (settled) return;
       settled = true;
-      teardownRawMode();
+      teardownInkApp();
       resolve(code);
     };
     const done = new Promise<number>((resolve) => {
@@ -216,10 +219,10 @@ async function pairNew(argv: string[]): Promise<void> {
       });
     });
 
-    // SIGINT handler used when the keypress listener is NOT active (e.g. no
-    // TTY).  When raw mode is on, Ctrl+C comes in as a keypress event instead.
+    // SIGINT handler used when the ink keypress app is NOT active (e.g. no
+    // TTY).  When ink is mounted, Ctrl+C is handled by the KeyHandler binding.
     const onSigint = (): void => {
-      if (rawModeActive) return; // handled by keypress listener
+      if (inkInstance) return; // handled by ink KeyHandler
       if (pairingId && ipc) {
         ipc.send({ t: "pair.cancel", pairingId } satisfies IpcPairCancel);
       } else {
@@ -256,9 +259,9 @@ async function pairNew(argv: string[]): Promise<void> {
   }
 
   // ---------------------------------------------------------------------------
-  // Keypress listener — set up after pair.begin.ok when stdin is a TTY.
-  // Raw mode is enabled here and torn down by teardownRawMode() (called from
-  // settle() and cleanup() on every exit path).
+  // Ink keypress app — mounted after pair.begin.ok when stdin is a TTY.
+  // The ink instance is torn down by teardownInkApp() (called from settle()
+  // and cleanup() on every exit path).
   // ---------------------------------------------------------------------------
   function setupKeypressListener(
     qrString: string,
@@ -267,56 +270,45 @@ async function pairNew(argv: string[]): Promise<void> {
     _resolve: (code: number) => void,
   ): void {
     try {
-      // Node's readline provides parsed key objects (`{ name, ctrl, meta }`).
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const readline = require("readline") as typeof import("readline");
-      readline.emitKeypressEvents(process.stdin);
-      if (process.stdin.isTTY) {
-        process.stdin.setRawMode(true);
-        rawModeActive = true;
-      }
-      process.stdin.resume();
-
-      process.stdin.on(
-        "keypress",
-        (
-          _str: string | undefined,
-          key: { name?: string; ctrl?: boolean; meta?: boolean },
-        ) => {
-          if (!key) return;
-          // Ctrl+C → cancel pairing
-          if (key.ctrl && key.name === "c") {
-            if (currentPairingId) {
-              currentIpc.send({
-                t: "pair.cancel",
-                pairingId: currentPairingId,
-              } satisfies IpcPairCancel);
-            } else {
-              try {
-                currentIpc.close();
-              } catch {
-                /* best effort */
-              }
-            }
-            return;
-          }
-          // 'c' → copy URL to clipboard via OSC 52
-          if (key.name === "c" && !key.ctrl && !key.meta) {
-            const result = copyToClipboard(qrString);
-            if (result.ok) {
-              console.log(`\n${green("Copied to clipboard")}`);
-            } else {
-              console.log(
-                `\n${dim("Clipboard copy not supported by this terminal — copy the URL above manually")}`,
-              );
-            }
-            return;
-          }
-        },
+      inkInstance = render(
+        createElement(
+          KeyHandler,
+          {
+            bindings: {
+              "ctrl+c": () => {
+                if (currentPairingId) {
+                  currentIpc.send({
+                    t: "pair.cancel",
+                    pairingId: currentPairingId,
+                  } satisfies IpcPairCancel);
+                } else {
+                  try {
+                    currentIpc.close();
+                  } catch {
+                    /* best effort */
+                  }
+                }
+              },
+              c: () => {
+                const result = copyToClipboard(qrString);
+                teardownInkApp();
+                if (result.ok) {
+                  console.log(`\n${green("Copied to clipboard")}`);
+                } else {
+                  console.log(
+                    `\n${dim("Clipboard copy not supported by this terminal — copy the URL above manually")}`,
+                  );
+                }
+              },
+            },
+          },
+          createElement(Spinner, { message: "Waiting for app to scan QR..." }),
+        ),
+        { exitOnCtrlC: false },
       );
     } catch {
-      // If setting up raw mode fails for any reason, fall back gracefully.
-      teardownRawMode();
+      // If mounting the ink app fails for any reason, fall back gracefully.
+      teardownInkApp();
       console.log(
         `\n${dim("Waiting for your app to scan the QR...")} (Ctrl+C to cancel)`,
       );

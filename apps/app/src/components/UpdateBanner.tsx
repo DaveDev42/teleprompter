@@ -60,7 +60,26 @@ export function UpdateBanner({
           className={`px-3 justify-center ${pp.className}`}
           hitSlop={8}
         >
-          <Text className="text-tp-text-tertiary text-[13px]">✕</Text>
+          {/*
+            The dismiss button's accessible name is set on the parent
+            Pressable via accessibilityLabel="Dismiss update banner".
+            But role="alert" on the outer container computes its
+            announcement from raw DOM textContent (not from descendant
+            accessible names), so the bare "✕" glyph would be appended
+            to every banner announcement — NVDA/JAWS/VoiceOver verbalize
+            it as "times" / "x" / "multiplication sign". Hide on web only.
+            Native AT focuses the parent Pressable and reads its
+            accessibilityLabel, so the gate is web-only.
+            WCAG 1.1.1 + 4.1.3.
+          */}
+          <Text
+            className="text-tp-text-tertiary text-[13px]"
+            {...(Platform.OS === "web"
+              ? ({ "aria-hidden": true } as object)
+              : {})}
+          >
+            ✕
+          </Text>
         </Pressable>
       </Pressable>
     </View>

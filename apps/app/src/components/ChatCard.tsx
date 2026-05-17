@@ -383,9 +383,23 @@ function RichText({
                     className="flex-row items-start mb-0.5"
                     {...webListItemProps}
                   >
+                    {/*
+                      role=listitem already conveys the bullet/number to
+                      AT via the parent role=list ("list with N items, 1
+                      of N: ..."). The visible "•" / "1." glyph is a
+                      visual marker only — exposing the Text to AT
+                      double-announces "bullet" or "1 dot" before each
+                      item body, polluting the readout. WCAG 1.1.1.
+                      Native AT skips this Text because the parent View
+                      carries the listitem role; gate the spread on web
+                      only.
+                    */}
                     <Text
                       className={`${textClass} mr-1.5 mt-0.5`}
                       style={fontStyle}
+                      {...(Platform.OS === "web"
+                        ? ({ "aria-hidden": true } as object)
+                        : {})}
                     >
                       {block.ordered ? `${ii + 1}.` : "•"}
                     </Text>

@@ -22,6 +22,7 @@ import { hostname } from "os";
 import { join } from "path";
 import qrcode from "qrcode-terminal";
 import { parseArgs } from "util";
+import { promptYesNo } from "../components/ink/yes-no-prompt";
 import { dim, fail, green, ok } from "../lib/colors";
 import { ensureDaemon, isDaemonRunning } from "../lib/ensure-daemon";
 import { formatAge } from "../lib/format";
@@ -479,10 +480,11 @@ async function pairDelete(argv: string[]): Promise<void> {
       );
       process.exit(1);
     }
-    const answer = await prompt(
-      `Delete pairing for ${target.daemonId} (relay ${target.relayUrl})? [y/N] `,
-    );
-    if (!/^y(es)?$/i.test(answer.trim())) {
+    const confirmed = await promptYesNo({
+      question: `Delete pairing for ${target.daemonId} (relay ${target.relayUrl})?`,
+      defaultValue: false,
+    });
+    if (!confirmed) {
       console.log("Aborted.");
       return;
     }
@@ -663,26 +665,6 @@ async function requestPairOp(
       /* best effort */
     }
   }
-}
-
-function prompt(question: string): Promise<string> {
-  return new Promise((resolve) => {
-    process.stdout.write(question);
-    process.stdin.resume();
-    process.stdin.setEncoding("utf8");
-    const done = (value: string) => {
-      process.stdin.off("data", onData);
-      process.stdin.off("end", onEnd);
-      process.stdin.off("close", onEnd);
-      process.stdin.pause();
-      resolve(value);
-    };
-    const onData = (data: string) => done(data);
-    const onEnd = () => done("");
-    process.stdin.once("data", onData);
-    process.stdin.once("end", onEnd);
-    process.stdin.once("close", onEnd);
-  });
 }
 
 function printPairUsage(): void {

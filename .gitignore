@@ -41,6 +41,9 @@ test-results/
 .claude.local.md
 .claude/scheduled_tasks.lock
 
+# Typo variant of .claude/ — stale local directory, not tracked
+.claire/
+
 # Superpowers planning artifacts (local-only workflow scratch)
 docs/superpowers/
 

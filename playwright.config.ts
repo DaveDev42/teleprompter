@@ -132,6 +132,7 @@ export default defineConfig({
         "app-add-daemon-haspopup.spec.ts",
         "app-chat-markdown-list-role.spec.ts",
         "app-tool-card-role.spec.ts",
+        "app-streaming-card-aria-atomic.spec.ts",
       ],
     },
     {

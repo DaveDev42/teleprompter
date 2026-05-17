@@ -66,18 +66,17 @@ test.describe("DaemonCard decorative children aria-hidden", () => {
       // the small size used by the indicator (w-2.5 h-2.5). RN Web emits
       // those Tailwind classes verbatim, so a className substring match
       // is reliable.
-      const dot = Array.from(root.querySelectorAll("div")).find((el) =>
-        /rounded-full/.test(el.className) &&
-        /w-2\.5/.test(el.className) &&
-        /h-2\.5/.test(el.className),
+      const dot = Array.from(root.querySelectorAll("div")).find(
+        (el) =>
+          /rounded-full/.test(el.className) &&
+          /w-2\.5/.test(el.className) &&
+          /h-2\.5/.test(el.className),
       );
       // The status text node renders either "Connected" or "Last seen ..."
-      const statusText = Array.from(root.querySelectorAll("div")).find(
-        (el) => {
-          const txt = el.textContent?.trim() ?? "";
-          return /^(Connected|Last seen .+)$/.test(txt);
-        },
-      );
+      const statusText = Array.from(root.querySelectorAll("div")).find((el) => {
+        const txt = el.textContent?.trim() ?? "";
+        return /^(Connected|Last seen .+)$/.test(txt);
+      });
       return {
         dotAriaHidden: dot?.getAttribute("aria-hidden") ?? null,
         dotFound: !!dot,
@@ -90,12 +89,9 @@ test.describe("DaemonCard decorative children aria-hidden", () => {
     expect(result.dotFound, "status dot <div> found in DaemonCard").toBe(true);
     expect(result.dotAriaHidden, "status dot aria-hidden").toBe("true");
 
-    expect(
-      result.statusTextFound,
-      "status text node found in DaemonCard",
-    ).toBe(true);
-    expect(result.statusTextAriaHidden, "status text aria-hidden").toBe(
-      "true",
+    expect(result.statusTextFound, "status text node found in DaemonCard").toBe(
+      true,
     );
+    expect(result.statusTextAriaHidden, "status text aria-hidden").toBe("true");
   });
 });

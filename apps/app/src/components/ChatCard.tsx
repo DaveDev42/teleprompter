@@ -425,15 +425,26 @@ function UserCard({
   // DaemonCard in app/(tabs)/daemons.tsx. Spread raw on web because
   // "group" isn't in RN's AccessibilityRole union.
   const a11yLabel = `You: ${msg.text.length > 100 ? `${msg.text.slice(0, 100)}...` : msg.text}`;
+  // WCAG 2.1.1 (Level A): the long-press copy affordance has no keyboard
+  // equivalent on web — long-press only fires for pointer events. Wire
+  // onPress on web so Enter on a focused bubble triggers the same copy.
+  // Native keeps long-press as the discoverable touch gesture.
+  // `aria-description` advertises the web-only affordance because RN
+  // Web silently drops `accessibilityHint` for non-button roles.
   return (
     <Pressable
       className={`self-end bg-tp-user-bubble rounded-bubble rounded-br-sm px-4 py-2.5 max-w-[80%] ${pp.className}`}
       tabIndex={pp.tabIndex}
+      onPress={Platform.OS === "web" ? () => copyText(msg.text) : undefined}
       onLongPress={() => copyText(msg.text)}
       accessibilityLabel={a11yLabel}
       accessibilityHint="Long press to copy"
       {...(Platform.OS === "web"
-        ? ({ role: "group", "aria-label": a11yLabel } as object)
+        ? ({
+            role: "group",
+            "aria-label": a11yLabel,
+            "aria-description": "Press Enter to copy",
+          } as object)
         : {})}
     >
       <Text
@@ -470,15 +481,22 @@ function AssistantCard({
   // so the bubble carries a non-generic role and the accessible name +
   // long-press hint actually reach AT.
   const a11yLabel = `Claude: ${msg.text.length > 100 ? `${msg.text.slice(0, 100)}...` : msg.text}`;
+  // See UserCard: WCAG 2.1.1 — copy affordance must be keyboard-reachable
+  // on web. Wire onPress and aria-description on web only.
   return (
     <Pressable
       className={`self-start bg-tp-assistant-bubble rounded-bubble rounded-tl-sm px-4 py-2.5 max-w-[80%] ${pp.className}`}
       tabIndex={pp.tabIndex}
+      onPress={Platform.OS === "web" ? () => copyText(msg.text) : undefined}
       onLongPress={() => copyText(msg.text)}
       accessibilityLabel={a11yLabel}
       accessibilityHint="Long press to copy"
       {...(Platform.OS === "web"
-        ? ({ role: "group", "aria-label": a11yLabel } as object)
+        ? ({
+            role: "group",
+            "aria-label": a11yLabel,
+            "aria-description": "Press Enter to copy",
+          } as object)
         : {})}
     >
       <RichText

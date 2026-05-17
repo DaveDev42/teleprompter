@@ -166,6 +166,7 @@ export default defineConfig({
         "app-daemon-card-decorative-aria-hidden.spec.ts",
         "app-sessions-search-empty-announce.spec.ts",
         "app-pairing-aria-invalid-recovery.spec.ts",
+        "app-session-row-time-accessible-name.spec.ts",
       ],
     },
     {

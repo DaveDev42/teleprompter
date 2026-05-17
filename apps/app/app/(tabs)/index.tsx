@@ -52,11 +52,21 @@ function SessionRow({
   const lastSeg = session.cwd.replace(/\/+$/, "").split("/").pop() ?? "";
   const desc = lastSeg || session.cwd || session.sid || "Session";
 
+  // The visible relative timestamp ("5m ago") rides inside the Pressable as
+  // a sibling Text node. On web `role=button` with an explicit aria-label
+  // overrides descendant text for the accessible name (ARIA 1.2 §4.3.2),
+  // so screen-reader focus-mode users never hear when the session was last
+  // updated — only the button's name. The chevron/dot/divider are
+  // decorative duplicates and stay aria-hidden, but the time carries
+  // information that isn't in the name, so it must be folded into the
+  // accessible name itself. WCAG 4.1.2 (Name Role Value, Level A).
+  const updatedLabel = `updated ${timeAgo(session.updatedAt)}`;
+
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${desc}, ${running ? "running" : session.state}${isActive ? ", selected" : ""}`}
+      accessibilityLabel={`${desc}, ${running ? "running" : session.state}, ${updatedLabel}${isActive ? ", selected" : ""}`}
       accessibilityHint="Open this session"
       tabIndex={pp.tabIndex}
       className={pp.className}

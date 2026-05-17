@@ -288,29 +288,46 @@ export default function SessionsScreen() {
           >
             <Text className="text-[28px]">💬</Text>
           </View>
-          <Text className="text-tp-text-primary text-xl font-semibold mb-2">
-            No active sessions
+          {/* WCAG 4.1.3 Status Messages (Level AA): when the filter
+              empties the list, AT users get no announcement and the
+              generic "No active sessions" text falsely implies the
+              store is empty. Distinguish the two cases and wrap the
+              filtered-empty headline in role="status" so the change
+              is announced politely without stealing focus. */}
+          <Text
+            testID="sessions-empty-headline"
+            className="text-tp-text-primary text-xl font-semibold mb-2"
+            {...(Platform.OS === "web" && filter.trim()
+              ? ({ role: "status" as const, "aria-live": "polite" } as object)
+              : {})}
+          >
+            {filter.trim()
+              ? "No sessions match your search"
+              : "No active sessions"}
           </Text>
           <Text className="text-tp-text-secondary text-[15px] text-center leading-6 px-8">
-            Start a new session from the{"\n"}Daemons tab or run tp on your
-            machine.
+            {filter.trim()
+              ? "Try a different search term."
+              : `Start a new session from the\nDaemons tab or run tp on your machine.`}
           </Text>
-          <Pressable
-            onPress={() => router.push("/(tabs)/daemons")}
-            className={`mt-6 bg-tp-accent rounded-card px-8 py-3 ${pp.className}`}
-            // Removed from keyboard tab order: react-navigation renders the
-            // tab bar after the scene in DOM, so leaving this CTA tabbable
-            // captures Tab 1 ahead of the persistent navigation. Mouse/touch
-            // users keep the CTA; keyboard users reach Daemons via the tab
-            // bar (also documented in the instructional text above).
-            tabIndex={-1}
-            accessibilityRole="button"
-            accessibilityLabel="Go to Daemons"
-          >
-            <Text className="text-tp-text-on-color font-semibold text-base">
-              Go to Daemons
-            </Text>
-          </Pressable>
+          {!filter.trim() && (
+            <Pressable
+              onPress={() => router.push("/(tabs)/daemons")}
+              className={`mt-6 bg-tp-accent rounded-card px-8 py-3 ${pp.className}`}
+              // Removed from keyboard tab order: react-navigation renders the
+              // tab bar after the scene in DOM, so leaving this CTA tabbable
+              // captures Tab 1 ahead of the persistent navigation. Mouse/touch
+              // users keep the CTA; keyboard users reach Daemons via the tab
+              // bar (also documented in the instructional text above).
+              tabIndex={-1}
+              accessibilityRole="button"
+              accessibilityLabel="Go to Daemons"
+            >
+              <Text className="text-tp-text-on-color font-semibold text-base">
+                Go to Daemons
+              </Text>
+            </Pressable>
+          )}
         </View>
       ) : Platform.OS === "web" ? (
         <ScrollView>

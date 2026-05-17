@@ -86,6 +86,7 @@ export function RenamePairingModal({
       visible={visible}
       onClose={onCancel}
       accessibilityLabel="Rename Daemon"
+      accessibilityLabelledBy="rename-pairing-modal-title"
       accessibilityDescribedBy={DESCRIPTION_ID}
     >
       <View className="px-5 pt-5 pb-6">
@@ -100,6 +101,7 @@ export function RenamePairingModal({
             <Text className="text-tp-text-secondary text-base">Cancel</Text>
           </Pressable>
           <Text
+            nativeID="rename-pairing-modal-title"
             className="text-tp-text-primary text-lg font-bold"
             accessibilityRole="header"
             {...ariaLevel(2)}

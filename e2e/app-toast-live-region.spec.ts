@@ -16,7 +16,9 @@ test.describe("InAppToast live region", () => {
     await page.goto("/");
     await page.waitForLoadState("networkidle");
 
-    const liveRegion = page.getByRole("status");
+    // Select by testID to avoid matching other role=status live regions
+    // (e.g. the sessions edit live region added in PR #432).
+    const liveRegion = page.getByTestId("toast-live-region");
     await expect(liveRegion).toHaveCount(1);
     await expect(liveRegion).toHaveAttribute("aria-live", "polite");
     // role=status has implicit aria-atomic=true per ARIA 1.2, but several

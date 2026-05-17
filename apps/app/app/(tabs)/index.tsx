@@ -115,8 +115,22 @@ function SessionRow({
           {timeAgo(session.updatedAt)}
         </Text>
 
-        {/* Chevron */}
-        <Text className="text-tp-text-tertiary text-lg ml-2">›</Text>
+        {/* Chevron. The parent Pressable has accessibilityLabel; on web,
+            role=button is NOT atomic for NVDA browse mode / JAWS reading
+            cursor, so the virtual cursor descends into this Text and
+            announces "right pointing angle quotation mark" after each
+            session row readout. Hide on web. Native AT focuses the
+            Pressable and reads accessibilityLabel directly, so the gate
+            is web-only. WCAG 1.1.1. Same pattern as the SettingsRow
+            chevron in (tabs)/settings.tsx. */}
+        <Text
+          className="text-tp-text-tertiary text-lg ml-2"
+          {...(Platform.OS === "web"
+            ? ({ "aria-hidden": true } as object)
+            : {})}
+        >
+          ›
+        </Text>
       </View>
 
       {/* Divider */}

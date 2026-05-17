@@ -30,6 +30,7 @@ export function ConfirmUnpairModal({
       visible={visible}
       onClose={onCancel}
       accessibilityLabel="Remove Daemon"
+      accessibilityLabelledBy="confirm-unpair-modal-title"
       accessibilityDescribedBy={DESCRIPTION_ID}
     >
       <View className="px-5 pt-5 pb-6">
@@ -44,6 +45,7 @@ export function ConfirmUnpairModal({
             <Text className="text-tp-text-secondary text-base">Cancel</Text>
           </Pressable>
           <Text
+            nativeID="confirm-unpair-modal-title"
             className="text-tp-text-primary text-lg font-bold"
             accessibilityRole="header"
             {...ariaLevel(2)}

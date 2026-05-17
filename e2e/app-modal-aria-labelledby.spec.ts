@@ -77,4 +77,122 @@ test.describe("Modal dialogs aria-labelledby", () => {
 
     await expect(dialog).toHaveAttribute("aria-labelledby", headingId!);
   });
+
+  test("FontPickerModal dialog references visible heading via aria-labelledby", async ({
+    page,
+  }) => {
+    await page.goto("/settings");
+    await page.waitForLoadState("networkidle");
+
+    // Open Chat Font picker — first font picker row exposed in Settings.
+    await page.evaluate(() => {
+      const rows = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="button"]'),
+      );
+      const row = rows.find((r) =>
+        r.getAttribute("aria-label")?.startsWith("Chat Font"),
+      );
+      row?.click();
+    });
+
+    const dialog = page.locator('[role="dialog"]');
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+
+    const heading = dialog.locator('[role="heading"]').first();
+    await expect(heading).toBeVisible();
+    const headingId = await heading.getAttribute("id");
+    expect(headingId).not.toBeNull();
+    expect(headingId!.length).toBeGreaterThan(0);
+
+    await expect(dialog).toHaveAttribute("aria-labelledby", headingId!);
+  });
+
+  test("RenamePairingModal dialog references visible heading via aria-labelledby", async ({
+    page,
+  }) => {
+    // Seed a single pairing so /daemons renders a card with a Rename button.
+    await page.addInitScript(() => {
+      const dummy = "AAAA";
+      const entries = [
+        {
+          daemonId: "test-rename-labelledby-9999cafe",
+          relayUrl: "wss://relay.example.com",
+          relayToken: "token-fixture",
+          registrationProof: "proof-fixture",
+          daemonPublicKey: dummy,
+          frontendPublicKey: dummy,
+          frontendSecretKey: dummy,
+          frontendId: "frontend-fixture",
+          pairingSecret: dummy,
+          pairedAt: Date.now(),
+          label: "Test Daemon",
+          labelSource: "user",
+        },
+      ];
+      localStorage.setItem("tp_pairings_v3", JSON.stringify(entries));
+    });
+
+    await page.goto("/daemons");
+    await page.waitForLoadState("networkidle");
+
+    await page
+      .getByRole("button", { name: "Rename Test Daemon" })
+      .first()
+      .click();
+
+    const dialog = page.getByRole("dialog", { name: "Rename Daemon" });
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+
+    const heading = dialog.locator('[role="heading"]').first();
+    await expect(heading).toBeVisible();
+    const headingId = await heading.getAttribute("id");
+    expect(headingId).not.toBeNull();
+    expect(headingId!.length).toBeGreaterThan(0);
+
+    await expect(dialog).toHaveAttribute("aria-labelledby", headingId!);
+  });
+
+  test("ConfirmUnpairModal dialog references visible heading via aria-labelledby", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const dummy = "AAAA";
+      const entries = [
+        {
+          daemonId: "test-unpair-labelledby-9999cafe",
+          relayUrl: "wss://relay.example.com",
+          relayToken: "token-fixture",
+          registrationProof: "proof-fixture",
+          daemonPublicKey: dummy,
+          frontendPublicKey: dummy,
+          frontendSecretKey: dummy,
+          frontendId: "frontend-fixture",
+          pairingSecret: dummy,
+          pairedAt: Date.now(),
+          label: "Test Daemon",
+          labelSource: "user",
+        },
+      ];
+      localStorage.setItem("tp_pairings_v3", JSON.stringify(entries));
+    });
+
+    await page.goto("/daemons");
+    await page.waitForLoadState("networkidle");
+
+    await page
+      .getByRole("button", { name: "Remove pairing with Test Daemon" })
+      .first()
+      .click();
+
+    const dialog = page.getByRole("dialog", { name: "Remove Daemon" });
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+
+    const heading = dialog.locator('[role="heading"]').first();
+    await expect(heading).toBeVisible();
+    const headingId = await heading.getAttribute("id");
+    expect(headingId).not.toBeNull();
+    expect(headingId!.length).toBeGreaterThan(0);
+
+    await expect(dialog).toHaveAttribute("aria-labelledby", headingId!);
+  });
 });

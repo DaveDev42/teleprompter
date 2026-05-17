@@ -119,11 +119,13 @@ export function FontPickerModal({
       visible={visible}
       onClose={onClose}
       accessibilityLabel={title}
+      accessibilityLabelledBy="font-picker-modal-title"
       initialFocusRef={initialFocusRef}
     >
       <View className="max-h-[60vh]">
         <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
           <Text
+            nativeID="font-picker-modal-title"
             className="text-tp-text-primary text-lg font-bold"
             accessibilityRole="header"
             {...ariaLevel(2)}

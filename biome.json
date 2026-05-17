@@ -25,6 +25,9 @@
         "noArrayIndexKey": "warn",
         "noImplicitAnyLet": "warn"
       },
+      "complexity": {
+        "useOptionalChain": "warn"
+      },
       "style": {
         "noNonNullAssertion": "warn",
         "useNodejsImportProtocol": "off"

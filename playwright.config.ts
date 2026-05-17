@@ -137,6 +137,7 @@ export default defineConfig({
         "app-chat-bubble-keyboard-copy.spec.ts",
         "app-sessions-search-landmark.spec.ts",
         "app-chat-link-aria-label.spec.ts",
+        "app-voice-live-region-role-status.spec.ts",
       ],
     },
     {

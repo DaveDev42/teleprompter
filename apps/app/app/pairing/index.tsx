@@ -211,8 +211,15 @@ export default function PairingScreen() {
           // has no RN equivalent, so spread on web only.
           {...(Platform.OS === "web" && error
             ? {
+                // aria-errormessage (WAI-ARIA 1.2 §6.6.5) is the standards-
+                // track pointer from an invalid field to its error message,
+                // and JAWS 18+/NVDA prefix the announcement with "Error:"
+                // only when this attribute resolves. aria-describedby stays
+                // for VoiceOver and older AT that don't honour the newer
+                // attribute.
                 "aria-invalid": true,
                 "aria-describedby": "pairing-error",
+                "aria-errormessage": "pairing-error",
               }
             : Platform.OS === "web" && showInputHint
               ? {
@@ -225,6 +232,7 @@ export default function PairingScreen() {
                   // state — matching the `error` branch closes the gap.
                   "aria-invalid": true,
                   "aria-describedby": "pairing-input-hint",
+                  "aria-errormessage": "pairing-input-hint",
                 }
               : {})}
           // WCAG 2.1 SC 1.3.1 / 4.1.2: Connect is disabled until a value is

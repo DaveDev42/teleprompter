@@ -150,6 +150,8 @@ export default defineConfig({
         "app-settings-row-chevron-aria-hidden.spec.ts",
         "app-font-size-modal-glyph-aria-hidden.spec.ts",
         "app-update-banner-dismiss-glyph-aria-hidden.spec.ts",
+        "app-session-row-chevron-aria-hidden.spec.ts",
+        "app-chat-send-glyph-aria-hidden.spec.ts",
       ],
     },
     {

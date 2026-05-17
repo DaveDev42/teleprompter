@@ -768,7 +768,23 @@ function ChatView({
           accessibilityLabel="Send message"
           accessibilityState={{ disabled: !input.trim() || !canSend }}
         >
-          <Text className="text-tp-text-on-color text-lg font-bold">↑</Text>
+          {/* role=button is not atomic in NVDA browse mode / JAWS reading
+              cursor — the virtual cursor descends into children, so the
+              bare "↑" (U+2191 UPWARDS ARROW) gets announced as "upwards
+              arrow" after the button's accessible name ("Send message,
+              button, upwards arrow"). The glyph is purely decorative;
+              accessibilityLabel already conveys the action. Hide from AT
+              on web. Native AT focuses the Pressable and reads
+              accessibilityLabel directly, so the gate is web-only.
+              WCAG 1.1.1. */}
+          <Text
+            className="text-tp-text-on-color text-lg font-bold"
+            {...(Platform.OS === "web"
+              ? ({ "aria-hidden": true } as object)
+              : {})}
+          >
+            ↑
+          </Text>
         </Pressable>
       </View>
     </>

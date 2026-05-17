@@ -144,6 +144,7 @@ export default defineConfig({
         "app-tool-card-decorative-aria-hidden.spec.ts",
         "app-pairing-input-hint-aria-atomic.spec.ts",
         "app-system-card-decorative-aria-hidden.spec.ts",
+        "app-toast-dismiss-glyph-aria-hidden.spec.ts",
       ],
     },
     {

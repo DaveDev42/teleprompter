@@ -89,7 +89,26 @@ export function InAppToast() {
             tabIndex={pp.tabIndex}
             className={`px-4 py-4 ${pp.className}`}
           >
-            <Text className="text-tp-text-tertiary text-lg">✕</Text>
+            {/*
+              The dismiss button already exposes its accessible name via
+              accessibilityLabel="Dismiss notification" on the parent
+              Pressable. But role=status computes its announcement text
+              from raw DOM textContent (not from descendant accessible
+              names), so the bare "✕" glyph is appended to every toast
+              announcement — NVDA/JAWS read "Paired daemon-abc connected.
+              ✕". Hide the decorative glyph from AT on web so the live
+              region only announces the toast title + body. Native AT
+              focuses the parent Pressable and reads its accessibilityLabel,
+              so the gate is web-only. WCAG 1.1.1 + 4.1.3.
+            */}
+            <Text
+              className="text-tp-text-tertiary text-lg"
+              {...(Platform.OS === "web"
+                ? ({ "aria-hidden": true } as object)
+                : {})}
+            >
+              ✕
+            </Text>
           </Pressable>
         </View>
       ) : null}

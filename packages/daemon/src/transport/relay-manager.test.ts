@@ -118,7 +118,7 @@ describe("RelayConnectionManager", () => {
     await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: null });
 
     expect(savePairing).toHaveBeenCalledTimes(1);
-    const saved = savePairing.mock.calls[0]![0] as { label: string | null };
+    const saved = savePairing.mock.calls[0]?.[0] as { label: string | null };
     expect(saved.label).toBe(existingLabel);
   });
 
@@ -134,7 +134,7 @@ describe("RelayConnectionManager", () => {
 
     await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: "new" });
 
-    const saved = savePairing.mock.calls[0]![0] as { label: string | null };
+    const saved = savePairing.mock.calls[0]?.[0] as { label: string | null };
     expect(saved.label).toBe("new");
   });
 

@@ -52,6 +52,10 @@ export interface SessionState {
    *  keyed per-daemon. The `sessions` field is the union of all per-daemon lists. */
   setSessions: (daemonId: string, sessions: WsSessionMeta[]) => void;
   updateSession: (sid: string, meta: WsSessionMeta) => void;
+  /** Remove a single session from local state across all daemons. Persists the change. */
+  removeSession: (sid: string) => void;
+  /** Remove multiple sessions from local state. Equivalent to calling removeSession N times. */
+  removeSessions: (sids: string[]) => void;
   addRecHandler: (fn: RecHandler) => void;
   removeRecHandler: (fn: RecHandler) => void;
   dispatchRec: (rec: WsRec) => void;
@@ -104,6 +108,31 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
       return { sessions: [...s.sessions, meta] };
     });
+  },
+
+  removeSession: (sid) => {
+    const next = new Map(get()._sessionsByDaemon);
+    for (const [daemonId, list] of next) {
+      const filtered = list.filter((s) => s.sid !== sid);
+      if (filtered.length !== list.length) {
+        next.set(daemonId, filtered);
+      }
+    }
+    scheduleWrite(next);
+    set({ _sessionsByDaemon: next, sessions: flattenSessions(next) });
+  },
+
+  removeSessions: (sids) => {
+    const sidSet = new Set(sids);
+    const next = new Map(get()._sessionsByDaemon);
+    for (const [daemonId, list] of next) {
+      const filtered = list.filter((s) => !sidSet.has(s.sid));
+      if (filtered.length !== list.length) {
+        next.set(daemonId, filtered);
+      }
+    }
+    scheduleWrite(next);
+    set({ _sessionsByDaemon: next, sessions: flattenSessions(next) });
   },
 
   addRecHandler: (fn) => {

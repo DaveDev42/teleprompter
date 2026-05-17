@@ -11,7 +11,9 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ConfirmDeleteSessionsModal } from "../../src/components/ConfirmDeleteSessionsModal";
 import { ariaLevel, getPlatformProps } from "../../src/lib/get-platform-props";
+import { useNotificationStore } from "../../src/stores/notification-store";
 import { useSessionStore } from "../../src/stores/session-store";
 import { useThemeStore } from "../../src/stores/theme-store";
 
@@ -36,14 +38,21 @@ function SessionRow({
   session,
   isActive,
   onPress,
+  isEditMode,
+  isSelected,
+  onToggleSelect,
 }: {
   session: WsSessionMeta;
   isActive: boolean;
   onPress: () => void;
+  isEditMode: boolean;
+  isSelected: boolean;
+  onToggleSelect: () => void;
 }) {
   const isDark = useThemeStore((s) => s.isDark);
   const running = session.state === "running";
   const pp = getPlatformProps();
+  const stoppedPp = getPlatformProps({ focusable: isEditMode && !running });
 
   // Extract a description from cwd (last path segment). Strip a trailing
   // slash first so "/Users/dave/proj/" yields "proj" rather than "". Then
@@ -62,6 +71,159 @@ function SessionRow({
   // accessible name itself. WCAG 4.1.2 (Name Role Value, Level A).
   const updatedLabel = `updated ${timeAgo(session.updatedAt)}`;
 
+  // Checkbox label for screen readers.
+  const checkboxLabel = `${isSelected ? "Deselect" : "Select"} ${desc}, ${running ? "running" : session.state}`;
+
+  const rowContent = (
+    <View
+      className={`flex-row items-center py-4 mx-4 ${
+        isActive
+          ? isDark
+            ? "bg-tp-bg-secondary rounded-lg px-3"
+            : "bg-tp-bg-secondary rounded-lg px-3"
+          : ""
+      }`}
+    >
+      {/* Active indicator */}
+      {isActive && (
+        <View
+          className="absolute left-0 top-4 bottom-4 w-[3px] rounded-full bg-tp-accent"
+          {...(Platform.OS === "web"
+            ? ({ "aria-hidden": true } as object)
+            : {})}
+        />
+      )}
+
+      {/* Edit mode: leading visual checkbox indicator for stopped sessions.
+          This is purely decorative — the parent Pressable carries the
+          role=checkbox and aria-checked. aria-hidden=true on this View
+          prevents double-announcement. */}
+      {isEditMode && !running && (
+        <View
+          className={`w-5 h-5 rounded mr-3 border items-center justify-center ${
+            isSelected
+              ? "bg-tp-accent border-tp-accent"
+              : "bg-transparent border-tp-border"
+          }`}
+          {...(Platform.OS === "web"
+            ? ({ "aria-hidden": true } as object)
+            : {})}
+        >
+          {isSelected && (
+            <Text
+              className="text-tp-text-on-color text-[11px] font-bold"
+              {...(Platform.OS === "web"
+                ? ({ "aria-hidden": true } as object)
+                : {})}
+            >
+              ✓
+            </Text>
+          )}
+        </View>
+      )}
+
+      {/* Status dot */}
+      <View
+        className={`w-2 h-2 rounded-full mr-3 ${
+          running ? "bg-tp-success" : "bg-tp-text-tertiary"
+        }`}
+        {...(Platform.OS === "web" ? ({ "aria-hidden": true } as object) : {})}
+      />
+
+      {/* Content */}
+      <View className="flex-1">
+        <Text
+          className="text-tp-text-primary text-[15px] font-semibold"
+          numberOfLines={1}
+        >
+          {desc}
+        </Text>
+        <Text
+          className="text-tp-text-secondary text-[13px] mt-0.5"
+          numberOfLines={1}
+        >
+          {session.sid}
+          {session.worktreePath ? ` · ${session.worktreePath}` : ""}
+        </Text>
+      </View>
+
+      {/* Time */}
+      <Text className="text-tp-text-tertiary text-[11px] ml-2">
+        {timeAgo(session.updatedAt)}
+      </Text>
+
+      {/* Chevron — hidden in edit mode; hidden on web in normal mode too. */}
+      {!isEditMode && (
+        <Text
+          className="text-tp-text-tertiary text-lg ml-2"
+          {...(Platform.OS === "web"
+            ? ({ "aria-hidden": true } as object)
+            : {})}
+        >
+          ›
+        </Text>
+      )}
+    </View>
+  );
+
+  // In edit mode: stopped sessions get a full-row checkbox Pressable.
+  // Running sessions in edit mode: render as non-interactive (no-op tap).
+  if (isEditMode) {
+    if (running) {
+      // Running: not selectable, render as plain view (no tap action).
+      return (
+        <View>
+          {rowContent}
+          {!isActive && (
+            <View
+              className="h-[0.5px] bg-tp-border ml-[52px] mr-4"
+              {...(Platform.OS === "web"
+                ? ({ "aria-hidden": true } as object)
+                : {})}
+            />
+          )}
+        </View>
+      );
+    }
+
+    // Stopped: selectable checkbox row.
+    // RN Web translates role="checkbox" + accessibilityState.checked
+    // to aria-checked automatically. Use the native pattern for
+    // cross-platform correctness.
+    return (
+      <Pressable
+        onPress={onToggleSelect}
+        accessibilityRole="checkbox"
+        accessibilityLabel={checkboxLabel}
+        accessibilityState={{ checked: isSelected }}
+        tabIndex={stoppedPp.tabIndex}
+        className={stoppedPp.className}
+        // Web: spread aria-checked + aria-label explicitly because
+        // RN Web does NOT translate accessibilityState.checked to
+        // aria-checked on Pressable (it only does so on native components).
+        // WCAG 4.1.2.
+        {...(Platform.OS === "web"
+          ? ({
+              role: "checkbox",
+              "aria-checked": isSelected,
+              "aria-label": checkboxLabel,
+            } as object)
+          : {})}
+      >
+        {rowContent}
+        {!isActive && (
+          <View
+            className="h-[0.5px] bg-tp-border ml-[52px] mr-4"
+            {...(Platform.OS === "web"
+              ? ({ "aria-hidden": true } as object)
+              : {})}
+          />
+        )}
+      </Pressable>
+    );
+  }
+
+  // Normal mode: standard navigation row.
   return (
     <Pressable
       onPress={onPress}
@@ -82,74 +244,7 @@ function SessionRow({
         ? ({ "aria-current": "true" } as object)
         : {})}
     >
-      <View
-        className={`flex-row items-center py-4 mx-4 ${
-          isActive
-            ? isDark
-              ? "bg-tp-bg-secondary rounded-lg px-3"
-              : "bg-tp-bg-secondary rounded-lg px-3"
-            : ""
-        }`}
-      >
-        {/* Active indicator */}
-        {isActive && (
-          <View
-            className="absolute left-0 top-4 bottom-4 w-[3px] rounded-full bg-tp-accent"
-            {...(Platform.OS === "web"
-              ? ({ "aria-hidden": true } as object)
-              : {})}
-          />
-        )}
-
-        {/* Status dot */}
-        <View
-          className={`w-2 h-2 rounded-full mr-3 ${
-            running ? "bg-tp-success" : "bg-tp-text-tertiary"
-          }`}
-          {...(Platform.OS === "web"
-            ? ({ "aria-hidden": true } as object)
-            : {})}
-        />
-
-        {/* Content */}
-        <View className="flex-1">
-          <Text
-            className="text-tp-text-primary text-[15px] font-semibold"
-            numberOfLines={1}
-          >
-            {desc}
-          </Text>
-          <Text
-            className="text-tp-text-secondary text-[13px] mt-0.5"
-            numberOfLines={1}
-          >
-            {session.sid}
-            {session.worktreePath ? ` · ${session.worktreePath}` : ""}
-          </Text>
-        </View>
-
-        {/* Time */}
-        <Text className="text-tp-text-tertiary text-[11px] ml-2">
-          {timeAgo(session.updatedAt)}
-        </Text>
-
-        {/* Chevron. The parent Pressable has accessibilityLabel; on web,
-            role=button is NOT atomic for NVDA browse mode / JAWS reading
-            cursor, so the virtual cursor descends into this Text and
-            announces "right pointing angle quotation mark" after each
-            session row readout. Hide on web. Native AT focuses the
-            Pressable and reads accessibilityLabel directly, so the gate
-            is web-only. WCAG 1.1.1. Same pattern as the SettingsRow
-            chevron in (tabs)/settings.tsx. */}
-        <Text
-          className="text-tp-text-tertiary text-lg ml-2"
-          {...(Platform.OS === "web"
-            ? ({ "aria-hidden": true } as object)
-            : {})}
-        >
-          ›
-        </Text>
-      </View>
+      {rowContent}
 
       {/* Divider */}
       {!isActive && (
@@ -168,12 +263,31 @@ export default function SessionsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const sessions = useSessionStore((s) => s.sessions);
+  const removeSessions = useSessionStore((s) => s.removeSessions);
   const currentSid = useSessionStore((s) => s.sid);
+  const showToast = useNotificationStore((s) => s.showToast);
   const [filter, setFilter] = useState("");
   const pp = getPlatformProps();
   const isDark = useThemeStore((s) => s.isDark);
   const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
   const searchRef = useRef<TextInput>(null);
+
+  // ── Edit mode state (local scope — not persisted across tab switches) ──
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [selectedSids, setSelectedSids] = useState<Set<string>>(new Set());
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  // Live region announcement text (mount-only pattern for NVDA/JAWS:
+  // the wrapper exists at all times; only the text content changes so
+  // mutation observers fire reliably).
+  const [editAnnouncement, setEditAnnouncement] = useState("");
+
+  // Delete button ref — used to set aria-disabled imperatively on web.
+  // RN Web's Pressable only emits HTML `disabled` (which removes from Tab
+  // order); we want the button to stay focusable but announce itself as
+  // inactive, so set aria-disabled via setAttribute instead. Pattern
+  // mirrors FontPickerModal's boundary buttons (PR #322).
+  const deleteButtonRef = useRef<View>(null);
 
   // RN Web's createDOMProps does not whitelist `aria-description`, so
   // any prop-level spread is silently dropped. `accessibilityHint` is
@@ -195,6 +309,26 @@ export default function SessionsScreen() {
     el.setAttribute("aria-controls", "sessions-list");
   });
 
+  const selectedCount = selectedSids.size;
+
+  // Set aria-disabled imperatively on the Delete button so screen readers
+  // know it's inactive when nothing is selected. Re-fires whenever
+  // selectedCount changes so the attribute stays in sync. `isEditMode` is
+  // included intentionally: the Delete Pressable only mounts in edit mode,
+  // so we need the effect to run on mode-entry to set the initial attribute
+  // value before any selection changes.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: isEditMode is intentional — see above
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const el = deleteButtonRef.current as unknown as HTMLElement | null;
+    if (!el) return;
+    if (selectedCount === 0) {
+      el.setAttribute("aria-disabled", "true");
+    } else {
+      el.setAttribute("aria-disabled", "false");
+    }
+  }, [selectedCount, isEditMode]);
+
   // Sort by updatedAt desc, filter by search
   const filteredSessions = useMemo(() => {
     let list = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
@@ -211,9 +345,69 @@ export default function SessionsScreen() {
     return list;
   }, [sessions, filter]);
 
+  // Stopped sessions available for selection in edit mode.
+  const stoppedSessions = useMemo(
+    () => sessions.filter((s) => s.state === "stopped"),
+    [sessions],
+  );
+
+  const enterEditMode = () => {
+    setIsEditMode(true);
+    setSelectedSids(new Set());
+    setEditAnnouncement(
+      stoppedSessions.length === 0
+        ? "Edit mode. No stopped sessions to clean up."
+        : `Edit mode. ${stoppedSessions.length} stopped session${stoppedSessions.length !== 1 ? "s" : ""} available.`,
+    );
+  };
+
+  const exitEditMode = () => {
+    setIsEditMode(false);
+    setSelectedSids(new Set());
+    setEditAnnouncement("Edit mode cancelled.");
+  };
+
+  const toggleSelect = (sid: string) => {
+    setSelectedSids((prev) => {
+      const next = new Set(prev);
+      if (next.has(sid)) {
+        next.delete(sid);
+      } else {
+        next.add(sid);
+      }
+      return next;
+    });
+  };
+
+  const handleDeletePress = () => {
+    if (selectedCount === 0) return;
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    setShowConfirmModal(false);
+    const sids = Array.from(selectedSids);
+    // Call existing store remove action (equivalent to N single-session removes in parallel).
+    removeSessions(sids);
+    const count = sids.length;
+    setIsEditMode(false);
+    setSelectedSids(new Set());
+    setEditAnnouncement(`Deleted ${count} session${count !== 1 ? "s" : ""}.`);
+    showToast({
+      title: `${count} session${count !== 1 ? "s" : ""} deleted`,
+      body: "Sessions removed from the list.",
+    });
+  };
+
   const handleSessionPress = (session: WsSessionMeta) => {
     router.push(`/session/${session.sid}`);
   };
+
+  // Sessions selected for deletion (only stopped ones).
+  const selectedForDelete = useMemo(
+    () => sessions.filter((s) => selectedSids.has(s.sid)),
+    [sessions, selectedSids],
+  );
 
   return (
     <View
@@ -230,18 +424,107 @@ export default function SessionsScreen() {
       {...(Platform.OS === "web" ? { role: "main" as const } : {})}
     >
       {/* Header */}
-      <View className="px-4 pt-2 pb-1">
-        <Text
-          accessibilityRole="header"
-          {...ariaLevel(1)}
-          className="text-tp-text-primary text-[28px] font-bold"
-        >
-          Sessions
-        </Text>
+      <View className="px-4 pt-2 pb-1 flex-row items-center justify-between">
+        {isEditMode ? (
+          // Edit mode header: "N selected" title + Cancel + Delete buttons
+          <>
+            <Pressable
+              onPress={exitEditMode}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel edit"
+              tabIndex={pp.tabIndex}
+              className={pp.className}
+              testID="sessions-edit-cancel"
+            >
+              <Text className="text-tp-accent text-base">Cancel</Text>
+            </Pressable>
+
+            <Text
+              accessibilityRole="header"
+              {...ariaLevel(1)}
+              className="text-tp-text-primary text-[17px] font-semibold"
+              testID="sessions-edit-count"
+            >
+              {selectedCount === 0
+                ? "Select Sessions"
+                : `${selectedCount} Selected`}
+            </Text>
+
+            {/* Delete button.
+                aria-disabled is set imperatively via deleteButtonRef useEffect
+                (see above) because RN Web's Pressable spread silently drops
+                unknown aria-* attributes — createDOMProps allowlist doesn't
+                include aria-disabled on non-input elements. The Pressable still
+                receives the press event even when visually disabled; the handler
+                guards selectedCount === 0 so no action fires. WCAG 4.1.2.
+                Pattern mirrors FontPickerModal boundary buttons (PR #322). */}
+            <Pressable
+              ref={deleteButtonRef}
+              onPress={handleDeletePress}
+              accessibilityRole="button"
+              accessibilityLabel={`Delete ${selectedCount} sessions`}
+              accessibilityState={{ disabled: selectedCount === 0 }}
+              tabIndex={pp.tabIndex}
+              className={pp.className}
+              testID="sessions-edit-delete"
+            >
+              <Text
+                className={
+                  selectedCount === 0
+                    ? "text-tp-text-tertiary text-base font-semibold"
+                    : "text-tp-error text-base font-semibold"
+                }
+              >
+                {selectedCount === 0 ? "Delete" : `Delete (${selectedCount})`}
+              </Text>
+            </Pressable>
+          </>
+        ) : (
+          // Normal mode header: "Sessions" title + Edit button
+          <>
+            <Text
+              accessibilityRole="header"
+              {...ariaLevel(1)}
+              className="text-tp-text-primary text-[28px] font-bold"
+            >
+              Sessions
+            </Text>
+
+            <Pressable
+              onPress={enterEditMode}
+              accessibilityRole="button"
+              accessibilityLabel="Edit sessions"
+              tabIndex={pp.tabIndex}
+              className={pp.className}
+              testID="sessions-edit-button"
+              // aria-pressed: communicates that this toggle button controls
+              // an edit mode that's currently inactive. APG Button Pattern.
+              {...(Platform.OS === "web"
+                ? ({
+                    "aria-pressed": false,
+                  } as object)
+                : {})}
+            >
+              <Text className="text-tp-accent text-base">Edit</Text>
+            </Pressable>
+          </>
+        )}
       </View>
 
-      {/* Search */}
-      {sessions.length > 2 && (
+      {/* Edit mode: inline empty notice when no stopped sessions available */}
+      {isEditMode && stoppedSessions.length === 0 && (
+        <View className="px-4 py-2">
+          <Text
+            className="text-tp-text-secondary text-[15px]"
+            testID="sessions-edit-no-stopped"
+          >
+            No stopped sessions to clean up
+          </Text>
+        </View>
+      )}
+
+      {/* Search — only when not in edit mode (search adds complexity to edit UX) */}
+      {!isEditMode && sessions.length > 2 && (
         // WAI-ARIA 1.2 §5.3.27 + WCAG 2.4.1 Bypass Blocks (Level A):
         // a search facility should live inside a search landmark so
         // AT users can jump to it via landmark navigation (NVDA D,
@@ -273,6 +556,31 @@ export default function SessionsScreen() {
           />
         </View>
       )}
+
+      {/* Live region for edit-mode state announcements (always mounted).
+          NVDA/JAWS attach a mutation observer when a live region enters
+          the DOM — if the region is mounted alongside its first content,
+          the observer misses the first change. The wrapper stays in the
+          DOM at all times; only the text content changes. WAI-ARIA 1.2
+          §6.6.3 + WCAG 4.1.3. */}
+      <View
+        testID="sessions-edit-live-region"
+        accessibilityLiveRegion="polite"
+        {...(Platform.OS === "web"
+          ? ({ role: "status", "aria-live": "polite" } as object)
+          : {})}
+        // Visually hidden but present in a11y tree (display:none removes
+        // from a11y tree and defeats mutation observer attachment).
+        style={{
+          position: "absolute",
+          width: 1,
+          height: 1,
+          overflow: "hidden",
+          opacity: 0,
+        }}
+      >
+        <Text>{editAnnouncement}</Text>
+      </View>
 
       {/* Session list. Web uses ScrollView + .map() so role=list owns
           role=listitem children directly — FlatList's internal cell
@@ -348,6 +656,9 @@ export default function SessionsScreen() {
                   session={item}
                   isActive={item.sid === currentSid}
                   onPress={() => handleSessionPress(item)}
+                  isEditMode={isEditMode}
+                  isSelected={selectedSids.has(item.sid)}
+                  onToggleSelect={() => toggleSelect(item.sid)}
                 />
               </View>
             ))}
@@ -363,10 +674,21 @@ export default function SessionsScreen() {
               session={item}
               isActive={item.sid === currentSid}
               onPress={() => handleSessionPress(item)}
+              isEditMode={isEditMode}
+              isSelected={selectedSids.has(item.sid)}
+              onToggleSelect={() => toggleSelect(item.sid)}
             />
           )}
         />
       )}
+
+      {/* Confirm delete modal */}
+      <ConfirmDeleteSessionsModal
+        visible={showConfirmModal}
+        sessions={selectedForDelete}
+        onCancel={() => setShowConfirmModal(false)}
+        onConfirm={handleConfirmDelete}
+      />
     </View>
   );
 }

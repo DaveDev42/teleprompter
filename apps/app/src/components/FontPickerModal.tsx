@@ -216,7 +216,27 @@ export function FontPickerModal({
                     {item}
                   </Text>
                   {isCurrent && (
-                    <Text className="text-tp-accent text-base">✓</Text>
+                    // The committed font is already announced via the
+                    // `aria-selected` state on the role=option Pressable
+                    // (when it carries focus) plus the parent listbox
+                    // semantics. The `✓` glyph is purely a visual
+                    // affordance for sighted users — exposing it to AT
+                    // produces a trailing "check mark" after the option
+                    // name and, worse, lands on whichever option has
+                    // `aria-selected` follow-focus mid-navigation,
+                    // creating a "not selected, check mark" mismatch.
+                    // role=option is traversable by virtual cursors so
+                    // children must be explicitly hidden. WCAG 1.1.1.
+                    // Native AT reads accessibilityLabel + selected
+                    // state on the Pressable and doesn't descend.
+                    <Text
+                      className="text-tp-accent text-base"
+                      {...(Platform.OS === "web"
+                        ? ({ "aria-hidden": true } as object)
+                        : {})}
+                    >
+                      ✓
+                    </Text>
                   )}
                 </Pressable>
               </Fragment>

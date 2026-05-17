@@ -8,6 +8,8 @@ import type {
   IpcSessionPruneOk,
 } from "@teleprompter/protocol";
 import { getSocketPath } from "@teleprompter/protocol";
+import { promptText } from "../components/ink/text-prompt";
+import { promptYesNo } from "../components/ink/yes-no-prompt";
 import { dim, fail, ok, yellow } from "../lib/colors";
 import { isDaemonRunning } from "../lib/ensure-daemon";
 import { formatAge } from "../lib/format";
@@ -197,8 +199,11 @@ async function sessionDelete(argv: string[]): Promise<void> {
       );
       process.exit(1);
     }
-    const answer = await prompt(`Delete session ${target.sid}? [y/N] `);
-    if (!/^y(es)?$/i.test(answer.trim())) {
+    const confirmed = await promptYesNo({
+      question: `Delete session ${target.sid}?`,
+      defaultValue: false,
+    });
+    if (!confirmed) {
       console.log("Aborted.");
       return;
     }
@@ -300,19 +305,24 @@ async function sessionPrune(argv: string[]): Promise<void> {
       console.error(fail(msg));
       process.exit(1);
     }
-    const question = includeRunning
-      ? `Prune stopped + running sessions (older than ${olderThanRaw})? [y/N] `
-      : `Prune stopped sessions (older than ${olderThanRaw})? [y/N] `;
-    const answer = await prompt(question);
-    if (!/^y(es)?$/i.test(answer.trim())) {
+    const pruneQuestion = includeRunning
+      ? `Prune stopped + running sessions (older than ${olderThanRaw})?`
+      : `Prune stopped sessions (older than ${olderThanRaw})?`;
+    const confirmed = await promptYesNo({
+      question: pruneQuestion,
+      defaultValue: false,
+    });
+    if (!confirmed) {
       console.log("Aborted.");
       return;
     }
     if (includeRunning) {
-      const challenge = await prompt(
-        `${yellow("This will KILL running Claude sessions.")} Type 'RUNNING' to confirm: `,
-      );
-      if (challenge.trim() !== "RUNNING") {
+      const challenge = await promptText({
+        question: `${yellow("This will KILL running Claude sessions.")} Type 'RUNNING' to confirm:`,
+        validate: (s) =>
+          s.trim() === "RUNNING" ? null : "Type RUNNING exactly to confirm",
+      });
+      if (challenge === null) {
         console.log("Aborted.");
         return;
       }
@@ -516,23 +526,6 @@ async function requestSessionOp<R extends { t: string }>(
       /* best effort */
     }
   }
-}
-
-async function prompt(question: string): Promise<string> {
-  // readline's line buffering yields one resolved answer per newline, which
-  // is the right semantics for y/N and challenge-phrase confirmations —
-  // raw `once("data")` can truncate a chunked paste.
-  const readline = await import("node:readline");
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(answer);
-    });
-  });
 }
 
 function printSessionUsage(): void {

@@ -848,11 +848,18 @@ function ElicitationCard({ msg }: { msg: ChatMessage }) {
 }
 
 function PermissionCard({ msg }: { msg: ChatMessage }) {
+  // role=alert already implies aria-live="assertive" AND aria-atomic="true"
+  // per ARIA 1.2 §6.3.3. An explicit accessibilityLiveRegion="assertive"
+  // emits aria-live="assertive" which, per ARIA 1.2 §6.2.1, *overrides* the
+  // implicit live-region properties — including dropping the implicit
+  // aria-atomic=true. The result is that NVDA/JAWS announce only the
+  // mutated text portion instead of the full "Permission required: …"
+  // label. Match SystemCard/ElicitationCard: lean on the implicit
+  // properties of role=alert.
   return (
     <View
       className="self-start bg-tp-surface border border-tp-warning rounded-card px-4 py-3 max-w-[85%]"
       accessibilityRole="alert"
-      accessibilityLiveRegion="assertive"
       accessibilityLabel={`Permission required: ${msg.text}${msg.permissionTool ? `, tool: ${msg.permissionTool}` : ""}`}
     >
       <Text className="text-tp-warning text-xs font-bold mb-1">

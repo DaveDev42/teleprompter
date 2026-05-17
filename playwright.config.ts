@@ -127,6 +127,7 @@ export default defineConfig({
         "app-pairing-aria-errormessage.spec.ts",
         "app-rename-modal-dialog-describedby.spec.ts",
         "app-daemons-list-ownership.spec.ts",
+        "app-permission-card-alert-atomic.spec.ts",
       ],
     },
     {

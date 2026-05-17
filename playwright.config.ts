@@ -139,6 +139,7 @@ export default defineConfig({
         "app-chat-link-aria-label.spec.ts",
         "app-voice-live-region-role-status.spec.ts",
         "app-session-row-aria-current.spec.ts",
+        "app-api-key-modal-describedby.spec.ts",
       ],
     },
     {

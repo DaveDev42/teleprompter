@@ -154,6 +154,7 @@ export default defineConfig({
         "app-chat-send-glyph-aria-hidden.spec.ts",
         "app-diagnostics-selftest-no-native-disabled.spec.ts",
         "app-font-picker-checkmark-aria-hidden.spec.ts",
+        "app-voice-button-glyph-aria-hidden.spec.ts",
       ],
     },
     {

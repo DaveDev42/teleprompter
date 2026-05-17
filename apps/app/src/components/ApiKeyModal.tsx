@@ -77,6 +77,7 @@ export function ApiKeyModal({
       onClose={onClose}
       accessibilityLabel="OpenAI API Key"
       accessibilityLabelledBy="api-key-modal-title"
+      accessibilityDescribedBy="api-key-modal-description"
     >
       <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
         <Text
@@ -98,7 +99,10 @@ export function ApiKeyModal({
         </Pressable>
       </View>
       <View className="px-5 pb-8">
-        <Text className="text-tp-text-secondary text-[13px] mb-3">
+        <Text
+          nativeID="api-key-modal-description"
+          className="text-tp-text-secondary text-[13px] mb-3"
+        >
           Required for voice input. Your key is stored locally on this device.
         </Text>
         <TextInput

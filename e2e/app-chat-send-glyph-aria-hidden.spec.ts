@@ -24,10 +24,7 @@ import { expect, test } from "@playwright/test";
 // matching the same pattern as the SettingsRow / SessionRow chevron
 // and FontSizeModal ± glyph fixes.
 test("Chat Send button glyph Text spreads web-only aria-hidden in source", () => {
-  const filePath = resolve(
-    __dirname,
-    "../apps/app/app/session/[sid].tsx",
-  );
+  const filePath = resolve(__dirname, "../apps/app/app/session/[sid].tsx");
   let body = readFileSync(filePath, "utf-8");
 
   // Strip JSX block comments `{/* ... */}` so the explanatory comment

@@ -22,10 +22,7 @@ import { expect, test } from "@playwright/test";
 // spread, matching the same pattern as the SettingsRow chevron fix
 // (BUG-101).
 test("SessionRow chevron Text spreads web-only aria-hidden in source", () => {
-  const filePath = resolve(
-    __dirname,
-    "../apps/app/app/(tabs)/index.tsx",
-  );
+  const filePath = resolve(__dirname, "../apps/app/app/(tabs)/index.tsx");
   const raw = readFileSync(filePath, "utf-8");
 
   // Slice the SessionRow function body. The function declaration

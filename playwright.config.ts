@@ -141,6 +141,7 @@ export default defineConfig({
         "app-session-row-aria-current.spec.ts",
         "app-api-key-modal-describedby.spec.ts",
         "app-chat-bubble-space-activate.spec.ts",
+        "app-tool-card-decorative-aria-hidden.spec.ts",
       ],
     },
     {

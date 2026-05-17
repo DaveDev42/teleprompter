@@ -779,9 +779,26 @@ function ToolCard({
       {...(ariaExpandedTool as object)}
       {...(ariaGroupTool as object)}
     >
+      {/* Decorative children: the parent Pressable's accessibilityLabel
+          already encodes the tool name + state ("Tool Bash, completed,
+          collapsed"), and aria-expanded carries the disclosure state on
+          actionable cards. The disclosure glyph (▸/▾) and the status
+          badge text (Done/Running) are visual redundancies — exposing
+          them to AT produces "BLACK DOWN-POINTING SMALL TRIANGLE" or a
+          stray "Done" tail after the group's accessible name. role=group
+          isn't atomic for virtual-cursor navigation, so children remain
+          reachable unless explicitly hidden. WCAG 1.1.1 (Decorative
+          Images / Non-text Content): mark these as aria-hidden on web.
+          Native AT reads the Pressable's accessibilityLabel and doesn't
+          descend into children for role=group / role=button. */}
       <View className="flex-row items-center justify-between">
         <View className="flex-row items-center flex-1">
-          <Text className="text-tp-text-tertiary text-xs mr-1.5">
+          <Text
+            className="text-tp-text-tertiary text-xs mr-1.5"
+            {...(Platform.OS === "web"
+              ? ({ "aria-hidden": true } as object)
+              : {})}
+          >
             {isResult ? (expanded ? "▾" : "▸") : "▸"}
           </Text>
           <Text
@@ -793,6 +810,9 @@ function ToolCard({
         </View>
         <Text
           className={`text-[11px] ${isResult ? "text-tp-success" : "text-tp-warning"}`}
+          {...(Platform.OS === "web"
+            ? ({ "aria-hidden": true } as object)
+            : {})}
         >
           {isResult ? "Done" : "Running"}
         </Text>
@@ -862,7 +882,18 @@ function ToolCard({
       ) : null}
 
       {isResult && isTruncatable ? (
-        <Text className="text-tp-accent text-[11px] mt-1.5">
+        // The expansion state is already conveyed via aria-expanded on the
+        // actionable Pressable + the "expanded"/"collapsed" suffix on its
+        // accessibilityLabel. Visually labeling the affordance "Show
+        // more"/"Show less" is for sighted users; AT users would hear it
+        // a second time after the button's name. Hide it on web. Native
+        // AT reads only the parent button's accessibilityLabel.
+        <Text
+          className="text-tp-accent text-[11px] mt-1.5"
+          {...(Platform.OS === "web"
+            ? ({ "aria-hidden": true } as object)
+            : {})}
+        >
           {expanded ? "Show less" : "Show more"}
         </Text>
       ) : null}

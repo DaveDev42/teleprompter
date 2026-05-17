@@ -147,6 +147,7 @@ export default defineConfig({
         "app-toast-dismiss-glyph-aria-hidden.spec.ts",
         "app-chat-log-aria-live.spec.ts",
         "app-chat-markdown-list-marker-aria-hidden.spec.ts",
+        "app-settings-row-chevron-aria-hidden.spec.ts",
       ],
     },
     {

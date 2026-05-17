@@ -160,7 +160,25 @@ function SettingsRow({
             </Text>
           )}
           {onPress && (
-            <Text className="text-tp-text-tertiary text-[15px]">›</Text>
+            // The parent Pressable carries accessibilityLabel which on
+            // web becomes aria-label. Per ARIA, aria-label replaces the
+            // accessible name computation — but `role=button` is not
+            // atomic for virtual-cursor traversal in NVDA/JAWS browse
+            // mode, so a virtual cursor can still descend into this
+            // Text and announce "›" as "right-pointing angle quotation
+            // mark". The chevron is a sighted-user affordance for "row
+            // is tappable" — exposing it to AT pollutes every Settings
+            // row readout. Hide on web. Native AT focuses the parent
+            // Pressable and reads its accessibilityLabel without
+            // descending. WCAG 1.1.1.
+            <Text
+              className="text-tp-text-tertiary text-[15px]"
+              {...(Platform.OS === "web"
+                ? ({ "aria-hidden": true } as object)
+                : {})}
+            >
+              ›
+            </Text>
           )}
         </View>
       </View>

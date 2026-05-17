@@ -60,6 +60,17 @@ function SessionRow({
       accessibilityHint="Open this session"
       tabIndex={pp.tabIndex}
       className={pp.className}
+      // ARIA 1.2 §6.6.4 aria-current — the active row's "selected"
+      // state must be programmatically determinable. The text suffix
+      // ", selected" inside accessibilityLabel reads naturally for
+      // native VoiceOver/TalkBack, but on web it bakes state into the
+      // accessible name where CSS attribute selectors, axe-core, and
+      // SR state announcement can't reach it. RN Web's
+      // AccessibilityState union has no `current` field, so the only
+      // bridge is a raw aria-current spread guarded by Platform.
+      {...(Platform.OS === "web" && isActive
+        ? ({ "aria-current": "true" } as object)
+        : {})}
     >
       <View
         className={`flex-row items-center py-4 mx-4 ${

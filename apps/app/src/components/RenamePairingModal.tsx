@@ -74,11 +74,19 @@ export function RenamePairingModal({
     );
   }, [visible]);
 
+  // APG Dialog Pattern §3.2.2 + WCAG 4.1.2: wire the dialog's
+  // aria-describedby to the helper text so screen readers announce
+  // "Empty value clears the label …" as soon as the dialog opens —
+  // not only when the user Tabs onto the input. Mirrors the fix on
+  // ConfirmUnpairModal (see app-confirm-unpair-describedby.spec.ts).
+  const DESCRIPTION_ID = "rename-pairing-description";
+
   return (
     <ModalContainer
       visible={visible}
       onClose={onCancel}
       accessibilityLabel="Rename Daemon"
+      accessibilityDescribedBy={DESCRIPTION_ID}
     >
       <View className="px-5 pt-5 pb-6">
         <View className="flex-row items-center justify-between pb-3">
@@ -126,7 +134,10 @@ export function RenamePairingModal({
             daemonId ? `Pairing label for ${daemonId}` : "Pairing label"
           }
         />
-        <Text className="text-tp-text-tertiary text-xs mt-2">
+        <Text
+          nativeID={DESCRIPTION_ID}
+          className="text-tp-text-tertiary text-xs mt-2"
+        >
           Empty value clears the label and falls back to the daemon ID.
         </Text>
       </View>

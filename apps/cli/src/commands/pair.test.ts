@@ -195,6 +195,7 @@ describe("tp pair list/delete", () => {
   test("list shows empty state", () => {
     const out = capture(`${CLI} pair list`, env);
     expect(out).toContain("No pairings registered");
+    expect(out).toContain("Create one with: tp pair new");
   });
 
   test("list shows registered pairings", () => {
@@ -207,6 +208,45 @@ describe("tp pair list/delete", () => {
     expect(out).toContain("daemon-aaaa1111");
     expect(out).toContain("daemon-bbbb2222");
     expect(out).toContain("wss://r.example");
+  });
+
+  test("list header columns appear in LABEL/DAEMON ID/RELAY/CREATED order", () => {
+    seed([{ id: "daemon-aaaa1111", relay: "wss://r.example", label: "Mac" }]);
+    const out = capture(`${CLI} pair list`, env);
+    const headerLine = out
+      .split("\n")
+      .find((l) => l.includes("DAEMON ID") && l.includes("RELAY"));
+    expect(headerLine).toBeDefined();
+    const labelIdx = headerLine!.indexOf("LABEL");
+    const idIdx = headerLine!.indexOf("DAEMON ID");
+    const relayIdx = headerLine!.indexOf("RELAY");
+    const createdIdx = headerLine!.indexOf("CREATED");
+    expect(labelIdx).toBeGreaterThanOrEqual(0);
+    expect(labelIdx).toBeLessThan(idIdx);
+    expect(idIdx).toBeLessThan(relayIdx);
+    expect(relayIdx).toBeLessThan(createdIdx);
+  });
+
+  test("list renders labels and tolerates null/empty label rows", () => {
+    seed([
+      { id: "daemon-aaaa1111", relay: "wss://r.example", label: "Office Mac" },
+      { id: "daemon-bbbb2222", relay: "wss://r2.example", label: null },
+      { id: "daemon-cccc3333", relay: "wss://r3.example", label: "" },
+    ]);
+    const out = capture(`${CLI} pair list`, env);
+    expect(out).toContain("Office Mac");
+    expect(out).toContain("daemon-aaaa1111");
+    expect(out).toContain("daemon-bbbb2222");
+    expect(out).toContain("daemon-cccc3333");
+    expect(out).not.toMatch(/\bnull\b/);
+  });
+
+  test("list CREATED column shows formatAge output (relative time)", () => {
+    seed([{ id: "daemon-aaaa1111", relay: "wss://r.example" }]);
+    const out = capture(`${CLI} pair list`, env);
+    // Just-seeded row should show seconds-ago style age. formatAge returns
+    // strings like "0s ago", "5s ago", "1m ago" — the unit char must appear.
+    expect(out).toMatch(/\b\d+[smhd]\b/);
   });
 
   test("delete by prefix removes one pairing", () => {

@@ -148,6 +148,7 @@ export default defineConfig({
         "app-chat-log-aria-live.spec.ts",
         "app-chat-markdown-list-marker-aria-hidden.spec.ts",
         "app-settings-row-chevron-aria-hidden.spec.ts",
+        "app-font-size-modal-glyph-aria-hidden.spec.ts",
       ],
     },
     {

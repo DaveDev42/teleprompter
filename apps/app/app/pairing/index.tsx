@@ -146,7 +146,26 @@ export default function PairingScreen() {
           className="items-center"
           {...(Platform.OS === "web" ? { role: "status" as const } : {})}
         >
-          <ActivityIndicator size="large" color={indicatorColor} />
+          {/* ActivityIndicator renders as <div role="progressbar"> on
+              web (react-native-web) but does NOT propagate any
+              accessible name — no aria-label / aria-labelledby /
+              aria-valuenow. ARIA 1.2 §6.3.20 requires role=progressbar
+              to have an accessible name, otherwise NVDA / JAWS /
+              VoiceOver announce "progress bar" with no context. The
+              parent role=status announces the sibling Text, but
+              virtual-cursor users still encounter a nameless control.
+              accessibilityLabel doesn't reach the inner progressbar
+              div on web, so pass aria-label imperatively. Native AT
+              reads accessibilityLabel from the underlying View.
+              WCAG 4.1.2 (Name, Role, Value). */}
+          <ActivityIndicator
+            size="large"
+            color={indicatorColor}
+            accessibilityLabel="Processing pairing data"
+            {...(Platform.OS === "web"
+              ? ({ "aria-label": "Processing pairing data" } as object)
+              : {})}
+          />
           <Text className="text-tp-text-secondary mt-4">
             Processing pairing data...
           </Text>

@@ -407,7 +407,7 @@ describe("PairingOrchestrator", () => {
     expect(info.daemonId).toBe("daemon-d2");
     expect(orch.hasPending).toBe(true);
     expect(relays).toHaveLength(2);
-    expect(relays[1]!.dispose).not.toHaveBeenCalled();
+    expect(relays[1]?.dispose).not.toHaveBeenCalled();
   });
 
   test("clearPending() after promote() is a no-op (relay already released)", async () => {
@@ -421,8 +421,9 @@ describe("PairingOrchestrator", () => {
     const pending = orch.current;
     if (!pending) throw new Error("expected pending pairing");
     pending.__markCompleted("frontend-x");
-    const result = await orch.awaitPending()!;
-    if (result.kind !== "completed") throw new Error("expected completed");
+    const result = await orch.awaitPending();
+    if (!result || result.kind !== "completed")
+      throw new Error("expected completed");
     orch.promote(result);
 
     // After a successful promote, clearPending should not double-dispose.

@@ -85,7 +85,7 @@ export class Store {
     // migrations table exists. Probe before ALTER to avoid noisy duplicate-column errors.
     for (const sql of PAIRINGS_MIGRATIONS) {
       const m = sql.match(/ADD COLUMN\s+(\w+)/i);
-      if (m && existingCols.has(m[1]!)) continue;
+      if (m && existingCols.has(m[1] ?? "")) continue;
       try {
         this.metaDb.run(sql);
       } catch (err) {

@@ -61,6 +61,7 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `apps/cli/src/commands/daemon-status.test.ts` — `tp daemon status` 출력 배너/힌트 스모크
 - `apps/cli/src/commands/forward-claude.test.ts` — `CLAUDE_UTILITY_SUBCOMMANDS` set 구성
 - `apps/cli/src/commands/forward-claude.integration.test.ts` — `forwardToClaudeCommand` argv verbatim + exit-code propagation + "claude not found" error path (fake claude via env param)
+- `apps/cli/src/commands/doctor.integration.test.ts` — `doctorCommand` tool probe (node/pnpm/claude/git present vs missing), daemon-down path, claude-doctor invocation; Bun.spawnSync/spawn mocked (macOS sandbox blocks sh-script stdout pipes in bun:test)
 - `apps/cli/src/lib/colors.test.ts` — ANSI color wrapper (NO_COLOR honor)
 - `apps/cli/src/lib/e2ee-verify.test.ts` — `verifyE2EECrypto` 자가검증 (daemon↔frontend, relay isolation)
 - `apps/cli/src/lib/ensure-daemon.test.ts` — `isDaemonRunning` / install prompt 결정 / yes-no 파싱
@@ -126,3 +127,4 @@ Stub 프로세스로 전체 파이프라인 검증.
   - `e2e/app-roundtrip.spec.ts` — input/output roundtrip (local only)
   - `e2e/app-real-e2e.spec.ts` — real Claude PTY E2E (local only)
   - `e2e/app-chat-roundtrip.spec.ts` — chat input/output roundtrip (local only)
+  - `e2e/app-multi-daemon-nxn.spec.ts` — N:N multi-daemon: two daemons paired into one app, E2EE independence, disconnect isolation (local only)

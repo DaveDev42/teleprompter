@@ -1,7 +1,6 @@
 import { Store } from "@teleprompter/daemon";
 import type { IpcDoctorProbeOk } from "@teleprompter/protocol";
 import { getSocketPath } from "@teleprompter/protocol";
-import { $ } from "bun";
 import { existsSync } from "fs";
 import { join } from "path";
 import { green, yellow } from "../lib/colors";
@@ -18,8 +17,14 @@ import { spinner } from "../lib/spinner";
  *
  * argv is ignored — past versions accepted `--claude` to opt in to the
  * claude-doctor pass, but running both is now the default.
+ *
+ * env overrides process.env for subprocess invocations (tests inject PATH).
  */
-export async function doctorCommand(_argv: string[] = []): Promise<void> {
+export async function doctorCommand(
+  _argv: string[] = [],
+  env?: Record<string, string>,
+): Promise<void> {
+  const spawnEnv = env ?? (process.env as Record<string, string>);
   console.log("Teleprompter Doctor\n");
 
   let issues = 0;
@@ -32,7 +37,13 @@ export async function doctorCommand(_argv: string[] = []): Promise<void> {
 
   // Node version
   try {
-    const nodeVersion = (await $`node --version`.text()).trim();
+    const nodeResult = Bun.spawnSync(["node", "--version"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: spawnEnv,
+    });
+    if (nodeResult.exitCode !== 0) throw new Error("node exited non-zero");
+    const nodeVersion = new TextDecoder().decode(nodeResult.stdout).trim();
     check("Node.js", nodeVersion, true);
   } catch {
     check("Node.js", "not found", false);
@@ -41,7 +52,13 @@ export async function doctorCommand(_argv: string[] = []): Promise<void> {
 
   // pnpm
   try {
-    const pnpmVersion = (await $`pnpm --version`.text()).trim();
+    const pnpmResult = Bun.spawnSync(["pnpm", "--version"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: spawnEnv,
+    });
+    if (pnpmResult.exitCode !== 0) throw new Error("pnpm exited non-zero");
+    const pnpmVersion = new TextDecoder().decode(pnpmResult.stdout).trim();
     check("pnpm", pnpmVersion, true);
   } catch {
     check("pnpm", "not found", false);
@@ -50,7 +67,13 @@ export async function doctorCommand(_argv: string[] = []): Promise<void> {
 
   // Claude CLI
   try {
-    const claudeVersion = (await $`claude --version`.text()).trim();
+    const claudeResult = Bun.spawnSync(["claude", "--version"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: spawnEnv,
+    });
+    if (claudeResult.exitCode !== 0) throw new Error("claude exited non-zero");
+    const claudeVersion = new TextDecoder().decode(claudeResult.stdout).trim();
     check("Claude CLI", claudeVersion, true);
   } catch {
     check(
@@ -63,8 +86,17 @@ export async function doctorCommand(_argv: string[] = []): Promise<void> {
 
   // Git
   try {
-    const gitVersion = (await $`git --version`.text()).trim();
-    check("Git", gitVersion.replace("git version ", ""), true);
+    const gitResult = Bun.spawnSync(["git", "--version"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: spawnEnv,
+    });
+    if (gitResult.exitCode !== 0) throw new Error("git exited non-zero");
+    const gitVersion = new TextDecoder()
+      .decode(gitResult.stdout)
+      .trim()
+      .replace("git version ", "");
+    check("Git", gitVersion, true);
   } catch {
     check("Git", "not found", false);
     issues++;
@@ -145,12 +177,14 @@ export async function doctorCommand(_argv: string[] = []): Promise<void> {
   const claudeCheck = Bun.spawnSync(["claude", "--version"], {
     stdout: "pipe",
     stderr: "pipe",
+    env: spawnEnv,
   });
   if (claudeCheck.exitCode === 0) {
     const proc = Bun.spawn(["claude", "doctor"], {
       stdin: "inherit",
       stdout: "inherit",
       stderr: "inherit",
+      env: spawnEnv,
     });
     await proc.exited;
   } else {

@@ -166,6 +166,17 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
         testID="voice-state-live-region"
         className="text-tp-text-tertiary text-xs"
         accessibilityLiveRegion="polite"
+        // RN Web translates accessibilityLiveRegion to aria-live, but
+        // does NOT add role="status". Without role=status the live
+        // region is a generic <div aria-live="polite"> — NVDA/JAWS
+        // announce text changes inconsistently because the element
+        // lacks the implicit aria-atomic semantics that role=status
+        // carries (ARIA 1.2 §6.3.27, WCAG 4.1.3). Matches the
+        // InAppToast / ConnectionLiveRegion / SessionStoppedLiveRegion
+        // pattern.
+        {...(Platform.OS === "web"
+          ? ({ role: "status", "aria-live": "polite" } as object)
+          : {})}
       >
         {isActive ? stateLabel : ""}
       </Text>
@@ -174,6 +185,9 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
         className="text-tp-text-tertiary text-xs max-w-32"
         numberOfLines={1}
         accessibilityLiveRegion="polite"
+        {...(Platform.OS === "web"
+          ? ({ role: "status", "aria-live": "polite" } as object)
+          : {})}
       >
         {transcript && isActive ? `Transcript: ${transcript}` : ""}
       </Text>

@@ -140,6 +140,7 @@ export default defineConfig({
         "app-voice-live-region-role-status.spec.ts",
         "app-session-row-aria-current.spec.ts",
         "app-api-key-modal-describedby.spec.ts",
+        "app-chat-bubble-space-activate.spec.ts",
       ],
     },
     {

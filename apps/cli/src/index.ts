@@ -35,14 +35,14 @@ async function main(): Promise<void> {
       const { forwardToClaudeCommand } = await import(
         "./commands/forward-claude"
       );
-      await forwardToClaudeCommand(process.argv.slice(2));
+      process.exit(await forwardToClaudeCommand(process.argv.slice(2)));
       break;
     }
     case "forward-double-dash": {
       const { forwardToClaudeCommand } = await import(
         "./commands/forward-claude"
       );
-      await forwardToClaudeCommand(process.argv.slice(3));
+      process.exit(await forwardToClaudeCommand(process.argv.slice(3)));
       break;
     }
     case "help": {

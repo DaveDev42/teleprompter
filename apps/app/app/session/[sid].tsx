@@ -1017,7 +1017,22 @@ export default function SessionDetailScreen() {
           accessibilityRole="button"
           accessibilityLabel="Back to sessions"
         >
-          <Text className="text-tp-accent text-base font-medium">
+          {/* The Back button's accessible name is set on the parent
+              Pressable via accessibilityLabel. role=button is NOT
+              atomic in NVDA browse mode / JAWS reading cursor — the
+              virtual cursor descends into the child Text and announces
+              "single left-pointing angle quotation mark Sessions"
+              after the button's accessible name, doubling the
+              announcement. Native AT focuses the parent Pressable and
+              reads accessibilityLabel directly, so the gate is
+              web-only. Same pattern as the chat send ↑ glyph fix.
+              WCAG 1.1.1. */}
+          <Text
+            className="text-tp-accent text-base font-medium"
+            {...(Platform.OS === "web"
+              ? ({ "aria-hidden": true } as object)
+              : {})}
+          >
             ‹ Sessions
           </Text>
         </Pressable>

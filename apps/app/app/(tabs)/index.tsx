@@ -83,7 +83,12 @@ function SessionRow({
       >
         {/* Active indicator */}
         {isActive && (
-          <View className="absolute left-0 top-4 bottom-4 w-[3px] rounded-full bg-tp-accent" />
+          <View
+            className="absolute left-0 top-4 bottom-4 w-[3px] rounded-full bg-tp-accent"
+            {...(Platform.OS === "web"
+              ? ({ "aria-hidden": true } as object)
+              : {})}
+          />
         )}
 
         {/* Status dot */}
@@ -91,6 +96,9 @@ function SessionRow({
           className={`w-2 h-2 rounded-full mr-3 ${
             running ? "bg-tp-success" : "bg-tp-text-tertiary"
           }`}
+          {...(Platform.OS === "web"
+            ? ({ "aria-hidden": true } as object)
+            : {})}
         />
 
         {/* Content */}
@@ -134,7 +142,14 @@ function SessionRow({
       </View>
 
       {/* Divider */}
-      {!isActive && <View className="h-[0.5px] bg-tp-border ml-[52px] mr-4" />}
+      {!isActive && (
+        <View
+          className="h-[0.5px] bg-tp-border ml-[52px] mr-4"
+          {...(Platform.OS === "web"
+            ? ({ "aria-hidden": true } as object)
+            : {})}
+        />
+      )}
     </Pressable>
   );
 }

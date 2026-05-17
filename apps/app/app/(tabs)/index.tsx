@@ -192,7 +192,19 @@ export default function SessionsScreen() {
 
       {/* Search */}
       {sessions.length > 2 && (
-        <View className="px-4 py-2">
+        // WAI-ARIA 1.2 §5.3.27 + WCAG 2.4.1 Bypass Blocks (Level A):
+        // a search facility should live inside a search landmark so
+        // AT users can jump to it via landmark navigation (NVDA D,
+        // JAWS Q, VoiceOver landmarks rotor). RN's AccessibilityRole
+        // union excludes "search", so spread the raw ARIA attribute
+        // on web. Native AT doesn't surface search-landmark
+        // navigation, so this is web-only.
+        <View
+          className="px-4 py-2"
+          {...(Platform.OS === "web"
+            ? ({ role: "search" as const } as object)
+            : {})}
+        >
           <TextInput
             ref={searchRef}
             testID="session-search"

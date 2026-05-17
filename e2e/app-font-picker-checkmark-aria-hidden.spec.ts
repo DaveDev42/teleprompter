@@ -22,10 +22,7 @@ test.use({ viewport: { width: 1280, height: 800 } });
 test.describe("FontPickerModal committed-font checkmark aria-hidden", () => {
   test("the ✓ Text inside the committed option spreads aria-hidden on web", () => {
     const source = readFileSync(
-      resolve(
-        __dirname,
-        "../apps/app/src/components/FontPickerModal.tsx",
-      ),
+      resolve(__dirname, "../apps/app/src/components/FontPickerModal.tsx"),
       "utf8",
     );
     // Locate the JSX glyph (the second `✓` in the file — the first

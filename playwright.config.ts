@@ -160,6 +160,7 @@ export default defineConfig({
         "app-voice-terminal-switch-glyph-aria-hidden.spec.ts",
         "app-edit-diff-prefix-glyph-aria-hidden.spec.ts",
         "app-progressbar-aria-label.spec.ts",
+        "app-session-header-decorative-aria-hidden.spec.ts",
       ],
     },
     {

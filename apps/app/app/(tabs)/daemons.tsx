@@ -216,15 +216,15 @@ export default function DaemonsScreen() {
           tabIndex={pp.tabIndex}
           accessibilityRole="button"
           accessibilityLabel="Add daemon"
-          // ARIA 1.2 §6.6 + APG Dialog Pattern: this button opens the
-          // `/pairing` screen, which is registered with
-          // `presentation: "modal"` in `app/_layout.tsx`. Declare
-          // `aria-haspopup="dialog"` so AT can pre-announce that
-          // activation will open a dialog. RN's accessibilityState
-          // doesn't expose haspopup, so spread it directly on web.
-          {...(Platform.OS === "web"
-            ? { "aria-haspopup": "dialog" as const }
-            : {})}
+          // Intentionally NO aria-haspopup. `pairing/index` is declared
+          // with `presentation: "modal"` in app/_layout.tsx, but
+          // expo-router only honors that on native — on web it renders
+          // as a full route navigation to /pairing, with NO role=dialog
+          // wrapper. Advertising aria-haspopup="dialog" here would
+          // mislead AT users into expecting an inline dialog when
+          // activation actually pushes a new page. ARIA 1.2 §6.3.5:
+          // aria-haspopup must only be set when the popup of that type
+          // actually appears.
         >
           <Text className="text-tp-text-on-color text-xl leading-5">+</Text>
         </Pressable>

@@ -134,6 +134,7 @@ export default defineConfig({
         "app-tool-card-role.spec.ts",
         "app-streaming-card-aria-atomic.spec.ts",
         "app-font-size-initial-focus.spec.ts",
+        "app-chat-bubble-keyboard-copy.spec.ts",
       ],
     },
     {

@@ -34,6 +34,7 @@ export default function PairingScreen() {
   const canSubmit = manualInput.trim().length > 0;
   const connectRef = useRef<View>(null);
   const inputRef = useRef<TextInput>(null);
+  const inputHintRef = useRef<View>(null);
 
   // Mirror disabled state to aria-disabled on the Connect button. RN
   // Web's Pressable only emits aria-disabled when the native `disabled`
@@ -86,6 +87,23 @@ export default function PairingScreen() {
   // gives a screen reader the link from the focused textarea to the
   // contextual validation message instead of leaving them orphaned.
   const showInputHint = manualInput.trim().length > 0 && !preview && !error;
+
+  // ARIA 1.2 §6.6.5 says role=status implies aria-atomic=true, but
+  // NVDA/JAWS don't honor the implicit default and RN Web 0.21's
+  // createDOMProps drops prop-level aria-atomic on Text/View. Without
+  // this every other role=status region in the app applies the
+  // attribute imperatively (InAppToast, ConnectionLiveRegion,
+  // VoiceButton state/transcript, DiagnosticsPanel, settings theme
+  // announcement). The inline `tp://p?d=` Text inside the hint
+  // sentence is what triggers the fragmentation — without aria-atomic
+  // SR users hear only the diff like the bare prefix instead of the
+  // full sentence. WCAG 4.1.3 Status Messages.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (!showInputHint) return;
+    const el = inputHintRef.current as unknown as HTMLElement | null;
+    el?.setAttribute("aria-atomic", "true");
+  }, [showInputHint]);
 
   // Sync incoming deep-link payload into the input on mount/update.
   // We intentionally do not depend on manualInput — only react to the param.
@@ -262,6 +280,7 @@ export default function PairingScreen() {
             accessibilityLiveRegion + accessibilityRole="text" combo. */}
         {showInputHint && (
           <View
+            ref={inputHintRef}
             testID="pairing-input-hint"
             nativeID="pairing-input-hint"
             accessibilityLiveRegion="polite"

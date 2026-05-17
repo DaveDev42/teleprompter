@@ -252,7 +252,12 @@ function UpdateStatusValue({
   if (status === "up-to-date") {
     return (
       <View className="flex-row items-center">
-        <View className="w-2 h-2 rounded-full bg-tp-success mr-1.5" />
+        <View
+          className="w-2 h-2 rounded-full bg-tp-success mr-1.5"
+          {...(Platform.OS === "web"
+            ? ({ "aria-hidden": true } as object)
+            : {})}
+        />
         <Text className="text-tp-success text-[13px] font-medium">
           Up to date
         </Text>
@@ -262,7 +267,12 @@ function UpdateStatusValue({
   if (status === "available" || status === "ready") {
     return (
       <View className="flex-row items-center">
-        <View className="w-2 h-2 rounded-full bg-tp-accent mr-1.5" />
+        <View
+          className="w-2 h-2 rounded-full bg-tp-accent mr-1.5"
+          {...(Platform.OS === "web"
+            ? ({ "aria-hidden": true } as object)
+            : {})}
+        />
         <Text className="text-tp-accent text-[13px] font-medium">
           Update available
         </Text>

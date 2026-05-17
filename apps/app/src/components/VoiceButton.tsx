@@ -130,7 +130,24 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
         {...(ariaCheckedTerminal as object)}
         {...(switchKeyHandler as object)}
       >
-        <Text className="text-xs text-tp-text-secondary">T</Text>
+        {/* The switch's accessible name is set on the parent
+            Pressable via accessibilityLabel. role=switch is NOT
+            atomic in NVDA browse mode / JAWS reading cursor — the
+            virtual cursor descends into the child and announces the
+            bare letter "T" after "Include terminal context, switch,
+            not checked", polluting the readout. The "T" is purely a
+            visual abbreviation. Native AT focuses the parent and
+            reads accessibilityLabel directly, so the gate is
+            web-only. Same pattern as the mic button glyph below.
+            WCAG 1.1.1 + 2.5.3. */}
+        <Text
+          className="text-xs text-tp-text-secondary"
+          {...(Platform.OS === "web"
+            ? ({ "aria-hidden": true } as object)
+            : {})}
+        >
+          T
+        </Text>
       </Pressable>
 
       {/* Mic button */}

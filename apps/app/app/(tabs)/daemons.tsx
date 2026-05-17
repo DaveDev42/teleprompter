@@ -216,6 +216,15 @@ export default function DaemonsScreen() {
           tabIndex={pp.tabIndex}
           accessibilityRole="button"
           accessibilityLabel="Add daemon"
+          // ARIA 1.2 §6.6 + APG Dialog Pattern: this button opens the
+          // `/pairing` screen, which is registered with
+          // `presentation: "modal"` in `app/_layout.tsx`. Declare
+          // `aria-haspopup="dialog"` so AT can pre-announce that
+          // activation will open a dialog. RN's accessibilityState
+          // doesn't expose haspopup, so spread it directly on web.
+          {...(Platform.OS === "web"
+            ? { "aria-haspopup": "dialog" as const }
+            : {})}
         >
           <Text className="text-tp-text-on-color text-xl leading-5">+</Text>
         </Pressable>

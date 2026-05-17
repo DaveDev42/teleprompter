@@ -8,11 +8,22 @@
 
 import { errorWithHints } from "../lib/format";
 
-export async function forwardToClaudeCommand(argv: string[]): Promise<void> {
-  const check = Bun.spawnSync(["claude", "--version"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+export async function forwardToClaudeCommand(
+  argv: string[],
+  env?: Record<string, string>,
+): Promise<number> {
+  const spawnEnv = env ?? (process.env as Record<string, string>);
+  let check: ReturnType<typeof Bun.spawnSync>;
+  try {
+    check = Bun.spawnSync(["claude", "--version"], {
+      stdout: "pipe",
+      stderr: "pipe",
+      env: spawnEnv,
+    });
+  } catch {
+    // Bun throws ENOENT when the binary is not found on PATH
+    check = { exitCode: 1 } as ReturnType<typeof Bun.spawnSync>;
+  }
   if (check.exitCode !== 0) {
     console.error(
       errorWithHints("Claude Code CLI not found.", [
@@ -20,15 +31,15 @@ export async function forwardToClaudeCommand(argv: string[]): Promise<void> {
         "Or: npm install -g @anthropic-ai/claude-code",
       ]),
     );
-    process.exit(1);
+    return 1;
   }
 
   const proc = Bun.spawn(["claude", ...argv], {
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
+    env: spawnEnv,
   });
 
-  const exitCode = await proc.exited;
-  process.exit(exitCode);
+  return proc.exited;
 }

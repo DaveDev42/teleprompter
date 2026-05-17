@@ -29,8 +29,7 @@ test("SettingsRow chevron carries aria-hidden on web", async ({ page }) => {
   await page.waitForLoadState("networkidle");
 
   const leaks = await page.evaluate(() => {
-    const found: Array<{ parentLabel: string; ariaHidden: string | null }> =
-      [];
+    const found: Array<{ parentLabel: string; ariaHidden: string | null }> = [];
     const buttons = document.querySelectorAll('[role="button"][aria-label]');
     for (const button of Array.from(buttons)) {
       for (const child of Array.from(button.querySelectorAll("*"))) {

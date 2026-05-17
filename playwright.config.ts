@@ -135,6 +135,7 @@ export default defineConfig({
         "app-streaming-card-aria-atomic.spec.ts",
         "app-font-size-initial-focus.spec.ts",
         "app-chat-bubble-keyboard-copy.spec.ts",
+        "app-sessions-search-landmark.spec.ts",
       ],
     },
     {

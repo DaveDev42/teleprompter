@@ -607,11 +607,29 @@ function EditDiff({
 }) {
   const oldLines = oldStr.split("\n");
   const newLines = newStr.split("\n");
+  // The "-" / "+" prefix Texts are decorative — they encode diff
+  // direction visually with color (tp-error / tp-success). The actual
+  // diff context lives in the parent ToolCard's accessibilityLabel and
+  // the line content Texts. role=button (actionable ToolCard) and
+  // role=group (non-actionable) are NOT atomic in NVDA browse mode /
+  // JAWS reading cursor — the virtual cursor descends through each
+  // child, and the bare "-" / "+" are read as "hyphen-minus" /
+  // "plus sign" between every line, fragmenting the diff readout.
+  // Native AT focuses the ToolCard wrapper and reads accessibilityLabel
+  // without descending, so the gate is web-only. Same pattern as the
+  // ▸/▾, "Done", "Show more/less" decorative texts in ToolCard.
+  // WCAG 1.1.1.
+  const ariaHiddenWeb =
+    Platform.OS === "web" ? ({ "aria-hidden": true } as object) : {};
   return (
     <View className="mt-1.5 bg-tp-bg border border-tp-border-subtle rounded-lg overflow-hidden">
       {oldLines.map((line, i) => (
         <View key={`old-${i}`} className="flex-row px-2 py-0.5">
-          <Text className="text-tp-error text-[11px] w-3" style={codeFontStyle}>
+          <Text
+            className="text-tp-error text-[11px] w-3"
+            style={codeFontStyle}
+            {...ariaHiddenWeb}
+          >
             -
           </Text>
           <Text
@@ -628,6 +646,7 @@ function EditDiff({
           <Text
             className="text-tp-success text-[11px] w-3"
             style={codeFontStyle}
+            {...ariaHiddenWeb}
           >
             +
           </Text>

@@ -158,6 +158,7 @@ export default defineConfig({
         "app-permission-elicitation-card-aria-hidden.spec.ts",
         "app-session-back-glyph-aria-hidden.spec.ts",
         "app-voice-terminal-switch-glyph-aria-hidden.spec.ts",
+        "app-edit-diff-prefix-glyph-aria-hidden.spec.ts",
       ],
     },
     {

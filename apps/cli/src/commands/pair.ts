@@ -22,10 +22,11 @@ import { hostname } from "os";
 import { join } from "path";
 import qrcode from "qrcode-terminal";
 import { parseArgs } from "util";
-import { dim, fail, ok } from "../lib/colors";
+import { dim, fail, green, ok } from "../lib/colors";
 import { ensureDaemon, isDaemonRunning } from "../lib/ensure-daemon";
 import { formatAge } from "../lib/format";
 import { connectIpcAsClient, type IpcClient } from "../lib/ipc-client";
+import { copyToClipboard, isClipboardSupportLikely } from "../lib/osc52";
 import { acquirePairLock, releasePairLock } from "../lib/pair-lock";
 import { parseArgsFriendly } from "../lib/parse-args";
 import { getConfigDir } from "../lib/paths";
@@ -90,9 +91,24 @@ async function pairNew(argv: string[]): Promise<void> {
 
   let ipc: IpcClient | null = null;
   let cleanedUp = false;
+  let rawModeActive = false;
+
+  const teardownRawMode = (): void => {
+    if (rawModeActive) {
+      rawModeActive = false;
+      try {
+        if (process.stdin.isTTY) process.stdin.setRawMode(false);
+      } catch {
+        /* best effort */
+      }
+      process.stdin.pause();
+    }
+  };
+
   const cleanup = async (code: number): Promise<never> => {
     if (!cleanedUp) {
       cleanedUp = true;
+      teardownRawMode();
       try {
         ipc?.close();
       } catch {
@@ -118,6 +134,7 @@ async function pairNew(argv: string[]): Promise<void> {
     const settle = (resolve: (n: number) => void, code: number): void => {
       if (settled) return;
       settled = true;
+      teardownRawMode();
       resolve(code);
     };
     const done = new Promise<number>((resolve) => {
@@ -141,9 +158,22 @@ async function pairNew(argv: string[]): Promise<void> {
               `\n${dim("Scan with the iPhone Camera app, or paste this URL in Teleprompter:")}`,
             );
             console.log(m.qrString);
-            console.log(
-              `\n${dim("Waiting for your app to scan the QR...")} (Ctrl+C to cancel)`,
-            );
+
+            // Set up keypress listener if the terminal supports it.
+            const canCopy = isClipboardSupportLikely() && process.stdin.isTTY;
+            // ipc is guaranteed non-null here — we set it just before the
+            // connectIpcAsClient call that triggered this message.
+            const currentIpc = ipc as IpcClient;
+            if (canCopy) {
+              console.log(
+                `\n${dim("Press c to copy URL  ·  Ctrl+C to cancel")}`,
+              );
+              setupKeypressListener(m.qrString, pairingId, currentIpc, resolve);
+            } else {
+              console.log(
+                `\n${dim("Waiting for your app to scan the QR...")} (Ctrl+C to cancel)`,
+              );
+            }
             return;
           }
           case "pair.begin.err":
@@ -185,7 +215,10 @@ async function pairNew(argv: string[]): Promise<void> {
       });
     });
 
+    // SIGINT handler used when the keypress listener is NOT active (e.g. no
+    // TTY).  When raw mode is on, Ctrl+C comes in as a keypress event instead.
     const onSigint = (): void => {
+      if (rawModeActive) return; // handled by keypress listener
       if (pairingId && ipc) {
         ipc.send({ t: "pair.cancel", pairingId } satisfies IpcPairCancel);
       } else {
@@ -219,6 +252,74 @@ async function pairNew(argv: string[]): Promise<void> {
       ),
     );
     await cleanup(1);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Keypress listener — set up after pair.begin.ok when stdin is a TTY.
+  // Raw mode is enabled here and torn down by teardownRawMode() (called from
+  // settle() and cleanup() on every exit path).
+  // ---------------------------------------------------------------------------
+  function setupKeypressListener(
+    qrString: string,
+    currentPairingId: string | null,
+    currentIpc: IpcClient,
+    _resolve: (code: number) => void,
+  ): void {
+    try {
+      // Node's readline provides parsed key objects (`{ name, ctrl, meta }`).
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const readline = require("readline") as typeof import("readline");
+      readline.emitKeypressEvents(process.stdin);
+      if (process.stdin.isTTY) {
+        process.stdin.setRawMode(true);
+        rawModeActive = true;
+      }
+      process.stdin.resume();
+
+      process.stdin.on(
+        "keypress",
+        (
+          _str: string | undefined,
+          key: { name?: string; ctrl?: boolean; meta?: boolean },
+        ) => {
+          if (!key) return;
+          // Ctrl+C → cancel pairing
+          if (key.ctrl && key.name === "c") {
+            if (currentPairingId) {
+              currentIpc.send({
+                t: "pair.cancel",
+                pairingId: currentPairingId,
+              } satisfies IpcPairCancel);
+            } else {
+              try {
+                currentIpc.close();
+              } catch {
+                /* best effort */
+              }
+            }
+            return;
+          }
+          // 'c' → copy URL to clipboard via OSC 52
+          if (key.name === "c" && !key.ctrl && !key.meta) {
+            const result = copyToClipboard(qrString);
+            if (result.ok) {
+              console.log(`\n${green("Copied to clipboard")}`);
+            } else {
+              console.log(
+                `\n${dim("Clipboard copy not supported by this terminal — copy the URL above manually")}`,
+              );
+            }
+            return;
+          }
+        },
+      );
+    } catch {
+      // If setting up raw mode fails for any reason, fall back gracefully.
+      teardownRawMode();
+      console.log(
+        `\n${dim("Waiting for your app to scan the QR...")} (Ctrl+C to cancel)`,
+      );
+    }
   }
 }
 

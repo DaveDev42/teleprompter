@@ -70,6 +70,9 @@ function DaemonCard({
           className={`w-2.5 h-2.5 rounded-full mr-2.5 ${
             isOnline ? "bg-tp-success" : "bg-tp-text-tertiary"
           }`}
+          {...(Platform.OS === "web"
+            ? ({ "aria-hidden": true } as object)
+            : {})}
         />
         <View className="flex-1">
           <Text className="text-tp-text-primary text-[17px] font-semibold">
@@ -115,6 +118,9 @@ function DaemonCard({
           className={`text-xs font-medium ${
             isOnline ? "text-tp-success" : "text-tp-text-tertiary"
           }`}
+          {...(Platform.OS === "web"
+            ? ({ "aria-hidden": true } as object)
+            : {})}
         >
           {isOnline ? "Connected" : `Last seen ${timeAgo(info.pairedAt)}`}
         </Text>

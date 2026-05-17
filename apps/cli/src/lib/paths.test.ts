@@ -84,4 +84,27 @@ describe("resolveTpBinary", () => {
     expect(typeof result).toBe("string");
     expect(result.length).toBeGreaterThan(0);
   });
+
+  test("uses `command -v tp` via PATH when argv[0] is a synthetic bun path", () => {
+    // Regression: Bun single-file executables can report a synthetic
+    // `/$bunfs/root/tp` for argv[0] that fails `existsSync`. The function must
+    // then consult PATH (via `command -v tp`), not jump straight to a fixed
+    // candidate list that ends up picking a binary the user did not mean.
+    // Simulated by sandboxing $PATH so only our fake `tp` is reachable.
+    const fakeBin = join(dir, "custom-bin");
+    mkdirSync(fakeBin, { recursive: true });
+    const fakeTp = join(fakeBin, "tp");
+    writeFileSync(fakeTp, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+
+    const synthetic = "/$bunfs/root/tp";
+    process.argv[0] = synthetic;
+
+    const originalPath = process.env.PATH;
+    process.env.PATH = fakeBin;
+    try {
+      expect(resolveTpBinary()).toBe(fakeTp);
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
 });

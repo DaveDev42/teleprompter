@@ -125,6 +125,7 @@ export default defineConfig({
         "app-tabbar-aria-controls.spec.ts",
         "app-sessions-search-aria-controls.spec.ts",
         "app-pairing-aria-errormessage.spec.ts",
+        "app-rename-modal-dialog-describedby.spec.ts",
       ],
     },
     {

@@ -348,10 +348,26 @@ function RichText({
             );
           }
           case "list": {
+            // WCAG 1.3.1 + ARIA 1.2 §5.3.9: a bulleted/numbered list
+            // conveyed only by visual `•` / `1.` glyphs inside generic
+            // <div>s fails programmatic determination. role="list" +
+            // role="listitem" surface the structure to NVDA/JAWS/VO so
+            // users hear "list with N items" and can use list-navigation
+            // shortcuts. RN's AccessibilityRole union excludes both
+            // roles, so we spread the raw `role` on web only (matching
+            // the chat-list / daemons-list ownership patterns).
+            const webListProps =
+              Platform.OS === "web" ? { role: "list" as const } : {};
+            const webListItemProps =
+              Platform.OS === "web" ? { role: "listitem" as const } : {};
             return (
-              <View key={bi} className="my-0.5">
+              <View key={bi} className="my-0.5" {...webListProps}>
                 {block.items.map((item, ii) => (
-                  <View key={ii} className="flex-row items-start mb-0.5">
+                  <View
+                    key={ii}
+                    className="flex-row items-start mb-0.5"
+                    {...webListItemProps}
+                  >
                     <Text
                       className={`${textClass} mr-1.5 mt-0.5`}
                       style={fontStyle}

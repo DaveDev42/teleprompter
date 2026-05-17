@@ -129,6 +129,7 @@ export default defineConfig({
         "app-daemons-list-ownership.spec.ts",
         "app-permission-card-alert-atomic.spec.ts",
         "app-chat-bubble-role.spec.ts",
+        "app-add-daemon-haspopup.spec.ts",
       ],
     },
     {

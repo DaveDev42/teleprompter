@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - name: Lint & format check
-        run: npx biome ci .
+        run: pnpm exec biome ci .
 
   type-check:
     runs-on: ubuntu-latest

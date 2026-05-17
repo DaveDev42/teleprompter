@@ -398,14 +398,27 @@ function UserCard({
   fontStyle: { fontFamily: string; fontSize: number };
 }) {
   const pp = getPlatformProps();
+  // ARIA 1.2 §7.1 + WCAG 4.1.2: RN Web's propsToAriaRole maps
+  // accessibilityRole="text" to null, so the Pressable emits a generic
+  // <div> with no role. `aria-label` on a generic element is prohibited
+  // and silently ignored by NVDA/JAWS/VoiceOver — chat bubbles would
+  // announce raw text content or nothing, and the long-press copy
+  // affordance becomes invisible to AT. The Pressable isn't a real
+  // button (no onPress, only onLongPress as a power-user shortcut), so
+  // use role="group" with an accessible name — same pattern as
+  // DaemonCard in app/(tabs)/daemons.tsx. Spread raw on web because
+  // "group" isn't in RN's AccessibilityRole union.
+  const a11yLabel = `You: ${msg.text.length > 100 ? `${msg.text.slice(0, 100)}...` : msg.text}`;
   return (
     <Pressable
       className={`self-end bg-tp-user-bubble rounded-bubble rounded-br-sm px-4 py-2.5 max-w-[80%] ${pp.className}`}
       tabIndex={pp.tabIndex}
       onLongPress={() => copyText(msg.text)}
-      accessibilityRole="text"
-      accessibilityLabel={`You: ${msg.text.length > 100 ? `${msg.text.slice(0, 100)}...` : msg.text}`}
+      accessibilityLabel={a11yLabel}
       accessibilityHint="Long press to copy"
+      {...(Platform.OS === "web"
+        ? ({ role: "group", "aria-label": a11yLabel } as object)
+        : {})}
     >
       <Text
         className="text-tp-text-on-color leading-[22px]"
@@ -436,14 +449,21 @@ function AssistantCard({
   // box with no text — looks like a UI glitch and produces an empty
   // "Claude: " announcement for screen readers.
   if (!msg.text.trim()) return null;
+  // See UserCard rationale: accessibilityRole="text" → no role on web →
+  // aria-label silently ignored on the generic <div>. Use role="group"
+  // so the bubble carries a non-generic role and the accessible name +
+  // long-press hint actually reach AT.
+  const a11yLabel = `Claude: ${msg.text.length > 100 ? `${msg.text.slice(0, 100)}...` : msg.text}`;
   return (
     <Pressable
       className={`self-start bg-tp-assistant-bubble rounded-bubble rounded-tl-sm px-4 py-2.5 max-w-[80%] ${pp.className}`}
       tabIndex={pp.tabIndex}
       onLongPress={() => copyText(msg.text)}
-      accessibilityRole="text"
-      accessibilityLabel={`Claude: ${msg.text.length > 100 ? `${msg.text.slice(0, 100)}...` : msg.text}`}
+      accessibilityLabel={a11yLabel}
       accessibilityHint="Long press to copy"
+      {...(Platform.OS === "web"
+        ? ({ role: "group", "aria-label": a11yLabel } as object)
+        : {})}
     >
       <RichText
         text={msg.text}
@@ -799,10 +819,17 @@ function StreamingCard({
   fontStyle: { fontFamily: string; fontSize: number };
 }) {
   return (
+    // accessibilityRole="text" → no role on web, so the "Claude is
+    // typing" aria-label is silently dropped (same UserCard/AssistantCard
+    // issue). Use role=status so the typing indicator announces as a
+    // polite live region — exactly the semantics we want for a transient
+    // "still typing…" hint.
     <View
       className="self-start bg-tp-assistant-bubble rounded-bubble rounded-tl-sm px-4 py-2.5 max-w-[80%] opacity-70"
       accessibilityLabel="Claude is typing"
-      accessibilityRole="text"
+      {...(Platform.OS === "web"
+        ? ({ role: "status", "aria-label": "Claude is typing" } as object)
+        : {})}
     >
       <Text
         className="text-tp-text-secondary italic"

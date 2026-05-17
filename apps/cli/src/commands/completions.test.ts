@@ -28,7 +28,7 @@ describe("tp completions", () => {
       expect(result).toContain("completions");
       expect(result).toContain("version");
       // session subcommands
-      expect(result).toContain("list delete prune");
+      expect(result).toContain("list delete prune cleanup");
       // claude utility subcommands
       expect(result).toContain("auth");
       expect(result).toContain("mcp");
@@ -89,6 +89,27 @@ describe("tp completions", () => {
       );
       expect(result).toContain("-l older-than");
       expect(result).toContain("-l dry-run");
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "fish completions include session cleanup subcommand",
+    () => {
+      const result = capture("bun run apps/cli/src/index.ts completions fish");
+      expect(result).toContain(
+        "__fish_seen_subcommand_from session' -a 'cleanup'",
+      );
+      expect(result).toContain("__fish_seen_subcommand_from cleanup' -l all");
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "zsh completions include session cleanup subcommand",
+    () => {
+      const result = capture("bun run apps/cli/src/index.ts completions zsh");
+      expect(result).toContain("'cleanup'");
     },
     TIMEOUT,
   );

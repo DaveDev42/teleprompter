@@ -116,6 +116,39 @@ describe("tp session", () => {
       });
     }
   });
+
+  test("--help shows cleanup subcommand", () => {
+    const home = mkdtempSync(join(tmpdir(), "tp-session-cleanup-help-"));
+    try {
+      const out = capture(`${CLI} session --help`, { HOME: home });
+      expect(out).toContain("cleanup");
+      expect(out).toContain("interactive");
+    } finally {
+      rmSync(home, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 100,
+      });
+    }
+  });
+
+  test("cleanup on non-TTY rejects with helpful message", () => {
+    const home = mkdtempSync(join(tmpdir(), "tp-session-cleanup-nontty-"));
+    try {
+      // capture() redirects stdio → isTTY === false → should print the
+      // non-TTY error and exit non-zero.
+      const out = capture(`${CLI} session cleanup`, { HOME: home });
+      expect(out).toContain("tp session cleanup is interactive");
+    } finally {
+      rmSync(home, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 100,
+      });
+    }
+  });
 });
 
 describe("tp session list/delete/prune (daemon-less fallback)", () => {

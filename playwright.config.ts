@@ -128,6 +128,7 @@ export default defineConfig({
         "app-rename-modal-dialog-describedby.spec.ts",
         "app-daemons-list-ownership.spec.ts",
         "app-permission-card-alert-atomic.spec.ts",
+        "app-chat-bubble-role.spec.ts",
       ],
     },
     {

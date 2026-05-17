@@ -394,7 +394,10 @@ tp pair rename <id-prefix> <label...>  # 페어링 label 변경 (peer 알림)
 tp pair delete <id> [-y]   # 페어링 삭제 (daemon-id prefix 허용)
 tp session list            # 저장된 세션 목록 (running + stopped, cwd/updated 컬럼)
 tp session delete <sid> [-y]           # 세션 삭제 (sid prefix 허용, running 이면 Runner kill 후 삭제)
-tp session prune [options] # stopped 세션 일괄 삭제
+tp session cleanup [-y] [--all]        # 대화형 multi-select 일괄 삭제 (stopped 세션만, TTY 필수)
+  --all                         # 모든 stopped 세션 미리 선택 (Enter로 확인)
+  -y, --yes                     # 선택 후 confirmation 생략
+tp session prune [options] # stopped 세션 일괄 삭제 (non-interactive)
   --older-than <Nd|Nh|Nm|Ns>   # 나이 컷오프 (기본 7d)
   --all                         # 모든 stopped 세션 (older-than 무시)
   --running                     # running 도 포함 (위험 — 2중 confirmation)

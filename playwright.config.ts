@@ -29,6 +29,7 @@ export default defineConfig({
         "app-session-disconnect-banner.spec.ts",
         "app-pairing-a11y.spec.ts",
         "app-pairing-scan-web.spec.ts",
+        "app-pairing-scan-web-camera.spec.ts",
         "app-font-picker-a11y.spec.ts",
         "app-aria-disabled.spec.ts",
         "app-modal-dialog-aria.spec.ts",

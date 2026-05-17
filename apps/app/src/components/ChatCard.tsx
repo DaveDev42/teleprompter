@@ -684,6 +684,17 @@ function ToolCard({
   const ariaExpandedTool =
     Platform.OS === "web" && isActionable ? { "aria-expanded": expanded } : {};
 
+  // When `isActionable` is false (running tool, or short non-truncatable
+  // result) the Pressable has no accessibilityRole. RN Web emits a
+  // generic <div> in that case, and per ARIA 1.2 §7.1 (Naming
+  // Prohibition) aria-label on a role=generic element is dropped by AT.
+  // The accessibilityLabel "Tool <name>, running/completed" would be
+  // silently invisible — same bug class as BUG-80 for UserCard/
+  // AssistantCard. Apply role="group" on web so the label surfaces.
+  // Actionable cards already have role=button which is sufficient.
+  const ariaGroupTool =
+    Platform.OS === "web" && !isActionable ? { role: "group" as const } : {};
+
   return (
     <Pressable
       onPress={isActionable ? () => setExpanded((v) => !v) : undefined}
@@ -699,6 +710,7 @@ function ToolCard({
           : undefined
       }
       {...(ariaExpandedTool as object)}
+      {...(ariaGroupTool as object)}
     >
       <View className="flex-row items-center justify-between">
         <View className="flex-row items-center flex-1">

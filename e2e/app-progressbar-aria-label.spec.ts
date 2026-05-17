@@ -130,11 +130,7 @@ test.describe("ActivityIndicator progressbar accessible name", () => {
       const ch = fromTag[i];
       if (ch === "{") depth++;
       else if (ch === "}") depth--;
-      else if (
-        ch === "/" &&
-        depth === 0 &&
-        fromTag[i + 1] === ">"
-      ) {
+      else if (ch === "/" && depth === 0 && fromTag[i + 1] === ">") {
         endIdx = i + 1;
         break;
       }
@@ -181,11 +177,7 @@ test.describe("ActivityIndicator progressbar accessible name", () => {
       const ch = fromTag[i];
       if (ch === "{") depth++;
       else if (ch === "}") depth--;
-      else if (
-        ch === "/" &&
-        depth === 0 &&
-        fromTag[i + 1] === ">"
-      ) {
+      else if (ch === "/" && depth === 0 && fromTag[i + 1] === ">") {
         endIdx = i + 1;
         break;
       }

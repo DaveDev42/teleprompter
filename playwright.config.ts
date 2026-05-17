@@ -143,6 +143,7 @@ export default defineConfig({
         "app-chat-bubble-space-activate.spec.ts",
         "app-tool-card-decorative-aria-hidden.spec.ts",
         "app-pairing-input-hint-aria-atomic.spec.ts",
+        "app-system-card-decorative-aria-hidden.spec.ts",
       ],
     },
     {

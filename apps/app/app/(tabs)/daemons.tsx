@@ -226,7 +226,14 @@ export default function DaemonsScreen() {
           // aria-haspopup must only be set when the popup of that type
           // actually appears.
         >
-          <Text className="text-tp-text-on-color text-xl leading-5">+</Text>
+          <Text
+            className="text-tp-text-on-color text-xl leading-5"
+            {...(Platform.OS === "web"
+              ? ({ "aria-hidden": true } as object)
+              : {})}
+          >
+            +
+          </Text>
         </Pressable>
       </View>
 

@@ -9,7 +9,7 @@
 - [ ] Push Notifications 실기기 미검증 — Simulator에서는 push token 생성 불가, 실제 iOS/Android 디바이스에서 E2E 테스트 필요
 - [ ] **N:N 다중 daemon/frontend 회귀** — 1:1 페어링만 실 실행 검증. 2 daemon × 2 frontend, 페어링 4개, frontend가 daemon 사이 스위치 시 독립 E2EE 세션 키 유지 + 한쪽 disconnect가 다른 쪽 영향 안 주는지 Playwright spec으로 확인 필요. (현재 로컬에서 30–45분)
 - [ ] **Linux daemon install** — systemd unit 생성/등록/start 경로는 코드만 검토. Lima/Ubuntu VM에서 `tp daemon install` → `systemctl status` → 재부팅 후 자동 기동까지 직접 확인 필요. (VM 준비 30분 + 검증 30분)
-- [ ] **passthrough claude 서브커맨드 wiring 검증** — `tp auth`, `tp mcp`, `tp install`, `tp update`, `tp agents`, `tp auto-mode`, `tp plugin`, `tp plugins`, `tp setup-token` forwarding 실 실행 확인. exit code, stdout/stderr 통과, daemon 의존성 없는지 확인 필요. (15–20분)
+- [x] **passthrough claude 서브커맨드 wiring 검증** — #438에서 fake `claude` 바이너리 기반 integration test 17건 (9 utility subcommands × argv-verbatim + exit code 0/1/7/42 + "claude not found" 메시지) 추가. `forwardToClaudeCommand`을 `Promise<number>` 반환으로 리팩터링하여 테스트 가능하게 함.
 - [ ] **Long-running 안정성 (1시간 soak)** — daemon 메모리 RSS 추이, 100회 relay reconnect, 100개 frame round-trip latency, WS idle/wake cycle 5회. 자동 측정 스크립트 필요. (1시간 + setup 15분)
 - [ ] **iOS 실기기 검증** — Simulator만 R15까지 검증. push token, audio capture (VoiceButton 구현 후), keychain 실 거동, App Switcher background/foreground 사이클은 실기기에서만 정확함.
 - [ ] **Android 시뮬레이터/실기기 QA** — Web/iOS 위주로만 진행, Android QA round 자체가 없음. 페어링/세션/Chat/Terminal 전체 골든 패스 1회 + 권한 모델 (network, foreground service) 확인 필요.

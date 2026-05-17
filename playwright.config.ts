@@ -162,6 +162,7 @@ export default defineConfig({
         "app-progressbar-aria-label.spec.ts",
         "app-session-header-decorative-aria-hidden.spec.ts",
         "app-add-daemon-glyph-aria-hidden.spec.ts",
+        "app-session-row-status-dot-aria-hidden.spec.ts",
       ],
     },
     {

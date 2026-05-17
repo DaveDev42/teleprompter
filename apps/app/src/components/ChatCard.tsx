@@ -1047,10 +1047,7 @@ function ElicitationCard({ msg }: { msg: ChatMessage }) {
         <View className="mt-2 gap-1">
           {msg.choices.map((choice, i) => (
             <View key={i} className="bg-tp-bg-secondary rounded-lg px-3 py-1.5">
-              <Text
-                className="text-tp-text-primary text-sm"
-                {...ariaHiddenWeb}
-              >
+              <Text className="text-tp-text-primary text-sm" {...ariaHiddenWeb}>
                 {choice}
               </Text>
             </View>

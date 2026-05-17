@@ -131,6 +131,7 @@ export default defineConfig({
         "app-chat-bubble-role.spec.ts",
         "app-add-daemon-haspopup.spec.ts",
         "app-chat-markdown-list-role.spec.ts",
+        "app-tool-card-role.spec.ts",
       ],
     },
     {

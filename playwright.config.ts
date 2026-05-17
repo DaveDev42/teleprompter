@@ -136,6 +136,7 @@ export default defineConfig({
         "app-font-size-initial-focus.spec.ts",
         "app-chat-bubble-keyboard-copy.spec.ts",
         "app-sessions-search-landmark.spec.ts",
+        "app-chat-link-aria-label.spec.ts",
       ],
     },
     {

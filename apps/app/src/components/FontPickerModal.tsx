@@ -389,7 +389,22 @@ export function FontSizeModal({
           accessibilityLabel="Decrease font size"
           accessibilityState={{ disabled: atMin }}
         >
-          <Text className="text-tp-text-primary text-2xl font-bold">−</Text>
+          {/* role=button is not atomic in NVDA browse mode / JAWS reading
+              cursor — the virtual cursor descends into children, so the
+              bare "−" (U+2212 MINUS SIGN) gets announced as "minus sign"
+              after the button's accessible name ("Decrease font size,
+              button, minus sign"). The glyph is purely decorative; the
+              accessibilityLabel already conveys the action. Hide from AT
+              on web. Native AT focuses the Pressable and reads
+              accessibilityLabel directly, so the gate is web-only. */}
+          <Text
+            className="text-tp-text-primary text-2xl font-bold"
+            {...(Platform.OS === "web"
+              ? ({ "aria-hidden": true } as object)
+              : {})}
+          >
+            −
+          </Text>
         </Pressable>
         {/* Wrap the size number in a polite live region so a screen
             reader announces the new value whenever +/- changes it.
@@ -463,7 +478,18 @@ export function FontSizeModal({
           accessibilityLabel="Increase font size"
           accessibilityState={{ disabled: atMax }}
         >
-          <Text className="text-tp-text-primary text-2xl font-bold">+</Text>
+          {/* Same rationale as the Decrease button: "+" (U+002B) is
+              decorative inside a labelled button; NVDA/JAWS browse mode
+              would otherwise announce "Increase font size, button, plus
+              sign". Hide from AT on web only. */}
+          <Text
+            className="text-tp-text-primary text-2xl font-bold"
+            {...(Platform.OS === "web"
+              ? ({ "aria-hidden": true } as object)
+              : {})}
+          >
+            +
+          </Text>
         </Pressable>
       </View>
       <Text className="text-tp-text-tertiary text-xs text-center pb-8">

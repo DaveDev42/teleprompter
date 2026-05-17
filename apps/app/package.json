@@ -29,6 +29,7 @@
     "expo-status-bar": "~55.0.5",
     "expo-updates": "~55.0.21",
     "ghostty-web": "^0.4.0",
+    "jsqr": "1.4.0",
     "nativewind": "^4.1.23",
     "react": "19.2.0",
     "react-dom": "19.2.0",

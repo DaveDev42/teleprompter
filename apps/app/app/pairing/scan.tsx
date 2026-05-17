@@ -40,6 +40,246 @@ if (Platform.OS !== "web") {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Web-only camera QR scan hook
+// ---------------------------------------------------------------------------
+
+type WebScanState =
+  | "requesting"
+  | "active"
+  | "denied"
+  | "unsupported"
+  | "decoded";
+
+// BarcodeDetector is a browser-native API not yet in the standard TypeScript
+// DOM lib. Declare a minimal interface so we can use it without `any` casts
+// everywhere, while still falling through to jsQR on browsers that lack it.
+interface BarcodeDetectorResult {
+  rawValue: string;
+}
+interface BarcodeDetectorLike {
+  detect(source: HTMLVideoElement): Promise<BarcodeDetectorResult[]>;
+}
+interface BarcodeDetectorConstructor {
+  new (opts: { formats: string[] }): BarcodeDetectorLike;
+  getSupportedFormats?(): Promise<string[]>;
+}
+
+/**
+ * Web-only hook that drives the camera → BarcodeDetector / jsQR pipeline.
+ * Returns a ref to attach to the <video> element and the current scan state.
+ *
+ * Detection runs at ~10 fps via `requestAnimationFrame` + a 100 ms cooldown
+ * to avoid burning CPU on a busy tab.
+ *
+ * Priority:
+ *   1. `window.BarcodeDetector` (Chromium ≥83, Edge, Brave)
+ *   2. Dynamic `import("jsqr")` → canvas snapshot (Firefox, Safari)
+ *
+ * All side-effects are confined to `useEffect` and are cleaned up on unmount.
+ * The hook is a no-op when `enabled` is false (native code path).
+ */
+function useWebCameraScan(
+  onDecoded: (data: string) => void,
+  enabled: boolean,
+): {
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  scanState: WebScanState;
+} {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [scanState, setScanState] = useState<WebScanState>("requesting");
+  const streamRef = useRef<MediaStream | null>(null);
+  const rafRef = useRef<number>(0);
+  const lastFrameRef = useRef<number>(0);
+  const mountedRef = useRef(true);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Keep a stable callback ref so the rAF loop never stales over `onDecoded`.
+  const onDecodedRef = useRef(onDecoded);
+  useEffect(() => {
+    onDecodedRef.current = onDecoded;
+  }, [onDecoded]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    mountedRef.current = true;
+
+    // Lazily allocate the hidden canvas used by the jsQR fallback.
+    const canvas = document.createElement("canvas");
+    canvas.style.display = "none";
+    document.body.appendChild(canvas);
+    canvasRef.current = canvas;
+
+    type JsQRFn = (
+      data: Uint8ClampedArray,
+      width: number,
+      height: number,
+    ) => { data: string } | null;
+
+    let detector: BarcodeDetectorLike | null = null;
+    let jsQrFn: JsQRFn | null = null;
+    let setupDone = false;
+
+    // Build the detector once — BarcodeDetector preferred, jsQR fallback.
+    async function setupDetector() {
+      const BD = (window as unknown as Record<string, unknown>)
+        .BarcodeDetector as BarcodeDetectorConstructor | undefined;
+
+      if (BD) {
+        try {
+          // Verify QR support before constructing to avoid silent failures on
+          // browsers that support BarcodeDetector but not qr_code format.
+          const supported: string[] = (await BD.getSupportedFormats?.()) ?? [];
+          if (supported.length === 0 || supported.includes("qr_code")) {
+            detector = new BD({ formats: ["qr_code"] });
+            return;
+          }
+        } catch {
+          // getSupportedFormats may not exist in all implementations.
+          try {
+            detector = new BD({ formats: ["qr_code"] });
+            return;
+          } catch {
+            // Fall through to jsQR.
+          }
+        }
+      }
+
+      // jsQR fallback (Firefox, Safari, older Chromium).
+      try {
+        const mod = await import("jsqr");
+        // Handle both CJS default-export shapes produced by bundlers.
+        const candidate = (mod as { default?: unknown }).default ?? mod;
+        if (typeof candidate === "function") {
+          jsQrFn = candidate as JsQRFn;
+        }
+      } catch {
+        // jsQR unavailable — scanning UI will still appear but decode silently
+        // fails (user is shown the viewfinder but QR won't trigger).
+      }
+    }
+
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+          audio: false,
+        });
+        if (!mountedRef.current) {
+          for (const t of stream.getTracks()) t.stop();
+          return;
+        }
+        streamRef.current = stream;
+        const video = videoRef.current;
+        if (video) {
+          video.srcObject = stream;
+          await video.play().catch(() => {});
+        }
+        await setupDetector();
+        setupDone = true;
+        if (mountedRef.current) {
+          setScanState("active");
+          scheduleFrame();
+        }
+      } catch (err) {
+        if (!mountedRef.current) return;
+        const name = err instanceof Error ? err.name : "";
+        if (
+          name === "NotAllowedError" ||
+          name === "PermissionDeniedError" ||
+          name === "SecurityError"
+        ) {
+          setScanState("denied");
+        } else {
+          setScanState("unsupported");
+        }
+      }
+    }
+
+    function stopStream() {
+      cancelAnimationFrame(rafRef.current);
+      if (streamRef.current) {
+        for (const t of streamRef.current.getTracks()) t.stop();
+      }
+      streamRef.current = null;
+    }
+
+    async function detectFrame() {
+      const video = videoRef.current;
+      if (!video || video.readyState < 2 /* HAVE_CURRENT_DATA */) return;
+
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      if (!w || !h) return;
+
+      let decoded: string | null = null;
+
+      if (detector) {
+        try {
+          const results = await detector.detect(video);
+          if (results.length > 0) decoded = results[0].rawValue;
+        } catch {
+          // Transient errors (video not ready, frame mid-update) — ignore.
+        }
+      } else if (jsQrFn) {
+        const cv = canvasRef.current;
+        if (!cv) return;
+        cv.width = w;
+        cv.height = h;
+        const ctx = cv.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(video, 0, 0, w, h);
+        const imageData = ctx.getImageData(0, 0, w, h);
+        const result = jsQrFn(imageData.data, w, h);
+        if (result) decoded = result.data;
+      }
+
+      if (decoded) {
+        stopStream();
+        setScanState("decoded");
+        onDecodedRef.current(decoded);
+      }
+    }
+
+    function scheduleFrame() {
+      rafRef.current = requestAnimationFrame(async (ts) => {
+        if (!mountedRef.current) return;
+        // Throttle to ~10 fps (100 ms minimum between frames).
+        if (ts - lastFrameRef.current >= 100) {
+          lastFrameRef.current = ts;
+          if (setupDone) await detectFrame();
+        }
+        scheduleFrame();
+      });
+    }
+
+    if (
+      typeof navigator !== "undefined" &&
+      typeof navigator.mediaDevices !== "undefined" &&
+      typeof navigator.mediaDevices.getUserMedia === "function"
+    ) {
+      startCamera();
+    } else {
+      setScanState("unsupported");
+    }
+
+    return () => {
+      mountedRef.current = false;
+      cancelAnimationFrame(rafRef.current);
+      if (streamRef.current) {
+        for (const t of streamRef.current.getTracks()) t.stop();
+      }
+      streamRef.current = null;
+      if (canvasRef.current) {
+        canvasRef.current.remove();
+        canvasRef.current = null;
+      }
+    };
+  }, [enabled]);
+
+  return { videoRef, scanState };
+}
+
 /**
  * QR pairing scan screen.
  *
@@ -53,6 +293,10 @@ if (Platform.OS !== "web") {
  * No camera preview is rendered here — `launchScanner` is a full-screen modal
  * controlled by the OS. We only render fallback UI (permission ask, "scanner
  * unavailable" notice on iOS <16 or unsupported Android, web).
+ *
+ * On web: uses `BarcodeDetector` (Chromium) with jsQR canvas fallback (Firefox /
+ * Safari). Camera permission denial or missing camera shows a "Enter pairing
+ * code manually" CTA that routes to /pairing.
  */
 export default function ScanScreen() {
   const router = useRouter();
@@ -176,53 +420,202 @@ export default function ScanScreen() {
   const goBack = () =>
     router.canGoBack() ? router.back() : router.replace("/(tabs)/");
 
-  // Web fallback: route arrival leaves focus on <body>, so a screen reader
-  // user lands on the page with nothing announced. Move focus to the only
-  // actionable control (Go Back) on mount, deferred via rAF because RN Web
-  // mounts the DOM node asynchronously.
-  const webBackRef = useRef<View>(null);
-  useEffect(() => {
-    if (Platform.OS !== "web") return;
-    const raf = requestAnimationFrame(() => {
-      const el = webBackRef.current as unknown as HTMLElement | null;
-      el?.focus();
-    });
-    return () => cancelAnimationFrame(raf);
-  }, []);
+  // ---------------------------------------------------------------------------
+  // Web camera branch
+  // ---------------------------------------------------------------------------
+
+  // Web-only: handle a decoded QR URL from the camera pipeline, mirroring
+  // the exact success path used by the native handleScanned callback.
+  const handleWebDecoded = useCallback(
+    async (data: string) => {
+      if (handlingRef.current) return;
+      handlingRef.current = true;
+      setScanError(null);
+
+      await processScan(data);
+      if (!mountedRef.current) return;
+      const { state, error } = usePairingStore.getState();
+      if (state === "paired") {
+        router.replace("/");
+        return;
+      }
+      setScanError(error ?? "Could not read pairing data from this QR code.");
+      handlingRef.current = false;
+    },
+    [processScan, router],
+  );
+
+  // Only run the web camera hook on web. Pass enabled=false on native so no
+  // effects fire inside the hook. The hook body is also individually guarded
+  // by `enabled`, so this is belt-and-suspenders.
+  const webScanEnabled = Platform.OS === "web";
+  const { videoRef, scanState } = useWebCameraScan(
+    handleWebDecoded,
+    webScanEnabled,
+  );
+
+  // ---------------------------------------------------------------------------
+  // Web render
+  // ---------------------------------------------------------------------------
 
   if (Platform.OS === "web") {
+    const showFallback = scanState === "denied" || scanState === "unsupported";
+    const showCamera = !showFallback && scanState !== "decoded";
+
+    const fallbackMessage =
+      scanState === "denied"
+        ? "Camera access was denied. You can still pair by entering the pairing code manually."
+        : "Camera is not available in this browser. You can still pair by entering the pairing code manually.";
+
     return (
       <View
         className="flex-1 bg-tp-bg items-center justify-center"
-        // WCAG 2.4.1 Bypass Blocks (Level A): expose the scan-fallback
-        // body as the main landmark so AT users can jump straight to
-        // the "Go Back" button. The tab screens get this via #360;
-        // pairing routes were missed in that pass. This branch only
-        // renders on web (see the if-guard above), so the role prop is
-        // safe to set directly without a Platform.OS spread.
+        // WCAG 2.4.1 Bypass Blocks (Level A): expose the scan screen body as
+        // the main landmark so AT users can jump straight to controls. This
+        // branch only renders on web (see the if-guard above), so the role
+        // prop is safe to set directly without a Platform.OS spread.
         role="main"
       >
-        <Text
-          accessibilityRole="header"
-          {...ariaLevel(1)}
-          className="text-tp-text-secondary"
-        >
-          QR scanning is not available on web.
-        </Text>
-        <Pressable
-          ref={webBackRef}
-          onPress={goBack}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-          tabIndex={pp.tabIndex}
-          className={`mt-4 bg-tp-bg-input px-6 py-2 rounded-lg ${pp.className}`}
-          testID="scan-web-go-back"
-        >
-          <Text className="text-tp-text-primary">Go Back</Text>
-        </Pressable>
+        {showCamera && (
+          <View className="w-full max-w-md px-4" testID="scan-web-viewfinder">
+            {/* Status live region announced while camera is initialising. */}
+            <View
+              testID="scan-web-status"
+              accessibilityLiveRegion="polite"
+              {...(Platform.OS === "web"
+                ? ({ role: "status", "aria-live": "polite" } as object)
+                : {})}
+              className="items-center mb-4"
+            >
+              <Text className="text-tp-text-secondary text-sm text-center">
+                {scanState === "requesting"
+                  ? "Requesting camera access…"
+                  : scanState === "active"
+                    ? "Point the camera at the QR code"
+                    : scanState === "decoded"
+                      ? "QR code detected!"
+                      : ""}
+              </Text>
+            </View>
+
+            {/* Camera viewfinder — rendered as a plain DOM <video> element.
+                React Native Web supports raw HTML intrinsics inside Platform.OS
+                === "web" branches; the element never reaches the native RN
+                renderer because of the early return above. */}
+            <View
+              className="w-full rounded-card overflow-hidden bg-tp-bg-input"
+              style={{ aspectRatio: 1, maxWidth: 400 }}
+            >
+              <video
+                ref={videoRef as React.RefObject<HTMLVideoElement>}
+                autoPlay
+                playsInline
+                muted
+                aria-label="Camera viewfinder for QR scan"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  display: "block",
+                }}
+              />
+            </View>
+
+            {scanError && (
+              <View
+                role="alert"
+                className="mt-4 bg-tp-error/20 border border-tp-error rounded-lg px-4 py-3"
+              >
+                <Text className="text-tp-error text-sm">{scanError}</Text>
+              </View>
+            )}
+
+            <View className="flex-row gap-3 mt-4 justify-center">
+              <Pressable
+                onPress={() => router.push("/pairing")}
+                accessibilityRole="button"
+                accessibilityLabel="Enter pairing code manually"
+                tabIndex={pp.tabIndex}
+                testID="scan-web-manual-fallback"
+                className={`bg-tp-bg-input px-5 py-3 rounded-full border border-tp-border ${pp.className}`}
+              >
+                <Text className="text-tp-text-primary text-sm">
+                  Enter code manually
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={goBack}
+                accessibilityRole="button"
+                accessibilityLabel="Go back"
+                tabIndex={pp.tabIndex}
+                testID="scan-web-go-back"
+                className={`bg-tp-bg-input px-5 py-3 rounded-full border border-tp-border ${pp.className}`}
+              >
+                <Text className="text-tp-text-primary text-sm">Go Back</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {showFallback && (
+          <View className="w-full max-w-md px-6 items-center">
+            <Text
+              accessibilityRole="header"
+              {...ariaLevel(1)}
+              className="text-tp-text-secondary text-lg font-semibold text-center mb-4"
+            >
+              Camera unavailable
+            </Text>
+            <Text
+              testID="scan-web-fallback-message"
+              className="text-tp-text-tertiary text-center text-sm mb-6"
+            >
+              {fallbackMessage}
+            </Text>
+            <Pressable
+              onPress={() => router.push("/pairing")}
+              accessibilityRole="button"
+              accessibilityLabel="Enter pairing code manually"
+              tabIndex={pp.tabIndex}
+              testID="scan-web-manual-fallback"
+              className={`bg-tp-accent px-6 py-3 rounded-full ${pp.className}`}
+            >
+              <Text className="text-tp-text-on-color font-semibold">
+                Enter pairing code manually
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={goBack}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              tabIndex={pp.tabIndex}
+              testID="scan-web-go-back"
+              className={`mt-3 bg-tp-bg-input px-6 py-2 rounded-lg ${pp.className}`}
+            >
+              <Text className="text-tp-text-primary">Go Back</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {scanState === "decoded" && (
+          <View
+            testID="scan-web-processing"
+            accessibilityLiveRegion="polite"
+            {...(Platform.OS === "web"
+              ? ({ role: "status", "aria-live": "polite" } as object)
+              : {})}
+            className="items-center"
+          >
+            <Text className="text-tp-text-secondary">Processing QR code…</Text>
+          </View>
+        )}
       </View>
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Native render (unchanged)
+  // ---------------------------------------------------------------------------
 
   if (!CameraView) {
     return (

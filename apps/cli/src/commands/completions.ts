@@ -41,7 +41,7 @@ const SUBCOMMANDS = [
 // Mirrors the verbs in pairCommand() router in pair.ts. No show/qr/export exist.
 const PAIR_SUBCOMMANDS = ["new", "list", "delete", "rename"];
 // Mirrors the verbs in sessionCommand() router in session.ts.
-const SESSION_SUBCOMMANDS = ["list", "delete", "prune"];
+const SESSION_SUBCOMMANDS = ["list", "delete", "prune", "cleanup"];
 const DAEMON_SUBCOMMANDS = ["start", "status", "install", "uninstall"];
 
 const DAEMON_FLAGS = [
@@ -221,6 +221,8 @@ _tp_completions() {
     COMPREPLY=( $(compgen -W "${SESSION_SUBCOMMANDS.join(" ")}" -- "$cur") )
   elif [ "\${COMP_WORDS[1]}" = "session" ] && [ "\${COMP_WORDS[2]}" = "prune" ] && [ "$COMP_CWORD" -ge 3 ]; then
     COMPREPLY=( $(compgen -W "--older-than --all --running --dry-run --yes" -- "$cur") )
+  elif [ "\${COMP_WORDS[1]}" = "session" ] && [ "\${COMP_WORDS[2]}" = "cleanup" ] && [ "$COMP_CWORD" -ge 3 ]; then
+    COMPREPLY=( $(compgen -W "--all --yes" -- "$cur") )
   fi
 }
 complete -F _tp_completions tp`;
@@ -264,6 +266,8 @@ ${DAEMON_FLAGS.map((f) => `              '${f}[${f.replace(/^--/, "")}]'`).join(
             _values 'session subcommand' ${SESSION_SUBCOMMANDS.map((s) => `'${s}'`).join(" ")}
           elif [ "\${words[2]}" = "prune" ]; then
             _arguments '--older-than[age cutoff (Nd|Nh|Nm|Ns)]' '--all[all stopped]' '--running[include running]' '--dry-run[preview only]' '--yes[skip confirmation]'
+          elif [ "\${words[2]}" = "cleanup" ]; then
+            _arguments '--all[pre-select all stopped]' '--yes[skip confirmation]'
           fi
           ;;
       esac
@@ -302,6 +306,8 @@ function generateFish(): string {
     `complete -c tp -n '__fish_seen_subcommand_from session; and __fish_seen_subcommand_from prune' -l running -d 'also include running'`,
     `complete -c tp -n '__fish_seen_subcommand_from session; and __fish_seen_subcommand_from prune' -l dry-run -d 'preview only'`,
     `complete -c tp -n '__fish_seen_subcommand_from session; and __fish_seen_subcommand_from prune' -l yes -d 'skip confirmation'`,
+    `complete -c tp -n '__fish_seen_subcommand_from session; and __fish_seen_subcommand_from cleanup' -l all -d 'pre-select all stopped sessions'`,
+    `complete -c tp -n '__fish_seen_subcommand_from session; and __fish_seen_subcommand_from cleanup' -l yes -d 'skip confirmation'`,
   ];
   return lines.join("\n");
 }

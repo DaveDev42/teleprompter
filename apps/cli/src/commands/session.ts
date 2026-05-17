@@ -26,6 +26,9 @@ export async function sessionCommand(argv: string[]): Promise<void> {
     case "prune":
       await sessionPrune(argv.slice(1));
       return;
+    case "cleanup":
+      await sessionCleanup(argv.slice(1));
+      return;
     case "--help":
     case "-h":
     case undefined:
@@ -447,6 +450,30 @@ async function sessionPrune(argv: string[]): Promise<void> {
   }
 }
 
+async function sessionCleanup(argv: string[]): Promise<void> {
+  const { values } = parseArgsFriendly(
+    {
+      args: argv,
+      options: {
+        yes: { type: "boolean", short: "y", default: false },
+        all: { type: "boolean", default: false },
+      },
+      allowPositionals: false,
+      strict: true,
+    },
+    "Usage: tp session cleanup [-y] [--all]",
+  );
+
+  const { runSessionCleanup } = await import("./session-cleanup");
+  const code = await runSessionCleanup({
+    yes: Boolean(values.yes),
+    preselectAll: Boolean(values.all),
+  });
+  if (code !== 0) {
+    process.exit(code);
+  }
+}
+
 /**
  * Fallback for a daemon that accepts the request but never sends a reply
  * of the expected shape (e.g. protocol drift, bug). `--all` on a giant store
@@ -515,7 +542,10 @@ tp session — manage stored sessions
 Usage:
   tp session list                                  List sessions (running + stopped)
   tp session delete <sid> [-y]                     Delete a session (prefix match allowed)
-  tp session prune [options]                       Bulk-delete stopped sessions
+  tp session cleanup [-y] [--all]                  Interactive multi-select bulk delete (stopped only)
+    -y, --yes                    Skip confirmation after selection
+    --all                        Pre-select all stopped sessions
+  tp session prune [options]                       Non-interactive bulk-delete stopped sessions
     --older-than <Nd|Nh|Nm|Ns>   Age cutoff (default: 7d)
     --all                        Delete every stopped session (overrides --older-than)
     ${yellow("--running")}                    Also kill & delete running sessions (${yellow("dangerous")})
@@ -525,5 +555,6 @@ Usage:
 Notes:
   Runs against a running daemon when available (kills Runners cleanly).
   Falls back to a direct store write when no daemon is up.
+  'tp session cleanup' requires a TTY; use 'tp session prune' in scripts.
 `);
 }

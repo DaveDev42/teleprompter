@@ -161,6 +161,7 @@ export default defineConfig({
         "app-edit-diff-prefix-glyph-aria-hidden.spec.ts",
         "app-progressbar-aria-label.spec.ts",
         "app-session-header-decorative-aria-hidden.spec.ts",
+        "app-add-daemon-glyph-aria-hidden.spec.ts",
       ],
     },
     {

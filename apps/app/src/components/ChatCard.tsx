@@ -1014,23 +1014,45 @@ function ElicitationCard({ msg }: { msg: ChatMessage }) {
   // waiting on user input would get queued behind in-flight speech and
   // the user might miss it entirely. PermissionCard correctly uses
   // assertive; this card matches that intent now.
+  //
+  // role=alert is NOT atomic for virtual-cursor traversal in NVDA browse
+  // mode / JAWS reading cursor — after the parent's accessibilityLabel
+  // ("Input requested: …") fires, the virtual cursor descends into each
+  // child <Text> and re-announces "Input Requested", the body text, and
+  // every choice tile. Native AT focuses the parent View and reads
+  // accessibilityLabel directly without descending, so the gate is
+  // web-only. Same precedent as SystemCard (PR #404). WCAG 1.1.1 + 1.3.1.
+  const ariaHiddenWeb =
+    Platform.OS === "web" ? ({ "aria-hidden": true } as object) : {};
   return (
     <View
       className="self-start bg-tp-surface border border-tp-accent rounded-card px-4 py-3 max-w-[85%]"
       accessibilityRole="alert"
       accessibilityLabel={`Input requested: ${msg.text}`}
     >
-      <Text className="text-tp-accent text-xs font-bold mb-1">
+      <Text
+        className="text-tp-accent text-xs font-bold mb-1"
+        {...ariaHiddenWeb}
+      >
         Input Requested
       </Text>
-      <Text className="text-tp-text-primary text-sm" selectable>
+      <Text
+        className="text-tp-text-primary text-sm"
+        selectable
+        {...ariaHiddenWeb}
+      >
         {msg.text}
       </Text>
       {msg.choices && msg.choices.length > 0 && (
         <View className="mt-2 gap-1">
           {msg.choices.map((choice, i) => (
             <View key={i} className="bg-tp-bg-secondary rounded-lg px-3 py-1.5">
-              <Text className="text-tp-text-primary text-sm">{choice}</Text>
+              <Text
+                className="text-tp-text-primary text-sm"
+                {...ariaHiddenWeb}
+              >
+                {choice}
+              </Text>
             </View>
           ))}
         </View>
@@ -1048,23 +1070,43 @@ function PermissionCard({ msg }: { msg: ChatMessage }) {
   // mutated text portion instead of the full "Permission required: …"
   // label. Match SystemCard/ElicitationCard: lean on the implicit
   // properties of role=alert.
+  //
+  // role=alert is NOT atomic for virtual-cursor traversal in NVDA browse
+  // mode / JAWS reading cursor — after the parent's accessibilityLabel
+  // ("Permission required: …, tool: …") fires, the virtual cursor descends
+  // into each child <Text> and re-announces "Permission Required", the
+  // body text, the tool name, and the JSON-stringified toolInput. Native
+  // AT focuses the parent View and reads accessibilityLabel directly
+  // without descending, so the gate is web-only. Same precedent as
+  // SystemCard (PR #404). WCAG 1.1.1 + 1.3.1.
+  const ariaHiddenWeb =
+    Platform.OS === "web" ? ({ "aria-hidden": true } as object) : {};
   return (
     <View
       className="self-start bg-tp-surface border border-tp-warning rounded-card px-4 py-3 max-w-[85%]"
       accessibilityRole="alert"
       accessibilityLabel={`Permission required: ${msg.text}${msg.permissionTool ? `, tool: ${msg.permissionTool}` : ""}`}
     >
-      <Text className="text-tp-warning text-xs font-bold mb-1">
+      <Text
+        className="text-tp-warning text-xs font-bold mb-1"
+        {...ariaHiddenWeb}
+      >
         Permission Required
       </Text>
-      <Text className="text-tp-text-primary text-sm">{msg.text}</Text>
+      <Text className="text-tp-text-primary text-sm" {...ariaHiddenWeb}>
+        {msg.text}
+      </Text>
       {msg.permissionTool && (
-        <Text className="text-tp-warning text-xs mt-1">
+        <Text className="text-tp-warning text-xs mt-1" {...ariaHiddenWeb}>
           {msg.permissionTool}
         </Text>
       )}
       {msg.toolInput != null && (
-        <Text className="text-tp-text-tertiary text-xs mt-1" numberOfLines={3}>
+        <Text
+          className="text-tp-text-tertiary text-xs mt-1"
+          numberOfLines={3}
+          {...ariaHiddenWeb}
+        >
           {typeof msg.toolInput === "string"
             ? msg.toolInput
             : JSON.stringify(msg.toolInput, null, 2)}

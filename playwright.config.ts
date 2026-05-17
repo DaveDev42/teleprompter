@@ -146,6 +146,7 @@ export default defineConfig({
         "app-system-card-decorative-aria-hidden.spec.ts",
         "app-toast-dismiss-glyph-aria-hidden.spec.ts",
         "app-chat-log-aria-live.spec.ts",
+        "app-chat-markdown-list-marker-aria-hidden.spec.ts",
       ],
     },
     {

@@ -86,7 +86,7 @@ test.describe("ToolCard role surfaces aria-label on web", () => {
           document.querySelectorAll("[aria-label]"),
         )) {
           const label = el.getAttribute("aria-label");
-          if (!label || !label.startsWith("Tool ")) continue;
+          if (!label?.startsWith("Tool ")) continue;
           const role = el.getAttribute("role");
           if (!role || role === "" || role === "generic") {
             result.push({ label, role });

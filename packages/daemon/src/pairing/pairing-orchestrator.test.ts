@@ -422,6 +422,7 @@ describe("PairingOrchestrator", () => {
     if (!pending) throw new Error("expected pending pairing");
     pending.__markCompleted("frontend-x");
     const result = await orch.awaitPending();
+    if (!result) throw new Error("expected result");
     if (result.kind !== "completed") throw new Error("expected completed");
     orch.promote(result);
 

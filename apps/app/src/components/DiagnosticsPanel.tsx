@@ -114,7 +114,10 @@ export function DiagnosticsPanel() {
     }
   };
 
+  const cryptoRunningRef = useRef(false);
   const handleCryptoTest = useCallback(async () => {
+    if (cryptoRunningRef.current) return;
+    cryptoRunningRef.current = true;
     setCryptoTest({ running: true });
     const result: typeof cryptoTest = { running: false };
 
@@ -140,6 +143,7 @@ export function DiagnosticsPanel() {
       }
 
       if (!result.sodiumInit.ok) {
+        cryptoRunningRef.current = false;
         setCryptoTest(result);
         return;
       }
@@ -150,6 +154,7 @@ export function DiagnosticsPanel() {
       } catch {
         result.keyGen = { ok: false, ms: 0 };
         result.encDec = { ok: false, ms: 0 };
+        cryptoRunningRef.current = false;
         setCryptoTest(result);
         return;
       }
@@ -182,6 +187,8 @@ export function DiagnosticsPanel() {
       result.sodiumInit ??= { ok: false, ms: 0 };
       result.keyGen ??= { ok: false, ms: 0 };
       result.encDec ??= { ok: false, ms: 0 };
+    } finally {
+      cryptoRunningRef.current = false;
     }
 
     setCryptoTest(result);
@@ -227,6 +234,19 @@ export function DiagnosticsPanel() {
       cryptoAnnouncementRef.current as unknown as HTMLElement | null
     )?.setAttribute("aria-atomic", "true");
   }, []);
+  // Mirror running state to aria-disabled on web. RN Web's Pressable
+  // emits the native HTML `disabled` attribute when `disabled` is set,
+  // which strips the button from Tab order. Keep the button focusable
+  // while the self-test runs so keyboard users can still discover it
+  // and announce inertness via aria-disabled. WCAG 2.1.1 (Keyboard).
+  const cryptoButtonRef = useRef<View>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const el = cryptoButtonRef.current as unknown as HTMLElement | null;
+    if (!el) return;
+    if (cryptoTest.running) el.setAttribute("aria-disabled", "true");
+    else el.removeAttribute("aria-disabled");
+  }, [cryptoTest.running]);
   const runningSessions = sessions.filter((s) => s.state === "running").length;
   const stoppedSessions = sessions.filter((s) => s.state === "stopped").length;
   const errorSessions = sessions.filter((s) => s.state === "error").length;
@@ -360,8 +380,8 @@ export function DiagnosticsPanel() {
         </View>
         <View className="flex-row justify-end py-1">
           <Pressable
+            ref={cryptoButtonRef}
             onPress={handleCryptoTest}
-            disabled={cryptoTest.running}
             className={`border border-tp-border bg-tp-bg-elevated px-3 py-1.5 rounded-btn ${
               cryptoTest.running ? "opacity-50" : ""
             } ${pp.className}`}

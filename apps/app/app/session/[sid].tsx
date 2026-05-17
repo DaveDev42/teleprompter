@@ -1050,11 +1050,19 @@ export default function SessionDetailScreen() {
           <Text
             className="text-tp-text-primary text-[15px] font-semibold"
             numberOfLines={1}
+            {...(Platform.OS === "web"
+              ? ({ "aria-hidden": true } as object)
+              : {})}
           >
             {displayName}
           </Text>
           {isRunning && (
-            <View className="w-1.5 h-1.5 rounded-full bg-tp-success ml-1.5" />
+            <View
+              className="w-1.5 h-1.5 rounded-full bg-tp-success ml-1.5"
+              {...(Platform.OS === "web"
+                ? ({ "aria-hidden": true } as object)
+                : {})}
+            />
           )}
         </View>
         {/* Spacer to balance the back button */}

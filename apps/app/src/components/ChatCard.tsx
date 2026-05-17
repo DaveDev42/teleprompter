@@ -930,6 +930,16 @@ function SystemCard({ msg }: { msg: ChatMessage }) {
           isError ? "text-tp-error font-medium" : "text-tp-text-tertiary"
         }`}
         selectable
+        // role=alert on the parent View already names the bubble via
+        // accessibilityLabel="Error: ${msg.text}", but role=alert is NOT
+        // atomic for virtual-cursor traversal — NVDA/JAWS can still descend
+        // into this child Text and announce "warning sign" before the
+        // message body, doubling the announcement after the alert label has
+        // already played. Hide the child from AT on web for the error case.
+        // Native AT reads the parent alert and does not descend. WCAG 1.1.1.
+        {...(Platform.OS === "web" && isError
+          ? ({ "aria-hidden": true } as object)
+          : {})}
       >
         {isError ? `⚠ ${msg.text}` : msg.text}
       </Text>

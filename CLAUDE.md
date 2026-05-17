@@ -162,6 +162,28 @@ Tier 1-4 분류 및 전체 test 파일 인벤토리는 `.claude/rules/testing-in
 1. Chat UI / Terminal UI 의 모든 변경이 매일 우리 자신의 워크플로우로 검증된다 (진짜 dogfood).
 2. UI 회귀를 e2e 테스트가 잡기 전에 사람 눈으로 먼저 마주친다.
 
+### 로컬 `tp` 바이너리 + daemon 항상 최신 (자동 룰)
+
+사용자가 언제든지 최신 작업본을 직접 만져볼 수 있어야 한다 — 즉 **main에 머지된 내 변경은 즉시 사용자의 로컬 `tp`/daemon 에 반영되어 있어야 한다.** Claude (이 agent) 는 다음 시점마다 **묻지 말고** 자동으로 로컬 바이너리 + daemon 을 재빌드/재설치한다:
+
+1. **PR squash merge 직후** — `apps/cli/**`, `packages/daemon/**`, `packages/runner/**`, `packages/protocol/**`, `packages/relay/**` 중 어느 하나라도 건드린 PR 이 머지되면:
+   ```bash
+   pnpm build:cli:local                           # 현재 OS/arch 바이너리만 (multi-platform 안 함)
+   sudo install -m 0755 apps/cli/dist/tp /usr/local/bin/tp   # PATH 의 tp 갱신
+   tp daemon install                              # 서비스 재등록 (이미 등록돼 있으면 idempotent)
+   # macOS launchd / Linux systemd 가 새 바이너리로 daemon 을 자동 재기동
+   ```
+2. **로컬 dev 세션을 시작할 때** (main 위에서 코드 만지기 시작하는 시점) — 위 시퀀스를 한 번 돌려서 PATH 의 `tp` 와 가동 중인 daemon 이 `origin/main` 최신 commit 으로 맞춰져 있는지 확인.
+3. **사용자가 명시적으로 "최신으로 깔아줘" / "tp 업데이트해줘" 라고 말할 때** — 추가 확인 없이 위 시퀀스 실행.
+
+세부 규칙:
+
+- **재빌드는 `build:cli:local` 만 쓴다.** `build:cli` (`--all`) 는 4개 플랫폼 cross-compile 이라 느리고 로컬에서는 의미 없다.
+- **PATH 의 `tp` 위치는 `which tp` 로 먼저 확인** — Homebrew (`/opt/homebrew/bin/tp`), curl-installer (`~/.local/bin/tp`), 또는 위 예시처럼 `/usr/local/bin/tp` 셋 중 하나. 잘못된 경로에 install 하면 사용자가 만지는 `tp` 는 옛날 바이너리 그대로 남는다.
+- **daemon 재기동은 `tp daemon install` 한 번이면 충분.** launchd/systemd unit 이 새 바이너리 경로를 가리키도록 idempotent 하게 재등록하고 자동 restart. `pkill tp-daemon` 후 수동 재시작 같은 동작은 금지 (서비스 등록 안 된 일회성 프로세스로 살아남아서 OTA 안 됨).
+- **daemon 재기동 후 검증**: `tp version` 으로 새 commit hash / version 이 찍히는지 확인. 안 찍히면 PATH 의 다른 `tp` 가 우선순위에 있다는 신호.
+- **이 룰의 목표는 사용자의 "즉시 만져보기" 사이클을 0초로 만드는 것** — 사용자가 PR 머지 후에 "어디서 어떻게 깔지" 를 고민하게 두면 dogfood 가 망가진다. 의심스러우면 그냥 위 시퀀스를 한 번 더 돌려라 (idempotent).
+
 ### 라이브 디버그 워크플로우 (권장)
 
 로컬 web dev + 로컬 daemon 조합. Relay 는 production `wss://relay.tpmt.dev` 를 그대로 쓴다 (자체 호스팅보다 회귀 표면이 작다).

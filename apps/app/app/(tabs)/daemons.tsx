@@ -222,22 +222,55 @@ export default function DaemonsScreen() {
       </View>
 
       {pairingList.length > 0 ? (
-        <ScrollView>
-          {pairingList.map((info) => (
-            <DaemonCard
-              key={info.daemonId}
-              info={info}
-              onRename={setRenameTarget}
-              onUnpair={(target) => {
-                setUnpairDisplayName(
-                  target.label?.trim() || target.daemonId.slice(0, 8),
-                );
-                setUnpairTarget(target);
-              }}
-              onViewSessions={() => router.push("/(tabs)/")}
-            />
-          ))}
-        </ScrollView>
+        // ARIA 1.2 §5.3 + WCAG 1.3.1 (Level A): the daemon cards form a
+        // collection, so wrap them in role="list" with role="listitem"
+        // children. Without this, NVDA/VoiceOver announce each card in
+        // isolation with no "list of N items" context, and Firefox/Safari
+        // skip the cards entirely under list-navigation shortcuts.
+        // Matches the sessions list ownership pattern in
+        // `app/(tabs)/index.tsx` — on web we emit raw `role` attrs because
+        // RN's `AccessibilityRole` union doesn't include "listitem".
+        Platform.OS === "web" ? (
+          <ScrollView>
+            <View role="list" aria-label="Connected daemons">
+              {pairingList.map((info) => (
+                <View key={info.daemonId} role="listitem">
+                  <DaemonCard
+                    info={info}
+                    onRename={setRenameTarget}
+                    onUnpair={(target) => {
+                      setUnpairDisplayName(
+                        target.label?.trim() || target.daemonId.slice(0, 8),
+                      );
+                      setUnpairTarget(target);
+                    }}
+                    onViewSessions={() => router.push("/(tabs)/")}
+                  />
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+        ) : (
+          <ScrollView
+            accessibilityRole="list"
+            accessibilityLabel="Connected daemons"
+          >
+            {pairingList.map((info) => (
+              <DaemonCard
+                key={info.daemonId}
+                info={info}
+                onRename={setRenameTarget}
+                onUnpair={(target) => {
+                  setUnpairDisplayName(
+                    target.label?.trim() || target.daemonId.slice(0, 8),
+                  );
+                  setUnpairTarget(target);
+                }}
+                onViewSessions={() => router.push("/(tabs)/")}
+              />
+            ))}
+          </ScrollView>
+        )
       ) : (
         <View className="flex-1 items-center justify-center px-8">
           <View className="w-full max-w-sm items-center">

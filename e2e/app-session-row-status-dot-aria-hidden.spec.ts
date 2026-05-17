@@ -83,9 +83,10 @@ test("SessionRow status dot, active bar, divider Views all spread web-only aria-
         break;
       }
     }
-    expect(endIdx, `<View /> self-close for marker "${marker}"`).toBeGreaterThan(
-      -1,
-    );
+    expect(
+      endIdx,
+      `<View /> self-close for marker "${marker}"`,
+    ).toBeGreaterThan(-1);
     const openTag = fromView.slice(0, endIdx + 1);
 
     expect(

@@ -265,6 +265,12 @@ export function FontSizeModal({
   const decRef = useRef<View>(null);
   const incRef = useRef<View>(null);
   const sizeRef = useRef<View>(null);
+  // Spinbutton widget ref for ModalContainer's initialFocusRef. Without
+  // this, the fallback heuristic picks the first focusable element in
+  // DOM order — the "Done" header button — and a keyboard user has to
+  // Shift+Tab back before they can adjust the size. APG Dialog §3.2.1
+  // says focus should land on the primary interactive control.
+  const spinbuttonRef = useRef<View>(null);
   useEffect(() => {
     if (Platform.OS !== "web") return;
     if (!visible) return;
@@ -299,6 +305,15 @@ export function FontSizeModal({
       onClose={onClose}
       accessibilityLabel="Font Size"
       accessibilityLabelledBy="font-size-modal-title"
+      // Without this, ModalContainer's fallback heuristic walks the
+      // focusable list and picks INPUT/TEXTAREA-or-first. The spinbutton
+      // is a <div role="spinbutton" tabindex="0">, not an INPUT/TEXTAREA,
+      // so the "Done" header button (first focusable in DOM order)
+      // wins. APG Dialog §3.2.1: focus should land on the primary
+      // interactive control, so a keyboard user can press ArrowUp/Down
+      // immediately. FontPickerModal already passes initialFocusRef for
+      // the same reason; FontSizeModal had been overlooked.
+      initialFocusRef={spinbuttonRef}
     >
       <View className="flex-row items-center justify-between px-5 pt-5 pb-3">
         <Text
@@ -327,6 +342,7 @@ export function FontSizeModal({
           it focusable for keyboard use, and ArrowUp/Down/Home/End handle
           the canonical APG spinbutton interactions. */}
       <View
+        ref={spinbuttonRef}
         className="flex-row items-center justify-center gap-8 py-8 pb-12"
         {...(Platform.OS === "web"
           ? ({

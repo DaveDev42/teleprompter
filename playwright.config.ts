@@ -138,6 +138,7 @@ export default defineConfig({
         "app-sessions-search-landmark.spec.ts",
         "app-chat-link-aria-label.spec.ts",
         "app-voice-live-region-role-status.spec.ts",
+        "app-session-row-aria-current.spec.ts",
       ],
     },
     {

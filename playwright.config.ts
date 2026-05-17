@@ -3,7 +3,10 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
-  workers: 1,
+  // CI parallelizes across files (2 workers fits comfortably in GitHub's
+  // 4-vCPU `ubuntu-latest` runner). Default for local stays at 1 to keep
+  // failure traces deterministic during interactive debugging.
+  workers: process.env.CI ? 2 : 1,
   use: {
     baseURL: "http://localhost:8081",
     headless: true,

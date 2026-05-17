@@ -126,6 +126,17 @@ function InlineText({
                         target: "_blank",
                         rel: "noopener noreferrer",
                       },
+                      // `<a href>` already carries implicit role="link". A
+                      // prop-level aria-label="Link: foo" causes NVDA/JAWS
+                      // to announce "Link: foo, link" — the role name is
+                      // duplicated (WCAG 2.4.6). Let the visible link
+                      // text be the accessible name. `title` is in RN
+                      // Web's allowed DOM attr list, so it round-trips
+                      // to the <a>, giving sighted users a hover preview
+                      // and AT users a programmatic description of the
+                      // destination URL (replaces the dropped
+                      // accessibilityHint).
+                      title: seg.href,
                     }
                   : {
                       onPress: () => {
@@ -137,10 +148,14 @@ function InlineText({
                           // http/https/mailto.
                         });
                       },
+                      // Native AT (VoiceOver/TalkBack) doesn't infer link
+                      // role/URL from an onPress, so keep the explicit
+                      // label+hint here. accessibilityRole="link" is
+                      // applied below for both branches.
+                      accessibilityLabel: `Link: ${seg.s}`,
+                      accessibilityHint: `Opens ${seg.href}`,
                     })}
                 accessibilityRole="link"
-                accessibilityLabel={`Link: ${seg.s}`}
-                accessibilityHint={`Opens ${seg.href}`}
               >
                 {seg.s}
               </Text>

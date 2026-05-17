@@ -155,6 +155,7 @@ export default defineConfig({
         "app-diagnostics-selftest-no-native-disabled.spec.ts",
         "app-font-picker-checkmark-aria-hidden.spec.ts",
         "app-voice-button-glyph-aria-hidden.spec.ts",
+        "app-permission-elicitation-card-aria-hidden.spec.ts",
       ],
     },
     {

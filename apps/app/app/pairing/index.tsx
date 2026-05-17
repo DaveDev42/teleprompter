@@ -246,7 +246,18 @@ export default function PairingScreen() {
           // hint when the user typed something we can't decode. RN Web
           // emits aria-invalid only from a direct prop, and aria-describedby
           // has no RN equivalent, so spread on web only.
-          {...(Platform.OS === "web" && error
+          //
+          // Gate the async-error branch on `manualInput.trim().length > 0`
+          // and `!preview`: the Zustand `error` field is only cleared on
+          // the next `processScan` attempt, so without this gate a failed
+          // Connect leaves `aria-invalid=true` on the field even after the
+          // user clears the textarea or types a now-valid URL. WCAG 4.1.2
+          // (Name Role Value) — the field's invalid state must reflect its
+          // current content, not a historical async failure.
+          {...(Platform.OS === "web" &&
+          error &&
+          manualInput.trim().length > 0 &&
+          !preview
             ? {
                 // aria-errormessage (WAI-ARIA 1.2 §6.6.5) is the standards-
                 // track pointer from an invalid field to its error message,

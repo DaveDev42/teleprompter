@@ -153,6 +153,7 @@ export default defineConfig({
         "app-session-row-chevron-aria-hidden.spec.ts",
         "app-chat-send-glyph-aria-hidden.spec.ts",
         "app-diagnostics-selftest-no-native-disabled.spec.ts",
+        "app-font-picker-checkmark-aria-hidden.spec.ts",
       ],
     },
     {

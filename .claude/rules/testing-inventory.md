@@ -115,6 +115,8 @@ Stub 프로세스로 전체 파이프라인 검증.
   - `e2e/app-pairing-scan-web.spec.ts` — /pairing/scan web fallback "Go Back" button has role=button + aria-label and is keyboard-reachable
   - `e2e/app-font-picker-a11y.spec.ts` — FontPickerModal items expose aria-selected on web (RN Web doesn't translate accessibilityState.selected)
   - `e2e/app-aria-disabled.spec.ts` — FontSizeModal boundary buttons expose aria-disabled on web (RN Web doesn't translate accessibilityState.disabled)
+  - `e2e/app-sessions-bulk-delete.spec.ts` — Sessions bulk-delete functional flow (edit mode, checkboxes, confirm modal, delete removes rows)
+  - `e2e/app-sessions-bulk-delete-a11y.spec.ts` — Sessions bulk-delete a11y (Edit/Cancel/Delete aria attributes, checkbox role, live region mount)
   - `e2e/app-relay-e2e.spec.ts` — full relay pipeline (pair → relay → daemon → E2EE) (local only)
   - `e2e/app-roundtrip.spec.ts` — input/output roundtrip (local only)
   - `e2e/app-real-e2e.spec.ts` — real Claude PTY E2E (local only)

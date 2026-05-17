@@ -53,6 +53,7 @@ export function InAppToast() {
   return (
     <View
       ref={liveRegionRef}
+      testID="toast-live-region"
       accessibilityLiveRegion="polite"
       {...((Platform.OS === "web"
         ? { role: "status", "aria-live": "polite" }

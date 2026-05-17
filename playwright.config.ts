@@ -169,6 +169,8 @@ export default defineConfig({
         "app-pairing-aria-invalid-recovery.spec.ts",
         "app-session-row-time-accessible-name.spec.ts",
         "app-update-status-dot-aria-hidden.spec.ts",
+        "app-sessions-bulk-delete.spec.ts",
+        "app-sessions-bulk-delete-a11y.spec.ts",
       ],
     },
     {

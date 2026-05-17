@@ -147,7 +147,21 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
         }}
         {...(ariaBusyMic as object)}
       >
-        <Text className="text-tp-text-on-color text-sm">
+        {/* The mic button's accessible name is set on the parent
+            Pressable via accessibilityLabel. role=button is NOT atomic
+            in NVDA browse mode / JAWS reading cursor — the virtual
+            cursor descends into children, so the bare "■" (U+25A0
+            BLACK SQUARE, in active state) or "Mic" text would be
+            announced after the button's accessible name. Hide both
+            from web AT to keep the announcement clean. Native AT
+            focuses the parent Pressable and reads accessibilityLabel
+            directly, so the gate is web-only. WCAG 1.1.1 + 2.5.3. */}
+        <Text
+          className="text-tp-text-on-color text-sm"
+          {...(Platform.OS === "web"
+            ? ({ "aria-hidden": true } as object)
+            : {})}
+        >
           {isActive ? "■" : "Mic"}
         </Text>
       </Pressable>

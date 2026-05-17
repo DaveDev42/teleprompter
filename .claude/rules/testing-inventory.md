@@ -70,6 +70,10 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `apps/cli/src/lib/shell-detect.test.ts` — `$SHELL` 기반 POSIX 쉘 감지
 - `apps/cli/src/lib/spinner.test.ts` — spinner start/stop 라이프사이클
 - `apps/cli/src/lib/service.test.ts` — OS service plist/unit generation
+- `apps/cli/src/components/ink/yes-no-prompt.test.tsx` — YesNoPrompt rendering (question text, [Y/n]/[y/N] hints), key handling (y/Y/n/N/Enter/Escape), promptYesNo non-TTY + aborted signal short-circuit
+- `apps/cli/src/components/ink/text-prompt.test.tsx` — TextPrompt rendering (question, placeholder), typing/submit/cancel, validation error + error-clears-on-keystroke, promptText non-TTY + aborted signal short-circuit
+- `apps/cli/src/components/ink/spinner.test.tsx` — Spinner renders message, animates over time (multi-frame), hidden when non-TTY, accepts all frame types
+- `apps/cli/src/components/ink/key-handler.test.tsx` — single binding fires, unbound key ignored, multiple bindings fire independently, ctrl+c binding, space binding, children rendered
 - `packages/protocol/src/compat.test.ts` — protocol version compatibility
 - `packages/runner/src/pty/pty-manager.test.ts` — PTY spawn, resize, lifecycle
 

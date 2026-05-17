@@ -28,7 +28,9 @@
   },
   "pnpm": {
     "overrides": {
-      "@expo/dom-webview": "55.0.5"
+      "@expo/dom-webview": "55.0.5",
+      "react": "19.2.6",
+      "react-dom": "19.0.0"
     }
   },
   "devDependencies": {

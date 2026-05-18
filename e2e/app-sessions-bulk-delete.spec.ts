@@ -105,7 +105,9 @@ test.describe("Sessions bulk delete", () => {
     await page.getByTestId("sessions-edit-button").click();
 
     // Two stopped sessions → two checkbox elements.
-    const checkboxes = page.locator('[role="checkbox"]');
+    const checkboxes = page.locator(
+      `[role="checkbox"]:not([data-testid="sessions-select-all"])`,
+    );
     await expect(checkboxes).toHaveCount(2);
   });
 
@@ -117,7 +119,9 @@ test.describe("Sessions bulk delete", () => {
 
     await page.getByTestId("sessions-edit-button").click();
 
-    const checkboxes = page.locator('[role="checkbox"]');
+    const checkboxes = page.locator(
+      `[role="checkbox"]:not([data-testid="sessions-select-all"])`,
+    );
     const first = checkboxes.first();
 
     // Initially unchecked.
@@ -150,7 +154,9 @@ test.describe("Sessions bulk delete", () => {
 
     await page.getByTestId("sessions-edit-button").click();
 
-    const checkboxes = page.locator('[role="checkbox"]');
+    const checkboxes = page.locator(
+      `[role="checkbox"]:not([data-testid="sessions-select-all"])`,
+    );
     await checkboxes.nth(0).click();
     await checkboxes.nth(1).click();
 
@@ -166,7 +172,9 @@ test.describe("Sessions bulk delete", () => {
 
     await page.getByTestId("sessions-edit-button").click();
 
-    const checkboxes = page.locator('[role="checkbox"]');
+    const checkboxes = page.locator(
+      `[role="checkbox"]:not([data-testid="sessions-select-all"])`,
+    );
     await checkboxes.nth(0).click();
     await checkboxes.nth(1).click();
 
@@ -189,7 +197,9 @@ test.describe("Sessions bulk delete", () => {
 
     await page.getByTestId("sessions-edit-button").click();
 
-    const checkboxes = page.locator('[role="checkbox"]');
+    const checkboxes = page.locator(
+      `[role="checkbox"]:not([data-testid="sessions-select-all"])`,
+    );
     await checkboxes.nth(0).click();
 
     await page.getByTestId("sessions-edit-delete").click();
@@ -213,7 +223,9 @@ test.describe("Sessions bulk delete", () => {
 
     await page.getByTestId("sessions-edit-button").click();
 
-    const checkboxes = page.locator('[role="checkbox"]');
+    const checkboxes = page.locator(
+      `[role="checkbox"]:not([data-testid="sessions-select-all"])`,
+    );
     await checkboxes.nth(0).click();
     await checkboxes.nth(1).click();
 

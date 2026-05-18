@@ -26,6 +26,7 @@ import {
 } from "../../src/lib/session-ux";
 import type { TerminalSearch } from "../../src/lib/terminal-search";
 import { TERMINAL_COLORS } from "../../src/lib/tokens";
+import { encodeUtf8Base64 } from "../../src/lib/utf8-base64";
 import {
   addOptimisticUserMessage,
   type ChatMessage,
@@ -877,7 +878,8 @@ function TerminalView({ sid, stopped }: { sid: string; stopped: boolean }) {
       if (stopped) return;
       const client = getTransport();
       if (!sid || !client) return;
-      client.sendTermInput(sid, btoa(data));
+      // btoa() throws on multi-byte UTF-8 (Korean, emoji, …); encode via bytes.
+      client.sendTermInput(sid, encodeUtf8Base64(data));
     },
     [sid, stopped],
   );

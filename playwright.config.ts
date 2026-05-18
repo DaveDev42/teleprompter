@@ -174,6 +174,7 @@ export default defineConfig({
         "app-sessions-bulk-delete.spec.ts",
         "app-sessions-bulk-delete-a11y.spec.ts",
         "app-theme-fouc.spec.ts",
+        "app-sessions-empty-hint.spec.ts",
       ],
     },
     {

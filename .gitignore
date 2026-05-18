@@ -40,6 +40,7 @@ test-results/
 .claude/settings.local.json
 .claude.local.md
 .claude/scheduled_tasks.lock
+.claude/worktrees/
 
 # Typo variant of .claude/ — stale local directory, not tracked
 .claire/

@@ -299,8 +299,8 @@ export function DiagnosticsPanel() {
             width: 1,
             height: 1,
             overflow: "hidden",
+            pointerEvents: "none",
           }}
-          pointerEvents="none"
         >
           <Text className="text-tp-text-primary">{rttAnnouncement}</Text>
         </View>
@@ -373,8 +373,8 @@ export function DiagnosticsPanel() {
             width: 1,
             height: 1,
             overflow: "hidden",
+            pointerEvents: "none",
           }}
-          pointerEvents="none"
         >
           <Text className="text-tp-text-primary">{cryptoAnnouncement}</Text>
         </View>

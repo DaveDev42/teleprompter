@@ -96,6 +96,8 @@ export interface PairingStore {
   load: () => Promise<void>;
   /** Process a scanned QR code string (adds to pairings) */
   processScan: (qrData: string) => Promise<void>;
+  /** Clear the most recent processScan error (e.g. when the user edits input). */
+  clearError: () => void;
   /** Remove a pairing */
   removePairing: (daemonId: string) => Promise<void>;
   /** Set the active daemon */
@@ -213,6 +215,10 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
       // ignore
     }
     set({ loaded: true });
+  },
+
+  clearError: () => {
+    if (get().error !== null) set({ error: null });
   },
 
   processScan: async (qrData: string) => {

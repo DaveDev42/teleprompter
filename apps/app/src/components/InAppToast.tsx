@@ -58,13 +58,12 @@ export function InAppToast() {
       {...((Platform.OS === "web"
         ? { role: "status", "aria-live": "polite" }
         : {}) as object)}
-      pointerEvents={toast ? "auto" : "none"}
       className={
         toast
           ? "absolute left-4 right-4 bg-tp-bg-elevated rounded-card border border-tp-border shadow-lg z-50"
           : "absolute left-4 right-4 z-50"
       }
-      style={{ top: insets.top + 8 }}
+      style={{ top: insets.top + 8, pointerEvents: toast ? "auto" : "none" }}
     >
       {toast ? (
         <View className="flex-row items-center justify-between">

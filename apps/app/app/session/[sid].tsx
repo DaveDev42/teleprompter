@@ -497,19 +497,23 @@ function ChatView({
     el.style.height = `${el.scrollHeight}px`;
   }, [input]);
 
-  // Request record replay. Re-fires when sid changes AND whenever the relay
-  // transitions to connected — this covers the case where the component
-  // mounts before key exchange completes (connect() is async) so the first
-  // resume() call would have been sent to an unauthenticated WebSocket and
-  // dropped. The relay client does queue pre-auth frames for plain encrypted
-  // messages, but on the very first cold open with no cached resume token the
-  // connection+kx can take >100ms, which is longer than the component mount
-  // cycle. Depending on connected ensures we always send resume after the
-  // session keys are established.
+  // Request record replay exactly once per sid, on the first transition to
+  // `connected = true`. Mounting before key exchange completes (connect() is
+  // async) means we must wait for `connected` — but subsequent reconnects are
+  // already handled inside `RelayClient` (it auto-resumes at `lastSeq`,
+  // see `relay-client.ts` `relay.auth.ok` branch). Without the ref guard the
+  // effect re-fires `resume(sid, 0)` on every disconnect/reconnect cycle, and
+  // because cursor=0 asks for the full 10-frame relay cache the same records
+  // get replayed and re-processed → duplicate chat messages on flaky links.
+  const resumedSidsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!sid || !connected) return;
+    if (resumedSidsRef.current.has(sid)) return;
     const client = getTransport();
-    if (client) client.resume(sid, 0);
+    if (client) {
+      client.resume(sid, 0);
+      resumedSidsRef.current.add(sid);
+    }
   }, [sid, connected]);
 
   // Mirror disabled state to aria-disabled on the Send button. RN Web's

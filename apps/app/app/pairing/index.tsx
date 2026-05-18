@@ -25,7 +25,7 @@ const INDICATOR_DARK = "#a1a1aa";
 export default function PairingScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ pairingData?: string }>();
-  const { state, error, processScan } = usePairingStore();
+  const { state, error, processScan, clearError } = usePairingStore();
   const [manualInput, setManualInput] = useState(params.pairingData ?? "");
   const pp = getPlatformProps();
   const isDark = useThemeStore((s) => s.isDark);
@@ -228,7 +228,19 @@ export default function PairingScreen() {
           placeholder="tp://p?d=..."
           placeholderTextColor={placeholderColor}
           value={manualInput}
-          onChangeText={setManualInput}
+          onChangeText={(text) => {
+            setManualInput(text);
+            // The Zustand `error` from a prior failed Connect would
+            // otherwise linger as a role=alert banner and steal the
+            // aria-errormessage pointer from the inline hint — so the
+            // user sees a stale "Invalid pairing data format" alert that
+            // describes data they haven't even submitted yet, and the
+            // inline "Doesn't look like pairing data" hint stays hidden
+            // because `showInputHint` gates on !error. Clearing here as
+            // the user types keeps the banner tied to the last submitted
+            // attempt and lets the live hint take over.
+            clearError();
+          }}
           multiline
           numberOfLines={4}
           autoCapitalize="none"

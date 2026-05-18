@@ -175,6 +175,7 @@ export default defineConfig({
         "app-sessions-bulk-delete-a11y.spec.ts",
         "app-theme-fouc.spec.ts",
         "app-sessions-empty-hint.spec.ts",
+        "app-pairing-error-clears-on-edit.spec.ts",
       ],
     },
     {

@@ -196,6 +196,13 @@ describe("pairing-store: state transitions", () => {
     expect(s.error).toBeTruthy();
   });
 
+  test("clearError resets error to null after a failed processScan", async () => {
+    await usePairingStore.getState().processScan("{{not json");
+    expect(usePairingStore.getState().error).toBeTruthy();
+    usePairingStore.getState().clearError();
+    expect(usePairingStore.getState().error).toBeNull();
+  });
+
   test("removePairing deletes entry and re-routes activeDaemonId", async () => {
     const qr1 = await buildFakePairing("daemon-d1");
     const qr2 = await buildFakePairing("daemon-d2");

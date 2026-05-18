@@ -176,6 +176,7 @@ export default defineConfig({
         "app-theme-fouc.spec.ts",
         "app-sessions-empty-hint.spec.ts",
         "app-pairing-error-clears-on-edit.spec.ts",
+        "app-settings-row-testids.spec.ts",
       ],
     },
     {

@@ -128,3 +128,4 @@ Stub 프로세스로 전체 파이프라인 검증.
   - `e2e/app-real-e2e.spec.ts` — real Claude PTY E2E (local only)
   - `e2e/app-chat-roundtrip.spec.ts` — chat input/output roundtrip (local only)
   - `e2e/app-multi-daemon-nxn.spec.ts` — N:N multi-daemon: two daemons paired into one app, E2EE independence, disconnect isolation (local only)
+  - `e2e/app-multi-daemon-2x2.spec.ts` — 2×2 multi-daemon/multi-frontend: four pairings (2 daemons × 2 frontend contexts), pairing fan-out, independent E2EE keys per frontend, daemon kill isolation (local only)

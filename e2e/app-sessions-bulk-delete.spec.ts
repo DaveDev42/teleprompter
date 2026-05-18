@@ -322,14 +322,18 @@ test.describe("Sessions bulk delete", () => {
     await expect(page.getByTestId("sessions-edit-no-stopped")).toBeVisible();
   });
 
-  test("clicking Select-all checks every stopped checkbox", async ({ page }) => {
+  test("clicking Select-all checks every stopped checkbox", async ({
+    page,
+  }) => {
     await page.goto("/");
     await page.waitForLoadState("networkidle");
 
     await page.getByTestId("sessions-edit-button").click();
 
     // Before: all checkboxes unchecked.
-    const checkboxes = page.locator('[role="checkbox"]:not([data-testid="sessions-select-all"])');
+    const checkboxes = page.locator(
+      '[role="checkbox"]:not([data-testid="sessions-select-all"])',
+    );
     await expect(checkboxes).toHaveCount(2);
     await expect(checkboxes.nth(0)).toHaveAttribute("aria-checked", "false");
     await expect(checkboxes.nth(1)).toHaveAttribute("aria-checked", "false");
@@ -350,7 +354,9 @@ test.describe("Sessions bulk delete", () => {
     // Select all first.
     await page.getByTestId("sessions-select-all").click();
 
-    const checkboxes = page.locator('[role="checkbox"]:not([data-testid="sessions-select-all"])');
+    const checkboxes = page.locator(
+      '[role="checkbox"]:not([data-testid="sessions-select-all"])',
+    );
     await expect(checkboxes.nth(0)).toHaveAttribute("aria-checked", "true");
 
     // Toggle is now "Deselect all" — click it.
@@ -383,7 +389,9 @@ test.describe("Sessions bulk delete", () => {
     const toggle = page.getByTestId("sessions-select-all");
 
     // Select just the first stopped row manually.
-    const checkboxes = page.locator('[role="checkbox"]:not([data-testid="sessions-select-all"])');
+    const checkboxes = page.locator(
+      '[role="checkbox"]:not([data-testid="sessions-select-all"])',
+    );
     await checkboxes.nth(0).click();
 
     // Partial selection → still "Select all (N)".
@@ -413,6 +421,8 @@ test.describe("Sessions bulk delete", () => {
 
     // Now 2 sessions selected → Delete (2) enabled.
     await expect(deleteBtn).toHaveAttribute("aria-disabled", "false");
-    await expect(page.getByTestId("sessions-edit-count")).toHaveText("2 Selected");
+    await expect(page.getByTestId("sessions-edit-count")).toHaveText(
+      "2 Selected",
+    );
   });
 });

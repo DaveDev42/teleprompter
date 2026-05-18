@@ -10,7 +10,7 @@
     "build": "turbo run build",
     "build:cli": "bun run scripts/build.ts --all",
     "build:cli:local": "bun run scripts/build.ts",
-    "build:web": "cd apps/app && npx expo export --platform web",
+    "build:web": "cd apps/app && npx expo export --platform web && cd ../.. && bun run scripts/inject-theme-bootstrap.ts",
     "dev": "turbo run dev",
     "dev:app": "cd apps/app && npx expo start --web",
     "dev:pair": "bun run scripts/dev-pair.ts",

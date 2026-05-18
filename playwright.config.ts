@@ -173,6 +173,7 @@ export default defineConfig({
         "app-update-status-dot-aria-hidden.spec.ts",
         "app-sessions-bulk-delete.spec.ts",
         "app-sessions-bulk-delete-a11y.spec.ts",
+        "app-theme-fouc.spec.ts",
       ],
     },
     {

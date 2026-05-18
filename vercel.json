@@ -1,6 +1,6 @@
 {
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- apps/app/ packages/protocol/ vercel.json",
-  "buildCommand": "cd apps/app && npx expo export --platform web",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- apps/app/ packages/protocol/ scripts/inject-theme-bootstrap.ts vercel.json",
+  "buildCommand": "pnpm build:web",
   "installCommand": "pnpm install",
   "outputDirectory": "apps/app/dist",
   "framework": null,

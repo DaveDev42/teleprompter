@@ -46,5 +46,13 @@
     "@types/react": "~19.2.2",
     "@types/react-dom": "~19.2.0",
     "typescript": "~5.9.2"
+  },
+  "expo": {
+    "install": {
+      "exclude": [
+        "react",
+        "react-dom"
+      ]
+    }
   }
 }

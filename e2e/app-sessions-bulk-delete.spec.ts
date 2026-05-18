@@ -269,4 +269,150 @@ test.describe("Sessions bulk delete", () => {
       "No stopped sessions to clean up",
     );
   });
+
+  // ── Select-all toggle (cases 11–16) ────────────────────────────────────
+
+  test("Select-all toggle appears when stopped sessions exist; hidden otherwise", async ({
+    context,
+    page,
+  }) => {
+    // Verify toggle is visible with the default seed (2 stopped).
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    await page.getByTestId("sessions-edit-button").click();
+
+    await expect(page.getByTestId("sessions-select-all")).toBeVisible();
+
+    // Now override to running-only and verify toggle is absent.
+    await context.addInitScript(
+      ({ key, payload }) => {
+        try {
+          localStorage.removeItem(key);
+          localStorage.setItem(key, JSON.stringify(payload));
+        } catch {
+          // ignore
+        }
+      },
+      {
+        key: SESSIONS_KEY,
+        payload: {
+          "daemon-a": [
+            {
+              sid: "sa-running-only",
+              cwd: "/tmp/running",
+              state: "running",
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              lastSeq: 0,
+            },
+          ],
+        },
+      },
+    );
+
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    await page.getByTestId("sessions-edit-button").click();
+
+    // Toggle must NOT be rendered when there are no stopped sessions.
+    await expect(page.getByTestId("sessions-select-all")).toHaveCount(0);
+    // The "no stopped" notice must still show.
+    await expect(page.getByTestId("sessions-edit-no-stopped")).toBeVisible();
+  });
+
+  test("clicking Select-all checks every stopped checkbox", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    await page.getByTestId("sessions-edit-button").click();
+
+    // Before: all checkboxes unchecked.
+    const checkboxes = page.locator('[role="checkbox"]:not([data-testid="sessions-select-all"])');
+    await expect(checkboxes).toHaveCount(2);
+    await expect(checkboxes.nth(0)).toHaveAttribute("aria-checked", "false");
+    await expect(checkboxes.nth(1)).toHaveAttribute("aria-checked", "false");
+
+    await page.getByTestId("sessions-select-all").click();
+
+    // After: all stopped checkboxes must be checked.
+    await expect(checkboxes.nth(0)).toHaveAttribute("aria-checked", "true");
+    await expect(checkboxes.nth(1)).toHaveAttribute("aria-checked", "true");
+  });
+
+  test("clicking Deselect-all clears every checkbox", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    await page.getByTestId("sessions-edit-button").click();
+
+    // Select all first.
+    await page.getByTestId("sessions-select-all").click();
+
+    const checkboxes = page.locator('[role="checkbox"]:not([data-testid="sessions-select-all"])');
+    await expect(checkboxes.nth(0)).toHaveAttribute("aria-checked", "true");
+
+    // Toggle is now "Deselect all" — click it.
+    await page.getByTestId("sessions-select-all").click();
+
+    // After: all unchecked.
+    await expect(checkboxes.nth(0)).toHaveAttribute("aria-checked", "false");
+    await expect(checkboxes.nth(1)).toHaveAttribute("aria-checked", "false");
+  });
+
+  test("Select-all label reflects N stopped sessions", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    await page.getByTestId("sessions-edit-button").click();
+
+    const toggle = page.getByTestId("sessions-select-all");
+    // Default seed has 2 stopped sessions.
+    await expect(toggle).toHaveText("Select all (2)");
+  });
+
+  test("after selecting some manually, toggle still says Select all; after selecting all, toggle flips to Deselect all", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    await page.getByTestId("sessions-edit-button").click();
+
+    const toggle = page.getByTestId("sessions-select-all");
+
+    // Select just the first stopped row manually.
+    const checkboxes = page.locator('[role="checkbox"]:not([data-testid="sessions-select-all"])');
+    await checkboxes.nth(0).click();
+
+    // Partial selection → still "Select all (N)".
+    await expect(toggle).toHaveText("Select all (2)");
+
+    // Select the second row too.
+    await checkboxes.nth(1).click();
+
+    // All selected → label flips.
+    await expect(toggle).toHaveText("Deselect all");
+  });
+
+  test("after Select-all, Delete (N) button is enabled with N = stopped.length", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    await page.getByTestId("sessions-edit-button").click();
+
+    // Before select-all: Delete button is aria-disabled.
+    const deleteBtn = page.getByTestId("sessions-edit-delete");
+    await expect(deleteBtn).toHaveAttribute("aria-disabled", "true");
+
+    // Click Select-all.
+    await page.getByTestId("sessions-select-all").click();
+
+    // Now 2 sessions selected → Delete (2) enabled.
+    await expect(deleteBtn).toHaveAttribute("aria-disabled", "false");
+    await expect(page.getByTestId("sessions-edit-count")).toHaveText("2 Selected");
+  });
 });

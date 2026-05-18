@@ -253,4 +253,32 @@ test.describe("Sessions bulk-delete a11y", () => {
     // Should announce cancellation.
     expect(text?.toLowerCase()).toContain("cancel");
   });
+
+  // ── Select-all a11y (case 12) ─────────────────────────────────────────
+
+  test("Select-all control exposes role=checkbox and aria-checked on web", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    await page.getByTestId("sessions-edit-button").click();
+
+    const toggle = page.getByTestId("sessions-select-all");
+    await expect(toggle).toBeVisible();
+
+    // role=checkbox must be on the DOM element.
+    await expect(toggle).toHaveAttribute("role", "checkbox");
+
+    // Initially unchecked (no sessions pre-selected).
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    // After clicking: all stopped rows are selected → aria-checked flips to true.
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    // Clicking again (Deselect all) → back to false.
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+  });
 });

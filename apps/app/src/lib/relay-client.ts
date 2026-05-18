@@ -284,7 +284,6 @@ export class FrontendRelayClient implements TransportClient {
             }),
           ).catch(() => {});
         }
-        this.events.onConnected?.();
         // Subscribe to meta + control channels with `after: 0` so the relay
         // replays anything cached on these sids. The daemon publishes its
         // `hello` (with session list + daemonLabel) to __meta__ once per
@@ -313,6 +312,17 @@ export class FrontendRelayClient implements TransportClient {
         // Drain any frames queued while auth/kx was pending. Must happen
         // AFTER kx (when applicable) so the daemon can decrypt them.
         await this.flushPendingEncrypted();
+        // Fire onConnected *after* kx + flush. Subscribers wire this into
+        // React state (`useAnyRelayConnected`) and any side-effects that
+        // immediately call back into `sendEncrypted` (e.g. ChatView's
+        // resume-on-mount effect) would otherwise race the daemon: with
+        // `authenticated=true` set above and `sessionKeys` already derived
+        // in `connect()`, those calls bypass the pending queue and ship
+        // ciphertext the daemon can't decrypt yet — silently dropped on
+        // the daemon side because no FrontendPeer exists for this kx
+        // generation. Firing onConnected after kx means the first frame
+        // any subscriber can send is one the daemon can decrypt.
+        this.events.onConnected?.();
         // Auto-resume if we were previously attached
         if (this.hasConnectedBefore && this.attachedSid) {
           this.resume(this.attachedSid, this.lastSeq);

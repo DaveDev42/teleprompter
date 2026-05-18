@@ -507,6 +507,45 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
     client.dispose();
   });
 
+  test("onConnected fires *after* kx so first encrypted frame is decryptable", async () => {
+    // Regression: previously `onConnected` fired synchronously inside the
+    // `relay.auth.ok` branch BEFORE `sendKeyExchange()` completed. Subscribers
+    // wire `onConnected` into React state (`useAnyRelayConnected`); the
+    // ChatView's `resume(sid, 0)` effect fires reactively on `connected →
+    // true` and reaches `sendEncrypted()` while `authenticated=true` and
+    // `sessionKeys` is set — so the gate at the top of `sendEncrypted`
+    // didn't park the frame, it shipped immediately. Daemon hadn't received
+    // the frontend pubkey yet (kx still in-flight) so no FrontendPeer
+    // existed: the daemon silently dropped the first encrypted frame and
+    // the user's first chat send went into a void. Pin the ordering so the
+    // wire log proves kx is on the wire before any subscriber-driven
+    // encrypted frame.
+    const p = await setupPairing();
+    let onConnectedCallIndex = -1;
+    const client = new FrontendRelayClient(makeConfig(p), {
+      onConnected: () => {
+        const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+        onConnectedCallIndex = ws ? ws.sent.length : -1;
+      },
+    });
+
+    const ws = await authenticate(client);
+
+    // Find the index of the relay.kx frame in the wire log.
+    const kxIndex = ws
+      .parsedSent()
+      .findIndex((m) => (m as { t: string }).t === "relay.kx");
+    expect(kxIndex).toBeGreaterThanOrEqual(0);
+
+    // onConnected must have fired AFTER the kx frame was flushed onto the
+    // wire — kxIndex < onConnectedCallIndex. Anything callable from
+    // onConnected sees an authenticated + kx-completed connection and can
+    // safely call sendEncrypted without the daemon dropping the frame.
+    expect(onConnectedCallIndex).toBeGreaterThan(kxIndex);
+
+    client.dispose();
+  });
+
   test("relay.auth.err surfaces via onError", async () => {
     const p = await setupPairing();
     const errors: string[] = [];

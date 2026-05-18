@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Linking, Platform, Pressable, Text, View } from "react-native";
 import { copyText } from "../lib/copy-text";
 import { getPlatformProps } from "../lib/get-platform-props";
@@ -980,52 +980,6 @@ function SystemCard({ msg }: { msg: ChatMessage }) {
   );
 }
 
-function StreamingCard({
-  msg,
-  fontStyle,
-}: {
-  msg: ChatMessage;
-  fontStyle: { fontFamily: string; fontSize: number };
-}) {
-  // RN Web's createDOMProps strips prop-level `aria-atomic` when spread
-  // on a <View>. role=status has implicit aria-atomic=true per ARIA
-  // 1.2 §6.3.2, but NVDA/JAWS historically ignore the implicit value
-  // and announce only the diff between successive `msg.text` updates —
-  // each PTY chunk would speak as a fragment instead of the full
-  // streaming line. Set aria-atomic imperatively on the DOM node so
-  // every update is announced atomically.
-  const liveRegionRef = useRef<View>(null);
-  useEffect(() => {
-    if (Platform.OS !== "web") return;
-    const el = liveRegionRef.current as unknown as HTMLElement | null;
-    if (el) el.setAttribute("aria-atomic", "true");
-  }, []);
-
-  return (
-    // accessibilityRole="text" → no role on web, so the "Claude is
-    // typing" aria-label is silently dropped (same UserCard/AssistantCard
-    // issue). Use role=status so the typing indicator announces as a
-    // polite live region — exactly the semantics we want for a transient
-    // "still typing…" hint.
-    <View
-      ref={liveRegionRef}
-      className="self-start bg-tp-assistant-bubble rounded-bubble rounded-tl-sm px-4 py-2.5 max-w-[80%] opacity-70"
-      accessibilityLabel="Claude is typing"
-      {...(Platform.OS === "web"
-        ? ({ role: "status", "aria-label": "Claude is typing" } as object)
-        : {})}
-    >
-      <Text
-        className="text-tp-text-secondary italic"
-        style={fontStyle}
-        selectable
-      >
-        {msg.text}
-      </Text>
-    </View>
-  );
-}
-
 function ElicitationCard({ msg }: { msg: ChatMessage }) {
   // role=alert already implies aria-live="assertive" per ARIA 1.2 §6.3.3.
   // Setting accessibilityLiveRegion="polite" would emit aria-live="polite"
@@ -1158,7 +1112,5 @@ export function ChatCard({ msg }: { msg: ChatMessage }) {
       return <PermissionCard msg={msg} />;
     case "system":
       return <SystemCard msg={msg} />;
-    case "streaming":
-      return <StreamingCard msg={msg} fontStyle={fontStyle} />;
   }
 }

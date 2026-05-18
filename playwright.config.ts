@@ -136,7 +136,6 @@ export default defineConfig({
         "app-add-daemon-haspopup.spec.ts",
         "app-chat-markdown-list-role.spec.ts",
         "app-tool-card-role.spec.ts",
-        "app-streaming-card-aria-atomic.spec.ts",
         "app-font-size-initial-focus.spec.ts",
         "app-chat-bubble-keyboard-copy.spec.ts",
         "app-sessions-search-landmark.spec.ts",

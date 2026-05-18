@@ -1,12 +1,11 @@
 /**
- * Unit tests for chat-store.
+ * Unit tests for chat-store (hooks-only mode).
  *
  * Covers:
  *  - addMessage appends to messages[]
  *  - elicitation / permission messages flip showTerminalFallback
- *  - streaming text accumulates across multiple chunks into one final message
- *  - finalizeStreaming with whitespace-only text is a no-op (clears buffer)
- *  - processHookEvent: UserPromptSubmit, Stop, PreToolUse, PostToolUse,
+ *  - processHookEvent: UserPromptSubmit (with dedup), Stop (with and without
+ *    last_assistant_message), StopFailure, PreToolUse, PostToolUse,
  *    PermissionRequest, Elicitation, Notification, SessionStart (default)
  */
 
@@ -138,7 +137,6 @@ describe("chat-store: basic actions", () => {
       text: "hi",
       ts: Date.now(),
     });
-    s.appendStreaming("partial");
     s.addMessage({
       id: makeId(),
       type: "elicitation",
@@ -150,77 +148,14 @@ describe("chat-store: basic actions", () => {
 
     const after = useChatStore.getState();
     expect(after.messages).toEqual([]);
-    expect(after.streamingText).toBe("");
     expect(after.showTerminalFallback).toBe(false);
-  });
-});
-
-describe("chat-store: streaming text accumulation", () => {
-  beforeEach(resetStore);
-
-  test("multiple appendStreaming chunks combine into one message", () => {
-    const s = useChatStore.getState();
-    s.appendStreaming("Hello");
-    s.appendStreaming(" ");
-    s.appendStreaming("world");
-    s.appendStreaming("!");
-
-    expect(useChatStore.getState().streamingText).toBe("Hello world!");
-    expect(useChatStore.getState().messages.length).toBe(0);
-
-    s.finalizeStreaming();
-
-    const state = useChatStore.getState();
-    expect(state.streamingText).toBe("");
-    expect(state.messages.length).toBe(1);
-    expect(state.messages[0].text).toBe("Hello world!");
-    expect(state.messages[0].type).toBe("streaming");
-  });
-
-  test("finalizeStreaming with empty buffer is a no-op", () => {
-    const s = useChatStore.getState();
-    s.finalizeStreaming();
-    const state = useChatStore.getState();
-    expect(state.messages.length).toBe(0);
-    expect(state.streamingText).toBe("");
-  });
-
-  test("finalizeStreaming with whitespace-only buffer clears without adding message", () => {
-    const s = useChatStore.getState();
-    s.appendStreaming("   \n\t  ");
-    s.finalizeStreaming();
-    const state = useChatStore.getState();
-    expect(state.messages.length).toBe(0);
-    expect(state.streamingText).toBe("");
-  });
-
-  test("streaming then addMessage interleave preserves order", () => {
-    const s = useChatStore.getState();
-    s.appendStreaming("first stream");
-    s.finalizeStreaming();
-    s.addMessage({
-      id: makeId(),
-      type: "user",
-      text: "user input",
-      ts: Date.now(),
-    });
-    s.appendStreaming("second stream");
-    s.finalizeStreaming();
-
-    const msgs = useChatStore.getState().messages;
-    expect(msgs.length).toBe(3);
-    expect(msgs[0].text).toBe("first stream");
-    expect(msgs[1].text).toBe("user input");
-    expect(msgs[2].text).toBe("second stream");
   });
 });
 
 describe("chat-store: processHookEvent", () => {
   beforeEach(resetStore);
 
-  test("UserPromptSubmit finalizes streaming + appends user message", () => {
-    useChatStore.getState().appendStreaming("partial response");
-
+  test("UserPromptSubmit appends user message", () => {
     processHookEvent(
       baseEvent({
         hook_event_name: "UserPromptSubmit",
@@ -229,22 +164,13 @@ describe("chat-store: processHookEvent", () => {
     );
 
     const msgs = useChatStore.getState().messages;
-    // The streaming buffer (above) was finalized into a "streaming" msg,
-    // then the user prompt was appended.
-    expect(msgs.length).toBe(2);
-    expect(msgs[0].type).toBe("streaming");
-    expect(msgs[0].text).toBe("partial response");
-    expect(msgs[1].type).toBe("user");
-    expect(msgs[1].text).toBe("hello");
-    expect(msgs[1].source).toBe("remote");
-    expect(useChatStore.getState().streamingText).toBe("");
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].type).toBe("user");
+    expect(msgs[0].text).toBe("hello");
+    expect(msgs[0].source).toBe("remote");
   });
 
-  test("Stop with last_assistant_message discards streamingText (hook message is canonical, PTY buffer is a noisy duplicate)", () => {
-    const s = useChatStore.getState();
-    s.appendStreaming("I'm thinking");
-    s.appendStreaming(" about it");
-
+  test("Stop with last_assistant_message adds assistant message", () => {
     const event: StopEvent = {
       session_id: "sess",
       hook_event_name: "Stop",
@@ -254,18 +180,12 @@ describe("chat-store: processHookEvent", () => {
     processHookEvent(event);
 
     const msgs = useChatStore.getState().messages;
-    // Only the hook-derived assistant message survives — the streamingText
-    // buffer would duplicate the same response with PTY noise (cursor
-    // moves, ANSI residue) and unparsed markdown.
     expect(msgs.length).toBe(1);
     expect(msgs[0].type).toBe("assistant");
     expect(msgs[0].text).toBe("Done!");
-    expect(useChatStore.getState().streamingText).toBe("");
   });
 
-  test("Stop without last_assistant_message only finalizes streaming", () => {
-    useChatStore.getState().appendStreaming("trailing text");
-
+  test("Stop without last_assistant_message adds nothing", () => {
     processHookEvent({
       session_id: "sess",
       hook_event_name: "Stop",
@@ -273,9 +193,7 @@ describe("chat-store: processHookEvent", () => {
     } as StopEvent);
 
     const msgs = useChatStore.getState().messages;
-    expect(msgs.length).toBe(1);
-    expect(msgs[0].type).toBe("streaming");
-    expect(msgs[0].text).toBe("trailing text");
+    expect(msgs.length).toBe(0);
   });
 
   test("PreToolUse adds a tool message", () => {
@@ -397,7 +315,6 @@ describe("chat-store: processHookEvent", () => {
   });
 
   test("UserPromptSubmit de-dups optimistic local user message with same text", () => {
-    // Simulate optimistic add from the view layer (before sendChat)
     useChatStore.getState().addMessage({
       id: makeId(),
       type: "user",
@@ -407,7 +324,6 @@ describe("chat-store: processHookEvent", () => {
     });
     expect(useChatStore.getState().messages.length).toBe(1);
 
-    // Daemon echoes the same prompt back via hook event
     processHookEvent(
       baseEvent({
         hook_event_name: "UserPromptSubmit",
@@ -416,7 +332,6 @@ describe("chat-store: processHookEvent", () => {
     );
 
     const msgs = useChatStore.getState().messages;
-    // Should still be 1 — the optimistic local message covers the echo
     expect(msgs.length).toBe(1);
     expect(msgs[0].type).toBe("user");
     expect(msgs[0].text).toBe("ping");
@@ -444,42 +359,7 @@ describe("chat-store: processHookEvent", () => {
     expect(msgs[1].text).toBe("second");
   });
 
-  test("UserPromptSubmit de-dups even after streaming text is finalized between add and echo", () => {
-    // Simulate: user sends optimistically, PTY streams partial bytes
-    // (which the app stores in streamingText), then the echoed hook
-    // event fires. finalizeStreaming inside processHookEvent will append
-    // a "streaming" message, which must NOT fool the dedup scan.
-    useChatStore.getState().addMessage({
-      id: makeId(),
-      type: "user",
-      text: "ping",
-      source: "local",
-      ts: Date.now(),
-    });
-    useChatStore.getState().appendStreaming("partial bytes before echo");
-
-    processHookEvent(
-      baseEvent({
-        hook_event_name: "UserPromptSubmit",
-        user_prompt: "ping",
-      }),
-    );
-
-    const msgs = useChatStore.getState().messages;
-    // Expected: user (local) + streaming (finalized), NO duplicate user.
-    expect(msgs.length).toBe(2);
-    expect(msgs[0].type).toBe("user");
-    expect(msgs[0].text).toBe("ping");
-    expect(msgs[1].type).toBe("streaming");
-    expect(msgs[1].text).toBe("partial bytes before echo");
-  });
-
   test("backward scan stops after first non-match so delayed echoes are not swallowed", () => {
-    // Documents the deliberate `break` in the backward scan: once the most
-    // recent user message fails to match, older user messages are NOT
-    // revisited. User types "A", then "B" (both optimistic), then the
-    // delayed echo for "A" arrives; we want A(local) + B(local) + A(remote),
-    // not a silent swallow of the echo.
     addOptimisticUserMessage("A");
     addOptimisticUserMessage("B");
     expect(useChatStore.getState().messages.length).toBe(2);
@@ -502,8 +382,6 @@ describe("chat-store: processHookEvent", () => {
   });
 
   test("UserPromptSubmit de-dups against daemon-echoed text with trailing newline", () => {
-    // Daemon appends "\n" before writing to PTY; the hook event may round-
-    // trip either form. Dedup compares trimmed text so both match.
     useChatStore.getState().addMessage({
       id: makeId(),
       type: "user",
@@ -525,7 +403,6 @@ describe("chat-store: processHookEvent", () => {
   });
 
   test("UserPromptSubmit does NOT de-dup non-local user messages", () => {
-    // Prior user message without source: "local" (e.g. from previous session replay)
     useChatStore.getState().addMessage({
       id: makeId(),
       type: "user",
@@ -541,14 +418,10 @@ describe("chat-store: processHookEvent", () => {
     );
 
     const msgs = useChatStore.getState().messages;
-    // Both should exist — dedup only applies when a local-origin optimistic
-    // message is the most recent user message.
     expect(msgs.length).toBe(2);
   });
 
   test("UserPromptSubmit does NOT de-dup against a prior source: 'remote' user message", () => {
-    // Prior remote-origin user message (e.g. replay from another frontend).
-    // Only source === "local" triggers dedup; "remote" is informational.
     useChatStore.getState().addMessage({
       id: makeId(),
       type: "user",
@@ -570,21 +443,16 @@ describe("chat-store: processHookEvent", () => {
     expect(msgs[1].source).toBe("remote");
   });
 
-  test("optimistic send -> daemon echo -> streaming -> stop (no duplicate user bubble)", () => {
-    // UI calls addOptimisticUserMessage then transport.sendChat
+  test("optimistic send -> daemon echo -> stop (no duplicate user bubble)", () => {
     addOptimisticUserMessage("How are you?");
     expect(useChatStore.getState().messages.length).toBe(1);
 
-    // Daemon echoes the prompt back via hook event
     processHookEvent(
       baseEvent({
         hook_event_name: "UserPromptSubmit",
         user_prompt: "How are you?",
       }),
     );
-    // Streaming response
-    useChatStore.getState().appendStreaming("I'm ");
-    useChatStore.getState().appendStreaming("fine.");
     processHookEvent({
       session_id: "sess",
       hook_event_name: "Stop",
@@ -593,8 +461,6 @@ describe("chat-store: processHookEvent", () => {
     } as StopEvent);
 
     const msgs = useChatStore.getState().messages;
-    // Exactly: user (local optimistic) → assistant. The hook message wins
-    // when present, so the PTY-buffered streaming chunk is discarded.
     expect(msgs.length).toBe(2);
     expect(msgs[0].type).toBe("user");
     expect(msgs[0].text).toBe("How are you?");
@@ -603,16 +469,13 @@ describe("chat-store: processHookEvent", () => {
     expect(msgs[1].text).toBe("I'm fine.");
   });
 
-  test("full conversation: prompt -> streaming chunks -> stop finalizes", () => {
+  test("full conversation: prompt -> stop finalizes correctly", () => {
     processHookEvent(
       baseEvent({
         hook_event_name: "UserPromptSubmit",
         user_prompt: "How are you?",
       }),
     );
-    useChatStore.getState().appendStreaming("I'm ");
-    useChatStore.getState().appendStreaming("fine, ");
-    useChatStore.getState().appendStreaming("thanks.");
     processHookEvent({
       session_id: "sess",
       hook_event_name: "Stop",
@@ -621,62 +484,21 @@ describe("chat-store: processHookEvent", () => {
     } as StopEvent);
 
     const msgs = useChatStore.getState().messages;
-    // user → assistant. The PTY streaming chunk is discarded because the
-    // hook message is canonical.
     expect(msgs.length).toBe(2);
     expect(msgs[0].type).toBe("user");
     expect(msgs[0].text).toBe("How are you?");
     expect(msgs[0].source).toBe("remote");
     expect(msgs[1].type).toBe("assistant");
     expect(msgs[1].text).toBe("I'm fine, thanks.");
-    expect(useChatStore.getState().streamingText).toBe("");
-  });
-});
-
-describe("chat-store: isAssistantResponding latch", () => {
-  beforeEach(resetStore);
-
-  test("starts closed", () => {
-    expect(useChatStore.getState().isAssistantResponding).toBe(false);
   });
 
-  test("UserPromptSubmit opens the gate", () => {
+  test("StopFailure emits a system error chip", () => {
     processHookEvent(
       baseEvent({
         hook_event_name: "UserPromptSubmit",
         user_prompt: "hi",
       }),
     );
-    expect(useChatStore.getState().isAssistantResponding).toBe(true);
-  });
-
-  test("Stop closes the gate", () => {
-    processHookEvent(
-      baseEvent({
-        hook_event_name: "UserPromptSubmit",
-        user_prompt: "hi",
-      }),
-    );
-    expect(useChatStore.getState().isAssistantResponding).toBe(true);
-
-    processHookEvent({
-      session_id: "sess",
-      hook_event_name: "Stop",
-      cwd: "/tmp",
-    } as StopEvent);
-
-    expect(useChatStore.getState().isAssistantResponding).toBe(false);
-  });
-
-  test("StopFailure closes the gate and emits a system error chip", () => {
-    processHookEvent(
-      baseEvent({
-        hook_event_name: "UserPromptSubmit",
-        user_prompt: "hi",
-      }),
-    );
-    useChatStore.getState().appendStreaming("partial response");
-    expect(useChatStore.getState().isAssistantResponding).toBe(true);
 
     processHookEvent(
       baseEvent({
@@ -686,80 +508,9 @@ describe("chat-store: isAssistantResponding latch", () => {
     );
 
     const s = useChatStore.getState();
-    expect(s.isAssistantResponding).toBe(false);
-    // streamingText was committed as a streaming message + system error chip
-    const lastTwo = s.messages.slice(-2);
-    expect(lastTwo[0].type).toBe("streaming");
-    expect(lastTwo[0].text).toBe("partial response");
-    expect(lastTwo[1].type).toBe("system");
-    expect(lastTwo[1].event).toBe("StopFailure");
-    expect(lastTwo[1].text).toBe("timeout");
-  });
-
-  test("clear() resets the gate", () => {
-    useChatStore.getState().setAssistantResponding(true);
-    expect(useChatStore.getState().isAssistantResponding).toBe(true);
-
-    useChatStore.getState().clear();
-    expect(useChatStore.getState().isAssistantResponding).toBe(false);
-  });
-
-  test("setAssistantResponding can be toggled directly", () => {
-    const s = useChatStore.getState();
-    s.setAssistantResponding(true);
-    expect(useChatStore.getState().isAssistantResponding).toBe(true);
-    s.setAssistantResponding(false);
-    expect(useChatStore.getState().isAssistantResponding).toBe(false);
-  });
-
-  test("INSERT-mode scenario: PTY io between Stop and next UserPromptSubmit does NOT pollute streaming", () => {
-    // Reproduces the v0.1.x P1: after a turn ends with Stop, the user enters
-    // INSERT-mode in claude's editor. Many PTY io frames arrive (autocomplete
-    // dropdown, repaints, echoed keystrokes). If we naively appendStreaming
-    // each one, the next UserPromptSubmit's finalizeStreaming would commit
-    // that garbage as a "streaming" ChatMessage. The view layer guards
-    // appendStreaming on `isAssistantResponding === true` — this test
-    // verifies the latch state that drives that guard.
-    processHookEvent(
-      baseEvent({
-        hook_event_name: "UserPromptSubmit",
-        user_prompt: "first question",
-      }),
-    );
-    useChatStore.getState().appendStreaming("real answer");
-    processHookEvent({
-      session_id: "sess",
-      hook_event_name: "Stop",
-      cwd: "/tmp",
-      last_assistant_message: "real answer",
-    } as StopEvent);
-
-    // Gate is now closed — view layer would skip appendStreaming for PTY
-    // io frames arriving here.
-    expect(useChatStore.getState().isAssistantResponding).toBe(false);
-
-    // Simulate: user is in INSERT mode. View skips appendStreaming because
-    // gate is closed. (If buggy: would call appendStreaming("garbage echo").)
-    // No state change in test — we are verifying the contract.
-
-    processHookEvent(
-      baseEvent({
-        hook_event_name: "UserPromptSubmit",
-        user_prompt: "second question",
-      }),
-    );
-
-    const msgs = useChatStore.getState().messages;
-    // user(first) -> assistant(real answer) -> user(second). No "garbage
-    // echo" streaming bubble, and no duplicate streaming bubble from the
-    // PTY chunk (Stop discards it when last_assistant_message is present).
-    expect(msgs.length).toBe(3);
-    expect(msgs[0].type).toBe("user");
-    expect(msgs[0].text).toBe("first question");
-    expect(msgs[1].type).toBe("assistant");
-    expect(msgs[1].text).toBe("real answer");
-    expect(msgs[2].type).toBe("user");
-    expect(msgs[2].text).toBe("second question");
-    expect(useChatStore.getState().streamingText).toBe("");
+    const last = s.messages[s.messages.length - 1];
+    expect(last.type).toBe("system");
+    expect(last.event).toBe("StopFailure");
+    expect(last.text).toBe("timeout");
   });
 });

@@ -123,7 +123,9 @@ test.describe("Sessions bulk-delete a11y", () => {
     await expect(deleteBtn).toHaveAttribute("aria-label", "Delete 0 sessions");
 
     // Select one.
-    const checkboxes = page.locator('[role="checkbox"]');
+    const checkboxes = page.locator(
+      '[role="checkbox"]:not([data-testid="sessions-select-all"])',
+    );
     await checkboxes.first().click();
     await expect(deleteBtn).toHaveAttribute("aria-label", "Delete 1 sessions");
 
@@ -140,7 +142,9 @@ test.describe("Sessions bulk-delete a11y", () => {
 
     await page.getByTestId("sessions-edit-button").click();
 
-    const checkboxes = page.locator('[role="checkbox"]');
+    const checkboxes = page.locator(
+      '[role="checkbox"]:not([data-testid="sessions-select-all"])',
+    );
     await checkboxes.first().click();
 
     const deleteBtn = page.getByTestId("sessions-edit-delete");
@@ -155,7 +159,9 @@ test.describe("Sessions bulk-delete a11y", () => {
 
     await page.getByTestId("sessions-edit-button").click();
 
-    const checkboxes = page.locator('[role="checkbox"]');
+    const checkboxes = page.locator(
+      '[role="checkbox"]:not([data-testid="sessions-select-all"])',
+    );
     // Two stopped sessions in seed data.
     await expect(checkboxes).toHaveCount(2);
 
@@ -172,7 +178,9 @@ test.describe("Sessions bulk-delete a11y", () => {
 
     await page.getByTestId("sessions-edit-button").click();
 
-    const cb = page.locator('[role="checkbox"]').first();
+    const cb = page
+      .locator('[role="checkbox"]:not([data-testid="sessions-select-all"])')
+      .first();
     await expect(cb).toHaveAttribute("aria-checked", "false");
 
     await cb.click();
@@ -190,7 +198,9 @@ test.describe("Sessions bulk-delete a11y", () => {
 
     await page.getByTestId("sessions-edit-button").click();
 
-    const checkboxes = page.locator('[role="checkbox"]');
+    const checkboxes = page.locator(
+      '[role="checkbox"]:not([data-testid="sessions-select-all"])',
+    );
     // Each checkbox label should mention the session directory name and state.
     for (let i = 0; i < 2; i++) {
       const label = await checkboxes.nth(i).getAttribute("aria-label");

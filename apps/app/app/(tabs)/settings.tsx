@@ -57,6 +57,7 @@ function SettingsRow({
   first,
   last,
   destructive,
+  testID,
   children,
 }: {
   label: string;
@@ -91,6 +92,11 @@ function SettingsRow({
   first?: boolean;
   last?: boolean;
   destructive?: boolean;
+  // Stable selector for e2e — copy-based `getByRole("button", { name })`
+  // lookups in existing specs break the moment we tweak labels. Optional
+  // so existing rows can opt in incrementally without touching every
+  // call site.
+  testID?: string;
   children?: React.ReactNode;
 }) {
   const pp = getPlatformProps({ focusable: !!onPress });
@@ -135,6 +141,7 @@ function SettingsRow({
       accessibilityLabel={
         spokenValue !== undefined ? `${label}, ${spokenValue}` : label
       }
+      testID={testID}
       {...webRoleProps}
       {...webHasPopupProps}
       {...webExpandedProps}
@@ -441,6 +448,7 @@ export default function SettingsScreen() {
           label="Theme"
           value={themeLabel}
           first
+          testID="settings-row-theme"
           onPress={() => {
             // Cycle through themes
             const next: Theme =
@@ -480,18 +488,21 @@ export default function SettingsScreen() {
         <SettingsRow
           label="Chat Font"
           value={chatFont}
+          testID="settings-row-chat-font"
           onPress={() => setFontPickerMode("chat")}
           hasPopup
         />
         <SettingsRow
           label="Code Font"
           value={codeFont}
+          testID="settings-row-code-font"
           onPress={() => setFontPickerMode("code")}
           hasPopup
         />
         <SettingsRow
           label="Terminal Font"
           value={terminalFont}
+          testID="settings-row-terminal-font"
           onPress={() => setFontPickerMode("terminal")}
           hasPopup
         />
@@ -499,6 +510,7 @@ export default function SettingsScreen() {
           label="Font Size"
           value={`${fontSize}px`}
           last
+          testID="settings-row-font-size"
           onPress={() => setShowFontSize(true)}
           hasPopup
         />
@@ -510,6 +522,7 @@ export default function SettingsScreen() {
           value={apiKey ? "sk-...configured" : "Not set"}
           first
           last
+          testID="settings-row-api-key"
           onPress={() => setShowApiKey(true)}
           hasPopup
         />
@@ -520,11 +533,13 @@ export default function SettingsScreen() {
           label="Version"
           value={Constants.expoConfig?.version ?? "dev"}
           first
+          testID="settings-row-version"
         />
         <SettingsRow
           label="Updates"
           first={false}
           last
+          testID="settings-row-updates"
           onPress={
             otaStatus === "ready"
               ? restart
@@ -569,6 +584,7 @@ export default function SettingsScreen() {
             last
             expanded={showDiagnostics}
             controlsId="settings-diagnostics-panel"
+            testID="settings-row-diagnostics"
             onPress={() => setShowDiagnostics(true)}
           />
         </View>

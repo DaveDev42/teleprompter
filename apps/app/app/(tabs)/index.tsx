@@ -172,7 +172,7 @@ function SessionRow({
     if (running) {
       // Running: not selectable, render as plain view (no tap action).
       return (
-        <View>
+        <View testID={`session-row-${session.sid}`}>
           {rowContent}
           {!isActive && (
             <View
@@ -198,6 +198,7 @@ function SessionRow({
         accessibilityState={{ checked: isSelected }}
         tabIndex={stoppedPp.tabIndex}
         className={stoppedPp.className}
+        testID={`session-row-${session.sid}`}
         // Web: spread aria-checked + aria-label explicitly because
         // RN Web does NOT translate accessibilityState.checked to
         // aria-checked on Pressable (it only does so on native components).
@@ -232,6 +233,7 @@ function SessionRow({
       accessibilityHint="Open this session"
       tabIndex={pp.tabIndex}
       className={pp.className}
+      testID={`session-row-${session.sid}`}
       // ARIA 1.2 §6.6.4 aria-current — the active row's "selected"
       // state must be programmatically determinable. The text suffix
       // ", selected" inside accessibilityLabel reads naturally for

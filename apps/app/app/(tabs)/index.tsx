@@ -351,6 +351,24 @@ export default function SessionsScreen() {
     [sessions],
   );
 
+  // true when every stopped session is in selectedSids (and there is at least
+  // one stopped session — trivially-true-empty is treated as false).
+  const allStoppedSelected =
+    stoppedSessions.length > 0 &&
+    stoppedSessions.every((s) => selectedSids.has(s.sid));
+
+  const handleSelectAll = () => {
+    if (allStoppedSelected) {
+      setSelectedSids(new Set());
+      setEditAnnouncement("Deselected all sessions.");
+    } else {
+      setSelectedSids(new Set(stoppedSessions.map((s) => s.sid)));
+      setEditAnnouncement(
+        `Selected all ${stoppedSessions.length} session${stoppedSessions.length !== 1 ? "s" : ""}.`,
+      );
+    }
+  };
+
   const enterEditMode = () => {
     setIsEditMode(true);
     setSelectedSids(new Set());
@@ -511,7 +529,11 @@ export default function SessionsScreen() {
         )}
       </View>
 
-      {/* Edit mode: inline empty notice when no stopped sessions available */}
+      {/* Edit mode: Select-all toggle (when stopped sessions exist) or empty
+          notice (when no stopped sessions). The two states are mutually
+          exclusive so the testID "sessions-edit-no-stopped" still appears
+          whenever there are zero stopped sessions, keeping existing specs
+          green. */}
       {isEditMode && stoppedSessions.length === 0 && (
         <View className="px-4 py-2">
           <Text
@@ -520,6 +542,45 @@ export default function SessionsScreen() {
           >
             No stopped sessions to clean up
           </Text>
+        </View>
+      )}
+      {isEditMode && stoppedSessions.length > 0 && (
+        <View className="px-4 py-2">
+          {/* Select-all / Deselect-all toggle.
+              accessibilityRole="checkbox" + accessibilityState.checked
+              maps to role=checkbox + aria-checked on web via RN Web
+              createDOMProps. We also spread the raw attributes explicitly
+              (same pattern as stopped session rows above) because RN Web
+              does NOT reliably translate accessibilityState.checked →
+              aria-checked on Pressable elements. WCAG 4.1.2. */}
+          <Pressable
+            testID="sessions-select-all"
+            onPress={handleSelectAll}
+            accessibilityRole="checkbox"
+            accessibilityLabel={
+              allStoppedSelected
+                ? "Deselect all"
+                : `Select all (${stoppedSessions.length})`
+            }
+            accessibilityState={{ checked: allStoppedSelected }}
+            tabIndex={pp.tabIndex}
+            className={`self-start rounded-btn px-3 py-1.5 bg-tp-bg-secondary ${pp.className}`}
+            {...(Platform.OS === "web"
+              ? ({
+                  role: "checkbox",
+                  "aria-checked": allStoppedSelected,
+                  "aria-label": allStoppedSelected
+                    ? "Deselect all"
+                    : `Select all (${stoppedSessions.length})`,
+                } as object)
+              : {})}
+          >
+            <Text className="text-tp-text-secondary text-[14px]">
+              {allStoppedSelected
+                ? "Deselect all"
+                : `Select all (${stoppedSessions.length})`}
+            </Text>
+          </Pressable>
         </View>
       )}
 

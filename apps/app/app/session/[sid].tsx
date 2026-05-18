@@ -5,6 +5,8 @@ import {
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -17,7 +19,6 @@ import { ChatCard } from "../../src/components/ChatCard";
 import { VoiceButton } from "../../src/components/VoiceButton";
 import { useAnyRelayConnected } from "../../src/hooks/use-relay";
 import { getTransport } from "../../src/hooks/use-transport";
-import { stripAnsi } from "../../src/lib/ansi-strip";
 import { getPlatformProps } from "../../src/lib/get-platform-props";
 import {
   deriveInputGates,
@@ -393,8 +394,6 @@ function ChatView({
   stopped: boolean;
 }) {
   const messages = useChatStore((s) => s.messages);
-  const streamingText = useChatStore((s) => s.streamingText);
-  const appendStreaming = useChatStore((s) => s.appendStreaming);
   const addRecHandler = useSessionStore((s) => s.addRecHandler);
   const removeRecHandler = useSessionStore((s) => s.removeRecHandler);
   const connected = useAnyRelayConnected();
@@ -404,6 +403,9 @@ function ChatView({
   // mirrors the Sessions list ownership fix). FlatList stays on
   // native where virtualization is still needed.
   const chatScrollRef = useRef<ScrollView>(null);
+  // Track whether the user is near the bottom so auto-scroll doesn't
+  // yank them away when they've scrolled up to read history.
+  const isNearBottomRef = useRef(true);
   const sendRef = useRef<View>(null);
   const chatInputRef = useRef<TextInput>(null);
   const [input, setInput] = useState("");
@@ -495,14 +497,20 @@ function ChatView({
     el.style.height = `${el.scrollHeight}px`;
   }, [input]);
 
-  // Request record replay on mount. The relay client queues the frame if
-  // key exchange hasn't finished yet and flushes on auth.ok, so we no longer
-  // need the 500ms timer hack that previously raced the kx handshake.
+  // Request record replay. Re-fires when sid changes AND whenever the relay
+  // transitions to connected — this covers the case where the component
+  // mounts before key exchange completes (connect() is async) so the first
+  // resume() call would have been sent to an unauthenticated WebSocket and
+  // dropped. The relay client does queue pre-auth frames for plain encrypted
+  // messages, but on the very first cold open with no cached resume token the
+  // connection+kx can take >100ms, which is longer than the component mount
+  // cycle. Depending on connected ensures we always send resume after the
+  // session keys are established.
   useEffect(() => {
-    if (!sid) return;
+    if (!sid || !connected) return;
     const client = getTransport();
     if (client) client.resume(sid, 0);
-  }, [sid]);
+  }, [sid, connected]);
 
   // Mirror disabled state to aria-disabled on the Send button. RN Web's
   // Pressable only emits aria-disabled when the native `disabled` prop is
@@ -517,49 +525,29 @@ function ChatView({
     else el.removeAttribute("aria-disabled");
   }, [sendDisabled]);
 
-  // Wire records to chat store
+  // Wire hook event records to chat store (hooks-only mode — PTY io records
+  // go exclusively to the terminal tab via TerminalView's own handler).
   useEffect(() => {
     const handler = (rec: WsRec) => {
-      if (rec.k === "event") {
-        try {
-          const eventBytes = Uint8Array.from(atob(rec.d), (c) =>
-            c.charCodeAt(0),
-          );
-          const event = JSON.parse(new TextDecoder("utf-8").decode(eventBytes));
-          processHookEvent(event);
-        } catch {
-          // ignore
-        }
-      } else if (rec.k === "io") {
-        // Only buffer PTY text while Claude is actively producing a response
-        // (UserPromptSubmit ... Stop). Otherwise the user's INSERT-mode
-        // keystroke echoes, autocomplete dropdown repaints, and other UI
-        // chatter would accumulate in streamingText and pollute the next
-        // committed bubble. Reads the latest store state so the gate
-        // reflects events processed earlier in this same record batch.
-        if (!useChatStore.getState().isAssistantResponding) return;
-        try {
-          const bytes = Uint8Array.from(atob(rec.d), (c) => c.charCodeAt(0));
-          const text = new TextDecoder("utf-8").decode(bytes);
-          const clean = stripAnsi(text);
-          if (clean.trim()) {
-            appendStreaming(clean);
-          }
-        } catch {
-          // ignore
-        }
+      if (rec.k !== "event") return;
+      try {
+        const eventBytes = Uint8Array.from(atob(rec.d), (c) => c.charCodeAt(0));
+        const event = JSON.parse(new TextDecoder("utf-8").decode(eventBytes));
+        processHookEvent(event);
+      } catch {
+        // ignore
       }
     };
     addRecHandler(handler);
     return () => removeRecHandler(handler);
-  }, [addRecHandler, removeRecHandler, appendStreaming]);
+  }, [addRecHandler, removeRecHandler]);
 
-  // Auto-scroll on new messages AND on streaming growth so the live
-  // assistant bubble stays in view while Claude is mid-response. The 100ms
-  // debounce coalesces the PTY-chunk firehose so we don't queue a scroll
-  // per frame.
+  // Auto-scroll on new messages only when the user is already near the
+  // bottom. If they've scrolled up to read history, a new message should not
+  // yank them back. The 100ms debounce avoids a scroll per batch-replay frame.
   useEffect(() => {
-    if (messages.length === 0 && !streamingText) return;
+    if (messages.length === 0) return;
+    if (!isNearBottomRef.current) return;
     const t = setTimeout(() => {
       if (Platform.OS === "web") {
         chatScrollRef.current?.scrollToEnd({ animated: true });
@@ -568,7 +556,7 @@ function ChatView({
       }
     }, 100);
     return () => clearTimeout(t);
-  }, [messages.length, streamingText]);
+  }, [messages.length]);
 
   const handleSend = useCallback(() => {
     const trimmed = input.trim();
@@ -591,15 +579,7 @@ function ChatView({
     setInput("");
   }, [input, sid, stopped]);
 
-  const displayMessages: ChatMessage[] = [...messages];
-  if (streamingText.trim()) {
-    displayMessages.push({
-      id: "streaming-live",
-      type: "streaming",
-      text: streamingText,
-      ts: Date.now(),
-    });
-  }
+  const displayMessages: ChatMessage[] = messages;
 
   // On web, expose the chat messages container as a `log` landmark.
   // role=log implies `aria-live=polite` + `aria-relevant=additions text`
@@ -643,6 +623,14 @@ function ChatView({
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
             onScrollBeginDrag={() => Keyboard.dismiss()}
+            onScroll={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+              const { contentOffset, contentSize, layoutMeasurement } =
+                e.nativeEvent;
+              const distanceFromBottom =
+                contentSize.height - layoutMeasurement.height - contentOffset.y;
+              isNearBottomRef.current = distanceFromBottom < 100;
+            }}
+            scrollEventThrottle={100}
           >
             {/* List container always mounts — keeps the `role="list"`
                 landmark stable for AT and matches `app-listitem-aria`'s
@@ -686,6 +674,14 @@ function ChatView({
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
             onScrollBeginDrag={() => Keyboard.dismiss()}
+            onScroll={(e: NativeSyntheticEvent<NativeScrollEvent>) => {
+              const { contentOffset, contentSize, layoutMeasurement } =
+                e.nativeEvent;
+              const distanceFromBottom =
+                contentSize.height - layoutMeasurement.height - contentOffset.y;
+              isNearBottomRef.current = distanceFromBottom < 100;
+            }}
+            scrollEventThrottle={100}
             accessibilityRole="list"
             accessibilityLabel="Chat messages"
             ListEmptyComponent={

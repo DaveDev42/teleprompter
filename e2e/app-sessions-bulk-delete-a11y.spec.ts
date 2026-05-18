@@ -123,7 +123,9 @@ test.describe("Sessions bulk-delete a11y", () => {
     await expect(deleteBtn).toHaveAttribute("aria-label", "Delete 0 sessions");
 
     // Select one.
-    const checkboxes = page.locator('[role="checkbox"]');
+    const checkboxes = page.locator(
+      '[role="checkbox"]:not([data-testid="sessions-select-all"])',
+    );
     await checkboxes.first().click();
     await expect(deleteBtn).toHaveAttribute("aria-label", "Delete 1 sessions");
 
@@ -140,7 +142,9 @@ test.describe("Sessions bulk-delete a11y", () => {
 
     await page.getByTestId("sessions-edit-button").click();
 
-    const checkboxes = page.locator('[role="checkbox"]');
+    const checkboxes = page.locator(
+      '[role="checkbox"]:not([data-testid="sessions-select-all"])',
+    );
     await checkboxes.first().click();
 
     const deleteBtn = page.getByTestId("sessions-edit-delete");
@@ -155,7 +159,9 @@ test.describe("Sessions bulk-delete a11y", () => {
 
     await page.getByTestId("sessions-edit-button").click();
 
-    const checkboxes = page.locator('[role="checkbox"]');
+    const checkboxes = page.locator(
+      '[role="checkbox"]:not([data-testid="sessions-select-all"])',
+    );
     // Two stopped sessions in seed data.
     await expect(checkboxes).toHaveCount(2);
 
@@ -172,7 +178,9 @@ test.describe("Sessions bulk-delete a11y", () => {
 
     await page.getByTestId("sessions-edit-button").click();
 
-    const cb = page.locator('[role="checkbox"]').first();
+    const cb = page
+      .locator('[role="checkbox"]:not([data-testid="sessions-select-all"])')
+      .first();
     await expect(cb).toHaveAttribute("aria-checked", "false");
 
     await cb.click();
@@ -190,7 +198,9 @@ test.describe("Sessions bulk-delete a11y", () => {
 
     await page.getByTestId("sessions-edit-button").click();
 
-    const checkboxes = page.locator('[role="checkbox"]');
+    const checkboxes = page.locator(
+      '[role="checkbox"]:not([data-testid="sessions-select-all"])',
+    );
     // Each checkbox label should mention the session directory name and state.
     for (let i = 0; i < 2; i++) {
       const label = await checkboxes.nth(i).getAttribute("aria-label");
@@ -252,5 +262,33 @@ test.describe("Sessions bulk-delete a11y", () => {
     const text = await liveRegion.textContent();
     // Should announce cancellation.
     expect(text?.toLowerCase()).toContain("cancel");
+  });
+
+  // ── Select-all a11y (case 12) ─────────────────────────────────────────
+
+  test("Select-all control exposes role=checkbox and aria-checked on web", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    await page.getByTestId("sessions-edit-button").click();
+
+    const toggle = page.getByTestId("sessions-select-all");
+    await expect(toggle).toBeVisible();
+
+    // role=checkbox must be on the DOM element.
+    await expect(toggle).toHaveAttribute("role", "checkbox");
+
+    // Initially unchecked (no sessions pre-selected).
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    // After clicking: all stopped rows are selected → aria-checked flips to true.
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    // Clicking again (Deselect all) → back to false.
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
   });
 });

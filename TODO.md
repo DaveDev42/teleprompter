@@ -7,7 +7,7 @@
 - [ ] **Chat UI 가 PTY raw 출력을 그대로 노출 (실사용 불가 수준)** — `[sid].tsx`의 PTY io 핸들러가 `stripAnsi`만 거쳐 `streamingText`에 누적. `stripAnsi`는 ANSI escape는 제거하지만 TUI repaint/prompt 재그림 결과로 남는 raw text가 그대로 chat에 쌓임. **결정: hooks-only 로 완전 전환** — Stop 이벤트의 `last_assistant_message` 가 canonical 응답이므로 PTY 폴백 자체를 제거. 트레이드오프: 글자 타이핑 streaming 효과 사라짐 (Stop 시 일괄 렌더). 진행 중 (별도 PR).
 - [ ] **Chat auto-scroll 이 사용자 스크롤 의도를 무시** — `[sid].tsx:560-570` 의 `useEffect`가 `messages.length` 또는 `streamingText` 변경마다 무조건 `scrollToEnd`. 사용자가 위로 스크롤해 과거 메시지를 읽는 중에도 새 메시지가 도착하면 강제로 하단으로 끌어내림. **수정안**: `onScroll`로 bottom 100px 이내일 때만 (`isNearBottomRef`) 자동 스크롤. 진행 중 (위 hooks-only PR에 동봉).
 - [ ] **`tp --resume` 세션이 첫 메시지 보내기 전까지 history 비어보임** — `[sid].tsx:497-504` 의 `client.resume(sid, 0)` 가 `sid` 변경 시점 1회만 호출. 그 시점에 relay kx 가 안 끝나면 frame 이 큐잉된다고 코멘트에 있으나 실제로는 backfill stream 이 안 도착해 영구히 빈 채로 남음. 사용자가 새 메시지를 보내야 trigger 되어 history 가 들어옴. **수정안**: relay 연결/auth 완료 시그널에 의존해 resume 재시도. 진행 중 (위 PR에 동봉).
-- [ ] **Sessions bulk-delete 에 "Select all" 토글 부재** — 다중 선택 삭제 UI 에 전체 선택 액션이 없어 한 화면 분량 이상의 세션을 지우려면 일일이 체크해야 함. `e2e/app-sessions-bulk-delete.spec.ts` / `e2e/app-sessions-bulk-delete-a11y.spec.ts` 회귀 가드에도 select-all 케이스 추가 필요. 미구현.
+- [x] **Sessions bulk-delete 에 "Select all" 토글 부재** — 다중 선택 삭제 UI 에 전체 선택 액션이 없어 한 화면 분량 이상의 세션을 지우려면 일일이 체크해야 함. `e2e/app-sessions-bulk-delete.spec.ts` / `e2e/app-sessions-bulk-delete-a11y.spec.ts` 회귀 가드에도 select-all 케이스 추가 필요. PR #458 로 구현.
 
 ### Voice
 - [ ] `VoiceButton`이 iOS/Android에서 `null` 반환 — 네이티브 오디오 캡처/재생 미구현 (expo-av 등 필요)

@@ -573,6 +573,11 @@ function ChatView({
       setInput("");
       return;
     }
+    // User explicitly sending — force the scroll anchor down so their own
+    // bubble lands in view even if they were reading history. The
+    // near-bottom guard exists to protect *incoming* messages from yanking
+    // the view; the user's own send is an intentional jump-to-bottom.
+    isNearBottomRef.current = true;
     // Optimistic add must precede sendChat so the echoed hook event dedups.
     addOptimisticUserMessage(trimmed);
     client.sendChat(sid, trimmed);

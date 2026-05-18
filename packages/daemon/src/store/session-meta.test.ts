@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { SessionMeta } from "./store";
 import { toWsSessionMeta } from "./session-meta";
+import type { SessionMeta } from "./store";
 
 describe("toWsSessionMeta", () => {
   test("maps snake_case DB fields to camelCase wire fields", () => {

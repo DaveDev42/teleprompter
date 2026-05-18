@@ -472,8 +472,8 @@ export default function SettingsScreen() {
             width: 1,
             height: 1,
             overflow: "hidden",
+            pointerEvents: "none",
           }}
-          pointerEvents="none"
         >
           <Text className="text-tp-text-primary">{themeAnnouncement}</Text>
         </View>

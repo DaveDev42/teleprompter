@@ -920,7 +920,7 @@ function TerminalView({ sid, stopped }: { sid: string; stopped: boolean }) {
         <View
           testID="terminal-empty-fallback"
           className="absolute inset-0 items-center justify-center px-6"
-          pointerEvents="none"
+          style={{ pointerEvents: "none" }}
         >
           <Text className="text-tp-text-tertiary text-[13px] text-center">
             No terminal output captured for this session.

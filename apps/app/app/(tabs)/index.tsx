@@ -687,7 +687,7 @@ export default function SessionsScreen() {
           <Text className="text-tp-text-secondary text-[15px] text-center leading-6 px-8">
             {filter.trim()
               ? "Try a different search term."
-              : `Start a new session from the\nDaemons tab or run tp on your machine.`}
+              : `Open the Daemons tab below (or run tp\non your machine) to start a session.`}
           </Text>
           {!filter.trim() && (
             <Pressable
@@ -697,7 +697,8 @@ export default function SessionsScreen() {
               // tab bar after the scene in DOM, so leaving this CTA tabbable
               // captures Tab 1 ahead of the persistent navigation. Mouse/touch
               // users keep the CTA; keyboard users reach Daemons via the tab
-              // bar (also documented in the instructional text above).
+              // bar — the instructional text above names "the Daemons tab
+              // below" so that path is visible to screen readers too.
               tabIndex={-1}
               accessibilityRole="button"
               accessibilityLabel="Go to Daemons"

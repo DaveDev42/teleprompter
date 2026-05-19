@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.39](https://github.com/DaveDev42/teleprompter/compare/v0.1.38...v0.1.39) (2026-05-19)
+
+
+### Bug Fixes
+
+* **app:** drive a client-side relay.ping so dead networks disconnect fast ([#476](https://github.com/DaveDev42/teleprompter/issues/476)) ([a687fd2](https://github.com/DaveDev42/teleprompter/commit/a687fd2e4a084093ad460dbc6ff46ff41826e886))
+
 ## [0.1.38](https://github.com/DaveDev42/teleprompter/compare/v0.1.37...v0.1.38) (2026-05-19)
 
 

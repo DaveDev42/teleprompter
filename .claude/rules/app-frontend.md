@@ -48,3 +48,7 @@ paths:
   - `apps/app/index.ts`에서 최초 import 필수
 - Key storage: iOS/Android → expo-secure-store (Keychain/Keystore), Web → localStorage `tp_` prefix
 - Uint8Array 저장 시 base64 변환 (`toBase64`/`fromBase64` from protocol)
+
+## Relay Client Heartbeat
+- `FrontendRelayClient`는 `relay.auth.ok` 후 15초 간격으로 자체 `relay.ping`을 보낸다 (`RELAY_PING_INTERVAL_MS`). 2회 연속 `relay.pong`이 없으면 (`RELAY_MAX_MISSED_PONGS`) 소켓을 강제 close 해서 reconnect를 트리거. 이 자체 핑이 없으면 모바일 슬립/캡티브 포털/Wi-Fi 핸드오프로 죽은 TCP는 relay의 90s idle-timeout이 만료될 때까지 "connected"로 남는다.
+- 수치를 손대기 전에 `apps/app/src/lib/relay-client.test.ts`의 "client-side ping" describe 블록이 fake `setInterval`로 cadence + missed-pong force-close를 검증한다는 사실을 기억할 것.

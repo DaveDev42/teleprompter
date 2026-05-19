@@ -40,6 +40,23 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 /** secure-storage key prefix for cached resume tokens (per daemonId). */
 const RESUME_TOKEN_KEY_PREFIX = "relay_resume_";
+/**
+ * Cadence for the frontend's relay-level keep-alive ping. Shorter than the
+ * daemon-side 30s so mobile clients notice a dead network (Wi-Fi → cellular
+ * handoff, sleep, captive portal) faster — without depending on the relay's
+ * 90s idle timeout to surface the disconnect. The relay accepts `relay.ping`
+ * from any client and replies with `relay.pong` (no per-client state on the
+ * relay).
+ */
+const RELAY_PING_INTERVAL_MS = 15_000;
+/**
+ * If this many pings go out without a `relay.pong` in between, force-close
+ * the socket. Two missed pongs ≈ 30s of silence, which is well past any
+ * normal RTT spike and a strong signal the underlying TCP connection is
+ * dead. `ws.close()` synthesizes an `onclose`, which fires `onDisconnected`
+ * + `scheduleReconnect` like a real close would.
+ */
+const RELAY_MAX_MISSED_PONGS = 2;
 
 /**
  * Drop any cached resume token for a daemonId. Call after creating a fresh
@@ -140,6 +157,17 @@ export class FrontendRelayClient implements TransportClient {
   private pingStart = 0;
   /** Last measured round-trip time in ms */
   private rtt = -1;
+  /**
+   * Periodic relay.ping timer for fast disconnect detection. Started when
+   * relay.auth.ok arrives, cleared on close/dispose. See
+   * `RELAY_PING_INTERVAL_MS` / `RELAY_MAX_MISSED_PONGS`.
+   */
+  private relayPingTimer: ReturnType<typeof setInterval> | null = null;
+  /**
+   * Pings sent since the last `relay.pong`. Reset to 0 on each pong, force-
+   * close once it exceeds `RELAY_MAX_MISSED_PONGS`.
+   */
+  private missedRelayPongs = 0;
   /**
    * Resume token from the previous successful relay.auth.ok. Sent via
    * relay.auth.resume on the next connect to skip register+auth+kx. Null
@@ -256,6 +284,7 @@ export class FrontendRelayClient implements TransportClient {
       // (and `resume`/`attach` will be re-issued by callers or by the
       // auto-resume path in handleMessage).
       this.pendingEncrypted = [];
+      this.stopRelayPing();
       this.events.onClose?.();
       this.events.onDisconnected?.();
       this.scheduleReconnect();
@@ -323,6 +352,9 @@ export class FrontendRelayClient implements TransportClient {
         // generation. Firing onConnected after kx means the first frame
         // any subscriber can send is one the daemon can decrypt.
         this.events.onConnected?.();
+        // Begin relay-level keep-alive pings so we notice a dead network
+        // before the relay's 90s idle timeout.
+        this.startRelayPing();
         // Auto-resume if we were previously attached
         if (this.hasConnectedBefore && this.attachedSid) {
           this.resume(this.attachedSid, this.lastSeq);
@@ -369,6 +401,7 @@ export class FrontendRelayClient implements TransportClient {
         break;
 
       case "relay.pong":
+        this.missedRelayPongs = 0;
         break;
 
       case "relay.err": {
@@ -799,11 +832,38 @@ export class FrontendRelayClient implements TransportClient {
     this.reconnectTimer = setTimeout(() => this.connect(), delay);
   }
 
+  private startRelayPing(): void {
+    this.stopRelayPing();
+    this.missedRelayPongs = 0;
+    this.relayPingTimer = setInterval(() => {
+      if (this.ws?.readyState !== WebSocket.OPEN) return;
+      // Increment *before* sending so the count covers in-flight pings.
+      // If the previous N intervals all elapsed without a pong, the socket
+      // is effectively dead — force a close to drive reconnection.
+      this.missedRelayPongs += 1;
+      if (this.missedRelayPongs > RELAY_MAX_MISSED_PONGS) {
+        this.stopRelayPing();
+        this.ws?.close();
+        return;
+      }
+      this.sendRelay({ t: "relay.ping", ts: Date.now() });
+    }, RELAY_PING_INTERVAL_MS);
+  }
+
+  private stopRelayPing(): void {
+    if (this.relayPingTimer) {
+      clearInterval(this.relayPingTimer);
+      this.relayPingTimer = null;
+    }
+    this.missedRelayPongs = 0;
+  }
+
   private cleanup(): void {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.stopRelayPing();
     if (this.ws) {
       this.ws.onopen = null;
       this.ws.onmessage = null;

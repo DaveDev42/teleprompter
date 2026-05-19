@@ -238,8 +238,14 @@ async function authenticate(
   return ws;
 }
 
-/** Yield to the event loop a few times to let pending promise chains resolve. */
-async function flushPromises(ticks = 5): Promise<void> {
+/**
+ * Yield to the event loop a few times to let pending promise chains resolve.
+ * The default tick count is generous because `ensureSodium()` (memoized in
+ * `packages/protocol/src/crypto.ts` as of v0.1.38) wraps `require` + `await
+ * s.ready` in an extra promise, so the wire-log inspections in these tests
+ * need a handful of microtasks past the encrypt call to settle.
+ */
+async function flushPromises(ticks = 20): Promise<void> {
   for (let i = 0; i < ticks; i++) {
     await Promise.resolve();
   }
@@ -1563,5 +1569,151 @@ describe("FrontendRelayClient — resume token", () => {
     expect(fakeStorage.get("tp_relay_resume_daemon-test")).toBeUndefined();
 
     client.dispose();
+  });
+});
+
+/**
+ * Regression: a frontend that loses its network without a clean TCP FIN
+ * (mobile sleep, captive portal, Wi-Fi handoff) used to wait the full 90s
+ * relay-side idle timeout before noticing the disconnect — meaning the UI
+ * sat in a "connected, just slow" state while sends silently piled up. The
+ * client now drives its own relay.ping cadence and force-closes when too
+ * many pongs go missing, so onDisconnected fires within ~30s.
+ */
+describe("FrontendRelayClient — client-side ping", () => {
+  type FakeIntervalEntry = {
+    handle: number;
+    callback: () => void;
+    ms: number;
+  };
+  let originalSetInterval: typeof globalThis.setInterval;
+  let originalClearInterval: typeof globalThis.clearInterval;
+  let intervals: FakeIntervalEntry[];
+  let nextHandle: number;
+
+  beforeEach(() => {
+    intervals = [];
+    nextHandle = 1;
+    originalSetInterval = globalThis.setInterval;
+    originalClearInterval = globalThis.clearInterval;
+    (globalThis as unknown as { setInterval: typeof setInterval }).setInterval =
+      ((cb: () => void, ms: number) => {
+        const handle = nextHandle++;
+        intervals.push({ handle, callback: cb, ms });
+        return handle as unknown as ReturnType<typeof setInterval>;
+      }) as unknown as typeof setInterval;
+    (
+      globalThis as unknown as { clearInterval: typeof clearInterval }
+    ).clearInterval = ((handle: number) => {
+      intervals = intervals.filter((e) => e.handle !== handle);
+    }) as unknown as typeof clearInterval;
+  });
+
+  afterEach(() => {
+    (globalThis as unknown as { setInterval: typeof setInterval }).setInterval =
+      originalSetInterval;
+    (
+      globalThis as unknown as { clearInterval: typeof clearInterval }
+    ).clearInterval = originalClearInterval;
+  });
+
+  function pingTimer(): FakeIntervalEntry {
+    // The ping interval is the only setInterval the client arms today —
+    // be specific by interval duration so this stays robust if other
+    // timers get added later.
+    const entry = intervals.find((e) => e.ms === 15_000);
+    if (!entry) throw new Error("expected a 15s setInterval (relay ping)");
+    return entry;
+  }
+
+  test("starts a 15s ping interval after auth.ok and sends relay.ping ticks", async () => {
+    const p = await setupPairing();
+    const client = new FrontendRelayClient(makeConfig(p));
+    const ws = await authenticate(client);
+
+    const timer = pingTimer();
+    const beforeCount = ws
+      .parsedSent()
+      .filter((m) => m.t === "relay.ping").length;
+    expect(beforeCount).toBe(0);
+
+    timer.callback();
+    const afterOne = ws.parsedSent().filter((m) => m.t === "relay.ping");
+    expect(afterOne.length).toBe(1);
+    expect(typeof (afterOne[0] as { ts?: unknown }).ts).toBe("number");
+
+    // A relay.pong resets the missed counter, so subsequent ticks keep
+    // emitting pings rather than tripping the force-close.
+    ws.simulateMessage({
+      t: "relay.pong",
+      ts: Date.now(),
+    } as unknown as RelayServerMessage);
+    timer.callback();
+    expect(ws.parsedSent().filter((m) => m.t === "relay.ping").length).toBe(2);
+    expect(ws.readyState).toBe(MockWebSocket.OPEN);
+
+    client.dispose();
+  });
+
+  test("force-closes the socket after too many missed pongs", async () => {
+    const p = await setupPairing();
+    let disconnects = 0;
+    const client = new FrontendRelayClient(makeConfig(p), {
+      onDisconnected: () => {
+        disconnects += 1;
+      },
+    });
+
+    // Pin reconnect so the force-close doesn't immediately re-arm a fresh
+    // socket and another ping timer behind our back.
+    const originalSetTimeout = globalThis.setTimeout;
+    (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((
+      _cb: () => void,
+      _ms: number,
+    ) =>
+      0 as unknown as ReturnType<
+        typeof setTimeout
+      >) as unknown as typeof setTimeout;
+
+    try {
+      const ws = await authenticate(client);
+      const timer = pingTimer();
+
+      // Three ticks without any pong: the first two send pings, the third
+      // exceeds RELAY_MAX_MISSED_PONGS (=2) and force-closes.
+      timer.callback();
+      timer.callback();
+      expect(ws.readyState).toBe(MockWebSocket.OPEN);
+      expect(disconnects).toBe(0);
+
+      timer.callback();
+      expect(ws.readyState).toBe(MockWebSocket.CLOSED);
+      expect(disconnects).toBe(1);
+      // The 3rd tick is the threshold breach — no ping should be on the
+      // wire from that tick, only the prior two.
+      expect(ws.parsedSent().filter((m) => m.t === "relay.ping").length).toBe(
+        2,
+      );
+      // Timer must be cleared once we tripped the force-close.
+      expect(intervals.some((e) => e.ms === 15_000)).toBe(false);
+    } finally {
+      (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
+        originalSetTimeout;
+      client.dispose();
+    }
+  });
+
+  test("clearing happens on natural close and on dispose", async () => {
+    const p = await setupPairing();
+    const client = new FrontendRelayClient(makeConfig(p));
+    const ws = await authenticate(client);
+    expect(intervals.some((e) => e.ms === 15_000)).toBe(true);
+
+    ws.simulateClose();
+    expect(intervals.some((e) => e.ms === 15_000)).toBe(false);
+
+    // dispose after a clean close must stay idempotent.
+    client.dispose();
+    expect(intervals.some((e) => e.ms === 15_000)).toBe(false);
   });
 });

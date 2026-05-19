@@ -8,16 +8,23 @@
  * - Nonce: random per frame (safe with XChaCha20's 24-byte nonce)
  */
 
-let _sodium: typeof import("libsodium-wrappers") | null = null;
+let _sodiumPromise: Promise<typeof import("libsodium-wrappers")> | null = null;
 
 export async function ensureSodium() {
-  if (!_sodium) {
-    // Lazy load to avoid top-level require that breaks React Native
-    _sodium =
-      require("libsodium-wrappers") as typeof import("libsodium-wrappers");
-    await _sodium.ready;
+  // Memoize the *promise*, not the module reference: prior code stashed the
+  // partially-initialized module before `await ready` resolved, so a second
+  // concurrent caller could observe `_sodium` as set but find APIs like
+  // `crypto_generichash` still undefined. Caching the promise means every
+  // concurrent caller awaits the same ready resolution.
+  if (!_sodiumPromise) {
+    _sodiumPromise = (async () => {
+      const s =
+        require("libsodium-wrappers") as typeof import("libsodium-wrappers");
+      await s.ready;
+      return s;
+    })();
   }
-  return _sodium;
+  return _sodiumPromise;
 }
 
 // ── Key Pair ──

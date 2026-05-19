@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.37](https://github.com/DaveDev42/teleprompter/compare/v0.1.36...v0.1.37) (2026-05-19)
+
+
+### Bug Fixes
+
+* **app:** defer onConnected until after kx+flush so first frame is decryptable ([#472](https://github.com/DaveDev42/teleprompter/issues/472)) ([0d3f38f](https://github.com/DaveDev42/teleprompter/commit/0d3f38f589a9f9bfc50b842e5a0e5b52b55f41fe))
+
 ## [0.1.36](https://github.com/DaveDev42/teleprompter/compare/v0.1.35...v0.1.36) (2026-05-18)
 
 

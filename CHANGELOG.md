@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.38](https://github.com/DaveDev42/teleprompter/compare/v0.1.37...v0.1.38) (2026-05-19)
+
+
+### Bug Fixes
+
+* **protocol:** memoize ensureSodium promise to fix init race ([#474](https://github.com/DaveDev42/teleprompter/issues/474)) ([d1097cd](https://github.com/DaveDev42/teleprompter/commit/d1097cd7ce1f8e32637712635c1d41acfb791650))
+
 ## [0.1.37](https://github.com/DaveDev42/teleprompter/compare/v0.1.36...v0.1.37) (2026-05-19)
 
 

@@ -418,8 +418,10 @@ test.describe("N:N Multi-Daemon — two daemons, one app", () => {
       bodyAfter.includes(DAEMON_B_LABEL);
     expect(hasBAfter).toBe(true);
 
-    // The "Connected" status must now be at most 1 (daemon B only).
-    const connectedCount = (bodyAfter.match(/\bConnected\b/g) ?? []).length;
-    expect(connectedCount).toBeLessThanOrEqual(1);
+    // Online status is conveyed by the green status dot (bg-tp-success) on
+    // each card — the redundant "Connected" text label was removed. At most
+    // one daemon (B) may be online after A is killed.
+    const onlineDots = await page.locator('[class*="bg-tp-success"]').count();
+    expect(onlineDots).toBeLessThanOrEqual(1);
   });
 });

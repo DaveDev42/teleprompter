@@ -26,12 +26,10 @@ function DaemonCard({
   info,
   onRename,
   onUnpair,
-  onViewSessions,
 }: {
   info: PairingInfo;
   onRename: (info: PairingInfo) => void;
   onUnpair: (info: PairingInfo) => void;
-  onViewSessions: (info: PairingInfo) => void;
 }) {
   const connections = useRelayConnectionStore((s) => s.connections);
   const sessions = useSessionStore((s) => s.sessions);
@@ -102,7 +100,7 @@ function DaemonCard({
         </Pressable>
         <Pressable
           onPress={() => onUnpair(info)}
-          className={`bg-tp-bg-tertiary rounded-badge px-2 py-1 mr-2 ${pp.className}`}
+          className={`bg-tp-bg-tertiary rounded-badge px-2 py-1 ${pp.className}`}
           tabIndex={pp.tabIndex}
           accessibilityRole="button"
           accessibilityLabel={`Remove pairing with ${displayName}`}
@@ -114,16 +112,20 @@ function DaemonCard({
         >
           <Text className="text-tp-error text-xs">Unpair</Text>
         </Pressable>
-        <Text
-          className={`text-xs font-medium ${
-            isOnline ? "text-tp-success" : "text-tp-text-tertiary"
-          }`}
-          {...(Platform.OS === "web"
-            ? ({ "aria-hidden": true } as object)
-            : {})}
-        >
-          {isOnline ? "Connected" : `Last seen ${timeAgo(info.pairedAt)}`}
-        </Text>
+        {/* Online/offline is already conveyed by the green status dot on the
+            left. When offline, surface the last-seen time as the only extra
+            signal worth the space; when online the dot says everything, so we
+            drop the redundant "Connected" label. */}
+        {!isOnline && (
+          <Text
+            className="text-xs font-medium text-tp-text-tertiary ml-2"
+            {...(Platform.OS === "web"
+              ? ({ "aria-hidden": true } as object)
+              : {})}
+          >
+            {`Last seen ${timeAgo(info.pairedAt)}`}
+          </Text>
+        )}
       </View>
 
       {/* Info rows */}
@@ -144,29 +146,19 @@ function DaemonCard({
         </View>
       </View>
 
-      {/* Action buttons. The frontend can't spawn sessions on a daemon —
-          users start them with `tp` on the daemon machine. So this card
-          offers a single navigational shortcut to the Sessions tab where
-          the live session list lives. */}
-      <View className="flex-row px-4 pb-4 gap-2">
-        {isOnline ? (
-          <Pressable
-            onPress={() => onViewSessions(info)}
-            className={`flex-1 bg-tp-bg-tertiary rounded-btn py-2 items-center ${pp.className}`}
-            tabIndex={pp.tabIndex}
-            accessibilityRole="button"
-            accessibilityLabel={`View sessions on ${displayName}`}
-          >
-            <Text className="text-tp-text-primary text-[13px] font-medium">
-              View Sessions
-            </Text>
-          </Pressable>
-        ) : (
+      {/* The frontend can't spawn sessions on a daemon — users start them
+          with `tp` on the daemon machine, and the live list lives on the
+          Sessions tab. We used to render a "View Sessions" button here, but
+          it only navigated to that tab (no daemon-scoped filtering), so it
+          was redundant with the tab bar and has been removed. When offline,
+          keep a hint that the card is waiting for the daemon. */}
+      {!isOnline && (
+        <View className="px-4 pb-4">
           <Text className="text-tp-text-tertiary text-xs py-2">
             Waiting for daemon to come online...
           </Text>
-        )}
-      </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -266,7 +258,6 @@ export default function DaemonsScreen() {
                       );
                       setUnpairTarget(target);
                     }}
-                    onViewSessions={() => router.push("/(tabs)/")}
                   />
                 </View>
               ))}
@@ -288,7 +279,6 @@ export default function DaemonsScreen() {
                   );
                   setUnpairTarget(target);
                 }}
-                onViewSessions={() => router.push("/(tabs)/")}
               />
             ))}
           </ScrollView>

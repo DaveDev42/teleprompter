@@ -355,10 +355,29 @@ export function matchPairings<
   return candidates.filter((c) => c.label?.toLowerCase().includes(fragLower));
 }
 
+// `os.hostname()` on macOS/mDNS networks often returns a fully-qualified name
+// like "Dave-MacMini.local" or "host.lan". The trailing zeroconf/LAN suffix is
+// noise in a human-facing pairing label, so strip a single known suffix. We
+// only drop a leaf suffix (one dot segment) — multi-level domains
+// ("box.home.arpa") keep everything before the recognized tail.
+const TRIMMABLE_HOST_SUFFIXES = [".local", ".lan", ".localdomain", ".home"];
+
+export function normalizeHostLabel(raw: string): string {
+  let h = raw.trim();
+  const lower = h.toLowerCase();
+  for (const suffix of TRIMMABLE_HOST_SUFFIXES) {
+    if (lower.endsWith(suffix) && h.length > suffix.length) {
+      h = h.slice(0, h.length - suffix.length);
+      break;
+    }
+  }
+  return h;
+}
+
 function defaultLabel(): string {
   try {
-    const h = hostname();
-    return h && h.length > 0 ? h : "daemon";
+    const h = normalizeHostLabel(hostname());
+    return h.length > 0 ? h : "daemon";
   } catch {
     return "daemon";
   }

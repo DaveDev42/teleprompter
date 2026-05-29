@@ -4,9 +4,41 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { capture } from "../test-util";
-import { matchPairings } from "./pair";
+import { matchPairings, normalizeHostLabel } from "./pair";
 
 const CLI = "bun run apps/cli/src/index.ts";
+
+describe("normalizeHostLabel", () => {
+  test("strips a trailing .local suffix", () => {
+    expect(normalizeHostLabel("Dave-MacMini.local")).toBe("Dave-MacMini");
+  });
+
+  test("strips other known LAN suffixes", () => {
+    expect(normalizeHostLabel("host.lan")).toBe("host");
+    expect(normalizeHostLabel("box.localdomain")).toBe("box");
+    expect(normalizeHostLabel("nas.home")).toBe("nas");
+  });
+
+  test("is case-insensitive on the suffix", () => {
+    expect(normalizeHostLabel("Dave-MacMini.LOCAL")).toBe("Dave-MacMini");
+  });
+
+  test("only strips a single leaf suffix, keeping multi-level domains", () => {
+    expect(normalizeHostLabel("box.home.arpa")).toBe("box.home.arpa");
+  });
+
+  test("leaves a plain hostname untouched", () => {
+    expect(normalizeHostLabel("workstation")).toBe("workstation");
+  });
+
+  test("does not strip when the name is only the suffix", () => {
+    expect(normalizeHostLabel(".local")).toBe(".local");
+  });
+
+  test("trims surrounding whitespace", () => {
+    expect(normalizeHostLabel("  Dave-MacMini.local  ")).toBe("Dave-MacMini");
+  });
+});
 
 describe("matchPairings", () => {
   const pairings = [

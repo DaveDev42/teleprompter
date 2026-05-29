@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.41](https://github.com/DaveDev42/teleprompter/compare/v0.1.40...v0.1.41) (2026-05-29)
+
+
+### Bug Fixes
+
+* **app:** declutter daemon card, lift rename modal above keyboard, trim hostname label ([#481](https://github.com/DaveDev42/teleprompter/issues/481)) ([14389a0](https://github.com/DaveDev42/teleprompter/commit/14389a0d638a20dd62ccc7962fc9f9e27c937c92))
+
 ## [0.1.40](https://github.com/DaveDev42/teleprompter/compare/v0.1.39...v0.1.40) (2026-05-20)
 
 

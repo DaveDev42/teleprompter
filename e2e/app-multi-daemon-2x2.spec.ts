@@ -548,11 +548,12 @@ test.describe("2×2 Multi-Daemon / Multi-Frontend — four pairings", () => {
       bodyB.includes(daemonBId.slice(0, 8)) || bodyB.includes(DAEMON_B_LABEL);
     expect(hasBinB).toBe(true);
 
-    // Total "Connected" count in each frontend must be ≤ 1
-    // (daemon B only; daemon A shows as disconnected).
-    const connectedA = (bodyA.match(/\bConnected\b/g) ?? []).length;
-    const connectedB = (bodyB.match(/\bConnected\b/g) ?? []).length;
-    expect(connectedA).toBeLessThanOrEqual(1);
-    expect(connectedB).toBeLessThanOrEqual(1);
+    // Online status is conveyed by the green status dot (bg-tp-success) on
+    // each card — the redundant "Connected" text label was removed. Each
+    // frontend may show at most one online daemon (B only; A is disconnected).
+    const onlineA = await pageA.locator('[class*="bg-tp-success"]').count();
+    const onlineB = await pageB.locator('[class*="bg-tp-success"]').count();
+    expect(onlineA).toBeLessThanOrEqual(1);
+    expect(onlineB).toBeLessThanOrEqual(1);
   });
 });

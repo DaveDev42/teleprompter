@@ -12,9 +12,11 @@ test.use({ viewport: { width: 1280, height: 800 } });
 //   1. A `<View>` color dot ("running"/"stopped" indicator) at the
 //      start of the header row — empty <div> that NVDA announces as
 //      a content-less pause.
-//   2. A `<Text>` rendering "Connected" / "Last seen Xm ago" at the
-//      far right of the header row — duplicates the "connected" /
-//      "offline" fragment already in the group label.
+//   2. A `<Text>` rendering "Last seen Xm ago" at the far right of the
+//      header row when the daemon is offline — duplicates the "offline"
+//      fragment already in the group label. (When online, the green dot
+//      alone conveys status and no status text is rendered, so the only
+//      decorative status text to hide is the offline "Last seen" node.)
 //
 // Both must carry `aria-hidden="true"` on web. Native AT focuses the
 // wrapper and reads accessibilityLabel directly.

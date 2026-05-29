@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Modal, Platform, Pressable, View } from "react-native";
+import {
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  View,
+} from "react-native";
 import { useKeyboard } from "../hooks/use-keyboard";
 
 const FOCUSABLE_SELECTOR =
@@ -188,22 +194,33 @@ export function ModalContainer({
         ? ({ "aria-describedby": accessibilityDescribedBy } as object)
         : {})}
     >
-      <Pressable className="flex-1 bg-tp-overlay" onPress={onClose}>
-        <View className="flex-1" />
-        <View
-          ref={dialogRef}
-          className="bg-tp-bg-elevated rounded-t-2xl w-full max-w-[540px] mx-auto"
-          accessibilityLabel={accessibilityLabel}
-          {...(Platform.OS === "web"
-            ? {
-                onClick: (e: { stopPropagation: () => void }) =>
-                  e.stopPropagation(),
-              }
-            : {})}
-        >
-          <View ref={containerRef}>{children}</View>
-        </View>
-      </Pressable>
+      {/* The dialog is a bottom sheet (rounded-t-2xl, pinned to the bottom).
+          On native the soft keyboard slides up over it, hiding the TextInput
+          (e.g. RenamePairingModal). Wrap in KeyboardAvoidingView so the sheet
+          lifts above the keyboard. `padding` behaves correctly for a
+          bottom-anchored layout on both iOS and Android; web has no soft
+          keyboard so the wrapper is a transparent passthrough there. */}
+      <KeyboardAvoidingView
+        className="flex-1"
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <Pressable className="flex-1 bg-tp-overlay" onPress={onClose}>
+          <View className="flex-1" />
+          <View
+            ref={dialogRef}
+            className="bg-tp-bg-elevated rounded-t-2xl w-full max-w-[540px] mx-auto"
+            accessibilityLabel={accessibilityLabel}
+            {...(Platform.OS === "web"
+              ? {
+                  onClick: (e: { stopPropagation: () => void }) =>
+                    e.stopPropagation(),
+                }
+              : {})}
+          >
+            <View ref={containerRef}>{children}</View>
+          </View>
+        </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

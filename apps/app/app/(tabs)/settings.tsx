@@ -1,5 +1,7 @@
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+// SDK 56: bottom-tabs symbols moved from @react-navigation/bottom-tabs to
+// expo-router/js-tabs (see expo.dev/router/migrate/sdk-55-to-56).
 import Constants from "expo-constants";
+import { useBottomTabBarHeight } from "expo-router/js-tabs";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,

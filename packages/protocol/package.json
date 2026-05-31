@@ -21,6 +21,6 @@
     "@teleprompter/tsconfig": "workspace:*",
     "@types/libsodium-wrappers": "^0.7.14",
     "bun-types": "^1.3.6",
-    "typescript": "^5.9.2"
+    "typescript": "~6.0.3"
   }
 }

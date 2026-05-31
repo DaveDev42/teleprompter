@@ -3,7 +3,6 @@
   "include": ["src"],
   "compilerOptions": {
     "jsx": "react-jsx",
-    "baseUrl": ".",
     "paths": {
       "@teleprompter/protocol": ["../../packages/protocol/src"],
       "@teleprompter/protocol/*": ["../../packages/protocol/src/*"],

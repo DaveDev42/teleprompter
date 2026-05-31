@@ -1,7 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
-import type { BottomTabBarButtonProps } from "@react-navigation/bottom-tabs";
-import { PlatformPressable } from "@react-navigation/elements";
 import { Tabs } from "expo-router";
+// SDK 56 dropped app-level @react-navigation/* imports — expo-router now
+// re-exports the same symbols. bottom-tabs types come from expo-router/js-tabs;
+// PlatformPressable (and the rest of @react-navigation/elements) from
+// expo-router/react-navigation. See expo.dev/router/migrate/sdk-55-to-56.
+import { PlatformPressable } from "expo-router/react-navigation";
+import type { BottomTabBarButtonProps } from "expo-router/js-tabs";
 import { useEffect } from "react";
 import { Platform } from "react-native";
 import { enableScreens } from "react-native-screens";

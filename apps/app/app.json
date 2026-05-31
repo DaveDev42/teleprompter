@@ -7,21 +7,9 @@
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./assets/splash-icon-light.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FFFFFF"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "dev.tpmt.app",
-      "splash": {
-        "dark": {
-          "image": "./assets/splash-icon-dark.png",
-          "resizeMode": "contain",
-          "backgroundColor": "#09090B"
-        }
-      },
       "infoPlist": {
         "NSCameraUsageDescription": "Camera is used to scan QR codes for daemon pairing.",
         "NSMicrophoneUsageDescription": "Microphone is used for voice commands to control Claude Code.",
@@ -30,16 +18,6 @@
       }
     },
     "android": {
-      "splash": {
-        "image": "./assets/splash-icon-light.png",
-        "resizeMode": "contain",
-        "backgroundColor": "#FFFFFF",
-        "dark": {
-          "image": "./assets/splash-icon-dark.png",
-          "resizeMode": "contain",
-          "backgroundColor": "#09090B"
-        }
-      },
       "adaptiveIcon": {
         "backgroundColor": "#000000",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -65,7 +43,7 @@
         "expo-build-properties",
         {
           "ios": {
-            "deploymentTarget": "15.1",
+            "deploymentTarget": "16.4",
             "newArchEnabled": true
           },
           "android": {
@@ -86,6 +64,19 @@
         {
           "icon": "./assets/icon.png",
           "color": "#000000"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon-light.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF",
+          "dark": {
+            "image": "./assets/splash-icon-dark.png",
+            "resizeMode": "contain",
+            "backgroundColor": "#09090B"
+          }
         }
       ]
     ],

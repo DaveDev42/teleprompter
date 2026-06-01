@@ -561,10 +561,13 @@ xcrun devicectl device install app --device 00008130-000450C034C3001C /tmp/telep
 ### HMR 개발 루프
 
 ```bash
-pnpm dev:app          # Metro dev server on :8081
+cd apps/app && npx expo start --dev-client    # native dev-client Metro on :8081
+# Mac 과 iPhone 이 다른 네트워크면: npx expo start --dev-client --tunnel
 ```
 
-설치된 dev client 앱을 기기에서 열면 Metro 에 붙어 Fast Refresh 가 산다. RN Web dogfood 와 동일하게, 실기기 dev build 로도 Chat/Terminal UI 변경을 직접 만진다.
+> ⚠️ **`pnpm dev:app` 은 쓰지 말 것** — 그건 `expo start --web` (웹 번들 전용) 이라 실기기 dev client 에 안 붙는다. 네이티브 dev client 는 반드시 `expo start --dev-client` (default LAN 모드, `expo-dev-client` 설치 시 자동 감지).
+
+설치된 dev client 앱을 기기에서 열면 launcher 의 LAN 서버를 탭(또는 QR 스캔 / `http://<lan-ip>:8081` 수동 입력)해서 Metro 에 붙고 Fast Refresh 가 산다. Mac 과 iPhone 은 **같은 Wi-Fi LAN** 이어야 한다 (AP isolation 없이). 단 app↔daemon 트래픽은 relay (`wss://relay.tpmt.dev`) 경유라 LAN 무관 — Metro/JS 연결만 같은 LAN 이 필요하다. 실기기 dev build 로도 RN Web dogfood 처럼 Chat/Terminal UI 변경을 직접 만진다.
 
 ### Troubleshooting
 

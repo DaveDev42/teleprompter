@@ -102,10 +102,10 @@ Stub 프로세스로 전체 파이프라인 검증.
 ## Benchmarks
 - `packages/relay/src/bench.test.ts` — relay throughput benchmark
 
-## Tier 4: QA Agent Tests (Expo MCP Plugin + Playwright MCP)
-`/qa` 커맨드로 QA agent에 위임:
-- `expo-mcp:qa` — iOS Simulator / Android Emulator (Expo MCP Plugin `DaveDev42/expo-mcp` + Maestro)
-- `app-web-qa` — React Native Web (Playwright MCP + Playwright Test)
+## Tier 4: QA Agent Tests (Playwright MCP — RN Web only on this machine)
+`/qa` 커맨드로 QA agent에 위임. **로컬 Tier 4 경로는 `app-web-qa` (RN Web) 하나뿐이다:**
+- `app-web-qa` — React Native Web (Playwright MCP + Playwright Test) — **유일한 로컬 QA 경로**
+- `expo-mcp:qa` — iOS Simulator / Android Emulator (Expo MCP Plugin `DaveDev42/expo-mcp` + Maestro). **이 머신(8GB Mac)에서는 사용 금지** — Simulator + Xcode 가 시스템을 과부하시키고 (load 100+, heavy swap) Maestro/JDK-26 불안정. expo-mcp 플러그인은 `.claude/settings.json`에서 비활성화돼 있다. 네이티브 iOS/Android 검증은 EAS 클라우드 빌드 → TestFlight/Internal → 사용자 실기기 디버깅으로 처리 (CLAUDE.md "iOS 빌드 & 검증 워크플로우" 참조).
 - Playwright E2E: `pnpm test:e2e`
   - `e2e/app-web.spec.ts` — UI smoke tests (Sessions header, empty state, tabs, dark theme)
   - `e2e/app-settings.spec.ts` — settings tab (appearance, theme toggle, fonts, diagnostics, version)

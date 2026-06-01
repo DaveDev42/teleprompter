@@ -31,15 +31,17 @@ QA agent에 위임하기 전에, **변경된 코드를 분석하여 구체적인
 
 > **중요**: "regression 확인해줘" 같은 모호한 위임 금지. 반드시 테스트할 시나리오를 명시해서 전달해야 한다.
 
-**Step 3: Frontend QA**
+**Step 3: Frontend QA (RN Web only)**
 
-`expo-mcp:qa` agent에게 **테스트 시나리오와 함께** 위임:
+`app-web-qa` agent에게 **테스트 시나리오와 함께** 위임 — 로컬 QA는 항상 RN Web (Playwright MCP) 으로 한다:
 
 - QA agent에게 전달할 프롬프트에 반드시 포함:
   1. 변경된 파일 목록
   2. 각 변경사항에 대한 구체적 테스트 시나리오
   3. 테스트에 필요한 사전 조건 (데이터, 설정 등)
   4. 기대하는 UI 동작/결과
+
+> **iOS/Android 실기기 거동은 로컬에서 검증하지 않는다.** 이 머신(8GB Mac)에서는 Simulator/Xcode/Maestro 를 띄우지 않는다 (시스템 과부하 — CLAUDE.md "iOS 빌드 & 검증 워크플로우" 참조). `expo-mcp:qa` 는 비활성화돼 있다. 네이티브 전용 동작(push 배너, 소프트 키보드 회피 등)은 코드 + RN Web 근사로 확인하고, 실기기 검증은 TestFlight 빌드 후 사용자에게 위임한다.
 
 **Step 4: QA 결과 검증**
 
@@ -58,7 +60,7 @@ QA agent 결과 수신 후:
 
 1. `git diff --name-only main`으로 변경된 파일 확인
 2. 변경된 앱 감지:
-   - `apps/app/` 변경 → expo-mcp:qa 필요
-   - `packages/` 변경 → expo-mcp:qa 포함 관련 앱 QA 모두 필요
+   - `apps/app/` 변경 → `app-web-qa` (RN Web) 필요
+   - `packages/` 변경 → `app-web-qa` 포함 관련 앱 QA 모두 필요
    - `apps/app/` 변경 없음 (백엔드만 변경) → QA skip, 단위/통합 테스트로 대체
-3. expo-mcp:qa agent에게 위임
+3. `app-web-qa` agent에게 위임. Simulator 기반 QA (`expo-mcp:qa`) 는 이 머신에서 사용하지 않으며 (비활성화됨), 네이티브 iOS 검증은 TestFlight + 사용자에게 위임한다.

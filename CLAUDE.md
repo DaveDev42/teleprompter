@@ -132,13 +132,14 @@ frontmatter가 `model: inherit`이라 미명시 시 부모 Opus 상속.
 - **코드 작업/리뷰/구현**: `model: "sonnet"` (e.g., `superpowers:code-reviewer`,
   `general-purpose`)
 - **어려운 설계/추론만 opus**: 명확히 필요할 때만
-- **QA**: 회귀(`.spec.ts` 실행, Maestro flow 재생) = `haiku`,
-  탐색적 QA (버그 hunt, 새 시나리오, 페어링/세팅 우회 추론 필요) = `sonnet`
-  (`app-web-qa` / `expo-mcp:qa` 모두 동일 룰)
+- **QA**: 회귀(`.spec.ts` 실행) = `haiku`,
+  탐색적 QA (버그 hunt, 새 시나리오, 페어링/세팅 우회 추론 필요) = `sonnet`.
+  로컬 QA 는 항상 `app-web-qa` (RN Web). `expo-mcp:qa` / Simulator / Maestro 는
+  이 머신에서 띄우지 않는다 (과부하 — "iOS 빌드 & 검증 워크플로우" 참조).
 
 ## Testing Strategy
 
-4계층 테스트, 모두 `bun:test` 사용 (Tier 4는 Expo MCP Plugin + Playwright MCP).
+4계층 테스트, 모두 `bun:test` 사용 (Tier 4 로컬 QA 는 RN Web + Playwright MCP — Simulator/Maestro 는 이 머신에서 안 씀).
 
 ### 명령어
 ```bash
@@ -150,7 +151,7 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 
 또는 슬래시 커맨드 사용 — 변경 파일 기반 자동 dispatch:
 - `/test [auto|protocol|daemon|runner|relay|cli|app|e2e|unit|all]` — 변경 범위 감지 후 실행
-- `/qa [web|mobile]` — Tier 4 QA agent에 위임 (Playwright/Expo MCP)
+- `/qa [auto|frontend]` — Tier 4 QA agent (`app-web-qa`, RN Web + Playwright) 에 위임. 네이티브(iOS/Android) 실기기 검증은 로컬에서 안 하고 TestFlight/Internal + 사용자 디버깅으로 넘긴다
 - `/deploy-check` — CI와 동일한 로컬 사전 검증
 
 Tier 1-4 분류 및 전체 test 파일 인벤토리는 `.claude/rules/testing-inventory.md` 참조 — `*.test.ts` / `e2e/**` / `packages/**` / `apps/**` 파일 작업 시 자동 로드됨.
@@ -529,7 +530,9 @@ PRD and internal docs are written in Korean. Code, comments, and commit messages
 
 ## iOS 빌드 & 검증 워크플로우
 
-**로컬(Dave-MacMini)에서 iOS 네이티브 빌드는 하지 않는다.** `eas build --local` 로 dev build 를 만드는 경로는 시도했으나 이 머신에서 비현실적이라 폐기했다 (아래 "왜 로컬 빌드를 접었나"). 모든 네이티브 iOS 빌드/배포는 **EAS 클라우드**가, 로컬 검증은 **RN Web**이 담당한다.
+**로컬에서 iOS Simulator / Xcode / Maestro 를 띄우지 않는다 — 빌드든 실행이든.** 1차 이유는 단순하다: **이 개발 머신(8GB Mac)은 Simulator + Xcode(또는 네이티브 컴파일)를 동시에 돌리면 시스템이 과부하된다** (load 100+, heavy swap 으로 머신 전체가 사실상 멈춘다). 그래서 미리 빌드된 `.app` 을 Simulator 에서 *실행*하는 것조차 하지 않는다. `eas build --local` 같은 로컬 네이티브 빌드도 같은 이유로 폐기했다 (아래 "왜 로컬 iOS 를 안 하나"). 모든 네이티브 iOS 빌드/배포는 **EAS 클라우드**가, 로컬 검증은 **RN Web**이 담당한다.
+
+(머신 이름이 아니라 *정책*이다 — 8GB 급 머신에서는 항상 이 규칙을 따른다. 더 사양 좋은 Mac 으로 옮기더라도 로컬 Simulator/빌드 재개는 그때 사용자가 명시적으로 결정한다.)
 
 ### 표준 절차 (이대로만 진행)
 
@@ -541,15 +544,15 @@ PRD and internal docs are written in Korean. Code, comments, and commit messages
 
 서명 자격은 repo 에 절대 저장하지 않는다. EAS 서버가 distribution cert + provisioning profile 의 SoT 이고, EAS 클라우드 빌드가 빌드 시점에 사용한다. `eas.json` 에 `credentialsSource` 를 명시하지 않는다 (`remote` 가 기본값). iOS push 용 profile 에 `aps-environment` capability 가 필요하면 `eas credentials -p ios` (대화형) 또는 ASC API key 로 EAS 측에서 갱신한다 — 로컬 keychain 은 건드리지 않는다.
 
-### 왜 로컬 빌드를 접었나 (재시도 방지용 기록)
+### 왜 로컬 iOS 를 안 하나 (재시도 방지용 기록)
 
-`eas build --local` 자체는 성공시킬 수 있었고 실제로 device `.ipa` + simulator `.app` 둘 다 빌드했다. 접은 이유는 빌드 산출물을 **검증으로 잇는 마지막 구간**이 이 머신에서 막혔기 때문이다:
+**근본 한계는 메모리다. 이 머신은 8GB RAM 이라 Simulator + Xcode/네이티브 컴파일을 함께 돌리는 순간 시스템이 과부하된다** — iOS 26.5 시뮬레이터 런타임 + 네이티브 빌드가 메모리를 동시에 압박해 load 가 100+ 까지 치솟고 heavy swap 으로 머신 전체(에디터·daemon·이 agent 까지)가 사실상 멈춘다. 이건 도구를 더 잘 맞춘다고 풀리는 게 아니라 **하드웨어 천장**이다. `eas build --local` 로 device `.ipa` + simulator `.app` 을 실제로 빌드해본 적은 있지만, 그 성공이 "조금만 더 손보면 된다"는 뜻은 아니었다 — 빌드를 *검증으로 잇는 구간* 이 이 머신에선 전부 막혔다:
 
+- **시뮬레이터 (주 이유)**: `.app` 설치·실행은 됐으나 RAM 압박으로 idb/Maestro 가 불안정하고, Expo MCP 가 쓰는 **Maestro 가 반복 크래시** (`Maestro process terminated`; 시스템 **OpenJDK 26** ↔ Maestro 권장 JDK 17–21 비호환도 겹침). 무엇보다 시뮬레이터를 띄우는 것 자체가 위의 과부하를 일으킨다.
 - **실기기**: iPhone 이 USB 연결돼도 trust/`pairing: unsupported` 로 설치 불가 (Developer Beta OS 의심). `xcrun devicectl ... install` 이 기기에 안 붙는다.
-- **시뮬레이터**: `.app` 설치·실행은 됐으나, Expo MCP 가 쓰는 **Maestro 가 반복 크래시** (`Maestro process terminated`). 원인은 (a) 시스템 **OpenJDK 26** 이 Maestro 권장 JDK(17–21) 와 비호환, (b) **8GB RAM** 한계 — 네이티브 컴파일 + iOS 26.5 시뮬레이터 런타임이 메모리를 압박(load 100+, heavy swap)해 idb/Maestro 가 불안정.
-- 로컬 빌드 한 사이클에 **WWDR G3 수동 설치 / Aqua(GUI) 세션 re-exec / root-owned tmp 정리 / `xcodebuild -downloadPlatform` (8GB+ 다운로드)** 등 깨지기 쉬운 전제가 많아, 8GB 머신에서 유지보수 비용이 클라우드 빌드 이득을 넘었다.
+- **부수 비용**: 로컬 빌드 한 사이클에 WWDR G3 수동 설치 / Aqua(GUI) 세션 re-exec / root-owned tmp 정리 / `xcodebuild -downloadPlatform` (8GB+ 다운로드) 같은 깨지기 쉬운 전제가 많았다. (이건 곁가지 — 위 메모리 천장이 없어도 본질 문제는 그대로다.)
 
-→ **결론: 로컬 iOS 빌드 재시도 금지.** 네이티브 빌드는 EAS, 검증은 RN Web, 실기기는 TestFlight + 사용자 디버깅으로 간다. (다른 Mac(16GB+, JDK 21, 정식 OS, 신뢰된 기기)에서라면 `eas build --local` 경로가 다시 유효할 수 있으나, 그건 그때 별도 판단.)
+→ **결론: 로컬 Simulator/Xcode/네이티브 빌드 전부 재시도 금지.** 네이티브 빌드는 EAS 클라우드, 로컬 검증은 RN Web, 실기기는 TestFlight + 사용자 디버깅으로 간다. (16GB+ / 정식 OS / 신뢰된 기기를 갖춘 다른 Mac 이라면 메모리 천장이 사라져 로컬 경로가 다시 유효할 수 있으나 — 이건 **자동으로 재개하지 않고** 그 시점에 사용자가 명시적으로 결정한다. 위 명령들을 재시도 레시피로 읽지 말 것.)
 
 ## Native Build (Expo Go 드롭 예정)
 

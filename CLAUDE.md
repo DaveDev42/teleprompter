@@ -527,63 +527,34 @@ Fish는 완성 스크립트를 디스크에 기록하므로 `tp upgrade` 후 `tp
 
 PRD and internal docs are written in Korean. Code, comments, and commit messages should be in English.
 
-## iOS Development Build (로컬, EAS credentials)
+## iOS 빌드 & 검증 워크플로우
 
-App Store의 Expo Go는 SDK 54에 고정되어 SDK 56 번들을 못 띄운다 (2026-05 정책). 그래서 **실기기 on-device 개발 + HMR** 이 필요하면 `scripts/ios-dev-build.sh` 로 로컬 **development build** (`.ipa`)를 만들어 기기에 직접 설치한다. TestFlight / release 제출은 그대로 **EAS cloud** (`eas-gate` → `preview.yaml` / `production.yaml`)가 담당한다 — 로컬 빌드는 dev client 전용이고 EAS 클라우드 경로를 대체하지 않는다.
+**로컬(Dave-MacMini)에서 iOS 네이티브 빌드는 하지 않는다.** `eas build --local` 로 dev build 를 만드는 경로는 시도했으나 이 머신에서 비현실적이라 폐기했다 (아래 "왜 로컬 빌드를 접었나"). 모든 네이티브 iOS 빌드/배포는 **EAS 클라우드**가, 로컬 검증은 **RN Web**이 담당한다.
 
-### Credentials = EAS single source of truth
+### 표준 절차 (이대로만 진행)
 
-서명 자격은 repo에 절대 저장하지 않는다. `eas build --local` 이 빌드 시점에 EAS에서 distribution cert + provisioning profile을 내려받는다 (`credentialsSource` 미명시 = `remote` 기본값). 따라서 어느 Mac에서든 동일한 자격으로 빌드된다:
-- 최초 1회만 `eas login` (`eas whoami` 로 확인).
-- 인증서/프로파일은 EAS 서버가 SoT. 로컬 keychain에는 빌드 동안만 임시 존재.
-- `eas.json` 에 `credentialsSource` 를 명시하지 않는다 — `remote` 가 안정적 기본값이고, 한 profile에만 박으면 다른 profile이 다른 소스를 쓰는 것처럼 오해를 부른다.
+1. **로컬 검증 = RN Web.** UI/로직 변경은 RN Web dogfood (`pnpm dev:app` + `pnpm dev:pair`, 위 "Dog-fooding" 섹션)로 검증한다. PR #481 류의 화면 변경(daemon 카드, 모달, 페어링 라벨 등)은 RN Web 에 동일하게 적용되므로 브라우저에서 확인할 수 있다. 네이티브 전용 동작(소프트 키보드 회피, push 배너 등)은 코드 + web 근사로 확인하고, 실기기 거동은 다음 단계로 넘긴다.
+2. **빌드/배포 = EAS 클라우드 + TestFlight.** main push → `ci.yml` eas-gate → `preview.yaml` 가 fingerprint 기반으로 OTA(JS-only) 또는 풀빌드(네이티브 변경)를 TestFlight/Internal 에 발행한다 (위 "Deployment Pipeline"). 로컬에서 `.ipa`/`.app` 을 굽지 않는다.
+3. **실기기 디버깅 = 사용자에게 요청.** 네이티브 거동을 실기기에서 확인해야 하면, TestFlight 빌드가 올라간 뒤 **사용자(Dave)에게 디버깅을 요청**한다. Claude 가 로컬에서 기기에 직접 설치/구동하려 시도하지 않는다.
 
-### 빌드 명령
+### Credentials = EAS single source of truth (변경 없음)
 
-```bash
-scripts/ios-dev-build.sh --profile device --output /tmp/teleprompter-dev.ipa
-```
+서명 자격은 repo 에 절대 저장하지 않는다. EAS 서버가 distribution cert + provisioning profile 의 SoT 이고, EAS 클라우드 빌드가 빌드 시점에 사용한다. `eas.json` 에 `credentialsSource` 를 명시하지 않는다 (`remote` 가 기본값). iOS push 용 profile 에 `aps-environment` capability 가 필요하면 `eas credentials -p ios` (대화형) 또는 ASC API key 로 EAS 측에서 갱신한다 — 로컬 keychain 은 건드리지 않는다.
 
-- **SSH 세션에서도 그대로 실행** — 스크립트가 자동으로 Aqua GUI login session 으로 re-exec 한다 (`launchctl asuser <uid> sudo -u <user>`).
-- **왜 GUI(Aqua) 세션이 필요한가**: `security find-identity -v` 는 cert chain 의 trust 평가를 Aqua login session 안에서만 수행한다. headless SSH(Background) 세션에서는 cert+key 가 import 되어 있어도 `0 valid identities found` 로 보인다. (그래서 빌드가 `certificate hasn't been imported` 로 죽는다 — 실제로는 trust context 문제.)
-- **WWDR G3 (Apple Worldwide Developer Relations CA **G3**)**: 스크립트가 없으면 자동 설치한다. 이 Mac의 System keychain에는 만료된 구형 WWDR만 있어서, `OU=G3` 로 서명된 EAS cert 가 chain 을 못 세우고 `CSSMERR_TP_NOT_TRUSTED` 가 난다.
-- **iOS platform component**: 최초 1회 `xcodebuild -downloadPlatform iOS` (없으면 `generic/platform=iOS` 빌드가 `iOS 26.5 is not installed` 로 실패).
-- **`eas build --local` 은 git HEAD 를 shallow-clone 해서 빌드한다** — working tree 의 uncommitted 변경은 빌드에 반영되지 않는다. 빌드 입력을 바꾸려면 commit 하거나 `EAS_NO_VCS=1` 로 working tree 를 그대로 tar 한다 (단 `EAS_NO_VCS` 로도 autolink 플러그인의 entitlement 주입은 못 막는다 — 위 push 항목 참조).
+### 왜 로컬 빌드를 접었나 (재시도 방지용 기록)
 
-### 실기기 설치
+`eas build --local` 자체는 성공시킬 수 있었고 실제로 device `.ipa` + simulator `.app` 둘 다 빌드했다. 접은 이유는 빌드 산출물을 **검증으로 잇는 마지막 구간**이 이 머신에서 막혔기 때문이다:
 
-```bash
-xcrun devicectl device install app --device 00008130-000450C034C3001C /tmp/teleprompter-dev.ipa
-```
+- **실기기**: iPhone 이 USB 연결돼도 trust/`pairing: unsupported` 로 설치 불가 (Developer Beta OS 의심). `xcrun devicectl ... install` 이 기기에 안 붙는다.
+- **시뮬레이터**: `.app` 설치·실행은 됐으나, Expo MCP 가 쓰는 **Maestro 가 반복 크래시** (`Maestro process terminated`). 원인은 (a) 시스템 **OpenJDK 26** 이 Maestro 권장 JDK(17–21) 와 비호환, (b) **8GB RAM** 한계 — 네이티브 컴파일 + iOS 26.5 시뮬레이터 런타임이 메모리를 압박(load 100+, heavy swap)해 idb/Maestro 가 불안정.
+- 로컬 빌드 한 사이클에 **WWDR G3 수동 설치 / Aqua(GUI) 세션 re-exec / root-owned tmp 정리 / `xcodebuild -downloadPlatform` (8GB+ 다운로드)** 등 깨지기 쉬운 전제가 많아, 8GB 머신에서 유지보수 비용이 클라우드 빌드 이득을 넘었다.
 
-또는 Xcode → Window → Devices and Simulators 에서 drag-install. (UDID `00008130-000450C034C3001C` = 페어링된 기기.) 한 번 설치하면 JS/TS 변경은 재빌드 없이 HMR 로 도달한다 — 네이티브 의존성이 바뀔 때만 다시 빌드.
-
-### HMR 개발 루프
-
-```bash
-cd apps/app && npx expo start --dev-client    # native dev-client Metro on :8081
-# Mac 과 iPhone 이 다른 네트워크면: npx expo start --dev-client --tunnel
-```
-
-> ⚠️ **`pnpm dev:app` 은 쓰지 말 것** — 그건 `expo start --web` (웹 번들 전용) 이라 실기기 dev client 에 안 붙는다. 네이티브 dev client 는 반드시 `expo start --dev-client` (default LAN 모드, `expo-dev-client` 설치 시 자동 감지).
-
-설치된 dev client 앱을 기기에서 열면 launcher 의 LAN 서버를 탭(또는 QR 스캔 / `http://<lan-ip>:8081` 수동 입력)해서 Metro 에 붙고 Fast Refresh 가 산다. Mac 과 iPhone 은 **같은 Wi-Fi LAN** 이어야 한다 (AP isolation 없이). 단 app↔daemon 트래픽은 relay (`wss://relay.tpmt.dev`) 경유라 LAN 무관 — Metro/JS 연결만 같은 LAN 이 필요하다. 실기기 dev build 로도 RN Web dogfood 처럼 Chat/Terminal UI 변경을 직접 만진다.
-
-### Troubleshooting
-
-| 증상 | 원인 / 조치 |
-|------|-------------|
-| `certificate ... hasn't been imported` / `CSSMERR_TP_NOT_TRUSTED` | WWDR G3 미설치 또는 SSH(Background) 세션 — 스크립트로 실행 (자동 설치 + Aqua re-exec) |
-| `find-identity` 결과 `0 valid identities found` | Aqua login session 아님 — GUI 세션 필요 (스크립트 re-exec 가 처리) |
-| `pod ... cannot be run as root` | root 로 CocoaPods 실행됨 — `sudo -u <user>` 로 강등 (스크립트가 처리) |
-| shallow clone `exit 128` | root 소유 `/tmp/eas-cli-nodejs` 잔존 — 스크립트가 ownership 기준 자동 삭제 |
-| `iOS 26.5 is not installed` | platform component 누락 — `xcodebuild -downloadPlatform iOS` |
-| `Provisioning Profile ... does not support the Push Notifications capability` | EAS 가 내려준 AdHoc(`distribution: internal`) profile 에 push capability 가 없음. `expo-notifications` 패키지는 **app.plugin.js autolink** 라 `app.json` plugins 배열에서 빼도 prebuild 가 `aps-environment` 를 강제 주입한다 (못 막음). 정석은 EAS profile 을 push 포함해 **재생성** — Apple Developer Portal 인증(2FA 또는 ASC API key)이 필요하므로 `eas credentials` 대화형(또는 ASC key 등록 후 `eas build` capability sync)으로 처리. |
+→ **결론: 로컬 iOS 빌드 재시도 금지.** 네이티브 빌드는 EAS, 검증은 RN Web, 실기기는 TestFlight + 사용자 디버깅으로 간다. (다른 Mac(16GB+, JDK 21, 정식 OS, 신뢰된 기기)에서라면 `eas build --local` 경로가 다시 유효할 수 있으나, 그건 그때 별도 판단.)
 
 ## Native Build (Expo Go 드롭 예정)
 
 향후 Apple Watch 앱, 네이티브 libghostty 터미널 등을 위해 Expo Go 호환성 제약을 해제할 예정.
-현재는 WASM/asm.js 기반으로 동작하지만, development build 전환 후 네이티브 모듈 사용 가능:
+현재는 WASM/asm.js 기반으로 동작하지만, dev/preview build(**EAS 클라우드** — 위 "iOS 빌드 & 검증 워크플로우" 참조, 로컬 빌드 아님) 전환 후 네이티브 모듈 사용 가능:
 - ✓ libsodium-wrappers (WASM on Web/Bun, asm.js fallback on Hermes)
 - ✓ expo-crypto (Expo SDK 내장 — `getRandomValues` polyfill 제공)
 - ✓ ghostty-web (libghostty WASM — Canvas 2D 터미널 렌더링)

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.42](https://github.com/DaveDev42/teleprompter/compare/v0.1.41...v0.1.42) (2026-06-02)
+
+
+### Features
+
+* **app:** local iOS dev build via EAS-managed credentials + docs ([#485](https://github.com/DaveDev42/teleprompter/issues/485)) ([fdc693b](https://github.com/DaveDev42/teleprompter/commit/fdc693bc18f3e762fcbcde4ecb5d40e8264860f6))
+
 ## [0.1.41](https://github.com/DaveDev42/teleprompter/compare/v0.1.40...v0.1.41) (2026-05-29)
 
 

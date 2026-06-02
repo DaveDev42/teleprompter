@@ -170,21 +170,30 @@ Tier 1-4 분류 및 전체 test 파일 인벤토리는 `.claude/rules/testing-in
 1. **PR squash merge 직후** — `apps/cli/**`, `packages/daemon/**`, `packages/runner/**`, `packages/protocol/**`, `packages/relay/**` 중 어느 하나라도 건드린 PR 이 머지되면:
    ```bash
    pnpm build:cli:local                           # 현재 OS/arch 바이너리만 (multi-platform 안 함)
-   sudo install -m 0755 dist/tp /usr/local/bin/tp            # PATH 의 tp 갱신
-   tp daemon install                              # 서비스 재등록 (이미 등록돼 있으면 idempotent)
+   install -m 0755 dist/tp ~/.local/bin/tp        # dogfood 바이너리 갱신 (sudo 불필요 — $HOME 하위)
+   ~/.local/bin/tp daemon install                 # 서비스 재등록 (이미 등록돼 있으면 idempotent)
    # macOS launchd / Linux systemd 가 새 바이너리로 daemon 을 자동 재기동
    ```
+   > **dogfood 는 `~/.local/bin/tp`, brew(릴리즈)는 `/opt/homebrew/bin/tp`로 분리**한다. `~/.zprofile`
+   > 이 `~/.local/bin` 을 `/opt/homebrew/bin` 보다 앞에 두므로 `tp` 는 dogfood 를 가리키고, brew symlink
+   > 는 손대지 않아 `brew upgrade davedev42/tap/tp` 가 항상 정상 동작한다 (과거 `sudo install … /opt/homebrew/bin/tp`
+   > 로 symlink 를 덮어 brew upgrade 가 무력화됐던 회귀의 근본 차단). dogfood 를 끄려면 `rm ~/.local/bin/tp`
+   > 한 번이면 `tp` 가 자동으로 brew 릴리즈로 fallback. **`daemon install` 은 plist 에 박을 바이너리 경로를
+   > `which tp` 우선순위로 고르므로, `~/.local/bin/tp` 로 직접 실행**해 daemon 이 dogfood 를 가리키게 한다
+   > (Bun single-file 의 argv[0] 가 synthetic `/$bunfs/…` 라 PATH walk 로 떨어지는데, 새 로그인 셸 전이라
+   > `~/.local/bin` 이 아직 PATH 앞이 아니면 `PATH="$HOME/.local/bin:$PATH" ~/.local/bin/tp daemon install`
+   > 로 앞세운다).
 2. **로컬 dev 세션을 시작할 때** (main 위에서 코드 만지기 시작하는 시점) — 위 시퀀스를 한 번 돌려서 PATH 의 `tp` 와 가동 중인 daemon 이 `origin/main` 최신 commit 으로 맞춰져 있는지 확인.
 3. **사용자가 명시적으로 "최신으로 깔아줘" / "tp 업데이트해줘" 라고 말할 때** — 추가 확인 없이 위 시퀀스 실행.
 
 세부 규칙:
 
 - **재빌드는 `build:cli:local` 만 쓴다.** `build:cli` (`--all`) 는 4개 플랫폼 cross-compile 이라 느리고 로컬에서는 의미 없다.
-- **PATH 의 `tp` 위치는 `which tp` 로 먼저 확인** — Homebrew (`/opt/homebrew/bin/tp`), curl-installer (`~/.local/bin/tp`), 또는 위 예시처럼 `/usr/local/bin/tp` 셋 중 하나. 잘못된 경로에 install 하면 사용자가 만지는 `tp` 는 옛날 바이너리 그대로 남는다.
+- **dogfood install 경로는 `~/.local/bin/tp` 로 고정** (curl-installer 와 같은 위치). brew 릴리즈(`/opt/homebrew/bin/tp` → Cellar symlink)는 fallback 으로 남긴다. 새 로그인 셸에서 `which tp` 가 `~/.local/bin/tp` 로 해석되는지 확인 — `/usr/local/bin/tp` 같은 옛 dogfood 잔재가 있으면 그게 앞서 잡혀 혼란을 만드므로 발견 시 `rm` 한다. **brew symlink (`/opt/homebrew/bin/tp`) 에는 절대 `install` 로 덮어쓰지 않는다** (덮으면 다음 `brew upgrade` 가 PATH 상으로 무력화된다 — 복구는 `brew link --overwrite tp`).
 - **daemon 재기동은 `tp daemon install` 한 번이면 충분.** launchd/systemd unit 이 새 바이너리 경로를 가리키도록 idempotent 하게 재등록하고 자동 restart. `pkill tp-daemon` 후 수동 재시작 같은 동작은 금지 (서비스 등록 안 된 일회성 프로세스로 살아남아서 OTA 안 됨).
 - **daemon 재기동 후 검증**: `tp version` 으로 새 commit hash / version 이 찍히는지 확인. 안 찍히면 PATH 의 다른 `tp` 가 우선순위에 있다는 신호.
 - **이 룰의 목표는 사용자의 "즉시 만져보기" 사이클을 0초로 만드는 것** — 사용자가 PR 머지 후에 "어디서 어떻게 깔지" 를 고민하게 두면 dogfood 가 망가진다. 의심스러우면 그냥 위 시퀀스를 한 번 더 돌려라 (idempotent).
-- **Subagent worktree 가 active 인 동안 메인 worktree 에서 install 금지.** Subagent 가 `isolation: "worktree"` 로 격리되어 있어도 메인 worktree 의 git index 를 점유하는 케이스가 종종 있다 (브랜치 전환, working tree 수정 등). 그 동안 `pnpm build:cli:local && sudo install` 을 돌리면 build 산출물이 subagent 의 in-flight 변경과 섞일 수 있다. **PR 머지 후 install 은 모든 subagent 의 완료 알림이 도착한 뒤** 한꺼번에 처리. 메인 worktree 의 `git status` 가 깨끗하지 않으면 install 보류.
+- **Subagent worktree 가 active 인 동안 메인 worktree 에서 install 금지.** Subagent 가 `isolation: "worktree"` 로 격리되어 있어도 메인 worktree 의 git index 를 점유하는 케이스가 종종 있다 (브랜치 전환, working tree 수정 등). 그 동안 `pnpm build:cli:local && install -m 0755 dist/tp ~/.local/bin/tp` 를 돌리면 build 산출물이 subagent 의 in-flight 변경과 섞일 수 있다. **PR 머지 후 install 은 모든 subagent 의 완료 알림이 도착한 뒤** 한꺼번에 처리. 메인 worktree 의 `git status` 가 깨끗하지 않으면 install 보류.
 
 ### 라이브 디버그 워크플로우 (권장)
 

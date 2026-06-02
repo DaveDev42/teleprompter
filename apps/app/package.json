@@ -20,7 +20,6 @@
     "expo-camera": "~56.0.7",
     "expo-constants": "~56.0.16",
     "expo-crypto": "^56.0.4",
-    "expo-dev-client": "~56.0.18",
     "expo-device": "^56.0.4",
     "expo-file-system": "~56.0.7",
     "expo-linking": "~56.0.13",

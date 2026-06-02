@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.44](https://github.com/DaveDev42/teleprompter/compare/v0.1.43...v0.1.44) (2026-06-02)
+
+
+### Bug Fixes
+
+* **cli:** wait out launchctl bootout teardown before bootstrap ([#495](https://github.com/DaveDev42/teleprompter/issues/495)) ([99da3b6](https://github.com/DaveDev42/teleprompter/commit/99da3b69702d9325a569f0184cca83a839cbcd1e))
+
 ## [0.1.43](https://github.com/DaveDev42/teleprompter/compare/v0.1.42...v0.1.43) (2026-06-02)
 
 

@@ -1,13 +1,13 @@
-import type { WsSessionMeta } from "@teleprompter/protocol";
-import type { SessionMeta } from "./store";
+import type { SessionMeta } from "@teleprompter/protocol";
+import type { SessionMeta as StoreSessionMeta } from "./store";
 
 /**
- * Convert an internal `SessionMeta` row into the wire-format
- * `WsSessionMeta` shape frontends consume. Translates snake_case DB columns
- * and drops nullable fields in favor of `undefined` so Zod `.optional()`
- * on the frontend accepts them.
+ * Convert an internal store row (`StoreSessionMeta`, snake_case DB columns)
+ * into the wire-format `SessionMeta` shape frontends consume. Drops nullable
+ * fields in favor of `undefined` so Zod `.optional()` on the frontend accepts
+ * them.
  */
-export function toWsSessionMeta(meta: SessionMeta): WsSessionMeta {
+export function toSessionMeta(meta: StoreSessionMeta): SessionMeta {
   return {
     sid: meta.sid,
     state: meta.state,

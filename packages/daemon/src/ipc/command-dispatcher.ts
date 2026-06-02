@@ -20,8 +20,8 @@ import type {
   IpcSessionPruneOk,
   Namespace,
   RelayControlMessage,
-  WsRec,
-  WsSessionExport,
+  SessionExport,
+  SessionRec,
 } from "@teleprompter/protocol";
 import {
   createLogger,
@@ -34,7 +34,7 @@ import type {
   SessionManager,
   SpawnRunnerOptions,
 } from "../session/session-manager";
-import { type Store, toWsSessionMeta } from "../store";
+import { type Store, toSessionMeta } from "../store";
 import type { StoredRecord } from "../store/session-db";
 import type { RelayClient } from "../transport/relay-client";
 import type { WorktreeManager } from "../worktree/worktree-manager";
@@ -376,7 +376,7 @@ export class IpcCommandDispatcher {
 
     switch (msg.t) {
       case "hello": {
-        const sessions = this.deps.store.listSessions().map(toWsSessionMeta);
+        const sessions = this.deps.store.listSessions().map(toSessionMeta);
         reply(RELAY_CHANNEL_META, { t: "hello", v: 1, d: { sessions } });
         break;
       }
@@ -387,7 +387,7 @@ export class IpcCommandDispatcher {
           reply(msg.sid, {
             t: "state",
             sid: msg.sid,
-            d: toWsSessionMeta(meta),
+            d: toSessionMeta(meta),
           });
         } else {
           replyError(msg.sid, "NOT_FOUND", `Session ${msg.sid} not found`);
@@ -529,7 +529,7 @@ export class IpcCommandDispatcher {
       const stateMsg = {
         t: "state" as const,
         sid: msg.sid,
-        d: toWsSessionMeta(meta),
+        d: toSessionMeta(meta),
       };
       for (const relay of this.deps.getRelayClients()) {
         relay.publishState(RELAY_CHANNEL_META, stateMsg).catch(() => {});
@@ -571,7 +571,7 @@ export class IpcCommandDispatcher {
     // the runner handed us raw bytes we base64-encode once here before
     // fanning out to relays.
     const wsPayload = binary ? payload.toString("base64") : msg.payload;
-    const wsRec: WsRec = {
+    const sessionRec: SessionRec = {
       t: "rec",
       sid: msg.sid,
       seq,
@@ -582,7 +582,7 @@ export class IpcCommandDispatcher {
       ts: msg.ts,
     };
     for (const relay of this.deps.getRelayClients()) {
-      relay.publishRecord(wsRec).catch(() => {});
+      relay.publishRecord(sessionRec).catch(() => {});
     }
 
     // Notify local observer (passthrough CLI pipes io records to stdout).
@@ -633,7 +633,7 @@ export class IpcCommandDispatcher {
       const stateMsg = {
         t: "state" as const,
         sid: msg.sid,
-        d: toWsSessionMeta(meta),
+        d: toSessionMeta(meta),
       };
       for (const relay of this.deps.getRelayClients()) {
         relay.publishState(RELAY_CHANNEL_META, stateMsg).catch(() => {});
@@ -664,10 +664,10 @@ export class IpcCommandDispatcher {
     }
 
     const records = db.getRecordsFrom(cursor);
-    const wsRecs = toWsRecs(sid, records);
+    const sessionRecs = toSessionRecs(sid, records);
 
     relay
-      .publishToPeer(frontendId, sid, { t: "batch", sid, d: wsRecs })
+      .publishToPeer(frontendId, sid, { t: "batch", sid, d: sessionRecs })
       .catch(() => {});
   }
 
@@ -790,7 +790,7 @@ export class IpcCommandDispatcher {
   private handleRelaySessionExport(
     relay: RelayClient,
     frontendId: string,
-    msg: WsSessionExport,
+    msg: SessionExport,
   ): void {
     const sid = msg.sid;
     const format = msg.format ?? "markdown";
@@ -830,7 +830,7 @@ export class IpcCommandDispatcher {
       limit: effectiveLimit,
     });
 
-    const meta = toWsSessionMeta(session);
+    const meta = toSessionMeta(session);
     const truncated = records.length >= effectiveLimit;
 
     if (format === "json") {
@@ -869,7 +869,7 @@ function toNamespace(value: string | null): Namespace | undefined {
   return undefined;
 }
 
-function toWsRecs(sid: string, records: StoredRecord[]): WsRec[] {
+function toSessionRecs(sid: string, records: StoredRecord[]): SessionRec[] {
   return records.map((r) => ({
     t: "rec" as const,
     sid,

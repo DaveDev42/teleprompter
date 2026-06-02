@@ -16,11 +16,11 @@ import type {
   RelayClientMessage,
   RelayFrame,
   RelayServerMessage,
+  SessionClientMessage,
   SessionKeys,
-  WsClientMessage,
-  WsRec,
-  WsSessionMeta,
-  WsWorktreeInfo,
+  SessionMeta,
+  SessionRec,
+  SessionWorktreeInfo,
 } from "@teleprompter/protocol/client";
 import {
   CONTROL_RENAME,
@@ -470,19 +470,19 @@ export class FrontendRelayClient implements TransportClient {
       switch (msg.t) {
         case "rec":
           this.trackSeq(msg.seq);
-          this.events.onRec?.(msg as WsRec);
+          this.events.onRec?.(msg as SessionRec);
           break;
         case "batch":
           for (const rec of msg.d) {
             this.trackSeq(rec.seq);
-            this.events.onRec?.(rec as WsRec);
+            this.events.onRec?.(rec as SessionRec);
           }
           break;
         case "state":
-          this.events.onState?.(msg.sid, msg.d as WsSessionMeta);
+          this.events.onState?.(msg.sid, msg.d as SessionMeta);
           break;
         case "hello":
-          this.events.onSessionList?.(msg.d.sessions as WsSessionMeta[]);
+          this.events.onSessionList?.(msg.d.sessions as SessionMeta[]);
           // `daemonLabel` is included since the label-broadcast fix so the
           // frontend can adopt the label even when it missed the initial
           // relay.kx broadcast (e.g. frontend reconnected while daemon was
@@ -506,11 +506,11 @@ export class FrontendRelayClient implements TransportClient {
           this.events.onError?.(msg.m ?? msg.e);
           break;
         case "worktree.list":
-          this.events.onWorktreeList?.(msg.d as WsWorktreeInfo[]);
+          this.events.onWorktreeList?.(msg.d as SessionWorktreeInfo[]);
           break;
         case "worktree.created":
           this.events.onWorktreeCreated?.(
-            msg.d as WsWorktreeInfo,
+            msg.d as SessionWorktreeInfo,
             msg.sid as string | undefined,
           );
           break;
@@ -732,7 +732,7 @@ export class FrontendRelayClient implements TransportClient {
     this.sendEncrypted({ t: "in.term", sid, d: data });
   }
 
-  send(msg: WsClientMessage): void {
+  send(msg: SessionClientMessage): void {
     this.sendEncrypted(msg as unknown as Record<string, unknown>);
   }
 

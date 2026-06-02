@@ -12,8 +12,8 @@ import {
   generatePairingSecret,
   RELAY_CHANNEL_CONTROL,
   type RelayServerMessage,
+  type SessionRec,
   toBase64,
-  type WsRec,
 } from "@teleprompter/protocol";
 import { RelayServer } from "../../../relay/src/relay-server";
 import { RelayClient } from "./relay-client";
@@ -133,7 +133,7 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     await Bun.sleep(50);
 
     // Daemon publishes a record
-    const rec: WsRec = {
+    const rec: SessionRec = {
       t: "rec",
       sid: "session-1",
       seq: 1,
@@ -669,7 +669,7 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     await Bun.sleep(50);
 
     // Daemon publishes
-    const rec: WsRec = {
+    const rec: SessionRec = {
       t: "rec",
       sid: "s1",
       seq: 1,

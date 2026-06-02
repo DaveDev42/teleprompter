@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  SessionState,
-  WsSessionMeta,
-} from "@teleprompter/protocol/client";
+import type { SessionMeta, SessionState } from "@teleprompter/protocol/client";
 import {
   deriveInputGates,
   isSessionRunning,
@@ -11,7 +8,7 @@ import {
 
 // Accept the SessionState union plus arbitrary test-only values (e.g. "crashed",
 // "idle") to document that the helpers handle unknown states gracefully.
-function makeSession(state: SessionState | (string & {})): WsSessionMeta {
+function makeSession(state: SessionState | (string & {})): SessionMeta {
   return {
     sid: "s1",
     state,

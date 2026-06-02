@@ -1,4 +1,4 @@
-import type { WsRec, WsSessionMeta } from "@teleprompter/protocol/client";
+import type { SessionMeta, SessionRec } from "@teleprompter/protocol/client";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -390,7 +390,7 @@ function ChatView({
   stopped,
 }: {
   sid: string;
-  session: WsSessionMeta | undefined;
+  session: SessionMeta | undefined;
   stopped: boolean;
 }) {
   const messages = useChatStore((s) => s.messages);
@@ -532,7 +532,7 @@ function ChatView({
   // Wire hook event records to chat store (hooks-only mode — PTY io records
   // go exclusively to the terminal tab via TerminalView's own handler).
   useEffect(() => {
-    const handler = (rec: WsRec) => {
+    const handler = (rec: SessionRec) => {
       if (rec.k !== "event") return;
       try {
         const eventBytes = Uint8Array.from(atob(rec.d), (c) => c.charCodeAt(0));
@@ -857,7 +857,7 @@ function TerminalView({ sid, stopped }: { sid: string; stopped: boolean }) {
   }, [sid, armSettleTimer]);
 
   useEffect(() => {
-    const handler = (rec: WsRec) => {
+    const handler = (rec: SessionRec) => {
       // Any record arriving means replay/stream is still flowing — push
       // the empty-state overlay back by restarting the silence window.
       armSettleTimer();

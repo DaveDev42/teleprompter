@@ -18,39 +18,39 @@
 
 import type { RecordKind } from "./types/record";
 import type {
-  WsAttach,
-  WsDetach,
-  WsHello,
-  WsPing,
-  WsResize,
-  WsResume,
-  WsSessionCreate,
-  WsSessionExport,
-  WsSessionRestart,
-  WsSessionStop,
-  WsWorktreeCreate,
-  WsWorktreeList,
-  WsWorktreeRemove,
-} from "./types/ws";
+  SessionAttach,
+  SessionCreate,
+  SessionDetach,
+  SessionExport,
+  SessionHello,
+  SessionPing,
+  SessionResize,
+  SessionRestart,
+  SessionResume,
+  SessionStop,
+  SessionWorktreeCreate,
+  SessionWorktreeList,
+  SessionWorktreeRemove,
+} from "./types/session-proto";
 
 /**
  * Subset of frontend-originated control-plane messages the daemon handles
  * via the relay's onControlMessage path.
  */
 export type RelayControlMessage =
-  | WsHello
-  | WsAttach
-  | WsDetach
-  | WsResume
-  | WsResize
-  | WsPing
-  | WsSessionCreate
-  | WsSessionStop
-  | WsSessionRestart
-  | WsSessionExport
-  | WsWorktreeList
-  | WsWorktreeCreate
-  | WsWorktreeRemove;
+  | SessionHello
+  | SessionAttach
+  | SessionDetach
+  | SessionResume
+  | SessionResize
+  | SessionPing
+  | SessionCreate
+  | SessionStop
+  | SessionRestart
+  | SessionExport
+  | SessionWorktreeList
+  | SessionWorktreeCreate
+  | SessionWorktreeRemove;
 
 type PlainObject = { [key: string]: unknown };
 
@@ -116,23 +116,23 @@ export function parseRelayControlMessage(
   switch (t) {
     case "hello": {
       if (!isNumber(raw.v)) return null;
-      return { t: "hello", v: raw.v } satisfies WsHello;
+      return { t: "hello", v: raw.v } satisfies SessionHello;
     }
 
     case "attach": {
       if (!isString(raw.sid)) return null;
-      return { t: "attach", sid: raw.sid } satisfies WsAttach;
+      return { t: "attach", sid: raw.sid } satisfies SessionAttach;
     }
 
     case "detach": {
       if (!isString(raw.sid)) return null;
-      return { t: "detach", sid: raw.sid } satisfies WsDetach;
+      return { t: "detach", sid: raw.sid } satisfies SessionDetach;
     }
 
     case "resume": {
       if (!isString(raw.sid)) return null;
       if (!isNumber(raw.c)) return null;
-      return { t: "resume", sid: raw.sid, c: raw.c } satisfies WsResume;
+      return { t: "resume", sid: raw.sid, c: raw.c } satisfies SessionResume;
     }
 
     case "resize": {
@@ -144,11 +144,11 @@ export function parseRelayControlMessage(
         sid: raw.sid,
         cols: raw.cols,
         rows: raw.rows,
-      } satisfies WsResize;
+      } satisfies SessionResize;
     }
 
     case "ping":
-      return { t: "ping" } satisfies WsPing;
+      return { t: "ping" } satisfies SessionPing;
 
     case "session.create": {
       if (!isString(raw.cwd)) return null;
@@ -161,17 +161,17 @@ export function parseRelayControlMessage(
         sid: raw.sid,
         cols: raw.cols,
         rows: raw.rows,
-      } satisfies WsSessionCreate;
+      } satisfies SessionCreate;
     }
 
     case "session.stop": {
       if (!isString(raw.sid)) return null;
-      return { t: "session.stop", sid: raw.sid } satisfies WsSessionStop;
+      return { t: "session.stop", sid: raw.sid } satisfies SessionStop;
     }
 
     case "session.restart": {
       if (!isString(raw.sid)) return null;
-      return { t: "session.restart", sid: raw.sid } satisfies WsSessionRestart;
+      return { t: "session.restart", sid: raw.sid } satisfies SessionRestart;
     }
 
     case "session.export": {
@@ -187,11 +187,11 @@ export function parseRelayControlMessage(
         recordTypes: raw.recordTypes,
         timeRange: raw.timeRange,
         limit: raw.limit,
-      } satisfies WsSessionExport;
+      } satisfies SessionExport;
     }
 
     case "worktree.list":
-      return { t: "worktree.list" } satisfies WsWorktreeList;
+      return { t: "worktree.list" } satisfies SessionWorktreeList;
 
     case "worktree.create": {
       if (!isString(raw.branch)) return null;
@@ -202,7 +202,7 @@ export function parseRelayControlMessage(
         branch: raw.branch,
         baseBranch: raw.baseBranch,
         path: raw.path,
-      } satisfies WsWorktreeCreate;
+      } satisfies SessionWorktreeCreate;
     }
 
     case "worktree.remove": {
@@ -212,7 +212,7 @@ export function parseRelayControlMessage(
         t: "worktree.remove",
         path: raw.path,
         force: raw.force,
-      } satisfies WsWorktreeRemove;
+      } satisfies SessionWorktreeRemove;
     }
 
     default:

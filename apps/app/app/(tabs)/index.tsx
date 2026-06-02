@@ -1,4 +1,4 @@
-import type { WsSessionMeta } from "@teleprompter/protocol/client";
+import type { SessionMeta } from "@teleprompter/protocol/client";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -42,7 +42,7 @@ function SessionRow({
   isSelected,
   onToggleSelect,
 }: {
-  session: WsSessionMeta;
+  session: SessionMeta;
   isActive: boolean;
   onPress: () => void;
   isEditMode: boolean;
@@ -419,7 +419,7 @@ export default function SessionsScreen() {
     });
   };
 
-  const handleSessionPress = (session: WsSessionMeta) => {
+  const handleSessionPress = (session: SessionMeta) => {
     router.push(`/session/${session.sid}`);
   };
 

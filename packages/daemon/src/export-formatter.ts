@@ -1,4 +1,4 @@
-import type { WsSessionMeta } from "@teleprompter/protocol";
+import type { SessionMeta } from "@teleprompter/protocol";
 import stripAnsi from "strip-ansi";
 import type { StoredRecord } from "./store/session-db";
 
@@ -105,7 +105,7 @@ function formatMetaRecord(rec: StoredRecord): string {
 }
 
 export function formatMarkdown(
-  meta: WsSessionMeta,
+  meta: SessionMeta,
   records: StoredRecord[],
   truncated = false,
 ): string {

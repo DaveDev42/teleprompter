@@ -1,4 +1,4 @@
-import type { WsRec } from "@teleprompter/protocol/client";
+import type { SessionRec } from "@teleprompter/protocol/client";
 import { create } from "zustand";
 
 const MAX_CACHED_FRAMES = 10;
@@ -14,14 +14,14 @@ const RECENT_FRAMES_FLUSH_MS = 120;
 
 export interface OfflineStore {
   /** Recent frames per session (ring buffer of 10) */
-  recentFrames: Map<string, WsRec[]>;
+  recentFrames: Map<string, SessionRec[]>;
   /** Last known session states */
   lastStates: Map<string, { state: string; lastSeen: number }>;
 
   // Actions
-  cacheFrame: (rec: WsRec) => void;
+  cacheFrame: (rec: SessionRec) => void;
   updateState: (sid: string, state: string) => void;
-  getRecentFrames: (sid: string) => WsRec[];
+  getRecentFrames: (sid: string) => SessionRec[];
   getLastState: (
     sid: string,
   ) => { state: string; lastSeen: number } | undefined;
@@ -42,7 +42,7 @@ export const useOfflineStore = create<OfflineStore>((set, get) => {
     recentFrames: new Map(),
     lastStates: new Map(),
 
-    cacheFrame: (rec: WsRec) => {
+    cacheFrame: (rec: SessionRec) => {
       const frames = get().recentFrames;
       const existing = frames.get(rec.sid);
       if (existing) {

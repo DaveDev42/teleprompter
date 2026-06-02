@@ -539,6 +539,7 @@ PRD and internal docs are written in Korean. Code, comments, and commit messages
 1. **로컬 검증 = RN Web.** UI/로직 변경은 RN Web dogfood (`pnpm dev:app` + `pnpm dev:pair`, 위 "Dog-fooding" 섹션)로 검증한다. PR #481 류의 화면 변경(daemon 카드, 모달, 페어링 라벨 등)은 RN Web 에 동일하게 적용되므로 브라우저에서 확인할 수 있다. 네이티브 전용 동작(소프트 키보드 회피, push 배너 등)은 코드 + web 근사로 확인하고, 실기기 거동은 다음 단계로 넘긴다.
 2. **빌드/배포 = EAS 클라우드 + TestFlight.** main push → `ci.yml` eas-gate → `preview.yaml` 가 fingerprint 기반으로 OTA(JS-only) 또는 풀빌드(네이티브 변경)를 TestFlight/Internal 에 발행한다 (위 "Deployment Pipeline"). 로컬에서 `.ipa`/`.app` 을 굽지 않는다.
 3. **실기기 디버깅 = 사용자에게 요청.** 네이티브 거동을 실기기에서 확인해야 하면, TestFlight 빌드가 올라간 뒤 **사용자(Dave)에게 디버깅을 요청**한다. Claude 가 로컬에서 기기에 직접 설치/구동하려 시도하지 않는다.
+4. **네이티브 트랙 전체 = 고성능 Mac 으로 이관.** 이 8GB 머신에서 구조적으로 못 도는 검증(iOS/Android 실기기, Simulator QA, Linux daemon VM, 1h soak, WSL)은 **`docs/local-verification-queue.md`** 큐(SoT)에 모아 두고, 16GB+ Mac 의 별도 세션이 **`/verify-native`** 커맨드로 순회한다. 그 Mac 은 `.claude/settings.local.json`에서 expo-mcp 를 `true` 로 켜고, dev build 는 `scripts/ios-dev-build.sh` (`eas build --local` + EAS credential 다운로드, **이 머신 실행 금지**)로 굽는다. expo-mcp 활성화는 **머신별** — 공유 `settings.json`은 enable 플래그를 들지 않고 각 머신의 `settings.local.json`이 결정한다 (이 머신 = `false`).
 
 ### Credentials = EAS single source of truth (변경 없음)
 

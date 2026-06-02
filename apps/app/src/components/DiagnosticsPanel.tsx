@@ -1,4 +1,4 @@
-import type { WsSessionMeta } from "@teleprompter/protocol/client";
+import type { SessionMeta } from "@teleprompter/protocol/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, Pressable, ScrollView, Text, View } from "react-native";
 import {
@@ -42,7 +42,7 @@ function Section({
   );
 }
 
-function SessionDiagnostics({ session }: { session: WsSessionMeta }) {
+function SessionDiagnostics({ session }: { session: SessionMeta }) {
   const offlineFrames =
     useOfflineStore((s) => s.recentFrames.get(session.sid)) ?? [];
 

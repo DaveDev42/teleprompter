@@ -7,21 +7,21 @@
 
 import type {
   RecordKind,
-  WsClientMessage,
-  WsRec,
-  WsSessionMeta,
-  WsWorktreeInfo,
+  SessionClientMessage,
+  SessionMeta,
+  SessionRec,
+  SessionWorktreeInfo,
 } from "@teleprompter/protocol/client";
 
 export type TransportEventHandler = {
-  onSessionList?: (sessions: WsSessionMeta[]) => void;
-  onRec?: (rec: WsRec) => void;
-  onState?: (sid: string, meta: WsSessionMeta) => void;
+  onSessionList?: (sessions: SessionMeta[]) => void;
+  onRec?: (rec: SessionRec) => void;
+  onState?: (sid: string, meta: SessionMeta) => void;
   onOpen?: () => void;
   onClose?: () => void;
   onError?: (error: string) => void;
-  onWorktreeList?: (worktrees: WsWorktreeInfo[]) => void;
-  onWorktreeCreated?: (info: WsWorktreeInfo, sid?: string) => void;
+  onWorktreeList?: (worktrees: SessionWorktreeInfo[]) => void;
+  onWorktreeCreated?: (info: SessionWorktreeInfo, sid?: string) => void;
   onSessionExported?: (sid: string, format: string, content: string) => void;
 };
 
@@ -40,7 +40,7 @@ export interface TransportClient {
   // ── Input ──
   sendChat(sid: string, text: string): void;
   sendTermInput(sid: string, data: string): void;
-  send(msg: WsClientMessage): void;
+  send(msg: SessionClientMessage): void;
 
   // ── Session management ──
   createSession(

@@ -35,7 +35,7 @@ const fakeStorage = new Map<string, string>();
   },
 };
 
-import type { WsRec, WsSessionMeta } from "@teleprompter/protocol/client";
+import type { SessionMeta, SessionRec } from "@teleprompter/protocol/client";
 
 // Dynamic import — evaluated AFTER mocks are registered.
 const { useSessionStore } = await import("./session-store");
@@ -46,7 +46,7 @@ function storageGet(key: string): string | null {
   return fakeStorage.get(key) ?? null;
 }
 
-function makeRec(sid: string, seq: number): WsRec {
+function makeRec(sid: string, seq: number): SessionRec {
   return {
     t: "rec",
     sid,
@@ -57,7 +57,7 @@ function makeRec(sid: string, seq: number): WsRec {
   };
 }
 
-function makeMeta(sid: string): WsSessionMeta {
+function makeMeta(sid: string): SessionMeta {
   return {
     sid,
     state: "running",
@@ -222,8 +222,8 @@ describe("session-store: record handler multicast", () => {
   beforeEach(resetStore);
 
   test("two handlers both receive a dispatched record", () => {
-    const h1 = mock((_rec: WsRec) => {});
-    const h2 = mock((_rec: WsRec) => {});
+    const h1 = mock((_rec: SessionRec) => {});
+    const h2 = mock((_rec: SessionRec) => {});
 
     const s = useSessionStore.getState();
     s.addRecHandler(h1);
@@ -239,8 +239,8 @@ describe("session-store: record handler multicast", () => {
   });
 
   test("dispatching multiple records delivers each to every handler", () => {
-    const h1 = mock((_rec: WsRec) => {});
-    const h2 = mock((_rec: WsRec) => {});
+    const h1 = mock((_rec: SessionRec) => {});
+    const h2 = mock((_rec: SessionRec) => {});
 
     const s = useSessionStore.getState();
     s.addRecHandler(h1);
@@ -255,7 +255,7 @@ describe("session-store: record handler multicast", () => {
   });
 
   test("adding the same handler twice deduplicates via Set", () => {
-    const h = mock((_rec: WsRec) => {});
+    const h = mock((_rec: SessionRec) => {});
     const s = useSessionStore.getState();
     s.addRecHandler(h);
     s.addRecHandler(h);
@@ -265,8 +265,8 @@ describe("session-store: record handler multicast", () => {
   });
 
   test("removeRecHandler stops future invocations", () => {
-    const h1 = mock((_rec: WsRec) => {});
-    const h2 = mock((_rec: WsRec) => {});
+    const h1 = mock((_rec: SessionRec) => {});
+    const h2 = mock((_rec: SessionRec) => {});
 
     const s = useSessionStore.getState();
     s.addRecHandler(h1);
@@ -290,7 +290,7 @@ describe("session-store: record handler multicast", () => {
 
 describe("session-store: reset", () => {
   test("reset clears all fields including handlers and persisted map", () => {
-    const h = mock((_rec: WsRec) => {});
+    const h = mock((_rec: SessionRec) => {});
     const s = useSessionStore.getState();
 
     s.setSid("x");

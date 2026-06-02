@@ -1,19 +1,19 @@
-import type { WsRec, WsSessionMeta } from "@teleprompter/protocol/client";
+import type { SessionMeta, SessionRec } from "@teleprompter/protocol/client";
 import { create } from "zustand";
 import { secureGet, secureSet } from "../lib/secure-storage";
 
-export type RecHandler = (rec: WsRec) => void;
+export type RecHandler = (rec: SessionRec) => void;
 
 const SESSIONS_STORAGE_KEY = "sessions_v1";
 
 /** Serializable shape: plain object for JSON storage */
-type PersistedSessionMap = Record<string, WsSessionMeta[]>;
+type PersistedSessionMap = Record<string, SessionMeta[]>;
 
 // ── Debounced write-through ──
 
 let _writeTimer: ReturnType<typeof setTimeout> | null = null;
 
-function scheduleWrite(data: Map<string, WsSessionMeta[]>): void {
+function scheduleWrite(data: Map<string, SessionMeta[]>): void {
   if (_writeTimer !== null) clearTimeout(_writeTimer);
   _writeTimer = setTimeout(() => {
     _writeTimer = null;
@@ -33,7 +33,7 @@ export interface SessionState {
   /** Last received sequence number */
   lastSeq: number;
   /** All known sessions (union across all connected daemons) */
-  sessions: WsSessionMeta[];
+  sessions: SessionMeta[];
   /** Last error message */
   lastError: string | null;
   /** Number of reconnect attempts */
@@ -41,7 +41,7 @@ export interface SessionState {
   /** Record handlers (multiple consumers: terminal, chat) */
   _recHandlers: Set<RecHandler>;
   /** Per-daemon last-known session list (persisted) */
-  _sessionsByDaemon: Map<string, WsSessionMeta[]>;
+  _sessionsByDaemon: Map<string, SessionMeta[]>;
 
   // Actions
   setSid: (sid: string | null) => void;
@@ -50,15 +50,15 @@ export interface SessionState {
   incrementReconnect: () => void;
   /** Set sessions for a specific daemon. Pass daemonId so the list is persisted
    *  keyed per-daemon. The `sessions` field is the union of all per-daemon lists. */
-  setSessions: (daemonId: string, sessions: WsSessionMeta[]) => void;
-  updateSession: (sid: string, meta: WsSessionMeta) => void;
+  setSessions: (daemonId: string, sessions: SessionMeta[]) => void;
+  updateSession: (sid: string, meta: SessionMeta) => void;
   /** Remove a single session from local state across all daemons. Persists the change. */
   removeSession: (sid: string) => void;
   /** Remove multiple sessions from local state. Equivalent to calling removeSession N times. */
   removeSessions: (sids: string[]) => void;
   addRecHandler: (fn: RecHandler) => void;
   removeRecHandler: (fn: RecHandler) => void;
-  dispatchRec: (rec: WsRec) => void;
+  dispatchRec: (rec: SessionRec) => void;
   /** Load persisted session lists from secure storage (call on app init). */
   load: () => Promise<void>;
   reset: () => void;
@@ -66,8 +66,8 @@ export interface SessionState {
 
 // ── Helper: build flat union of all per-daemon session lists ──
 
-function flattenSessions(map: Map<string, WsSessionMeta[]>): WsSessionMeta[] {
-  const out: WsSessionMeta[] = [];
+function flattenSessions(map: Map<string, SessionMeta[]>): SessionMeta[] {
+  const out: SessionMeta[] = [];
   for (const list of map.values()) {
     for (const s of list) out.push(s);
   }
@@ -152,7 +152,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       const raw = await secureGet(SESSIONS_STORAGE_KEY);
       if (!raw) return;
       const obj: PersistedSessionMap = JSON.parse(raw);
-      const map = new Map<string, WsSessionMeta[]>();
+      const map = new Map<string, SessionMeta[]>();
       for (const [daemonId, sessions] of Object.entries(obj)) {
         if (Array.isArray(sessions)) {
           map.set(daemonId, sessions);

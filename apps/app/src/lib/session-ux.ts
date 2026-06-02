@@ -1,7 +1,4 @@
-import type {
-  SessionState,
-  WsSessionMeta,
-} from "@teleprompter/protocol/client";
+import type { SessionMeta, SessionState } from "@teleprompter/protocol/client";
 
 /** Canonical "live" session state. Any other value is treated as read-only. */
 const RUNNING = "running" satisfies SessionState;
@@ -12,12 +9,12 @@ const RUNNING = "running" satisfies SessionState;
  * treated as stopped — callers should default to the optimistic path so the
  * UI doesn't flicker into read-only mode on initial load.
  */
-export function isSessionStopped(session: WsSessionMeta | undefined): boolean {
+export function isSessionStopped(session: SessionMeta | undefined): boolean {
   return !!session && session.state !== RUNNING;
 }
 
 /** Inverse of {@link isSessionStopped}, preserving the undefined-is-not-stopped convention. */
-export function isSessionRunning(session: WsSessionMeta | undefined): boolean {
+export function isSessionRunning(session: SessionMeta | undefined): boolean {
   return !!session && session.state === RUNNING;
 }
 
@@ -30,7 +27,7 @@ export function isSessionRunning(session: WsSessionMeta | undefined): boolean {
  *   a known sid, and a non-stopped session.
  */
 export function deriveInputGates(
-  session: WsSessionMeta | undefined,
+  session: SessionMeta | undefined,
   connected: boolean,
   sid: string | null | undefined,
 ): { isEditable: boolean; canSend: boolean } {

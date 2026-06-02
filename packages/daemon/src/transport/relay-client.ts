@@ -16,7 +16,7 @@ import type {
   RelayKeyExchangeFrame,
   RelayServerMessage,
   SessionKeys,
-  WsRec,
+  SessionRec,
 } from "@teleprompter/protocol";
 import {
   CONTROL_RENAME,
@@ -424,7 +424,7 @@ export class RelayClient {
   }
 
   /** Encrypt and publish a WS record to all connected frontends via relay. */
-  async publishRecord(rec: WsRec): Promise<void> {
+  async publishRecord(rec: SessionRec): Promise<void> {
     return this.broadcastEncrypted(rec.sid, rec.seq, rec);
   }
 

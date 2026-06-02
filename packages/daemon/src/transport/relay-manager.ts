@@ -6,7 +6,7 @@ import {
 import type { IpcCommandDispatcher } from "../ipc/command-dispatcher";
 import type { IpcServer } from "../ipc/server";
 import type { PushNotifier } from "../push/push-notifier";
-import { type Store, toWsSessionMeta } from "../store";
+import { type Store, toSessionMeta } from "../store";
 import {
   RelayClient,
   type RelayClientConfig,
@@ -106,7 +106,7 @@ export class RelayConnectionManager {
       onFrontendJoined: (frontendId) => {
         const c = getClient();
         if (!c) return;
-        const sessions = this.deps.store.listSessions().map(toWsSessionMeta);
+        const sessions = this.deps.store.listSessions().map(toSessionMeta);
         // Include `daemonLabel` so the frontend can adopt the pairing label
         // even when it connects after the daemon's initial relay.kx broadcast
         // (which only reaches peers online at that moment). `null` means no

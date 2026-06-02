@@ -1,11 +1,12 @@
-// TODO: rename Ws-prefixed types (WsRec, WsSessionMeta, WsClientMessage,
-// WsServerMessage) — they're now shared protocol types, not WS-transport-specific.
-// Deferred from the direct-WS removal PR to keep scope bounded.
+// Session control/data protocol — messages exchanged between frontend and
+// daemon over the relay (Session* types). Formerly Ws-prefixed; renamed after
+// the direct-WS transport was removed, since these are shared protocol types
+// rather than WebSocket-transport-specific.
 import type { Namespace, RecordKind } from "./record";
 
-// ── Session metadata sent over WS ──
+// ── Session metadata sent to the frontend ──
 
-export interface WsSessionMeta {
+export interface SessionMeta {
   sid: string;
   state: string;
   cwd: string;
@@ -18,52 +19,52 @@ export interface WsSessionMeta {
 
 // ── Frontend → Daemon ──
 
-export interface WsHello {
+export interface SessionHello {
   t: "hello";
   /** Protocol version */
   v: number;
 }
 
-export interface WsAttach {
+export interface SessionAttach {
   t: "attach";
   sid: string;
 }
 
-export interface WsDetach {
+export interface SessionDetach {
   t: "detach";
   sid: string;
 }
 
-export interface WsResume {
+export interface SessionResume {
   t: "resume";
   sid: string;
   c: number; // cursor (last seen seq)
 }
 
-export interface WsInChat {
+export interface SessionInChat {
   t: "in.chat";
   sid: string;
   d: string; // plain text
 }
 
-export interface WsInTerm {
+export interface SessionInTerm {
   t: "in.term";
   sid: string;
   d: string; // base64
 }
 
-export interface WsPing {
+export interface SessionPing {
   t: "ping";
 }
 
-export interface WsResize {
+export interface SessionResize {
   t: "resize";
   sid: string;
   cols: number;
   rows: number;
 }
 
-export interface WsWorktreeCreate {
+export interface SessionWorktreeCreate {
   t: "worktree.create";
   branch: string;
   /** Optional base branch */
@@ -72,17 +73,17 @@ export interface WsWorktreeCreate {
   path?: string;
 }
 
-export interface WsWorktreeRemove {
+export interface SessionWorktreeRemove {
   t: "worktree.remove";
   path: string;
   force?: boolean;
 }
 
-export interface WsWorktreeList {
+export interface SessionWorktreeList {
   t: "worktree.list";
 }
 
-export interface WsSessionCreate {
+export interface SessionCreate {
   t: "session.create";
   /** Worktree path to run in */
   cwd: string;
@@ -98,17 +99,17 @@ export interface WsSessionCreate {
   rows?: number;
 }
 
-export interface WsSessionStop {
+export interface SessionStop {
   t: "session.stop";
   sid: string;
 }
 
-export interface WsSessionRestart {
+export interface SessionRestart {
   t: "session.restart";
   sid: string;
 }
 
-export interface WsSessionExport {
+export interface SessionExport {
   t: "session.export";
   sid: string;
   format?: "json" | "markdown";
@@ -117,7 +118,7 @@ export interface WsSessionExport {
   limit?: number;
 }
 
-export interface WsPushToken {
+export interface SessionPushToken {
   t: "pushToken";
   /** Expo push token (e.g., "ExponentPushToken[xxx]") */
   token: string;
@@ -125,39 +126,39 @@ export interface WsPushToken {
   platform: "ios" | "android";
 }
 
-export type WsClientMessage =
-  | WsHello
-  | WsAttach
-  | WsDetach
-  | WsResume
-  | WsInChat
-  | WsInTerm
-  | WsResize
-  | WsPing
-  | WsWorktreeCreate
-  | WsWorktreeRemove
-  | WsWorktreeList
-  | WsSessionCreate
-  | WsSessionStop
-  | WsSessionRestart
-  | WsSessionExport
-  | WsPushToken;
+export type SessionClientMessage =
+  | SessionHello
+  | SessionAttach
+  | SessionDetach
+  | SessionResume
+  | SessionInChat
+  | SessionInTerm
+  | SessionResize
+  | SessionPing
+  | SessionWorktreeCreate
+  | SessionWorktreeRemove
+  | SessionWorktreeList
+  | SessionCreate
+  | SessionStop
+  | SessionRestart
+  | SessionExport
+  | SessionPushToken;
 
 // ── Daemon → Frontend ──
 
-export interface WsHelloReply {
+export interface SessionHelloReply {
   t: "hello";
   v: number;
-  d: { sessions: WsSessionMeta[] };
+  d: { sessions: SessionMeta[] };
 }
 
-export interface WsState {
+export interface SessionStateMsg {
   t: "state";
   sid: string;
-  d: WsSessionMeta;
+  d: SessionMeta;
 }
 
-export interface WsRec {
+export interface SessionRec {
   t: "rec";
   sid: string;
   seq: number;
@@ -168,61 +169,61 @@ export interface WsRec {
   ts: number;
 }
 
-export interface WsBatch {
+export interface SessionBatch {
   t: "batch";
   sid: string;
-  d: WsRec[];
+  d: SessionRec[];
 }
 
-export interface WsPong {
+export interface SessionPong {
   t: "pong";
 }
 
-export interface WsErr {
+export interface SessionErr {
   t: "err";
   e: string;
   m?: string;
 }
 
-export interface WsWorktreeInfo {
+export interface SessionWorktreeInfo {
   path: string;
   branch: string;
   head: string;
   isMain: boolean;
 }
 
-export interface WsWorktreeListReply {
+export interface SessionWorktreeListReply {
   t: "worktree.list";
-  d: WsWorktreeInfo[];
+  d: SessionWorktreeInfo[];
 }
 
-export interface WsWorktreeCreated {
+export interface SessionWorktreeCreated {
   t: "worktree.created";
-  d: WsWorktreeInfo;
+  d: SessionWorktreeInfo;
   /** Auto-created session ID (if worktree was created with auto-session) */
   sid?: string;
 }
 
-export interface WsWorktreeRemoved {
+export interface SessionWorktreeRemoved {
   t: "worktree.removed";
   path: string;
 }
 
-export interface WsSessionExported {
+export interface SessionExported {
   t: "session.exported";
   sid: string;
   format: "json" | "markdown";
   d: string;
 }
 
-export type WsServerMessage =
-  | WsHelloReply
-  | WsState
-  | WsRec
-  | WsBatch
-  | WsPong
-  | WsErr
-  | WsWorktreeListReply
-  | WsWorktreeCreated
-  | WsWorktreeRemoved
-  | WsSessionExported;
+export type SessionServerMessage =
+  | SessionHelloReply
+  | SessionStateMsg
+  | SessionRec
+  | SessionBatch
+  | SessionPong
+  | SessionErr
+  | SessionWorktreeListReply
+  | SessionWorktreeCreated
+  | SessionWorktreeRemoved
+  | SessionExported;

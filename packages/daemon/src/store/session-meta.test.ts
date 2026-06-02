@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { toWsSessionMeta } from "./session-meta";
+import { toSessionMeta } from "./session-meta";
 import type { SessionMeta } from "./store";
 
-describe("toWsSessionMeta", () => {
+describe("toSessionMeta", () => {
   test("maps snake_case DB fields to camelCase wire fields", () => {
     const row: SessionMeta = {
       sid: "s1",
@@ -15,7 +15,7 @@ describe("toWsSessionMeta", () => {
       last_seq: 42,
     };
 
-    const wire = toWsSessionMeta(row);
+    const wire = toSessionMeta(row);
 
     expect(wire).toEqual({
       sid: "s1",
@@ -41,7 +41,7 @@ describe("toWsSessionMeta", () => {
       last_seq: 0,
     };
 
-    const wire = toWsSessionMeta(row);
+    const wire = toSessionMeta(row);
 
     expect(wire.worktreePath).toBeUndefined();
     expect(wire.claudeVersion).toBeUndefined();
@@ -64,7 +64,7 @@ describe("toWsSessionMeta", () => {
       last_seq: 0,
     };
 
-    const wire = toWsSessionMeta(row);
+    const wire = toSessionMeta(row);
     const keys = Object.keys(wire).sort();
     expect(keys).toEqual(
       [

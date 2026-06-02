@@ -1,4 +1,4 @@
-import type { WsSessionMeta } from "@teleprompter/protocol/client";
+import type { SessionMeta } from "@teleprompter/protocol/client";
 import { Platform, Pressable, Text, View } from "react-native";
 import { ariaLevel, getPlatformProps } from "../lib/get-platform-props";
 import { ModalContainer } from "./ModalContainer";
@@ -12,7 +12,7 @@ export function ConfirmDeleteSessionsModal({
   onConfirm,
 }: {
   visible: boolean;
-  sessions: WsSessionMeta[];
+  sessions: SessionMeta[];
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
 }) {

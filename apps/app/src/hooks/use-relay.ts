@@ -1,4 +1,4 @@
-import type { WsRec, WsSessionMeta } from "@teleprompter/protocol/client";
+import type { SessionMeta, SessionRec } from "@teleprompter/protocol/client";
 import { useEffect } from "react";
 import { Platform } from "react-native";
 import { create } from "zustand";
@@ -146,7 +146,7 @@ export function useRelay() {
             incrementReconnect();
             relayConn.setConnected(daemonId, false);
           },
-          onRec: (rec: WsRec) => {
+          onRec: (rec: SessionRec) => {
             const seq = rec.seq;
             if (seq > useSessionStore.getState().lastSeq) {
               setLastSeq(seq);
@@ -154,10 +154,10 @@ export function useRelay() {
             cacheFrame(rec);
             dispatchRec(rec);
           },
-          onSessionList: (sessions: WsSessionMeta[]) => {
+          onSessionList: (sessions: SessionMeta[]) => {
             setSessions(daemonId, sessions);
           },
-          onState: (sid: string, meta: WsSessionMeta) => {
+          onState: (sid: string, meta: SessionMeta) => {
             updateSession(sid, meta);
             updateState(sid, meta.state);
             const currentSid = useSessionStore.getState().sid;

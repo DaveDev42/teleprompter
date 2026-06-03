@@ -80,13 +80,13 @@ export function DiagnosticsPanel() {
   const sessions = useSessionStore((s) => s.sessions);
   const pairingState = usePairingStore((s) => s.state);
   const pairings = usePairingStore((s) => s.pairings);
-  const activeDaemonId = usePairingStore((s) => s.activeDaemonId);
-  const pairingInfo = activeDaemonId
-    ? pairings.get(activeDaemonId)
+  const activeDaemon = usePairingStore((s) => s.activeDaemon);
+  const pairingInfo = activeDaemon.active
+    ? pairings.get(activeDaemon.daemonId)
     : (pairings.values().next().value ?? null);
   const relayConnections = useRelayConnectionStore((s) => s.connections);
-  const relayConnected = activeDaemonId
-    ? (relayConnections.get(activeDaemonId) ?? false)
+  const relayConnected = activeDaemon.active
+    ? (relayConnections.get(activeDaemon.daemonId) ?? false)
     : false;
   const [rtt, setRtt] = useState(-1);
   // Announce ping result. Starts empty so the initial mount is silent —

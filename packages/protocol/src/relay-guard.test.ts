@@ -90,6 +90,39 @@ describe("parseRelayControlMessage", () => {
         parseRelayControlMessage({ t: "resize", sid: "s", rows: 24 }),
       ).toBeNull();
     });
+
+    test("rejects non-positive-integer cols/rows", () => {
+      // Regression: cols/rows used isNumber (typeof + finite), letting 0,
+      // negatives, and fractions through to Bun.terminal.resize, where 0
+      // collapses ncurses layout and a negative wraps to an absurd width.
+      // A paired-but-buggy/malicious frontend could ship these in an encrypted
+      // resize frame; the guard must reject them.
+      for (const bad of [
+        0,
+        -1,
+        -80,
+        80.5,
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+      ]) {
+        expect(
+          parseRelayControlMessage({
+            t: "resize",
+            sid: "s",
+            cols: bad,
+            rows: 24,
+          }),
+        ).toBeNull();
+        expect(
+          parseRelayControlMessage({
+            t: "resize",
+            sid: "s",
+            cols: 80,
+            rows: bad,
+          }),
+        ).toBeNull();
+      }
+    });
   });
 
   describe("session.* messages", () => {
@@ -105,6 +138,41 @@ describe("parseRelayControlMessage", () => {
         }),
       ).toEqual({ t: "session.create", cwd: "/tmp", sid: "s" });
       expect(parseRelayControlMessage({ t: "session.create" })).toBeNull();
+    });
+
+    test("session.create accepts valid cols/rows, rejects non-positive-int", () => {
+      expect(
+        parseRelayControlMessage({
+          t: "session.create",
+          cwd: "/tmp",
+          cols: 120,
+          rows: 40,
+        }),
+      ).toEqual({
+        t: "session.create",
+        cwd: "/tmp",
+        sid: undefined,
+        cols: 120,
+        rows: 40,
+      });
+      // Optional dimensions, when present, must be positive integers — same
+      // PTY-resize hazard as the resize message.
+      for (const bad of [0, -1, 80.5, Number.NaN]) {
+        expect(
+          parseRelayControlMessage({
+            t: "session.create",
+            cwd: "/tmp",
+            cols: bad,
+          }),
+        ).toBeNull();
+        expect(
+          parseRelayControlMessage({
+            t: "session.create",
+            cwd: "/tmp",
+            rows: bad,
+          }),
+        ).toBeNull();
+      }
     });
 
     test("session.stop / session.restart require sid", () => {

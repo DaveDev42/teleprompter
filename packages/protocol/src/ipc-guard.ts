@@ -43,6 +43,16 @@ function isNumber(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v);
 }
 
+/**
+ * Terminal dimensions (cols/rows) must be positive integers. This guards the
+ * daemon→runner resize message for protocol correctness; the runner-side IPC
+ * client does not re-parse, so tightening here keeps the union honest even
+ * though today the live exploit path runs through relay-guard.
+ */
+function isPositiveInt(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v > 0;
+}
+
 const RECORD_KINDS: ReadonlySet<RecordKind> = new Set(["io", "event", "meta"]);
 const NAMESPACES: ReadonlySet<Namespace> = new Set([
   "claude",
@@ -195,8 +205,8 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
 
     case "resize": {
       if (!isString(raw.sid)) return null;
-      if (!isNumber(raw.cols)) return null;
-      if (!isNumber(raw.rows)) return null;
+      if (!isPositiveInt(raw.cols)) return null;
+      if (!isPositiveInt(raw.rows)) return null;
       return { t: "resize", sid: raw.sid, cols: raw.cols, rows: raw.rows };
     }
 

@@ -1,22 +1,45 @@
 /**
  * Unit tests for voice-store.ts — VoiceConnectionState + VoiceKeyState unions.
  *
- * Strategy: mock all external I/O (react-native Platform, secure-storage,
+ * Strategy: mock all external I/O (react-native Platform, expo-secure-store,
  * RealtimeClient, audio-web, terminal-context) so tests run fully in-process
  * with no native modules, network, or audio. The SUT is loaded via dynamic
  * import after all mocks are registered, following the relay-client.test.ts
  * pattern — static imports are hoisted above mock.module() calls.
  *
+ * Isolation contract:
+ *   This file does NOT mock "../lib/secure-storage". Instead it mocks the LEAF
+ *   modules that secure-storage.ts dispatches to — react-native (Platform.OS)
+ *   and expo-secure-store — then drives the REAL secure-storage wrapper through
+ *   a fake localStorage backed by a local Map (voiceStorage).
+ *   globalThis.localStorage is saved in beforeAll and restored in afterAll so
+ *   that any sibling test file's localStorage shim (e.g. relay-client.test.ts's
+ *   fakeStorage) is not permanently displaced when both files run in the same
+ *   bun test process.
+ *
  * Run with:
  *   bun test apps/app/src/stores/voice-store.test.ts
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Module-level mocks — must come BEFORE any import that touches react-native.
+// Leaf-module mocks — must come BEFORE any import that touches react-native.
 // Bun hoists mock.module() calls above static imports, but to be safe we
 // use a dynamic import for the SUT below.
+//
+// We mock react-native and expo-secure-store (leaf modules) so that
+// secure-storage.ts's web branch is active (Platform.OS === "web"), and the
+// expo-secure-store branch is bypassed. This is identical to what
+// relay-client.test.ts does, so these two mocks do NOT collide across files.
 // ---------------------------------------------------------------------------
 
 mock.module("react-native", () => ({ Platform: { OS: "web" as const } }));
@@ -24,32 +47,6 @@ mock.module("expo-secure-store", () => ({
   getItemAsync: async () => null,
   setItemAsync: async () => {},
   deleteItemAsync: async () => {},
-}));
-
-// Mutable cells so individual tests can swap behaviour
-let mockSecureGetImpl: (_key: string) => Promise<string | null> = async () =>
-  null;
-let mockSecureSetImpl: (_key: string, _value: string) => Promise<void> =
-  async () => {};
-let mockSecureDeleteImpl: (_key: string) => Promise<void> = async () => {};
-
-const secureGetCalls: string[] = [];
-const secureSetCalls: Array<[string, string]> = [];
-const secureDeleteCalls: string[] = [];
-
-mock.module("../lib/secure-storage", () => ({
-  secureGet: async (key: string) => {
-    secureGetCalls.push(key);
-    return mockSecureGetImpl(key);
-  },
-  secureSet: async (key: string, value: string) => {
-    secureSetCalls.push([key, value]);
-    return mockSecureSetImpl(key, value);
-  },
-  secureDelete: async (key: string) => {
-    secureDeleteCalls.push(key);
-    return mockSecureDeleteImpl(key);
-  },
 }));
 
 // Mock RealtimeClient — no actual WebSocket / OpenAI calls
@@ -79,24 +76,51 @@ mock.module("../voice/terminal-context", () => ({
   formatTerminalContext: (_ref: unknown) => "",
 }));
 
-// Install a minimal localStorage shim (used by secure-storage web branch)
-const lsStore = new Map<string, string>();
-(globalThis as Record<string, unknown>).localStorage = {
-  getItem: (k: string) => lsStore.get(k) ?? null,
-  setItem: (k: string, v: string) => {
-    lsStore.set(k, v);
-  },
-  removeItem: (k: string) => {
-    lsStore.delete(k);
-  },
-  clear: () => {
-    lsStore.clear();
-  },
-  get length() {
-    return lsStore.size;
-  },
-  key: (i: number) => Array.from(lsStore.keys())[i] ?? null,
-};
+// ---------------------------------------------------------------------------
+// Fake localStorage — drives the REAL secure-storage wrapper's web branch.
+// We save and restore globalThis.localStorage across the suite so sibling
+// test files' localStorage shims are not permanently displaced.
+// ---------------------------------------------------------------------------
+
+const voiceStorage = new Map<string, string>();
+
+function makeVoiceLocalStorage(): Storage {
+  return {
+    getItem: (k: string) => voiceStorage.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      voiceStorage.set(k, String(v));
+    },
+    removeItem: (k: string) => {
+      voiceStorage.delete(k);
+    },
+    clear: () => {
+      voiceStorage.clear();
+    },
+    get length() {
+      return voiceStorage.size;
+    },
+    key: (i: number) => Array.from(voiceStorage.keys())[i] ?? null,
+  };
+}
+
+type GlobalWithLocalStorage = { localStorage?: Storage };
+
+let savedLocalStorage: Storage | undefined;
+
+beforeAll(() => {
+  savedLocalStorage = (globalThis as GlobalWithLocalStorage).localStorage;
+  (globalThis as GlobalWithLocalStorage).localStorage = makeVoiceLocalStorage();
+});
+
+afterAll(() => {
+  // Restore the previous value (may be relay-client.test.ts's fakeStorage shim
+  // or undefined if this file ran first).
+  if (savedLocalStorage !== undefined) {
+    (globalThis as GlobalWithLocalStorage).localStorage = savedLocalStorage;
+  } else {
+    delete (globalThis as GlobalWithLocalStorage).localStorage;
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Dynamic import of the SUT — evaluated AFTER all mocks are registered
@@ -111,6 +135,7 @@ type VoiceKeyState = import("./voice-store").VoiceKeyState;
 // ---------------------------------------------------------------------------
 
 function resetStore() {
+  voiceStorage.clear();
   useVoiceStore.setState({
     connection: { status: "idle" } satisfies VoiceConnectionState,
     refinedPrompt: "",
@@ -118,14 +143,6 @@ function resetStore() {
     keyState: { status: "loading" } satisfies VoiceKeyState,
     _onPromptReady: null,
   });
-  // Reset call-tracking arrays
-  secureGetCalls.length = 0;
-  secureSetCalls.length = 0;
-  secureDeleteCalls.length = 0;
-  // Reset mock implementations to safe defaults
-  mockSecureGetImpl = async () => null;
-  mockSecureSetImpl = async () => {};
-  mockSecureDeleteImpl = async () => {};
 }
 
 // ---------------------------------------------------------------------------
@@ -154,14 +171,15 @@ describe("VoiceKeyState union — load()", () => {
   beforeEach(resetStore);
 
   test("load() resolves to absent when secureGet returns null", async () => {
-    mockSecureGetImpl = async () => null;
+    // voiceStorage is empty → localStorage.getItem returns null → secureGet → null
     await useVoiceStore.getState().load();
     const { keyState } = useVoiceStore.getState();
     expect(keyState.status).toBe("absent");
   });
 
   test("load() resolves to present when secureGet returns a key", async () => {
-    mockSecureGetImpl = async () => "sk-test-key";
+    // Pre-populate storage with the key that secure-storage prefixes with "tp_"
+    voiceStorage.set("tp_voice_api_key", "sk-test-key");
     await useVoiceStore.getState().load();
     const { keyState } = useVoiceStore.getState();
     expect(keyState.status).toBe("present");
@@ -171,12 +189,23 @@ describe("VoiceKeyState union — load()", () => {
   });
 
   test("load() resolves to absent when secureGet throws", async () => {
-    mockSecureGetImpl = async () => {
-      throw new Error("storage error");
+    // Temporarily replace localStorage with a shim whose getItem throws so
+    // secureGet's try/catch fires.  We swap back in the finally block so
+    // subsequent tests see the normal voiceStorage-backed shim.
+    const savedLs = (globalThis as GlobalWithLocalStorage).localStorage;
+    (globalThis as GlobalWithLocalStorage).localStorage = {
+      ...makeVoiceLocalStorage(),
+      getItem: () => {
+        throw new Error("storage error");
+      },
     };
-    await useVoiceStore.getState().load();
-    const { keyState } = useVoiceStore.getState();
-    expect(keyState.status).toBe("absent");
+    try {
+      await useVoiceStore.getState().load();
+      const { keyState } = useVoiceStore.getState();
+      expect(keyState.status).toBe("absent");
+    } finally {
+      (globalThis as GlobalWithLocalStorage).localStorage = savedLs;
+    }
   });
 });
 
@@ -187,26 +216,28 @@ describe("VoiceKeyState union — load()", () => {
 describe("VoiceKeyState union — setApiKey()", () => {
   beforeEach(resetStore);
 
-  test("setApiKey('') sets absent and calls secureDelete", async () => {
+  test("setApiKey('') sets absent and removes key from storage", async () => {
+    // Start from a present state with something in storage.
+    voiceStorage.set("tp_voice_api_key", "sk-old");
     useVoiceStore.setState({
       keyState: { status: "present", key: "sk-old" },
     });
     await useVoiceStore.getState().setApiKey("");
     const { keyState } = useVoiceStore.getState();
     expect(keyState.status).toBe("absent");
-    expect(secureDeleteCalls.length).toBe(1);
-    expect(secureSetCalls.length).toBe(0);
+    // The real secure-storage must have called localStorage.removeItem.
+    expect(voiceStorage.has("tp_voice_api_key")).toBe(false);
   });
 
-  test("setApiKey('sk-x') sets present with key and calls secureSet", async () => {
+  test("setApiKey('sk-x') sets present with key and persists to storage", async () => {
     await useVoiceStore.getState().setApiKey("sk-x");
     const { keyState } = useVoiceStore.getState();
     expect(keyState.status).toBe("present");
     if (keyState.status === "present") {
       expect(keyState.key).toBe("sk-x");
     }
-    expect(secureSetCalls.length).toBe(1);
-    expect(secureDeleteCalls.length).toBe(0);
+    // The real secure-storage must have called localStorage.setItem.
+    expect(voiceStorage.get("tp_voice_api_key")).toBe("sk-x");
   });
 });
 

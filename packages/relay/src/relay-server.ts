@@ -464,8 +464,10 @@ ${daemons
     ws: ServerWebSocket,
     raw: string | Buffer | ArrayBuffer,
   ) {
-    this.metrics.framesIn++;
-    // Check frame size limit
+    // Check frame size limit BEFORE counting the frame as received. An
+    // oversized frame is rejected and counted in oversizedDrops; counting it
+    // in framesIn too would double-count it and break the
+    // framesIn ≈ framesOut + drops accounting the /metrics endpoint relies on.
     const rawSize =
       typeof raw === "string"
         ? Buffer.byteLength(raw)
@@ -483,6 +485,7 @@ ${daemons
       ws.close(1009, "Frame too large");
       return;
     }
+    this.metrics.framesIn++;
 
     let msg: RelayClientMessage;
     try {
@@ -930,6 +933,22 @@ ${daemons
     if (!client) return;
 
     this.clients.delete(ws);
+
+    // Release attached-frontend counts for every session this frontend was
+    // subscribed to. A frontend that drops without sending relay.unsub (tab
+    // close, network loss, crash) would otherwise leak its attached count,
+    // pinning state.attached above zero forever and skewing presence/metrics.
+    // Mirror handleUnsubscribe's decrement, but across all subscriptions.
+    if (client.role === "frontend") {
+      const state = this.daemonStates.get(client.daemonId);
+      if (state) {
+        for (const sid of client.subscriptions) {
+          const count = (state.attached.get(sid) ?? 1) - 1;
+          if (count <= 0) state.attached.delete(sid);
+          else state.attached.set(sid, count);
+        }
+      }
+    }
 
     // Remove from daemon group
     const group = this.daemonGroups.get(client.daemonId);

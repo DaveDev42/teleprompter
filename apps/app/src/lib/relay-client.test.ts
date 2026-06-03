@@ -1843,4 +1843,46 @@ describe("FrontendRelayClient — client-side ping", () => {
     client.dispose();
     expect(intervals.some((e) => e.ms === 15_000)).toBe(false);
   });
+
+  test("getRtt() returns { measured: false } on a fresh client before any pong", async () => {
+    const p = await setupPairing();
+    const client = new FrontendRelayClient(makeConfig(p));
+    // No connect, no pong — the initial state must be unmeasured.
+    expect(client.getRtt()).toEqual({ measured: false });
+    client.dispose();
+  });
+
+  test("getRtt() returns { measured: true, ms: N } after a ping/pong cycle", async () => {
+    const p = await setupPairing();
+    const client = new FrontendRelayClient(makeConfig(p));
+    const ws = await authenticate(client);
+
+    // Simulate a ping then a pong carrying the response.
+    client.ping();
+    // Brief wait so Date.now() inside ping() is fixed before pong arrives.
+    await flushPromises(2);
+
+    // Deliver an application-level pong from the daemon (session "pong" msg).
+    const pongMsg = { t: "pong", sid: "__session__", seq: 0, ts: Date.now() };
+    const ct = await encrypt(
+      new TextEncoder().encode(JSON.stringify(pongMsg)),
+      p.daemonTx,
+    );
+    ws.simulateMessage({
+      t: "relay.frame",
+      sid: "__session__",
+      ct,
+      seq: 0,
+      from: "daemon",
+    } as RelayServerMessage);
+    await flushPromises();
+
+    const rtt = client.getRtt();
+    expect(rtt.measured).toBe(true);
+    if (rtt.measured) {
+      expect(typeof rtt.ms).toBe("number");
+      expect(rtt.ms).toBeGreaterThanOrEqual(0);
+    }
+    client.dispose();
+  });
 });

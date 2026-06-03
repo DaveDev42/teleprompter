@@ -15,11 +15,7 @@
 
 import { basename } from "node:path";
 import { Store } from "@teleprompter/daemon";
-import type {
-  IpcSessionDelete,
-  IpcSessionDeleteErr,
-  IpcSessionDeleteOk,
-} from "@teleprompter/protocol";
+import type { IpcSessionDelete } from "@teleprompter/protocol";
 import { getSocketPath } from "@teleprompter/protocol";
 import { Box, render, Text, useInput } from "ink";
 import type React from "react";
@@ -183,8 +179,7 @@ async function deleteSessionViaIpc(sid: string): Promise<void> {
         clearTimeout(timer);
         settle();
       };
-      ipc.onMessage((raw) => {
-        const r = raw as IpcSessionDeleteOk | IpcSessionDeleteErr;
+      ipc.onMessage((r) => {
         if (r.t === "session.delete.ok" || r.t === "session.delete.err") {
           if (r.t === "session.delete.err") {
             done(() =>

@@ -1,8 +1,13 @@
-import { encodeFrame, FrameDecoder } from "@teleprompter/protocol";
+import {
+  encodeFrame,
+  FrameDecoder,
+  type IpcMessage,
+  parseIpcMessage,
+} from "@teleprompter/protocol";
 
 export interface IpcClient {
-  send(msg: unknown): void;
-  onMessage(handler: (msg: unknown) => void): void;
+  send(msg: IpcMessage): void;
+  onMessage(handler: (msg: IpcMessage) => void): void;
   onClose(handler: () => void): void;
   close(): void;
 }
@@ -12,12 +17,17 @@ export interface IpcClient {
  * Returns an IpcClient with send/receive helpers. The daemon's IpcServer
  * treats any connecting peer the same — the "role" is inferred from the
  * message types the peer sends (pair.* vs hello/rec/bye).
+ *
+ * Inbound frames are validated by `parseIpcMessage` at this transport
+ * boundary, so every `onMessage` handler receives a fully-typed `IpcMessage`
+ * (never a raw `unknown`) and a malformed/unknown daemon reply is dropped here
+ * rather than reaching a command handler that would cast it blindly.
  */
 export async function connectIpcAsClient(
   socketPath: string,
 ): Promise<IpcClient> {
   const decoder = new FrameDecoder();
-  const messageHandlers: Array<(m: unknown) => void> = [];
+  const messageHandlers: Array<(m: IpcMessage) => void> = [];
   const closeHandlers: Array<() => void> = [];
 
   const sock = await Bun.connect({
@@ -26,7 +36,9 @@ export async function connectIpcAsClient(
       data(_s, data) {
         const frames = decoder.decode(new Uint8Array(data));
         for (const frame of frames) {
-          for (const h of messageHandlers) h(frame.data);
+          const msg = parseIpcMessage(frame.data);
+          if (!msg) continue;
+          for (const h of messageHandlers) h(msg);
         }
       },
       close() {

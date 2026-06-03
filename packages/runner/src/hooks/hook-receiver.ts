@@ -1,4 +1,8 @@
-import { createLogger, type HookEventBase } from "@teleprompter/protocol";
+import {
+  createLogger,
+  type HookEventBase,
+  parseHookEvent,
+} from "@teleprompter/protocol";
 import { existsSync, mkdirSync, unlinkSync } from "fs";
 import { dirname, join } from "path";
 
@@ -31,7 +35,11 @@ export class HookReceiver {
         data(_socket, data) {
           try {
             const text = Buffer.from(data).toString("utf-8");
-            const event = JSON.parse(text) as HookEventBase;
+            const event = parseHookEvent(JSON.parse(text));
+            if (!event) {
+              log.warn("dropped malformed hook event");
+              return;
+            }
             log.info(`received hook ${event.hook_event_name}`);
             self.onEvent(event);
           } catch (err) {

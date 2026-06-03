@@ -55,10 +55,11 @@ describe("HookReceiver", () => {
   });
 
   test("receives multiple events from different connections", async () => {
-    for (let i = 0; i < 3; i++) {
+    const names = ["SessionStart", "UserPromptSubmit", "Stop"];
+    for (const name of names) {
       const event = {
         session_id: "test",
-        hook_event_name: `Event${i}`,
+        hook_event_name: name,
         cwd: tmpdir(),
       };
       await Bun.connect({
@@ -76,8 +77,37 @@ describe("HookReceiver", () => {
 
     await Bun.sleep(150);
     expect(receivedEvents.length).toBe(3);
-    const names = receivedEvents.map((e) => e.hook_event_name as string);
-    expect(names).toEqual(["Event0", "Event1", "Event2"]);
+    const received = receivedEvents.map((e) => e.hook_event_name as string);
+    expect(received).toEqual(names);
+  });
+
+  test("drops a malformed hook event (parseHookEvent guard)", async () => {
+    // An unknown hook_event_name and a missing session_id must both be
+    // dropped at the boundary, then a well-formed event is accepted — proving
+    // the guard filters without wedging the socket.
+    const payloads = [
+      { session_id: "s", hook_event_name: "NotARealHook", cwd: tmpdir() },
+      { hook_event_name: "Stop", cwd: tmpdir() }, // missing session_id
+      { session_id: "s", hook_event_name: "Stop", cwd: tmpdir() }, // valid
+    ];
+    for (const event of payloads) {
+      await Bun.connect({
+        unix: socketPath,
+        socket: {
+          open(socket) {
+            socket.write(JSON.stringify(event));
+            socket.end();
+          },
+          data() {},
+          error() {},
+        },
+      });
+      await Bun.sleep(40);
+    }
+
+    await Bun.sleep(100);
+    expect(receivedEvents.length).toBe(1);
+    expect(receivedEvents[0].hook_event_name).toBe("Stop");
   });
 
   test("defaultSocketPath generates valid path", () => {

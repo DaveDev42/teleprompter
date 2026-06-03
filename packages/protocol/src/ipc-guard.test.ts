@@ -198,6 +198,19 @@ describe("parseIpcMessage", () => {
       ).toEqual({ t: "resize", sid: "s", cols: 80, rows: 24 });
       expect(parseIpcMessage({ t: "resize", sid: "s", cols: 80 })).toBeNull();
     });
+
+    test("resize rejects non-positive-integer cols/rows", () => {
+      // cols/rows must be positive integers (PTY window dimensions). Mirrors
+      // the relay-guard tightening for protocol correctness across the union.
+      for (const bad of [0, -1, 80.5, Number.NaN]) {
+        expect(
+          parseIpcMessage({ t: "resize", sid: "s", cols: bad, rows: 24 }),
+        ).toBeNull();
+        expect(
+          parseIpcMessage({ t: "resize", sid: "s", cols: 80, rows: bad }),
+        ).toBeNull();
+      }
+    });
   });
 
   describe("pairing messages", () => {

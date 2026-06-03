@@ -8,6 +8,7 @@ import {
 import { getTransport } from "../hooks/use-transport";
 import { checkCryptoAvailability } from "../lib/crypto-native";
 import { ariaLevel, getPlatformProps } from "../lib/get-platform-props";
+import type { Rtt } from "../lib/transport";
 import { useOfflineStore } from "../stores/offline-store";
 import { usePairingStore } from "../stores/pairing-store";
 import { formatRelayState, useSessionStore } from "../stores/session-store";
@@ -90,7 +91,7 @@ export function DiagnosticsPanel() {
   const relayConnected = activeDaemon.active
     ? (relayConnections.get(activeDaemon.daemonId) ?? false)
     : false;
-  const [rtt, setRtt] = useState(-1);
+  const [rtt, setRtt] = useState<Rtt>({ measured: false });
   // Announce ping result. Starts empty so the initial mount is silent —
   // we only want speech after the user clicks Ping. Mirror of the
   // crypto-selftest-announcement pattern below.
@@ -109,9 +110,11 @@ export function DiagnosticsPanel() {
       client.ping();
       setRttAnnouncement("Pinging daemon");
       setTimeout(() => {
-        const ms = client.getRtt();
-        setRtt(ms);
-        setRttAnnouncement(ms >= 0 ? `RTT: ${ms}ms` : "Ping failed");
+        const result = client.getRtt();
+        setRtt(result);
+        setRttAnnouncement(
+          result.measured ? `RTT: ${result.ms}ms` : "Ping failed",
+        );
       }, 500);
     }
   };
@@ -274,7 +277,7 @@ export function DiagnosticsPanel() {
           <Text className="text-tp-text-tertiary text-xs">RTT</Text>
           <View className="flex-row items-center gap-2">
             <Text className="text-tp-text-secondary text-xs font-mono">
-              {rtt >= 0 ? `${rtt}ms` : "—"}
+              {rtt.measured ? `${rtt.ms}ms` : "—"}
             </Text>
             <Pressable
               onPress={handlePing}

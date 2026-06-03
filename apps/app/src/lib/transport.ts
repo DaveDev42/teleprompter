@@ -13,6 +13,13 @@ import type {
   SessionWorktreeInfo,
 } from "@teleprompter/protocol/client";
 
+/**
+ * Discriminated union for a round-trip time measurement.
+ * Use `{ measured: false }` when no pong has been received yet, so callers
+ * never compare against a magic -1 sentinel.
+ */
+export type Rtt = { measured: true; ms: number } | { measured: false };
+
 export type TransportEventHandler = {
   onSessionList?: (sessions: SessionMeta[]) => void;
   onRec?: (rec: SessionRec) => void;
@@ -67,7 +74,7 @@ export interface TransportClient {
 
   // ── Diagnostics ──
   ping(): void;
-  getRtt(): number;
+  getRtt(): Rtt;
 
   // ── Export callback (setter) ──
   set onSessionExported(handler:

@@ -58,6 +58,18 @@ export class Daemon {
   constructor(storeDir?: string) {
     this.store = new Store(storeDir);
 
+    // Reconcile session state when a Runner process exits for any reason. A
+    // clean shutdown already flips the row to "stopped" via handleBye; this
+    // covers the crash/kill path where no "bye" is sent, so a dead Runner
+    // never leaves a phantom "running" session. The store updates are
+    // idempotent, so the overlap with handleBye is harmless.
+    this.sessionManager.setOnRunnerExit((sid) => {
+      const meta = this.store.getSession(sid);
+      if (meta && meta.state === "running") {
+        this.store.updateSessionState(sid, "stopped");
+      }
+    });
+
     this.pushNotifier = new PushNotifier({
       sendPush: (frontendId, token, title, body, data) => {
         this.relayManager.dispatchPush(frontendId, token, title, body, data);

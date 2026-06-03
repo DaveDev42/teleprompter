@@ -426,6 +426,10 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(calls.killRunner).toEqual(["s-running"]);
+    // Regression: killRunner only signals the process; the in-memory runner
+    // registration must also be dropped synchronously (else activeCount/
+    // listRunners leak a dead entry until the async exit handler runs).
+    expect(calls.sessionUnregister).toEqual(["s-running"]);
     expect(calls.storeDeleteSession).toEqual(["s-running"]);
     expect(calls.ipcSends).toEqual([
       { t: "session.delete.ok", sid: "s-running", wasRunning: true },
@@ -550,6 +554,9 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(calls.killRunner).toEqual(["r1"]);
+    // Same leak guard as session.delete: the killed running session's
+    // in-memory registration must be unregistered, not just signaled.
+    expect(calls.sessionUnregister).toEqual(["r1"]);
     expect(calls.storeDeleteSession.sort()).toEqual(["r1", "s1"]);
     const reply = calls.ipcSends[0] as { runningKilled: number };
     expect(reply.runningKilled).toBe(1);

@@ -107,6 +107,36 @@ describe("Store (shared fixture)", () => {
     expect(session.last_seq).toBe(42);
   });
 
+  test("createSession on an existing sid (restart) preserves last_seq and created_at", () => {
+    // Regression: restart re-invokes createSession via handleHello. A plain
+    // INSERT OR REPLACE reset last_seq to 0 and stamped a fresh created_at,
+    // which broke the frontend cursor replay (its cursor exceeded the store's
+    // last_seq, so resume returned nothing) and lost the creation time. The
+    // upsert must refresh mutable fields while keeping last_seq/created_at.
+    const sid = `s-${randomUUID()}`;
+    vault.createSession(sid, "/tmp/original", "/tmp/wt-1", "1.0.0");
+    vault.updateLastSeq(sid, 99);
+    vault.updateSessionState(sid, "stopped");
+    const before = vault.getSession(sid);
+    if (!before) throw new Error("expected session");
+    expect(before.last_seq).toBe(99);
+    const originalCreatedAt = before.created_at;
+
+    // Restart: same sid, new worktree/version, state flips back to running.
+    vault.createSession(sid, "/tmp/restarted", "/tmp/wt-2", "2.0.0");
+    const after = vault.getSession(sid);
+    if (!after) throw new Error("expected session after restart");
+
+    // Preserved across the restart:
+    expect(after.last_seq).toBe(99);
+    expect(after.created_at).toBe(originalCreatedAt);
+    // Refreshed by the restart:
+    expect(after.state).toBe("running");
+    expect(after.cwd).toBe("/tmp/restarted");
+    expect(after.worktree_path).toBe("/tmp/wt-2");
+    expect(after.claude_version).toBe("2.0.0");
+  });
+
   test("listSessions", () => {
     vault.createSession(`s-${randomUUID()}`, "/tmp/a");
     vault.createSession(`s-${randomUUID()}`, "/tmp/b");
@@ -192,6 +222,45 @@ describe("Store (isolated)", () => {
       expect(records.length).toBe(1);
     } finally {
       second.close();
+      rmRetry(storeDir);
+    }
+  });
+
+  test("maxOpenSessionDbs=0 does not evict the db it just opened", () => {
+    // Regression: the LRU loop inserts then evicts while size > cap. With cap=0
+    // it would close the just-inserted db (its own oldest entry) and hand the
+    // caller a closed handle, so the very first append would fail. The guard
+    // short-circuits the loop for the pathological cap. (cap=0 is never set in
+    // production — default is 32 — but the invariant must hold for any input.)
+    const storeDir = mkdtempSync(join(tmpdir(), "tp-vault-cap0-"));
+    const store = new Store(storeDir, { maxOpenSessionDbs: 0 });
+    try {
+      const db = store.createSession("s-cap0", "/tmp");
+      // The handle must still be usable — a write proves it was not closed.
+      db.append("io", Date.now(), new TextEncoder().encode("alive"));
+      expect(db.getRecordsFrom(0).length).toBe(1);
+    } finally {
+      store.close();
+      rmRetry(storeDir);
+    }
+  });
+
+  test("maxOpenSessionDbs=1 evicts the older db when a second opens", () => {
+    const storeDir = mkdtempSync(join(tmpdir(), "tp-vault-cap1-"));
+    const store = new Store(storeDir, { maxOpenSessionDbs: 1 });
+    try {
+      const first = store.createSession("s-first", "/tmp");
+      first.append("io", Date.now(), new TextEncoder().encode("first"));
+      // Opening a second session evicts (closes) the first under cap=1.
+      const second = store.createSession("s-second", "/tmp");
+      second.append("io", Date.now(), new TextEncoder().encode("second"));
+      // The first handle was closed by eviction; getSessionDb reopens it from
+      // disk and the persisted record is intact.
+      const reopened = store.getSessionDb("s-first");
+      if (!reopened) throw new Error("expected reopened db");
+      expect(reopened.getRecordsFrom(0).length).toBe(1);
+    } finally {
+      store.close();
       rmRetry(storeDir);
     }
   });

@@ -247,6 +247,11 @@ export class IpcCommandDispatcher {
     try {
       if (wasRunning) {
         this.deps.sessionManager.killRunner(msg.sid);
+        // killRunner only signals the process; it does not drop the in-memory
+        // registration. The async proc.exited handler eventually unregisters,
+        // but we are about to delete the store row synchronously, so unregister
+        // now to keep activeCount/listRunners consistent immediately.
+        this.deps.sessionManager.unregisterRunner(msg.sid);
       }
       this.deps.store.deleteSession(msg.sid);
     } catch (e) {
@@ -303,6 +308,9 @@ export class IpcCommandDispatcher {
       for (const s of candidates) {
         if (s.state === "running") {
           this.deps.sessionManager.killRunner(s.sid);
+          // Same as handleSessionDelete: drop the in-memory registration
+          // synchronously since the store row goes away on the next line.
+          this.deps.sessionManager.unregisterRunner(s.sid);
           runningKilled++;
         }
         this.deps.store.deleteSession(s.sid);

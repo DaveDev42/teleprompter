@@ -23,14 +23,28 @@ export interface SpawnRunnerOptions {
   env?: Record<string, string>;
 }
 
+/**
+ * Called when a spawned Runner process exits — for ANY reason (clean shutdown,
+ * crash, or kill). Lets the owner (Daemon) reconcile the session row to
+ * "stopped" so a crashed Runner does not leave a phantom "running" session for
+ * the rest of the daemon's lifetime.
+ */
+export type RunnerExitHandler = (sid: string, exitCode: number) => void;
+
 export class SessionManager {
   private runners = new Map<string, RunnerInfo>();
+  private onRunnerExit?: RunnerExitHandler;
 
   // Allows CLI to inject a custom runner spawn command (e.g., ["./tp", "run"])
   private static runnerCommand: string[] | null = null;
 
   static setRunnerCommand(cmd: string[]): void {
     SessionManager.runnerCommand = cmd;
+  }
+
+  /** Register a callback fired when any spawned Runner process exits. */
+  setOnRunnerExit(handler: RunnerExitHandler): void {
+    this.onRunnerExit = handler;
   }
 
   registerRunner(
@@ -123,9 +137,21 @@ export class SessionManager {
 
     log.info(`spawned runner sid=${sid} pid=${proc.pid}`);
 
-    // Monitor exit
+    // Monitor exit. A Runner can die without sending a clean "bye" (crash,
+    // OOM-kill, kill -9), which previously left the session row stuck at
+    // "running" and the in-memory registration leaked for the daemon's
+    // lifetime. On ANY exit we unregister and notify the owner to reconcile.
     proc.exited.then((exitCode) => {
       log.info(`runner exited sid=${sid} exitCode=${exitCode}`);
+      // Guard against a restart race: session.restart kills the old process
+      // and spawns a new one for the same sid. If the new Runner has already
+      // re-registered (its `process` differs from the one that just exited),
+      // this exit belongs to the old generation — do not tear down the live
+      // session.
+      const current = this.runners.get(sid);
+      if (current && current.process !== proc) return;
+      this.runners.delete(sid);
+      this.onRunnerExit?.(sid, exitCode ?? 0);
     });
 
     return proc;

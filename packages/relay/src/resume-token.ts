@@ -19,13 +19,14 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
  * deploys.
  */
 
-export interface ResumeTokenPayload {
-  role: "daemon" | "frontend";
-  daemonId: string;
-  frontendId?: string;
-  /** Epoch milliseconds */
-  expiresAt: number;
-}
+export type ResumeTokenPayload =
+  | { role: "daemon"; daemonId: string; expiresAt: number }
+  | {
+      role: "frontend";
+      daemonId: string;
+      frontendId: string;
+      expiresAt: number;
+    };
 
 const DEFAULT_TTL_MS = 60 * 60_000; // 1 hour
 const SECRET_MIN_BYTES = 32;
@@ -46,7 +47,12 @@ function b64urlDecode(s: string): Buffer {
 }
 
 function payloadString(p: ResumeTokenPayload): string {
-  return [p.role, p.daemonId, p.frontendId ?? "", p.expiresAt].join(".");
+  return [
+    p.role,
+    p.daemonId,
+    p.role === "frontend" ? p.frontendId : "",
+    p.expiresAt,
+  ].join(".");
 }
 
 export class ResumeTokenSigner {
@@ -70,15 +76,21 @@ export class ResumeTokenSigner {
 
   /** Issue a token. expiresAt defaults to now+ttlMs. */
   issue(
-    payload: Omit<ResumeTokenPayload, "expiresAt"> & { expiresAt?: number },
+    payload: (
+      | { role: "daemon"; daemonId: string }
+      | { role: "frontend"; daemonId: string; frontendId: string }
+    ) & { expiresAt?: number },
   ): { token: string; expiresAt: number } {
     const expiresAt = payload.expiresAt ?? Date.now() + this.ttlMs;
-    const full: ResumeTokenPayload = {
-      role: payload.role,
-      daemonId: payload.daemonId,
-      frontendId: payload.frontendId,
-      expiresAt,
-    };
+    const full: ResumeTokenPayload =
+      payload.role === "frontend"
+        ? {
+            role: "frontend",
+            daemonId: payload.daemonId,
+            frontendId: payload.frontendId,
+            expiresAt,
+          }
+        : { role: "daemon", daemonId: payload.daemonId, expiresAt };
     const body = payloadString(full);
     const sig = createHmac("sha256", this.secret).update(body).digest();
     const token = `${b64url(Buffer.from(body, "utf8"))}.${b64url(sig)}`;
@@ -115,11 +127,11 @@ export class ResumeTokenSigner {
     if (expiresAt <= now) return null;
     if (!daemonId) return null;
 
-    return {
-      role,
-      daemonId,
-      frontendId: frontendId === "" ? undefined : frontendId,
-      expiresAt,
-    };
+    if (role === "daemon") {
+      return { role: "daemon", daemonId, expiresAt };
+    }
+    // role === "frontend": frontendId must be non-empty
+    if (frontendId === "") return null;
+    return { role: "frontend", daemonId, frontendId, expiresAt };
   }
 }

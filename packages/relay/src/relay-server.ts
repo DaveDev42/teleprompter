@@ -469,9 +469,7 @@ ${daemons
     // in framesIn too would double-count it and break the
     // framesIn ≈ framesOut + drops accounting the /metrics endpoint relies on.
     const rawSize =
-      typeof raw === "string"
-        ? Buffer.byteLength(raw)
-        : (raw as ArrayBuffer).byteLength;
+      typeof raw === "string" ? Buffer.byteLength(raw) : raw.byteLength;
     if (rawSize > this.maxFrameSize) {
       this.metrics.oversizedDrops++;
       log.warn(
@@ -546,12 +544,17 @@ ${daemons
         this.handlePing(ws, msg);
         break;
       case "relay.push":
-        this.handlePush(
-          ws,
-          msg as RelayClientMessage & { t: "relay.push" },
-        ).catch((err) => log.error(`handlePush failed: ${err}`));
+        // The `case "relay.push"` arm already narrows msg to the relay.push
+        // variant; no cast needed.
+        this.handlePush(ws, msg).catch((err) =>
+          log.error(`handlePush failed: ${err}`),
+        );
         break;
       default:
+        // The switch is exhaustive over RelayClientMessage, so `msg` narrows
+        // to `never` here. A widening cast lets us echo back the unknown `t`
+        // that an out-of-spec peer sent (JSON.parse produced it at runtime
+        // even though the type system says it can't exist).
         this.send(ws, {
           t: "relay.err",
           e: "UNKNOWN_TYPE",

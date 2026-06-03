@@ -66,7 +66,7 @@ beforeEach(() => {
   writeFakeClaude(tmpDir, argsFile);
   fakeEnv = {
     ...(process.env as Record<string, string>),
-    PATH: `${tmpDir}:${process.env.PATH ?? ""}`,
+    PATH: `${tmpDir}:${process.env["PATH"] ?? ""}`,
   };
 });
 
@@ -155,7 +155,7 @@ describe("forwardToClaudeCommand", () => {
     const code = await forwardToClaudeCommand(["auth"], {
       ...(process.env as Record<string, string>),
       // Strip tmpDir from PATH; use /dev/null as a no-op directory
-      PATH: process.env.PATH?.replace(`${tmpDir}:`, "") ?? "/usr/bin",
+      PATH: process.env["PATH"]?.replace(`${tmpDir}:`, "") ?? "/usr/bin",
       FAKE_CLAUDE_EXIT: "0",
     });
     // The real claude binary may or may not be on PATH; we can't guarantee

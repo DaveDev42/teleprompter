@@ -589,9 +589,9 @@ function extractBashOutput(
   if (typeof result === "string") return { stdout: result };
   const obj = asRecord(result);
   if (!obj) return null;
-  const stdout = asString(obj.stdout) ?? undefined;
-  const stderr = asString(obj.stderr) ?? undefined;
-  const interrupted = obj.interrupted === true || undefined;
+  const stdout = asString(obj["stdout"]) ?? undefined;
+  const stderr = asString(obj["stderr"]) ?? undefined;
+  const interrupted = obj["interrupted"] === true || undefined;
   if (stdout || stderr || interrupted) return { stdout, stderr, interrupted };
   return null;
 }
@@ -727,21 +727,21 @@ function ToolCard({
   // MultiEdit nests its hunks under `edits: [{old_string, new_string}, …]`
   // and only carries `file_path` at the top level, so the top-level
   // old_string/new_string check would miss it.
-  const editOld = inputObj && asString(inputObj.old_string);
-  const editNew = inputObj && asString(inputObj.new_string);
+  const editOld = inputObj && asString(inputObj["old_string"]);
+  const editNew = inputObj && asString(inputObj["new_string"]);
   const multiEdits =
-    toolName === "MultiEdit" && inputObj && Array.isArray(inputObj.edits)
-      ? (inputObj.edits as unknown[])
+    toolName === "MultiEdit" && inputObj && Array.isArray(inputObj["edits"])
+      ? (inputObj["edits"] as unknown[])
           .map((e) => asRecord(e))
           .filter(
             (e): e is Record<string, unknown> =>
               e !== null &&
-              asString(e.old_string) !== null &&
-              asString(e.new_string) !== null,
+              asString(e["old_string"]) !== null &&
+              asString(e["new_string"]) !== null,
           )
           .map((e) => ({
-            oldStr: e.old_string as string,
-            newStr: e.new_string as string,
+            oldStr: e["old_string"] as string,
+            newStr: e["new_string"] as string,
           }))
       : null;
   const isEdit =
@@ -749,7 +749,7 @@ function ToolCard({
     (multiEdits !== null && multiEdits.length > 0);
 
   // Write: render the new file content as additions.
-  const writeContent = inputObj && asString(inputObj.content);
+  const writeContent = inputObj && asString(inputObj["content"]);
   const isWrite = toolName === "Write" && writeContent !== null;
 
   // Bash: extract stdout/stderr for inline rendering.
@@ -758,7 +758,7 @@ function ToolCard({
 
   // Bash command on the pre-call card.
   const bashCommand =
-    toolName === "Bash" && inputObj ? asString(inputObj.command) : null;
+    toolName === "Bash" && inputObj ? asString(inputObj["command"]) : null;
 
   // Detect output that exceeds the collapsed numberOfLines so we know whether
   // to show the "Show more" affordance. Cheap line count — splits on \n once.

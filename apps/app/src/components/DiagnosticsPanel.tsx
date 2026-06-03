@@ -128,7 +128,7 @@ export function DiagnosticsPanel() {
 
     // Detect platform
     if (
-      typeof (globalThis as Record<string, unknown>).HermesInternal !==
+      typeof (globalThis as Record<string, unknown>)["HermesInternal"] !==
       "undefined"
     )
       result.platform = "hermes";

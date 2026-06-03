@@ -109,7 +109,7 @@ const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const CACHE_SCHEMA_VERSION = 1;
 
 function getCachePath(): string {
-  const xdg = process.env.XDG_CACHE_HOME;
+  const xdg = process.env["XDG_CACHE_HOME"];
   const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".cache");
   return join(base, "teleprompter", "upgrade-check.json");
 }
@@ -177,7 +177,7 @@ export async function checkForUpdates(
     fetchLatest?: () => Promise<{ tag: string; url: string } | null>;
   } = {},
 ): Promise<string | null> {
-  if (process.env.TP_NO_UPDATE_CHECK === "1") return null;
+  if (process.env["TP_NO_UPDATE_CHECK"] === "1") return null;
 
   const cachePath = opts.cachePath ?? getCachePath();
   const now = opts.now ?? Date.now();

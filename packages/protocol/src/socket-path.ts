@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync } from "fs";
 import { join } from "path";
 
 export function getSocketPath(): string {
-  const xdgRuntimeDir = process.env.XDG_RUNTIME_DIR;
+  const xdgRuntimeDir = process.env["XDG_RUNTIME_DIR"];
   if (xdgRuntimeDir) {
     // XDG_RUNTIME_DIR is owned and mode-0700'd by the login manager (systemd
     // et al.); we only ensure it exists and never touch its permissions.

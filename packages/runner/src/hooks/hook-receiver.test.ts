@@ -51,7 +51,7 @@ describe("HookReceiver", () => {
     await Bun.sleep(100);
     expect(receivedEvents.length).toBe(1);
     expect(receivedEvents[0].hook_event_name).toBe("Stop");
-    expect(receivedEvents[0].last_assistant_message).toBe("Done!");
+    expect(receivedEvents[0]["last_assistant_message"]).toBe("Done!");
   });
 
   test("receives multiple events from different connections", async () => {

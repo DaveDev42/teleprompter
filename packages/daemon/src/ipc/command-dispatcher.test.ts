@@ -81,10 +81,7 @@ function makeHarness(
     relayClients?: RelayClient[];
     pairings?: Array<{ daemonId: string }>;
     removePairingResult?: (daemonId: string) => Promise<number>;
-    renamePairingResult?: (
-      daemonId: string,
-      label: Label,
-    ) => Promise<number>;
+    renamePairingResult?: (daemonId: string, label: Label) => Promise<number>;
     runningSids?: string[];
     deleteSessionThrows?: (sid: string) => Error | null;
   } = {},

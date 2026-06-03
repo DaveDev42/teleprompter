@@ -455,7 +455,10 @@ describe("RelayConnectionManager", () => {
       string,
       { t: string; d: { daemonLabel: Label } },
     ];
-    expect(lastCall[2].d.daemonLabel).toEqual({ set: true, value: "Office Mac" });
+    expect(lastCall[2].d.daemonLabel).toEqual({
+      set: true,
+      value: "Office Mac",
+    });
   });
 
   test("stop() disposes every client and clears the pool", async () => {

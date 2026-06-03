@@ -32,6 +32,7 @@ import {
   labelToNullable,
   parseControlMessage,
   parseRelayControlMessage,
+  parseRelayServerMessage,
   RELAY_CHANNEL_CONTROL,
   toBase64,
   WS_PROTOCOL_VERSION,
@@ -181,12 +182,20 @@ export class RelayClient {
     };
 
     ws.onmessage = (event) => {
+      if (typeof event.data !== "string") return;
+      let parsed: unknown;
       try {
-        const msg: RelayServerMessage = JSON.parse(event.data as string);
-        this.handleMessage(msg);
+        parsed = JSON.parse(event.data);
       } catch {
-        // ignore malformed
+        // ignore malformed JSON
+        return;
       }
+      const msg = parseRelayServerMessage(parsed);
+      if (!msg) {
+        log.warn("dropped malformed relay frame");
+        return;
+      }
+      this.handleMessage(msg);
     };
 
     ws.onclose = () => {
@@ -277,6 +286,20 @@ export class RelayClient {
       case "relay.err":
         log.error(`relay error: ${msg.m ?? msg.e}`);
         break;
+
+      case "relay.notification":
+        // Push notifications target frontends, not the daemon. The daemon is
+        // never a notification sink — ignore, but keep the arm so the switch
+        // stays exhaustive over RelayServerMessage.
+        break;
+
+      default: {
+        // Exhaustiveness guard: every RelayServerMessage variant is handled
+        // above. If a new variant is added without an arm, this assignment
+        // fails to compile.
+        const _exhaustive: never = msg;
+        return _exhaustive;
+      }
     }
   }
 

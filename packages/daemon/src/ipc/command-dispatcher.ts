@@ -22,6 +22,7 @@ import type {
   RelayControlMessage,
   SessionExport,
   SessionRec,
+  SessionStateMsg,
 } from "@teleprompter/protocol";
 import {
   createLogger,
@@ -538,7 +539,7 @@ export class IpcCommandDispatcher {
         t: "state" as const,
         sid: msg.sid,
         d: toSessionMeta(meta),
-      };
+      } satisfies SessionStateMsg;
       for (const relay of this.deps.getRelayClients()) {
         relay.publishState(RELAY_CHANNEL_META, stateMsg).catch(() => {});
       }
@@ -642,7 +643,7 @@ export class IpcCommandDispatcher {
         t: "state" as const,
         sid: msg.sid,
         d: toSessionMeta(meta),
-      };
+      } satisfies SessionStateMsg;
       for (const relay of this.deps.getRelayClients()) {
         relay.publishState(RELAY_CHANNEL_META, stateMsg).catch(() => {});
       }

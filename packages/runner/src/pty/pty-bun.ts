@@ -24,21 +24,19 @@ export class PtyBun implements PtyManager {
   }
 
   write(data: string | Uint8Array): void {
-    if (!this.proc) return;
-    (
-      this.proc as unknown as {
-        terminal: { write(d: string | Uint8Array): void };
-      }
-    ).terminal.write(data);
+    // bun-types models `terminal` as `Terminal | undefined` — it is only unset
+    // when spawned without the `terminal` option, which spawn() above always
+    // provides. The guard makes that invariant explicit (no non-null assertion,
+    // no behavior change: an unspawned/killed proc is a no-op as before).
+    const terminal = this.proc?.terminal;
+    if (!terminal) return;
+    terminal.write(data);
   }
 
   resize(cols: number, rows: number): void {
-    if (!this.proc) return;
-    (
-      this.proc as unknown as {
-        terminal: { resize(c: number, r: number): void };
-      }
-    ).terminal.resize(cols, rows);
+    const terminal = this.proc?.terminal;
+    if (!terminal) return;
+    terminal.resize(cols, rows);
   }
 
   kill(signal: number = 15): void {

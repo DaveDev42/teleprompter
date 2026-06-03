@@ -44,6 +44,7 @@ export type {
   IpcSessionPruneErrReason,
   IpcSessionPruneOk,
 } from "./ipc";
+export * from "./label";
 export type { Namespace, Record, RecordKind } from "./record";
 export type {
   RelayAuth,

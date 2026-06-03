@@ -1,4 +1,4 @@
-import { createLogger, type Label, LABEL_UNSET } from "@teleprompter/protocol";
+import { createLogger, LABEL_UNSET, type Label } from "@teleprompter/protocol";
 import type { Store } from "../store";
 import { RelayClient, type RelayClientConfig } from "../transport/relay-client";
 import type { RelayConnectionManager } from "../transport/relay-manager";

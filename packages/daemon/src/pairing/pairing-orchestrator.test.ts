@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { type Label, LABEL_UNSET, makeLabel } from "@teleprompter/protocol";
+import { LABEL_UNSET, type Label, makeLabel } from "@teleprompter/protocol";
 import type { Store } from "../store";
 import type { RelayClient, RelayClientConfig } from "../transport/relay-client";
 import type { RelayConnectionManager } from "../transport/relay-manager";
@@ -56,7 +56,10 @@ function makeFakeStore(initialPairings: Array<{ daemonId: string }> = []) {
   return {
     listPairings: mock(() => pairings),
     savePairing: mock((data: { daemonId: string; label?: Label }) => {
-      pairings.push({ daemonId: data.daemonId, label: data.label ?? LABEL_UNSET });
+      pairings.push({
+        daemonId: data.daemonId,
+        label: data.label ?? LABEL_UNSET,
+      });
     }),
     __pairings: pairings,
   };

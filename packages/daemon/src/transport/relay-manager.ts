@@ -1,7 +1,7 @@
 import {
   createLogger,
-  type Label,
   LABEL_UNSET,
+  type Label,
   RELAY_CHANNEL_CONTROL,
   RELAY_CHANNEL_META,
 } from "@teleprompter/protocol";

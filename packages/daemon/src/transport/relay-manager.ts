@@ -1,5 +1,7 @@
 import {
   createLogger,
+  LABEL_UNSET,
+  type Label,
   RELAY_CHANNEL_CONTROL,
   RELAY_CHANNEL_META,
 } from "@teleprompter/protocol";
@@ -85,7 +87,7 @@ export class RelayConnectionManager {
    */
   buildEvents(
     getClient: () => RelayClient | null,
-    label?: string | null,
+    label?: Label,
   ): RelayClientEvents {
     return {
       onInput: (kind, sid, data) => {
@@ -109,12 +111,14 @@ export class RelayConnectionManager {
         const sessions = this.deps.store.listSessions().map(toSessionMeta);
         // Include `daemonLabel` so the frontend can adopt the pairing label
         // even when it connects after the daemon's initial relay.kx broadcast
-        // (which only reaches peers online at that moment). `null` means no
-        // label set — the frontend keeps its existing fallback.
+        // (which only reaches peers online at that moment). `{ set: false }`
+        // means no label set — the frontend reads this surface with
+        // keep-current semantics (`decodeKxLabelOrKeep`) and keeps its
+        // existing fallback.
         const helloMsg = {
           t: "hello",
           v: 1,
-          d: { sessions, daemonLabel: label ?? null },
+          d: { sessions, daemonLabel: label ?? LABEL_UNSET },
         };
         c.publishToPeer(frontendId, RELAY_CHANNEL_META, helloMsg).catch(
           () => {},
@@ -162,7 +166,9 @@ export class RelayConnectionManager {
         `peer renamed pairing (frontendId=${frontendId}) → ${JSON.stringify(label)}`,
       );
       try {
-        this.deps.store.updatePairingLabel(daemonId, label || null);
+        // `label` is already a `Label` (RelayClient decoded the wire shape,
+        // legacy `""` → `{ set: false }`); store it directly.
+        this.deps.store.updatePairingLabel(daemonId, label);
       } catch (err) {
         log.error(
           `updatePairingLabel failed after inbound rename (daemonId=${daemonId}):`,
@@ -180,7 +186,7 @@ export class RelayConnectionManager {
    */
   async addClient(config: RelayClientConfig): Promise<RelayClient> {
     let clientRef: RelayClient | null = null;
-    const events = this.buildEvents(() => clientRef, config.label ?? null);
+    const events = this.buildEvents(() => clientRef, config.label);
     const client = this.factory
       ? this.factory(config)
       : new RelayClient(config, events);
@@ -206,7 +212,7 @@ export class RelayConnectionManager {
     // reconnecting saved relays doesn't overwrite a user-set label.
     const existingLabel =
       this.deps.store.listPairings().find((p) => p.daemonId === config.daemonId)
-        ?.label ?? null;
+        ?.label ?? LABEL_UNSET;
     this.deps.store.savePairing({
       daemonId: config.daemonId,
       relayUrl: config.relayUrl,
@@ -319,7 +325,7 @@ export class RelayConnectionManager {
    * client matches `daemonId`, e.g. the pairing exists in the store but has
    * no live relay connection).
    */
-  async renamePairing(daemonId: string, label: string | null): Promise<number> {
+  async renamePairing(daemonId: string, label: Label): Promise<number> {
     this.deps.store.updatePairingLabel(daemonId, label);
 
     const client = this.clients.find((c) => c.daemonId === daemonId);
@@ -329,7 +335,9 @@ export class RelayConnectionManager {
     const peers = client.listPeerFrontendIds();
     for (const frontendId of peers) {
       try {
-        if (await client.sendRenameNotice(frontendId, label ?? "")) {
+        // RelayClient version-gates the wire shape per peer (legacy string
+        // for v1 peers, union for v2). We pass the `Label` directly.
+        if (await client.sendRenameNotice(frontendId, label)) {
           notified++;
         }
       } catch (err) {

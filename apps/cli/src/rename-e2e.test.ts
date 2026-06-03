@@ -12,6 +12,8 @@ import {
   deriveSessionKeys,
   encrypt,
   generateKeyPair,
+  type Label,
+  makeLabel,
   RELAY_CHANNEL_CONTROL,
   type RelayServerMessage,
   toBase64,
@@ -133,7 +135,15 @@ describe("Rename Notification E2E", () => {
       .find((c) => c.daemonId === daemonId);
     expect(client).toBeDefined();
     const newLabel = "MacBook Pro 14";
-    const sent = await client!.sendRenameNotice(frontendId, newLabel);
+    // This frontend's kx payload omits `v`, so the daemon treats it as a v1
+    // peer and the version-gate sends a bare string on the wire (not the
+    // Label union). Asserting `msg.label === newLabel` (a string) is the
+    // cross-version compat guard: an un-updated app must keep receiving a
+    // string, never a `{ set, value }` object it would coerce to "" and clear.
+    const sent = await client!.sendRenameNotice(
+      frontendId,
+      makeLabel(newLabel),
+    );
     expect(sent).toBe(true);
 
     const frame = (await framePromise) as unknown as { ct: string };
@@ -231,26 +241,29 @@ describe("Rename Notification E2E", () => {
       }),
     );
 
-    // Poll for daemon store label update (or timeout).
+    // Poll for daemon store label update (or timeout). The frontend sent a
+    // legacy-string `label` on the wire; the daemon's inbound path runs it
+    // through `decodeWireLabel`, so the persisted pairing carries the
+    // Label union `{ set: true, value: newLabel }`.
     const store = (
       daemon as unknown as {
         store: {
-          listPairings(): Array<{ daemonId: string; label: string | null }>;
+          listPairings(): Array<{ daemonId: string; label: Label }>;
         };
       }
     ).store;
     const deadline = Date.now() + 2000;
-    let observed: string | null = null;
+    let observed: Label | undefined;
     while (Date.now() < deadline) {
       const row = store.listPairings().find((p) => p.daemonId === daemonId);
-      if (row?.label === newLabel) {
+      if (row?.label.set === true && row.label.value === newLabel) {
         observed = row.label;
         break;
       }
       await Bun.sleep(50);
     }
 
-    expect(observed).toBe(newLabel);
+    expect(observed).toEqual({ set: true, value: newLabel });
 
     // Pairing should still be present (rename does not remove it).
     expect(daemon.getActivePairingIds()).toContain(daemonId);

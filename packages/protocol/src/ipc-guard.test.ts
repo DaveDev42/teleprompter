@@ -281,7 +281,7 @@ describe("parseIpcMessage", () => {
       });
     });
 
-    test("pair.completed accepts null label", () => {
+    test("pair.completed: legacy null label → { set: false }", () => {
       expect(
         parseIpcMessage({
           t: "pair.completed",
@@ -293,11 +293,27 @@ describe("parseIpcMessage", () => {
         t: "pair.completed",
         pairingId: "p1",
         daemonId: "d1",
-        label: null,
+        label: { set: false },
       });
     });
 
-    test("pair.completed accepts string label", () => {
+    test("pair.completed: new union { set: false } passes through", () => {
+      expect(
+        parseIpcMessage({
+          t: "pair.completed",
+          pairingId: "p1",
+          daemonId: "d1",
+          label: { set: false },
+        }),
+      ).toEqual({
+        t: "pair.completed",
+        pairingId: "p1",
+        daemonId: "d1",
+        label: { set: false },
+      });
+    });
+
+    test("pair.completed: legacy string label → { set: true }", () => {
       const result = parseIpcMessage({
         t: "pair.completed",
         pairingId: "p1",
@@ -306,11 +322,24 @@ describe("parseIpcMessage", () => {
       });
       expect(result?.t).toBe("pair.completed");
       if (result?.t === "pair.completed") {
-        expect(result.label).toBe("phone");
+        expect(result.label).toEqual({ set: true, value: "phone" });
       }
     });
 
-    test("pair.completed rejects non-string non-null label", () => {
+    test("pair.completed: new union { set: true } passes through", () => {
+      const result = parseIpcMessage({
+        t: "pair.completed",
+        pairingId: "p1",
+        daemonId: "d1",
+        label: { set: true, value: "phone" },
+      });
+      expect(result?.t).toBe("pair.completed");
+      if (result?.t === "pair.completed") {
+        expect(result.label).toEqual({ set: true, value: "phone" });
+      }
+    });
+
+    test("pair.completed rejects a primitive non-string non-null label", () => {
       expect(
         parseIpcMessage({
           t: "pair.completed",
@@ -401,19 +430,64 @@ describe("parseIpcMessage", () => {
       ).toBeNull();
     });
 
-    test("pair.rename accepts string or null label", () => {
+    test("pair.rename decodes legacy string/null and the new union", () => {
+      // legacy string → set
       expect(
         parseIpcMessage({ t: "pair.rename", daemonId: "d1", label: "Mac" }),
-      ).toEqual({ t: "pair.rename", daemonId: "d1", label: "Mac" });
+      ).toEqual({
+        t: "pair.rename",
+        daemonId: "d1",
+        label: { set: true, value: "Mac" },
+      });
+      // legacy null → not set
       expect(
         parseIpcMessage({ t: "pair.rename", daemonId: "d1", label: null }),
-      ).toEqual({ t: "pair.rename", daemonId: "d1", label: null });
+      ).toEqual({ t: "pair.rename", daemonId: "d1", label: { set: false } });
+      // legacy "" (clear sentinel) → not set
+      expect(
+        parseIpcMessage({ t: "pair.rename", daemonId: "d1", label: "" }),
+      ).toEqual({ t: "pair.rename", daemonId: "d1", label: { set: false } });
+      // new union set:true passes through
+      expect(
+        parseIpcMessage({
+          t: "pair.rename",
+          daemonId: "d1",
+          label: { set: true, value: "Mac" },
+        }),
+      ).toEqual({
+        t: "pair.rename",
+        daemonId: "d1",
+        label: { set: true, value: "Mac" },
+      });
+      // new union set:false passes through
+      expect(
+        parseIpcMessage({
+          t: "pair.rename",
+          daemonId: "d1",
+          label: { set: false },
+        }),
+      ).toEqual({ t: "pair.rename", daemonId: "d1", label: { set: false } });
+      // a primitive non-string non-null label is rejected
       expect(
         parseIpcMessage({ t: "pair.rename", daemonId: "d1", label: 42 }),
       ).toBeNull();
     });
 
-    test("pair.rename.ok parses full shape", () => {
+    test("pair.rename.ok parses full shape (union label)", () => {
+      expect(
+        parseIpcMessage({
+          t: "pair.rename.ok",
+          daemonId: "d1",
+          label: { set: true, value: "Mac" },
+          notifiedPeers: 1,
+        }),
+      ).toEqual({
+        t: "pair.rename.ok",
+        daemonId: "d1",
+        label: { set: true, value: "Mac" },
+        notifiedPeers: 1,
+      });
+      // legacy string still decodes
       expect(
         parseIpcMessage({
           t: "pair.rename.ok",
@@ -424,7 +498,7 @@ describe("parseIpcMessage", () => {
       ).toEqual({
         t: "pair.rename.ok",
         daemonId: "d1",
-        label: "Mac",
+        label: { set: true, value: "Mac" },
         notifiedPeers: 1,
       });
     });

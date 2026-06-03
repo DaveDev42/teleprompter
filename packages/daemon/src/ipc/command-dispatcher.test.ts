@@ -7,9 +7,10 @@ import type {
   IpcPairBegin,
   IpcPairCancel,
   IpcRec,
+  Label,
   RelayControlMessage,
 } from "@teleprompter/protocol";
-import { FrameDecoder, QueuedWriter } from "@teleprompter/protocol";
+import { FrameDecoder, makeLabel, QueuedWriter } from "@teleprompter/protocol";
 import type { PushNotifier } from "../push/push-notifier";
 import type {
   SessionManager,
@@ -44,7 +45,7 @@ interface Calls {
   pushNotifier: unknown[];
   recordObserver: Array<[string, string, Buffer, string | undefined]>;
   removePairing: string[];
-  renamePairing: Array<[string, string | null]>;
+  renamePairing: Array<[string, Label]>;
 }
 
 function mkMeta(sid: string, state: string, updated_at: number): SessionMeta {
@@ -80,10 +81,7 @@ function makeHarness(
     relayClients?: RelayClient[];
     pairings?: Array<{ daemonId: string }>;
     removePairingResult?: (daemonId: string) => Promise<number>;
-    renamePairingResult?: (
-      daemonId: string,
-      label: string | null,
-    ) => Promise<number>;
+    renamePairingResult?: (daemonId: string, label: Label) => Promise<number>;
     runningSids?: string[];
     deleteSessionThrows?: (sid: string) => Error | null;
   } = {},
@@ -152,7 +150,7 @@ function makeHarness(
       (opts.pairings ?? []).map((p) => ({
         daemonId: p.daemonId,
         relayUrl: "ws://mock",
-        label: null,
+        label: { set: false } as Label,
         createdAt: 0,
       })),
     deleteSession: (sid) => {
@@ -332,22 +330,24 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     dispatcher.dispatchIpc(makeRunner(), {
       t: "pair.rename",
       daemonId: "d1",
-      label: "Office Mac",
+      label: makeLabel("Office Mac"),
     });
     await Promise.resolve();
     await Promise.resolve();
-    expect(calls.renamePairing).toEqual([["d1", "Office Mac"]]);
+    expect(calls.renamePairing).toEqual([
+      ["d1", { set: true, value: "Office Mac" }],
+    ]);
     expect(calls.ipcSends).toEqual([
       {
         t: "pair.rename.ok",
         daemonId: "d1",
-        label: "Office Mac",
+        label: { set: true, value: "Office Mac" },
         notifiedPeers: 1,
       },
     ]);
   });
 
-  test("pair.rename with label=null (clear) round-trips through reply", async () => {
+  test("pair.rename with an unset label (clear) round-trips through reply", async () => {
     const { dispatcher, calls } = makeHarness({
       pairings: [{ daemonId: "d1" }],
       renamePairingResult: async () => 0,
@@ -355,13 +355,18 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     dispatcher.dispatchIpc(makeRunner(), {
       t: "pair.rename",
       daemonId: "d1",
-      label: null,
+      label: { set: false },
     });
     await Promise.resolve();
     await Promise.resolve();
-    expect(calls.renamePairing).toEqual([["d1", null]]);
+    expect(calls.renamePairing).toEqual([["d1", { set: false }]]);
     expect(calls.ipcSends).toEqual([
-      { t: "pair.rename.ok", daemonId: "d1", label: null, notifiedPeers: 0 },
+      {
+        t: "pair.rename.ok",
+        daemonId: "d1",
+        label: { set: false },
+        notifiedPeers: 0,
+      },
     ]);
   });
 
@@ -370,7 +375,7 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     dispatcher.dispatchIpc(makeRunner(), {
       t: "pair.rename",
       daemonId: "missing",
-      label: "x",
+      label: makeLabel("x"),
     });
     await Promise.resolve();
     expect(calls.renamePairing).toEqual([]);

@@ -159,12 +159,12 @@ describe("Store (shared fixture)", () => {
       publicKey: Buffer.from([1]),
       secretKey: Buffer.from([2]),
       pairingSecret: Buffer.from([3]),
-      label: "My MacBook",
+      label: { set: true, value: "My MacBook" },
     });
     const rows = vault.listPairings();
     const row = rows.find((r) => r.daemonId === "daemon-label-1");
     if (!row) throw new Error("expected row");
-    expect(row.label).toBe("My MacBook");
+    expect(row.label).toEqual({ set: true, value: "My MacBook" });
   });
 
   test("pairings: updatePairingLabel changes label", () => {
@@ -176,17 +176,17 @@ describe("Store (shared fixture)", () => {
       publicKey: Buffer.from([1]),
       secretKey: Buffer.from([2]),
       pairingSecret: Buffer.from([3]),
-      label: "old",
+      label: { set: true, value: "old" },
     });
-    vault.updatePairingLabel("daemon-label-2", "new");
+    vault.updatePairingLabel("daemon-label-2", { set: true, value: "new" });
     const row = vault
       .listPairings()
       .find((r) => r.daemonId === "daemon-label-2");
     if (!row) throw new Error("expected row");
-    expect(row.label).toBe("new");
+    expect(row.label).toEqual({ set: true, value: "new" });
   });
 
-  test("pairings: savePairing with no label stores null", () => {
+  test("pairings: savePairing with no label stores { set: false }", () => {
     vault.savePairing({
       daemonId: "daemon-nolabel",
       relayUrl: "wss://r",
@@ -200,7 +200,7 @@ describe("Store (shared fixture)", () => {
       .listPairings()
       .find((r) => r.daemonId === "daemon-nolabel");
     if (!row) throw new Error("expected row");
-    expect(row.label).toBeNull();
+    expect(row.label).toEqual({ set: false });
   });
 });
 

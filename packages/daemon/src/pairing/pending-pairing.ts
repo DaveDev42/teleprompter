@@ -4,6 +4,8 @@ import {
   deriveRegistrationProof,
   encodePairingData,
   type KeyPair,
+  type Label,
+  labelToNullable,
   RELAY_CHANNEL_CONTROL,
   RELAY_CHANNEL_META,
 } from "@teleprompter/protocol";
@@ -21,8 +23,8 @@ const log = createLogger("PendingPairing");
 export interface PendingPairingOptions {
   relayUrl: string;
   daemonId: string;
-  /** Optional label; `null` means "no label". */
-  label: string | null;
+  /** Pairing label as a tagged union; `{ set: false }` means "no label". */
+  label: Label;
   createRelayClient: (args: {
     relayUrl: string;
     daemonId: string;
@@ -30,7 +32,7 @@ export interface PendingPairingOptions {
     registrationProof: string;
     keyPair: KeyPair;
     pairingSecret: Uint8Array;
-    label: string | null;
+    label: Label;
   }) => RelayClient;
 }
 
@@ -50,7 +52,7 @@ export type PendingPairingResult =
       registrationProof: string;
       keyPair: KeyPair;
       pairingSecret: Uint8Array;
-      label: string | null;
+      label: Label;
     }
   | { kind: "cancelled" };
 
@@ -89,7 +91,9 @@ export class PendingPairing {
     const bundle = await createPairingBundle(
       this.opts.relayUrl,
       this.opts.daemonId,
-      { label: this.opts.label ?? undefined },
+      // `createPairingBundle` ignores `label` (it travels via relay.kx, not the
+      // QR) but the opt is still string-shaped; collapse the union for it.
+      { label: labelToNullable(this.opts.label) ?? undefined },
     );
     this.keyPair = bundle.keyPair;
     this.pairingSecret = bundle.pairingSecret;

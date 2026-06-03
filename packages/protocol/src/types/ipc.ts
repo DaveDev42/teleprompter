@@ -1,3 +1,4 @@
+import type { Label } from "./label";
 import type { Namespace, RecordKind } from "./record";
 
 export interface IpcHello {
@@ -79,7 +80,8 @@ export interface IpcPairCompleted {
   t: "pair.completed";
   pairingId: string;
   daemonId: string;
-  label: string | null;
+  /** Pairing label as a tagged union; `{ set: false }` = no label. */
+  label: Label;
 }
 
 export interface IpcPairCancelled {
@@ -128,19 +130,21 @@ export interface IpcPairRemoveErr {
 
 /**
  * CLI → Daemon: rename a pairing's label. Daemon updates the store and
- * pushes a `control.rename` frame to any connected peer. `label: null`
+ * pushes a `control.rename` frame to any connected peer. `{ set: false }`
  * clears the label.
  */
 export interface IpcPairRename {
   t: "pair.rename";
   daemonId: string;
-  label: string | null;
+  /** New label as a tagged union; `{ set: false }` clears it. */
+  label: Label;
 }
 
 export interface IpcPairRenameOk {
   t: "pair.rename.ok";
   daemonId: string;
-  label: string | null;
+  /** The applied label, echoed back to the CLI for display. */
+  label: Label;
   notifiedPeers: number;
 }
 

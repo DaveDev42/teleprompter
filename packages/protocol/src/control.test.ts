@@ -38,15 +38,26 @@ describe("control types", () => {
     expect(CONTROL_RENAME).toBe("control.rename");
   });
 
-  test("ControlRename has expected shape", () => {
+  test("ControlRename has expected shape (Label union)", () => {
     const msg: ControlRename = {
       t: "control.rename",
       daemonId: "daemon-abc",
       frontendId: "frontend-xyz",
-      label: "Dave's iPhone",
+      label: { set: true, value: "Dave's iPhone" },
       ts: 1,
     };
-    expect(msg.label).toBe("Dave's iPhone");
+    expect(msg.label).toEqual({ set: true, value: "Dave's iPhone" });
+  });
+
+  test("ControlRename label can be unset (clear)", () => {
+    const msg: ControlRename = {
+      t: "control.rename",
+      daemonId: "daemon-abc",
+      frontendId: "frontend-xyz",
+      label: { set: false },
+      ts: 1,
+    };
+    expect(msg.label).toEqual({ set: false });
   });
 
   test("ControlMessage union accepts rename", () => {
@@ -54,7 +65,7 @@ describe("control types", () => {
       t: "control.rename",
       daemonId: "d",
       frontendId: "f",
-      label: "x",
+      label: { set: true, value: "x" },
       ts: 0,
     };
     expect(msg.t).toBe("control.rename");

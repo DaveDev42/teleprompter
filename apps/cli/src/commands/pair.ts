@@ -13,10 +13,13 @@ import type {
   IpcPairRename,
   IpcPairRenameErr,
   IpcPairRenameOk,
+  Label,
 } from "@teleprompter/protocol";
 import {
   DEFAULT_PAIRING_RELAY_URL,
   getSocketPath,
+  labelToNullable,
+  makeLabel,
 } from "@teleprompter/protocol";
 import { render } from "ink";
 import { hostname } from "os";
@@ -197,7 +200,11 @@ async function pairNew(argv: string[]): Promise<void> {
             settle(resolve, 1);
             return;
           case "pair.completed":
-            console.log(ok(`Paired ${m.label ?? m.daemonId} (${m.daemonId})`));
+            console.log(
+              ok(
+                `Paired ${labelToNullable(m.label) ?? m.daemonId} (${m.daemonId})`,
+              ),
+            );
             settle(resolve, 0);
             return;
           case "pair.cancelled":
@@ -341,15 +348,27 @@ async function pairNew(argv: string[]): Promise<void> {
  * (`tp pair list` shows the LABEL column first), and a label collision is
  * surfaced as an "ambiguous" error rather than silently picking one.
  */
+// Accept either the legacy nullable-string label or the `Label` tagged union
+// so callers can pass `PairingSummary` (now `label: Label`) and ad-hoc
+// `{ label: string | null }` shapes alike. Normalize both to a nullable string
+// for matching.
+function candidateLabel(
+  label: string | null | undefined | Label,
+): string | null {
+  if (label == null) return null;
+  if (typeof label === "string") return label;
+  return labelToNullable(label);
+}
+
 export function matchPairings<
-  T extends { daemonId: string; label?: string | null },
+  T extends { daemonId: string; label?: string | null | Label },
 >(candidates: readonly T[], fragment: string): T[] {
   const exact = candidates.filter((c) => c.daemonId === fragment);
   if (exact.length > 0) return exact;
 
   const fragLower = fragment.toLowerCase();
   const labelExact = candidates.filter(
-    (c) => c.label?.toLowerCase() === fragLower,
+    (c) => candidateLabel(c.label)?.toLowerCase() === fragLower,
   );
   if (labelExact.length > 0) return labelExact;
 
@@ -360,7 +379,9 @@ export function matchPairings<
   const shorthandMatches = candidates.filter((c) => c.daemonId === shorthand);
   if (shorthandMatches.length > 0) return shorthandMatches;
 
-  return candidates.filter((c) => c.label?.toLowerCase().includes(fragLower));
+  return candidates.filter((c) =>
+    candidateLabel(c.label)?.toLowerCase().includes(fragLower),
+  );
 }
 
 // `os.hostname()` on macOS/mDNS networks often returns a fully-qualified name
@@ -419,7 +440,7 @@ async function pairList(argv: string[]): Promise<void> {
 
   const rows = pairings.map((p) => ({
     daemonId: p.daemonId,
-    label: p.label ?? "",
+    label: labelToNullable(p.label) ?? "",
     relayUrl: p.relayUrl,
     created: formatAge(Date.now() - p.createdAt),
   }));
@@ -606,7 +627,7 @@ async function pairRename(argv: string[]): Promise<void> {
     const result = await requestPairOp({
       t: "pair.rename",
       daemonId: target.daemonId,
-      label,
+      label: makeLabel(label),
     });
 
     if (result.t === "pair.rename.err") {
@@ -618,9 +639,10 @@ async function pairRename(argv: string[]): Promise<void> {
       process.exit(1);
     }
 
+    const echoed = labelToNullable(result.label);
     console.log(
       ok(
-        `Renamed ${result.daemonId} → ${result.label === null ? "(cleared)" : `"${result.label}"`}`,
+        `Renamed ${result.daemonId} → ${echoed === null ? "(cleared)" : `"${echoed}"`}`,
       ),
     );
     if (result.notifiedPeers > 0) {
@@ -632,7 +654,7 @@ async function pairRename(argv: string[]): Promise<void> {
   // Daemon-less path: update the store directly.
   const renameStore = new Store();
   try {
-    renameStore.updatePairingLabel(target.daemonId, label);
+    renameStore.updatePairingLabel(target.daemonId, makeLabel(label));
   } finally {
     renameStore.close();
   }

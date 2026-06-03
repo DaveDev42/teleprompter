@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { LABEL_UNSET, type Label, makeLabel } from "@teleprompter/protocol";
 import type { Store } from "../store";
 import type { RelayClient, RelayClientConfig } from "../transport/relay-client";
 import type { RelayConnectionManager } from "../transport/relay-manager";
@@ -46,13 +47,19 @@ function makeFakeRelayManager(
 }
 
 function makeFakeStore(initialPairings: Array<{ daemonId: string }> = []) {
-  const pairings: Array<{ daemonId: string; label: string | null }> = [
-    ...initialPairings.map((p) => ({ daemonId: p.daemonId, label: null })),
+  const pairings: Array<{ daemonId: string; label: Label }> = [
+    ...initialPairings.map((p) => ({
+      daemonId: p.daemonId,
+      label: LABEL_UNSET as Label,
+    })),
   ];
   return {
     listPairings: mock(() => pairings),
-    savePairing: mock((data: { daemonId: string; label?: string | null }) => {
-      pairings.push({ daemonId: data.daemonId, label: data.label ?? null });
+    savePairing: mock((data: { daemonId: string; label?: Label }) => {
+      pairings.push({
+        daemonId: data.daemonId,
+        label: data.label ?? LABEL_UNSET,
+      });
     }),
     __pairings: pairings,
   };
@@ -84,7 +91,7 @@ describe("PairingOrchestrator", () => {
     const info = await orch.begin({
       relayUrl: "wss://r",
       daemonId: "daemon-d1",
-      label: "host",
+      label: makeLabel("host"),
     });
 
     expect(info.pairingId.length).toBeGreaterThan(0);
@@ -190,7 +197,7 @@ describe("PairingOrchestrator", () => {
     await orch.begin({
       relayUrl: "wss://r",
       daemonId: "daemon-d1",
-      label: "my-host",
+      label: makeLabel("my-host"),
     });
     // Simulate completion
     orch.current!.__markCompleted("frontend-1");
@@ -215,7 +222,7 @@ describe("PairingOrchestrator", () => {
     await orch.begin({
       relayUrl: "wss://r",
       daemonId: "daemon-d-race",
-      label: "x",
+      label: makeLabel("x"),
     });
     orch.current!.__markCompleted("f1");
     const result = await orch.awaitPending()!;

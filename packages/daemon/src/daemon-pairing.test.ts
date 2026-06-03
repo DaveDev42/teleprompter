@@ -272,7 +272,7 @@ describe("Daemon.beginPairing", () => {
       t: "pair.begin",
       relayUrl: "wss://r",
       daemonId: "daemon-ipc-ok",
-      label: "ipc-host",
+      label: makeLabel("ipc-host"),
     });
 
     expect(cli.messages[0]).toMatchObject({
@@ -295,8 +295,8 @@ describe("Daemon.beginPairing", () => {
     const completed = cli.messages.find(
       (m) => (m as { t: string }).t === "pair.completed",
     );
-    // IpcPairBegin.label stays a bare string on the wire; the daemon lifts it
-    // into the Label union, so the completed message carries the union shape.
+    // IpcPairBegin.label is a Label union end to end; the completed message
+    // carries the same union shape through to the CLI.
     expect(completed).toMatchObject({
       t: "pair.completed",
       daemonId: "daemon-ipc-ok",

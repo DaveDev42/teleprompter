@@ -9,7 +9,7 @@ import type {
   Label,
   RecordKind,
 } from "@teleprompter/protocol";
-import { createLogger, makeLabel } from "@teleprompter/protocol";
+import { createLogger } from "@teleprompter/protocol";
 import { IpcCommandDispatcher } from "./ipc/command-dispatcher";
 import type { ConnectedRunner } from "./ipc/server";
 import { IpcServer } from "./ipc/server";
@@ -269,9 +269,9 @@ export class Daemon {
       const info = await this.beginPairing({
         relayUrl: msg.relayUrl,
         daemonId: msg.daemonId,
-        // IpcPairBegin still carries the legacy optional `string` (the QR /
-        // `--label` path); lift it to a Label at the daemon boundary.
-        label: makeLabel(msg.label),
+        // `label` arrives as a Label union (or undefined → default at the
+        // orchestrator). No string-lifting needed since IPC v2.
+        label: msg.label,
       });
       this.pendingPairingOwner = runner;
 

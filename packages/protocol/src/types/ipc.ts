@@ -49,7 +49,8 @@ export interface IpcPairBegin {
   t: "pair.begin";
   relayUrl: string;
   daemonId?: string;
-  label?: string;
+  /** Pairing label as a tagged union; `{ set: false }` = use the default. */
+  label?: Label;
 }
 
 export interface IpcPairBeginOk {

@@ -57,9 +57,17 @@ export async function pairCommand(argv: string[]): Promise<void> {
     case "-h":
       printPairUsage();
       return;
-    default:
+    case undefined:
+      // Bare `tp pair` defaults to creating a new pairing (documented).
       await pairNew(argv);
       return;
+    default:
+      // An unrecognized subcommand (e.g. a typo like `tp pair delet`) must
+      // NOT silently fall through to pairNew and pop a QR screen — mirror
+      // sessionCommand's behavior and fail with usage.
+      console.error(fail(`Unknown subcommand: tp pair ${sub}`));
+      printPairUsage();
+      process.exit(1);
   }
 }
 

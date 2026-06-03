@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { capture } from "../test-util";
-import { matchSessions, parseDuration } from "./session";
+import { formatPruneQuestion, matchSessions, parseDuration } from "./session";
 
 const CLI = "bun run apps/cli/src/index.ts";
 
@@ -46,6 +46,49 @@ describe("parseDuration", () => {
 
   test("rejects zero", () => {
     expect(() => parseDuration("0h")).toThrow();
+  });
+});
+
+describe("formatPruneQuestion", () => {
+  test("--all says 'all', not the stale older-than default", () => {
+    // Regression: `--all` clears the age filter (every stopped session is
+    // pruned) but olderThanRaw stays "7d". The prompt used to interpolate
+    // "older than 7d" while actually deleting everything — a user could
+    // confirm a far larger deletion than the wording implied.
+    const q = formatPruneQuestion({
+      all: true,
+      includeRunning: false,
+      olderThanRaw: "7d",
+    });
+    expect(q).toBe("Prune stopped sessions (all)?");
+    expect(q).not.toContain("older than");
+  });
+
+  test("without --all echoes the age cutoff", () => {
+    const q = formatPruneQuestion({
+      all: false,
+      includeRunning: false,
+      olderThanRaw: "30d",
+    });
+    expect(q).toBe("Prune stopped sessions (older than 30d)?");
+  });
+
+  test("--all + --running names both scopes with 'all'", () => {
+    const q = formatPruneQuestion({
+      all: true,
+      includeRunning: true,
+      olderThanRaw: "7d",
+    });
+    expect(q).toBe("Prune stopped + running sessions (all)?");
+  });
+
+  test("--running without --all keeps the age cutoff", () => {
+    const q = formatPruneQuestion({
+      all: false,
+      includeRunning: true,
+      olderThanRaw: "1h",
+    });
+    expect(q).toBe("Prune stopped + running sessions (older than 1h)?");
   });
 });
 

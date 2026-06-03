@@ -298,6 +298,8 @@ describe("parseSessionServerMessage", () => {
     const m = { t: "err", e: "boom", evil: "should-not-survive" };
     const parsed = parseSessionServerMessage(m);
     expect(parsed).toEqual({ t: "err", e: "boom" });
-    expect((parsed as unknown as Record<string, unknown>).evil).toBeUndefined();
+    expect(
+      (parsed as unknown as Record<string, unknown>)["evil"],
+    ).toBeUndefined();
   });
 });

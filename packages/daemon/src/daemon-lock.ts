@@ -19,7 +19,7 @@ const log = createLogger("DaemonLock");
  */
 export function getDaemonLockPath(): string {
   const runtimeDir =
-    process.env.XDG_RUNTIME_DIR ??
+    process.env["XDG_RUNTIME_DIR"] ??
     `/tmp/teleprompter-${process.getuid?.() ?? "0"}`;
   return `${runtimeDir}/daemon.pid`;
 }

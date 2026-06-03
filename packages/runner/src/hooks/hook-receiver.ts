@@ -67,7 +67,7 @@ export class HookReceiver {
 
   static defaultSocketPath(sid: string): string {
     const runtimeDir =
-      process.env.XDG_RUNTIME_DIR ??
+      process.env["XDG_RUNTIME_DIR"] ??
       join("/tmp", `teleprompter-${process.getuid?.()}`);
     return join(runtimeDir, `hook-${sid}.sock`);
   }

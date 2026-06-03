@@ -106,7 +106,7 @@ export function processHookEvent(event: HookEventBase) {
   switch (name) {
     case "UserPromptSubmit": {
       const promptText =
-        (event.user_prompt as string) ?? (event.prompt as string) ?? "";
+        (event["user_prompt"] as string) ?? (event["prompt"] as string) ?? "";
       // De-dup against a freshly added optimistic local user bubble.
       // The view layer adds `source: "local"` immediately before calling
       // `client.sendChat`; the daemon then echoes the same prompt back via
@@ -156,7 +156,7 @@ export function processHookEvent(event: HookEventBase) {
         id: makeId(),
         type: "system",
         event: name,
-        text: (event.error as string) ?? "Assistant response failed",
+        text: (event["error"] as string) ?? "Assistant response failed",
         ts: Date.now(),
       });
       break;
@@ -193,15 +193,15 @@ export function processHookEvent(event: HookEventBase) {
         id: makeId(),
         type: "permission",
         event: name,
-        text: `Permission requested: ${(event.tool_name as string) ?? "unknown"}`,
-        permissionTool: event.tool_name as string,
-        toolInput: event.tool_input,
+        text: `Permission requested: ${(event["tool_name"] as string) ?? "unknown"}`,
+        permissionTool: event["tool_name"] as string,
+        toolInput: event["tool_input"],
         ts: Date.now(),
       });
       break;
     }
     case "Elicitation": {
-      const message = (event.message as string) ?? "Input requested";
+      const message = (event["message"] as string) ?? "Input requested";
       // Parse choices from message text (e.g., "A) Yes  B) No" patterns)
       const choices = parseChoices(message);
       store.addMessage({
@@ -220,8 +220,8 @@ export function processHookEvent(event: HookEventBase) {
         type: "system",
         event: name,
         text:
-          (event.message as string) ??
-          (event.title as string) ??
+          (event["message"] as string) ??
+          (event["title"] as string) ??
           "Notification",
         ts: Date.now(),
       });

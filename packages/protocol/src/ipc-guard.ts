@@ -169,271 +169,277 @@ function isStringArray(v: unknown): v is string[] {
  */
 export function parseIpcMessage(raw: unknown): IpcMessage | null {
   if (!isObject(raw)) return null;
-  const t = raw.t;
+  const t = raw["t"];
   if (!isString(t)) return null;
 
   switch (t) {
     case "hello": {
-      if (!isString(raw.sid)) return null;
-      if (!isString(raw.cwd)) return null;
-      if (!isNumber(raw.pid)) return null;
-      if (!isOptionalString(raw.worktreePath)) return null;
-      if (!isOptionalString(raw.claudeVersion)) return null;
+      if (!isString(raw["sid"])) return null;
+      if (!isString(raw["cwd"])) return null;
+      if (!isNumber(raw["pid"])) return null;
+      if (!isOptionalString(raw["worktreePath"])) return null;
+      if (!isOptionalString(raw["claudeVersion"])) return null;
       return {
         t: "hello",
-        sid: raw.sid,
-        cwd: raw.cwd,
-        pid: raw.pid,
-        worktreePath: raw.worktreePath,
-        claudeVersion: raw.claudeVersion,
+        sid: raw["sid"],
+        cwd: raw["cwd"],
+        pid: raw["pid"],
+        worktreePath: raw["worktreePath"],
+        claudeVersion: raw["claudeVersion"],
       };
     }
 
     case "rec": {
-      if (!isString(raw.sid)) return null;
-      if (!isRecordKind(raw.kind)) return null;
-      if (!isNumber(raw.ts)) return null;
-      if (!isString(raw.payload)) return null;
-      if (!isOptionalNamespace(raw.ns)) return null;
-      if (!isOptionalString(raw.name)) return null;
+      if (!isString(raw["sid"])) return null;
+      if (!isRecordKind(raw["kind"])) return null;
+      if (!isNumber(raw["ts"])) return null;
+      if (!isString(raw["payload"])) return null;
+      if (!isOptionalNamespace(raw["ns"])) return null;
+      if (!isOptionalString(raw["name"])) return null;
       return {
         t: "rec",
-        sid: raw.sid,
-        kind: raw.kind,
-        ts: raw.ts,
-        payload: raw.payload,
-        ns: raw.ns,
-        name: raw.name,
+        sid: raw["sid"],
+        kind: raw["kind"],
+        ts: raw["ts"],
+        payload: raw["payload"],
+        ns: raw["ns"],
+        name: raw["name"],
       };
     }
 
     case "bye": {
-      if (!isString(raw.sid)) return null;
-      if (!isNumber(raw.exitCode)) return null;
-      return { t: "bye", sid: raw.sid, exitCode: raw.exitCode };
+      if (!isString(raw["sid"])) return null;
+      if (!isNumber(raw["exitCode"])) return null;
+      return { t: "bye", sid: raw["sid"], exitCode: raw["exitCode"] };
     }
 
     case "ack": {
-      if (!isString(raw.sid)) return null;
-      if (!isNumber(raw.seq)) return null;
-      return { t: "ack", sid: raw.sid, seq: raw.seq };
+      if (!isString(raw["sid"])) return null;
+      if (!isNumber(raw["seq"])) return null;
+      return { t: "ack", sid: raw["sid"], seq: raw["seq"] };
     }
 
     case "input": {
-      if (!isString(raw.sid)) return null;
-      if (!isString(raw.data)) return null;
-      return { t: "input", sid: raw.sid, data: raw.data };
+      if (!isString(raw["sid"])) return null;
+      if (!isString(raw["data"])) return null;
+      return { t: "input", sid: raw["sid"], data: raw["data"] };
     }
 
     case "resize": {
-      if (!isString(raw.sid)) return null;
-      if (!isPositiveInt(raw.cols)) return null;
-      if (!isPositiveInt(raw.rows)) return null;
-      return { t: "resize", sid: raw.sid, cols: raw.cols, rows: raw.rows };
+      if (!isString(raw["sid"])) return null;
+      if (!isPositiveInt(raw["cols"])) return null;
+      if (!isPositiveInt(raw["rows"])) return null;
+      return {
+        t: "resize",
+        sid: raw["sid"],
+        cols: raw["cols"],
+        rows: raw["rows"],
+      };
     }
 
     case "pair.begin": {
-      if (!isString(raw.relayUrl)) return null;
-      if (!isOptionalString(raw.daemonId)) return null;
+      if (!isString(raw["relayUrl"])) return null;
+      if (!isOptionalString(raw["daemonId"])) return null;
       // `label` is optional here (absent → daemon resolves the default).
       // When present, narrow it to the Label union; reject only outright
       // wrong-typed shapes (number/boolean) as `parseLabelField` does.
       let label: Label | undefined;
-      if (raw.label !== undefined) {
-        const parsed = parseLabelField(raw.label);
+      if (raw["label"] !== undefined) {
+        const parsed = parseLabelField(raw["label"]);
         if (parsed === null) return null;
         label = parsed;
       }
       return {
         t: "pair.begin",
-        relayUrl: raw.relayUrl,
-        daemonId: raw.daemonId,
+        relayUrl: raw["relayUrl"],
+        daemonId: raw["daemonId"],
         label,
       };
     }
 
     case "pair.begin.ok": {
-      if (!isString(raw.pairingId)) return null;
-      if (!isString(raw.qrString)) return null;
-      if (!isString(raw.daemonId)) return null;
+      if (!isString(raw["pairingId"])) return null;
+      if (!isString(raw["qrString"])) return null;
+      if (!isString(raw["daemonId"])) return null;
       return {
         t: "pair.begin.ok",
-        pairingId: raw.pairingId,
-        qrString: raw.qrString,
-        daemonId: raw.daemonId,
+        pairingId: raw["pairingId"],
+        qrString: raw["qrString"],
+        daemonId: raw["daemonId"],
       };
     }
 
     case "pair.begin.err": {
-      if (!isPairBeginReason(raw.reason)) return null;
-      if (!isOptionalString(raw.message)) return null;
+      if (!isPairBeginReason(raw["reason"])) return null;
+      if (!isOptionalString(raw["message"])) return null;
       return {
         t: "pair.begin.err",
-        reason: raw.reason,
-        message: raw.message,
+        reason: raw["reason"],
+        message: raw["message"],
       };
     }
 
     case "pair.cancel": {
-      if (!isString(raw.pairingId)) return null;
-      return { t: "pair.cancel", pairingId: raw.pairingId };
+      if (!isString(raw["pairingId"])) return null;
+      return { t: "pair.cancel", pairingId: raw["pairingId"] };
     }
 
     case "pair.completed": {
-      if (!isString(raw.pairingId)) return null;
-      if (!isString(raw.daemonId)) return null;
-      const label = parseLabelField(raw.label);
+      if (!isString(raw["pairingId"])) return null;
+      if (!isString(raw["daemonId"])) return null;
+      const label = parseLabelField(raw["label"]);
       if (label === null) return null;
       return {
         t: "pair.completed",
-        pairingId: raw.pairingId,
-        daemonId: raw.daemonId,
+        pairingId: raw["pairingId"],
+        daemonId: raw["daemonId"],
         label,
       };
     }
 
     case "pair.cancelled": {
-      if (!isString(raw.pairingId)) return null;
-      return { t: "pair.cancelled", pairingId: raw.pairingId };
+      if (!isString(raw["pairingId"])) return null;
+      return { t: "pair.cancelled", pairingId: raw["pairingId"] };
     }
 
     case "pair.error": {
-      if (!isString(raw.pairingId)) return null;
-      if (!isPairErrorReason(raw.reason)) return null;
-      if (!isOptionalString(raw.message)) return null;
+      if (!isString(raw["pairingId"])) return null;
+      if (!isPairErrorReason(raw["reason"])) return null;
+      if (!isOptionalString(raw["message"])) return null;
       return {
         t: "pair.error",
-        pairingId: raw.pairingId,
-        reason: raw.reason,
-        message: raw.message,
+        pairingId: raw["pairingId"],
+        reason: raw["reason"],
+        message: raw["message"],
       };
     }
 
     case "pair.remove": {
-      if (!isString(raw.daemonId)) return null;
-      return { t: "pair.remove", daemonId: raw.daemonId };
+      if (!isString(raw["daemonId"])) return null;
+      return { t: "pair.remove", daemonId: raw["daemonId"] };
     }
 
     case "pair.remove.ok": {
-      if (!isString(raw.daemonId)) return null;
-      if (!isNumber(raw.notifiedPeers)) return null;
+      if (!isString(raw["daemonId"])) return null;
+      if (!isNumber(raw["notifiedPeers"])) return null;
       return {
         t: "pair.remove.ok",
-        daemonId: raw.daemonId,
-        notifiedPeers: raw.notifiedPeers,
+        daemonId: raw["daemonId"],
+        notifiedPeers: raw["notifiedPeers"],
       };
     }
 
     case "pair.remove.err": {
-      if (!isString(raw.daemonId)) return null;
-      if (!isPairRemoveReason(raw.reason)) return null;
-      if (!isOptionalString(raw.message)) return null;
+      if (!isString(raw["daemonId"])) return null;
+      if (!isPairRemoveReason(raw["reason"])) return null;
+      if (!isOptionalString(raw["message"])) return null;
       return {
         t: "pair.remove.err",
-        daemonId: raw.daemonId,
-        reason: raw.reason,
-        message: raw.message,
+        daemonId: raw["daemonId"],
+        reason: raw["reason"],
+        message: raw["message"],
       };
     }
 
     case "pair.rename": {
-      if (!isString(raw.daemonId)) return null;
-      const label = parseLabelField(raw.label);
+      if (!isString(raw["daemonId"])) return null;
+      const label = parseLabelField(raw["label"]);
       if (label === null) return null;
       return {
         t: "pair.rename",
-        daemonId: raw.daemonId,
+        daemonId: raw["daemonId"],
         label,
       };
     }
 
     case "pair.rename.ok": {
-      if (!isString(raw.daemonId)) return null;
-      const label = parseLabelField(raw.label);
+      if (!isString(raw["daemonId"])) return null;
+      const label = parseLabelField(raw["label"]);
       if (label === null) return null;
-      if (!isNumber(raw.notifiedPeers)) return null;
+      if (!isNumber(raw["notifiedPeers"])) return null;
       return {
         t: "pair.rename.ok",
-        daemonId: raw.daemonId,
+        daemonId: raw["daemonId"],
         label,
-        notifiedPeers: raw.notifiedPeers,
+        notifiedPeers: raw["notifiedPeers"],
       };
     }
 
     case "pair.rename.err": {
-      if (!isString(raw.daemonId)) return null;
-      if (!isPairRenameReason(raw.reason)) return null;
-      if (!isOptionalString(raw.message)) return null;
+      if (!isString(raw["daemonId"])) return null;
+      if (!isPairRenameReason(raw["reason"])) return null;
+      if (!isOptionalString(raw["message"])) return null;
       return {
         t: "pair.rename.err",
-        daemonId: raw.daemonId,
-        reason: raw.reason,
-        message: raw.message,
+        daemonId: raw["daemonId"],
+        reason: raw["reason"],
+        message: raw["message"],
       };
     }
 
     case "session.delete": {
-      if (!isString(raw.sid)) return null;
-      return { t: "session.delete", sid: raw.sid };
+      if (!isString(raw["sid"])) return null;
+      return { t: "session.delete", sid: raw["sid"] };
     }
 
     case "session.delete.ok": {
-      if (!isString(raw.sid)) return null;
-      if (typeof raw.wasRunning !== "boolean") return null;
+      if (!isString(raw["sid"])) return null;
+      if (typeof raw["wasRunning"] !== "boolean") return null;
       return {
         t: "session.delete.ok",
-        sid: raw.sid,
-        wasRunning: raw.wasRunning,
+        sid: raw["sid"],
+        wasRunning: raw["wasRunning"],
       };
     }
 
     case "session.delete.err": {
-      if (!isString(raw.sid)) return null;
-      if (!isSessionDeleteReason(raw.reason)) return null;
-      if (!isOptionalString(raw.message)) return null;
+      if (!isString(raw["sid"])) return null;
+      if (!isSessionDeleteReason(raw["reason"])) return null;
+      if (!isOptionalString(raw["message"])) return null;
       return {
         t: "session.delete.err",
-        sid: raw.sid,
-        reason: raw.reason,
-        message: raw.message,
+        sid: raw["sid"],
+        reason: raw["reason"],
+        message: raw["message"],
       };
     }
 
     case "session.prune": {
-      if (raw.olderThanMs !== null && !isNumber(raw.olderThanMs)) return null;
-      if (typeof raw.includeRunning !== "boolean") return null;
-      if (typeof raw.dryRun !== "boolean") return null;
+      if (raw["olderThanMs"] !== null && !isNumber(raw["olderThanMs"]))
+        return null;
+      if (typeof raw["includeRunning"] !== "boolean") return null;
+      if (typeof raw["dryRun"] !== "boolean") return null;
       return {
         t: "session.prune",
-        olderThanMs: raw.olderThanMs,
-        includeRunning: raw.includeRunning,
-        dryRun: raw.dryRun,
+        olderThanMs: raw["olderThanMs"],
+        includeRunning: raw["includeRunning"],
+        dryRun: raw["dryRun"],
       };
     }
 
     case "session.prune.ok": {
-      if (!isStringArray(raw.sids)) return null;
-      if (!isNumber(raw.runningKilled)) return null;
-      if (typeof raw.dryRun !== "boolean") return null;
+      if (!isStringArray(raw["sids"])) return null;
+      if (!isNumber(raw["runningKilled"])) return null;
+      if (typeof raw["dryRun"] !== "boolean") return null;
       return {
         t: "session.prune.ok",
-        sids: raw.sids,
-        runningKilled: raw.runningKilled,
-        dryRun: raw.dryRun,
+        sids: raw["sids"],
+        runningKilled: raw["runningKilled"],
+        dryRun: raw["dryRun"],
       };
     }
 
     case "session.prune.err": {
-      if (!isSessionPruneReason(raw.reason)) return null;
-      if (!isOptionalString(raw.message)) return null;
-      if (!isStringArray(raw.partialSids)) return null;
-      if (!isNumber(raw.partialRunningKilled)) return null;
+      if (!isSessionPruneReason(raw["reason"])) return null;
+      if (!isOptionalString(raw["message"])) return null;
+      if (!isStringArray(raw["partialSids"])) return null;
+      if (!isNumber(raw["partialRunningKilled"])) return null;
       return {
         t: "session.prune.err",
-        reason: raw.reason,
-        message: raw.message,
-        partialSids: raw.partialSids,
-        partialRunningKilled: raw.partialRunningKilled,
+        reason: raw["reason"],
+        message: raw["message"],
+        partialSids: raw["partialSids"],
+        partialRunningKilled: raw["partialRunningKilled"],
       };
     }
 
@@ -441,21 +447,21 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
       return { t: "doctor.probe" };
 
     case "doctor.probe.ok": {
-      if (!Array.isArray(raw.relays)) return null;
-      for (const r of raw.relays) {
+      if (!Array.isArray(raw["relays"])) return null;
+      for (const r of raw["relays"]) {
         if (!isObject(r)) return null;
-        if (!isString(r.daemonId)) return null;
-        if (!isString(r.relayUrl)) return null;
-        if (typeof r.connected !== "boolean") return null;
-        if (!isNumber(r.peerCount)) return null;
+        if (!isString(r["daemonId"])) return null;
+        if (!isString(r["relayUrl"])) return null;
+        if (typeof r["connected"] !== "boolean") return null;
+        if (!isNumber(r["peerCount"])) return null;
       }
       return {
         t: "doctor.probe.ok",
-        relays: (raw.relays as PlainObject[]).map((r) => ({
-          daemonId: r.daemonId as string,
-          relayUrl: r.relayUrl as string,
-          connected: r.connected as boolean,
-          peerCount: r.peerCount as number,
+        relays: (raw["relays"] as PlainObject[]).map((r) => ({
+          daemonId: r["daemonId"] as string,
+          relayUrl: r["relayUrl"] as string,
+          connected: r["connected"] as boolean,
+          peerCount: r["peerCount"] as number,
         })),
       };
     }

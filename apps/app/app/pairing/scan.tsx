@@ -122,8 +122,9 @@ function useWebCameraScan(
 
     // Build the detector once — BarcodeDetector preferred, jsQR fallback.
     async function setupDetector() {
-      const BD = (window as unknown as Record<string, unknown>)
-        .BarcodeDetector as BarcodeDetectorConstructor | undefined;
+      const BD = (window as unknown as Record<string, unknown>)[
+        "BarcodeDetector"
+      ] as BarcodeDetectorConstructor | undefined;
 
       if (BD) {
         try {

@@ -86,14 +86,14 @@ function isExportFormat(v: unknown): v is "json" | "markdown" {
  */
 function isSessionMeta(v: unknown): v is SessionMeta {
   if (!isObject(v)) return false;
-  if (!isString(v.sid)) return false;
-  if (!isSessionState(v.state)) return false;
-  if (!isString(v.cwd)) return false;
-  if (!isOptionalString(v.worktreePath)) return false;
-  if (!isOptionalString(v.claudeVersion)) return false;
-  if (!isNumber(v.createdAt)) return false;
-  if (!isNumber(v.updatedAt)) return false;
-  if (!isNumber(v.lastSeq)) return false;
+  if (!isString(v["sid"])) return false;
+  if (!isSessionState(v["state"])) return false;
+  if (!isString(v["cwd"])) return false;
+  if (!isOptionalString(v["worktreePath"])) return false;
+  if (!isOptionalString(v["claudeVersion"])) return false;
+  if (!isNumber(v["createdAt"])) return false;
+  if (!isNumber(v["updatedAt"])) return false;
+  if (!isNumber(v["lastSeq"])) return false;
   return true;
 }
 
@@ -104,14 +104,14 @@ function isSessionMeta(v: unknown): v is SessionMeta {
  */
 function isSessionRec(v: unknown): v is SessionRec {
   if (!isObject(v)) return false;
-  if (v.t !== "rec") return false;
-  if (!isString(v.sid)) return false;
-  if (!isNumber(v.seq)) return false;
-  if (!isRecordKind(v.k)) return false;
-  if (v.ns !== undefined && !isNamespace(v.ns)) return false;
-  if (!isOptionalString(v.n)) return false;
-  if (!isString(v.d)) return false;
-  if (!isNumber(v.ts)) return false;
+  if (v["t"] !== "rec") return false;
+  if (!isString(v["sid"])) return false;
+  if (!isNumber(v["seq"])) return false;
+  if (!isRecordKind(v["k"])) return false;
+  if (v["ns"] !== undefined && !isNamespace(v["ns"])) return false;
+  if (!isOptionalString(v["n"])) return false;
+  if (!isString(v["d"])) return false;
+  if (!isNumber(v["ts"])) return false;
   return true;
 }
 
@@ -125,10 +125,10 @@ function isSessionRecArray(v: unknown): v is SessionRec[] {
  */
 function isWorktreeInfo(v: unknown): v is SessionWorktreeInfo {
   if (!isObject(v)) return false;
-  if (!isString(v.path)) return false;
-  if (!isString(v.branch)) return false;
-  if (!isString(v.head)) return false;
-  if (!isBoolean(v.isMain)) return false;
+  if (!isString(v["path"])) return false;
+  if (!isString(v["branch"])) return false;
+  if (!isString(v["head"])) return false;
+  if (!isBoolean(v["isMain"])) return false;
   return true;
 }
 
@@ -146,15 +146,15 @@ export function parseSessionServerMessage(
   raw: unknown,
 ): SessionServerMessage | null {
   if (!isObject(raw)) return null;
-  const t = raw.t;
+  const t = raw["t"];
   if (!isString(t)) return null;
 
   switch (t) {
     case "hello": {
-      if (!isNumber(raw.v)) return null;
-      if (!isObject(raw.d)) return null;
-      if (!Array.isArray(raw.d.sessions)) return null;
-      if (!raw.d.sessions.every(isSessionMeta)) return null;
+      if (!isNumber(raw["v"])) return null;
+      if (!isObject(raw["d"])) return null;
+      if (!Array.isArray(raw["d"]["sessions"])) return null;
+      if (!raw["d"]["sessions"].every(isSessionMeta)) return null;
       // `daemonLabel` is a keep-current label surface decoded forgivingly at
       // the call site (`decodeKxLabelOrKeep`): a legacy daemon sends a bare
       // `string`, a v2 daemon the `Label` union, an old daemon nothing at all.
@@ -164,23 +164,23 @@ export function parseSessionServerMessage(
       // and the legacy wire string diverge.
       return {
         t: "hello",
-        v: raw.v,
+        v: raw["v"],
         d: {
-          sessions: raw.d.sessions,
-          ...(raw.d.daemonLabel !== undefined
-            ? { daemonLabel: raw.d.daemonLabel as Label }
+          sessions: raw["d"]["sessions"],
+          ...(raw["d"]["daemonLabel"] !== undefined
+            ? { daemonLabel: raw["d"]["daemonLabel"] as Label }
             : {}),
         },
       } satisfies SessionHelloReply;
     }
 
     case "state": {
-      if (!isString(raw.sid)) return null;
-      if (!isSessionMeta(raw.d)) return null;
+      if (!isString(raw["sid"])) return null;
+      if (!isSessionMeta(raw["d"])) return null;
       return {
         t: "state",
-        sid: raw.sid,
-        d: raw.d,
+        sid: raw["sid"],
+        d: raw["d"],
       } satisfies SessionStateMsg;
     }
 
@@ -190,12 +190,12 @@ export function parseSessionServerMessage(
     }
 
     case "batch": {
-      if (!isString(raw.sid)) return null;
-      if (!isSessionRecArray(raw.d)) return null;
+      if (!isString(raw["sid"])) return null;
+      if (!isSessionRecArray(raw["d"])) return null;
       return {
         t: "batch",
-        sid: raw.sid,
-        d: raw.d,
+        sid: raw["sid"],
+        d: raw["d"],
       } satisfies SessionBatch;
     }
 
@@ -203,50 +203,50 @@ export function parseSessionServerMessage(
       return { t: "pong" } satisfies SessionPong;
 
     case "err": {
-      if (!isString(raw.e)) return null;
-      if (!isOptionalString(raw.m)) return null;
+      if (!isString(raw["e"])) return null;
+      if (!isOptionalString(raw["m"])) return null;
       return {
         t: "err",
-        e: raw.e,
-        ...(raw.m !== undefined ? { m: raw.m } : {}),
+        e: raw["e"],
+        ...(raw["m"] !== undefined ? { m: raw["m"] } : {}),
       } satisfies SessionErr;
     }
 
     case "worktree.list": {
-      if (!isWorktreeInfoArray(raw.d)) return null;
+      if (!isWorktreeInfoArray(raw["d"])) return null;
       return {
         t: "worktree.list",
-        d: raw.d,
+        d: raw["d"],
       } satisfies SessionWorktreeListReply;
     }
 
     case "worktree.created": {
-      if (!isWorktreeInfo(raw.d)) return null;
-      if (!isOptionalString(raw.sid)) return null;
+      if (!isWorktreeInfo(raw["d"])) return null;
+      if (!isOptionalString(raw["sid"])) return null;
       return {
         t: "worktree.created",
-        d: raw.d,
-        ...(raw.sid !== undefined ? { sid: raw.sid } : {}),
+        d: raw["d"],
+        ...(raw["sid"] !== undefined ? { sid: raw["sid"] } : {}),
       } satisfies SessionWorktreeCreated;
     }
 
     case "worktree.removed": {
-      if (!isString(raw.path)) return null;
+      if (!isString(raw["path"])) return null;
       return {
         t: "worktree.removed",
-        path: raw.path,
+        path: raw["path"],
       } satisfies SessionWorktreeRemoved;
     }
 
     case "session.exported": {
-      if (!isString(raw.sid)) return null;
-      if (!isExportFormat(raw.format)) return null;
-      if (!isString(raw.d)) return null;
+      if (!isString(raw["sid"])) return null;
+      if (!isExportFormat(raw["format"])) return null;
+      if (!isString(raw["d"])) return null;
       return {
         t: "session.exported",
-        sid: raw.sid,
-        format: raw.format,
-        d: raw.d,
+        sid: raw["sid"],
+        format: raw["format"],
+        d: raw["d"],
       } satisfies SessionExported;
     }
 

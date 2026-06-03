@@ -26,6 +26,33 @@
 
 ---
 
+## 🔒 Type-safety debt (null/sentinel → tagged union + 런타임 guard 전환)
+
+전 코드베이스에서 `null`/`undefined`/string-sentinel 을 찾아 tagged/discriminated union 으로 교체하고,
+zero-trust 경계(파싱·복호화·IPC·SQLite)를 런타임 guard 로 강화하는 작업. 우선순위 Rank 1→9.
+
+- [x] **Rank 1** — `parseControlMessage` guard + daemon `decryptAndDispatch` control plane 강화 (PR merged)
+- [x] **Rank 2** — `parseRelayServerMessage` guard + daemon/app relay-client exhaustive switch (PR merged)
+- [x] **Rank 3** — frontend `handleFrame` 복호화 E2EE payload guard (`parseRelayDataMessage` + control checks) (PR merged)
+- [x] **Rank 4** — runner/CLI IPC + hook-socket parse 를 `parseIpcMessage` guard 경유 (PR merged)
+- [x] **Rank 5** — SQLite Blob/key row 를 libsodium key 생성 전 validate (PR merged)
+- [x] **Rank 6** — pairing-store label + active-daemon 을 tagged union 으로 (PR merged)
+- [x] **Rank 7** — session/voice store 의 null/sentinel state → discriminated union
+  - 7a session-store: `ActiveSession` + `RelayState` union (PR #525)
+  - 7b voice-store: `VoiceConnectionState` + `VoiceKeyState` union (PR #524, 테스트 격리 후속 PR #528)
+- [x] **Rank 8** — magic sentinel → union
+  - 8a RTT `-1` sentinel → `Rtt = { measured: true; ms } | { measured: false }` (PR #526)
+  - 8b resume-token role → `ResumeTokenPayload` daemon/frontend tagged union, wire byte-compat 유지 (PR #527)
+  - 8c **worktree-path = DEFER** — `SessionMeta.worktreePath` 는 wire-serialized 필드인데 버전 협상 채널이 없고
+    소비자가 display-only 라, 빈-문자열/undefined 를 union 으로 바꾸면 cross-version app 이 깨질 위험만 크고
+    얻는 안전성은 작다. protocol 버전 협상이 들어오면 재검토.
+- [ ] **Rank 9** — `noUncheckedIndexedAccess` + `noPropertyAccessFromIndexSignature` 전역 활성화
+  - 9A `noPropertyAccessFromIndexSignature` (TS4111, ~2277 sites — 대부분 `*-guard.ts` 의 untrusted-key
+    bracket access) — base.json + app tsconfig 에 활성화, tsc-guided codemod (`scripts/codemod-ts4111.ts`) 로 변환 (이 PR)
+  - 9B `noUncheckedIndexedAccess` (TS2532/18048/2345 등 ~180 sites — `arr[i]!` vs guard 판단 필요) — 후속 PR
+
+---
+
 ## 🌟 Future (v0.x 이후 / 별도 트랙)
 
 - [ ] Claude Code channels 양방향(output 구독) 지원 시 Chat UI 통합 재검토

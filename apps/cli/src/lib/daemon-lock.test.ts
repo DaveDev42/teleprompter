@@ -116,20 +116,20 @@ describe("checkDaemonLockAlive", () => {
 });
 
 describe("getDaemonLockPath", () => {
-  const origRuntime = process.env.XDG_RUNTIME_DIR;
+  const origRuntime = process.env["XDG_RUNTIME_DIR"];
 
   afterEach(() => {
-    if (origRuntime === undefined) delete process.env.XDG_RUNTIME_DIR;
-    else process.env.XDG_RUNTIME_DIR = origRuntime;
+    if (origRuntime === undefined) delete process.env["XDG_RUNTIME_DIR"];
+    else process.env["XDG_RUNTIME_DIR"] = origRuntime;
   });
 
   test("honors XDG_RUNTIME_DIR", () => {
-    process.env.XDG_RUNTIME_DIR = "/custom/runtime";
+    process.env["XDG_RUNTIME_DIR"] = "/custom/runtime";
     expect(getDaemonLockPath()).toBe("/custom/runtime/daemon.pid");
   });
 
   test("falls back to /tmp/teleprompter-<uid> when XDG_RUNTIME_DIR is unset", () => {
-    delete process.env.XDG_RUNTIME_DIR;
+    delete process.env["XDG_RUNTIME_DIR"];
     const path = getDaemonLockPath();
     expect(path).toMatch(/^\/tmp\/teleprompter-\d+\/daemon\.pid$/);
   });

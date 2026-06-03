@@ -761,7 +761,7 @@ ${daemons
       ws,
       role: payload.role,
       daemonId: payload.daemonId,
-      frontendId: payload.frontendId,
+      frontendId: payload.role === "frontend" ? payload.frontendId : undefined,
       rateLimiter: { count: 0, windowStart: Date.now() },
       subscriptions: new Set(),
     };
@@ -799,18 +799,22 @@ ${daemons
     this.send(ws, ok);
     log.info(
       `${payload.role} resumed for daemon ${payload.daemonId}${
-        payload.frontendId ? ` (frontendId=${payload.frontendId})` : ""
+        payload.role === "frontend" ? ` (frontendId=${payload.frontendId})` : ""
       }`,
     );
     this.broadcastPresence(payload.daemonId);
   }
 
   private buildAuthOk(client: ConnectedClient, resumed: boolean): RelayAuthOk {
-    const { token, expiresAt } = this.resumeSigner.issue({
-      role: client.role,
-      daemonId: client.daemonId,
-      frontendId: client.frontendId,
-    });
+    const { token, expiresAt } = this.resumeSigner.issue(
+      client.role === "frontend"
+        ? {
+            role: "frontend",
+            daemonId: client.daemonId,
+            frontendId: client.frontendId ?? "",
+          }
+        : { role: "daemon", daemonId: client.daemonId },
+    );
     return {
       t: "relay.auth.ok",
       daemonId: client.daemonId,

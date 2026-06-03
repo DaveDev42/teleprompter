@@ -227,18 +227,36 @@ describe("parseIpcMessage", () => {
       });
     });
 
-    test("pair.begin with optional fields", () => {
+    test("pair.begin narrows a Label union", () => {
       const result = parseIpcMessage({
         t: "pair.begin",
         relayUrl: "wss://r",
         daemonId: "d1",
-        label: "laptop",
+        label: { set: true, value: "laptop" },
       });
       expect(result?.t).toBe("pair.begin");
       if (result?.t === "pair.begin") {
         expect(result.daemonId).toBe("d1");
-        expect(result.label).toBe("laptop");
+        expect(result.label).toEqual({ set: true, value: "laptop" });
       }
+    });
+
+    test("pair.begin forgivingly lifts a legacy string label", () => {
+      const result = parseIpcMessage({
+        t: "pair.begin",
+        relayUrl: "wss://r",
+        label: "laptop",
+      });
+      expect(result?.t).toBe("pair.begin");
+      if (result?.t === "pair.begin") {
+        expect(result.label).toEqual({ set: true, value: "laptop" });
+      }
+    });
+
+    test("pair.begin rejects a malformed (non-string/object) label", () => {
+      expect(
+        parseIpcMessage({ t: "pair.begin", relayUrl: "wss://r", label: 42 }),
+      ).toBeNull();
     });
 
     test("pair.begin rejects missing relayUrl", () => {

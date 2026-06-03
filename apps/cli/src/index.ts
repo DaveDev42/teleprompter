@@ -1,3 +1,4 @@
+import { messageOf } from "./lib/format";
 import { decideRoute, shouldCheckForUpdates } from "./router";
 
 if (process.platform === "win32") {
@@ -137,7 +138,7 @@ main().catch((err) => {
     typeof (err as { code?: unknown }).code === "string" &&
     (err as { code: string }).code.startsWith("ERR_PARSE_ARGS_")
   ) {
-    console.error(`tp: ${(err as Error).message}`);
+    console.error(`tp: ${messageOf(err)}`);
     process.exit(1);
   }
   console.error(err);

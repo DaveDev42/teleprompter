@@ -1,4 +1,4 @@
-import type { HookEventBase, IpcRec, Namespace } from "@teleprompter/protocol";
+import type { HookEventBase, IpcRec } from "@teleprompter/protocol";
 
 export interface IoFrame {
   msg: IpcRec;
@@ -42,7 +42,7 @@ export class Collector {
       sid: this.sid,
       kind: "event",
       ts: Date.now(),
-      ns: "claude" as Namespace,
+      ns: "claude",
       name: event.hook_event_name,
       payload,
     };
@@ -56,7 +56,7 @@ export class Collector {
       sid: this.sid,
       kind: "event",
       ts: Date.now(),
-      ns: "tp" as Namespace,
+      ns: "tp",
       name,
       payload,
     };
@@ -70,7 +70,7 @@ export class Collector {
       sid: this.sid,
       kind: "meta",
       ts: Date.now(),
-      ns: "runner" as Namespace,
+      ns: "runner",
       name,
       payload,
     };

@@ -42,8 +42,10 @@ export class Runner {
     this.opts = opts;
     this.collector = new Collector(opts.sid);
 
+    // IpcClient's MessageHandler already types `msg` as IpcAck | IpcInput |
+    // IpcResize — the same union handleDaemonMessage accepts — so no cast.
     this.ipc = new IpcClient((msg) => {
-      this.handleDaemonMessage(msg as IpcAck | IpcInput | IpcResize);
+      this.handleDaemonMessage(msg);
     });
 
     const hookSocketPath = HookReceiver.defaultSocketPath(opts.sid);

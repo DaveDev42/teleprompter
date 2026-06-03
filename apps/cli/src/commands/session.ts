@@ -16,6 +16,26 @@ import { formatAge } from "../lib/format";
 import { connectIpcAsClient } from "../lib/ipc-client";
 import { parseArgsFriendly } from "../lib/parse-args";
 
+/**
+ * Builds the y/N confirmation prompt for `tp session prune`.
+ *
+ * Extracted as a pure function so the scope wording is unit-testable: the
+ * interactive prompt path is skipped by `--yes` and unreachable in a non-TTY
+ * test harness, which is exactly where the "older than 7d" vs "all" mislabel
+ * could silently regress. With `--all` there is no age filter, so the prompt
+ * must say "all" rather than echoing the stale `--older-than` default.
+ */
+export function formatPruneQuestion(opts: {
+  all: boolean;
+  includeRunning: boolean;
+  olderThanRaw: string;
+}): string {
+  const scopeDisplay = opts.all ? "all" : `older than ${opts.olderThanRaw}`;
+  return opts.includeRunning
+    ? `Prune stopped + running sessions (${scopeDisplay})?`
+    : `Prune stopped sessions (${scopeDisplay})?`;
+}
+
 export async function sessionCommand(argv: string[]): Promise<void> {
   const sub = argv[0];
   switch (sub) {
@@ -305,9 +325,15 @@ async function sessionPrune(argv: string[]): Promise<void> {
       console.error(fail(msg));
       process.exit(1);
     }
-    const pruneQuestion = includeRunning
-      ? `Prune stopped + running sessions (older than ${olderThanRaw})?`
-      : `Prune stopped sessions (older than ${olderThanRaw})?`;
+    // With --all there is no age filter (olderThanMs === null) — every
+    // matching session is pruned regardless of age. formatPruneQuestion
+    // reflects that as "all" instead of the stale "older than 7d" default,
+    // which would lead a user to confirm a far larger deletion than intended.
+    const pruneQuestion = formatPruneQuestion({
+      all: Boolean(values.all),
+      includeRunning,
+      olderThanRaw,
+    });
     const confirmed = await promptYesNo({
       question: pruneQuestion,
       defaultValue: false,

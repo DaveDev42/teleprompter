@@ -268,24 +268,32 @@ async function flushPromises(ticks = 20): Promise<void> {
 function captureConsole(): {
   errorCalls: unknown[][];
   debugCalls: unknown[][];
+  warnCalls: unknown[][];
   restore: () => void;
 } {
   const origError = console.error;
   const origDebug = console.debug;
+  const origWarn = console.warn;
   const errorCalls: unknown[][] = [];
   const debugCalls: unknown[][] = [];
+  const warnCalls: unknown[][] = [];
   console.error = (...args: unknown[]) => {
     errorCalls.push(args);
   };
   console.debug = (...args: unknown[]) => {
     debugCalls.push(args);
   };
+  console.warn = (...args: unknown[]) => {
+    warnCalls.push(args);
+  };
   return {
     errorCalls,
     debugCalls,
+    warnCalls,
     restore: () => {
       console.error = origError;
       console.debug = origDebug;
+      console.warn = origWarn;
     },
   };
 }
@@ -814,6 +822,58 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
       expect(relayCalls(spy.errorCalls)).toEqual([]);
       expect(relayCalls(spy.debugCalls)).toEqual([]);
       expect(errors).toEqual([]);
+    } finally {
+      spy.restore();
+      client.dispose();
+    }
+  });
+
+  test("a decrypted-but-malformed session frame is dropped by parseSessionServerMessage", async () => {
+    // A frame that decrypts cleanly (correct session key) but whose plaintext
+    // is a malformed `rec` (no `ts`) must NOT reach onRec. The boundary guard
+    // (parseRelayServerMessage) accepts the relay.frame envelope, but the inner
+    // session-data guard (parseSessionServerMessage) rejects the under-specified
+    // payload and drops it with a warn. Without the guard, the old blind
+    // `JSON.parse(...) as SessionRec` cast would have emitted the bad record to
+    // onRec — this test pins the drop.
+    const p = await setupPairing();
+    const recs: unknown[] = [];
+    const client = new FrontendRelayClient(makeConfig(p), {
+      onRec: (r) => recs.push(r),
+    });
+    const spy = captureConsole();
+
+    try {
+      const ws = await authenticate(client);
+
+      // Encrypt a rec MISSING the required `ts` field with the real session
+      // key, so AEAD verifies and decrypt succeeds — the failure is purely the
+      // shape, which only the session-data guard catches.
+      const malformed = { t: "rec", sid: "s1", seq: 3, k: "io", d: btoa("x") };
+      const ct = await encrypt(
+        new TextEncoder().encode(JSON.stringify(malformed)),
+        p.daemonTx,
+      );
+      ws.simulateMessage({
+        t: "relay.frame",
+        sid: "s1",
+        ct,
+        seq: 3,
+        from: "daemon",
+      } as RelayServerMessage);
+      await flushPromises();
+
+      // The malformed record never reaches the handler...
+      expect(recs).toEqual([]);
+      // ...and the guard logs the drop (no decrypt error — decrypt succeeded).
+      const warns = relayCalls(spy.warnCalls).map((c) => c[0]);
+      expect(
+        warns.some(
+          (w) =>
+            typeof w === "string" && w.includes("dropped malformed session"),
+        ),
+      ).toBe(true);
+      expect(relayCalls(spy.errorCalls)).toEqual([]);
     } finally {
       spy.restore();
       client.dispose();

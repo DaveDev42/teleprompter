@@ -338,7 +338,7 @@ export default function SettingsScreen() {
   // threading a ref through the shared row component.
   const wasShowingRef = useRef(false);
   useEffect(() => {
-    if (Platform.OS !== "web") return;
+    if (Platform.OS !== "web") return undefined;
     if (!wasShowingRef.current && showDiagnostics) {
       // Move focus into the panel on open so keyboard users land inside it
       // instead of being dumped onto the tab bar (the Settings row that
@@ -357,6 +357,7 @@ export default function SettingsScreen() {
       el?.focus();
     }
     wasShowingRef.current = showDiagnostics;
+    return undefined;
   }, [showDiagnostics]);
   const diagnosticsKeyMap = useMemo<Record<string, () => void>>(
     () =>

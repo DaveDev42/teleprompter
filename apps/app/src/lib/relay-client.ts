@@ -40,7 +40,7 @@ import {
   WS_PROTOCOL_VERSION,
 } from "@teleprompter/protocol/client";
 import { secureDelete, secureGet, secureSet } from "./secure-storage";
-import type { TransportClient, TransportEventHandler } from "./transport";
+import type { Rtt, TransportClient, TransportEventHandler } from "./transport";
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
@@ -168,8 +168,8 @@ export class FrontendRelayClient implements TransportClient {
   private lastSeq = 0;
   private hasConnectedBefore = false;
   private pingStart = 0;
-  /** Last measured round-trip time in ms */
-  private rtt = -1;
+  /** Last measured round-trip time. Starts as unmeasured until the first pong. */
+  private rtt: Rtt = { measured: false };
   /**
    * Periodic relay.ping timer for fast disconnect detection. Started when
    * relay.auth.ok arrives, cleared on close/dispose. See
@@ -639,7 +639,7 @@ export class FrontendRelayClient implements TransportClient {
         break;
       case "pong":
         if (this.pingStart > 0) {
-          this.rtt = Date.now() - this.pingStart;
+          this.rtt = { measured: true, ms: Date.now() - this.pingStart };
           this.pingStart = 0;
         }
         break;
@@ -881,7 +881,7 @@ export class FrontendRelayClient implements TransportClient {
     this.sendEncrypted({ t: "ping" });
   }
 
-  getRtt(): number {
+  getRtt(): Rtt {
     return this.rtt;
   }
 

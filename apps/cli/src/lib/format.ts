@@ -16,6 +16,18 @@ export function errorWithHints(message: string, hints: string[]): string {
 }
 
 /**
+ * Extract a human-readable message from a caught `unknown`. Catch clauses bind
+ * `unknown` under strict mode, so reaching for `.message` requires narrowing
+ * first — `(err as Error).message` lies to the compiler and throws if a
+ * non-Error value (a string, a plain object) was thrown. This is the safe
+ * one-liner the codebase already open-codes in ~8 places; centralised here so
+ * error reporting can't silently regress on an exotic throw.
+ */
+export function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
  * Render an age in milliseconds as a human-readable "N unit ago" string.
  * Rolls up seconds → minutes → hours → days, and falls back to an ISO date
  * (YYYY-MM-DD) for ages ≥ 7 days to avoid unreadable "43d ago" spam.

@@ -7,6 +7,7 @@ import {
 import { setLogLevel } from "@teleprompter/protocol";
 import { parseArgs } from "util";
 import { isDaemonRunning } from "../lib/ensure-daemon";
+import { messageOf } from "../lib/format";
 import { resolveRunnerCommand } from "../spawn";
 
 export async function daemonCommand(argv: string[]): Promise<void> {
@@ -209,7 +210,7 @@ async function daemonStop(): Promise<void> {
       console.log(`[Daemon] pid=${pid} is no longer running`);
     } else {
       console.error(
-        `[Daemon] failed to send SIGTERM to pid=${pid}: ${(err as Error).message}`,
+        `[Daemon] failed to send SIGTERM to pid=${pid}: ${messageOf(err)}`,
       );
     }
   }

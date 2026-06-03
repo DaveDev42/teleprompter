@@ -1,5 +1,27 @@
 import { describe, expect, test } from "bun:test";
-import { errorWithHints, formatAge } from "./format";
+import { errorWithHints, formatAge, messageOf } from "./format";
+
+describe("messageOf", () => {
+  test("returns the message of a real Error", () => {
+    expect(messageOf(new Error("boom"))).toBe("boom");
+  });
+
+  test("returns the message of an Error subclass", () => {
+    class MyError extends Error {}
+    expect(messageOf(new MyError("typed boom"))).toBe("typed boom");
+  });
+
+  test("stringifies a thrown string instead of throwing on .message", () => {
+    expect(messageOf("plain string throw")).toBe("plain string throw");
+  });
+
+  test("stringifies non-Error objects and primitives", () => {
+    expect(messageOf(42)).toBe("42");
+    expect(messageOf(null)).toBe("null");
+    expect(messageOf(undefined)).toBe("undefined");
+    expect(messageOf({ code: "E" })).toBe("[object Object]");
+  });
+});
 
 describe("errorWithHints", () => {
   test("formats error with single hint", () => {

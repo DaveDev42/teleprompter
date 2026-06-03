@@ -38,7 +38,7 @@ export function getTerminalLines(term: TerminalLike, maxLines = 50): string[] {
   }
 
   // Trim trailing empty lines
-  while (lines.length > 0 && lines[lines.length - 1].trim() === "") {
+  while (lines.length > 0 && lines[lines.length - 1]!.trim() === "") {
     lines.pop();
   }
 

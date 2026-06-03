@@ -218,7 +218,7 @@ function useWebCameraScan(
       if (detector) {
         try {
           const results = await detector.detect(video);
-          if (results.length > 0) decoded = results[0].rawValue;
+          if (results.length > 0) decoded = results[0]!.rawValue;
         } catch {
           // Transient errors (video not ready, frame mid-update) — ignore.
         }

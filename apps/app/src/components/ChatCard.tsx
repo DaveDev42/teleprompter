@@ -66,7 +66,7 @@ function InlineText({
   codeFontStyle?: { fontFamily: string };
 }) {
   const segs = parseInline(raw);
-  if (segs.length === 1 && segs[0].t === "text") {
+  if (segs.length === 1 && segs[0]!.t === "text") {
     return (
       <Text className={textClass} style={fontStyle} selectable>
         {raw}
@@ -183,15 +183,15 @@ function parseBlocks(markdown: string): Block[] {
   let i = 0;
 
   while (i < lines.length) {
-    const line = lines[i];
+    const line = lines[i]!;
 
     // ── fenced code block ──────────────────────────────────────────
     if (line.trimStart().startsWith("```")) {
       const lang = line.trimStart().slice(3).trim();
       const codeLines: string[] = [];
       i++;
-      while (i < lines.length && !lines[i].trimStart().startsWith("```")) {
-        codeLines.push(lines[i]);
+      while (i < lines.length && !lines[i]!.trimStart().startsWith("```")) {
+        codeLines.push(lines[i]!);
         i++;
       }
       i++; // consume closing fence
@@ -204,8 +204,8 @@ function parseBlocks(markdown: string): Block[] {
     if (hMatch) {
       blocks.push({
         type: "heading",
-        level: Math.min(hMatch[1].length, 3) as 1 | 2 | 3,
-        text: hMatch[2].trim(),
+        level: Math.min(hMatch[1]!.length, 3) as 1 | 2 | 3,
+        text: hMatch[2]!.trim(),
       });
       i++;
       continue;
@@ -214,10 +214,12 @@ function parseBlocks(markdown: string): Block[] {
     // ── unordered list item ───────────────────────────────────────
     const ulMatch = line.match(/^\s*[-*]\s+(.*)/);
     if (ulMatch) {
-      const items: string[] = [ulMatch[1]];
+      const items: string[] = [ulMatch[1]!];
       i++;
-      while (i < lines.length && lines[i].match(/^\s*[-*]\s+(.*)/)) {
-        items.push((lines[i].match(/^\s*[-*]\s+(.*)/) as RegExpMatchArray)[1]);
+      while (i < lines.length && lines[i]!.match(/^\s*[-*]\s+(.*)/)) {
+        items.push(
+          (lines[i]!.match(/^\s*[-*]\s+(.*)/) as RegExpMatchArray)[1]!,
+        );
         i++;
       }
       blocks.push({ type: "list", ordered: false, items });
@@ -227,10 +229,12 @@ function parseBlocks(markdown: string): Block[] {
     // ── ordered list item ─────────────────────────────────────────
     const olMatch = line.match(/^\s*\d+\.\s+(.*)/);
     if (olMatch) {
-      const items: string[] = [olMatch[1]];
+      const items: string[] = [olMatch[1]!];
       i++;
-      while (i < lines.length && lines[i].match(/^\s*\d+\.\s+(.*)/)) {
-        items.push((lines[i].match(/^\s*\d+\.\s+(.*)/) as RegExpMatchArray)[1]);
+      while (i < lines.length && lines[i]!.match(/^\s*\d+\.\s+(.*)/)) {
+        items.push(
+          (lines[i]!.match(/^\s*\d+\.\s+(.*)/) as RegExpMatchArray)[1]!,
+        );
         i++;
       }
       blocks.push({ type: "list", ordered: true, items });
@@ -248,13 +252,13 @@ function parseBlocks(markdown: string): Block[] {
     i++;
     while (
       i < lines.length &&
-      lines[i].trim() !== "" &&
-      !lines[i].trimStart().startsWith("```") &&
-      !lines[i].match(/^#{1,3}\s/) &&
-      !lines[i].match(/^\s*[-*]\s/) &&
-      !lines[i].match(/^\s*\d+\.\s/)
+      lines[i]!.trim() !== "" &&
+      !lines[i]!.trimStart().startsWith("```") &&
+      !lines[i]!.match(/^#{1,3}\s/) &&
+      !lines[i]!.match(/^\s*[-*]\s/) &&
+      !lines[i]!.match(/^\s*\d+\.\s/)
     ) {
-      paraLines.push(lines[i]);
+      paraLines.push(lines[i]!);
       i++;
     }
     blocks.push({ type: "para", text: paraLines.join("\n") });

@@ -231,11 +231,13 @@ function decodeBinaryPairing(b64: string): PairingData {
     throw new Error("Invalid pairing data format");
   }
   const version = buf[o++];
+  if (version === undefined) throw new Error("Invalid pairing data format");
   if (version !== 2 && version !== PAIRING_BINARY_VERSION) {
     throw new Error("Invalid pairing data format");
   }
 
   const didLen = buf[o++];
+  if (didLen === undefined) throw new Error("Invalid pairing data format");
   if (didLen === 0) throw new Error("Invalid pairing data format");
   if (o + didLen > buf.length) throw new Error("Invalid pairing data format");
   const wireDid = dec.decode(buf.subarray(o, o + didLen));
@@ -244,6 +246,7 @@ function decodeBinaryPairing(b64: string): PairingData {
   const did = version === 2 ? wireDid : `${DAEMON_ID_PREFIX}${wireDid}`;
 
   const relayLen = buf[o++];
+  if (relayLen === undefined) throw new Error("Invalid pairing data format");
   if (o + relayLen > buf.length) throw new Error("Invalid pairing data format");
   // relay_len=0 is the wire signal for the default production relay.
   const relay =
@@ -266,6 +269,7 @@ function decodeBinaryPairing(b64: string): PairingData {
   if (version === 2) {
     if (o >= buf.length) throw new Error("Invalid pairing data format");
     const labelLen = buf[o++];
+    if (labelLen === undefined) throw new Error("Invalid pairing data format");
     if (o + labelLen > buf.length) {
       throw new Error("Invalid pairing data format");
     }
@@ -286,7 +290,7 @@ function decodeBinaryPairing(b64: string): PairingData {
 
 function bytesToBase64(bytes: Uint8Array): string {
   let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
   return btoa(bin);
 }
 

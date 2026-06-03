@@ -37,4 +37,5 @@ export {
   encodePairingData,
   parsePairingForFrontend,
 } from "./pairing";
+export { parseRelayServerMessage } from "./relay-server-guard";
 export * from "./types";

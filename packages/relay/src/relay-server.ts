@@ -6,7 +6,7 @@ import type {
   RelayNotification,
   RelayServerMessage,
 } from "@teleprompter/protocol";
-import { createLogger } from "@teleprompter/protocol";
+import { createLogger, parseRelayClientMessage } from "@teleprompter/protocol";
 import { PushService } from "./push";
 import { ResumeTokenSigner } from "./resume-token";
 
@@ -123,6 +123,8 @@ interface RelayMetrics {
   backpressureDisconnects: number;
   authTimeouts: number;
   oversizedDrops: number;
+  /** Frames that parsed as JSON but were not a well-formed RelayClientMessage. */
+  unknownTypeDrops: number;
   evictions: number;
   resumesAttempted: number;
   resumesAccepted: number;
@@ -211,6 +213,7 @@ export class RelayServer {
     backpressureDisconnects: 0,
     authTimeouts: 0,
     oversizedDrops: 0,
+    unknownTypeDrops: 0,
     evictions: 0,
     resumesAttempted: 0,
     resumesAccepted: 0,
@@ -349,6 +352,7 @@ export class RelayServer {
           );
           lines.push(`relay_auth_timeouts ${m.authTimeouts}`);
           lines.push(`relay_oversized_drops ${m.oversizedDrops}`);
+          lines.push(`relay_unknown_type_drops ${m.unknownTypeDrops}`);
           lines.push(`relay_evictions ${m.evictions}`);
           lines.push(`relay_resumes_attempted ${m.resumesAttempted}`);
           lines.push(`relay_resumes_accepted ${m.resumesAccepted}`);
@@ -514,13 +518,37 @@ ${daemons
     }
     this.metrics.framesIn++;
 
-    let msg: RelayClientMessage;
+    let parsed: unknown;
     try {
       const text =
         typeof raw === "string" ? raw : new TextDecoder().decode(raw);
-      msg = JSON.parse(text);
+      parsed = JSON.parse(text);
     } catch {
       this.send(ws, { t: "relay.err", e: "PARSE_ERROR", m: "Invalid JSON" });
+      return;
+    }
+
+    // Zero-trust boundary: a syntactically valid JSON frame is not yet a valid
+    // RelayClientMessage. parseRelayClientMessage validates the discriminant
+    // AND every field each handler dereferences (sid/ct/seq on relay.pub,
+    // token on relay.auth, cols/rows are N/A here but role/v are, etc.), so the
+    // switch below never reaches a handler with a missing or wrong-typed field.
+    // A hostile/buggy peer that sends a malformed frame gets UNKNOWN_TYPE back
+    // instead of crashing a handler on an undefined dereference.
+    const msg = parseRelayClientMessage(parsed);
+    if (msg === null) {
+      const t =
+        typeof parsed === "object" &&
+        parsed !== null &&
+        typeof (parsed as { t?: unknown }).t === "string"
+          ? (parsed as { t: string }).t
+          : "(none)";
+      this.metrics.unknownTypeDrops++;
+      this.send(ws, {
+        t: "relay.err",
+        e: "UNKNOWN_TYPE",
+        m: `Unknown or malformed message type: ${t}`,
+      });
       return;
     }
 
@@ -579,16 +607,17 @@ ${daemons
           log.error(`handlePush failed: ${err}`),
         );
         break;
-      default:
-        // The switch is exhaustive over RelayClientMessage, so `msg` narrows
-        // to `never` here. A widening cast lets us echo back the unknown `t`
-        // that an out-of-spec peer sent (JSON.parse produced it at runtime
-        // even though the type system says it can't exist).
-        this.send(ws, {
-          t: "relay.err",
-          e: "UNKNOWN_TYPE",
-          m: `Unknown message type: ${(msg as RelayClientMessage).t}`,
-        });
+      default: {
+        // Unreachable at runtime: parseRelayClientMessage already rejected any
+        // frame that is not one of the variants above (out-of-spec `t`, missing
+        // fields), replying UNKNOWN_TYPE before the switch. The switch is
+        // exhaustive over RelayClientMessage, so `msg` narrows to `never` here —
+        // this assertion makes a future un-handled variant a compile error.
+        const _exhaustive: never = msg;
+        log.error(
+          `unreachable relay message dispatch: ${JSON.stringify(_exhaustive)}`,
+        );
+      }
     }
   }
 

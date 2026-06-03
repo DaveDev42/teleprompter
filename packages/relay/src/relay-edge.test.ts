@@ -97,6 +97,59 @@ describe("RelayServer edge cases", () => {
     ws.close();
   });
 
+  test("rejects a known type with missing required fields", async () => {
+    // Regression for the zero-trust wire guard: a frame with a VALID
+    // discriminant but missing fields used to be cast straight to
+    // RelayClientMessage and dispatched, so `relay.pub` with no sid/ct/seq
+    // reached handlePublish and dereferenced undefined. The guard now rejects
+    // it with UNKNOWN_TYPE before any handler runs, and the connection stays
+    // alive (the relay keeps serving valid frames afterward).
+    const ws = await connectWs(port);
+    ws.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "frontend",
+        daemonId: "daemon-1",
+        token: "token-1",
+      }),
+    );
+    await waitMsg(ws, (m) => m.t === "relay.auth.ok");
+
+    // relay.pub with no sid/ct/seq — structurally a "known type", semantically
+    // garbage. Must be rejected, not dispatched.
+    ws.send(JSON.stringify({ t: "relay.pub" }));
+    const err = await waitMsg(ws, (m) => m.t === "relay.err");
+    expect((err as RelayError).e).toBe("UNKNOWN_TYPE");
+
+    // Connection survived: a subsequent well-formed ping still gets a pong.
+    ws.send(JSON.stringify({ t: "relay.ping", ts: 1 }));
+    const pong = await waitMsg(ws, (m) => m.t === "relay.pong");
+    expect(pong.t).toBe("relay.pong");
+    ws.close();
+  });
+
+  test("rejects relay.pub with wrong-typed seq", async () => {
+    const ws = await connectWs(port);
+    ws.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "frontend",
+        daemonId: "daemon-1",
+        token: "token-1",
+      }),
+    );
+    await waitMsg(ws, (m) => m.t === "relay.auth.ok");
+
+    // sid/ct present but seq is a string — the old cast would have let this
+    // through and broken ordering math downstream.
+    ws.send(JSON.stringify({ t: "relay.pub", sid: "s", ct: "x", seq: "1" }));
+    const err = await waitMsg(ws, (m) => m.t === "relay.err");
+    expect((err as RelayError).e).toBe("UNKNOWN_TYPE");
+    ws.close();
+  });
+
   test("multiple frontends can subscribe to same session", async () => {
     const daemon = await connectWs(port);
     const frontend1 = await connectWs(port);

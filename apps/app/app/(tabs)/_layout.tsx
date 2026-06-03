@@ -82,10 +82,10 @@ const handleTabKeyDown = (e: {
   // will re-render with tabIndex=0; focus it on the next frame after
   // the re-render commits (double rAF mirrors the session-view tablist
   // pattern that survives CI headless Chromium timing).
-  tabs[nextIndex].click();
+  tabs[nextIndex]!.click();
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      tabs[nextIndex].focus();
+      tabs[nextIndex]!.focus();
     });
   });
 };

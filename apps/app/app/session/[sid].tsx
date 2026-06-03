@@ -81,14 +81,14 @@ function SegmentedControl({
     let next: ViewMode | null = null;
     if (e.key === "ArrowRight" || e.key === "ArrowDown") {
       const idx = tabOrder.indexOf(mode);
-      next = tabOrder[(idx + 1) % tabOrder.length];
+      next = tabOrder[(idx + 1) % tabOrder.length]!;
     } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
       const idx = tabOrder.indexOf(mode);
-      next = tabOrder[(idx - 1 + tabOrder.length) % tabOrder.length];
+      next = tabOrder[(idx - 1 + tabOrder.length) % tabOrder.length]!;
     } else if (e.key === "Home") {
-      next = tabOrder[0];
+      next = tabOrder[0]!;
     } else if (e.key === "End") {
-      next = tabOrder[tabOrder.length - 1];
+      next = tabOrder[tabOrder.length - 1]!;
     } else if (e.key === " " || e.key === "Enter") {
       // APG Tabs §3.23: Space and Enter must activate the focused tab. The
       // tabs render as <div role="tab"> (RN Web Pressable doesn't emit a

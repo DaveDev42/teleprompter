@@ -118,7 +118,7 @@ export class AudioPlayer {
 function float32ToPcm16(float32: Float32Array): Int16Array {
   const pcm16 = new Int16Array(float32.length);
   for (let i = 0; i < float32.length; i++) {
-    const s = Math.max(-1, Math.min(1, float32[i]));
+    const s = Math.max(-1, Math.min(1, float32[i]!));
     pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
   }
   return pcm16;
@@ -127,7 +127,7 @@ function float32ToPcm16(float32: Float32Array): Int16Array {
 function pcm16ToFloat32(pcm16: Int16Array): Float32Array {
   const float32 = new Float32Array(pcm16.length);
   for (let i = 0; i < pcm16.length; i++) {
-    float32[i] = pcm16[i] / (pcm16[i] < 0 ? 0x8000 : 0x7fff);
+    float32[i] = pcm16[i]! / (pcm16[i]! < 0 ? 0x8000 : 0x7fff);
   }
   return float32;
 }
@@ -135,7 +135,7 @@ function pcm16ToFloat32(pcm16: Int16Array): Float32Array {
 function uint8ArrayToBase64(bytes: Uint8Array): string {
   let binary = "";
   for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
+    binary += String.fromCharCode(bytes[i]!);
   }
   return btoa(binary);
 }

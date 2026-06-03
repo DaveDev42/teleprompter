@@ -64,6 +64,35 @@ describe("pairing", () => {
     );
   });
 
+  // Regression: a payload whose buffer ends EXACTLY at the relay-length byte
+  // used to decode silently. The binary layout is
+  //   magic(2) | version(1) | didLen(1) | did(didLen) | relayLen(1) | relay | ps(32) | pk(32)
+  // and the min-length guard only requires >= 69 bytes. With a 69-byte buffer
+  // and didLen = 65, the did-bounds check `o + didLen > buf.length`
+  // (4 + 65 = 69 > 69) is false so it passes, leaving o = 69. Reading the
+  // relayLen byte at buf[69] yields `undefined` under noUncheckedIndexedAccess;
+  // `o + undefined = NaN`, and `NaN > buf.length` is `false`, so the next
+  // bounds check wrongly passed and decode produced a bogus PairingData with
+  // empty ps/pk/relay and a garbage did. The `relayLen === undefined` guard
+  // must reject it instead.
+  test("decodePairingData rejects a payload truncated at the relay-length byte", () => {
+    const buf = new Uint8Array(69);
+    let o = 0;
+    buf[o++] = "t".charCodeAt(0);
+    buf[o++] = "p".charCodeAt(0);
+    buf[o++] = 3; // PAIRING_BINARY_VERSION
+    buf[o++] = 65; // didLen: 4 + 65 === 69 === buf.length → relayLen reads off the end
+    let bin = "";
+    for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]!);
+    const b64url = btoa(bin)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    expect(() => decodePairingData(`tp://p?d=${b64url}`)).toThrow(
+      "Invalid pairing data format",
+    );
+  });
+
   test("encoded form is a tp:// deep link", async () => {
     const bundle = await createPairingBundle(
       "wss://relay.tpmt.dev",

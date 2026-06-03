@@ -117,7 +117,7 @@ export function processHookEvent(event: HookEventBase) {
       const liveMsgs = useChatStore.getState().messages;
       const trimmedPrompt = promptText.trim();
       for (let i = liveMsgs.length - 1; i >= 0; i--) {
-        const m = liveMsgs[i];
+        const m = liveMsgs[i]!;
         if (m.type !== "user") continue;
         if (m.source === "local" && m.text.trim() === trimmedPrompt) {
           return;
@@ -266,7 +266,7 @@ function parseChoices(text: string): string[] {
   for (const pattern of patterns) {
     const matches = [...text.matchAll(pattern)];
     if (matches.length >= 2) {
-      return matches.map((m) => m[1].trim());
+      return matches.map((m) => m[1]!.trim());
     }
   }
 

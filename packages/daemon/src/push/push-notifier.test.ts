@@ -64,7 +64,7 @@ describe("PushNotifier", () => {
       payload: { tool_name: "Bash" },
     });
 
-    expect(sendPush.mock.calls[0][3]).toBe("Approve Bash to continue");
+    expect(sendPush.mock.calls[0]![3]).toBe("Approve Bash to continue");
   });
 
   it("triggers push for Notification event", () => {
@@ -80,8 +80,8 @@ describe("PushNotifier", () => {
     });
 
     expect(sendPush).toHaveBeenCalledTimes(1);
-    expect(sendPush.mock.calls[0][2]).toBe("Permission needed");
-    expect(sendPush.mock.calls[0][3]).toBe(
+    expect(sendPush.mock.calls[0]![2]).toBe("Permission needed");
+    expect(sendPush.mock.calls[0]![3]).toBe(
       "Claude needs your permission to use Bash",
     );
   });
@@ -93,8 +93,8 @@ describe("PushNotifier", () => {
 
     notifier.onRecord({ sid: "s1", kind: "event", name: "Notification" });
 
-    expect(sendPush.mock.calls[0][2]).toBe("Claude needs attention");
-    expect(sendPush.mock.calls[0][3]).toBe("Tap to open the session");
+    expect(sendPush.mock.calls[0]![2]).toBe("Claude needs attention");
+    expect(sendPush.mock.calls[0]![3]).toBe("Tap to open the session");
   });
 
   it("does NOT trigger for Stop event", () => {
@@ -161,8 +161,8 @@ describe("PushNotifier", () => {
     notifier.onRecord({ sid: "s1", kind: "event", name: "Elicitation" });
 
     expect(sendPush).toHaveBeenCalledTimes(1);
-    expect(sendPush.mock.calls[0][1]).toBe("new-token");
-    expect(sendPush.mock.calls[0][0]).toBe("fe-1");
+    expect(sendPush.mock.calls[0]![1]).toBe("new-token");
+    expect(sendPush.mock.calls[0]![0]).toBe("fe-1");
   });
 
   it("unregisterToken removes frontend from receiving pushes", () => {
@@ -175,7 +175,7 @@ describe("PushNotifier", () => {
     notifier.onRecord({ sid: "s1", kind: "event", name: "Elicitation" });
 
     expect(sendPush).toHaveBeenCalledTimes(1);
-    expect(sendPush.mock.calls[0][0]).toBe("fe-2");
+    expect(sendPush.mock.calls[0]![0]).toBe("fe-2");
   });
 });
 

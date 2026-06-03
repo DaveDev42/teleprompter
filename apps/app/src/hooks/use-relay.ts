@@ -102,13 +102,13 @@ export function useRelay() {
     }
 
     const {
-      setSid,
+      setActiveSession,
       setLastSeq,
       setSessions,
       updateSession,
       dispatchRec,
-      setError,
-      incrementReconnect,
+      setRelayState,
+      bumpReconnect,
     } = useSessionStore.getState();
     const { cacheFrame, updateState } = useOfflineStore.getState();
     const relayConn = useRelayConnectionStore.getState();
@@ -129,7 +129,7 @@ export function useRelay() {
         },
         {
           onConnected: () => {
-            setError(null);
+            setRelayState({ status: "connected" });
             relayConn.setConnected(daemonId, true);
             // Re-send push token on reconnect so daemon always has a fresh token
             if (Platform.OS !== "web") {
@@ -143,7 +143,7 @@ export function useRelay() {
             }
           },
           onDisconnected: () => {
-            incrementReconnect();
+            bumpReconnect();
             relayConn.setConnected(daemonId, false);
           },
           onRec: (rec: SessionRec) => {
@@ -160,10 +160,12 @@ export function useRelay() {
           onState: (sid: string, meta: SessionMeta) => {
             updateSession(sid, meta);
             updateState(sid, meta.state);
-            const currentSid = useSessionStore.getState().sid;
-            if (!currentSid && meta.state === "running") {
+            if (
+              !useSessionStore.getState().activeSession.active &&
+              meta.state === "running"
+            ) {
               client.subscribe(sid);
-              setSid(sid);
+              setActiveSession({ active: true, sid });
               setLastSeq(meta.lastSeq);
             }
           },
@@ -172,15 +174,15 @@ export function useRelay() {
               for (const sid of sessions) {
                 client.subscribe(sid);
               }
-              const currentSid = useSessionStore.getState().sid;
-              if (!currentSid) {
-                setSid(sessions[0]);
+              if (!useSessionStore.getState().activeSession.active) {
+                setActiveSession({ active: true, sid: sessions[0] });
                 setLastSeq(0);
               }
             }
           },
           onNotification: (title, body, data) => {
-            const currentSid = useSessionStore.getState().sid;
+            const { activeSession } = useSessionStore.getState();
+            const currentSid = activeSession.active ? activeSession.sid : null;
             if (data?.sid && data.sid === currentSid) return;
             useNotificationStore.getState().showToast({ title, body, data });
           },

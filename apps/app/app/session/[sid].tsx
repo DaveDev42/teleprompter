@@ -936,7 +936,7 @@ export default function SessionDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const sessions = useSessionStore((s) => s.sessions);
-  const setSid = useSessionStore((s) => s.setSid);
+  const setActiveSession = useSessionStore((s) => s.setActiveSession);
   const [mode, setMode] = useState<ViewMode>("chat");
   const pp = getPlatformProps();
   const connected = useAnyRelayConnected();
@@ -977,7 +977,7 @@ export default function SessionDetailScreen() {
     const client = getTransport();
     if (client) {
       client.attach(sid);
-      setSid(sid);
+      setActiveSession({ active: true, sid });
     }
     // Clear chat and reset to chat tab for fresh state on session switch
     useChatStore.getState().clear();
@@ -987,7 +987,7 @@ export default function SessionDetailScreen() {
       const c = getTransport();
       if (c && sid) c.detach(sid);
     };
-  }, [sid, setSid]);
+  }, [sid, setActiveSession]);
 
   // Derive display name from cwd. Strip a trailing slash first so a path like
   // "/Users/dave/proj/" yields "proj" rather than an empty string.

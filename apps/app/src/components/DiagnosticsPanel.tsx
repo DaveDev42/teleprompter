@@ -10,7 +10,7 @@ import { checkCryptoAvailability } from "../lib/crypto-native";
 import { ariaLevel, getPlatformProps } from "../lib/get-platform-props";
 import { useOfflineStore } from "../stores/offline-store";
 import { usePairingStore } from "../stores/pairing-store";
-import { useSessionStore } from "../stores/session-store";
+import { formatRelayState, useSessionStore } from "../stores/session-store";
 
 function MetricRow({ label, value }: { label: string; value: string }) {
   return (
@@ -76,8 +76,10 @@ function SessionDiagnostics({ session }: { session: SessionMeta }) {
 export function DiagnosticsPanel() {
   const connected = useAnyRelayConnected();
   const lastSeq = useSessionStore((s) => s.lastSeq);
-  const sid = useSessionStore((s) => s.sid);
+  const activeSession = useSessionStore((s) => s.activeSession);
+  const relayState = useSessionStore((s) => s.relayState);
   const sessions = useSessionStore((s) => s.sessions);
+  const relayStateLabel = formatRelayState(relayState);
   const pairingState = usePairingStore((s) => s.state);
   const pairings = usePairingStore((s) => s.pairings);
   const activeDaemon = usePairingStore((s) => s.activeDaemon);
@@ -262,7 +264,11 @@ export function DiagnosticsPanel() {
           label="Daemon WS"
           value={connected ? "Connected" : "Disconnected"}
         />
-        <MetricRow label="Active Session" value={sid ?? "none"} />
+        <MetricRow
+          label="Active Session"
+          value={activeSession.active ? activeSession.sid : "none"}
+        />
+        <MetricRow label="Relay State" value={relayStateLabel} />
         <MetricRow label="Last Seq (cursor)" value={String(lastSeq)} />
         <View className="flex-row justify-between items-center py-1">
           <Text className="text-tp-text-tertiary text-xs">RTT</Text>

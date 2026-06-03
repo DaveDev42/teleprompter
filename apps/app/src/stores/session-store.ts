@@ -9,6 +9,17 @@ const SESSIONS_STORAGE_KEY = "sessions_v1";
 /** Serializable shape: plain object for JSON storage */
 type PersistedSessionMap = Record<string, SessionMeta[]>;
 
+// ── Discriminated unions ──
+
+/** Which session the UI is currently viewing / auto-selected. */
+export type ActiveSession = { active: true; sid: string } | { active: false };
+
+/** Relay WebSocket lifecycle state. */
+export type RelayState =
+  | { status: "connected" }
+  | { status: "disconnected"; reconnectCount: number }
+  | { status: "error"; message: string; reconnectCount: number };
+
 // ── Debounced write-through ──
 
 let _writeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -28,26 +39,29 @@ function scheduleWrite(data: Map<string, SessionMeta[]>): void {
 // ── Store interface ──
 
 export interface SessionState {
-  /** Current session ID */
-  sid: string | null;
+  /** Currently viewed / auto-selected session. */
+  activeSession: ActiveSession;
   /** Last received sequence number */
   lastSeq: number;
   /** All known sessions (union across all connected daemons) */
   sessions: SessionMeta[];
-  /** Last error message */
-  lastError: string | null;
-  /** Number of reconnect attempts */
-  reconnectCount: number;
+  /** Relay WebSocket lifecycle state (includes reconnect counter). */
+  relayState: RelayState;
   /** Record handlers (multiple consumers: terminal, chat) */
   _recHandlers: Set<RecHandler>;
   /** Per-daemon last-known session list (persisted) */
   _sessionsByDaemon: Map<string, SessionMeta[]>;
 
   // Actions
-  setSid: (sid: string | null) => void;
+  setActiveSession: (next: ActiveSession) => void;
   setLastSeq: (seq: number) => void;
-  setError: (error: string | null) => void;
-  incrementReconnect: () => void;
+  setRelayState: (next: RelayState) => void;
+  /**
+   * Race-safe reconnect counter increment. Reads the previous relayState's
+   * reconnectCount and produces `{ status: 'disconnected', reconnectCount: prev+1 }`.
+   * Uses the set((s)=>{}) updater form so concurrent calls never lose an increment.
+   */
+  bumpReconnect: () => void;
   /** Set sessions for a specific daemon. Pass daemonId so the list is persisted
    *  keyed per-daemon. The `sessions` field is the union of all per-daemon lists. */
   setSessions: (daemonId: string, sessions: SessionMeta[]) => void;
@@ -74,22 +88,54 @@ function flattenSessions(map: Map<string, SessionMeta[]>): SessionMeta[] {
   return out;
 }
 
+// ── Helpers ──
+
+/**
+ * Format a RelayState for display. The exhaustive switch + never-check ensures
+ * tsc errors whenever a union arm is added or removed without updating this function.
+ */
+export function formatRelayState(state: RelayState): string {
+  switch (state.status) {
+    case "connected":
+      return "Connected";
+    case "disconnected":
+      return `Disconnected (reconnects: ${state.reconnectCount})`;
+    case "error":
+      return `Error: ${state.message} (reconnects: ${state.reconnectCount})`;
+    default: {
+      // Exhaustiveness check: TypeScript will error here if a new arm is added
+      // to RelayState without handling it, or if an arm the switch depends on
+      // is removed while the case is still present.
+      const _: never = state;
+      return _;
+    }
+  }
+}
+
 // ── Store ──
 
 export const useSessionStore = create<SessionState>((set, get) => ({
-  sid: null,
+  activeSession: { active: false },
   lastSeq: 0,
-  lastError: null,
-  reconnectCount: 0,
+  relayState: { status: "disconnected", reconnectCount: 0 },
   sessions: [],
   _recHandlers: new Set(),
   _sessionsByDaemon: new Map(),
 
-  setSid: (sid) => set({ sid }),
+  setActiveSession: (next) => set({ activeSession: next }),
   setLastSeq: (seq) => set({ lastSeq: seq }),
-  setError: (error) => set({ lastError: error }),
-  incrementReconnect: () =>
-    set((s) => ({ reconnectCount: s.reconnectCount + 1 })),
+  setRelayState: (next) => set({ relayState: next }),
+  bumpReconnect: () =>
+    set((s) => {
+      const prev =
+        s.relayState.status === "disconnected" ||
+        s.relayState.status === "error"
+          ? s.relayState.reconnectCount
+          : 0;
+      return {
+        relayState: { status: "disconnected", reconnectCount: prev + 1 },
+      };
+    }),
 
   setSessions: (daemonId, sessions) => {
     const next = new Map(get()._sessionsByDaemon);
@@ -168,10 +214,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   reset: () =>
     set({
-      sid: null,
+      activeSession: { active: false },
       lastSeq: 0,
-      lastError: null,
-      reconnectCount: 0,
+      relayState: { status: "disconnected", reconnectCount: 0 },
       sessions: [],
       _recHandlers: new Set(),
       _sessionsByDaemon: new Map(),

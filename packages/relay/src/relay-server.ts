@@ -15,6 +15,30 @@ type BunServer = ReturnType<typeof Bun.serve>;
 
 const log = createLogger("Relay");
 
+/**
+ * The slice of a Bun ServerWebSocket the backpressure guard needs. Spelled out
+ * as an explicit interface so the guard can be unit-tested with a fake socket
+ * and so the `getBufferedAmount()` call is statically required — the previous
+ * `(ws as { bufferedAmount?: number }).bufferedAmount` cast silently read a
+ * property that does not exist on ServerWebSocket and the guard never fired.
+ */
+export interface BackpressureSocket {
+  getBufferedAmount(): number;
+}
+
+/**
+ * Returns true when the socket's queued send buffer has grown past the
+ * threshold, meaning the peer is not draining and the relay should force-close
+ * it (the client reconnects via the recent-frames cache). Pure function of the
+ * socket's buffered amount so it is directly unit-testable.
+ */
+export function isBackpressured(
+  ws: BackpressureSocket,
+  thresholdBytes: number,
+): boolean {
+  return ws.getBufferedAmount() > thresholdBytes;
+}
+
 const DEFAULT_MAX_RECENT_FRAMES = 10;
 const DEFAULT_MAX_FRAME_SIZE = 1024 * 1024; // 1 MB
 const RATE_LIMIT_WINDOW_MS = 1000;
@@ -439,8 +463,13 @@ ${daemons
     if (ws.readyState !== 1) {
       return;
     }
-    const buffered = (ws as { bufferedAmount?: number }).bufferedAmount ?? 0;
-    if (buffered > this.backpressureBytes) {
+    // Bun's ServerWebSocket exposes the queued send-buffer size via
+    // getBufferedAmount() (a method, not a `bufferedAmount` property — that
+    // lives on the browser/client WebSocket). See isBackpressured() above for
+    // why this matters: the old `(ws as { bufferedAmount?: number })` cast read
+    // a non-existent property, so the guard was dead code.
+    if (isBackpressured(ws, this.backpressureBytes)) {
+      const buffered = ws.getBufferedAmount();
       this.metrics.backpressureDisconnects++;
       log.warn(
         `closing socket: backpressure ${buffered} bytes exceeds ${this.backpressureBytes}`,

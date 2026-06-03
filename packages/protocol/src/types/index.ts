@@ -69,6 +69,7 @@ export type {
 } from "./relay";
 export { RELAY_CHANNEL_CONTROL, RELAY_CHANNEL_META } from "./relay";
 export type { Session, SessionState, SID } from "./session";
+export { isSessionState, toSessionState } from "./session";
 export type {
   SessionAttach,
   SessionBatch,

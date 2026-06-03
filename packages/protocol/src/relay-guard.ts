@@ -74,6 +74,22 @@ function isOptionalNumber(v: unknown): v is number | undefined {
   return v === undefined || (typeof v === "number" && Number.isFinite(v));
 }
 
+/**
+ * Terminal dimensions (cols/rows) must be positive integers — they flow
+ * unmodified to `Bun.terminal.resize`, where 0 collapses ncurses layout and a
+ * negative wraps to a 16-bit unsigned absurd width. isNumber (typeof + finite)
+ * lets 0, -1, and 80.5 through; this is the tighter gate for those fields.
+ */
+function isPositiveInt(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v > 0;
+}
+
+function isOptionalPositiveInt(v: unknown): v is number | undefined {
+  return (
+    v === undefined || (typeof v === "number" && Number.isInteger(v) && v > 0)
+  );
+}
+
 function isOptionalBoolean(v: unknown): v is boolean | undefined {
   return v === undefined || typeof v === "boolean";
 }
@@ -137,8 +153,8 @@ export function parseRelayControlMessage(
 
     case "resize": {
       if (!isString(raw.sid)) return null;
-      if (!isNumber(raw.cols)) return null;
-      if (!isNumber(raw.rows)) return null;
+      if (!isPositiveInt(raw.cols)) return null;
+      if (!isPositiveInt(raw.rows)) return null;
       return {
         t: "resize",
         sid: raw.sid,
@@ -153,8 +169,8 @@ export function parseRelayControlMessage(
     case "session.create": {
       if (!isString(raw.cwd)) return null;
       if (!isOptionalString(raw.sid)) return null;
-      if (!isOptionalNumber(raw.cols)) return null;
-      if (!isOptionalNumber(raw.rows)) return null;
+      if (!isOptionalPositiveInt(raw.cols)) return null;
+      if (!isOptionalPositiveInt(raw.rows)) return null;
       return {
         t: "session.create",
         cwd: raw.cwd,

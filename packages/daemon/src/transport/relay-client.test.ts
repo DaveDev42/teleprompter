@@ -10,6 +10,8 @@ import {
   encrypt,
   generateKeyPair,
   generatePairingSecret,
+  type Label,
+  makeLabel,
   RELAY_CHANNEL_CONTROL,
   type RelayServerMessage,
   type SessionRec,
@@ -445,7 +447,12 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     client.dispose();
   });
 
-  test("sendRenameNotice encrypts control.rename to target frontend", async () => {
+  test("sendRenameNotice to a v1 peer sends a string-shaped label (version gate)", async () => {
+    // This frontend's kx payload omits `v`, so the daemon reads its
+    // protocolVersion as 1 (legacy). The version gate must downgrade the
+    // Label union to a bare string on the wire — an un-updated app coerces an
+    // object to "" and would silently clear the user's label, so the gate is
+    // what prevents that data corruption.
     const daemonKp = await generateKeyPair();
     const frontendKp = await generateKeyPair();
     const frontendId = "test-frontend-rename";
@@ -514,7 +521,7 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
       },
     );
 
-    await client.sendRenameNotice(frontendId, "MacBook Pro 14");
+    await client.sendRenameNotice(frontendId, makeLabel("MacBook Pro 14"));
     const frame = await framePromise;
 
     expect(frame.sid).toBe(RELAY_CHANNEL_CONTROL);
@@ -523,8 +530,97 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     expect(decoded.t).toBe(CONTROL_RENAME);
     expect(decoded.daemonId).toBe(DAEMON_ID);
     expect(decoded.frontendId).toBe(frontendId);
+    // v1 peer → bare string label on the wire (NOT the union object).
     expect(decoded.label).toBe("MacBook Pro 14");
     expect(typeof decoded.ts).toBe("number");
+
+    frontendWs.close();
+    client.dispose();
+  });
+
+  test("sendRenameNotice to a v2 peer sends the Label union object", async () => {
+    // This frontend advertises `v: 2` in its kx payload, so the daemon keeps
+    // the Label union on the wire (no downgrade).
+    const daemonKp = await generateKeyPair();
+    const frontendKp = await generateKeyPair();
+    const frontendId = "test-frontend-rename-v2";
+    const kxKey = await deriveKxKey(pairingSecret);
+
+    const client = new RelayClient(
+      {
+        relayUrl: `ws://localhost:${relayPort}`,
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        registrationProof,
+        keyPair: daemonKp,
+        pairingSecret,
+      },
+      {},
+    );
+
+    await client.connect();
+    await Bun.sleep(300);
+
+    const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
+    await new Promise<void>((r) => {
+      frontendWs.onopen = () => r();
+    });
+    frontendWs.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 2,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        frontendId,
+      }),
+    );
+    await Bun.sleep(100);
+
+    // kx payload advertises protocol v2 → daemon keeps the union on the wire.
+    const kxPayload = JSON.stringify({
+      pk: await toBase64(frontendKp.publicKey),
+      frontendId,
+      role: "frontend",
+      v: 2,
+    });
+    const kxCt = await encrypt(new TextEncoder().encode(kxPayload), kxKey);
+    frontendWs.send(
+      JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }),
+    );
+    await Bun.sleep(300);
+
+    frontendWs.send(
+      JSON.stringify({ t: "relay.sub", sid: RELAY_CHANNEL_CONTROL }),
+    );
+    await Bun.sleep(50);
+
+    const frontendKeys = await deriveSessionKeys(
+      frontendKp,
+      daemonKp.publicKey,
+      "frontend",
+    );
+
+    const framePromise = new Promise<{ t: string; sid: string; ct: string }>(
+      (resolve, reject) => {
+        frontendWs.onmessage = (e) => {
+          const msg = JSON.parse(e.data as string);
+          if (msg.t === "relay.frame") resolve(msg);
+        };
+        setTimeout(() => reject(new Error("timeout")), 3000);
+      },
+    );
+
+    await client.sendRenameNotice(frontendId, makeLabel("MacBook Pro 14"));
+    const frame = await framePromise;
+
+    expect(frame.sid).toBe(RELAY_CHANNEL_CONTROL);
+    const plaintext = await decrypt(frame.ct, frontendKeys.rx);
+    const decoded = JSON.parse(new TextDecoder().decode(plaintext));
+    expect(decoded.t).toBe(CONTROL_RENAME);
+    expect(decoded.frontendId).toBe(frontendId);
+    // v2 peer → Label union object on the wire.
+    expect(decoded.label).toEqual({ set: true, value: "MacBook Pro 14" });
 
     frontendWs.close();
     client.dispose();
@@ -536,7 +632,7 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     const frontendId = "test-frontend-inbound-rename";
     const kxKey = await deriveKxKey(pairingSecret);
 
-    const received: Array<{ frontendId: string; label: string }> = [];
+    const received: Array<{ frontendId: string; label: Label }> = [];
 
     const client = new RelayClient(
       {
@@ -587,6 +683,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
       daemonKp.publicKey,
       "frontend",
     );
+    // Legacy app sends a bare string label on the wire; the daemon must
+    // decode it into the Label union before firing onRename.
     const renameMsg = {
       t: CONTROL_RENAME,
       daemonId: DAEMON_ID,
@@ -609,7 +707,9 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
 
     await Bun.sleep(300);
 
-    expect(received).toEqual([{ frontendId, label: "iPhone 15" }]);
+    expect(received).toEqual([
+      { frontendId, label: { set: true, value: "iPhone 15" } },
+    ]);
 
     frontendWs.close();
     client.dispose();

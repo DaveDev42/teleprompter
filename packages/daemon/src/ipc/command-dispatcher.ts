@@ -12,6 +12,7 @@ import type {
   IpcPairRenameErr,
   IpcPairRenameOk,
   IpcRec,
+  Label,
   IpcSessionDelete,
   IpcSessionDeleteErr,
   IpcSessionDeleteOk,
@@ -73,7 +74,7 @@ export interface IpcCommandDispatcherDeps {
   removePairing: (daemonId: string) => Promise<number>;
   /** Rename a pairing's label (updates store, notifies peers). Returns the
    * number of peers notified. */
-  renamePairing: (daemonId: string, label: string | null) => Promise<number>;
+  renamePairing: (daemonId: string, label: Label) => Promise<number>;
   /** Local record observer (passthrough CLI). Getter because Daemon can
    * install the observer after dispatcher construction. */
   getOnRecord: () =>

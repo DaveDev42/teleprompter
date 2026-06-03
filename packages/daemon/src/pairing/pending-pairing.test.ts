@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { type Label, makeLabel } from "@teleprompter/protocol";
 import type { RelayClient } from "../transport/relay-client";
 import { PendingPairing } from "./pending-pairing";
 
@@ -17,7 +18,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
-      label: "test-host",
+      label: makeLabel("test-host"),
       createRelayClient: () => relay as unknown as RelayClient,
     });
 
@@ -34,12 +35,12 @@ describe("PendingPairing", () => {
     // `label`, so RelayClient.config.label was undefined and
     // `broadcastDaemonPublicKey` sent `label: null` — the frontend kept its
     // device-name fallback rather than adopting the daemon's label.
-    let capturedLabel: string | null | undefined;
+    let capturedLabel: Label | undefined;
     const relay = makeFakeRelayClient();
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-label-test",
-      label: "web-qa-r3",
+      label: makeLabel("web-qa-r3"),
       createRelayClient: (args) => {
         capturedLabel = args.label;
         return relay as unknown as RelayClient;
@@ -48,7 +49,7 @@ describe("PendingPairing", () => {
 
     await pp.begin();
 
-    expect(capturedLabel).toBe("web-qa-r3");
+    expect(capturedLabel).toEqual({ set: true, value: "web-qa-r3" });
   });
 
   test("awaitCompletion resolves on kx frame", async () => {
@@ -56,7 +57,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
-      label: null,
+      label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });
 
@@ -72,7 +73,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
-      label: null,
+      label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });
 
@@ -89,7 +90,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
-      label: null,
+      label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });
     await pp.begin();
@@ -103,7 +104,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
-      label: null,
+      label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });
     await pp.begin();
@@ -116,7 +117,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
-      label: null,
+      label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });
     await pp.begin();
@@ -133,7 +134,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
-      label: null,
+      label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });
     await pp.begin();
@@ -147,7 +148,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
-      label: null,
+      label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });
     await pp.begin();
@@ -160,7 +161,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
-      label: null,
+      label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });
     await pp.begin();

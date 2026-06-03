@@ -138,7 +138,12 @@ test("IpcMessage union accepts pair.* messages", () => {
     { t: "pair.begin.ok", pairingId: "p1", qrString: "q", daemonId: "d1" },
     { t: "pair.begin.err", reason: "already-pending" },
     { t: "pair.cancel", pairingId: "p1" },
-    { t: "pair.completed", pairingId: "p1", daemonId: "d1", label: "x" },
+    {
+      t: "pair.completed",
+      pairingId: "p1",
+      daemonId: "d1",
+      label: { set: true, value: "x" },
+    },
     { t: "pair.cancelled", pairingId: "p1" },
     { t: "pair.error", pairingId: "p1", reason: "relay-unreachable" },
   ];

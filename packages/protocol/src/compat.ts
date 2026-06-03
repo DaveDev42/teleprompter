@@ -19,18 +19,28 @@ export const PROTOCOL_VERSION = 1;
 export const RELAY_PROTOCOL_VERSION = 1;
 
 /**
- * IPC protocol version (Runner ↔ Daemon).
+ * IPC protocol version (Runner ↔ Daemon, and CLI ↔ Daemon).
  * Runner and Daemon are always deployed together (same tp binary),
  * so this is for documentation, not runtime checking.
+ *
+ * v2: pairing `label` on the IPC pair.* messages migrated from
+ * `string | null` (with `""` clear sentinel) to the `Label` tagged union.
  */
-export const IPC_PROTOCOL_VERSION = 1;
+export const IPC_PROTOCOL_VERSION = 2;
 
 /**
  * WS protocol version (Daemon ↔ App).
  * App may be an older version (App Store update delay).
  * New optional fields are always safe. New message types are ignored by old apps.
+ *
+ * v2: pairing `label` on the ControlRename / kx-hello / meta-hello wire
+ * surfaces migrated from `string | null` (with `""` clear sentinel) to the
+ * `Label` tagged union. Daemons advertise this version in the relay.kx
+ * payload (`v`) and gate ControlRename emission: a peer that has not
+ * advertised v2 still receives the legacy `string` shape, so an un-updated
+ * app never coerces a union object to `""` and silently clears the label.
  */
-export const WS_PROTOCOL_VERSION = 1;
+export const WS_PROTOCOL_VERSION = 2;
 
 /**
  * Parse a semver-like version string into components.

@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { type Label, makeLabel } from "@teleprompter/protocol";
 import type { IpcCommandDispatcher } from "../ipc/command-dispatcher";
 import type { IpcServer } from "../ipc/server";
 import type { PushNotifier } from "../push/push-notifier";
@@ -24,7 +25,7 @@ import {
 type StubClient = RelayClient & {
   __peers: string[];
   __unpairSent: string[];
-  __renameSent: Array<{ frontendId: string; label: string }>;
+  __renameSent: Array<{ frontendId: string; label: Label }>;
   __disposed: boolean;
 };
 
@@ -50,7 +51,7 @@ function makeStubClient(daemonId: string, peers: string[] = []): StubClient {
     self.__unpairSent.push(frontendId);
     return true;
   });
-  self.sendRenameNotice = mock(async (frontendId: string, label: string) => {
+  self.sendRenameNotice = mock(async (frontendId: string, label: Label) => {
     self.__renameSent.push({ frontendId, label });
     return true;
   });
@@ -62,7 +63,7 @@ interface DepsOverrides {
   listPairings?: () => unknown[];
   loadPairings?: () => unknown[];
   savePairing?: (data: unknown) => void;
-  updatePairingLabel?: (daemonId: string, label: string | null) => void;
+  updatePairingLabel?: (daemonId: string, label: Label) => void;
 }
 
 function makeDeps(overrides: DepsOverrides = {}): RelayConnectionManagerDeps {
@@ -104,9 +105,9 @@ const BASE_CONFIG: Omit<RelayClientConfig, "daemonId" | "label"> = {
 };
 
 describe("RelayConnectionManager", () => {
-  test("addClient preserves existing label when config.label is null", async () => {
+  test("addClient preserves existing label when config.label is absent", async () => {
     const savePairing = mock((_data: unknown) => {});
-    const existingLabel = "previously-set-label";
+    const existingLabel: Label = { set: true, value: "previously-set-label" };
     const deps = makeDeps({
       listPairings: () => [{ daemonId: "d1", label: existingLabel }],
       savePairing,
@@ -115,27 +116,33 @@ describe("RelayConnectionManager", () => {
     const mgr = new RelayConnectionManager(deps);
     mgr.__setFactory(() => makeStubClient("d1"));
 
-    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: null });
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: undefined });
 
     expect(savePairing).toHaveBeenCalledTimes(1);
-    const saved = savePairing.mock.calls[0]?.[0] as { label: string | null };
-    expect(saved.label).toBe(existingLabel);
+    const saved = savePairing.mock.calls[0]?.[0] as { label: Label };
+    expect(saved.label).toEqual(existingLabel);
   });
 
   test("addClient records the new label when config.label is provided", async () => {
     const savePairing = mock((_data: unknown) => {});
     const deps = makeDeps({
-      listPairings: () => [{ daemonId: "d1", label: "old" }],
+      listPairings: () => [
+        { daemonId: "d1", label: { set: true, value: "old" } },
+      ],
       savePairing,
     });
 
     const mgr = new RelayConnectionManager(deps);
     mgr.__setFactory(() => makeStubClient("d1"));
 
-    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: "new" });
+    await mgr.addClient({
+      ...BASE_CONFIG,
+      daemonId: "d1",
+      label: makeLabel("new"),
+    });
 
-    const saved = savePairing.mock.calls[0]?.[0] as { label: string | null };
-    expect(saved.label).toBe("new");
+    const saved = savePairing.mock.calls[0]?.[0] as { label: Label };
+    expect(saved.label).toEqual({ set: true, value: "new" });
   });
 
   test("reconnectSaved continues after an individual failure", async () => {
@@ -150,7 +157,7 @@ describe("RelayConnectionManager", () => {
           publicKey: new Uint8Array(32),
           secretKey: new Uint8Array(32),
           pairingSecret: new Uint8Array(32),
-          label: null,
+          label: { set: false } as Label,
         },
         {
           daemonId: "d2",
@@ -160,7 +167,7 @@ describe("RelayConnectionManager", () => {
           publicKey: new Uint8Array(32),
           secretKey: new Uint8Array(32),
           pairingSecret: new Uint8Array(32),
-          label: null,
+          label: { set: false } as Label,
         },
       ],
     });
@@ -188,7 +195,7 @@ describe("RelayConnectionManager", () => {
     const stub = makeStubClient("d1", ["f1", "f2"]);
     mgr.__setFactory(() => stub);
 
-    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: null });
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: undefined });
     await mgr.removePairing("d1", { notifyPeer: false });
 
     expect(stub.__unpairSent).toEqual([]);
@@ -201,7 +208,7 @@ describe("RelayConnectionManager", () => {
     const stub = makeStubClient("d1", ["f1", "f2"]);
     mgr.__setFactory(() => stub);
 
-    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: null });
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: undefined });
     await mgr.removePairing("d1", { notifyPeer: true });
 
     expect(stub.__unpairSent).toEqual(["f1", "f2"]);
@@ -237,9 +244,9 @@ describe("RelayConnectionManager", () => {
       return true;
     });
 
-    await mgr.addClient({ ...BASE_CONFIG, daemonId: "X", label: null });
-    await mgr.addClient({ ...BASE_CONFIG, daemonId: "Y", label: null });
-    await mgr.addClient({ ...BASE_CONFIG, daemonId: "A", label: null });
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "X", label: undefined });
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "Y", label: undefined });
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "A", label: undefined });
 
     // Kick off A's remove (captures idx=2, yields at the await), then
     // synchronously mutate the pool so A's real index drops to 0.
@@ -268,8 +275,8 @@ describe("RelayConnectionManager", () => {
       return s;
     });
 
-    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: null });
-    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d2", label: null });
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: undefined });
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d2", label: undefined });
 
     mgr.dispatchPush("frontend-x", "tok", "hi", "body");
     expect(stub1.sendPush).toHaveBeenCalledTimes(1);
@@ -277,7 +284,7 @@ describe("RelayConnectionManager", () => {
   });
 
   test("renamePairing updates the store and notifies every peer", async () => {
-    const labelWrites: Array<[string, string | null]> = [];
+    const labelWrites: Array<[string, Label]> = [];
     const mgr = new RelayConnectionManager(
       makeDeps({
         updatePairingLabel: (daemonId, label) => {
@@ -288,32 +295,36 @@ describe("RelayConnectionManager", () => {
     const stub = makeStubClient("d1", ["f1", "f2"]);
     mgr.__setFactory(() => stub);
 
-    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: null });
-    const count = await mgr.renamePairing("d1", "Office Mac");
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: undefined });
+    const count = await mgr.renamePairing("d1", makeLabel("Office Mac"));
 
-    expect(labelWrites).toEqual([["d1", "Office Mac"]]);
+    expect(labelWrites).toEqual([["d1", { set: true, value: "Office Mac" }]]);
     expect(stub.__renameSent).toEqual([
-      { frontendId: "f1", label: "Office Mac" },
-      { frontendId: "f2", label: "Office Mac" },
+      { frontendId: "f1", label: { set: true, value: "Office Mac" } },
+      { frontendId: "f2", label: { set: true, value: "Office Mac" } },
     ]);
     expect(count).toBe(2);
     // Rename must not dispose the client — the pairing remains live.
     expect(stub.__disposed).toBe(false);
   });
 
-  test("renamePairing with null label sends empty string to peers (control.rename 'clear')", async () => {
+  test("renamePairing with an unset label fans the union out to peers (control.rename 'clear')", async () => {
     const mgr = new RelayConnectionManager(makeDeps());
     const stub = makeStubClient("d1", ["f1"]);
     mgr.__setFactory(() => stub);
 
-    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: null });
-    await mgr.renamePairing("d1", null);
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: undefined });
+    await mgr.renamePairing("d1", { set: false });
 
-    expect(stub.__renameSent).toEqual([{ frontendId: "f1", label: "" }]);
+    // RelayClient version-gates the wire shape per peer; the manager passes
+    // the unset Label through unchanged.
+    expect(stub.__renameSent).toEqual([
+      { frontendId: "f1", label: { set: false } },
+    ]);
   });
 
   test("renamePairing still writes to the store when the pairing has no live client", async () => {
-    const labelWrites: Array<[string, string | null]> = [];
+    const labelWrites: Array<[string, Label]> = [];
     const mgr = new RelayConnectionManager(
       makeDeps({
         updatePairingLabel: (daemonId, label) => {
@@ -323,9 +334,9 @@ describe("RelayConnectionManager", () => {
     );
 
     // No addClient call — the pool is empty.
-    const count = await mgr.renamePairing("d-offline", "New");
+    const count = await mgr.renamePairing("d-offline", makeLabel("New"));
 
-    expect(labelWrites).toEqual([["d-offline", "New"]]);
+    expect(labelWrites).toEqual([["d-offline", { set: true, value: "New" }]]);
     expect(count).toBe(0);
   });
 
@@ -334,7 +345,7 @@ describe("RelayConnectionManager", () => {
     const stub = makeStubClient("d1", ["f1", "f2"]);
     mgr.__setFactory(() => stub);
 
-    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: null });
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: undefined });
     const notified = await mgr.removePairing("d1", { notifyPeer: true });
     expect(notified).toBe(2);
   });
@@ -357,7 +368,7 @@ describe("RelayConnectionManager", () => {
     const stub = makeStubClient("d1");
     mgr.__setFactory(() => stub);
 
-    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: null });
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: undefined });
 
     const subscribed = (stub.subscribe as ReturnType<typeof mock>).mock.calls
       .map((c) => c[0] as string)
@@ -395,21 +406,17 @@ describe("RelayConnectionManager", () => {
     // human-readable label.
     const mgr = new RelayConnectionManager(makeDeps());
     const stub = makeStubClient("d1");
-    const events = mgr.buildEvents(() => stub, "web-qa-r3");
+    const events = mgr.buildEvents(() => stub, makeLabel("web-qa-r3"));
 
     events.onFrontendJoined?.("frontend-1");
 
     expect(stub.publishToPeer).toHaveBeenCalledTimes(1);
     const [, , helloMsg] = (stub.publishToPeer as ReturnType<typeof mock>).mock
-      .calls[0] as [
-      string,
-      string,
-      { t: string; d: { daemonLabel: string | null } },
-    ];
-    expect(helloMsg.d.daemonLabel).toBe("web-qa-r3");
+      .calls[0] as [string, string, { t: string; d: { daemonLabel: Label } }];
+    expect(helloMsg.d.daemonLabel).toEqual({ set: true, value: "web-qa-r3" });
   });
 
-  test("buildEvents.onFrontendJoined sends daemonLabel null when no label provided", async () => {
+  test("buildEvents.onFrontendJoined sends daemonLabel { set: false } when no label provided", async () => {
     const mgr = new RelayConnectionManager(makeDeps());
     const stub = makeStubClient("d1");
     const events = mgr.buildEvents(() => stub); // no label arg
@@ -417,12 +424,8 @@ describe("RelayConnectionManager", () => {
     events.onFrontendJoined?.("frontend-1");
 
     const [, , helloMsg] = (stub.publishToPeer as ReturnType<typeof mock>).mock
-      .calls[0] as [
-      string,
-      string,
-      { t: string; d: { daemonLabel: string | null } },
-    ];
-    expect(helloMsg.d.daemonLabel).toBeNull();
+      .calls[0] as [string, string, { t: string; d: { daemonLabel: Label } }];
+    expect(helloMsg.d.daemonLabel).toEqual({ set: false });
   });
 
   test("addClient passes config.label to buildEvents (label flows to hello frame)", async () => {
@@ -435,14 +438,14 @@ describe("RelayConnectionManager", () => {
     await mgr.addClient({
       ...BASE_CONFIG,
       daemonId: "d1",
-      label: "Office Mac",
+      label: makeLabel("Office Mac"),
     });
 
     // Simulate a frontend joining after addClient.
     // The stub's publishToPeer was already called once during addClient's
     // subscribe setup — we need to trigger onFrontendJoined ourselves.
     // We use buildEvents with the same label to verify the wiring.
-    const events = mgr.buildEvents(() => stub, "Office Mac");
+    const events = mgr.buildEvents(() => stub, makeLabel("Office Mac"));
     events.onFrontendJoined?.("frontend-new");
 
     // Find the publishToPeer call for the hello frame (most recent one):
@@ -450,9 +453,9 @@ describe("RelayConnectionManager", () => {
     const lastCall = calls[calls.length - 1] as [
       string,
       string,
-      { t: string; d: { daemonLabel: string | null } },
+      { t: string; d: { daemonLabel: Label } },
     ];
-    expect(lastCall[2].d.daemonLabel).toBe("Office Mac");
+    expect(lastCall[2].d.daemonLabel).toEqual({ set: true, value: "Office Mac" });
   });
 
   test("stop() disposes every client and clears the pool", async () => {
@@ -467,8 +470,8 @@ describe("RelayConnectionManager", () => {
       return s;
     });
 
-    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: null });
-    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d2", label: null });
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: undefined });
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d2", label: undefined });
 
     mgr.stop();
     expect(stub1.__disposed).toBe(true);

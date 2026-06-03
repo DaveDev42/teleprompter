@@ -1,4 +1,4 @@
-import { createLogger } from "@teleprompter/protocol";
+import { createLogger, type Label, LABEL_UNSET } from "@teleprompter/protocol";
 import type { Store } from "../store";
 import { RelayClient, type RelayClientConfig } from "../transport/relay-client";
 import type { RelayConnectionManager } from "../transport/relay-manager";
@@ -68,7 +68,7 @@ export class PairingOrchestrator {
   async begin(args: {
     relayUrl: string;
     daemonId?: string;
-    label?: string | null;
+    label?: Label;
   }): Promise<{ pairingId: string; qrString: string; daemonId: string }> {
     if (this.pending) {
       throw new BeginPairingError("already-pending");
@@ -83,12 +83,12 @@ export class PairingOrchestrator {
     let relayRef: RelayClient | null = null;
     const events = this.deps.relayManager.buildEvents(
       () => relayRef,
-      args.label ?? null,
+      args.label ?? LABEL_UNSET,
     );
     const pp = new PendingPairing({
       relayUrl: args.relayUrl,
       daemonId,
-      label: args.label ?? null,
+      label: args.label ?? LABEL_UNSET,
       createRelayClient: (cfg) => {
         const factory = this.deps.relayManager.__getFactory();
         if (factory) {

@@ -17,6 +17,7 @@ import type {
   RelayServerMessage,
   SessionKeys,
   SessionRec,
+  SessionStateMsg,
 } from "@teleprompter/protocol";
 import {
   CONTROL_RENAME,
@@ -429,7 +430,7 @@ export class RelayClient {
   }
 
   /** Encrypt and publish a state update to all connected frontends via relay. */
-  async publishState(sid: string, stateMsg: unknown): Promise<void> {
+  async publishState(sid: string, stateMsg: SessionStateMsg): Promise<void> {
     return this.broadcastEncrypted(sid, 0, stateMsg);
   }
 

@@ -8,6 +8,7 @@ export {
   MIN_CLAUDE_VERSION,
   PROTOCOL_VERSION,
   parseVersion,
+  WS_PROTOCOL_VERSION,
 } from "./compat";
 export type { KeyPair, SessionKeys } from "./crypto";
 export {

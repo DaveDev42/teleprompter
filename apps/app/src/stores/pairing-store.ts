@@ -4,6 +4,7 @@ import {
   fromBase64,
   generateKeyPair,
   type KeyPair,
+  type Label,
   parsePairingForFrontend,
   toBase64,
 } from "@teleprompter/protocol/client";
@@ -113,13 +114,19 @@ export interface PairingStore {
   ) => Promise<void>;
   /** Rename a pairing locally and notify the daemon over relay. */
   renamePairing: (daemonId: string, newLabel: string) => Promise<void>;
-  /** Handle an inbound control.rename from the daemon — receive-only, no echo. */
-  handlePeerRename: (daemonId: string, label: string) => Promise<void>;
+  /**
+   * Handle an inbound control.rename from the daemon — receive-only, no echo.
+   * `label` is the `Label` tagged union: `{ set: false }` is an authoritative
+   * clear, `{ set: true, value }` is the new label.
+   */
+  handlePeerRename: (daemonId: string, label: Label) => Promise<void>;
   /**
    * Handle the daemon's relay.kx hello — adopts the daemon's label.
-   * `label === null` means the daemon has no label set; keep current.
+   * `label` is always a concrete `{ set: true, value }` here: the relay client
+   * decodes the keep-current kx/meta surfaces with `decodeKxLabelOrKeep` and
+   * only fires this callback when the daemon advertises a real label.
    */
-  handleDaemonHello: (daemonId: string, label: string | null) => Promise<void>;
+  handleDaemonHello: (daemonId: string, label: Label) => Promise<void>;
 }
 
 type RenameSender = (daemonId: string, label: string) => Promise<void>;
@@ -362,16 +369,17 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
     }
   },
 
-  handlePeerRename: async (daemonId: string, label: string) => {
+  handlePeerRename: async (daemonId: string, label: Label) => {
     const pairings = new Map(get().pairings);
     const existing = pairings.get(daemonId);
     if (!existing) {
       console.warn("[pairing] handlePeerRename: unknown daemonId", daemonId);
       return;
     }
-    // Protocol: empty string clears the label — store as null locally.
-    const trimmed = label.trim();
-    const localLabel = trimmed === "" ? null : trimmed;
+    // `{ set: false }` is an authoritative clear → store null locally. The
+    // value is already trimmed by `makeLabel` on the producing side, but trim
+    // defensively in case a legacy string carried surrounding whitespace.
+    const localLabel = label.set ? label.value.trim() || null : null;
     // `control.rename` is an explicit user action on the daemon side and
     // expresses authoritative intent — adopt it even if the local label
     // was previously user-edited.
@@ -385,22 +393,24 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
     await secureSet(STORAGE_KEY, await serializePairings(pairings));
   },
 
-  handleDaemonHello: async (daemonId: string, label: string | null) => {
+  handleDaemonHello: async (daemonId: string, label: Label) => {
     // Daemon's relay.kx broadcast carries its label. We adopt it so that an
     // unrelated rename via the daemon CLI converges here even if a
     // `control.rename` was missed (peer offline at the time). However we
     // must not clobber a label the user explicitly edited in the app —
     // that's a separate authority. Skip when `labelSource === "user"`.
     //
-    // `label === null` means the daemon has no label set — keep whatever
+    // `{ set: false }` means the daemon advertises no label — keep whatever
     // the frontend already has (typically the device-name seed from the
-    // initial scan, or the last-known label from a previous session).
-    if (label === null) return;
+    // initial scan, or the last-known label from a previous session). The
+    // relay client normally short-circuits this case via `decodeKxLabelOrKeep`
+    // and never fires the callback, but we guard here too for safety.
+    if (!label.set) return;
     const pairings = new Map(get().pairings);
     const existing = pairings.get(daemonId);
     if (!existing) return;
     if (existing.labelSource === "user") return;
-    const trimmed = label.trim();
+    const trimmed = label.value.trim();
     if (trimmed === "") return;
     if (existing.label === trimmed) return;
     pairings.set(daemonId, {

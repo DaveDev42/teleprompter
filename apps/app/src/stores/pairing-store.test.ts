@@ -46,6 +46,7 @@ const fakeStorage = new Map<string, string>();
 import {
   createPairingBundle,
   encodePairingData,
+  makeLabel,
 } from "@teleprompter/protocol/client";
 
 // Dynamic import — evaluated AFTER mocks are registered.
@@ -96,7 +97,9 @@ describe("pairing-store: serialize/deserialize", () => {
     // resulting label survives serialize/deserialize.
     const qr = await buildFakePairing("daemon-a");
     await usePairingStore.getState().processScan(qr);
-    await usePairingStore.getState().handleDaemonHello("daemon-a", "Alpha");
+    await usePairingStore
+      .getState()
+      .handleDaemonHello("daemon-a", makeLabel("Alpha"));
 
     const before = usePairingStore.getState().pairings.get("daemon-a");
     expect(before).toBeDefined();
@@ -143,8 +146,12 @@ describe("pairing-store: serialize/deserialize", () => {
     await usePairingStore.getState().processScan(qr1);
     await usePairingStore.getState().processScan(qr2);
     // Simulate the daemon's relay.kx hello upgrading the seeded label.
-    await usePairingStore.getState().handleDaemonHello("daemon-1", "One");
-    await usePairingStore.getState().handleDaemonHello("daemon-2", "Two");
+    await usePairingStore
+      .getState()
+      .handleDaemonHello("daemon-1", makeLabel("One"));
+    await usePairingStore
+      .getState()
+      .handleDaemonHello("daemon-2", makeLabel("Two"));
 
     expect(usePairingStore.getState().pairings.size).toBe(2);
 
@@ -356,7 +363,7 @@ describe("pairing-store: inbound control messages", () => {
 
     await usePairingStore
       .getState()
-      .handlePeerRename("daemon-d1", "  Peer Name  ");
+      .handlePeerRename("daemon-d1", makeLabel("  Peer Name  "));
 
     expect(usePairingStore.getState().pairings.get("daemon-d1")?.label).toBe(
       "Peer Name",
@@ -365,17 +372,20 @@ describe("pairing-store: inbound control messages", () => {
     expect(sender).not.toHaveBeenCalled();
   });
 
-  test("handlePeerRename with empty label clears to null", async () => {
+  test("handlePeerRename with cleared label ({ set: false }) clears to null", async () => {
     const qr = await buildFakePairing("daemon-d1", { label: "Old" });
     await usePairingStore.getState().processScan(qr);
-    await usePairingStore.getState().handlePeerRename("daemon-d1", "");
+    // An authoritative clear from the peer (was the legacy `""` sentinel).
+    await usePairingStore
+      .getState()
+      .handlePeerRename("daemon-d1", { set: false });
     expect(
       usePairingStore.getState().pairings.get("daemon-d1")?.label,
     ).toBeNull();
   });
 
   test("handlePeerRename ignores unknown daemonId", async () => {
-    await usePairingStore.getState().handlePeerRename("ghost", "X");
+    await usePairingStore.getState().handlePeerRename("ghost", makeLabel("X"));
     expect(usePairingStore.getState().pairings.size).toBe(0);
   });
 
@@ -384,34 +394,42 @@ describe("pairing-store: inbound control messages", () => {
     await usePairingStore.getState().processScan(qr);
     await usePairingStore
       .getState()
-      .handleDaemonHello("daemon-d1", "MacBook Pro");
+      .handleDaemonHello("daemon-d1", makeLabel("MacBook Pro"));
     const info = usePairingStore.getState().pairings.get("daemon-d1");
     expect(info?.label).toBe("MacBook Pro");
     expect(info?.labelSource).toBe("daemon");
   });
 
-  test("handleDaemonHello with null label is a no-op", async () => {
+  test("handleDaemonHello with unset label ({ set: false }) is a no-op", async () => {
     const qr = await buildFakePairing("daemon-d1");
     await usePairingStore.getState().processScan(qr);
     const before = usePairingStore.getState().pairings.get("daemon-d1")?.label;
-    await usePairingStore.getState().handleDaemonHello("daemon-d1", null);
+    // `{ set: false }` is the "keep current" signal (the relay client normally
+    // short-circuits this via decodeKxLabelOrKeep, but the handler guards too).
+    await usePairingStore
+      .getState()
+      .handleDaemonHello("daemon-d1", { set: false });
     expect(usePairingStore.getState().pairings.get("daemon-d1")?.label).toBe(
       before,
     );
   });
 
-  test("handleDaemonHello with empty/whitespace label is a no-op", async () => {
+  test("handleDaemonHello with whitespace-only label is a no-op", async () => {
     const qr = await buildFakePairing("daemon-d1");
     await usePairingStore.getState().processScan(qr);
     const before = usePairingStore.getState().pairings.get("daemon-d1")?.label;
-    await usePairingStore.getState().handleDaemonHello("daemon-d1", "   ");
+    // makeLabel("   ") collapses to { set: false }, but pass the union form a
+    // forgiving decoder might still produce to exercise the trim guard.
+    await usePairingStore
+      .getState()
+      .handleDaemonHello("daemon-d1", { set: true, value: "   " });
     expect(usePairingStore.getState().pairings.get("daemon-d1")?.label).toBe(
       before,
     );
   });
 
   test("handleDaemonHello for unknown daemonId is a no-op", async () => {
-    await usePairingStore.getState().handleDaemonHello("ghost", "X");
+    await usePairingStore.getState().handleDaemonHello("ghost", makeLabel("X"));
     expect(usePairingStore.getState().pairings.size).toBe(0);
   });
 
@@ -426,7 +444,7 @@ describe("pairing-store: inbound control messages", () => {
     // Daemon broadcast arrives with a different label — must not clobber.
     await usePairingStore
       .getState()
-      .handleDaemonHello("daemon-d1", "Old Daemon Label");
+      .handleDaemonHello("daemon-d1", makeLabel("Old Daemon Label"));
     const info = usePairingStore.getState().pairings.get("daemon-d1");
     expect(info?.label).toBe("My Mac");
     expect(info?.labelSource).toBe("user");
@@ -435,10 +453,14 @@ describe("pairing-store: inbound control messages", () => {
   test("handleDaemonHello with the same label is idempotent", async () => {
     const qr = await buildFakePairing("daemon-d1");
     await usePairingStore.getState().processScan(qr);
-    await usePairingStore.getState().handleDaemonHello("daemon-d1", "Foo");
+    await usePairingStore
+      .getState()
+      .handleDaemonHello("daemon-d1", makeLabel("Foo"));
     const before = usePairingStore.getState().pairings.get("daemon-d1");
 
-    await usePairingStore.getState().handleDaemonHello("daemon-d1", "Foo");
+    await usePairingStore
+      .getState()
+      .handleDaemonHello("daemon-d1", makeLabel("Foo"));
     const after = usePairingStore.getState().pairings.get("daemon-d1");
     // Reference equality verifies the early-return path: a write would
     // produce a fresh object via `pairings.set(...)` + `set({ pairings })`.
@@ -450,12 +472,16 @@ describe("pairing-store: inbound control messages", () => {
   test("subsequent daemon hello overwrites a daemon-sourced label", async () => {
     const qr = await buildFakePairing("daemon-d1");
     await usePairingStore.getState().processScan(qr);
-    await usePairingStore.getState().handleDaemonHello("daemon-d1", "Foo");
+    await usePairingStore
+      .getState()
+      .handleDaemonHello("daemon-d1", makeLabel("Foo"));
     expect(
       usePairingStore.getState().pairings.get("daemon-d1")?.labelSource,
     ).toBe("daemon");
 
-    await usePairingStore.getState().handleDaemonHello("daemon-d1", "Bar");
+    await usePairingStore
+      .getState()
+      .handleDaemonHello("daemon-d1", makeLabel("Bar"));
     const info = usePairingStore.getState().pairings.get("daemon-d1");
     expect(info?.label).toBe("Bar");
     expect(info?.labelSource).toBe("daemon");

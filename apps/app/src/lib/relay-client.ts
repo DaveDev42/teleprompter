@@ -12,6 +12,7 @@ import type {
   ControlRename,
   ControlUnpair,
   KeyPair,
+  Label,
   RecordKind,
   RelayClientMessage,
   RelayFrame,
@@ -25,6 +26,8 @@ import type {
 import {
   CONTROL_RENAME,
   CONTROL_UNPAIR,
+  decodeKxLabelOrKeep,
+  decodeWireLabel,
   decrypt,
   deriveKxKey,
   deriveSessionKeys,
@@ -33,6 +36,7 @@ import {
   RELAY_CHANNEL_CONTROL,
   RELAY_CHANNEL_META,
   toBase64,
+  WS_PROTOCOL_VERSION,
 } from "@teleprompter/protocol/client";
 import { secureDelete, secureGet, secureSet } from "./secure-storage";
 import type { TransportClient, TransportEventHandler } from "./transport";
@@ -138,18 +142,25 @@ export class FrontendRelayClient implements TransportClient {
     | ((info: { daemonId: string; reason: ControlUnpair["reason"] }) => void)
     | null = null;
 
-  /** Called when daemon notifies this frontend that the pairing label was changed. */
-  onRename: ((info: { daemonId: string; label: string }) => void) | null = null;
+  /**
+   * Called when daemon notifies this frontend that the pairing label was
+   * changed. `label` is the `Label` tagged union — `{ set: false }` is an
+   * authoritative clear (this is a ControlRename surface, decoded with
+   * `decodeWireLabel`).
+   */
+  onRename: ((info: { daemonId: string; label: Label }) => void) | null = null;
 
   /**
-   * Called when the daemon broadcasts its public key after auth (relay.kx).
-   * Carries the label the daemon was paired with so the frontend can adopt
-   * it without burning bytes in the QR. `label === null` means the daemon
-   * has no label set; the frontend should keep its existing fallback.
+   * Called when the daemon broadcasts its public key after auth (relay.kx),
+   * or via the meta `hello` daemonLabel. Carries the label the daemon was
+   * paired with so the frontend can adopt it without burning bytes in the QR.
+   * `label` is always a concrete `{ set: true, value }` here: these are
+   * keep-current surfaces, so the relay client decodes them with
+   * `decodeKxLabelOrKeep` and simply does not fire this callback when the
+   * daemon advertises no label (the frontend keeps its existing fallback).
    */
-  onDaemonHello:
-    | ((info: { daemonId: string; label: string | null }) => void)
-    | null = null;
+  onDaemonHello: ((info: { daemonId: string; label: Label }) => void) | null =
+    null;
 
   /** Track attached session and last seq for auto-resume on reconnect */
   private attachedSid: string | null = null;
@@ -433,11 +444,16 @@ export class FrontendRelayClient implements TransportClient {
         role?: unknown;
         label?: unknown;
       };
-      // `label` is optional on the wire so older daemons stay compatible —
-      // a missing or non-string value maps to null, which the store treats
-      // as "keep current label".
-      const label = typeof data.label === "string" ? data.label : null;
-      this.onDaemonHello?.({ daemonId: this.config.daemonId, label });
+      // `label` is a keep-current surface: the daemon advertises its label
+      // here so the frontend can adopt it, but absence (older daemon omits the
+      // field, or a `{ set: false }` union) means "keep my existing fallback".
+      // `decodeKxLabelOrKeep` returns a concrete `{ set: true, value }` only
+      // when a real label is present, else null — so we simply don't fire the
+      // callback and the frontend's fallback stays in effect.
+      const label = decodeKxLabelOrKeep(data.label);
+      if (label) {
+        this.onDaemonHello?.({ daemonId: this.config.daemonId, label });
+      }
     } catch {
       // Decrypt or parse failure — ignore, fallback label stays in effect.
     }
@@ -454,6 +470,12 @@ export class FrontendRelayClient implements TransportClient {
       pk: await toBase64(this.config.keyPair.publicKey),
       frontendId: this.config.frontendId,
       role: "frontend",
+      // Advertise our protocol version so the daemon knows whether this
+      // frontend can decode the `Label` tagged union on ControlRename. An
+      // un-updated app (no `v`, treated as v1 by the daemon) gets a legacy
+      // string-shaped label so it never coerces a union object to "" and
+      // silently clears the label. See packages/protocol/src/types/label.ts.
+      v: WS_PROTOCOL_VERSION,
     });
     const ct = await encrypt(new TextEncoder().encode(payload), this.kxKey);
     this.sendRelay({ t: "relay.kx", ct, role: "frontend" });
@@ -487,14 +509,17 @@ export class FrontendRelayClient implements TransportClient {
           // `daemonLabel` is included since the label-broadcast fix so the
           // frontend can adopt the label even when it missed the initial
           // relay.kx broadcast (e.g. frontend reconnected while daemon was
-          // already online). Older daemons omit the field — treat as null.
+          // already online). This is a keep-current surface — older daemons
+          // omit the field and a `{ set: false }` union both decode to "keep
+          // my fallback", so we only fire the callback for a concrete label.
           if (this.onDaemonHello) {
-            const daemonLabel =
-              typeof msg.d.daemonLabel === "string" ? msg.d.daemonLabel : null;
-            this.onDaemonHello({
-              daemonId: this.config.daemonId,
-              label: daemonLabel,
-            });
+            const daemonLabel = decodeKxLabelOrKeep(msg.d.daemonLabel);
+            if (daemonLabel) {
+              this.onDaemonHello({
+                daemonId: this.config.daemonId,
+                label: daemonLabel,
+              });
+            }
           }
           break;
         case "pong":
@@ -546,7 +571,15 @@ export class FrontendRelayClient implements TransportClient {
             );
             break;
           }
-          const label = typeof msg.label === "string" ? msg.label : "";
+          // ControlRename is an authoritative surface: `{ set: false }` is a
+          // genuine clear, `{ set: true, value }` is the new label. Decode the
+          // tagged union forgivingly — a v2 daemon sends the union object, a
+          // v1 daemon (or one talking to an older app) sends a legacy string
+          // ("" = clear). `decodeWireLabel` normalizes all of these. The old
+          // `typeof msg.label === "string" ? msg.label : ""` coerced a union
+          // object to "" and silently cleared the label — the data-corruption
+          // bug this migration fixes.
+          const label = decodeWireLabel(msg.label);
           const daemonId =
             typeof msg.daemonId === "string"
               ? msg.daemonId
@@ -636,11 +669,13 @@ export class FrontendRelayClient implements TransportClient {
       t: CONTROL_RENAME,
       daemonId: this.config.daemonId,
       frontendId: this.config.frontendId,
-      // The wire field is now the `Label` tagged union. The daemon's inbound
-      // path runs every ControlRename through `decodeWireLabel`, which accepts
-      // both this union and a legacy bare string, so an older daemon still
-      // understands us. (PR3 will migrate the app's *receive* path + add the
-      // `v` field to kx so the daemon can version-gate what it sends back.)
+      // The wire field is the `Label` tagged union. The daemon's inbound path
+      // runs every ControlRename through `decodeWireLabel`, which accepts both
+      // this union and a legacy bare string, so an older daemon still
+      // understands us. The app's *receive* path (handleFrame's CONTROL_RENAME
+      // case) likewise decodes with `decodeWireLabel`, and `sendKeyExchange`
+      // advertises `v: WS_PROTOCOL_VERSION` so the daemon version-gates what it
+      // sends back to us. See packages/protocol/src/types/label.ts.
       label: makeLabel(label),
       ts: Date.now(),
     };

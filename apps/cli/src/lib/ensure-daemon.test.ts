@@ -15,11 +15,11 @@ import {
 describe("isDaemonRunning", () => {
   let runtime: string;
   let sockPath: string;
-  const origRuntime = process.env.XDG_RUNTIME_DIR;
+  const origRuntime = process.env["XDG_RUNTIME_DIR"];
 
   beforeEach(() => {
     runtime = mkdtempSync(join(tmpdir(), "tp-ensure-daemon-"));
-    process.env.XDG_RUNTIME_DIR = runtime;
+    process.env["XDG_RUNTIME_DIR"] = runtime;
     sockPath = join(runtime, "daemon.sock");
     // Guard against platform-specific socket-path resolution (e.g. macOS
     // falling back to TMPDIR). If this fails the other assertions would
@@ -32,8 +32,8 @@ describe("isDaemonRunning", () => {
   });
 
   afterEach(() => {
-    if (origRuntime === undefined) delete process.env.XDG_RUNTIME_DIR;
-    else process.env.XDG_RUNTIME_DIR = origRuntime;
+    if (origRuntime === undefined) delete process.env["XDG_RUNTIME_DIR"];
+    else process.env["XDG_RUNTIME_DIR"] = origRuntime;
     rmSync(runtime, { recursive: true, force: true });
   });
 

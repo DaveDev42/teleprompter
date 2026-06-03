@@ -748,10 +748,11 @@ export class FrontendRelayClient implements TransportClient {
         this.sessionKeys.tx,
       );
 
-      const sid = sidOverride ?? (msg.sid as string) ?? RELAY_CHANNEL_CONTROL;
+      const sid =
+        sidOverride ?? (msg["sid"] as string) ?? RELAY_CHANNEL_CONTROL;
       this.sendRelay({ t: "relay.pub", sid, ct, seq: 0 });
     } catch {
-      console.error(`[FrontendRelay] encrypt failed for ${msg.t}`);
+      console.error(`[FrontendRelay] encrypt failed for ${msg["t"]}`);
     }
   }
 
@@ -765,7 +766,7 @@ export class FrontendRelayClient implements TransportClient {
       const dropped = this.pendingEncrypted.shift();
       console.warn(
         `[FrontendRelay] pending queue full, dropping oldest ${
-          dropped?.msg.t ?? "?"
+          dropped?.msg["t"] ?? "?"
         }`,
       );
     }

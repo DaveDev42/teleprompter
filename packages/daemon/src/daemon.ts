@@ -171,8 +171,8 @@ export class Daemon {
   startAutoCleanup(ttlDays?: number): void {
     const days =
       ttlDays ??
-      (process.env.TP_PRUNE_TTL_DAYS
-        ? Number(process.env.TP_PRUNE_TTL_DAYS)
+      (process.env["TP_PRUNE_TTL_DAYS"]
+        ? Number(process.env["TP_PRUNE_TTL_DAYS"])
         : DEFAULT_PRUNE_TTL_DAYS);
     const maxAgeMs = days * 24 * 60 * 60 * 1000;
 

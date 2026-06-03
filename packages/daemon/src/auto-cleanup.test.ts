@@ -60,16 +60,16 @@ describe("Daemon auto-cleanup", () => {
     store.updateSessionState("s1", "stopped");
     backdateSession(store, "s1", 2 * 24 * 60 * 60 * 1000);
 
-    const original = process.env.TP_PRUNE_TTL_DAYS;
+    const original = process.env["TP_PRUNE_TTL_DAYS"];
     try {
-      process.env.TP_PRUNE_TTL_DAYS = "1";
+      process.env["TP_PRUNE_TTL_DAYS"] = "1";
       daemon.startAutoCleanup(); // should use 1 day from env
       expect(store.getSession("s1")).toBeUndefined();
     } finally {
       if (original === undefined) {
-        delete process.env.TP_PRUNE_TTL_DAYS;
+        delete process.env["TP_PRUNE_TTL_DAYS"];
       } else {
-        process.env.TP_PRUNE_TTL_DAYS = original;
+        process.env["TP_PRUNE_TTL_DAYS"] = original;
       }
     }
   });

@@ -15,12 +15,12 @@ describe("manifest invariants", () => {
       pnpm?: { overrides?: Record<string, string> };
     };
     const overrides = pkg.pnpm?.overrides ?? {};
-    expect(overrides.react).toBeDefined();
+    expect(overrides["react"]).toBeDefined();
     expect(overrides["react-dom"]).toBeDefined();
     // If these drift apart again, the web bundle re-hits React error #527
     // (server-rendering→client-rendering fallback) and every e2e spec sees
     // a blank <body>. PR #447 was the fix; this guards against re-drift.
-    expect(overrides["react-dom"]).toBe(overrides.react as string);
+    expect(overrides["react-dom"]).toBe(overrides["react"] as string);
   });
 
   test("apps/app declares expo.install.exclude for react and react-dom", () => {

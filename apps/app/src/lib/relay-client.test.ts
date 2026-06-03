@@ -64,9 +64,11 @@ import {
   generateKeyPair,
   generatePairingSecret,
   type KeyPair,
+  type Label,
   type RelayServerMessage,
   ratchetSessionKeys,
   toBase64,
+  WS_PROTOCOL_VERSION,
 } from "@teleprompter/protocol/client";
 
 // Dynamic import — evaluated AFTER mocks are registered. Static imports
@@ -509,6 +511,10 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
     expect(decoded.role).toBe("frontend");
     expect(decoded.frontendId).toBe("frontend-test");
     expect(decoded.pk).toBe(await toBase64(p.frontendKp.publicKey));
+    // The frontend advertises its protocol version so the daemon can decide
+    // whether to send the `Label` tagged union or a legacy string on
+    // ControlRename. An un-updated app omits `v` → daemon treats it as v1.
+    expect(decoded.v).toBe(WS_PROTOCOL_VERSION);
 
     client.dispose();
   });
@@ -950,19 +956,19 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
     client.dispose();
   });
 
-  test("control.rename on control channel fires onRename", async () => {
-    const p = await setupPairing();
-    const received: Array<{ daemonId: string; label: string }> = [];
-    const client = new FrontendRelayClient(makeConfig(p));
-    client.onRename = (info) => received.push(info);
-
-    const ws = await authenticate(client);
-
+  // Helper: encrypt+deliver a control.rename frame carrying an arbitrary
+  // `label` wire value (legacy string, union object, or malformed) so the
+  // decode path in handleFrame's CONTROL_RENAME case can be exercised.
+  async function deliverRename(
+    p: Awaited<ReturnType<typeof setupPairing>>,
+    ws: Awaited<ReturnType<typeof authenticate>>,
+    label: unknown,
+  ): Promise<void> {
     const msg = {
       t: CONTROL_RENAME,
       daemonId: "daemon-test",
       frontendId: "frontend-test",
-      label: "Home Mac",
+      label,
       ts: Date.now(),
     };
     const ct = await encrypt(
@@ -977,8 +983,57 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
       from: "daemon",
     } as RelayServerMessage);
     await flushPromises();
+  }
 
-    expect(received).toEqual([{ daemonId: "daemon-test", label: "Home Mac" }]);
+  test("control.rename with a legacy string label fires onRename (decoded to union)", async () => {
+    const p = await setupPairing();
+    const received: Array<{ daemonId: string; label: Label }> = [];
+    const client = new FrontendRelayClient(makeConfig(p));
+    client.onRename = (info) => received.push(info);
+
+    const ws = await authenticate(client);
+    // A v1 daemon (or one talking down to an older app) sends a bare string.
+    await deliverRename(p, ws, "Home Mac");
+
+    expect(received).toEqual([
+      { daemonId: "daemon-test", label: { set: true, value: "Home Mac" } },
+    ]);
+    client.dispose();
+  });
+
+  test("control.rename with a { set: true } union label fires onRename", async () => {
+    const p = await setupPairing();
+    const received: Array<{ daemonId: string; label: Label }> = [];
+    const client = new FrontendRelayClient(makeConfig(p));
+    client.onRename = (info) => received.push(info);
+
+    const ws = await authenticate(client);
+    // A v2 daemon sends the tagged union directly.
+    await deliverRename(p, ws, { set: true, value: "Office Mac" });
+
+    expect(received).toEqual([
+      { daemonId: "daemon-test", label: { set: true, value: "Office Mac" } },
+    ]);
+    client.dispose();
+  });
+
+  test("control.rename with a { set: false } union label is an authoritative clear (no silent-clear regression)", async () => {
+    // The data-corruption bug this migration fixes: the old code did
+    // `typeof msg.label === "string" ? msg.label : ""`, which coerced a union
+    // object to "" — turning an *unrelated* message into a label wipe. With
+    // `decodeWireLabel`, a `{ set: false }` is a deliberate clear and a
+    // `{ set: true }` is preserved as-is, never silently flattened.
+    const p = await setupPairing();
+    const received: Array<{ daemonId: string; label: Label }> = [];
+    const client = new FrontendRelayClient(makeConfig(p));
+    client.onRename = (info) => received.push(info);
+
+    const ws = await authenticate(client);
+    await deliverRename(p, ws, { set: false });
+
+    expect(received).toEqual([
+      { daemonId: "daemon-test", label: { set: false } },
+    ]);
     client.dispose();
   });
 });
@@ -1050,7 +1105,9 @@ describe("FrontendRelayClient — outbound encrypted senders", () => {
     const pt = await decrypt(pub!.ct, p.daemonRx);
     const decoded = JSON.parse(new TextDecoder().decode(pt));
     expect(decoded.t).toBe(CONTROL_RENAME);
-    expect(decoded.label).toBe("iPhone 17");
+    // The wire field is the `Label` tagged union — sendRenameNotice wraps the
+    // string arg with makeLabel before encrypting.
+    expect(decoded.label).toEqual({ set: true, value: "iPhone 17" });
     client.dispose();
   });
 
@@ -1250,7 +1307,7 @@ describe("FrontendRelayClient — pending-encrypted queue", () => {
       new TextDecoder().decode(await decrypt(renamePub.ct, p.daemonRx)),
     );
     expect(renameDecoded.t).toBe(CONTROL_RENAME);
-    expect(renameDecoded.label).toBe("My Mac");
+    expect(renameDecoded.label).toEqual({ set: true, value: "My Mac" });
     client.dispose();
   });
 

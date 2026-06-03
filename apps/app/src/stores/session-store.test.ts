@@ -2,7 +2,8 @@
  * Unit tests for session-store.
  *
  * Covers:
- *  - simple field setters (sid, lastSeq, lastError, reconnectCount)
+ *  - union setters (activeSession, relayState, bumpReconnect)
+ *  - simple field setters (lastSeq)
  *  - session list updates (setSessions, updateSession)
  *  - record handler multicast: 2 handlers + one dispatch -> both invoked
  *  - handler unsubscribe stops future invocations
@@ -81,20 +82,46 @@ function waitWrite(): Promise<void> {
 describe("session-store: simple setters", () => {
   beforeEach(resetStore);
 
-  test("setSid / setLastSeq / setError / incrementReconnect", () => {
+  test("setActiveSession / setLastSeq / setRelayState / bumpReconnect", () => {
     const s = useSessionStore.getState();
-    s.setSid("abc");
-    expect(useSessionStore.getState().sid).toBe("abc");
 
+    // setActiveSession
+    s.setActiveSession({ active: true, sid: "abc" });
+    expect(useSessionStore.getState().activeSession).toEqual({
+      active: true,
+      sid: "abc",
+    });
+
+    // setActiveSession to inactive
+    s.setActiveSession({ active: false });
+    expect(useSessionStore.getState().activeSession).toEqual({ active: false });
+
+    // setLastSeq
     s.setLastSeq(42);
     expect(useSessionStore.getState().lastSeq).toBe(42);
 
-    s.setError("boom");
-    expect(useSessionStore.getState().lastError).toBe("boom");
+    // setRelayState to error
+    s.setRelayState({ status: "error", message: "boom", reconnectCount: 0 });
+    expect(useSessionStore.getState().relayState).toEqual({
+      status: "error",
+      message: "boom",
+      reconnectCount: 0,
+    });
 
-    s.incrementReconnect();
-    s.incrementReconnect();
-    expect(useSessionStore.getState().reconnectCount).toBe(2);
+    // setRelayState to connected
+    s.setRelayState({ status: "connected" });
+    expect(useSessionStore.getState().relayState).toEqual({
+      status: "connected",
+    });
+
+    // bumpReconnect increments from current count
+    s.setRelayState({ status: "disconnected", reconnectCount: 0 });
+    s.bumpReconnect();
+    s.bumpReconnect();
+    expect(useSessionStore.getState().relayState).toEqual({
+      status: "disconnected",
+      reconnectCount: 2,
+    });
   });
 });
 
@@ -284,7 +311,7 @@ describe("session-store: record handler multicast", () => {
     const s = useSessionStore.getState();
     // Should not throw.
     s.dispatchRec(makeRec("s", 1));
-    expect(useSessionStore.getState().sid).toBeNull();
+    expect(useSessionStore.getState().activeSession).toEqual({ active: false });
   });
 });
 
@@ -293,20 +320,22 @@ describe("session-store: reset", () => {
     const h = mock((_rec: SessionRec) => {});
     const s = useSessionStore.getState();
 
-    s.setSid("x");
+    s.setActiveSession({ active: true, sid: "x" });
     s.setLastSeq(99);
-    s.setError("oops");
-    s.incrementReconnect();
+    s.setRelayState({ status: "error", message: "oops", reconnectCount: 1 });
+    s.bumpReconnect();
     s.setSessions("d1", [makeMeta("a")]);
     s.addRecHandler(h);
 
     s.reset();
 
     const after = useSessionStore.getState();
-    expect(after.sid).toBeNull();
+    expect(after.activeSession).toEqual({ active: false });
     expect(after.lastSeq).toBe(0);
-    expect(after.lastError).toBeNull();
-    expect(after.reconnectCount).toBe(0);
+    expect(after.relayState).toEqual({
+      status: "disconnected",
+      reconnectCount: 0,
+    });
     expect(after.sessions).toEqual([]);
     expect(after._recHandlers.size).toBe(0);
     expect(after._sessionsByDaemon.size).toBe(0);

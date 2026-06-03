@@ -266,7 +266,8 @@ export default function SessionsScreen() {
   const router = useRouter();
   const sessions = useSessionStore((s) => s.sessions);
   const removeSessions = useSessionStore((s) => s.removeSessions);
-  const currentSid = useSessionStore((s) => s.sid);
+  const activeSession = useSessionStore((s) => s.activeSession);
+  const currentSid = activeSession.active ? activeSession.sid : null;
   const showToast = useNotificationStore((s) => s.showToast);
   const [filter, setFilter] = useState("");
   const pp = getPlatformProps();

@@ -38,4 +38,5 @@ export {
   parsePairingForFrontend,
 } from "./pairing";
 export { parseRelayServerMessage } from "./relay-server-guard";
+export { parseSessionServerMessage } from "./session-server-guard";
 export * from "./types";

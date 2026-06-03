@@ -2,6 +2,7 @@
 // daemon over the relay (Session* types). Formerly Ws-prefixed; renamed after
 // the direct-WS transport was removed, since these are shared protocol types
 // rather than WebSocket-transport-specific.
+import type { Label } from "./label";
 import type { Namespace, RecordKind } from "./record";
 import type { SessionState } from "./session";
 
@@ -150,7 +151,17 @@ export type SessionClientMessage =
 export interface SessionHelloReply {
   t: "hello";
   v: number;
-  d: { sessions: SessionMeta[] };
+  d: {
+    sessions: SessionMeta[];
+    /**
+     * The daemon's pairing label, broadcast on the meta `hello` so a frontend
+     * that reconnected after the initial `relay.kx` can still adopt it. A
+     * keep-current surface: `{ set: false }` / absence both mean "keep my
+     * fallback", so the reader decodes it forgivingly via `decodeKxLabelOrKeep`
+     * (which also accepts the legacy `string` shape from an older daemon).
+     */
+    daemonLabel?: Label;
+  };
 }
 
 export interface SessionStateMsg {

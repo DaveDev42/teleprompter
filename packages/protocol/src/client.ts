@@ -10,6 +10,7 @@ export {
   parseVersion,
   WS_PROTOCOL_VERSION,
 } from "./compat";
+export { parseControlMessage } from "./control-guard";
 export type { KeyPair, SessionKeys } from "./crypto";
 export {
   decrypt,

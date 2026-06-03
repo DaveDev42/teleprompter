@@ -234,7 +234,13 @@ async function authenticate(
   const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
   if (!ws) throw new Error("no WebSocket instance created by connect()");
   ws.simulateOpen();
-  ws.simulateMessage({ t: "relay.auth.ok" } as RelayServerMessage);
+  // The real relay always stamps daemonId on auth.ok (relay-server.ts
+  // buildAuthOk); the parseRelayServerMessage guard now enforces it, so the
+  // fixture must match what production sends.
+  ws.simulateMessage({
+    t: "relay.auth.ok",
+    daemonId: "daemon-test",
+  } as RelayServerMessage);
   // sendKeyExchange() is async (encrypt is async) — flush microtasks.
   await flushPromises();
   return ws;
@@ -777,11 +783,14 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
     }
   });
 
-  test("decrypt fail with missing sid falls through to error path", async () => {
-    // Malformed frames (sid undefined/empty) are a real anomaly — the
-    // RelayFrame protocol type declares sid as a required string. The
-    // guard compares against specific sentinel strings, so undefined
-    // correctly falls through to console.error.
+  test("relay.frame with missing sid is dropped at the boundary guard", async () => {
+    // A relay.frame with no sid violates the RelayFrame protocol type (sid is
+    // a required string). parseRelayServerMessage now rejects it at the
+    // onmessage boundary, so it never reaches handleFrame/decrypt: no decrypt
+    // is attempted, nothing is logged, and onError stays silent. This is
+    // strictly safer than the prior behavior (where the malformed frame
+    // reached the decrypt catch and surfaced a console.error) — the zero-trust
+    // guard refuses the frame before any handler dereferences its fields.
     const p = await setupPairing();
     const errors: string[] = [];
     const client = new FrontendRelayClient(makeConfig(p), {
@@ -794,14 +803,15 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
 
       ws.simulateMessage({
         t: "relay.frame",
-        // sid intentionally omitted
+        // sid intentionally omitted — rejected by the guard
         ct: "AAAAAAAAAAAAAA",
         seq: 1,
         from: "daemon",
       } as unknown as RelayServerMessage);
       await flushPromises();
 
-      expect(relayCalls(spy.errorCalls).length).toBe(1);
+      // Dropped at the boundary: no decrypt-path error, no debug, no onError.
+      expect(relayCalls(spy.errorCalls)).toEqual([]);
       expect(relayCalls(spy.debugCalls)).toEqual([]);
       expect(errors).toEqual([]);
     } finally {
@@ -1179,7 +1189,7 @@ describe("FrontendRelayClient — pending-encrypted queue", () => {
     expect(ws.parsedSent().filter((m) => m.t === "relay.pub").length).toBe(0);
 
     // Complete the handshake.
-    ws.simulateMessage({ t: "relay.auth.ok" });
+    ws.simulateMessage({ t: "relay.auth.ok", daemonId: "daemon-test" });
     await settleAuthPipeline(1);
 
     // The queued resume is now flushed to the daemon.
@@ -1213,7 +1223,7 @@ describe("FrontendRelayClient — pending-encrypted queue", () => {
     // Authenticate → queue drains. Because we overflowed by `overflow`,
     // the first `overflow` sends (sid=s0..s4) were dropped; the remaining
     // cap frames (sid=s5..s36) should arrive in order.
-    ws.simulateMessage({ t: "relay.auth.ok" });
+    ws.simulateMessage({ t: "relay.auth.ok", daemonId: "daemon-test" });
     await settleAuthPipeline(cap);
 
     const pubs = ws.parsedSent().filter((m) => m.t === "relay.pub") as Array<{
@@ -1265,7 +1275,7 @@ describe("FrontendRelayClient — pending-encrypted queue", () => {
     expect(ws.parsedSent().filter((m) => m.t === "relay.pub").length).toBe(0);
 
     // Authenticate → queue drains.
-    ws.simulateMessage({ t: "relay.auth.ok" });
+    ws.simulateMessage({ t: "relay.auth.ok", daemonId: "daemon-test" });
     await settleAuthPipeline(3);
 
     const pubs = ws.parsedSent().filter((m) => m.t === "relay.pub") as Array<{
@@ -1346,7 +1356,7 @@ describe("FrontendRelayClient — pending-encrypted queue", () => {
       await client.connect();
       const ws2 = latestWs();
       ws2.simulateOpen();
-      ws2.simulateMessage({ t: "relay.auth.ok" });
+      ws2.simulateMessage({ t: "relay.auth.ok", daemonId: "daemon-test-2" });
       await settleAuthPipeline(0);
 
       const pubs = ws2

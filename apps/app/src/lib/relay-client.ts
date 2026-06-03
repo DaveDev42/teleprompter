@@ -33,6 +33,7 @@ import {
   deriveSessionKeys,
   encrypt,
   makeLabel,
+  parseRelayServerMessage,
   RELAY_CHANNEL_CONTROL,
   RELAY_CHANNEL_META,
   toBase64,
@@ -281,12 +282,17 @@ export class FrontendRelayClient implements TransportClient {
     };
 
     ws.onmessage = (event) => {
+      if (typeof event.data !== "string") return;
+      let parsed: unknown;
       try {
-        const msg: RelayServerMessage = JSON.parse(event.data as string);
-        this.handleMessage(msg);
+        parsed = JSON.parse(event.data);
       } catch {
-        // ignore
+        // ignore malformed JSON
+        return;
       }
+      const msg = parseRelayServerMessage(parsed);
+      if (!msg) return;
+      this.handleMessage(msg);
     };
 
     ws.onclose = () => {
@@ -416,10 +422,22 @@ export class FrontendRelayClient implements TransportClient {
         this.missedRelayPongs = 0;
         break;
 
-      case "relay.err": {
-        const errMsg = msg as { m?: string; e?: string };
-        this.events.onError?.(`Relay error: ${errMsg.m ?? errMsg.e}`);
+      case "relay.err":
+        this.events.onError?.(`Relay error: ${msg.m ?? msg.e}`);
         break;
+
+      case "relay.register.ok":
+      case "relay.register.err":
+        // Only daemons register with the relay; a frontend never sends
+        // relay.register and so never receives these. Keep no-op arms so the
+        // switch stays exhaustive over RelayServerMessage.
+        break;
+
+      default: {
+        // Exhaustiveness guard: every RelayServerMessage variant is handled
+        // above. A new variant without an arm fails to compile here.
+        const _exhaustive: never = msg;
+        return _exhaustive;
       }
     }
   }

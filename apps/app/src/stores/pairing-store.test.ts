@@ -66,7 +66,7 @@ function resetStore() {
   usePairingStore.setState({
     state: "unpaired",
     pairings: new Map(),
-    activeDaemonId: null,
+    activeDaemon: { active: false },
     error: null,
     loaded: false,
     lastPeerUnpair: null,
@@ -103,12 +103,12 @@ describe("pairing-store: serialize/deserialize", () => {
 
     const before = usePairingStore.getState().pairings.get("daemon-a");
     expect(before).toBeDefined();
-    expect(before?.label).toBe("Alpha");
+    expect(before?.label).toEqual({ set: true, value: "Alpha" });
 
     // Reset in-memory state and reload from storage.
     usePairingStore.setState({
       pairings: new Map(),
-      activeDaemonId: null,
+      activeDaemon: { active: false },
       state: "unpaired",
       loaded: false,
     });
@@ -121,7 +121,7 @@ describe("pairing-store: serialize/deserialize", () => {
     expect(after.relayToken).toBe(before.relayToken);
     expect(after.registrationProof).toBe(before.registrationProof);
     expect(after.frontendId).toBe(before.frontendId);
-    expect(after.label).toBe("Alpha");
+    expect(after.label).toEqual({ set: true, value: "Alpha" });
     expect(after.labelSource).toBe("daemon");
     expect(after.pairedAt).toBe(before.pairedAt);
     // Uint8Array round-trip
@@ -157,7 +157,7 @@ describe("pairing-store: serialize/deserialize", () => {
 
     usePairingStore.setState({
       pairings: new Map(),
-      activeDaemonId: null,
+      activeDaemon: { active: false },
       state: "unpaired",
       loaded: false,
     });
@@ -165,8 +165,8 @@ describe("pairing-store: serialize/deserialize", () => {
 
     const p = usePairingStore.getState().pairings;
     expect(p.size).toBe(2);
-    expect(p.get("daemon-1")?.label).toBe("One");
-    expect(p.get("daemon-2")?.label).toBe("Two");
+    expect(p.get("daemon-1")?.label).toEqual({ set: true, value: "One" });
+    expect(p.get("daemon-2")?.label).toEqual({ set: true, value: "Two" });
   });
 });
 
@@ -181,7 +181,7 @@ describe("pairing-store: state transitions", () => {
 
     const s = usePairingStore.getState();
     expect(s.state).toBe("paired");
-    expect(s.activeDaemonId).toBe("daemon-x");
+    expect(s.activeDaemon).toEqual({ active: true, daemonId: "daemon-x" });
     expect(s.pairings.size).toBe(1);
     expect(s.error).toBeNull();
   });
@@ -191,7 +191,7 @@ describe("pairing-store: state transitions", () => {
     await usePairingStore.getState().processScan(qr);
     // mocked expo-device.deviceName is "TestDevice"
     const info = usePairingStore.getState().pairings.get("daemon-d2");
-    expect(info?.label).toBe("TestDevice");
+    expect(info?.label).toEqual({ set: true, value: "TestDevice" });
     // Seed origin is `qr` so handleDaemonHello can later upgrade it.
     expect(info?.labelSource).toBe("qr");
   });
@@ -210,19 +210,21 @@ describe("pairing-store: state transitions", () => {
     expect(usePairingStore.getState().error).toBeNull();
   });
 
-  test("removePairing deletes entry and re-routes activeDaemonId", async () => {
+  test("removePairing deletes entry and re-routes activeDaemon", async () => {
     const qr1 = await buildFakePairing("daemon-d1");
     const qr2 = await buildFakePairing("daemon-d2");
     await usePairingStore.getState().processScan(qr1);
     await usePairingStore.getState().processScan(qr2);
 
-    usePairingStore.getState().setActiveDaemon("daemon-d2");
+    usePairingStore
+      .getState()
+      .setActiveDaemon({ active: true, daemonId: "daemon-d2" });
     await usePairingStore.getState().removePairing("daemon-d2");
 
     const s = usePairingStore.getState();
     expect(s.pairings.size).toBe(1);
     expect(s.pairings.has("daemon-d1")).toBe(true);
-    expect(s.activeDaemonId).toBe("daemon-d1");
+    expect(s.activeDaemon).toEqual({ active: true, daemonId: "daemon-d1" });
     expect(s.state).toBe("paired");
   });
 
@@ -234,7 +236,7 @@ describe("pairing-store: state transitions", () => {
     const s = usePairingStore.getState();
     expect(s.pairings.size).toBe(0);
     expect(s.state).toBe("unpaired");
-    expect(s.activeDaemonId).toBeNull();
+    expect(s.activeDaemon).toEqual({ active: false });
   });
 
   test("reset clears storage and state", async () => {
@@ -245,7 +247,7 @@ describe("pairing-store: state transitions", () => {
     const s = usePairingStore.getState();
     expect(s.pairings.size).toBe(0);
     expect(s.state).toBe("unpaired");
-    expect(s.activeDaemonId).toBeNull();
+    expect(s.activeDaemon).toEqual({ active: false });
     expect(s.lastPeerUnpair).toBeNull();
     // Storage slot cleared (set to empty string)
     expect(storageGet(STORAGE_KEY)).toBe("");
@@ -294,8 +296,8 @@ describe("pairing-store: unpair/rename sender callbacks", () => {
       .getState()
       .renamePairing("daemon-d1", "  New Label  ");
 
-    expect(usePairingStore.getState().pairings.get("daemon-d1")?.label).toBe(
-      "New Label",
+    expect(usePairingStore.getState().pairings.get("daemon-d1")?.label).toEqual(
+      { set: true, value: "New Label" },
     );
     expect(sender).toHaveBeenCalledTimes(1);
     // Trimmed value is sent over the wire.
@@ -311,9 +313,9 @@ describe("pairing-store: unpair/rename sender callbacks", () => {
 
     await usePairingStore.getState().renamePairing("daemon-d1", "   ");
 
-    expect(
-      usePairingStore.getState().pairings.get("daemon-d1")?.label,
-    ).toBeNull();
+    expect(usePairingStore.getState().pairings.get("daemon-d1")?.label).toEqual(
+      { set: false },
+    );
     expect(sender.mock.calls[0][1]).toBe("");
   });
 
@@ -365,8 +367,8 @@ describe("pairing-store: inbound control messages", () => {
       .getState()
       .handlePeerRename("daemon-d1", makeLabel("  Peer Name  "));
 
-    expect(usePairingStore.getState().pairings.get("daemon-d1")?.label).toBe(
-      "Peer Name",
+    expect(usePairingStore.getState().pairings.get("daemon-d1")?.label).toEqual(
+      { set: true, value: "Peer Name" },
     );
     // Receive-only: no echo to wire.
     expect(sender).not.toHaveBeenCalled();
@@ -379,9 +381,9 @@ describe("pairing-store: inbound control messages", () => {
     await usePairingStore
       .getState()
       .handlePeerRename("daemon-d1", { set: false });
-    expect(
-      usePairingStore.getState().pairings.get("daemon-d1")?.label,
-    ).toBeNull();
+    expect(usePairingStore.getState().pairings.get("daemon-d1")?.label).toEqual(
+      { set: false },
+    );
   });
 
   test("handlePeerRename ignores unknown daemonId", async () => {
@@ -396,7 +398,7 @@ describe("pairing-store: inbound control messages", () => {
       .getState()
       .handleDaemonHello("daemon-d1", makeLabel("MacBook Pro"));
     const info = usePairingStore.getState().pairings.get("daemon-d1");
-    expect(info?.label).toBe("MacBook Pro");
+    expect(info?.label).toEqual({ set: true, value: "MacBook Pro" });
     expect(info?.labelSource).toBe("daemon");
   });
 
@@ -446,7 +448,7 @@ describe("pairing-store: inbound control messages", () => {
       .getState()
       .handleDaemonHello("daemon-d1", makeLabel("Old Daemon Label"));
     const info = usePairingStore.getState().pairings.get("daemon-d1");
-    expect(info?.label).toBe("My Mac");
+    expect(info?.label).toEqual({ set: true, value: "My Mac" });
     expect(info?.labelSource).toBe("user");
   });
 
@@ -465,7 +467,7 @@ describe("pairing-store: inbound control messages", () => {
     // Reference equality verifies the early-return path: a write would
     // produce a fresh object via `pairings.set(...)` + `set({ pairings })`.
     expect(after).toBe(before);
-    expect(after?.label).toBe("Foo");
+    expect(after?.label).toEqual({ set: true, value: "Foo" });
     expect(after?.labelSource).toBe("daemon");
   });
 
@@ -483,7 +485,7 @@ describe("pairing-store: inbound control messages", () => {
       .getState()
       .handleDaemonHello("daemon-d1", makeLabel("Bar"));
     const info = usePairingStore.getState().pairings.get("daemon-d1");
-    expect(info?.label).toBe("Bar");
+    expect(info?.label).toEqual({ set: true, value: "Bar" });
     expect(info?.labelSource).toBe("daemon");
   });
 });

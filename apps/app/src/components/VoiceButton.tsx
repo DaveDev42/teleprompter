@@ -4,23 +4,29 @@ import { getPlatformProps } from "../lib/get-platform-props";
 import { useVoiceStore } from "../stores/voice-store";
 
 export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
-  const state = useVoiceStore((s) => s.state);
-  const transcript = useVoiceStore((s) => s.transcript);
-  const isSpeaking = useVoiceStore((s) => s.isSpeaking);
+  const connection = useVoiceStore((s) => s.connection);
+  const keyState = useVoiceStore((s) => s.keyState);
   const includeTerminal = useVoiceStore((s) => s.includeTerminal);
-  const apiKey = useVoiceStore((s) => s.apiKey);
   const startVoice = useVoiceStore((s) => s.startVoice);
   const stopVoice = useVoiceStore((s) => s.stopVoice);
   const toggleTerminalContext = useVoiceStore((s) => s.toggleTerminalContext);
+
+  const isActive = connection.status !== "idle";
+  const isSpeaking =
+    connection.status === "listening" ? connection.isSpeaking : false;
+  const transcript =
+    connection.status === "listening" || connection.status === "processing"
+      ? connection.transcript
+      : "";
 
   // If voice capture is running when the session becomes read-only, stop it.
   // Hiding the button alone would orphan the mic/network session with no UI
   // exit until the user navigates away.
   useEffect(() => {
-    if (disabled && state !== "idle") {
+    if (disabled && connection.status !== "idle") {
       stopVoice();
     }
-  }, [disabled, state, stopVoice]);
+  }, [disabled, connection.status, stopVoice]);
 
   // NVDA / JAWS announce only the diff between live-region updates when
   // aria-atomic isn't set, so transitions like "Connecting" → "Listening"
@@ -33,9 +39,9 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
   // RN Web's <Text> ref returns the host React component, not the DOM
   // node directly — querying the testID after mount is the reliable
   // way to reach the underlying element. Re-run when the visibility
-  // conditions change (apiKey load, disabled flip) so the attribute is
+  // conditions change (keyState, disabled flip) so the attribute is
   // applied whenever the live regions enter the DOM.
-  const liveRegionsMounted = !!apiKey && !disabled;
+  const liveRegionsMounted = keyState.status === "present" && !disabled;
   useEffect(() => {
     if (Platform.OS !== "web") return;
     if (!liveRegionsMounted) return;
@@ -53,7 +59,7 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
     return null; // Web only for now
   }
 
-  if (!apiKey) {
+  if (keyState.status !== "present") {
     return null; // Need API key first
   }
 
@@ -61,7 +67,6 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
     return null; // Hide mic on stopped / read-only sessions
   }
 
-  const isActive = state !== "idle";
   const pp = getPlatformProps();
 
   // Visible text is short ("Connecting…" reads naturally and stays under the
@@ -73,7 +78,7 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
     connecting: "Connecting",
     listening: "Listening",
     processing: "Thinking",
-  }[state];
+  }[connection.status];
 
   // RN Web doesn't translate accessibilityState.checked into aria-checked,
   // so a screen reader landing on the switch wouldn't know if terminal
@@ -106,13 +111,17 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
   // through on web for the mic Pressable.
   const ariaBusyMic =
     Platform.OS === "web"
-      ? { "aria-busy": state === "connecting" || state === "processing" }
+      ? {
+          "aria-busy":
+            connection.status === "connecting" ||
+            connection.status === "processing",
+        }
       : {};
 
   const bgColor = isActive
     ? isSpeaking
       ? "bg-tp-voice-active"
-      : state === "listening"
+      : connection.status === "listening"
         ? "bg-tp-error"
         : "bg-tp-warning"
     : "bg-tp-bg-tertiary";
@@ -160,7 +169,9 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
           isActive ? `Stop voice, ${stateLabel}` : "Start voice input"
         }
         accessibilityState={{
-          busy: state === "connecting" || state === "processing",
+          busy:
+            connection.status === "connecting" ||
+            connection.status === "processing",
         }}
         {...(ariaBusyMic as object)}
       >

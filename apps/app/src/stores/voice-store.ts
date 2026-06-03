@@ -14,18 +14,38 @@ export function getGlobalTermRef(): unknown {
   return globalTermRef;
 }
 
-export type VoiceState = "idle" | "connecting" | "listening" | "processing";
+/**
+ * Voice connection state as a discriminated union.
+ * transcript and isSpeaking are folded into the arms where they are
+ * semantically meaningful: transcript exists only while listening or
+ * processing, isSpeaking only while listening.
+ */
+export type VoiceConnectionState =
+  | { status: "idle" }
+  | { status: "connecting" }
+  | { status: "listening"; isSpeaking: boolean; transcript: string }
+  | { status: "processing"; transcript: string };
+
+/**
+ * API key state as a discriminated union.
+ * Replaces the apiKey:string|null + loaded:boolean pair, which could
+ * represent four combinations but only three are valid.
+ * - loading: initial state, secureGet not yet complete
+ * - absent: load finished, no key stored (or key was removed)
+ * - present: a non-empty key is available
+ */
+export type VoiceKeyState =
+  | { status: "loading" }
+  | { status: "absent" }
+  | { status: "present"; key: string };
 
 export interface VoiceStore {
-  state: VoiceState;
-  transcript: string;
+  connection: VoiceConnectionState;
+  /** One-shot refined prompt output — not a sentinel, stays plain string */
   refinedPrompt: string;
-  isSpeaking: boolean;
   /** Whether to include terminal context in system prompt */
   includeTerminal: boolean;
-  /** OpenAI API key */
-  apiKey: string | null;
-  loaded: boolean;
+  keyState: VoiceKeyState;
 
   // Actions
   load: () => Promise<void>;
@@ -45,44 +65,42 @@ let audioCapture: AudioCapture | null = null;
 let audioPlayer: AudioPlayer | null = null;
 
 export const useVoiceStore = create<VoiceStore>((set, get) => ({
-  state: "idle",
-  transcript: "",
+  connection: { status: "idle" },
   refinedPrompt: "",
-  isSpeaking: false,
   includeTerminal: false,
-  apiKey: null,
-  loaded: false,
+  keyState: { status: "loading" },
   _onPromptReady: null,
 
   load: async () => {
     try {
       const raw = await secureGet(VOICE_STORAGE_KEY);
       if (raw) {
-        set({ apiKey: raw, loaded: true });
+        set({ keyState: { status: "present", key: raw } });
         return;
       }
     } catch {
       // ignore
     }
-    set({ loaded: true });
+    set({ keyState: { status: "absent" } });
   },
 
   setApiKey: async (key) => {
     if (key) {
-      set({ apiKey: key });
+      set({ keyState: { status: "present", key } });
       await secureSet(VOICE_STORAGE_KEY, key);
     } else {
-      set({ apiKey: null });
+      set({ keyState: { status: "absent" } });
       await secureDelete(VOICE_STORAGE_KEY);
     }
   },
 
   startVoice: async () => {
-    const { apiKey, includeTerminal } = get();
-    if (!apiKey) return;
+    const { keyState, includeTerminal } = get();
+    if (keyState.status !== "present") return;
     if (Platform.OS !== "web") return; // Web only for now
 
-    set({ state: "connecting", transcript: "", refinedPrompt: "" });
+    const { key } = keyState;
+    set({ connection: { status: "connecting" }, refinedPrompt: "" });
 
     // Build system prompt with optional terminal context
     let termContext = "";
@@ -92,10 +110,16 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     const systemPrompt = buildSystemPrompt() + termContext;
 
     realtimeClient = new RealtimeClient(
-      { apiKey, systemPrompt },
+      { apiKey: key, systemPrompt },
       {
         onConnected: async () => {
-          set({ state: "listening" });
+          set({
+            connection: {
+              status: "listening",
+              isSpeaking: false,
+              transcript: "",
+            },
+          });
 
           // Start audio capture
           if (Platform.OS === "web") {
@@ -111,7 +135,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
           }
         },
         onDisconnected: () => {
-          set({ state: "idle" });
+          set({ connection: { status: "idle" } });
           cleanup();
         },
         onSpeechStart: () => {
@@ -120,26 +144,64 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
           audioPlayer?.start();
         },
         onSpeechEnd: () => {
-          set({ state: "processing" });
+          // Carry current transcript into processing state
+          const { connection } = get();
+          const transcript =
+            connection.status === "listening" ? connection.transcript : "";
+          set({ connection: { status: "processing", transcript } });
         },
         onTranscript: (text) => {
-          set({ transcript: text, state: "listening" });
+          set({
+            connection: {
+              status: "listening",
+              isSpeaking: false,
+              transcript: text,
+            },
+          });
         },
         onAudio: (base64) => {
-          set({ isSpeaking: true });
+          const { connection } = get();
+          if (connection.status === "listening") {
+            set({
+              connection: {
+                status: "listening",
+                isSpeaking: true,
+                transcript: connection.transcript,
+              },
+            });
+          }
           audioPlayer?.play(base64);
         },
         onAudioDone: () => {
-          set({ isSpeaking: false });
+          const { connection } = get();
+          if (connection.status === "listening") {
+            set({
+              connection: {
+                status: "listening",
+                isSpeaking: false,
+                transcript: connection.transcript,
+              },
+            });
+          }
         },
         onRefinedPrompt: (prompt) => {
-          set({ refinedPrompt: prompt, state: "listening" });
+          const { connection } = get();
+          if (connection.status === "listening") {
+            set({
+              connection: {
+                status: "listening",
+                isSpeaking: connection.isSpeaking,
+                transcript: connection.transcript,
+              },
+            });
+          }
+          set({ refinedPrompt: prompt });
           // Send the refined prompt to Claude Code
           get()._onPromptReady?.(prompt);
         },
         onError: (error) => {
           console.error("[Voice]", error);
-          set({ state: "idle" });
+          set({ connection: { status: "idle" } });
           cleanup();
         },
       },
@@ -150,7 +212,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 
   stopVoice: () => {
     cleanup();
-    set({ state: "idle", isSpeaking: false });
+    set({ connection: { status: "idle" } });
   },
 
   toggleTerminalContext: () => {

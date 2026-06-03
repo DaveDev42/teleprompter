@@ -3,12 +3,13 @@
 // the direct-WS transport was removed, since these are shared protocol types
 // rather than WebSocket-transport-specific.
 import type { Namespace, RecordKind } from "./record";
+import type { SessionState } from "./session";
 
 // ── Session metadata sent to the frontend ──
 
 export interface SessionMeta {
   sid: string;
-  state: string;
+  state: SessionState;
   cwd: string;
   worktreePath?: string;
   claudeVersion?: string;

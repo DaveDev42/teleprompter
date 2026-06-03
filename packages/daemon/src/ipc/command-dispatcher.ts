@@ -19,6 +19,7 @@ import type {
   IpcSessionPruneErr,
   IpcSessionPruneOk,
   Namespace,
+  RecordKind,
   RelayControlMessage,
   SessionExport,
   SessionRec,
@@ -76,7 +77,7 @@ export interface IpcCommandDispatcherDeps {
   /** Local record observer (passthrough CLI). Getter because Daemon can
    * install the observer after dispatcher construction. */
   getOnRecord: () =>
-    | ((sid: string, kind: string, payload: Buffer, name?: string) => void)
+    | ((sid: string, kind: RecordKind, payload: Buffer, name?: string) => void)
     | null;
   /** All active relay clients. Getter so newly added relays are picked up
    * on each IPC rec. */

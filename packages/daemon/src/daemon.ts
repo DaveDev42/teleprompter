@@ -6,6 +6,7 @@ import type {
   IpcPairCancelled,
   IpcPairCompleted,
   IpcPairError,
+  RecordKind,
 } from "@teleprompter/protocol";
 import { createLogger } from "@teleprompter/protocol";
 import { IpcCommandDispatcher } from "./ipc/command-dispatcher";
@@ -52,7 +53,7 @@ export class Daemon {
    * Only one observer is supported; assigning a second overwrites the first.
    */
   onRecord:
-    | ((sid: string, kind: string, payload: Buffer, name?: string) => void)
+    | ((sid: string, kind: RecordKind, payload: Buffer, name?: string) => void)
     | null = null;
 
   constructor(storeDir?: string) {

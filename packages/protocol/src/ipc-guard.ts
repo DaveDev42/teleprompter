@@ -23,6 +23,7 @@ import type {
   IpcSessionDeleteErrReason,
   IpcSessionPruneErrReason,
 } from "./types/ipc";
+import { decodeWireLabel, type Label } from "./types/label";
 import type { Namespace, RecordKind } from "./types/record";
 
 type PlainObject = { [key: string]: unknown };
@@ -37,6 +38,27 @@ function isString(v: unknown): v is string {
 
 function isOptionalString(v: unknown): v is string | undefined {
   return v === undefined || typeof v === "string";
+}
+
+/**
+ * Forgivingly narrow a raw `label` field to the `Label` union. Accepts the
+ * new union object, the legacy `string` (`""` = clear), and legacy
+ * `null`/`undefined`, all via `decodeWireLabel`. Returns `null` only for
+ * shapes that are neither — a primitive like a number or boolean — so the
+ * caller can reject a malformed frame. (`decodeWireLabel` itself never
+ * throws and would map those to `{ set: false }`, but at this zero-trust
+ * boundary we prefer to reject an outright wrong-typed field.)
+ */
+function parseLabelField(v: unknown): Label | null {
+  if (
+    v !== null &&
+    v !== undefined &&
+    typeof v !== "string" &&
+    !(typeof v === "object" && "set" in (v as PlainObject))
+  ) {
+    return null;
+  }
+  return decodeWireLabel(v);
 }
 
 function isNumber(v: unknown): v is number {
@@ -252,12 +274,13 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
     case "pair.completed": {
       if (!isString(raw.pairingId)) return null;
       if (!isString(raw.daemonId)) return null;
-      if (raw.label !== null && !isString(raw.label)) return null;
+      const label = parseLabelField(raw.label);
+      if (label === null) return null;
       return {
         t: "pair.completed",
         pairingId: raw.pairingId,
         daemonId: raw.daemonId,
-        label: raw.label,
+        label,
       };
     }
 
@@ -307,22 +330,24 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
 
     case "pair.rename": {
       if (!isString(raw.daemonId)) return null;
-      if (raw.label !== null && !isString(raw.label)) return null;
+      const label = parseLabelField(raw.label);
+      if (label === null) return null;
       return {
         t: "pair.rename",
         daemonId: raw.daemonId,
-        label: raw.label,
+        label,
       };
     }
 
     case "pair.rename.ok": {
       if (!isString(raw.daemonId)) return null;
-      if (raw.label !== null && !isString(raw.label)) return null;
+      const label = parseLabelField(raw.label);
+      if (label === null) return null;
       if (!isNumber(raw.notifiedPeers)) return null;
       return {
         t: "pair.rename.ok",
         daemonId: raw.daemonId,
-        label: raw.label,
+        label,
         notifiedPeers: raw.notifiedPeers,
       };
     }

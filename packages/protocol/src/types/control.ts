@@ -5,6 +5,8 @@
  * in plaintext.
  */
 
+import type { Label } from "./label";
+
 export const CONTROL_UNPAIR = "control.unpair" as const;
 
 export interface ControlUnpair {
@@ -32,8 +34,16 @@ export interface ControlRename {
   daemonId: string;
   /** Frontend ID on the other end of the pairing */
   frontendId: string;
-  /** New label (empty string clears the label — receiver treats as null) */
-  label: string;
+  /**
+   * New label as a tagged union: `{ set: true, value }` sets a name,
+   * `{ set: false }` is an authoritative clear. On the wire this is the new
+   * shape after the protocol bump; a peer that has not advertised protocol
+   * v2 still receives the legacy `string` form (`""` = clear), and a reader
+   * decodes either shape via `decodeWireLabel`. The field is typed `Label`
+   * for new producers/consumers; legacy `string` wire bytes are accepted on
+   * read but never asserted at this type.
+   */
+  label: Label;
   /** Sender timestamp (ms) */
   ts: number;
 }

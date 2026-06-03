@@ -10,6 +10,7 @@ import type {
   ControlRename,
   ControlUnpair,
   KeyPair,
+  Label,
   RelayClientMessage,
   RelayControlMessage,
   RelayFrame,
@@ -23,14 +24,17 @@ import {
   CONTROL_RENAME,
   CONTROL_UNPAIR,
   createLogger,
+  decodeWireLabel,
   decrypt,
   deriveKxKey,
   deriveSessionKeys,
   encrypt,
   fromBase64,
+  labelToNullable,
   parseRelayControlMessage,
   RELAY_CHANNEL_CONTROL,
   toBase64,
+  WS_PROTOCOL_VERSION,
 } from "@teleprompter/protocol";
 
 const log = createLogger("RelayClient");
@@ -44,6 +48,14 @@ interface FrontendPeer {
   frontendId: string;
   publicKey: Uint8Array;
   sessionKeys: SessionKeys;
+  /**
+   * The frontend's advertised WS protocol version, parsed from its `relay.kx`
+   * payload (`data.v`). Defaults to 1 when the field is absent (a frontend
+   * built before the Label-union bump). Used to gate ControlRename emission:
+   * peers at v1 receive the legacy `string` shape so they never coerce a
+   * union object to `""` and silently clear the label.
+   */
+  protocolVersion: number;
 }
 
 export interface RelayClientConfig {
@@ -59,8 +71,8 @@ export interface RelayClientConfig {
   keyPair: KeyPair;
   /** Raw pairing secret (for kx envelope encryption) */
   pairingSecret: Uint8Array;
-  /** Optional human-readable label for this pairing */
-  label?: string | null;
+  /** Human-readable label for this pairing as a tagged union. */
+  label?: Label;
 }
 
 export interface RelayClientEvents {
@@ -123,7 +135,7 @@ export class RelayClient {
     | null = null;
 
   /** Called when an inbound control.rename frame is received from a frontend. */
-  onRename: ((info: { frontendId: string; label: string }) => void) | null =
+  onRename: ((info: { frontendId: string; label: Label }) => void) | null =
     null;
 
   constructor(config: RelayClientConfig, events: RelayClientEvents = {}) {
@@ -273,10 +285,12 @@ export class RelayClient {
    * Encrypted with kxKey so only holders of the pairing secret can read it.
    *
    * The payload also carries this pairing's `label` so the frontend can
-   * adopt the daemon's name without it taking up bytes in the QR. Sending
-   * `label: null` is a positive signal that the daemon has no label
-   * configured — the frontend keeps whatever fallback it already has
-   * (typically the device name).
+   * adopt the daemon's name without it taking up bytes in the QR. The label
+   * is sent as the `Label` tagged union; `{ set: false }` is a positive
+   * signal that the daemon has no label configured — the frontend reads this
+   * surface with keep-current semantics (`decodeKxLabelOrKeep`) and so keeps
+   * whatever fallback it already has (typically the device name). `v`
+   * advertises the daemon's WS protocol version so a frontend can adapt.
    */
   private async broadcastDaemonPublicKey(): Promise<void> {
     if (!this.kxKey) return;
@@ -284,7 +298,8 @@ export class RelayClient {
     const payload = JSON.stringify({
       pk: await toBase64(this.config.keyPair.publicKey),
       role: "daemon",
-      label: this.config.label ?? null,
+      v: WS_PROTOCOL_VERSION,
+      label: this.config.label ?? { set: false },
     });
     const ct = await encrypt(new TextEncoder().encode(payload), this.kxKey);
     this.send({ t: "relay.kx", ct, role: "daemon" });
@@ -301,7 +316,7 @@ export class RelayClient {
     try {
       const plaintext = await decrypt(frame.ct, this.kxKey);
       const data = JSON.parse(new TextDecoder().decode(plaintext));
-      // data = { pk: base64, frontendId: string, role: "frontend" }
+      // data = { pk: base64, frontendId: string, role: "frontend", v?: number }
 
       if (!data.pk || !data.frontendId) {
         log.error("kx frame missing pk or frontendId");
@@ -315,10 +330,16 @@ export class RelayClient {
         "daemon",
       );
 
+      // Frontends built before the Label-union bump omit `v` — default to 1
+      // so we keep emitting the legacy string-shaped ControlRename to them.
+      const protocolVersion =
+        typeof data.v === "number" && Number.isFinite(data.v) ? data.v : 1;
+
       this.peers.set(data.frontendId, {
         frontendId: data.frontendId,
         publicKey: frontendPubKey,
         sessionKeys,
+        protocolVersion,
       });
 
       log.info(`key exchange completed with frontend ${data.frontendId}`);
@@ -371,7 +392,13 @@ export class RelayClient {
       }
       if (msg.t === CONTROL_RENAME) {
         const m = msg as ControlRename;
-        this.onRename?.({ frontendId: m.frontendId, label: m.label });
+        // The wire may carry either the legacy `string` shape (`""` = clear)
+        // or the new `Label` union — `decodeWireLabel` normalizes both. On
+        // this surface `{ set: false }` is an authoritative clear.
+        this.onRename?.({
+          frontendId: m.frontendId,
+          label: decodeWireLabel(m.label),
+        });
         return;
       }
     }
@@ -502,13 +529,29 @@ export class RelayClient {
     return this.sendControl("sendUnpairNotice", frontendId, msg);
   }
 
-  /** Encrypted control.rename notice to `frontendId`; see sendUnpairNotice for mechanics. */
-  async sendRenameNotice(frontendId: string, label: string): Promise<boolean> {
+  /**
+   * Encrypted control.rename notice to `frontendId`; see sendUnpairNotice for
+   * mechanics.
+   *
+   * The wire shape is version-gated per peer. A peer that advertised WS
+   * protocol v2 in its kx payload receives the `Label` union directly. A peer
+   * at v1 (or one whose version we never learned) receives the legacy
+   * `string` form — `value` when set, `""` to clear — because an un-updated
+   * app coerces a union object to `""` and would silently clear the user's
+   * label. We cast through `unknown` so the legacy bytes can travel on a
+   * field that is typed `Label` for the v2 contract.
+   */
+  async sendRenameNotice(frontendId: string, label: Label): Promise<boolean> {
+    const peer = this.peers.get(frontendId);
+    const wireLabel: Label | string =
+      peer && peer.protocolVersion >= 2
+        ? label
+        : (labelToNullable(label) ?? "");
     const msg: ControlRename = {
       t: CONTROL_RENAME,
       daemonId: this.config.daemonId,
       frontendId,
-      label,
+      label: wireLabel as Label,
       ts: Date.now(),
     };
     return this.sendControl("sendRenameNotice", frontendId, msg);

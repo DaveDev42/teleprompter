@@ -29,6 +29,7 @@ import {
   deriveKxKey,
   deriveSessionKeys,
   encrypt,
+  makeLabel,
   RELAY_CHANNEL_CONTROL,
   RELAY_CHANNEL_META,
   toBase64,
@@ -635,7 +636,12 @@ export class FrontendRelayClient implements TransportClient {
       t: CONTROL_RENAME,
       daemonId: this.config.daemonId,
       frontendId: this.config.frontendId,
-      label,
+      // The wire field is now the `Label` tagged union. The daemon's inbound
+      // path runs every ControlRename through `decodeWireLabel`, which accepts
+      // both this union and a legacy bare string, so an older daemon still
+      // understands us. (PR3 will migrate the app's *receive* path + add the
+      // `v` field to kx so the daemon can version-gate what it sends back.)
+      label: makeLabel(label),
       ts: Date.now(),
     };
     await this.sendEncrypted(

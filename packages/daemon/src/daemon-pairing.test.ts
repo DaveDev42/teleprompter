@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { FrameDecoder } from "@teleprompter/protocol";
+import { FrameDecoder, type Label, makeLabel } from "@teleprompter/protocol";
 import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -32,7 +32,7 @@ describe("Daemon.beginPairing", () => {
     const info = await daemon.beginPairing({
       relayUrl: "wss://r",
       daemonId: "daemon-d1",
-      label: "host-1",
+      label: makeLabel("host-1"),
     });
     expect(info.pairingId.length).toBeGreaterThan(0);
     expect(info.qrString.length).toBeGreaterThan(0);
@@ -86,7 +86,7 @@ describe("Daemon.beginPairing", () => {
       publicKey: new Uint8Array(32),
       secretKey: new Uint8Array(32),
       pairingSecret: new Uint8Array(32),
-      label: null,
+      label: { set: false },
     });
     daemon.__setRelayFactory(() => fakeRelay());
 
@@ -118,7 +118,7 @@ describe("Daemon.beginPairing", () => {
     await daemon.beginPairing({
       relayUrl: "wss://r",
       daemonId: "daemon-d1",
-      label: "my-host",
+      label: makeLabel("my-host"),
     });
     // Simulate completion
     (
@@ -136,7 +136,7 @@ describe("Daemon.beginPairing", () => {
     const pairings = (
       daemon as unknown as {
         store: {
-          listPairings: () => Array<{ daemonId: string; label: string | null }>;
+          listPairings: () => Array<{ daemonId: string; label: Label }>;
         };
       }
     ).store.listPairings();
@@ -201,7 +201,7 @@ describe("Daemon.beginPairing", () => {
     await daemon.beginPairing({
       relayUrl: "wss://r",
       daemonId: "daemon-d-race",
-      label: "x",
+      label: makeLabel("x"),
     });
     const pp = (
       daemon as unknown as {
@@ -295,10 +295,12 @@ describe("Daemon.beginPairing", () => {
     const completed = cli.messages.find(
       (m) => (m as { t: string }).t === "pair.completed",
     );
+    // IpcPairBegin.label stays a bare string on the wire; the daemon lifts it
+    // into the Label union, so the completed message carries the union shape.
     expect(completed).toMatchObject({
       t: "pair.completed",
       daemonId: "daemon-ipc-ok",
-      label: "ipc-host",
+      label: { set: true, value: "ipc-host" },
     });
 
     daemon.stop();

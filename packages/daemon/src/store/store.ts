@@ -1,6 +1,9 @@
 import { Database } from "bun:sqlite";
 import {
   createLogger,
+  decodeWireLabel,
+  type Label,
+  labelToNullable,
   type SessionState,
   type SID,
 } from "@teleprompter/protocol";
@@ -21,7 +24,26 @@ export interface PairingSummary {
   daemonId: string;
   relayUrl: string;
   createdAt: number;
-  label: string | null;
+  /** Pairing label as a tagged union; `{ set: false }` = no label. */
+  label: Label;
+}
+
+/**
+ * Adapt a `Label` to the nullable string the SQLite `label TEXT` column
+ * stores. `{ set: false }` → `null`. The column DDL is unchanged — the union
+ * lives only in TypeScript; SQLite still sees `NULL` or a non-empty string.
+ */
+function labelToSql(label: Label): string | null {
+  return labelToNullable(label);
+}
+
+/**
+ * Adapt a value read back from the `label TEXT` column to a `Label`. Uses the
+ * forgiving `decodeWireLabel` so historical rows (which may hold `""` from a
+ * pre-union daemon) and `NULL` both normalize to `{ set: false }`.
+ */
+function labelFromSql(raw: string | null): Label {
+  return decodeWireLabel(raw);
 }
 
 export interface SessionMeta {
@@ -282,7 +304,7 @@ export class Store {
     publicKey: Uint8Array;
     secretKey: Uint8Array;
     pairingSecret: Uint8Array;
-    label?: string | null;
+    label?: Label;
   }): void {
     this.metaDb
       .prepare(
@@ -299,13 +321,13 @@ export class Store {
         data.secretKey,
         data.pairingSecret,
         Date.now(),
-        data.label ?? null,
+        data.label ? labelToSql(data.label) : null,
       );
   }
 
-  updatePairingLabel(daemonId: string, label: string | null): void {
+  updatePairingLabel(daemonId: string, label: Label): void {
     this.metaDb.run("UPDATE pairings SET label = ? WHERE daemon_id = ?", [
-      label,
+      labelToSql(label),
       daemonId,
     ]);
   }
@@ -318,7 +340,7 @@ export class Store {
     publicKey: Uint8Array;
     secretKey: Uint8Array;
     pairingSecret: Uint8Array;
-    label: string | null;
+    label: Label;
   }> {
     const rows = this.metaDb
       .prepare("SELECT * FROM pairings ORDER BY created_at ASC")
@@ -342,7 +364,7 @@ export class Store {
       publicKey: new Uint8Array(r.public_key),
       secretKey: new Uint8Array(r.secret_key),
       pairingSecret: new Uint8Array(r.pairing_secret),
-      label: r.label ?? null,
+      label: labelFromSql(r.label),
     }));
   }
 
@@ -365,7 +387,7 @@ export class Store {
       daemonId: r.daemon_id,
       relayUrl: r.relay_url,
       createdAt: r.created_at,
-      label: r.label ?? null,
+      label: labelFromSql(r.label),
     }));
   }
 

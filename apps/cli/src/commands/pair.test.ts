@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Store } from "@teleprompter/daemon";
+import { makeLabel } from "@teleprompter/protocol";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -244,7 +245,7 @@ describe("tp pair list/delete", () => {
         publicKey: new Uint8Array(32),
         secretKey: new Uint8Array(32),
         pairingSecret: new Uint8Array(32),
-        label: p.label ?? null,
+        label: makeLabel(p.label),
       });
     }
     store.close();
@@ -403,7 +404,7 @@ describe("tp pair list/delete", () => {
       .listPairings()
       .find((p) => p.daemonId === "daemon-aaaa1111");
     store.close();
-    expect(row?.label).toBe("New Label Here");
+    expect(row?.label).toEqual({ set: true, value: "New Label Here" });
   });
 
   test("rename trims leading/trailing whitespace in label", () => {
@@ -419,7 +420,7 @@ describe("tp pair list/delete", () => {
       .listPairings()
       .find((p) => p.daemonId === "daemon-aaaa1111");
     store.close();
-    expect(row?.label).toBe("padded label");
+    expect(row?.label).toEqual({ set: true, value: "padded label" });
   });
 
   test("rename with empty label clears it", () => {
@@ -432,7 +433,7 @@ describe("tp pair list/delete", () => {
       .listPairings()
       .find((p) => p.daemonId === "daemon-aaaa1111");
     store.close();
-    expect(row?.label).toBeNull();
+    expect(row?.label).toEqual({ set: false });
   });
 
   test("rename errors on ambiguous prefix", () => {
@@ -470,7 +471,7 @@ describe("tp pair list/delete", () => {
       .listPairings()
       .find((p) => p.daemonId === "daemon-mncx9824");
     store.close();
-    expect(row?.label).toBe("New");
+    expect(row?.label).toEqual({ set: true, value: "New" });
   });
 
   test("delete matches by suffix fragment", () => {
@@ -514,7 +515,7 @@ describe("tp pair list/delete", () => {
       .listPairings()
       .find((p) => p.daemonId === "daemon-aaaa1111");
     store.close();
-    expect(row?.label).toBe("New Label");
+    expect(row?.label).toEqual({ set: true, value: "New Label" });
   });
 
   test("rename succeeds with stale daemon socket present", () => {

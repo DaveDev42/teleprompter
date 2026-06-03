@@ -1,4 +1,4 @@
-import { createLogger } from "@teleprompter/protocol";
+import { createLogger, type RecordKind } from "@teleprompter/protocol";
 
 const log = createLogger("PushNotifier");
 
@@ -31,7 +31,7 @@ interface PushMessage {
 
 interface RecordInfo {
   sid: string;
-  kind: string;
+  kind: RecordKind;
   name?: string;
   ns?: string;
   /**

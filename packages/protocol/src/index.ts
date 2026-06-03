@@ -36,6 +36,7 @@ export {
   parsePairingForFrontend,
 } from "./pairing";
 export { QueuedWriter } from "./queued-writer";
+export { parseRelayClientMessage } from "./relay-client-guard";
 export type { RelayControlMessage } from "./relay-guard";
 export { parseRelayControlMessage } from "./relay-guard";
 export { getSocketPath } from "./socket-path";

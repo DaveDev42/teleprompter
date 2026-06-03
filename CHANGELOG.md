@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.45](https://github.com/DaveDev42/teleprompter/compare/v0.1.44...v0.1.45) (2026-06-03)
+
+
+### Refactor
+
+* rename Ws-prefixed protocol types to Session-prefixed ([#499](https://github.com/DaveDev42/teleprompter/issues/499)) ([cb7e41d](https://github.com/DaveDev42/teleprompter/commit/cb7e41d67c4a630c8a79dfe30901eae0762b1b44))
+
 ## [0.1.44](https://github.com/DaveDev42/teleprompter/compare/v0.1.43...v0.1.44) (2026-06-02)
 
 

@@ -536,9 +536,11 @@ async function requestSessionOp<R extends { t: string }>(
         clearTimeout(timer);
         settle();
       };
-      ipc.onMessage((raw) => {
-        const r = raw as R;
-        if (expectedTypes.includes(r.t)) done(() => resolve(r));
+      ipc.onMessage((msg) => {
+        // `msg` is already a validated IpcMessage (parseIpcMessage runs at the
+        // transport boundary). We still narrow to the caller's expected reply
+        // subset by discriminant before handing it back as R.
+        if (expectedTypes.includes(msg.t)) done(() => resolve(msg as R));
       });
       ipc.onClose(() =>
         done(() => reject(new Error("Daemon disconnected before replying"))),

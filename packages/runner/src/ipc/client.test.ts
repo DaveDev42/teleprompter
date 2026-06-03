@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type {
-  IpcAck,
-  IpcBye,
-  IpcHello,
-  IpcInput,
-  IpcMessage,
-  IpcRec,
+import {
+  encodeFrame,
+  type IpcAck,
+  type IpcBye,
+  type IpcHello,
+  type IpcInput,
+  type IpcMessage,
+  type IpcRec,
 } from "@teleprompter/protocol";
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
@@ -140,5 +141,50 @@ describe("IpcClient", () => {
     expect(serverMessages.length).toBe(2);
     expect(serverMessages[1].t).toBe("bye");
     expect((serverMessages[1] as IpcBye).exitCode).toBe(0);
+  });
+});
+
+describe("IpcClient inbound guard", () => {
+  let socketPath: string;
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "tp-ipc-guard-"));
+    socketPath = join(tmpDir, "guard.sock");
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  test("drops malformed and non-runner-inbound frames", async () => {
+    // A bare server that injects exactly the frames the real IpcServer would
+    // never send: a malformed discriminant, a valid-but-not-runner-inbound
+    // message (bye is a runner→daemon type), an ack missing required fields,
+    // and finally a well-formed ack. Only the last must reach onMessage.
+    const server = Bun.listen({
+      unix: socketPath,
+      socket: {
+        open(sock) {
+          sock.write(encodeFrame({ t: "totally-bogus", evil: 1 }));
+          sock.write(encodeFrame({ t: "bye", sid: "s", exitCode: 0 }));
+          sock.write(encodeFrame({ t: "ack", sid: "s" })); // missing seq
+          sock.write(encodeFrame({ t: "ack", sid: "s", seq: 42 }));
+        },
+        data() {},
+        close() {},
+        error() {},
+      },
+    });
+
+    const received: IpcMessage[] = [];
+    const client = new IpcClient((msg) => received.push(msg));
+    await client.connect(socketPath);
+    await Bun.sleep(80);
+
+    expect(received).toEqual([{ t: "ack", sid: "s", seq: 42 }]);
+
+    client.close();
+    server.stop();
   });
 });

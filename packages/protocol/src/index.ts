@@ -25,6 +25,7 @@ export {
   toBase64,
   toHex,
 } from "./crypto";
+export { parseHookEvent } from "./hook-guard";
 export { parseIpcMessage } from "./ipc-guard";
 export type { LogLevel } from "./logger";
 export { createLogger, setLogLevel } from "./logger";

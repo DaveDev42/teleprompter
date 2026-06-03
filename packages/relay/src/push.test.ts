@@ -66,7 +66,7 @@ describe("PushService", () => {
       const result = await service.sendOrDeliver(makeRequest());
       expect(result).toBe("push");
       expect(calls.length).toBe(1);
-      expect(calls[0].url).toBe("https://exp.host/--/api/v2/push/send");
+      expect(calls[0]!.url).toBe("https://exp.host/--/api/v2/push/send");
     });
 
     test("sends correct payload to Expo Push API", async () => {
@@ -74,7 +74,7 @@ describe("PushService", () => {
       service = new PushService({ fetchFn: fn });
       const req = makeRequest();
       await service.sendOrDeliver(req);
-      const body = JSON.parse(await calls[0].text());
+      const body = JSON.parse(await calls[0]!.text());
       expect(body.to).toBe(req.token);
       expect(body.title).toBe(req.title);
       expect(body.body).toBe(req.body);

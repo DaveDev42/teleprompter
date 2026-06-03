@@ -291,7 +291,7 @@ describe("formatMarkdown", () => {
           makeIoRecord(i, `line ${i} ${"x".repeat(80)}\n`, 1000 + i),
         );
       } else if (r < 19) {
-        const name = eventNames[i % eventNames.length];
+        const name = eventNames[i % eventNames.length]!;
         records.push(
           makeEventRecord(
             i,

@@ -175,7 +175,7 @@ export function useRelay() {
                 client.subscribe(sid);
               }
               if (!useSessionStore.getState().activeSession.active) {
-                setActiveSession({ active: true, sid: sessions[0] });
+                setActiveSession({ active: true, sid: sessions[0]! });
                 setLastSeq(0);
               }
             }

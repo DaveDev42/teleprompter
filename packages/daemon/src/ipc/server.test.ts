@@ -79,8 +79,8 @@ describe("IpcServer", () => {
     client.write(Buffer.from(encodeFrame(hello)));
     await Bun.sleep(50);
     expect(receivedMessages.length).toBe(1);
-    expect(receivedMessages[0].t).toBe("hello");
-    expect((receivedMessages[0] as IpcHello).sid).toBe("test-session");
+    expect(receivedMessages[0]!.t).toBe("hello");
+    expect((receivedMessages[0]! as IpcHello).sid).toBe("test-session");
     client.end();
   });
 
@@ -112,9 +112,9 @@ describe("IpcServer", () => {
 
     await Bun.sleep(100);
     expect(receivedMessages.length).toBe(3);
-    expect(receivedMessages[0].t).toBe("hello");
-    expect(receivedMessages[1].t).toBe("rec");
-    expect(receivedMessages[2].t).toBe("bye");
+    expect(receivedMessages[0]!.t).toBe("hello");
+    expect(receivedMessages[1]!.t).toBe("rec");
+    expect(receivedMessages[2]!.t).toBe("bye");
     client.end();
   });
 

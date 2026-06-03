@@ -56,8 +56,8 @@ describe("IpcClient", () => {
     await Bun.sleep(50);
 
     expect(serverMessages.length).toBe(1);
-    expect(serverMessages[0].t).toBe("hello");
-    expect((serverMessages[0] as IpcHello).sid).toBe("test-client");
+    expect(serverMessages[0]!.t).toBe("hello");
+    expect((serverMessages[0]! as IpcHello).sid).toBe("test-client");
   });
 
   test("sends record and server receives it", async () => {
@@ -77,8 +77,8 @@ describe("IpcClient", () => {
     await Bun.sleep(50);
 
     expect(serverMessages.length).toBe(2);
-    expect(serverMessages[1].t).toBe("rec");
-    const rec = serverMessages[1] as IpcRec;
+    expect(serverMessages[1]!.t).toBe("rec");
+    const rec = serverMessages[1]! as IpcRec;
     expect(rec.kind).toBe("io");
   });
 
@@ -139,8 +139,8 @@ describe("IpcClient", () => {
     await Bun.sleep(50);
 
     expect(serverMessages.length).toBe(2);
-    expect(serverMessages[1].t).toBe("bye");
-    expect((serverMessages[1] as IpcBye).exitCode).toBe(0);
+    expect(serverMessages[1]!.t).toBe("bye");
+    expect((serverMessages[1]! as IpcBye).exitCode).toBe(0);
   });
 });
 

@@ -120,7 +120,12 @@ export class ResumeTokenSigner {
 
     const parts = body.toString("utf8").split(".");
     if (parts.length !== 4) return null;
-    const [role, daemonId, frontendId, expiresAtStr] = parts;
+    const [role, daemonId, frontendId, expiresAtStr] = parts as [
+      string,
+      string,
+      string,
+      string,
+    ];
     if (role !== "daemon" && role !== "frontend") return null;
     const expiresAt = Number(expiresAtStr);
     if (!Number.isFinite(expiresAt)) return null;

@@ -17,16 +17,16 @@ describe("resolveRunnerCommand", () => {
     expect(cmd[0]).toBe("bun");
     expect(cmd[1]).toBe("run");
     // The CLI entry file must actually exist on disk
-    const cliEntry = cmd[2];
+    const cliEntry = cmd[2]!;
     expect(cliEntry).toContain("index.ts");
     expect(existsSync(cliEntry)).toBe(true);
-    expect(cmd[3]).toBe("run");
+    expect(cmd[3]!).toBe("run");
   });
 
   test("resolved command is executable", async () => {
     const cmd = resolveRunnerCommand();
     // Verify the first element (bun or tp binary) exists
-    const which = Bun.spawnSync(["which", cmd[0]]);
+    const which = Bun.spawnSync(["which", cmd[0]!]);
     expect(which.exitCode).toBe(0);
   });
 });

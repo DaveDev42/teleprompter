@@ -152,7 +152,7 @@ export class WorktreeManager {
 
     // Mark the first as main
     if (worktrees.length > 0 && !worktrees.some((w) => w.isMain)) {
-      worktrees[0].isMain = true;
+      worktrees[0]!.isMain = true;
     }
 
     return worktrees;

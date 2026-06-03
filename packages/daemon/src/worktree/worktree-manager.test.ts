@@ -75,8 +75,8 @@ describe("WorktreeManager", () => {
   test("list returns main worktree", async () => {
     const worktrees = await manager.list();
     expect(worktrees.length).toBe(1);
-    expect(worktrees[0].path).toBe(repoDir);
-    expect(worktrees[0].isMain).toBe(true);
+    expect(worktrees[0]!.path).toBe(repoDir);
+    expect(worktrees[0]!.isMain).toBe(true);
   });
 
   test("add creates a new worktree with new branch", async () => {

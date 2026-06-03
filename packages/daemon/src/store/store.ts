@@ -10,6 +10,7 @@ import {
 import { mkdirSync, rmSync, unlinkSync } from "fs";
 import { join } from "path";
 import { getStoreDir } from "./config";
+import { parseStoredPairing, type StoredPairing } from "./pairing-row-guard";
 import {
   PAIRINGS_DDL,
   PAIRINGS_MIGRATIONS,
@@ -332,40 +333,32 @@ export class Store {
     ]);
   }
 
-  loadPairings(): Array<{
-    daemonId: string;
-    relayUrl: string;
-    relayToken: string;
-    registrationProof: string;
-    publicKey: Uint8Array;
-    secretKey: Uint8Array;
-    pairingSecret: Uint8Array;
-    label: Label;
-  }> {
+  loadPairings(): StoredPairing[] {
+    // `SELECT *` rows are untrusted: the three key columns are BLOBs that flow
+    // straight into libsodium (`crypto_kx_*` requires exactly 32 bytes), so a
+    // truncated/NULL/corrupt row must not reach key construction. Each row is
+    // narrowed through `parseStoredPairing`; a row that fails validation is
+    // logged and dropped so one corrupt pairing can't block the others from
+    // reconnecting at startup.
     const rows = this.metaDb
       .prepare("SELECT * FROM pairings ORDER BY created_at ASC")
-      .all() as Array<{
-      daemon_id: string;
-      relay_url: string;
-      relay_token: string;
-      registration_proof: string;
-      public_key: Buffer;
-      secret_key: Buffer;
-      pairing_secret: Buffer;
-      created_at: number;
-      label: string | null;
-    }>;
+      .all();
 
-    return rows.map((r) => ({
-      daemonId: r.daemon_id,
-      relayUrl: r.relay_url,
-      relayToken: r.relay_token,
-      registrationProof: r.registration_proof,
-      publicKey: new Uint8Array(r.public_key),
-      secretKey: new Uint8Array(r.secret_key),
-      pairingSecret: new Uint8Array(r.pairing_secret),
-      label: labelFromSql(r.label),
-    }));
+    const pairings: StoredPairing[] = [];
+    for (const raw of rows) {
+      const pairing = parseStoredPairing(raw);
+      if (!pairing) {
+        const daemonId = (raw as { daemon_id?: unknown }).daemon_id;
+        log.warn(
+          `dropped corrupt pairing row (daemon_id=${
+            typeof daemonId === "string" ? daemonId : "?"
+          })`,
+        );
+        continue;
+      }
+      pairings.push(pairing);
+    }
+    return pairings;
   }
 
   deletePairing(daemonId: string): void {

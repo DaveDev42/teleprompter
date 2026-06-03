@@ -329,8 +329,12 @@ export default function SettingsScreen() {
   const setCodeFont = useSettingsStore((s) => s.setCodeFont);
   const setTerminalFont = useSettingsStore((s) => s.setTerminalFont);
   const setFontSize = useSettingsStore((s) => s.setFontSize);
-  const apiKey = useVoiceStore((s) => s.apiKey);
+  const keyState = useVoiceStore((s) => s.keyState);
   const setApiKey = useVoiceStore((s) => s.setApiKey);
+  // Derive the string|null that ApiKeyModal expects from the tagged union.
+  // "loading" maps to null (same as "not yet known") so the modal doesn't
+  // flash a stale key while secureGet is in flight.
+  const apiKey = keyState.status === "present" ? keyState.key : null;
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   // Restore focus to the Diagnostics row when the user closes the panel.
   // Without this, focus drops to <body> and keyboard users lose their place.
@@ -522,7 +526,13 @@ export default function SettingsScreen() {
         <SectionLabel>Voice</SectionLabel>
         <SettingsRow
           label="OpenAI API Key"
-          value={apiKey ? "sk-...configured" : "Not set"}
+          value={
+            keyState.status === "loading"
+              ? "Loading…"
+              : keyState.status === "present"
+                ? "sk-...configured"
+                : "Not set"
+          }
           first
           last
           testID="settings-row-api-key"

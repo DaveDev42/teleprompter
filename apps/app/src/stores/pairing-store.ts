@@ -1,10 +1,13 @@
 import {
   type ControlUnpair,
   decodePairingData,
+  decodeWireLabel,
   fromBase64,
   generateKeyPair,
   type KeyPair,
   type Label,
+  labelToNullable,
+  makeLabel,
   parsePairingForFrontend,
   toBase64,
 } from "@teleprompter/protocol/client";
@@ -26,6 +29,36 @@ export type PairingState = "unpaired" | "pairing" | "paired";
  */
 export type LabelSource = "qr" | "daemon" | "user";
 
+/**
+ * Which daemon the UI is currently focused on. Modelled as a tagged union so
+ * "no daemon selected" is a first-class state (`{ active: false }`) rather than
+ * a `null` sentinel that consumers must remember to special-case. `daemonId`
+ * only exists in the `active: true` arm, so it can never be read while unset.
+ */
+export type ActiveDaemon =
+  | { active: true; daemonId: string }
+  | { active: false };
+
+/** The canonical "no active daemon" value. Reuse instead of re-allocating. */
+const NO_ACTIVE_DAEMON: ActiveDaemon = { active: false };
+
+/**
+ * Derive the `ActiveDaemon` union from the pairing map: the first pairing if
+ * any exist, otherwise `{ active: false }`. Mirrors the "first id or null"
+ * sentinel logic that `load`/`removePairing`/`handlePeerUnpair` used to inline.
+ */
+function firstActiveDaemon(pairings: Map<string, PairingInfo>): ActiveDaemon {
+  const first = pairings.keys().next().value;
+  return first === undefined
+    ? NO_ACTIVE_DAEMON
+    : { active: true, daemonId: first };
+}
+
+/** True iff `daemon` is the active selection and points at `daemonId`. */
+function isActiveDaemon(daemon: ActiveDaemon, daemonId: string): boolean {
+  return daemon.active && daemon.daemonId === daemonId;
+}
+
 export interface PairingInfo {
   daemonId: string;
   relayUrl: string;
@@ -36,8 +69,13 @@ export interface PairingInfo {
   frontendId: string;
   pairingSecret: Uint8Array;
   pairedAt: number;
-  /** Optional human-readable label for this pairing */
-  label?: string | null;
+  /**
+   * Human-readable label for this pairing, as a tagged union. `{ set: false }`
+   * is "no label" (fall back to the daemon-id prefix in the UI); the legacy
+   * `string | null` representation only survives on the SecureStorage wire
+   * (`SerializedPairingInfo.label`), decoded via `decodeWireLabel` on load.
+   */
+  label: Label;
   /** Provenance of `label`. Defaults to `qr` for legacy stored entries. */
   labelSource?: LabelSource;
 }
@@ -82,8 +120,8 @@ export interface PairingStore {
   state: PairingState;
   /** Map of daemonId → PairingInfo */
   pairings: Map<string, PairingInfo>;
-  /** Currently active daemon ID */
-  activeDaemonId: string | null;
+  /** Currently active daemon (tagged union — `{ active: false }` when none). */
+  activeDaemon: ActiveDaemon;
   error: string | null;
   loaded: boolean;
   /** Most recent peer-initiated unpair (for UI toast). */
@@ -101,8 +139,8 @@ export interface PairingStore {
   clearError: () => void;
   /** Remove a pairing */
   removePairing: (daemonId: string) => Promise<void>;
-  /** Set the active daemon */
-  setActiveDaemon: (daemonId: string | null) => void;
+  /** Set the active daemon (pass `{ active: false }` to clear). */
+  setActiveDaemon: (daemon: ActiveDaemon) => void;
   /** Reset all pairings */
   reset: () => Promise<void>;
   /** Clear the last-peer-unpair notice (after UI has shown the toast). */
@@ -153,7 +191,9 @@ async function serializePairings(
       frontendId: info.frontendId,
       pairingSecret: await toBase64(info.pairingSecret),
       pairedAt: info.pairedAt,
-      label: info.label ?? null,
+      // Collapse the union back to the legacy nullable-string wire shape so
+      // pre-migration app versions can still read it.
+      label: labelToNullable(info.label),
       labelSource: info.labelSource ?? "qr",
     });
   }
@@ -180,7 +220,10 @@ async function deserializePairings(
         frontendId: e.frontendId,
         pairingSecret: await fromBase64(e.pairingSecret),
         pairedAt: e.pairedAt,
-        label: e.label ?? null,
+        // `decodeWireLabel` normalizes the legacy nullable-string (and a stray
+        // `""`) into the `Label` union, so pre-migration stored entries load
+        // cleanly as `{ set: false }` / `{ set: true, value }`.
+        label: decodeWireLabel(e.label),
         // Defaults to `qr` for legacy entries persisted before `labelSource`
         // existed. Caveat: a user-renamed label from a pre-`labelSource` build
         // is indistinguishable from a daemon/QR label here, so the next
@@ -198,7 +241,7 @@ async function deserializePairings(
 export const usePairingStore = create<PairingStore>((set, get) => ({
   state: "unpaired",
   pairings: new Map(),
-  activeDaemonId: null,
+  activeDaemon: NO_ACTIVE_DAEMON,
   error: null,
   loaded: false,
   lastPeerUnpair: null,
@@ -208,11 +251,9 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
       const raw = await secureGet(STORAGE_KEY);
       if (raw) {
         const pairings = await deserializePairings(raw);
-        const firstId =
-          pairings.size > 0 ? (pairings.keys().next().value ?? null) : null;
         set({
           pairings,
-          activeDaemonId: firstId,
+          activeDaemon: firstActiveDaemon(pairings),
           state: pairings.size > 0 ? "paired" : "unpaired",
           loaded: true,
         });
@@ -251,7 +292,7 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
         frontendId,
         pairingSecret: parsed.pairingSecret,
         pairedAt: Date.now(),
-        label: seedLabel,
+        label: makeLabel(seedLabel),
         labelSource: "qr",
       };
 
@@ -270,7 +311,7 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
       set({
         state: "paired",
         pairings,
-        activeDaemonId: info.daemonId,
+        activeDaemon: { active: true, daemonId: info.daemonId },
         error: null,
       });
     } catch (err) {
@@ -295,25 +336,25 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
 
     await secureSet(STORAGE_KEY, await serializePairings(pairings));
 
-    const newActive =
-      pairings.size > 0 ? (pairings.keys().next().value ?? null) : null;
-
     set({
       pairings,
-      activeDaemonId:
-        get().activeDaemonId === daemonId ? newActive : get().activeDaemonId,
+      // Only re-pick when the removed daemon was the active one; otherwise the
+      // user's current selection is preserved.
+      activeDaemon: isActiveDaemon(get().activeDaemon, daemonId)
+        ? firstActiveDaemon(pairings)
+        : get().activeDaemon,
       state: pairings.size > 0 ? "paired" : "unpaired",
     });
   },
 
-  setActiveDaemon: (daemonId) => set({ activeDaemonId: daemonId }),
+  setActiveDaemon: (daemon) => set({ activeDaemon: daemon }),
 
   reset: async () => {
     await secureSet(STORAGE_KEY, "");
     set({
       state: "unpaired",
       pairings: new Map(),
-      activeDaemonId: null,
+      activeDaemon: NO_ACTIVE_DAEMON,
       error: null,
       lastPeerUnpair: null,
     });
@@ -330,13 +371,11 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
 
     await secureSet(STORAGE_KEY, await serializePairings(pairings));
 
-    const newActive =
-      pairings.size > 0 ? (pairings.keys().next().value ?? null) : null;
-
     set({
       pairings,
-      activeDaemonId:
-        get().activeDaemonId === daemonId ? newActive : get().activeDaemonId,
+      activeDaemon: isActiveDaemon(get().activeDaemon, daemonId)
+        ? firstActiveDaemon(pairings)
+        : get().activeDaemon,
       state: pairings.size > 0 ? "paired" : "unpaired",
       lastPeerUnpair: { daemonId, reason, ts: Date.now() },
     });
@@ -347,11 +386,11 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
     const pairings = new Map(get().pairings);
     const existing = pairings.get(daemonId);
     if (!existing) return;
-    // Protocol: empty string clears the label — store as null locally.
-    const localLabel = trimmed === "" ? null : trimmed;
+    // Protocol: an empty/whitespace name clears the label. `makeLabel` maps
+    // that to `{ set: false }` and any real name to `{ set: true, value }`.
     pairings.set(daemonId, {
       ...existing,
-      label: localLabel,
+      label: makeLabel(trimmed),
       labelSource: "user",
     });
 
@@ -376,16 +415,16 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
       console.warn("[pairing] handlePeerRename: unknown daemonId", daemonId);
       return;
     }
-    // `{ set: false }` is an authoritative clear → store null locally. The
-    // value is already trimmed by `makeLabel` on the producing side, but trim
-    // defensively in case a legacy string carried surrounding whitespace.
-    const localLabel = label.set ? label.value.trim() || null : null;
+    // `label` is already the decoded `Label` union — `{ set: false }` is an
+    // authoritative clear, `{ set: true, value }` the new name. Re-normalize
+    // through `decodeWireLabel` so a legacy string carrying surrounding
+    // whitespace is trimmed defensively before it lands in the store.
     // `control.rename` is an explicit user action on the daemon side and
     // expresses authoritative intent — adopt it even if the local label
     // was previously user-edited.
     pairings.set(daemonId, {
       ...existing,
-      label: localLabel,
+      label: decodeWireLabel(label),
       labelSource: "daemon",
     });
 
@@ -410,12 +449,14 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
     const existing = pairings.get(daemonId);
     if (!existing) return;
     if (existing.labelSource === "user") return;
-    const trimmed = label.value.trim();
-    if (trimmed === "") return;
-    if (existing.label === trimmed) return;
+    const next = makeLabel(label.value);
+    // Daemon advertised no usable label after trimming — keep what we have.
+    if (!next.set) return;
+    // Already converged on this value — no write needed.
+    if (existing.label.set && existing.label.value === next.value) return;
     pairings.set(daemonId, {
       ...existing,
-      label: trimmed,
+      label: next,
       labelSource: "daemon",
     });
     set({ pairings });

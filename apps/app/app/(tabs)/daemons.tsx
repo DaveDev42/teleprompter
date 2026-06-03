@@ -11,6 +11,15 @@ import type { PairingInfo } from "../../src/stores/pairing-store";
 import { usePairingStore } from "../../src/stores/pairing-store";
 import { useSessionStore } from "../../src/stores/session-store";
 
+/**
+ * The label string to show for a pairing, or `undefined` when it has none.
+ * `info.label.value` is already trimmed by `makeLabel`, so callers fall back to
+ * the daemon-id prefix on `undefined`.
+ */
+function labelValueOf(info: PairingInfo): string | undefined {
+  return info.label.set ? info.label.value : undefined;
+}
+
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
   const mins = Math.floor(diff / 60000);
@@ -41,9 +50,9 @@ function DaemonCard({
 
   // Short daemon ID for fallback display
   const shortId = info.daemonId.slice(0, 8);
-  const trimmedLabel = info.label?.trim();
-  const displayName = trimmedLabel || shortId;
-  const hasLabel = Boolean(trimmedLabel);
+  const labelValue = labelValueOf(info);
+  const displayName = labelValue || shortId;
+  const hasLabel = Boolean(labelValue);
   const showSecondaryId = hasLabel;
   const a11yName = hasLabel ? `Daemon ${displayName}` : "Daemon (unnamed)";
 
@@ -254,7 +263,7 @@ export default function DaemonsScreen() {
                     onRename={setRenameTarget}
                     onUnpair={(target) => {
                       setUnpairDisplayName(
-                        target.label?.trim() || target.daemonId.slice(0, 8),
+                        labelValueOf(target) || target.daemonId.slice(0, 8),
                       );
                       setUnpairTarget(target);
                     }}
@@ -275,7 +284,7 @@ export default function DaemonsScreen() {
                 onRename={setRenameTarget}
                 onUnpair={(target) => {
                   setUnpairDisplayName(
-                    target.label?.trim() || target.daemonId.slice(0, 8),
+                    labelValueOf(target) || target.daemonId.slice(0, 8),
                   );
                   setUnpairTarget(target);
                 }}
@@ -350,7 +359,7 @@ export default function DaemonsScreen() {
       )}
       <RenamePairingModal
         visible={renameTarget !== null}
-        initialValue={renameTarget?.label ?? ""}
+        initialValue={renameTarget ? (labelValueOf(renameTarget) ?? "") : ""}
         daemonId={renameTarget?.daemonId}
         onCancel={() => setRenameTarget(null)}
         onSave={async (val) => {

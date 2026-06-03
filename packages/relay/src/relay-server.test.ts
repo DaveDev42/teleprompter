@@ -18,6 +18,16 @@ function connectWs(port: number): Promise<WebSocket> {
   });
 }
 
+type HealthResponse = {
+  attached: number;
+  metrics: { framesIn: number; oversizedDrops: number };
+};
+
+async function fetchHealth(port: number): Promise<HealthResponse> {
+  const res = await fetch(`http://localhost:${port}/health`);
+  return (await res.json()) as HealthResponse;
+}
+
 function waitForMessage(
   ws: WebSocket,
   predicate?: (msg: RelayServerMessage) => boolean,
@@ -652,6 +662,51 @@ describe("RelayServer", () => {
       setTimeout(resolve, 1000);
     });
     expect(ws.readyState).toBe(WebSocket.CLOSED);
+  });
+
+  test("oversized frame counts in oversizedDrops, not framesIn", async () => {
+    // Regression: framesIn++ used to run BEFORE the size check, so an oversized
+    // frame bumped both framesIn AND oversizedDrops — double-counting it and
+    // breaking the framesIn ≈ framesOut + drops accounting the /metrics
+    // endpoint relies on. An oversized frame must increment ONLY oversizedDrops.
+    relay.stop();
+    relay = new RelayServer({ maxFrameSize: 100 });
+    port = relay.start(0);
+    relay.registerToken(TOKEN, DAEMON_ID);
+
+    const ws = await connectWs(port);
+    ws.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "daemon",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+      }),
+    );
+    await waitForMessage(ws, (m) => m.t === "relay.auth.ok");
+
+    // The auth frame counts as one received frame.
+    const before = await fetchHealth(port);
+    expect(before.metrics.framesIn).toBe(1);
+    expect(before.metrics.oversizedDrops).toBe(0);
+
+    // Send an oversized frame (exceeds the 100-byte cap).
+    ws.send(
+      JSON.stringify({
+        t: "relay.pub",
+        sid: "s1",
+        ct: "x".repeat(200),
+        seq: 1,
+      }),
+    );
+    await waitForMessage(ws, (m) => m.t === "relay.err");
+
+    const after = await fetchHealth(port);
+    // framesIn is unchanged (the oversized frame was rejected before counting),
+    // and only oversizedDrops moved.
+    expect(after.metrics.framesIn).toBe(1);
+    expect(after.metrics.oversizedDrops).toBe(1);
   });
 
   test("allows frames within size limit", async () => {

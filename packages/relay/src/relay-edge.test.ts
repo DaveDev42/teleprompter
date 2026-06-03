@@ -15,6 +15,12 @@ function connectWs(port: number): Promise<WebSocket> {
   });
 }
 
+async function fetchAttached(port: number): Promise<number> {
+  const res = await fetch(`http://localhost:${port}/health`);
+  const body = (await res.json()) as { attached: number };
+  return body.attached;
+}
+
 function waitMsg(
   ws: WebSocket,
   pred?: (m: RelayServerMessage) => boolean,
@@ -197,5 +203,36 @@ describe("RelayServer edge cases", () => {
 
     daemon.close();
     frontend.close();
+  });
+
+  test("frontend close without unsub releases attached counts", async () => {
+    // Regression: handleClose never decremented state.attached, so a frontend
+    // that dropped without sending relay.unsub (tab close, network loss, crash)
+    // leaked its attached count — pinning attached above zero forever. Subscribe
+    // to multiple sessions, close abruptly, and assert the counts drain to zero.
+    const frontend = await connectWs(port);
+    frontend.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "frontend",
+        daemonId: "daemon-1",
+        token: "token-1",
+      }),
+    );
+    await waitMsg(frontend, (m) => m.t === "relay.auth.ok");
+
+    // Subscribe to two distinct sessions; each adds one attached entry.
+    frontend.send(JSON.stringify({ t: "relay.sub", sid: "s1" }));
+    frontend.send(JSON.stringify({ t: "relay.sub", sid: "s2" }));
+    await Bun.sleep(50);
+    expect(await fetchAttached(port)).toBe(2);
+
+    // Close WITHOUT unsubscribing — the leak path.
+    frontend.close();
+    await Bun.sleep(100);
+
+    // handleClose must have released both sessions' attached counts.
+    expect(await fetchAttached(port)).toBe(0);
   });
 });

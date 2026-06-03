@@ -9,6 +9,7 @@
  */
 
 import type {
+  ControlMessage,
   ControlRename,
   ControlUnpair,
   KeyPair,
@@ -19,21 +20,20 @@ import type {
   RelayServerMessage,
   SessionClientMessage,
   SessionKeys,
-  SessionMeta,
-  SessionRec,
-  SessionWorktreeInfo,
+  SessionServerMessage,
 } from "@teleprompter/protocol/client";
 import {
   CONTROL_RENAME,
   CONTROL_UNPAIR,
   decodeKxLabelOrKeep,
-  decodeWireLabel,
   decrypt,
   deriveKxKey,
   deriveSessionKeys,
   encrypt,
   makeLabel,
+  parseControlMessage,
   parseRelayServerMessage,
+  parseSessionServerMessage,
   RELAY_CHANNEL_CONTROL,
   RELAY_CHANNEL_META,
   toBase64,
@@ -506,108 +506,37 @@ export class FrontendRelayClient implements TransportClient {
     try {
       const plaintext = await decrypt(frame.ct, this.sessionKeys.rx);
       const text = new TextDecoder().decode(plaintext);
-      const msg = JSON.parse(text);
+      const raw: unknown = JSON.parse(text);
 
-      switch (msg.t) {
-        case "rec":
-          this.trackSeq(msg.seq);
-          this.events.onRec?.(msg as SessionRec);
-          break;
-        case "batch":
-          for (const rec of msg.d) {
-            this.trackSeq(rec.seq);
-            this.events.onRec?.(rec as SessionRec);
-          }
-          break;
-        case "state":
-          this.events.onState?.(msg.sid, msg.d as SessionMeta);
-          break;
-        case "hello":
-          this.events.onSessionList?.(msg.d.sessions as SessionMeta[]);
-          // `daemonLabel` is included since the label-broadcast fix so the
-          // frontend can adopt the label even when it missed the initial
-          // relay.kx broadcast (e.g. frontend reconnected while daemon was
-          // already online). This is a keep-current surface — older daemons
-          // omit the field and a `{ set: false }` union both decode to "keep
-          // my fallback", so we only fire the callback for a concrete label.
-          if (this.onDaemonHello) {
-            const daemonLabel = decodeKxLabelOrKeep(msg.d.daemonLabel);
-            if (daemonLabel) {
-              this.onDaemonHello({
-                daemonId: this.config.daemonId,
-                label: daemonLabel,
-              });
-            }
-          }
-          break;
-        case "pong":
-          if (this.pingStart > 0) {
-            this.rtt = Date.now() - this.pingStart;
-            this.pingStart = 0;
-          }
-          break;
-        case "err":
-          this.events.onError?.(msg.m ?? msg.e);
-          break;
-        case "worktree.list":
-          this.events.onWorktreeList?.(msg.d as SessionWorktreeInfo[]);
-          break;
-        case "worktree.created":
-          this.events.onWorktreeCreated?.(
-            msg.d as SessionWorktreeInfo,
-            msg.sid as string | undefined,
-          );
-          break;
-        case "session.exported":
-          this.events.onSessionExported?.(msg.sid, msg.format, msg.d);
-          break;
-        case CONTROL_UNPAIR: {
-          if (frame.sid !== RELAY_CHANNEL_CONTROL) {
-            console.warn(
-              `[FrontendRelay] ignoring ${CONTROL_UNPAIR} on non-control sid=${frame.sid}`,
-            );
-            break;
-          }
-          const rawReason = msg.reason;
-          const reason: ControlUnpair["reason"] =
-            rawReason === "user-initiated" ||
-            rawReason === "device-removed" ||
-            rawReason === "rotated"
-              ? rawReason
-              : "user-initiated";
-          const daemonId =
-            typeof msg.daemonId === "string"
-              ? msg.daemonId
-              : this.config.daemonId;
-          this.onUnpair?.({ daemonId, reason });
-          break;
+      // The decrypted channel carries TWO unions: the peer-to-peer control
+      // plane (unpair/rename, on the __control__ sid only) and the session-data
+      // plane (rec/batch/state/hello/...). Try the control guard first — it is
+      // only valid on RELAY_CHANNEL_CONTROL — then fall back to the
+      // session-server guard. Both validate every field their handlers read, so
+      // a malformed frame is dropped here instead of crashing inside a handler.
+      if (frame.sid === RELAY_CHANNEL_CONTROL) {
+        const control = parseControlMessage(raw);
+        if (control) {
+          this.handleControlMessage(control);
+          return;
         }
-        case CONTROL_RENAME: {
-          if (frame.sid !== RELAY_CHANNEL_CONTROL) {
-            console.warn(
-              `[FrontendRelay] ignoring ${CONTROL_RENAME} on non-control sid=${frame.sid}`,
-            );
-            break;
-          }
-          // ControlRename is an authoritative surface: `{ set: false }` is a
-          // genuine clear, `{ set: true, value }` is the new label. Decode the
-          // tagged union forgivingly — a v2 daemon sends the union object, a
-          // v1 daemon (or one talking to an older app) sends a legacy string
-          // ("" = clear). `decodeWireLabel` normalizes all of these. The old
-          // `typeof msg.label === "string" ? msg.label : ""` coerced a union
-          // object to "" and silently cleared the label — the data-corruption
-          // bug this migration fixes.
-          const label = decodeWireLabel(msg.label);
-          const daemonId =
-            typeof msg.daemonId === "string"
-              ? msg.daemonId
-              : this.config.daemonId;
-          this.onRename?.({ daemonId, label });
-          break;
-        }
-        default:
-          console.warn(`[FrontendRelay] unknown message type: ${msg.t}`);
+        // A control-sid frame that isn't a valid control message is malformed.
+        // Drop it rather than reinterpreting it as session data on the wrong
+        // channel.
+        console.warn(
+          `[FrontendRelay] dropped malformed control frame on ${frame.sid}`,
+        );
+        return;
       }
+
+      const msg = parseSessionServerMessage(raw);
+      if (!msg) {
+        console.warn(
+          `[FrontendRelay] dropped malformed session frame on sid=${frame.sid}`,
+        );
+        return;
+      }
+      this.handleSessionMessage(msg);
     } catch (err) {
       // Daemon broadcasts control-plane messages (unpair/rename on
       // __control__, and potentially future fan-out on __meta__) to every
@@ -616,12 +545,12 @@ export class FrontendRelayClient implements TransportClient {
       // verification — expected traffic, not an error. Demote to debug
       // and skip onError so it never surfaces as a user-visible toast.
       //
-      // Note the asymmetry with the switch above: valid control messages
-      // arriving on the *wrong* sid (e.g. CONTROL_UNPAIR on "s1") are
-      // rejected earlier with console.warn. This branch only fires when
-      // AEAD itself fails. Missing/undefined frame.sid intentionally
-      // falls through to the error path — that is a truly malformed
-      // frame worth surfacing loudly.
+      // Note the asymmetry with the dispatch above: a valid control message
+      // arriving on the *wrong* sid is rejected earlier by the guards (a
+      // CONTROL_UNPAIR on a session sid fails parseSessionServerMessage and is
+      // dropped with console.warn). This branch only fires when AEAD itself
+      // fails. Missing/undefined frame.sid intentionally falls through to the
+      // error path — that is a truly malformed frame worth surfacing loudly.
       if (
         frame.sid === RELAY_CHANNEL_CONTROL ||
         frame.sid === RELAY_CHANNEL_META
@@ -636,6 +565,105 @@ export class FrontendRelayClient implements TransportClient {
         `[FrontendRelay] decrypt failed for sid=${frame.sid}:`,
         err,
       );
+    }
+  }
+
+  /**
+   * Dispatch a validated peer-to-peer control message. Both variants have had
+   * every field checked by `parseControlMessage`, so the handler trusts the
+   * `daemonId` / `reason` / `label` directly. The `daemonId` field is
+   * informational (we trust our own transport identity), so we keep using
+   * `this.config.daemonId` for the callback — the same behavior as before, now
+   * without an inline `typeof` guard.
+   */
+  private handleControlMessage(msg: ControlMessage): void {
+    switch (msg.t) {
+      case CONTROL_UNPAIR:
+        this.onUnpair?.({
+          daemonId: this.config.daemonId,
+          reason: msg.reason,
+        });
+        break;
+      case CONTROL_RENAME:
+        this.onRename?.({
+          daemonId: this.config.daemonId,
+          label: msg.label,
+        });
+        break;
+      default: {
+        // Exhaustiveness: a new ControlMessage variant without a case arm here
+        // fails to compile (assigning a non-never `msg` to `never` errors).
+        const _exhaustive: never = msg;
+        void _exhaustive;
+      }
+    }
+  }
+
+  /**
+   * Dispatch a validated session-data message. Every field has been checked by
+   * `parseSessionServerMessage`, so the handlers no longer cast `msg.d` /
+   * `msg.seq` and can trust the narrowed union member. `worktree.removed` has
+   * no frontend handler today (the worktree list is refetched), so it is an
+   * intentional no-op — but it stays in the switch so the exhaustiveness check
+   * holds over the whole `SessionServerMessage` union.
+   */
+  private handleSessionMessage(msg: SessionServerMessage): void {
+    switch (msg.t) {
+      case "rec":
+        this.trackSeq(msg.seq);
+        this.events.onRec?.(msg);
+        break;
+      case "batch":
+        for (const rec of msg.d) {
+          this.trackSeq(rec.seq);
+          this.events.onRec?.(rec);
+        }
+        break;
+      case "state":
+        this.events.onState?.(msg.sid, msg.d);
+        break;
+      case "hello":
+        this.events.onSessionList?.(msg.d.sessions);
+        // `daemonLabel` is a keep-current surface: an older daemon omits it and
+        // a `{ set: false }` union both decode to "keep my fallback", so we
+        // only fire the callback for a concrete label.
+        if (this.onDaemonHello) {
+          const daemonLabel = decodeKxLabelOrKeep(msg.d.daemonLabel);
+          if (daemonLabel) {
+            this.onDaemonHello({
+              daemonId: this.config.daemonId,
+              label: daemonLabel,
+            });
+          }
+        }
+        break;
+      case "pong":
+        if (this.pingStart > 0) {
+          this.rtt = Date.now() - this.pingStart;
+          this.pingStart = 0;
+        }
+        break;
+      case "err":
+        this.events.onError?.(msg.m ?? msg.e);
+        break;
+      case "worktree.list":
+        this.events.onWorktreeList?.(msg.d);
+        break;
+      case "worktree.created":
+        this.events.onWorktreeCreated?.(msg.d, msg.sid);
+        break;
+      case "worktree.removed":
+        // No frontend handler — the worktree list is refetched on demand.
+        break;
+      case "session.exported":
+        this.events.onSessionExported?.(msg.sid, msg.format, msg.d);
+        break;
+      default: {
+        // Exhaustiveness: a new SessionServerMessage variant without a case arm
+        // here fails to compile (assigning a non-never `msg` to `never` errors).
+        const _exhaustive: never = msg;
+        void _exhaustive;
+      }
     }
   }
 

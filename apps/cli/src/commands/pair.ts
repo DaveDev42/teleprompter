@@ -1,12 +1,7 @@
 import { Store } from "@teleprompter/daemon";
 import type {
   IpcPairBegin,
-  IpcPairBeginErr,
-  IpcPairBeginOk,
   IpcPairCancel,
-  IpcPairCancelled,
-  IpcPairCompleted,
-  IpcPairError,
   IpcPairRemove,
   IpcPairRemoveErr,
   IpcPairRemoveOk,
@@ -157,13 +152,7 @@ async function pairNew(argv: string[]): Promise<void> {
       resolve(code);
     };
     const done = new Promise<number>((resolve) => {
-      ipc!.onMessage((raw) => {
-        const m = raw as
-          | IpcPairBeginOk
-          | IpcPairBeginErr
-          | IpcPairCompleted
-          | IpcPairCancelled
-          | IpcPairError;
+      ipc!.onMessage((m) => {
         switch (m.t) {
           case "pair.begin.ok": {
             pairingId = m.pairingId;
@@ -223,12 +212,12 @@ async function pairNew(argv: string[]): Promise<void> {
             );
             settle(resolve, 1);
             return;
-          default: {
-            const _exhaustive: never = m;
-            void _exhaustive;
-            settle(resolve, 1);
+          default:
+            // Any other validated IpcMessage on this socket is not part of the
+            // pairing handshake (the daemon only sends pair.begin.* replies
+            // here). Ignore it rather than aborting — malformed frames are
+            // already dropped by parseIpcMessage at the transport boundary.
             return;
-          }
         }
       });
       ipc!.onClose(() => {
@@ -686,8 +675,7 @@ async function requestPairOp(
   try {
     return await new Promise<PairRemoveResult | PairRenameResult>(
       (resolve, reject) => {
-        ipc.onMessage((raw) => {
-          const r = raw as PairRemoveResult | PairRenameResult;
+        ipc.onMessage((r) => {
           switch (r.t) {
             case "pair.remove.ok":
             case "pair.remove.err":

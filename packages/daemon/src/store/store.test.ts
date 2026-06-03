@@ -202,6 +202,51 @@ describe("Store (shared fixture)", () => {
     if (!row) throw new Error("expected row");
     expect(row.label).toEqual({ set: false });
   });
+
+  test("loadPairings drops a row with a corrupt (truncated) key blob", () => {
+    // Two valid pairings with real 32-byte keys, then corrupt one key column
+    // directly in SQLite (bypassing savePairing) to simulate a truncated/
+    // tampered row. loadPairings must filter the corrupt row and return only
+    // the intact one — a single bad pairing can't block the others.
+    const key32 = (fill: number) => new Uint8Array(32).fill(fill);
+    vault.savePairing({
+      daemonId: "daemon-good",
+      relayUrl: "wss://r",
+      relayToken: "t",
+      registrationProof: "p",
+      publicKey: key32(1),
+      secretKey: key32(2),
+      pairingSecret: key32(3),
+    });
+    vault.savePairing({
+      daemonId: "daemon-corrupt",
+      relayUrl: "wss://r",
+      relayToken: "t",
+      registrationProof: "p",
+      publicKey: key32(4),
+      secretKey: key32(5),
+      pairingSecret: key32(6),
+    });
+
+    // Truncate daemon-corrupt's public_key to 1 byte via the private metaDb.
+    const metaDb = (
+      vault as unknown as {
+        metaDb: { run: (sql: string, params: unknown[]) => void };
+      }
+    ).metaDb;
+    metaDb.run("UPDATE pairings SET public_key = ? WHERE daemon_id = ?", [
+      Buffer.from([0xff]),
+      "daemon-corrupt",
+    ]);
+
+    const loaded = vault.loadPairings();
+    expect(loaded.map((p) => p.daemonId)).toEqual(["daemon-good"]);
+    const good = loaded[0];
+    if (!good) throw new Error("expected daemon-good");
+    expect(good.publicKey.byteLength).toBe(32);
+    expect(good.secretKey.byteLength).toBe(32);
+    expect(good.pairingSecret.byteLength).toBe(32);
+  });
 });
 
 // Isolated fixture: this test exercises Store close/reopen, so it cannot

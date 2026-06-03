@@ -80,6 +80,33 @@ describe("splitArgs", () => {
     }
   });
 
+  test("exits when a --tp-* value is itself another --tp-* flag", () => {
+    // `tp --tp-sid --tp-cwd /p` must NOT bind sid="--tp-cwd" and drop /p as a
+    // stray claude positional. The adjacent flag is a usage error.
+    const originalExit = process.exit;
+    const originalError = console.error;
+    let exitCode: number | undefined;
+    let errorOutput = "";
+    process.exit = ((code: number) => {
+      exitCode = code;
+      throw new Error("__EXIT__");
+    }) as never;
+    console.error = (msg: string) => {
+      errorOutput += `${msg}\n`;
+    };
+
+    try {
+      expect(() =>
+        splitArgs(["--tp-sid", "--tp-cwd", "/p", "-p", "hello"]),
+      ).toThrow("__EXIT__");
+      expect(exitCode).toBe(1);
+      expect(errorOutput).toContain("--tp-sid requires a value");
+    } finally {
+      process.exit = originalExit;
+      console.error = originalError;
+    }
+  });
+
   test("unknown --tp-like flags are passed to claude", () => {
     // --tp-unknown is NOT a recognized tp flag, so it goes to claude
     const result = splitArgs(["--tp-unknown", "value", "-p", "hello"]);

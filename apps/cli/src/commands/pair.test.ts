@@ -180,6 +180,32 @@ describe("tp pair", () => {
   });
 });
 
+describe("tp pair unknown subcommand", () => {
+  test("a typo'd subcommand fails with usage instead of starting a pairing", () => {
+    const home = mkdtempSync(join(tmpdir(), "tp-pair-unknown-"));
+    try {
+      // `delet` is a typo of `delete`. The old `default: pairNew` fallthrough
+      // would silently start a new pairing (QR screen); it must error instead.
+      const out = capture(`${CLI} pair delet daemon-abc`, {
+        HOME: home,
+        XDG_DATA_HOME: join(home, "xdg"),
+        XDG_RUNTIME_DIR: join(home, "runtime"),
+      });
+      expect(out).toContain("Unknown subcommand: tp pair delet");
+      expect(out).toContain("tp pair new");
+      // Must NOT have proceeded into pairing flow.
+      expect(out).not.toContain("Scan this QR");
+    } finally {
+      rmSync(home, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 100,
+      });
+    }
+  });
+});
+
 describe("tp pair list/delete", () => {
   let home: string;
   let env: Record<string, string>;

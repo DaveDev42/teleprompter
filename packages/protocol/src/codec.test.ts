@@ -134,7 +134,7 @@ describe("codec", () => {
 
 test("IpcMessage union accepts pair.* messages", () => {
   const msgs: IpcMessage[] = [
-    { t: "pair.begin", relayUrl: "wss://r", label: "x" },
+    { t: "pair.begin", relayUrl: "wss://r", label: { set: true, value: "x" } },
     { t: "pair.begin.ok", pairingId: "p1", qrString: "q", daemonId: "d1" },
     { t: "pair.begin.err", reason: "already-pending" },
     { t: "pair.cancel", pairingId: "p1" },

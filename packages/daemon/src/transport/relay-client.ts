@@ -24,13 +24,13 @@ import {
   CONTROL_RENAME,
   CONTROL_UNPAIR,
   createLogger,
-  decodeWireLabel,
   decrypt,
   deriveKxKey,
   deriveSessionKeys,
   encrypt,
   fromBase64,
   labelToNullable,
+  parseControlMessage,
   parseRelayControlMessage,
   RELAY_CHANNEL_CONTROL,
   toBase64,
@@ -385,28 +385,52 @@ export class RelayClient {
     const msg = JSON.parse(text);
 
     if (frame.sid === RELAY_CHANNEL_CONTROL) {
-      if (msg.t === CONTROL_UNPAIR) {
-        const m = msg as ControlUnpair;
-        this.onUnpair?.({ frontendId: m.frontendId, reason: m.reason });
-        return;
-      }
-      if (msg.t === CONTROL_RENAME) {
-        const m = msg as ControlRename;
-        // The wire may carry either the legacy `string` shape (`""` = clear)
-        // or the new `Label` union — `decodeWireLabel` normalizes both. On
-        // this surface `{ set: false }` is an authoritative clear.
-        this.onRename?.({
-          frontendId: m.frontendId,
-          label: decodeWireLabel(m.label),
-        });
+      // The unpair/rename branches reach pairing removal and label updates —
+      // the most consequential decrypted surface. Narrow through the boundary
+      // guard so a malformed frame can never fire either handler.
+      if (msg.t === CONTROL_UNPAIR || msg.t === CONTROL_RENAME) {
+        const control = parseControlMessage(msg);
+        if (!control) {
+          log.warn(`dropped malformed control frame: t=${msg.t}`);
+          return;
+        }
+        if (control.t === CONTROL_UNPAIR) {
+          this.onUnpair?.({
+            frontendId: control.frontendId,
+            reason: control.reason,
+          });
+        } else {
+          // `parseControlMessage` already normalized the wire label via
+          // `decodeWireLabel`; on this surface `{ set: false }` is an
+          // authoritative clear.
+          this.onRename?.({
+            frontendId: control.frontendId,
+            label: control.label,
+          });
+        }
         return;
       }
     }
 
     if (msg.t === "in.chat" || msg.t === "in.term") {
+      // Input frames reach the PTY/chat write path — validate the two fields
+      // `onInput` dereferences before trusting them.
+      if (typeof msg.sid !== "string" || typeof msg.d !== "string") {
+        log.warn(`dropped malformed input frame: t=${msg.t}`);
+        return;
+      }
       const kind = msg.t === "in.chat" ? "chat" : "term";
       this.events.onInput?.(kind, msg.sid, msg.d, peer.frontendId);
     } else if (msg.t === "pushToken") {
+      // The push token registers an APNs/FCM target — reject anything but a
+      // string token on a known platform.
+      if (
+        typeof msg.token !== "string" ||
+        (msg.platform !== "ios" && msg.platform !== "android")
+      ) {
+        log.warn("dropped malformed pushToken frame");
+        return;
+      }
       this.events.onPushToken?.(peer.frontendId, msg.token, msg.platform);
     } else {
       // Control plane messages: attach, detach, resume, resize, ping,

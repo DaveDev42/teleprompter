@@ -240,6 +240,94 @@ describe("Unpair Notification E2E", () => {
 
     ws.close();
   });
+
+  test("malformed control.unpair does NOT remove the pairing", async () => {
+    const daemonId = "daemon-unpair-C";
+    const frontendId = "unpair-frontend-C";
+
+    const bundle = await createPairingBundle(
+      `ws://localhost:${relayPort}`,
+      daemonId,
+    );
+
+    await daemon.connectRelay({
+      relayUrl: `ws://localhost:${relayPort}`,
+      daemonId,
+      token: bundle.relayToken,
+      registrationProof: bundle.registrationProof,
+      keyPair: bundle.keyPair,
+      pairingSecret: bundle.pairingSecret,
+    });
+    await Bun.sleep(300);
+
+    const frontendKp = await generateKeyPair();
+    const kxKey = await deriveKxKey(bundle.pairingSecret);
+
+    const ws = new WebSocket(`ws://localhost:${relayPort}`);
+    await new Promise<void>((r) => {
+      ws.onopen = () => r();
+    });
+    ws.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 2,
+        role: "frontend",
+        daemonId,
+        token: bundle.relayToken,
+        frontendId,
+      }),
+    );
+    await waitMsg(ws, (m) => m.t === "relay.auth.ok");
+
+    const kxPayload = JSON.stringify({
+      pk: await toBase64(frontendKp.publicKey),
+      frontendId,
+      role: "frontend",
+    });
+    ws.send(
+      JSON.stringify({
+        t: "relay.kx",
+        ct: await encrypt(new TextEncoder().encode(kxPayload), kxKey),
+        role: "frontend",
+      }),
+    );
+    await Bun.sleep(300);
+
+    const frontendKeys = await deriveSessionKeys(
+      frontendKp,
+      bundle.keyPair.publicKey,
+      "frontend",
+    );
+
+    // A control.unpair missing `frontendId` and `reason` — exactly the shape a
+    // bare `as ControlUnpair` cast would have waved through into removePairing.
+    // The boundary guard must drop it so the pairing survives.
+    const malformed = { t: CONTROL_UNPAIR, daemonId, ts: Date.now() };
+    const ct = await encrypt(
+      new TextEncoder().encode(JSON.stringify(malformed)),
+      frontendKeys.tx,
+    );
+    ws.send(
+      JSON.stringify({
+        t: "relay.pub",
+        sid: RELAY_CHANNEL_CONTROL,
+        ct,
+        seq: 1,
+      }),
+    );
+
+    // Give the daemon ample time to (wrongly) process it, then assert the
+    // pairing is still present.
+    await Bun.sleep(500);
+
+    const store = (
+      daemon as unknown as { store: { loadPairings(): unknown[] } }
+    ).store;
+    expect(store.loadPairings().length).toBe(1);
+    expect(daemon.getActivePairingIds().length).toBe(1);
+
+    ws.close();
+  });
 });
 
 function waitMsg(

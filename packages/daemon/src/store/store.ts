@@ -95,8 +95,23 @@ export class Store {
       }
     }
 
+    // On restart, handleHello calls createSession again with an existing sid.
+    // A plain INSERT OR REPLACE would delete+reinsert the row, resetting
+    // last_seq to 0 and stamping a fresh created_at — which breaks the
+    // frontend's cursor replay (its cursor now exceeds the store's last_seq,
+    // so resume returns nothing) and loses the original creation time. Use an
+    // upsert that, on conflict, refreshes only the mutable fields and leaves
+    // last_seq and created_at intact.
     this.createStmt = this.metaDb.prepare(
-      "INSERT OR REPLACE INTO sessions (sid, state, worktree_path, cwd, created_at, updated_at, claude_version, last_seq) VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+      `INSERT INTO sessions
+         (sid, state, worktree_path, cwd, created_at, updated_at, claude_version, last_seq)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+       ON CONFLICT(sid) DO UPDATE SET
+         state = excluded.state,
+         worktree_path = excluded.worktree_path,
+         cwd = excluded.cwd,
+         updated_at = excluded.updated_at,
+         claude_version = excluded.claude_version`,
     );
     this.updateStateStmt = this.metaDb.prepare(
       "UPDATE sessions SET state = ?, updated_at = ? WHERE sid = ?",
@@ -157,6 +172,12 @@ export class Store {
 
   private trackSessionDb(sid: SID, db: SessionDb): void {
     this.sessionDbs.set(sid, db);
+    // Guard the pathological cap=0 case: without this the eviction loop would
+    // immediately close the db we just inserted (it is its own oldest entry),
+    // handing the caller a closed handle. The default cap is 32 and 0 is never
+    // configured in production, but clamp defensively so the invariant holds
+    // for any constructor input.
+    if (this.maxOpenSessionDbs <= 0) return;
     while (this.sessionDbs.size > this.maxOpenSessionDbs) {
       const oldest = this.sessionDbs.keys().next().value;
       if (!oldest) break;

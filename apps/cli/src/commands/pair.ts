@@ -94,7 +94,11 @@ async function pairNew(argv: string[]): Promise<void> {
   const relayUrl = values.relay as string;
   const daemonId = values["daemon-id"] as string | undefined;
   const rawLabel = (values.label as string | undefined)?.trim() ?? "";
-  const label = rawLabel || defaultLabel();
+  // `pair new` always resolves a concrete label (CLI flag or the host-derived
+  // default), so the union is always `{ set: true }`. Model it as a Label from
+  // the source and derive the display string from it — no string round-trip.
+  const label: Label = makeLabel(rawLabel || defaultLabel());
+  const labelText = label.set ? label.value : defaultLabel();
 
   const lockPath = join(PAIRING_DIR, "pair.lock");
   const lockRelease = await acquirePairLock(lockPath);
@@ -167,7 +171,7 @@ async function pairNew(argv: string[]): Promise<void> {
               console.log(qr);
             });
             console.log(`\nDaemon ID:    ${m.daemonId}`);
-            console.log(`Label:        ${label}`);
+            console.log(`Label:        ${labelText}`);
             console.log(`Relay:        ${relayUrl}`);
             console.log(
               `\n${dim("Scan with the iPhone Camera app, or paste this URL in Teleprompter:")}`,

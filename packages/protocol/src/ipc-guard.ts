@@ -235,12 +235,20 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
     case "pair.begin": {
       if (!isString(raw.relayUrl)) return null;
       if (!isOptionalString(raw.daemonId)) return null;
-      if (!isOptionalString(raw.label)) return null;
+      // `label` is optional here (absent → daemon resolves the default).
+      // When present, narrow it to the Label union; reject only outright
+      // wrong-typed shapes (number/boolean) as `parseLabelField` does.
+      let label: Label | undefined;
+      if (raw.label !== undefined) {
+        const parsed = parseLabelField(raw.label);
+        if (parsed === null) return null;
+        label = parsed;
+      }
       return {
         t: "pair.begin",
         relayUrl: raw.relayUrl,
         daemonId: raw.daemonId,
-        label: raw.label,
+        label,
       };
     }
 

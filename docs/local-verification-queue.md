@@ -158,11 +158,20 @@ cd apps/app && npx expo start --dev-client   # 웹 디버그의 --web 과 다름
 
 ### Q6. Long-running 안정성 — 1시간 soak
 
-- **prereq**: 페어링된 daemon + app(실기기 또는 web). 자동 측정 스크립트 필요(미작성 — TODO).
+- **prereq**: 페어링된 daemon + app(실기기 또는 web). 자동 측정 스크립트 = `scripts/soak.ts`
+  (in-process RelayServer + 실 daemon pid RSS 샘플링; `bun run scripts/soak.ts`, 플래그
+  `--minutes`/`--round-interval`/`--reconnects`/`--frames`/`--idle-cycles`/`--idle-hold`/`--json`,
+  hard failure 시 exit 1).
 - **command**: 1시간 동안 daemon RSS 추이 샘플링, relay reconnect 100회, frame round-trip 100회
   latency, WS idle/wake 사이클 5회.
 - **pass**: RSS 단조증가(누수) 없음, reconnect 전부 복구, latency p95 안정, idle/wake 후 정상.
-- **result**: _(미실행)_
+- **result**: **PASS 2026-06-03** (이 8GB 개발 머신, `scripts/soak.ts`, 실 daemon pid 89218 추적) —
+  머신 사양 무관 항목이라 이 머신에서 이미 실측 완료. 61 라운드 × {reconnect 100, rtt 100}:
+  reconnect **6100/6100** (connect p95 ≤0.94ms), frame round-trip **6100/6100** (rtt p95 ≤2.38ms),
+  RSS 37.0→30.6MB 범위 29.7~37.0MB (**상승 추세 없음 = 누수 없음**), idle/wake **5/5**
+  (95s hold > relay 90s idle, daemon ping이 idle close 차단 실증), relay drop 카운터
+  (rate/daemon/backpressure/oversized/authTimeout/eviction) **전부 0**, hard failures **0**.
+  → **고성능 Mac은 Q6 건너뜀** (중복 불필요).
 
 ### Q7. Windows under WSL — install.sh 풀 사이클
 

@@ -56,36 +56,7 @@ These are non-negotiable rules. **If code contradicts these, the code is wrong (
 
 ## Relay Capacity Target
 
-**Always design and tune for ~10k concurrent connections (daemon + app combined) on a single relay node.** This is the standing capacity bar — every relay change must preserve it.
-
-### Single-node knobs (already wired in `packages/relay/src/relay-server.ts`)
-
-| Knob | Default | Env | 의미 |
-|------|---------|-----|------|
-| `cacheSize` | 10 | `TP_RELAY_CACHE_SIZE` | sid당 최근 frame 개수 (replay) |
-| `maxFrameSize` | 1 MB | `TP_RELAY_MAX_FRAME_SIZE` | 단일 frame 최대 크기 (oversize → close) |
-| `ratePerClient` | 500/sec | `TP_RELAY_RATE_PER_CLIENT` | per-socket sliding window |
-| `ratePerDaemon` | 5000/sec | `TP_RELAY_RATE_PER_DAEMON` | daemon group 전체 budget (daemon + 모든 frontend 합) |
-| `backpressureBytes` | 4 MB | `TP_RELAY_BACKPRESSURE_BYTES` | `ws.bufferedAmount` 임계 — 초과 시 disconnect (1013) |
-| `authTimeoutMs` | 10 s | `TP_RELAY_AUTH_TIMEOUT_MS` | 인증 안 한 socket close (slowloris 방어) |
-| `idleTimeout` | 90 s | (코드 상수) | Bun WS idleTimeout. daemon ping 30s → 3 missed = close |
-| `resumeSecret` | random/ephemeral | `TP_RELAY_RESUME_SECRET` | HMAC key for `relay.auth.resume` tokens. ≥32 chars. 미설정 시 프로세스 시작마다 새로 생성 — 재시작 시 모든 client는 full auth로 폴백. Production은 반드시 고정값 설정. |
-| `resumeTtlMs` | 1 h | `TP_RELAY_RESUME_TTL_MS` | resume token 유효기간. 만료 시 client는 full auth로 폴백. |
-
-### Capacity invariants
-
-- **Application-level rate limiting은 두 레이어**: per-client + per-daemon-group. 한 client만 미친듯이 보내거나 한 daemon group이 통째로 폭주하는 두 케이스 모두 차단.
-- **Slow consumer는 disconnect (drop이 아니라 close 1013).** Frontend는 reconnect 시 `relay.sub after=...`로 cached frame replay 받음. Frame drop은 sequence gap을 만들어 protocol invariant를 깨므로 금지.
-- **Idle close는 traffic이 전혀 없을 때만.** daemon ping (30s 간격)이나 사용자 활동이 있으면 절대 close되지 않는다. idle timeout은 dead TCP를 빨리 청소해서 fd/메모리 누수를 막는 안전망일 뿐.
-- **`/health` + `/metrics` 는 capacity 모니터링의 SoT.** `framesIn`, `framesOut`, `rateLimitedDrops`, `daemonRateLimitedDrops`, `backpressureDisconnects`, `authTimeouts`, `oversizedDrops`, `unknownTypeDrops`, `evictions`, `resumesAttempted` / `resumesAccepted` / `resumesRejected` counter를 since-last-restart로 노출. Tuning 변경은 이 counter 추이로 검증. `resumesRejected`가 갑자기 튀면 secret 회전이나 token 만료 정책을 의심. `unknownTypeDrops`가 튀면 적대적/구버전 peer가 malformed frame을 보내고 있다는 신호 (wire guard `parseRelayClientMessage`가 zero-trust 경계에서 거부한 횟수).
-- **OS-level**: `LimitNOFILE` 200000 권장 (systemd unit). `relay-harden.sh`의 hashlimit 규칙은 그대로 유효 (per-IP `connlimit` 없음 — CGNAT 사용자 보호).
-
-### Scale-out (10k → 100k+)
-
-10k는 단일 노드 상한 근처. 그 이상 가야 할 때:
-- **Sticky routing + 작은 KV** 가 first choice — daemonId 기반 consistent-hash LB로 daemon + 그 daemon의 모든 frontend가 같은 노드에 붙음. Token registry만 Redis/Postgres로 옮기고, frame fan-out은 backplane 없이 in-process 유지. Frame path latency 영향 0.
-- **Full Redis pub/sub backplane 비추** — frame fan-out에 매번 pub/sub hop이 끼면 latency + Redis 부하가 단일 노드 이득보다 큼. Stateless ciphertext invariant도 약해짐.
-- HTTP/3 / QUIC connection migration은 RN/Bun client 측 미성숙으로 현재 비현실. roadmap watch만.
+**Always design and tune for ~10k concurrent connections (daemon + app combined) on a single relay node.** 모든 relay 변경은 이 capacity bar 를 보존해야 한다. Single-node knobs (env 표), capacity invariants (2-layer rate limit, slow-consumer disconnect, idle close, /metrics SoT), scale-out 전략은 `.claude/rules/relay-capacity.md` (`packages/relay/**` 작업 시 자동 로드).
 
 ## Protocol
 
@@ -158,120 +129,38 @@ Tier 1-4 분류 및 전체 test 파일 인벤토리는 `.claude/rules/testing-in
 
 ## Dog-fooding (tp + RN Web 라이브 디버그)
 
-이 repo에서 Claude Code를 돌릴 때는 **항상 `tp` 명령으로 실행한다.** 즉 `claude ...` 가 아니라 `tp ...` (또는 인자 없이 `tp`) 로 진입해서, 모든 Claude 세션이 로컬 daemon → relay → RN Web 프론트엔드 파이프라인을 타게 한다. 이게 두 가지를 동시에 보장한다:
+이 repo 에서 Claude Code 는 **항상 `tp` 로 실행** (`claude ...` 아님) — 모든 세션이 로컬 daemon → relay → RN Web 파이프라인을 타게 해 Chat/Terminal UI 변경을 매일 dogfood. 라이브 디버그 절차·페어링 재활용(`pnpm dev:pair`)·관찰 체크리스트·UI 버그 처리 플로우는 `.claude/rules/dogfooding.md` (SoT, dev/qa 시 자동 로드).
 
-1. Chat UI / Terminal UI 의 모든 변경이 매일 우리 자신의 워크플로우로 검증된다 (진짜 dogfood).
-2. UI 회귀를 e2e 테스트가 잡기 전에 사람 눈으로 먼저 마주친다.
+### Local `tp` Binary Freshness (자동 룰)
 
-### 로컬 `tp` 바이너리 + daemon 항상 최신 (자동 룰)
+**main 에 머지된 내 변경은 즉시 사용자의 로컬 `tp`/daemon 에 반영되어 있어야 한다.** 다음 시점마다 **묻지 말고** 재빌드/재설치:
 
-사용자가 언제든지 최신 작업본을 직접 만져볼 수 있어야 한다 — 즉 **main에 머지된 내 변경은 즉시 사용자의 로컬 `tp`/daemon 에 반영되어 있어야 한다.** Claude (이 agent) 는 다음 시점마다 **묻지 말고** 자동으로 로컬 바이너리 + daemon 을 재빌드/재설치한다:
-
-1. **PR squash merge 직후** — `apps/cli/**`, `packages/daemon/**`, `packages/runner/**`, `packages/protocol/**`, `packages/relay/**` 중 어느 하나라도 건드린 PR 이 머지되면:
+1. **PR squash merge 직후** — `apps/cli/**`, `packages/{daemon,runner,protocol,relay}/**` 중 하나라도 건드린 PR:
    ```bash
-   pnpm build:cli:local                           # 현재 OS/arch 바이너리만 (multi-platform 안 함)
-   install -m 0755 dist/tp ~/.local/bin/tp        # dogfood 바이너리 갱신 (sudo 불필요 — $HOME 하위)
-   ~/.local/bin/tp daemon install                 # 서비스 재등록 (이미 등록돼 있으면 idempotent)
-   # macOS launchd / Linux systemd 가 새 바이너리로 daemon 을 자동 재기동
+   pnpm build:cli:local                      # 현재 OS/arch 만 (--all 금지)
+   install -m 0755 dist/tp ~/.local/bin/tp   # dogfood 경로 (sudo 불필요)
+   ~/.local/bin/tp daemon install            # 서비스 재등록 (idempotent, launchd/systemd 자동 재기동)
    ```
-   > **dogfood 는 `~/.local/bin/tp`, brew(릴리즈)는 `/opt/homebrew/bin/tp`로 분리**한다. `~/.zprofile`
-   > 이 `~/.local/bin` 을 `/opt/homebrew/bin` 보다 앞에 두므로 `tp` 는 dogfood 를 가리키고, brew symlink
-   > 는 손대지 않아 `brew upgrade davedev42/tap/tp` 가 항상 정상 동작한다 (과거 `sudo install … /opt/homebrew/bin/tp`
-   > 로 symlink 를 덮어 brew upgrade 가 무력화됐던 회귀의 근본 차단). dogfood 를 끄려면 `rm ~/.local/bin/tp`
-   > 한 번이면 `tp` 가 자동으로 brew 릴리즈로 fallback. **`daemon install` 은 plist 에 박을 바이너리 경로를
-   > `which tp` 우선순위로 고르므로, `~/.local/bin/tp` 로 직접 실행**해 daemon 이 dogfood 를 가리키게 한다
-   > (Bun single-file 의 argv[0] 가 synthetic `/$bunfs/…` 라 PATH walk 로 떨어지는데, 새 로그인 셸 전이라
-   > `~/.local/bin` 이 아직 PATH 앞이 아니면 `PATH="$HOME/.local/bin:$PATH" ~/.local/bin/tp daemon install`
-   > 로 앞세운다).
-2. **로컬 dev 세션을 시작할 때** (main 위에서 코드 만지기 시작하는 시점) — 위 시퀀스를 한 번 돌려서 PATH 의 `tp` 와 가동 중인 daemon 이 `origin/main` 최신 commit 으로 맞춰져 있는지 확인.
-3. **사용자가 명시적으로 "최신으로 깔아줘" / "tp 업데이트해줘" 라고 말할 때** — 추가 확인 없이 위 시퀀스 실행.
+2. **로컬 dev 세션 시작 시** — 위 시퀀스 한 번 돌려 PATH `tp` + daemon 을 `origin/main` 최신에 맞춤.
+3. **"최신으로 깔아줘" 명시 요청 시** — 확인 없이 실행.
 
-세부 규칙:
-
-- **재빌드는 `build:cli:local` 만 쓴다.** `build:cli` (`--all`) 는 4개 플랫폼 cross-compile 이라 느리고 로컬에서는 의미 없다.
-- **dogfood install 경로는 `~/.local/bin/tp` 로 고정** (curl-installer 와 같은 위치). brew 릴리즈(`/opt/homebrew/bin/tp` → Cellar symlink)는 fallback 으로 남긴다. 새 로그인 셸에서 `which tp` 가 `~/.local/bin/tp` 로 해석되는지 확인 — `/usr/local/bin/tp` 같은 옛 dogfood 잔재가 있으면 그게 앞서 잡혀 혼란을 만드므로 발견 시 `rm` 한다. **brew symlink (`/opt/homebrew/bin/tp`) 에는 절대 `install` 로 덮어쓰지 않는다** (덮으면 다음 `brew upgrade` 가 PATH 상으로 무력화된다 — 복구는 `brew link --overwrite tp`).
-- **daemon 재기동은 `tp daemon install` 한 번이면 충분.** launchd/systemd unit 이 새 바이너리 경로를 가리키도록 idempotent 하게 재등록하고 자동 restart. `pkill tp-daemon` 후 수동 재시작 같은 동작은 금지 (서비스 등록 안 된 일회성 프로세스로 살아남아서 OTA 안 됨).
-- **daemon 재기동 후 검증**: `tp version` 으로 새 commit hash / version 이 찍히는지 확인. 안 찍히면 PATH 의 다른 `tp` 가 우선순위에 있다는 신호.
-- **이 룰의 목표는 사용자의 "즉시 만져보기" 사이클을 0초로 만드는 것** — 사용자가 PR 머지 후에 "어디서 어떻게 깔지" 를 고민하게 두면 dogfood 가 망가진다. 의심스러우면 그냥 위 시퀀스를 한 번 더 돌려라 (idempotent).
-- **Subagent worktree 가 active 인 동안 메인 worktree 에서 install 금지.** Subagent 가 `isolation: "worktree"` 로 격리되어 있어도 메인 worktree 의 git index 를 점유하는 케이스가 종종 있다 (브랜치 전환, working tree 수정 등). 그 동안 `pnpm build:cli:local && install -m 0755 dist/tp ~/.local/bin/tp` 를 돌리면 build 산출물이 subagent 의 in-flight 변경과 섞일 수 있다. **PR 머지 후 install 은 모든 subagent 의 완료 알림이 도착한 뒤** 한꺼번에 처리. 메인 worktree 의 `git status` 가 깨끗하지 않으면 install 보류.
-
-### 라이브 디버그 워크플로우 (권장)
-
-로컬 web dev + 로컬 daemon 조합. Relay 는 production `wss://relay.tpmt.dev` 를 그대로 쓴다 (자체 호스팅보다 회귀 표면이 작다).
-
-```bash
-# 1. RN Web dev 서버 (hot reload 살아있음)
-pnpm dev:app                          # → http://localhost:8081
-
-# 2. 로컬 daemon 시작 (필요 시; install 되어 있으면 자동)
-tp status                             # daemon 자동 부팅
-tp pair new --label "dev-web"         # QR + tp://p?d=... 출력
-
-# 3. 브라우저에서 http://localhost:8081/pairing 열고
-#    위에서 출력된 tp://p?d=... 문자열을 textarea 에 붙여넣고 Connect.
-#    (web 에는 카메라 QR scan 이 없으므로 manual paste 경로.)
-
-# 4. 페어링 완료 후 sessions 탭에서 daemon 이 보이면
-#    별도 터미널에서 실제 작업 세션 시작:
-tp                                    # 현재 cwd 로 새 Claude 세션
-# 또는 기존 작업을 그대로 tp 통해 진입:
-tp <claude-args...>
-
-# 5. RN Web 의 Sessions 탭에 방금 만든 세션이 라이브로 뜬다.
-#    Chat 탭: hooks 이벤트 + PTY 스트림 hybrid 렌더.
-#    Terminal 탭: xterm.js / ghostty-web 으로 풀 PTY.
-#    UI 변경을 만지는 동안 이 세션을 계속 띄워두고 직접 클릭/타이핑.
-```
-
-### 한 번 페어링하고 계속 재활용 (`pnpm dev:pair`)
-
-위 3번 step (수동 paste) 을 매번 반복하기는 번거롭다. `scripts/dev-pair.ts` 를 한 번 돌리면:
-
-1. `tp pair new --label dev-web` 를 자식 프로세스로 띄워 stdout 에서 `tp://p?d=...` URL 을 캡처한다.
-2. Playwright (chromium headed) 로 `/pairing` 을 열어 URL 을 paste + Connect → daemon 쪽 `pair.completed` 까지 대기.
-3. 브라우저 storage state 를 `apps/app/.dev-pairing-state.json` 에 dump (gitignored).
-
-이후의 모든 dev/QA 흐름은 그 storage state 를 `context.storageState({ path: ... })` 로 로드해서 페어링된 상태로 즉시 진입. Daemon 쪽 페어링은 store DB 에 영속되므로 daemon 을 죽였다 살려도 그대로 살아 있다.
-
-```bash
-pnpm dev:app                          # 한 터미널 — Expo web on :8081
-pnpm dev:pair                         # 다른 터미널 — 한 번만 실행
-# 이후 chromium 을 그 storage state 로 띄우면 페어링 완료된 상태로 시작.
-```
-
-Fixture 가 깨지는 케이스 (다시 실행해서 재생성해야 하는 경우):
-- `tp pair delete <id>` 로 페어링을 의도적으로 지운 경우.
-- Daemon store DB 를 삭제했거나 (`~/.local/share/teleprompter/store.sqlite`) clean 환경으로 옮긴 경우.
-- Relay 의 `TP_RELAY_RESUME_SECRET` 이 회전되어 resume token 이 무효화된 경우 — 단 이 경우는 full auth 폴백이 동작하므로 보통 fixture 재생성 없이 자동 복구.
-- protocol 의 kx/ratchet 포맷이 깨지는 변경 (드물지만 발생하면 fixture 와 store 둘 다 리셋).
-
-### 무엇을 관찰할까
-
-- **Chat 탭**: 새 메시지 도착 시 자동 스크롤, hooks 카드 (Tool/StopFailure/System) 렌더, code block 토글, 마크다운 표시, IME 입력, Enter-to-send / Shift+Enter newline.
-- **Terminal 탭**: PTY 출력 스트리밍 끊김 없는지, ANSI 컬러/커서 정확한지, 키보드 입력 라운드트립, 리사이즈 시 reflow.
-- **연결 상태**: daemon 을 `tp daemon uninstall && pkill tp-daemon` 으로 일부러 죽여보고 `session-connection-live-region` (disconnect → reconnect 배너) 가 정상 동작하는지 — PR #324 회귀 가드.
-- **Pairing**: 이미 페어링된 상태에서 `tp pair delete <id>` 실행 시 `control.unpair` 가 web 에 도달해 토스트 + Daemons 리스트에서 사라지는지.
-
-### 무엇을 피할까
-
-- **`apps/app/dist` 정적 서빙으로는 hot reload 가 죽는다.** e2e 재현/CI 검증에만 쓰고 일상 디버그에는 쓰지 말 것 (`pnpm test:e2e:ci` 가 이미 그 경로를 다룬다).
-  - **단, RN Web QA / 회귀 재현은 static serve (`serve apps/app/dist -s`) 가 오히려 정답** — `test:e2e:ci` 가 타는 바로 그 번들이라 프로덕션 충실도가 높고, HMR 이 측정 중 모듈을 갈아끼우는 오염이 없다.
-  - **그러므로 static serve 로 QA 를 시작하기 전에는 항상 먼저 `pnpm build:web` 으로 `dist` 를 갱신할 것.** static serve 의 함정은 serve 자체가 아니라 *stale 번들* 이다 — `dist` 가 마지막 빌드 시점에 고정돼 있어, 그 이후 머지된 변경은 재빌드 전까지 번들에 없다. (실제로 ping fix 검증 시 하루 전 빌드된 `dist` 를 서빙해 fix 가 번들에 없는 채로 "미검출" 로 한참 헛다리. `dist/_expo/static/js/web/index-*.js` 에 `grep` 으로 대상 심볼이 있는지 확인하면 즉시 판별된다.)
-- **로컬 relay 띄우기는 기본값이 아니다.** `tp relay start` 는 protocol 변경/relay 자체 디버그 시에만. 일반적인 UI 디버그는 production relay 가 표면이 작아 더 빠르게 진실에 접근한다.
-- **`claude` 직접 실행은 회피.** PATH 에 `claude` 가 있어도 매번 `tp` 를 거치는 습관이 dogfood 의 본질. `tp` 가 미설치된 환경이라면 먼저 `pnpm build:cli:local && ./dist/tp ...` 로 빌드본을 쓴다.
-
-### 디버그 중 발견한 UI 버그 처리
-
-1. 즉시 reproduce 가능한 브랜치 (`fix/...`) 를 새로 떼서 패치 + 회귀용 Playwright spec (`e2e/app-*.spec.ts`) 을 동봉.
-2. 새 spec 은 `playwright.config.ts` 의 `ci` project `testMatch` 배열에 반드시 등록 (등록 안 되면 CI 에 안 돈다).
-3. `pnpm build:web && pnpm test:e2e:ci` 로 로컬 그린 확인 후 PR.
-4. PR title 은 conventional-commit prefix (`fix(app): ...`) — squash merge 시 main commit subject 가 된다.
+세부:
+- **dogfood = `~/.local/bin/tp`, brew(릴리즈) = `/opt/homebrew/bin/tp` 로 분리.** `~/.zprofile` 이 `~/.local/bin` 을 앞에 둬 `tp` 는 dogfood 를 가리킴. **brew symlink 를 `install` 로 절대 덮지 않는다** (덮으면 `brew upgrade` 무력화 — 복구는 `brew link --overwrite tp`). dogfood 끄려면 `rm ~/.local/bin/tp`.
+- `daemon install` 은 plist 바이너리 경로를 `which tp` 로 고르므로 **`~/.local/bin/tp` 로 직접 실행**. 새 로그인 셸 전이면 `PATH="$HOME/.local/bin:$PATH" ~/.local/bin/tp daemon install`.
+- **재기동은 `tp daemon install` 한 번** (`pkill` 후 수동 재시작 금지 — 서비스 미등록 프로세스로 살아남아 OTA 안 됨). 재기동 후 `tp version` 으로 새 commit hash 확인.
+- **Subagent worktree 가 active 인 동안 install 금지** — 모든 subagent 완료 알림 도착 + 메인 worktree `git status` clean 후 한꺼번에. 옛 `/usr/local/bin/tp` 잔재 발견 시 `rm`.
 
 ## Documentation Maintenance
 
 CLAUDE.md, PRD.md, TODO.md, ARCHITECTURE.md must always be kept up to date.
 When implementing features, fixing bugs, or making architectural changes,
-update the relevant documentation files in the same commit.
+update the relevant documentation files in the same commit. 영역별 상세 운영
+규칙은 `.claude/rules/*.md` 에 분리돼 있다 (`paths:` frontmatter 로 해당 영역
+파일 작업 시 자동 로드) — 그 영역을 바꾸면 같은 commit 에서 해당 rules 파일도 갱신.
+
+> **CLAUDE.md 는 40k char 한도 아래로 유지.** 장황한 운영 디테일(relay capacity,
+> dogfooding 절차, deployment/release, version/OTA, iOS/native build)은 CLAUDE.md 에
+> 핵심+포인터만 두고 본문은 `.claude/rules/` 에 둔다. 한도 근접 시 같은 패턴으로 분리.
 
 ## Branch Strategy
 
@@ -327,93 +216,7 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 
 ## Deployment Pipeline
 
-### main push
-| Target | Workflow | Condition |
-|--------|----------|-----------|
-| CI | GitHub Actions `ci.yml` | 항상 (parallel jobs defined in `ci.yml`: lint, type-check, test, build-cli, e2e) |
-| Relay | GitHub Actions `deploy-relay.yml` | packages/relay,protocol,daemon 변경 시 |
-| Web | Vercel (자동) | 항상 → `tpmt.dev` |
-| EAS Gate | GitHub Actions `ci.yml` eas-gate job | All `ci.yml` jobs pass + apps/app,packages/protocol 변경 시 |
-| iOS TestFlight | EAS Workflow `preview.yaml` via eas-gate | Fingerprint → 빌드/OTA → TestFlight 제출 |
-| Android Internal | EAS Workflow `preview.yaml` via eas-gate | Fingerprint → 빌드/OTA → Internal track 제출 |
-
-### v* 태그 release
-| Target | Workflow | 설명 |
-|--------|----------|------|
-| tp 바이너리 | GitHub Actions `release.yml` | darwin-arm64 + linux × {arm64, x64} 빌드 → GitHub Release. `release.yml`은 `push: tags: [v*]` 와 `workflow_dispatch -f tag=...` 둘 다 받지만, GitHub API tag-creation 의 push event firing 이 누락되는 케이스가 잦아 (#172) **항상 manual dispatch 로 트리거** 한다. |
-| Homebrew tap | GitHub Actions `release.yml` (tap bump step, `DaveDev42/homebrew-tap-release@v1` reusable action — PR #185) | `checksums.txt`에서 darwin sha256 추출 → `Formula/tp.rb` 렌더 → `davedev42/homebrew-tap` repo에 직접 push (PR 없음, commit subject = `tp <VERSION>`). `HOMEBREW_TAP_TOKEN` secret 미설정 또는 push 실패 시 `::warning::`로 swallow되어 release 자체는 성공으로 끝남 — 이 경우 `/release` 명령이 catch함. |
-| iOS App Store | EAS Workflow `production.yaml` (수동) | Fingerprint → 빌드/OTA → 제출 |
-| Android Play Store | EAS Workflow `production.yaml` (수동) | Fingerprint → 빌드/OTA → 제출 |
-
-### 수동 dispatch only
-| Workflow | 역할 |
-|----------|------|
-| `release-please.yml` (dispatch) | **두 가지 동작 중 하나** — main 상태에 따라 자동으로 결정: (a) release-able commit 이 쌓여 있으면 Release PR 생성/갱신, (b) 직전 dispatch 가 만든 PR 이 main 에 squash merge 되어 있으면 `vX.Y.Z` tag 을 push. 즉 한 번의 patch release 마다 dispatch 두 번 (PR 생성용 + tag push용) 이 필요하다. push trigger 는 일부러 제거 — main 의 모든 commit 마다 PR update 시도가 워크플로우를 잡아먹는 것을 회피. |
-| `release.yml` (dispatch) | tag push event 가 누락된 케이스의 fallback (#172). `-f tag=vX.Y.Z` 로 기존 tag 을 재빌드. **현행 운영상 default 트리거 경로** — `release-please.yml` 두 번째 dispatch 가 tag 을 push 한 후 항상 이 dispatch 로 release.yml 을 깨운다. |
-| `deploy-relay.yml` (dispatch) | 수동 relay 배포 |
-
-### EAS 빌드 최적화
-- **Fingerprint**: 네이티브 코드 해시로 기존 빌드 재사용 여부 판단
-- **JS만 변경**: OTA 업데이트 발행 (~2분, 빌드 비용 $0)
-- **네이티브 변경**: 풀빌드 + 스토어 제출
-- **paths 필터**: `dorny/paths-filter`로 apps/app/, packages/protocol/ 변경 감지 → 변경 없으면 EAS skip
-- **CI 게이트**: EAS Workflow는 git push로 자동 트리거되지 않음. CI eas-gate가 `eas workflow:run --ref` 로 트리거 (lint/test/type-check 통과 후)
-- **EAS 게이트**: `ci.yml`의 모든 job (lint, type-check, test, build-cli, e2e) 전부 pass → `expo doctor` → `eas build` (EXPO_TOKEN secret 필요)
-
-### 릴리즈 절차
-
-평상시는 `/release` 슬래시 커맨드가 아래 전 과정을 자동화하지만, 수동 절차는:
-
-```bash
-# 1. 개발: main에 Conventional Commits로 push.
-#    Web (Vercel), Relay (변경 시 `deploy-relay.yml`), EAS gate 등은
-#    main push 트리거로 자동 진행.
-
-# 2. Release PR 생성: release-please.yml dispatch (#1).
-gh workflow run release-please.yml --ref main
-# → "chore(main): release X.Y.Z" PR 생성. 이 PR 에는 main `ci.yml`
-#   의 path filter 가 안 맞아 lint/test/build-cli/e2e 가 붙지 않는다 —
-#   `gh pr view --json mergeable,mergeStateStatus` 로 MERGEABLE/CLEAN
-#   여부만 확인하면 된다.
-
-# 3. PR squash merge.
-gh api repos/DaveDev42/teleprompter/pulls/<num>/merge -X PUT \
-  -f merge_method=squash
-
-# 4. tag push: release-please.yml dispatch (#2).
-gh workflow run release-please.yml --ref main
-# → main 의 release commit 을 인식해 vX.Y.Z tag 을 push.
-#   (release-please.yml 은 workflow_dispatch only 이므로 자동 트리거 없음.
-#    한 번의 dispatch 가 PR 생성 또는 tag push 중 하나만 하므로 두 번 필요.)
-
-# 5. release.yml dispatch: 빌드 + GitHub Release + tap bump.
-gh workflow run release.yml -f tag=vX.Y.Z
-# → release.yml 은 `push: tags: [v*]` 트리거도 있지만 GitHub API
-#   tag-creation 이 push event 를 항상 firing 하지는 않으므로 (#172)
-#   manual dispatch 가 안전한 default.
-
-# 6. tap repo + brew 검증 (SLA 보장 step):
-gh api repos/DaveDev42/homebrew-tap/commits/main --jq '.commit.message'
-brew update && brew upgrade davedev42/tap/tp && tp version
-```
-
-### Infrastructure
-- **Relay**: Vultr Seoul `relay.tpmt.dev` (wss://, Caddy TLS + systemd: `tp-relay`)
-- **Web**: Vercel → `tpmt.dev`
-- **App**: EAS Build → TestFlight / Google Internal / App Store / Play Store
-- **CLI**: GitHub Releases → `bun build --compile` (darwin/linux × arm64/x64; Windows users run the linux build under WSL)
-
-### GitHub Secrets
-| Secret | 용도 |
-|--------|------|
-| `RELAY_HOST` | Relay 서버 IP |
-| `RELAY_USER` | Relay SSH 사용자 |
-| `RELAY_SSH_KEY` | Relay SSH 키 |
-| `HOMEBREW_TAP_TOKEN` | `davedev42/homebrew-tap`에 push할 PAT (fine-grained, Contents: R/W). 미설정 시 release.yml의 tap update step이 `::warning::HOMEBREW_TAP_TOKEN not set`로 swallow하고 통과. |
-
-### EAS Credentials (Expo 서버 저장)
-- iOS: Distribution Certificate + App Store Connect API Key (ascAppId: 6761056150)
-- Android: Keystore + Google Play Service Account Key
+평상시 release 는 `/release` 슬래시 커맨드가 전 과정을 자동화. 전체 SoT (main push / v* tag / 수동 dispatch 표, EAS 빌드 최적화, 릴리즈 수동 절차, Infrastructure, GitHub Secrets, EAS Credentials) 는 `.claude/rules/release-deploy.md`.
 
 ## CLI Commands
 
@@ -502,74 +305,17 @@ Fish는 완성 스크립트를 디스크에 기록하므로 `tp upgrade` 후 `tp
 ## Version Management
 
 - **NEVER bump versions** (package.json, app.json, manifest) unless the user explicitly requests it.
-- Pre-1.0: only patch bumps (0.0.x). The first minor bump (0.1.0) is reserved for App Store public release.
-- Release Please handles version bumps automatically via Conventional Commits — `bump-patch-for-minor-pre-major` is enabled so `feat:` commits stay patch-level while pre-1.0.
-- Do not manually edit `version` fields in any package.json, app.json, or `.release-please-manifest.json`.
+- Pre-1.0: only patch bumps (0.0.x). 0.1.0 은 App Store 공개 release 용으로 예약.
+- release-please 가 Conventional Commits 로 자동 bump (`bump-patch-for-minor-pre-major` → pre-1.0 에서 `feat:` 도 patch). `version` 필드 수동 편집 금지.
 
-### OTA 정책 (fingerprint runtimeVersion)
-
-`tp` CLI 바이너리는 release-please가 관리하는 `package.json`의 `version`을 따른다. Expo 앱은 `runtimeVersion: { "policy": "fingerprint" }` 정책을 사용해 **JS-only 변경은 OTA로 도달, 네이티브 변경(Podfile, 새 expo plugin, 네이티브 모듈 추가/업그레이드 등)만 풀빌드를 강제**한다. CLI 버전과 앱 표시 버전이 분리되는 대신 OTA가 의미 있게 작동한다.
-
-버전은 두 축으로 나뉜다:
-- **사람 버전** (`expo.version`, `CFBundleShortVersionString`, `versionName`) — `apps/app/app.json`에 손으로 관리. release-please는 더 이상 이 값을 건드리지 않는다. App Store / Play 제출에 새 사람 버전이 필요할 때만 chore commit으로 bump한다.
-- **빌드 카운터** (`ios.buildNumber`, `android.versionCode`) — EAS가 remote에 저장하고 `autoIncrement: true`로 빌드당 +1. Store의 단조증가 제약을 EAS가 책임진다. release-please는 이 값을 건드리지 않는다. iOS와 Android는 독립 카운터이므로 두 플랫폼 사이 숫자가 달라도 정상.
-- **OTA runtimeVersion** — `@expo/fingerprint`가 네이티브 의존성/플러그인/Pods를 해시한 값. `app.json` 자체도 입력에 들어가지만 release-please가 더 이상 `app.json`을 자동 편집하지 않으므로 JS-only 변경 사이에서 안정적으로 유지된다.
-
-#### 설정
-
-- `apps/app/app.json`: `"runtimeVersion": { "policy": "fingerprint" }` — JS-only 변경은 같은 fingerprint를 유지하므로 OTA로 도달. 네이티브 변경 시 fingerprint가 갈리며 자동으로 OTA 격리.
-- `apps/app/eas.json`: `"appVersionSource": "remote"` — 빌드 카운터를 EAS 서버에서 관리.
-- `release-please-config.json`: `extra-files`에 `app.json` 항목을 두지 않는다. release-please는 `package.json`만 bump하고, `app.json`의 `expo.version`은 사람 버전이므로 별도 chore commit으로 손수 관리.
-- `eas.json`의 store 제출용 profile (`preview`, `production`)에서 `"autoIncrement": true`가 `ios.buildNumber` / `android.versionCode`를 증분 (`development` profile은 해당 없음).
-
-#### 운영 규칙
-
-- **JS / TS / 자산만 변경되는 PR**: release-please patch bump → CI 통과 → EAS Workflow가 새 OTA 발행 → 기존 TestFlight/Internal 설치본이 OTA로 받는다. 풀빌드 불필요.
-- **네이티브 의존성 변경 PR** (`expo-*` 패키지 메이저/마이너 bump, plugin 추가/제거, `expo-build-properties` 변경, Podfile 영향): fingerprint가 갈리므로 EAS Workflow가 자동으로 풀빌드 + 새 TestFlight 빌드 발행. 사용자는 새 빌드를 받아야 OTA 채널이 다시 살아난다.
-- **사람 버전 bump가 필요한 시점**: App Store / Play 제출 직전 marketing 버전을 올릴 때만 `apps/app/app.json`의 `expo.version`을 chore commit으로 직접 수정. 평상시 patch release에는 건드리지 않는다.
-
-#### 안티패턴
-
-- `"appVersionSource": "local"` + `autoIncrement`: EAS가 빌드 시점에 `app.json`의 `buildNumber`/`versionCode`를 편집하지만 CI에서는 이 변경이 커밋되지 않는다. 결과적으로 다음 빌드가 낮은 카운터로 시작해 Store submit 단계에서 기존 카운터와 충돌해 거부된다. (PR #108 merge 직후 iOS `buildNumber 2`가 실제로 생성되었고 App Store Connect에는 이미 `44`가 존재. 해당 Expo workflow run은 submit 단계 이전에 `CANCELED` 상태로 종료(Android 빌드 포함)되어 Apple 측에는 도달하지 않음.)
-- `"runtimeVersion": { "policy": "appVersion" }` + release-please가 `app.json` 편집: 매 patch release마다 runtimeVersion 문자열이 갈리고, 기존 TestFlight 설치본은 새 OTA를 받지 못한다 (격리). OTA 채널이 사실상 죽고, 매 릴리즈마다 새 TestFlight 빌드를 받아야 다음 OTA를 받을 수 있다. 0.1.16 → 0.1.19 사이에 실제로 OTA가 모두 격리됐다 (PR #176에서 fingerprint policy로 전환).
+OTA 정책 (fingerprint runtimeVersion), 사람버전/빌드카운터/runtimeVersion 3축, 설정·운영규칙·안티패턴은 `.claude/rules/release-deploy.md` (SoT).
 
 ## Language
 
 PRD and internal docs are written in Korean. Code, comments, and commit messages should be in English.
 
-## iOS 빌드 & 검증 워크플로우
+## iOS / Native Build
 
-**로컬에서 iOS Simulator / Xcode / Maestro 를 띄우지 않는다 — 빌드든 실행이든.** 1차 이유는 단순하다: **이 개발 머신(8GB Mac)은 Simulator + Xcode(또는 네이티브 컴파일)를 동시에 돌리면 시스템이 과부하된다** (load 100+, heavy swap 으로 머신 전체가 사실상 멈춘다). 그래서 미리 빌드된 `.app` 을 Simulator 에서 *실행*하는 것조차 하지 않는다. `eas build --local` 같은 로컬 네이티브 빌드도 같은 이유로 폐기했다 (아래 "왜 로컬 iOS 를 안 하나"). 모든 네이티브 iOS 빌드/배포는 **EAS 클라우드**가, 로컬 검증은 **RN Web**이 담당한다.
+**로컬에서 iOS Simulator / Xcode / 네이티브 빌드를 띄우지 않는다 (이 8GB 머신은 과부하).** 로컬 검증 = RN Web, 네이티브 빌드/배포 = EAS 클라우드 + TestFlight, 실기기 디버깅 = 사용자(Dave)에게 요청. 못 도는 네이티브 검증은 `docs/local-verification-queue.md` 큐에 쌓고 16GB+ Mac 이 `/verify-native` 로 순회.
 
-(머신 이름이 아니라 *정책*이다 — 8GB 급 머신에서는 항상 이 규칙을 따른다. 더 사양 좋은 Mac 으로 옮기더라도 로컬 Simulator/빌드 재개는 그때 사용자가 명시적으로 결정한다.)
-
-### 표준 절차 (이대로만 진행)
-
-1. **로컬 검증 = RN Web.** UI/로직 변경은 RN Web dogfood (`pnpm dev:app` + `pnpm dev:pair`, 위 "Dog-fooding" 섹션)로 검증한다. PR #481 류의 화면 변경(daemon 카드, 모달, 페어링 라벨 등)은 RN Web 에 동일하게 적용되므로 브라우저에서 확인할 수 있다. 네이티브 전용 동작(소프트 키보드 회피, push 배너 등)은 코드 + web 근사로 확인하고, 실기기 거동은 다음 단계로 넘긴다.
-2. **빌드/배포 = EAS 클라우드 + TestFlight.** main push → `ci.yml` eas-gate → `preview.yaml` 가 fingerprint 기반으로 OTA(JS-only) 또는 풀빌드(네이티브 변경)를 TestFlight/Internal 에 발행한다 (위 "Deployment Pipeline"). 로컬에서 `.ipa`/`.app` 을 굽지 않는다.
-3. **실기기 디버깅 = 사용자에게 요청.** 네이티브 거동을 실기기에서 확인해야 하면, TestFlight 빌드가 올라간 뒤 **사용자(Dave)에게 디버깅을 요청**한다. Claude 가 로컬에서 기기에 직접 설치/구동하려 시도하지 않는다.
-4. **네이티브 트랙 전체 = 고성능 Mac 으로 이관.** 이 8GB 머신에서 구조적으로 못 도는 검증(iOS/Android 실기기, Simulator QA, Linux daemon VM, 1h soak, WSL)은 **`docs/local-verification-queue.md`** 큐(SoT)에 모아 두고, 16GB+ Mac 의 별도 세션이 **`/verify-native`** 커맨드로 순회한다. 그 Mac 은 `.claude/settings.local.json`에서 expo-mcp 를 `true` 로 켜고, dev build 는 `scripts/ios-dev-build.sh` (`eas build --local` + EAS credential 다운로드, **이 머신 실행 금지**)로 굽는다. expo-mcp 활성화는 **머신별** — 공유 `settings.json`은 enable 플래그를 들지 않고 각 머신의 `settings.local.json`이 결정한다 (이 머신 = `false`).
-
-### Credentials = EAS single source of truth (변경 없음)
-
-서명 자격은 repo 에 절대 저장하지 않는다. EAS 서버가 distribution cert + provisioning profile 의 SoT 이고, EAS 클라우드 빌드가 빌드 시점에 사용한다. `eas.json` 에 `credentialsSource` 를 명시하지 않는다 (`remote` 가 기본값). iOS push 용 profile 에 `aps-environment` capability 가 필요하면 `eas credentials -p ios` (대화형) 또는 ASC API key 로 EAS 측에서 갱신한다 — 로컬 keychain 은 건드리지 않는다.
-
-### 왜 로컬 iOS 를 안 하나 (재시도 방지용 기록)
-
-**근본 한계는 메모리다. 이 머신은 8GB RAM 이라 Simulator + Xcode/네이티브 컴파일을 함께 돌리는 순간 시스템이 과부하된다** — iOS 26.5 시뮬레이터 런타임 + 네이티브 빌드가 메모리를 동시에 압박해 load 가 100+ 까지 치솟고 heavy swap 으로 머신 전체(에디터·daemon·이 agent 까지)가 사실상 멈춘다. 이건 도구를 더 잘 맞춘다고 풀리는 게 아니라 **하드웨어 천장**이다. `eas build --local` 로 device `.ipa` + simulator `.app` 을 실제로 빌드해본 적은 있지만, 그 성공이 "조금만 더 손보면 된다"는 뜻은 아니었다 — 빌드를 *검증으로 잇는 구간* 이 이 머신에선 전부 막혔다:
-
-- **시뮬레이터 (주 이유)**: `.app` 설치·실행은 됐으나 RAM 압박으로 idb/Maestro 가 불안정하고, Expo MCP 가 쓰는 **Maestro 가 반복 크래시** (`Maestro process terminated`; 시스템 **OpenJDK 26** ↔ Maestro 권장 JDK 17–21 비호환도 겹침). 무엇보다 시뮬레이터를 띄우는 것 자체가 위의 과부하를 일으킨다.
-- **실기기**: iPhone 이 USB 연결돼도 trust/`pairing: unsupported` 로 설치 불가 (Developer Beta OS 의심). `xcrun devicectl ... install` 이 기기에 안 붙는다.
-- **부수 비용**: 로컬 빌드 한 사이클에 WWDR G3 수동 설치 / Aqua(GUI) 세션 re-exec / root-owned tmp 정리 / `xcodebuild -downloadPlatform` (8GB+ 다운로드) 같은 깨지기 쉬운 전제가 많았다. (이건 곁가지 — 위 메모리 천장이 없어도 본질 문제는 그대로다.)
-
-→ **결론: 로컬 Simulator/Xcode/네이티브 빌드 전부 재시도 금지.** 네이티브 빌드는 EAS 클라우드, 로컬 검증은 RN Web, 실기기는 TestFlight + 사용자 디버깅으로 간다. (16GB+ / 정식 OS / 신뢰된 기기를 갖춘 다른 Mac 이라면 메모리 천장이 사라져 로컬 경로가 다시 유효할 수 있으나 — 이건 **자동으로 재개하지 않고** 그 시점에 사용자가 명시적으로 결정한다. 위 명령들을 재시도 레시피로 읽지 말 것.)
-
-## Native Build (Expo Go 드롭 예정)
-
-향후 Apple Watch 앱, 네이티브 libghostty 터미널 등을 위해 Expo Go 호환성 제약을 해제할 예정.
-현재는 WASM/asm.js 기반으로 동작하지만, dev/preview build(**EAS 클라우드** — 위 "iOS 빌드 & 검증 워크플로우" 참조, 로컬 빌드 아님) 전환 후 네이티브 모듈 사용 가능:
-- ✓ libsodium-wrappers (WASM on Web/Bun, asm.js fallback on Hermes)
-- ✓ expo-crypto (Expo SDK 내장 — `getRandomValues` polyfill 제공)
-- ✓ ghostty-web (libghostty WASM — Canvas 2D 터미널 렌더링)
-- 🔜 react-native-quick-crypto (JSI — development build 전환 후)
-- 🔜 libghostty 네이티브 RN 모듈 (Metal/OpenGL GPU 렌더링 — development build 전환 후)
+전체 절차·근거·재시도 금지 기록·Expo Go 드롭 로드맵은 `.claude/rules/native-build.md` (SoT).

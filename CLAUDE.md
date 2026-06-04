@@ -62,16 +62,13 @@ These are non-negotiable rules. **If code contradicts these, the code is wrong (
 
 All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON payload`. The Envelope type has fields: `t` (frame type), `sid`, `seq`, `k` (io|event|meta), `ns`, `n`, `d`, `c`, `ts`, `e`, `m`.
 
-### Relay Protocol v2
-- `relay.register` — daemon self-registers token+proof (derived from pairing secret)
-- `relay.auth` — authenticate with token, includes `frontendId` for frontend role
-- `relay.auth.resume` — fast-path reconnect carrying an HMAC-signed token issued in the prior `relay.auth.ok`. Relay verifies the signature without per-daemon state, so resume survives a relay restart as long as `TP_RELAY_RESUME_SECRET` persists. On `auth.err` the client drops the cached token and falls back to full register+auth on the next connect. Daemon side also skips the `relay.kx` rebroadcast when resumed and peers are still cached, since the keypair is stable across reconnects (existing peers' sessionKeys remain valid). Frontend resume is a follow-up.
-- `relay.kx` / `relay.kx.frame` — in-band pubkey exchange (encrypted with `deriveKxKey(pairingSecret)`)
-- `relay.pub` / `relay.frame` — encrypted data frames, includes `frontendId` for N:N routing
-- `relay.presence` — daemon online/offline with session list
-- `control.unpair` — E2EE control message on the `__control__` sid (rides the existing `relay.pub` channel as ciphertext). Sent by either side when a pairing is removed (`tp pair delete` or the app's Daemons list). The receiving peer auto-removes the matching pairing and surfaces a toast/log. Stateless: if the peer is offline, the message is lost and the pairing heals on the next connect attempt. Emitted by the **daemon's existing RelayClient**; the CLI delegates via the `pair.remove` IPC (fallback when daemon is stopped: direct `Store` write, peer learns on next reconnect).
-- `control.rename` — E2EE control message on `__control__` sid; updates the peer's pairing label. Sent when either side runs `tp pair rename` or edits the label in the app. Emitted by the **daemon's existing RelayClient**; the CLI delegates via the `pair.rename` IPC (fallback when daemon is stopped: direct `Store` write, peer syncs on next reconnect). The `label` field is the `Label` **tagged union** (`{ set: true, value } | { set: false }`) — `{ set: false }` is an authoritative clear, replacing the legacy `""`-as-clear sentinel. **Cross-version compat (WS protocol v2):** **both** sides advertise their WS protocol version in the `relay.kx` payload (`v`) — the daemon in its hello broadcast, the frontend in its `sendKeyExchange`. The daemon's `sendRenameNotice` **version-gates** the wire shape per peer — a peer (app) that has not advertised v2 still receives the legacy `string` (`""` = clear), because an un-updated app would coerce a union object to `""` and silently clear the user's label. Readers normalize either shape via `decodeWireLabel` (authoritative-clear surfaces: ControlRename inbound on **both** daemon and app, IPC, SQLite) or `decodeKxLabelOrKeep` (keep-current surfaces: relay.kx daemon-hello, meta `hello` daemonLabel — absence means "keep the app's current label", not "clear"; the app short-circuits and skips its `onDaemonHello` callback when this returns null). The label helpers live in `packages/protocol/src/types/label.ts`.
-- Connection flow: daemon `register → auth → broadcast pubkey via kx`; frontend `auth → send pubkey via kx → subscribe`
+### Relay Protocol v2 (요약)
+
+메시지: `relay.register` (daemon self-register, proof-based) · `relay.auth` (token + `frontendId`) · `relay.auth.resume` (HMAC token fast-path reconnect, relay 재시작 생존) · `relay.kx` / `relay.kx.frame` (in-band pubkey exchange, kxKey 암호화) · `relay.pub` / `relay.frame` (E2EE data, `frontendId` N:N 라우팅) · `relay.presence` (daemon online/offline) · `control.unpair` / `control.rename` (`__control__` sid E2EE control — daemon RelayClient 발신, CLI는 `pair.remove`/`pair.rename` IPC 위임).
+
+Connection flow: daemon `register → auth → broadcast pubkey via kx`; frontend `auth → send pubkey via kx → subscribe`.
+
+각 메시지의 wire 상세 (resume token 동작, `control.rename` Label tagged-union + cross-version compat/version-gating, `decodeWireLabel`/`decodeKxLabelOrKeep`) 는 `.claude/rules/protocol.md` (SoT, `packages/protocol/**` 작업 시 자동 로드).
 
 ## Key Design Decisions
 

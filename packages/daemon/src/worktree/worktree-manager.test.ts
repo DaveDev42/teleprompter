@@ -221,11 +221,10 @@ describe("WorktreeManager", () => {
 
     // Detach the HEAD in the worktree by checking out the commit SHA directly.
     const { spawnSync } = require("child_process");
-    const headResult = spawnSync(
-      "git",
-      ["rev-parse", "HEAD"],
-      { cwd: wtPath, encoding: "utf-8" },
-    );
+    const headResult = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: wtPath,
+      encoding: "utf-8",
+    });
     const sha = headResult.stdout.trim();
     spawnSync("git", ["checkout", "--detach", sha], {
       cwd: wtPath,
@@ -254,11 +253,10 @@ describe("WorktreeManager", () => {
 
     // Detach the second worktree's HEAD.
     const { spawnSync } = require("child_process");
-    const headResult = spawnSync(
-      "git",
-      ["rev-parse", "HEAD"],
-      { cwd: wt2Path, encoding: "utf-8" },
-    );
+    const headResult = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: wt2Path,
+      encoding: "utf-8",
+    });
     const sha = headResult.stdout.trim();
     spawnSync("git", ["checkout", "--detach", sha], {
       cwd: wt2Path,

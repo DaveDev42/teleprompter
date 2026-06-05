@@ -171,8 +171,9 @@ export class WorktreeManager {
     }
 
     // Mark the first as main
-    if (worktrees.length > 0 && !worktrees.some((w) => w.isMain)) {
-      worktrees[0]!.isMain = true;
+    const first = worktrees[0];
+    if (first !== undefined && !worktrees.some((w) => w.isMain)) {
+      first.isMain = true;
     }
 
     return worktrees;

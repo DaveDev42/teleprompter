@@ -152,10 +152,9 @@ export async function ratchetSessionKeys(
 
   // Canonicalize: sort the two base keys to ensure both sides
   // use the same inputs regardless of tx/rx assignment
-  const keyA =
-    compareBytes(baseKeys.tx, baseKeys.rx) <= 0 ? baseKeys.tx : baseKeys.rx;
-  const keyB =
-    compareBytes(baseKeys.tx, baseKeys.rx) <= 0 ? baseKeys.rx : baseKeys.tx;
+  const txLtRx = compareBytes(baseKeys.tx, baseKeys.rx) <= 0;
+  const keyA = txLtRx ? baseKeys.tx : baseKeys.rx;
+  const keyB = txLtRx ? baseKeys.rx : baseKeys.tx;
 
   // Derive two independent keys
   const inputA = new Uint8Array(keyA.length + sidBytes.length + 1);
@@ -193,6 +192,24 @@ export async function generatePairingSecret(): Promise<Uint8Array> {
 }
 
 /**
+ * Shared BLAKE2b KDF pattern: H(secret || domain) → 32-byte digest.
+ * All three public derivation functions (relay token, kx key, registration
+ * proof) use this exact concat-and-hash shape; centralising it here ensures
+ * a KDF algorithm upgrade propagates to all three sites at once.
+ */
+async function deriveBlake2b(
+  sodium: Awaited<ReturnType<typeof ensureSodium>>,
+  secret: Uint8Array,
+  domain: string,
+): Promise<Uint8Array> {
+  const domainBytes = sodium.from_string(domain);
+  const input = new Uint8Array(secret.length + domainBytes.length);
+  input.set(secret);
+  input.set(domainBytes, secret.length);
+  return sodium.crypto_generichash(32, input);
+}
+
+/**
  * Derive an auth token from the pairing secret (for relay authentication).
  * Uses BLAKE2b hash: H(pairing_secret || "relay-auth")
  */
@@ -200,11 +217,7 @@ export async function deriveRelayToken(
   pairingSecret: Uint8Array,
 ): Promise<string> {
   const sodium = await ensureSodium();
-  const context = sodium.from_string("relay-auth");
-  const input = new Uint8Array(pairingSecret.length + context.length);
-  input.set(pairingSecret);
-  input.set(context, pairingSecret.length);
-  const hash = sodium.crypto_generichash(32, input);
+  const hash = await deriveBlake2b(sodium, pairingSecret, "relay-auth");
   return sodium.to_hex(hash);
 }
 
@@ -219,11 +232,7 @@ export async function deriveKxKey(
   pairingSecret: Uint8Array,
 ): Promise<Uint8Array> {
   const sodium = await ensureSodium();
-  const context = sodium.from_string("kx-envelope");
-  const input = new Uint8Array(pairingSecret.length + context.length);
-  input.set(pairingSecret);
-  input.set(context, pairingSecret.length);
-  return sodium.crypto_generichash(32, input);
+  return deriveBlake2b(sodium, pairingSecret, "kx-envelope");
 }
 
 /**
@@ -235,11 +244,7 @@ export async function deriveRegistrationProof(
   pairingSecret: Uint8Array,
 ): Promise<string> {
   const sodium = await ensureSodium();
-  const context = sodium.from_string("relay-register");
-  const input = new Uint8Array(pairingSecret.length + context.length);
-  input.set(pairingSecret);
-  input.set(context, pairingSecret.length);
-  const hash = sodium.crypto_generichash(32, input);
+  const hash = await deriveBlake2b(sodium, pairingSecret, "relay-register");
   return sodium.to_hex(hash);
 }
 

@@ -145,15 +145,30 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   updateSession: (sid, meta) => {
-    set((s) => {
-      const idx = s.sessions.findIndex((ss) => ss.sid === sid);
+    // Must update BOTH _sessionsByDaemon (source of truth) AND sessions
+    // (derived flat list). Updating only sessions would be reverted the next
+    // time any other mutator calls flattenSessions(_sessionsByDaemon).
+    const nextMap = new Map(get()._sessionsByDaemon);
+    let found = false;
+    for (const [daemonId, list] of nextMap) {
+      const idx = list.findIndex((s) => s.sid === sid);
       if (idx >= 0) {
-        const next = [...s.sessions];
-        next[idx] = meta;
-        return { sessions: next };
+        const nextList = [...list];
+        nextList[idx] = meta;
+        nextMap.set(daemonId, nextList);
+        found = true;
+        break;
       }
-      return { sessions: [...s.sessions, meta] };
-    });
+    }
+    if (!found) {
+      // Append to an ephemeral "__unknown__" bucket so the session is visible
+      // in the flat list. A subsequent setSessions call from the daemon will
+      // replace this with the authoritative list keyed under the real daemonId.
+      const existing = nextMap.get("__unknown__") ?? [];
+      nextMap.set("__unknown__", [...existing, meta]);
+    }
+    scheduleWrite(nextMap);
+    set({ _sessionsByDaemon: nextMap, sessions: flattenSessions(nextMap) });
   },
 
   removeSession: (sid) => {
@@ -182,10 +197,19 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   addRecHandler: (fn) => {
-    get()._recHandlers.add(fn);
+    // Use set() with a new Set so Zustand subscribers see the update and so
+    // that reset() (which replaces _recHandlers entirely) doesn't leave stale
+    // mutations on the old Set reference. _recHandlers has no reactive
+    // consumers today, but immutable updates are cheaper to reason about than
+    // in-place mutation on shared state.
+    set((s) => ({ _recHandlers: new Set([...s._recHandlers, fn]) }));
   },
   removeRecHandler: (fn) => {
-    get()._recHandlers.delete(fn);
+    set((s) => {
+      const next = new Set(s._recHandlers);
+      next.delete(fn);
+      return { _recHandlers: next };
+    });
   },
   dispatchRec: (rec) => {
     for (const fn of get()._recHandlers) {

@@ -168,6 +168,62 @@ describe("session-store: session list", () => {
     expect(sessions.length).toBe(2);
     expect(sessions.find((x) => x.sid === "new")).toBeDefined();
   });
+
+  // ── H7 regression: updateSession must survive a subsequent rebuild ──
+  //
+  // Before the fix, updateSession patched `sessions` (the flat array) but
+  // NOT `_sessionsByDaemon` (the source of truth). Any later mutator that
+  // called flattenSessions(_sessionsByDaemon) — setSessions, removeSession,
+  // removeSessions — would re-derive `sessions` from the stale map, silently
+  // reverting the update. After a reconnect cycle the UI showed old state.
+  test("H7 regression: updateSession survives a subsequent setSessions rebuild", () => {
+    const s = useSessionStore.getState();
+    s.setSessions("d1", [makeMeta("a"), makeMeta("b")]);
+
+    // Update session "a" to state "idle"
+    s.updateSession("a", { ...makeMeta("a"), state: "idle" });
+    expect(
+      useSessionStore.getState().sessions.find((x) => x.sid === "a")?.state,
+    ).toBe("idle");
+
+    // Now trigger a rebuild by calling setSessions for another daemon.
+    // This calls flattenSessions internally. The update must survive.
+    s.setSessions("d2", [makeMeta("c")]);
+    const sessions = useSessionStore.getState().sessions;
+    expect(sessions.find((x) => x.sid === "a")?.state).toBe("idle");
+    expect(sessions.find((x) => x.sid === "b")?.state).toBe("running");
+    expect(sessions.find((x) => x.sid === "c")).toBeDefined();
+  });
+
+  test("H7 regression: updateSession survives a subsequent removeSession rebuild", () => {
+    const s = useSessionStore.getState();
+    s.setSessions("d1", [makeMeta("a"), makeMeta("b"), makeMeta("c")]);
+
+    s.updateSession("a", { ...makeMeta("a"), state: "idle" });
+    expect(
+      useSessionStore.getState().sessions.find((x) => x.sid === "a")?.state,
+    ).toBe("idle");
+
+    // removeSession also calls flattenSessions — the updated state must survive.
+    s.removeSession("c");
+    const sessions = useSessionStore.getState().sessions;
+    expect(sessions.length).toBe(2);
+    expect(sessions.find((x) => x.sid === "a")?.state).toBe("idle");
+    expect(sessions.find((x) => x.sid === "c")).toBeUndefined();
+  });
+
+  test("H7 regression: updateSession also updates _sessionsByDaemon", () => {
+    // _sessionsByDaemon is the single source of truth. After updateSession the
+    // map must contain the updated entry, not the stale one.
+    const s = useSessionStore.getState();
+    s.setSessions("d1", [makeMeta("a")]);
+
+    s.updateSession("a", { ...makeMeta("a"), state: "idle" });
+
+    const map = useSessionStore.getState()._sessionsByDaemon;
+    const d1List = map.get("d1");
+    expect(d1List?.find((x) => x.sid === "a")?.state).toBe("idle");
+  });
 });
 
 describe("session-store: persistence", () => {

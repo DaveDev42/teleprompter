@@ -1108,6 +1108,147 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
   });
 });
 
+// ── H8 / M26 regression tests ─────────────────────────────────────────────
+//
+// H8: handleMessage() was called without await/void so exceptions from
+//     sendKeyExchange/encrypt became silently-swallowed unhandled rejections.
+//     On relay.auth.ok if encrypt throws, `authenticated` stayed true but
+//     onConnected never fired and flushPendingEncrypted never ran — daemon
+//     never got kx, all encrypted sends silently dropped while isConnected()
+//     returned true.
+//
+// M26: When the socket closed while sendKeyExchange() was awaiting, onConnected
+//     fired AFTER onDisconnected because the post-await code didn't check
+//     whether the connection was still live (inverted event ordering).
+
+describe("FrontendRelayClient — H8/M26: auth pipeline failure and ordering", () => {
+  test("H8: if sendKeyExchange throws on relay.auth.ok, client is NOT reported connected", async () => {
+    const p = await setupPairing();
+    let connected = false;
+    const errors: string[] = [];
+    const client = new FrontendRelayClient(makeConfig(p), {
+      onConnected: () => {
+        connected = true;
+      },
+      onError: (e) => errors.push(e),
+    });
+
+    // Pin reconnect so force-close doesn't re-arm a new socket.
+    const originalSetTimeout = globalThis.setTimeout;
+    (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((
+      _cb: () => void,
+      _ms: number,
+    ) =>
+      0 as unknown as ReturnType<
+        typeof setTimeout
+      >) as unknown as typeof setTimeout;
+
+    const spy = captureConsole();
+    try {
+      await client.connect();
+      const ws = latestWs();
+      ws.simulateOpen();
+
+      // Sabotage kxKey so sendKeyExchange's encrypt call will throw by
+      // substituting a too-short key (encrypt requires exactly 32 bytes).
+      // We reach into the private field via type cast to inject the fault.
+      (client as unknown as { kxKey: Uint8Array }).kxKey = new Uint8Array(4); // wrong length → encrypt throws
+
+      // Send auth.ok — this should trigger the sabotaged sendKeyExchange.
+      ws.simulateMessage({
+        t: "relay.auth.ok",
+        daemonId: "daemon-test",
+      } as RelayServerMessage);
+      await flushPromises(30);
+
+      // The client must NOT report itself as connected after kx failure.
+      expect(connected).toBe(false);
+      expect(client.isConnected()).toBe(false);
+      // The error must have been logged (not silently swallowed).
+      const handleMessageErrors = spy.errorCalls.filter(
+        (c) =>
+          typeof c[0] === "string" &&
+          (c[0] as string).includes("[FrontendRelay]"),
+      );
+      expect(handleMessageErrors.length).toBeGreaterThan(0);
+    } finally {
+      spy.restore();
+      (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
+        originalSetTimeout;
+      client.dispose();
+    }
+  });
+
+  test("M26: onConnected does NOT fire after onDisconnected when socket closes during kx", async () => {
+    const p = await setupPairing();
+    const eventLog: string[] = [];
+    const client = new FrontendRelayClient(makeConfig(p), {
+      onConnected: () => eventLog.push("connected"),
+      onDisconnected: () => eventLog.push("disconnected"),
+    });
+
+    // Pin reconnect timer so the close doesn't immediately re-arm.
+    const originalSetTimeout = globalThis.setTimeout;
+    (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout = ((
+      _cb: () => void,
+      _ms: number,
+    ) =>
+      0 as unknown as ReturnType<
+        typeof setTimeout
+      >) as unknown as typeof setTimeout;
+
+    try {
+      await client.connect();
+      const ws = latestWs();
+      ws.simulateOpen();
+
+      // Install a hook that closes the socket mid-way through sendKeyExchange
+      // by intercepting the relay.kx send: at the moment kx is flushed onto
+      // the wire we know encrypt completed, meaning we're between the two
+      // awaits in the auth.ok branch. Simulate the socket closing immediately
+      // after kx is sent (race: server closes connection while we're awaiting).
+      const origSend = ws.send.bind(ws);
+      let kxSent = false;
+      ws.send = (data: string) => {
+        origSend(data);
+        const parsed = JSON.parse(data) as { t?: string };
+        if (parsed.t === "relay.kx" && !kxSent) {
+          kxSent = true;
+          // Force-close the socket — this fires ws.onclose synchronously
+          // inside MockWebSocket.close(), which sets authenticated=false and
+          // emits onDisconnected. The remaining post-await code in handleMessage
+          // must detect the epoch mismatch and NOT emit onConnected.
+          ws.simulateClose();
+        }
+      };
+
+      ws.simulateMessage({
+        t: "relay.auth.ok",
+        daemonId: "daemon-test",
+      } as RelayServerMessage);
+      // Give plenty of microtasks for the async pipeline to settle.
+      await flushPromises(40);
+
+      // onDisconnected must have fired (socket closed).
+      expect(eventLog).toContain("disconnected");
+      // onConnected must NOT fire after onDisconnected.
+      const connIdx = eventLog.lastIndexOf("connected");
+      const discIdx = eventLog.lastIndexOf("disconnected");
+      // Either onConnected never fired, OR it fired before onDisconnected (correct order).
+      // The regression was onConnected firing AFTER onDisconnected.
+      if (connIdx !== -1 && discIdx !== -1) {
+        expect(connIdx).toBeLessThan(discIdx);
+      }
+      // Client must not report itself connected.
+      expect(client.isConnected()).toBe(false);
+    } finally {
+      (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
+        originalSetTimeout;
+      client.dispose();
+    }
+  });
+});
+
 describe("FrontendRelayClient — outbound encrypted senders", () => {
   test("sendChat encrypts with tx key and publishes on the session sid", async () => {
     const p = await setupPairing();

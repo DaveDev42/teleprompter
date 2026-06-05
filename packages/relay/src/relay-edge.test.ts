@@ -87,6 +87,7 @@ describe("RelayServer edge cases", () => {
         role: "frontend",
         daemonId: "daemon-1",
         token: "token-1",
+        frontendId: "fe-edge-1",
       }),
     );
     await waitMsg(ws, (m) => m.t === "relay.auth.ok");
@@ -112,6 +113,7 @@ describe("RelayServer edge cases", () => {
         role: "frontend",
         daemonId: "daemon-1",
         token: "token-1",
+        frontendId: "fe-edge-2",
       }),
     );
     await waitMsg(ws, (m) => m.t === "relay.auth.ok");
@@ -138,6 +140,7 @@ describe("RelayServer edge cases", () => {
         role: "frontend",
         daemonId: "daemon-1",
         token: "token-1",
+        frontendId: "fe-edge-3",
       }),
     );
     await waitMsg(ws, (m) => m.t === "relay.auth.ok");
@@ -156,22 +159,38 @@ describe("RelayServer edge cases", () => {
     const frontend2 = await connectWs(port);
 
     // Auth all
-    for (const [ws, role] of [
-      [daemon, "daemon"],
-      [frontend1, "frontend"],
-      [frontend2, "frontend"],
-    ] as const) {
-      ws.send(
-        JSON.stringify({
-          t: "relay.auth",
-          v: 1,
-          role,
-          daemonId: "daemon-1",
-          token: "token-1",
-        }),
-      );
-      await waitMsg(ws, (m) => m.t === "relay.auth.ok");
-    }
+    daemon.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "daemon",
+        daemonId: "daemon-1",
+        token: "token-1",
+      }),
+    );
+    await waitMsg(daemon, (m) => m.t === "relay.auth.ok");
+    frontend1.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "frontend",
+        daemonId: "daemon-1",
+        token: "token-1",
+        frontendId: "fe-multi-1",
+      }),
+    );
+    await waitMsg(frontend1, (m) => m.t === "relay.auth.ok");
+    frontend2.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "frontend",
+        daemonId: "daemon-1",
+        token: "token-1",
+        frontendId: "fe-multi-2",
+      }),
+    );
+    await waitMsg(frontend2, (m) => m.t === "relay.auth.ok");
 
     // Both frontends subscribe
     frontend1.send(JSON.stringify({ t: "relay.sub", sid: "s1" }));
@@ -216,6 +235,7 @@ describe("RelayServer edge cases", () => {
         role: "frontend",
         daemonId: "daemon-1",
         token: "token-1",
+        frontendId: "fe-edge-4",
       }),
     );
     await waitMsg(frontend, (m) => m.t === "relay.auth.ok");
@@ -270,22 +290,38 @@ describe("RelayServer edge cases", () => {
     const frontend1 = await connectWs(port);
     const frontend2 = await connectWs(port);
 
-    for (const [ws, role] of [
-      [daemon, "daemon"],
-      [frontend1, "frontend"],
-      [frontend2, "frontend"],
-    ] as const) {
-      ws.send(
-        JSON.stringify({
-          t: "relay.auth",
-          v: 1,
-          role,
-          daemonId: "daemon-1",
-          token: "token-1",
-        }),
-      );
-      await waitMsg(ws, (m) => m.t === "relay.auth.ok");
-    }
+    daemon.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "daemon",
+        daemonId: "daemon-1",
+        token: "token-1",
+      }),
+    );
+    await waitMsg(daemon, (m) => m.t === "relay.auth.ok");
+    frontend1.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "frontend",
+        daemonId: "daemon-1",
+        token: "token-1",
+        frontendId: "fe-m13-1",
+      }),
+    );
+    await waitMsg(frontend1, (m) => m.t === "relay.auth.ok");
+    frontend2.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "frontend",
+        daemonId: "daemon-1",
+        token: "token-1",
+        frontendId: "fe-m13-2",
+      }),
+    );
+    await waitMsg(frontend2, (m) => m.t === "relay.auth.ok");
 
     // frontend1 subscribes to two sessions (s-shared + s-f1-only).
     // frontend2 subscribes to s-shared only.
@@ -335,6 +371,7 @@ describe("RelayServer edge cases", () => {
         role: "frontend",
         daemonId: "daemon-1",
         token: "token-1",
+        frontendId: "fe-edge-5",
       }),
     );
     await waitMsg(frontend, (m) => m.t === "relay.auth.ok");

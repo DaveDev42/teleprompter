@@ -131,30 +131,38 @@ interface RelayMetrics {
   resumesRejected: number;
 }
 
-interface CachedFrame {
-  sid: string;
-  ct: string;
-  seq: number;
-  from: "daemon" | "frontend";
-  frontendId?: string;
-}
+type CachedFrame =
+  | { from: "daemon"; sid: string; ct: string; seq: number }
+  | {
+      from: "frontend";
+      sid: string;
+      ct: string;
+      seq: number;
+      frontendId: string;
+    };
 
 interface RateLimiter {
   count: number;
   windowStart: number;
 }
 
-interface ConnectedClient {
-  ws: ServerWebSocket; // Bun ServerWebSocket
-  role: "daemon" | "frontend";
-  daemonId: string;
-  /** Unique frontend identifier (frontend only) */
-  frontendId?: string;
-  /** Session IDs this client is subscribed to */
-  subscriptions: Set<string>;
-  /** Rate limiter state */
-  rateLimiter: RateLimiter;
-}
+type ConnectedClient =
+  | {
+      ws: ServerWebSocket;
+      role: "daemon";
+      daemonId: string;
+      subscriptions: Set<string>;
+      rateLimiter: RateLimiter;
+    }
+  | {
+      ws: ServerWebSocket;
+      role: "frontend";
+      daemonId: string;
+      /** Unique frontend identifier — always present for frontend clients. */
+      frontendId: string;
+      subscriptions: Set<string>;
+      rateLimiter: RateLimiter;
+    };
 
 interface DaemonState {
   online: boolean;
@@ -329,23 +337,17 @@ export class RelayServer {
         // Health check endpoint
         const url = new URL(req.url);
         if (url.pathname === "/health") {
+          // Single pass over daemonStates to compute all three aggregates.
+          const agg = self.aggregateDaemonStats();
           return Response.json({
             status: "ok",
             version: "0.1.5",
             protocolVersion: 2,
             clients: self.clients.size,
             pendingAuth: self.pendingAuth.size,
-            daemons: [...self.daemonStates.entries()].filter(
-              ([, s]) => s.online,
-            ).length,
-            sessions: [...self.daemonStates.values()].reduce(
-              (sum, s) => sum + s.sessions.size,
-              0,
-            ),
-            attached: [...self.daemonStates.values()].reduce(
-              (sum, s) => sum + s.attached.size,
-              0,
-            ),
+            daemons: agg.daemonsOnline,
+            sessions: agg.sessionsTotal,
+            attached: agg.attachedTotal,
             uptime: Math.floor(process.uptime()),
             metrics: { ...self.metrics },
           });
@@ -353,16 +355,14 @@ export class RelayServer {
 
         // Prometheus-style metrics endpoint
         if (url.pathname === "/metrics") {
+          // Single pass over daemonStates shared with /health aggregation.
+          const agg = self.aggregateDaemonStats();
           const lines: string[] = [];
           const m = self.metrics;
           lines.push(`relay_clients ${self.clients.size}`);
           lines.push(`relay_pending_auth ${self.pendingAuth.size}`);
-          lines.push(
-            `relay_daemons_online ${[...self.daemonStates.values()].filter((s) => s.online).length}`,
-          );
-          lines.push(
-            `relay_sessions_total ${[...self.daemonStates.values()].reduce((sum, s) => sum + s.sessions.size, 0)}`,
-          );
+          lines.push(`relay_daemons_online ${agg.daemonsOnline}`);
+          lines.push(`relay_sessions_total ${agg.sessionsTotal}`);
           lines.push(`relay_frames_in ${m.framesIn}`);
           lines.push(`relay_frames_out ${m.framesOut}`);
           lines.push(`relay_rate_limited_drops ${m.rateLimitedDrops}`);
@@ -479,6 +479,30 @@ ${daemons
 
   getPort(): number {
     return this.port;
+  }
+
+  /**
+   * Single-pass aggregation over daemonStates.
+   *
+   * /health and /metrics both need daemonsOnline + sessionsTotal + (health
+   * also needs attachedTotal). This helper collapses those three folds into
+   * one iteration so neither endpoint allocates temporary spread arrays or
+   * performs multiple O(n) passes — important at 10k connection scale.
+   */
+  private aggregateDaemonStats(): {
+    daemonsOnline: number;
+    sessionsTotal: number;
+    attachedTotal: number;
+  } {
+    let daemonsOnline = 0;
+    let sessionsTotal = 0;
+    let attachedTotal = 0;
+    for (const s of this.daemonStates.values()) {
+      if (s.online) daemonsOnline++;
+      sessionsTotal += s.sessions.size;
+      attachedTotal += s.attached.size;
+    }
+    return { daemonsOnline, sessionsTotal, attachedTotal };
   }
 
   private send(ws: ServerWebSocket, msg: RelayServerMessage) {
@@ -702,63 +726,52 @@ ${daemons
     // Auth completed — cancel slowloris timer.
     this.clearPendingAuth(ws);
 
-    const client: ConnectedClient = {
-      ws,
-      role: msg.role,
-      daemonId: msg.daemonId,
-      frontendId: msg.frontendId,
-      rateLimiter: { count: 0, windowStart: Date.now() },
-      subscriptions: new Set(),
-    };
-    this.clients.set(ws, client);
-
-    // Add to daemon group
-    if (!this.daemonGroups.has(msg.daemonId)) {
-      this.daemonGroups.set(msg.daemonId, new Set());
-    }
-    this.daemonGroups.get(msg.daemonId)?.add(ws);
-
-    // Update daemon state — preserve existing rateLimiter if the daemon is
-    // resuming (frontend may have created the entry first via group rate-limit
-    // path, though current ordering is daemon-first).
-    if (msg.role === "daemon") {
-      const existing = this.daemonStates.get(msg.daemonId);
-      // Derive the registration token for this daemon from validTokens (the
-      // token that just authenticated is msg.token). Store it on DaemonState
-      // for O(1) eviction and re-registration cleanup (H5 / M12).
-      const regToken = msg.token;
-      this.daemonStates.set(msg.daemonId, {
-        online: true,
-        sessions: existing?.sessions ?? new Set(),
-        lastSeen: Date.now(),
-        attached: existing?.attached ?? new Map(),
-        rateLimiter: existing?.rateLimiter ?? {
-          count: 0,
-          windowStart: Date.now(),
-        },
-        registrationToken: existing?.registrationToken ?? regToken,
+    // Validate frontendId: the wire type marks it optional (daemon auth omits
+    // it), but the ConnectedClient discriminated union requires it for
+    // role=frontend. Reject early so the ternary below can safely cast.
+    if (msg.role === "frontend" && !msg.frontendId) {
+      this.send(ws, {
+        t: "relay.auth.err",
+        e: "frontendId is required for role=frontend",
       });
-      // Ensure registrations is populated so handleAuthResume's O(1)
-      // registrations.has() check works even when the daemon authenticated via
-      // a token installed by registerToken() rather than relay.register. The
-      // proof field is not available here — use an empty string sentinel; only
-      // the daemonId→token mapping matters for eviction/re-registration.
-      if (!this.registrations.has(msg.daemonId)) {
-        this.registrations.set(msg.daemonId, { token: msg.token, proof: "" });
-      }
-    } else {
-      // Frontend auth: ensure a DaemonState exists so group rate-limit works
-      // even if the daemon is still offline (frontend reconnects before daemon).
-      if (!this.daemonStates.has(msg.daemonId)) {
-        this.daemonStates.set(msg.daemonId, {
-          online: false,
-          sessions: new Set(),
-          lastSeen: Date.now(),
-          attached: new Map(),
-          rateLimiter: { count: 0, windowStart: Date.now() },
-          registrationToken: null,
-        });
-      }
+      return;
+    }
+
+    // Build a typed ConnectedClient from the validated relay.auth message.
+    // The discriminated union ensures frontendId is structurally required for
+    // role=frontend and absent for role=daemon — no optional field, no sentinel.
+    const client: ConnectedClient =
+      msg.role === "frontend"
+        ? {
+            ws,
+            role: "frontend",
+            daemonId: msg.daemonId,
+            // msg.frontendId is guaranteed non-empty by the guard above.
+            frontendId: msg.frontendId as string,
+            rateLimiter: { count: 0, windowStart: Date.now() },
+            subscriptions: new Set(),
+          }
+        : {
+            ws,
+            role: "daemon",
+            daemonId: msg.daemonId,
+            rateLimiter: { count: 0, windowStart: Date.now() },
+            subscriptions: new Set(),
+          };
+
+    // Register client and upsert daemon state. The daemon registration token
+    // (msg.token for full auth) is passed for DaemonState bookkeeping so that
+    // evictDaemon can clean up validTokens in O(1) without scanning the map.
+    this.registerClient(ws, client);
+    this.upsertDaemonState(client, msg.token);
+
+    // Ensure registrations is populated so handleAuthResume's O(1)
+    // registrations.has() check works even when the daemon authenticated via
+    // a token installed by registerToken() rather than relay.register. The
+    // proof field is not available here — use an empty string sentinel; only
+    // the daemonId→token mapping matters for eviction/re-registration.
+    if (msg.role === "daemon" && !this.registrations.has(msg.daemonId)) {
+      this.registrations.set(msg.daemonId, { token: msg.token, proof: "" });
     }
 
     const ok: RelayAuthOk = this.buildAuthOk(client, false);
@@ -811,44 +824,31 @@ ${daemons
 
     this.clearPendingAuth(ws);
 
-    const client: ConnectedClient = {
-      ws,
-      role: payload.role,
-      daemonId: payload.daemonId,
-      frontendId: payload.role === "frontend" ? payload.frontendId : undefined,
-      rateLimiter: { count: 0, windowStart: Date.now() },
-      subscriptions: new Set(),
-    };
-    this.clients.set(ws, client);
+    // Build a typed ConnectedClient from the verified resume token payload.
+    // The discriminated union on ResumeTokenPayload guarantees frontendId is
+    // structurally present for role=frontend — no optional field, no sentinel.
+    const client: ConnectedClient =
+      payload.role === "frontend"
+        ? {
+            ws,
+            role: "frontend",
+            daemonId: payload.daemonId,
+            frontendId: payload.frontendId,
+            rateLimiter: { count: 0, windowStart: Date.now() },
+            subscriptions: new Set(),
+          }
+        : {
+            ws,
+            role: "daemon",
+            daemonId: payload.daemonId,
+            rateLimiter: { count: 0, windowStart: Date.now() },
+            subscriptions: new Set(),
+          };
 
-    if (!this.daemonGroups.has(payload.daemonId)) {
-      this.daemonGroups.set(payload.daemonId, new Set());
-    }
-    this.daemonGroups.get(payload.daemonId)?.add(ws);
-
-    if (payload.role === "daemon") {
-      const existing = this.daemonStates.get(payload.daemonId);
-      this.daemonStates.set(payload.daemonId, {
-        online: true,
-        sessions: existing?.sessions ?? new Set(),
-        lastSeen: Date.now(),
-        attached: existing?.attached ?? new Map(),
-        rateLimiter: existing?.rateLimiter ?? {
-          count: 0,
-          windowStart: Date.now(),
-        },
-        registrationToken: existing?.registrationToken ?? null,
-      });
-    } else if (!this.daemonStates.has(payload.daemonId)) {
-      this.daemonStates.set(payload.daemonId, {
-        online: false,
-        sessions: new Set(),
-        lastSeen: Date.now(),
-        attached: new Map(),
-        rateLimiter: { count: 0, windowStart: Date.now() },
-        registrationToken: null,
-      });
-    }
+    this.registerClient(ws, client);
+    // Resume does not carry the registration token — pass null so
+    // upsertDaemonState keeps the existing registrationToken on DaemonState.
+    this.upsertDaemonState(client, null);
 
     this.metrics.resumesAccepted++;
     const ok = this.buildAuthOk(client, true);
@@ -861,13 +861,74 @@ ${daemons
     this.broadcastPresence(payload.daemonId);
   }
 
+  /**
+   * Shared helper: add the client to the clients map and daemon group.
+   * Called from both handleAuth and handleAuthResume after the ConnectedClient
+   * is fully constructed.
+   */
+  private registerClient(ws: ServerWebSocket, client: ConnectedClient): void {
+    this.clients.set(ws, client);
+    if (!this.daemonGroups.has(client.daemonId)) {
+      this.daemonGroups.set(client.daemonId, new Set());
+    }
+    this.daemonGroups.get(client.daemonId)?.add(ws);
+  }
+
+  /**
+   * Shared helper: upsert DaemonState after a successful auth or resume.
+   *
+   * For role=daemon: sets online=true and preserves existing rateLimiter /
+   * sessions / attached so a daemon reconnect does not lose session history.
+   * `registrationToken` is set from `regToken` when provided (full auth path)
+   * or kept from the existing state (resume path, regToken=null).
+   *
+   * For role=frontend: ensures a DaemonState entry exists so the group
+   * rate-limit check works even when the daemon is still offline.
+   */
+  private upsertDaemonState(
+    client: ConnectedClient,
+    regToken: string | null,
+  ): void {
+    if (client.role === "daemon") {
+      const existing = this.daemonStates.get(client.daemonId);
+      this.daemonStates.set(client.daemonId, {
+        online: true,
+        sessions: existing?.sessions ?? new Set(),
+        lastSeen: Date.now(),
+        attached: existing?.attached ?? new Map(),
+        rateLimiter: existing?.rateLimiter ?? {
+          count: 0,
+          windowStart: Date.now(),
+        },
+        registrationToken: existing?.registrationToken ?? regToken,
+      });
+    } else if (!this.daemonStates.has(client.daemonId)) {
+      // Frontend reconnects before daemon — seed a minimal DaemonState so the
+      // group rate-limit and presence paths don't need null-guards.
+      this.daemonStates.set(client.daemonId, {
+        online: false,
+        sessions: new Set(),
+        lastSeen: Date.now(),
+        attached: new Map(),
+        rateLimiter: { count: 0, windowStart: Date.now() },
+        registrationToken: null,
+      });
+    }
+  }
+
+  /**
+   * Build a relay.auth.ok response. The discriminated ConnectedClient union
+   * makes it impossible to reach the frontend arm without a real frontendId —
+   * there is no `?? ""` sentinel and no empty-string that would cause
+   * ResumeTokenSigner.verify to reject the token on reconnect.
+   */
   private buildAuthOk(client: ConnectedClient, resumed: boolean): RelayAuthOk {
     const { token, expiresAt } = this.resumeSigner.issue(
       client.role === "frontend"
         ? {
             role: "frontend",
             daemonId: client.daemonId,
-            frontendId: client.frontendId ?? "",
+            frontendId: client.frontendId, // always present: discriminated union
           }
         : { role: "daemon", daemonId: client.daemonId },
     );
@@ -937,18 +998,22 @@ ${daemons
       state.lastSeen = Date.now();
     }
 
-    // Store in recent frames ring buffer
+    // Store in recent frames ring buffer. CachedFrame is a discriminated union
+    // so the frontend arm requires a frontendId (never undefined).
     if (!this.recentFrames.has(key)) {
       this.recentFrames.set(key, []);
     }
     const frames = this.recentFrames.get(key) ?? [];
-    const frame: CachedFrame = {
-      sid: msg.sid,
-      ct: msg.ct,
-      seq: msg.seq,
-      from: client.role,
-      frontendId: client.frontendId,
-    };
+    const frame: CachedFrame =
+      client.role === "frontend"
+        ? {
+            from: "frontend",
+            sid: msg.sid,
+            ct: msg.ct,
+            seq: msg.seq,
+            frontendId: client.frontendId,
+          }
+        : { from: "daemon", sid: msg.sid, ct: msg.ct, seq: msg.seq };
     frames.push(frame);
     if (frames.length > this.maxRecentFrames) {
       frames.shift();
@@ -958,14 +1023,26 @@ ${daemons
     const group = this.daemonGroups.get(client.daemonId);
     if (!group) return;
 
-    const relayFrame: RelayFrame = {
-      t: "relay.frame",
-      sid: msg.sid,
-      ct: msg.ct,
-      seq: msg.seq,
-      from: client.role,
-      frontendId: client.frontendId,
-    };
+    // RelayFrame.frontendId is optional in the wire protocol (it's only
+    // meaningful for frontend-originated frames and may be absent for daemon
+    // frames). Construct it only when the sender is a frontend.
+    const relayFrame: RelayFrame =
+      client.role === "frontend"
+        ? {
+            t: "relay.frame",
+            sid: msg.sid,
+            ct: msg.ct,
+            seq: msg.seq,
+            from: "frontend",
+            frontendId: client.frontendId,
+          }
+        : {
+            t: "relay.frame",
+            sid: msg.sid,
+            ct: msg.ct,
+            seq: msg.seq,
+            from: "daemon",
+          };
 
     for (const peerWs of group) {
       if (peerWs === ws) continue; // don't echo back
@@ -1010,20 +1087,32 @@ ${daemons
       }
     }
 
-    // Send cached recent frames if requested
+    // Send cached recent frames if requested. CachedFrame is a discriminated
+    // union — frontendId is only present on the frontend arm, so we spread the
+    // frame into the RelayFrame shape using the discriminant.
     if (msg.after !== undefined) {
       const key = `${client.daemonId}:${msg.sid}`;
       const frames = this.recentFrames.get(key) ?? [];
       for (const frame of frames) {
         if (frame.seq > msg.after) {
-          this.send(ws, {
-            t: "relay.frame",
-            sid: frame.sid,
-            ct: frame.ct,
-            seq: frame.seq,
-            from: frame.from,
-            frontendId: frame.frontendId,
-          });
+          const replayFrame: RelayFrame =
+            frame.from === "frontend"
+              ? {
+                  t: "relay.frame",
+                  sid: frame.sid,
+                  ct: frame.ct,
+                  seq: frame.seq,
+                  from: "frontend",
+                  frontendId: frame.frontendId,
+                }
+              : {
+                  t: "relay.frame",
+                  sid: frame.sid,
+                  ct: frame.ct,
+                  seq: frame.seq,
+                  from: "daemon",
+                };
+          this.send(ws, replayFrame);
         }
       }
     }
@@ -1196,14 +1285,51 @@ ${daemons
       data: msg.data,
     });
 
-    if (result === "ws" && targetFrontendWs) {
-      const notification: RelayNotification = {
-        t: "relay.notification",
-        title: msg.title,
-        body: msg.body,
-        data: msg.data,
-      };
-      this.send(targetFrontendWs, notification);
+    // Exhaustive switch over DeliveryResult — all variants are handled
+    // explicitly so a future variant added to DeliveryResult becomes a
+    // compile error (TypeScript narrows `result` to `never` in the default arm).
+    switch (result) {
+      case "ws":
+        // Frontend is live on WebSocket — deliver in-band as a notification.
+        if (targetFrontendWs) {
+          const notification: RelayNotification = {
+            t: "relay.notification",
+            title: msg.title,
+            body: msg.body,
+            data: msg.data,
+          };
+          this.send(targetFrontendWs, notification);
+        }
+        break;
+      case "push":
+        // Expo push sent successfully — no reply needed; daemon is fire-and-forget.
+        log.debug(`push delivered via Expo for frontendId ${msg.frontendId}`);
+        break;
+      case "rate_limited":
+        // Push rate-limited — inform the daemon so it can back off.
+        this.send(ws, {
+          t: "relay.err",
+          e: "PUSH_RATE_LIMITED",
+          m: `Push rate limit exceeded for frontendId ${msg.frontendId}`,
+        });
+        break;
+      case "deduped":
+        // Duplicate push suppressed within the dedup window — log only.
+        log.debug(`push deduped for frontendId ${msg.frontendId}`);
+        break;
+      case "error":
+        // Expo API error — inform the daemon so it can retry or surface.
+        this.send(ws, {
+          t: "relay.err",
+          e: "PUSH_DELIVERY_ERROR",
+          m: `Push delivery failed for frontendId ${msg.frontendId}`,
+        });
+        break;
+      default: {
+        // Compile-time exhaustiveness guard.
+        const _exhaustive: never = result;
+        log.error(`unhandled DeliveryResult: ${JSON.stringify(_exhaustive)}`);
+      }
     }
   }
 

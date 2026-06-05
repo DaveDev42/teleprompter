@@ -155,6 +155,7 @@ describe("RelayServer", () => {
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
+        frontendId: "fe-test",
       }),
     );
     // Frontend gets auth.ok and presence
@@ -208,6 +209,7 @@ describe("RelayServer", () => {
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
+        frontendId: "fe-test",
       }),
     );
     await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
@@ -257,6 +259,7 @@ describe("RelayServer", () => {
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
+        frontendId: "fe-test",
       }),
     );
     await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
@@ -331,6 +334,7 @@ describe("RelayServer", () => {
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
+        frontendId: "fe-test",
       }),
     );
     await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
@@ -374,6 +378,7 @@ describe("RelayServer", () => {
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
+        frontendId: "fe-test",
       }),
     );
     // auth.ok + initial presence
@@ -402,6 +407,7 @@ describe("RelayServer", () => {
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
+        frontendId: "fe-test",
       }),
     );
     await waitForMessage(ws, (m) => m.t === "relay.auth.ok");
@@ -478,6 +484,7 @@ describe("RelayServer", () => {
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
+        frontendId: "fe-test",
       }),
     );
     await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
@@ -533,6 +540,7 @@ describe("RelayServer", () => {
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
+        frontendId: "fe-test",
       }),
     );
     await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
@@ -604,6 +612,7 @@ describe("RelayServer", () => {
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
+        frontendId: "fe-test",
       }),
     );
     await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
@@ -736,6 +745,7 @@ describe("RelayServer", () => {
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
+        frontendId: "fe-test",
       }),
     );
     await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
@@ -926,6 +936,7 @@ describe("RelayServer", () => {
         role: "frontend",
         daemonId: DAEMON_ID,
         token: TOKEN,
+        frontendId: "fe-test",
       }),
     );
     await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
@@ -1062,6 +1073,84 @@ describe("RelayServer", () => {
       const authOk = await waitForMessage(ws4);
       expect(authOk.t).toBe("relay.auth.ok");
       ws4.close();
+    });
+  });
+
+  /**
+   * idx 57: buildAuthOk frontend resume-token round-trip.
+   *
+   * A frontend client that authenticates with a non-empty frontendId must
+   * receive a resumeToken that encodes the real frontendId (not an empty
+   * string). When that token is presented to relay.auth.resume the relay must
+   * accept it — the old `?? ""` sentinel caused ResumeTokenSigner.verify to
+   * return null for any frontend resume attempt.
+   */
+  describe("frontend resume-token round-trip (idx 57)", () => {
+    test("relay.auth.resume succeeds for a frontend client with a real frontendId", async () => {
+      const FRONTEND_ID = "fe-resume-test";
+
+      // Full auth for daemon first (so the daemon group exists and a
+      // registration entry is created for the O(1) resume check).
+      const daemon = await connectWs(port);
+      daemon.send(
+        JSON.stringify({
+          t: "relay.register",
+          daemonId: DAEMON_ID,
+          token: TOKEN,
+          proof: "proof-for-resume-test",
+          v: 2,
+        }),
+      );
+      await waitForMessage(daemon, (m) => m.t === "relay.register.ok");
+      daemon.send(
+        JSON.stringify({
+          t: "relay.auth",
+          v: 1,
+          role: "daemon",
+          daemonId: DAEMON_ID,
+          token: TOKEN,
+        }),
+      );
+      await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
+
+      // Full auth for frontend — captures the resumeToken from auth.ok.
+      const frontend = await connectWs(port);
+      frontend.send(
+        JSON.stringify({
+          t: "relay.auth",
+          v: 1,
+          role: "frontend",
+          daemonId: DAEMON_ID,
+          token: TOKEN,
+          frontendId: FRONTEND_ID,
+        }),
+      );
+      const frontendAuthOk = (await waitForMessage(
+        frontend,
+        (m) => m.t === "relay.auth.ok",
+      )) as RelayAuthOk;
+      expect(frontendAuthOk.resumeToken).toBeDefined();
+      const resumeToken = frontendAuthOk.resumeToken!;
+
+      // Close and reconnect with resume token.
+      frontend.close();
+      await Bun.sleep(50);
+
+      const resumed = await connectWs(port);
+      resumed.send(
+        JSON.stringify({ t: "relay.auth.resume", token: resumeToken, v: 1 }),
+      );
+      const resumeOk = (await waitForMessage(
+        resumed,
+        (m) => m.t === "relay.auth.ok" || m.t === "relay.auth.err",
+      )) as RelayAuthOk;
+
+      // Must succeed — not be rejected with auth.err (old `?? ""` bug).
+      expect(resumeOk.t).toBe("relay.auth.ok");
+      expect(resumeOk.resumed).toBe(true);
+
+      resumed.close();
+      daemon.close();
     });
   });
 });

@@ -4,6 +4,7 @@ import { copyText } from "../lib/copy-text";
 import { getPlatformProps } from "../lib/get-platform-props";
 import type { ChatMessage } from "../stores/chat-store";
 import { useSettingsStore } from "../stores/settings-store";
+import { useCopyAffordance } from "./use-copy-affordance";
 
 // ─── Inline markdown parser ──────────────────────────────────────────────────
 
@@ -281,7 +282,7 @@ function RichText({
 }) {
   // Fast path: if there is no markdown syntax, skip parsing entirely.
   const hasMd =
-    /```|^#{1,3}\s|^\s*[-*]\s|^\s*\d+\.\s|\*\*|\*[^*]|`[^`]|\[[^\]]+\]\(/m.test(
+    /```|^#{1,3}\s|^\s*[-*]\s|^\s*\d+\.\s|\*\*|\*[^*]|__[^_]|_[^_]|`[^`]|\[[^\]]+\]\(/m.test(
       text,
     );
   if (!hasMd) {
@@ -462,42 +463,23 @@ function UserCard({
   // equivalent on web — long-press only fires for pointer events. Wire
   // onPress on web so Enter on a focused bubble triggers the same copy.
   // Native keeps long-press as the discoverable touch gesture.
-  // `aria-description` advertises the web-only affordance because RN
-  // Web silently drops `accessibilityHint` for non-button roles.
-  // RN Web's PressResponder.isValidKeyPress only treats Space as an
-  // activation key when the target carries role="button" (isButtonRole
-  // check). role="group" misses that branch, so Space lands silently
-  // even though Enter activates onPress. WCAG 2.1.1 expects the copy
-  // affordance to be reachable via the standard activation keys —
-  // mirror the Space handler pattern from VoiceButton.tsx (role=switch)
-  // and session/[sid].tsx (role=tab).
-  const onKeyDownSpace =
-    Platform.OS === "web"
-      ? {
-          onKeyDown: (e: { key: string; preventDefault: () => void }) => {
-            if (e.key === " ") {
-              e.preventDefault();
-              copyText(msg.text);
-            }
-          },
-        }
-      : {};
+  // See useCopyAffordance for the full rationale.
+  const copy = useCopyAffordance(msg.text);
   return (
     <Pressable
       className={`self-end bg-tp-user-bubble rounded-bubble rounded-br-sm px-4 py-2.5 max-w-[80%] ${pp.className}`}
       tabIndex={pp.tabIndex}
-      onPress={Platform.OS === "web" ? () => copyText(msg.text) : undefined}
-      onLongPress={() => copyText(msg.text)}
+      onPress={copy.onPress}
+      onLongPress={copy.onLongPress}
       accessibilityLabel={a11yLabel}
-      accessibilityHint="Long press to copy"
+      accessibilityHint={copy.accessibilityHint}
       {...(Platform.OS === "web"
         ? ({
-            role: "group",
             "aria-label": a11yLabel,
-            "aria-description": "Press Enter or Space to copy",
+            ...copy.webGroupProps,
           } as object)
         : {})}
-      {...(onKeyDownSpace as object)}
+      {...(copy.onKeyDown ? ({ onKeyDown: copy.onKeyDown } as object) : {})}
     >
       <Text
         className="text-tp-text-on-color leading-[22px]"
@@ -520,6 +502,11 @@ function AssistantCard({
   codeFontStyle: { fontFamily: string };
 }) {
   const pp = getPlatformProps();
+  // See UserCard / useCopyAffordance: WCAG 2.1.1 — copy affordance must be
+  // keyboard-reachable on web (Space + Enter, role="group" needs explicit
+  // onKeyDown since RN Web's PressResponder only fires Space for role="button").
+  // Must be called before the early return below (Rules of Hooks).
+  const copy = useCopyAffordance(msg.text);
   // Skip rendering when the assistant message has no visible content.
   // The PTY-parsing path can land an empty / whitespace-only assistant
   // message (e.g. the Stop hook arrives with last_assistant_message=""
@@ -533,38 +520,21 @@ function AssistantCard({
   // so the bubble carries a non-generic role and the accessible name +
   // long-press hint actually reach AT.
   const a11yLabel = `Claude: ${msg.text.length > 100 ? `${msg.text.slice(0, 100)}...` : msg.text}`;
-  // See UserCard: WCAG 2.1.1 — copy affordance must be keyboard-reachable
-  // on web. Wire onPress and aria-description on web only. The Space
-  // handler mirrors UserCard's because RN Web's PressResponder only
-  // fires Space on role="button" — role="group" needs an explicit
-  // onKeyDown to satisfy the standard activation-key contract.
-  const onKeyDownSpace =
-    Platform.OS === "web"
-      ? {
-          onKeyDown: (e: { key: string; preventDefault: () => void }) => {
-            if (e.key === " ") {
-              e.preventDefault();
-              copyText(msg.text);
-            }
-          },
-        }
-      : {};
   return (
     <Pressable
       className={`self-start bg-tp-assistant-bubble rounded-bubble rounded-tl-sm px-4 py-2.5 max-w-[80%] ${pp.className}`}
       tabIndex={pp.tabIndex}
-      onPress={Platform.OS === "web" ? () => copyText(msg.text) : undefined}
-      onLongPress={() => copyText(msg.text)}
+      onPress={copy.onPress}
+      onLongPress={copy.onLongPress}
       accessibilityLabel={a11yLabel}
-      accessibilityHint="Long press to copy"
+      accessibilityHint={copy.accessibilityHint}
       {...(Platform.OS === "web"
         ? ({
-            role: "group",
             "aria-label": a11yLabel,
-            "aria-description": "Press Enter or Space to copy",
+            ...copy.webGroupProps,
           } as object)
         : {})}
-      {...(onKeyDownSpace as object)}
+      {...(copy.onKeyDown ? ({ onKeyDown: copy.onKeyDown } as object) : {})}
     >
       <RichText
         text={msg.text}

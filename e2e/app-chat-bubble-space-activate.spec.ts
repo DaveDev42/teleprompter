@@ -22,29 +22,49 @@ test.use({ viewport: { width: 1280, height: 800 } });
 // session view's Chat/Terminal tabs (role=tab —
 // `app-session-tabs-space-activate.spec.ts`).
 //
+// The Space handler lives in the shared `useCopyAffordance` hook
+// (`apps/app/src/components/use-copy-affordance.ts`): a web-only
+// `onKeyDown` that fires `copyText(text)` when `e.key === " "`. Both
+// cards call `useCopyAffordance(msg.text)` and spread the resulting
+// `onKeyDown` onto the Pressable.
+//
 // chat-store is in-memory and cannot be seeded from Playwright CI, so
-// the guard runs at the source level: assert both UserCard and
-// AssistantCard contain a web-only onKeyDown handler that calls
-// copyText on Space. A defense-in-depth DOM check on the live page
-// verifies no rendered bubble breaks the contract (vacuously true
-// today, blocks future regressions).
+// the guard runs at the source level: assert (1) the hook defines the
+// web-only Space onKeyDown→copyText handler, and (2) both UserCard and
+// AssistantCard consume the hook and wire its onKeyDown. A
+// defense-in-depth DOM check on the live page verifies no rendered
+// bubble breaks the contract (vacuously true today, blocks future
+// regressions).
+
+const HOOK_PATH = "../apps/app/src/components/use-copy-affordance.ts";
+const CHATCARD_PATH = "../apps/app/src/components/ChatCard.tsx";
+
+function readSource(relPath: string): string {
+  return readFileSync(resolve(__dirname, relPath), "utf8");
+}
+
+// Extract a top-level function body from ChatCard.tsx, stripping
+// comment lines so assertions match code, not prose.
+function cardCode(source: string, fnName: string): string {
+  const start = source.indexOf(`function ${fnName}`);
+  expect(start).toBeGreaterThan(0);
+  const after = start + `function ${fnName}`.length;
+  const next = source.slice(after).match(/^function /m);
+  expect(next).not.toBeNull();
+  const end = after + (next?.index ?? 0);
+  const body = source.slice(start, end);
+  const nonCommentLines = body.split("\n").filter((line) => {
+    const trimmed = line.trimStart();
+    return !trimmed.startsWith("//") && !trimmed.startsWith("*");
+  });
+  return nonCommentLines.join("\n");
+}
+
 test.describe("Chat bubbles activate copy on Space on web", () => {
-  test("UserCard wires a web-only Space onKeyDown to copyText", () => {
-    const source = readFileSync(
-      resolve(__dirname, "../apps/app/src/components/ChatCard.tsx"),
-      "utf8",
-    );
+  test("useCopyAffordance defines a web-only Space onKeyDown to copyText", () => {
+    const hook = readSource(HOOK_PATH);
 
-    const start = source.indexOf("function UserCard");
-    expect(start).toBeGreaterThan(0);
-    const after = start + "function UserCard".length;
-    const next = source.slice(after).match(/^function /m);
-    expect(next).not.toBeNull();
-    const nextOffset = next?.index ?? 0;
-    const end = after + nextOffset;
-    const body = source.slice(start, end);
-
-    const nonCommentLines = body.split("\n").filter((line) => {
+    const nonCommentLines = hook.split("\n").filter((line) => {
       const trimmed = line.trimStart();
       return !trimmed.startsWith("//") && !trimmed.startsWith("*");
     });
@@ -56,35 +76,23 @@ test.describe("Chat bubbles activate copy on Space on web", () => {
     // Must define an onKeyDown that fires copyText when the key is
     // Space. Allow `" "` or `'Space'` recognition forms.
     expect(code).toMatch(
-      /onKeyDown[\s\S]{0,200}?key\s*===\s*["'](?: |Space)["'][\s\S]{0,200}?copyText\(msg\.text\)/,
+      /onKeyDown[\s\S]{0,200}?key\s*===\s*["'](?: |Space)["'][\s\S]{0,200}?copyText\(text\)/,
     );
   });
 
-  test("AssistantCard wires a web-only Space onKeyDown to copyText", () => {
-    const source = readFileSync(
-      resolve(__dirname, "../apps/app/src/components/ChatCard.tsx"),
-      "utf8",
-    );
+  test("UserCard consumes useCopyAffordance and wires its onKeyDown", () => {
+    const code = cardCode(readSource(CHATCARD_PATH), "UserCard");
 
-    const start = source.indexOf("function AssistantCard");
-    expect(start).toBeGreaterThan(0);
-    const after = start + "function AssistantCard".length;
-    const next = source.slice(after).match(/^function /m);
-    expect(next).not.toBeNull();
-    const nextOffset = next?.index ?? 0;
-    const end = after + nextOffset;
-    const body = source.slice(start, end);
+    expect(code).toMatch(/useCopyAffordance\(msg\.text\)/);
+    // Must wire the hook's onKeyDown onto the Pressable so Space copies.
+    expect(code).toMatch(/copy\.onKeyDown/);
+  });
 
-    const nonCommentLines = body.split("\n").filter((line) => {
-      const trimmed = line.trimStart();
-      return !trimmed.startsWith("//") && !trimmed.startsWith("*");
-    });
-    const code = nonCommentLines.join("\n");
+  test("AssistantCard consumes useCopyAffordance and wires its onKeyDown", () => {
+    const code = cardCode(readSource(CHATCARD_PATH), "AssistantCard");
 
-    expect(code).toMatch(/Platform\.OS\s*===\s*["']web["']/);
-    expect(code).toMatch(
-      /onKeyDown[\s\S]{0,200}?key\s*===\s*["'](?: |Space)["'][\s\S]{0,200}?copyText\(msg\.text\)/,
-    );
+    expect(code).toMatch(/useCopyAffordance\(msg\.text\)/);
+    expect(code).toMatch(/copy\.onKeyDown/);
   });
 
   // Defense in depth: scan the live app for any bubble (role="group"

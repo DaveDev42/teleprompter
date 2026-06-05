@@ -9,6 +9,17 @@ import { useSettingsStore } from "../stores/settings-store";
  * inlined as base64 to avoid CORS issues from null-origin fetch.
  */
 
+/** Tagged-union for messages posted from the in-WebView script to React Native. */
+type WebViewMsg =
+  | { type: "data"; data: string }
+  | { type: "resize"; cols: number; rows: number }
+  | { type: "ready" };
+
+/** Minimal public interface exposed through termRef for the native WebView terminal. */
+interface NativeTermRef {
+  write: (data: string) => void;
+}
+
 // Only import WebView on native platforms
 let WebView: any = null;
 if (Platform.OS !== "web") {
@@ -134,7 +145,7 @@ export function GhosttyNative({
   onData?: (data: string) => void;
   onResize?: (cols: number, rows: number) => void;
   onReady?: () => void;
-  termRef?: React.MutableRefObject<any>;
+  termRef?: React.MutableRefObject<NativeTermRef | null>;
 }) {
   const webViewRef = useRef<any>(null);
   const [html, setHtml] = useState<string | null>(null);
@@ -151,6 +162,11 @@ export function GhosttyNative({
         const response = await fetch(
           "https://esm.sh/ghostty-web@0.3.0/ghostty-vt.wasm",
         );
+        if (!response.ok) {
+          throw new Error(
+            `Failed to fetch ghostty WASM: ${response.status} ${response.statusText}`,
+          );
+        }
         const buffer = await response.arrayBuffer();
         const bytes = new Uint8Array(buffer);
 
@@ -192,9 +208,9 @@ export function GhosttyNative({
   }, [termRef]);
 
   const handleMessage = useCallback(
-    (event: any) => {
+    (event: { nativeEvent: { data: string } }) => {
       try {
-        const msg = JSON.parse(event.nativeEvent.data);
+        const msg = JSON.parse(event.nativeEvent.data) as WebViewMsg;
         switch (msg.type) {
           case "data":
             onData?.(msg.data);

@@ -15,72 +15,91 @@ test.use({ viewport: { width: 1280, height: 800 } });
 // silently dropped by RN Web on `role="group"` elements (no
 // aria-description bridge).
 //
-// Fix: wire `onPress={Platform.OS === "web" ? () => copyText(msg.text)
-// : undefined}` on both cards so Enter on a focused bubble runs the
-// same copy path that long-press fires on touch. Add
-// `aria-description="Press Enter to copy"` on web so the affordance
-// is announceable. Native keeps long-press as the touch gesture and
+// Fix: the copy affordance lives in the shared `useCopyAffordance`
+// hook (`apps/app/src/components/use-copy-affordance.ts`). It wires
+// `onPress = Platform.OS === "web" ? () => copyText(text) : undefined`
+// so Enter on a focused bubble runs the same copy path long-press
+// fires on touch, and exposes `aria-description="Press Enter or Space
+// to copy"` on web so the affordance is announceable. Both cards call
+// `useCopyAffordance(msg.text)` and spread its props onto the
+// Pressable. Native keeps long-press as the touch gesture and
 // `accessibilityHint` keeps working on native AT.
 //
 // WCAG 2.1.1 Keyboard (Level A): all functionality must be operable
 // via keyboard. WCAG 4.1.2 Name, Role, Value (Level A): the copy
 // affordance must be programmatically determinable.
+//
+// The guard runs at the source level because chat-store is in-memory
+// and cannot be seeded from Playwright CI. It asserts two things: (1)
+// the hook holds the actual a11y contract (web onPress→copyText +
+// aria-description), and (2) both cards consume the hook and wire its
+// onPress onto the bubble. A live DOM check (defense in depth) blocks
+// future regressions where a rendered bubble drops aria-description.
+
+const HOOK_PATH = "../apps/app/src/components/use-copy-affordance.ts";
+const CHATCARD_PATH = "../apps/app/src/components/ChatCard.tsx";
+
+function readSource(relPath: string): string {
+  return readFileSync(resolve(__dirname, relPath), "utf8");
+}
+
+// Extract a top-level function body from ChatCard.tsx, stripping
+// comment lines so assertions match code, not prose.
+function cardCode(source: string, fnName: string): string {
+  const start = source.indexOf(`function ${fnName}`);
+  expect(start).toBeGreaterThan(0);
+  const after = start + `function ${fnName}`.length;
+  const next = source.slice(after).match(/^function /m);
+  expect(next).not.toBeNull();
+  const end = after + (next?.index ?? 0);
+  const body = source.slice(start, end);
+  const nonCommentLines = body.split("\n").filter((line) => {
+    const trimmed = line.trimStart();
+    return !trimmed.startsWith("//") && !trimmed.startsWith("*");
+  });
+  return nonCommentLines.join("\n");
+}
+
 test.describe("Chat bubbles expose keyboard copy action on web", () => {
-  test("UserCard wires web-only onPress to copyText and aria-description", () => {
-    const source = readFileSync(
-      resolve(__dirname, "../apps/app/src/components/ChatCard.tsx"),
-      "utf8",
-    );
+  test("useCopyAffordance wires web-only onPress to copyText and aria-description", () => {
+    const hook = readSource(HOOK_PATH);
 
-    const start = source.indexOf("function UserCard");
-    expect(start).toBeGreaterThan(0);
-    const after = start + "function UserCard".length;
-    const next = source.slice(after).match(/^function /m);
-    expect(next).not.toBeNull();
-    // biome-ignore lint/style/noNonNullAssertion: asserted above
-    const end = after + (next!.index ?? 0);
-    const body = source.slice(start, end);
-
-    const nonCommentLines = body.split("\n").filter((line) => {
+    const nonCommentLines = hook.split("\n").filter((line) => {
       const trimmed = line.trimStart();
       return !trimmed.startsWith("//") && !trimmed.startsWith("*");
     });
     const code = nonCommentLines.join("\n");
 
-    // Must wire onPress on web — pattern is Platform.OS === "web" ?
-    // () => copyText(msg.text) : undefined.
+    // The hook must gate the copy affordance on web only.
+    expect(code).toMatch(/Platform\.OS\s*===\s*["']web["']/);
+    // onPress must run copyText(text) on web (and stay undefined on
+    // native, where long-press is the discoverable gesture).
     expect(code).toMatch(
-      /onPress=\{Platform\.OS\s*===\s*["']web["']\s*\?\s*\(\)\s*=>\s*copyText\(msg\.text\)/,
+      /onPress\s*=\s*isWeb\s*\?\s*\(\)\s*=>\s*copyText\(text\)/,
     );
-    // Must spread aria-description literal on the web branch.
+    // The web a11y props must carry an aria-description mentioning
+    // Enter so the affordance is announceable to AT.
     expect(code).toMatch(/"aria-description"\s*:\s*["'][^"']*[Ee]nter/);
   });
 
-  test("AssistantCard wires web-only onPress to copyText and aria-description", () => {
-    const source = readFileSync(
-      resolve(__dirname, "../apps/app/src/components/ChatCard.tsx"),
-      "utf8",
-    );
+  test("UserCard consumes useCopyAffordance and wires its onPress", () => {
+    const code = cardCode(readSource(CHATCARD_PATH), "UserCard");
 
-    const start = source.indexOf("function AssistantCard");
-    expect(start).toBeGreaterThan(0);
-    const after = start + "function AssistantCard".length;
-    const next = source.slice(after).match(/^function /m);
-    expect(next).not.toBeNull();
-    // biome-ignore lint/style/noNonNullAssertion: asserted above
-    const end = after + (next!.index ?? 0);
-    const body = source.slice(start, end);
+    // Must derive the affordance from the shared hook with the bubble
+    // text...
+    expect(code).toMatch(/useCopyAffordance\(msg\.text\)/);
+    // ...and wire its onPress onto the Pressable so Enter copies.
+    expect(code).toMatch(/onPress=\{copy\.onPress\}/);
+    // ...plus spread the web a11y props (aria-description lives there).
+    expect(code).toMatch(/\.\.\.copy\.webGroupProps/);
+  });
 
-    const nonCommentLines = body.split("\n").filter((line) => {
-      const trimmed = line.trimStart();
-      return !trimmed.startsWith("//") && !trimmed.startsWith("*");
-    });
-    const code = nonCommentLines.join("\n");
+  test("AssistantCard consumes useCopyAffordance and wires its onPress", () => {
+    const code = cardCode(readSource(CHATCARD_PATH), "AssistantCard");
 
-    expect(code).toMatch(
-      /onPress=\{Platform\.OS\s*===\s*["']web["']\s*\?\s*\(\)\s*=>\s*copyText\(msg\.text\)/,
-    );
-    expect(code).toMatch(/"aria-description"\s*:\s*["'][^"']*[Ee]nter/);
+    expect(code).toMatch(/useCopyAffordance\(msg\.text\)/);
+    expect(code).toMatch(/onPress=\{copy\.onPress\}/);
+    expect(code).toMatch(/\.\.\.copy\.webGroupProps/);
   });
 
   // Defense in depth: scan the live app and assert that any rendered

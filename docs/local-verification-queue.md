@@ -66,6 +66,18 @@ provisioning profile을 다운로드한다.
 > **이 스크립트는 고성능 Mac 전용.** 이 8GB 머신에서 실행 금지(`CLAUDE.md` 정책). 스크립트
 > 헤더에도 동일 경고가 박혀 있다.
 
+### `eas build --local` fingerprint 게이트 (해결됨 — PR #560)
+
+`eas build --local`은 격리된 `npx eas-cli-local-build-plugin` 서브프로세스에서 돈다.
+`runtimeVersion.policy = fingerprint`이면 부모(CLI)와 서브프로세스의 fingerprint가 서로 달라
+"Configure expo-updates build phase"에서 중단됐다 (이전 Q1–Q4 BLOCKED 사유). **PR #560이
+이를 해결:** `apps/app/app.config.js`(동적 config)가 `APP_VARIANT === "dev-local"`일 때
+`runtimeVersion: "dev-local"`(정적 문자열)을 반환하고, `eas.json`의 `development`/`device`
+프로파일에만 `env.APP_VARIANT = "dev-local"`을 박았다. **클라우드 프로파일(preview/production)은
+그대로 `policy: fingerprint`** — OTA 무결성 유지. 검증: `APP_VARIANT=dev-local expo config --json`
+→ `runtimeVersion: "dev-local"`, env 없이 → `runtimeVersion.policy: "fingerprint"`. 이로써
+로컬 dev/simulator 빌드가 fingerprint 게이트 없이 진행된다.
+
 설치:
 
 ```bash
@@ -109,17 +121,15 @@ cd apps/app && npx expo start --dev-client   # 웹 디버그의 --web 과 다름
   ```
 - **pass**: 잠금화면 push 도착 + 사운드 + 탭하면 올바른 세션으로 navigate. foreground에서는 system
   push 억제되고 in-app toast(5s auto-dismiss). dedup(60s 내 1건), rate limit(분당 ≤5).
-- **result**: **BLOCKED 2026-06-05** — dev build `.ipa` 미생성. `scripts/ios-dev-build.sh --profile
-  device` (= `eas build --profile device --platform ios --local`) 가 "Configure expo-updates build
-  phase" 에서 실패: app.json `runtimeVersion.policy = fingerprint` 라 local build plugin 의 격리된
-  `npx eas-cli-local-build-plugin` 서브프로세스가 EAS 서버 fingerprint 를 fetch 할 때 `The bearer
-  token is invalid` → local/build runtimeVersion mismatch 로 중단. `eas login` 재인증(sessionSecret
-  갱신) + `eas fingerprint:generate` 서버 등록 후에도 동일 — CLI 레벨은 통과하나 격리 서브프로세스
-  (`builderEnvironment.env: {}`)에 sessionSecret 가 전파되지 않는다. `EXPO_UPDATES_FINGERPRINT_OVERRIDE`
-  우회도 같은 이유로 닿지 않음(`eas.json` `env` 에 박아야 전파). **`.claude/rules/native-build.md` 정책
-  상 로컬 iOS 네이티브 빌드는 재시도하지 않는다 — EAS 클라우드 빌드 → TestFlight 로 이관, 실기기 push
-  E2E 는 그 빌드로 사용자(Dave)가 검증.** (부수 성과: dev build 가 요구하는 `expo-dev-client` 의존성
-  누락 + 잘못된 버전(SDK 56 인데 `~55.x`)을 발견해 `~56.0.18` 로 고침 — 별도 fix 브랜치.)
+- **result**: **DEFERRED 2026-06-05 (정책상 사용자 이관)** — 이전 fingerprint/bearer-token 빌드 게이트는
+  **PR #560으로 해소**됨(위 "fingerprint 게이트" 섹션). 즉 `eas build --profile device --platform ios
+  --local`로 `.ipa`를 만들 수 있게 됐다. 다만 **진짜 APNs 왕복 + 잠금화면 탭 navigation은 신뢰된 실기기
+  에서만 검증 가능**하고(Simulator는 APNs 미수신 — 위 "APNs 검증 범위"), `.claude/rules/native-build.md`
+  정책상 실기기 push/keychain E2E는 EAS 클라우드 빌드 → TestFlight → **사용자(Dave) 실기기 디버깅**으로
+  이관한다. 이 머신(헤드리스 Mac)에는 신뢰된 실기기가 없어 Q1의 끝단(push 도착/사운드/탭 navigate)을
+  직접 실측할 수 없다. → 빌드 도구 게이트는 해제, 실기기 검증만 TestFlight로 이관.
+  (부수 성과: dev build가 요구하는 `expo-dev-client` 의존성 누락 + 잘못된 버전(SDK 56인데 `~55.x`)을
+  발견해 `~56.0.18`로 고침.)
 
 ### Q2. iOS 실기기 — keychain / 백그라운드 사이클 / audio
 
@@ -128,9 +138,11 @@ cd apps/app && npx expo start --dev-client   # 웹 디버그의 --web 과 다름
   App Switcher background→foreground 왕복 시 relay 재연결 배너 정상, (VoiceButton 네이티브 구현 후)
   audio capture. 현재 `VoiceButton`은 네이티브에서 `null` 반환(TODO) — audio는 구현 전까지 `N/A`.
 - **pass**: 앱 강제종료 후 재실행에도 페어링 살아있음. background 진입 후 복귀 시 reconnect.
-- **result**: **BLOCKED 2026-06-05** — Q1 과 동일 dev build `.ipa` 게이트(EAS local-build fingerprint/
-  bearer-token). 빌드가 안 나와 keychain/background-cycle 검증 불가. EAS 클라우드 → TestFlight 빌드로
-  실기기 검증을 사용자(Dave)에게 이관.
+- **result**: **DEFERRED 2026-06-05 (정책상 사용자 이관)** — Q1과 동일. 빌드 게이트(fingerprint/
+  bearer-token)는 **PR #560으로 해제**됨. keychain 저장·복원 / background→foreground relay 재연결은
+  앱 강제종료·App Switcher 같은 실기기 라이프사이클 거동이라 신뢰된 실기기에서만 충실히 검증된다 —
+  EAS 클라우드 → TestFlight 빌드로 사용자(Dave) 실기기 검증에 이관. (audio는 `VoiceButton` 네이티브
+  미구현이라 여전히 `N/A`.)
 
 ### Q3. Android 실기기 — 골든 패스 1회 + 권한 모델
 
@@ -139,8 +151,12 @@ cd apps/app && npx expo start --dev-client   # 웹 디버그의 --web 과 다름
 - **command**: 페어링(manual paste 또는 QR) → 세션 목록 → Chat 탭(메시지 송수신, Enter-to-send) →
   Terminal 탭(PTY 스트림/ANSI/키 입력) 풀 골든 패스 1회. 권한: network, foreground service 동작 확인.
 - **pass**: 페어링·세션·Chat·Terminal 전부 동작. foreground service 알림 표시, network 권한 정상.
-- **result**: **BLOCKED 2026-06-05** — Android dev build 미생성(이번 순회는 iOS 게이트에서 막혀 Android
-  로컬 빌드까지 진행 못 함). 동일하게 EAS 클라우드 Internal track → 실기기 검증을 사용자(Dave)에게 이관.
+- **result**: **NOT RUN 2026-06-05** — Pixel_8 AVD(`emulator-5554`)는 부팅 완료 상태지만, 이번 순회에서
+  Android 로컬 dev build(`eas build --platform android --profile development --local`, `JAVA_HOME`=
+  openjdk@17)를 실행하지 못해 골든 패스(페어링→세션→Chat→Terminal)를 측정하지 못했다. 이전의 "iOS
+  게이트에 막혀서" 사유는 무효 — fingerprint 게이트는 #560으로 해제됐고 Android는 iOS와 독립이다.
+  AVD는 준비됐으니 다음 순회에서 Android 로컬 빌드 → emulator 설치 → 골든 패스로 실행 가능. 실기기 권한
+  모델(foreground service 알림)의 끝단 검증은 EAS Internal track → 사용자(Dave) 실기기로 이관.
 
 ### Q4. Simulator QA — UI/로직 회귀 (Expo MCP + Maestro)
 
@@ -151,11 +167,24 @@ cd apps/app && npx expo start --dev-client   # 웹 디버그의 --web 과 다름
   탐색적 QA. push는 여기서 `xcrun simctl push <device> dev.tpmt.app payload.apns`로 payload 렌더/탭
   navigation handler만 확인(진짜 APNs 왕복은 Q1 실기기에서).
 - **pass**: Maestro flow 그린, 주요 화면 스냅샷 회귀 없음. simctl push로 notification handler 동작.
-- **result**: **BLOCKED 2026-06-05** — Simulator용 dev build `.app` 미생성. `eas build --profile
-  development --platform ios --local` 이 Q1 과 동일한 expo-updates fingerprint/bearer-token 게이트에
-  걸려 `.app` 이 안 나옴 → `xcrun simctl install` 이하 전체 불가. **`.claude/rules/native-build.md`:
-  로컬 Simulator/Xcode/네이티브 빌드 재시도 금지** — RN Web dogfood(`pnpm dev:app` + `pnpm dev:pair`)로
-  페어링/세션/Chat/Terminal 회귀를 커버하고, 네이티브 전용 거동은 EAS 클라우드 빌드로 이관.
+- **result**: **PASS 2026-06-05 (build 0.1.19 dev-local, iOS 26.5 Simulator)** — 이 64GB Mac에서
+  Simulator dev build `.app` 생성·설치·실행·탐색 전부 성공. 경로: PR #560의 `dev-local` profile로
+  fingerprint 게이트 통과 → `eas build --profile development --platform ios --local` → `.app`을
+  `QA-iPhone-265`(iOS 26.5)에 `xcrun simctl install` → deep link(`exp+teleprompter://...`)로 dev
+  client를 Metro(:8082)에 연결. Maestro v2.2.0(`JAVA_HOME`=openjdk@17) flow로 골든 패스 구동:
+  앱 렌더 OK, **Sessions↔Daemons↔Settings 탭 왕복 navigate 그린**(`assertVisible "Sessions"` 통과),
+  Daemons 탭에 페어링 진입점("Scan QR Code to Pair" + "or enter pairing data manually") 도달, Settings
+  탭 Version `0.1.19` / Updates "Dev build" / Diagnostics 표시 확인. (페어링 라이브 왕복은 QA 범위 밖 —
+  UI 도달성까지 확인.)
+  - **버그 발견+수정 (PR #561):** 최초 빌드는 **red-screen "Incompatible React versions"** 로 죽었다.
+    원인 = 루트 `pnpm.overrides`가 `react@19.2.6`을 강제했으나 `react-native@0.85.3`의 번들 renderer는
+    `19.2.3`에 대해 빌드됨 — React는 `react`와 `react-native-renderer` 간 **정확한 버전 일치**를 요구
+    하므로 patch 불일치(19.2.6 vs 19.2.3)에서 red-screen. type-check와 RN-Web e2e로는 안 잡힘(네이티브
+    renderer에서만 발현). **수정:** 세 곳(루트 override + `apps/app` + `apps/cli`)의 react 핀을 모두
+    `19.2.3`으로 정렬 + `apps/cli/src/manifest-guards.test.ts`에 회귀 가드("override.react ===
+    app.react") 추가 — override가 다시 app의 react에서 드리프트하면 CI가 잡는다. 이 핀은 SDK 56의
+    `bundledNativeModules`/renderer가 기대하는 버전이라 클라우드 빌드에도 동일하게 옳다.
+    수정 후 `--clear` 재빌드에서 red-screen 사라지고 위 골든 패스 그린.
 
 ### Q5. Linux daemon install — systemd 풀 사이클 (VM)
 
@@ -203,7 +232,16 @@ cd apps/app && npx expo start --dev-client   # 웹 디버그의 --web 과 다름
   필요. 이 큐에는 "별도 환경" 표식으로 남긴다.
 - **command**: WSL 안에서 `install.sh` → `tp daemon` → 페어링 → 세션 풀 사이클.
 - **pass**: Linux 빌드가 WSL에서 install·daemon·페어링·세션 전부 동작.
-- **result**: _(BLOCKED — Windows 환경 필요, 고성능 Mac 범위 밖)_
+- **result**: **PASS 2026-06-05 (bug found+fixed, PR #559)** — Windows 11 + WSL2(Ubuntu)에서 install.sh
+  → `tp daemon` → 페어링 → 세션 풀 사이클 실행. **버그 발견+수정:** systemd `--user` daemon은
+  `XDG_RUNTIME_DIR=/run/user/<uid>`를 받지만, 대화형 WSL 로그인 셸에서는 이 변수가 **UNSET** → CLI가
+  `/tmp/teleprompter-<uid>`로 폴백 → daemon과 CLI의 소켓/락 경로가 갈려 **중복 daemon + SQLITE_BUSY**.
+  **수정(PR #559):** `packages/protocol/src/socket-path.ts`에 `resolveRuntimeDir()` 공유 리졸버를 두고
+  순서를 XDG → `/run/user/<uid>`(존재 시) → `/tmp` 폴백으로 통일. daemon-lock도 같은 리졸버를 쓰게 해
+  소켓과 pid-lock이 항상 같은 디렉터리에 co-locate. 회귀 가드: `socket-path.test.ts`에 "systemd
+  /run/user preference" describe + XDG honor 테스트, `daemon-lock.test.ts`는 writable temp dir로 정정.
+  수정 후 WSL에서 단일 daemon, SQLITE_BUSY 소멸, 페어링·세션 정상. (이 항목은 별도 Windows/WSL 환경에서
+  실행 — 고성능 Mac 범위 밖이지만 이번에 그 환경에서 처리 완료.)
 
 ---
 

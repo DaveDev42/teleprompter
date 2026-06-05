@@ -1,5 +1,19 @@
 const HEADER_SIZE = 8;
 
+/**
+ * Maximum allowed frame payload (jsonLen + binLen) in bytes.
+ *
+ * Rationale: the largest legitimate frames we send today are 1 MiB binary
+ * PTY sidecars (codec-edge.test.ts) plus their JSON metadata (a few hundred
+ * bytes). The QueuedWriter caps its in-memory queue at 8 MiB. A 64 MiB ceiling
+ * is therefore 64× the real-world peak — generous enough to absorb any future
+ * growth, but tight enough to reject a poison header declaring 4 GiB
+ * (0xFFFFFFFF binLen) before we attempt to buffer anything. Frames exceeding
+ * this limit indicate a protocol violation (corrupt peer, adversarial input,
+ * or a stream sync loss) and require connection teardown.
+ */
+const MAX_FRAME_SIZE = 64 * 1024 * 1024; // 64 MiB
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -78,6 +92,16 @@ export class FrameDecoder {
       const binLen = view.getUint32(4);
       const totalLen = HEADER_SIZE + jsonLen + binLen;
 
+      // H1: Reject oversized frames immediately so a poison header (e.g.
+      // binLen=0xFFFFFFFF) cannot cause unbounded buffer growth / OOM.
+      // This is an unrecoverable protocol violation — throw so the caller
+      // tears down the connection rather than leaving the decoder wedged.
+      if (jsonLen + binLen > MAX_FRAME_SIZE) {
+        throw new Error(
+          `Frame too large: ${jsonLen + binLen} bytes exceeds max ${MAX_FRAME_SIZE}`,
+        );
+      }
+
       if (this.buf.byteLength < totalLen) break;
 
       const json = decoder.decode(
@@ -94,8 +118,12 @@ export class FrameDecoder {
           this.buf.subarray(start, start + binLen).slice().buffer,
         );
       }
-      results.push({ data: JSON.parse(json), binary });
+
+      // M1: JSON.parse throws on malformed/empty JSON — advance buf past the
+      // frame first so the decoder is not permanently wedged on re-entry, then
+      // re-throw so the caller tears down the connection (consistent with H1).
       this.buf = this.buf.subarray(totalLen);
+      results.push({ data: JSON.parse(json), binary });
     }
 
     // Detach the tail from `chunk` when it's only a partial frame, so the

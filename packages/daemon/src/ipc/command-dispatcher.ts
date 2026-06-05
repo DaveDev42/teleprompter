@@ -317,8 +317,9 @@ export class IpcCommandDispatcher {
   }
 
   /**
-   * Prune sessions matching a filter. By default only stopped/error sessions
-   * older than `olderThanMs` are selected; `includeRunning: true` also kills
+   * Prune sessions matching a filter. `msg.age` scopes the selection: `"all"`
+   * matches every stopped/error session; `"olderThan"` restricts to sessions
+   * whose `updated_at` is older than `ms`. `includeRunning: true` also kills
    * running runners before delete. `dryRun: true` returns the selection
    * without mutating anything.
    */
@@ -327,12 +328,12 @@ export class IpcCommandDispatcher {
     msg: IpcSessionPrune,
   ): void {
     const now = Date.now();
-    const cutoff = msg.olderThanMs === null ? null : now - msg.olderThanMs;
+    const cutoffMs = msg.age.kind === "olderThan" ? now - msg.age.ms : null;
 
     const candidates = this.deps.store.listSessions().filter((s) => {
       if (s.state === "running" && !msg.includeRunning) return false;
-      if (cutoff === null) return true;
-      return s.updated_at < cutoff;
+      if (cutoffMs === null) return true;
+      return s.updated_at < cutoffMs;
     });
 
     if (msg.dryRun) {

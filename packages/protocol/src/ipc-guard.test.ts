@@ -643,39 +643,39 @@ describe("parseIpcMessage", () => {
   });
 
   describe("session.prune", () => {
-    test("session.prune parses with numeric olderThanMs", () => {
+    test("session.prune parses age: { kind: 'olderThan', ms: 60_000 }", () => {
       expect(
         parseIpcMessage({
           t: "session.prune",
-          olderThanMs: 60_000,
+          age: { kind: "olderThan", ms: 60_000 },
           includeRunning: false,
           dryRun: false,
         }),
       ).toEqual({
         t: "session.prune",
-        olderThanMs: 60_000,
+        age: { kind: "olderThan", ms: 60_000 },
         includeRunning: false,
         dryRun: false,
       });
     });
 
-    test("session.prune accepts null olderThanMs (all sessions)", () => {
+    test("session.prune parses age: { kind: 'all' }", () => {
       expect(
         parseIpcMessage({
           t: "session.prune",
-          olderThanMs: null,
+          age: { kind: "all" },
           includeRunning: true,
           dryRun: true,
         }),
       ).toEqual({
         t: "session.prune",
-        olderThanMs: null,
+        age: { kind: "all" },
         includeRunning: true,
         dryRun: true,
       });
     });
 
-    test("session.prune rejects missing fields", () => {
+    test("session.prune rejects missing age field", () => {
       expect(
         parseIpcMessage({
           t: "session.prune",
@@ -683,35 +683,101 @@ describe("parseIpcMessage", () => {
           dryRun: false,
         }),
       ).toBeNull();
+    });
+
+    test("session.prune rejects null age", () => {
       expect(
         parseIpcMessage({
           t: "session.prune",
-          olderThanMs: 0,
+          age: null,
+          includeRunning: false,
+          dryRun: false,
+        }),
+      ).toBeNull();
+    });
+
+    test("session.prune rejects bogus age kind", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.prune",
+          age: { kind: "bogus" },
+          includeRunning: false,
+          dryRun: false,
+        }),
+      ).toBeNull();
+    });
+
+    test("session.prune rejects olderThan missing ms", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.prune",
+          age: { kind: "olderThan" },
+          includeRunning: false,
+          dryRun: false,
+        }),
+      ).toBeNull();
+    });
+
+    test("session.prune rejects olderThan with negative ms", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.prune",
+          age: { kind: "olderThan", ms: -1 },
+          includeRunning: false,
+          dryRun: false,
+        }),
+      ).toBeNull();
+    });
+
+    test("session.prune rejects olderThan with float ms", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.prune",
+          age: { kind: "olderThan", ms: 60.5 },
+          includeRunning: false,
+          dryRun: false,
+        }),
+      ).toBeNull();
+    });
+
+    test("session.prune accepts olderThan ms=0 (edge: 0 is non-negative)", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.prune",
+          age: { kind: "olderThan", ms: 0 },
+          includeRunning: false,
+          dryRun: false,
+        }),
+      ).toEqual({
+        t: "session.prune",
+        age: { kind: "olderThan", ms: 0 },
+        includeRunning: false,
+        dryRun: false,
+      });
+    });
+
+    test("session.prune rejects missing includeRunning and dryRun", () => {
+      expect(
+        parseIpcMessage({
+          t: "session.prune",
+          age: { kind: "all" },
           dryRun: false,
         }),
       ).toBeNull();
       expect(
         parseIpcMessage({
           t: "session.prune",
-          olderThanMs: 0,
+          age: { kind: "all" },
           includeRunning: false,
         }),
       ).toBeNull();
     });
 
-    test("session.prune rejects wrong field types", () => {
+    test("session.prune rejects wrong field types for includeRunning and dryRun", () => {
       expect(
         parseIpcMessage({
           t: "session.prune",
-          olderThanMs: "1000",
-          includeRunning: false,
-          dryRun: false,
-        }),
-      ).toBeNull();
-      expect(
-        parseIpcMessage({
-          t: "session.prune",
-          olderThanMs: 0,
+          age: { kind: "all" },
           includeRunning: "yes",
           dryRun: false,
         }),
@@ -719,7 +785,7 @@ describe("parseIpcMessage", () => {
       expect(
         parseIpcMessage({
           t: "session.prune",
-          olderThanMs: 0,
+          age: { kind: "all" },
           includeRunning: false,
           dryRun: 1,
         }),

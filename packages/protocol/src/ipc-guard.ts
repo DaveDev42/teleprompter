@@ -25,6 +25,7 @@ import {
   type PlainObject,
 } from "./guard-primitives";
 import type {
+  AgeFilter,
   IpcMessage,
   IpcPairBeginErrReason,
   IpcPairErrorReason,
@@ -60,6 +61,26 @@ function parseLabelField(v: unknown): Label | null {
     return null;
   }
   return decodeWireLabel(v);
+}
+
+/**
+ * Parse a raw `age` field into an {@link AgeFilter} tagged union.
+ * Returns `null` when the shape is malformed.
+ *
+ * Valid shapes:
+ *   `{ kind: "all" }`
+ *   `{ kind: "olderThan"; ms: <non-negative integer> }`
+ */
+function parseAgeFilter(v: unknown): AgeFilter | null {
+  if (!isObject(v)) return null;
+  const kind = v["kind"];
+  if (kind === "all") return { kind: "all" };
+  if (kind === "olderThan") {
+    const ms = v["ms"];
+    if (!isNonNegativeInt(ms)) return null;
+    return { kind: "olderThan", ms };
+  }
+  return null;
 }
 
 const RECORD_KINDS = RECORD_KIND_SET;
@@ -383,13 +404,13 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
     }
 
     case "session.prune": {
-      if (raw["olderThanMs"] !== null && !isNumber(raw["olderThanMs"]))
-        return null;
+      const age = parseAgeFilter(raw["age"]);
+      if (age === null) return null;
       if (typeof raw["includeRunning"] !== "boolean") return null;
       if (typeof raw["dryRun"] !== "boolean") return null;
       return {
         t: "session.prune",
-        olderThanMs: raw["olderThanMs"],
+        age,
         includeRunning: raw["includeRunning"],
         dryRun: raw["dryRun"],
       };

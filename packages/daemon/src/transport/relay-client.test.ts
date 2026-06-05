@@ -20,6 +20,18 @@ import {
 import { RelayServer } from "../../../relay/src/relay-server";
 import { RelayClient } from "./relay-client";
 
+// Bound the WebSocket open handshake so a frontend socket that never opens
+// (e.g. a relay frame delayed or dropped under a constrained CI runner) fails
+// fast instead of hanging the `bun test` worker until the 10-minute GitHub
+// Actions job timeout kills it.
+function waitOpen(ws: WebSocket): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    ws.onopen = () => resolve();
+    ws.onerror = () => reject(new Error("ws open failed"));
+    setTimeout(() => reject(new Error("ws open timeout")), 3000);
+  });
+}
+
 describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
   let relay: RelayServer;
   let relayPort: number;
@@ -91,9 +103,7 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
 
     // Connect a "frontend" WebSocket to the relay
     const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => {
-      frontendWs.onopen = () => r();
-    });
+    await waitOpen(frontendWs);
 
     // Auth frontend
     frontendWs.send(
@@ -203,9 +213,7 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
 
     // Connect and auth frontend
     const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => {
-      frontendWs.onopen = () => r();
-    });
+    await waitOpen(frontendWs);
     frontendWs.send(
       JSON.stringify({
         t: "relay.auth",
@@ -288,9 +296,7 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
 
     // Connect and auth frontend
     const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => {
-      frontendWs.onopen = () => r();
-    });
+    await waitOpen(frontendWs);
     frontendWs.send(
       JSON.stringify({
         t: "relay.auth",
@@ -384,9 +390,7 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
 
     // Connect and auth frontend
     const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => {
-      frontendWs.onopen = () => r();
-    });
+    await waitOpen(frontendWs);
     frontendWs.send(
       JSON.stringify({
         t: "relay.auth",
@@ -474,9 +478,7 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     await Bun.sleep(300);
 
     const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => {
-      frontendWs.onopen = () => r();
-    });
+    await waitOpen(frontendWs);
     frontendWs.send(
       JSON.stringify({
         t: "relay.auth",
@@ -562,9 +564,7 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     await Bun.sleep(300);
 
     const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => {
-      frontendWs.onopen = () => r();
-    });
+    await waitOpen(frontendWs);
     frontendWs.send(
       JSON.stringify({
         t: "relay.auth",
@@ -652,9 +652,7 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     await Bun.sleep(300);
 
     const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => {
-      frontendWs.onopen = () => r();
-    });
+    await waitOpen(frontendWs);
     frontendWs.send(
       JSON.stringify({
         t: "relay.auth",
@@ -739,9 +737,7 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
 
     // Frontend connects, auths, and performs key exchange
     const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => {
-      frontendWs.onopen = () => r();
-    });
+    await waitOpen(frontendWs);
     frontendWs.send(
       JSON.stringify({
         t: "relay.auth",
@@ -876,9 +872,7 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     await Bun.sleep(200);
 
     const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => {
-      frontendWs.onopen = () => r();
-    });
+    await waitOpen(frontendWs);
     frontendWs.send(
       JSON.stringify({
         t: "relay.auth",

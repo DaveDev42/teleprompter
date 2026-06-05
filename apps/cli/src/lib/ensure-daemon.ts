@@ -73,13 +73,15 @@ export async function isDaemonRunning(): Promise<boolean> {
 
 /**
  * Poll `isDaemonRunning` until it resolves true, for up to `timeoutMs` (default
- * 10s at 500ms intervals). Returns `true` on success, `false` on timeout.
+ * 10s at 500ms intervals). Checks immediately first (check-then-sleep) so that
+ * a daemon that starts in under 500ms doesn't pay the mandatory initial delay.
+ * Returns `true` on success, `false` on timeout.
  */
 async function waitForDaemonReady(timeoutMs = 10_000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 500));
     if (await isDaemonRunning()) return true;
+    await new Promise((r) => setTimeout(r, 500));
   }
   return false;
 }

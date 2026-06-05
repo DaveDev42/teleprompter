@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { decideRoute, shouldCheckForUpdates } from "./router";
+import { decideRoute, shouldCheckForUpdates, TP_SUBCOMMANDS } from "./router";
 
 describe("decideRoute", () => {
   test("bare `tp` (no args) routes to passthrough", () => {
@@ -61,6 +61,23 @@ describe("decideRoute", () => {
     expect(decideRoute("--model")).toEqual({ kind: "passthrough" });
     expect(decideRoute("--print")).toEqual({ kind: "passthrough" });
     expect(decideRoute("hello")).toEqual({ kind: "passthrough" });
+  });
+});
+
+describe("dispatchSubcommand exhaustiveness (idx 19)", () => {
+  // Verifies that every entry in TP_SUBCOMMANDS has a corresponding case in
+  // dispatchSubcommand (in index.ts). The static analysis (never-typed default)
+  // catches this at compile time; this test documents the list so regressions
+  // in the constant are visible in test output without needing a TS build.
+  test("every TP_SUBCOMMAND is reachable in index.ts switch", async () => {
+    const src = await Bun.file(
+      new URL("./index.ts", import.meta.url).pathname,
+    ).text();
+    for (const name of TP_SUBCOMMANDS) {
+      expect(src).toContain(`case "${name}"`);
+    }
+    // Exhaustiveness default must be present to catch future additions.
+    expect(src).toMatch(/const _exhaustive: never = name;/);
   });
 });
 

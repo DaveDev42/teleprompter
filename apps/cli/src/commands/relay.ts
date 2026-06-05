@@ -34,15 +34,45 @@ async function startRelay(argv: string[]): Promise<void> {
     strict: false,
   });
 
-  const port = parseInt(values.port as string, 10);
-  const relay = new RelayServer({
-    cacheSize: values["cache-size"]
-      ? parseInt(values["cache-size"] as string, 10)
-      : undefined,
-    maxFrameSize: values["max-frame-size"]
-      ? parseInt(values["max-frame-size"] as string, 10)
-      : undefined,
-  });
+  const parseFiniteInt = (raw: string): number => {
+    const n = parseInt(raw, 10);
+    if (!Number.isFinite(n)) throw new Error(`Invalid integer value: '${raw}'`);
+    return n;
+  };
+
+  let port: number;
+  try {
+    port = parseFiniteInt(values.port as string);
+  } catch {
+    console.error(`tp relay: invalid --port value: '${values.port as string}'`);
+    process.exit(1);
+  }
+
+  let cacheSize: number | undefined;
+  if (values["cache-size"]) {
+    try {
+      cacheSize = parseFiniteInt(values["cache-size"] as string);
+    } catch {
+      console.error(
+        `tp relay: invalid --cache-size value: '${values["cache-size"] as string}'`,
+      );
+      process.exit(1);
+    }
+  }
+
+  let maxFrameSize: number | undefined;
+  if (values["max-frame-size"]) {
+    try {
+      maxFrameSize = parseFiniteInt(values["max-frame-size"] as string);
+    } catch {
+      console.error(
+        `tp relay: invalid --max-frame-size value: '${values["max-frame-size"] as string}'`,
+      );
+      process.exit(1);
+    }
+  }
+
+  const relay = new RelayServer({ cacheSize, maxFrameSize });
   relay.start(port);
 
   console.log("[Relay] press Ctrl+C to stop");

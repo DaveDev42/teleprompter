@@ -1,6 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import { splitArgs } from "../args";
 
+describe("passthrough cleanup idempotency guard (idx 18)", () => {
+  // Verifies the cleanedUp flag is present so double-call of cleanup()
+  // (e.g., from SIGINT + normal exit path) is a no-op.
+  test("passthrough.ts wires a cleanedUp idempotency guard", async () => {
+    const src = await Bun.file(
+      new URL("./passthrough.ts", import.meta.url).pathname,
+    ).text();
+    expect(src).toMatch(/let cleanedUp = false;/);
+    expect(src).toMatch(/if \(cleanedUp\) return;/);
+    expect(src).toMatch(/cleanedUp = true;/);
+  });
+});
+
 describe("passthrough arg splitting", () => {
   test("passes all non-tp args to claude", () => {
     const { tpArgs, claudeArgs } = splitArgs([

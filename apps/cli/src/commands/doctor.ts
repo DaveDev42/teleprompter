@@ -65,7 +65,8 @@ export async function doctorCommand(
     issues++;
   }
 
-  // Claude CLI
+  // Claude CLI — result is reused below to gate `claude doctor` invocation
+  let claudeFound = false;
   try {
     const claudeResult = Bun.spawnSync(["claude", "--version"], {
       stdout: "pipe",
@@ -75,6 +76,7 @@ export async function doctorCommand(
     if (claudeResult.exitCode !== 0) throw new Error("claude exited non-zero");
     const claudeVersion = new TextDecoder().decode(claudeResult.stdout).trim();
     check("Claude CLI", claudeVersion, true);
+    claudeFound = true;
   } catch {
     check(
       "Claude CLI",
@@ -174,12 +176,7 @@ export async function doctorCommand(
   // --- Claude doctor ---
 
   console.log("\n--- Claude Code Doctor ---\n");
-  const claudeCheck = Bun.spawnSync(["claude", "--version"], {
-    stdout: "pipe",
-    stderr: "pipe",
-    env: spawnEnv,
-  });
-  if (claudeCheck.exitCode === 0) {
+  if (claudeFound) {
     const proc = Bun.spawn(["claude", "doctor"], {
       stdin: "inherit",
       stdout: "inherit",

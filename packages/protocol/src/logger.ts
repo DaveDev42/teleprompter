@@ -27,7 +27,17 @@ function getLevel(): number {
 let currentLevel = getLevel();
 
 export function setLogLevel(level: LogLevel): void {
-  currentLevel = LEVELS[level];
+  const next = LEVELS[level];
+  // Guard against unknown level strings (e.g. from JS callers or bad env var
+  // values). Without this, an unrecognised level makes currentLevel = undefined,
+  // and every `currentLevel <= LEVELS.x` comparison becomes `undefined <= n`
+  // → false, silently disabling ALL log output. Fall back to `info` (consistent
+  // with levelFromEnv above) instead of crashing or killing output.
+  if (next === undefined) {
+    currentLevel = LEVELS.info;
+    return;
+  }
+  currentLevel = next;
 }
 
 export function createLogger(prefix: string) {

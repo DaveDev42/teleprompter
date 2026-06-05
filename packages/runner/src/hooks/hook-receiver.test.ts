@@ -162,4 +162,49 @@ describe("HookReceiver", () => {
     expect(() => receiver.stop()).not.toThrow();
     // afterEach will call stop() a third time — also must not throw.
   });
+
+  test("oversized non-JSON payload resets buffer and does not emit an event", async () => {
+    // Send more than MAX_HOOK_BUF_BYTES (1 MB) of non-JSON garbage.
+    // The receiver must drop the oversized partial and NOT emit any event.
+    // It must also NOT grow memory unboundedly (the buffer is reset on overflow).
+    const garbage = "x".repeat(1 * 1024 * 1024 + 1); // 1 MB + 1 byte
+
+    await Bun.connect({
+      unix: socketPath,
+      socket: {
+        open(socket) {
+          socket.write(garbage);
+          socket.end();
+        },
+        data() {},
+        error() {},
+      },
+    });
+
+    await Bun.sleep(150);
+    // No events must have been emitted.
+    expect(receivedEvents.length).toBe(0);
+
+    // After the overflow, a well-formed event on a new connection must still work.
+    const goodEvent = {
+      session_id: "after-overflow",
+      hook_event_name: "Stop",
+      cwd: tmpdir(),
+    };
+    await Bun.connect({
+      unix: socketPath,
+      socket: {
+        open(socket) {
+          socket.write(JSON.stringify(goodEvent));
+          socket.end();
+        },
+        data() {},
+        error() {},
+      },
+    });
+
+    await Bun.sleep(100);
+    expect(receivedEvents.length).toBe(1);
+    expect(receivedEvents[0]!.hook_event_name).toBe("Stop");
+  });
 });

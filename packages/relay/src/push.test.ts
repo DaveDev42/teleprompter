@@ -247,49 +247,54 @@ describe("PushService", () => {
     });
   });
 
-  describe("idx 56 — rateLimits map eviction", () => {
-    test("stale rate-limit entry with count=0 is evicted by cleanupDedup", async () => {
-      // Use a very short rate-limit window (30ms) and dedup window (30ms) so
-      // cleanupDedup can evict during the test without real-time waits.
+  describe("idx 56 — rateLimits map eviction (leak-free)", () => {
+    test("a silent frontend that hit the limit is evicted once its window expires", async () => {
       const { fn } = makeFetchFn();
       service = new PushService({
-        rateLimitPerMinute: 5,
+        rateLimitPerMinute: 2,
         rateLimitWindowMs: 30,
-        dedupWindowMs: 30,
+        dedupWindowMs: 5,
         fetchFn: fn,
       });
 
-      // Trigger a push so a rateLimits entry is created.
-      const r1 = await service.sendOrDeliver(
-        makeRequest({ data: { sid: "s1", daemonId: "d1", event: "e-evict" } }),
+      // Push until the frontend hits the rate limit (count >= max). The entry
+      // is now in rateLimits with count=2 (>0) and is NOT reset, because the
+      // frontend goes silent — sendOrDeliver (the only place count resets to 0)
+      // is never called again for it.
+      await service.sendOrDeliver(
+        makeRequest({ data: { sid: "s1", daemonId: "d1", event: "a" } }),
       );
-      expect(r1).toBe("push");
-
-      // The entry now exists in rateLimits with count=1.
-      // Wait for the rate-limit window + dedup window to expire, then trigger
-      // another push so the count resets to 0 in-place (the expired window
-      // reset path in sendOrDeliver sets count=0, windowStart=now before the
-      // check runs). After the reset the cleanupDedup interval should evict it.
-      await Bun.sleep(50);
-
-      // This call hits the expired-window reset path → count becomes 0 after
-      // the reset, then immediately becomes 1 again for the new window.
-      // We can't directly inspect the private rateLimits map, so we verify
-      // that the overall behaviour is correct: the push still goes through
-      // (the count was reset, not stuck at the old window's value).
-      const r2 = await service.sendOrDeliver(
-        makeRequest({ data: { sid: "s1", daemonId: "d1", event: "e-evict2" } }),
+      await service.sendOrDeliver(
+        makeRequest({ data: { sid: "s1", daemonId: "d1", event: "b" } }),
       );
-      expect(r2).toBe("push");
+      const limited = await service.sendOrDeliver(
+        makeRequest({ data: { sid: "s1", daemonId: "d1", event: "c" } }),
+      );
+      expect(limited).toBe("rate_limited");
+      expect(service.rateLimitEntryCount()).toBe(1);
 
-      // cleanupDedup is driven by a 30s setInterval; we can't call it directly
-      // in the test (it's private). Instead, assert that the service still
-      // functions correctly after repeated evict-eligible cycles — if the map
-      // grew unboundedly it would cause a memory issue but not a correctness
-      // failure within a single test run. The structural fix (idx 56) is in
-      // the production cleanupDedup code; correctness is confirmed by the
-      // push-still-works assertions above.
-      expect(r2).toBe("push");
+      // Frontend goes silent. Old behavior (`&& rl.count === 0`) never evicted
+      // this entry because count stayed at 2 forever. After the window expires,
+      // cleanupDedup must evict it regardless of count.
+      await Bun.sleep(40);
+      service.runCleanup();
+      expect(service.rateLimitEntryCount()).toBe(0);
+    });
+
+    test("an entry whose window has NOT expired is retained", async () => {
+      const { fn } = makeFetchFn();
+      service = new PushService({
+        rateLimitPerMinute: 5,
+        rateLimitWindowMs: 60_000,
+        fetchFn: fn,
+      });
+      await service.sendOrDeliver(
+        makeRequest({ data: { sid: "s1", daemonId: "d1", event: "x" } }),
+      );
+      expect(service.rateLimitEntryCount()).toBe(1);
+      service.runCleanup();
+      // Window is 60s — still live, so the entry must survive.
+      expect(service.rateLimitEntryCount()).toBe(1);
     });
   });
 

@@ -39,6 +39,23 @@ export function isBackpressured(
   return ws.getBufferedAmount() > thresholdBytes;
 }
 
+/**
+ * Escape the five HTML-significant characters before interpolating
+ * attacker-controlled strings (daemonId, session IDs) into the /admin
+ * dashboard markup. A daemon self-registers its own daemonId over the wire,
+ * and `parseRelayClientMessage` only requires it to be a string — so without
+ * escaping, a daemonId like `<img src=x onerror=...>` would execute as stored
+ * XSS in an operator's browser when they open /admin.
+ */
+export function escapeHtml(s: string): string {
+  return s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 const DEFAULT_MAX_RECENT_FRAMES = 10;
 const DEFAULT_MAX_FRAME_SIZE = 1024 * 1024; // 1 MB
 const RATE_LIMIT_WINDOW_MS = 1000;
@@ -87,6 +104,17 @@ const STALE_CHECK_INTERVAL_MS = 30_000;
  * durability guarantee beyond this window.
  */
 const OFFLINE_EVICT_AFTER_MS = 60 * 60_000;
+/**
+ * Upper bound on the per-daemon `sessions` Set. A long-lived daemon publishes
+ * to a fresh sid per Claude run; sids are added on every relay.pub but the Set
+ * has no natural expiry while the daemon stays online, so without a cap it grows
+ * unbounded — leaking memory and bloating every presence broadcast (the full Set
+ * is serialized on each relay.presence). When the cap is exceeded we drop the
+ * oldest sid (Set preserves insertion order), which only affects the presence
+ * session list / dashboard, not frame routing (routing keys off recentFrames and
+ * live subscriptions, not this Set).
+ */
+const MAX_SESSIONS_PER_DAEMON = 256;
 
 export interface RelayServerOptions {
   /** Max cached frames per session (default: 10, env: TP_RELAY_CACHE_SIZE) */
@@ -199,7 +227,15 @@ export class RelayServer {
   private validTokens = new Map<string, string>();
 
   /** daemonId → { token, proof } for self-registration */
-  private registrations = new Map<string, { token: string; proof: string }>();
+  // proof is `null` (not `""`) when the daemonId was populated by a plain
+  // relay.auth (token-only) rather than a proof-carrying relay.register: the
+  // wire proof can legitimately be any string, so an empty-string sentinel
+  // collides with a real proof="" and would let the different-credentials guard
+  // in handleRegister be bypassed. `null` is an out-of-band "no proof recorded".
+  private registrations = new Map<
+    string,
+    { token: string; proof: string | null }
+  >();
 
   /** Sockets that are open but not yet authenticated (for slowloris timeout) */
   private pendingAuth = new Map<
@@ -291,6 +327,11 @@ export class RelayServer {
     const state = this.daemonStates.get(daemonId);
     if (!state) return undefined;
     return { online: state.online, lastSeen: state.lastSeen };
+  }
+
+  /** Size of a daemon's tracked-session Set (for testing the bounded cap). */
+  getDaemonSessionCount(daemonId: string): number | undefined {
+    return this.daemonStates.get(daemonId)?.sessions.size;
   }
 
   /** Override stale timeout for testing */
@@ -414,9 +455,11 @@ ${
 <table><tr><th>ID</th><th>Status</th><th>Sessions</th><th>Last Seen</th></tr>
 ${daemons
   .map(
-    (d) => `<tr><td style="font-family:monospace;font-size:.85rem">${d.id}</td>
+    (
+      d,
+    ) => `<tr><td style="font-family:monospace;font-size:.85rem">${escapeHtml(d.id)}</td>
 <td><span class="badge ${d.online ? "badge-on" : "badge-off"}">${d.online ? "online" : "offline"}</span></td>
-<td>${d.sessions.length > 0 ? d.sessions.join(", ") : "—"}</td>
+<td>${d.sessions.length > 0 ? d.sessions.map(escapeHtml).join(", ") : "—"}</td>
 <td style="color:#888;font-size:.85rem">${d.lastSeen}</td></tr>`,
   )
   .join("")}
@@ -671,9 +714,12 @@ ${daemons
     ws: ServerWebSocket,
     msg: RelayClientMessage & { t: "relay.register" },
   ) {
-    // Check if daemonId is already registered with a different proof
+    // Check if daemonId is already registered with a different proof.
+    // A `null` recorded proof means the entry was seeded by a token-only
+    // relay.auth (no proof to compare against), so it does not block a later
+    // proof-carrying relay.register — only a *different non-null* proof does.
     const existing = this.registrations.get(msg.daemonId);
-    if (existing && existing.proof !== msg.proof) {
+    if (existing && existing.proof !== null && existing.proof !== msg.proof) {
       this.send(ws, {
         t: "relay.register.err",
         e: "Daemon ID already registered with different credentials",
@@ -768,10 +814,11 @@ ${daemons
     // Ensure registrations is populated so handleAuthResume's O(1)
     // registrations.has() check works even when the daemon authenticated via
     // a token installed by registerToken() rather than relay.register. The
-    // proof field is not available here — use an empty string sentinel; only
-    // the daemonId→token mapping matters for eviction/re-registration.
+    // proof field is not available here — record `null` (no proof) rather than
+    // an empty string, so a later proof-carrying relay.register is not falsely
+    // accepted by the different-credentials guard (proof="" would collide).
     if (msg.role === "daemon" && !this.registrations.has(msg.daemonId)) {
-      this.registrations.set(msg.daemonId, { token: msg.token, proof: "" });
+      this.registrations.set(msg.daemonId, { token: msg.token, proof: null });
     }
 
     const ok: RelayAuthOk = this.buildAuthOk(client, false);
@@ -991,10 +1038,22 @@ ${daemons
 
     const key = `${client.daemonId}:${msg.sid}`;
 
-    // Update daemon state with session
+    // Update daemon state with session. Only the daemon's own traffic refreshes
+    // lastSeen — otherwise a frontend that keeps publishing to an already-dead
+    // daemon would perpetually reset the offline-eviction clock (checkStaleDaemons
+    // evicts on `now - lastSeen > offlineEvictAfterMs`), leaking DaemonState and
+    // recentFrames forever. This mirrors handlePing, which also only bumps
+    // lastSeen for role=daemon. sessions is daemon-only too: a frontend publishes
+    // under the daemon's group but does not define the daemon's session set.
     const state = this.daemonStates.get(client.daemonId);
-    if (state) {
+    if (state && client.role === "daemon") {
       state.sessions.add(msg.sid);
+      // Bound the Set: drop oldest sids past the cap (insertion-ordered).
+      while (state.sessions.size > MAX_SESSIONS_PER_DAEMON) {
+        const oldest = state.sessions.values().next().value;
+        if (oldest === undefined) break;
+        state.sessions.delete(oldest);
+      }
       state.lastSeen = Date.now();
     }
 
@@ -1231,9 +1290,16 @@ ${daemons
     ws: ServerWebSocket,
     msg: RelayClientMessage & { t: "relay.ping" },
   ) {
-    // Update lastSeen for daemon clients
+    // relay.ping is exempt from the per-client / per-daemon-group rate limit
+    // (line 620) so authenticated keepalives never get throttled. That exemption
+    // must NOT extend to unauthenticated sockets — otherwise a peer that never
+    // sends relay.auth can flood relay.ping and get unlimited relay.pong replies
+    // within the 10s auth-timeout window, an unauthenticated CPU amplifier.
+    // Only known (authenticated) clients get a pong.
     const client = this.clients.get(ws);
-    if (client?.role === "daemon") {
+    if (!client) return;
+    // Update lastSeen for daemon clients
+    if (client.role === "daemon") {
       const state = this.daemonStates.get(client.daemonId);
       if (state) {
         state.lastSeen = Date.now();

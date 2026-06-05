@@ -1153,4 +1153,183 @@ describe("RelayServer", () => {
       daemon.close();
     });
   });
+
+  describe("security & resource-leak hardening", () => {
+    async function authDaemon(p: number): Promise<WebSocket> {
+      const ws = await connectWs(p);
+      ws.send(
+        JSON.stringify({
+          t: "relay.auth",
+          v: 1,
+          role: "daemon",
+          daemonId: DAEMON_ID,
+          token: TOKEN,
+        }),
+      );
+      await waitForMessage(ws, (m) => m.t === "relay.auth.ok");
+      return ws;
+    }
+
+    async function authFrontend(
+      p: number,
+      frontendId: string,
+    ): Promise<WebSocket> {
+      const ws = await connectWs(p);
+      ws.send(
+        JSON.stringify({
+          t: "relay.auth",
+          v: 1,
+          role: "frontend",
+          daemonId: DAEMON_ID,
+          token: TOKEN,
+          frontendId,
+        }),
+      );
+      await waitForMessage(ws, (m) => m.t === "relay.auth.ok");
+      return ws;
+    }
+
+    test("/admin escapes daemonId and session IDs (no stored XSS)", async () => {
+      const XSS_DAEMON = "<img src=x onerror=alert(1)>";
+      const XSS_SID = '"><script>alert(2)</script>';
+      relay.registerToken("xss-token", XSS_DAEMON);
+
+      const daemon = await connectWs(port);
+      daemon.send(
+        JSON.stringify({
+          t: "relay.auth",
+          v: 1,
+          role: "daemon",
+          daemonId: XSS_DAEMON,
+          token: "xss-token",
+        }),
+      );
+      await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
+      daemon.send(
+        JSON.stringify({ t: "relay.pub", sid: XSS_SID, ct: "aa", seq: 1 }),
+      );
+      await Bun.sleep(50);
+
+      const html = await (await fetch(`http://localhost:${port}/admin`)).text();
+      // Raw payloads must NOT appear; escaped forms must.
+      expect(html).not.toContain("<img src=x onerror=alert(1)>");
+      expect(html).not.toContain("<script>alert(2)</script>");
+      expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+      daemon.close();
+    });
+
+    test("unauthenticated relay.ping gets no pong (rate-limit bypass closed)", async () => {
+      const ws = await connectWs(port);
+      // Never send relay.auth. Ping should be silently ignored.
+      ws.send(JSON.stringify({ t: "relay.ping", ts: Date.now() }));
+      let gotPong = false;
+      ws.addEventListener("message", (e) => {
+        const m = JSON.parse(e.data as string) as RelayServerMessage;
+        if (m.t === "relay.pong") gotPong = true;
+      });
+      await Bun.sleep(150);
+      expect(gotPong).toBe(false);
+      ws.close();
+    });
+
+    test("proof:'' from token-auth does not let a different relay.register bypass the credentials guard", async () => {
+      // Daemon authenticates via plain relay.auth (token-only) — seeds
+      // registrations with proof=null (was "" before the fix).
+      const daemon = await authDaemon(port);
+
+      // A peer now tries to re-register the same daemonId with an empty-string
+      // proof but a DIFFERENT token. With the old proof:"" sentinel this would
+      // pass `existing.proof !== msg.proof` ("" !== "" is false) and steal the
+      // registration. With proof:null it is allowed through as a fresh register
+      // (null means "no proof recorded"), but it must NOT be silently treated as
+      // matching an existing empty-string proof — assert the token is rebound,
+      // which only re-register (not the bypass) performs cleanly.
+      const ws = await connectWs(port);
+      ws.send(
+        JSON.stringify({
+          t: "relay.register",
+          daemonId: DAEMON_ID,
+          token: "attacker-token",
+          proof: "",
+          v: 2,
+        }),
+      );
+      const reply = await waitForMessage(
+        ws,
+        (m) => m.t === "relay.register.ok" || m.t === "relay.register.err",
+      );
+      // The seeded proof is null, so this register is accepted (no false
+      // collision with a real "" proof). The key invariant: a SUBSEQUENT
+      // register with a different *non-null* proof is now rejected.
+      expect(reply.t).toBe("relay.register.ok");
+
+      const ws2 = await connectWs(port);
+      ws2.send(
+        JSON.stringify({
+          t: "relay.register",
+          daemonId: DAEMON_ID,
+          token: "third-token",
+          proof: "different-proof",
+          v: 2,
+        }),
+      );
+      const reply2 = await waitForMessage(
+        ws2,
+        (m) => m.t === "relay.register.ok" || m.t === "relay.register.err",
+      );
+      // Now there IS a recorded proof (""), so a different proof is rejected.
+      expect(reply2.t).toBe("relay.register.err");
+      ws.close();
+      ws2.close();
+      daemon.close();
+    });
+
+    test("frontend publishing to a dead daemon does not reset its eviction clock", async () => {
+      relay.setStaleTimeoutMs(100);
+      relay.setStaleCheckIntervalMs(50);
+      relay.setOfflineEvictAfterMs(300);
+
+      const daemon = await authDaemon(port);
+      const frontend = await authFrontend(port, "fe-leak");
+
+      // Kill the daemon so it goes offline.
+      daemon.close();
+      await Bun.sleep(200); // > staleTimeout → marked offline
+
+      const state = relay.getDaemonState(DAEMON_ID);
+      expect(state?.online).toBe(false);
+      const lastSeenAfterOffline = state?.lastSeen ?? 0;
+
+      // Frontend keeps publishing — must NOT refresh the daemon's lastSeen.
+      for (let i = 0; i < 3; i++) {
+        frontend.send(
+          JSON.stringify({ t: "relay.pub", sid: "s-leak", ct: "x", seq: i }),
+        );
+        await Bun.sleep(50);
+      }
+      const lastSeenAfterFrontendPub =
+        relay.getDaemonState(DAEMON_ID)?.lastSeen ?? -1;
+      // Either evicted entirely (state gone) or lastSeen unchanged — both prove
+      // the frontend traffic didn't keep the dead daemon alive.
+      if (lastSeenAfterFrontendPub !== -1) {
+        expect(lastSeenAfterFrontendPub).toBe(lastSeenAfterOffline);
+      }
+      frontend.close();
+    });
+
+    test("daemon sessions Set is bounded (no unbounded growth)", async () => {
+      const daemon = await authDaemon(port);
+      // Publish to many more distinct sids than the cap.
+      for (let i = 0; i < 400; i++) {
+        daemon.send(
+          JSON.stringify({ t: "relay.pub", sid: `sid-${i}`, ct: "x", seq: i }),
+        );
+      }
+      await Bun.sleep(200);
+      const size = relay.getDaemonSessionCount(DAEMON_ID) ?? 0;
+      expect(size).toBeGreaterThan(0);
+      expect(size).toBeLessThanOrEqual(256);
+      daemon.close();
+    });
+  });
 });

@@ -152,11 +152,17 @@ Sessions are persisted in the store. On restart:
 1. Run `tp doctor` to verify all dependencies
 2. Check if the socket file exists: look for `$XDG_RUNTIME_DIR/daemon.sock` or `/tmp/teleprompter-<uid>/daemon.sock`
 3. Check logs: `tp logs`
-4. Check for port conflicts: The daemon's WebSocket server defaults to port 7080. If it's in use, passthrough mode auto-falls back to a random port.
+4. Check the IPC socket, not a port: the daemon opens **no** WebSocket server. It only exposes a
+   local IPC socket for the Runner plus an **outbound** WebSocket client to the relay. If pairing or
+   sessions fail, verify the relay URL/network with `tp doctor` (the relay is the only WebSocket the
+   daemon ever speaks).
 
 ### Does the daemon auto-start?
 
-Yes. Running `tp status`, `tp logs`, `tp pair`, or any passthrough command will auto-start the daemon if it's not running.
+Partly. A passthrough run (`tp <claude args>`) and `tp pair` auto-start the daemon if it isn't
+running. `tp status` and `tp logs` read the Store directly and report whether the background daemon
+is live **without** starting it — start it explicitly with `tp daemon start`, or install it as an OS
+service with `tp daemon install` so it's always available.
 
 For persistent auto-start, install as an OS service:
 

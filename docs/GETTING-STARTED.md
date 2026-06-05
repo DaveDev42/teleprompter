@@ -72,8 +72,8 @@ See what's running:
 tp status
 ```
 
-This shows the daemon status, active sessions, and connection info. If the daemon isn't
-running, `tp status` will auto-start it.
+This shows the daemon status, active sessions, and connection info. If the daemon isn’t
+running, start it with `tp daemon start` or install it as an OS service with `tp daemon install`.
 
 ## Step 3: Connect Your Phone
 

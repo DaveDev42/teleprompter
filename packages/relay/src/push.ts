@@ -131,8 +131,14 @@ export class PushService {
         log.warn(
           `Expo Push API returned ${response.status} for frontendId ${frontendId}`,
         );
+        // Drain the body so the underlying TCP connection returns to the fetch
+        // keep-alive pool instead of being held open until GC.
+        await response.body?.cancel();
         return "error";
       }
+
+      // Drain the success body for the same reason (we don't use the receipt).
+      await response.body?.cancel();
 
       // Step 5: Record dedup + increment rate counter only after successful push
       if (data) {
@@ -161,13 +167,15 @@ export class PushService {
    *
    * dedupSeen entries are evicted when the dedup window has passed.
    *
-   * rateLimits entries are evicted when the rate-limit window has expired AND
-   * the count has already reset to 0 (i.e. no pushes recorded in the new
-   * window), meaning the entry is effectively dead weight. Evicting only when
-   * count==0 is safe because a non-zero entry in an expired window is reset
-   * in-place by sendOrDeliver before it is read — the cleanup run just removes
-   * the tombstone. This prevents the map from growing monotonically for every
-   * distinct daemonId:frontendId pair seen since startup.
+   * rateLimits entries are evicted whenever the rate-limit window has expired,
+   * regardless of count. An expired window carries no live budget — the next
+   * push from that frontend simply re-creates the entry with a fresh window in
+   * sendOrDeliver. Evicting only when count==0 (the old behavior) leaked: a
+   * frontend that hit the limit (count>=max) and then went silent kept its
+   * entry forever, because count is reset to 0 only inside sendOrDeliver, which
+   * never runs again for a silent frontend. Window-expiry is the correct
+   * liveness signal and prevents the map growing for every distinct
+   * daemonId:frontendId pair that ever exceeded the limit.
    */
   private cleanupDedup(): void {
     const now = Date.now();
@@ -177,10 +185,20 @@ export class PushService {
       }
     }
     for (const [key, rl] of this.rateLimits) {
-      if (now - rl.windowStart >= this.rateLimitWindowMs && rl.count === 0) {
+      if (now - rl.windowStart >= this.rateLimitWindowMs) {
         this.rateLimits.delete(key);
       }
     }
+  }
+
+  /** Number of live rate-limit entries (for testing leak-free eviction). */
+  rateLimitEntryCount(): number {
+    return this.rateLimits.size;
+  }
+
+  /** Run the dedup/rate-limit cleanup pass synchronously (for testing). */
+  runCleanup(): void {
+    this.cleanupDedup();
   }
 
   /** Stop the background cleanup interval */

@@ -41,10 +41,13 @@ describe("tp relay NaN guard (idx 17)", () => {
 });
 
 describe("tp relay (integration)", () => {
-  test("relay server starts and accepts connections", async () => {
+  test("relay server starts and accepts connections (ping after auth)", async () => {
     const relay = new RelayServer();
     const port = relay.start(0);
     expect(port).toBeGreaterThan(0);
+    const secret = await generatePairingSecret();
+    const token = await deriveRelayToken(secret);
+    relay.registerToken(token, "test-daemon");
 
     // Connect a WebSocket
     const ws = new WebSocket(`ws://localhost:${port}`);
@@ -55,7 +58,25 @@ describe("tp relay (integration)", () => {
         setTimeout(() => reject(new Error("timeout")), 3000);
       });
 
-      // Send ping (works without auth)
+      // Authenticate first — relay.ping is honored only for authenticated
+      // sockets (an unauthenticated ping gets no pong, to deny a pre-auth
+      // CPU amplifier inside the auth-timeout window).
+      ws.send(
+        JSON.stringify({
+          t: "relay.auth",
+          v: 1,
+          role: "daemon",
+          daemonId: "test-daemon",
+          token,
+        }),
+      );
+      const authReply = await new Promise<unknown>((resolve, reject) => {
+        ws.onmessage = (e) => resolve(JSON.parse(e.data as string));
+        setTimeout(() => reject(new Error("timeout")), 3000);
+      });
+      expect((authReply as { t: string }).t).toBe("relay.auth.ok");
+
+      // Now ping is answered.
       ws.send(JSON.stringify({ t: "relay.ping" }));
       const pong = await new Promise<unknown>((resolve, reject) => {
         ws.onmessage = (e) => resolve(JSON.parse(e.data as string));

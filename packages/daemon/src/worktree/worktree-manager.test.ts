@@ -213,6 +213,71 @@ describe("WorktreeManager", () => {
     } catch {}
   });
 
+  test("detached-HEAD worktree has branch=null and correct head", async () => {
+    // Create a worktree, then detach its HEAD so `git worktree list --porcelain`
+    // emits `detached` instead of `branch refs/heads/...`.
+    const wtPath = `${repoDir}-wt-detached`;
+    await manager.add(wtPath, "detached-branch");
+
+    // Detach the HEAD in the worktree by checking out the commit SHA directly.
+    const { spawnSync } = require("child_process");
+    const headResult = spawnSync(
+      "git",
+      ["rev-parse", "HEAD"],
+      { cwd: wtPath, encoding: "utf-8" },
+    );
+    const sha = headResult.stdout.trim();
+    spawnSync("git", ["checkout", "--detach", sha], {
+      cwd: wtPath,
+      stdio: "ignore",
+    });
+
+    const worktrees = await manager.list();
+    const detached = worktrees.find((w) => w.path === wtPath);
+    expect(detached).toBeDefined();
+    expect(detached!.branch).toBeNull();
+    expect(typeof detached!.head).toBe("string");
+    expect(detached!.head.length).toBeGreaterThan(0);
+
+    // Cleanup — must force because the worktree is in use
+    await manager.remove(wtPath, true);
+  });
+
+  test("parser emits worktreeInfo for all entries even when one has null branch", async () => {
+    // Regression: previously a detached-HEAD entry left `branch` undefined on
+    // the `as WorktreeInfo` cast, causing `isWorktreeInfoArray` to silently
+    // drop the entire worktree list on the frontend.
+    const wt1Path = `${repoDir}-wt-normal`;
+    const wt2Path = `${repoDir}-wt-detach2`;
+    await manager.add(wt1Path, "normal-branch");
+    await manager.add(wt2Path, "detach2-branch");
+
+    // Detach the second worktree's HEAD.
+    const { spawnSync } = require("child_process");
+    const headResult = spawnSync(
+      "git",
+      ["rev-parse", "HEAD"],
+      { cwd: wt2Path, encoding: "utf-8" },
+    );
+    const sha = headResult.stdout.trim();
+    spawnSync("git", ["checkout", "--detach", sha], {
+      cwd: wt2Path,
+      stdio: "ignore",
+    });
+
+    const worktrees = await manager.list();
+    // All three (main + normal + detached) must appear.
+    expect(worktrees.length).toBe(3);
+
+    const normal = worktrees.find((w) => w.path === wt1Path);
+    const detached = worktrees.find((w) => w.path === wt2Path);
+    expect(normal?.branch).toBe("normal-branch");
+    expect(detached?.branch).toBeNull();
+
+    await manager.remove(wt1Path, true);
+    await manager.remove(wt2Path, true);
+  });
+
   test("validateBranchName note: git accepts shell metacharacters — primary fix is no-shell gitOutput", async () => {
     // Defense-in-depth note: git check-ref-format considers single quotes,
     // backticks, $(), and semicolons to be VALID branch name characters. This

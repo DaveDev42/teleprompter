@@ -85,7 +85,11 @@ function validatePathPermissions(path: string): void {
 
 export interface WorktreeInfo {
   path: string;
-  branch: string;
+  /**
+   * The checked-out branch name, or `null` for detached-HEAD and bare
+   * worktrees where no branch is active.
+   */
+  branch: string | null;
   head: string;
   /** Whether this is the main worktree */
   isMain: boolean;
@@ -110,34 +114,60 @@ export class WorktreeManager {
 
     if (!result.trim()) return [];
 
+    /**
+     * Partial accumulator. `branch` defaults to `null` so detached-HEAD and
+     * bare worktrees produce a typed `null` rather than leaving the field
+     * `undefined` (which would break the `as WorktreeInfo` cast and silently
+     * drop them from the protocol guard).
+     */
+    interface PartialWorktree {
+      path: string;
+      branch: string | null;
+      head: string;
+      isMain: boolean;
+    }
+
+    function isComplete(w: Partial<PartialWorktree>): w is PartialWorktree {
+      return (
+        typeof w.path === "string" &&
+        typeof w.head === "string" &&
+        w.branch !== undefined &&
+        typeof w.isMain === "boolean"
+      );
+    }
+
     const worktrees: WorktreeInfo[] = [];
-    let current: Partial<WorktreeInfo> = {};
+    let current: Partial<PartialWorktree> = {};
 
     for (const line of result.split("\n")) {
       if (line.startsWith("worktree ")) {
-        if (current.path) {
-          worktrees.push(current as WorktreeInfo);
+        if (isComplete(current)) {
+          worktrees.push(current);
         }
-        current = { path: line.slice(9), isMain: false };
+        current = { path: line.slice(9), isMain: false, branch: null };
       } else if (line.startsWith("HEAD ")) {
         current.head = line.slice(5);
       } else if (line.startsWith("branch ")) {
         // refs/heads/main → main
         const ref = line.slice(7);
         current.branch = ref.startsWith("refs/heads/") ? ref.slice(11) : ref;
+      } else if (line === "detached") {
+        // Detached-HEAD worktree: no branch is active. `branch` stays null.
+        // `head` was already set by the `HEAD` line above.
       } else if (line === "bare") {
+        // Bare worktree (main worktree of a bare repo). No branch is active.
         current.isMain = true;
       } else if (line === "") {
-        if (current.path) {
-          worktrees.push(current as WorktreeInfo);
+        if (isComplete(current)) {
+          worktrees.push(current);
           current = {};
         }
       }
     }
 
     // Push the last worktree (output may not end with a blank line)
-    if (current.path) {
-      worktrees.push(current as WorktreeInfo);
+    if (isComplete(current)) {
+      worktrees.push(current);
     }
 
     // Mark the first as main

@@ -48,7 +48,12 @@ export class Daemon {
   private pairingOrchestrator: PairingOrchestrator;
   private pendingPairingOwner: ConnectedRunner | null = null;
   private dispatcher: IpcCommandDispatcher;
-  private socketPath: string = "";
+  /**
+   * Socket path after `start()` is called. `null` means the IPC server has
+   * not yet been started (use a typed union instead of `""` so the type
+   * system enforces the "not configured" state rather than a falsy sentinel).
+   */
+  private socketPath: string | null = null;
   /**
    * Local record observer for passthrough CLI (pipes PTY io to process.stdout).
    * Only one observer is supported; assigning a second overwrites the first.
@@ -380,7 +385,10 @@ export class Daemon {
   createSession(sid: string, cwd: string, opts?: SpawnRunnerOptions): void {
     this.sessionManager.spawnRunner(sid, cwd, {
       ...opts,
-      socketPath: this.socketPath,
+      // Pass the socket path only after `start()` has set it. A `null`
+      // socketPath (pre-start) maps to `undefined` so `spawnRunner`'s
+      // optional-guard picks up the default path, matching prior behavior.
+      socketPath: this.socketPath ?? undefined,
     });
   }
 

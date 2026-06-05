@@ -141,18 +141,26 @@ export class SessionManager {
     // OOM-kill, kill -9), which previously left the session row stuck at
     // "running" and the in-memory registration leaked for the daemon's
     // lifetime. On ANY exit we unregister and notify the owner to reconcile.
-    proc.exited.then((exitCode) => {
-      log.info(`runner exited sid=${sid} exitCode=${exitCode}`);
-      // Guard against a restart race: session.restart kills the old process
-      // and spawns a new one for the same sid. If the new Runner has already
-      // re-registered (its `process` differs from the one that just exited),
-      // this exit belongs to the old generation — do not tear down the live
-      // session.
-      const current = this.runners.get(sid);
-      if (current && current.process !== proc) return;
-      this.runners.delete(sid);
-      this.onRunnerExit?.(sid, exitCode ?? 0);
-    });
+    proc.exited
+      .then((exitCode) => {
+        log.info(`runner exited sid=${sid} exitCode=${exitCode}`);
+        // Guard against a restart race: session.restart kills the old process
+        // and spawns a new one for the same sid. If the new Runner has already
+        // re-registered (its `process` differs from the one that just exited),
+        // this exit belongs to the old generation — do not tear down the live
+        // session.
+        const current = this.runners.get(sid);
+        if (current && current.process !== proc) return;
+        this.runners.delete(sid);
+        this.onRunnerExit?.(sid, exitCode ?? 0);
+      })
+      .catch((err) => {
+        // onRunnerExit or the cleanup itself can throw (e.g. store closed
+        // during daemon.stop()). Log and continue — the session row may be
+        // left at "running" but the process is dead, which is recoverable
+        // on the next daemon start via the stale-session reconcile.
+        log.error(`unhandled error in runner exit handler sid=${sid}:`, err);
+      });
 
     return proc;
   }

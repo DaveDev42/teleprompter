@@ -24,11 +24,18 @@ describe("daemon.ts imports", () => {
 describe("setupWatchHandlers — idempotency (H6 regression)", () => {
   // Capture pre-test listener lists so we can restore them exactly.
   const savedListeners: Record<string, ((...args: unknown[]) => void)[]> = {};
-  const events = ["uncaughtException", "SIGINT", "SIGTERM", "unhandledRejection"] as const;
+  const events = [
+    "uncaughtException",
+    "SIGINT",
+    "SIGTERM",
+    "unhandledRejection",
+  ] as const;
 
   beforeEach(() => {
     for (const evt of events) {
-      savedListeners[evt] = process.listeners(evt) as ((...args: unknown[]) => void)[];
+      savedListeners[evt] = process.listeners(evt) as ((
+        ...args: unknown[]
+      ) => void)[];
     }
   });
 
@@ -54,7 +61,9 @@ describe("setupWatchHandlers — idempotency (H6 regression)", () => {
       handlersRegistered: false,
     };
     const argv = ["start", "--watch"];
-    const restartFn = () => { /* no-op for this test */ };
+    const restartFn = () => {
+      /* no-op for this test */
+    };
 
     // Simulate 5 daemon restarts — each restart calls setupWatchHandlers().
     const N = 5;
@@ -63,10 +72,14 @@ describe("setupWatchHandlers — idempotency (H6 regression)", () => {
     }
 
     // Each event should have gained exactly 1 listener, regardless of N.
-    expect(process.listenerCount("uncaughtException")).toBe(baselineCounts["uncaughtException"]! + 1);
-    expect(process.listenerCount("SIGINT")).toBe(baselineCounts["SIGINT"]! + 1);
-    expect(process.listenerCount("SIGTERM")).toBe(baselineCounts["SIGTERM"]! + 1);
-    expect(process.listenerCount("unhandledRejection")).toBe(baselineCounts["unhandledRejection"]! + 1);
+    expect(process.listenerCount("uncaughtException")).toBe(
+      baselineCounts.uncaughtException! + 1,
+    );
+    expect(process.listenerCount("SIGINT")).toBe(baselineCounts.SIGINT! + 1);
+    expect(process.listenerCount("SIGTERM")).toBe(baselineCounts.SIGTERM! + 1);
+    expect(process.listenerCount("unhandledRejection")).toBe(
+      baselineCounts.unhandledRejection! + 1,
+    );
   });
 
   test("handler counts grow (SABOTAGE: if guard removed, listeners accumulate)", () => {
@@ -83,7 +96,9 @@ describe("setupWatchHandlers — idempotency (H6 regression)", () => {
     for (let i = 0; i < N; i++) {
       // Each iteration creates a new closure — exactly what the old code did on
       // each recursive daemonCommand() call.
-      const handler = () => { /* restart-instance shutdown */ };
+      const handler = () => {
+        /* restart-instance shutdown */
+      };
       added.push(handler);
       process.on("SIGINT", handler);
     }

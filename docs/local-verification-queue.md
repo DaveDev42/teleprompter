@@ -109,7 +109,17 @@ cd apps/app && npx expo start --dev-client   # 웹 디버그의 --web 과 다름
   ```
 - **pass**: 잠금화면 push 도착 + 사운드 + 탭하면 올바른 세션으로 navigate. foreground에서는 system
   push 억제되고 in-app toast(5s auto-dismiss). dedup(60s 내 1건), rate limit(분당 ≤5).
-- **result**: _(미실행)_
+- **result**: **BLOCKED 2026-06-05** — dev build `.ipa` 미생성. `scripts/ios-dev-build.sh --profile
+  device` (= `eas build --profile device --platform ios --local`) 가 "Configure expo-updates build
+  phase" 에서 실패: app.json `runtimeVersion.policy = fingerprint` 라 local build plugin 의 격리된
+  `npx eas-cli-local-build-plugin` 서브프로세스가 EAS 서버 fingerprint 를 fetch 할 때 `The bearer
+  token is invalid` → local/build runtimeVersion mismatch 로 중단. `eas login` 재인증(sessionSecret
+  갱신) + `eas fingerprint:generate` 서버 등록 후에도 동일 — CLI 레벨은 통과하나 격리 서브프로세스
+  (`builderEnvironment.env: {}`)에 sessionSecret 가 전파되지 않는다. `EXPO_UPDATES_FINGERPRINT_OVERRIDE`
+  우회도 같은 이유로 닿지 않음(`eas.json` `env` 에 박아야 전파). **`.claude/rules/native-build.md` 정책
+  상 로컬 iOS 네이티브 빌드는 재시도하지 않는다 — EAS 클라우드 빌드 → TestFlight 로 이관, 실기기 push
+  E2E 는 그 빌드로 사용자(Dave)가 검증.** (부수 성과: dev build 가 요구하는 `expo-dev-client` 의존성
+  누락 + 잘못된 버전(SDK 56 인데 `~55.x`)을 발견해 `~56.0.18` 로 고침 — 별도 fix 브랜치.)
 
 ### Q2. iOS 실기기 — keychain / 백그라운드 사이클 / audio
 
@@ -118,7 +128,9 @@ cd apps/app && npx expo start --dev-client   # 웹 디버그의 --web 과 다름
   App Switcher background→foreground 왕복 시 relay 재연결 배너 정상, (VoiceButton 네이티브 구현 후)
   audio capture. 현재 `VoiceButton`은 네이티브에서 `null` 반환(TODO) — audio는 구현 전까지 `N/A`.
 - **pass**: 앱 강제종료 후 재실행에도 페어링 살아있음. background 진입 후 복귀 시 reconnect.
-- **result**: _(미실행)_
+- **result**: **BLOCKED 2026-06-05** — Q1 과 동일 dev build `.ipa` 게이트(EAS local-build fingerprint/
+  bearer-token). 빌드가 안 나와 keychain/background-cycle 검증 불가. EAS 클라우드 → TestFlight 빌드로
+  실기기 검증을 사용자(Dave)에게 이관.
 
 ### Q3. Android 실기기 — 골든 패스 1회 + 권한 모델
 
@@ -127,7 +139,8 @@ cd apps/app && npx expo start --dev-client   # 웹 디버그의 --web 과 다름
 - **command**: 페어링(manual paste 또는 QR) → 세션 목록 → Chat 탭(메시지 송수신, Enter-to-send) →
   Terminal 탭(PTY 스트림/ANSI/키 입력) 풀 골든 패스 1회. 권한: network, foreground service 동작 확인.
 - **pass**: 페어링·세션·Chat·Terminal 전부 동작. foreground service 알림 표시, network 권한 정상.
-- **result**: _(미실행)_
+- **result**: **BLOCKED 2026-06-05** — Android dev build 미생성(이번 순회는 iOS 게이트에서 막혀 Android
+  로컬 빌드까지 진행 못 함). 동일하게 EAS 클라우드 Internal track → 실기기 검증을 사용자(Dave)에게 이관.
 
 ### Q4. Simulator QA — UI/로직 회귀 (Expo MCP + Maestro)
 
@@ -138,7 +151,11 @@ cd apps/app && npx expo start --dev-client   # 웹 디버그의 --web 과 다름
   탐색적 QA. push는 여기서 `xcrun simctl push <device> dev.tpmt.app payload.apns`로 payload 렌더/탭
   navigation handler만 확인(진짜 APNs 왕복은 Q1 실기기에서).
 - **pass**: Maestro flow 그린, 주요 화면 스냅샷 회귀 없음. simctl push로 notification handler 동작.
-- **result**: _(미실행)_
+- **result**: **BLOCKED 2026-06-05** — Simulator용 dev build `.app` 미생성. `eas build --profile
+  development --platform ios --local` 이 Q1 과 동일한 expo-updates fingerprint/bearer-token 게이트에
+  걸려 `.app` 이 안 나옴 → `xcrun simctl install` 이하 전체 불가. **`.claude/rules/native-build.md`:
+  로컬 Simulator/Xcode/네이티브 빌드 재시도 금지** — RN Web dogfood(`pnpm dev:app` + `pnpm dev:pair`)로
+  페어링/세션/Chat/Terminal 회귀를 커버하고, 네이티브 전용 거동은 EAS 클라우드 빌드로 이관.
 
 ### Q5. Linux daemon install — systemd 풀 사이클 (VM)
 
@@ -154,7 +171,14 @@ cd apps/app && npx expo start --dev-client   # 웹 디버그의 --web 과 다름
   ```
   코드 레퍼런스: `apps/cli/src/lib/service-linux.ts` (getUnitDir, `systemctl --user daemon-reload`).
 - **pass**: install 후 active(running), 재부팅 후 자동 기동, `tp status`로 페어링/세션 동작.
-- **result**: _(미실행)_
+- **result**: **PASS 2026-06-05** (Lima Ubuntu 24.04 VM, aarch64, systemd 255, `tp-linux_arm64`
+  v0.1.46). `tp daemon install` → unit `~/.config/systemd/user/teleprompter-daemon.service`
+  생성, `active (running)` + `enabled` (PID 2863, IPC `/run/user/501/daemon.sock` 리스닝). VM
+  reboot 후 **수동 start 없이 자동 기동** (새 PID 813, `up 0 minutes`) — Lima guest user는
+  `Linger=yes` 기본값이라 headless reboot 에도 user manager 가 떠 `WantedBy=default.target` 가
+  발동. `tp status` → "Background daemon: running, Sessions: 0" 정상. `tp daemon uninstall` →
+  inactive + unit file removed (대칭성 확인). claude CLI 미설치라 세션 spawn 은 범위 밖 (install/
+  systemd 라이프사이클 검증이 이 항목의 목적).
 
 ### Q6. Long-running 안정성 — 1시간 soak
 

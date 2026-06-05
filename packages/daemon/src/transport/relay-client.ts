@@ -195,7 +195,9 @@ export class RelayClient {
         log.warn("dropped malformed relay frame");
         return;
       }
-      this.handleMessage(msg);
+      this.handleMessage(msg).catch((err) => {
+        log.error("unhandled error in handleMessage:", err);
+      });
     };
 
     ws.onclose = () => {
@@ -341,8 +343,10 @@ export class RelayClient {
       const data = JSON.parse(new TextDecoder().decode(plaintext));
       // data = { pk: base64, frontendId: string, role: "frontend", v?: number }
 
-      if (!data.pk || !data.frontendId) {
-        log.error("kx frame missing pk or frontendId");
+      if (!data.pk || typeof data.frontendId !== "string" || !data.frontendId) {
+        log.error(
+          "kx frame missing pk or frontendId (or frontendId is not a string)",
+        );
         return;
       }
 
@@ -389,7 +393,11 @@ export class RelayClient {
       try {
         await this.decryptAndDispatch(frame, peer);
         return;
-      } catch {}
+      } catch (err) {
+        log.warn(
+          `fallback decrypt failed for peer ${peer.frontendId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
 
     if (this.peers.size === 0) {

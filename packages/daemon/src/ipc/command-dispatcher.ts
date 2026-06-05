@@ -28,6 +28,7 @@ import type {
 } from "@teleprompter/protocol";
 import {
   createLogger,
+  NAMESPACE_SET,
   RELAY_CHANNEL_CONTROL,
   RELAY_CHANNEL_META,
 } from "@teleprompter/protocol";
@@ -44,6 +45,11 @@ import type { WorktreeManager } from "../worktree/worktree-manager";
 import type { ConnectedRunner, IpcServer } from "./server";
 
 const log = createLogger("IpcDispatcher");
+
+/** Convert an unknown thrown value to a string error message. */
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
 
 /**
  * Dependencies injected into {@link IpcCommandDispatcher}.
@@ -149,29 +155,67 @@ export class IpcCommandDispatcher {
       case "bye":
         this.handleBye(msg);
         return;
-      default:
-        // ack/input/resize/pair.begin.ok/pair.begin.err/
-        // pair.completed/pair.cancelled/pair.error/pair.remove.ok etc.
-        // are daemon→runner messages; if a runner sends one we simply ignore it.
+      // The following are daemon→runner messages. A runner that echoes one
+      // back is misbehaving but harmless — log and move on. The explicit arms
+      // (rather than a catch-all `default`) make the switch exhaustive so the
+      // TypeScript compiler will flag any newly-added IpcMessage variant that
+      // is neither handled nor explicitly ignored here.
+      case "ack":
+      case "input":
+      case "resize":
+      case "pair.begin.ok":
+      case "pair.begin.err":
+      case "pair.completed":
+      case "pair.cancelled":
+      case "pair.error":
+      case "pair.remove.ok":
+      case "pair.remove.err":
+      case "pair.rename.ok":
+      case "pair.rename.err":
+      case "session.delete.ok":
+      case "session.delete.err":
+      case "session.prune.ok":
+      case "session.prune.err":
+      case "doctor.probe.ok":
         log.warn(`ignoring unexpected IPC message from runner: ${msg.t}`);
+        return;
+      default: {
+        // Exhaustiveness guard: every IpcMessage variant is covered above.
+        // Adding a new variant to the union without a corresponding arm here
+        // will cause a compile-time error, not a silent runtime drop.
+        const _exhaustive: never = msg;
+        void _exhaustive;
+      }
     }
+  }
+
+  /**
+   * Shared guard: verify that a pairing with `daemonId` is registered.
+   * Sends the not-found error frame and returns `false` when it is absent.
+   */
+  private guardPairingExists(
+    runner: ConnectedRunner,
+    daemonId: string,
+    notFoundMsg: IpcPairRemoveErr | IpcPairRenameErr,
+  ): boolean {
+    const pairings = this.deps.store.listPairings();
+    if (pairings.some((p) => p.daemonId === daemonId)) return true;
+    this.deps.ipcServer.send(runner, notFoundMsg);
+    return false;
   }
 
   private async handlePairRemove(
     runner: ConnectedRunner,
     msg: IpcPairRemove,
   ): Promise<void> {
-    const pairings = this.deps.store.listPairings();
-    const exists = pairings.some((p) => p.daemonId === msg.daemonId);
-    if (!exists) {
-      const err: IpcPairRemoveErr = {
+    if (
+      !this.guardPairingExists(runner, msg.daemonId, {
         t: "pair.remove.err",
         daemonId: msg.daemonId,
         reason: "not-found",
-      };
-      this.deps.ipcServer.send(runner, err);
+      })
+    )
       return;
-    }
     try {
       const notified = await this.deps.removePairing(msg.daemonId);
       const ok: IpcPairRemoveOk = {
@@ -185,7 +229,7 @@ export class IpcCommandDispatcher {
         t: "pair.remove.err",
         daemonId: msg.daemonId,
         reason: "internal",
-        message: e instanceof Error ? e.message : String(e),
+        message: errMsg(e),
       };
       this.deps.ipcServer.send(runner, err);
     }
@@ -195,17 +239,14 @@ export class IpcCommandDispatcher {
     runner: ConnectedRunner,
     msg: IpcPairRename,
   ): Promise<void> {
-    const pairings = this.deps.store.listPairings();
-    const exists = pairings.some((p) => p.daemonId === msg.daemonId);
-    if (!exists) {
-      const err: IpcPairRenameErr = {
+    if (
+      !this.guardPairingExists(runner, msg.daemonId, {
         t: "pair.rename.err",
         daemonId: msg.daemonId,
         reason: "not-found",
-      };
-      this.deps.ipcServer.send(runner, err);
+      })
+    )
       return;
-    }
     try {
       const notified = await this.deps.renamePairing(msg.daemonId, msg.label);
       const ok: IpcPairRenameOk = {
@@ -220,7 +261,7 @@ export class IpcCommandDispatcher {
         t: "pair.rename.err",
         daemonId: msg.daemonId,
         reason: "internal",
-        message: e instanceof Error ? e.message : String(e),
+        message: errMsg(e),
       };
       this.deps.ipcServer.send(runner, err);
     }
@@ -262,7 +303,7 @@ export class IpcCommandDispatcher {
         t: "session.delete.err",
         sid: msg.sid,
         reason: "internal",
-        message: e instanceof Error ? e.message : String(e),
+        message: errMsg(e),
       };
       this.deps.ipcServer.send(runner, err);
       return;
@@ -323,7 +364,7 @@ export class IpcCommandDispatcher {
       const err: IpcSessionPruneErr = {
         t: "session.prune.err",
         reason: "internal",
-        message: e instanceof Error ? e.message : String(e),
+        message: errMsg(e),
         // Partial state: the rows in `deleted` are already gone from the store.
         // Reporting them lets the CLI surface "deleted N/M then errored" instead
         // of implying nothing happened. `runningKilled` may exceed deleted.length
@@ -513,6 +554,24 @@ export class IpcCommandDispatcher {
   // IPC handlers
   // ---------------------------------------------------------------------
 
+  /**
+   * Fan-out a session-state update to all connected relay clients.
+   * Shared by `handleHello` and `handleBye` so the broadcast shape is
+   * defined once — any future protocol change only touches this method.
+   */
+  private broadcastSessionState(sid: string): void {
+    const meta = this.deps.store.getSession(sid);
+    if (!meta) return;
+    const stateMsg = {
+      t: "state" as const,
+      sid,
+      d: toSessionMeta(meta),
+    } satisfies SessionStateMsg;
+    for (const relay of this.deps.getRelayClients()) {
+      relay.publishState(RELAY_CHANNEL_META, stateMsg).catch(() => {});
+    }
+  }
+
   private handleHello(msg: IpcHello): void {
     this.deps.store.createSession(
       msg.sid,
@@ -535,17 +594,7 @@ export class IpcCommandDispatcher {
     }
 
     // Notify relay of new session
-    const meta = this.deps.store.getSession(msg.sid);
-    if (meta) {
-      const stateMsg = {
-        t: "state" as const,
-        sid: msg.sid,
-        d: toSessionMeta(meta),
-      } satisfies SessionStateMsg;
-      for (const relay of this.deps.getRelayClients()) {
-        relay.publishState(RELAY_CHANNEL_META, stateMsg).catch(() => {});
-      }
-    }
+    this.broadcastSessionState(msg.sid);
   }
 
   private handleRec(
@@ -639,17 +688,7 @@ export class IpcCommandDispatcher {
     );
 
     // Notify relay of session state change
-    const meta = this.deps.store.getSession(msg.sid);
-    if (meta) {
-      const stateMsg = {
-        t: "state" as const,
-        sid: msg.sid,
-        d: toSessionMeta(meta),
-      } satisfies SessionStateMsg;
-      for (const relay of this.deps.getRelayClients()) {
-        relay.publishState(RELAY_CHANNEL_META, stateMsg).catch(() => {});
-      }
-    }
+    this.broadcastSessionState(msg.sid);
   }
 
   // ---------------------------------------------------------------------
@@ -867,16 +906,9 @@ export class IpcCommandDispatcher {
   }
 }
 
-const NAMESPACE_VALUES: ReadonlySet<Namespace> = new Set([
-  "claude",
-  "tp",
-  "runner",
-  "daemon",
-]);
-
 function toNamespace(value: string | null): Namespace | undefined {
   if (value === null) return undefined;
-  for (const v of NAMESPACE_VALUES) if (v === value) return v;
+  for (const v of NAMESPACE_SET) if (v === value) return v;
   return undefined;
 }
 

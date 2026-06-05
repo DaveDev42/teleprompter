@@ -199,7 +199,11 @@ export interface SessionErr {
 
 export interface SessionWorktreeInfo {
   path: string;
-  branch: string;
+  /**
+   * The checked-out branch name, or `null` for detached-HEAD and bare
+   * worktrees where no branch is active.
+   */
+  branch: string | null;
   head: string;
   isMain: boolean;
 }

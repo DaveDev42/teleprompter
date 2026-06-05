@@ -492,6 +492,41 @@ describe("chat-store: processHookEvent", () => {
     expect(msgs[1].text).toBe("I'm fine, thanks.");
   });
 
+  test("PostToolUseFailure emits a system chip (previously silent fall-through)", () => {
+    processHookEvent(
+      baseEvent({ hook_event_name: "PostToolUseFailure", error: "failed" }),
+    );
+    const msgs = useChatStore.getState().messages;
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].type).toBe("system");
+    expect(msgs[0].event).toBe("PostToolUseFailure");
+    expect(msgs[0].text).toBe("PostToolUseFailure");
+  });
+
+  test("ElicitationResult emits a system chip", () => {
+    processHookEvent(baseEvent({ hook_event_name: "ElicitationResult" }));
+    const msgs = useChatStore.getState().messages;
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].type).toBe("system");
+    expect(msgs[0].event).toBe("ElicitationResult");
+  });
+
+  test("PreCompact emits a system chip", () => {
+    processHookEvent(baseEvent({ hook_event_name: "PreCompact" }));
+    const msgs = useChatStore.getState().messages;
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].type).toBe("system");
+    expect(msgs[0].event).toBe("PreCompact");
+  });
+
+  test("PostCompact emits a system chip", () => {
+    processHookEvent(baseEvent({ hook_event_name: "PostCompact" }));
+    const msgs = useChatStore.getState().messages;
+    expect(msgs.length).toBe(1);
+    expect(msgs[0].type).toBe("system");
+    expect(msgs[0].event).toBe("PostCompact");
+  });
+
   test("StopFailure emits a system error chip", () => {
     processHookEvent(
       baseEvent({

@@ -45,7 +45,13 @@ export type {
   IpcSessionPruneOk,
 } from "./ipc";
 export * from "./label";
-export type { Namespace, Record, RecordKind } from "./record";
+export {
+  NAMESPACE_SET,
+  type Namespace,
+  RECORD_KIND_SET,
+  type Record,
+  type RecordKind,
+} from "./record";
 export type {
   RelayAuth,
   RelayAuthErr,

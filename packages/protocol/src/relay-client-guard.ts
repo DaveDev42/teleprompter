@@ -31,7 +31,7 @@ import type {
 type PlainObject = { [key: string]: unknown };
 
 function isObject(value: unknown): value is PlainObject {
-  return typeof value === "object" && value !== null;
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isString(v: unknown): v is string {

@@ -16,7 +16,7 @@
  * Unknown discriminants or malformed payloads return `null`.
  */
 
-import type { RecordKind } from "./types/record";
+import { RECORD_KIND_SET, type RecordKind } from "./types/record";
 import type {
   SessionAttach,
   SessionCreate,
@@ -55,7 +55,7 @@ export type RelayControlMessage =
 type PlainObject = { [key: string]: unknown };
 
 function isObject(value: unknown): value is PlainObject {
-  return typeof value === "object" && value !== null;
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isString(v: unknown): v is string {
@@ -94,13 +94,12 @@ function isOptionalBoolean(v: unknown): v is boolean | undefined {
   return v === undefined || typeof v === "boolean";
 }
 
-const RECORD_KINDS = new Set<RecordKind>(["io", "event", "meta"]);
-
 function isRecordKindArray(v: unknown): v is RecordKind[] | undefined {
   if (v === undefined) return true;
   if (!Array.isArray(v)) return false;
   return v.every(
-    (item) => typeof item === "string" && RECORD_KINDS.has(item as RecordKind),
+    (item) =>
+      typeof item === "string" && RECORD_KIND_SET.has(item as RecordKind),
   );
 }
 

@@ -24,12 +24,17 @@ import type {
   IpcSessionPruneErrReason,
 } from "./types/ipc";
 import { decodeWireLabel, type Label } from "./types/label";
-import type { Namespace, RecordKind } from "./types/record";
+import {
+  NAMESPACE_SET,
+  type Namespace,
+  RECORD_KIND_SET,
+  type RecordKind,
+} from "./types/record";
 
 type PlainObject = { [key: string]: unknown };
 
 function isObject(value: unknown): value is PlainObject {
-  return typeof value === "object" && value !== null;
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isString(v: unknown): v is string {
@@ -75,13 +80,8 @@ function isPositiveInt(v: unknown): v is number {
   return typeof v === "number" && Number.isInteger(v) && v > 0;
 }
 
-const RECORD_KINDS: ReadonlySet<RecordKind> = new Set(["io", "event", "meta"]);
-const NAMESPACES: ReadonlySet<Namespace> = new Set([
-  "claude",
-  "tp",
-  "runner",
-  "daemon",
-]);
+const RECORD_KINDS = RECORD_KIND_SET;
+const NAMESPACES = NAMESPACE_SET;
 const PAIR_BEGIN_REASONS: ReadonlySet<IpcPairBeginErrReason> = new Set([
   "already-pending",
   "daemon-id-taken",
@@ -448,22 +448,26 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
 
     case "doctor.probe.ok": {
       if (!Array.isArray(raw["relays"])) return null;
+      const relays: {
+        daemonId: string;
+        relayUrl: string;
+        connected: boolean;
+        peerCount: number;
+      }[] = [];
       for (const r of raw["relays"]) {
         if (!isObject(r)) return null;
         if (!isString(r["daemonId"])) return null;
         if (!isString(r["relayUrl"])) return null;
         if (typeof r["connected"] !== "boolean") return null;
         if (!isNumber(r["peerCount"])) return null;
+        relays.push({
+          daemonId: r["daemonId"],
+          relayUrl: r["relayUrl"],
+          connected: r["connected"],
+          peerCount: r["peerCount"],
+        });
       }
-      return {
-        t: "doctor.probe.ok",
-        relays: (raw["relays"] as PlainObject[]).map((r) => ({
-          daemonId: r["daemonId"] as string,
-          relayUrl: r["relayUrl"] as string,
-          connected: r["connected"] as boolean,
-          peerCount: r["peerCount"] as number,
-        })),
-      };
+      return { t: "doctor.probe.ok", relays };
     }
 
     default:

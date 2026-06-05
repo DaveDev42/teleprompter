@@ -24,7 +24,12 @@
  */
 
 import type { Label } from "./types/label";
-import type { RecordKind } from "./types/record";
+import {
+  NAMESPACE_SET,
+  type Namespace,
+  RECORD_KIND_SET,
+  type RecordKind,
+} from "./types/record";
 import { isSessionState } from "./types/session";
 import type {
   SessionBatch,
@@ -64,14 +69,12 @@ function isBoolean(v: unknown): v is boolean {
   return typeof v === "boolean";
 }
 
-const RECORD_KINDS = new Set<RecordKind>(["io", "event", "meta"]);
-
 function isRecordKind(v: unknown): v is RecordKind {
-  return typeof v === "string" && RECORD_KINDS.has(v as RecordKind);
+  return typeof v === "string" && RECORD_KIND_SET.has(v as RecordKind);
 }
 
-function isNamespace(v: unknown): v is SessionRec["ns"] {
-  return v === "claude" || v === "tp" || v === "runner" || v === "daemon";
+function isNamespace(v: unknown): v is Namespace {
+  return typeof v === "string" && NAMESPACE_SET.has(v as Namespace);
 }
 
 function isExportFormat(v: unknown): v is "json" | "markdown" {

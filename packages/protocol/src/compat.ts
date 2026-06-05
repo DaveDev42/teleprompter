@@ -69,7 +69,10 @@ export function checkClaudeVersion(version: string): string | null {
   if (!min) return `Invalid MIN_CLAUDE_VERSION: ${MIN_CLAUDE_VERSION}`;
   if (
     parsed.major < min.major ||
-    (parsed.major === min.major && parsed.minor < min.minor)
+    (parsed.major === min.major && parsed.minor < min.minor) ||
+    (parsed.major === min.major &&
+      parsed.minor === min.minor &&
+      parsed.patch < min.patch)
   ) {
     return `Claude ${version} may be too old. Minimum recommended: ${MIN_CLAUDE_VERSION}`;
   }

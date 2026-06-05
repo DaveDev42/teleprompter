@@ -100,6 +100,18 @@ export function parseRelayServerMessage(
       if (!isOptionalString(raw["resumeToken"])) return null;
       if (!isOptionalNumber(raw["resumeExpiresAt"])) return null;
       if (!isOptionalBoolean(raw["resumed"])) return null;
+      // H2: when resumed===true the client skips kx rebroadcast (trusting that
+      // the prior sessionKeys are still valid). That optimization is only safe
+      // when the relay also issues a fresh token for the *next* reconnect.
+      // A well-formed relay always includes both resumeToken and resumeExpiresAt
+      // in a resumed response; without them the client would lose the ability to
+      // resume on the following disconnect. Treat the missing-token case as a
+      // protocol violation and reject the message so the caller falls back to a
+      // full register+auth cycle rather than silently operating degraded.
+      if (raw["resumed"] === true) {
+        if (!isString(raw["resumeToken"])) return null;
+        if (!isNumber(raw["resumeExpiresAt"])) return null;
+      }
       return {
         t: "relay.auth.ok",
         daemonId: raw["daemonId"],

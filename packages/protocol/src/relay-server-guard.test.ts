@@ -70,6 +70,9 @@ describe("parseRelayServerMessage", () => {
         resumed: true,
       });
     });
+    // H2: resumed===true without the full token pair must be rejected.
+    // The daemon's relay-client.ts skips kx rebroadcast when resumed+peers —
+    // that optimisation is only safe when both fields are present.
     test.each<[string, unknown]>([
       ["missing daemonId", { t: "relay.auth.ok" }],
       ["non-string daemonId", { t: "relay.auth.ok", daemonId: 1 }],
@@ -89,8 +92,42 @@ describe("parseRelayServerMessage", () => {
         "non-boolean resumed",
         { t: "relay.auth.ok", daemonId: "d", resumed: "yes" },
       ],
+      // H2 regression: resumed:true but resumeToken absent
+      [
+        "H2: resumed:true without resumeToken",
+        {
+          t: "relay.auth.ok",
+          daemonId: "d",
+          resumed: true,
+          resumeExpiresAt: 999,
+        },
+      ],
+      // H2 regression: resumed:true but resumeExpiresAt absent
+      [
+        "H2: resumed:true without resumeExpiresAt",
+        {
+          t: "relay.auth.ok",
+          daemonId: "d",
+          resumed: true,
+          resumeToken: "tok",
+        },
+      ],
+      // H2 regression: resumed:true but both fields absent
+      [
+        "H2: resumed:true without either token field",
+        { t: "relay.auth.ok", daemonId: "d", resumed: true },
+      ],
     ])("rejects %s", (_l, m) => {
       expectRejected(m);
+    });
+
+    // H2: resumed:false does NOT require token fields (normal fresh-auth response)
+    test("H2: resumed:false without token fields is accepted", () => {
+      expectAccepted({
+        t: "relay.auth.ok",
+        daemonId: "d1",
+        resumed: false,
+      });
     });
   });
 

@@ -14,6 +14,16 @@
  * Unknown discriminants or malformed payloads return `null`.
  */
 
+import {
+  isNonNegativeInt,
+  isNumber,
+  isObject,
+  isOptionalString,
+  isPositiveInt,
+  isString,
+  isStringArray,
+  type PlainObject,
+} from "./guard-primitives";
 import type {
   IpcMessage,
   IpcPairBeginErrReason,
@@ -30,20 +40,6 @@ import {
   RECORD_KIND_SET,
   type RecordKind,
 } from "./types/record";
-
-type PlainObject = { [key: string]: unknown };
-
-function isObject(value: unknown): value is PlainObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isString(v: unknown): v is string {
-  return typeof v === "string";
-}
-
-function isOptionalString(v: unknown): v is string | undefined {
-  return v === undefined || typeof v === "string";
-}
 
 /**
  * Forgivingly narrow a raw `label` field to the `Label` union. Accepts the
@@ -64,20 +60,6 @@ function parseLabelField(v: unknown): Label | null {
     return null;
   }
   return decodeWireLabel(v);
-}
-
-function isNumber(v: unknown): v is number {
-  return typeof v === "number" && Number.isFinite(v);
-}
-
-/**
- * Terminal dimensions (cols/rows) must be positive integers. This guards the
- * daemon→runner resize message for protocol correctness; the runner-side IPC
- * client does not re-parse, so tightening here keeps the union honest even
- * though today the live exploit path runs through relay-guard.
- */
-function isPositiveInt(v: unknown): v is number {
-  return typeof v === "number" && Number.isInteger(v) && v > 0;
 }
 
 const RECORD_KINDS = RECORD_KIND_SET;
@@ -159,10 +141,6 @@ function isSessionPruneReason(v: unknown): v is IpcSessionPruneErrReason {
   );
 }
 
-function isStringArray(v: unknown): v is string[] {
-  return Array.isArray(v) && v.every((x) => typeof x === "string");
-}
-
 /**
  * Parse a raw IPC payload into a typed IpcMessage. Returns `null` if the
  * payload is not a valid IPC message.
@@ -176,7 +154,7 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
     case "hello": {
       if (!isString(raw["sid"])) return null;
       if (!isString(raw["cwd"])) return null;
-      if (!isNumber(raw["pid"])) return null;
+      if (!isPositiveInt(raw["pid"])) return null;
       if (!isOptionalString(raw["worktreePath"])) return null;
       if (!isOptionalString(raw["claudeVersion"])) return null;
       return {
@@ -215,7 +193,7 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
 
     case "ack": {
       if (!isString(raw["sid"])) return null;
-      if (!isNumber(raw["seq"])) return null;
+      if (!isNonNegativeInt(raw["seq"])) return null;
       return { t: "ack", sid: raw["sid"], seq: raw["seq"] };
     }
 
@@ -321,7 +299,7 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
 
     case "pair.remove.ok": {
       if (!isString(raw["daemonId"])) return null;
-      if (!isNumber(raw["notifiedPeers"])) return null;
+      if (!isNonNegativeInt(raw["notifiedPeers"])) return null;
       return {
         t: "pair.remove.ok",
         daemonId: raw["daemonId"],
@@ -356,7 +334,7 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
       if (!isString(raw["daemonId"])) return null;
       const label = parseLabelField(raw["label"]);
       if (label === null) return null;
-      if (!isNumber(raw["notifiedPeers"])) return null;
+      if (!isNonNegativeInt(raw["notifiedPeers"])) return null;
       return {
         t: "pair.rename.ok",
         daemonId: raw["daemonId"],
@@ -419,7 +397,7 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
 
     case "session.prune.ok": {
       if (!isStringArray(raw["sids"])) return null;
-      if (!isNumber(raw["runningKilled"])) return null;
+      if (!isNonNegativeInt(raw["runningKilled"])) return null;
       if (typeof raw["dryRun"] !== "boolean") return null;
       return {
         t: "session.prune.ok",
@@ -433,7 +411,7 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
       if (!isSessionPruneReason(raw["reason"])) return null;
       if (!isOptionalString(raw["message"])) return null;
       if (!isStringArray(raw["partialSids"])) return null;
-      if (!isNumber(raw["partialRunningKilled"])) return null;
+      if (!isNonNegativeInt(raw["partialRunningKilled"])) return null;
       return {
         t: "session.prune.err",
         reason: raw["reason"],
@@ -459,7 +437,7 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
         if (!isString(r["daemonId"])) return null;
         if (!isString(r["relayUrl"])) return null;
         if (typeof r["connected"] !== "boolean") return null;
-        if (!isNumber(r["peerCount"])) return null;
+        if (!isNonNegativeInt(r["peerCount"])) return null;
         relays.push({
           daemonId: r["daemonId"],
           relayUrl: r["relayUrl"],

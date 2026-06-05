@@ -149,12 +149,25 @@ describe("parseRelayClientMessage", () => {
     test("accepts well-formed (seq=0 is valid)", () => {
       expectAccepted(valid);
     });
+    test("accepts positive seq", () => {
+      expectAccepted({ t: "relay.pub", sid: "s1", ct: "cipher", seq: 42 });
+    });
     test.each<[string, unknown]>([
       ["missing sid", { t: "relay.pub", ct: "x", seq: 1 }],
       ["missing ct", { t: "relay.pub", sid: "s", seq: 1 }],
       ["missing seq", { t: "relay.pub", sid: "s", ct: "x" }],
       ["non-number seq", { t: "relay.pub", sid: "s", ct: "x", seq: "1" }],
     ])("rejects %s", (_l, m) => {
+      expectRejected(m);
+    });
+    // Tightened: seq must be a non-negative integer (monotonic counter).
+    // Negative, fractional, and NaN values must be rejected even though they
+    // are technically typeof==="number".
+    test.each<[string, unknown]>([
+      ["negative seq", { t: "relay.pub", sid: "s", ct: "x", seq: -1 }],
+      ["fractional seq", { t: "relay.pub", sid: "s", ct: "x", seq: 1.5 }],
+      ["NaN seq", { t: "relay.pub", sid: "s", ct: "x", seq: Number.NaN }],
+    ])("rejects %s (non-negative-int tightening)", (_l, m) => {
       expectRejected(m);
     });
   });

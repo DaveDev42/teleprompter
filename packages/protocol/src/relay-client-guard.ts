@@ -15,6 +15,14 @@
  * application control messages.
  */
 
+import {
+  isNonNegativeInt,
+  isNumber,
+  isObject,
+  isOptionalNumber,
+  isOptionalString,
+  isString,
+} from "./guard-primitives";
 import type {
   RelayAuth,
   RelayAuthResume,
@@ -27,28 +35,6 @@ import type {
   RelaySubscribe,
   RelayUnsubscribe,
 } from "./types/relay";
-
-type PlainObject = { [key: string]: unknown };
-
-function isObject(value: unknown): value is PlainObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isString(v: unknown): v is string {
-  return typeof v === "string";
-}
-
-function isOptionalString(v: unknown): v is string | undefined {
-  return v === undefined || typeof v === "string";
-}
-
-function isNumber(v: unknown): v is number {
-  return typeof v === "number" && Number.isFinite(v);
-}
-
-function isOptionalNumber(v: unknown): v is number | undefined {
-  return v === undefined || (typeof v === "number" && Number.isFinite(v));
-}
 
 function isRole(v: unknown): v is "daemon" | "frontend" {
   return v === "daemon" || v === "frontend";
@@ -134,7 +120,7 @@ export function parseRelayClientMessage(
     case "relay.pub": {
       if (!isString(raw["sid"])) return null;
       if (!isString(raw["ct"])) return null;
-      if (!isNumber(raw["seq"])) return null;
+      if (!isNonNegativeInt(raw["seq"])) return null;
       return {
         t: "relay.pub",
         sid: raw["sid"],
@@ -145,11 +131,13 @@ export function parseRelayClientMessage(
 
     case "relay.sub": {
       if (!isString(raw["sid"])) return null;
-      if (!isOptionalNumber(raw["after"])) return null;
+      // `after` is a subscription cursor (frame index) — non-negative integer or absent
+      if (raw["after"] !== undefined && !isNonNegativeInt(raw["after"]))
+        return null;
       return {
         t: "relay.sub",
         sid: raw["sid"],
-        after: raw["after"],
+        after: raw["after"] as number | undefined,
       } satisfies RelaySubscribe;
     }
 

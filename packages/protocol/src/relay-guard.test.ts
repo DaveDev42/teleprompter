@@ -62,10 +62,29 @@ describe("parseRelayControlMessage", () => {
       ).toEqual({ t: "resume", sid: "s", c: 10 });
     });
 
+    test("accepts c=0 (first-frame cursor)", () => {
+      expect(parseRelayControlMessage({ t: "resume", sid: "s", c: 0 })).toEqual(
+        { t: "resume", sid: "s", c: 0 },
+      );
+    });
+
     test("rejects when c is missing or not a number", () => {
       expect(parseRelayControlMessage({ t: "resume", sid: "s" })).toBeNull();
       expect(
         parseRelayControlMessage({ t: "resume", sid: "s", c: "10" }),
+      ).toBeNull();
+    });
+
+    // Tightened: c is a frame-index cursor — must be a non-negative integer.
+    test("rejects c=-1 (negative cursor)", () => {
+      expect(
+        parseRelayControlMessage({ t: "resume", sid: "s", c: -1 }),
+      ).toBeNull();
+    });
+
+    test("rejects c=2.5 (fractional cursor)", () => {
+      expect(
+        parseRelayControlMessage({ t: "resume", sid: "s", c: 2.5 }),
       ).toBeNull();
     });
   });

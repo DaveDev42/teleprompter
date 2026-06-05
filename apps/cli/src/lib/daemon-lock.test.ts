@@ -6,6 +6,7 @@ import {
   readDaemonLockPid,
   releaseDaemonLock,
 } from "@teleprompter/daemon";
+import { getSocketPath } from "@teleprompter/protocol";
 import {
   existsSync,
   mkdtempSync,
@@ -14,7 +15,7 @@ import {
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 
 let dir: string;
 let lockPath: string;
@@ -124,13 +125,49 @@ describe("getDaemonLockPath", () => {
   });
 
   test("honors XDG_RUNTIME_DIR", () => {
-    process.env["XDG_RUNTIME_DIR"] = "/custom/runtime";
-    expect(getDaemonLockPath()).toBe("/custom/runtime/daemon.pid");
+    // resolveRuntimeDir ensures the XDG dir exists (the daemon binds its socket
+    // there), so use a writable temp dir rather than an unwritable literal.
+    const xdg = mkdtempSync(join(tmpdir(), "tp-lock-xdg-"));
+    try {
+      process.env["XDG_RUNTIME_DIR"] = xdg;
+      expect(getDaemonLockPath()).toBe(`${xdg}/daemon.pid`);
+    } finally {
+      rmSync(xdg, { recursive: true, force: true });
+    }
   });
 
-  test("falls back to /tmp/teleprompter-<uid> when XDG_RUNTIME_DIR is unset", () => {
+  test("resolves to a runtime dir + daemon.pid when XDG_RUNTIME_DIR is unset", () => {
+    if (typeof process.getuid !== "function") return; // POSIX-only (no Windows)
     delete process.env["XDG_RUNTIME_DIR"];
+    const uid = process.getuid();
     const path = getDaemonLockPath();
-    expect(path).toMatch(/^\/tmp\/teleprompter-\d+\/daemon\.pid$/);
+    // Either the systemd runtime dir (/run/user/<uid>, preferred when present)
+    // or the /tmp fallback — both end in daemon.pid. resolveRuntimeDir owns the
+    // choice; this only asserts the lock co-locates under it.
+    expect(path).toMatch(
+      new RegExp(`^(/run/user/${uid}|/tmp/teleprompter-${uid})/daemon\\.pid$`),
+    );
+  });
+
+  // The bug class this guards: socket and lock must ALWAYS resolve to the same
+  // directory. If they diverged (e.g. one keyed on /run/user and the other on
+  // /tmp), a daemon would bind its socket in one place while the CLI looked for
+  // the lock in another — exactly the WSL/systemd duplicate-daemon failure.
+  test("lock path co-locates with the IPC socket path", () => {
+    const savedXdg = process.env["XDG_RUNTIME_DIR"];
+    // Writable temp dir — both resolvers mkdir the XDG dir before returning.
+    const xdg = mkdtempSync(join(tmpdir(), "tp-lock-colocate-"));
+    try {
+      // Assert under both an explicit XDG dir and the unset/inferred case.
+      process.env["XDG_RUNTIME_DIR"] = xdg;
+      expect(dirname(getDaemonLockPath())).toBe(dirname(getSocketPath()));
+
+      delete process.env["XDG_RUNTIME_DIR"];
+      expect(dirname(getDaemonLockPath())).toBe(dirname(getSocketPath()));
+    } finally {
+      if (savedXdg === undefined) delete process.env["XDG_RUNTIME_DIR"];
+      else process.env["XDG_RUNTIME_DIR"] = savedXdg;
+      rmSync(xdg, { recursive: true, force: true });
+    }
   });
 });

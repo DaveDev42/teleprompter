@@ -1,4 +1,4 @@
-import { createLogger } from "@teleprompter/protocol";
+import { createLogger, resolveRuntimeDir } from "@teleprompter/protocol";
 import {
   closeSync,
   mkdirSync,
@@ -7,21 +7,20 @@ import {
   unlinkSync,
   writeSync,
 } from "fs";
-import { dirname } from "path";
+import { dirname, join } from "path";
 
 const log = createLogger("DaemonLock");
 
 /**
  * PID file path for the daemon singleton lock.
- * Sits in the same runtime dir as the IPC socket so cleanup semantics are
- * identical — the dir is ephemeral per-boot (XDG_RUNTIME_DIR) and the file
- * survives only while the daemon process is alive.
+ * Sits in the same runtime dir as the IPC socket (`resolveRuntimeDir`) so the
+ * lock and socket always co-locate — a systemd-managed daemon and an
+ * interactive `tp` must agree on this path or the CLI spawns a duplicate
+ * daemon. The dir is ephemeral per-boot and the file survives only while the
+ * daemon process is alive.
  */
 export function getDaemonLockPath(): string {
-  const runtimeDir =
-    process.env["XDG_RUNTIME_DIR"] ??
-    `/tmp/teleprompter-${process.getuid?.() ?? "0"}`;
-  return `${runtimeDir}/daemon.pid`;
+  return join(resolveRuntimeDir(), "daemon.pid");
 }
 
 /**

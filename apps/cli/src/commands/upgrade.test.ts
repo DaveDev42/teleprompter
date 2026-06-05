@@ -19,6 +19,8 @@ import {
   getAssetName,
   isOlderVersion,
   parseChecksums,
+  parseGhReleaseJson,
+  parseGithubApiReleaseJson,
   parseVersion,
   resolveCurrentBinaryPath,
   restoreBinary,
@@ -468,5 +470,105 @@ describe("detectHomebrewInstall", () => {
       "/usr/local/Cellar/tp/0.1.19/bin/tp",
     );
     expect(result).toBe("/usr/local");
+  });
+});
+
+// ── parseGhReleaseJson ────────────────────────────────────────────────────────
+// Validates the shape of `gh release view --json tagName,url` output.
+// Previously the code returned `{ tag: undefined, url: undefined }` on any
+// malformed response; now it returns null so the caller falls through to the
+// public-API path.
+
+describe("parseGhReleaseJson", () => {
+  test("returns tag and url for valid gh CLI JSON", () => {
+    const raw = JSON.stringify({
+      tagName: "v0.0.42",
+      url: "https://example.com/releases/v0.0.42",
+    });
+    const result = parseGhReleaseJson(raw);
+    expect(result).toEqual({
+      tag: "v0.0.42",
+      url: "https://example.com/releases/v0.0.42",
+    });
+  });
+
+  test("returns null for empty object {}", () => {
+    const result = parseGhReleaseJson("{}");
+    expect(result).toBeNull();
+  });
+
+  test("returns null when tagName is missing", () => {
+    const raw = JSON.stringify({ url: "https://example.com/releases/v1" });
+    expect(parseGhReleaseJson(raw)).toBeNull();
+  });
+
+  test("returns null when url is missing", () => {
+    const raw = JSON.stringify({ tagName: "v0.0.1" });
+    expect(parseGhReleaseJson(raw)).toBeNull();
+  });
+
+  test("returns null for malformed JSON", () => {
+    expect(parseGhReleaseJson("not json")).toBeNull();
+    expect(parseGhReleaseJson("")).toBeNull();
+  });
+
+  test("returns null when tagName is not a string", () => {
+    const raw = JSON.stringify({ tagName: 42, url: "https://example.com" });
+    expect(parseGhReleaseJson(raw)).toBeNull();
+  });
+
+  test("returns null when url is not a string", () => {
+    const raw = JSON.stringify({ tagName: "v0.0.1", url: null });
+    expect(parseGhReleaseJson(raw)).toBeNull();
+  });
+});
+
+// ── parseGithubApiReleaseJson ─────────────────────────────────────────────────
+// Validates the shape of the GitHub public releases API response.
+
+describe("parseGithubApiReleaseJson", () => {
+  test("returns tag and url for valid API response", () => {
+    const data = {
+      tag_name: "v0.0.42",
+      html_url: "https://github.com/foo/bar/releases/tag/v0.0.42",
+    };
+    const result = parseGithubApiReleaseJson(data);
+    expect(result).toEqual({
+      tag: "v0.0.42",
+      url: "https://github.com/foo/bar/releases/tag/v0.0.42",
+    });
+  });
+
+  test("returns null for empty object {}", () => {
+    expect(parseGithubApiReleaseJson({})).toBeNull();
+  });
+
+  test("returns null when tag_name is missing", () => {
+    expect(
+      parseGithubApiReleaseJson({ html_url: "https://example.com" }),
+    ).toBeNull();
+  });
+
+  test("returns null when html_url is missing", () => {
+    expect(parseGithubApiReleaseJson({ tag_name: "v0.0.1" })).toBeNull();
+  });
+
+  test("returns null for null input", () => {
+    expect(parseGithubApiReleaseJson(null)).toBeNull();
+  });
+
+  test("returns null when tag_name is not a string", () => {
+    expect(
+      parseGithubApiReleaseJson({
+        tag_name: 99,
+        html_url: "https://example.com",
+      }),
+    ).toBeNull();
+  });
+
+  test("returns null when html_url is not a string", () => {
+    expect(
+      parseGithubApiReleaseJson({ tag_name: "v0.0.1", html_url: false }),
+    ).toBeNull();
   });
 });

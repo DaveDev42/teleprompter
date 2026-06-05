@@ -234,6 +234,63 @@ function getCurrentVersion(): string {
   return pkgVersion;
 }
 
+/**
+ * Parse and validate the JSON response from `gh release view --json tagName,url`.
+ *
+ * Returns `{ tag, url }` only when both fields are non-empty strings; returns
+ * `null` otherwise so the caller can fall through to the public-API path rather
+ * than propagating `{ tag: undefined, url: undefined }` into version comparison
+ * and download-URL construction.
+ *
+ * Exported for unit testing without network or subprocess calls.
+ */
+export function parseGhReleaseJson(
+  raw: string,
+): { tag: string; url: string } | null {
+  try {
+    const data: unknown = JSON.parse(raw);
+    if (
+      data !== null &&
+      typeof data === "object" &&
+      typeof (data as Record<string, unknown>)["tagName"] === "string" &&
+      typeof (data as Record<string, unknown>)["url"] === "string"
+    ) {
+      return {
+        tag: (data as Record<string, unknown>)["tagName"] as string,
+        url: (data as Record<string, unknown>)["url"] as string,
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parse and validate the JSON response from the GitHub public releases API.
+ *
+ * Returns `{ tag, url }` only when both `tag_name` and `html_url` are
+ * non-empty strings; returns `null` for malformed/partial responses.
+ *
+ * Exported for unit testing without network calls.
+ */
+export function parseGithubApiReleaseJson(
+  raw: unknown,
+): { tag: string; url: string } | null {
+  if (
+    raw !== null &&
+    typeof raw === "object" &&
+    typeof (raw as Record<string, unknown>)["tag_name"] === "string" &&
+    typeof (raw as Record<string, unknown>)["html_url"] === "string"
+  ) {
+    return {
+      tag: (raw as Record<string, unknown>)["tag_name"] as string,
+      url: (raw as Record<string, unknown>)["html_url"] as string,
+    };
+  }
+  return null;
+}
+
 async function getLatestRelease(): Promise<{
   tag: string;
   url: string;
@@ -244,8 +301,9 @@ async function getLatestRelease(): Promise<{
       .text()
       .catch(() => "");
     if (result) {
-      const data = JSON.parse(result);
-      return { tag: data.tagName, url: data.url };
+      const parsed = parseGhReleaseJson(result);
+      if (parsed) return parsed;
+      // Malformed/partial JSON — fall through to public API
     }
   } catch {}
 
@@ -256,8 +314,8 @@ async function getLatestRelease(): Promise<{
       { signal: AbortSignal.timeout(5000) },
     );
     if (!res.ok) return null;
-    const data = (await res.json()) as { tag_name: string; html_url: string };
-    return { tag: data.tag_name, url: data.html_url };
+    const data: unknown = await res.json();
+    return parseGithubApiReleaseJson(data);
   } catch {
     return null;
   }

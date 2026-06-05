@@ -280,8 +280,16 @@ export class Store {
   /**
    * Delete all stopped/error sessions older than the given age (ms).
    * Returns the number of sessions pruned.
+   *
+   * DATA-LOSS GUARD: A non-positive or non-finite maxAgeMs must be a no-op.
+   * Without this guard, maxAgeMs <= 0 sets cutoff >= Date.now(), so the SQL
+   * predicate `updated_at < cutoff` matches EVERY stopped session and silently
+   * wipes all session history. Callers (startAutoCleanup, tp session prune)
+   * validate before reaching here, but defense-in-depth at the store layer is
+   * essential since this method is public API.
    */
   pruneOldSessions(maxAgeMs: number): number {
+    if (!Number.isFinite(maxAgeMs) || maxAgeMs <= 0) return 0;
     const cutoff = Date.now() - maxAgeMs;
     const old = this.metaDb
       .prepare(

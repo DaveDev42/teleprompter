@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { parseFiniteInt } from "../lib/parse-int";
 import { capture } from "../test-util";
 
 const TIMEOUT = 15000;
@@ -34,4 +35,40 @@ describe("tp relay", () => {
     },
     TIMEOUT,
   );
+});
+
+// ── parseFiniteInt unit tests ─────────────────────────────────────────────────
+// Testing the exported helper directly avoids subprocess overhead for cases
+// that are purely about the parsing logic.
+
+describe("parseFiniteInt", () => {
+  test("accepts valid positive integers", () => {
+    expect(parseFiniteInt("1")).toBe(1);
+    expect(parseFiniteInt("7090")).toBe(7090);
+    expect(parseFiniteInt("65535")).toBe(65535);
+  });
+
+  test("rejects zero", () => {
+    expect(() => parseFiniteInt("0")).toThrow();
+  });
+
+  test("rejects negative integers", () => {
+    expect(() => parseFiniteInt("-1")).toThrow();
+    expect(() => parseFiniteInt("-100")).toThrow();
+  });
+
+  test("rejects trailing garbage", () => {
+    expect(() => parseFiniteInt("0abc")).toThrow();
+    expect(() => parseFiniteInt("7090x")).toThrow();
+  });
+
+  test("rejects non-numeric strings", () => {
+    expect(() => parseFiniteInt("abc")).toThrow();
+    expect(() => parseFiniteInt("")).toThrow();
+  });
+
+  test("rejects floating-point notation", () => {
+    expect(() => parseFiniteInt("1.5")).toThrow();
+    expect(() => parseFiniteInt("1e3")).toThrow();
+  });
 });

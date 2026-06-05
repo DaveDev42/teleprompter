@@ -114,4 +114,81 @@ describe("Daemon auto-cleanup", () => {
 
     expect(store.getSession("running-old")).toBeDefined();
   });
+
+  // ── Invalid TTL fallback: protect against silent data-loss or disabled pruning ──
+
+  test("startAutoCleanup(0) falls back to DEFAULT_PRUNE_TTL_DAYS, does not wipe all sessions", () => {
+    const store = getStore(daemon);
+
+    // A session stopped within 7 days must survive — the fallback is 7d
+    store.createSession("recent-stopped", tmpdir());
+    store.updateSessionState("recent-stopped", "stopped");
+
+    // A very old session should still be pruned (> 7d default)
+    store.createSession("ancient", tmpdir());
+    store.updateSessionState("ancient", "stopped");
+    backdateSession(store, "ancient", 30 * 24 * 60 * 60 * 1000);
+
+    daemon.startAutoCleanup(0); // 0 must fall back to default (7d)
+
+    // Recent session must survive — not wiped wholesale
+    expect(store.getSession("recent-stopped")).toBeDefined();
+    // Ancient session is beyond the fallback 7d TTL and gets pruned
+    expect(store.getSession("ancient")).toBeUndefined();
+  });
+
+  test("startAutoCleanup(-1) falls back to DEFAULT_PRUNE_TTL_DAYS", () => {
+    const store = getStore(daemon);
+
+    store.createSession("safe-session", tmpdir());
+    store.updateSessionState("safe-session", "stopped");
+
+    daemon.startAutoCleanup(-1); // negative must fall back to default
+
+    // Session within default 7d TTL must survive
+    expect(store.getSession("safe-session")).toBeDefined();
+  });
+
+  test("TP_PRUNE_TTL_DAYS=abc falls back to DEFAULT_PRUNE_TTL_DAYS", () => {
+    const store = getStore(daemon);
+
+    store.createSession("safe-session", tmpdir());
+    store.updateSessionState("safe-session", "stopped");
+
+    const original = process.env["TP_PRUNE_TTL_DAYS"];
+    try {
+      process.env["TP_PRUNE_TTL_DAYS"] = "abc"; // NaN after Number()
+      daemon.startAutoCleanup(); // no explicit arg, reads env
+
+      // Session must survive — NaN should fall back to 7d default, not wipe all
+      expect(store.getSession("safe-session")).toBeDefined();
+    } finally {
+      if (original === undefined) {
+        delete process.env["TP_PRUNE_TTL_DAYS"];
+      } else {
+        process.env["TP_PRUNE_TTL_DAYS"] = original;
+      }
+    }
+  });
+
+  test("TP_PRUNE_TTL_DAYS=0 falls back to DEFAULT_PRUNE_TTL_DAYS", () => {
+    const store = getStore(daemon);
+
+    store.createSession("safe-session", tmpdir());
+    store.updateSessionState("safe-session", "stopped");
+
+    const original = process.env["TP_PRUNE_TTL_DAYS"];
+    try {
+      process.env["TP_PRUNE_TTL_DAYS"] = "0";
+      daemon.startAutoCleanup();
+
+      expect(store.getSession("safe-session")).toBeDefined();
+    } finally {
+      if (original === undefined) {
+        delete process.env["TP_PRUNE_TTL_DAYS"];
+      } else {
+        process.env["TP_PRUNE_TTL_DAYS"] = original;
+      }
+    }
+  });
 });

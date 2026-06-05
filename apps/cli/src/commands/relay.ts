@@ -1,5 +1,6 @@
 import { RelayServer } from "@teleprompter/relay";
 import { parseArgs } from "util";
+import { parseFiniteInt } from "../lib/parse-int";
 
 export async function relayCommand(argv: string[]): Promise<void> {
   const subcommand = argv[0];
@@ -23,6 +24,9 @@ export async function relayCommand(argv: string[]): Promise<void> {
   }
 }
 
+// Re-export so callers that import from relay.ts continue to work.
+export { parseFiniteInt } from "../lib/parse-int";
+
 async function startRelay(argv: string[]): Promise<void> {
   const { values } = parseArgs({
     args: argv,
@@ -33,20 +37,6 @@ async function startRelay(argv: string[]): Promise<void> {
     },
     strict: false,
   });
-
-  const parseFiniteInt = (raw: string): number => {
-    // parseInt is too lenient: parseInt("0abc", 10) === 0, so trailing garbage
-    // slips through and a bad flag like `--cache-size 0abc` would be accepted as
-    // 0 instead of rejected — letting the relay start (and, with a fixed --port,
-    // race EADDRINUSE) instead of failing fast. Require the WHOLE string to be a
-    // base-10 integer (optional sign, digits only).
-    if (!/^[+-]?\d+$/.test(raw.trim())) {
-      throw new Error(`Invalid integer value: '${raw}'`);
-    }
-    const n = Number(raw);
-    if (!Number.isFinite(n)) throw new Error(`Invalid integer value: '${raw}'`);
-    return n;
-  };
 
   let port: number;
   try {

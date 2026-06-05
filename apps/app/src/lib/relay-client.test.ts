@@ -1139,7 +1139,9 @@ describe("FrontendRelayClient — H8/M26: auth pipeline failure and ordering", (
       _cb: () => void,
       _ms: number,
     ) =>
-      0 as unknown as ReturnType<typeof setTimeout>) as unknown as typeof setTimeout;
+      0 as unknown as ReturnType<
+        typeof setTimeout
+      >) as unknown as typeof setTimeout;
 
     const spy = captureConsole();
     try {
@@ -1153,7 +1155,10 @@ describe("FrontendRelayClient — H8/M26: auth pipeline failure and ordering", (
       (client as unknown as { kxKey: Uint8Array }).kxKey = new Uint8Array(4); // wrong length → encrypt throws
 
       // Send auth.ok — this should trigger the sabotaged sendKeyExchange.
-      ws.simulateMessage({ t: "relay.auth.ok", daemonId: "daemon-test" } as RelayServerMessage);
+      ws.simulateMessage({
+        t: "relay.auth.ok",
+        daemonId: "daemon-test",
+      } as RelayServerMessage);
       await flushPromises(30);
 
       // The client must NOT report itself as connected after kx failure.
@@ -1161,12 +1166,15 @@ describe("FrontendRelayClient — H8/M26: auth pipeline failure and ordering", (
       expect(client.isConnected()).toBe(false);
       // The error must have been logged (not silently swallowed).
       const handleMessageErrors = spy.errorCalls.filter(
-        (c) => typeof c[0] === "string" && (c[0] as string).includes("[FrontendRelay]"),
+        (c) =>
+          typeof c[0] === "string" &&
+          (c[0] as string).includes("[FrontendRelay]"),
       );
       expect(handleMessageErrors.length).toBeGreaterThan(0);
     } finally {
       spy.restore();
-      (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout = originalSetTimeout;
+      (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
+        originalSetTimeout;
       client.dispose();
     }
   });
@@ -1185,7 +1193,9 @@ describe("FrontendRelayClient — H8/M26: auth pipeline failure and ordering", (
       _cb: () => void,
       _ms: number,
     ) =>
-      0 as unknown as ReturnType<typeof setTimeout>) as unknown as typeof setTimeout;
+      0 as unknown as ReturnType<
+        typeof setTimeout
+      >) as unknown as typeof setTimeout;
 
     try {
       await client.connect();
@@ -1212,7 +1222,10 @@ describe("FrontendRelayClient — H8/M26: auth pipeline failure and ordering", (
         }
       };
 
-      ws.simulateMessage({ t: "relay.auth.ok", daemonId: "daemon-test" } as RelayServerMessage);
+      ws.simulateMessage({
+        t: "relay.auth.ok",
+        daemonId: "daemon-test",
+      } as RelayServerMessage);
       // Give plenty of microtasks for the async pipeline to settle.
       await flushPromises(40);
 
@@ -1229,7 +1242,8 @@ describe("FrontendRelayClient — H8/M26: auth pipeline failure and ordering", (
       // Client must not report itself connected.
       expect(client.isConnected()).toBe(false);
     } finally {
-      (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout = originalSetTimeout;
+      (globalThis as unknown as { setTimeout: typeof setTimeout }).setTimeout =
+        originalSetTimeout;
       client.dispose();
     }
   });

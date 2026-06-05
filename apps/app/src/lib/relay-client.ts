@@ -319,8 +319,7 @@ export class FrontendRelayClient implements TransportClient {
       // disconnect so the UI knows we are not actually connected and so the
       // reconnect path can recover.
       this.handleMessage(msg, epochAtConnect).catch((err: unknown) => {
-        const msg =
-          err instanceof Error ? err.message : String(err);
+        const msg = err instanceof Error ? err.message : String(err);
         console.error(`[FrontendRelay] handleMessage threw: ${msg}`);
         this.authenticated = false;
         this.stopRelayPing();

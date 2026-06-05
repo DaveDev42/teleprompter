@@ -5,6 +5,8 @@
  * scrolls to the match, and highlights via selection.
  */
 
+import type { Terminal } from "ghostty-web";
+
 interface Match {
   row: number;
   col: number;
@@ -12,12 +14,13 @@ interface Match {
 }
 
 export class TerminalSearch {
-  private term: any;
+  private term: Terminal;
   private matches: Match[] = [];
   private currentIndex = -1;
   private lastQuery = "";
+  private lastCaseSensitive = false;
 
-  constructor(term: any) {
+  constructor(term: Terminal) {
     this.term = term;
   }
 
@@ -25,9 +28,15 @@ export class TerminalSearch {
    * Find all matches for a query in the buffer.
    */
   private search(query: string, caseSensitive = false): void {
-    if (query === this.lastQuery && this.matches.length > 0) return;
+    if (
+      query === this.lastQuery &&
+      caseSensitive === this.lastCaseSensitive &&
+      this.matches.length > 0
+    )
+      return;
 
     this.lastQuery = query;
+    this.lastCaseSensitive = caseSensitive;
     this.matches = [];
     this.currentIndex = -1;
 
@@ -97,7 +106,8 @@ export class TerminalSearch {
     this.matches = [];
     this.currentIndex = -1;
     this.lastQuery = "";
-    this.term?.clearSelection?.();
+    this.lastCaseSensitive = false;
+    this.term.clearSelection();
   }
 
   private goToMatch(): void {

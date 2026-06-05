@@ -248,7 +248,12 @@ export class FrontendRelayClient implements TransportClient {
             token: string;
             expiresAt: number;
           };
-          if (parsed.token && parsed.expiresAt > Date.now()) {
+          if (
+            typeof parsed.token === "string" &&
+            typeof parsed.expiresAt === "number" &&
+            parsed.token.length > 0 &&
+            parsed.expiresAt > Date.now()
+          ) {
             this.resumeToken = parsed.token;
             this.resumeExpiresAt = parsed.expiresAt;
           } else {

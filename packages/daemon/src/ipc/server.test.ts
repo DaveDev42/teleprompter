@@ -206,7 +206,7 @@ describe("IpcServer", () => {
     const del: IpcSessionDelete = { t: "session.delete", sid: "to-delete" };
     const prune: IpcSessionPrune = {
       t: "session.prune",
-      olderThanMs: 86_400_000,
+      age: { kind: "olderThan", ms: 86_400_000 },
       includeRunning: false,
       dryRun: true,
     };

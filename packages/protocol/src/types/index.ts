@@ -8,6 +8,7 @@ export type {
   StopEvent,
 } from "./event";
 export type {
+  AgeFilter,
   IpcAck,
   IpcBye,
   IpcDoctorProbe,

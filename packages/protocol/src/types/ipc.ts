@@ -186,16 +186,28 @@ export interface IpcSessionDeleteErr {
 }
 
 /**
- * CLI → Daemon: prune sessions matching a filter. `olderThanMs` scopes to
- * stopped/error sessions whose `updated_at` is older than the given age.
+ * Discriminated union describing the age filter for `session.prune`.
+ *
+ * - `{ kind: "all" }` — select every stopped/error session regardless of age.
+ * - `{ kind: "olderThan"; ms: number }` — select sessions whose `updated_at`
+ *   is older than `ms` milliseconds ago (must be a positive non-negative integer).
+ *
+ * Replaces the former `olderThanMs: number | null` sentinel, where `null` was
+ * overloaded to mean "no age filter".
+ */
+export type AgeFilter = { kind: "all" } | { kind: "olderThan"; ms: number };
+
+/**
+ * CLI → Daemon: prune sessions matching a filter. `age` scopes to
+ * stopped/error sessions; `{ kind: "all" }` matches every stopped/error
+ * session, `{ kind: "olderThan"; ms }` matches sessions older than `ms`.
  * `includeRunning` forces running sessions into the selection (their Runner
  * is killed first). `dryRun` returns the selection without deleting.
  */
 export interface IpcSessionPrune {
   t: "session.prune";
-  /** Milliseconds; stopped/error sessions whose `updated_at` is older than
-   * this cutoff are selected. `null` means no age filter (all). */
-  olderThanMs: number | null;
+  /** Age filter; see {@link AgeFilter}. */
+  age: AgeFilter;
   /** When true, running sessions are also selected and killed before delete. */
   includeRunning: boolean;
   /** When true, return the selection without deleting. */

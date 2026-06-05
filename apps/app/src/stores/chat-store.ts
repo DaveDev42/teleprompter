@@ -6,19 +6,6 @@ import type {
 } from "@teleprompter/protocol/client";
 import { create } from "zustand";
 
-/**
- * Hook event names that produce no user-facing chat output.
- * SessionStart / SessionEnd / SubagentStart / SubagentStop are emitted
- * automatically by claude and clutter the chat history without adding value.
- * Hoisted to module scope so the Set is allocated once, not on every call.
- */
-const SILENT_EVENTS = new Set([
-  "SessionStart",
-  "SessionEnd",
-  "SubagentStart",
-  "SubagentStop",
-]);
-
 export type ChatMessageType =
   | "user"
   | "assistant"

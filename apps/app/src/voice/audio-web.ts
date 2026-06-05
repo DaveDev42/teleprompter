@@ -11,6 +11,7 @@ const SAMPLE_RATE = 24000; // Realtime API expects 24kHz
 export class AudioCapture {
   private stream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
+  private source: MediaStreamAudioSourceNode | null = null;
   private processor: ScriptProcessorNode | null = null;
   private onChunk: ((base64: string) => void) | null = null;
 
@@ -27,7 +28,8 @@ export class AudioCapture {
     });
 
     this.audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
-    const source = this.audioContext.createMediaStreamSource(this.stream);
+    // Retain the source node so it can be disconnected in stop().
+    this.source = this.audioContext.createMediaStreamSource(this.stream);
 
     // ScriptProcessor for raw PCM access (deprecated but widely supported)
     this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
@@ -38,11 +40,14 @@ export class AudioCapture {
       this.onChunk?.(base64);
     };
 
-    source.connect(this.processor);
+    this.source.connect(this.processor);
     this.processor.connect(this.audioContext.destination);
   }
 
   stop(): void {
+    // Disconnect both graph nodes to release the audio graph and mic stream.
+    this.source?.disconnect();
+    this.source = null;
     this.processor?.disconnect();
     this.processor = null;
     this.stream?.getTracks().forEach((t) => {

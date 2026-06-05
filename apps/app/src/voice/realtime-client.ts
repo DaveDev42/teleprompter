@@ -177,25 +177,20 @@ When the user gives a coding instruction, output it as a clean prompt. For examp
         break;
 
       case "response.text.done":
-        // Model's text response (the refined prompt)
+        // Model's text response (the refined prompt). This is the single
+        // authoritative source for onRefinedPrompt. The OpenAI Realtime API
+        // sends response.text.done *and* response.done (whose output array
+        // contains the same final text), so emitting from both paths causes
+        // a duplicate chat message. We keep only this case and drop the
+        // text-extraction block from response.done below.
         if (msg.text) {
           this.events.onRefinedPrompt?.(msg.text);
         }
         break;
 
       case "response.done":
-        // Extract text from the response output
-        if (msg.response?.output) {
-          for (const item of msg.response.output) {
-            if (item.type === "message") {
-              for (const content of item.content ?? []) {
-                if (content.type === "text" && content.text) {
-                  this.events.onRefinedPrompt?.(content.text);
-                }
-              }
-            }
-          }
-        }
+        // response.done signals completion; no additional action needed here.
+        // The refined prompt text was already emitted via response.text.done.
         break;
 
       case "error":

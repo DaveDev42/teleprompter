@@ -429,7 +429,19 @@ export class IpcCommandDispatcher {
     switch (msg.t) {
       case "hello": {
         const sessions = this.deps.store.listSessions().map(toSessionMeta);
-        reply(RELAY_CHANNEL_META, { t: "hello", v: 1, d: { sessions } });
+        // Include the daemon's pairing label so the frontend can display which
+        // daemon it just connected to without a separate round-trip. This is a
+        // keep-current surface: `relay.label` is undefined when no label is set,
+        // which the app decodes via `decodeKxLabelOrKeep` (absence = keep current).
+        const daemonLabel = relay.label;
+        reply(RELAY_CHANNEL_META, {
+          t: "hello",
+          v: 1,
+          d: {
+            sessions,
+            ...(daemonLabel !== undefined ? { daemonLabel } : {}),
+          },
+        });
         break;
       }
 

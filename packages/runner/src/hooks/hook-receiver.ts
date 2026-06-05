@@ -8,6 +8,17 @@ import { dirname, join } from "path";
 
 const log = createLogger("HookReceiver");
 
+/**
+ * Per-connection accumulation buffer ceiling.
+ *
+ * Hook events are small JSON payloads (a few KB at most). If a connection
+ * sends data that never forms valid JSON — truncated message, garbage bytes,
+ * or a malicious flood — the buffer would grow without bound, causing an
+ * unbounded-memory DoS on the runner process. 1 MB is generous enough for
+ * any real hook event while keeping the worst-case footprint predictable.
+ */
+const MAX_HOOK_BUF_BYTES = 1 * 1024 * 1024; // 1 MB
+
 export type HookEventHandler = (event: HookEventBase) => void;
 
 export class HookReceiver {
@@ -41,6 +52,16 @@ export class HookReceiver {
           const text = Buffer.from(data).toString("utf-8");
           const conn = _socket as typeof _socket & { _buf?: string };
           conn._buf = (conn._buf ?? "") + text;
+          // Guard against unbounded-memory DoS: if the accumulated buffer
+          // exceeds MAX_HOOK_BUF_BYTES the data can never form a valid hook
+          // event within budget, so drop it and reset the buffer.
+          if (conn._buf.length > MAX_HOOK_BUF_BYTES) {
+            log.warn(
+              `hook buffer exceeded ${MAX_HOOK_BUF_BYTES} bytes, dropping oversized payload`,
+            );
+            conn._buf = "";
+            return;
+          }
           try {
             const parsed: unknown = JSON.parse(conn._buf);
             conn._buf = "";

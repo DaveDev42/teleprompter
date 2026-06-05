@@ -42,6 +42,15 @@ const log = createLogger("RelayClient");
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
+/**
+ * Maximum useful exponent for the backoff formula `RECONNECT_BASE_MS * 2^n`.
+ * Once n reaches this value the delay already equals RECONNECT_MAX_MS, so
+ * incrementing further is wasted compute (2^n overflows to Infinity for large n).
+ * Clamping the counter here keeps the arithmetic clean.
+ */
+const MAX_RECONNECT_ATTEMPT = Math.ceil(
+  Math.log2(RECONNECT_MAX_MS / RECONNECT_BASE_MS),
+);
 /** How often to send relay.ping (ms) */
 const PING_INTERVAL_MS = 30_000;
 
@@ -680,7 +689,12 @@ export class RelayClient {
       RECONNECT_BASE_MS * 2 ** this.reconnectAttempt,
       RECONNECT_MAX_MS,
     );
-    this.reconnectAttempt++;
+    // Cap at MAX_RECONNECT_ATTEMPT so the exponent never grows past the point
+    // where delay already equals RECONNECT_MAX_MS (avoids 2**1024 = Infinity).
+    this.reconnectAttempt = Math.min(
+      this.reconnectAttempt + 1,
+      MAX_RECONNECT_ATTEMPT,
+    );
     this.reconnectTimer = setTimeout(() => this.connect(), delay);
   }
 
@@ -736,5 +750,11 @@ export class RelayClient {
   /** The relay URL this client connects to. */
   get relayUrl(): string {
     return this.config.relayUrl;
+  }
+
+  /** The pairing label for this relay client (keep-current surface: absence or
+   * `{ set: false }` means "keep the app's current label", not "clear"). */
+  get label(): Label | undefined {
+    return this.config.label;
   }
 }

@@ -163,6 +163,14 @@ export class FrontendRelayClient implements TransportClient {
   onDaemonHello: ((info: { daemonId: string; label: Label }) => void) | null =
     null;
 
+  /**
+   * Monotonically-increasing epoch counter. Incremented each time a new
+   * WebSocket is created in connect(). Captured before every async gap in
+   * handleMessage so that post-await code can detect that a new connection
+   * cycle began (e.g. socket closed while kx was in flight) and abort
+   * instead of emitting onConnected on a dead connection.
+   */
+  private connectionEpoch = 0;
   /** Track attached session and last seq for auto-resume on reconnect */
   private attachedSid: string | null = null;
   private lastSeq = 0;
@@ -256,6 +264,12 @@ export class FrontendRelayClient implements TransportClient {
 
     this.cleanup();
 
+    // Bump epoch before creating the new socket. Any async pipeline that
+    // captured the old epoch (e.g. handleMessage mid-await) will detect
+    // the mismatch and abort, preventing stale onConnected emissions.
+    this.connectionEpoch += 1;
+    const epochAtConnect = this.connectionEpoch;
+
     const ws = new WebSocket(this.config.relayUrl);
     this.ws = ws;
 
@@ -292,11 +306,38 @@ export class FrontendRelayClient implements TransportClient {
       }
       const msg = parseRelayServerMessage(parsed);
       if (!msg) return;
-      this.handleMessage(msg);
+      // handleMessage is async (encrypt/decrypt); surface rejections so they
+      // don't become silently swallowed unhandled promise rejections. On error
+      // (e.g. kx fails due to corrupt key or Wasm OOM) we must NOT leave the
+      // client in a "authenticated=true but broken" half-open state — force a
+      // disconnect so the UI knows we are not actually connected and so the
+      // reconnect path can recover.
+      // handleMessage is async (encrypt/decrypt); surface rejections so they
+      // don't become silently swallowed unhandled promise rejections. On error
+      // (e.g. kx fails due to corrupt key or Wasm OOM) we must NOT leave the
+      // client in a "authenticated=true but broken" half-open state — force a
+      // disconnect so the UI knows we are not actually connected and so the
+      // reconnect path can recover.
+      this.handleMessage(msg, epochAtConnect).catch((err: unknown) => {
+        const msg =
+          err instanceof Error ? err.message : String(err);
+        console.error(`[FrontendRelay] handleMessage threw: ${msg}`);
+        this.authenticated = false;
+        this.stopRelayPing();
+        // Synthesize a close so ws.onclose fires → onDisconnected + scheduleReconnect.
+        // Guard: only close if this is still the active connection epoch.
+        if (this.connectionEpoch === epochAtConnect) {
+          this.ws?.close();
+        }
+      });
     };
 
     ws.onclose = () => {
       this.authenticated = false;
+      // Bump the epoch on close so any in-flight async handleMessage pipeline
+      // (e.g. sendKeyExchange awaiting encrypt) detects the stale epoch and
+      // does NOT emit onConnected after onDisconnected (M26 fix).
+      this.connectionEpoch += 1;
       // Clear any frames still parked waiting for auth — a brand-new
       // connection cycle will re-run kx and the stale queue is meaningless
       // (and `resume`/`attach` will be re-issued by callers or by the
@@ -313,7 +354,10 @@ export class FrontendRelayClient implements TransportClient {
     };
   }
 
-  private async handleMessage(msg: RelayServerMessage): Promise<void> {
+  private async handleMessage(
+    msg: RelayServerMessage,
+    epoch: number,
+  ): Promise<void> {
     switch (msg.t) {
       case "relay.auth.ok": {
         this.authenticated = true;
@@ -356,9 +400,28 @@ export class FrontendRelayClient implements TransportClient {
         if (!resumed) {
           await this.sendKeyExchange();
         }
+        // ── M26 / H8 guard ──
+        // The awaits above (sendKeyExchange, flushPendingEncrypted) create
+        // windows where the socket can close and onDisconnected can fire before
+        // we reach onConnected. Guard: if the connection epoch changed while we
+        // were awaiting, the socket has since closed — abort silently. This
+        // prevents onConnected from firing AFTER onDisconnected (inverted
+        // ordering that leaves the UI thinking it's connected post-disconnect).
+        // Also clear authenticated so isConnected() returns false, matching the
+        // closed state.
+        if (this.connectionEpoch !== epoch) {
+          this.authenticated = false;
+          return;
+        }
         // Drain any frames queued while auth/kx was pending. Must happen
         // AFTER kx (when applicable) so the daemon can decrypt them.
         await this.flushPendingEncrypted();
+        // Re-check epoch after the second await (flushPendingEncrypted also
+        // calls sendEncrypted which is async).
+        if (this.connectionEpoch !== epoch) {
+          this.authenticated = false;
+          return;
+        }
         // Fire onConnected *after* kx + flush. Subscribers wire this into
         // React state (`useAnyRelayConnected`) and any side-effects that
         // immediately call back into `sendEncrypted` (e.g. ChatView's

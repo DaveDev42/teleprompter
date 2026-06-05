@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { RelayServer } from "./relay-server";
 
+function waitOpen(ws: WebSocket): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    ws.onopen = () => resolve();
+    ws.onerror = () => reject(new Error("ws open failed"));
+    setTimeout(() => reject(new Error("ws open timeout")), 3000);
+  });
+}
+
 describe("Relay Performance", () => {
   let relay: RelayServer;
   let port: number;
@@ -15,9 +23,7 @@ describe("Relay Performance", () => {
 
   test("throughput: 100 frames daemon→frontend", async () => {
     const daemon = new WebSocket(`ws://localhost:${port}`);
-    await new Promise<void>((r) => {
-      daemon.onopen = () => r();
-    });
+    await waitOpen(daemon);
     daemon.send(
       JSON.stringify({
         t: "relay.auth",
@@ -29,9 +35,7 @@ describe("Relay Performance", () => {
     );
 
     const frontend = new WebSocket(`ws://localhost:${port}`);
-    await new Promise<void>((r) => {
-      frontend.onopen = () => r();
-    });
+    await waitOpen(frontend);
     frontend.send(
       JSON.stringify({
         t: "relay.auth",

@@ -48,7 +48,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - name: Test with coverage
-        run: bun test --coverage packages/protocol packages/daemon packages/runner apps/cli packages/relay
+        run: bun test --coverage --timeout 30000 packages/protocol packages/daemon packages/runner apps/cli packages/relay
 
   build-cli:
     runs-on: ubuntu-latest

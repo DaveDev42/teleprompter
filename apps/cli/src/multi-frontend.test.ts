@@ -75,9 +75,7 @@ describe("Multi-Frontend N:N E2E", () => {
 
     // Connect frontend A
     const wsA = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => {
-      wsA.onopen = () => r();
-    });
+    await waitOpen(wsA);
     wsA.send(
       JSON.stringify({
         t: "relay.auth",
@@ -107,9 +105,7 @@ describe("Multi-Frontend N:N E2E", () => {
 
     // Connect frontend B
     const wsB = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => {
-      wsB.onopen = () => r();
-    });
+    await waitOpen(wsB);
     wsB.send(
       JSON.stringify({
         t: "relay.auth",
@@ -247,9 +243,7 @@ describe("Multi-Frontend N:N E2E", () => {
 
     // Connect frontend
     const ws = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => {
-      ws.onopen = () => r();
-    });
+    await waitOpen(ws);
     ws.send(
       JSON.stringify({
         t: "relay.auth",
@@ -338,6 +332,14 @@ describe("Multi-Frontend N:N E2E", () => {
     ws.close();
   });
 });
+
+function waitOpen(ws: WebSocket): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    ws.onopen = () => resolve();
+    ws.onerror = () => reject(new Error("ws open failed"));
+    setTimeout(() => reject(new Error("ws open timeout")), 3000);
+  });
+}
 
 function collectFrames(
   ws: WebSocket,

@@ -1,5 +1,6 @@
 import { Store } from "@teleprompter/daemon";
 import type {
+  AgeFilter,
   IpcSessionDelete,
   IpcSessionDeleteErr,
   IpcSessionDeleteOk,
@@ -292,12 +293,12 @@ async function sessionPrune(argv: string[]): Promise<void> {
   // since `parseArgs`'s return type is `string | boolean | undefined`.
   const olderThanRaw =
     typeof values["older-than"] === "string" ? values["older-than"] : "7d";
-  let olderThanMs: number | null;
+  let age: AgeFilter;
   if (values.all) {
-    olderThanMs = null;
+    age = { kind: "all" };
   } else {
     try {
-      olderThanMs = parseDuration(olderThanRaw);
+      age = { kind: "olderThan", ms: parseDuration(olderThanRaw) };
     } catch (err) {
       console.error(fail(err instanceof Error ? err.message : String(err)));
       process.exit(1);
@@ -325,12 +326,12 @@ async function sessionPrune(argv: string[]): Promise<void> {
       console.error(fail(msg));
       process.exit(1);
     }
-    // With --all there is no age filter (olderThanMs === null) — every
-    // matching session is pruned regardless of age. formatPruneQuestion
-    // reflects that as "all" instead of the stale "older than 7d" default,
-    // which would lead a user to confirm a far larger deletion than intended.
+    // With --all there is no age filter — every matching session is pruned
+    // regardless of age. formatPruneQuestion reflects that as "all" instead of
+    // the stale "older than 7d" default, which would lead a user to confirm a
+    // far larger deletion than intended.
     const pruneQuestion = formatPruneQuestion({
-      all: Boolean(values.all),
+      all: age.kind === "all",
       includeRunning,
       olderThanRaw,
     });
@@ -364,7 +365,7 @@ async function sessionPrune(argv: string[]): Promise<void> {
     >(
       {
         t: "session.prune",
-        olderThanMs,
+        age,
         includeRunning,
         dryRun,
       },
@@ -407,8 +408,8 @@ async function sessionPrune(argv: string[]): Promise<void> {
       const now = Date.now();
       const candidates = store.listSessions().filter((s) => {
         if (s.state === "running" && !includeRunning) return false;
-        if (olderThanMs === null) return true;
-        return s.updated_at < now - olderThanMs;
+        if (age.kind === "all") return true;
+        return s.updated_at < now - age.ms;
       });
 
       if (dryRun) {

@@ -496,7 +496,7 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     const { dispatcher, calls } = makeHarness({ sessions });
     dispatcher.dispatchIpc(makeRunner(), {
       t: "session.prune",
-      olderThanMs: 5_000,
+      age: { kind: "olderThan", ms: 5_000 },
       includeRunning: false,
       dryRun: false,
     });
@@ -528,7 +528,7 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     const { dispatcher, calls } = makeHarness({ sessions });
     dispatcher.dispatchIpc(makeRunner(), {
       t: "session.prune",
-      olderThanMs: 5_000,
+      age: { kind: "olderThan", ms: 5_000 },
       includeRunning: false,
       dryRun: true,
     });
@@ -552,7 +552,7 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     });
     dispatcher.dispatchIpc(makeRunner(), {
       t: "session.prune",
-      olderThanMs: 5_000,
+      age: { kind: "olderThan", ms: 5_000 },
       includeRunning: true,
       dryRun: false,
     });
@@ -567,7 +567,7 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     expect(reply.runningKilled).toBe(1);
   });
 
-  test("session.prune with olderThanMs=null and includeRunning=true matches everything", async () => {
+  test("session.prune with age:{kind:'all'} and includeRunning=true matches everything", async () => {
     const now = Date.now();
     const sessions: SessionMeta[] = [
       mkMeta("r1", "running", now),
@@ -579,7 +579,7 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     });
     dispatcher.dispatchIpc(makeRunner(), {
       t: "session.prune",
-      olderThanMs: null,
+      age: { kind: "all" },
       includeRunning: true,
       dryRun: false,
     });
@@ -588,11 +588,52 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     expect(calls.storeDeleteSession.sort()).toEqual(["r1", "s1"]);
   });
 
+  test("session.prune with age:{kind:'all'} prunes a stopped session ignoring its age", async () => {
+    // The session's updated_at is `now` (just created) — an olderThan filter
+    // would skip it, but `kind:'all'` must select it regardless.
+    const now = Date.now();
+    const sessions: SessionMeta[] = [mkMeta("s-fresh", "stopped", now)];
+    const { dispatcher, calls } = makeHarness({ sessions });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "session.prune",
+      age: { kind: "all" },
+      includeRunning: false,
+      dryRun: false,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls.storeDeleteSession).toEqual(["s-fresh"]);
+  });
+
+  test("session.prune with age:{kind:'olderThan',ms:...} respects the cutoff", async () => {
+    // A very large ms means "older than a huge age" — recently-updated sessions
+    // must NOT be deleted. This pins the data-loss guard introduced in PR-B.
+    const now = Date.now();
+    const recentSid = "s-recent";
+    const oldSid = "s-old";
+    const sessions: SessionMeta[] = [
+      mkMeta(recentSid, "stopped", now - 100), // 100 ms old
+      mkMeta(oldSid, "stopped", now - 100_000_000), // ~27 hours old
+    ];
+    const { dispatcher, calls } = makeHarness({ sessions });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "session.prune",
+      age: { kind: "olderThan", ms: 3_600_000 }, // 1 hour
+      includeRunning: false,
+      dryRun: false,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls.storeDeleteSession).toEqual([oldSid]);
+    // recent session must be untouched
+    expect(calls.storeDeleteSession).not.toContain(recentSid);
+  });
+
   test("session.prune with no matches still replies ok with empty sids", async () => {
     const { dispatcher, calls } = makeHarness({ sessions: [] });
     dispatcher.dispatchIpc(makeRunner(), {
       t: "session.prune",
-      olderThanMs: 5_000,
+      age: { kind: "olderThan", ms: 5_000 },
       includeRunning: false,
       dryRun: false,
     });
@@ -625,7 +666,7 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     });
     dispatcher.dispatchIpc(makeRunner(), {
       t: "session.prune",
-      olderThanMs: 5_000,
+      age: { kind: "olderThan", ms: 5_000 },
       includeRunning: false,
       dryRun: false,
     });
@@ -660,7 +701,7 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     });
     dispatcher.dispatchIpc(makeRunner(), {
       t: "session.prune",
-      olderThanMs: 5_000,
+      age: { kind: "olderThan", ms: 5_000 },
       includeRunning: true,
       dryRun: false,
     });

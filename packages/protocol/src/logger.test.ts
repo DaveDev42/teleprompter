@@ -69,4 +69,19 @@ describe("logger", () => {
     expect(output.length).toBe(1);
     expect(output[0]).toContain("visible");
   });
+
+  test("unknown level does not disable logging (falls back to info)", () => {
+    // First set a known level so we have a predictable baseline.
+    setLogLevel("info");
+    // Call with an invalid level string cast to LogLevel.
+    setLogLevel("bogus" as Parameters<typeof setLogLevel>[0]);
+    const log = createLogger("Test");
+    // At "info" level (the fallback), info messages must still appear.
+    log.info("still visible");
+    expect(output.length).toBe(1);
+    expect(output[0]).toContain("still visible");
+    // debug must still be suppressed (we're at info, not debug).
+    log.debug("hidden");
+    expect(output.length).toBe(1);
+  });
 });

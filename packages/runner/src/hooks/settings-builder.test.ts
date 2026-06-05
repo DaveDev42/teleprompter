@@ -107,4 +107,46 @@ describe("buildSettings", () => {
     const result = JSON.parse(buildSettings(hookSocket, tempDir));
     expect(result.hooks.Stop).toHaveLength(1);
   });
+
+  test("preserves unknown hook event keys (future Claude Code events)", () => {
+    // A hook event key that is NOT in HOOK_EVENTS (simulating a newer Claude Code
+    // event or a custom hook) must survive the settings round-trip unchanged.
+    const claudeDir = join(tempDir, ".claude");
+    mkdirSync(claudeDir, { recursive: true });
+    writeFileSync(
+      join(claudeDir, "settings.local.json"),
+      JSON.stringify({
+        hooks: {
+          // A known event with an existing entry.
+          Stop: [
+            {
+              matcher: "",
+              hooks: [{ type: "command", command: "echo stopped", timeout: 5 }],
+            },
+          ],
+          // An unknown event key (not in HOOK_EVENTS) — must be preserved.
+          FutureEvent: [
+            {
+              matcher: "",
+              hooks: [{ type: "command", command: "echo future", timeout: 5 }],
+            },
+          ],
+          // A non-array value under an unknown key — must be silently skipped.
+          BadKey: "not-an-array",
+        },
+      }),
+    );
+
+    const result = JSON.parse(buildSettings(hookSocket, tempDir));
+
+    // Known event: existing entry + TP hook.
+    expect(result.hooks.Stop).toHaveLength(2);
+
+    // Unknown array key must be preserved verbatim.
+    expect(result.hooks.FutureEvent).toHaveLength(1);
+    expect(result.hooks.FutureEvent[0].hooks[0].command).toBe("echo future");
+
+    // Non-array junk under unknown key must be dropped.
+    expect(result.hooks.BadKey).toBeUndefined();
+  });
 });

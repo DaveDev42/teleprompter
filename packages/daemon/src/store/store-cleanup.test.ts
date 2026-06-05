@@ -105,4 +105,47 @@ describe("Store session cleanup", () => {
     expect(pruned).toBe(1);
     expect(vault.getSession(sid)).toBeUndefined();
   });
+
+  // ── Data-loss guard: zero / negative / NaN maxAgeMs must be a no-op ──────
+  //
+  // Without this guard, maxAgeMs <= 0 causes cutoff >= Date.now(), so the SQL
+  // predicate `updated_at < cutoff` would match EVERY stopped session and
+  // silently wipe all session history (e.g. TP_PRUNE_TTL_DAYS=0 or a typo).
+
+  test("pruneOldSessions(0) is a no-op — returns 0 and deletes nothing", () => {
+    const sid = `stopped-${randomUUID()}`;
+    vault.createSession(sid, "/tmp");
+    vault.updateSessionState(sid, "stopped");
+    // Backdate to make it look old enough to prune under any real TTL
+    backdateSession(vault, sid, 30 * 24 * 60 * 60 * 1000);
+
+    const pruned = vault.pruneOldSessions(0);
+
+    expect(pruned).toBe(0);
+    expect(vault.getSession(sid)).toBeDefined();
+  });
+
+  test("pruneOldSessions(-1) is a no-op — returns 0 and deletes nothing", () => {
+    const sid = `stopped-${randomUUID()}`;
+    vault.createSession(sid, "/tmp");
+    vault.updateSessionState(sid, "stopped");
+    backdateSession(vault, sid, 30 * 24 * 60 * 60 * 1000);
+
+    const pruned = vault.pruneOldSessions(-1);
+
+    expect(pruned).toBe(0);
+    expect(vault.getSession(sid)).toBeDefined();
+  });
+
+  test("pruneOldSessions(NaN) is a no-op — returns 0 and deletes nothing", () => {
+    const sid = `stopped-${randomUUID()}`;
+    vault.createSession(sid, "/tmp");
+    vault.updateSessionState(sid, "stopped");
+    backdateSession(vault, sid, 30 * 24 * 60 * 60 * 1000);
+
+    const pruned = vault.pruneOldSessions(Number.NaN);
+
+    expect(pruned).toBe(0);
+    expect(vault.getSession(sid)).toBeDefined();
+  });
 });

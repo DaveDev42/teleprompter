@@ -174,11 +174,25 @@ export class Daemon {
    * @param ttlDays Days to keep stopped/error sessions (default: 7, env: TP_PRUNE_TTL_DAYS)
    */
   startAutoCleanup(ttlDays?: number): void {
-    const days =
+    // Resolve candidate TTL from explicit arg or env, then validate.
+    // An invalid value (NaN from a typo, 0, or negative) falls back to the
+    // default rather than silently disabling pruning or, worse, triggering a
+    // full wipe of session history at the store layer.
+    let days =
       ttlDays ??
       (process.env["TP_PRUNE_TTL_DAYS"]
         ? Number(process.env["TP_PRUNE_TTL_DAYS"])
         : DEFAULT_PRUNE_TTL_DAYS);
+    if (!Number.isFinite(days) || days <= 0) {
+      const raw =
+        ttlDays !== undefined
+          ? String(ttlDays)
+          : (process.env["TP_PRUNE_TTL_DAYS"] ?? "");
+      log.warn(
+        `invalid prune TTL '${raw}', falling back to ${DEFAULT_PRUNE_TTL_DAYS}d`,
+      );
+      days = DEFAULT_PRUNE_TTL_DAYS;
+    }
     const maxAgeMs = days * 24 * 60 * 60 * 1000;
 
     // Prune immediately on startup

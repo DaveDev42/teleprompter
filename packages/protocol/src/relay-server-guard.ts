@@ -20,6 +20,15 @@
  * call sites need it.
  */
 
+import {
+  isNonNegativeInt,
+  isNumber,
+  isObject,
+  isOptionalNumber,
+  isOptionalString,
+  isString,
+  isStringArray,
+} from "./guard-primitives";
 import type {
   RelayAuthErr,
   RelayAuthOk,
@@ -34,38 +43,12 @@ import type {
   RelayServerMessage,
 } from "./types/relay";
 
-type PlainObject = { [key: string]: unknown };
-
-function isObject(value: unknown): value is PlainObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isString(v: unknown): v is string {
-  return typeof v === "string";
-}
-
-function isOptionalString(v: unknown): v is string | undefined {
-  return v === undefined || typeof v === "string";
-}
-
-function isNumber(v: unknown): v is number {
-  return typeof v === "number" && Number.isFinite(v);
-}
-
-function isOptionalNumber(v: unknown): v is number | undefined {
-  return v === undefined || (typeof v === "number" && Number.isFinite(v));
-}
-
 function isOptionalBoolean(v: unknown): v is boolean | undefined {
   return v === undefined || typeof v === "boolean";
 }
 
 function isRole(v: unknown): v is "daemon" | "frontend" {
   return v === "daemon" || v === "frontend";
-}
-
-function isStringArray(v: unknown): v is string[] {
-  return Array.isArray(v) && v.every((x) => typeof x === "string");
 }
 
 /**
@@ -145,7 +128,7 @@ export function parseRelayServerMessage(
     case "relay.frame": {
       if (!isString(raw["sid"])) return null;
       if (!isString(raw["ct"])) return null;
-      if (!isNumber(raw["seq"])) return null;
+      if (!isNonNegativeInt(raw["seq"])) return null;
       if (!isRole(raw["from"])) return null;
       if (!isOptionalString(raw["frontendId"])) return null;
       return {

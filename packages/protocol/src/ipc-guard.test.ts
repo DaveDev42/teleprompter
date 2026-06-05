@@ -83,6 +83,21 @@ describe("parseIpcMessage", () => {
         }),
       ).toBeNull();
     });
+
+    // Tightened: pid must be a positive integer (process IDs are always ≥ 1).
+    test("accepts valid pid", () => {
+      expect(
+        parseIpcMessage({ t: "hello", sid: "s", cwd: "/tmp", pid: 1234 }),
+      ).not.toBeNull();
+    });
+
+    test.each<[string, unknown]>([
+      ["pid=0", { t: "hello", sid: "s", cwd: "/tmp", pid: 0 }],
+      ["pid=-3", { t: "hello", sid: "s", cwd: "/tmp", pid: -3 }],
+      ["pid=1.5", { t: "hello", sid: "s", cwd: "/tmp", pid: 1.5 }],
+    ])("rejects %s (positive-int pid tightening)", (_l, m) => {
+      expect(parseIpcMessage(m)).toBeNull();
+    });
   });
 
   describe("rec", () => {

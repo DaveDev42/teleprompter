@@ -23,6 +23,7 @@
  * fields (`frontendId`, `daemonId`, `reason`, `ts`) are strictly validated.
  */
 
+import { isNumber, isObject, isString } from "./guard-primitives";
 import type {
   ControlMessage,
   ControlRename,
@@ -30,20 +31,6 @@ import type {
 } from "./types/control";
 import { CONTROL_RENAME, CONTROL_UNPAIR } from "./types/control";
 import { decodeWireLabel } from "./types/label";
-
-type PlainObject = { [key: string]: unknown };
-
-function isObject(value: unknown): value is PlainObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isString(v: unknown): v is string {
-  return typeof v === "string";
-}
-
-function isNumber(v: unknown): v is number {
-  return typeof v === "number" && Number.isFinite(v);
-}
 
 function isUnpairReason(v: unknown): v is ControlUnpair["reason"] {
   return v === "user-initiated" || v === "device-removed" || v === "rotated";

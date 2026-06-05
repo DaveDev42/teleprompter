@@ -23,6 +23,13 @@
  * on the control sid, then falls back to this one.
  */
 
+import {
+  isNonNegativeInt,
+  isNumber,
+  isObject,
+  isOptionalString,
+  isString,
+} from "./guard-primitives";
 import type { Label } from "./types/label";
 import {
   NAMESPACE_SET,
@@ -46,24 +53,6 @@ import type {
   SessionWorktreeListReply,
   SessionWorktreeRemoved,
 } from "./types/session-proto";
-
-type PlainObject = { [key: string]: unknown };
-
-function isObject(value: unknown): value is PlainObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isString(v: unknown): v is string {
-  return typeof v === "string";
-}
-
-function isOptionalString(v: unknown): v is string | undefined {
-  return v === undefined || typeof v === "string";
-}
-
-function isNumber(v: unknown): v is number {
-  return typeof v === "number" && Number.isFinite(v);
-}
 
 function isBoolean(v: unknown): v is boolean {
   return typeof v === "boolean";
@@ -96,7 +85,7 @@ function isSessionMeta(v: unknown): v is SessionMeta {
   if (!isOptionalString(v["claudeVersion"])) return false;
   if (!isNumber(v["createdAt"])) return false;
   if (!isNumber(v["updatedAt"])) return false;
-  if (!isNumber(v["lastSeq"])) return false;
+  if (!isNonNegativeInt(v["lastSeq"])) return false;
   return true;
 }
 
@@ -109,7 +98,7 @@ function isSessionRec(v: unknown): v is SessionRec {
   if (!isObject(v)) return false;
   if (v["t"] !== "rec") return false;
   if (!isString(v["sid"])) return false;
-  if (!isNumber(v["seq"])) return false;
+  if (!isNonNegativeInt(v["seq"])) return false;
   if (!isRecordKind(v["k"])) return false;
   if (v["ns"] !== undefined && !isNamespace(v["ns"])) return false;
   if (!isOptionalString(v["n"])) return false;

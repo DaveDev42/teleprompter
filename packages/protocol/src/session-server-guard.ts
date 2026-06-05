@@ -26,6 +26,7 @@
 import type { Label } from "./types/label";
 import {
   NAMESPACE_SET,
+  type Namespace,
   RECORD_KIND_SET,
   type RecordKind,
 } from "./types/record";
@@ -72,8 +73,8 @@ function isRecordKind(v: unknown): v is RecordKind {
   return typeof v === "string" && RECORD_KIND_SET.has(v as RecordKind);
 }
 
-function isNamespace(v: unknown): v is SessionRec["ns"] {
-  return typeof v === "string" && NAMESPACE_SET.has(v as SessionRec["ns"]);
+function isNamespace(v: unknown): v is Namespace {
+  return typeof v === "string" && NAMESPACE_SET.has(v as Namespace);
 }
 
 function isExportFormat(v: unknown): v is "json" | "markdown" {

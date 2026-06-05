@@ -258,6 +258,70 @@ describe("RelayServer edge cases", () => {
     frontend.close();
   });
 
+  test("M13 — closing one frontend does not remove the other frontend's session tracking", async () => {
+    // Two frontends each subscribe to their own session plus the shared session.
+    // Closing frontend1 must only decrement/remove frontend1's attached entries;
+    // frontend2 must still receive frames on the shared session (its subscription
+    // and attached count must survive). The old `?? 1` fallback in handleClose
+    // would set count=0 if the entry was already absent, masking bugs, OR
+    // wrongly decrement a count that belonged to frontend2 when shared sessions
+    // only had frontend2 remaining at count 1.
+    const daemon = await connectWs(port);
+    const frontend1 = await connectWs(port);
+    const frontend2 = await connectWs(port);
+
+    for (const [ws, role] of [
+      [daemon, "daemon"],
+      [frontend1, "frontend"],
+      [frontend2, "frontend"],
+    ] as const) {
+      ws.send(
+        JSON.stringify({
+          t: "relay.auth",
+          v: 1,
+          role,
+          daemonId: "daemon-1",
+          token: "token-1",
+        }),
+      );
+      await waitMsg(ws, (m) => m.t === "relay.auth.ok");
+    }
+
+    // frontend1 subscribes to two sessions (s-shared + s-f1-only).
+    // frontend2 subscribes to s-shared only.
+    frontend1.send(JSON.stringify({ t: "relay.sub", sid: "s-shared" }));
+    frontend1.send(JSON.stringify({ t: "relay.sub", sid: "s-f1-only" }));
+    frontend2.send(JSON.stringify({ t: "relay.sub", sid: "s-shared" }));
+    await Bun.sleep(50);
+
+    // Total distinct sessions with attached frontends: s-shared (count=2) +
+    // s-f1-only (count=1) → attached map has 2 entries.
+    expect(await fetchAttached(port)).toBe(2);
+
+    // Close frontend1 — s-f1-only should be removed (count 1→0), and
+    // s-shared should drop from 2→1 (NOT 0, which is what the ?? 1 bug caused).
+    frontend1.close();
+    await Bun.sleep(100);
+
+    // s-shared still has frontend2 → 1 distinct session remains.
+    expect(await fetchAttached(port)).toBe(1);
+
+    // frontend2 must still receive frames published by the daemon on s-shared.
+    daemon.send(
+      JSON.stringify({
+        t: "relay.pub",
+        sid: "s-shared",
+        ct: "after-f1-close",
+        seq: 1,
+      }),
+    );
+    const frame = await waitMsg(frontend2, (m) => m.t === "relay.frame");
+    expect((frame as RelayFrame).ct).toBe("after-f1-close");
+
+    daemon.close();
+    frontend2.close();
+  });
+
   test("frontend close without unsub releases attached counts", async () => {
     // Regression: handleClose never decremented state.attached, so a frontend
     // that dropped without sending relay.unsub (tab close, network loss, crash)

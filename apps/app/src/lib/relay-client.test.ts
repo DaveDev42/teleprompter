@@ -1816,6 +1816,52 @@ describe("FrontendRelayClient — resume token", () => {
     client.dispose();
   });
 
+  test("malformed cached token (token not a string) is rejected and slow auth is used (idx 97)", async () => {
+    const p = await setupPairing();
+    // Simulate a corrupted entry where `token` is a number, not a string.
+    fakeStorage.set(
+      "tp_relay_resume_daemon-test",
+      JSON.stringify({ token: 123, expiresAt: Date.now() + 60_000 }),
+    );
+
+    const client = new FrontendRelayClient(makeConfig(p));
+    await client.connect();
+    const ws = latestWs();
+    ws.simulateOpen();
+
+    // Malformed token must NOT be sent as a resume attempt.
+    expect(ws.findSent("relay.auth.resume")).toBeUndefined();
+    // Full auth path is used instead.
+    expect(ws.findSent("relay.auth")).toBeDefined();
+    // Storage entry was cleaned up.
+    await flushPromises(5);
+    expect(fakeStorage.get("tp_relay_resume_daemon-test")).toBeUndefined();
+
+    client.dispose();
+  });
+
+  test("malformed cached token (expiresAt not a number) is rejected and slow auth is used (idx 97)", async () => {
+    const p = await setupPairing();
+    // Simulate a corrupted entry where `expiresAt` is a string.
+    fakeStorage.set(
+      "tp_relay_resume_daemon-test",
+      JSON.stringify({ token: "tok-ok", expiresAt: "not-a-number" }),
+    );
+
+    const client = new FrontendRelayClient(makeConfig(p));
+    await client.connect();
+    const ws = latestWs();
+    ws.simulateOpen();
+
+    // Must not use resume path.
+    expect(ws.findSent("relay.auth.resume")).toBeUndefined();
+    expect(ws.findSent("relay.auth")).toBeDefined();
+    await flushPromises(5);
+    expect(fakeStorage.get("tp_relay_resume_daemon-test")).toBeUndefined();
+
+    client.dispose();
+  });
+
   test("expired cached token is purged and slow auth is used", async () => {
     const p = await setupPairing();
     fakeStorage.set(

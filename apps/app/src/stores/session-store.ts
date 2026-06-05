@@ -6,6 +6,14 @@ export type RecHandler = (rec: SessionRec) => void;
 
 const SESSIONS_STORAGE_KEY = "sessions_v1";
 
+/**
+ * Sentinel daemonId for sessions whose real daemonId is not yet known.
+ * This bucket is ephemeral (in-memory only) and is excluded from persistence.
+ * A subsequent setSessions call from the daemon will replace these entries
+ * with the authoritative list keyed under the real daemonId.
+ */
+export const UNKNOWN_DAEMON_BUCKET = "__unknown__";
+
 /** Serializable shape: plain object for JSON storage */
 type PersistedSessionMap = Record<string, SessionMeta[]>;
 
@@ -140,7 +148,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setSessions: (daemonId, sessions) => {
     const next = new Map(get()._sessionsByDaemon);
     next.set(daemonId, sessions);
-    scheduleWrite(next);
+    // Exclude the ephemeral unknown bucket from persistence.
+    const toWrite = new Map(next);
+    toWrite.delete(UNKNOWN_DAEMON_BUCKET);
+    scheduleWrite(toWrite);
     set({ _sessionsByDaemon: next, sessions: flattenSessions(next) });
   },
 
@@ -161,13 +172,26 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
     }
     if (!found) {
-      // Append to an ephemeral "__unknown__" bucket so the session is visible
-      // in the flat list. A subsequent setSessions call from the daemon will
-      // replace this with the authoritative list keyed under the real daemonId.
-      const existing = nextMap.get("__unknown__") ?? [];
-      nextMap.set("__unknown__", [...existing, meta]);
+      // Upsert into the ephemeral UNKNOWN_DAEMON_BUCKET so the session is
+      // visible in the flat list. Dedup by sid so repeated updateSession calls
+      // for the same session don't grow the bucket unboundedly.
+      const existing = nextMap.get(UNKNOWN_DAEMON_BUCKET) ?? [];
+      const dedupedIdx = existing.findIndex((s) => s.sid === meta.sid);
+      const deduped =
+        dedupedIdx >= 0
+          ? [
+              ...existing.slice(0, dedupedIdx),
+              meta,
+              ...existing.slice(dedupedIdx + 1),
+            ]
+          : [...existing, meta];
+      nextMap.set(UNKNOWN_DAEMON_BUCKET, deduped);
     }
-    scheduleWrite(nextMap);
+    // Exclude the ephemeral unknown bucket from persistence — it holds sessions
+    // with no real daemonId and should never be written to secure storage.
+    const toWrite = new Map(nextMap);
+    toWrite.delete(UNKNOWN_DAEMON_BUCKET);
+    scheduleWrite(toWrite);
     set({ _sessionsByDaemon: nextMap, sessions: flattenSessions(nextMap) });
   },
 
@@ -184,7 +208,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         next.set(daemonId, filtered);
       }
     }
-    scheduleWrite(next);
+    // Exclude the ephemeral unknown bucket from persistence.
+    const toWrite = new Map(next);
+    toWrite.delete(UNKNOWN_DAEMON_BUCKET);
+    scheduleWrite(toWrite);
     set({ _sessionsByDaemon: next, sessions: flattenSessions(next) });
   },
 

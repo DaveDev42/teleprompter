@@ -56,8 +56,11 @@ export function usePushNotifications() {
       }),
     });
 
-    // Register for push token
-    registerForPushToken(Notifications);
+    // Register for push token. Swallow permission-denied and network errors
+    // so a failed registration never becomes an unhandled rejection.
+    registerForPushToken(Notifications).catch((e: unknown) => {
+      console.warn("[push] registration failed:", e);
+    });
 
     // Handle notification tap
     const responseSub = Notifications.addNotificationResponseReceivedListener(

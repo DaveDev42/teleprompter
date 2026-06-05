@@ -114,4 +114,52 @@ describe("HookReceiver", () => {
     const path = HookReceiver.defaultSocketPath("my-session");
     expect(path).toContain("hook-my-session.sock");
   });
+
+  test("accumulates fragmented payload across data chunks (idx 5)", async () => {
+    // Simulate a large payload that arrives split across two Bun.write() calls.
+    // The receiver must buffer both chunks before attempting JSON.parse.
+    const event = {
+      session_id: "frag-test",
+      hook_event_name: "Stop",
+      cwd: tmpdir(),
+      last_assistant_message: "x".repeat(4096),
+    };
+    const payload = JSON.stringify(event);
+    let fragReceived = false;
+
+    const _conn = await Bun.connect({
+      unix: socketPath,
+      socket: {
+        open(socket) {
+          // Deliberately split at an arbitrary offset mid-payload.
+          const mid = Math.floor(payload.length / 2);
+          socket.write(payload.slice(0, mid));
+          // Yield to let Bun flush the first chunk, then send the rest.
+          setTimeout(() => {
+            socket.write(payload.slice(mid));
+            socket.end();
+            fragReceived = true;
+          }, 10);
+        },
+        data() {},
+        error() {},
+      },
+    });
+
+    // Allow both chunks + processing time.
+    await Bun.sleep(200);
+    expect(fragReceived).toBe(true);
+    expect(receivedEvents.length).toBe(1);
+    expect(receivedEvents[0]!.hook_event_name).toBe("Stop");
+    const msg = receivedEvents[0] as { last_assistant_message?: string };
+    expect(msg["last_assistant_message"]).toHaveLength(4096);
+  });
+
+  test("stop() is idempotent — second call does not throw (idx 52)", () => {
+    // After stop the socket file should be gone even if stop is called twice.
+    receiver.stop();
+    // Second stop must not throw (force:true covers already-removed path).
+    expect(() => receiver.stop()).not.toThrow();
+    // afterEach will call stop() a third time — also must not throw.
+  });
 });

@@ -188,6 +188,14 @@ export class Runner {
       case "resize":
         this.pty.resize(msg.cols, msg.rows);
         break;
+      default: {
+        // Exhaustiveness guard: TypeScript will error here if a new variant is
+        // added to IncomingMessage without a corresponding case above.
+        const _exhaustive: never = msg;
+        log.warn(
+          `unhandled daemon message type: ${(_exhaustive as { t: string }).t}`,
+        );
+      }
     }
   }
 }

@@ -33,10 +33,13 @@ function isRunnerInbound(msg: IpcMessage): msg is IncomingMessage {
   return RUNNER_INBOUND.has(msg.t as IncomingMessage["t"]);
 }
 
+/** Discriminated union representing the socket state. */
+type SocketState =
+  | { connected: false }
+  | { connected: true; socket: Awaited<ReturnType<typeof Bun.connect>> };
+
 export class IpcClient {
-  private socket: ReturnType<typeof Bun.connect> extends Promise<infer S>
-    ? S
-    : never = null as never;
+  private state: SocketState = { connected: false };
   private writer: QueuedWriter;
   private decoder = new FrameDecoder();
   private onMessage: MessageHandler;
@@ -57,7 +60,7 @@ export class IpcClient {
     const path = socketPath ?? getSocketPath();
 
     const self = this;
-    this.socket = await Bun.connect({
+    const socket = await Bun.connect({
       unix: path,
       socket: {
         data(_socket, data) {
@@ -83,10 +86,12 @@ export class IpcClient {
         },
         close() {
           log.info("disconnected");
+          self.state = { connected: false };
           self.onClose?.();
         },
       },
     });
+    this.state = { connected: true, socket };
   }
 
   /**
@@ -95,10 +100,16 @@ export class IpcClient {
    * socket is closed immediately — continuing would silently drop all
    * subsequent PTY io and hook events, causing permanent data loss. The
    * onClose callback fires so the owning Runner can initiate a full teardown.
+   *
+   * Calls before `connect()` resolves are silently dropped (not connected yet).
    */
   send(msg: IpcMessage, binary?: Uint8Array<ArrayBufferLike> | null): void {
+    if (!this.state.connected) {
+      log.warn("send() called before connect() — dropping message");
+      return;
+    }
     const frame = encodeFrame(msg, binary ?? null);
-    const ok = this.writer.write(this.socket, frame);
+    const ok = this.writer.write(this.state.socket, frame);
     if (!ok && this.writer.isOverflowed) {
       log.error(
         "IPC send queue overflowed — closing socket to surface the failure",
@@ -108,6 +119,7 @@ export class IpcClient {
   }
 
   close(): void {
-    this.socket.end();
+    if (!this.state.connected) return;
+    this.state.socket.end();
   }
 }

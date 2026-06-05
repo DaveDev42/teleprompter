@@ -38,15 +38,30 @@ export class Runner {
   private collector: Collector;
   private opts: RunnerOptions;
 
+  /**
+   * Tracks which subsystems have been started so the error path in start()
+   * can clean up exactly what was initialised without crashing on components
+   * that were never started.
+   */
+  private ipcConnected = false;
+  private hookReceiverStarted = false;
+
   constructor(opts: RunnerOptions) {
     this.opts = opts;
     this.collector = new Collector(opts.sid);
 
     // IpcClient's MessageHandler already types `msg` as IpcAck | IpcInput |
     // IpcResize — the same union handleDaemonMessage accepts — so no cast.
-    this.ipc = new IpcClient((msg) => {
-      this.handleDaemonMessage(msg);
-    });
+    // The onClose callback triggers a stop() when the IPC socket is torn down
+    // (e.g. queue overflow), so the session is not silently orphaned.
+    this.ipc = new IpcClient(
+      (msg) => {
+        this.handleDaemonMessage(msg);
+      },
+      () => {
+        this.stop(-1);
+      },
+    );
 
     const hookSocketPath = HookReceiver.defaultSocketPath(opts.sid);
     this.hookReceiver = new HookReceiver(hookSocketPath, (event) => {
@@ -66,6 +81,7 @@ export class Runner {
       // Connect to daemon
       this.state = "connecting";
       await this.ipc.connect(this.opts.socketPath);
+      this.ipcConnected = true;
 
       // Send hello
       this.ipc.send({
@@ -79,6 +95,7 @@ export class Runner {
       // Start hook receiver
       this.state = "spawning";
       const hookSocketPath = this.hookReceiver.start();
+      this.hookReceiverStarted = true;
 
       // Build settings with hook capture commands
       const settingsJson = buildSettings(hookSocketPath, this.opts.cwd);
@@ -110,12 +127,38 @@ export class Runner {
       this.state = "running";
       log.info(`started sid=${this.opts.sid} pid=${this.pty.pid}`);
     } catch (err) {
+      // Clean up whatever was already started before re-throwing so we don't
+      // leak the hook receiver unix socket or the IPC connection. Each guard
+      // is idempotent: stop()/close() are safe to call even if the underlying
+      // resource was only partially initialised.
+      //
+      // Set state to "stopped" first so the IPC onClose callback (which calls
+      // this.stop()) becomes a no-op and does not attempt a double-cleanup.
+      log.error("start failed, cleaning up:", err);
       this.state = "stopped";
+      if (this.hookReceiverStarted) {
+        try {
+          this.hookReceiver.stop();
+        } catch (cleanupErr) {
+          log.error(
+            "hookReceiver.stop() failed during error cleanup:",
+            cleanupErr,
+          );
+        }
+      }
+      if (this.ipcConnected) {
+        try {
+          this.ipc.close();
+        } catch (cleanupErr) {
+          log.error("ipc.close() failed during error cleanup:", cleanupErr);
+        }
+      }
+      this.pty.kill();
       throw err;
     }
   }
 
-  private stop(exitCode: number): void {
+  stop(exitCode: number): void {
     if (this.state === "stopping" || this.state === "stopped") return;
     this.state = "stopping";
 

@@ -7,6 +7,7 @@ import {
   type IpcInput,
   type IpcMessage,
   type IpcRec,
+  QueuedWriter,
 } from "@teleprompter/protocol";
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
@@ -185,6 +186,79 @@ describe("IpcClient inbound guard", () => {
     expect(received).toEqual([{ t: "ack", sid: "s", seq: 42 }]);
 
     client.close();
+    server.stop();
+  });
+});
+
+/**
+ * H4 regression — IPC send queue overflow must be a hard error.
+ *
+ * We inject a QueuedWriter pre-set to a 1-byte cap and force it into the
+ * overflowed state (by calling write() with a zero-write socket so the chunk
+ * is enqueued, which immediately exceeds the 1-byte limit). When the next
+ * send() fires, IpcClient must detect isOverflowed, close the socket, and
+ * invoke the onClose callback rather than silently dropping data.
+ */
+describe("IpcClient overflow — H4 regression", () => {
+  let socketPath: string;
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "tp-ipc-overflow-"));
+    socketPath = join(tmpDir, "overflow.sock");
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  test("closes socket and fires onClose when queue overflows", async () => {
+    // A server that accepts the connection but never drains; used only to
+    // give IpcClient a valid connected socket to call send() on.
+    const server = Bun.listen({
+      unix: socketPath,
+      socket: {
+        open() {},
+        data() {},
+        close() {},
+        error() {},
+      },
+    });
+
+    let closeFired = false;
+
+    // Inject a writer that is already in the overflowed state.
+    // maxQueuedBytes=1 — a single byte cap; writing anything larger via a
+    // socket that returns 0 (zero-write) will immediately set overflowed=true.
+    const writer = new QueuedWriter({ maxQueuedBytes: 1 });
+    // Force overflow by writing to a mock socket that always returns 0
+    // (simulates full kernel buffer, triggering enqueue → immediate overflow).
+    const zeroWriteSocket = { write: (_data: Uint8Array) => 0 };
+    writer.write(zeroWriteSocket, new Uint8Array(2)); // 2 bytes > 1-byte cap
+    expect(writer.isOverflowed).toBe(true);
+
+    const client = new IpcClient(
+      () => {},
+      () => {
+        closeFired = true;
+      },
+      writer,
+    );
+    await client.connect(socketPath);
+
+    // Any send on an overflowed writer must trigger teardown.
+    client.send({ t: "hello", sid: "overflow-test", cwd: "/tmp", pid: 1 });
+
+    // Give the event loop a tick for the close to propagate.
+    await Bun.sleep(50);
+
+    expect(closeFired).toBe(true);
+
+    // Subsequent sends must not crash (idempotent after close).
+    expect(() => {
+      client.send({ t: "hello", sid: "overflow-test", cwd: "/tmp", pid: 1 });
+    }).not.toThrow();
+
     server.stop();
   });
 });

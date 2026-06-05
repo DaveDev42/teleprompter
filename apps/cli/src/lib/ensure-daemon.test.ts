@@ -254,3 +254,58 @@ describe("readYesNoLine", () => {
     expect(s.listenerCount("close")).toBe(0);
   });
 });
+
+describe("waitForDaemonReady check-then-sleep ordering (idx 65)", () => {
+  // The source must check isDaemonRunning() BEFORE sleeping so a daemon that
+  // starts in <500ms doesn't pay the mandatory initial 500ms delay.
+  test("ensure-daemon.ts checks before sleeping (source order)", async () => {
+    const src = await Bun.file(
+      new URL("./ensure-daemon.ts", import.meta.url).pathname,
+    ).text();
+
+    // Find the waitForDaemonReady function body
+    const fnMatch = src.match(/function waitForDaemonReady[\s\S]*?^}/m);
+    // Fallback: match from async through the closing brace of the while block
+    const bodyMatch = src.match(
+      /async function waitForDaemonReady\([\s\S]*?while[\s\S]*?\{([\s\S]*?)\}/,
+    );
+    // Verify check appears before sleep in the while body
+    const checkIdx = src.indexOf("if (await isDaemonRunning()) return true;");
+    const sleepIdx = src.indexOf("setTimeout(r, 500)");
+    expect(checkIdx).toBeGreaterThan(-1);
+    expect(sleepIdx).toBeGreaterThan(-1);
+    // isDaemonRunning check must appear before the sleep call in source order
+    expect(checkIdx).toBeLessThan(sleepIdx);
+  });
+
+  test("isDaemonRunning immediately true resolves without a sleep", async () => {
+    // Spin up a real socket and confirm isDaemonRunning returns true instantly.
+    const runtime = mkdtempSync(join(tmpdir(), "tp-fast-daemon-"));
+    const origRuntime = process.env["XDG_RUNTIME_DIR"];
+    process.env["XDG_RUNTIME_DIR"] = runtime;
+    const sockPath = join(runtime, "daemon.sock");
+
+    if (getSocketPath() !== sockPath) {
+      if (origRuntime === undefined) delete process.env["XDG_RUNTIME_DIR"];
+      else process.env["XDG_RUNTIME_DIR"] = origRuntime;
+      rmSync(runtime, { recursive: true, force: true });
+      return; // skip on platforms where path resolution differs
+    }
+
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(sockPath, resolve));
+    try {
+      const start = Date.now();
+      const running = await isDaemonRunning();
+      const elapsed = Date.now() - start;
+      expect(running).toBe(true);
+      // Should be well under the 500ms sleep interval (check-first avoids it).
+      expect(elapsed).toBeLessThan(450);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      if (origRuntime === undefined) delete process.env["XDG_RUNTIME_DIR"];
+      else process.env["XDG_RUNTIME_DIR"] = origRuntime;
+      rmSync(runtime, { recursive: true, force: true });
+    }
+  });
+});

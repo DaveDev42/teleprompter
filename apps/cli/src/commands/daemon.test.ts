@@ -72,13 +72,17 @@ describe("setupWatchHandlers — idempotency (H6 regression)", () => {
     }
 
     // Each event should have gained exactly 1 listener, regardless of N.
+    // Bracket access is required: noPropertyAccessFromIndexSignature (TS4111)
+    // forbids dot access on the index-signature-typed baselineCounts record.
     expect(process.listenerCount("uncaughtException")).toBe(
-      baselineCounts.uncaughtException! + 1,
+      baselineCounts["uncaughtException"]! + 1,
     );
-    expect(process.listenerCount("SIGINT")).toBe(baselineCounts.SIGINT! + 1);
-    expect(process.listenerCount("SIGTERM")).toBe(baselineCounts.SIGTERM! + 1);
+    expect(process.listenerCount("SIGINT")).toBe(baselineCounts["SIGINT"]! + 1);
+    expect(process.listenerCount("SIGTERM")).toBe(
+      baselineCounts["SIGTERM"]! + 1,
+    );
     expect(process.listenerCount("unhandledRejection")).toBe(
-      baselineCounts.unhandledRejection! + 1,
+      baselineCounts["unhandledRejection"]! + 1,
     );
   });
 

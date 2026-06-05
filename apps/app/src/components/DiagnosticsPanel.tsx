@@ -96,6 +96,15 @@ export function DiagnosticsPanel() {
   // we only want speech after the user clicks Ping. Mirror of the
   // crypto-selftest-announcement pattern below.
   const [rttAnnouncement, setRttAnnouncement] = useState("");
+  // Timer ref for the ping RTT read-back; cleared on unmount to prevent
+  // setting state on an unmounted component.
+  const pingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (pingTimerRef.current !== null) clearTimeout(pingTimerRef.current);
+    },
+    [],
+  );
   const [cryptoTest, setCryptoTest] = useState<{
     running: boolean;
     sodiumInit?: { ok: boolean; ms: number };
@@ -109,7 +118,9 @@ export function DiagnosticsPanel() {
     if (client) {
       client.ping();
       setRttAnnouncement("Pinging daemon");
-      setTimeout(() => {
+      if (pingTimerRef.current !== null) clearTimeout(pingTimerRef.current);
+      pingTimerRef.current = setTimeout(() => {
+        pingTimerRef.current = null;
         const result = client.getRtt();
         setRtt(result);
         setRttAnnouncement(

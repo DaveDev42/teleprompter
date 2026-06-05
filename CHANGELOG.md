@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.1.46](https://github.com/DaveDev42/teleprompter/compare/v0.1.45...v0.1.46) (2026-06-05)
+
+
+### Features
+
+* **protocol:** add Label tagged union + forgiving wire decoders ([#514](https://github.com/DaveDev42/teleprompter/issues/514)) ([a4b6f6b](https://github.com/DaveDev42/teleprompter/commit/a4b6f6ba7fb206c58e44335d4ce62d34f42b7000))
+
+
+### Bug Fixes
+
+* **cli:** guard arg/subcommand/prune-prompt parsing edge cases ([#502](https://github.com/DaveDev42/teleprompter/issues/502)) ([a90ae89](https://github.com/DaveDev42/teleprompter/commit/a90ae894cbfa3e16ff46b4e559a768680fda775a))
+* **daemon:** guard decrypted control plane with parseControlMessage ([#518](https://github.com/DaveDev42/teleprompter/issues/518)) ([d2cd6f5](https://github.com/DaveDev42/teleprompter/commit/d2cd6f5a3dd36ce74179c9a43d9810c236517cd1))
+* **daemon:** repair session lifecycle leaks and restart state reset ([#503](https://github.com/DaveDev42/teleprompter/issues/503)) ([e147f04](https://github.com/DaveDev42/teleprompter/commit/e147f04ba1a3c9b6f044168360a61c041d343c3e))
+* **protocol:** harden socket dir to 0700 and reject non-positive resize dimensions ([#505](https://github.com/DaveDev42/teleprompter/issues/505)) ([0ea3cdd](https://github.com/DaveDev42/teleprompter/commit/0ea3cdd90752457bf49c1b6f0f482e73adc42e0c))
+* **relay:** plug attached-count leak on close and stop double-counting oversized frames ([#504](https://github.com/DaveDev42/teleprompter/issues/504)) ([f4a4f97](https://github.com/DaveDev42/teleprompter/commit/f4a4f9796dd578741c8b982e2eaed3c6d93083b2))
+* **relay:** revive dead backpressure guard via getBufferedAmount() ([#512](https://github.com/DaveDev42/teleprompter/issues/512)) ([6430e56](https://github.com/DaveDev42/teleprompter/commit/6430e56406e4d727cbb5da52b2e5ae1e008aed64))
+* **relay:** validate client frames at the zero-trust wire boundary ([#513](https://github.com/DaveDev42/teleprompter/issues/513)) ([fd027ad](https://github.com/DaveDev42/teleprompter/commit/fd027ad3f2abfba4752d0cb8899d31f872c3ccaa))
+
+
+### Refactor
+
+* **app:** consume Label tagged union on app-side wire surfaces ([#516](https://github.com/DaveDev42/teleprompter/issues/516)) ([495a035](https://github.com/DaveDev42/teleprompter/commit/495a035b9ef1e6ee716812b449f8e03dd2b6e372))
+* **app:** guard decrypted daemon→frontend frames with parseSessionServerMessage ([#520](https://github.com/DaveDev42/teleprompter/issues/520)) ([273e50f](https://github.com/DaveDev42/teleprompter/commit/273e50fffd3179d678a39b70c7030efe2450ab71))
+* **app:** model pairing-store label + active daemon as tagged unions ([#523](https://github.com/DaveDev42/teleprompter/issues/523)) ([4212e55](https://github.com/DaveDev42/teleprompter/commit/4212e556901e21b107455a235ba036923cbf3672))
+* **app:** replace RTT -1 sentinel with measured/unmeasured union ([#526](https://github.com/DaveDev42/teleprompter/issues/526)) ([50e4001](https://github.com/DaveDev42/teleprompter/commit/50e4001d6b8417aec17a30ae8511bc553ed00dda))
+* **app:** replace session-store sid/error/reconnect sentinels with tagged unions ([#525](https://github.com/DaveDev42/teleprompter/issues/525)) ([b5745c6](https://github.com/DaveDev42/teleprompter/commit/b5745c68b63fc68817c4cb967a781959f4e74ffb))
+* **app:** replace voice-store state/api-key sentinels with tagged unions ([#524](https://github.com/DaveDev42/teleprompter/issues/524)) ([0cdcb3e](https://github.com/DaveDev42/teleprompter/commit/0cdcb3e63f2bac8053d68e32787320a142a3dc6f))
+* **cli:** replace unsafe (err as Error).message casts with messageOf guard ([#509](https://github.com/DaveDev42/teleprompter/issues/509)) ([f208506](https://github.com/DaveDev42/teleprompter/commit/f2085063e067339d0020058aca44bcfe69b08085))
+* **daemon:** tighten daemon state-message types to SessionStateMsg ([#506](https://github.com/DaveDev42/teleprompter/issues/506)) ([a5b880f](https://github.com/DaveDev42/teleprompter/commit/a5b880f6a7a9ea85f3d1c29180167c93e4211025))
+* migrate pairing label to Label tagged union (daemon + protocol) ([#515](https://github.com/DaveDev42/teleprompter/issues/515)) ([35d5f62](https://github.com/DaveDev42/teleprompter/commit/35d5f625b1596b23dade07b55baa665a75723827))
+* narrow SessionMeta.state and record-observer kind to unions ([#508](https://github.com/DaveDev42/teleprompter/issues/508)) ([dcd0e2a](https://github.com/DaveDev42/teleprompter/commit/dcd0e2a955bc41dc4fc09feba263d115e527d7c5))
+* **protocol:** guard relay→client frames with parseRelayServerMessage ([#519](https://github.com/DaveDev42/teleprompter/issues/519)) ([8a66892](https://github.com/DaveDev42/teleprompter/commit/8a668921ae713d71178953d805cbfba063b1a516))
+* **protocol:** migrate IpcPairBegin.label to the Label union ([#517](https://github.com/DaveDev42/teleprompter/issues/517)) ([4f00fe0](https://github.com/DaveDev42/teleprompter/commit/4f00fe046fb1f7dd8aa20fe7a698b73cef024ba0))
+* **relay:** drop redundant casts in relay-server message dispatch ([#511](https://github.com/DaveDev42/teleprompter/issues/511)) ([c52f147](https://github.com/DaveDev42/teleprompter/commit/c52f1473005a5568bccd6c01c1175c7c37cd587f))
+* **relay:** model resume-token payload as a role discriminated union ([#527](https://github.com/DaveDev42/teleprompter/issues/527)) ([8291c30](https://github.com/DaveDev42/teleprompter/commit/8291c3037bb4c5e33353c74ff22ed01a6bca084a))
+* route IPC + hook-socket frames through boundary guards ([#521](https://github.com/DaveDev42/teleprompter/issues/521)) ([b31d849](https://github.com/DaveDev42/teleprompter/commit/b31d84918b40565250ff552b99bf63b5bca87d5b))
+* **runner:** remove redundant type casts and double-cast lies ([#510](https://github.com/DaveDev42/teleprompter/issues/510)) ([7b6f5e3](https://github.com/DaveDev42/teleprompter/commit/7b6f5e395f903d57c5b32c30b33fdc870e906aa4))
+* validate stored pairing key rows before libsodium ([#522](https://github.com/DaveDev42/teleprompter/issues/522)) ([31d628c](https://github.com/DaveDev42/teleprompter/commit/31d628cf9ee9cc71dfd091b167e3d159da90ce1f))
+
 ## [0.1.45](https://github.com/DaveDev42/teleprompter/compare/v0.1.44...v0.1.45) (2026-06-03)
 
 

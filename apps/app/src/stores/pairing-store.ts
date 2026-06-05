@@ -204,9 +204,15 @@ async function deserializePairings(
   raw: string,
 ): Promise<Map<string, PairingInfo>> {
   const map = new Map<string, PairingInfo>();
+  let entries: SerializedPairingInfo[];
   try {
-    const entries: SerializedPairingInfo[] = JSON.parse(raw);
-    for (const e of entries) {
+    entries = JSON.parse(raw);
+  } catch {
+    // Top-level JSON is malformed — start fresh.
+    return map;
+  }
+  for (const e of entries) {
+    try {
       map.set(e.daemonId, {
         daemonId: e.daemonId,
         relayUrl: e.relayUrl,
@@ -231,9 +237,10 @@ async function deserializePairings(
         // app to re-tag as `user` and lock the label against further drift.
         labelSource: e.labelSource ?? "qr",
       });
+    } catch {
+      // One corrupted entry — skip it and continue loading the rest.
+      console.warn("[pairing] skipping corrupted entry for", e.daemonId);
     }
-  } catch {
-    // Corrupted data — start fresh
   }
   return map;
 }
@@ -296,24 +303,34 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
         labelSource: "qr",
       };
 
-      const pairings = new Map(get().pairings);
-      pairings.set(info.daemonId, info);
-
       // Re-pairing with the same daemonId would otherwise re-use the prior
       // resume token; the relay would accept it and the daemon would skip
       // re-broadcasting its pubkey, so the freshly-generated frontendKeyPair
       // never completes ECDH and Sessions stays empty.
       await clearResumeToken(info.daemonId);
 
-      // Persist
-      await secureSet(STORAGE_KEY, await serializePairings(pairings));
-
-      set({
-        state: "paired",
-        pairings,
-        activeDaemon: { active: true, daemonId: info.daemonId },
-        error: null,
+      // Re-read pairings via functional set() after all awaits — another
+      // concurrent scan may have modified the map while clearResumeToken was
+      // in flight, so we must not use a snapshot captured before the awaits.
+      let mergedPairings: Map<string, PairingInfo> | undefined;
+      set((s) => {
+        const pairings = new Map(s.pairings);
+        pairings.set(info.daemonId, info);
+        mergedPairings = pairings;
+        return {
+          state: "paired",
+          pairings,
+          activeDaemon: { active: true, daemonId: info.daemonId },
+          error: null,
+        };
       });
+
+      // Persist after the state update so the serialized map is consistent
+      // with what is now in the store.
+      await secureSet(
+        STORAGE_KEY,
+        await serializePairings(mergedPairings ?? get().pairings),
+      );
     } catch (err) {
       set({
         state: get().pairings.size > 0 ? "paired" : "unpaired",
@@ -331,20 +348,29 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
       }
     }
 
-    const pairings = new Map(get().pairings);
-    pairings.delete(daemonId);
-
-    await secureSet(STORAGE_KEY, await serializePairings(pairings));
-
-    set({
-      pairings,
-      // Only re-pick when the removed daemon was the active one; otherwise the
-      // user's current selection is preserved.
-      activeDaemon: isActiveDaemon(get().activeDaemon, daemonId)
-        ? firstActiveDaemon(pairings)
-        : get().activeDaemon,
-      state: pairings.size > 0 ? "paired" : "unpaired",
+    // Re-read pairings and activeDaemon via functional set() after all awaits
+    // (unpairSender is async) — both values may have changed while we awaited,
+    // so reading them from a pre-await snapshot would be a TOCTOU race.
+    let finalPairings: Map<string, PairingInfo> | undefined;
+    set((s) => {
+      const pairings = new Map(s.pairings);
+      pairings.delete(daemonId);
+      finalPairings = pairings;
+      return {
+        pairings,
+        // Only re-pick when the removed daemon was the active one; otherwise the
+        // user's current selection is preserved.
+        activeDaemon: isActiveDaemon(s.activeDaemon, daemonId)
+          ? firstActiveDaemon(pairings)
+          : s.activeDaemon,
+        state: pairings.size > 0 ? "paired" : "unpaired",
+      };
     });
+
+    await secureSet(
+      STORAGE_KEY,
+      await serializePairings(finalPairings ?? get().pairings),
+    );
   },
 
   setActiveDaemon: (daemon) => set({ activeDaemon: daemon }),
@@ -366,18 +392,24 @@ export const usePairingStore = create<PairingStore>((set, get) => ({
     daemonId: string,
     reason: ControlUnpair["reason"],
   ) => {
-    const pairings = new Map(get().pairings);
-    pairings.delete(daemonId);
+    // Persist first (snapshot current pairings minus the removed entry).
+    // Then apply the state update via functional set() so activeDaemon is read
+    // from the latest store state rather than a pre-await snapshot (TOCTOU).
+    const snapshotPairings = new Map(get().pairings);
+    snapshotPairings.delete(daemonId);
+    await secureSet(STORAGE_KEY, await serializePairings(snapshotPairings));
 
-    await secureSet(STORAGE_KEY, await serializePairings(pairings));
-
-    set({
-      pairings,
-      activeDaemon: isActiveDaemon(get().activeDaemon, daemonId)
-        ? firstActiveDaemon(pairings)
-        : get().activeDaemon,
-      state: pairings.size > 0 ? "paired" : "unpaired",
-      lastPeerUnpair: { daemonId, reason, ts: Date.now() },
+    set((s) => {
+      const pairings = new Map(s.pairings);
+      pairings.delete(daemonId);
+      return {
+        pairings,
+        activeDaemon: isActiveDaemon(s.activeDaemon, daemonId)
+          ? firstActiveDaemon(pairings)
+          : s.activeDaemon,
+        state: pairings.size > 0 ? "paired" : "unpaired",
+        lastPeerUnpair: { daemonId, reason, ts: Date.now() },
+      };
     });
   },
 

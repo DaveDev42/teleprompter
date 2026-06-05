@@ -172,15 +172,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   removeSession: (sid) => {
-    const next = new Map(get()._sessionsByDaemon);
-    for (const [daemonId, list] of next) {
-      const filtered = list.filter((s) => s.sid !== sid);
-      if (filtered.length !== list.length) {
-        next.set(daemonId, filtered);
-      }
-    }
-    scheduleWrite(next);
-    set({ _sessionsByDaemon: next, sessions: flattenSessions(next) });
+    get().removeSessions([sid]);
   },
 
   removeSessions: (sids) => {

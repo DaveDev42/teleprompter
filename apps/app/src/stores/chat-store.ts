@@ -6,6 +6,19 @@ import type {
 } from "@teleprompter/protocol/client";
 import { create } from "zustand";
 
+/**
+ * Hook event names that produce no user-facing chat output.
+ * SessionStart / SessionEnd / SubagentStart / SubagentStop are emitted
+ * automatically by claude and clutter the chat history without adding value.
+ * Hoisted to module scope so the Set is allocated once, not on every call.
+ */
+const SILENT_EVENTS = new Set([
+  "SessionStart",
+  "SessionEnd",
+  "SubagentStart",
+  "SubagentStop",
+]);
+
 export type ChatMessageType =
   | "user"
   | "assistant"
@@ -227,24 +240,37 @@ export function processHookEvent(event: HookEventBase) {
       });
       break;
     }
-    default: {
-      // Suppress noisy lifecycle events that don't carry user-facing info.
-      // SessionStart / SessionEnd / SubagentStart / SubagentStop are emitted
-      // automatically by claude and clutter the chat history without adding value.
-      const SILENT_EVENTS = new Set([
-        "SessionStart",
-        "SessionEnd",
-        "SubagentStart",
-        "SubagentStop",
-      ]);
-      if (SILENT_EVENTS.has(name)) break;
-      // Other unrecognised events: render as a small system chip so nothing
-      // is silently swallowed, but keep it visually minimal.
+    // Lifecycle events that produce no user-facing output — suppress silently.
+    case "SessionStart":
+    case "SessionEnd":
+    case "SubagentStart":
+    case "SubagentStop":
+      break;
+    // Events whose full handler is not yet implemented — render as a minimal
+    // system chip so nothing is silently swallowed.
+    case "PostToolUseFailure":
+    case "ElicitationResult":
+    case "PreCompact":
+    case "PostCompact": {
       store.addMessage({
         id: makeId(),
         type: "system",
         event: name,
         text: name,
+        ts: Date.now(),
+      });
+      break;
+    }
+    default: {
+      // Exhaustiveness guard: TypeScript will error here if a new ClaudeHookEvent
+      // arm is added without a corresponding case above.
+      const _exhaustive: never = name;
+      // Fallback render so production builds degrade gracefully rather than silently.
+      store.addMessage({
+        id: makeId(),
+        type: "system",
+        event: _exhaustive,
+        text: _exhaustive,
         ts: Date.now(),
       });
       break;

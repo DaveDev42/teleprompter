@@ -1,4 +1,4 @@
-import type { SessionRec } from "@teleprompter/protocol/client";
+import type { SessionRec, SessionState } from "@teleprompter/protocol/client";
 import { create } from "zustand";
 
 const MAX_CACHED_FRAMES = 10;
@@ -15,16 +15,16 @@ const RECENT_FRAMES_FLUSH_MS = 120;
 export interface OfflineStore {
   /** Recent frames per session (ring buffer of 10) */
   recentFrames: Map<string, SessionRec[]>;
-  /** Last known session states */
-  lastStates: Map<string, { state: string; lastSeen: number }>;
+  /** Last known session states keyed by sid */
+  lastStates: Map<string, { state: SessionState; lastSeen: number }>;
 
   // Actions
   cacheFrame: (rec: SessionRec) => void;
-  updateState: (sid: string, state: string) => void;
+  updateState: (sid: string, state: SessionState) => void;
   getRecentFrames: (sid: string) => SessionRec[];
   getLastState: (
     sid: string,
-  ) => { state: string; lastSeen: number } | undefined;
+  ) => { state: SessionState; lastSeen: number } | undefined;
 }
 
 export const useOfflineStore = create<OfflineStore>((set, get) => {
@@ -54,7 +54,7 @@ export const useOfflineStore = create<OfflineStore>((set, get) => {
       scheduleFlush();
     },
 
-    updateState: (sid: string, state: string) => {
+    updateState: (sid: string, state: SessionState) => {
       const next = new Map(get().lastStates);
       next.set(sid, { state, lastSeen: Date.now() });
       set({ lastStates: next });

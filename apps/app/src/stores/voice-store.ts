@@ -5,12 +5,30 @@ import type { AudioCapture, AudioPlayer } from "../voice/audio-web";
 import { RealtimeClient } from "../voice/realtime-client";
 import { formatTerminalContext } from "../voice/terminal-context";
 
+/**
+ * Minimal terminal interface exposed to the voice store.
+ * Mirrors the TerminalLike shape in terminal-context.ts — kept here as a
+ * structural type so voice-store.ts does not import from the voice/ layer's
+ * own implementation file, and so tsc enforces the contract rather than
+ * relying on an invisible unknown→TerminalLike cast at the call site.
+ */
+interface TerminalLike {
+  buffer?: {
+    active?: {
+      length: number;
+      getLine(
+        y: number,
+      ): { translateToString(trimRight?: boolean): string } | undefined;
+    };
+  };
+}
+
 /** Global terminal ref — set by the Terminal screen */
-let globalTermRef: unknown = null;
-export function setGlobalTermRef(ref: unknown) {
+let globalTermRef: TerminalLike | null = null;
+export function setGlobalTermRef(ref: TerminalLike | null) {
   globalTermRef = ref;
 }
-export function getGlobalTermRef(): unknown {
+export function getGlobalTermRef(): TerminalLike | null {
   return globalTermRef;
 }
 
@@ -95,11 +113,16 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
   },
 
   startVoice: async () => {
-    const { keyState, includeTerminal } = get();
+    const { keyState, connection, includeTerminal } = get();
     if (keyState.status !== "present") return;
     if (Platform.OS !== "web") return; // Web only for now
+    // Already connected or connecting — do not overwrite realtimeClient without cleanup.
+    if (connection.status !== "idle") return;
 
     const { key } = keyState;
+    // Clean up any lingering client before creating a new one (defensive guard
+    // against concurrent calls racing past the status check above).
+    cleanup();
     set({ connection: { status: "connecting" }, refinedPrompt: "" });
 
     // Build system prompt with optional terminal context
@@ -151,10 +174,17 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
           set({ connection: { status: "processing", transcript } });
         },
         onTranscript: (text) => {
+          // Preserve the current isSpeaking flag — the transcript update may
+          // arrive while the TTS audio is still playing (onAudio set isSpeaking:
+          // true). Resetting to false here would lose that signal until onAudioDone
+          // fires and cause the UI to flicker erroneously.
+          const { connection } = get();
+          const isSpeaking =
+            connection.status === "listening" ? connection.isSpeaking : false;
           set({
             connection: {
               status: "listening",
-              isSpeaking: false,
+              isSpeaking,
               transcript: text,
             },
           });
@@ -185,16 +215,9 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
           }
         },
         onRefinedPrompt: (prompt) => {
-          const { connection } = get();
-          if (connection.status === "listening") {
-            set({
-              connection: {
-                status: "listening",
-                isSpeaking: connection.isSpeaking,
-                transcript: connection.transcript,
-              },
-            });
-          }
+          // Only update refinedPrompt — do not write connection back unchanged
+          // as that would trigger spurious subscriber notifications. The
+          // connection state is unaffected by a refined-prompt event.
           set({ refinedPrompt: prompt });
           // Send the refined prompt to Claude Code
           get()._onPromptReady?.(prompt);

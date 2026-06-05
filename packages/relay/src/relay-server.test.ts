@@ -944,4 +944,124 @@ describe("RelayServer", () => {
     daemon.close();
     frontend.close();
   });
+
+  describe("H5 — evictDaemon cleans up validTokens and registrations", () => {
+    test("evicted daemon token is rejected by relay.auth", async () => {
+      // Authenticate a daemon so daemonStates has a registrationToken entry.
+      const daemon = await connectWs(port);
+      daemon.send(
+        JSON.stringify({
+          t: "relay.auth",
+          v: 1,
+          role: "daemon",
+          daemonId: DAEMON_ID,
+          token: TOKEN,
+        }),
+      );
+      await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
+      daemon.close();
+      await Bun.sleep(50);
+
+      // Force the daemon state offline and past the eviction TTL by setting
+      // very short timeouts.
+      relay.setStaleTimeoutMs(1);
+      relay.setOfflineEvictAfterMs(1);
+      relay.setStaleCheckIntervalMs(50);
+
+      // Wait for the stale check to mark offline then evict.
+      await Bun.sleep(200);
+
+      // Token must be gone from validTokens and registrations must be empty.
+      expect(relay.hasValidToken(TOKEN)).toBe(false);
+      expect(relay.hasRegistration(DAEMON_ID)).toBe(false);
+
+      // Attempting relay.auth with the old token must be rejected.
+      const ws = await connectWs(port);
+      ws.send(
+        JSON.stringify({
+          t: "relay.auth",
+          v: 1,
+          role: "daemon",
+          daemonId: DAEMON_ID,
+          token: TOKEN,
+        }),
+      );
+      const msg = await waitForMessage(ws);
+      expect(msg.t).toBe("relay.auth.err");
+      ws.close();
+    });
+  });
+
+  describe("M12 — re-registration invalidates old token", () => {
+    test("old token is rejected after daemon re-registers with a new token", async () => {
+      const NEW_TOKEN = "new-token-xyz789";
+      const PROOF = "proof-abc";
+
+      // Register daemon with initial TOKEN via relay.register.
+      const ws1 = await connectWs(port);
+      ws1.send(
+        JSON.stringify({
+          t: "relay.register",
+          daemonId: DAEMON_ID,
+          token: TOKEN,
+          proof: PROOF,
+          v: 2,
+        }),
+      );
+      await waitForMessage(ws1, (m) => m.t === "relay.register.ok");
+      ws1.close();
+      await Bun.sleep(50);
+
+      expect(relay.hasValidToken(TOKEN)).toBe(true);
+
+      // Re-register the same daemon with a NEW token (same proof).
+      const ws2 = await connectWs(port);
+      ws2.send(
+        JSON.stringify({
+          t: "relay.register",
+          daemonId: DAEMON_ID,
+          token: NEW_TOKEN,
+          proof: PROOF,
+          v: 2,
+        }),
+      );
+      await waitForMessage(ws2, (m) => m.t === "relay.register.ok");
+      ws2.close();
+      await Bun.sleep(50);
+
+      // Old token must be gone; new token must be valid.
+      expect(relay.hasValidToken(TOKEN)).toBe(false);
+      expect(relay.hasValidToken(NEW_TOKEN)).toBe(true);
+
+      // Attempting relay.auth with the OLD token must be rejected.
+      const ws3 = await connectWs(port);
+      ws3.send(
+        JSON.stringify({
+          t: "relay.auth",
+          v: 1,
+          role: "daemon",
+          daemonId: DAEMON_ID,
+          token: TOKEN,
+        }),
+      );
+      const authErr = await waitForMessage(ws3);
+      expect(authErr.t).toBe("relay.auth.err");
+      ws3.close();
+
+      // Attempting relay.auth with the NEW token must succeed.
+      const ws4 = await connectWs(port);
+      ws4.send(
+        JSON.stringify({
+          t: "relay.auth",
+          v: 1,
+          role: "daemon",
+          daemonId: DAEMON_ID,
+          token: NEW_TOKEN,
+        }),
+      );
+      const authOk = await waitForMessage(ws4);
+      expect(authOk.t).toBe("relay.auth.ok");
+      ws4.close();
+    });
+  });
 });

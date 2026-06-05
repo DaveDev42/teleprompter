@@ -246,4 +246,85 @@ describe("PushService", () => {
       expect(r2).toBe("deduped");
     });
   });
+
+  describe("M14 — rate-limit window resets after expiry", () => {
+    test("pushes are allowed again after the window expires", async () => {
+      // Use a very short rate-limit window (50ms) and limit of 2 per window.
+      const { fn } = makeFetchFn();
+      service = new PushService({
+        rateLimitPerMinute: 2,
+        rateLimitWindowMs: 50,
+        fetchFn: fn,
+      });
+
+      // Exhaust the limit within the first window (use different events to avoid dedup).
+      const r1 = await service.sendOrDeliver({
+        ...makeRequest(),
+        data: { sid: "s1", daemonId: "d1", event: "e1" },
+      });
+      const r2 = await service.sendOrDeliver({
+        ...makeRequest(),
+        data: { sid: "s1", daemonId: "d1", event: "e2" },
+      });
+      expect(r1).toBe("push");
+      expect(r2).toBe("push");
+
+      // Third call within the same window must be rate-limited.
+      const r3 = await service.sendOrDeliver({
+        ...makeRequest(),
+        data: { sid: "s1", daemonId: "d1", event: "e3" },
+      });
+      expect(r3).toBe("rate_limited");
+
+      // Wait for the window to expire.
+      await Bun.sleep(70);
+
+      // After expiry, pushes must be allowed again (new window, count = 0).
+      const r4 = await service.sendOrDeliver({
+        ...makeRequest(),
+        data: { sid: "s1", daemonId: "d1", event: "e4" },
+      });
+      expect(r4).toBe("push");
+
+      // And the limit still holds within the new window.
+      const r5 = await service.sendOrDeliver({
+        ...makeRequest(),
+        data: { sid: "s1", daemonId: "d1", event: "e5" },
+      });
+      expect(r5).toBe("push");
+
+      const r6 = await service.sendOrDeliver({
+        ...makeRequest(),
+        data: { sid: "s1", daemonId: "d1", event: "e6" },
+      });
+      expect(r6).toBe("rate_limited");
+    });
+
+    test("rate limit still holds within a window (no premature reset)", async () => {
+      const { fn } = makeFetchFn();
+      service = new PushService({
+        rateLimitPerMinute: 2,
+        rateLimitWindowMs: 500,
+        fetchFn: fn,
+      });
+
+      const r1 = await service.sendOrDeliver({
+        ...makeRequest(),
+        data: { sid: "s1", daemonId: "d1", event: "e1" },
+      });
+      const r2 = await service.sendOrDeliver({
+        ...makeRequest(),
+        data: { sid: "s1", daemonId: "d1", event: "e2" },
+      });
+      expect(r1).toBe("push");
+      expect(r2).toBe("push");
+
+      // Within the same window, a third push must still be rate-limited.
+      const r3 = await service.sendOrDeliver({
+        ...makeRequest(),
+        data: { sid: "s1", daemonId: "d1", event: "e3" },
+      });
+      expect(r3).toBe("rate_limited");
+    });
+  });
 });

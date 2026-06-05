@@ -164,6 +164,12 @@ interface DaemonState {
   attached: Map<string, number>;
   /** Group-wide rate limiter (daemon + all attached frontends share budget) */
   rateLimiter: RateLimiter;
+  /**
+   * The registration token for this daemon. Stored here so evictDaemon and
+   * re-registration can remove/update validTokens in O(1) without scanning
+   * the entire validTokens map.
+   */
+  registrationToken: string | null;
 }
 
 export class RelayServer {
@@ -293,8 +299,24 @@ export class RelayServer {
     }
   }
 
+  /** Override offline-evict TTL for testing */
+  setOfflineEvictAfterMs(ms: number): void {
+    this.offlineEvictAfterMs = ms;
+  }
+
+  /** Check whether a token is currently valid (for testing eviction / re-registration). */
+  hasValidToken(token: string): boolean {
+    return this.validTokens.has(token);
+  }
+
+  /** Check whether a daemonId is in registrations (for testing eviction). */
+  hasRegistration(daemonId: string): boolean {
+    return this.registrations.has(daemonId);
+  }
+
   private staleTimeoutMs = STALE_TIMEOUT_MS;
   private staleCheckIntervalMs = STALE_CHECK_INTERVAL_MS;
+  private offlineEvictAfterMs = OFFLINE_EVICT_AFTER_MS;
 
   start(port: number = 0): number {
     const self = this;
@@ -635,12 +657,31 @@ ${daemons
       return;
     }
 
+    // M12: If this daemon was already registered with a DIFFERENT token (e.g.
+    // the daemon restarted and generated a fresh token), remove the old token
+    // from validTokens so it cannot be used for auth any longer. O(1) via the
+    // token stored on the existing registration record.
+    if (existing && existing.token !== msg.token) {
+      this.validTokens.delete(existing.token);
+      // Keep daemonStates.registrationToken in sync if the state exists.
+      const state = this.daemonStates.get(msg.daemonId);
+      if (state) {
+        state.registrationToken = msg.token;
+      }
+    }
+
     // Register token → daemonId mapping
     this.validTokens.set(msg.token, msg.daemonId);
     this.registrations.set(msg.daemonId, {
       token: msg.token,
       proof: msg.proof,
     });
+
+    // Keep daemonStates.registrationToken in sync (set on first registration).
+    const state = this.daemonStates.get(msg.daemonId);
+    if (state && state.registrationToken === null) {
+      state.registrationToken = msg.token;
+    }
 
     this.send(ws, { t: "relay.register.ok", daemonId: msg.daemonId });
   }
@@ -682,6 +723,10 @@ ${daemons
     // path, though current ordering is daemon-first).
     if (msg.role === "daemon") {
       const existing = this.daemonStates.get(msg.daemonId);
+      // Derive the registration token for this daemon from validTokens (the
+      // token that just authenticated is msg.token). Store it on DaemonState
+      // for O(1) eviction and re-registration cleanup (H5 / M12).
+      const regToken = msg.token;
       this.daemonStates.set(msg.daemonId, {
         online: true,
         sessions: existing?.sessions ?? new Set(),
@@ -691,7 +736,16 @@ ${daemons
           count: 0,
           windowStart: Date.now(),
         },
+        registrationToken: existing?.registrationToken ?? regToken,
       });
+      // Ensure registrations is populated so handleAuthResume's O(1)
+      // registrations.has() check works even when the daemon authenticated via
+      // a token installed by registerToken() rather than relay.register. The
+      // proof field is not available here — use an empty string sentinel; only
+      // the daemonId→token mapping matters for eviction/re-registration.
+      if (!this.registrations.has(msg.daemonId)) {
+        this.registrations.set(msg.daemonId, { token: msg.token, proof: "" });
+      }
     } else {
       // Frontend auth: ensure a DaemonState exists so group rate-limit works
       // even if the daemon is still offline (frontend reconnects before daemon).
@@ -702,6 +756,7 @@ ${daemons
           lastSeen: Date.now(),
           attached: new Map(),
           rateLimiter: { count: 0, windowStart: Date.now() },
+          registrationToken: null,
         });
       }
     }
@@ -736,16 +791,15 @@ ${daemons
     }
     // Daemon must still be a known token holder; resume cannot bypass
     // pairing revocation. (Tokens issued before unregister stay valid until
-    // expiry — same trust model as the full relay.auth check.) Check
-    // validTokens rather than registrations because tokens can also be
-    // populated via registerToken() without a relay.register handshake.
-    let stillRegistered = false;
-    for (const did of this.validTokens.values()) {
-      if (did === payload.daemonId) {
-        stillRegistered = true;
-        break;
-      }
-    }
+    // expiry — same trust model as the full relay.auth check.) Check via
+    // registrations (daemonId → {token, proof}) for O(1) lookup. The old
+    // O(n) scan over validTokens.values() was pre-H5 — now that every
+    // registration path keeps registrations in sync with validTokens (and
+    // evictDaemon deletes both), registrations.has is the correct O(1) check.
+    // Note: registerToken() (test helper only) populates validTokens without
+    // registrations; in that narrow case the daemon won't pass resume anyway
+    // because resume tokens are issued after a full auth/register cycle.
+    const stillRegistered = this.registrations.has(payload.daemonId);
     if (!stillRegistered) {
       this.metrics.resumesRejected++;
       this.send(ws, {
@@ -783,6 +837,7 @@ ${daemons
           count: 0,
           windowStart: Date.now(),
         },
+        registrationToken: existing?.registrationToken ?? null,
       });
     } else if (!this.daemonStates.has(payload.daemonId)) {
       this.daemonStates.set(payload.daemonId, {
@@ -791,6 +846,7 @@ ${daemons
         lastSeen: Date.now(),
         attached: new Map(),
         rateLimiter: { count: 0, windowStart: Date.now() },
+        registrationToken: null,
       });
     }
 
@@ -981,13 +1037,17 @@ ${daemons
     if (!client) return;
     client.subscriptions.delete(msg.sid);
 
-    // Update attached count
+    // Update attached count. Only decrement when the key is present —
+    // mirroring the M13 fix in handleClose: no phantom ?? 1 fallback.
     if (client.role === "frontend") {
       const state = this.daemonStates.get(client.daemonId);
       if (state) {
-        const count = (state.attached.get(msg.sid) ?? 1) - 1;
-        if (count <= 0) state.attached.delete(msg.sid);
-        else state.attached.set(msg.sid, count);
+        const current = state.attached.get(msg.sid);
+        if (current !== undefined) {
+          const next = current - 1;
+          if (next <= 0) state.attached.delete(msg.sid);
+          else state.attached.set(msg.sid, next);
+        }
       }
     }
   }
@@ -1004,13 +1064,20 @@ ${daemons
     // close, network loss, crash) would otherwise leak its attached count,
     // pinning state.attached above zero forever and skewing presence/metrics.
     // Mirror handleUnsubscribe's decrement, but across all subscriptions.
+    //
+    // M13 fix: only decrement when the key is actually present. The old
+    // `?? 1` fallback would subtract 1 from a phantom "1" and delete an
+    // entry that was never set, potentially clobbering another frontend's
+    // session tracking that arrives between this close and a subscribe.
     if (client.role === "frontend") {
       const state = this.daemonStates.get(client.daemonId);
       if (state) {
         for (const sid of client.subscriptions) {
-          const count = (state.attached.get(sid) ?? 1) - 1;
-          if (count <= 0) state.attached.delete(sid);
-          else state.attached.set(sid, count);
+          const current = state.attached.get(sid);
+          if (current === undefined) continue; // key absent — nothing to release
+          const next = current - 1;
+          if (next <= 0) state.attached.delete(sid);
+          else state.attached.set(sid, next);
         }
       }
     }
@@ -1167,7 +1234,7 @@ ${daemons
         this.broadcastPresence(daemonId);
       } else if (
         !state.online &&
-        now - state.lastSeen > OFFLINE_EVICT_AFTER_MS
+        now - state.lastSeen > this.offlineEvictAfterMs
       ) {
         this.evictDaemon(daemonId);
       }
@@ -1179,8 +1246,19 @@ ${daemons
    * long enough that retaining it would be pure memory leak — no returning
    * frontend can use the stale cache. The next successful register/auth
    * rebuilds state from scratch.
+   *
+   * H5 fix: also removes the daemon's entry from validTokens and registrations
+   * so its token cannot be used for auth after eviction (security: token-expiry
+   * bypass). Uses O(1) lookup via daemonState.registrationToken — no scan.
    */
   private evictDaemon(daemonId: string): void {
+    // O(1) token cleanup: grab the token stored on the state, then delete both
+    // validTokens and registrations entries before dropping the state.
+    const state = this.daemonStates.get(daemonId);
+    if (state?.registrationToken) {
+      this.validTokens.delete(state.registrationToken);
+    }
+    this.registrations.delete(daemonId);
     this.daemonStates.delete(daemonId);
     for (const key of this.recentFrames.keys()) {
       if (key.startsWith(`${daemonId}:`)) {

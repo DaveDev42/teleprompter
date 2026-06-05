@@ -9,6 +9,22 @@ import { useSettingsStore } from "../stores/settings-store";
  * Uses libghostty WASM via Canvas 2D rendering.
  * Renders nothing on native platforms.
  */
+
+/** Minimal interface for a ghostty-web Terminal instance. */
+interface GhosttyTermInstance {
+  cols: number;
+  rows: number;
+  renderer: {
+    getMetrics: () => { width: number; height: number } | null;
+  } | null;
+  open: (el: HTMLDivElement) => void;
+  resize: (cols: number, rows: number) => void;
+  write: (data: string) => void;
+  dispose: () => void;
+  onData: (cb: (data: string) => void) => void;
+  onResize: (cb: (size: { cols: number; rows: number }) => void) => void;
+}
+
 export function GhosttyTerminal({
   onData,
   onResize,
@@ -18,12 +34,12 @@ export function GhosttyTerminal({
 }: {
   onData?: (data: string) => void;
   onResize?: (cols: number, rows: number) => void;
-  termRef?: React.MutableRefObject<any>;
+  termRef?: React.MutableRefObject<GhosttyTermInstance | null>;
   onReady?: () => void;
   searchRef?: React.MutableRefObject<TerminalSearch | null>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const termInstanceRef = useRef<any>(null);
+  const termInstanceRef = useRef<GhosttyTermInstance | null>(null);
   const onDataRef = useRef(onData);
   const onResizeRef = useRef(onResize);
   const onReadyRef = useRef(onReady);
@@ -79,8 +95,8 @@ export function GhosttyTerminal({
       };
       fit();
 
-      termInstanceRef.current = term;
-      if (termRef) termRef.current = term;
+      termInstanceRef.current = term as GhosttyTermInstance;
+      if (termRef) termRef.current = term as GhosttyTermInstance;
       if (searchRef) searchRef.current = new Search(term);
 
       onReadyRef.current?.();
@@ -133,9 +149,15 @@ export function GhosttyTerminal({
 
     return () => {
       disposed = true;
-      cleanup.then((fn) => fn?.());
+      cleanup
+        .then((fn) => fn?.())
+        .catch((err: unknown) => {
+          console.error("[GhosttyTerminal] setup error during cleanup:", err);
+        });
       termInstanceRef.current?.dispose();
       termInstanceRef.current = null;
+      if (termRef) termRef.current = null;
+      if (searchRef) searchRef.current = null;
     };
   }, [termRef, searchRef]);
 

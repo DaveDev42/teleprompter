@@ -29,7 +29,7 @@ export function ConfirmDeleteSessionsModal({
     <ModalContainer
       visible={visible}
       onClose={onCancel}
-      accessibilityLabel={`Delete ${count} session${count !== 1 ? "s" : "?"}`}
+      accessibilityLabel={`Delete ${count} session${count !== 1 ? "s" : ""}?`}
       accessibilityLabelledBy="confirm-delete-sessions-title"
       accessibilityDescribedBy={DESCRIPTION_ID}
     >

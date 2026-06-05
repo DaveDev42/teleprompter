@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { getPlatformProps } from "../lib/get-platform-props";
+import type { VoiceConnectionState } from "../stores/voice-store";
 import { useVoiceStore } from "../stores/voice-store";
 
 export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
@@ -73,12 +74,14 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
   // 32px max-width). The screen-reader label uses the same word so VoiceOver
   // doesn't announce "dot dot dot" from a bare "..." — keep visible label
   // and announcement in sync.
-  const stateLabel = {
-    idle: "Mic",
-    connecting: "Connecting",
-    listening: "Listening",
-    processing: "Thinking",
-  }[connection.status];
+  const stateLabel = (
+    {
+      idle: "Mic",
+      connecting: "Connecting",
+      listening: "Listening",
+      processing: "Thinking",
+    } satisfies Record<VoiceConnectionState["status"], string>
+  )[connection.status];
 
   // RN Web doesn't translate accessibilityState.checked into aria-checked,
   // so a screen reader landing on the switch wouldn't know if terminal

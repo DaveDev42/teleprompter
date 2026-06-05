@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { realpathSync } from "fs";
-import { mkdtemp, readdir, rm, writeFile } from "fs/promises";
+import { existsSync, realpathSync } from "fs";
+import { mkdtemp, readdir, rm, unlink, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { basename, dirname, join } from "path";
 import { WorktreeManager } from "./worktree-manager";
@@ -163,5 +163,84 @@ describe("WorktreeManager", () => {
     const branches = worktrees.map((w) => w.branch).sort();
     expect(branches).toContain("branch-a");
     expect(branches).toContain("branch-b");
+  });
+
+  /**
+   * SECURITY REGRESSION: shell injection via branch name
+   *
+   * Attack vector: a remote frontend sends a branch name containing shell
+   * metacharacters (e.g. single quotes + command substitution). The old
+   * gitOutput built a sh -c string without escaping single quotes, so
+   * a name like feat'$(touch /sentinel)' would execute arbitrary commands.
+   *
+   * The fix rewrites gitOutput to use spawnSync("git", args, ...) with no
+   * shell — args are passed as a plain array to execvp, making injection
+   * structurally impossible.
+   *
+   * SABOTAGE-VERIFY confirmation (performed manually during development):
+   *   1. Temporarily restored the old sh -c implementation in gitOutput.
+   *   2. Ran this test — the sentinel file WAS created and the test FAILED,
+   *      confirming the test catches the injection.
+   *   3. Restored the no-shell fix — sentinel file is NOT created and the
+   *      test PASSES, confirming the fix is effective.
+   */
+  test("shell injection via branch name is impossible (security regression)", async () => {
+    // Unique sentinel path: if a shell were invoked, this file would be created.
+    const sentinelId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const sentinelPath = join(tmpdir(), `tp-injection-sentinel-${sentinelId}`);
+
+    // Craft a branch name that, if passed through sh -c with naive single-quote
+    // wrapping, would execute: touch <sentinelPath>
+    // git check-ref-format rejects names with single quotes, so validateBranchName
+    // will throw first — but even if that check were bypassed, gitOutput must not
+    // invoke a shell. We bypass validateBranchName by calling gitOutput indirectly
+    // through manager.add which first calls validateBranchName; the important
+    // assertion is that regardless of which layer rejects, the sentinel is never
+    // created.
+    const maliciousBranch = `feat'$(touch ${sentinelPath})'x`;
+    const wtPath = `${repoDir}-wt-injection-test`;
+
+    // The operation must fail (invalid branch name or git error) — never succeed.
+    await expect(manager.add(wtPath, maliciousBranch)).rejects.toThrow();
+
+    // The sentinel file must NOT exist — no shell command was executed.
+    // Give any async shell a moment to write (it won't, but be explicit).
+    expect(existsSync(sentinelPath)).toBe(false);
+
+    // Cleanup sentinel if somehow created (ensures afterEach doesn't miss it).
+    try {
+      await unlink(sentinelPath);
+    } catch {}
+  });
+
+  test("validateBranchName note: git accepts shell metacharacters — primary fix is no-shell gitOutput", async () => {
+    // Defense-in-depth note: git check-ref-format considers single quotes,
+    // backticks, $(), and semicolons to be VALID branch name characters. This
+    // means validateBranchName alone does NOT gate these injection payloads.
+    //
+    // The PRIMARY and ONLY reliable fix is the no-shell rewrite of gitOutput:
+    // since git is invoked via execvp (no sh -c), shell metacharacters in args
+    // are treated as literal characters and never interpreted.
+    //
+    // Verify that a name with single quotes passes git check-ref-format and
+    // that the attempt fails cleanly (no-such-branch error, not shell execution).
+    const wtPath = `${repoDir}-wt-meta`;
+    const nameWithQuote = "feat'x";
+
+    // Should fail because the branch doesn't exist yet AND the worktree path
+    // cannot be created twice — but the error must come from git logic, not
+    // shell injection. The important thing is the sentinel test above confirms
+    // no shell side-effect occurred.
+    const result = await manager.add(wtPath, nameWithQuote).catch((e) => e);
+    // Either succeeds (git created the branch) or fails with a git error.
+    // Either way, no shell was invoked. Accept both outcomes.
+    if (result instanceof Error) {
+      // Error must be a git/path error, not a crash from injection
+      expect(result.message).toMatch(/git |Invalid branch|does not exist/);
+    }
+    // If it succeeded, clean it up
+    if (!(result instanceof Error)) {
+      await manager.remove(wtPath, true);
+    }
   });
 });

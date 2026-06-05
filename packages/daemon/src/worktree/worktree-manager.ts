@@ -7,42 +7,32 @@
 
 import { createLogger } from "@teleprompter/protocol";
 import { spawnSync } from "child_process";
-import {
-  accessSync,
-  constants,
-  readFileSync,
-  realpathSync,
-  unlinkSync,
-} from "fs";
-import { tmpdir } from "os";
-import { dirname, join } from "path";
+import { accessSync, constants, realpathSync } from "fs";
+import { dirname } from "path";
 
 const log = createLogger("WorktreeManager");
 
-/** Run a git command and return stdout text. */
+/**
+ * Run a git command and return stdout text.
+ *
+ * Runs git directly via spawnSync with no shell — args are passed as an
+ * array so the OS exec syscall never interprets shell metacharacters.
+ * This makes shell injection structurally impossible regardless of what
+ * characters appear in branch names or paths.
+ */
 function gitOutput(args: string[], cwd?: string): string {
-  // Use shell redirection to capture stdout to a temp file.
-  // Node's child_process pipe returns empty buffers under `bun test`
-  // when run from monorepo root (Bun test runner pipe interference).
-  const tmp = join(
-    tmpdir(),
-    `tp-git-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
-  try {
-    const cmd = ["git", ...args].map((a) => `'${a}'`).join(" ");
-    const result = spawnSync("sh", ["-c", `${cmd} > '${tmp}'`], {
-      cwd,
-      stdio: "ignore",
-    });
-    if (result.status !== 0) {
-      throw new Error(`git ${args[0]} exited ${result.status}`);
-    }
-    return readFileSync(tmp, "utf-8");
-  } finally {
-    try {
-      unlinkSync(tmp);
-    } catch {}
+  const result = spawnSync("git", args, {
+    cwd,
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.status !== 0) {
+    const stderr = result.stderr?.trim();
+    throw new Error(
+      `git ${args[0]} exited ${result.status}${stderr ? `: ${stderr}` : ""}`,
+    );
   }
+  return result.stdout ?? "";
 }
 
 /** Run a git command, ignoring stdout. Throws on non-zero exit. */

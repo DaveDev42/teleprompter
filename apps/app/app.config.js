@@ -27,11 +27,11 @@
 // Cloud preview/production builds do NOT set APP_VARIANT, so they keep app.json's
 // `policy: "fingerprint"` and retain real fingerprint-based OTA correlation.
 
-const IS_DEV_LOCAL = process.env.APP_VARIANT === 'dev-local';
+const IS_DEV_LOCAL = process.env.APP_VARIANT === "dev-local";
 
 module.exports = ({ config }) => {
   if (IS_DEV_LOCAL) {
-    return { ...config, runtimeVersion: 'dev-local' };
+    return { ...config, runtimeVersion: "dev-local" };
   }
   return config;
 };

@@ -77,9 +77,7 @@ describe("Rename Notification E2E", () => {
     const kxKey = await deriveKxKey(bundle.pairingSecret);
 
     const ws = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => {
-      ws.onopen = () => r();
-    });
+    await waitOpen(ws);
     ws.send(
       JSON.stringify({
         t: "relay.auth",
@@ -182,9 +180,7 @@ describe("Rename Notification E2E", () => {
     const kxKey = await deriveKxKey(bundle.pairingSecret);
 
     const ws = new WebSocket(`ws://localhost:${relayPort}`);
-    await new Promise<void>((r) => {
-      ws.onopen = () => r();
-    });
+    await waitOpen(ws);
     ws.send(
       JSON.stringify({
         t: "relay.auth",
@@ -271,6 +267,14 @@ describe("Rename Notification E2E", () => {
     ws.close();
   });
 });
+
+function waitOpen(ws: WebSocket): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    ws.onopen = () => resolve();
+    ws.onerror = () => reject(new Error("ws open failed"));
+    setTimeout(() => reject(new Error("ws open timeout")), 3000);
+  });
+}
 
 function waitMsg(
   ws: WebSocket,

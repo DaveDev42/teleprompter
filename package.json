@@ -28,7 +28,7 @@
   },
   "pnpm": {
     "overrides": {
-      "@expo/dom-webview": "55.0.5",
+      "@expo/dom-webview": "56.0.5",
       "react": "19.2.3",
       "react-dom": "19.2.3"
     }

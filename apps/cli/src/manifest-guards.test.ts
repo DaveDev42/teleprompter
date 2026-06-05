@@ -45,6 +45,35 @@ describe("manifest invariants", () => {
     expect(override).toBe(appReact as string);
   });
 
+  test("root pnpm.overrides.@expo/dom-webview SDK-major matches apps/app's expo SDK", () => {
+    const root = JSON.parse(readFileSync("package.json", "utf-8")) as {
+      pnpm?: { overrides?: Record<string, string> };
+    };
+    const app = JSON.parse(readFileSync("apps/app/package.json", "utf-8")) as {
+      dependencies?: Record<string, string>;
+    };
+    const override = root.pnpm?.overrides?.["@expo/dom-webview"];
+    const expoRange = app.dependencies?.["expo"];
+    expect(override).toBeDefined();
+    expect(expoRange).toBeDefined();
+    // @expo/dom-webview versions its major in lockstep with the Expo SDK
+    // (dom-webview 56.x ↔ Expo SDK 56). It's an override (not a direct dep)
+    // pinning a transitive native module that @expo/log-box loads on device.
+    // If the SDK is bumped (e.g. 55 → 56) but this override is left stale at
+    // the old SDK major, the old native module's Kotlin/Swift references a
+    // class removed in the new expo-modules-core (e.g. AnyTypeProvider) and
+    // the Android dev build crashes into DevLauncherErrorActivity on launch
+    // — invisible to type-check, RN-Web e2e, AND iOS (the iOS surface differs).
+    // Found during Q3 Android native verification (override stuck at 55.0.5
+    // after the SDK 56 upgrade). This guard ties the override's major to the
+    // app's expo major so a future SDK bump can't silently leave it behind.
+    const overrideMajor = (override as string).match(/^\D*(\d+)\./)?.[1];
+    const expoMajor = (expoRange as string).match(/(\d+)\./)?.[1];
+    expect(overrideMajor).toBeDefined();
+    expect(expoMajor).toBeDefined();
+    expect(overrideMajor).toBe(expoMajor);
+  });
+
   test("apps/app declares expo.install.exclude for react and react-dom", () => {
     const pkg = JSON.parse(readFileSync("apps/app/package.json", "utf-8")) as {
       expo?: { install?: { exclude?: string[] } };

@@ -15,6 +15,7 @@ const log = createLogger("IpcClient");
 
 type IncomingMessage = IpcAck | IpcInput | IpcResize;
 type MessageHandler = (msg: IncomingMessage) => void;
+type CloseHandler = () => void;
 
 /**
  * The only IPC messages the daemon sends back to a runner. Anything else on
@@ -36,11 +37,20 @@ export class IpcClient {
   private socket: ReturnType<typeof Bun.connect> extends Promise<infer S>
     ? S
     : never = null as never;
-  private writer = new QueuedWriter();
+  private writer: QueuedWriter;
   private decoder = new FrameDecoder();
   private onMessage: MessageHandler;
-  constructor(onMessage: MessageHandler) {
+  private onClose: CloseHandler | undefined;
+
+  constructor(
+    onMessage: MessageHandler,
+    onClose?: CloseHandler,
+    /** Injected QueuedWriter — use in tests to control overflow behaviour. */
+    writer?: QueuedWriter,
+  ) {
     this.onMessage = onMessage;
+    this.onClose = onClose;
+    this.writer = writer ?? new QueuedWriter();
   }
 
   async connect(socketPath?: string): Promise<void> {
@@ -73,14 +83,28 @@ export class IpcClient {
         },
         close() {
           log.info("disconnected");
+          self.onClose?.();
         },
       },
     });
   }
 
+  /**
+   * Send an IPC message. If the QueuedWriter signals a queue overflow
+   * (write() returns false AND the writer is in an overflowed state), the
+   * socket is closed immediately — continuing would silently drop all
+   * subsequent PTY io and hook events, causing permanent data loss. The
+   * onClose callback fires so the owning Runner can initiate a full teardown.
+   */
   send(msg: IpcMessage, binary?: Uint8Array<ArrayBufferLike> | null): void {
     const frame = encodeFrame(msg, binary ?? null);
-    this.writer.write(this.socket, frame);
+    const ok = this.writer.write(this.socket, frame);
+    if (!ok && this.writer.isOverflowed) {
+      log.error(
+        "IPC send queue overflowed — closing socket to surface the failure",
+      );
+      this.close();
+    }
   }
 
   close(): void {

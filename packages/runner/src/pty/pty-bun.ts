@@ -1,5 +1,8 @@
+import { createLogger } from "@teleprompter/protocol";
 import type { Subprocess } from "bun";
 import type { PtyManager, PtyOptions } from "./pty-manager";
+
+const log = createLogger("PtyBun");
 
 export class PtyBun implements PtyManager {
   private proc: Subprocess | null = null;
@@ -17,10 +20,17 @@ export class PtyBun implements PtyManager {
       },
     });
 
-    // Wait for exit in background
-    this.proc.exited.then((code) => {
-      opts.onExit(code);
-    });
+    // Wait for exit in background. The .catch ensures that if onExit (i.e.
+    // Runner.stop()) throws, the rejection is logged rather than becoming an
+    // unhandled promise rejection that Bun may escalate to process termination
+    // without normal cleanup.
+    this.proc.exited
+      .then((code) => {
+        opts.onExit(code);
+      })
+      .catch((err: unknown) => {
+        log.error("error in PTY exit handler:", err);
+      });
   }
 
   write(data: string | Uint8Array): void {

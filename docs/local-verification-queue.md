@@ -151,12 +151,32 @@ cd apps/app && npx expo start --dev-client   # 웹 디버그의 --web 과 다름
 - **command**: 페어링(manual paste 또는 QR) → 세션 목록 → Chat 탭(메시지 송수신, Enter-to-send) →
   Terminal 탭(PTY 스트림/ANSI/키 입력) 풀 골든 패스 1회. 권한: network, foreground service 동작 확인.
 - **pass**: 페어링·세션·Chat·Terminal 전부 동작. foreground service 알림 표시, network 권한 정상.
-- **result**: **NOT RUN 2026-06-05** — Pixel_8 AVD(`emulator-5554`)는 부팅 완료 상태지만, 이번 순회에서
-  Android 로컬 dev build(`eas build --platform android --profile development --local`, `JAVA_HOME`=
-  openjdk@17)를 실행하지 못해 골든 패스(페어링→세션→Chat→Terminal)를 측정하지 못했다. 이전의 "iOS
-  게이트에 막혀서" 사유는 무효 — fingerprint 게이트는 #560으로 해제됐고 Android는 iOS와 독립이다.
-  AVD는 준비됐으니 다음 순회에서 Android 로컬 빌드 → emulator 설치 → 골든 패스로 실행 가능. 실기기 권한
-  모델(foreground service 알림)의 끝단 검증은 EAS Internal track → 사용자(Dave) 실기기로 이관.
+- **result**: **PASS 2026-06-05 (Pixel_8 AVD `emulator-5554`, dev-local APK, Maestro v2.2.0)** — 이 64GB
+  Mac에서 Android 로컬 dev build를 끝까지 돌려 골든 패스(앱 부팅 → Sessions/Daemons/Settings 탭 왕복)를
+  측정했다. 경로: `eas build --platform android --profile development --local --output …apk`
+  (`APP_VARIANT=dev-local`, `JAVA_HOME`=openjdk@17, `ANDROID_HOME=/opt/homebrew/share/android-commandlinetools`,
+  Gradle ~15min, APK 253M) → `adb install` → Metro를 `APP_VARIANT=dev-local`로 띄워(`runtimeVersion`이
+  fingerprint hash 아닌 `dev-local`로 광고되어 APK와 일치) deep link
+  (`exp+teleprompter://expo-development-client/?url=http://localhost:8082`, `adb reverse tcp:8082`)로 dev
+  client 연결 → **`Android Bundled … (1924 modules)`** 번들 실행 → splash(`>_`) → Sessions 렌더. Maestro
+  flow(`q3-tabs.yaml`) **전 단계 그린**: Sessions("No active sessions"+"Go to Daemons") ↔ Daemons
+  ("No daemons connected" + "Scan QR Code to Pair" + "or enter pairing data manually") ↔ Settings 왕복
+  navigate. (페어링 라이브 왕복·Chat/Terminal PTY 스트림은 daemon 페어링이 필요해 QA 범위 밖 — UI 도달성
+  까지 확인. foreground service 알림 끝단은 EAS Internal track → 사용자 실기기로 이관.)
+  - **버그 발견+수정 (PR #563):** 최초 dev-local APK는 부팅 시 **`DevLauncherErrorActivity` 크래시**
+    (`NoClassDefFoundError: expo.modules.kotlin.types.AnyTypeProvider at DomWebViewModule.kt:84`)로 죽었다.
+    원인: root `pnpm.overrides`의 `@expo/dom-webview` 핀이 SDK 55 시절(54991bb, iOS Swift 빌드 픽스)에
+    `55.0.5`로 박힌 채, app이 Expo SDK 56(6708a4f)으로 올라갈 때 갱신되지 않았다. `55.x` Kotlin 네이티브
+    모듈이 참조하는 `AnyTypeProvider`가 `expo-modules-core@56.0.14`에서 제거되어 클래스 로드 실패.
+    `@expo/dom-webview`는 transitive(`@expo/log-box`의 LogBox `'use dom'` 오버레이만 로드, 앱은 직접
+    `DomWebView`를 렌더하지 않음)라 **type-check·RN-Web e2e·iOS 빌드 어디에도 안 잡히고 Android 네이티브
+    빌드에서만** 터졌다. **Fix**: override를 `56.0.5`(expo@56.0.8의 `~56.0.5` 해석값)로 올리고 lockfile
+    재생성. **회귀 가드** (`apps/cli/src/manifest-guards.test.ts`): override의 SDK major를 `apps/app`의
+    `expo` major에 묶어 향후 SDK bump 시 override가 뒤처지면 즉시 실패. 가드는 override를 `55.0.5`로 되돌리면
+    실패함을 확인. 56.0.5로 재빌드한 APK는 위 골든 패스 전부 통과.
+  - **iOS 재검증 큐:** dom-webview `56.0.5`가 iOS 네이티브 빌드에서도 컴파일되고 LogBox `'use dom'` 오버레이가
+    정상 렌더되는지는 별도 iOS EAS/native 체크로 확인 필요(이번 순회는 Android만). 56.0.5는 SDK 56이 기대하는
+    버전이라 회귀 가능성은 낮으나 끝단 미검증.
 
 ### Q4. Simulator QA — UI/로직 회귀 (Expo MCP + Maestro)
 

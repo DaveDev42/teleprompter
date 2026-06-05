@@ -140,7 +140,10 @@ export class Runner {
         try {
           this.hookReceiver.stop();
         } catch (cleanupErr) {
-          log.error("hookReceiver.stop() failed during error cleanup:", cleanupErr);
+          log.error(
+            "hookReceiver.stop() failed during error cleanup:",
+            cleanupErr,
+          );
         }
       }
       if (this.ipcConnected) {

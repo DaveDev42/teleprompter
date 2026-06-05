@@ -65,7 +65,9 @@ describe("Runner start() error cleanup — M7 regression", () => {
     // private field after construction (TypeScript private doesn't prevent JS access).
     const fakeError = new Error("fake-pty-spawn-error");
     (runner as unknown as Record<string, unknown>)["pty"] = {
-      spawn: () => { throw fakeError; },
+      spawn: () => {
+        throw fakeError;
+      },
       write: () => {},
       resize: () => {},
       kill: () => {},
@@ -112,13 +114,19 @@ describe("Runner.stop() idempotency — M8 regression", () => {
         open() {},
         data(_sock, data) {
           // Decode framed JSON messages and record them.
-          const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+          const view = new DataView(
+            data.buffer,
+            data.byteOffset,
+            data.byteLength,
+          );
           let offset = 0;
           while (offset + 4 <= data.byteLength) {
             const len = view.getUint32(offset);
             offset += 4;
             if (offset + len <= data.byteLength) {
-              const json = Buffer.from(data.slice(offset, offset + len)).toString("utf-8");
+              const json = Buffer.from(
+                data.slice(offset, offset + len),
+              ).toString("utf-8");
               serverMessages.push(JSON.parse(json));
               offset += len;
             } else break;

@@ -74,4 +74,37 @@ describe("buildSettings", () => {
     const result = JSON.parse(buildSettings(hookSocket));
     expect(result.hooks.Stop).toHaveLength(1);
   });
+
+  test("does not spread a string when existingHooks[event] is a string (idx 10)", () => {
+    // If the settings file has a string instead of an array for a hook event,
+    // buildSettings must NOT spread that string char-by-char. The result must
+    // be an array with exactly the TP hook entry (length 1).
+    const claudeDir = join(tempDir, ".claude");
+    mkdirSync(claudeDir, { recursive: true });
+    writeFileSync(
+      join(claudeDir, "settings.local.json"),
+      JSON.stringify({
+        hooks: {
+          Stop: "some-bad-string-not-an-array",
+        },
+      }),
+    );
+
+    const result = JSON.parse(buildSettings(hookSocket, tempDir));
+    // Must be exactly 1 entry (TP hook), not 26 characters from the string.
+    expect(result.hooks.Stop).toHaveLength(1);
+    expect(result.hooks.Stop[0].hooks[0].type).toBe("command");
+  });
+
+  test("handles non-object hooks field gracefully", () => {
+    const claudeDir = join(tempDir, ".claude");
+    mkdirSync(claudeDir, { recursive: true });
+    writeFileSync(
+      join(claudeDir, "settings.local.json"),
+      JSON.stringify({ hooks: 42 }),
+    );
+
+    const result = JSON.parse(buildSettings(hookSocket, tempDir));
+    expect(result.hooks.Stop).toHaveLength(1);
+  });
 });

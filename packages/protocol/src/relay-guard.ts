@@ -16,6 +16,15 @@
  * Unknown discriminants or malformed payloads return `null`.
  */
 
+import {
+  isNonNegativeInt,
+  isNumber,
+  isObject,
+  isOptionalNumber,
+  isOptionalString,
+  isPositiveInt,
+  isString,
+} from "./guard-primitives";
 import { RECORD_KIND_SET, type RecordKind } from "./types/record";
 import type {
   SessionAttach,
@@ -51,38 +60,6 @@ export type RelayControlMessage =
   | SessionWorktreeList
   | SessionWorktreeCreate
   | SessionWorktreeRemove;
-
-type PlainObject = { [key: string]: unknown };
-
-function isObject(value: unknown): value is PlainObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isString(v: unknown): v is string {
-  return typeof v === "string";
-}
-
-function isOptionalString(v: unknown): v is string | undefined {
-  return v === undefined || typeof v === "string";
-}
-
-function isNumber(v: unknown): v is number {
-  return typeof v === "number" && Number.isFinite(v);
-}
-
-function isOptionalNumber(v: unknown): v is number | undefined {
-  return v === undefined || (typeof v === "number" && Number.isFinite(v));
-}
-
-/**
- * Terminal dimensions (cols/rows) must be positive integers — they flow
- * unmodified to `Bun.terminal.resize`, where 0 collapses ncurses layout and a
- * negative wraps to a 16-bit unsigned absurd width. isNumber (typeof + finite)
- * lets 0, -1, and 80.5 through; this is the tighter gate for those fields.
- */
-function isPositiveInt(v: unknown): v is number {
-  return typeof v === "number" && Number.isInteger(v) && v > 0;
-}
 
 function isOptionalPositiveInt(v: unknown): v is number | undefined {
   return (
@@ -146,7 +123,7 @@ export function parseRelayControlMessage(
 
     case "resume": {
       if (!isString(raw["sid"])) return null;
-      if (!isNumber(raw["c"])) return null;
+      if (!isNonNegativeInt(raw["c"])) return null;
       return {
         t: "resume",
         sid: raw["sid"],

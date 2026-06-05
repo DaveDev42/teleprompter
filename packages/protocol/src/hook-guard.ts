@@ -23,13 +23,8 @@
  * through unchanged. It validates the envelope, not the variant-specific body.
  */
 
+import { isObject } from "./guard-primitives";
 import type { ClaudeHookEvent, HookEventBase } from "./types/event";
-
-type PlainObject = { [key: string]: unknown };
-
-function isObject(value: unknown): value is PlainObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 const HOOK_EVENT_NAMES: ReadonlySet<ClaudeHookEvent> = new Set([
   "SessionStart",

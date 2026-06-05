@@ -371,6 +371,46 @@ describe("session-store: record handler multicast", () => {
   });
 });
 
+describe("session-store: removeSession delegation", () => {
+  beforeEach(resetStore);
+
+  test("removeSession delegates to removeSessions([sid]) — removes the session", () => {
+    const s = useSessionStore.getState();
+    s.setSessions("d1", [makeMeta("a"), makeMeta("b"), makeMeta("c")]);
+    expect(useSessionStore.getState().sessions.length).toBe(3);
+
+    s.removeSession("b");
+    const sessions = useSessionStore.getState().sessions;
+    expect(sessions.length).toBe(2);
+    expect(sessions.find((x) => x.sid === "b")).toBeUndefined();
+    expect(sessions.find((x) => x.sid === "a")).toBeDefined();
+    expect(sessions.find((x) => x.sid === "c")).toBeDefined();
+  });
+
+  test("removeSession on non-existent sid is a no-op", () => {
+    const s = useSessionStore.getState();
+    s.setSessions("d1", [makeMeta("a")]);
+    s.removeSession("ghost");
+    expect(useSessionStore.getState().sessions.length).toBe(1);
+  });
+
+  test("removeSession triggers persistence (same as removeSessions)", async () => {
+    const s = useSessionStore.getState();
+    s.setSessions("d1", [makeMeta("a"), makeMeta("b")]);
+    await waitWrite();
+
+    s.removeSession("a");
+    await waitWrite();
+
+    const raw = storageGet(SESSIONS_KEY);
+    expect(raw).not.toBeNull();
+    const parsed = JSON.parse(raw ?? "");
+    const d1 = parsed["d1"] as Array<{ sid: string }>;
+    expect(d1.find((x) => x.sid === "a")).toBeUndefined();
+    expect(d1.find((x) => x.sid === "b")).toBeDefined();
+  });
+});
+
 describe("session-store: reset", () => {
   test("reset clears all fields including handlers and persisted map", () => {
     const h = mock((_rec: SessionRec) => {});

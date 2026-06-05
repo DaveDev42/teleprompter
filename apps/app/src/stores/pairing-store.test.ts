@@ -328,6 +328,66 @@ describe("pairing-store: unpair/rename sender callbacks", () => {
   });
 });
 
+describe("pairing-store: deserialization resilience (idx 23)", () => {
+  beforeEach(resetStore);
+
+  test("one corrupt entry does not discard the remaining valid pairings", async () => {
+    // Build two valid pairings and persist them.
+    const qr1 = await buildFakePairing("daemon-good-1");
+    const qr2 = await buildFakePairing("daemon-good-2");
+    await usePairingStore.getState().processScan(qr1);
+    await usePairingStore.getState().processScan(qr2);
+
+    // Corrupt one entry by injecting a bad base64 value directly into storage.
+    const rawJson = fakeStorage.get(WEB_PREFIX + STORAGE_KEY);
+    expect(rawJson).toBeTruthy();
+    const entries = JSON.parse(rawJson ?? "[]");
+    // Inject a fake corrupt entry between the two real ones.
+    entries.splice(1, 0, {
+      daemonId: "daemon-corrupt",
+      relayUrl: "wss://x",
+      relayToken: "t",
+      registrationProof: "p",
+      daemonPublicKey: "!!not-valid-base64!!",
+      frontendPublicKey: "!!not-valid-base64!!",
+      frontendSecretKey: "!!not-valid-base64!!",
+      frontendId: "f",
+      pairingSecret: "!!not-valid-base64!!",
+      pairedAt: Date.now(),
+    });
+    fakeStorage.set(WEB_PREFIX + STORAGE_KEY, JSON.stringify(entries));
+
+    // Reset in-memory state and reload.
+    usePairingStore.setState({
+      pairings: new Map(),
+      activeDaemon: { active: false },
+      state: "unpaired",
+      loaded: false,
+    });
+    await usePairingStore.getState().load();
+
+    const p = usePairingStore.getState().pairings;
+    // The two valid pairings must be loaded; the corrupt one is silently skipped.
+    expect(p.has("daemon-good-1")).toBe(true);
+    expect(p.has("daemon-good-2")).toBe(true);
+    expect(p.has("daemon-corrupt")).toBe(false);
+    expect(p.size).toBe(2);
+  });
+
+  test("a fully corrupt JSON blob returns an empty map without throwing", async () => {
+    fakeStorage.set(WEB_PREFIX + STORAGE_KEY, "{{not json at all");
+    usePairingStore.setState({
+      pairings: new Map(),
+      activeDaemon: { active: false },
+      state: "unpaired",
+      loaded: false,
+    });
+    // Must not throw.
+    await usePairingStore.getState().load();
+    expect(usePairingStore.getState().pairings.size).toBe(0);
+  });
+});
+
 describe("pairing-store: inbound control messages", () => {
   beforeEach(resetStore);
 

@@ -39,6 +39,7 @@ describe("Relay Performance", () => {
         role: "frontend",
         daemonId: "bench-daemon",
         token: "bench-token",
+        frontendId: "fe-bench",
       }),
     );
     await Bun.sleep(100);

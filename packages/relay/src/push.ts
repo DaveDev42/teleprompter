@@ -156,12 +156,29 @@ export class PushService {
     }
   }
 
-  /** Clean up expired dedup entries */
+  /**
+   * Clean up expired dedup entries and stale rate-limit entries.
+   *
+   * dedupSeen entries are evicted when the dedup window has passed.
+   *
+   * rateLimits entries are evicted when the rate-limit window has expired AND
+   * the count has already reset to 0 (i.e. no pushes recorded in the new
+   * window), meaning the entry is effectively dead weight. Evicting only when
+   * count==0 is safe because a non-zero entry in an expired window is reset
+   * in-place by sendOrDeliver before it is read — the cleanup run just removes
+   * the tombstone. This prevents the map from growing monotonically for every
+   * distinct daemonId:frontendId pair seen since startup.
+   */
   private cleanupDedup(): void {
     const now = Date.now();
     for (const [key, seenAt] of this.dedupSeen) {
       if (now - seenAt >= this.dedupWindowMs) {
         this.dedupSeen.delete(key);
+      }
+    }
+    for (const [key, rl] of this.rateLimits) {
+      if (now - rl.windowStart >= this.rateLimitWindowMs && rl.count === 0) {
+        this.rateLimits.delete(key);
       }
     }
   }

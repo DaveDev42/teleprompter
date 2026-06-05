@@ -36,7 +36,33 @@ function readExistingSettings(cwd: string): SettingsJson | null {
   const settingsPath = join(cwd, ".claude", "settings.local.json");
   if (!existsSync(settingsPath)) return null;
   try {
-    return JSON.parse(readFileSync(settingsPath, "utf-8"));
+    const parsed: unknown = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return null;
+    }
+    const obj = parsed as Record<string, unknown>;
+    // Sanitise hooks: if present, it must be a non-array object. Individual
+    // event arrays that are not actually arrays are coerced to [] so that
+    // `[...existingEntries, tpHookEntry]` never spreads a string char-by-char.
+    const rawHooks = obj["hooks"];
+    const hooks: Partial<Record<ClaudeHookEvent, HookEntry[]>> = {};
+    if (
+      rawHooks !== undefined &&
+      typeof rawHooks === "object" &&
+      rawHooks !== null &&
+      !Array.isArray(rawHooks)
+    ) {
+      const rawHooksObj = rawHooks as Record<string, unknown>;
+      for (const event of HOOK_EVENTS) {
+        const val = rawHooksObj[event];
+        hooks[event] = Array.isArray(val) ? (val as HookEntry[]) : [];
+      }
+    }
+    return { ...obj, hooks } as SettingsJson;
   } catch {
     return null;
   }

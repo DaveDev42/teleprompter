@@ -47,32 +47,4 @@ export class Collector {
       payload,
     };
   }
-
-  /** Create a teleprompter-internal event (tp namespace, dot notation) */
-  tpEvent(name: string, data: unknown): IpcRec {
-    const payload = Buffer.from(JSON.stringify(data)).toString("base64");
-    return {
-      t: "rec",
-      sid: this.sid,
-      kind: "event",
-      ts: Date.now(),
-      ns: "tp",
-      name,
-      payload,
-    };
-  }
-
-  /** Create a meta record */
-  metaRecord(name: string, data: unknown): IpcRec {
-    const payload = Buffer.from(JSON.stringify(data)).toString("base64");
-    return {
-      t: "rec",
-      sid: this.sid,
-      kind: "meta",
-      ts: Date.now(),
-      ns: "runner",
-      name,
-      payload,
-    };
-  }
 }

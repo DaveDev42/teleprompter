@@ -23,8 +23,8 @@ const runner = new Runner({
   cwd,
   worktreePath: values["worktree-path"],
   socketPath: values["socket-path"],
-  cols: parseInt(values.cols ?? "120", 10),
-  rows: parseInt(values.rows ?? "40", 10),
+  cols: Math.max(1, parseInt(values.cols ?? "120", 10) || 120),
+  rows: Math.max(1, parseInt(values.rows ?? "40", 10) || 40),
   claudeArgs: positionals,
 });
 

@@ -37,19 +37,6 @@ describe("Collector", () => {
     expect(decoded.last_assistant_message).toBe("Done!");
   });
 
-  test("metaRecord creates meta record with runner namespace", () => {
-    const rec = collector.metaRecord("started", { pid: 1234 });
-
-    expect(rec.t).toBe("rec");
-    expect(rec.sid).toBe("test-session");
-    expect(rec.kind).toBe("meta");
-    expect(rec.ns).toBe("runner");
-    expect(rec.name).toBe("started");
-
-    const decoded = JSON.parse(Buffer.from(rec.payload, "base64").toString());
-    expect(decoded.pid).toBe(1234);
-  });
-
   test("ioRecord preserves null bytes and high bytes verbatim", () => {
     const data = new Uint8Array([0, 1, 2, 255, 0, 128]);
     const io = collector.ioRecord(data);

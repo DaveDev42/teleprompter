@@ -10,6 +10,75 @@ import { isDaemonRunning } from "../lib/ensure-daemon";
 import { messageOf } from "../lib/format";
 import { resolveRunnerCommand } from "../spawn";
 
+/**
+ * Mutable ref box shared across restarts so signal/crash handlers can always
+ * reference the *current* daemon instance without re-registering themselves.
+ */
+interface WatchState {
+  /** The daemon instance currently running (replaced on each restart). */
+  daemonRef: Daemon | null;
+  /** True once Ctrl+C / SIGTERM has been received; prevents double-stop. */
+  shuttingDown: boolean;
+  /** True once the process-level handlers have been registered. */
+  handlersRegistered: boolean;
+}
+
+/**
+ * Register process-level SIGINT / SIGTERM / uncaughtException handlers exactly
+ * once for the lifetime of a --watch daemon process.  On each call after the
+ * first, the function is a no-op so recursive restart calls cannot accumulate
+ * additional listeners.
+ *
+ * Exported for testing (handler-count regression test).
+ */
+export function setupWatchHandlers(
+  state: WatchState,
+  restartFn: (argv: string[]) => void,
+  argv: string[],
+): void {
+  if (state.handlersRegistered) return;
+  state.handlersRegistered = true;
+
+  function shutdown() {
+    if (state.shuttingDown) return;
+    state.shuttingDown = true;
+    console.log("\n[Daemon] shutting down...");
+    state.daemonRef?.stop();
+    process.exit(0);
+  }
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+
+  process.on("uncaughtException", (err) => {
+    console.error("[Daemon] uncaught exception:", err.message);
+    console.error("[Daemon] restarting in 3s...");
+    state.daemonRef?.stop();
+    state.daemonRef = null;
+    setTimeout(() => {
+      restartFn(argv);
+    }, 3000);
+  });
+
+  process.on("unhandledRejection", (err: unknown) => {
+    console.error(
+      "[Daemon] unhandled rejection:",
+      err instanceof Error ? err.message : err,
+    );
+    // Don't restart for rejections — they're usually non-fatal
+  });
+}
+
+/**
+ * Module-level watch state — one instance per process, shared across all
+ * recursive daemonCommand() invocations in --watch mode.
+ */
+const watchState: WatchState = {
+  daemonRef: null,
+  shuttingDown: false,
+  handlersRegistered: false,
+};
+
 export async function daemonCommand(argv: string[]): Promise<void> {
   const subcommand = argv[0];
 
@@ -82,6 +151,11 @@ export async function daemonCommand(argv: string[]): Promise<void> {
   }
 
   const daemon = new Daemon();
+  // Update the shared ref so the already-registered handlers point to the new instance.
+  watchState.daemonRef = daemon;
+  // Reset shuttingDown for the fresh daemon instance (a crash restart is not a
+  // deliberate shutdown, so the flag must be clear for the next Ctrl+C).
+  watchState.shuttingDown = false;
   const socketPath = daemon.start();
 
   // Start auto-cleanup (prune on startup + every 24h)
@@ -119,36 +193,22 @@ export async function daemonCommand(argv: string[]): Promise<void> {
     });
   }
 
-  let shuttingDown = false;
-  function shutdown() {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    console.log("\n[Daemon] shutting down...");
-    daemon.stop();
-    process.exit(0);
-  }
-
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
-
-  // Auto-restart on crash (--watch mode)
+  // Register SIGINT / SIGTERM / uncaughtException handlers exactly once,
+  // regardless of how many times daemonCommand() is called during --watch restarts.
   if (values.watch) {
-    process.on("uncaughtException", (err) => {
-      console.error("[Daemon] uncaught exception:", err.message);
-      console.error("[Daemon] restarting in 3s...");
+    setupWatchHandlers(watchState, daemonCommand, argv);
+  } else {
+    // Non-watch mode: simple one-shot shutdown (no restart loop, no shared state needed).
+    let shuttingDown = false;
+    function shutdown() {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      console.log("\n[Daemon] shutting down...");
       daemon.stop();
-      setTimeout(() => {
-        daemonCommand(argv);
-      }, 3000);
-    });
-
-    process.on("unhandledRejection", (err: unknown) => {
-      console.error(
-        "[Daemon] unhandled rejection:",
-        err instanceof Error ? err.message : err,
-      );
-      // Don't restart for rejections — they're usually non-fatal
-    });
+      process.exit(0);
+    }
+    process.on("SIGINT", shutdown);
+    process.on("SIGTERM", shutdown);
   }
 }
 

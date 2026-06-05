@@ -129,7 +129,8 @@ function isSessionRecArray(v: unknown): v is SessionRec[] {
 function isWorktreeInfo(v: unknown): v is SessionWorktreeInfo {
   if (!isObject(v)) return false;
   if (!isString(v["path"])) return false;
-  if (!isString(v["branch"])) return false;
+  // `branch` is `string | null`: null for detached-HEAD / bare worktrees.
+  if (!isString(v["branch"]) && v["branch"] !== null) return false;
   if (!isString(v["head"])) return false;
   if (!isBoolean(v["isMain"])) return false;
   return true;

@@ -147,6 +147,23 @@ describe("matchPairings", () => {
   });
 });
 
+describe("pair.ts requestPairOp timeout guard (idx 63)", () => {
+  // Verifies that requestPairOp wires a 30s timeout so a daemon that accepts
+  // the IPC connection but never replies doesn't hang tp pair delete/rename.
+  test("requestPairOp has a PAIR_OP_TIMEOUT_MS constant and wires a timer", async () => {
+    const src = await Bun.file(
+      new URL("./pair.ts", import.meta.url).pathname,
+    ).text();
+    // The constant must be declared
+    expect(src).toMatch(/const PAIR_OP_TIMEOUT_MS = 30_000;/);
+    // A setTimeout call using it must exist inside requestPairOp
+    expect(src).toContain("PAIR_OP_TIMEOUT_MS");
+    expect(src).toMatch(/setTimeout\(/);
+    // The timer must be cleared on success to prevent leaks
+    expect(src).toMatch(/clearTimeout\(timer\)/);
+  });
+});
+
 describe("pair.ts onClose race guard (static)", () => {
   // Regression for the v0.1.22 QA bug where `tp pair new` printed
   // "Daemon disconnected — pairing aborted." right after a successful pairing

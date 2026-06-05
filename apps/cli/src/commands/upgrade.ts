@@ -559,16 +559,21 @@ async function upgradeTp(tag: string): Promise<void> {
     // Replace binary
     try {
       renameSync(tmpPath, targetPath);
+      tmpPath = ""; // Cleared — no longer need to clean up tmp
     } catch (e) {
       const err = e as NodeJS.ErrnoException;
       if (err.code === "EXDEV") {
         copyFileSync(tmpPath, targetPath);
+        // Unlink before clearing tmpPath so that if unlinkSync throws
+        // (e.g. EPERM), the outer catch still sees a non-empty tmpPath
+        // and can retry — but we clear after a successful unlink so it
+        // doesn't double-attempt a file that's already gone.
         unlinkSync(tmpPath);
+        tmpPath = ""; // Cleared — no longer need to clean up tmp
       } else {
         throw e;
       }
     }
-    tmpPath = ""; // Cleared — no longer need to clean up tmp
     console.log(`Updated tp at ${targetPath}`);
 
     // Verify the new binary runs

@@ -1,5 +1,9 @@
 import { messageOf } from "./lib/format";
-import { decideRoute, shouldCheckForUpdates } from "./router";
+import {
+  decideRoute,
+  shouldCheckForUpdates,
+  type TpSubcommand,
+} from "./router";
 
 if (process.platform === "win32") {
   console.error(
@@ -67,7 +71,7 @@ async function main(): Promise<void> {
   }
 }
 
-async function dispatchSubcommand(name: string): Promise<void> {
+async function dispatchSubcommand(name: TpSubcommand): Promise<void> {
   const argv = process.argv.slice(3);
   switch (name) {
     case "daemon": {
@@ -124,6 +128,12 @@ async function dispatchSubcommand(name: string): Promise<void> {
       const { versionCommand } = await import("./commands/version");
       await versionCommand(argv);
       return;
+    }
+    default: {
+      // Exhaustiveness check: TypeScript will error here if a new TpSubcommand
+      // is added to TP_SUBCOMMANDS without a corresponding case above.
+      const _exhaustive: never = name;
+      throw new Error(`Unhandled subcommand: ${_exhaustive}`);
     }
   }
 }

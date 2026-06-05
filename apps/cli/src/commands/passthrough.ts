@@ -69,7 +69,10 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
     if (kind === "io") process.stdout.write(payload);
   };
 
+  let cleanedUp = false;
   const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
     daemon.stop();
     try {

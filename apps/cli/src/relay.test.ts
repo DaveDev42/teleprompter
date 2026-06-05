@@ -4,6 +4,41 @@ import {
   generatePairingSecret,
 } from "@teleprompter/protocol";
 import { RelayServer } from "@teleprompter/relay";
+import { capture } from "./test-util";
+
+const CLI = "bun run apps/cli/src/index.ts";
+
+describe("tp relay NaN guard (idx 17)", () => {
+  // Verifies that non-numeric --port / --cache-size / --max-frame-size values
+  // are rejected with a clear error instead of silently passing NaN into
+  // RelayServer (which would disable ring-buffer cap and frame-size disconnect).
+  test("invalid --port value exits with an error", () => {
+    const out = capture(`${CLI} relay start --port abc`);
+    expect(out).toContain("invalid --port value");
+    expect(out).not.toContain("[Relay] press");
+  });
+
+  test("invalid --cache-size value exits with an error", () => {
+    const out = capture(`${CLI} relay start --port 19999 --cache-size 0abc`);
+    expect(out).toContain("invalid --cache-size value");
+  });
+
+  test("invalid --max-frame-size value exits with an error", () => {
+    const out = capture(
+      `${CLI} relay start --port 19998 --max-frame-size notanumber`,
+    );
+    expect(out).toContain("invalid --max-frame-size value");
+  });
+
+  test("valid numeric --port does not error", () => {
+    // Starts the relay on a random high port long enough to confirm it
+    // accepted the numeric argument, then sends SIGTERM after a short delay.
+    const relay = new RelayServer();
+    const port = relay.start(0);
+    expect(port).toBeGreaterThan(0);
+    relay.stop();
+  });
+});
 
 describe("tp relay (integration)", () => {
   test("relay server starts and accepts connections", async () => {

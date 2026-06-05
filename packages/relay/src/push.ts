@@ -28,6 +28,8 @@ export interface PushRequest {
 export interface PushServiceOptions {
   rateLimitPerMinute?: number;
   dedupWindowMs?: number;
+  /** Override the rate-limit window duration in ms (default: 60 000). For testing. */
+  rateLimitWindowMs?: number;
   fetchFn?: typeof fetch;
 }
 
@@ -39,6 +41,7 @@ interface RateLimitEntry {
 export class PushService {
   private readonly rateLimitPerMinute: number;
   private readonly dedupWindowMs: number;
+  private readonly rateLimitWindowMs: number;
   private readonly fetchFn: typeof fetch;
 
   /** frontendId → rate limit state */
@@ -53,6 +56,7 @@ export class PushService {
     this.rateLimitPerMinute =
       options.rateLimitPerMinute ?? DEFAULT_RATE_LIMIT_PER_MINUTE;
     this.dedupWindowMs = options.dedupWindowMs ?? DEFAULT_DEDUP_WINDOW_MS;
+    this.rateLimitWindowMs = options.rateLimitWindowMs ?? RATE_LIMIT_WINDOW_MS;
     this.fetchFn = options.fetchFn ?? fetch;
 
     this.cleanupInterval = setInterval(() => {
@@ -94,13 +98,21 @@ export class PushService {
       }
     }
 
-    // Step 3: Rate limit check (don't increment yet — only increment on success)
-    const rl = this.rateLimits.get(rateLimitKey);
-    if (rl && now - rl.windowStart < RATE_LIMIT_WINDOW_MS) {
-      if (rl.count >= this.rateLimitPerMinute) {
-        log.warn(`rate limited push for frontendId ${frontendId}`);
-        return "rate_limited";
-      }
+    // Step 3: Rate limit check (don't increment yet — only increment on success).
+    // M14 fix: if an existing window has expired, reset it now so that expired
+    // state does not permanently bypass the limit on subsequent calls (whether
+    // the push succeeds or fails). This ensures the count+windowStart are always
+    // in a consistent "current window" state before the check runs.
+    let rl = this.rateLimits.get(rateLimitKey);
+    if (rl && now - rl.windowStart >= this.rateLimitWindowMs) {
+      // Window has expired — reset to a fresh window so the limit applies
+      // correctly within the new window.
+      rl.count = 0;
+      rl.windowStart = now;
+    }
+    if (rl && rl.count >= this.rateLimitPerMinute) {
+      log.warn(`rate limited push for frontendId ${frontendId}`);
+      return "rate_limited";
     }
 
     // Step 4: Call Expo Push API
@@ -128,10 +140,12 @@ export class PushService {
         this.dedupSeen.set(dedupKey, now);
       }
 
-      if (rl && now - rl.windowStart < RATE_LIMIT_WINDOW_MS) {
+      if (rl) {
+        // Window is already current (reset if expired above, or still fresh).
         rl.count++;
       } else {
-        this.rateLimits.set(rateLimitKey, { count: 1, windowStart: now });
+        rl = { count: 1, windowStart: now };
+        this.rateLimits.set(rateLimitKey, rl);
       }
 
       log.info(`push sent to frontendId ${frontendId}`);

@@ -70,7 +70,9 @@ describe("captureHookCommand", () => {
     expect(inner).toContain("});");
     // Must be parseable as JS (no syntax error from truncation).
     // The script uses top-level await, so wrap in async to validate with new Function.
-    expect(() => new Function(`return (async () => { ${inner} })()`)).not.toThrow();
+    expect(
+      () => new Function(`return (async () => { ${inner} })()`),
+    ).not.toThrow();
   });
 
   test("escapes path with spaces via JSON.stringify", () => {
@@ -78,7 +80,7 @@ describe("captureHookCommand", () => {
     const cmd = captureHookCommand(path);
     expect(cmd).toContain(JSON.stringify(path));
     // The path (with space) must appear in the command correctly quoted.
-    expect(cmd).toContain('"' + path + '"');
+    expect(cmd).toContain(`"${path}"`);
   });
 
   test("script body (with outer quotes stripped) is valid parseable JS", () => {
@@ -86,7 +88,9 @@ describe("captureHookCommand", () => {
     // Strip leading `bun -e '` and trailing `'`.
     const inner = cmd.replace(/^bun -e '/, "").replace(/'$/, "");
     // The script uses top-level await, so wrap in async to validate with new Function.
-    expect(() => new Function(`return (async () => { ${inner} })()`)).not.toThrow();
+    expect(
+      () => new Function(`return (async () => { ${inner} })()`),
+    ).not.toThrow();
     expect(inner).toContain("Bun.connect(");
     expect(inner).toContain("});");
   });

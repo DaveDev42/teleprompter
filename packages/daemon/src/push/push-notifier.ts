@@ -1,4 +1,8 @@
-import { createLogger, type RecordKind } from "@teleprompter/protocol";
+import {
+  createLogger,
+  type PushInterruptionLevel,
+  type RecordKind,
+} from "@teleprompter/protocol";
 
 const log = createLogger("PushNotifier");
 
@@ -24,6 +28,40 @@ const NOTIFY_EVENTS = new Set([
   "Elicitation",
 ]);
 
+/**
+ * Hook events that warrant a *time-sensitive* iOS interruption level — i.e.
+ * notifications that should break through Focus / Do Not Disturb (when the user
+ * has allowed time-sensitive notifications for the app). These are the
+ * "Claude is blocked and needs you right now" events: a permission prompt, an
+ * elicitation question, or the generic attention Notification. Missing one of
+ * these means the agent sits idle until the user happens to check, so the
+ * heightened delivery is justified.
+ *
+ * Events that are merely *informational* (e.g. a future Stop / completion
+ * event — "your task finished") deliberately stay off this list and fall back
+ * to the default "active" level, which respects Focus. Per-event
+ * differentiation (rather than a blanket level) is the explicit design: urgent
+ * events cut through, informational ones don't nag.
+ *
+ * Today this set equals NOTIFY_EVENTS because every event we currently push on
+ * is attention-needed; it is kept as a separate set so adding an informational
+ * NOTIFY_EVENT later only requires *not* adding it here.
+ */
+const TIME_SENSITIVE_EVENTS = new Set([
+  "Notification",
+  "PermissionRequest",
+  "Elicitation",
+]);
+
+/**
+ * Map a hook event name to the iOS interruption level its push should carry.
+ * Pure + exported for unit testing. Defaults to "active" for anything not
+ * explicitly marked time-sensitive.
+ */
+export function interruptionLevelFor(eventName: string): PushInterruptionLevel {
+  return TIME_SENSITIVE_EVENTS.has(eventName) ? "time-sensitive" : "active";
+}
+
 interface PushMessage {
   title: string;
   body: string;
@@ -48,6 +86,7 @@ export interface PushNotifierDeps {
     token: string,
     title: string,
     body: string,
+    interruptionLevel: PushInterruptionLevel,
     data: { sid: string; event: string },
   ) => void;
 }
@@ -90,12 +129,13 @@ export class PushNotifier {
     if (tokenCount === 0) return;
 
     const msg = buildPushMessage(rec.name, rec.payload);
+    const level = interruptionLevelFor(rec.name);
 
     for (const [frontendId, entry] of this.tokens) {
       log.info(
-        `sending push notification to ${frontendId} for event ${rec.name} sid=${rec.sid}`,
+        `sending push notification to ${frontendId} for event ${rec.name} sid=${rec.sid} level=${level}`,
       );
-      this.deps.sendPush(frontendId, entry.token, msg.title, msg.body, {
+      this.deps.sendPush(frontendId, entry.token, msg.title, msg.body, level, {
         sid: rec.sid,
         event: rec.name,
       });

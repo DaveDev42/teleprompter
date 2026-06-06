@@ -82,6 +82,36 @@ describe("PushService", () => {
       expect(body.sound).toBe("default");
     });
 
+    test("omits interruptionLevel + priority when level is absent (default active)", async () => {
+      const { fn, calls } = makeFetchFn();
+      service = new PushService({ fetchFn: fn });
+      await service.sendOrDeliver(makeRequest());
+      const body = JSON.parse(await calls[0]!.text());
+      expect(body.interruptionLevel).toBeUndefined();
+      expect(body.priority).toBeUndefined();
+    });
+
+    test("forwards interruptionLevel + lifts priority to high for time-sensitive", async () => {
+      const { fn, calls } = makeFetchFn();
+      service = new PushService({ fetchFn: fn });
+      await service.sendOrDeliver(
+        makeRequest({ interruptionLevel: "time-sensitive" }),
+      );
+      const body = JSON.parse(await calls[0]!.text());
+      expect(body.interruptionLevel).toBe("time-sensitive");
+      // time-sensitive must ride APNs priority 10 or it can be deferred
+      expect(body.priority).toBe("high");
+    });
+
+    test("forwards active interruptionLevel without lifting priority", async () => {
+      const { fn, calls } = makeFetchFn();
+      service = new PushService({ fetchFn: fn });
+      await service.sendOrDeliver(makeRequest({ interruptionLevel: "active" }));
+      const body = JSON.parse(await calls[0]!.text());
+      expect(body.interruptionLevel).toBe("active");
+      expect(body.priority).toBeUndefined();
+    });
+
     test("returns 'error' when fetch throws", async () => {
       const { fn } = makeFetchFn(false);
       service = new PushService({ fetchFn: fn });

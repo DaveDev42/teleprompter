@@ -256,7 +256,10 @@ Relay Protocol v2 (Daemon/Frontend ↔ Relay):
   relay.frame      암호화 데이터 수신 (frontendId 포함)
   relay.kx.frame   pubkey 교환 수신
   relay.presence   Daemon online/offline + 세션 목록
-  relay.push       Daemon → Relay: 대상 frontend 에 Expo push 발송 요청 (token+title+body+data)
+  relay.push       Daemon → Relay: 대상 frontend 에 Expo push 발송 요청 (token+title+body+interruptionLevel?+data)
+                   interruptionLevel = "active" | "time-sensitive" (옵셔널, 미지정 → active).
+                   attention-needed 이벤트(PermissionRequest/Notification/Elicitation)는 time-sensitive
+                   로 Focus/DND 돌파 + APNs priority 10. 정보성 이벤트는 active (Focus 존중).
   relay.notification Relay → Frontend: push payload 전달 (앱이 백그라운드일 때 알림)
   relay.ping/pong  keepalive
 

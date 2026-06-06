@@ -78,8 +78,15 @@ export class Daemon {
     });
 
     this.pushNotifier = new PushNotifier({
-      sendPush: (frontendId, token, title, body, data) => {
-        this.relayManager.dispatchPush(frontendId, token, title, body, data);
+      sendPush: (frontendId, token, title, body, interruptionLevel, data) => {
+        this.relayManager.dispatchPush(
+          frontendId,
+          token,
+          title,
+          body,
+          interruptionLevel,
+          data,
+        );
       },
     });
 

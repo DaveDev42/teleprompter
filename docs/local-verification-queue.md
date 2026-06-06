@@ -226,6 +226,24 @@ bump는 cloud-unsafe라 금지.**
   (부수 성과: capture-hook.ts 셸 따옴표 버그 #569, /health buildSha 가드 #570, deploy unit 수렴
   #572 — 셋 다 이 진단 중 발견·수정.)
 
+  **재순회 2026-06-07 (`/verify-native Q1`, still BLOCKED — 동일 한 겹):** 머신 게이트 Q1 부분집합
+  재확인 — 64GB RAM, `eas whoami` = davedev42, iPhone 15 Pro `available (paired)`
+  (`FFB34007-…`), dev `.ipa` 잔존(`/tmp/teleprompter-dev.ipa`, 26M), 앱 설치됨
+  (`dev.tpmt.app` v0.1.19 build 58). **JDK 26 은 Q1 게이트가 아님** (Maestro/Android 전용 —
+  Q1 은 iOS 실기기 push). relay-side 차단(`Unknown message type: relay.push`)은 #572 이후 해소
+  상태 그대로다 (로그의 그 에러 라인들은 전부 2026-06-06 stale-relay 시절의 과거 기록). daemon 은
+  이제 **sealed push token (Path X, #579 merged `33b8375`) 바이너리**로 02:11 재시작됨 — Path X 는
+  back-compat 라 구버전 production relay 에는 plaintext `token` 으로 폴백(비-`tpps1.` blob),
+  고쳐진 relay 가 그대로 수락한다. `devicectl device process launch dev.tpmt.app` 로 폰에서 앱을
+  **원격 콜드 런치**까지 성공했으나(Metro `:8082` `--dev-client` 떠 있음), 35s 대기 후에도 새
+  daemon 로그에 `[PushNotifier] registered push token` 이 안 찍힘 — dev-client 콜드 런치만으로는
+  relay connect → kx → 알림권한 → token 재등록 플로우가 완주되지 않음(사람 조작 없이는 launcher
+  단계에 머묾). **즉 차단은 변함없이 "Dave 가 폰에서 앱을 직접 열어 token 재등록 + 잠금화면 push
+  도착/사운드/탭-navigate 를 눈으로 확인"** 이라는 물리·인간 단계다 — 이 세션에서 화면·사운드·탭은
+  검증 불가. 추가로 폰의 앱(build 58)은 Path X 이전 빌드라 새 `relay.push.register` 이중 전송을
+  안 함 — sealed 경로 end-to-end 까지 보려면 #579 이후 dev build 재설치가 필요(back-compat plaintext
+  경로는 build 58 로도 검증 가능).
+
 ### Q2. iOS 실기기 — keychain / 백그라운드 사이클 / audio
 
 - **prereq**: Q1과 동일 빌드.

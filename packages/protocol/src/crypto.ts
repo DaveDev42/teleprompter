@@ -20,7 +20,24 @@ export async function ensureSodium() {
     _sodiumPromise = (async () => {
       const s =
         require("libsodium-wrappers") as typeof import("libsodium-wrappers");
-      await s.ready;
+      // libsodium first tries to instantiate native WebAssembly; on runtimes
+      // without it (Hermes/React Native) that path fails and libsodium falls
+      // back to its bundled wasm2js polyfill.  The failure is expected and
+      // crypto still initialises correctly, but libsodium's internal `err`
+      // helper (bound to console.error) emits two noisy lines before the
+      // fallback succeeds:
+      //   "failed to asynchronously prepare wasm: ..."
+      //   "Aborted(...)"
+      // Suppress console.error for the duration of the ready Promise so these
+      // expected init messages don't pollute the native console.
+      const origError = console.error;
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      console.error = () => {};
+      try {
+        await s.ready;
+      } finally {
+        console.error = origError;
+      }
       return s;
     })();
   }

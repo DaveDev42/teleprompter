@@ -22,22 +22,16 @@ export async function ensureSodium() {
         require("libsodium-wrappers") as typeof import("libsodium-wrappers");
       // libsodium first tries to instantiate native WebAssembly; on runtimes
       // without it (Hermes/React Native) that path fails and libsodium falls
-      // back to its bundled wasm2js polyfill.  The failure is expected and
-      // crypto still initialises correctly, but libsodium's internal `err`
-      // helper (bound to console.error) emits two noisy lines before the
-      // fallback succeeds:
-      //   "failed to asynchronously prepare wasm: ..."
-      //   "Aborted(...)"
-      // Suppress console.error for the duration of the ready Promise so these
-      // expected init messages don't pollute the native console.
-      const origError = console.error;
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      console.error = () => {};
-      try {
-        await s.ready;
-      } finally {
-        console.error = origError;
-      }
+      // back to its bundled wasm2js polyfill. The failure is expected and crypto
+      // still initialises correctly, but emscripten emits two noisy init lines.
+      //
+      // We do NOT suppress them here: libsodium captures its error sink as
+      // `console.error.bind(console)` at module-eval time (during the require
+      // above), so reassigning `console.error` afterwards has no effect on it.
+      // The noise is filtered at the source instead — see the init-noise filter
+      // in apps/app/src/lib/crypto-polyfill.ts, which wraps console.error BEFORE
+      // libsodium is ever required (it is the first import at the app entry).
+      await s.ready;
       return s;
     })();
   }

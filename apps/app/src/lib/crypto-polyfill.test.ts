@@ -1,15 +1,20 @@
 /**
  * Unit tests for crypto-polyfill.ts.
  *
- * crypto-polyfill installs:
+ * crypto-polyfill installs (only on Hermes — runtimes with no native
+ * WebAssembly):
  *   1. `self.crypto.getRandomValues` — for Hermes, which has neither `window`
  *      nor `self`.
- *   2. `globalThis.WebAssembly` stub — for Hermes, which has no native
- *      WebAssembly.  The stub lets libsodium's try/catch path handle wasm init
- *      failure cleanly instead of throwing a bare ReferenceError.
+ *   2. A narrow `console.error` / `console.warn` filter that drops libsodium's
+ *      expected wasm2js init noise and forwards everything else verbatim. This
+ *      is the primary fix for the recurring "failed to asynchronously prepare
+ *      wasm" / "Aborted(...)" lines, and it must wrap console BEFORE libsodium
+ *      is required (libsodium binds `console.error.bind(console)` at eval time).
+ *   3. A minimal `globalThis.WebAssembly` stub (defense-in-depth) so any code
+ *      reaching for the global resolves to an object instead of throwing.
  *
  * We stub `expo-crypto.getRandomValues` so the side-effectful module can be
- * imported under Bun, then assert both polyfills behave correctly.
+ * imported under Bun, then assert all polyfills behave correctly.
  */
 
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
@@ -45,6 +50,10 @@ const g = globalThis as unknown as {
 const originalSelf = g.self;
 const originalCrypto = g.crypto;
 const originalWebAssembly = g.WebAssembly;
+// The polyfill wraps console.error / console.warn on the Hermes path; snapshot
+// so the side effect can be undone for other test files sharing this vm.
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
 
 describe("crypto-polyfill", () => {
   beforeAll(async () => {
@@ -53,8 +62,8 @@ describe("crypto-polyfill", () => {
     delete (g as { crypto?: unknown }).crypto;
     delete (g as { WebAssembly?: unknown }).WebAssembly;
     expoCalls = 0;
-    // Side-effectful import — installs `self.crypto.getRandomValues` and the
-    // WebAssembly stub.
+    // Side-effectful import — installs `self.crypto.getRandomValues`, the
+    // console init-noise filter, and the WebAssembly stub.
     await import("./crypto-polyfill?fresh=1");
   });
 
@@ -62,6 +71,8 @@ describe("crypto-polyfill", () => {
     g.self = originalSelf;
     g.crypto = originalCrypto;
     g.WebAssembly = originalWebAssembly;
+    console.error = originalConsoleError;
+    console.warn = originalConsoleWarn;
   });
 
   test("installs self global", () => {
@@ -115,6 +126,48 @@ describe("crypto-polyfill", () => {
     // The polyfill only installs when the function is missing, so the
     // previously-installed reference must be preserved.
     expect(self.crypto.getRandomValues).toBe(installed);
+  });
+
+  // ── console init-noise filter (the primary fix) ────────────────────────────
+  // The Hermes branch in beforeAll deleted globalThis.WebAssembly before import,
+  // so the polyfill installed its console.error / console.warn filter. We test
+  // the real exported predicate (the same function the live filter uses) for
+  // exactly which lines it classifies as noise.
+
+  test("predicate flags the two emscripten init-noise lines", async () => {
+    const { isLibsodiumInitNoise } = await import("./crypto-polyfill?fresh=1");
+    expect(
+      isLibsodiumInitNoise([
+        "failed to asynchronously prepare wasm: ReferenceError: x",
+      ]),
+    ).toBe(true);
+    expect(
+      isLibsodiumInitNoise([
+        "Aborted(TypeError). Build with -sASSERTIONS for more info.",
+      ]),
+    ).toBe(true);
+    expect(
+      isLibsodiumInitNoise(["Build with -sASSERTIONS for more info."]),
+    ).toBe(true);
+  });
+
+  test("predicate does NOT flag genuine errors or non-string args", async () => {
+    const { isLibsodiumInitNoise } = await import("./crypto-polyfill?fresh=1");
+    expect(isLibsodiumInitNoise(["a genuine application error"])).toBe(false);
+    expect(isLibsodiumInitNoise(["TypeError: cannot read property x"])).toBe(
+      false,
+    );
+    expect(isLibsodiumInitNoise([{ not: "a string" }])).toBe(false);
+    expect(isLibsodiumInitNoise([])).toBe(false);
+  });
+
+  test("installed console.error tolerates a noise line without throwing", () => {
+    // The live filter is installed (Hermes branch ran). Feeding it a noise line
+    // must be a no-op (dropped), not an exception.
+    expect(typeof console.error).toBe("function");
+    expect(() =>
+      console.error("failed to asynchronously prepare wasm: ReferenceError: x"),
+    ).not.toThrow();
   });
 });
 

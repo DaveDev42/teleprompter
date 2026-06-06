@@ -359,6 +359,26 @@ bump는 cloud-unsafe라 금지.**
   수정 후 WSL에서 단일 daemon, SQLITE_BUSY 소멸, 페어링·세션 정상. (이 항목은 별도 Windows/WSL 환경에서
   실행 — 고성능 Mac 범위 밖이지만 이번에 그 환경에서 처리 완료.)
 
+### Q8. libsodium wasm2js init-noise — 네이티브 Hermes 콘솔 확인
+
+- **prereq**: 임의의 dev build 실기기/Simulator 설치 (Q1–Q4 중 아무 빌드든 재활용 — 앱이 부팅해서
+  libsodium을 한 번이라도 init하면 충분). Metro/Xcode 콘솔(또는 `idevicesyslog`/Console.app) 접근.
+- **command**: 앱을 콜드 스타트해 첫 crypto 연산(페어링 또는 세션 진입 — `ensureSodium()` 경유)을
+  트리거하고, 네이티브 콘솔 로그를 관찰한다. RN Web/Bun/Node는 네이티브 WebAssembly가 있어 조용히
+  init되므로 이 증상이 안 나온다 — **반드시 네이티브 Hermes에서만 검증 가능** (그래서 큐 항목).
+- **pass**: libsodium init 시 다음 두 emscripten 노이즈 라인이 **더 이상 나타나지 않는다**:
+  `failed to asynchronously prepare wasm: ...` / `Aborted(...). Build with -sASSERTIONS for more info.`
+  (genuine app error/warning은 그대로 통과해야 한다 — 콘솔이 통째로 묵음이 되면 안 됨).
+- **result**: **NEEDS-DEVICE (PR #577, merged `f3c654c`)** — 유닛으로는 증명됨
+  (`crypto-polyfill-binding.test.ts`가 폴리필이 libsodium require **전에** `console.error`/`.warn`을
+  래핑해 두 노이즈 라인은 drop, 진짜 에러는 downstream으로 forward함을 end-to-end로 검증), 그러나
+  **끝단(네이티브 Hermes 콘솔에서 라인이 실제로 사라졌는지)은 실기기/Simulator에서만 확인 가능**.
+  배경: 직전 시도(PR #573)는 (a) libsodium이 module-eval 시점에 `console.error.bind(console)`로
+  에러 sink를 **한 번** 바인딩해서 *나중에* `console.error`를 재할당해도 무효였고, (b) libsodium.js가
+  module-local `WebAssembly` 심을 자체 정의해 `globalThis.WebAssembly` 폴리필이 로깅 코드에 도달하지
+  못해 실패했다. #577은 노이즈를 **소스(바인딩 시점)**에서 필터링하고 libsodium require 전에 설치하는
+  것으로 두 원인을 모두 제거했다 — on-device 확인만 남았다.
+
 ---
 
 ## 실행 규약 (커맨드가 따르는 규칙)

@@ -53,7 +53,7 @@ gh pr list --label "autorelease: pending" --state open \
   > "release-please did not produce a PR within 5 minutes. Likely no
   > releasable conventional commits since the last tag. Check
   > `git log v$(git describe --tags --abbrev=0)..main --oneline` and
-  > confirm there are `feat:` / `fix:` / `perf:` / `refactor:` commits."
+  > confirm there are `feat:` / `fix:` / `perf:` / `refactor:` / `revert:` commits."
 
 The PR title format is `chore(main): release X.Y.Z`. Extract `X.Y.Z` —
 this is the **target version**. All later steps reference it as
@@ -62,13 +62,14 @@ this is the **target version**. All later steps reference it as
 ### Step 2 — Mergeability gate
 
 The release-please PR only edits `CHANGELOG.md`, `package.json`
-(version bump), and `.release-please-manifest.json`. **None of these
-paths trigger the main `ci.yml` workflow's path filters**, so
-`gh pr checks` will only show Vercel preview status (no
-lint/type-check/test/build-cli/e2e). Don't poll `gh pr checks`
-expecting a "full green" — it never gets one on a release-please PR.
+(version bump), and `.release-please-manifest.json`. `ci.yml` has
+**no path filters** and runs on all PRs, so lint / type-check / test /
+build-cli / e2e **do** run — and should pass cleanly on these changes.
+The `eas-gate` job does not run on PRs (gated by
+`github.ref == 'refs/heads/main'`), so it is absent from the PR check
+list.
 
-Instead use the merge-state rollup:
+Use the merge-state rollup as the definitive gate:
 
 ```sh
 gh pr view <num> --json mergeable,mergeStateStatus,statusCheckRollup
@@ -78,12 +79,14 @@ gh pr view <num> --json mergeable,mergeStateStatus,statusCheckRollup
 - Any other state (`BEHIND`, `BLOCKED`, `DIRTY`, `UNSTABLE`) → abort
   with the rollup payload.
 
-If the PR were a normal feature PR, `ci.yml` would gate it. The release
-PR is exempt by design — release-please-only path edits — so branch
-protection's "required checks" list excludes them.
+`ci.yml` runs on the release-please PR exactly as it would on a feature
+PR — lint, type-check, test, build-cli, and e2e jobs all execute. They
+should pass since no application logic is changed. Branch protection has
+no required status checks configured, so mergeability is determined
+solely by the `mergeable`/`mergeStateStatus` fields.
 
 Do not run `bun test` / `pnpm type-check:all` / `pnpm test:e2e` locally
-— `ci.yml` covers all of these on every non-release PR.
+— `ci.yml` covers all of these on every PR, including release-please PRs.
 
 ### Step 3 — Merge
 

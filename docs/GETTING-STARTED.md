@@ -164,6 +164,10 @@ summary with per-session detail.
 | `tp pair list` | List registered pairings (shows label + daemon ID) |
 | `tp pair rename <id-prefix> <label...>` | Rename a pairing and notify the peer |
 | `tp pair delete <id> [-y]` | Delete a pairing (notifies the peer app/daemon so it also removes the pairing) |
+| `tp session list` | List sessions (running + stopped, shows cwd and last-updated) |
+| `tp session delete <sid> [-y]` | Delete a session by ID (prefix match; kills runner first if running) |
+| `tp session prune [--older-than <Nd>] [--all] [--dry-run] [-y]` | Bulk-delete stopped sessions non-interactively |
+| `tp session cleanup [-y] [--all]` | Interactive multi-select bulk-delete for stopped sessions (requires TTY) |
 | `tp status` | Show daemon status and sessions |
 | `tp logs [session]` | Tail live session output |
 | `tp doctor` | Environment diagnostics |
@@ -183,8 +187,6 @@ summary with per-session detail.
 | `--tp-cwd <path>` | Working directory (default: current) |
 
 All other flags are forwarded directly to `claude`.
-
-> Set `TP_UNPAIR_TIMEOUT_MS` (default 3000ms) to tune how long `tp pair delete` waits for a frontend to become reachable before giving up on the unpair notice. On slow networks, also bump `TP_UNPAIR_CONNECT_CUTOFF_MS` (default 1500ms) — the early-exit threshold for unreachable relays.
 
 > **Tip:** Use `tp -- <claude args>` to forward arguments directly to Claude without the
 > daemon pipeline. tp also forwards subcommands like `auth`, `mcp`, and `update` directly

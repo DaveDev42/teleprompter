@@ -9,30 +9,35 @@ paths:
 
 # iOS 빌드 & 검증 워크플로우
 
-**로컬에서 iOS Simulator / Xcode / Maestro 를 띄우지 않는다 — 빌드든 실행이든.** 1차 이유는 단순하다: **이 개발 머신(8GB Mac)은 Simulator + Xcode(또는 네이티브 컴파일)를 동시에 돌리면 시스템이 과부하된다** (load 100+, heavy swap 으로 머신 전체가 사실상 멈춘다). 그래서 미리 빌드된 `.app` 을 Simulator 에서 *실행*하는 것조차 하지 않는다. `eas build --local` 같은 로컬 네이티브 빌드도 같은 이유로 폐기했다 (아래 "왜 로컬 iOS 를 안 하나"). 모든 네이티브 iOS 빌드/배포는 **EAS 클라우드**가, 로컬 검증은 **RN Web**이 담당한다.
+**기본 워크플로우는 EAS 클라우드 빌드 + RN Web 검증이다. 로컬 iOS 빌드/Simulator/Maestro 는 옵션으로 가능하다.** 일상 개발에서 네이티브 iOS 빌드/배포는 **EAS 클라우드**가, UI/로직 검증은 **RN Web**이 담당한다 — 이게 회귀 표면이 작고 빠르기 때문이다 (정책 선호이지 하드웨어 제약이 아니다). 단 **필요할 때는 이 머신(64GB M1 Max)에서 로컬 dev build 와 Simulator/Maestro QA 를 직접 돌린다.** 2026-06-06 에 `scripts/ios-dev-build.sh` 로 device `.ipa` 를 로컬 빌드해 iPhone 15 Pro 에 설치·실행까지 실증했다 (아래 "로컬 iOS 빌드 — 가능하다").
 
-(머신 이름이 아니라 *정책*이다 — 8GB 급 머신에서는 항상 이 규칙을 따른다. 더 사양 좋은 Mac 으로 옮기더라도 로컬 Simulator/빌드 재개는 그때 사용자가 명시적으로 결정한다.)
+(과거 이 문서는 "8GB Mac 메모리 천장 → 로컬 iOS 전부 불가/재시도 금지"를 전제로 했으나, 머신이 64GB M1 Max 로 바뀌면서 그 전제는 사라졌다. 메모리 천장 기반 금지 문구는 모두 폐기됐다.)
 
-## 표준 절차 (이대로만 진행)
+## 표준 절차
 
-1. **로컬 검증 = RN Web.** UI/로직 변경은 RN Web dogfood (`pnpm dev:app` + `pnpm dev:pair`, `.claude/rules/dogfooding.md`)로 검증한다. PR #481 류의 화면 변경(daemon 카드, 모달, 페어링 라벨 등)은 RN Web 에 동일하게 적용되므로 브라우저에서 확인할 수 있다. 네이티브 전용 동작(소프트 키보드 회피, push 배너 등)은 코드 + web 근사로 확인하고, 실기기 거동은 다음 단계로 넘긴다.
-2. **빌드/배포 = EAS 클라우드 + TestFlight.** main push → `ci.yml` eas-gate → `preview.yaml` 가 fingerprint 기반으로 OTA(JS-only) 또는 풀빌드(네이티브 변경)를 TestFlight/Internal 에 발행한다 (`.claude/rules/release-deploy.md`). 로컬에서 `.ipa`/`.app` 을 굽지 않는다.
-3. **실기기 디버깅 = 사용자에게 요청.** 네이티브 거동을 실기기에서 확인해야 하면, TestFlight 빌드가 올라간 뒤 **사용자(Dave)에게 디버깅을 요청**한다. Claude 가 로컬에서 기기에 직접 설치/구동하려 시도하지 않는다.
-4. **네이티브 트랙 전체 = 고성능 Mac 으로 이관.** 이 8GB 머신에서 구조적으로 못 도는 검증(iOS/Android 실기기, Simulator QA, Linux daemon VM, 1h soak, WSL)은 **`docs/local-verification-queue.md`** 큐(SoT)에 모아 두고, 16GB+ Mac 의 별도 세션이 **`/verify-native`** 커맨드로 순회한다. 그 Mac 은 `.claude/settings.local.json`에서 expo-mcp 를 `true` 로 켜고, dev build 는 `scripts/ios-dev-build.sh` (`eas build --local` + EAS credential 다운로드, **이 머신 실행 금지**)로 굽는다. expo-mcp 활성화는 **머신별** — 공유 `settings.json`은 enable 플래그를 들지 않고 각 머신의 `settings.local.json`이 결정한다 (이 머신 = `false`).
+1. **일상 검증 = RN Web (기본값).** UI/로직 변경은 RN Web dogfood (`pnpm dev:app` + `pnpm dev:pair`, `.claude/rules/dogfooding.md`)로 검증한다. PR #481 류의 화면 변경(daemon 카드, 모달, 페어링 라벨 등)은 RN Web 에 동일하게 적용되므로 브라우저에서 확인할 수 있다. 네이티브 전용 동작(소프트 키보드 회피, push 배너 등)은 RN Web 근사 + 아래의 Simulator/실기기 경로로 확인한다.
+2. **빌드/배포 = EAS 클라우드 + TestFlight (기본값).** main push → `ci.yml` eas-gate → `preview.yaml` 가 fingerprint 기반으로 OTA(JS-only) 또는 풀빌드(네이티브 변경)를 TestFlight/Internal 에 발행한다 (`.claude/rules/release-deploy.md`). 평상시 store 빌드는 클라우드가 굽는다.
+3. **로컬 dev build (옵션).** 실기기/Simulator 에서 네이티브 거동을 직접 검증해야 하면 이 64GB 머신에서 `scripts/ios-dev-build.sh --profile device` 로 `.ipa` 를 굽고 `xcrun devicectl device install` 로 실기기에 설치한다 (Simulator 는 `eas build --profile development --platform ios --local`). 빌드는 **백그라운드로 돌리고 절대 죽이지 말 것** — 중간에 SIGTERM(Ctrl-C/timeout/kill)이 들어가면 CALCULATE phase abort 를 유발한다 (아래 H2 설명).
+4. **Simulator/Maestro QA (적극 사용).** `expo-mcp` 는 이 머신의 `.claude/settings.local.json` 에서 `true` 로 켜져 있다. `expo-mcp:qa` agent + Maestro flow 로 Simulator/Emulator QA 를 직접 돌린다. RN Web (`app-web-qa`)과 병행 — RN Web 은 빠른 회귀, Simulator/Maestro 는 네이티브 거동 검증.
+5. **실기기 라이프사이클 거동 = 사용자 디버깅.** 진짜 APNs 왕복, 잠금화면 push 탭, App Switcher background↔foreground, 강제종료 후 keychain 유지 같은 **사람이 폰을 들고 조작해야 하는** 검증은 빌드/설치까지 자동화한 뒤 **사용자(Dave) 실기기 디버깅**으로 넘긴다.
+6. **네이티브 검증 큐.** 네이티브 트랙 검증 항목(iOS/Android 실기기, Simulator QA, Linux daemon VM, 1h soak, WSL)은 **`docs/local-verification-queue.md`** 큐(SoT)에 정의돼 있고 **`/verify-native`** 커맨드로 순회한다. 이 64GB 머신에서 실행 가능 (Q3 Android·Q4 Simulator·Q5·Q6 PASS 실적). expo-mcp 활성화는 **머신별** — 공유 `settings.json`은 enable 플래그를 들지 않고 각 머신의 gitignored `settings.local.json`이 결정한다 (이 머신 = `true`).
 
 ## Credentials = EAS single source of truth (변경 없음)
 
-서명 자격은 repo 에 절대 저장하지 않는다. EAS 서버가 distribution cert + provisioning profile 의 SoT 이고, EAS 클라우드 빌드가 빌드 시점에 사용한다. `eas.json` 에 `credentialsSource` 를 명시하지 않는다 (`remote` 가 기본값). iOS push 용 profile 에 `aps-environment` capability 가 필요하면 `eas credentials -p ios` (대화형) 또는 ASC API key 로 EAS 측에서 갱신한다 — 로컬 keychain 은 건드리지 않는다.
+서명 자격은 repo 에 절대 저장하지 않는다. EAS 서버가 distribution cert + provisioning profile 의 SoT 이고, 클라우드 빌드든 `eas build --local` 이든 빌드 시점에 EAS 에서 다운로드해 쓴다 (로컬 빌드도 repo 에 자격을 저장하지 않는다). `eas.json` 에 `credentialsSource` 를 명시하지 않는다 (`remote` 가 기본값). iOS push 용 profile 에 `aps-environment` capability 가 필요하면 `eas credentials -p ios` (대화형) 또는 ASC API key 로 EAS 측에서 갱신한다.
 
-## 왜 로컬 iOS 를 안 하나 (재시도 방지용 기록)
+## 로컬 iOS 빌드 — 가능하다 (2026-06-06 실증)
 
-**근본 한계는 메모리다. 이 머신은 8GB RAM 이라 Simulator + Xcode/네이티브 컴파일을 함께 돌리는 순간 시스템이 과부하된다** — iOS 26.5 시뮬레이터 런타임 + 네이티브 빌드가 메모리를 동시에 압박해 load 가 100+ 까지 치솟고 heavy swap 으로 머신 전체(에디터·daemon·이 agent 까지)가 사실상 멈춘다. 이건 도구를 더 잘 맞춘다고 풀리는 게 아니라 **하드웨어 천장**이다. `eas build --local` 로 device `.ipa` + simulator `.app` 을 실제로 빌드해본 적은 있지만, 그 성공이 "조금만 더 손보면 된다"는 뜻은 아니었다 — 빌드를 *검증으로 잇는 구간* 이 이 머신에선 전부 막혔다:
+**이 64GB M1 Max 머신에서 `eas build --platform ios --profile device --local` 은 `.ipa` 를 정상적으로 굽는다.** 2026-06-06 에 `/tmp/teleprompter-dev.ipa` (26M, signed, `dev.tpmt.app`)를 로컬 빌드해 iPhone 15 Pro 에 `xcrun devicectl device install` 로 설치하고 앱 실행(UI 로드)까지 확인했다. 과거 이 섹션은 "8GB RAM 하드웨어 천장 → 로컬 iOS 불가/재시도 금지"라고 적었으나, 그 전제는 머신이 64GB 로 바뀌며 사라졌다.
 
-- **시뮬레이터 (주 이유)**: `.app` 설치·실행은 됐으나 RAM 압박으로 idb/Maestro 가 불안정하고, Expo MCP 가 쓰는 **Maestro 가 반복 크래시** (`Maestro process terminated`; 시스템 **OpenJDK 26** ↔ Maestro 권장 JDK 17–21 비호환도 겹침). 무엇보다 시뮬레이터를 띄우는 것 자체가 위의 과부하를 일으킨다.
-- **실기기**: iPhone 이 USB 연결돼도 trust/`pairing: unsupported` 로 설치 불가 (Developer Beta OS 의심). `xcrun devicectl ... install` 이 기기에 안 붙는다.
-- **부수 비용**: 로컬 빌드 한 사이클에 WWDR G3 수동 설치 / Aqua(GUI) 세션 re-exec / root-owned tmp 정리 / `xcodebuild -downloadPlatform` (8GB+ 다운로드) 같은 깨지기 쉬운 전제가 많았다. (이건 곁가지 — 위 메모리 천장이 없어도 본질 문제는 그대로다.)
+**과거의 `CALCULATE_EXPO_UPDATES_RUNTIME_VERSION` abort 는 구조적 차단이 아니라 H2(외부 SIGTERM) 오진이었다.** `INSTALL_PODS` 는 정상 완료("118 total pods installed")했고, `[ABORT] Received termination signal.` 은 그 후 외부에서 들어온 SIGTERM 이다. abort teardown 핸들러가 working dir(`build/apps/app/`)를 비동기로 지우면서 다음 phase(CALCULATE)가 읽으려던 `package.json` 을 먼저 삭제했을 뿐이다 — pod install 이 지운 게 아니다 (repo 에 package.json 을 옮기거나 지우는 H1 메커니즘 없음, grep 0건; 4-agent 진단 워크플로우로 교차검증). **해법은 빌드를 죽이지 않고 끝까지 돌리는 것뿐이다.** POST_INSTALL package.json 복원 훅은 불필요하다 (없는 H1 을 고치는 처방).
 
-→ **결론: 로컬 Simulator/Xcode/네이티브 빌드 전부 재시도 금지.** 네이티브 빌드는 EAS 클라우드, 로컬 검증은 RN Web, 실기기는 TestFlight + 사용자 디버깅으로 간다. (16GB+ / 정식 OS / 신뢰된 기기를 갖춘 다른 Mac 이라면 메모리 천장이 사라져 로컬 경로가 다시 유효할 수 있으나 — 이건 **자동으로 재개하지 않고** 그 시점에 사용자가 명시적으로 결정한다. 위 명령들을 재시도 레시피로 읽지 말 것.)
+**로컬 빌드 실행 시 주의:**
+- **백그라운드로 돌리고 SIGTERM 을 보내지 말 것** — Ctrl-C / shell timeout / Activity Monitor kill / 저메모리 Mac 의 OOM kill 중 하나라도 INSTALL_PODS~CALCULATE 창에 들어오면 위 abort 가 재현된다. (8GB 머신에서 과거 abort 가 "재현"된 건 메모리 압박 OOM kill 또는 수동 중단이 H2 를 유발한 것이다.)
+- 64GB Mac 에서는 ~25-30분 완주하면 `.ipa` 가 나온다. `ios-dev-build.sh` 가 부수 전제(WWDR G3 설치, Aqua GUI 세션 re-exec, root 강등, root-owned tmp 청소)를 처리한다.
+- doctor 는 abort 와 무관하다. 로컬 빌드는 `eas.json` 의 `development`/`device` 프로파일 `env` 에 `EAS_BUILD_DISABLE_EXPO_DOCTOR_STEP: "1"` 을 둬 doctor phase 를 건너뛴다 (`preview`/`production` 은 `env` 없음 → cloud 미접촉). CI 의 `eas-gate` doctor false-flag 는 `apps/app/package.json` 의 `expo.install.exclude` 로 suppress 한다 (PR #566, doctor-only/cloud-safe).
+
+**기본은 여전히 EAS 클라우드 + RN Web.** 로컬 빌드가 가능해졌다고 매번 로컬로 굽는다는 뜻은 아니다 — store 빌드/OTA 는 클라우드가, 일상 UI 검증은 RN Web 이 맡고, 로컬 dev build 는 **실기기/Simulator 네이티브 거동을 직접 확인해야 할 때 쓰는 옵션**이다. (16GB+ / 정식 OS / 신뢰된 기기 조합에서만 로컬 경로가 안정적이다 — 저사양/Beta OS Mac 이라면 EAS 클라우드 경로를 그대로 쓴다.)
 
 # Native Build (Expo Go 드롭 예정)
 

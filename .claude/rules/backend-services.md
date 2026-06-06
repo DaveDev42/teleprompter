@@ -45,8 +45,8 @@ paths:
 
 ## CLI (`apps/cli/src`)
 - Entry: `index.ts` — subcommand router wrapped in `async main()` (no top-level await; enables future `--bytecode` builds).
-- Subcommands: `daemon`, `run`, `relay`, `pair`, `status`, `logs`, `doctor`, `upgrade`, `completions`, `version` (see `SUBCOMMANDS` set in `index.ts`).
+- Subcommands: `daemon`, `run`, `relay`, `pair`, `session`, `status`, `logs`, `doctor`, `upgrade`, `completions`, `version` (see `TP_SUBCOMMANDS` in `router.ts`).
 - Claude utility forwards (daemon-bypass): `auth`, `mcp`, `install`, `update`, `agents`, `auto-mode`, `plugin`, `plugins`, `setup-token` — listed in `claude-subcommands.ts` (`CLAUDE_UTILITY_SUBCOMMANDS`).
 - Passthrough: `tp <claude args>` (unrecognized first arg) → `--tp-*` flags 분리 후 나머지 claude에 전달.
 - 인자 분리 테스트: `args.test.ts`, `passthrough.test.ts`.
-- Background update check (`checkForUpdates`): 24h-cached, rate-limited even on network failure, `TP_NO_UPDATE_CHECK=1` opt-out. Skipped for passthrough, `run`, `version`, `--help`, `--`, claude utility forwards.
+- Background update check (`checkForUpdates`): 24h-cached, rate-limited even on network failure, `TP_NO_UPDATE_CHECK=1` opt-out. Runs for passthrough and subcommands `upgrade`, `doctor`, `pair`. Skipped for `run`, `version`, `--help`, `--`, claude utility forwards, and all other subcommands (`daemon`, `relay`, `session`, `status`, `logs`, `completions`).

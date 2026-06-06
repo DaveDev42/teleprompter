@@ -13,7 +13,7 @@ paths:
   - Write-through: `set()` 먼저 → `persist()` async
   - Load: try/catch + 파싱 에러 시 silent fail
 - Uint8Array 필드: `SerializedPairingInfo` interface로 base64 변환 (`toBase64`/`fromBase64`)
-- Error: `lastError: string | null` + `setError()` lives in `session-store` only today. Add to other stores only when the UI genuinely surfaces the error state.
+- Error: 스토어마다 적합한 방식으로 표현 — `session-store`는 discriminated-union `relayState` (`status: "error"` arm), `pairing-store`는 `error: string | null`. 공통 `lastError`/`setError()` 컨벤션은 없음. UI가 실제로 error state를 노출할 때만, 해당 스토어의 기존 필드명 스타일을 따라 추가.
 - Reset: `session-store`, `pairing-store`만 `reset()` 보유
 - Cross-store: `useXStore.getState()` (React 외부), `useXStore(s => s.field)` (React 내부) — store 간 직접 import 없음
 
@@ -22,9 +22,9 @@ paths:
 - Background: `bg-tp-bg`, `bg-tp-bg-secondary`, `bg-tp-bg-tertiary`, `bg-tp-bg-elevated`, `bg-tp-bg-input`
 - Surface: `bg-tp-surface`, `bg-tp-surface-hover`, `bg-tp-surface-active`
 - Chat: `bg-tp-user-bubble`, `bg-tp-assistant-bubble`
-- Text: `text-tp-text-primary`, `text-tp-text-secondary`, `text-tp-text-tertiary`
+- Text: `text-tp-text-primary`, `text-tp-text-secondary`, `text-tp-text-tertiary`, `text-tp-text-on-color`
 - Border: `border-tp-border`, `border-tp-border-subtle`, `border-tp-border-focus`
-- Accent/Status: `bg-tp-accent`, `bg-tp-accent-hover`, `bg-tp-success`, `bg-tp-warning`, `bg-tp-error`
+- Accent/Status: `bg-tp-accent`, `bg-tp-accent-hover`, `bg-tp-success`, `bg-tp-warning`, `bg-tp-warning-soft`, `bg-tp-warning-on-soft`, `bg-tp-error`, `bg-tp-error-soft`, `bg-tp-error-on-soft`, `bg-tp-voice-active`, `bg-tp-overlay`
 - Border radius: `rounded-badge`(6px), `rounded-btn`(10px), `rounded-search`(10px), `rounded-card`(12px), `rounded-bubble`(16px)
 - Dark mode: CSS 변수 자동 전환 — `dark:` prefix 불필요, `useThemeStore.isDark`로 root class 토글
 - Inline styles 지양 — NativeWind `className` 우선
@@ -34,7 +34,7 @@ paths:
 - Props: 함수 시그니처에서 inline 타입 정의 (`{ msg }: { msg: ChatMessage }`)
 - Platform 분기: `Platform.OS === "web"` 체크 후 conditional rendering
   - ghostty-web: Web-only — native에서 `null` 반환
-  - TerminalToolbar: native-only — web에서 `null` 반환
+  - GhosttyNative: native-only — web에서 `null` 반환
 
 ## Import 패턴
 - Protocol: `@teleprompter/protocol/client` (crypto, pairing, types만 — codec/socket 제외)

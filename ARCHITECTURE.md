@@ -629,7 +629,7 @@ curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts
 버전 관리:
 - Root `package.json` 단일 버전 → Release Please가 관리 (tp CLI 바이너리 버전)
 - `apps/app/app.json` `expo.version` → 사람 버전, 손으로 관리 (release-please는 건드리지 않음)
-- OTA runtimeVersion → `policy: fingerprint` — 네이티브 의존성 해시 기반. JS-only 변경은 같은 runtime, 네이티브 변경 시 자동 격리. 자세한 사항은 `CLAUDE.md` "OTA 정책" 참조.
+- OTA runtimeVersion → cloud preview/production: `policy: fingerprint` (네이티브 의존성 해시 기반; JS-only 변경은 같은 runtime, 네이티브 변경 시 자동 격리). 로컬 dev/device 프로파일: `APP_VARIANT=dev-local` 시 `runtimeVersion: "dev-local"` 정적 문자열 override (app.config.js + eas.json development/device 프로파일). 자세한 사항은 `CLAUDE.md` "OTA 정책" 참조.
 - 태그 패턴: `v*` (예: `v0.1.19`). release-please-config.json의 `include-component-in-tag: false` 라서 컴포넌트/접두사 없음.
 
 ### 10.2 Relay 서버

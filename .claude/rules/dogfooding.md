@@ -38,7 +38,7 @@ tp <claude-args...>
 
 # 5. RN Web 의 Sessions 탭에 방금 만든 세션이 라이브로 뜬다.
 #    Chat 탭: hooks 이벤트 + PTY 스트림 hybrid 렌더.
-#    Terminal 탭: xterm.js / ghostty-web 으로 풀 PTY.
+#    Terminal 탭: ghostty-web (WASM) 으로 풀 PTY.
 #    UI 변경을 만지는 동안 이 세션을 계속 띄워두고 직접 클릭/타이핑.
 ```
 
@@ -60,7 +60,7 @@ pnpm dev:pair                         # 다른 터미널 — 한 번만 실행
 
 Fixture 가 깨지는 케이스 (다시 실행해서 재생성해야 하는 경우):
 - `tp pair delete <id>` 로 페어링을 의도적으로 지운 경우.
-- Daemon store DB 를 삭제했거나 (`~/.local/share/teleprompter/store.sqlite`) clean 환경으로 옮긴 경우.
+- Daemon store DB 를 삭제했거나 (`~/.local/share/teleprompter/vault/`) clean 환경으로 옮긴 경우.
 - Relay 의 `TP_RELAY_RESUME_SECRET` 이 회전되어 resume token 이 무효화된 경우 — 단 이 경우는 full auth 폴백이 동작하므로 보통 fixture 재생성 없이 자동 복구.
 - protocol 의 kx/ratchet 포맷이 깨지는 변경 (드물지만 발생하면 fixture 와 store 둘 다 리셋).
 

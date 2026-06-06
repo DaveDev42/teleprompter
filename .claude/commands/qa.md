@@ -41,7 +41,7 @@ QA agent에 위임하기 전에, **변경된 코드를 분석하여 구체적인
   3. 테스트에 필요한 사전 조건 (데이터, 설정 등)
   4. 기대하는 UI 동작/결과
 
-> **iOS/Android 실기기 거동은 이 머신에서 검증하지 않는다.** 이 머신(8GB Mac)에서는 Simulator/Xcode/Maestro 를 띄우지 않는다 (시스템 과부하 — CLAUDE.md "iOS 빌드 & 검증 워크플로우" 참조). expo-mcp 플러그인은 이 머신의 `.claude/settings.local.json`에서 `false` (머신별 결정 — 고성능 Mac 은 `true`). 네이티브 전용 동작(push 배너, 소프트 키보드 회피 등)은 코드 + RN Web 근사로 확인하고, 실기기/Simulator 검증은 고성능 Mac 의 `/verify-native` (`docs/local-verification-queue.md`) + TestFlight 빌드 후 사용자 디버깅으로 넘긴다.
+> **iOS/Android 실기기 네이티브 동작은 로컬 QA 에서 기본으로 검증하지 않는다.** 이 머신(64GB M1 Max)에서 Simulator/Xcode/Maestro 구동은 가능하지만, 일상적인 QA 는 RN Web(Playwright MCP) 으로 한다 (워크플로 선택 — 빠른 회귀 검증 + EAS 클라우드 빌드 경로와의 parity). expo-mcp 플러그인은 이 머신의 `.claude/settings.local.json`에서 `true` (머신별 결정). 네이티브 전용 동작(push 배너, 소프트 키보드 회피 등)은 코드 + RN Web 근사로 확인하고, 실기기/Simulator 검증은 `/verify-native` (`docs/local-verification-queue.md`) + TestFlight 빌드 후 사용자 디버깅으로 넘긴다.
 
 **Step 4: QA 결과 검증**
 
@@ -63,4 +63,4 @@ QA agent 결과 수신 후:
    - `apps/app/` 변경 → `app-web-qa` (RN Web) 필요
    - `packages/` 변경 → `app-web-qa` 포함 관련 앱 QA 모두 필요
    - `apps/app/` 변경 없음 (백엔드만 변경) → QA skip, 단위/통합 테스트로 대체
-3. `app-web-qa` agent에게 위임. Simulator 기반 QA (`expo-mcp:qa`) 는 이 머신에서 안 쓴다 (`.claude/settings.local.json`에서 expo-mcp `false` — 머신별 결정). 네이티브 iOS/Android 검증은 고성능 Mac 의 `/verify-native` 큐 + TestFlight + 사용자 디버깅으로 넘긴다.
+3. `app-web-qa` agent에게 위임. Simulator 기반 QA(`expo-mcp:qa`)는 기본 사용하지 않는다 (정책: 일상 QA = RN Web, 네이티브 검증 = `/verify-native` 큐 + EAS 클라우드 + TestFlight). 네이티브 iOS/Android 검증은 `/verify-native` 큐 + TestFlight + 사용자 디버깅으로 넘긴다.

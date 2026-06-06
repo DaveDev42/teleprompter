@@ -54,6 +54,7 @@ export {
   type RecordKind,
 } from "./record";
 export type {
+  PushInterruptionLevel,
   RelayAuth,
   RelayAuthErr,
   RelayAuthOk,

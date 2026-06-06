@@ -1,3 +1,4 @@
+import type { PushInterruptionLevel } from "@teleprompter/protocol";
 import { createLogger } from "@teleprompter/protocol";
 
 const log = createLogger("Push");
@@ -22,6 +23,14 @@ export interface PushRequest {
   title: string;
   body: string;
   isFrontendConnected: boolean;
+  /**
+   * iOS interruption level forwarded to the Expo Push API. Absent → "active"
+   * (normal delivery, respects Focus). "time-sensitive" breaks through Focus /
+   * DND when the user has allowed it, and additionally forces APNs priority 10
+   * (see the payload builder) since a low-priority push can be deferred and
+   * would defeat the point of time-sensitive.
+   */
+  interruptionLevel?: PushInterruptionLevel;
   data?: { sid: string; daemonId: string; event: string };
 }
 
@@ -76,6 +85,7 @@ export class PushService {
       title,
       body,
       isFrontendConnected,
+      interruptionLevel,
       data,
     } = req;
     const rateLimitKey = `${daemonId}:${frontendId}`;
@@ -117,7 +127,23 @@ export class PushService {
 
     // Step 4: Call Expo Push API
     try {
-      const payload = { to: token, title, body, data, sound: "default" };
+      // interruptionLevel maps to APNs `aps.interruption-level`. For
+      // time-sensitive we also lift priority to "high" (APNs priority 10):
+      // a normal-priority push can be throttled/coalesced by the system, which
+      // would defeat the whole point of breaking through Focus. "active" (the
+      // default) is left without an explicit priority so Expo/APNs use their
+      // own default. The fields are top-level on the Expo message, not nested
+      // under ios/aps.
+      const isTimeSensitive = interruptionLevel === "time-sensitive";
+      const payload = {
+        to: token,
+        title,
+        body,
+        data,
+        sound: "default",
+        ...(interruptionLevel ? { interruptionLevel } : {}),
+        ...(isTimeSensitive ? { priority: "high" as const } : {}),
+      };
       const response = await this.fetchFn(EXPO_PUSH_URL, {
         method: "POST",
         headers: {

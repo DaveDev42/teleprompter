@@ -225,6 +225,12 @@ describe("parseRelayClientMessage", () => {
         data: { sid: "s", daemonId: "d", event: "Stop" },
       });
     });
+    test("accepts interruptionLevel time-sensitive", () => {
+      expectAccepted({ ...valid, interruptionLevel: "time-sensitive" });
+    });
+    test("accepts interruptionLevel active", () => {
+      expectAccepted({ ...valid, interruptionLevel: "active" });
+    });
     test.each<[string, unknown]>([
       ["missing frontendId", { ...valid, frontendId: undefined }],
       ["missing token", { ...valid, token: undefined }],
@@ -236,6 +242,18 @@ describe("parseRelayClientMessage", () => {
         "data with non-string event",
         { ...valid, data: { sid: "s", daemonId: "d", event: 9 } },
       ],
+      // Zero-trust: only the two non-privileged levels are accepted. A peer
+      // must not be able to smuggle the privileged "critical" level (which
+      // overrides the mute switch) or an arbitrary string through the boundary.
+      [
+        "interruptionLevel critical",
+        { ...valid, interruptionLevel: "critical" },
+      ],
+      [
+        "interruptionLevel unknown string",
+        { ...valid, interruptionLevel: "loud" },
+      ],
+      ["interruptionLevel non-string", { ...valid, interruptionLevel: 1 }],
     ])("rejects %s", (_l, m) => {
       expectRejected(m);
     });

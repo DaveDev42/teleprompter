@@ -174,15 +174,42 @@ bump는 cloud-unsafe라 금지.**
   ```
 - **pass**: 잠금화면 push 도착 + 사운드 + 탭하면 올바른 세션으로 navigate. foreground에서는 system
   push 억제되고 in-app toast(5s auto-dismiss). dedup(60s 내 1건), rate limit(분당 ≤5).
-- **result**: **PARTIAL 2026-06-06 — 빌드+설치 완료, APNs 실기기 왕복은 사용자 디버깅 대기.**
-  빌드 차단은 해소됐다: `.ipa`를 이 64GB Mac에서 로컬로 빌드하고(`/tmp/teleprompter-dev.ipa`, 26M,
-  signed) iPhone 15 Pro에 `xcrun devicectl device install`로 설치 완료했다 (위 "iOS `eas build
-  --local` — `.ipa` 로컬 빌드 성공" 섹션 — 과거 `CALCULATE_EXPO_UPDATES_RUNTIME_VERSION` abort는
-  외부 SIGTERM/H2 오진이었고, 죽이지 않고 완주하면 통과). 남은 한 겹: **진짜 APNs 왕복 + 잠금화면 탭
-  navigation은 신뢰된 실기기에서 사람이 조작해야 검증된다**(Simulator는 APNs 미수신 — 위 "APNs 검증
-  범위"). dev build이므로 Metro dev 서버 연결 + 폰 잠금해제 + 개발자 신뢰 + 알림 권한 Allow가 필요
-  — 이 부분은 **사용자(Dave) 실기기 디버깅**으로 진행한다. (부수 성과: dev build가 요구하는
-  `expo-dev-client` 의존성 누락 + 잘못된 버전(SDK 56인데 `~55.x`)을 발견해 `~56.0.18`로 고침.)
+- **result**: **BLOCKED 2026-06-06 — daemon push path 100% 검증됨, production relay가 stale
+  바이너리라 `relay.push`를 거부 → 서버측 systemd 수정(SSH) 필요.** 빌드+설치+페어링+push token
+  등록+E2EE 왕복은 전부 통과. 진짜 차단은 **앱이 아니라 production relay**다.
+
+  **검증 경로 (synthetic injection):** iPhone 15 Pro를 production relay(`wss://relay.tpmt.dev`)로
+  페어링하고 push token이 daemon에 등록됨을 확인(`[PushNotifier] registered push token`,
+  E2EE `pushToken` frame 복호화 성공 → 디바이스 crypto 정상). Claude hook을 기다리지 않고
+  `Notification` 이벤트 Record를 daemon IPC 소켓(`daemon.sock`, wire v2 = `u32 jsonLen | u32 binLen
+  | json`)에 직접 주입해 **실제 production push path를 그대로** 구동했다. daemon측은 완벽:
+  `[PushNotifier] notify-eligible event: name=Notification ... tokens=1` →
+  `[PushNotifier] sending push notification ...`. 그런데 relay가 매번 거부:
+  `[RelayClient] relay error: Unknown message type: relay.push` (token 수만큼 fan-out, 8×).
+
+  **근본 원인 (확정):** production relay가 `relay.push` 지원(commit `fd027ad` / #513, 2026-06-03)
+  **이전** 바이너리를 실행 중. 증거: 실행 중 relay가 내뱉는 에러 문자열 `"Unknown message type:"`은
+  `fd027ad`에서 `"Unknown or malformed message type:"`로 바뀌었는데 옛 문자열이 나옴 → 바이너리가
+  `fd027ad` 이전. `fd027ad` 이후 **deploy-relay.yml이 25회 전부 `success`**로 떴는데도 실행
+  바이너리는 stale. 로컬에서 현재 main을 `bun build`하면 `relay.push` 핸들러 + 새 문자열이 분명히
+  들어있음(`strings`로 확인) → **빌드는 정상, 실행 중 systemd 서비스가 새 `/usr/local/bin/tp`를
+  안 집는다** (deploy는 `sudo mv … && systemctl restart tp-relay` 하지만 `tp-relay`의 ExecStart가
+  다른 경로를 가리키는 것으로 추정 — restart는 됨, uptime이 매번 리셋되므로).
+
+  **가시성 갭 수정 (#570, merged `f41c0d9`):** `/health`가 하드코딩 `version: "0.1.5"`만 노출해
+  stale 바이너리를 fresh와 구분 못 했다. 이제 `bun build --define`으로 `buildSha`/`buildTime`를
+  바이너리에 박고, deploy 후 `/health.buildSha == github.sha`를 검증한다 — 불일치 시 deploy를
+  **시끄럽게 실패**시킨다. **검증 완료:** #570 머지가 트리거한 deploy run(`27059107888`)의 새 verify
+  step이 곧바로 FAIL — restart 직후(`uptime: 3`) `/health`가 여전히 `"version": "0.1.5"`(옛 필드,
+  `buildSha` 없음)를 반환 → 가드가 stale 바이너리를 정확히 잡아냄. 25회 green 뒤에 숨어있던 문제가
+  이제 actionable CI 실패로 노출된다.
+
+  **남은 작업 (사용자 = SSH 필요):** Vultr Seoul `relay.tpmt.dev`에서 `systemctl cat tp-relay`로
+  ExecStart 경로 확인 → `/usr/local/bin/tp`를 가리키게 고치거나 deploy의 mv 대상 경로를 ExecStart에
+  맞춤 → restart → `/health.buildSha`가 main HEAD와 일치하면 relay 정상. 그 후 synthetic injection을
+  재실행해 `relay.push`가 통과하면(에러 없음) iPhone에 실제 push가 도착하는지 확인 → Q1 PASS 가능.
+  (부수 성과: capture-hook.ts 셸 따옴표 버그 #569, /health buildSha 가드 #570 — 둘 다 이 진단 중
+  발견·수정.)
 
 ### Q2. iOS 실기기 — keychain / 백그라운드 사이클 / audio
 

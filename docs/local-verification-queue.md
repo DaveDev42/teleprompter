@@ -204,12 +204,27 @@ bump는 cloud-unsafe라 금지.**
   `buildSha` 없음)를 반환 → 가드가 stale 바이너리를 정확히 잡아냄. 25회 green 뒤에 숨어있던 문제가
   이제 actionable CI 실패로 노출된다.
 
-  **남은 작업 (사용자 = SSH 필요):** Vultr Seoul `relay.tpmt.dev`에서 `systemctl cat tp-relay`로
-  ExecStart 경로 확인 → `/usr/local/bin/tp`를 가리키게 고치거나 deploy의 mv 대상 경로를 ExecStart에
-  맞춤 → restart → `/health.buildSha`가 main HEAD와 일치하면 relay 정상. 그 후 synthetic injection을
-  재실행해 `relay.push`가 통과하면(에러 없음) iPhone에 실제 push가 도착하는지 확인 → Q1 PASS 가능.
-  (부수 성과: capture-hook.ts 셸 따옴표 버그 #569, /health buildSha 가드 #570 — 둘 다 이 진단 중
-  발견·수정.)
+  **relay 수정 완료 (SSH 불필요 — deploy 워크플로우 키로 자가 진단·수정):** deploy-relay.yml에
+  진단 step을 넣어 호스트를 직접 조사한 결과, 추정이 절반만 맞았다 — systemd unit이 드리프트돼
+  `ExecStart=/usr/local/bin/**tp-relay**` (deploy가 갱신하는 `/usr/local/bin/**tp**`와 **다른 별개
+  파일**)를 실행 중이었다. `/proc/<PID>/exe → /usr/local/bin/tp-relay` 로 확인. deploy는 매번 `tp`만
+  fresh하게 유지(on-disk sha 일치 확인)하고 `tp-relay`는 한 번도 안 건드려서, 25회 success 동안
+  서비스는 3일 묵은 `tp-relay`(= `relay.push` 이전)를 계속 돌렸다. **수정 (#572):** deploy가 매번
+  표준 unit(`ExecStart=/usr/local/bin/tp relay start`, `scripts/deploy-relay.sh`와 동일)을 호스트에
+  써넣고 `daemon-reload`+`enable`+`restart` → 호스트가 repo 정의로 수렴(self-heal, 재드리프트 방지).
+  **검증 완료:** 수정 deploy(run `27059632309`) success → `/health`가 이제 `buildSha=c7b97db…`
+  (배포 HEAD와 일치), `buildTime` 노출, 옛 `version: "0.1.5"` 필드 사라짐, `uptime` 리셋 → **서비스가
+  fresh 바이너리를 실행 중**. `relay.push` 거부는 더 이상 없다.
+
+  **남은 한 겹 (사용자 = 실기기):** relay는 고쳐졌으나, daemon을 `tp` 재설치로 재시작한 뒤로 iPhone
+  앱이 재연결해 push token을 다시 등록하지 않아 현재 daemon `tokens=0` (token은 daemon 프로세스
+  수명 동안만 메모리에 유지, 앱이 (재)연결 시 재전송). 따라서 synthetic injection을 다시 돌려도
+  `notify-eligible event ... tokens=0`이라 relay까지 push가 안 나간다. **iPhone 앱을 열어 relay에
+  재연결**(token 재등록)시킨 뒤 injection을 재실행하면 `relay.push`가 통과하고 실제 APNs push가
+  폰에 도착하는지 확인 가능 → Q1 PASS. 이 마지막 한 겹만 Dave의 실기기 조작이 필요하다.
+
+  (부수 성과: capture-hook.ts 셸 따옴표 버그 #569, /health buildSha 가드 #570, deploy unit 수렴
+  #572 — 셋 다 이 진단 중 발견·수정.)
 
 ### Q2. iOS 실기기 — keychain / 백그라운드 사이클 / audio
 

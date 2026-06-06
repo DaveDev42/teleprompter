@@ -11,7 +11,8 @@
         "simulator": true
       },
       "env": {
-        "APP_VARIANT": "dev-local"
+        "APP_VARIANT": "dev-local",
+        "EAS_BUILD_DISABLE_EXPO_DOCTOR_STEP": "1"
       }
     },
     "device": {
@@ -21,7 +22,8 @@
         "simulator": false
       },
       "env": {
-        "APP_VARIANT": "dev-local"
+        "APP_VARIANT": "dev-local",
+        "EAS_BUILD_DISABLE_EXPO_DOCTOR_STEP": "1"
       }
     },
     "preview": {

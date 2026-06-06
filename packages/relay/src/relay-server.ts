@@ -15,6 +15,15 @@ type BunServer = ReturnType<typeof Bun.serve>;
 
 const log = createLogger("Relay");
 
+// Build identity — injected at compile time via `bun build --define`.
+// Falls back to "unknown" for local dev builds (no --define).
+// @ts-expect-error — dot notation is required for bun --define substitution;
+// noPropertyAccessFromIndexSignature does not apply here intentionally.
+const BUILD_SHA: string = process.env.TP_BUILD_SHA ?? "unknown";
+// @ts-expect-error — dot notation is required for bun --define substitution;
+// noPropertyAccessFromIndexSignature does not apply here intentionally.
+const BUILD_TIME: string = process.env.TP_BUILD_TIME ?? "unknown";
+
 /**
  * The slice of a Bun ServerWebSocket the backpressure guard needs. Spelled out
  * as an explicit interface so the guard can be unit-tested with a fake socket
@@ -382,7 +391,8 @@ export class RelayServer {
           const agg = self.aggregateDaemonStats();
           return Response.json({
             status: "ok",
-            version: "0.1.5",
+            buildSha: BUILD_SHA,
+            buildTime: BUILD_TIME,
             protocolVersion: 2,
             clients: self.clients.size,
             pendingAuth: self.pendingAuth.size,

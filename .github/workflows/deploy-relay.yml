@@ -37,24 +37,6 @@ jobs:
           esac
           echo "Server arch: $ARCH"
 
-      - name: Diagnose host (pre-deploy)
-        run: |
-          SSH="ssh -o StrictHostKeyChecking=no ${{ secrets.RELAY_USER }}@${RELAY_HOST}"
-          echo "===== whoami / sudo ====="
-          $SSH 'whoami; id' || true
-          $SSH 'sudo -n true && echo "passwordless-sudo: YES" || echo "passwordless-sudo: NO"' || true
-          echo "===== current /usr/local/bin/tp ====="
-          $SSH 'ls -la /usr/local/bin/tp; readlink -f /usr/local/bin/tp; stat -c "mtime=%y size=%s" /usr/local/bin/tp 2>/dev/null' || true
-          echo "===== which tp (PATH resolution the service might use) ====="
-          $SSH 'which -a tp; command -v tp' || true
-          echo "===== systemd unit (the authoritative ExecStart) ====="
-          $SSH 'systemctl cat tp-relay 2>/dev/null || sudo systemctl cat tp-relay 2>/dev/null' || true
-          echo "===== running process — which binary is actually executing? ====="
-          $SSH 'systemctl show tp-relay -p MainPID --value 2>/dev/null | xargs -I{} sh -c "ls -la /proc/{}/exe 2>/dev/null; readlink -f /proc/{}/exe 2>/dev/null"' || true
-          $SSH 'pgrep -af "tp relay" || pgrep -af "relay start"' || true
-          echo "===== other tp binaries on disk (stale copies the service might run) ====="
-          $SSH 'ls -la /usr/local/bin/tp /usr/bin/tp /opt/tp/tp /root/tp 2>/dev/null; find / -maxdepth 4 -name tp -type f 2>/dev/null | head' || true
-
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - name: Compile tp binary
@@ -67,24 +49,56 @@ jobs:
       - name: Deploy to server
         run: |
           SSH="ssh -o StrictHostKeyChecking=no ${{ secrets.RELAY_USER }}@${RELAY_HOST}"
-          # Local sha of the freshly-built binary, for an on-disk comparison after mv.
+          SCP_DEST="${{ secrets.RELAY_USER }}@${RELAY_HOST}"
           LOCAL_SHA=$(sha256sum /tmp/tp | cut -d' ' -f1)
           echo "built tp sha256=$LOCAL_SHA"
-          scp -o StrictHostKeyChecking=no /tmp/tp ${{ secrets.RELAY_USER }}@${RELAY_HOST}:/tmp/tp
-          echo "===== uploaded /tmp/tp sha on host ====="
-          $SSH 'sha256sum /tmp/tp'
-          echo "===== mv + chmod + restart (with -x trace + explicit exit codes) ====="
-          $SSH 'set -x; sudo mv /tmp/tp /usr/local/bin/tp; echo "mv rc=$?"; sudo chmod +x /usr/local/bin/tp; echo "chmod rc=$?"; sudo systemctl restart tp-relay; echo "restart rc=$?"'
-          echo "===== POST-mv: on-disk /usr/local/bin/tp sha (must equal $LOCAL_SHA) ====="
+
+          # Build the canonical systemd unit locally (no nested heredoc/indent
+          # hazards) and ship it as a file. Mirrors scripts/deploy-relay.sh.
+          cat > /tmp/tp-relay.service <<UNIT
+          [Unit]
+          Description=Teleprompter Relay Server
+          After=network.target
+
+          [Service]
+          Type=simple
+          ExecStart=/usr/local/bin/tp relay start
+          Environment=RELAY_PORT=${RELAY_PORT}
+          Restart=always
+          RestartSec=5
+          StandardOutput=journal
+          StandardError=journal
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+          echo "===== unit to be installed ====="
+          cat /tmp/tp-relay.service
+
+          scp -o StrictHostKeyChecking=no /tmp/tp "$SCP_DEST:/tmp/tp"
+          scp -o StrictHostKeyChecking=no /tmp/tp-relay.service "$SCP_DEST:/tmp/tp-relay.service"
+
+          # Install binary, converge the unit (the host had drifted: its ExecStart
+          # ran a SEPARATE /usr/local/bin/tp-relay that deploy never updated, so 25
+          # "successful" deploys kept refreshing /usr/local/bin/tp while the service
+          # ran a 3-day-stale binary), reload + restart.
+          $SSH 'set -e
+            sudo mv /tmp/tp /usr/local/bin/tp
+            sudo chmod +x /usr/local/bin/tp
+            sudo mv /tmp/tp-relay.service /etc/systemd/system/tp-relay.service
+            sudo systemctl daemon-reload
+            sudo systemctl enable tp-relay
+            sudo systemctl restart tp-relay'
+
+          # On-disk verification: the binary the (now-canonical) unit runs must be
+          # the one we just built.
           REMOTE_SHA=$($SSH 'sha256sum /usr/local/bin/tp | cut -d" " -f1')
           echo "on-disk /usr/local/bin/tp sha256=$REMOTE_SHA"
           if [ "$REMOTE_SHA" != "$LOCAL_SHA" ]; then
-            echo "::error::mv did NOT replace /usr/local/bin/tp — on-disk sha=$REMOTE_SHA != built sha=$LOCAL_SHA. The sudo mv silently failed or the service binary lives elsewhere."
+            echo "::error::on-disk /usr/local/bin/tp sha=$REMOTE_SHA != built sha=$LOCAL_SHA — sudo mv did not take."
             exit 1
           fi
-          echo "on-disk binary matches freshly-built binary."
-          echo "===== which binary is the service now running? ====="
-          $SSH 'systemctl show tp-relay -p MainPID --value | xargs -I{} readlink -f /proc/{}/exe' || true
+          echo "service now executes: $($SSH 'systemctl show tp-relay -p MainPID --value | xargs -I{} readlink -f /proc/{}/exe')"
 
       - name: Verify deployed build is live
         run: |

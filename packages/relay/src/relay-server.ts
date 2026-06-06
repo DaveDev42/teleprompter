@@ -1358,6 +1358,7 @@ ${daemons
       title: msg.title,
       body: msg.body,
       isFrontendConnected,
+      interruptionLevel: msg.interruptionLevel,
       data: msg.data,
     });
 

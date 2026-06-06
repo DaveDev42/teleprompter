@@ -97,6 +97,21 @@ export interface RelayPing {
   ts?: number;
 }
 
+/**
+ * iOS notification interruption level (maps to Apple's
+ * UNNotificationInterruptionLevel). Expo Push API accepts this as a top-level
+ * field and forwards it as `aps.interruption-level`. We only ever send the two
+ * non-privileged levels:
+ *  - "time-sensitive": breaks through Focus / Do Not Disturb when the user has
+ *    allowed time-sensitive notifications. Used for attention-needed events
+ *    (permission prompts, elicitation) — entitlement is auto-injected by the
+ *    expo-notifications plugin, no special Apple approval required.
+ *  - "active" (the implicit default): normal delivery, respects Focus.
+ * "critical" (overrides the mute switch) needs a special Apple entitlement and
+ * is intentionally not modeled here.
+ */
+export type PushInterruptionLevel = "active" | "time-sensitive";
+
 export interface RelayPush {
   t: "relay.push";
   /** Target frontend */
@@ -107,6 +122,12 @@ export interface RelayPush {
   title: string;
   /** Notification body */
   body: string;
+  /**
+   * iOS interruption level. Optional for wire back-compat: an older daemon
+   * omits it and the relay falls back to default ("active") delivery; an older
+   * relay ignores the field. Absent → treated as "active".
+   */
+  interruptionLevel?: PushInterruptionLevel;
   /** Navigation payload */
   data?: {
     sid: string;

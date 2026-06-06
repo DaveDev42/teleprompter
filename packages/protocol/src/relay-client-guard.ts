@@ -24,6 +24,7 @@ import {
   isString,
 } from "./guard-primitives";
 import type {
+  PushInterruptionLevel,
   RelayAuth,
   RelayAuthResume,
   RelayClientMessage,
@@ -51,6 +52,19 @@ function isOptionalPushData(
   if (v === undefined) return true;
   if (!isObject(v)) return false;
   return isString(v["sid"]) && isString(v["daemonId"]) && isString(v["event"]);
+}
+
+/**
+ * Validate the optional `interruptionLevel` on a relay.push. Absent is valid
+ * (treated as "active" downstream). Only the two non-privileged levels we ever
+ * emit are accepted; any other string (including the privileged "critical") is
+ * rejected so a malicious/buggy peer can't smuggle an unintended APNs level
+ * through the zero-trust boundary.
+ */
+function isOptionalInterruptionLevel(
+  v: unknown,
+): v is PushInterruptionLevel | undefined {
+  return v === undefined || v === "active" || v === "time-sensitive";
 }
 
 /**
@@ -156,6 +170,7 @@ export function parseRelayClientMessage(
       if (!isString(raw["token"])) return null;
       if (!isString(raw["title"])) return null;
       if (!isString(raw["body"])) return null;
+      if (!isOptionalInterruptionLevel(raw["interruptionLevel"])) return null;
       if (!isOptionalPushData(raw["data"])) return null;
       return {
         t: "relay.push",
@@ -163,6 +178,7 @@ export function parseRelayClientMessage(
         token: raw["token"],
         title: raw["title"],
         body: raw["body"],
+        interruptionLevel: raw["interruptionLevel"],
         data: raw["data"],
       } satisfies RelayPush;
     }

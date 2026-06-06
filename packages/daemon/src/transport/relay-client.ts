@@ -11,6 +11,7 @@ import type {
   ControlUnpair,
   KeyPair,
   Label,
+  PushInterruptionLevel,
   RelayClientMessage,
   RelayControlMessage,
   RelayFrame,
@@ -630,6 +631,7 @@ export class RelayClient {
     token: string,
     title: string,
     body: string,
+    interruptionLevel?: PushInterruptionLevel,
     data?: { sid: string; daemonId?: string; event: string },
   ): void {
     const msg: RelayClientMessage = {
@@ -638,6 +640,7 @@ export class RelayClient {
       token,
       title,
       body,
+      interruptionLevel,
       data: data
         ? {
             sid: data.sid,

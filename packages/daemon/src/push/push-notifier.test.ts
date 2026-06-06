@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
+import type { PushInterruptionLevel } from "@teleprompter/protocol";
 import { setLogLevel } from "@teleprompter/protocol";
-import { buildPushMessage, PushNotifier } from "./push-notifier";
+import {
+  buildPushMessage,
+  interruptionLevelFor,
+  PushNotifier,
+} from "./push-notifier";
 
 beforeAll(() => setLogLevel("silent"));
 afterAll(() => setLogLevel("info"));
@@ -13,6 +18,7 @@ describe("PushNotifier", () => {
         _token: string,
         _title: string,
         _body: string,
+        _interruptionLevel: PushInterruptionLevel,
         _data: { sid: string; event: string },
       ) => {},
     );
@@ -31,6 +37,7 @@ describe("PushNotifier", () => {
       "ExponentPushToken[abc]",
       "Response needed",
       "Claude is waiting for your answer",
+      "time-sensitive",
       { sid: "s1", event: "Elicitation" },
     ]);
   });
@@ -48,6 +55,7 @@ describe("PushNotifier", () => {
       "ExponentPushToken[xyz]",
       "Permission needed",
       "Tool permission approval required",
+      "time-sensitive",
       { sid: "s2", event: "PermissionRequest" },
     ]);
   });
@@ -177,6 +185,22 @@ describe("PushNotifier", () => {
     expect(sendPush).toHaveBeenCalledTimes(1);
     expect(sendPush.mock.calls[0]![0]).toBe("fe-2");
   });
+
+  it.each([
+    ["Notification"],
+    ["PermissionRequest"],
+    ["Elicitation"],
+  ])("passes time-sensitive interruption level for attention-needed event %s", (eventName) => {
+    const sendPush = makeSendPush();
+    const notifier = new PushNotifier({ sendPush });
+    notifier.registerToken("fe-1", "tok", "ios");
+
+    notifier.onRecord({ sid: "s1", kind: "event", name: eventName });
+
+    expect(sendPush).toHaveBeenCalledTimes(1);
+    // interruptionLevel is the 5th positional arg (index 4)
+    expect(sendPush.mock.calls[0]![4]).toBe("time-sensitive");
+  });
 });
 
 describe("buildPushMessage", () => {
@@ -214,5 +238,24 @@ describe("buildPushMessage", () => {
   it("unknown event name returns safe default", () => {
     const m = buildPushMessage("ZZZ");
     expect(m.title).toBe("Claude needs attention");
+  });
+});
+
+describe("interruptionLevelFor", () => {
+  it.each([
+    ["Notification"],
+    ["PermissionRequest"],
+    ["Elicitation"],
+  ])("maps attention-needed event %s to time-sensitive", (eventName) => {
+    expect(interruptionLevelFor(eventName)).toBe("time-sensitive");
+  });
+
+  it.each([
+    ["Stop"],
+    ["PostToolUse"],
+    ["SessionEnd"],
+    ["ZZZ"],
+  ])("maps informational/unknown event %s to active (default)", (eventName) => {
+    expect(interruptionLevelFor(eventName)).toBe("active");
   });
 });

@@ -2,6 +2,7 @@ import {
   createLogger,
   LABEL_UNSET,
   type Label,
+  type PushInterruptionLevel,
   RELAY_CHANNEL_CONTROL,
   RELAY_CHANNEL_META,
 } from "@teleprompter/protocol";
@@ -364,10 +365,11 @@ export class RelayConnectionManager {
     token: string,
     title: string,
     body: string,
+    interruptionLevel?: PushInterruptionLevel,
     data?: { sid: string; daemonId?: string; event: string },
   ): void {
     for (const client of this.clients) {
-      client.sendPush(frontendId, token, title, body, data);
+      client.sendPush(frontendId, token, title, body, interruptionLevel, data);
     }
   }
 

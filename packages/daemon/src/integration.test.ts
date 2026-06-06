@@ -250,7 +250,7 @@ describe("Integration", () => {
     const sid = "test-push-pipeline";
     const decoder = new FrameDecoder();
 
-    type PushCall = [string, string, string, string, unknown];
+    type PushCall = [string, string, string, string, string, unknown];
     const pushCalls: PushCall[] = [];
 
     // Replace the PushNotifier deps with a spy. Reach into the daemon to
@@ -262,9 +262,10 @@ describe("Integration", () => {
       token: string,
       title: string,
       body: string,
+      interruptionLevel: string,
       data: { sid: string; event: string },
     ) => {
-      pushCalls.push([frontendId, token, title, body, data]);
+      pushCalls.push([frontendId, token, title, body, interruptionLevel, data]);
     };
     pn.registerToken("fe-test", "tok-test", "ios");
 
@@ -318,11 +319,14 @@ describe("Integration", () => {
     expect(pushCalls.length).toBe(1);
     const call = pushCalls[0];
     if (!call) throw new Error("expected push call");
-    const [frontendId, token, title, body, data] = call;
+    const [frontendId, token, title, body, interruptionLevel, data] = call;
     expect(frontendId).toBe("fe-test");
     expect(token).toBe("tok-test");
     expect(title).toBe("Permission needed");
     expect(body).toBe("Claude needs your permission to use Bash");
+    // Notification is attention-needed → must ride the time-sensitive level
+    // so it breaks through Focus end-to-end through the daemon pipeline.
+    expect(interruptionLevel).toBe("time-sensitive");
     expect(data).toEqual({ sid, event: "Notification" });
   });
 

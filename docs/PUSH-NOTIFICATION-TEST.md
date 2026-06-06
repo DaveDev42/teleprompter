@@ -4,7 +4,7 @@ Push notifications require a real device — Simulator and Expo Go cannot receiv
 
 ## Prerequisites
 
-- iPhone/iPad with TestFlight build installed (build #27+, includes PR #52)
+- iPhone/iPad with the current TestFlight build installed
 - `tp` CLI installed on your Mac
 - Both devices on a network (relay or local)
 
@@ -16,7 +16,7 @@ Push notifications require a real device — Simulator and Expo Go cannot receiv
 tp pair
 ```
 
-Scan the QR code or paste the JSON in the app (Settings > Pair with Daemon).
+Scan the QR code or paste the pairing URL (tp://p?d=...) in the app (Settings > Pair with Daemon).
 
 ### 2. Verify connection
 
@@ -28,7 +28,7 @@ Confirm the app shows sessions. Check the Diagnostics panel (Settings > Diagnost
 
 ### 3. Allow notifications
 
-When the app first connects, it should prompt for notification permissions. Tap **Allow**.
+On first launch, the app will prompt for notification permissions. Tap **Allow**.
 
 If you missed the prompt: Settings > Teleprompter > Notifications > Allow Notifications.
 
@@ -110,7 +110,7 @@ Trigger more than 5 push-worthy events in 1 minute.
 2. Check pairing: App > Settings > Diagnostics > RELAY/PAIRING
 3. Check daemon is running: `tp status`
 4. Check relay connectivity: `tp doctor`
-5. Check push token was sent: App logs should show "Push token registered"
+5. Check push token was received by daemon: `tp logs <session>` — look for `[PushNotifier] registered push token` to confirm the token was registered.
 
 ### Push received but wrong content
 

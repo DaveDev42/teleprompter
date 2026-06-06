@@ -373,7 +373,7 @@ Claude 유틸리티 (daemon 없이 직접 포워딩): tp auth, mcp, install, upd
 JS 변경과 네이티브 변경을 runtimeVersion fingerprint로 격리하고, 사람 버전과 빌드 카운터를 분리한다. 상세 운영 규칙은 CLAUDE.md "OTA 정책"/"Version Management" 와 .claude/rules/release-deploy.md 가 SoT.
 
 버전 3축:
-	•	runtimeVersion policy = fingerprint (apps/app/app.json) — JS-only 변경은 같은 runtime으로 OTA, 네이티브 변경은 fingerprint가 바뀌어 full build로 격리된다.
+	•	runtimeVersion policy = fingerprint (apps/app/app.json, 동적 config: apps/app/app.config.js) — JS-only 변경은 같은 runtime으로 OTA, 네이티브 변경은 fingerprint가 바뀌어 full build로 격리된다. 단, development/device 프로파일은 APP_VARIANT=dev-local 시 app.config.js가 runtimeVersion을 정적 문자열 "dev-local"로 오버라이드해 fingerprint 비교를 우회한다(로컬 eas build --local 전용, OTA와 무관).
 	•	사람 버전 = app.json expo.version (현재 0.1.19) — 손으로 관리. release-please는 app.json을 건드리지 않는다.
 	•	빌드 카운터 = EAS appVersionSource: remote — preview/production 프로파일의 autoIncrement: true로 ios.buildNumber/android.versionCode를 EAS 서버가 자동 증가시킨다(repo에 커밋하지 않음).
 

@@ -74,7 +74,7 @@ Yes. Teleprompter supports N:N connectivity — one daemon can serve multiple fr
 Run `tp doctor` to diagnose issues. It checks:
 
 1. **Pairing data** — Does `tp pair list` show a pairing? If not, run `tp pair new` first.
-2. **Daemon status** — Is the daemon running? It auto-starts on `tp status` or `tp pair`.
+2. **Daemon status** — Is the daemon running? It auto-starts on `tp pair` or a passthrough run (`tp <claude args>`), but NOT on `tp status` or `tp logs`. Start it explicitly with `tp daemon start`.
 3. **Relay connectivity** — Can the daemon reach the relay server? Doctor pings the relay and reports RTT.
 4. **E2EE self-test** — Is the crypto stack (libsodium) working correctly?
 
@@ -311,7 +311,7 @@ tp completions fish >> ~/.config/fish/completions/tp.fish
 | pnpm | pnpm package manager (dev only) | `npm i -g pnpm` |
 | Claude CLI | `claude` in PATH | Install Claude Code |
 | Git | Git available | Install Git |
-| Daemon socket | Daemon is running | Run `tp daemon start` or any tp command (auto-starts) |
+| Daemon socket | Daemon is running | Run `tp daemon start`, or auto-starts on `tp pair` / passthrough runs (`tp <claude args>`). `tp status` and `tp logs` do **not** auto-start it. |
 | Pairing data | Pairing configured | Run `tp pair --relay <url>` |
 | Vault | Store directory exists | Starts on first daemon run (auto-created) |
 | Relay ping | Network to relay | Check firewall, DNS, relay URL |

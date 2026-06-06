@@ -42,7 +42,7 @@ paths:
 - **네이티브 변경**: 풀빌드 + 스토어 제출
 - **paths 필터**: `dorny/paths-filter`로 apps/app/, packages/protocol/ 변경 감지 → 변경 없으면 EAS skip
 - **CI 게이트**: EAS Workflow는 git push로 자동 트리거되지 않음. CI eas-gate가 `eas workflow:run --ref` 로 트리거 (lint/test/type-check 통과 후)
-- **EAS 게이트**: `ci.yml`의 모든 job (lint, type-check, test, build-cli, e2e) 전부 pass → `expo doctor` → `eas build` (EXPO_TOKEN secret 필요)
+- **EAS 게이트**: `ci.yml`의 모든 job (lint, type-check, test, build-cli, e2e) 전부 pass → `expo doctor` → `eas workflow:run .eas/workflows/preview.yaml --ref <sha> --non-interactive` (EXPO_TOKEN secret 필요)
 
 ## 릴리즈 절차 (수동)
 
@@ -106,7 +106,7 @@ brew update && brew upgrade davedev42/tap/tp && tp version
 
 ## OTA 정책 (fingerprint runtimeVersion)
 
-`tp` CLI 바이너리는 release-please가 관리하는 `package.json`의 `version`을 따른다. Expo 앱은 `runtimeVersion: { "policy": "fingerprint" }` 정책을 사용해 **JS-only 변경은 OTA로 도달, 네이티브 변경(Podfile, 새 expo plugin, 네이티브 모듈 추가/업그레이드 등)만 풀빌드를 강제**한다. CLI 버전과 앱 표시 버전이 분리되는 대신 OTA가 의미 있게 작동한다.
+`tp` CLI 바이너리는 release-please가 관리하는 `package.json`의 `version`을 따른다. Cloud preview/production 빌드는 `runtimeVersion: { "policy": "fingerprint" }` 정책을 사용해 **JS-only 변경은 OTA로 도달, 네이티브 변경(Podfile, 새 expo plugin, 네이티브 모듈 추가/업그레이드 등)만 풀빌드를 강제**한다. 로컬 development/device 빌드는 `app.config.js`가 `APP_VARIANT=dev-local` 환경변수를 감지해 `runtimeVersion`을 정적 문자열 `"dev-local"`로 오버라이드한다 — fingerprint 비교를 우회하므로 로컬 `.ipa` 빌드가 가능하다 (PR #560). CLI 버전과 앱 표시 버전이 분리되는 대신 OTA가 의미 있게 작동한다.
 
 버전은 두 축으로 나뉜다:
 - **사람 버전** (`expo.version`, `CFBundleShortVersionString`, `versionName`) — `apps/app/app.json`에 손으로 관리. release-please는 더 이상 이 값을 건드리지 않는다. App Store / Play 제출에 새 사람 버전이 필요할 때만 chore commit으로 bump한다.
@@ -115,7 +115,7 @@ brew update && brew upgrade davedev42/tap/tp && tp version
 
 ### 설정
 
-- `apps/app/app.json`: `"runtimeVersion": { "policy": "fingerprint" }` — JS-only 변경은 같은 fingerprint를 유지하므로 OTA로 도달. 네이티브 변경 시 fingerprint가 갈리며 자동으로 OTA 격리.
+- `apps/app/app.json`: `"runtimeVersion": { "policy": "fingerprint" }` — JS-only 변경은 같은 fingerprint를 유지하므로 OTA로 도달. 네이티브 변경 시 fingerprint가 갈리며 자동으로 OTA 격리. **단, `development`/`device` 로컬 빌드는 예외**: `eas.json`의 해당 profile이 `APP_VARIANT=dev-local`을 주입하고, `apps/app/app.config.js`가 이 env var를 감지해 `runtimeVersion: "dev-local"` (정적 문자열)로 오버라이드한다 — fingerprint 비교를 우회하기 위함. Cloud `preview`/`production` 빌드는 `APP_VARIANT`를 설정하지 않으므로 fingerprint 정책이 그대로 적용된다.
 - `apps/app/eas.json`: `"appVersionSource": "remote"` — 빌드 카운터를 EAS 서버에서 관리.
 - `release-please-config.json`: `extra-files`에 `app.json` 항목을 두지 않는다. release-please는 `package.json`만 bump하고, `app.json`의 `expo.version`은 사람 버전이므로 별도 chore commit으로 손수 관리.
 - `eas.json`의 store 제출용 profile (`preview`, `production`)에서 `"autoIncrement": true`가 `ios.buildNumber` / `android.versionCode`를 증분 (`development` profile은 해당 없음).

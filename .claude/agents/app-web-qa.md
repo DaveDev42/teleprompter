@@ -67,9 +67,17 @@ override (`Agent({ subagent_type: "app-web-qa", model: "sonnet", ... })`).
 
 ### 방법 2: Playwright Test (회귀 테스트)
 
+> **주의:** `playwright.config.ts`의 `webServer` 설정이 `npx serve apps/app/dist -p 8081 -s`를
+> 자동 시작함 (`reuseExistingServer: true`). **방법 1의 `expo start` 서버가 살아있으면 playwright가
+> live dev 서버를 그대로 재사용해 정적 빌드 기반 테스트가 깨짐.** 방법 2 실행 전:
+> 1. 포트 8081에 실행 중인 서버가 없는지 확인 (`lsof -i :8081`)
+> 2. `apps/app/dist`가 없거나 오래됐으면 `pnpm build:web` 실행
+
 ```bash
-npx playwright test e2e/app-web.spec.ts
-npx playwright test -g "테스트 이름"
+pnpm test:e2e                                           # 전체 회귀 (local 프로젝트, 1 retry)
+pnpm test:e2e:ci                                        # CI 서브셋 (daemon 불필요)
+npx playwright test -g "테스트 이름" --project=local    # 특정 테스트만
+npx playwright test e2e/app-web.spec.ts --project=local # 특정 파일만
 ```
 
 새 테스트 시나리오 추가 시 `e2e/` 디렉토리에 `.spec.ts` 파일 작성.

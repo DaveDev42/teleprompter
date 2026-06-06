@@ -9,16 +9,16 @@ argument-hint: '[all | Q1..Q7 | gate]'
 전제/명령/통과 기준/결과 기록은 전부 그 문서에 있다 — 이 커맨드는 거기에 없는 로직을 추가하지
 않는다. 항목을 바꾸려면 문서를 고친다(커맨드 아님).
 
-> **이 커맨드는 고성능 Mac(16GB+, 정식 OS, 신뢰된 실기기)에서만 의미가 있다.** 이 8GB 개발 머신에서
-> 실행하면 Simulator/Xcode/Maestro가 시스템을 과부하시킨다(`CLAUDE.md` "iOS 빌드 & 검증
-> 워크플로우"). 잘못된 머신에서 호출되면 0번 게이트에서 멈춘다.
+> **이 커맨드는 고성능 Mac(16GB+, 정식 OS, 신뢰된 실기기)에서만 의미가 있다.** 저사양 머신(16GB 미만)에서
+> 실행하면 Simulator/Xcode/Maestro가 시스템을 과부하시킬 수 있다. 잘못된 머신에서 호출되면 0번
+> 게이트에서 멈춘다.
 
 ### Step 0 — 머신 게이트 (항상 먼저)
 
 `docs/local-verification-queue.md`의 "0. 고성능 Mac 1회 셋업" 표를 그대로 실행한다:
 
 ```bash
-sysctl hw.memsize                       # ≥ 16 GB (8GB면 전체 중단)
+sysctl hw.memsize                       # ≥ 16 GB 필요
 sw_vers                                  # Developer Beta 아님
 java -version                            # JDK 17–21 (OpenJDK 26 ❌)
 xcrun simctl list runtimes               # iOS 런타임 ≥1

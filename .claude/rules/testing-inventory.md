@@ -102,10 +102,10 @@ Stub 프로세스로 전체 파이프라인 검증.
 ## Benchmarks
 - `packages/relay/src/bench.test.ts` — relay throughput benchmark
 
-## Tier 4: QA Agent Tests (Playwright MCP — RN Web only on this machine)
-`/qa` 커맨드로 QA agent에 위임. **로컬 Tier 4 경로는 `app-web-qa` (RN Web) 하나뿐이다:**
-- `app-web-qa` — React Native Web (Playwright MCP + Playwright Test) — **유일한 로컬 QA 경로**
-- `expo-mcp:qa` — iOS Simulator / Android Emulator (Expo MCP Plugin `DaveDev42/expo-mcp` + Maestro). **이 머신(8GB Mac)에서는 사용 금지** — Simulator + Xcode 가 시스템을 과부하시키고 (load 100+, heavy swap) Maestro/JDK-26 불안정. expo-mcp 활성화는 **머신별 결정** — 공유 `.claude/settings.json`은 enable 플래그를 들지 않고(marketplace + `app_dir` config만 유지), 각 머신의 gitignored `.claude/settings.local.json`이 켜고 끈다. **이 8GB 머신 = `false`**, 고성능 Mac = `true` (`docs/local-verification-queue.md`). 일상 네이티브 iOS/Android 검증은 EAS 클라우드 빌드 → TestFlight/Internal → 사용자 실기기 디버깅, 큐 항목은 고성능 Mac의 `/verify-native` 로 처리 (CLAUDE.md "iOS 빌드 & 검증 워크플로우" 참조).
+## Tier 4: QA Agent Tests (Playwright MCP)
+`/qa` 커맨드로 QA agent에 위임. **로컬 Tier 4 기본 경로는 `app-web-qa` (RN Web)이고, 이 64GB Mac에서는 `expo-mcp:qa`도 로컬 실행 가능:**
+- `app-web-qa` — React Native Web (Playwright MCP + Playwright Test) — **기본 로컬 QA 경로** (가볍고 빠름)
+- `expo-mcp:qa` — iOS Simulator / Android Emulator (Expo MCP Plugin `DaveDev42/expo-mcp` + Maestro). Maestro/JDK-26 불안정 주의 (JDK 17-21 필요). expo-mcp 활성화는 **머신별 결정** — 공유 `.claude/settings.json`은 enable 플래그를 들지 않고(marketplace + `app_dir` config만 유지), 각 머신의 gitignored `.claude/settings.local.json`이 켜고 끈다. **이 64GB M1 Max Mac = `true` (Q4 2026-06-05 PASS)**, 저사양 머신 = `false`. 일상 네이티브 iOS/Android 검증은 EAS 클라우드 빌드 → TestFlight/Internal → 사용자 실기기 디버깅, 큐 항목은 `/verify-native` 로 처리 (CLAUDE.md "iOS 빌드 & 검증 워크플로우" 참조).
 - Playwright E2E: `pnpm test:e2e`
   - `e2e/app-web.spec.ts` — UI smoke tests (Sessions header, empty state, tabs, dark theme)
   - `e2e/app-settings.spec.ts` — settings tab (appearance, theme toggle, fonts, diagnostics, version)

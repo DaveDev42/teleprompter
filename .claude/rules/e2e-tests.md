@@ -12,7 +12,7 @@ paths:
 - Base URL: `http://localhost:8081` (Expo web)
 
 ## CI vs Local
-- CI: `app-web`, `app-settings`, `app-keyboard-nav` — retries 없음 (daemon 불필요)
+- CI: `playwright.config.ts`의 `ci` 프로젝트에 열거된 모든 테스트 (daemon/relay 불필요) — retries 없음
 - Local: 전체 테스트 (daemon/relay 필요한 `app-daemon`, `app-session-switch`, `app-resume`, `app-relay-e2e`, `app-roundtrip`, `app-real-e2e`, `app-chat-roundtrip` 포함) — 1 retry
 
 ## 명령어
@@ -22,5 +22,5 @@ paths:
 
 ## 패턴
 - 서버: `apps/app/dist` 정적 서빙 (port 8081, 기존 프로세스 재사용)
-- Timeout: 60초/테스트, Workers: 1 (순차)
+- Timeout: 60초/테스트, Workers: 1 (로컬 순차) / 2 (CI, GitHub ubuntu-latest 4-vCPU)
 - testID 기반 요소 선택: `data-testid="xxx"` → `page.getByTestId("xxx")`

@@ -10,7 +10,7 @@ paths:
 ## GitHub Actions
 - CI: Node 22 + Bun 1.3.13 + pnpm, 5개 독립 병렬 job (`lint`, `type-check`, `test`, `build-cli`, `e2e`) + 1 gate (`eas-gate`)
 - 캐시: Playwright browsers (`playwright-{os}-`), Expo web build (`expo-web-{os}-`)
-- EAS 게이트: 5개 병렬 job 전부 pass + `dorny/paths-filter`로 app/protocol 변경 감지 → `expo-doctor` → `eas build`
+- EAS 게이트: 5개 병렬 job 전부 pass + `dorny/paths-filter`로 app/protocol 변경 감지 → `expo-doctor` → `eas-cli workflow:run .eas/workflows/preview.yaml` (비동기 — fingerprint 기반 빌드/OTA 분기는 preview.yaml 내부에서 처리)
 - Secrets: `RELAY_HOST`, `RELAY_USER`, `RELAY_SSH_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `EXPO_TOKEN` (EAS gate)
 
 ## EAS Workflows
@@ -18,7 +18,8 @@ paths:
 - JS만 변경 → OTA 업데이트 (~2분, $0), 네이티브 변경 → 풀빌드 + 스토어 제출
 - Channels: development, preview, production
 
-## Release (`release.yml`, triggered on `v*` tag push)
+## Release (`release.yml`, triggered on `v*` tag push or manual `workflow_dispatch -f tag=vX.Y.Z`)
+- tag-push event 는 GitHub API tag-creation 시 누락되는 케이스가 잦아 (#172) **항상 manual dispatch 로 트리거**: `gh workflow run release.yml -f tag=vX.Y.Z`
 - Release Please: Conventional Commits → 자동 version bump + CHANGELOG → PR
 - Tag prefix: `v*` (e.g. `v0.1.13`) — `release/v*` is legacy, removed in PR #96
 - 수동 편집 금지: version 필드는 Release Please가 관리

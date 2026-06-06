@@ -103,11 +103,11 @@ frontmatter가 `model: inherit`이라 미명시 시 부모 Opus 상속.
 - **QA**: 회귀(`.spec.ts` 실행) = `haiku`,
   탐색적 QA (버그 hunt, 새 시나리오, 페어링/세팅 우회 추론 필요) = `sonnet`.
   로컬 QA 는 항상 `app-web-qa` (RN Web). `expo-mcp:qa` / Simulator / Maestro 는
-  이 머신에서 띄우지 않는다 (과부하 — "iOS 빌드 & 검증 워크플로우" 참조).
+  일상 작업에서는 띄우지 않는다 (JDK/Maestro 부수 비용 — "iOS 빌드 & 검증 워크플로우" 참조).
 
 ## Testing Strategy
 
-4계층 테스트, 모두 `bun:test` 사용 (Tier 4 로컬 QA 는 RN Web + Playwright MCP — Simulator/Maestro 는 이 머신에서 안 씀).
+4계층 테스트, 모두 `bun:test` 사용 (Tier 4 로컬 QA 기본값은 RN Web + Playwright MCP — Simulator/Maestro 는 일상 작업에서 생략, 필요 시 `/verify-native` 큐 참조).
 
 ### 명령어
 ```bash
@@ -313,6 +313,6 @@ PRD and internal docs are written in Korean. Code, comments, and commit messages
 
 ## iOS / Native Build
 
-**로컬에서 iOS Simulator / Xcode / 네이티브 빌드를 띄우지 않는다 (이 8GB 머신은 과부하).** 로컬 검증 = RN Web, 네이티브 빌드/배포 = EAS 클라우드 + TestFlight, 실기기 디버깅 = 사용자(Dave)에게 요청. 못 도는 네이티브 검증은 `docs/local-verification-queue.md` 큐에 쌓고 16GB+ Mac 이 `/verify-native` 로 순회.
+**네이티브 빌드/배포는 기본적으로 EAS 클라우드에 위임한다 (회귀 표면 최소화, 빠른 반복).** 로컬 검증 = RN Web, 네이티브 빌드/배포 = EAS 클라우드 + TestFlight, 실기기 디버깅 = 사용자(Dave)에게 요청. 네이티브 검증 항목은 `docs/local-verification-queue.md` 큐에 정의되어 있고 `/verify-native` 로 순회한다 (이 64GB 머신에서 실행 가능).
 
-전체 절차·근거·재시도 금지 기록·Expo Go 드롭 로드맵은 `.claude/rules/native-build.md` (SoT).
+전체 절차·Expo Go 드롭 로드맵은 `.claude/rules/native-build.md` (SoT).

@@ -146,6 +146,13 @@ export interface RelayServerOptions {
   resumeSecret?: string;
   /** Resume token TTL in ms (default: 1h, env: TP_RELAY_RESUME_TTL_MS) */
   resumeTtlMs?: number;
+  /**
+   * Override the PushService used for Expo push delivery. Primarily for tests
+   * that need a deterministic delivery result (e.g. a mock fetchFn returning a
+   * known Expo ticket) without hitting the real Expo Push API over the network.
+   * Defaults to a fresh `new PushService()`.
+   */
+  pushService?: PushService;
 }
 
 /**
@@ -221,7 +228,7 @@ export class RelayServer {
   /** All authenticated clients */
   private clients = new Map<ServerWebSocket, ConnectedClient>();
 
-  private pushService = new PushService();
+  private readonly pushService: PushService;
 
   /** daemonId → set of connected clients (both daemon and frontend) */
   private daemonGroups = new Map<string, Set<ServerWebSocket>>();
@@ -310,6 +317,7 @@ export class RelayServer {
       options?.authTimeoutMs ??
       envInt("TP_RELAY_AUTH_TIMEOUT_MS") ??
       AUTH_TIMEOUT_MS;
+    this.pushService = options?.pushService ?? new PushService();
     this.resumeSigner = new ResumeTokenSigner({
       secret: options?.resumeSecret,
       ttlMs: options?.resumeTtlMs ?? envInt("TP_RELAY_RESUME_TTL_MS"),

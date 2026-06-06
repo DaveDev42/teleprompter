@@ -139,6 +139,110 @@ describe("PushService", () => {
       expect(result).toBe("error");
       service.dispose();
     });
+
+    // Expo returns HTTP 200 even when it REJECTS the push (bad token, missing
+    // or mismatched APNs credentials). The verdict lives in the ticket body:
+    // `{ data: [{ status: "error", details: { error: "..." } }] }`. The old
+    // code treated HTTP 200 as success and dropped the body, silently swallowing
+    // DeviceNotRegistered / InvalidCredentials. These guard that we now read the
+    // ticket and report a delivery error so the daemon can surface it.
+    test("returns 'error' when Expo ticket status is error (array form)", async () => {
+      const service = new PushService({
+        fetchFn: (async () =>
+          new Response(
+            JSON.stringify({
+              data: [
+                {
+                  status: "error",
+                  message: "The recipient device is not registered.",
+                  details: { error: "DeviceNotRegistered" },
+                },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          )) as unknown as typeof fetch,
+      });
+
+      const result = await service.sendOrDeliver(makeRequest());
+      expect(result).toBe("error");
+      service.dispose();
+    });
+
+    test("returns 'error' when Expo ticket status is error (bare-object form)", async () => {
+      const service = new PushService({
+        fetchFn: (async () =>
+          new Response(
+            JSON.stringify({
+              data: {
+                status: "error",
+                message: "Invalid credentials.",
+                details: { error: "InvalidCredentials" },
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          )) as unknown as typeof fetch,
+      });
+
+      const result = await service.sendOrDeliver(makeRequest());
+      expect(result).toBe("error");
+      service.dispose();
+    });
+
+    test("returns 'push' when Expo ticket status is ok", async () => {
+      // ok ticket (array form, matching makeFetchFn) must still succeed.
+      const { fn } = makeFetchFn();
+      service = new PushService({ fetchFn: fn });
+      const result = await service.sendOrDeliver(makeRequest());
+      expect(result).toBe("push");
+    });
+
+    test("returns 'push' when 200 body is unparseable (not itself a delivery error)", async () => {
+      // A malformed-but-200 body is tolerated: parseExpoTicket returns null, so
+      // we don't manufacture a delivery error from a parse failure.
+      const service = new PushService({
+        fetchFn: (async () =>
+          new Response("not json", {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })) as unknown as typeof fetch,
+      });
+
+      const result = await service.sendOrDeliver(makeRequest());
+      expect(result).toBe("push");
+      service.dispose();
+    });
+
+    test("error ticket does NOT record dedup or consume rate budget", async () => {
+      // sendOrDeliver records dedup + increments the rate counter only after a
+      // SUCCESSFUL push. An error ticket must leave both untouched so a retry
+      // (e.g. after the user fixes credentials) is not blocked by dedup.
+      let call = 0;
+      const service = new PushService({
+        rateLimitPerMinute: 1,
+        fetchFn: (async () => {
+          call++;
+          // First call: error ticket. Second call: ok ticket.
+          const body =
+            call === 1
+              ? { data: [{ status: "error", details: { error: "X" } }] }
+              : { data: [{ status: "ok" }] };
+          return new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }) as unknown as typeof fetch,
+      });
+
+      const first = await service.sendOrDeliver(makeRequest());
+      expect(first).toBe("error");
+
+      // Same request again — must NOT be deduped (dedup wasn't recorded) and
+      // must NOT be rate-limited (budget wasn't consumed). It reaches Expo and
+      // this time gets an ok ticket.
+      const second = await service.sendOrDeliver(makeRequest());
+      expect(second).toBe("push");
+      service.dispose();
+    });
   });
 
   describe("rate limiting", () => {

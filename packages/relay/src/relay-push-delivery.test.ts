@@ -10,7 +10,22 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { RelayServerMessage } from "@teleprompter/protocol";
 import { setLogLevel } from "@teleprompter/protocol";
+import { PushService } from "./push";
 import { RelayServer } from "./relay-server";
+
+/**
+ * A fetch stub that always returns a 200 response with an "ok" Expo ticket.
+ * The rate-limit test needs pushes 1-5 to genuinely *succeed* (so the
+ * PushService rate counter increments) without depending on Expo over the
+ * network — and without depending on the old swallowed-error bug where a
+ * rejected-but-200 push counted as success. With ticket-inspection live, only
+ * a real "ok" ticket increments the counter, so we return one deterministically.
+ */
+const okTicketFetch = (async () =>
+  new Response(JSON.stringify({ data: [{ status: "ok", id: "ticket-ok" }] }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  })) as unknown as typeof fetch;
 
 beforeEach(() => setLogLevel("silent"));
 afterEach(() => setLogLevel("info"));
@@ -52,7 +67,12 @@ describe("handlePush DeliveryResult exhaustive handling (idx 58)", () => {
   let port: number;
 
   beforeEach(() => {
-    relay = new RelayServer();
+    // Inject a PushService whose fetch always returns an "ok" Expo ticket, so
+    // pushes 1-5 deterministically succeed (and increment the rate counter)
+    // without hitting the network or relying on a 200-means-success bug.
+    relay = new RelayServer({
+      pushService: new PushService({ fetchFn: okTicketFetch }),
+    });
     port = relay.start(0);
     relay.registerToken(TOKEN, DAEMON_ID);
   });
@@ -91,9 +111,9 @@ describe("handlePush DeliveryResult exhaustive handling (idx 58)", () => {
     await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
 
     // The default PushService rate limit is 5 per minute per frontendId.
-    // Send 6 relay.push messages with different event keys to avoid the
-    // dedup gate — the 6th must trigger rate_limited → relay.err reply.
-    // (Using no data field on calls 1-5 to bypass dedup; call 6 also no data.)
+    // Send 6 relay.push messages with no data field (to bypass the dedup gate)
+    // — the injected ok-ticket fetch makes calls 1-5 succeed and increment the
+    // rate counter, so the 6th must trigger rate_limited → relay.err reply.
     const FE_ID = "fe-rate-limit-target";
     const pushMsg = () =>
       JSON.stringify({
@@ -102,18 +122,15 @@ describe("handlePush DeliveryResult exhaustive handling (idx 58)", () => {
         token: "ExponentPushToken[rate-limit-test]",
         title: "T",
         body: "B",
-        // No data field → no dedup key → every call goes to Expo or rate-limiter
+        // No data field → no dedup key → every call hits the push/rate path
       });
 
-    // Exhaust the 5-per-minute quota. Each call goes through Expo (or errors);
-    // we don't wait for relay.err on these because Expo may succeed or fail.
-    // We only care that the 6th triggers the rate_limited path reliably.
-    // Use 500ms sleep per call to ensure each async handlePush (including any
-    // outbound Expo API fetch) completes before the next send, so the rate
-    // counter increments correctly on the push service.
+    // Exhaust the 5-per-minute quota. Each push deterministically succeeds via
+    // the injected ok-ticket fetch, so all 5 increment the rate counter. A short
+    // sleep per call lets each async handlePush settle before the next send.
     for (let i = 0; i < 5; i++) {
       daemon.send(pushMsg());
-      await Bun.sleep(500);
+      await Bun.sleep(50);
     }
 
     // 6th push must be rate-limited regardless of Expo API reachability —

@@ -16,6 +16,42 @@ export type DeliveryResult =
   | "deduped"
   | "error";
 
+/**
+ * A single push ticket as returned by the Expo Push API. For a single-message
+ * send the response shape is `{ data: ExpoPushTicket }` historically, but Expo
+ * actually returns `{ data: [ExpoPushTicket] }` (an array) — we tolerate both.
+ * `status: "error"` carries a human `message` plus machine `details.error`
+ * (e.g. "DeviceNotRegistered", "InvalidCredentials").
+ */
+interface ExpoPushTicket {
+  status: "ok" | "error";
+  id?: string;
+  message?: string;
+  details?: { error?: string };
+}
+
+/**
+ * Pull the ticket out of an Expo Push API 200 response, tolerating both the
+ * array form (`{ data: [ticket] }`) and the bare-object form (`{ data: ticket }`).
+ * Returns null if the body can't be parsed — caller treats that as "no ticket
+ * error visible", since a malformed-but-200 body is not itself a delivery error.
+ */
+async function parseExpoTicket(
+  response: Response,
+): Promise<ExpoPushTicket | null> {
+  try {
+    const json = (await response.json()) as {
+      data?: ExpoPushTicket | ExpoPushTicket[];
+    };
+    const data = json?.data;
+    if (Array.isArray(data)) return data[0] ?? null;
+    if (data && typeof data === "object") return data;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export interface PushRequest {
   frontendId: string;
   daemonId: string;
@@ -163,8 +199,21 @@ export class PushService {
         return "error";
       }
 
-      // Drain the success body for the same reason (we don't use the receipt).
-      await response.body?.cancel();
+      // CRITICAL: Expo returns HTTP 200 even when it rejects the push (bad
+      // token, missing/mismatched APNs credentials, etc.). The real verdict is
+      // in the response ticket: `{ data: [{ status: "ok" | "error", ... }] }`.
+      // Treating HTTP 200 as success (the old behavior) silently swallowed
+      // DeviceNotRegistered / InvalidCredentials and made "sent but never
+      // arrived" undiagnosable. Parse the ticket and surface errors loudly.
+      const ticket = await parseExpoTicket(response);
+      if (ticket && ticket.status === "error") {
+        const reason = ticket.details?.error ?? "unknown";
+        log.warn(
+          `Expo push ticket error for frontendId ${frontendId}: ` +
+            `${ticket.message ?? reason} (${reason})`,
+        );
+        return "error";
+      }
 
       // Step 5: Record dedup + increment rate counter only after successful push
       if (data) {

@@ -35,7 +35,13 @@ function sendTokenToRelays(): void {
   const platform = Platform.OS as "ios" | "android";
   const clients = getRelayClients();
   for (const client of clients) {
+    // Legacy E2EE path (back-compat): daemon receives pushToken frame and uses
+    // it for notifications on old relays that don't support Path X.
     client.sendPushToken(_currentToken, platform);
+    // Path X: send the plaintext token as relay.push.register (cleartext) so
+    // the relay can seal it and route relay.push.token to the daemon. Both
+    // paths remain active during rollout; old relays ignore relay.push.register.
+    client.sendPushTokenForSeal(_currentToken, platform);
   }
 }
 

@@ -40,6 +40,21 @@ export const PAIRINGS_MIGRATIONS: string[] = [
   `ALTER TABLE pairings ADD COLUMN label TEXT;`,
 ];
 
+/**
+ * Sealed push tokens persisted by the daemon after receiving relay.push.token.
+ * `sealed` is an opaque blob ("tpps1.<v>.<b64>") — only meaningful to the relay.
+ * Daemon never stores plaintext tokens after Path X is active.
+ */
+export const PUSH_TOKENS_DDL = `
+CREATE TABLE IF NOT EXISTS push_tokens (
+  frontend_id TEXT PRIMARY KEY,
+  daemon_id TEXT NOT NULL,
+  sealed TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+`;
+
 export const PRAGMAS = [
   // WAL lets the daemon (writer) and short-lived CLI processes (readers / occasional writers)
   // share the same DB without colliding on a single-writer rollback journal.

@@ -2073,3 +2073,66 @@ describe("FrontendRelayClient — client-side ping", () => {
     client.dispose();
   });
 });
+
+describe("FrontendRelayClient — sendPushTokenForSeal (Path X)", () => {
+  test("emits relay.push.register with correct shape for ios when WS is OPEN", async () => {
+    const p = await setupPairing();
+    const cfg = makeConfig(p);
+    const { FrontendRelayClient } = await import("./relay-client");
+    const client = new FrontendRelayClient(cfg);
+    const ws = await authenticate(client);
+
+    client.sendPushTokenForSeal("ExponentPushToken[ios-test]", "ios");
+
+    const msg = ws.findSent<{
+      t: string;
+      frontendId: string;
+      token: string;
+      platform: string;
+    }>("relay.push.register");
+    expect(msg).toBeDefined();
+    expect(msg!.t).toBe("relay.push.register");
+    expect(msg!.frontendId).toBe(cfg.frontendId);
+    expect(msg!.token).toBe("ExponentPushToken[ios-test]");
+    expect(msg!.platform).toBe("ios");
+
+    client.dispose();
+  });
+
+  test("emits correct platform for android", async () => {
+    const p = await setupPairing();
+    const cfg = makeConfig(p);
+    const { FrontendRelayClient } = await import("./relay-client");
+    const client = new FrontendRelayClient(cfg);
+    const ws = await authenticate(client);
+
+    client.sendPushTokenForSeal("ExponentPushToken[android-test]", "android");
+
+    const msg = ws.findSent<{ t: string; platform: string }>(
+      "relay.push.register",
+    );
+    expect(msg?.platform).toBe("android");
+
+    client.dispose();
+  });
+
+  test("does nothing when WS is not OPEN (pre-connect state)", async () => {
+    const p = await setupPairing();
+    const cfg = makeConfig(p);
+    const { FrontendRelayClient } = await import("./relay-client");
+    const client = new FrontendRelayClient(cfg);
+
+    // Connect but do NOT open the socket → readyState stays CONNECTING
+    void client.connect();
+    const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1]!;
+    // ws.readyState is CONNECTING, not OPEN
+
+    const sentBefore = ws.sent.length;
+    // Should not throw even though WS is not open
+    client.sendPushTokenForSeal("ExponentPushToken[test]", "ios");
+    expect(ws.sent.length).toBe(sentBefore);
+
+    ws.close();
+    client.dispose();
+  });
+});

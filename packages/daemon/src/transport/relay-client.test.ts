@@ -13,6 +13,7 @@ import {
   type Label,
   makeLabel,
   RELAY_CHANNEL_CONTROL,
+  type RelayClientMessage,
   type RelayServerMessage,
   type SessionRec,
   toBase64,
@@ -964,5 +965,60 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     expect(body.metrics.resumesRejected).toBeGreaterThanOrEqual(1);
 
     client.dispose();
+  });
+});
+
+describe("RelayClient.sendPush — wire field selection (back-compat)", () => {
+  // A new daemon must put a real sealed blob ("tpps1.…") in the `sealed` field
+  // but a legacy plaintext token in the `token` field, so an OLD relay (which
+  // requires a `token` field) still accepts and delivers the push. The protocol
+  // guard enforces exactly one of {token, sealed}.
+  function captureSend(): {
+    client: RelayClient;
+    sent: RelayClientMessage[];
+  } {
+    const sent: RelayClientMessage[] = [];
+    const client = new RelayClient(
+      {
+        relayUrl: "ws://localhost:0",
+        daemonId: "d-test",
+        token: "tok",
+        registrationProof: "proof",
+        keyPair: {
+          publicKey: new Uint8Array(32),
+          secretKey: new Uint8Array(32),
+        },
+        pairingSecret: new Uint8Array(32),
+      },
+      {},
+    );
+    // Inject a fake OPEN socket so the private send() path serializes the frame.
+    (client as unknown as { ws: unknown }).ws = {
+      readyState: WebSocket.OPEN,
+      send: (raw: string) => {
+        sent.push(JSON.parse(raw) as RelayClientMessage);
+      },
+    };
+    return { client, sent };
+  }
+
+  test("real sealed blob rides the `sealed` field, never `token`", () => {
+    const { client, sent } = captureSend();
+    client.sendPush("fe-1", "tpps1.1.abc123", "Title", "Body");
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as RelayClientMessage & { t: "relay.push" };
+    expect(msg.t).toBe("relay.push");
+    expect(msg.sealed).toBe("tpps1.1.abc123");
+    expect(msg.token).toBeUndefined();
+  });
+
+  test("legacy plaintext token rides the `token` field (old-relay compatible)", () => {
+    const { client, sent } = captureSend();
+    client.sendPush("fe-1", "ExponentPushToken[legacy]", "Title", "Body");
+    expect(sent).toHaveLength(1);
+    const msg = sent[0] as RelayClientMessage & { t: "relay.push" };
+    expect(msg.t).toBe("relay.push");
+    expect(msg.token).toBe("ExponentPushToken[legacy]");
+    expect(msg.sealed).toBeUndefined();
   });
 });

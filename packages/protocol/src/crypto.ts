@@ -247,6 +247,70 @@ export async function deriveKxKey(
 }
 
 /**
+ * Derive a relay-side push-seal key from a secret.
+ * H(secret || "relay-push-seal") — distinct domain from "relay-auth",
+ * "kx-envelope", and "relay-register".
+ */
+export async function derivePushSealKey(
+  secret: Uint8Array,
+): Promise<Uint8Array> {
+  const sodium = await ensureSodium();
+  return deriveBlake2b(sodium, secret, "relay-push-seal");
+}
+
+/**
+ * Encrypt plaintext with AEAD and bind additional data into the tag.
+ * Returns base64(nonce24 || ciphertext) — same layout as `encrypt`, but
+ * passes `aad` instead of `null` so the tag covers both the ciphertext and
+ * the AAD. Decryption with a different AAD throws (wrong tag).
+ */
+export async function sealWithAad(
+  plaintext: Uint8Array,
+  key: Uint8Array,
+  aad: Uint8Array,
+): Promise<string> {
+  const sodium = await ensureSodium();
+  const nonce = sodium.randombytes_buf(
+    sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES,
+  );
+  const ciphertext = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
+    plaintext,
+    aad, // additional data bound into the AEAD tag
+    null, // nsec (unused)
+    nonce,
+    key,
+  );
+  const combined = new Uint8Array(nonce.length + ciphertext.length);
+  combined.set(nonce);
+  combined.set(ciphertext, nonce.length);
+  return sodium.to_base64(combined, sodium.base64_variants.ORIGINAL);
+}
+
+/**
+ * Decrypt a base64-encoded nonce+ciphertext sealed with `sealWithAad`.
+ * `aad` must match the value used during sealing exactly; any mismatch
+ * (wrong AAD, wrong key, tampered ciphertext) causes libsodium to throw.
+ */
+export async function openWithAad(
+  encoded: string,
+  key: Uint8Array,
+  aad: Uint8Array,
+): Promise<Uint8Array> {
+  const sodium = await ensureSodium();
+  const combined = sodium.from_base64(encoded, sodium.base64_variants.ORIGINAL);
+  const nonceLen = sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
+  const nonce = combined.subarray(0, nonceLen);
+  const ciphertext = combined.subarray(nonceLen);
+  return sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
+    null, // nsec (unused)
+    ciphertext,
+    aad, // additional data — must match what was used to seal
+    nonce,
+    key,
+  );
+}
+
+/**
  * Derive a registration proof for relay self-registration.
  * Proves knowledge of the pairing secret without exposing it.
  * H(pairing_secret || "relay-register")

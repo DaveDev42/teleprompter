@@ -13,6 +13,7 @@ export type { KeyPair, SessionKeys } from "./crypto";
 export {
   decrypt,
   deriveKxKey,
+  derivePushSealKey,
   deriveRegistrationProof,
   deriveRelayToken,
   deriveSessionKeys,
@@ -21,7 +22,9 @@ export {
   fromBase64,
   generateKeyPair,
   generatePairingSecret,
+  openWithAad,
   ratchetSessionKeys,
+  sealWithAad,
   toBase64,
   toHex,
 } from "./crypto";

@@ -254,20 +254,29 @@ describe("Integration", () => {
     const pushCalls: PushCall[] = [];
 
     // Replace the PushNotifier deps with a spy. Reach into the daemon to
-    // register a token so the notifier doesn't short-circuit on empty map.
+    // register a sealed token so the notifier doesn't short-circuit on empty map.
     // biome-ignore lint/suspicious/noExplicitAny: test reaches private field
     const pn: any = (daemon as any).pushNotifier;
     pn.deps.sendPush = (
       frontendId: string,
-      token: string,
+      sealed: string,
       title: string,
       body: string,
       interruptionLevel: string,
       data: { sid: string; event: string },
     ) => {
-      pushCalls.push([frontendId, token, title, body, interruptionLevel, data]);
+      pushCalls.push([
+        frontendId,
+        sealed,
+        title,
+        body,
+        interruptionLevel,
+        data,
+      ]);
     };
-    pn.registerToken("fe-test", "tok-test", "ios");
+    pn.deps.persistToken = () => {};
+    pn.deps.deleteToken = () => {};
+    pn.registerSealedToken("fe-test", "d-test", "tok-test", "ios");
 
     // Open the runner IPC socket, hello + Notification record + bye.
     const socket = await Bun.connect({
@@ -319,9 +328,9 @@ describe("Integration", () => {
     expect(pushCalls.length).toBe(1);
     const call = pushCalls[0];
     if (!call) throw new Error("expected push call");
-    const [frontendId, token, title, body, interruptionLevel, data] = call;
+    const [frontendId, sealed, title, body, interruptionLevel, data] = call;
     expect(frontendId).toBe("fe-test");
-    expect(token).toBe("tok-test");
+    expect(sealed).toBe("tok-test");
     expect(title).toBe("Permission needed");
     expect(body).toBe("Claude needs your permission to use Bash");
     // Notification is attention-needed → must ride the time-sensitive level

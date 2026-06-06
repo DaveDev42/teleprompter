@@ -5,36 +5,81 @@ import {
   buildPushMessage,
   interruptionLevelFor,
   PushNotifier,
+  type PushNotifierDeps,
 } from "./push-notifier";
 
 beforeAll(() => setLogLevel("silent"));
 afterAll(() => setLogLevel("info"));
 
-describe("PushNotifier", () => {
-  function makeSendPush() {
-    return mock(
-      (
-        _frontendId: string,
-        _token: string,
-        _title: string,
-        _body: string,
-        _interruptionLevel: PushInterruptionLevel,
-        _data: { sid: string; event: string },
-      ) => {},
-    );
-  }
+// Sealed blob used across tests (opaque to the daemon — not validated here)
+const SEALED =
+  "tpps1.1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
+const SEALED_B =
+  "tpps1.1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB==";
 
+function makeSendPush() {
+  return mock(
+    (
+      _frontendId: string,
+      _sealed: string,
+      _title: string,
+      _body: string,
+      _interruptionLevel: PushInterruptionLevel,
+      _data: { sid: string; event: string },
+    ) => {},
+  );
+}
+
+function makePersistToken() {
+  return mock(
+    (
+      _frontendId: string,
+      _daemonId: string,
+      _sealed: string,
+      _platform: "ios" | "android",
+    ) => {},
+  );
+}
+
+function makeDeleteToken() {
+  return mock((_frontendId: string) => {});
+}
+
+function makeLoadTokens(
+  entries: Array<{
+    frontendId: string;
+    daemonId: string;
+    sealed: string;
+    platform: "ios" | "android";
+  }> = [],
+) {
+  return mock(() => entries);
+}
+
+function makeDeps(overrides?: Partial<PushNotifierDeps>): PushNotifierDeps {
+  return {
+    sendPush: makeSendPush(),
+    persistToken: makePersistToken(),
+    loadTokens: makeLoadTokens(),
+    deleteToken: makeDeleteToken(),
+    ...overrides,
+  };
+}
+
+describe("PushNotifier", () => {
   it("triggers push for Elicitation event", () => {
-    const sendPush = makeSendPush();
-    const notifier = new PushNotifier({ sendPush });
-    notifier.registerToken("fe-1", "ExponentPushToken[abc]", "ios");
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+    notifier.registerSealedToken("fe-1", "d-1", SEALED, "ios");
 
     notifier.onRecord({ sid: "s1", kind: "event", name: "Elicitation" });
 
-    expect(sendPush).toHaveBeenCalledTimes(1);
-    expect(sendPush.mock.calls[0]).toEqual([
+    expect(deps.sendPush).toHaveBeenCalledTimes(1);
+    expect(
+      (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls[0],
+    ).toEqual([
       "fe-1",
-      "ExponentPushToken[abc]",
+      SEALED,
       "Response needed",
       "Claude is waiting for your answer",
       "time-sensitive",
@@ -43,16 +88,17 @@ describe("PushNotifier", () => {
   });
 
   it("triggers push for PermissionRequest event", () => {
-    const sendPush = makeSendPush();
-    const notifier = new PushNotifier({ sendPush });
-    notifier.registerToken("fe-1", "ExponentPushToken[xyz]", "android");
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+    notifier.registerSealedToken("fe-1", "d-1", SEALED, "android");
 
     notifier.onRecord({ sid: "s2", kind: "event", name: "PermissionRequest" });
 
-    expect(sendPush).toHaveBeenCalledTimes(1);
-    expect(sendPush.mock.calls[0]).toEqual([
+    expect(deps.sendPush).toHaveBeenCalledTimes(1);
+    const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
+    expect(calls[0]).toEqual([
       "fe-1",
-      "ExponentPushToken[xyz]",
+      SEALED,
       "Permission needed",
       "Tool permission approval required",
       "time-sensitive",
@@ -61,9 +107,9 @@ describe("PushNotifier", () => {
   });
 
   it("uses tool_name in PermissionRequest body when provided", () => {
-    const sendPush = makeSendPush();
-    const notifier = new PushNotifier({ sendPush });
-    notifier.registerToken("fe-1", "tok", "ios");
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+    notifier.registerSealedToken("fe-1", "d-1", SEALED, "ios");
 
     notifier.onRecord({
       sid: "s1",
@@ -72,13 +118,14 @@ describe("PushNotifier", () => {
       payload: { tool_name: "Bash" },
     });
 
-    expect(sendPush.mock.calls[0]![3]).toBe("Approve Bash to continue");
+    const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
+    expect(calls[0]![3]).toBe("Approve Bash to continue");
   });
 
   it("triggers push for Notification event", () => {
-    const sendPush = makeSendPush();
-    const notifier = new PushNotifier({ sendPush });
-    notifier.registerToken("fe-1", "tok", "ios");
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+    notifier.registerSealedToken("fe-1", "d-1", SEALED, "ios");
 
     notifier.onRecord({
       sid: "s1",
@@ -87,103 +134,107 @@ describe("PushNotifier", () => {
       payload: { message: "Claude needs your permission to use Bash" },
     });
 
-    expect(sendPush).toHaveBeenCalledTimes(1);
-    expect(sendPush.mock.calls[0]![2]).toBe("Permission needed");
-    expect(sendPush.mock.calls[0]![3]).toBe(
-      "Claude needs your permission to use Bash",
-    );
+    expect(deps.sendPush).toHaveBeenCalledTimes(1);
+    const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
+    expect(calls[0]![2]).toBe("Permission needed");
+    expect(calls[0]![3]).toBe("Claude needs your permission to use Bash");
   });
 
   it("falls back to generic Notification copy when message is missing", () => {
-    const sendPush = makeSendPush();
-    const notifier = new PushNotifier({ sendPush });
-    notifier.registerToken("fe-1", "tok", "ios");
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+    notifier.registerSealedToken("fe-1", "d-1", SEALED, "ios");
 
     notifier.onRecord({ sid: "s1", kind: "event", name: "Notification" });
 
-    expect(sendPush.mock.calls[0]![2]).toBe("Claude needs attention");
-    expect(sendPush.mock.calls[0]![3]).toBe("Tap to open the session");
+    const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
+    expect(calls[0]![2]).toBe("Claude needs attention");
+    expect(calls[0]![3]).toBe("Tap to open the session");
   });
 
   it("does NOT trigger for Stop event", () => {
-    const sendPush = makeSendPush();
-    const notifier = new PushNotifier({ sendPush });
-    notifier.registerToken("fe-1", "ExponentPushToken[abc]", "ios");
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+    notifier.registerSealedToken("fe-1", "d-1", SEALED, "ios");
 
     notifier.onRecord({ sid: "s1", kind: "event", name: "Stop" });
 
-    expect(sendPush).not.toHaveBeenCalled();
+    expect(deps.sendPush).not.toHaveBeenCalled();
   });
 
   it("does NOT trigger for io records", () => {
-    const sendPush = makeSendPush();
-    const notifier = new PushNotifier({ sendPush });
-    notifier.registerToken("fe-1", "ExponentPushToken[abc]", "ios");
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+    notifier.registerSealedToken("fe-1", "d-1", SEALED, "ios");
 
     notifier.onRecord({ sid: "s1", kind: "io" });
 
-    expect(sendPush).not.toHaveBeenCalled();
+    expect(deps.sendPush).not.toHaveBeenCalled();
   });
 
   it("does NOT trigger for PostToolUse event", () => {
-    const sendPush = makeSendPush();
-    const notifier = new PushNotifier({ sendPush });
-    notifier.registerToken("fe-1", "ExponentPushToken[abc]", "ios");
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+    notifier.registerSealedToken("fe-1", "d-1", SEALED, "ios");
 
     notifier.onRecord({ sid: "s1", kind: "event", name: "PostToolUse" });
 
-    expect(sendPush).not.toHaveBeenCalled();
+    expect(deps.sendPush).not.toHaveBeenCalled();
   });
 
   it("does NOT trigger when no tokens are registered", () => {
-    const sendPush = makeSendPush();
-    const notifier = new PushNotifier({ sendPush });
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
 
     notifier.onRecord({ sid: "s1", kind: "event", name: "Notification" });
 
-    expect(sendPush).not.toHaveBeenCalled();
+    expect(deps.sendPush).not.toHaveBeenCalled();
   });
 
   it("sends to ALL registered frontends", () => {
-    const sendPush = makeSendPush();
-    const notifier = new PushNotifier({ sendPush });
-    notifier.registerToken("fe-1", "token-1", "ios");
-    notifier.registerToken("fe-2", "token-2", "android");
-    notifier.registerToken("fe-3", "token-3", "ios");
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+    notifier.registerSealedToken("fe-1", "d-1", SEALED, "ios");
+    notifier.registerSealedToken("fe-2", "d-1", SEALED_B, "android");
+    notifier.registerSealedToken("fe-3", "d-1", SEALED, "ios");
 
     notifier.onRecord({ sid: "s1", kind: "event", name: "Elicitation" });
 
-    expect(sendPush).toHaveBeenCalledTimes(3);
-    const frontendIds = sendPush.mock.calls.map((c) => c[0]);
+    expect(deps.sendPush).toHaveBeenCalledTimes(3);
+    const frontendIds = (
+      deps.sendPush as ReturnType<typeof makeSendPush>
+    ).mock.calls.map((c) => c[0]);
     expect(frontendIds).toContain("fe-1");
     expect(frontendIds).toContain("fe-2");
     expect(frontendIds).toContain("fe-3");
   });
 
-  it("updates token on re-register with same frontendId", () => {
-    const sendPush = makeSendPush();
-    const notifier = new PushNotifier({ sendPush });
-    notifier.registerToken("fe-1", "old-token", "ios");
-    notifier.registerToken("fe-1", "new-token", "android");
+  it("updates sealed blob on re-register with same frontendId", () => {
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+    notifier.registerSealedToken("fe-1", "d-1", SEALED, "ios");
+    notifier.registerSealedToken("fe-1", "d-1", SEALED_B, "android");
 
     notifier.onRecord({ sid: "s1", kind: "event", name: "Elicitation" });
 
-    expect(sendPush).toHaveBeenCalledTimes(1);
-    expect(sendPush.mock.calls[0]![1]).toBe("new-token");
-    expect(sendPush.mock.calls[0]![0]).toBe("fe-1");
+    expect(deps.sendPush).toHaveBeenCalledTimes(1);
+    const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
+    expect(calls[0]![1]).toBe(SEALED_B);
+    expect(calls[0]![0]).toBe("fe-1");
   });
 
   it("unregisterToken removes frontend from receiving pushes", () => {
-    const sendPush = makeSendPush();
-    const notifier = new PushNotifier({ sendPush });
-    notifier.registerToken("fe-1", "token-1", "ios");
-    notifier.registerToken("fe-2", "token-2", "android");
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+    notifier.registerSealedToken("fe-1", "d-1", SEALED, "ios");
+    notifier.registerSealedToken("fe-2", "d-1", SEALED_B, "android");
     notifier.unregisterToken("fe-1");
 
     notifier.onRecord({ sid: "s1", kind: "event", name: "Elicitation" });
 
-    expect(sendPush).toHaveBeenCalledTimes(1);
-    expect(sendPush.mock.calls[0]![0]).toBe("fe-2");
+    expect(deps.sendPush).toHaveBeenCalledTimes(1);
+    const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
+    expect(calls[0]![0]).toBe("fe-2");
   });
 
   it.each([
@@ -191,15 +242,100 @@ describe("PushNotifier", () => {
     ["PermissionRequest"],
     ["Elicitation"],
   ])("passes time-sensitive interruption level for attention-needed event %s", (eventName) => {
-    const sendPush = makeSendPush();
-    const notifier = new PushNotifier({ sendPush });
-    notifier.registerToken("fe-1", "tok", "ios");
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+    notifier.registerSealedToken("fe-1", "d-1", SEALED, "ios");
 
     notifier.onRecord({ sid: "s1", kind: "event", name: eventName });
 
-    expect(sendPush).toHaveBeenCalledTimes(1);
+    expect(deps.sendPush).toHaveBeenCalledTimes(1);
     // interruptionLevel is the 5th positional arg (index 4)
-    expect(sendPush.mock.calls[0]![4]).toBe("time-sensitive");
+    const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
+    expect(calls[0]![4]).toBe("time-sensitive");
+  });
+
+  it("registerSealedToken writes Map AND calls persistToken", () => {
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+    notifier.registerSealedToken("fe-1", "d-1", SEALED, "ios");
+
+    expect(deps.persistToken).toHaveBeenCalledTimes(1);
+    const calls = (deps.persistToken as ReturnType<typeof makePersistToken>)
+      .mock.calls;
+    expect(calls[0]).toEqual(["fe-1", "d-1", SEALED, "ios"]);
+
+    // Map entry present: triggers push on next event
+    notifier.onRecord({ sid: "s1", kind: "event", name: "Elicitation" });
+    expect(deps.sendPush).toHaveBeenCalledTimes(1);
+  });
+
+  it("constructor seeds from loadTokens — no persistToken called on startup", () => {
+    const persistToken = makePersistToken();
+    const loadTokens = makeLoadTokens([
+      {
+        frontendId: "fe-seeded",
+        daemonId: "d-1",
+        sealed: SEALED,
+        platform: "ios",
+      },
+    ]);
+    const deps = makeDeps({ persistToken, loadTokens });
+    const notifier = new PushNotifier(deps);
+
+    // Loaded from store — persistToken should NOT be called on seed
+    expect(persistToken).not.toHaveBeenCalled();
+
+    // But the token IS in the Map
+    notifier.onRecord({ sid: "s1", kind: "event", name: "Elicitation" });
+    expect(deps.sendPush).toHaveBeenCalledTimes(1);
+    const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
+    expect(calls[0]![0]).toBe("fe-seeded");
+    expect(calls[0]![1]).toBe(SEALED);
+  });
+
+  it("onRecord passes entry.sealed (not plaintext) to sendPush", () => {
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+    const mySealed = "tpps1.1.MYSPECIALSEALEDBLOB==";
+    notifier.registerSealedToken("fe-1", "d-1", mySealed, "ios");
+
+    notifier.onRecord({ sid: "s1", kind: "event", name: "Notification" });
+
+    const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
+    expect(calls[0]![1]).toBe(mySealed);
+  });
+
+  it("handleUnsealFailed removes from Map AND calls deleteToken", () => {
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+    notifier.registerSealedToken("fe-1", "d-1", SEALED, "ios");
+
+    notifier.handleUnsealFailed("fe-1");
+
+    expect(deps.deleteToken).toHaveBeenCalledWith("fe-1");
+
+    // Token is gone from the Map
+    notifier.onRecord({ sid: "s1", kind: "event", name: "Elicitation" });
+    expect(deps.sendPush).not.toHaveBeenCalled();
+  });
+
+  it("handleUnsealFailed is safe for unknown frontendIds", () => {
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+
+    // Should not throw
+    expect(() => notifier.handleUnsealFailed("fe-unknown")).not.toThrow();
+    expect(deps.deleteToken).not.toHaveBeenCalled();
+  });
+
+  it("unregisterToken also calls deleteToken", () => {
+    const deps = makeDeps();
+    const notifier = new PushNotifier(deps);
+    notifier.registerSealedToken("fe-1", "d-1", SEALED, "ios");
+
+    notifier.unregisterToken("fe-1");
+
+    expect(deps.deleteToken).toHaveBeenCalledWith("fe-1");
   });
 });
 

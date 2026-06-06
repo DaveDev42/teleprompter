@@ -247,6 +247,107 @@ describe("Store (shared fixture)", () => {
     expect(good.secretKey.byteLength).toBe(32);
     expect(good.pairingSecret.byteLength).toBe(32);
   });
+
+  // ── Push token persistence (Path X) ──
+
+  const SEALED_A =
+    "tpps1.1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
+  const SEALED_B =
+    "tpps1.1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB==";
+
+  test("savePushToken round-trip via loadPushTokens", () => {
+    vault.savePushToken({
+      frontendId: "fe-1",
+      daemonId: "d-1",
+      sealed: SEALED_A,
+      platform: "ios",
+    });
+    const tokens = vault.loadPushTokens();
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toEqual({
+      frontendId: "fe-1",
+      daemonId: "d-1",
+      sealed: SEALED_A,
+      platform: "ios",
+    });
+  });
+
+  test("savePushToken INSERT OR REPLACE overwrites on same frontendId", () => {
+    vault.savePushToken({
+      frontendId: "fe-1",
+      daemonId: "d-1",
+      sealed: SEALED_A,
+      platform: "ios",
+    });
+    vault.savePushToken({
+      frontendId: "fe-1",
+      daemonId: "d-1",
+      sealed: SEALED_B,
+      platform: "android",
+    });
+    const tokens = vault.loadPushTokens();
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]?.sealed).toBe(SEALED_B);
+    expect(tokens[0]?.platform).toBe("android");
+  });
+
+  test("deletePushToken removes a single entry", () => {
+    vault.savePushToken({
+      frontendId: "fe-1",
+      daemonId: "d-1",
+      sealed: SEALED_A,
+      platform: "ios",
+    });
+    vault.savePushToken({
+      frontendId: "fe-2",
+      daemonId: "d-1",
+      sealed: SEALED_B,
+      platform: "android",
+    });
+    vault.deletePushToken("fe-1");
+    const tokens = vault.loadPushTokens();
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]?.frontendId).toBe("fe-2");
+  });
+
+  test("deletePushTokensForDaemon removes all entries for a daemonId", () => {
+    vault.savePushToken({
+      frontendId: "fe-1",
+      daemonId: "d-1",
+      sealed: SEALED_A,
+      platform: "ios",
+    });
+    vault.savePushToken({
+      frontendId: "fe-2",
+      daemonId: "d-1",
+      sealed: SEALED_B,
+      platform: "android",
+    });
+    vault.deletePushTokensForDaemon("d-1");
+    expect(vault.loadPushTokens()).toHaveLength(0);
+  });
+
+  test("deletePairing cascades to push_tokens", () => {
+    // Add pairing first
+    vault.savePairing({
+      daemonId: "d-cascade",
+      relayUrl: "wss://relay.example.com",
+      relayToken: "tok",
+      registrationProof: "proof",
+      publicKey: new Uint8Array(32),
+      secretKey: new Uint8Array(32),
+      pairingSecret: new Uint8Array(32),
+    });
+    vault.savePushToken({
+      frontendId: "fe-cascade",
+      daemonId: "d-cascade",
+      sealed: SEALED_A,
+      platform: "ios",
+    });
+    expect(vault.loadPushTokens()).toHaveLength(1);
+    vault.deletePairing("d-cascade");
+    expect(vault.loadPushTokens()).toHaveLength(0);
+  });
 });
 
 // Isolated fixture: this test exercises Store close/reopen, so it cannot
@@ -357,5 +458,63 @@ describe("Store (concurrent reader regression)", () => {
       store.close();
       rmRetry(storeDir);
     }
+  });
+});
+
+describe("Store push_tokens — isolated tests", () => {
+  let storeDir: string;
+  let store: Store;
+
+  beforeAll(() => {
+    storeDir = mkdtempSync(join(tmpdir(), "tp-push-tokens-"));
+    store = new Store(storeDir);
+  });
+
+  afterEach(() => {
+    store.resetForTest();
+  });
+
+  afterAll(() => {
+    store.close();
+    rmRetry(storeDir);
+  });
+
+  const SEALED_A =
+    "tpps1.1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
+
+  test("fresh DB returns empty loadPushTokens", () => {
+    expect(store.loadPushTokens()).toHaveLength(0);
+  });
+
+  test("corrupt platform value is dropped by loadPushTokens", () => {
+    // Insert a row with an invalid platform directly to bypass the type guard
+    store.savePushToken({
+      frontendId: "fe-corrupt",
+      daemonId: "d-1",
+      sealed: SEALED_A,
+      platform: "ios",
+    });
+    // Now corrupt it at the SQL level
+    const db = (store as unknown as { metaDb: import("bun:sqlite").Database })
+      .metaDb;
+    db.run(
+      "UPDATE push_tokens SET platform = 'web' WHERE frontend_id = 'fe-corrupt'",
+    );
+    const tokens = store.loadPushTokens();
+    expect(tokens).toHaveLength(0);
+  });
+
+  test("empty sealed string is dropped by loadPushTokens", () => {
+    store.savePushToken({
+      frontendId: "fe-empty",
+      daemonId: "d-1",
+      sealed: SEALED_A,
+      platform: "ios",
+    });
+    const db = (store as unknown as { metaDb: import("bun:sqlite").Database })
+      .metaDb;
+    db.run("UPDATE push_tokens SET sealed = '' WHERE frontend_id = 'fe-empty'");
+    const tokens = store.loadPushTokens();
+    expect(tokens).toHaveLength(0);
   });
 });

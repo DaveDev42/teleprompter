@@ -8,6 +8,7 @@ import type {
 } from "@teleprompter/protocol";
 import { createLogger, parseRelayClientMessage } from "@teleprompter/protocol";
 import { PushService } from "./push";
+import { PushSealer } from "./push-seal";
 import { ResumeTokenSigner } from "./resume-token";
 
 type ServerWebSocket = Bun.ServerWebSocket<unknown>;
@@ -153,6 +154,16 @@ export interface RelayServerOptions {
    * Defaults to a fresh `new PushService()`.
    */
   pushService?: PushService;
+  /**
+   * Secret for sealing push tokens (Path X). Defaults to env
+   * TP_RELAY_PUSH_SEAL_SECRET; if neither is set, an ephemeral secret is
+   * generated at startup (sealed tokens stop working across restarts).
+   */
+  pushSealSecret?: string;
+  /** Previous secret for key-rotation overlap (env: TP_RELAY_PUSH_SEAL_SECRET_PREV). */
+  pushSealSecretPrev?: string;
+  /** Current key version number (env: TP_RELAY_PUSH_SEAL_VERSION, default 1). */
+  pushSealVersion?: number;
 }
 
 /**
@@ -287,6 +298,7 @@ export class RelayServer {
   };
 
   private readonly resumeSigner: ResumeTokenSigner;
+  private readonly pushSealer: PushSealer;
 
   constructor(options?: RelayServerOptions) {
     const envInt = (key: string) => {
@@ -325,6 +337,16 @@ export class RelayServer {
     if (this.resumeSigner.ephemeral) {
       log.info(
         "resume tokens use an ephemeral secret; set TP_RELAY_RESUME_SECRET to keep resume working across restarts",
+      );
+    }
+    this.pushSealer = new PushSealer({
+      secret: options?.pushSealSecret,
+      secretPrev: options?.pushSealSecretPrev,
+      version: options?.pushSealVersion,
+    });
+    if (this.pushSealer.ephemeral) {
+      log.info(
+        "push-seal tokens use an ephemeral secret; set TP_RELAY_PUSH_SEAL_SECRET to keep sealed tokens working across restarts",
       );
     }
   }
@@ -712,6 +734,13 @@ ${daemons
         // variant; no cast needed.
         this.handlePush(ws, msg).catch((err) =>
           log.error(`handlePush failed: ${err}`),
+        );
+        break;
+      case "relay.push.register":
+        // Path X: frontend registers a plaintext push token; relay seals it
+        // and routes relay.push.token to the daemon.
+        this.handlePushRegister(ws, msg).catch((err) =>
+          log.error(`handlePushRegister failed: ${err}`),
         );
         break;
       default: {
@@ -1359,10 +1388,45 @@ ${daemons
 
     const isFrontendConnected = targetFrontendWs !== null;
 
+    // The guard enforces exactly one of {token, sealed} is present.
+    // Path X: if `sealed` is present, unseal before calling Expo.
+    // Legacy: if `token` is present, use it directly (plaintext back-compat).
+    let plaintextToken: string;
+    if (msg.sealed !== undefined) {
+      const unsealResult = await this.pushSealer.unseal(msg.sealed);
+      if (unsealResult.ok) {
+        plaintextToken = unsealResult.token;
+      } else if (unsealResult.reason === "legacy") {
+        // A non-"tpps1." blob arrived in the `sealed` slot. This happens in the
+        // upgrade window when an old daemon (no token/sealed split) puts a
+        // plaintext Expo token into `sealed`. Use it verbatim — same treatment
+        // as the `token` field — so the push isn't dropped. (A new daemon sends
+        // such legacy plaintext via `token`, but we accept it here too.)
+        plaintextToken = msg.sealed;
+      } else {
+        // reason === "unseal_failed": a real "tpps1." blob we cannot decrypt
+        // (key rotated out of the current/prev window, or tampered). The token
+        // is unrecoverable — signal the daemon to drop it and let the app
+        // re-register a fresh sealed token.
+        log.warn(
+          `push unseal failed for frontendId ${msg.frontendId}: reason=${unsealResult.reason}`,
+        );
+        this.send(ws, {
+          t: "relay.err",
+          e: "PUSH_UNSEAL_FAILED",
+          m: `Push token unseal failed for frontendId ${msg.frontendId}`,
+        });
+        return;
+      }
+    } else {
+      // Legacy plaintext token path (back-compat)
+      plaintextToken = msg.token ?? "";
+    }
+
     const result = await this.pushService.sendOrDeliver({
       frontendId: msg.frontendId,
       daemonId: client.daemonId,
-      token: msg.token,
+      token: plaintextToken,
       title: msg.title,
       body: msg.body,
       isFrontendConnected,
@@ -1416,6 +1480,65 @@ ${daemons
         log.error(`unhandled DeliveryResult: ${JSON.stringify(_exhaustive)}`);
       }
     }
+  }
+
+  /**
+   * Handle a relay.push.register from an authenticated frontend.
+   *
+   * Seals the plaintext token with the relay-side key and routes
+   * relay.push.token { frontendId, sealed, platform } to the daemon socket
+   * in the same daemon group. The daemon persists the sealed blob; the relay
+   * only ever handles the plaintext transiently during this call.
+   */
+  private async handlePushRegister(
+    ws: ServerWebSocket,
+    msg: RelayClientMessage & { t: "relay.push.register" },
+  ): Promise<void> {
+    const client = this.clients.get(ws);
+    if (!client || client.role !== "frontend") {
+      this.send(ws, {
+        t: "relay.err",
+        e: "UNAUTHORIZED",
+        m: "Only frontends can send relay.push.register",
+      });
+      return;
+    }
+
+    // Find the daemon socket in the same daemon group
+    const group = this.daemonGroups.get(client.daemonId);
+    let daemonWs: ServerWebSocket | null = null;
+    if (group) {
+      for (const memberWs of group) {
+        const member = this.clients.get(memberWs);
+        if (member && member.role === "daemon") {
+          daemonWs = memberWs;
+          break;
+        }
+      }
+    }
+
+    // Seal the plaintext token
+    const sealed = await this.pushSealer.seal(msg.token);
+
+    if (!daemonWs) {
+      // Daemon not connected — drop silently; the frontend will re-register
+      // on reconnect.
+      log.debug(
+        `relay.push.register: no daemon connected for group ${client.daemonId}, dropping sealed token for frontend ${msg.frontendId}`,
+      );
+      return;
+    }
+
+    // Route relay.push.token to the daemon
+    this.send(daemonWs, {
+      t: "relay.push.token",
+      frontendId: msg.frontendId,
+      sealed,
+      platform: msg.platform,
+    });
+    log.debug(
+      `relay.push.register: sealed token routed to daemon for frontend ${msg.frontendId} (platform=${msg.platform})`,
+    );
   }
 
   private startStaleCheck(): void {

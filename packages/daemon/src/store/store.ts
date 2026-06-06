@@ -15,6 +15,7 @@ import {
   PAIRINGS_DDL,
   PAIRINGS_MIGRATIONS,
   PRAGMAS,
+  PUSH_TOKENS_DDL,
   SESSIONS_DDL,
 } from "./schema";
 import { SessionDb } from "./session-db";
@@ -94,6 +95,7 @@ export class Store {
     }
     this.metaDb.run(SESSIONS_DDL);
     this.metaDb.run(PAIRINGS_DDL);
+    this.metaDb.run(PUSH_TOKENS_DDL);
     // Probe the current schema and only run ALTER when columns are missing.
     // Fresh DBs already have `label` from PAIRINGS_DDL; this is strictly for
     // upgrading pre-label databases.
@@ -370,7 +372,100 @@ export class Store {
   }
 
   deletePairing(daemonId: string): void {
+    this.deletePushTokensForDaemon(daemonId);
     this.metaDb.run("DELETE FROM pairings WHERE daemon_id = ?", [daemonId]);
+  }
+
+  // ── Push Token Persistence (Path X) ──
+
+  /**
+   * Persist a sealed push token for a frontend. Uses INSERT OR REPLACE so a
+   * re-registration from the same frontend updates the blob in place.
+   * The `sealed` field is an opaque relay blob ("tpps1.<v>.<b64>") — daemon
+   * treats it as an opaque string and never inspects its contents.
+   */
+  savePushToken(data: {
+    frontendId: string;
+    daemonId: string;
+    sealed: string;
+    platform: "ios" | "android";
+  }): void {
+    this.metaDb
+      .prepare(
+        `INSERT OR REPLACE INTO push_tokens
+         (frontend_id, daemon_id, sealed, platform, updated_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        data.frontendId,
+        data.daemonId,
+        data.sealed,
+        data.platform,
+        Date.now(),
+      );
+  }
+
+  /**
+   * Load all persisted push tokens on daemon startup. Defensively validates
+   * each row and drops corrupt rows (matching the pattern from loadPairings).
+   */
+  loadPushTokens(): Array<{
+    frontendId: string;
+    daemonId: string;
+    sealed: string;
+    platform: "ios" | "android";
+  }> {
+    const rows = this.metaDb
+      .prepare("SELECT * FROM push_tokens")
+      .all() as Array<{
+      frontend_id: string;
+      daemon_id: string;
+      sealed: string;
+      platform: string;
+    }>;
+
+    const result: Array<{
+      frontendId: string;
+      daemonId: string;
+      sealed: string;
+      platform: "ios" | "android";
+    }> = [];
+
+    for (const row of rows) {
+      if (
+        typeof row.frontend_id !== "string" ||
+        !row.frontend_id ||
+        typeof row.daemon_id !== "string" ||
+        !row.daemon_id ||
+        typeof row.sealed !== "string" ||
+        !row.sealed ||
+        (row.platform !== "ios" && row.platform !== "android")
+      ) {
+        log.warn(
+          `dropped corrupt push_token row (frontend_id=${typeof row.frontend_id === "string" ? row.frontend_id : "?"})`,
+        );
+        continue;
+      }
+      result.push({
+        frontendId: row.frontend_id,
+        daemonId: row.daemon_id,
+        sealed: row.sealed,
+        platform: row.platform as "ios" | "android",
+      });
+    }
+    return result;
+  }
+
+  /** Delete a single push token by frontendId. */
+  deletePushToken(frontendId: string): void {
+    this.metaDb.run("DELETE FROM push_tokens WHERE frontend_id = ?", [
+      frontendId,
+    ]);
+  }
+
+  /** Delete all push tokens associated with a daemonId (cascade on pairing delete). */
+  deletePushTokensForDaemon(daemonId: string): void {
+    this.metaDb.run("DELETE FROM push_tokens WHERE daemon_id = ?", [daemonId]);
   }
 
   listPairings(): PairingSummary[] {
@@ -404,6 +499,7 @@ export class Store {
     this.sessionDbs.clear();
     this.metaDb.run("DELETE FROM sessions");
     this.metaDb.run("DELETE FROM pairings");
+    this.metaDb.run("DELETE FROM push_tokens");
     // Sweep per-session files so later tests cannot observe stale data via
     // getSessionDb(sid) reopening an on-disk leftover.
     const sessionsDir = join(this.storeDir, "sessions");

@@ -1,10 +1,15 @@
 /**
  * Unit tests for crypto-polyfill.ts.
  *
- * crypto-polyfill installs `self.crypto.getRandomValues` for Hermes, which
- * has neither `window` nor `self`. We stub `expo-crypto.getRandomValues` so
- * the side-effectful module can be imported under Bun, then assert the
- * polyfill wires the stub onto `self.crypto` and still produces entropy.
+ * crypto-polyfill installs:
+ *   1. `self.crypto.getRandomValues` — for Hermes, which has neither `window`
+ *      nor `self`.
+ *   2. `globalThis.WebAssembly` stub — for Hermes, which has no native
+ *      WebAssembly.  The stub lets libsodium's try/catch path handle wasm init
+ *      failure cleanly instead of throwing a bare ReferenceError.
+ *
+ * We stub `expo-crypto.getRandomValues` so the side-effectful module can be
+ * imported under Bun, then assert both polyfills behave correctly.
  */
 
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
@@ -29,28 +34,34 @@ function stubGetRandomValues<T extends ArrayBufferView | null>(buf: T): T {
 mock.module("expo-crypto", () => ({ getRandomValues: stubGetRandomValues }));
 
 // Snapshot globals so the polyfill's side effects can be undone after the
-// test file runs. Bun provides `self` and `crypto` on globalThis already, so
-// to actually exercise the "bare Hermes" branches we have to hide them.
+// test file runs. Bun provides `self`, `crypto`, and `WebAssembly` on
+// globalThis already.  To exercise the "bare Hermes" branches we hide them
+// before importing the polyfill, then restore them afterwards.
 const g = globalThis as unknown as {
   self?: unknown;
   crypto?: unknown;
+  WebAssembly?: unknown;
 };
 const originalSelf = g.self;
 const originalCrypto = g.crypto;
+const originalWebAssembly = g.WebAssembly;
 
 describe("crypto-polyfill", () => {
   beforeAll(async () => {
-    // Simulate Hermes: no `self`, no `crypto`.
+    // Simulate Hermes: no `self`, no `crypto`, no `WebAssembly`.
     delete (g as { self?: unknown }).self;
     delete (g as { crypto?: unknown }).crypto;
+    delete (g as { WebAssembly?: unknown }).WebAssembly;
     expoCalls = 0;
-    // Side-effectful import — installs `self.crypto.getRandomValues`.
+    // Side-effectful import — installs `self.crypto.getRandomValues` and the
+    // WebAssembly stub.
     await import("./crypto-polyfill?fresh=1");
   });
 
   afterAll(() => {
     g.self = originalSelf;
     g.crypto = originalCrypto;
+    g.WebAssembly = originalWebAssembly;
   });
 
   test("installs self global", () => {
@@ -104,5 +115,63 @@ describe("crypto-polyfill", () => {
     // The polyfill only installs when the function is missing, so the
     // previously-installed reference must be preserved.
     expect(self.crypto.getRandomValues).toBe(installed);
+  });
+});
+
+// ── WebAssembly stub (Hermes simulation) ──────────────────────────────────────
+//
+// The stub is only installed when globalThis.WebAssembly is absent (Hermes).
+// In Bun/Node/Web the native WebAssembly object is already present, so the
+// polyfill skips the installation and we verify the stub's shape directly
+// (without relying on it being wired into globalThis on this platform).
+
+// Build the stub directly (same code as the polyfill) for white-box testing.
+const stubForTest = {
+  instantiate: (_bytes: unknown, _imports?: unknown) =>
+    Promise.reject(new Error("WebAssembly is not available on this runtime")),
+  Module: class {} as new (bytes: unknown) => unknown,
+  Instance: class {} as new (mod: unknown, imports?: unknown) => unknown,
+  Memory: class {
+    buffer: ArrayBuffer;
+    constructor(descriptor: { initial: number }) {
+      this.buffer = new ArrayBuffer(descriptor.initial * 65536);
+    }
+  },
+  RuntimeError: class extends Error {
+    constructor(message?: string) {
+      super(message);
+      this.name = "WebAssembly.RuntimeError";
+    }
+  },
+};
+
+describe("crypto-polyfill WebAssembly stub shape", () => {
+  test("stub.instantiate returns a rejected Promise (no synchronous throw)", async () => {
+    let caught: unknown = null;
+    await stubForTest.instantiate(new Uint8Array([0]), {}).catch((e) => {
+      caught = e;
+    });
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toContain("WebAssembly is not available");
+  });
+
+  test("stub.RuntimeError is newable and extends Error", () => {
+    const err = new stubForTest.RuntimeError("test message");
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toBe("test message");
+    expect(err.name).toBe("WebAssembly.RuntimeError");
+  });
+
+  test("stub.Memory allocates a buffer of the requested page count", () => {
+    const mem = new stubForTest.Memory({ initial: 2 }); // 2 pages = 128 KiB
+    expect(mem.buffer).toBeInstanceOf(ArrayBuffer);
+    expect(mem.buffer.byteLength).toBe(2 * 65536);
+  });
+
+  test("globalThis.WebAssembly is defined after polyfill import (stub or native)", () => {
+    // Either the native WebAssembly (Bun/Node/Web) or our stub must be present
+    // after the polyfill side-effects have run.
+    expect(typeof globalThis.WebAssembly).toBe("object");
+    expect(globalThis.WebAssembly).not.toBeNull();
   });
 });

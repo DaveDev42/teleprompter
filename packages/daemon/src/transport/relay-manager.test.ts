@@ -78,9 +78,14 @@ function makeDeps(overrides: DepsOverrides = {}): RelayConnectionManagerDeps {
     savePairing: overrides.savePairing ?? (() => {}),
     deletePairing: () => {},
     updatePairingLabel: overrides.updatePairingLabel ?? (() => {}),
+    savePushToken: () => {},
+    loadPushTokens: () => [],
+    deletePushToken: () => {},
+    deletePushTokensForDaemon: () => {},
   };
   const fakePushNotifier = {
-    registerToken: () => {},
+    registerSealedToken: () => {},
+    handleUnsealFailed: () => {},
   };
   const fakeDispatcher = {
     dispatchRelayControl: () => {},

@@ -259,6 +259,62 @@ describe("parseRelayClientMessage", () => {
     });
   });
 
+  describe("relay.push.register", () => {
+    const valid = {
+      t: "relay.push.register",
+      frontendId: "fe1",
+      token: "ExponentPushToken[abc]",
+      platform: "ios",
+    };
+
+    test("accepts well-formed ios", () => {
+      expectAccepted(valid);
+    });
+
+    test("accepts well-formed android", () => {
+      expectAccepted({ ...valid, platform: "android" });
+    });
+
+    test.each<[string, unknown]>([
+      ["missing frontendId", { ...valid, frontendId: undefined }],
+      ["missing token", { ...valid, token: undefined }],
+      ["missing platform", { ...valid, platform: undefined }],
+      ["bad platform", { ...valid, platform: "web" }],
+      ["non-string token", { ...valid, token: 42 }],
+    ])("rejects %s", (_l, m) => {
+      expectRejected(m);
+    });
+  });
+
+  describe("relay.push — sealed token variants", () => {
+    const base = {
+      t: "relay.push",
+      frontendId: "fe",
+      title: "Hi",
+      body: "Body",
+    };
+
+    test("accepts with sealed only", () => {
+      expectAccepted({ ...base, sealed: "tpps1.1.abc123" });
+    });
+
+    test("accepts with token only (legacy back-compat)", () => {
+      expectAccepted({ ...base, token: "ExponentPushToken[x]" });
+    });
+
+    test("rejects when both token and sealed are present", () => {
+      expectRejected({
+        ...base,
+        token: "ExponentPushToken[x]",
+        sealed: "tpps1.1.abc123",
+      });
+    });
+
+    test("rejects when both token and sealed are absent", () => {
+      expectRejected(base);
+    });
+  });
+
   test("does not mutate or carry over extra fields onto the result", () => {
     // The guard reconstructs the object field-by-field, so attacker-supplied
     // extra keys (e.g. a `__proto__` payload or a spoofed internal flag) are

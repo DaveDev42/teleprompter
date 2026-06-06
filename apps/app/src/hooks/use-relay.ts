@@ -131,7 +131,12 @@ export function useRelay() {
           onConnected: () => {
             setRelayState({ status: "connected" });
             relayConn.setConnected(daemonId, true);
-            // Re-send push token on reconnect so daemon always has a fresh token
+            // Re-send push token on reconnect so daemon always has a fresh
+            // token. Send BOTH the legacy E2EE token and the Path X cleartext
+            // register-for-seal frame: the latter makes the relay re-seal and
+            // route relay.push.token to the daemon, refreshing its sealed slot.
+            // Without this, a stale/unsealable sealed token would only self-heal
+            // on app cold restart.
             if (Platform.OS !== "web") {
               const { getCurrentPushToken } =
                 require("./use-push-notifications") as typeof import("./use-push-notifications");
@@ -139,6 +144,7 @@ export function useRelay() {
               if (token) {
                 const platform = Platform.OS as "ios" | "android";
                 client.sendPushToken(token, platform);
+                client.sendPushTokenForSeal(token, platform);
               }
             }
           },

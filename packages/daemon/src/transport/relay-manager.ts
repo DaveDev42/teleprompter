@@ -38,8 +38,15 @@ export interface RelayConnectionManagerDeps {
     | "updatePairingLabel"
     | "deletePairing"
     | "loadPairings"
+    | "savePushToken"
+    | "loadPushTokens"
+    | "deletePushToken"
+    | "deletePushTokensForDaemon"
   >;
-  pushNotifier: Pick<PushNotifier, "registerToken">;
+  pushNotifier: Pick<
+    PushNotifier,
+    "registerSealedToken" | "handleUnsealFailed"
+  >;
   /**
    * Getter for the IPC dispatcher — used to route decrypted control messages
    * from relay clients back to the dispatcher. Getter form because the
@@ -89,6 +96,7 @@ export class RelayConnectionManager {
   buildEvents(
     getClient: () => RelayClient | null,
     label?: Label,
+    daemonId?: string,
   ): RelayClientEvents {
     return {
       onInput: (kind, sid, data) => {
@@ -137,7 +145,27 @@ export class RelayConnectionManager {
         }
       },
       onPushToken: (frontendId, token, platform) => {
-        this.deps.pushNotifier.registerToken(frontendId, token, platform);
+        // Legacy E2EE path (back-compat for old relays that never send
+        // relay.push.token). Store the plaintext token AS the "sealed" field —
+        // the relay's unseal() classifies a non-"tpps1." blob as "legacy" and
+        // uses it directly as the Expo push token.
+        const did = daemonId ?? "";
+        this.deps.pushNotifier.registerSealedToken(
+          frontendId,
+          did,
+          token,
+          platform,
+        );
+      },
+      onPushTokenSealed: (frontendId, sealed, platform) => {
+        // Path X primary path: relay has already sealed the token.
+        const did = daemonId ?? "";
+        this.deps.pushNotifier.registerSealedToken(
+          frontendId,
+          did,
+          sealed,
+          platform,
+        );
       },
     };
   }
@@ -187,7 +215,11 @@ export class RelayConnectionManager {
    */
   async addClient(config: RelayClientConfig): Promise<RelayClient> {
     let clientRef: RelayClient | null = null;
-    const events = this.buildEvents(() => clientRef, config.label);
+    const events = this.buildEvents(
+      () => clientRef,
+      config.label,
+      config.daemonId,
+    );
     const client = this.factory
       ? this.factory(config)
       : new RelayClient(config, events);
@@ -359,17 +391,20 @@ export class RelayConnectionManager {
    * to the Expo Push API via its relay server connection; we broadcast
    * because the caller (PushNotifier) doesn't know which relay owns the
    * frontendId.
+   *
+   * `sealed` is an opaque blob from the relay ("tpps1.<v>.<b64>") or a legacy
+   * plaintext token — the daemon passes it through opaquely.
    */
   dispatchPush(
     frontendId: string,
-    token: string,
+    sealed: string,
     title: string,
     body: string,
     interruptionLevel?: PushInterruptionLevel,
     data?: { sid: string; daemonId?: string; event: string },
   ): void {
     for (const client of this.clients) {
-      client.sendPush(frontendId, token, title, body, interruptionLevel, data);
+      client.sendPush(frontendId, sealed, title, body, interruptionLevel, data);
     }
   }
 

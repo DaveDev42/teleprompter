@@ -103,10 +103,19 @@ export interface RelayClientEvents {
   onPresence?: (online: boolean, sessions?: string[]) => void;
   /** Called when a new frontend completes key exchange */
   onFrontendJoined?: (frontendId: string) => void;
-  /** Called when a frontend sends a pushToken message */
+  /** Called when a frontend sends a pushToken message (legacy E2EE path, back-compat) */
   onPushToken?: (
     frontendId: string,
     token: string,
+    platform: "ios" | "android",
+  ) => void;
+  /**
+   * Called when the relay routes a relay.push.token to us (Path X).
+   * `sealed` is the opaque blob ("tpps1.<v>.<b64>") sealed by the relay.
+   */
+  onPushTokenSealed?: (
+    frontendId: string,
+    sealed: string,
     platform: "ios" | "android",
   ) => void;
 }
@@ -296,13 +305,46 @@ export class RelayClient {
         break;
 
       case "relay.err":
-        log.error(`relay error: ${msg.m ?? msg.e}`);
+        if (msg.e === "PUSH_UNSEAL_FAILED") {
+          // The relay could not decrypt a real "tpps1." sealed token we sent
+          // (its key was rotated out of the current/prev window, or the blob
+          // was tampered). The relay.err wire type does not carry a frontendId,
+          // so we cannot surgically evict the specific stale entry from
+          // PushNotifier here — that is a known v1 limitation. Self-heal path:
+          // the app re-registers via relay.push.register on every relay
+          // reconnect (use-relay.ts onConnected → sendPushTokenForSeal), which
+          // makes the relay re-seal under the current key and route a fresh
+          // relay.push.token to us. Log at warn so operators can correlate the
+          // event with a seal-key rotation.
+          log.warn(
+            `relay reported PUSH_UNSEAL_FAILED — sealed push token rejected by relay; app re-registers on next relay reconnect. relay: ${msg.m ?? "(no detail)"}`,
+          );
+        } else {
+          log.error(`relay error: ${msg.m ?? msg.e}`);
+        }
         break;
 
       case "relay.notification":
         // Push notifications target frontends, not the daemon. The daemon is
         // never a notification sink — ignore, but keep the arm so the switch
         // stays exhaustive over RelayServerMessage.
+        break;
+
+      case "relay.push.token":
+        // Path X: sealed push token routed from a frontend's relay.push.register.
+        // Validate platform narrowing (the guard already ensures it's "ios"|"android",
+        // but be explicit for the type check).
+        if (msg.platform === "ios" || msg.platform === "android") {
+          this.events.onPushTokenSealed?.(
+            msg.frontendId,
+            msg.sealed,
+            msg.platform,
+          );
+        } else {
+          log.warn(
+            `relay.push.token: unexpected platform=${msg.platform}, dropping`,
+          );
+        }
         break;
 
       default: {
@@ -625,19 +667,32 @@ export class RelayClient {
   /**
    * Send a push notification request to the relay server.
    * The relay forwards this to the Expo Push API on behalf of the daemon.
+   *
+   * `sealed` is an opaque blob from the relay ("tpps1.<v>.<b64>") or a legacy
+   * plaintext token (no "tpps1." prefix — relay classifies it as legacy and
+   * uses it verbatim for back-compat with old relays). The daemon treats it
+   * as opaque and never unwraps it.
    */
   sendPush(
     frontendId: string,
-    token: string,
+    sealed: string,
     title: string,
     body: string,
     interruptionLevel?: PushInterruptionLevel,
     data?: { sid: string; daemonId?: string; event: string },
   ): void {
+    // Wire field selection is back-compat sensitive. A real sealed blob
+    // ("tpps1.…") goes in `sealed` — a new relay unseals it, and an old relay
+    // (which requires a `token` field) can't process it anyway. But a LEGACY
+    // plaintext token (stored in the sealed slot via the E2EE pushToken path
+    // when no relay.push.token has arrived yet) must ride the `token` field so
+    // an OLD relay still accepts and delivers it. The protocol guard enforces
+    // exactly one of {token, sealed}, so we set exactly one here.
+    const isSealedBlob = sealed.startsWith("tpps1.");
     const msg: RelayClientMessage = {
       t: "relay.push",
       frontendId,
-      token,
+      ...(isSealedBlob ? { sealed } : { token: sealed }),
       title,
       body,
       interruptionLevel,

@@ -79,9 +79,9 @@ describe("IpcClient", () => {
     await Bun.sleep(50);
 
     expect(serverMessages.length).toBe(2);
-    expect(serverMessages[1]!.t).toBe("rec");
-    const rec = serverMessages[1]! as IpcRec;
-    expect(rec.kind).toBe("io");
+    expect(serverMessages[1]?.t).toBe("rec");
+    const rec = serverMessages[1] as IpcRec | undefined;
+    expect(rec?.kind).toBe("io");
   });
 
   test("receives ack from server", async () => {
@@ -141,8 +141,8 @@ describe("IpcClient", () => {
     await Bun.sleep(50);
 
     expect(serverMessages.length).toBe(2);
-    expect(serverMessages[1]!.t).toBe("bye");
-    expect((serverMessages[1]! as IpcBye).exitCode).toBe(0);
+    expect(serverMessages[1]?.t).toBe("bye");
+    expect((serverMessages[1] as IpcBye | undefined)?.exitCode).toBe(0);
   });
 });
 

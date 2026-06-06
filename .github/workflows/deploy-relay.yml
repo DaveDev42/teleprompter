@@ -41,21 +41,29 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Compile tp binary
         run: |
-          bun build apps/cli/src/index.ts --compile --target=${{ steps.arch.outputs.target }} --outfile /tmp/tp
+          bun build apps/cli/src/index.ts --compile --target=${{ steps.arch.outputs.target }} \
+            --define "process.env.TP_BUILD_SHA=\"${{ github.sha }}\"" \
+            --define "process.env.TP_BUILD_TIME=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"" \
+            --outfile /tmp/tp
 
       - name: Deploy to server
         run: |
           scp -o StrictHostKeyChecking=no /tmp/tp ${{ secrets.RELAY_USER }}@${RELAY_HOST}:/tmp/tp
           ssh -o StrictHostKeyChecking=no ${{ secrets.RELAY_USER }}@${RELAY_HOST} "sudo mv /tmp/tp /usr/local/bin/tp && sudo chmod +x /usr/local/bin/tp && sudo systemctl restart tp-relay"
 
-      - name: Health check
+      - name: Verify deployed build is live
         run: |
           sleep 3
-          STATUS=$(curl -sf "https://relay.tpmt.dev/health" | jq -r '.status')
-          echo "Health: $STATUS"
-          [ "$STATUS" = "ok" ] || exit 1
-
-      - name: Summary
-        run: |
-          echo "Relay deployed to relay.tpmt.dev"
-          curl -sf "https://relay.tpmt.dev/health" | jq .
+          HEALTH=$(curl -sf "https://relay.tpmt.dev/health")
+          echo "$HEALTH" | jq .
+          STATUS=$(echo "$HEALTH" | jq -r '.status')
+          LIVE_SHA=$(echo "$HEALTH" | jq -r '.buildSha')
+          if [ "$STATUS" != "ok" ]; then
+            echo "::error::relay /health status=$STATUS (expected ok)"
+            exit 1
+          fi
+          if [ "$LIVE_SHA" != "${{ github.sha }}" ]; then
+            echo "::error::relay is running a STALE binary: /health buildSha=$LIVE_SHA but deployed ${{ github.sha }}. The systemd service (tp-relay) did not pick up the new /usr/local/bin/tp — check ExecStart path and that the restart succeeded."
+            exit 1
+          fi
+          echo "Verified: relay is running the freshly-deployed build ${LIVE_SHA}"

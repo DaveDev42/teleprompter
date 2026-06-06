@@ -93,69 +93,65 @@ cd apps/app && npx expo start --dev-client   # 웹 디버그의 --web 과 다름
 
 ### APNs 검증 범위 (확정 사실)
 
-- `eas build --local`이 `aps-environment` entitlement이 박힌 .ipa를 **생성**한다 (단 아래
-  "iOS `eas build --local` 차단" 참조 — 현재 monorepo sandbox abort로 iOS `.ipa`를 못 굽는다).
+- `eas build --local`이 `aps-environment` entitlement이 박힌 .ipa를 **생성**한다 (위 "iOS `eas
+  build --local` — `.ipa` 로컬 빌드 성공" 참조 — 2026-06-06 64GB Mac에서 실측 성공, iPhone 설치 완료).
 - **iOS Simulator는 진짜 APNs를 못 받는다** — `getExpoPushTokenAsync()`(`use-push-notifications.ts:25`)가
   Simulator에서 토큰을 안 준다. Simulator push는 `xcrun simctl push`로 payload/handler **로컬
   시뮬레이션**만 가능.
 - 진짜 경로 `hook → push-notifier → relay → Expo Push → APNs → iPhone`의 끝단은 **실기기 + 빌드
   설치**가 있어야만 검증된다. 빌드 도구(`--local` vs EAS 클라우드)는 이 부분에 차이 없음.
 
-### iOS `eas build --local` 차단 — `CALCULATE_EXPO_UPDATES_RUNTIME_VERSION` abort (실측 2026-06-06)
+### iOS `eas build --local` — `.ipa` 로컬 빌드 성공 (실측 2026-06-06, H2 확정)
 
-**64GB Mac에서도 `eas build --platform ios --profile device --local`은 `.ipa`를 굽지 못한다.**
-메모리 천장과 무관한 **빌드 도구 fragility**다. 이전에 이 큐는 위 "Dev build 획득" 명령으로 iOS
-`.ipa`를 만들 수 있다고 가정했으나, 실측에서 빌드가 다음에서 abort한다:
+**64GB Mac에서 `eas build --platform ios --profile device --local`은 `.ipa`를 정상적으로 굽는다.**
+2026-06-06에 `/tmp/teleprompter-dev.ipa` (26M, signed, `dev.tpmt.app`)를 실제로 만들어 iPhone 15
+Pro에 `xcrun devicectl device install`로 설치까지 완료했다. 이 머신(64GB)은 메모리 천장이 없어
+RUN_FASTLANE/gym 네이티브 컴파일까지 완주한다.
+
+**한때 이 큐는 `CALCULATE_EXPO_UPDATES_RUNTIME_VERSION` abort를 "구조적 차단(H1)"으로 기록했으나
+그건 오진이었다.** 당시 로그는 이랬다:
 
 ```
-[RUN_EXPO_DOCTOR] 20/21 checks passed. 1 checks failed.   ← soft-fail, 빌드 계속됨 (blocker 아님)
-[RUN_EXPO_DOCTOR] Command "expo doctor" failed.
-... (~400줄 더 진행: PREBUILD → INSTALL_PODS) ...
+... (PREBUILD → INSTALL_PODS, "118 total pods installed" 까지 정상 완료) ...
 [ABORT] Received termination signal.
 [CALCULATE_EXPO_UPDATES_RUNTIME_VERSION]
 Error: CommandError: The expected package.json path:
   .../build/apps/app/package.json does not exist
-    at expoUpdatesCommandAsync (@expo/build-tools/.../expoUpdatesCli.js:79)
-    at resolveRuntimeVersionAsync (@expo/build-tools/.../resolveRuntimeVersionAsync.js:20)
-    at @expo/build-tools/.../builders/ios.js:98
 ```
 
-**근본 원인 (메커니즘 확정):**
-- iOS builder는 `CALCULATE_EXPO_UPDATES_RUNTIME_VERSION` phase를 **`INSTALL_PODS` 후**에 실행한다
-  (`builders/ios.js:97-98`). pod install이 격리된 monorepo 빌드 디렉터리(`build/apps/app/ios/`)
-  안에서 파일 작업을 하는 사이 `build/apps/app/package.json`이 사라지고, `@expo/config`의
-  `getRootPackageJsonPath`가 이를 읽으려다 throw → uncaught → `[ABORT]`.
-- **Android는 통과하는 이유**: Android builder는 같은 phase를 **prebuild 직후, 어떤 네이티브
-  스텝보다 먼저** 실행한다. 그 시점엔 `package.json`이 멀쩡하고 `runtimeVersion`이 이미
-  `"dev-local"`(정적 문자열, `app.config.js`의 `APP_VARIANT` override)이라 즉시 short-circuit →
-  "Resolved runtime version: dev-local" 성공. iOS는 pod install이 끼어들어 package.json을
-  잃은 뒤에야 이 phase에 도달해 short-circuit 전에 죽는다.
+**진짜 원인은 H2 — 외부 SIGTERM(빌드를 중간에 죽임)이다 (high confidence).** 진단 워크플로우
+(`wfy1so1un`, 4-agent 교차검증) + 실측이 일치한다:
+- `INSTALL_PODS`는 정상 **완료**했다 (로그 "Pod installation complete! ... 118 total pods
+  installed"). `[ABORT] Received termination signal.`은 그 **후** 외부에서 도착한 SIGTERM이다.
+- `[ABORT]`의 signal 핸들러(`@expo/build-tools` `exit.js` → `handleExit()`)가 working dir
+  (`build/apps/app/` 포함)을 비동기로 teardown한다. 그 삭제가 빌드 파이프라인의 다음 phase
+  (`CALCULATE_EXPO_UPDATES_RUNTIME_VERSION`)와 **동시에** 진행되면서, CALCULATE가 expo-updates
+  CLI로 `build/apps/app/package.json`을 읽으려는 순간 이미 지워진 상태였다.
+- **즉 package.json은 pod install이 지운 게 아니라 abort teardown이 지웠다.** repo 어디에도
+  package.json을 옮기거나 지우는 H1 메커니즘은 없다 (`app.config.js`/`app.json`/pod 스크립트
+  grep 0건). 그래서 POST_INSTALL hook으로 package.json을 복원하는 워크어라운드는 **불필요**하다 —
+  존재하지 않는 H1을 고치는 처방이다.
 
-**expo-doctor는 blocker가 아니다 (misattribution 주의).** doctor의 3개 실패(`@expo/metro`
-metro 0.83.7 vs 0.84.4 / `@expo/metro-runtime` ~56.0.14 vs 56.0.13 / duplicate
-`expo-updates-interface`)는 `@expo/build-tools/.../setup.js`에서 catch되어 **warning으로만**
-처리되고 빌드는 계속된다. 셋 다 #563 이전부터 origin/main에 있던 pre-existing이며, abort의
-원인이 아니다. 특히 `@expo/metro-runtime`을 ~56.0.14로 올리면 **안 된다**: 설치된 `expo@56.0.8`의
-`bundledNativeModules.json`이 `~56.0.13`을 기대하므로 56.0.13이 SDK-correct고, doctor의 56.0.14는
-API가 조회한 더 최신 패치(expo@56.0.9)일 뿐이다. bump하면 pinned SDK보다 앞서가고 committed
-lockfile이 cloud 빌드로 흘러가므로 cloud-unsafe다.
+**Android가 통과한 건 phase 순서 덕이지 abort 면역이 아니다.** Android builder는
+`CALCULATE_EXPO_UPDATES_RUNTIME_VERSION`을 prebuild 직후 어떤 네이티브 스텝보다 먼저 실행해
+`runtimeVersion="dev-local"`(정적 문자열, `app.config.js`의 `APP_VARIANT` override)로 즉시
+short-circuit한다. iOS는 INSTALL_PODS 후에 이 phase가 와서 abort 창에 더 오래 노출될 뿐이다.
 
-**현 상태의 처분:**
-- iOS 실기기 검증(Q1/Q2)은 **로컬 `--local` 경로로 불가** — 빌드 자체가 안 나온다. 표준
-  native-build 정책대로 **EAS 클라우드 → TestFlight → 사용자(Dave) 실기기 디버깅**으로 간다.
-- 16GB+ Mac이 `/verify-native`로 이 큐를 순회할 때 위 "Dev build 획득" 명령(`ios-dev-build.sh`)을
-  **그대로 재시도하지 말 것** — 메모리 천장이 없어도 이 abort가 그대로 재현된다. iOS `.ipa`가
-  로컬에서 필요하면 먼저 이 abort부터 풀어야 한다 (아래 후보).
-- **abort 해소 후보 (둘 다 cloud preview/production 미접촉):** (a) 로컬 iOS는 포기하고 cloud
-  EAS 사용 (표준 정책, zero-risk). (b) 정 로컬을 강행하면 `INSTALL_PODS`와
-  `CALCULATE_EXPO_UPDATES` 사이에 `build/apps/app/package.json`을 sandbox로 복원하는 빌드 훅을
-  추가하거나, `runtimeVersion`이 이미 정적 문자열일 때 `getConfig`가 package.json을 읽지 않도록
-  하는 upstream expo-updates 이슈를 추적한다. **`pnpm.overrides`/`expo.install.exclude`/SDK
-  전체 bump는 금지** — committed 파일을 건드려 cloud 빌드로 새고, 어차피 이 abort를 못 고친다.
-- **cosmetic (cloud-safe):** 로컬 빌드 출력에서 misattributed doctor 실패를 지우려면 `eas.json`의
-  `development`/`device` 프로파일 `env`에 `EAS_BUILD_DISABLE_EXPO_DOCTOR_STEP: "1"`을 둔다
-  (`preview`/`production`은 `env` 없음 → cloud 미접촉). 이건 doctor phase만 건너뛸 뿐 abort는
-  그대로 남는다.
+**재현/회피 절차 (16GB+ Mac이 `/verify-native`로 이 큐를 돌 때):**
+- `scripts/ios-dev-build.sh --profile device --output /tmp/teleprompter-dev.ipa`를 **백그라운드로
+  돌리고 절대 죽이지 말 것.** Ctrl-C / shell timeout / Activity Monitor kill / OOM(저메모리 Mac)
+  중 하나라도 INSTALL_PODS~CALCULATE 창에 SIGTERM을 보내면 위 abort가 재현된다. 8GB Mac에서 과거
+  abort가 "재현"된 건 메모리 압박으로 인한 OOM kill 또는 수동 중단이 H2를 유발한 것이다.
+- 64GB Mac에서는 ~25-30분 완주하면 `.ipa`가 나온다. POST_INSTALL hook 같은 워크어라운드를 새로
+  추가하지 말 것.
+
+**doctor는 abort와 무관 (별개 이슈, cloud-safe).** 로컬 빌드는 `eas.json`의
+`development`/`device` 프로파일 `env`에 `EAS_BUILD_DISABLE_EXPO_DOCTOR_STEP: "1"`을 둬 doctor
+phase를 건너뛴다 (`preview`/`production`은 `env` 없음 → cloud 미접촉). 한편 CI의 `eas-gate`는
+`expo-doctor`를 hard-fail로 별도 실행하므로, 설치된 `expo@56.0.8`보다 앞선 패치(56.0.9-line)를
+기대하는 doctor의 false-flag 9개는 `apps/app/package.json`의 `expo.install.exclude`로 suppress한다
+(doctor-only, lockfile/resolution/cloud 빌드 미접촉 — react/react-dom와 동일 패턴). **SDK 전체
+bump는 cloud-unsafe라 금지.**
 
 ---
 
@@ -178,17 +174,15 @@ lockfile이 cloud 빌드로 흘러가므로 cloud-unsafe다.
   ```
 - **pass**: 잠금화면 push 도착 + 사운드 + 탭하면 올바른 세션으로 navigate. foreground에서는 system
   push 억제되고 in-app toast(5s auto-dismiss). dedup(60s 내 1건), rate limit(분당 ≤5).
-- **result**: **BLOCKED 2026-06-06 (iOS 로컬 빌드 abort + 정책상 사용자 이관)** — 두 겹의 차단이다.
-  (1) **빌드 도구**: `eas build --profile device --platform ios --local`이 이 64GB Mac에서도
-  `CALCULATE_EXPO_UPDATES_RUNTIME_VERSION`에서 abort해 `.ipa`를 못 굽는다 (위 "iOS `eas build
-  --local` 차단" 섹션 — pod-install 후 monorepo sandbox에서 `package.json` 소실, expo-doctor는
-  blocker 아님). PR #560이 fingerprint 게이트는 풀었으나 이 별개의 sandbox abort가 새로 드러났다.
-  (2) **실기기**: 설령 `.ipa`가 나와도 **진짜 APNs 왕복 + 잠금화면 탭 navigation은 신뢰된 실기기
-  에서만 검증 가능**하고(Simulator는 APNs 미수신 — 위 "APNs 검증 범위"), `.claude/rules/native-build.md`
-  정책상 실기기 push/keychain E2E는 **EAS 클라우드 빌드 → TestFlight → 사용자(Dave) 실기기 디버깅**으로
-  이관한다. → 로컬 `--local` 경로는 abort로 막혔고, 검증은 cloud EAS/TestFlight 경로로 간다.
-  (이전 부수 성과: dev build가 요구하는 `expo-dev-client` 의존성 누락 + 잘못된 버전(SDK 56인데 `~55.x`)을
-  발견해 `~56.0.18`로 고침.)
+- **result**: **PARTIAL 2026-06-06 — 빌드+설치 완료, APNs 실기기 왕복은 사용자 디버깅 대기.**
+  빌드 차단은 해소됐다: `.ipa`를 이 64GB Mac에서 로컬로 빌드하고(`/tmp/teleprompter-dev.ipa`, 26M,
+  signed) iPhone 15 Pro에 `xcrun devicectl device install`로 설치 완료했다 (위 "iOS `eas build
+  --local` — `.ipa` 로컬 빌드 성공" 섹션 — 과거 `CALCULATE_EXPO_UPDATES_RUNTIME_VERSION` abort는
+  외부 SIGTERM/H2 오진이었고, 죽이지 않고 완주하면 통과). 남은 한 겹: **진짜 APNs 왕복 + 잠금화면 탭
+  navigation은 신뢰된 실기기에서 사람이 조작해야 검증된다**(Simulator는 APNs 미수신 — 위 "APNs 검증
+  범위"). dev build이므로 Metro dev 서버 연결 + 폰 잠금해제 + 개발자 신뢰 + 알림 권한 Allow가 필요
+  — 이 부분은 **사용자(Dave) 실기기 디버깅**으로 진행한다. (부수 성과: dev build가 요구하는
+  `expo-dev-client` 의존성 누락 + 잘못된 버전(SDK 56인데 `~55.x`)을 발견해 `~56.0.18`로 고침.)
 
 ### Q2. iOS 실기기 — keychain / 백그라운드 사이클 / audio
 
@@ -197,13 +191,12 @@ lockfile이 cloud 빌드로 흘러가므로 cloud-unsafe다.
   App Switcher background→foreground 왕복 시 relay 재연결 배너 정상, (VoiceButton 네이티브 구현 후)
   audio capture. 현재 `VoiceButton`은 네이티브에서 `null` 반환(TODO) — audio는 구현 전까지 `N/A`.
 - **pass**: 앱 강제종료 후 재실행에도 페어링 살아있음. background 진입 후 복귀 시 reconnect.
-- **result**: **BLOCKED 2026-06-06 (iOS 로컬 빌드 abort + 정책상 사용자 이관)** — Q1과 동일한 두 겹
-  차단. (1) iOS `eas build --local`이 `CALCULATE_EXPO_UPDATES_RUNTIME_VERSION` abort로 `.ipa`를
-  못 굽는다 (위 "iOS `eas build --local` 차단" — pod-install sandbox package.json 소실). PR #560이
-  fingerprint 게이트는 풀었으나 이 sandbox abort가 새로 드러남. (2) keychain 저장·복원 /
-  background→foreground relay 재연결은 앱 강제종료·App Switcher 같은 실기기 라이프사이클 거동이라
-  신뢰된 실기기에서만 충실히 검증된다 — **EAS 클라우드 → TestFlight 빌드로 사용자(Dave) 실기기 검증**에
-  이관. (audio는 `VoiceButton` 네이티브 미구현이라 여전히 `N/A`.)
+- **result**: **PARTIAL 2026-06-06 — 빌드+설치 완료, 라이프사이클 거동은 사용자 디버깅 대기.**
+  Q1과 동일하게 빌드 차단은 해소됐다: 같은 `.ipa`가 iPhone 15 Pro에 설치됐다 (위 "iOS `eas build
+  --local` — `.ipa` 로컬 빌드 성공" — 과거 abort는 외부 SIGTERM/H2 오진). 남은 한 겹: keychain
+  저장·복원 / background→foreground relay 재연결은 앱 강제종료·App Switcher 같은 **실기기
+  라이프사이클 거동이라 신뢰된 실기기에서 사람이 조작해야 충실히 검증**된다 — **사용자(Dave) 실기기
+  디버깅**으로 진행. (audio는 `VoiceButton` 네이티브 미구현이라 여전히 `N/A`.)
 
 ### Q3. Android 실기기 — 골든 패스 1회 + 권한 모델
 

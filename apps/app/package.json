@@ -54,9 +54,19 @@
   },
   "expo": {
     "install": {
+      "comment": "Deliberate SDK-56 freeze: every package below is pinned to exactly what the installed expo@56.0.8 bundledNativeModules.json declares (e.g. @expo/metro-runtime ~56.0.13, expo-router ~56.2.8). expo-doctor's 'expected' values come from a newer npm patch (expo@56.0.9), NOT the installed SDK, so the flags are false positives. exclude is a doctor/`expo install`-only suppression — it does not touch the lockfile, npm/pnpm resolution, or EAS cloud builds (which run pnpm install --frozen-lockfile). Do NOT bump these to silence doctor: bumping ahead of the pinned expo@56.0.8 SDK is cloud-unsafe (see docs/local-verification-queue.md). Mirrors PR #452 (react/react-dom).",
       "exclude": [
         "react",
-        "react-dom"
+        "react-dom",
+        "@expo/metro-runtime",
+        "expo",
+        "expo-build-properties",
+        "expo-constants",
+        "expo-dev-client",
+        "expo-notifications",
+        "expo-router",
+        "expo-sharing",
+        "expo-updates"
       ]
     }
   }

@@ -87,4 +87,34 @@ describe("manifest invariants", () => {
     expect(exclude).toContain("react");
     expect(exclude).toContain("react-dom");
   });
+
+  test("apps/app excludes the SDK-56-frozen expo packages from expo-doctor", () => {
+    const pkg = JSON.parse(readFileSync("apps/app/package.json", "utf-8")) as {
+      expo?: { install?: { exclude?: string[] } };
+    };
+    const exclude = pkg.expo?.install?.exclude ?? [];
+    // These 9 are pinned to exactly what the installed expo@56.0.8's
+    // bundledNativeModules.json declares. expo-doctor's "Check that packages
+    // match versions required by installed Expo SDK" compares against a NEWER
+    // npm patch (expo@56.0.9) and false-flags every one of them, failing
+    // eas-gate on every PR that touches apps/app. They must NOT be bumped
+    // (bumping ahead of the pinned SDK is cloud-unsafe — see
+    // docs/local-verification-queue.md); exclude is the doctor-only escape
+    // hatch. Same pattern as react/react-dom above. If any is removed without
+    // also bumping the pin to match a newer installed expo SDK, eas-gate
+    // breaks minutes later in CI — this catches it at test-time instead.
+    for (const name of [
+      "@expo/metro-runtime",
+      "expo",
+      "expo-build-properties",
+      "expo-constants",
+      "expo-dev-client",
+      "expo-notifications",
+      "expo-router",
+      "expo-sharing",
+      "expo-updates",
+    ]) {
+      expect(exclude).toContain(name);
+    }
+  });
 });

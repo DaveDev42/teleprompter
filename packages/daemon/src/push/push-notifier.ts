@@ -81,19 +81,46 @@ interface RecordInfo {
 }
 
 export interface PushNotifierDeps {
+  /**
+   * Called to send (or queue) a push notification via the relay.
+   * `sealed` is the opaque relay blob ("tpps1.<v>.<b64>") — daemon treats it
+   * as opaque and never unwraps it. For legacy plaintext back-compat the
+   * relay's unseal() returns the blob directly when it doesn't start with "tpps1.".
+   */
   sendPush: (
     frontendId: string,
-    token: string,
+    sealed: string,
     title: string,
     body: string,
     interruptionLevel: PushInterruptionLevel,
     data: { sid: string; event: string },
   ) => void;
+  /** Persist a newly registered sealed token to store for daemon-restart recovery. */
+  persistToken: (
+    frontendId: string,
+    daemonId: string,
+    sealed: string,
+    platform: "ios" | "android",
+  ) => void;
+  /** Load all persisted sealed tokens on startup. */
+  loadTokens: () => Array<{
+    frontendId: string;
+    daemonId: string;
+    sealed: string;
+    platform: "ios" | "android";
+  }>;
+  /** Delete a persisted token (e.g. on unseal failure or unregister). */
+  deleteToken: (frontendId: string) => void;
 }
 
+/**
+ * In-memory token entry. The daemon NEVER stores plaintext tokens after Path X
+ * is active. `sealed` is the opaque blob from the relay.
+ */
 interface TokenEntry {
-  token: string;
+  sealed: string;
   platform: "ios" | "android";
+  daemonId: string;
 }
 
 export class PushNotifier {
@@ -102,20 +129,65 @@ export class PushNotifier {
 
   constructor(deps: PushNotifierDeps) {
     this.deps = deps;
+    // Seed from persisted tokens on startup (daemon-restart recovery).
+    const stored = deps.loadTokens();
+    for (const t of stored) {
+      this.tokens.set(t.frontendId, {
+        sealed: t.sealed,
+        platform: t.platform,
+        daemonId: t.daemonId,
+      });
+    }
+    if (stored.length > 0) {
+      log.info(`seeded ${stored.length} push token(s) from store on startup`);
+    }
   }
 
-  registerToken(
+  /**
+   * Register a sealed push token for a frontend. Stores in the in-memory Map
+   * AND persists to store via deps.persistToken.
+   *
+   * For back-compat with old relays that never send relay.push.token, the
+   * caller may pass a legacy plaintext token as `sealed` — the relay's
+   * unseal() will classify it as "legacy" and use it verbatim.
+   */
+  registerSealedToken(
     frontendId: string,
-    token: string,
+    daemonId: string,
+    sealed: string,
     platform: "ios" | "android",
   ): void {
-    this.tokens.set(frontendId, { token, platform });
-    log.info(`registered push token for frontend ${frontendId} (${platform})`);
+    this.tokens.set(frontendId, { sealed, platform, daemonId });
+    this.deps.persistToken(frontendId, daemonId, sealed, platform);
+    log.info(
+      `registered sealed push token for frontend ${frontendId} (${platform})`,
+    );
   }
 
   unregisterToken(frontendId: string): void {
     this.tokens.delete(frontendId);
+    this.deps.deleteToken(frontendId);
     log.info(`unregistered push token for frontend ${frontendId}`);
+  }
+
+  /**
+   * Called when the relay replies with PUSH_UNSEAL_FAILED for a given
+   * frontendId. Drops the stale entry from the Map and from the store so
+   * future notification events don't keep sending to a dead token. The app
+   * will re-register on next connect.
+   */
+  handleUnsealFailed(frontendId: string): void {
+    if (!this.tokens.has(frontendId)) {
+      log.debug(
+        `handleUnsealFailed: no token for frontend ${frontendId}, ignoring`,
+      );
+      return;
+    }
+    this.tokens.delete(frontendId);
+    this.deps.deleteToken(frontendId);
+    log.warn(
+      `dropped stale token for frontend ${frontendId} after PUSH_UNSEAL_FAILED`,
+    );
   }
 
   onRecord(rec: RecordInfo): void {
@@ -135,7 +207,7 @@ export class PushNotifier {
       log.info(
         `sending push notification to ${frontendId} for event ${rec.name} sid=${rec.sid} level=${level}`,
       );
-      this.deps.sendPush(frontendId, entry.token, msg.title, msg.body, level, {
+      this.deps.sendPush(frontendId, entry.sealed, msg.title, msg.body, level, {
         sid: rec.sid,
         event: rec.name,
       });

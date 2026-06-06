@@ -44,6 +44,7 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `packages/daemon/src/auto-cleanup.test.ts` — daemon auto-cleanup on startup, periodic scheduler, TTL config
 - `packages/daemon/src/push/push-notifier.test.ts` — hook event detection, token registration, push dispatch
 - `packages/relay/src/push.test.ts` — Expo Push API client, rate limiting, dedup
+- `packages/relay/src/push-seal.test.ts` — PushSealer round-trip, key rotation, legacy/tamper/truncated cases (Path X)
 - `packages/protocol/src/socket-path.test.ts` — path format
 - `packages/protocol/src/logger.test.ts` — level filtering, prefix formatting
 - `apps/cli/src/args.test.ts` — `--tp-*` 인자 분리

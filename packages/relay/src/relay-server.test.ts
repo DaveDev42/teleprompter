@@ -5,8 +5,11 @@ import type {
   RelayFrame,
   RelayNotification,
   RelayPresence,
+  RelayPushTokenSealed,
   RelayServerMessage,
 } from "@teleprompter/protocol";
+import { PushService } from "./push";
+import { PushSealer } from "./push-seal";
 import { RelayServer } from "./relay-server";
 
 function connectWs(port: number): Promise<WebSocket> {
@@ -1331,5 +1334,404 @@ describe("RelayServer", () => {
       expect(size).toBeLessThanOrEqual(256);
       daemon.close();
     });
+  });
+});
+
+// ── Path X: Sealed Push Token integration tests ────────────────────────────
+
+const PUSH_X_TOKEN = "path-x-token";
+const PUSH_X_DAEMON_ID = "push-x-daemon";
+const PUSH_X_FRONTEND_ID = "push-x-frontend-1";
+const PUSH_SEAL_SECRET = "x".repeat(32);
+
+describe("Path X: relay.push.register → relay.push.token sealing", () => {
+  let relay: RelayServer;
+  let port: number;
+
+  beforeEach(() => {
+    relay = new RelayServer({
+      pushSealSecret: PUSH_SEAL_SECRET,
+    });
+    port = relay.start(0);
+    relay.registerToken(PUSH_X_TOKEN, PUSH_X_DAEMON_ID);
+  });
+
+  afterEach(() => {
+    relay.stop();
+  });
+
+  async function authDaemon(p: number): Promise<WebSocket> {
+    const ws = await new Promise<WebSocket>((resolve, reject) => {
+      const w = new WebSocket(`ws://localhost:${p}`);
+      w.onopen = () => resolve(w);
+      w.onerror = () => reject(new Error("daemon connect failed"));
+      setTimeout(() => reject(new Error("daemon connect timeout")), 3000);
+    });
+    ws.send(
+      JSON.stringify({
+        t: "relay.auth",
+        role: "daemon",
+        daemonId: PUSH_X_DAEMON_ID,
+        token: PUSH_X_TOKEN,
+        v: 2,
+      }),
+    );
+    await waitForMsg(ws, (m) => m.t === "relay.auth.ok");
+    return ws;
+  }
+
+  async function authFrontend(
+    p: number,
+    frontendId: string,
+  ): Promise<WebSocket> {
+    const ws = await new Promise<WebSocket>((resolve, reject) => {
+      const w = new WebSocket(`ws://localhost:${p}`);
+      w.onopen = () => resolve(w);
+      w.onerror = () => reject(new Error("frontend connect failed"));
+      setTimeout(() => reject(new Error("frontend connect timeout")), 3000);
+    });
+    ws.send(
+      JSON.stringify({
+        t: "relay.auth",
+        role: "frontend",
+        daemonId: PUSH_X_DAEMON_ID,
+        token: PUSH_X_TOKEN,
+        v: 2,
+        frontendId,
+      }),
+    );
+    await waitForMsg(ws, (m) => m.t === "relay.auth.ok");
+    return ws;
+  }
+
+  function waitForMsg(
+    ws: WebSocket,
+    predicate?: (m: RelayServerMessage) => boolean,
+  ): Promise<RelayServerMessage> {
+    return new Promise((resolve, reject) => {
+      const h = (e: MessageEvent) => {
+        const m = JSON.parse(e.data as string) as RelayServerMessage;
+        if (!predicate || predicate(m)) {
+          ws.removeEventListener("message", h);
+          resolve(m);
+        }
+      };
+      ws.addEventListener("message", h);
+      setTimeout(() => {
+        ws.removeEventListener("message", h);
+        reject(new Error("waitForMsg timeout"));
+      }, 3000);
+    });
+  }
+
+  test("frontend relay.push.register → daemon receives relay.push.token with sealed blob", async () => {
+    const daemon = await authDaemon(port);
+    const frontend = await authFrontend(port, PUSH_X_FRONTEND_ID);
+
+    // Collect the next message the daemon receives (relay.push.token)
+    const daemonMsgP = waitForMsg(daemon, (m) => m.t === "relay.push.token");
+
+    frontend.send(
+      JSON.stringify({
+        t: "relay.push.register",
+        frontendId: PUSH_X_FRONTEND_ID,
+        token: "ExponentPushToken[test-token-abc]",
+        platform: "ios",
+      }),
+    );
+
+    const msg = await daemonMsgP;
+    expect(msg.t).toBe("relay.push.token");
+    const ptMsg = msg as RelayPushTokenSealed;
+    expect(ptMsg.frontendId).toBe(PUSH_X_FRONTEND_ID);
+    expect(ptMsg.platform).toBe("ios");
+    expect(ptMsg.sealed.startsWith("tpps1.")).toBe(true);
+
+    // Verify the sealed blob decrypts to the original token
+    const sealer = new PushSealer({ secret: PUSH_SEAL_SECRET });
+    const result = await sealer.unseal(ptMsg.sealed);
+    expect(result).toEqual({
+      ok: true,
+      token: "ExponentPushToken[test-token-abc]",
+    });
+
+    frontend.close();
+    daemon.close();
+  });
+
+  test("daemon sender of relay.push.register → relay.err UNAUTHORIZED", async () => {
+    const daemon = await authDaemon(port);
+    const errMsgP = waitForMsg(daemon, (m) => m.t === "relay.err");
+
+    daemon.send(
+      JSON.stringify({
+        t: "relay.push.register",
+        frontendId: PUSH_X_FRONTEND_ID,
+        token: "ExponentPushToken[xyz]",
+        platform: "android",
+      }),
+    );
+
+    const errMsg = await errMsgP;
+    expect((errMsg as RelayError).e).toBe("UNAUTHORIZED");
+    daemon.close();
+  });
+
+  test("relay.push with valid sealed blob → Expo push sent with plaintext token", async () => {
+    const capturedTokens: string[] = [];
+    const captureFetch = (async (_url: string, init?: RequestInit) => {
+      // PushService sends a single object payload (not an array)
+      const msg = JSON.parse((init?.body as string) ?? "{}") as {
+        to?: string;
+      };
+      if (msg.to) capturedTokens.push(msg.to);
+      return new Response(
+        JSON.stringify({ data: [{ status: "ok", id: "t1" }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const sealRelay = new RelayServer({
+      pushSealSecret: PUSH_SEAL_SECRET,
+      pushService: new PushService({ fetchFn: captureFetch }),
+    });
+    const sealPort = sealRelay.start(0);
+    sealRelay.registerToken(PUSH_X_TOKEN, PUSH_X_DAEMON_ID);
+
+    const daemon2 = await new Promise<WebSocket>((resolve, reject) => {
+      const ws = new WebSocket(`ws://localhost:${sealPort}`);
+      ws.onopen = () => resolve(ws);
+      ws.onerror = () => reject(new Error("connect failed"));
+      setTimeout(() => reject(new Error("timeout")), 3000);
+    });
+    daemon2.send(
+      JSON.stringify({
+        t: "relay.auth",
+        role: "daemon",
+        daemonId: PUSH_X_DAEMON_ID,
+        token: PUSH_X_TOKEN,
+        v: 2,
+      }),
+    );
+    await new Promise<void>((resolve, reject) => {
+      daemon2.addEventListener("message", (e: MessageEvent) => {
+        const m = JSON.parse(e.data as string) as RelayServerMessage;
+        if (m.t === "relay.auth.ok") resolve();
+      });
+      setTimeout(() => reject(new Error("auth timeout")), 3000);
+    });
+
+    // Seal a token ourselves to send as relay.push
+    const sealer = new PushSealer({ secret: PUSH_SEAL_SECRET });
+    const sealed = await sealer.seal("ExponentPushToken[valid-token]");
+
+    daemon2.send(
+      JSON.stringify({
+        t: "relay.push",
+        frontendId: "fe-absent",
+        sealed,
+        title: "Test",
+        body: "Hello",
+      }),
+    );
+
+    await Bun.sleep(300);
+    expect(capturedTokens).toContain("ExponentPushToken[valid-token]");
+
+    daemon2.close();
+    sealRelay.stop();
+  });
+
+  test("relay.push with corrupt sealed blob → relay.err PUSH_UNSEAL_FAILED, no Expo call", async () => {
+    const callCount = { n: 0 };
+    const countFetch = (async () => {
+      callCount.n++;
+      return new Response(
+        JSON.stringify({ data: [{ status: "ok", id: "t1" }] }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    const sealRelay = new RelayServer({
+      pushSealSecret: PUSH_SEAL_SECRET,
+      pushService: new PushService({ fetchFn: countFetch }),
+    });
+    const sealPort = sealRelay.start(0);
+    sealRelay.registerToken(PUSH_X_TOKEN, PUSH_X_DAEMON_ID);
+
+    const daemon2 = await new Promise<WebSocket>((resolve, reject) => {
+      const ws = new WebSocket(`ws://localhost:${sealPort}`);
+      ws.onopen = () => resolve(ws);
+      ws.onerror = () => reject(new Error("connect failed"));
+      setTimeout(() => reject(new Error("timeout")), 3000);
+    });
+    daemon2.send(
+      JSON.stringify({
+        t: "relay.auth",
+        role: "daemon",
+        daemonId: PUSH_X_DAEMON_ID,
+        token: PUSH_X_TOKEN,
+        v: 2,
+      }),
+    );
+    await new Promise<void>((resolve, reject) => {
+      daemon2.addEventListener("message", (e: MessageEvent) => {
+        const m = JSON.parse(e.data as string) as RelayServerMessage;
+        if (m.t === "relay.auth.ok") resolve();
+      });
+      setTimeout(() => reject(new Error("auth timeout")), 3000);
+    });
+
+    const errMsgP = new Promise<RelayServerMessage>((resolve, reject) => {
+      daemon2.addEventListener("message", (e: MessageEvent) => {
+        const m = JSON.parse(e.data as string) as RelayServerMessage;
+        if (m.t === "relay.err") resolve(m);
+      });
+      setTimeout(() => reject(new Error("no relay.err received")), 3000);
+    });
+
+    // Send a corrupted sealed blob
+    daemon2.send(
+      JSON.stringify({
+        t: "relay.push",
+        frontendId: "fe-absent",
+        sealed: "tpps1.1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+        title: "Test",
+        body: "Hello",
+      }),
+    );
+
+    const errMsg = await errMsgP;
+    expect((errMsg as RelayError).e).toBe("PUSH_UNSEAL_FAILED");
+    expect(callCount.n).toBe(0);
+
+    daemon2.close();
+    sealRelay.stop();
+  });
+
+  test("legacy relay.push with plaintext token still delivers (back-compat)", async () => {
+    const capturedTokens: string[] = [];
+    const captureFetch = (async (_url: string, init?: RequestInit) => {
+      // PushService sends a single object payload (not an array)
+      const msg = JSON.parse((init?.body as string) ?? "{}") as {
+        to?: string;
+      };
+      if (msg.to) capturedTokens.push(msg.to);
+      return new Response(
+        JSON.stringify({ data: [{ status: "ok", id: "t1" }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const legacyRelay = new RelayServer({
+      pushSealSecret: PUSH_SEAL_SECRET,
+      pushService: new PushService({ fetchFn: captureFetch }),
+    });
+    const legacyPort = legacyRelay.start(0);
+    legacyRelay.registerToken(PUSH_X_TOKEN, PUSH_X_DAEMON_ID);
+
+    const daemonL = await new Promise<WebSocket>((resolve, reject) => {
+      const ws = new WebSocket(`ws://localhost:${legacyPort}`);
+      ws.onopen = () => resolve(ws);
+      ws.onerror = () => reject(new Error("connect failed"));
+      setTimeout(() => reject(new Error("timeout")), 3000);
+    });
+    daemonL.send(
+      JSON.stringify({
+        t: "relay.auth",
+        role: "daemon",
+        daemonId: PUSH_X_DAEMON_ID,
+        token: PUSH_X_TOKEN,
+        v: 2,
+      }),
+    );
+    await new Promise<void>((resolve, reject) => {
+      daemonL.addEventListener("message", (e: MessageEvent) => {
+        const m = JSON.parse(e.data as string) as RelayServerMessage;
+        if (m.t === "relay.auth.ok") resolve();
+      });
+      setTimeout(() => reject(new Error("auth timeout")), 3000);
+    });
+
+    // Legacy: send token field directly (no sealed)
+    daemonL.send(
+      JSON.stringify({
+        t: "relay.push",
+        frontendId: "fe-legacy",
+        token: "ExponentPushToken[legacy-token]",
+        title: "Legacy push",
+        body: "Hello legacy",
+      }),
+    );
+
+    await Bun.sleep(300);
+    expect(capturedTokens).toContain("ExponentPushToken[legacy-token]");
+
+    daemonL.close();
+    legacyRelay.stop();
+  });
+
+  test("legacy plaintext token in the `sealed` slot still delivers (upgrade-window back-compat)", async () => {
+    // Cell (f): a daemon that has not yet received a relay.push.token may carry
+    // a plaintext Expo token in its sealed slot. A new daemon routes that via
+    // the `token` field, but an in-between daemon could put it in `sealed`.
+    // The relay's unseal() returns reason="legacy" for non-"tpps1." blobs and
+    // must use the value verbatim rather than replying PUSH_UNSEAL_FAILED.
+    const capturedTokens: string[] = [];
+    const captureFetch = (async (_url: string, init?: RequestInit) => {
+      const msg = JSON.parse((init?.body as string) ?? "{}") as { to?: string };
+      if (msg.to) capturedTokens.push(msg.to);
+      return new Response(
+        JSON.stringify({ data: [{ status: "ok", id: "t1" }] }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    const relayF = new RelayServer({
+      pushSealSecret: PUSH_SEAL_SECRET,
+      pushService: new PushService({ fetchFn: captureFetch }),
+    });
+    const portF = relayF.start(0);
+    relayF.registerToken(PUSH_X_TOKEN, PUSH_X_DAEMON_ID);
+
+    const daemonF = await new Promise<WebSocket>((resolve, reject) => {
+      const ws = new WebSocket(`ws://localhost:${portF}`);
+      ws.onopen = () => resolve(ws);
+      ws.onerror = () => reject(new Error("connect failed"));
+      setTimeout(() => reject(new Error("timeout")), 3000);
+    });
+    daemonF.send(
+      JSON.stringify({
+        t: "relay.auth",
+        role: "daemon",
+        daemonId: PUSH_X_DAEMON_ID,
+        token: PUSH_X_TOKEN,
+        v: 2,
+      }),
+    );
+    await new Promise<void>((resolve, reject) => {
+      daemonF.addEventListener("message", (e: MessageEvent) => {
+        const m = JSON.parse(e.data as string) as RelayServerMessage;
+        if (m.t === "relay.auth.ok") resolve();
+      });
+      setTimeout(() => reject(new Error("auth timeout")), 3000);
+    });
+
+    // Plaintext token in the `sealed` slot (non-"tpps1." → reason="legacy").
+    daemonF.send(
+      JSON.stringify({
+        t: "relay.push",
+        frontendId: "fe-upgrade",
+        sealed: "ExponentPushToken[upgrade-window]",
+        title: "Upgrade push",
+        body: "Hello upgrade",
+      }),
+    );
+
+    await Bun.sleep(300);
+    expect(capturedTokens).toContain("ExponentPushToken[upgrade-window]");
+
+    daemonF.close();
+    relayF.stop();
   });
 });

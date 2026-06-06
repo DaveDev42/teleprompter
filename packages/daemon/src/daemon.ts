@@ -78,16 +78,21 @@ export class Daemon {
     });
 
     this.pushNotifier = new PushNotifier({
-      sendPush: (frontendId, token, title, body, interruptionLevel, data) => {
+      sendPush: (frontendId, sealed, title, body, interruptionLevel, data) => {
         this.relayManager.dispatchPush(
           frontendId,
-          token,
+          sealed,
           title,
           body,
           interruptionLevel,
           data,
         );
       },
+      persistToken: (frontendId, daemonId, sealed, platform) => {
+        this.store.savePushToken({ frontendId, daemonId, sealed, platform });
+      },
+      loadTokens: () => this.store.loadPushTokens(),
+      deleteToken: (frontendId) => this.store.deletePushToken(frontendId),
     });
 
     // IpcServer and dispatcher reference each other at construction time,

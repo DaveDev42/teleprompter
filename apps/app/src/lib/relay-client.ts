@@ -500,6 +500,11 @@ export class FrontendRelayClient implements TransportClient {
         // switch stays exhaustive over RelayServerMessage.
         break;
 
+      case "relay.push.token":
+        // relay.push.token is routed to the daemon, not frontends.
+        // Keep a no-op arm so the switch stays exhaustive.
+        break;
+
       default: {
         // Exhaustiveness guard: every RelayServerMessage variant is handled
         // above. A new variant without an arm fails to compile here.
@@ -749,6 +754,20 @@ export class FrontendRelayClient implements TransportClient {
       { t: "pushToken", token, platform },
       RELAY_CHANNEL_META,
     );
+  }
+
+  /**
+   * Path X: send a plaintext push token directly to the relay (cleartext, not
+   * E2EE) so the relay can seal it and route relay.push.token to the daemon.
+   * Sent IN ADDITION to the existing E2EE sendPushToken for back-compat.
+   */
+  sendPushTokenForSeal(token: string, platform: "ios" | "android"): void {
+    this.sendRelay({
+      t: "relay.push.register",
+      frontendId: this.config.frontendId,
+      token,
+      platform,
+    });
   }
 
   /**

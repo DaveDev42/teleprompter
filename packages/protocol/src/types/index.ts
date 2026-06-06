@@ -69,6 +69,8 @@ export type {
   RelayPresence,
   RelayPublish,
   RelayPush,
+  RelayPushRegister,
+  RelayPushTokenSealed,
   RelayRegister,
   RelayRegisterErr,
   RelayRegisterOk,

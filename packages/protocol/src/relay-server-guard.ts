@@ -38,6 +38,7 @@ import type {
   RelayNotification,
   RelayPong,
   RelayPresence,
+  RelayPushTokenSealed,
   RelayRegisterErr,
   RelayRegisterOk,
   RelayServerMessage,
@@ -49,6 +50,10 @@ function isOptionalBoolean(v: unknown): v is boolean | undefined {
 
 function isRole(v: unknown): v is "daemon" | "frontend" {
   return v === "daemon" || v === "frontend";
+}
+
+function isPlatform(v: unknown): v is "ios" | "android" {
+  return v === "ios" || v === "android";
 }
 
 /**
@@ -186,6 +191,18 @@ export function parseRelayServerMessage(
         body: raw["body"],
         data: raw["data"],
       } satisfies RelayNotification;
+    }
+
+    case "relay.push.token": {
+      if (!isString(raw["frontendId"])) return null;
+      if (!isString(raw["sealed"])) return null;
+      if (!isPlatform(raw["platform"])) return null;
+      return {
+        t: "relay.push.token",
+        frontendId: raw["frontendId"],
+        sealed: raw["sealed"],
+        platform: raw["platform"],
+      } satisfies RelayPushTokenSealed;
     }
 
     default:

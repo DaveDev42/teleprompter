@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   decrypt,
   deriveKxKey,
+  derivePushSealKey,
   deriveRegistrationProof,
   deriveRelayToken,
   deriveSessionKeys,
@@ -9,7 +10,9 @@ import {
   fromBase64,
   generateKeyPair,
   generatePairingSecret,
+  openWithAad,
   ratchetSessionKeys,
+  sealWithAad,
   toBase64,
   toHex,
 } from "./crypto";
@@ -276,5 +279,98 @@ describe("crypto", () => {
 
     expect(proof).not.toBe(token);
     expect(proof).not.toBe(kxHex);
+  });
+});
+
+describe("sealWithAad / openWithAad", () => {
+  test("round-trip: seal then open returns original plaintext", async () => {
+    const secret = await generatePairingSecret();
+    const key = await derivePushSealKey(secret);
+    const plaintext = new TextEncoder().encode("ExponentPushToken[test123]");
+    const aad = new TextEncoder().encode("tpps1.1");
+
+    const encoded = await sealWithAad(plaintext, key, aad);
+    expect(typeof encoded).toBe("string");
+    expect(encoded.length).toBeGreaterThan(0);
+
+    const recovered = await openWithAad(encoded, key, aad);
+    expect(new TextDecoder().decode(recovered)).toBe(
+      "ExponentPushToken[test123]",
+    );
+  });
+
+  test("wrong key rejects", async () => {
+    const secret = await generatePairingSecret();
+    const key = await derivePushSealKey(secret);
+    const wrongKey = await derivePushSealKey(await generatePairingSecret());
+    const aad = new TextEncoder().encode("tpps1.1");
+    const plaintext = new TextEncoder().encode("token");
+
+    const encoded = await sealWithAad(plaintext, key, aad);
+    await expect(openWithAad(encoded, wrongKey, aad)).rejects.toThrow();
+  });
+
+  test("tampered ciphertext (bit-flip) rejects", async () => {
+    const secret = await generatePairingSecret();
+    const key = await derivePushSealKey(secret);
+    const aad = new TextEncoder().encode("tpps1.1");
+    const plaintext = new TextEncoder().encode("token");
+
+    const encoded = await sealWithAad(plaintext, key, aad);
+    const bytes = await fromBase64(encoded);
+    bytes[bytes.length - 1]! ^= 0xff; // flip last byte
+    const tampered = await toBase64(bytes);
+
+    await expect(openWithAad(tampered, key, aad)).rejects.toThrow();
+  });
+
+  test("wrong AAD rejects (AAD mismatch)", async () => {
+    const secret = await generatePairingSecret();
+    const key = await derivePushSealKey(secret);
+    const aadSeal = new TextEncoder().encode("tpps1.1");
+    const aadOpen = new TextEncoder().encode("tpps1.2");
+    const plaintext = new TextEncoder().encode("token");
+
+    const encoded = await sealWithAad(plaintext, key, aadSeal);
+    await expect(openWithAad(encoded, key, aadOpen)).rejects.toThrow();
+  });
+
+  test("random nonce: two seals of same plaintext+key+aad produce different outputs", async () => {
+    const secret = await generatePairingSecret();
+    const key = await derivePushSealKey(secret);
+    const aad = new TextEncoder().encode("tpps1.1");
+    const plaintext = new TextEncoder().encode("token");
+
+    const enc1 = await sealWithAad(plaintext, key, aad);
+    const enc2 = await sealWithAad(plaintext, key, aad);
+    expect(enc1).not.toBe(enc2);
+  });
+});
+
+describe("derivePushSealKey", () => {
+  test("produces deterministic 32-byte key", async () => {
+    const secret = await generatePairingSecret();
+    const key1 = await derivePushSealKey(secret);
+    const key2 = await derivePushSealKey(secret);
+
+    expect(key1.length).toBe(32);
+    expect(key1).toEqual(key2);
+  });
+
+  test("differs from deriveKxKey for the same secret (domain separation)", async () => {
+    const secret = await generatePairingSecret();
+    const pushKey = await derivePushSealKey(secret);
+    const kxKey = await deriveKxKey(secret);
+
+    expect(pushKey).not.toEqual(kxKey);
+  });
+
+  test("differs for different secrets", async () => {
+    const s1 = await generatePairingSecret();
+    const s2 = await generatePairingSecret();
+    const k1 = await derivePushSealKey(s1);
+    const k2 = await derivePushSealKey(s2);
+
+    expect(k1).not.toEqual(k2);
   });
 });

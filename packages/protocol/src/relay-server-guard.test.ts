@@ -278,6 +278,33 @@ describe("parseRelayServerMessage", () => {
     });
   });
 
+  describe("relay.push.token", () => {
+    const valid = {
+      t: "relay.push.token",
+      frontendId: "fe1",
+      sealed: "tpps1.1.abc123==",
+      platform: "ios",
+    };
+
+    test("accepts well-formed ios", () => {
+      expectAccepted(valid);
+    });
+
+    test("accepts well-formed android", () => {
+      expectAccepted({ ...valid, platform: "android" });
+    });
+
+    test.each<[string, unknown]>([
+      ["missing frontendId", { ...valid, frontendId: undefined }],
+      ["missing sealed", { ...valid, sealed: undefined }],
+      ["missing platform", { ...valid, platform: undefined }],
+      ["bad platform", { ...valid, platform: "web" }],
+      ["non-string sealed", { ...valid, sealed: 42 }],
+    ])("rejects %s", (_l, m) => {
+      expectRejected(m);
+    });
+  });
+
   test("does not carry over extra fields onto the result", () => {
     // The guard reconstructs each object field-by-field, so attacker-supplied
     // extra keys (a spoofed internal flag, a __proto__ payload) are dropped

@@ -32,6 +32,7 @@ import type {
   RelayPing,
   RelayPublish,
   RelayPush,
+  RelayPushRegister,
   RelayRegister,
   RelaySubscribe,
   RelayUnsubscribe,
@@ -39,6 +40,10 @@ import type {
 
 function isRole(v: unknown): v is "daemon" | "frontend" {
   return v === "daemon" || v === "frontend";
+}
+
+function isPlatform(v: unknown): v is "ios" | "android" {
+  return v === "ios" || v === "android";
 }
 
 /**
@@ -167,7 +172,11 @@ export function parseRelayClientMessage(
 
     case "relay.push": {
       if (!isString(raw["frontendId"])) return null;
-      if (!isString(raw["token"])) return null;
+      if (!isOptionalString(raw["token"])) return null;
+      if (!isOptionalString(raw["sealed"])) return null;
+      // Exactly one of {token, sealed} must be present.
+      if ((raw["token"] === undefined) === (raw["sealed"] === undefined))
+        return null;
       if (!isString(raw["title"])) return null;
       if (!isString(raw["body"])) return null;
       if (!isOptionalInterruptionLevel(raw["interruptionLevel"])) return null;
@@ -176,11 +185,24 @@ export function parseRelayClientMessage(
         t: "relay.push",
         frontendId: raw["frontendId"],
         token: raw["token"],
+        sealed: raw["sealed"],
         title: raw["title"],
         body: raw["body"],
         interruptionLevel: raw["interruptionLevel"],
         data: raw["data"],
       } satisfies RelayPush;
+    }
+
+    case "relay.push.register": {
+      if (!isString(raw["frontendId"])) return null;
+      if (!isString(raw["token"])) return null;
+      if (!isPlatform(raw["platform"])) return null;
+      return {
+        t: "relay.push.register",
+        frontendId: raw["frontendId"],
+        token: raw["token"],
+        platform: raw["platform"],
+      } satisfies RelayPushRegister;
     }
 
     default:

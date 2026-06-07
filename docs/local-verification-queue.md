@@ -373,14 +373,18 @@ bump는 cloud-unsafe라 금지.**
   ```
   코드 레퍼런스: `apps/cli/src/lib/service-linux.ts` (getUnitDir, `systemctl --user daemon-reload`).
 - **pass**: install 후 active(running), 재부팅 후 자동 기동, `tp status`로 페어링/세션 동작.
-- **result**: **PASS 2026-06-05** (Lima Ubuntu 24.04 VM, aarch64, systemd 255, `tp-linux_arm64`
-  v0.1.46). `tp daemon install` → unit `~/.config/systemd/user/teleprompter-daemon.service`
-  생성, `active (running)` + `enabled` (PID 2863, IPC `/run/user/501/daemon.sock` 리스닝). VM
-  reboot 후 **수동 start 없이 자동 기동** (새 PID 813, `up 0 minutes`) — Lima guest user는
-  `Linger=yes` 기본값이라 headless reboot 에도 user manager 가 떠 `WantedBy=default.target` 가
-  발동. `tp status` → "Background daemon: running, Sessions: 0" 정상. `tp daemon uninstall` →
-  inactive + unit file removed (대칭성 확인). claude CLI 미설치라 세션 spawn 은 범위 밖 (install/
-  systemd 라이프사이클 검증이 이 항목의 목적).
+- **result**: **PASS 2026-06-07 (재확인 — Lima Ubuntu VM, systemd 257, aarch64, `tp-linux_arm64` v0.1.46).**
+  `tp daemon install` → unit `~/.config/systemd/user/teleprompter-daemon.service` 생성,
+  `active (running)` + `enabled` (PID 8801, IPC `/run/user/501/daemon.sock` 리스닝). `Linger=yes`
+  확인(headless reboot 자동 기동 조건). **VM reboot 후 수동 start 없이 자동 기동** (새 PID 968,
+  `up 0 minutes`, socket 재생성) — `WantedBy=default.target` 발동. `tp status` → "Background daemon:
+  running, Sessions: 0" 정상. `tp daemon uninstall` → unit not-found + unit file 제거 + socket
+  사라짐 (대칭성 확인). claude CLI 미설치라 세션 spawn 은 범위 밖 (install/systemd 라이프사이클 검증이
+  이 항목의 목적). 6/5 이후 main 커밋이 전부 docs-only라 6/5 빌드 바이너리로 재확인 충분.
+
+  **History — PASS 2026-06-05** (Lima Ubuntu 24.04 VM, aarch64, systemd 255, `tp-linux_arm64`
+  v0.1.46). `tp daemon install` → unit 생성, `active (running)` + `enabled` (PID 2863). VM reboot
+  후 수동 start 없이 자동 기동 (새 PID 813). uninstall 대칭성 확인.
 
 ### Q6. Long-running 안정성 — 1시간 soak
 
@@ -426,7 +430,21 @@ bump는 cloud-unsafe라 금지.**
 - **pass**: libsodium init 시 다음 두 emscripten 노이즈 라인이 **더 이상 나타나지 않는다**:
   `failed to asynchronously prepare wasm: ...` / `Aborted(...). Build with -sASSERTIONS for more info.`
   (genuine app error/warning은 그대로 통과해야 한다 — 콘솔이 통째로 묵음이 되면 안 됨).
-- **result**: **NEEDS-DEVICE (PR #577, merged `f3c654c`)** — 유닛으로는 증명됨
+- **result**: **PASS 2026-06-07 (build #59, sealed Path X #579 — 네이티브 Hermes 콘솔 라이브 확인).**
+  iPhone 15 Pro build 59(= #577 `f3c654c` 폴리필 포함, 6/7 17:44 빌드 시 HEAD `1c96573` > `33b8375`(#579)
+  > `f3c654c`(#577))에서 Dave가 앱을 **강제종료 → 콜드 런치**해 첫 crypto init(`ensureSodium()`, 페어링
+  목록 E2EE 복호화 경유)을 트리거. Metro dev-client 로그(`apps/app/.expo/dev/logs/start.log`) 전수
+  분석 결과 **두 emscripten 노이즈 라인(`failed to asynchronously prepare wasm` / `Aborted(...)` as
+  warn)이 0건** — build #58 시절 로그엔 콜드 스타트마다 반복됐는데 build #59 이후엔 완전히 사라졌다.
+  유일하게 남은 `WebAssembly.RuntimeError: Aborted(...). Build with -sASSERTIONS` 라인은 `level: error`의
+  **uncaught promise rejection**(RN 글로벌 핸들러 경로, console.error/warn 아님)이고 #577 **이전**
+  (build #58, 6/6)부터 동일하게 존재한 **genuine error라 회귀 아님** — #577 기준 "genuine error는 그대로
+  통과(콘솔 통째 묵음 금지)"에 정확히 부합(폴리필이 오버블록하지 않았다는 증거). 끝단 on-device 확인 완료
+  → NEEDS-DEVICE → PASS.
+
+  ---
+
+  **History — NEEDS-DEVICE (PR #577, merged `f3c654c`):** 유닛으로는 증명됨
   (`crypto-polyfill-binding.test.ts`가 폴리필이 libsodium require **전에** `console.error`/`.warn`을
   래핑해 두 노이즈 라인은 drop, 진짜 에러는 downstream으로 forward함을 end-to-end로 검증), 그러나
   **끝단(네이티브 Hermes 콘솔에서 라인이 실제로 사라졌는지)은 실기기/Simulator에서만 확인 가능**.

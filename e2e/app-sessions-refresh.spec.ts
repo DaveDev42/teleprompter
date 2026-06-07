@@ -28,6 +28,13 @@ test.describe("App Web — Sessions refresh affordance", () => {
     await expect(refresh).toHaveRole("button");
     await expect(refresh).toHaveAccessibleName("Refresh sessions");
 
+    // Idle state announces aria-busy=false to AT (the in-flight true→false
+    // toggle during a real refresh needs a daemon round-trip, covered by the
+    // daemon-backed `local` project). With no daemon connected handleRefresh
+    // short-circuits at sent===0 and never sets refreshing=true, so the
+    // attribute must read "false" here, never a stale "true".
+    await expect(refresh).toHaveAttribute("aria-busy", "false");
+
     // Keyboard-reachable: focusing it and pressing Enter must not throw and the
     // button stays in the tab order (tabIndex !== -1).
     await refresh.focus();

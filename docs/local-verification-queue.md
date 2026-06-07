@@ -330,13 +330,19 @@ bump는 cloud-unsafe라 금지.**
   - **iOS 재검증 큐:** dom-webview `56.0.5`가 iOS 네이티브 빌드에서도 컴파일되고 LogBox `'use dom'` 오버레이가
     정상 렌더되는지는 별도 iOS EAS/native 체크로 확인 필요(이번 순회는 Android만). 56.0.5는 SDK 56이 기대하는
     버전이라 회귀 가능성은 낮으나 끝단 미검증.
-  - **Sessions 화면 변경 네이티브 재검증 노트 (RN Web 은 PASS):** Sessions 탭 두 변경이 RN Web 에서 검증
+  - **Sessions 화면 변경 네이티브 재검증 노트 (RN Web 은 PASS):** Sessions 탭 세 변경이 RN Web 에서 검증
     완료 — (a) cwd 표시가 home 아래는 `~/...` 축약, 그 외는 절대 경로(PR #586, `formatCwd`), (b) reconnect
-    시 세션 목록 자동 갱신 + 헤더 Refresh 버튼/pull-to-refresh(PR #584). 둘 다 순수 JS/RN 로직이라 네이티브에서
-    동일 렌더가 기대되지만 끝단 미검증. **다음 Android(Q3)/iOS(Q1·Q2) 빌드 골든 패스 순회 시 함께 eyeball:**
-    세션 행 제목이 `~/...`(또는 절대 경로)로 뜨는지(basename 만 아님), reconnect/Refresh 후 목록이 갱신되는지.
+    시 세션 목록 자동 갱신 + 헤더 Refresh 버튼/pull-to-refresh(PR #584), (c) Refresh 버튼이 in-flight 동안
+    `aria-busy` 로 진행 상태를 보조기기에 알림(PR #588 — web 은 명시 spread, 네이티브는 `accessibilityState.busy`).
+    셋 다 순수 JS/RN 로직이라 네이티브에서 동일 동작이 기대되지만 끝단 미검증. (c)는 **live dogfood 로 daemon
+    연결 경로 PASS** — paired daemon(`daemon-mpbjjuvj`, production relay) 실세션에서 Refresh 클릭 시 web
+    `aria-busy` 가 `false→true(~1150ms)→false` 토글(stuck-true 없음, adversarial verifier 독립 확인). CI
+    (daemon-free)는 `sent===0` short-circuit 으로 idle `aria-busy="false"` 만 검증 가능 — `true` 발화는 daemon
+    연결 시에만 일어남. **다음 Android(Q3)/iOS(Q1·Q2) 빌드 골든 패스 순회 시 함께 eyeball:** 세션 행 제목이
+    `~/...`(또는 절대 경로)로 뜨는지(basename 만 아님), reconnect/Refresh 후 목록이 갱신되는지, Refresh 탭 시
+    네이티브 `accessibilityState.busy`(VoiceOver/TalkBack "busy"/스피너)가 in-flight 동안 켜졌다 꺼지는지.
     RN Web 회귀 가드: `e2e/app-session-row-cwd-display.spec.ts`, `e2e/app-session-row-edit-time-accessible-name.spec.ts`,
-    `e2e/app-sessions-refresh.spec.ts`.
+    `e2e/app-sessions-refresh.spec.ts`(CI, idle false), `e2e/app-sessions-refresh-live.spec.ts`(local, true→false 토글).
 
 ### Q4. Simulator QA — UI/로직 회귀 (Expo MCP + Maestro)
 

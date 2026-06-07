@@ -179,6 +179,8 @@ export default defineConfig({
         "app-settings-row-testids.spec.ts",
         "app-session-row-testids.spec.ts",
         "app-sessions-refresh.spec.ts",
+        "app-session-row-cwd-display.spec.ts",
+        "app-session-row-edit-time-accessible-name.spec.ts",
       ],
     },
     {

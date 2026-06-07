@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ConfirmDeleteSessionsModal } from "../../src/components/ConfirmDeleteSessionsModal";
 import { refreshSessionList } from "../../src/hooks/use-relay";
 import { ariaLevel, getPlatformProps } from "../../src/lib/get-platform-props";
+import { formatCwd } from "../../src/lib/session-ux";
 import { useNotificationStore } from "../../src/stores/notification-store";
 import { useSessionStore } from "../../src/stores/session-store";
 import { useThemeStore } from "../../src/stores/theme-store";
@@ -56,12 +57,12 @@ function SessionRow({
   const pp = getPlatformProps();
   const stoppedPp = getPlatformProps({ focusable: isEditMode && !running });
 
-  // Extract a description from cwd (last path segment). Strip a trailing
-  // slash first so "/Users/dave/proj/" yields "proj" rather than "". Then
-  // fall back through cwd → sid → "Session" because `??` only catches
-  // null/undefined and `pop()` returns "" for empty input.
-  const lastSeg = session.cwd.replace(/\/+$/, "").split("/").pop() ?? "";
-  const desc = lastSeg || session.cwd || session.sid || "Session";
+  // Display the working directory: paths under the user's home are abbreviated
+  // with `~` (the daemon doesn't transmit its home path, so `formatCwd`
+  // infers the prefix from the POSIX convention), everything else is shown
+  // absolute. Falls back through cwd → sid → "Session" so the row is never
+  // blank.
+  const desc = formatCwd(session.cwd, session.sid);
 
   // The visible relative timestamp ("5m ago") rides inside the Pressable as
   // a sibling Text node. On web `role=button` with an explicit aria-label
@@ -73,8 +74,12 @@ function SessionRow({
   // accessible name itself. WCAG 4.1.2 (Name Role Value, Level A).
   const updatedLabel = `updated ${timeAgo(session.updatedAt)}`;
 
-  // Checkbox label for screen readers.
-  const checkboxLabel = `${isSelected ? "Deselect" : "Select"} ${desc}, ${running ? "running" : session.state}`;
+  // Checkbox label for screen readers. The visible timestamp Text is a
+  // non-aria-hidden descendant of the checkbox Pressable, so the explicit
+  // aria-label suppresses it from the accessible name (ARIA 1.2 §4.3.2) — the
+  // same override the normal-mode row folds `updatedLabel` back in for. Mirror
+  // that here so edit-mode AT users hear the update time too (WCAG 4.1.2).
+  const checkboxLabel = `${isSelected ? "Deselect" : "Select"} ${desc}, ${running ? "running" : session.state}, ${updatedLabel}`;
 
   const rowContent = (
     <View
@@ -340,7 +345,17 @@ export default function SessionsScreen() {
     el.setAttribute("aria-controls", "sessions-list");
   });
 
-  const selectedCount = selectedSids.size;
+  // Sessions selected for deletion. Filtered against the live `sessions` list
+  // so a session removed out from under edit mode (e.g. another client deletes
+  // it via push) drops out of the selection rather than lingering as a stale
+  // SID. `selectedCount` is derived from this filtered list — NOT from
+  // `selectedSids.size` — so the header count, the Delete button label, and
+  // its aria-disabled state can never over-count phantom selections.
+  const selectedForDelete = useMemo(
+    () => sessions.filter((s) => selectedSids.has(s.sid)),
+    [sessions, selectedSids],
+  );
+  const selectedCount = selectedForDelete.length;
 
   // Set aria-disabled imperatively on the Delete button so screen readers
   // know it's inactive when nothing is selected. Re-fires whenever
@@ -435,7 +450,11 @@ export default function SessionsScreen() {
 
   const handleConfirmDelete = async () => {
     setShowConfirmModal(false);
-    const sids = Array.from(selectedSids);
+    // Delete only sessions that still exist (selectedForDelete is filtered
+    // against the live list), so the "Deleted N" toast/announcement matches the
+    // count the user saw — not a stale `selectedSids` that may include sessions
+    // already removed out from under edit mode.
+    const sids = selectedForDelete.map((s) => s.sid);
     // Call existing store remove action (equivalent to N single-session removes in parallel).
     removeSessions(sids);
     const count = sids.length;
@@ -451,12 +470,6 @@ export default function SessionsScreen() {
   const handleSessionPress = (session: SessionMeta) => {
     router.push(`/session/${session.sid}`);
   };
-
-  // Sessions selected for deletion (only stopped ones).
-  const selectedForDelete = useMemo(
-    () => sessions.filter((s) => selectedSids.has(s.sid)),
-    [sessions, selectedSids],
-  );
 
   return (
     <View

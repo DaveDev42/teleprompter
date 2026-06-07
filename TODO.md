@@ -8,6 +8,8 @@
 - [x] **Chat auto-scroll 이 사용자 스크롤 의도를 무시** — 사용자가 위로 스크롤해 과거 메시지를 읽는 중에도 새 메시지가 도착하면 강제로 하단으로 끌어내림. `onScroll`로 bottom 100px 이내일 때만 (`isNearBottomRef`) 자동 스크롤. PR #457 로 해결.
 - [x] **`tp --resume` 세션이 첫 메시지 보내기 전까지 history 비어보임** — `client.resume(sid, 0)` 가 `sid` 변경 시점 1회만 호출되어 relay kx 가 안 끝나면 backfill 영구히 미도착. relay `connected` 시그널에 의존해 resume 재시도. PR #457 로 해결.
 - [x] **Sessions bulk-delete 에 "Select all" 토글 부재** — 다중 선택 삭제 UI 에 전체 선택 액션이 없어 한 화면 분량 이상의 세션을 지우려면 일일이 체크해야 함. `e2e/app-sessions-bulk-delete.spec.ts` / `e2e/app-sessions-bulk-delete-a11y.spec.ts` 회귀 가드에도 select-all 케이스 추가 필요. PR #458 로 구현.
+- [x] **Sessions 리스트가 resume-reconnect 후 stale** — relay resume 경로는 kx 를 건너뛰므로 daemon 의 `onFrontendJoined` hello 가 재발화 안 됨 → 앱이 reconnect 했는데 세션 목록이 옛 상태로 남음. `requestSessionList()` 가 매 (re)connect 시 + 헤더 Refresh 버튼(testID `sessions-refresh-button`) + pull-to-refresh 로 `__control__` `hello` 를 보내 daemon 이 full 목록을 targeted E2EE 로 재전송하게 함. PR #584 로 해결, live dogfood 로 auto-catch-up + manual Refresh 양쪽 PASS.
+- [x] **Session row 제목이 cwd basename 만 표시** — `/tmp` → `tmp`, 모든 `~/Projects/<x>` → `<x>` 로 축약돼 서로 다른 디렉터리가 같은 라벨로 뭉개짐. **결정: home 아래는 `~/...` 축약, 그 외는 절대 경로** (`formatCwd` in `apps/app/src/lib/session-ux.ts` — daemon 이 home 경로를 전송 안 하므로 POSIX 관례 `/Users/<n>`·`/home/<n>`·`/root` 로 prefix 추론). 같은 Sessions 화면 adversarial 감사에서 부수로 발견한 2건(edit-mode `selectedCount` push-race 과다 카운트, edit-mode 체크박스 a11y 시각 누락)도 동반 수정. PR #586, live dogfood PASS (실세션 6개 `~/Projects/github.com/teleprompter` 렌더 확인). 회귀: `e2e/app-session-row-cwd-display.spec.ts` + `e2e/app-session-row-edit-time-accessible-name.spec.ts`.
 
 ### Voice
 - [ ] `VoiceButton`이 iOS/Android에서 `null` 반환 — 네이티브 오디오 캡처/재생 미구현 (expo-av 등 필요)

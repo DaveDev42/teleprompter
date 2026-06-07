@@ -1533,7 +1533,9 @@ describe("FrontendRelayClient — pending-encrypted queue", () => {
     ws.simulateMessage({ t: "relay.auth.ok", daemonId: "daemon-test" });
     await settleAuthPipeline(3);
 
-    const allPubs = ws.parsedSent().filter((m) => m.t === "relay.pub") as Array<{
+    const allPubs = ws
+      .parsedSent()
+      .filter((m) => m.t === "relay.pub") as Array<{
       t: string;
       sid: string;
       ct: string;

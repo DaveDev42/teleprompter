@@ -715,10 +715,7 @@ export default function SessionsScreen() {
           {...(Platform.OS === "web" ? { role: "list" as const } : {})}
           accessibilityRole="list"
           refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-            />
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
           }
         >
           <View
@@ -772,10 +769,7 @@ export default function SessionsScreen() {
       ) : Platform.OS === "web" ? (
         <ScrollView
           refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-            />
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
           }
         >
           <View role="list" nativeID="sessions-list">

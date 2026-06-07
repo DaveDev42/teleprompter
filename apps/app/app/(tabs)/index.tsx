@@ -5,6 +5,7 @@ import {
   FlatList,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   Text,
   TextInput,
@@ -12,6 +13,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ConfirmDeleteSessionsModal } from "../../src/components/ConfirmDeleteSessionsModal";
+import { refreshSessionList } from "../../src/hooks/use-relay";
 import { ariaLevel, getPlatformProps } from "../../src/lib/get-platform-props";
 import { useNotificationStore } from "../../src/stores/notification-store";
 import { useSessionStore } from "../../src/stores/session-store";
@@ -275,6 +277,32 @@ export default function SessionsScreen() {
   const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
   const searchRef = useRef<TextInput>(null);
 
+  // ── Pull-to-refresh / manual refresh ──
+  // The session list is push-driven (the daemon publishes `hello`/`state` to
+  // the relay). `refreshSessionList()` asks every connected daemon to re-send
+  // its full list; the reply flows back through onSessionList → setSessions.
+  // We can't observe when that reply lands, so we just spin briefly: long
+  // enough that the round-trip visibly completes, short enough not to feel
+  // stuck. If nothing is connected, clear immediately.
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleRefresh = () => {
+    const sent = refreshSessionList();
+    if (sent === 0) {
+      setRefreshing(false);
+      return;
+    }
+    setRefreshing(true);
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => setRefreshing(false), 1200);
+  };
+  useEffect(
+    () => () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    },
+    [],
+  );
+
   // ── Edit mode state (local scope — not persisted across tab switches) ──
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedSids, setSelectedSids] = useState<Set<string>>(new Set());
@@ -511,23 +539,36 @@ export default function SessionsScreen() {
               Sessions
             </Text>
 
-            <Pressable
-              onPress={enterEditMode}
-              accessibilityRole="button"
-              accessibilityLabel="Edit sessions"
-              tabIndex={pp.tabIndex}
-              className={pp.className}
-              testID="sessions-edit-button"
-              // aria-pressed: communicates that this toggle button controls
-              // an edit mode that's currently inactive. APG Button Pattern.
-              {...(Platform.OS === "web"
-                ? ({
-                    "aria-pressed": false,
-                  } as object)
-                : {})}
-            >
-              <Text className="text-tp-accent text-base">Edit</Text>
-            </Pressable>
+            <View className="flex-row items-center gap-4">
+              <Pressable
+                onPress={handleRefresh}
+                accessibilityRole="button"
+                accessibilityLabel="Refresh sessions"
+                tabIndex={pp.tabIndex}
+                className={pp.className}
+                testID="sessions-refresh-button"
+              >
+                <Text className="text-tp-accent text-xl">↻</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={enterEditMode}
+                accessibilityRole="button"
+                accessibilityLabel="Edit sessions"
+                tabIndex={pp.tabIndex}
+                className={pp.className}
+                testID="sessions-edit-button"
+                // aria-pressed: communicates that this toggle button controls
+                // an edit mode that's currently inactive. APG Button Pattern.
+                {...(Platform.OS === "web"
+                  ? ({
+                      "aria-pressed": false,
+                    } as object)
+                  : {})}
+              >
+                <Text className="text-tp-accent text-base">Edit</Text>
+              </Pressable>
+            </View>
           </>
         )}
       </View>
@@ -658,11 +699,27 @@ export default function SessionsScreen() {
         // still find `role="list"` on the Sessions screen. The empty
         // CTA sits visually inside it; AT will announce the list as
         // having zero items.
-        <View
-          className="flex-1 items-center justify-center pt-40"
+        // A bare View can't host RefreshControl, so the empty branch is a
+        // ScrollView whose content fills+centers the CTA. Pull-to-refresh
+        // therefore works even when zero sessions are showing (the common
+        // case the user hit: list stale-empty after a resume reconnect).
+        <ScrollView
+          className="flex-1"
+          contentContainerStyle={{
+            flexGrow: 1,
+            alignItems: "center",
+            justifyContent: "center",
+            paddingTop: 160,
+          }}
           nativeID="sessions-list"
           {...(Platform.OS === "web" ? { role: "list" as const } : {})}
           accessibilityRole="list"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+            />
+          }
         >
           <View
             className="w-16 h-16 rounded-2xl bg-tp-bg-secondary items-center justify-center mb-6"
@@ -711,9 +768,16 @@ export default function SessionsScreen() {
               </Text>
             </Pressable>
           )}
-        </View>
+        </ScrollView>
       ) : Platform.OS === "web" ? (
-        <ScrollView>
+        <ScrollView
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+            />
+          }
+        >
           <View role="list" nativeID="sessions-list">
             {filteredSessions.map((item) => (
               <View key={item.sid} role="listitem">
@@ -734,6 +798,9 @@ export default function SessionsScreen() {
           data={filteredSessions}
           keyExtractor={(item) => item.sid}
           accessibilityRole="list"
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
           renderItem={({ item }) => (
             <SessionRow
               session={item}

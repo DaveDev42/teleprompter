@@ -401,7 +401,14 @@ bump는 cloud-unsafe라 금지.**
   RSS 37.0→30.6MB 범위 29.7~37.0MB (**상승 추세 없음 = 누수 없음**), idle/wake **5/5**
   (95s hold > relay 90s idle, daemon ping이 idle close 차단 실증), relay drop 카운터
   (rate/daemon/backpressure/oversized/authTimeout/eviction) **전부 0**, hard failures **0**.
-  → **고성능 Mac은 Q6 건너뜀** (중복 불필요).
+  → 원래 **고성능 Mac은 Q6 건너뜀** (머신 사양 무관 항목, 중복 불필요)이었으나,
+  아래 재실측으로 한 번 더 확인.
+- **re-verify**: **PASS 2026-06-07** (이 64GB M1 Max Mac, `scripts/soak.ts --minutes 60 --json`,
+  실 daemon pid 19826 추적). 60 라운드 × {reconnect 100, rtt 100}: reconnect **6000/6000**
+  (connect p95 ≤4.0ms), frame round-trip **6000/6000** (rtt p95 ≤1.5ms), RSS 66.0→64.0MB
+  (peak 66.0MB, Δ **−3%** = 누수 없음), idle/wake **5/5** (95s hold > relay 90s idle —
+  daemon stale→offline 후 정상 reconnect, sub-ms wake), relay drop 카운터 전부 **0**,
+  hard failures **0**. → `SOAK PASS`.
 
 ### Q7. Windows under WSL — install.sh 풀 사이클
 

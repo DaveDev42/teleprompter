@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { SessionMeta, SessionState } from "@teleprompter/protocol/client";
 import {
   deriveInputGates,
+  formatCwd,
   isSessionRunning,
   isSessionStopped,
 } from "./session-ux";
@@ -101,5 +102,67 @@ describe("deriveInputGates", () => {
       isEditable: true,
       canSend: true,
     });
+  });
+});
+
+describe("formatCwd", () => {
+  test("macOS home subpath is abbreviated with ~", () => {
+    expect(formatCwd("/Users/dave/Projects/teleprompter")).toBe(
+      "~/Projects/teleprompter",
+    );
+  });
+
+  test("macOS home root itself collapses to ~", () => {
+    expect(formatCwd("/Users/dave")).toBe("~");
+  });
+
+  test("trailing slash on home root still collapses to ~", () => {
+    expect(formatCwd("/Users/dave/")).toBe("~");
+  });
+
+  test("Linux /home subpath is abbreviated with ~", () => {
+    expect(formatCwd("/home/alice/code/app")).toBe("~/code/app");
+  });
+
+  test("Linux root user /root is abbreviated with ~", () => {
+    expect(formatCwd("/root/work")).toBe("~/work");
+    expect(formatCwd("/root")).toBe("~");
+  });
+
+  test("non-home absolute paths are shown verbatim", () => {
+    expect(formatCwd("/tmp")).toBe("/tmp");
+    expect(formatCwd("/tmp/dogfood-offline")).toBe("/tmp/dogfood-offline");
+    expect(formatCwd("/var/folders/xyz")).toBe("/var/folders/xyz");
+  });
+
+  test("a path that merely contains /Users/ mid-string is not abbreviated", () => {
+    // The prefix must anchor at the start — a worktree mount under /mnt must
+    // not be falsely collapsed.
+    expect(formatCwd("/mnt/Users/dave/proj")).toBe("/mnt/Users/dave/proj");
+  });
+
+  test("prefix-only false match is rejected (/Usersfoo is not /Users/<name>)", () => {
+    expect(formatCwd("/Usersfoo/bar")).toBe("/Usersfoo/bar");
+    expect(formatCwd("/homer/simpson")).toBe("/homer/simpson");
+  });
+
+  test("trailing slash on a non-home path is stripped", () => {
+    expect(formatCwd("/tmp/x/")).toBe("/tmp/x");
+  });
+
+  test("bare root slash is preserved", () => {
+    expect(formatCwd("/")).toBe("/");
+  });
+
+  test("empty cwd falls back to sid then 'Session'", () => {
+    expect(formatCwd("", "abc123")).toBe("abc123");
+    expect(formatCwd(undefined, "abc123")).toBe("abc123");
+    expect(formatCwd("   ", "abc123")).toBe("abc123");
+    expect(formatCwd("")).toBe("Session");
+    expect(formatCwd(undefined)).toBe("Session");
+  });
+
+  test("whitespace-only cwd is treated as empty", () => {
+    expect(formatCwd("  /Users/dave/x  ")).toBe("~/x");
   });
 });

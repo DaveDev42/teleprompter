@@ -174,9 +174,24 @@ bump는 cloud-unsafe라 금지.**
   ```
 - **pass**: 잠금화면 push 도착 + 사운드 + 탭하면 올바른 세션으로 navigate. foreground에서는 system
   push 억제되고 in-app toast(5s auto-dismiss). dedup(60s 내 1건), rate limit(분당 ≤5).
-- **result**: **BLOCKED 2026-06-06 — daemon push path 100% 검증됨, production relay가 stale
-  바이너리라 `relay.push`를 거부 → 서버측 systemd 수정(SSH) 필요.** 빌드+설치+페어링+push token
-  등록+E2EE 왕복은 전부 통과. 진짜 차단은 **앱이 아니라 production relay**다.
+- **result**: **PASS 2026-06-07 (build #59, sealed Path X #579 `33b8375` — end-to-end APNs 실기기 도착 확인).**
+  iPhone 15 Pro(`FFB34007-…`)에 #579 sealed-token dev build(`dev.tpmt.app` v0.1.19 **build 59**,
+  `/tmp/teleprompter-dev-579.ipa`)를 `xcrun devicectl device install`로 설치 → 앱을 열어 relay 재연결 →
+  daemon 로그에 **`[PushNotifier] registered sealed push token for frontend 24f0d6fc… (ios)`** 확인
+  (Path X: 앱이 cleartext `relay.push.register` → relay가 `tpps1.` blob으로 seal → daemon은 sealed만
+  보관, plaintext 0 접촉). `Notification` Record를 `daemon.sock`(wire v2)에 주입해 production push path를
+  구동: daemon `notify-eligible event ... tokens=1` → `sending push notification ... level=time-sensitive`
+  (sealed blob 발신, 더 이상 plaintext `token` 아님). relay는 `relay.push`를 수락·unseal·Expo Push 호출
+  **에러 0건** (`Unknown message type` / `PUSH_UNSEAL_FAILED` 없음, `/health` `unknownTypeDrops=0`,
+  buildSha `33b8375`). **Dave 실기기 육안 확인: 잠금화면 push 도착 + 사운드 + (time-sensitive) — Q1 통과.**
+  이로써 진짜 경로 `hook→push-notifier→relay→unseal→Expo Push→APNs→iPhone`의 끝단이 sealed Path X로
+  실증됐다.
+
+  ---
+
+  **History — 2026-06-06 BLOCKED (stale production relay, 이후 #572로 해소):** daemon push path 100%
+  검증됐으나 production relay가 stale 바이너리라 `relay.push`를 거부했었다. 빌드+설치+페어링+push token
+  등록+E2EE 왕복은 전부 통과. 진짜 차단은 **앱이 아니라 production relay**였다.
 
   **검증 경로 (synthetic injection):** iPhone 15 Pro를 production relay(`wss://relay.tpmt.dev`)로
   페어링하고 push token이 daemon에 등록됨을 확인(`[PushNotifier] registered push token`,
@@ -243,6 +258,13 @@ bump는 cloud-unsafe라 금지.**
   검증 불가. 추가로 폰의 앱(build 58)은 Path X 이전 빌드라 새 `relay.push.register` 이중 전송을
   안 함 — sealed 경로 end-to-end 까지 보려면 #579 이후 dev build 재설치가 필요(back-compat plaintext
   경로는 build 58 로도 검증 가능).
+
+  **재순회 2026-06-07 (2차, `/verify-native Q1` — PASS, 한 겹 해소):** 위 "남은 한 겹"을 닫았다.
+  #579 sealed dev build를 로컬에서 굽고(`/tmp/teleprompter-dev-579.ipa`) iPhone 15 Pro에 build 59로
+  설치 → Dave가 앱을 직접 열어 relay 재연결·token 재등록(`registered sealed push token … 24f0d6fc…`,
+  `tokens=1`) → `Notification` injection으로 push 발사 → daemon `sending push notification …
+  level=time-sensitive`(sealed) → relay 수락·unseal·Expo Push **에러 0** → **잠금화면 push가 폰에 도착**
+  (Dave 육안 확인). 맨 위 result 줄로 승격. JDK 26은 끝까지 Q1 게이트가 아니었다(iOS 실기기 push).
 
 ### Q2. iOS 실기기 — keychain / 백그라운드 사이클 / audio
 

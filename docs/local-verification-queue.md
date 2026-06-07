@@ -273,7 +273,24 @@ bump는 cloud-unsafe라 금지.**
   App Switcher background→foreground 왕복 시 relay 재연결 배너 정상, (VoiceButton 네이티브 구현 후)
   audio capture. 현재 `VoiceButton`은 네이티브에서 `null` 반환(TODO) — audio는 구현 전까지 `N/A`.
 - **pass**: 앱 강제종료 후 재실행에도 페어링 살아있음. background 진입 후 복귀 시 reconnect.
-- **result**: **PARTIAL 2026-06-06 — 빌드+설치 완료, 라이프사이클 거동은 사용자 디버깅 대기.**
+- **result**: **PASS 2026-06-07 (build #59, sealed Path X #579 `33b8375` — keychain 영속 + bg→fg 재연결 실기기 확인).**
+  iPhone 15 Pro(`FFB34007-…`)의 build 59에서 Dave가 라이프사이클 거동을 직접 조작·확인:
+  - **Test 1 (keychain 영속성):** App Switcher로 앱 **강제종료 후 콜드 런치** → 재페어링 없이 Daemons
+    목록의 페어링이 그대로 복원됨(expo-secure-store/Keychain). Dave 육안 확인 = 페어링 유지. (콜드 런치는
+    로컬 Keychain의 페어링 목록을 먼저 렌더하므로 daemon 측 재연결 로그는 이 단계에서 필수 아님 — 영속성
+    SoT는 frontend의 페어링 복원.)
+  - **Test 2 (background→foreground 재연결):** 홈 제스처로 백그라운드 → ~15s 대기 → 앱 복귀 시 relay
+    재연결. **daemon 로그 교차 확인:** `[RelayClient] key exchange completed with frontend 24f0d6fc…` +
+    `[PushNotifier] registered sealed push token … 24f0d6fc… (ios)` (재연결 후 kx 재수행 + sealed token
+    재등록). Dave 육안 = 재연결됨.
+  - **Test 3 (audio):** `VoiceButton` 네이티브 미구현 → `N/A`.
+
+  빌드+설치는 Q1과 동일 빌드(build 59)로 충족. 마지막 물리·인간 게이트(강제종료·App Switcher 조작)를
+  닫아 PARTIAL → PASS.
+
+  ---
+
+  **History — PARTIAL 2026-06-06 (빌드+설치 완료, 라이프사이클은 사용자 디버깅 대기):**
   Q1과 동일하게 빌드 차단은 해소됐다: 같은 `.ipa`가 iPhone 15 Pro에 설치됐다 (위 "iOS `eas build
   --local` — `.ipa` 로컬 빌드 성공" — 과거 abort는 외부 SIGTERM/H2 오진). 남은 한 겹: keychain
   저장·복원 / background→foreground relay 재연결은 앱 강제종료·App Switcher 같은 **실기기

@@ -64,6 +64,25 @@ export function getRelayClients(): readonly FrontendRelayClient[] {
 }
 
 /**
+ * Ask every connected daemon to re-send its session list. Backs the Sessions
+ * tab's manual refresh / pull-to-refresh. Each connected client sends a `hello`
+ * control message; the daemon answers with a fresh `hello` snapshot (full
+ * session list) via `publishToPeer`, which flows back through `onSessionList`
+ * → `setSessions`. Returns the number of clients the request was sent to so
+ * callers can short-circuit the spinner when nothing is connected.
+ */
+export function refreshSessionList(): number {
+  let sent = 0;
+  for (const client of activeRelayClients) {
+    if (client.isConnected()) {
+      client.requestSessionList();
+      sent++;
+    }
+  }
+  return sent;
+}
+
+/**
  * Hook that manages E2EE relay connections for all paired daemons.
  * Should be called once at the app layout level.
  */

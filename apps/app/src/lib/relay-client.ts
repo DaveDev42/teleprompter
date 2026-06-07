@@ -437,6 +437,15 @@ export class FrontendRelayClient implements TransportClient {
         // generation. Firing onConnected after kx means the first frame
         // any subscriber can send is one the daemon can decrypt.
         this.events.onConnected?.();
+        // Catch-up the Sessions list on every (re)connect. The kx-triggered
+        // daemon `onFrontendJoined` hello only fires on a *fresh* kx, but a
+        // resume reconnect skips kx (see the `if (!resumed)` guard above), so
+        // without this an already-paired phone that backgrounded/foregrounded
+        // would never learn about sessions created while it was away (the
+        // relay's 10-frame META cache replay is lossy). An explicit `hello`
+        // control message makes the daemon re-publish its full list directly
+        // to us — deterministic, not cache-dependent.
+        this.requestSessionList();
         // Begin relay-level keep-alive pings so we notice a dead network
         // before the relay's 90s idle timeout.
         this.startRelayPing();
@@ -911,6 +920,22 @@ export class FrontendRelayClient implements TransportClient {
   }
 
   // ── TransportClient: Session management ──
+
+  /**
+   * Ask the daemon to (re)send its full session list. The daemon's
+   * `dispatchRelayControl` answers a `hello` control message by publishing a
+   * fresh `hello` (full session list + daemonLabel) directly to this frontend
+   * via `publishToPeer` — a targeted, non-cached delivery, so unlike replaying
+   * the relay's lossy 10-frame META cache it can't miss the snapshot.
+   *
+   * Sent on every (re)connect (see the `onConnected` wiring in `connect()`) so
+   * a resume reconnect — which skips kx and therefore never re-triggers the
+   * daemon's `onFrontendJoined` hello — still gets an authoritative refresh.
+   * Also backs the Sessions tab's manual refresh / pull-to-refresh.
+   */
+  requestSessionList(): void {
+    this.sendEncrypted({ t: "hello", v: 1 });
+  }
 
   createSession(
     cwd: string,

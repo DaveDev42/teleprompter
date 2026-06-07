@@ -178,6 +178,7 @@ export default defineConfig({
         "app-pairing-error-clears-on-edit.spec.ts",
         "app-settings-row-testids.spec.ts",
         "app-session-row-testids.spec.ts",
+        "app-sessions-refresh.spec.ts",
       ],
     },
     {

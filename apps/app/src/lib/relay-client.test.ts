@@ -340,6 +340,32 @@ function expectPub(
   return pub as { t: string; sid: string; ct: string; seq: number };
 }
 
+/**
+ * Find and decrypt the __control__ frame whose decrypted message type matches
+ * `expectedType`. Needed because the connect flow now also publishes a `hello`
+ * catch-up on the control channel, so a positional `.find()` is ambiguous.
+ */
+async function findDecodedControl(
+  ws: MockWebSocket,
+  rxKey: Uint8Array,
+  expectedType: string,
+  // biome-ignore lint/suspicious/noExplicitAny: decoded JSON is intentionally untyped
+): Promise<any> {
+  const pubs = ws
+    .parsedSent()
+    .filter(
+      (m) =>
+        m.t === "relay.pub" && (m as { sid?: string }).sid === "__control__",
+    ) as Array<{ ct: string }>;
+  for (const pub of pubs) {
+    const decoded = JSON.parse(
+      new TextDecoder().decode(await decrypt(pub.ct, rxKey)),
+    );
+    if (decoded.t === expectedType) return decoded;
+  }
+  throw new Error(`no __control__ frame with t=${expectedType}`);
+}
+
 // ── Shared fixtures ─────────────────────────────────────────────────────────
 
 let realWebSocket: typeof globalThis.WebSocket;
@@ -1279,16 +1305,11 @@ describe("FrontendRelayClient — outbound encrypted senders", () => {
     await client.sendUnpairNotice("user-initiated");
     await flushPromises();
 
-    const pub = ws
-      .parsedSent()
-      .find(
-        (m) =>
-          m.t === "relay.pub" && (m as { sid?: string }).sid === "__control__",
-      ) as { ct: string } | undefined;
-    expect(pub).toBeDefined();
-
-    const pt = await decrypt(pub!.ct, p.daemonRx);
-    const decoded = JSON.parse(new TextDecoder().decode(pt));
+    // The connect flow also emits a `hello` catch-up on __control__ (resume
+    // session-list refresh), so find the control frame whose decrypted type
+    // is the unpair notice rather than assuming it's the first.
+    const decoded = await findDecodedControl(ws, p.daemonRx, CONTROL_UNPAIR);
+    expect(decoded).toBeDefined();
     expect(decoded.t).toBe(CONTROL_UNPAIR);
     expect(decoded.daemonId).toBe("daemon-test");
     expect(decoded.frontendId).toBe("frontend-test");
@@ -1305,20 +1326,46 @@ describe("FrontendRelayClient — outbound encrypted senders", () => {
     await client.sendRenameNotice("iPhone 17");
     await flushPromises();
 
-    const pub = ws
-      .parsedSent()
-      .find(
-        (m) =>
-          m.t === "relay.pub" && (m as { sid?: string }).sid === "__control__",
-      ) as { ct: string } | undefined;
-    expect(pub).toBeDefined();
-
-    const pt = await decrypt(pub!.ct, p.daemonRx);
-    const decoded = JSON.parse(new TextDecoder().decode(pt));
+    // The connect flow also emits a `hello` catch-up on __control__, so find
+    // the rename frame by decrypted type rather than position.
+    const decoded = await findDecodedControl(ws, p.daemonRx, CONTROL_RENAME);
+    expect(decoded).toBeDefined();
     expect(decoded.t).toBe(CONTROL_RENAME);
     // The wire field is the `Label` tagged union — sendRenameNotice wraps the
     // string arg with makeLabel before encrypting.
     expect(decoded.label).toEqual({ set: true, value: "iPhone 17" });
+    client.dispose();
+  });
+
+  test("requestSessionList sends an encrypted hello control message", async () => {
+    const p = await setupPairing();
+    const client = new FrontendRelayClient(makeConfig(p));
+    const ws = await authenticate(client);
+
+    client.requestSessionList();
+    await flushPromises();
+
+    // The daemon answers a `hello` control message with a fresh full session
+    // list (dispatchRelayControl → publishToPeer on __meta__). Assert the
+    // frontend actually emits that `hello` (on the default control channel).
+    const decoded = await findDecodedControl(ws, p.daemonRx, "hello");
+    expect(decoded).toEqual({ t: "hello", v: 1 });
+    client.dispose();
+  });
+
+  test("connect flow auto-requests the session list (resume catch-up)", async () => {
+    // A resume reconnect skips kx, so the daemon's kx-triggered onFrontendJoined
+    // hello never re-fires. The client must proactively request the list on
+    // every (re)connect — otherwise a backgrounded phone never learns about
+    // sessions started while it was away. Assert authenticate() alone (no
+    // explicit requestSessionList call) produces a `hello` on the wire.
+    const p = await setupPairing();
+    const client = new FrontendRelayClient(makeConfig(p));
+    const ws = await authenticate(client);
+    await flushPromises();
+
+    const decoded = await findDecodedControl(ws, p.daemonRx, "hello");
+    expect(decoded).toEqual({ t: "hello", v: 1 });
     client.dispose();
   });
 
@@ -1427,7 +1474,14 @@ describe("FrontendRelayClient — pending-encrypted queue", () => {
     ws.simulateMessage({ t: "relay.auth.ok", daemonId: "daemon-test" });
     await settleAuthPipeline(cap);
 
-    const pubs = ws.parsedSent().filter((m) => m.t === "relay.pub") as Array<{
+    // Exclude the `hello` session-list catch-up the connect flow publishes on
+    // __control__ — only the queued chat frames (sid s0..) are under test here.
+    const pubs = ws
+      .parsedSent()
+      .filter(
+        (m) =>
+          m.t === "relay.pub" && (m as { sid?: string }).sid?.startsWith("s"),
+      ) as Array<{
       sid: string;
       ct: string;
     }>;
@@ -1479,11 +1533,16 @@ describe("FrontendRelayClient — pending-encrypted queue", () => {
     ws.simulateMessage({ t: "relay.auth.ok", daemonId: "daemon-test" });
     await settleAuthPipeline(3);
 
-    const pubs = ws.parsedSent().filter((m) => m.t === "relay.pub") as Array<{
+    const allPubs = ws
+      .parsedSent()
+      .filter((m) => m.t === "relay.pub") as Array<{
       t: string;
       sid: string;
       ct: string;
     }>;
+    // The connect flow also publishes a `hello` session-list catch-up on
+    // __control__ after the queue drains; the three queued frames come first.
+    const pubs = allPubs.slice(0, 3);
     expect(pubs.length).toBe(3);
 
     // Channel routing is preserved: push-token goes to __meta__, the two
@@ -2122,8 +2181,12 @@ describe("FrontendRelayClient — sendPushTokenForSeal (Path X)", () => {
     const { FrontendRelayClient } = await import("./relay-client");
     const client = new FrontendRelayClient(cfg);
 
-    // Connect but do NOT open the socket → readyState stays CONNECTING
-    void client.connect();
+    // Connect but do NOT open the socket → readyState stays CONNECTING.
+    // `connect()` is async (it awaits deriveSessionKeys before constructing
+    // the WebSocket), so await it to guarantee the MockWebSocket exists before
+    // we read it — otherwise this depends on prior tests having populated
+    // MockWebSocket.instances (test-ordering pollution).
+    await client.connect();
     const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1]!;
     // ws.readyState is CONNECTING, not OPEN
 

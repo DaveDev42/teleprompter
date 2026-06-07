@@ -50,6 +50,14 @@ export interface TransportClient {
   send(msg: SessionClientMessage): void;
 
   // ── Session management ──
+  /**
+   * Ask the daemon to (re)send its full session list. The daemon replies with
+   * a `hello` frame on RELAY_CHANNEL_META carrying every session it knows.
+   * Used both as a resume catch-up (the kx-triggered `onFrontendJoined` hello
+   * does not re-fire on a resume reconnect) and to back a manual refresh /
+   * pull-to-refresh in the UI.
+   */
+  requestSessionList(): void;
   createSession(
     cwd: string,
     sid?: string,

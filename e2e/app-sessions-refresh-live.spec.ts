@@ -75,7 +75,17 @@ test.describe("P0 — Sessions refresh (live)", () => {
 
     // 3. Press the manual Refresh button — this fires requestSessionList(),
     //    which makes the daemon re-publish its full list.
-    await page.getByTestId("sessions-refresh-button").click();
+    const refresh = page.getByTestId("sessions-refresh-button");
+    await refresh.click();
+
+    // 3a. The in-flight refresh announces aria-busy=true to assistive tech for
+    //     the ~1.2s spin, then settles back to false. With a daemon connected
+    //     `sent > 0`, so handleRefresh sets refreshing=true (unlike the
+    //     daemon-free CI spec, which short-circuits at sent===0). WCAG 4.1.2.
+    await expect(refresh).toHaveAttribute("aria-busy", "true");
+    await expect(refresh).toHaveAttribute("aria-busy", "false", {
+      timeout: 5_000,
+    });
 
     // 4. The new session reconciles into the list.
     await expect(page.locator("text=refresh-live-b")).toBeVisible({

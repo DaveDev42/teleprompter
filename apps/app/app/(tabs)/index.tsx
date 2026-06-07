@@ -557,9 +557,18 @@ export default function SessionsScreen() {
                 onPress={handleRefresh}
                 accessibilityRole="button"
                 accessibilityLabel="Refresh sessions"
+                accessibilityState={{ busy: refreshing }}
                 tabIndex={pp.tabIndex}
                 className={pp.className}
                 testID="sessions-refresh-button"
+                // aria-busy: announce the in-flight refresh to AT during the
+                // ~1.2s spin. RN Web doesn't translate accessibilityState.busy
+                // to aria-busy on Pressable (it only does so on native
+                // components), so spread it explicitly on web. The native
+                // accessibilityState.busy above covers iOS/Android. WCAG 4.1.2.
+                {...(Platform.OS === "web"
+                  ? ({ "aria-busy": refreshing } as object)
+                  : {})}
               >
                 <Text className="text-tp-accent text-xl">↻</Text>
               </Pressable>

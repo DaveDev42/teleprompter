@@ -474,6 +474,30 @@ bump는 cloud-unsafe라 금지.**
   못해 실패했다. #577은 노이즈를 **소스(바인딩 시점)**에서 필터링하고 libsodium require 전에 설치하는
   것으로 두 원인을 모두 제거했다 — on-device 확인만 남았다.
 
+### Q9. libsodium init unhandled rejection — 네이티브 Hermes 트래커 재등록 fix
+
+- **prereq**: dev build 실기기 + Metro dev-client(`apps/app/.expo/dev/logs/start.log`). 앱이 부팅해
+  daemon 에 reconnect → ECDH/세션 복호화로 `ensureSodium()`(libsodium init)을 트리거하면 충분.
+- **command**: 앱을 콜드 런치해 첫 crypto 를 트리거하고, baseline byte offset 이후 `start.log` 신규
+  라인에서 `WebAssembly.RuntimeError` / `Aborted(` / `Cannot assign to read-only property` /
+  `Uncaught (in promise` 4개 시그니처를 grep. Fast Refresh(소스 변경)로 모듈을 재실행한 뒤에도
+  동일 검사를 반복(트래커가 reload 에 clobber 되는지 검증).
+- **pass**: 네 시그니처 모두 **0건** (fresh launch + Fast Refresh 후 모두). genuine rejection 은 그대로
+  LogBox/console 로 surface 돼야 함(과잉 묵음 금지).
+- **result**: **PASS 2026-06-08 (PR #591 `11404fd`, A/B on-device 결정 검증).**
+  iPhone 15 Pro, Metro :8081 dev-client. **트래커 재등록 빌드**(머지된 mechanism —
+  `HermesInternal.enablePromiseRejectionTracker` last-call-wins 재호출, `onUnhandled` 가
+  `isLibsodiumInitRejection` 만 drop, 나머지는 `ExceptionsManager` 로 위임): fresh launch = 네 시그니처
+  **0/0/0/0**, Fast Refresh(소스 변경으로 HMR 재실행, 릴레이 reconnect→ECDH 재실행 동반) 후에도 **0/0/0/0**
+  → 트래커가 reload 에 clobber 되지 않음을 입증. **대조군 `RN$handleException` 빌드**(workflow
+  `wf_0f537a63-980` 가 선택한 sink-filter fix 를 verbatim 적용): 같은 기기에서 콜드 런치 시
+  `[client:error] Uncaught (in promise, id: 0) WebAssembly.RuntimeError: Aborted(Error: WebAssembly is
+  not available on this runtime)...` 가 **leak (1건)** — RN 0.85.3 New Arch 에서 `global.RN$handleException`
+  는 native `defineReadOnlyGlobal` 로 박힌 read-only 슬롯이라 JS 재할당이 **silent no-op** 이기 때문.
+  ⇒ workflow 의 verdict("RN$handleException sink 유지, 트래커 재등록 거부")는 **틀렸다** — stale commit
+  body(91b50b5 pre-fix)를 근거로 삼았고 `RN$handleException` 가 writable 이라는 전제가 온디바이스에서
+  반증됨. 머지된 트래커 fix 가 정답으로 확정.
+
 ---
 
 ## 실행 규약 (커맨드가 따르는 규칙)

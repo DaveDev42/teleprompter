@@ -105,6 +105,13 @@ frontmatter가 `model: inherit`이라 미명시 시 부모 Opus 상속.
   로컬 QA 는 항상 `app-web-qa` (RN Web). `expo-mcp:qa` / Simulator / Maestro 는
   일상 작업에서는 띄우지 않는다 (JDK/Maestro 부수 비용 — "iOS 빌드 & 검증 워크플로우" 참조).
 
+**워크플로우/서브에이전트 BRIEF 에 *미검증 과거 서술*을 ground truth 로 박지 말 것.**
+commit/PR body·이전 세션 서술은 hearsay — agent 가 HEAD 워킹트리 실파일을 직접 읽어
+file:line 으로 재확인하게 시킨다. `"do not re-derive"` 류 재검증 금지 레버 금지 (과거에
+stale commit body 를 HEAD 로 오인 + 재검증 금지 → 워크플로우가 올바른 fix 를 오기각).
+fix-탐색 워크플로우는 가드가 구조에 박힌 `.claude/workflows/fact-grounded-fix.js`
+(`scriptPath` 호출) 를 기본값으로. 상세는 `.claude/rules/workflow-authoring.md`.
+
 ## Testing Strategy
 
 4계층 테스트, 모두 `bun:test` 사용 (Tier 4 로컬 QA 기본값은 RN Web + Playwright MCP — Simulator/Maestro 는 일상 작업에서 생략, 필요 시 `/verify-native` 큐 참조).

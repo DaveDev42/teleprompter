@@ -53,12 +53,13 @@
  * our re-register from the app entry (`apps/app/index.ts` line 1) lands last and
  * wins. Our `onUnhandled` drops EXACTLY the libsodium-init rejection (matched by
  * `isLibsodiumInitRejection`) and delegates every other rejection to a faithful
- * copy of the default report — `ExceptionsManager.handleException(new Error(
- * 'Uncaught (in promise…)', { cause: rejection }), false)` — the same
- * `react-native/Libraries/Core/ExceptionsManager` Expo's own tracker delegates
- * to. This survives all three prior failure modes: it never reassigns a
- * read-only property, it runs last (so it is not overwritten), and it filters AT
- * the tracker rather than at the sealed `RN$handleException` sink.
+ * copy of the default report — `new Error('Uncaught (in promise…)',
+ * { cause: rejection })` routed through the public `global.ErrorUtils.reportError`
+ * polyfill, which RN wires to `ExceptionsManager.handleException`
+ * (`setUpErrorHandling.js`) — so it reaches the identical native sink WITHOUT a
+ * deprecated deep import. This survives all three prior failure modes: it never
+ * reassigns a read-only property, it runs last (so it is not overwritten), and it
+ * filters AT the tracker rather than at the sealed `RN$handleException` sink.
  *
  * Test design: bun's test runner hard-fails on ANY raw unhandled rejection
  * (Hermes' tracker only observes the promise; it does not engine-level-handle it),
@@ -74,16 +75,15 @@
  *      replacing the prior "Expo" registration) drops the libsodium rejection via
  *      its `onUnhandled` and DELEGATES every other rejection to the RN exception
  *      sink (proving we do not swallow genuine errors). We stub
- *      `react-native/Libraries/Core/ExceptionsManager` so the delegated reports
- *      are observable without pulling in the whole RN runtime.
+ *      `global.ErrorUtils.reportError` so the delegated reports are observable
+ *      without pulling in the whole RN runtime.
  * The synthesized rejection's name+message are lifted verbatim from running the
  * real CJS libsodium with `WebAssembly` deleted (see header). That crypto still
  * WORKS through the wasm2js fallback — the reason we swallow instead of crash — is
  * covered by the real-libsodium round-trips in `packages/protocol/src/crypto.test.ts`.
  *
- * This file mutates global console / WebAssembly / HermesInternal and stubs the RN
- * ExceptionsManager module, so it lives in its own test file per the repo's
- * global-mutation isolation rule.
+ * This file mutates global console / WebAssembly / HermesInternal / ErrorUtils,
+ * so it lives in its own test file per the repo's global-mutation isolation rule.
  */
 
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
@@ -105,21 +105,16 @@ type RejectionTrackerOptions = {
 };
 
 // Records every exception the polyfill's onUnhandled delegates to the RN sink.
-// The polyfill deep-imports `react-native/Libraries/Core/ExceptionsManager`; we
-// stub that module so genuine (non-libsodium) rejections are observable here
-// without dragging in the whole RN runtime.
+// The polyfill routes genuine (non-libsodium) rejections through the public
+// `global.ErrorUtils.reportError` polyfill (which RN wires to
+// `ExceptionsManager.handleException`); we install a stub ErrorUtils so those
+// reports are observable here without dragging in the whole RN runtime.
 const reportedToSink: unknown[] = [];
-mock.module("react-native/Libraries/Core/ExceptionsManager", () => ({
-  default: {
-    handleException: (e: unknown, _isFatal?: boolean) => {
-      reportedToSink.push(e);
-    },
-  },
-}));
 
 const g = globalThis as Record<string, unknown>;
 const originalWebAssembly = g["WebAssembly"];
 const originalHermesInternal = g["HermesInternal"];
+const originalErrorUtils = g["ErrorUtils"];
 const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;
 
@@ -142,6 +137,17 @@ describe("crypto-polyfill Hermes rejection swallow", () => {
   beforeAll(async () => {
     // Simulate Hermes: no native WebAssembly.
     delete (g as { WebAssembly?: unknown }).WebAssembly;
+
+    // Stub the public `global.ErrorUtils.reportError` polyfill — the sink the
+    // fixed polyfill routes genuine rejections through. On real RN this is wired
+    // to `ExceptionsManager.handleException`; here it just records what it gets so
+    // the delegation is observable. Must be installed BEFORE the polyfill import
+    // so the tracker's onUnhandled closes over a present ErrorUtils.
+    g["ErrorUtils"] = {
+      reportError: (e: unknown) => {
+        reportedToSink.push(e);
+      },
+    };
 
     // Model the REAL Hermes host object: `enablePromiseRejectionTracker` is a
     // NON-WRITABLE, NON-CONFIGURABLE property and the object is non-extensible.
@@ -197,6 +203,7 @@ describe("crypto-polyfill Hermes rejection swallow", () => {
   afterAll(() => {
     g["WebAssembly"] = originalWebAssembly;
     g["HermesInternal"] = originalHermesInternal;
+    g["ErrorUtils"] = originalErrorUtils;
     console.error = originalConsoleError;
     console.warn = originalConsoleWarn;
   });

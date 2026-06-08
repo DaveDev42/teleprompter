@@ -498,6 +498,35 @@ bump는 cloud-unsafe라 금지.**
   body(91b50b5 pre-fix)를 근거로 삼았고 `RN$handleException` 가 writable 이라는 전제가 온디바이스에서
   반증됨. 머지된 트래커 fix 가 정답으로 확정.
 
+### Q10. on-device 콘솔 시그니처 검증 도구 (expo-mcp `verify_on_device`) — false-clean 구조적 차단
+
+이 항목은 Q8/Q9 처럼 **손으로 `start.log` 을 tail** 하던 방식을 **expo-mcp 의 `verify_on_device`** 로
+대체한다. 핵심: 디바이스가 dev-server 번들이 아니라 **embedded FILE 번들** 로 폴백하면 `start.log` 의
+콘솔 출력이 깨끗한 실행과 byte 단위로 동일해져 `0/0/0/0/0` **false-clean** 이 난다 (Q9 의 wf_0f537a63
+오판도 같은 계열). 새 도구는 PASS 를 **file-bundle/stale/fix-미실행 디바이스가 충족할 수 없는** 전제에
+게이트한다 — CDP `/json/list` 의 non-synthetic Hermes 페이지 존재 + reload 전달 + **fresh post-reload
+execution context + nonce 왕복** + 캡처 ≥1 entry. 하나라도 실패하면 distinct reason 으로 `FAIL`
+(handler 가 `isError=(verdict!=='PASS')` 로 protocol-enforce), 절대 조용한 clean pass 가 안 난다.
+
+- **prereq**: expo-mcp PR(`feat: verify_on_device …`) 머지 + `pnpm build` 된 dist. 앱에 `[tp-app boot]`
+  boot-marker(이 chore PR) 가 들어가 있어야 `present` 시그니처로 캡처 윈도를 검증할 수 있다. dev build
+  실기기/Simulator 가 **dev-server 번들** 로 떠 있어야 한다 (FILE 번들이면 도구가 그걸 잡아 FAIL).
+- **command** (standing self-check 3종):
+  1. **POSITIVE (dev bundle)**: `start_session({target:'ios-simulator'})` → `verify_on_device({reload:true,
+     signatures:[5 standing + boot-marker present]})` → `verdict:'PASS'`, `fresh_execution_proved:true`.
+  2. **NEGATIVE (file bundle, 핵심)**: dev-server 프로젝트를 닫아 EXDevLauncher 가 embedded FILE 번들로
+     폴백하게 한 뒤 같은 호출 → `verdict:'FAIL'`, `reason:'device_not_on_dev_bundle'` (clean pass 가 아니어야
+     함 — 이게 Q9 false-clean 트랩이 loud FAIL 로 전환됐다는 증거).
+  3. **A/B dogfood (eae7590)**: pre-fix(`eae7590~1`) 에서 `deep-import-deprecation`(`Deep imports from the
+     'react-native' package are deprecated`) = `present` → `FAIL`; fixed(HEAD) 에서 = `absent` → `PASS`.
+     **양 leg 모두 `fresh_execution_proved:true`** 여야 "경고가 사라졌다" 가 false-clean 이 아님을 보장.
+- **pass**: 세 self-check 가 각각 PASS/FAIL/(FAIL→PASS) 로 기대대로 판정. 특히 NEGATIVE leg 가
+  `device_not_on_dev_bundle` FAIL 을 내야 게이트가 non-fakeable 임이 입증된다.
+- **result**: **PENDING — 도구 머지 후 dogfood 예정.** 순수-함수 레이어(`cdp-verify.ts`)는 18 assertion
+  self-check(`pnpm test`) 로 false-clean 게이트(empty page list → `device_not_on_dev_bundle`, stale →
+  `no_fresh_execution`, empty capture → `empty_capture`) 가 회귀 가드됨. on-device 3종은 도구가 main 에
+  머지되고 boot-marker 가 들어간 뒤 수행 → 결과를 여기 기록.
+
 ---
 
 ## 실행 규약 (커맨드가 따르는 규칙)

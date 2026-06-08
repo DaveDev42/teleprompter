@@ -115,6 +115,18 @@ interface GlobalWithCrypto {
 // Node have real WebAssembly, init succeeds quietly, and console is untouched.
 const gAny = globalThis as Record<string, unknown>;
 
+// Boot marker — the first console output the app emits, from its first-evaluated
+// module (apps/app/index.ts imports this before expo-router/entry). On-device
+// console verification (expo-mcp verify_on_device) asserts this line is PRESENT
+// in the post-reload capture window, proving the window actually observed the
+// runtime's output rather than vacuously passing every "absent" signature. Cheap,
+// dependency-free, and harmless in every runtime (Hermes / RN Web / Bun / Node).
+console.log(
+  `[tp-app boot] engine=${typeof gAny["HermesInternal"] !== "undefined" ? "hermes" : "other"} dev=${
+    typeof gAny["__DEV__"] !== "undefined" ? Boolean(gAny["__DEV__"]) : "?"
+  }`,
+);
+
 /**
  * True if a console line is libsodium/emscripten's expected wasm-init noise on
  * a runtime that falls back to wasm2js. Deliberately specific — it matches the

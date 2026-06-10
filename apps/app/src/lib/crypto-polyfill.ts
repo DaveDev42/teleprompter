@@ -88,9 +88,11 @@
  * entry), so by the time this module runs (`apps/app/index.ts` line 1) Expo's
  * tracker is already the live one. We re-register ONE more time, last, with an
  * `onUnhandled` that drops EXACTLY the libsodium-init rejection and delegates
- * every other rejection to a faithful copy of the default report
- * (`ExceptionsManager.handleException(new Error("Uncaught (in promise…)",
- * { cause: rejection }))`) — so genuine app rejections still surface in dev. In
+ * every other rejection to a faithful copy of the default report — wrapped as
+ * `new Error("Uncaught (in promise…)", { cause: rejection })` and routed through
+ * the public `global.ErrorUtils.reportError`, which RN wires to
+ * `ExceptionsManager.handleException` — so genuine app rejections still surface
+ * in dev (and reach the production crash reporter) without a deep import. In
  * a non-DEV build neither RN nor Expo registers a tracker, so our re-register is
  * a no-op; on non-Hermes runtimes there is no `enablePromiseRejectionTracker`,
  * so the block is skipped entirely.
@@ -240,23 +242,23 @@ if (typeof gAny["WebAssembly"] === "undefined") {
         // Drop EXACTLY the libsodium-init rejection; surface everything else.
         if (isLibsodiumInitRejection(rejection)) return;
         // Faithfully reproduce the default report so genuine rejections still
-        // reach LogBox / the dev console. This is the same module Expo's tracker
-        // uses (`@expo/metro-runtime`'s ExceptionsManager re-exports it), wrapping
-        // the reason the same way (`new Error("Uncaught (in promise…)", {cause})`).
+        // reach LogBox / the dev console, wrapping the reason the same way
+        // (`new Error("Uncaught (in promise…)", {cause})`) as RN's own tracker.
         try {
-          // Deep import: this is the canonical RN exception sink and exactly what
-          // Expo's own onUnhandled delegates to. Required because Hermes exposes
-          // no getter for the previously-registered onUnhandled.
-          const ExceptionsManager =
-            require("react-native/Libraries/Core/ExceptionsManager") as {
-              default?: {
-                handleException?: (e: unknown, isFatal?: boolean) => void;
-              };
-              handleException?: (e: unknown, isFatal?: boolean) => void;
-            };
-          const handle =
-            ExceptionsManager.default?.handleException ??
-            ExceptionsManager.handleException;
+          // Route through the public `global.ErrorUtils.reportError` polyfill
+          // instead of deep-importing `react-native/Libraries/Core/ExceptionsManager`
+          // (which trips RN's build-time deep-import deprecation warning and has no
+          // public re-export). RN installs ErrorUtils before any app module
+          // (`@react-native/js-polyfills/error-guard.js` → `global.ErrorUtils`) and
+          // wires its global handler to `ExceptionsManager.handleException`
+          // (`react-native/Libraries/Core/setUpErrorHandling.js`). So
+          // `reportError` reaches the exact same native exception sink that a deep
+          // import would — including the production NativeExceptionsManager crash
+          // reporter — in every build mode. Required because Hermes exposes no
+          // getter for the previously-registered onUnhandled.
+          const errorUtils = gAny["ErrorUtils"] as
+            | { reportError?: (e: unknown) => void }
+            | undefined;
           const prefix = `Uncaught (in promise, id: ${id})`;
           const message =
             rejection instanceof Error
@@ -265,7 +267,14 @@ if (typeof gAny["WebAssembly"] === "undefined") {
           const wrapped = new Error(`${prefix} ${message}`, {
             cause: rejection,
           });
-          handle?.(wrapped, false);
+          if (typeof errorUtils?.reportError === "function") {
+            errorUtils.reportError(wrapped);
+          } else {
+            // No ErrorUtils polyfill (e.g. a stripped test/web env) — fall back to
+            // console so a genuine rejection is never lost. Goes through our filter,
+            // which only drops the known libsodium-init noise.
+            console.error(prefix, rejection);
+          }
         } catch {
           // If the RN exception sink is unavailable, fall back to console so a
           // genuine rejection is never fully lost. Goes through our filter, which

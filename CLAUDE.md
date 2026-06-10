@@ -328,4 +328,4 @@ PRD and internal docs are written in Korean. Code, comments, and commit messages
 
 **네이티브 빌드/배포는 기본적으로 EAS 클라우드에 위임한다 (회귀 표면 최소화, 빠른 반복).** 로컬 검증 = RN Web, 네이티브 빌드/배포 = EAS 클라우드 + TestFlight, 실기기 디버깅 = 사용자(Dave)에게 요청. 네이티브 검증 항목은 `docs/local-verification-queue.md` 큐에 정의되어 있고 `/verify-native` 로 순회한다 (이 64GB 머신에서 실행 가능).
 
-전체 절차·Expo Go 드롭 로드맵은 `.claude/rules/native-build.md` (SoT).
+전체 절차는 `.claude/rules/native-build.md` (SoT). **Expo Go 는 미지원 (드롭 완료)** — 앱은 development build 전용이며, 소스에 Expo Go 분기를 추가하지 않는다.

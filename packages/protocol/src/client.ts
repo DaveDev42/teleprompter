@@ -11,8 +11,10 @@ export {
   WS_PROTOCOL_VERSION,
 } from "./compat";
 export { parseControlMessage } from "./control-guard";
+export type { CryptoProvider } from "./crypto-provider";
 export type { KeyPair, SessionKeys } from "./crypto";
 export {
+  __setCryptoProviderFactory,
   decrypt,
   deriveKxKey,
   deriveRegistrationProof,

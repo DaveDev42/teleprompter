@@ -11,11 +11,11 @@ argument-hint: '<auto | protocol | daemon | runner | relay | cli | app | e2e | u
 
 | 변경 경로 | 테스트 대상 | 명령어 |
 |-----------|------------|--------|
-| `packages/protocol/` | protocol | `bun test packages/protocol` |
-| `packages/daemon/` | daemon | `bun test packages/daemon` |
-| `packages/runner/` | runner | `bun test packages/runner` |
-| `packages/relay/` | relay | `bun test packages/relay` |
-| `apps/cli/` | cli | `bun test apps/cli` |
+| `packages/protocol/` | protocol | `bun test ./packages/protocol` |
+| `packages/daemon/` | daemon | `bun test ./packages/daemon` |
+| `packages/runner/` | runner | `bun test ./packages/runner` |
+| `packages/relay/` | relay | `bun test ./packages/relay` |
+| `apps/cli/` | cli | `bun test ./apps/cli` |
 | `apps/app/` | app (e2e) | `pnpm test:e2e` |
 | `e2e/` | app (e2e) | `pnpm test:e2e` |
 
@@ -36,13 +36,17 @@ argument-hint: '<auto | protocol | daemon | runner | relay | cli | app | e2e | u
 
 | 인자 | 명령어 |
 |------|--------|
-| `protocol` | `bun test packages/protocol` |
-| `daemon` | `bun test packages/daemon` |
-| `runner` | `bun test packages/runner` |
-| `relay` | `bun test packages/relay` |
-| `cli` | `bun test apps/cli` |
+| `protocol` | `bun test ./packages/protocol` |
+| `daemon` | `bun test ./packages/daemon` |
+| `runner` | `bun test ./packages/runner` |
+| `relay` | `bun test ./packages/relay` |
+| `cli` | `bun test ./apps/cli` |
 | `app` 또는 `e2e` | `pnpm test:e2e` |
-| `unit` | `bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay` |
+| `unit` | `bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay` |
 | `all` | type-check → unit → e2e 순차 실행 |
 
 여러 대상 지정 가능: `/test protocol daemon` → protocol + daemon 테스트.
+
+> **경로의 선행 `./` 를 빼지 말 것** — macOS 에서 un-rooted 경로는 bun filter 모드를 타고
+> spawnSync pipe fd 가 Darwin `OPEN_MAX`(10240)를 넘어 자식 stdout 이 조용히 사라진다
+> (`.claude/rules/testing-inventory.md` "macOS rooted paths" 참조).

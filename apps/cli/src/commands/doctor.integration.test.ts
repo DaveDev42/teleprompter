@@ -1,18 +1,21 @@
 /**
  * Integration tests for doctorCommand.
  *
- * macOS sandbox note: when bun:test runs inside apps/cli, subprocess stdout
- * pipes are blocked (shell scripts execute but their stdout is swallowed).
- * Therefore we cannot rely on fake PATH binaries writing to stdout via
- * Bun.spawnSync. Instead we mock Bun.spawnSync / Bun.spawn directly so the
- * fake version strings arrive through the mock return value — no pipes needed.
+ * macOS note: when `bun test` is invoked with un-rooted path args (no leading
+ * `./`), bun's filter mode scans the whole repo holding ~11k directory fds,
+ * which pushes subprocess pipe fds past Darwin's OPEN_MAX (10240). posix_spawn
+ * cannot wire such fds into a child — node surfaces EBADF, bun silently yields
+ * empty stdout. Fake PATH binaries writing to stdout via Bun.spawnSync are
+ * therefore unreliable under that invocation style, so we mock Bun.spawnSync /
+ * Bun.spawn directly: the fake version strings arrive through the mock return
+ * value — no pipes needed, regardless of how the suite is invoked.
  *
  * XDG_RUNTIME_DIR and XDG_DATA_HOME are mutated in beforeEach/afterEach to
  * point to temp dirs so:
  *   - doctorCommand sees "Daemon socket: not running" (no socket file in tmp)
  *   - Store opens an empty sqlite in tmp — no pairings → relay and E2EE
  *     blocks are skipped entirely (no network, no IPC).
- * console.log is captured via spyOn (in-process, unaffected by sandbox).
+ * console.log is captured via spyOn (in-process, no subprocess pipes involved).
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";

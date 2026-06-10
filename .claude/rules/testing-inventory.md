@@ -13,6 +13,7 @@ paths:
 ## 명령어
 ```bash
 bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay  # 전체 Tier 1-3
+bun test apps/app      # RN 앱 단위 테스트 — 반드시 별도 invocation (아래 apps/app 섹션 참조)
 pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner, app)
 pnpm test:e2e          # Playwright E2E (local, 전체)
 pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
@@ -47,6 +48,36 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `packages/relay/src/push-seal.test.ts` — PushSealer round-trip, key rotation, legacy/tamper/truncated cases (Path X)
 - `packages/protocol/src/socket-path.test.ts` — path format
 - `packages/protocol/src/logger.test.ts` — level filtering, prefix formatting
+- `packages/protocol/src/control-guard.test.ts` — control message guards
+- `packages/protocol/src/crypto-init-race.test.ts` — concurrent sodium init race
+- `packages/protocol/src/guard-primitives.test.ts` — base guard helpers
+- `packages/protocol/src/hook-guard.test.ts` — hook event guards
+- `packages/protocol/src/ipc-guard.test.ts` — IPC frame guards
+- `packages/protocol/src/relay-client-guard.test.ts` — relay client message guards
+- `packages/protocol/src/relay-guard.test.ts` — relay message guards
+- `packages/protocol/src/relay-server-guard.test.ts` — relay server frame guards
+- `packages/protocol/src/session-server-guard.test.ts` — session server guards
+- `packages/protocol/src/session-state.test.ts` — session state machine
+- `packages/protocol/src/types/label.test.ts` — Label tagged-union guards
+- `packages/daemon/src/ipc/command-dispatcher.test.ts` — IPC command dispatch
+- `packages/daemon/src/pairing/pairing-orchestrator.test.ts` — pairing lifecycle orchestration
+- `packages/daemon/src/store/pairing-row-guard.test.ts` — store pairing row guards
+- `packages/daemon/src/store/session-meta.test.ts` — session metadata
+- `packages/daemon/src/transport/relay-manager.test.ts` — relay client lifecycle management
+- `packages/relay/src/backpressure.test.ts` — slow consumer disconnect
+- `packages/relay/src/relay-capacity.test.ts` — connection capacity invariants
+- `packages/relay/src/relay-push-delivery.test.ts` — push delivery routing
+- `packages/relay/src/resume-token.test.ts` — HMAC resume token
+- `packages/runner/src/index.test.ts` — runner entry point
+- `packages/runner/src/runner.test.ts` — runner lifecycle
+- `apps/cli/src/router.test.ts` — subcommand routing
+- `apps/cli/src/manifest-guards.test.ts` — react/react-dom version invariants
+- `apps/cli/src/commands/help.test.ts` — `tp --help` subcommand coverage
+- `apps/cli/src/commands/session-cleanup.test.ts` — non-TTY cleanup path
+- `apps/cli/src/commands/relay.test.ts` — relay subcommand smoke
+- `apps/cli/src/lib/download.test.ts` — binary download + checksum
+- `apps/cli/src/lib/osc52.test.ts` — OSC52 clipboard
+- `apps/cli/src/lib/paths.test.ts` — `resolveTpBinary` path resolution
 - `apps/cli/src/args.test.ts` — `--tp-*` 인자 분리
 - `apps/cli/src/spawn.test.ts` — runner command resolution
 - `apps/cli/src/install-script.test.ts` — `scripts/install.sh` syntax + `NO_COMPLETIONS` / TTY gate / PATH gate 검증
@@ -79,6 +110,31 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `apps/cli/src/components/ink/key-handler.test.tsx` — single binding fires, unbound key ignored, multiple bindings fire independently, ctrl+c binding, space binding, children rendered
 - `packages/protocol/src/compat.test.ts` — protocol version compatibility
 - `packages/runner/src/pty/pty-manager.test.ts` — PTY spawn, resize, lifecycle
+
+### apps/app (RN 앱 단위 테스트 — 런타임 의존성 없음, CI 포함)
+> **반드시 별도 `bun test apps/app` invocation 으로 실행.** `crypto-native.test.ts` 가
+> `mock.module("@teleprompter/protocol/client", …)` 를 쓰는데 bun:test 의 module mock 은
+> 프로세스 전역에 잔류한다 — 같은 invocation 에 다른 패키지를 섞으면 후속 crypto 의존
+> 테스트 (PairingOrchestrator, RelayClient v2 등 ~38개) 가 스텁을 받아 깨진다.
+- `apps/app/src/components/chat-card-md.test.ts` — chat card markdown rendering helpers
+- `apps/app/src/hooks/push-toast.test.ts` — push toast hook
+- `apps/app/src/lib/ansi-strip.test.ts` — ANSI escape stripping
+- `apps/app/src/lib/copy-text.test.ts` — clipboard copy helper
+- `apps/app/src/lib/crypto-native.test.ts` — native crypto bridge
+- `apps/app/src/lib/crypto-polyfill.test.ts` — crypto polyfill (getRandomValues)
+- `apps/app/src/lib/crypto-polyfill-binding.test.ts` — polyfill binding order
+- `apps/app/src/lib/crypto-polyfill-hermes-rejection.test.ts` — Hermes libsodium rejection swallow + ErrorUtils routing
+- `apps/app/src/lib/relay-client.test.ts` — FrontendRelayClient (ping cadence, missed-pong force-close)
+- `apps/app/src/lib/secure-storage.test.ts` — secureGet/secureSet platform split
+- `apps/app/src/lib/session-ux.test.ts` — session UX helpers
+- `apps/app/src/lib/terminal-search.test.ts` — terminal search
+- `apps/app/src/lib/utf8-base64.test.ts` — UTF-8 base64 round-trip
+- `apps/app/src/stores/chat-store.test.ts` — chat store (hooks-only event processing)
+- `apps/app/src/stores/offline-store.test.ts` — offline queue store
+- `apps/app/src/stores/pairing-store.test.ts` — pairing store (Label tagged union)
+- `apps/app/src/stores/session-store.test.ts` — session store (relayState discriminated union)
+- `apps/app/src/stores/settings-store.test.ts` — settings store
+- `apps/app/src/stores/voice-store.test.ts` — voice store
 
 ## Tier 2: Integration Tests (stub runner)
 Stub 프로세스로 전체 파이프라인 검증.

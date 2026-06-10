@@ -38,7 +38,7 @@ e2e/           # Playwright E2E tests (.spec.ts)
 - **Runner** spawns Claude Code in a PTY (`PtyBun` via `Bun.spawn({ terminal })`), collects io streams and hooks events, sends Records to Daemon via IPC (Unix domain socket)
 - **Daemon** is a long-running mux that (a) spawns and supervises one Runner per session, (b) manages git worktrees (`git worktree add/remove/list`), (c) stores Records in Store (append-only per session, with session delete/prune support), (d) persists pairings in store DB for auto-reconnect, (e) encrypts with libsodium per-frontend keys, (f) holds the **only** outbound WebSocket client to the Relay(s), and (g) handles pair-ops IPC (`pair.remove` / `pair.rename`) from the CLI so the CLI never opens its own RelayClient
 - **Relay** is a stateless ciphertext forwarder — holds only recent 10 encrypted frames per session
-- **Frontend** decrypts and renders: Terminal tab (xterm.js) + Chat tab (hooks events + PTY parsing hybrid)
+- **Frontend** decrypts and renders: Terminal tab (ghostty-web) + Chat tab (hooks events only — PTY io records go exclusively to the Terminal tab)
 - Data flow: Runner → Daemon → Relay → Frontend (and reverse for input)
 
 ## Architecture Invariants (절대 위반 금지)
@@ -72,7 +72,7 @@ Connection flow: daemon `register → auth → broadcast pubkey via kx`; fronten
 
 ## Key Design Decisions
 
-- Chat UI uses **hybrid** data: hooks events for structured cards (primary) + PTY output parsing for streaming text (secondary). hooks Stop event finalizes responses.
+- Chat UI is **hooks-only** (PTY-to-chat fallback removed in PR #457): hooks events render as structured message cards; the Stop event's `last_assistant_message` is the canonical response. PTY io records go exclusively to the Terminal tab.
 - Worktree management is done directly by Daemon (`git worktree add/remove/list`), no external tool dependency. N:1 relationship — multiple sessions per worktree allowed.
 - E2EE pairing via QR code containing pairing secret + daemon pubkey + relay URL + daemon ID. Daemon pubkey is delivered offline via QR; Frontend pubkey is exchanged in-band via `relay.kx` (encrypted with kxKey derived from pairing secret). Both sides perform ECDH (X25519 `crypto_kx`) → per-frontend session keys → XChaCha20-Poly1305 encryption. Relay token is self-registered via `relay.register` (proof-based, no pre-registration needed). N:N supported — one app connects to multiple daemons, one daemon serves multiple frontends, each with independent E2EE keys identified by `frontendId`.
 - Platform priority: iOS > Web > Android. Responsive layout required for mobile/tablet/desktop.
@@ -119,6 +119,7 @@ fix-탐색 워크플로우는 가드가 구조에 박힌 `.claude/workflows/fact
 ### 명령어
 ```bash
 bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay  # 전체 Tier 1-3
+bun test apps/app      # RN 앱 단위 테스트 — 반드시 별도 invocation (mock.module 전역 누출이 타 패키지 crypto 테스트를 오염)
 pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner, app)
 pnpm test:e2e          # Playwright E2E (local, 전체)
 pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)

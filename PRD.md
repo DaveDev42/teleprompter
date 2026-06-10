@@ -248,7 +248,7 @@ seq는 Session 내에서 io, event, meta 전체를 통틀어 단일 증가값으
 	•	Relay는 source of truth가 아니며 recent 10만 캐시
 
 9.3 Chat UI 구성 원칙
-	•	Chat은 event 중심으로 재구성하되, PTY 파싱으로 스트리밍 보강
+	•	Chat은 hooks 이벤트만으로 구성 (PTY 파싱 폴백은 PR #457에서 제거)
 	•	Terminal은 io 중심으로 재구성
 	•	이벤트 정규화는 저장 시점이 아니라 Frontend에서만 수행
 	•	hook만으로 충분하지 않은 경우 Terminal fallback 허용
@@ -391,22 +391,14 @@ EAS / Web 배포:
 
 11. Claude Code 통합 전략
 
-11.1 하이브리드 Chat 데이터 전략
+11.1 Chat 데이터 전략 (hooks-only)
 
-Chat UI의 데이터 소스는 두 가지를 병행한다.
+Chat UI의 데이터 소스는 hooks 이벤트 단일 소스다 (PTY 파싱 폴백은 PR #457에서 제거).
 
-	•	Primary: Claude Code hooks 기반 구조화 이벤트 → 메시지 카드로 렌더링
-	•	Secondary: PTY output 파싱 → ANSI 스트리핑 후 순수 텍스트를 Chat 버블로 렌더링
-
-동작 흐름:
-	1.	hooks 이벤트가 도착하면 구조화된 메시지 카드로 즉시 렌더링
-	2.	hooks 이벤트 사이 구간에서 PTY output을 ANSI 스트리핑 → 순수 텍스트로 Chat 버블 표시
-	3.	hooks Stop 이벤트가 도착하면 해당 응답을 최종 확정 (last_assistant_message 필드 활용)
-	4.	구조화가 불충분한 상호작용은 Terminal fallback으로 처리
-
-ANSI 처리 원칙:
-	•	Terminal 탭: PTY raw bytes를 ghostty-web에 그대로 전달 (ANSI 완벽 재현)
-	•	Chat 탭: ANSI escape regex로 제거 후 순수 텍스트만 표시
+	•	hooks 기반 구조화 이벤트 → 메시지 카드로 렌더링
+	•	hooks Stop 이벤트의 last_assistant_message가 canonical 응답
+	•	PTY io records는 Terminal 탭으로만 흐르며 Chat 탭에서 파싱·표시하지 않는다
+	•	구조화가 불충분한 상호작용은 Terminal 탭으로 이관
 
 11.2 Chat 재구성 매핑
 	•	UserPromptSubmit → user message
@@ -418,8 +410,6 @@ ANSI 처리 원칙:
 	•	PermissionRequest, SessionStart, SessionEnd, SubagentStart, SubagentStop, WorktreeCreate, WorktreeRemove, PreCompact, PostCompact, Notification, Elicitation 등 → Activity row / state badge
 
 11.3 한계와 보완
-	•	PTY output 파싱은 Claude Code 출력 포맷에 의존하므로, 버전 변경 시 파싱 규칙 업데이트 필요
-	•	hooks + PTY 두 소스 간 타이밍 불일치 시 hooks 이벤트를 신뢰하고 PTY 스트리밍은 보조로 취급
 	•	질문형/선택지형 응답은 hook 타입 + 텍스트 휴리스틱으로 카드화
 	•	구조화가 부족한 경우 Terminal 탭으로 이관
 	•	Claude Code 버전별 hooks API 변경이 있을 경우 버전 기반 분기로 대응
@@ -691,7 +681,7 @@ Stage 0: Foundation — 완료
 Stage 1: Local UI — 완료
 	•	Expo 프로젝트 초기화 (React Native + RN Web)
 	•	Terminal 탭: ghostty-web (libghostty WASM, Canvas 2D) 기반 터미널 렌더링
-	•	Chat 탭: hooks 이벤트 기반 메시지 카드 + PTY 파싱 스트리밍 텍스트
+	•	Chat 탭: hooks 이벤트 기반 메시지 카드 (PTY 파싱 폴백은 PR #457에서 제거)
 	•	Zustand 상태 관리, NativeWind 스타일링
 	•	Frontend ↔ Daemon 통신은 항상 relay 경유 — 직접 WebSocket 연결 경로는 존재하지 않는다 (Architecture Invariant). 초기 개발 단계의 직접 연결 실험은 폐기되었다.
 

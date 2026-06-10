@@ -9,7 +9,7 @@ INPUT=$(cat)
 SUBAGENT_TYPE=$(echo "$INPUT" | jq -r '.subagent_type // empty')
 RESULT=$(echo "$INPUT" | jq -r '.result // empty')
 
-# Only validate app-web-qa (app-mobile-qa is handled by expo-mcp plugin hook)
+# Only validate app-web-qa; all other subagent types exit immediately
 case "$SUBAGENT_TYPE" in
   app-web-qa) ;;
   *) exit 0 ;;

@@ -37,7 +37,7 @@ tp                                    # 현재 cwd 로 새 Claude 세션
 tp <claude-args...>
 
 # 5. RN Web 의 Sessions 탭에 방금 만든 세션이 라이브로 뜬다.
-#    Chat 탭: hooks 이벤트 + PTY 스트림 hybrid 렌더.
+#    Chat 탭: hooks 이벤트 전용 렌더 (PTY 폴백 없음 — Stop 의 last_assistant_message 가 canonical).
 #    Terminal 탭: ghostty-web (WASM) 으로 풀 PTY.
 #    UI 변경을 만지는 동안 이 세션을 계속 띄워두고 직접 클릭/타이핑.
 ```

@@ -119,6 +119,7 @@ fix-탐색 워크플로우는 가드가 구조에 박힌 `.claude/workflows/fact
 ### 명령어
 ```bash
 bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay  # 전체 Tier 1-3
+bun test apps/app      # RN 앱 단위 테스트 — 반드시 별도 invocation (mock.module 전역 누출이 타 패키지 crypto 테스트를 오염)
 pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner, app)
 pnpm test:e2e          # Playwright E2E (local, 전체)
 pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)

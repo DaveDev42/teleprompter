@@ -6,36 +6,50 @@
  *   — more portable than AES-256-GCM (no hardware AES-NI requirement)
  * - Key derivation: crypto_kx for session keys, BLAKE2b (crypto_generichash) for ratchet
  * - Nonce: random per frame (safe with XChaCha20's 24-byte nonce)
+ *
+ * All libsodium primitives are routed through a CryptoProvider seam so that
+ * an alternative implementation (e.g. react-native-quick-crypto) can be
+ * swapped in without touching this file or any callers.
  */
 
-let _sodiumPromise: Promise<typeof import("libsodium-wrappers")> | null = null;
+import type { CryptoProvider } from "./crypto-provider";
+import { createLibsodiumProvider } from "./crypto-provider-libsodium";
 
-export async function ensureSodium() {
-  // Memoize the *promise*, not the module reference: prior code stashed the
-  // partially-initialized module before `await ready` resolved, so a second
-  // concurrent caller could observe `_sodium` as set but find APIs like
-  // `crypto_generichash` still undefined. Caching the promise means every
-  // concurrent caller awaits the same ready resolution.
-  if (!_sodiumPromise) {
-    _sodiumPromise = (async () => {
-      const s =
-        require("libsodium-wrappers") as typeof import("libsodium-wrappers");
-      // libsodium first tries to instantiate native WebAssembly; on runtimes
-      // without it (Hermes/React Native) that path fails and libsodium falls
-      // back to its bundled wasm2js polyfill. The failure is expected and crypto
-      // still initialises correctly, but emscripten emits two noisy init lines.
-      //
-      // We do NOT suppress them here: libsodium captures its error sink as
-      // `console.error.bind(console)` at module-eval time (during the require
-      // above), so reassigning `console.error` afterwards has no effect on it.
-      // The noise is filtered at the source instead — see the init-noise filter
-      // in apps/app/src/lib/crypto-polyfill.ts, which wraps console.error BEFORE
-      // libsodium is ever required (it is the first import at the app entry).
-      await s.ready;
-      return s;
-    })();
+// ── Provider factory + memoized promise ──────────────────────────────────────
+
+// The factory can be replaced before first use via __setCryptoProviderFactory.
+let _providerFactory: () => Promise<CryptoProvider> = createLibsodiumProvider;
+
+// Memoize the *promise*, not the resolved object: prior code stashed the
+// partially-initialized module before `await ready` resolved, so a second
+// concurrent caller could observe `_sodium` as set but find APIs like
+// `crypto_generichash` still undefined. Caching the promise means every
+// concurrent caller awaits the same ready resolution.
+let _providerPromise: Promise<CryptoProvider> | null = null;
+
+/**
+ * Override the CryptoProvider factory.
+ *
+ * Must be called BEFORE any crypto operation — calling it after
+ * `ensureSodium()` has already resolved has no effect on existing callers
+ * that are already holding a resolved provider. This function also resets the
+ * memoized promise so the new factory is used on the next `ensureSodium()`
+ * call.
+ *
+ * Intended for tests and for the react-native-quick-crypto migration (PR2/3).
+ */
+export function __setCryptoProviderFactory(
+  fn: () => Promise<CryptoProvider>,
+): void {
+  _providerFactory = fn;
+  _providerPromise = null;
+}
+
+export async function ensureSodium(): Promise<CryptoProvider> {
+  if (!_providerPromise) {
+    _providerPromise = _providerFactory();
   }
-  return _sodiumPromise;
+  return _providerPromise;
 }
 
 // ── Key Pair ──
@@ -46,9 +60,8 @@ export interface KeyPair {
 }
 
 export async function generateKeyPair(): Promise<KeyPair> {
-  const sodium = await ensureSodium();
-  const kp = sodium.crypto_kx_keypair();
-  return { publicKey: kp.publicKey, secretKey: kp.privateKey };
+  const p = await ensureSodium();
+  return p.kxKeypair();
 }
 
 // ── Key Exchange (ECDH) ──
@@ -69,24 +82,22 @@ export async function deriveSessionKeys(
   peerPublicKey: Uint8Array,
   role: "daemon" | "frontend",
 ): Promise<SessionKeys> {
-  const sodium = await ensureSodium();
+  const p = await ensureSodium();
 
   if (role === "daemon") {
     // Server side
-    const keys = sodium.crypto_kx_server_session_keys(
+    return p.kxServerSessionKeys(
       myKeyPair.publicKey,
       myKeyPair.secretKey,
       peerPublicKey,
     );
-    return { rx: keys.sharedRx, tx: keys.sharedTx };
   } else {
     // Client side
-    const keys = sodium.crypto_kx_client_session_keys(
+    return p.kxClientSessionKeys(
       myKeyPair.publicKey,
       myKeyPair.secretKey,
       peerPublicKey,
     );
-    return { rx: keys.sharedRx, tx: keys.sharedTx };
   }
 }
 
@@ -100,22 +111,14 @@ export async function encrypt(
   plaintext: Uint8Array,
   key: Uint8Array,
 ): Promise<string> {
-  const sodium = await ensureSodium();
-  const nonce = sodium.randombytes_buf(
-    sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES,
-  );
-  const ciphertext = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
-    plaintext,
-    null, // additional data
-    null, // nsec (unused)
-    nonce,
-    key,
-  );
+  const p = await ensureSodium();
+  const nonce = p.randomBytes(p.NPUBBYTES);
+  const ciphertext = p.aeadEncrypt(plaintext, null, nonce, key);
   // Concatenate nonce + ciphertext
   const combined = new Uint8Array(nonce.length + ciphertext.length);
   combined.set(nonce);
   combined.set(ciphertext, nonce.length);
-  return sodium.to_base64(combined, sodium.base64_variants.ORIGINAL);
+  return p.toBase64(combined);
 }
 
 /**
@@ -126,18 +129,12 @@ export async function decrypt(
   encoded: string,
   key: Uint8Array,
 ): Promise<Uint8Array> {
-  const sodium = await ensureSodium();
-  const combined = sodium.from_base64(encoded, sodium.base64_variants.ORIGINAL);
-  const nonceLen = sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
+  const p = await ensureSodium();
+  const combined = p.fromBase64(encoded);
+  const nonceLen = p.NPUBBYTES;
   const nonce = combined.subarray(0, nonceLen);
   const ciphertext = combined.subarray(nonceLen);
-  return sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
-    null, // nsec (unused)
-    ciphertext,
-    null, // additional data
-    nonce,
-    key,
-  );
+  return p.aeadDecrypt(ciphertext, null, nonce, key);
 }
 
 // ── Ephemeral Key Ratchet ──
@@ -158,8 +155,8 @@ export async function ratchetSessionKeys(
   sessionId: string,
   role: "daemon" | "frontend" = "daemon",
 ): Promise<SessionKeys> {
-  const sodium = await ensureSodium();
-  const sidBytes = sodium.from_string(sessionId);
+  const p = await ensureSodium();
+  const sidBytes = p.fromString(sessionId);
 
   // Canonicalize: sort the two base keys to ensure both sides
   // use the same inputs regardless of tx/rx assignment
@@ -171,14 +168,14 @@ export async function ratchetSessionKeys(
   const inputA = new Uint8Array(keyA.length + sidBytes.length + 1);
   inputA.set(keyA);
   inputA.set(sidBytes, keyA.length);
-  inputA.set(sodium.from_string("a"), keyA.length + sidBytes.length);
-  const kA = sodium.crypto_generichash(32, inputA);
+  inputA.set(p.fromString("a"), keyA.length + sidBytes.length);
+  const kA = p.genericHash32(inputA);
 
   const inputB = new Uint8Array(keyB.length + sidBytes.length + 1);
   inputB.set(keyB);
   inputB.set(sidBytes, keyB.length);
-  inputB.set(sodium.from_string("b"), keyB.length + sidBytes.length);
-  const kB = sodium.crypto_generichash(32, inputB);
+  inputB.set(p.fromString("b"), keyB.length + sidBytes.length);
+  const kB = p.genericHash32(inputB);
 
   // Assign based on role: daemon tx=kA, rx=kB; frontend tx=kB, rx=kA
   return role === "daemon" ? { tx: kA, rx: kB } : { tx: kB, rx: kA };
@@ -198,8 +195,8 @@ function compareBytes(a: Uint8Array, b: Uint8Array): number {
  * Generate a random 32-byte pairing secret.
  */
 export async function generatePairingSecret(): Promise<Uint8Array> {
-  const sodium = await ensureSodium();
-  return sodium.randombytes_buf(32);
+  const p = await ensureSodium();
+  return p.randomBytes(32);
 }
 
 /**
@@ -209,15 +206,15 @@ export async function generatePairingSecret(): Promise<Uint8Array> {
  * a KDF algorithm upgrade propagates to all three sites at once.
  */
 async function deriveBlake2b(
-  sodium: Awaited<ReturnType<typeof ensureSodium>>,
+  p: CryptoProvider,
   secret: Uint8Array,
   domain: string,
 ): Promise<Uint8Array> {
-  const domainBytes = sodium.from_string(domain);
+  const domainBytes = p.fromString(domain);
   const input = new Uint8Array(secret.length + domainBytes.length);
   input.set(secret);
   input.set(domainBytes, secret.length);
-  return sodium.crypto_generichash(32, input);
+  return p.genericHash32(input);
 }
 
 /**
@@ -227,9 +224,9 @@ async function deriveBlake2b(
 export async function deriveRelayToken(
   pairingSecret: Uint8Array,
 ): Promise<string> {
-  const sodium = await ensureSodium();
-  const hash = await deriveBlake2b(sodium, pairingSecret, "relay-auth");
-  return sodium.to_hex(hash);
+  const p = await ensureSodium();
+  const hash = await deriveBlake2b(p, pairingSecret, "relay-auth");
+  return p.toHex(hash);
 }
 
 // ── Key Exchange Envelope ──
@@ -242,8 +239,8 @@ export async function deriveRelayToken(
 export async function deriveKxKey(
   pairingSecret: Uint8Array,
 ): Promise<Uint8Array> {
-  const sodium = await ensureSodium();
-  return deriveBlake2b(sodium, pairingSecret, "kx-envelope");
+  const p = await ensureSodium();
+  return deriveBlake2b(p, pairingSecret, "kx-envelope");
 }
 
 /**
@@ -254,8 +251,8 @@ export async function deriveKxKey(
 export async function derivePushSealKey(
   secret: Uint8Array,
 ): Promise<Uint8Array> {
-  const sodium = await ensureSodium();
-  return deriveBlake2b(sodium, secret, "relay-push-seal");
+  const p = await ensureSodium();
+  return deriveBlake2b(p, secret, "relay-push-seal");
 }
 
 /**
@@ -269,40 +266,36 @@ export async function sealWithAad(
   key: Uint8Array,
   aad: Uint8Array,
 ): Promise<string> {
-  const sodium = await ensureSodium();
-  const nonce = sodium.randombytes_buf(
-    sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES,
-  );
-  const ciphertext = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
+  const p = await ensureSodium();
+  const nonce = p.randomBytes(p.NPUBBYTES);
+  const ciphertext = p.aeadEncrypt(
     plaintext,
     aad, // additional data bound into the AEAD tag
-    null, // nsec (unused)
     nonce,
     key,
   );
   const combined = new Uint8Array(nonce.length + ciphertext.length);
   combined.set(nonce);
   combined.set(ciphertext, nonce.length);
-  return sodium.to_base64(combined, sodium.base64_variants.ORIGINAL);
+  return p.toBase64(combined);
 }
 
 /**
  * Decrypt a base64-encoded nonce+ciphertext sealed with `sealWithAad`.
  * `aad` must match the value used during sealing exactly; any mismatch
- * (wrong AAD, wrong key, tampered ciphertext) causes libsodium to throw.
+ * (wrong AAD, wrong key, tampered ciphertext) causes the provider to throw.
  */
 export async function openWithAad(
   encoded: string,
   key: Uint8Array,
   aad: Uint8Array,
 ): Promise<Uint8Array> {
-  const sodium = await ensureSodium();
-  const combined = sodium.from_base64(encoded, sodium.base64_variants.ORIGINAL);
-  const nonceLen = sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES;
+  const p = await ensureSodium();
+  const combined = p.fromBase64(encoded);
+  const nonceLen = p.NPUBBYTES;
   const nonce = combined.subarray(0, nonceLen);
   const ciphertext = combined.subarray(nonceLen);
-  return sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
-    null, // nsec (unused)
+  return p.aeadDecrypt(
     ciphertext,
     aad, // additional data — must match what was used to seal
     nonce,
@@ -318,24 +311,24 @@ export async function openWithAad(
 export async function deriveRegistrationProof(
   pairingSecret: Uint8Array,
 ): Promise<string> {
-  const sodium = await ensureSodium();
-  const hash = await deriveBlake2b(sodium, pairingSecret, "relay-register");
-  return sodium.to_hex(hash);
+  const p = await ensureSodium();
+  const hash = await deriveBlake2b(p, pairingSecret, "relay-register");
+  return p.toHex(hash);
 }
 
 // ── Helpers ──
 
 export async function toBase64(data: Uint8Array): Promise<string> {
-  const sodium = await ensureSodium();
-  return sodium.to_base64(data, sodium.base64_variants.ORIGINAL);
+  const p = await ensureSodium();
+  return p.toBase64(data);
 }
 
 export async function fromBase64(encoded: string): Promise<Uint8Array> {
-  const sodium = await ensureSodium();
-  return sodium.from_base64(encoded, sodium.base64_variants.ORIGINAL);
+  const p = await ensureSodium();
+  return p.fromBase64(encoded);
 }
 
 export async function toHex(data: Uint8Array): Promise<string> {
-  const sodium = await ensureSodium();
-  return sodium.to_hex(data);
+  const p = await ensureSodium();
+  return p.toHex(data);
 }

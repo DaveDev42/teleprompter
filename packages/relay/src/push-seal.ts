@@ -89,8 +89,8 @@ export class PushSealer {
   }
 
   private async deriveKey(secret: string): Promise<Uint8Array> {
-    const sodium = await ensureSodium();
-    return derivePushSealKey(sodium.from_string(secret));
+    const provider = await ensureSodium();
+    return derivePushSealKey(provider.fromString(secret));
   }
 
   private async getKey(version: number): Promise<Uint8Array | null> {
@@ -121,13 +121,13 @@ export class PushSealer {
    * Returns a blob of the form "tpps1.<version>.<base64(nonce||ct)>".
    */
   async seal(token: string): Promise<string> {
-    const sodium = await ensureSodium();
+    const provider = await ensureSodium();
     const key = await this.getKey(this.version);
     if (!key) throw new Error("PushSealer: could not derive current key");
 
     const prefix = this.blobPrefix(this.version);
-    const aad = sodium.from_string(prefix);
-    const plaintext = sodium.from_string(token);
+    const aad = provider.fromString(prefix);
+    const plaintext = provider.fromString(token);
     const b64 = await sealWithAad(plaintext, key, aad);
     return `${prefix}.${b64}`;
   }
@@ -163,11 +163,11 @@ export class PushSealer {
     if (!key) return { ok: false, reason: "unseal_failed" };
 
     try {
-      const sodium = await ensureSodium();
+      const provider = await ensureSodium();
       const prefix = this.blobPrefix(version);
-      const aad = sodium.from_string(prefix);
+      const aad = provider.fromString(prefix);
       const plaintext = await openWithAad(b64, key, aad);
-      const token = sodium.to_string(plaintext);
+      const token = provider.toString(plaintext);
       return { ok: true, token };
     } catch {
       return { ok: false, reason: "unseal_failed" };

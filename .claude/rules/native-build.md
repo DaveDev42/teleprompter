@@ -39,12 +39,21 @@ paths:
 
 **기본은 여전히 EAS 클라우드 + RN Web.** 로컬 빌드가 가능해졌다고 매번 로컬로 굽는다는 뜻은 아니다 — store 빌드/OTA 는 클라우드가, 일상 UI 검증은 RN Web 이 맡고, 로컬 dev build 는 **실기기/Simulator 네이티브 거동을 직접 확인해야 할 때 쓰는 옵션**이다. (16GB+ / 정식 OS / 신뢰된 기기 조합에서만 로컬 경로가 안정적이다 — 저사양/Beta OS Mac 이라면 EAS 클라우드 경로를 그대로 쓴다.)
 
-# Native Build (Expo Go 드롭 예정)
+# Native Build (Expo Go 드롭 완료 — development build 전용)
 
-향후 Apple Watch 앱, 네이티브 libghostty 터미널 등을 위해 Expo Go 호환성 제약을 해제할 예정.
-현재는 WASM/asm.js 기반으로 동작하지만, dev/preview build(**EAS 클라우드** — 위 "iOS 빌드 & 검증 워크플로우" 참조, 로컬 빌드 아님) 전환 후 네이티브 모듈 사용 가능:
+**Expo Go 는 지원하지 않는다 (2026-06-11 공식화 — 이전부터 사실상 드롭 상태였다).** 근거:
+`expo-dev-client` 가 상시 의존성 (`apps/app/package.json`), `eas.json` development/device
+프로파일 `developmentClient: true`, reanimated 4.x + custom deploymentTarget 16.4 로 Expo Go
+호환성 자체가 깨져 있음 (`docs/local-verification-queue.md` "Dev build 획득" 참조), 네이티브
+검증 큐 항목 (Q1–Q4, Q8–Q10) 전부 dev build (`dev.tpmt.app` dev-client) 로 수행됨. 소스에
+Expo Go 분기 (`Constants.appOwnership` / `executionEnvironment` 체크) 는 없다 — **새로 추가하지
+말 것.** `expo start` 는 expo-dev-client 감지로 dev-client 모드가 기본값이다.
+
+네이티브 모듈 추가 제약 해제됨 — JSI/커스텀 네이티브 모듈 자유롭게 도입 가능. 단 네이티브
+변경은 fingerprint runtimeVersion 을 바꿔 OTA 대신 풀빌드를 유발한다 (`.claude/rules/release-deploy.md`):
 - ✓ libsodium-wrappers (WASM on Web/Bun, asm.js fallback on Hermes)
 - ✓ expo-crypto (Expo SDK 내장 — `getRandomValues` polyfill 제공)
 - ✓ ghostty-web (libghostty WASM — Canvas 2D 터미널 렌더링)
-- 🔜 react-native-quick-crypto (JSI — development build 전환 후)
-- 🔜 libghostty 네이티브 RN 모듈 (Metal/OpenGL GPU 렌더링 — development build 전환 후)
+- 🔓 react-native-quick-crypto (JSI) — unblocked. 도입 시 Hermes asm.js init-noise (큐 Q8/Q9) 해소 후보
+- 🔓 libghostty 네이티브 RN 모듈 (iOS Metal / Android OpenGL GPU 렌더링) — unblocked (TODO.md Future 트랙)
+- 🔓 Apple Watch 컴패니언 (watchOS 타겟) — unblocked (TODO.md Future 트랙)

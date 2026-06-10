@@ -60,7 +60,7 @@ Run `tp doctor` to check all requirements at once.
 
 ### How do I connect my phone to Teleprompter?
 
-1. Run `tp pair --relay wss://relay.tpmt.dev` on your computer
+1. Run `tp pair` on your computer (the default relay `wss://relay.tpmt.dev` is used automatically; pass `--relay <URL>` only if self-hosting)
 2. This generates a QR code and **blocks** waiting for the mobile app to complete the ECDH key exchange (press Ctrl+C to cancel)
 3. Scan the QR code from the Teleprompter app on your phone
 4. Once the app completes the key exchange, the pairing is persisted and `tp pair` exits
@@ -248,6 +248,7 @@ pnpm install
 # paths trigger bun's filter mode, whose repo scan pushes subprocess pipe fds
 # past Darwin's OPEN_MAX and silently empties child stdout)
 bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay
+bun test ./apps/app  # RN app tests — separate invocation required (mock.module global leak contaminates other crypto tests)
 
 # Type checking
 pnpm type-check:all
@@ -336,6 +337,6 @@ This means the key exchange between daemon and frontend didn't complete. The dae
 
 - **Voice input**: Web-only; not available on iOS/Android
 - **Windows**: native Windows is not supported. Windows users run the Linux build inside WSL.
-- **Pre-1.0**: Expect breaking changes. Version scheme: `0.0.x` patches only until App Store public release
+- **Pre-1.0**: Expect breaking changes. Version scheme: `0.x.y` patch bumps (release-please; `feat:` also triggers patch pre-1.0). v0.1.0 marked the App Store public release; further breaking changes still ship as patches until v1.0
 - **Session export**: 50,000 record limit per export
 - **Relay presence**: 90-second window where a dead daemon may appear online

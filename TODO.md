@@ -16,16 +16,16 @@
 - [ ] `VoiceButton`이 iOS/Android에서 `null` 반환 — 네이티브 오디오 캡처/재생 미구현 (expo-av 등 필요)
 
 ### 미검증 항목 (잠재 이슈)
-- [ ] Push Notifications 실기기 미검증 — dev .ipa 를 이 64GB Mac에서 로컬 빌드(`eas build --local`) 후 `xcrun devicectl device install`로 실기기에 직접 설치 가능 (빌드+설치 PARTIAL 2026-06-06). 미검증 항목: **APNs push token 발급 + 알림 왕복 E2E** — 실기기에서 앱이 APNs 토큰을 발급하고 서버가 그 토큰으로 push 를 전달하는 흐름. 사용자(Dave) 실기기 디버깅으로 검증. (`.claude/rules/native-build.md` 참조)
+- [x] **Push Notifications 실기기** — APNs push token 발급 + 알림 왕복 E2E 실기기 검증 완료. Q1 PASS 2026-06-07 (build #59, sealed Path X #579 `33b8375` — end-to-end APNs 실기기 도착 확인). 상세는 `docs/local-verification-queue.md` Q1.
 - [x] **N:N 다중 daemon/frontend 회귀** — 2 daemon × 1 frontend 회귀는 PR #444 `e2e/app-multi-daemon-nxn.spec.ts` 로 커버. 2 daemon × 2 frontend (페어링 4개, independent E2EE keys, daemon kill 격리) 는 PR #456 `e2e/app-multi-daemon-2x2.spec.ts` 로 완료.
-- [ ] **Linux daemon install** — systemd unit 생성/등록/start 경로는 코드만 검토. Lima/Ubuntu VM에서 `tp daemon install` → `systemctl status` → 재부팅 후 자동 기동까지 직접 확인 필요. (VM 준비 30분 + 검증 30분)
+- [x] **Linux daemon install** — Lima Ubuntu VM에서 `tp daemon install` → systemd 풀 사이클 직접 검증. Q5 PASS 2026-06-07 (재확인 — Lima Ubuntu VM, systemd 257, aarch64, `tp-linux_arm64` v0.1.46). 상세는 `docs/local-verification-queue.md` Q5.
 - [x] **passthrough claude 서브커맨드 wiring 검증** — #438에서 fake `claude` 바이너리 기반 integration test 17건 (9 utility subcommands × argv-verbatim + exit code 0/1/7/42 + "claude not found" 메시지) 추가. `forwardToClaudeCommand`을 `Promise<number>` 반환으로 리팩터링하여 테스트 가능하게 함.
 - [x] **Long-running 안정성 (1시간 soak)** — daemon 메모리 RSS 추이, relay reconnect, frame round-trip latency, WS idle/wake cycle. **측정 스크립트** (`scripts/soak.ts` — in-process RelayServer + 실 daemon pid RSS 샘플링, `bun run scripts/soak.ts` 로 1h soak, `--minutes`/`--round-interval`/`--reconnects`/`--frames`/`--idle-cycles`/`--idle-hold`/`--json` 플래그, hard failure 시 exit 1). **2026-06-03 실측 1h SOAK PASS** (default cadence, 실 daemon pid 89218 추적): 61 라운드 × {reconnect 100, rtt 100} → reconnect **6100/6100** (connect p95 ≤0.94ms), frame round-trip **6100/6100** (rtt p95 ≤2.38ms), RSS 37.0→30.6MB 범위 29.7~37.0MB (**상승 추세 없음 = 누수 없음**), idle/wake **5/5** (95s hold > relay 90s idle, wake 0.5~2.4ms — daemon ping이 idle close 차단 실증), relay drop 카운터(rate/daemon/backpressure/oversized/authTimeout/eviction) **전부 0**, hard failures **0**.
-- [ ] **iOS 실기기 검증** — push token, audio capture (VoiceButton 구현 후), keychain 실 거동, App Switcher background/foreground 사이클은 실기기에서만 정확하다. dev .ipa 를 `xcrun devicectl device install` 로 직접 설치하거나 TestFlight 경유로 검증. Simulator 생략은 정책 유지 — `.claude/rules/native-build.md` 참조.
-- [ ] **Android 실기기 QA** — Web/iOS 위주로만 진행, Android QA round 자체가 없음. 페어링/세션/Chat/Terminal 전체 골든 패스 1회 + 권한 모델 (network, foreground service) 확인 필요. Internal track 빌드 → 실기기 디버깅으로 검증 (로컬 에뮬레이터 안 띄움).
+- [x] **iOS 실기기 검증** — push token (Q1) + keychain 실 거동 / background→foreground 사이클 (Q2) 실기기 검증 완료. Q1·Q2 PASS 2026-06-07 (build #59, sealed Path X #579 `33b8375`). audio capture 는 VoiceButton 네이티브 구현 후 별도 검증 (위 Voice 항목이 추적). 상세는 `docs/local-verification-queue.md` Q1·Q2.
+- [x] **Android QA — 골든 패스 + 권한 모델** — 페어링/세션/Chat/Terminal 골든 패스 1회 + 권한 모델 검증 완료. Q3 PASS 2026-06-05 (Pixel_8 AVD `emulator-5554`, dev-local APK, Maestro v2.2.0) — 에뮬레이터 수행 (실기기 아님). Android 실기기(Internal track) 라운드는 공개 release 전 선택 항목으로 남음. 상세는 `docs/local-verification-queue.md` Q3.
 
 ### 인프라 한계로 미검증 (별도 환경 필요)
-- [ ] **Windows under WSL** — exit 분기 코드 (`process.platform === "win32"`)만 검증. 실제 WSL Ubuntu에서 install.sh → tp daemon → 페어링 → 세션 풀 사이클은 Windows 머신 없이는 검증 불가.
+- [x] **Windows under WSL** — Windows 11 + WSL2(Ubuntu)에서 install.sh → tp daemon → 페어링 → 세션 풀 사이클 검증 완료. Q7 PASS 2026-06-05 (검증 중 버그 발견 + 수정, PR #559). 상세는 `docs/local-verification-queue.md` Q7.
 
 ---
 

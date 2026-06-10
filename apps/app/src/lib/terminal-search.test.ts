@@ -14,7 +14,7 @@
  *   bun test apps/app/src/lib/terminal-search.test.ts
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { TerminalSearch } from "./terminal-search";
 
 // ── Minimal Terminal stub ────────────────────────────────────────────────────

@@ -244,8 +244,10 @@ pnpm install
 ### How do I run tests?
 
 ```bash
-# All unit + integration tests
-bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay
+# All unit + integration tests (keep the leading ./ — on macOS, un-rooted
+# paths trigger bun's filter mode, whose repo scan pushes subprocess pipe fds
+# past Darwin's OPEN_MAX and silently empties child stdout)
+bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay
 
 # Type checking
 pnpm type-check:all

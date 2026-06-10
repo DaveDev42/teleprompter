@@ -1,3 +1,12 @@
+/**
+ * NOTE (macOS): run this file with a rooted path — `bun test
+ * ./packages/daemon/...` or from inside packages/daemon. Un-rooted args put
+ * bun test in filter mode, whose repo-wide scan holds ~11k directory fds;
+ * spawnSync pipe fds then exceed Darwin's OPEN_MAX (10240), posix_spawn
+ * cannot wire them into the git child, and bun silently returns empty stdout
+ * (6 tests fail on empty `git worktree list` output). See
+ * `.claude/rules/testing-inventory.md` → "macOS rooted paths".
+ */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, realpathSync } from "fs";
 import { mkdtemp, readdir, rm, unlink, writeFile } from "fs/promises";

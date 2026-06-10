@@ -114,4 +114,10 @@ export interface CryptoProvider {
    * Equivalent to libsodium `from_string(str)`.
    */
   fromString(str: string): Uint8Array;
+
+  /**
+   * Encode bytes as a UTF-8 string.
+   * Equivalent to libsodium `to_string(data)`.
+   */
+  toString(data: Uint8Array): string;
 }

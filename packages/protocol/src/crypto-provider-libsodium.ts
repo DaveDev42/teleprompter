@@ -81,5 +81,9 @@ export async function createLibsodiumProvider(): Promise<CryptoProvider> {
     fromString(str) {
       return s.from_string(str);
     },
+
+    toString(data) {
+      return s.to_string(data);
+    },
   };
 }

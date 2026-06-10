@@ -1,6 +1,7 @@
 ---
 paths:
   - ".claude/workflows/**"
+  - ".claude/wf/**"
 ---
 
 # Workflow Authoring Discipline
@@ -40,6 +41,11 @@ agent 는 독이 든 BRIEF 를 충실히 따랐을 뿐이다. 이후 on-device A
 4. **adversarial verify 는 기본값 REFUTED**, 그리고 **commit body 인용 금지 —
    file:line 만**. 불확실하면 reject.
 5. **KEEP-AS-IS 도 정당한 결론.** 뭔가 하려고 억지 변경을 만들지 말 것.
+6. **모든 `agent()` 호출에 `model:` 명시.** 생략하면 부모(보통 Opus)를 상속해
+   단순 grep 도 Opus 로 돈다 — CLAUDE.md "Subagent Dispatch" 와 동일 정책.
+   haiku = 탐색/grep/짧은 요약, sonnet = 코드 작업/리뷰/검증, opus = 어려운
+   설계·추론만. 예: `fact-grounded-fix.js` 는 reverify/verify 가 sonnet,
+   enumerate/synthesize 가 opus.
 
 ## 기본 도구: `fact-grounded-fix` 템플릿
 

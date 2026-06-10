@@ -41,6 +41,7 @@ test-results/
 .claude.local.md
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+# local-only one-shot workflow scripts (reusable shared workflows go in .claude/workflows/)
 .claude/wf/
 
 # Typo variant of .claude/ — stale local directory, not tracked

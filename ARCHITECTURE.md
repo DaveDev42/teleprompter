@@ -99,13 +99,8 @@ teleprompter/
 │   ├── deploy-relay.sh        # relay 배포 스크립트
 │   └── install.sh             # curl-pipe-sh 설치 스크립트
 │
-├── e2e/                       # Playwright E2E 테스트
-│   ├── app-web.spec.ts
-│   ├── app-roundtrip.spec.ts
-│   ├── app-resume.spec.ts
-│   ├── app-real-e2e.spec.ts
-│   ├── app-daemon.spec.ts
-│   └── app-chat-roundtrip.spec.ts
+├── e2e/                       # Playwright E2E 테스트 — app-*.spec.ts glob (160+ 파일)
+│   └── ...                    # 대표 시나리오 목록은 .claude/rules/testing-inventory.md Tier 4 (curated subset)
 │
 ├── turbo.json
 ├── pnpm-workspace.yaml

@@ -144,7 +144,7 @@ Bun.spawn({ terminal })     Runner 프로세스
     │                         Frontend (E2EE decrypt)
     │                              │
     │                              ├── Terminal 탭: ghostty-web.write(rawBytes) — ANSI 완벽 재현
-    │                              └── Chat 탭: ANSI strip (regex) → 순수 텍스트 스트리밍 버블
+    │                              └── Chat 탭: hooks events 전용 (io records 는 Terminal 탭으로만)
     │
     ◀── terminal.write(input) ◀── Frontend 입력 (역방향)
 ```
@@ -416,7 +416,7 @@ PTY에서 나오는 raw bytes는 ANSI escape 시퀀스(색상, 커서 이동, �
 
 ```
 Terminal 탭: raw bytes → ghostty-web.write(data) — ANSI 완벽 재현, 직접 파싱 불필요
-Chat 탭:    raw bytes → ANSI strip (regex) → 순수 텍스트 → Chat 버블 렌더링
+Chat 탭:    io records 미사용 — hooks events 전용 (hooks-only, PR #457에서 PTY 폴백 제거)
 ```
 
 ghostty-web은 libghostty(Ghostty 터미널 코어)를 WASM으로 컴파일해 Canvas 2D로 렌더링하며, Claude Code의 rich TUI를 완벽하게 재현한다.
@@ -467,12 +467,9 @@ iOS/Android:
 ### 7.3 Chat UI 렌더링 파이프라인
 
 ```
-hooks events ──────┐
-                   ├──▶ Chat 렌더러
-PTY raw bytes ─────┘
-  └─ ANSI strip (regex)        │
+hooks events ──────▶ Chat 렌더러 (hooks-only — PTY io 는 Terminal 탭 전용)
+                        │
                         ├── user message 카드 (UserPromptSubmit: prompt 필드)
-                        ├── assistant streaming 버블 (PTY → ANSI strip (regex) → 순수 텍스트)
                         ├── assistant final 카드 (Stop: last_assistant_message 필드)
                         ├── tool pending/result 카드 (PreToolUse/PostToolUse)
                         ├── permission 카드 (PermissionRequest)

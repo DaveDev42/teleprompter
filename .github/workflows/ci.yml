@@ -49,6 +49,10 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Test with coverage
         run: bun test --coverage --timeout 30000 packages/protocol packages/daemon packages/runner apps/cli packages/relay
+      - name: Test app unit tests
+        # Separate invocation: apps/app tests use mock.module("@teleprompter/protocol/client")
+        # which leaks process-wide in bun:test and breaks crypto suites in other packages.
+        run: bun test --coverage --timeout 30000 apps/app
 
   build-cli:
     runs-on: ubuntu-latest

@@ -1,10 +1,10 @@
-# Local Verification Queue (네이티브 트랙 — 고성능 Mac 전용)
+# Local Verification Queue (네이티브 트랙)
 
-이 문서는 **이 8GB 개발 머신에서 구조적으로 돌릴 수 없는 검증 항목**의 단일 출처(SoT)다.
-이 머신의 정책은 `CLAUDE.md` "iOS 빌드 & 검증 워크플로우" — 로컬 Simulator/Xcode/Maestro/네이티브
-빌드를 띄우지 않는다 (RAM 천장: load 100+, heavy swap). 그래서 네이티브 트랙 **전체**를 더 사양
-좋은 Mac(16GB+, 정식 OS, 신뢰된 실기기)으로 이관하고, 그 Mac의 별도 Claude Code 세션이 이 큐를
-순회한다.
+이 문서는 **네이티브 트랙 검증 항목**(iOS/Android 실기기, Simulator QA, soak, WSL 등 —
+RN Web 으로 검증할 수 없는 항목)의 단일 출처(SoT)다. 이 64GB M1 Max 개발 머신에서 직접
+실행 가능하다 (`.claude/rules/native-build.md` 참조 — 과거의 "8GB 머신 → 16GB+ Mac 이관"
+전제는 머신 교체로 폐기됨). 일상 검증은 여전히 RN Web 이 기본값이고, 이 큐는 네이티브
+거동을 명시적으로 확인해야 할 때만 순회한다.
 
 `/verify-native` 슬래시 커맨드가 이 문서를 읽어 순회한다 — **이 문서가 SoT, 커맨드는 얇은 래퍼**다.
 항목을 추가/수정할 때는 이 문서만 고치면 커맨드가 자동으로 따라온다.
@@ -18,22 +18,22 @@
 
 | 게이트 | 확인 명령 | 통과 기준 |
 |---|---|---|
-| 머신 사양 | `sysctl hw.memsize` | ≥ 16 GB (8GB면 이 큐 전체 중단) |
+| 머신 사양 | `sysctl hw.memsize` | ≥ 16 GB (이 머신 = 64GB M1 Max) |
 | 정식 OS | `sw_vers` | Developer Beta 아님 (실기기 trust 깨짐 방지) |
-| expo-mcp 활성화 | `.claude/settings.local.json` | `"expo-mcp@expo-mcp": true` (이 머신과 반대) |
+| expo-mcp 활성화 | `.claude/settings.local.json` | `"expo-mcp@expo-mcp": true` |
 | JDK 17–21 | `java -version` | Maestro 호환 (OpenJDK 26 ❌ — 반복 크래시) |
 | Xcode + 시뮬레이터 런타임 | `xcrun simctl list runtimes` | iOS 런타임 1개 이상 설치 |
 | eas-cli 인증 | `eas whoami` | 로그인됨 (`eas login` 1회) |
 | Apple Team / bundleId | (레퍼런스) | Team `MU784AJZSW`, bundleId `dev.tpmt.app` |
 | 실기기 trust | iPhone USB 연결 후 Xcode Devices | "Trusted" (pairing: unsupported ❌) |
 
-### expo-mcp 켜기 (고성능 Mac에서만)
+### expo-mcp 켜기 (머신별 결정)
 
-이 머신의 `.claude/settings.local.json`은 `"expo-mcp@expo-mcp": false`로 플러그인을 끈다.
-고성능 Mac에서는 같은 파일(gitignored)을 만들어 `true`로 둔다:
+이 머신의 `.claude/settings.local.json`(gitignored)은 `"expo-mcp@expo-mcp": true`로
+플러그인을 켠다. 새 머신을 셋업할 때는 같은 파일을 만들어 켜고 끈다:
 
 ```jsonc
-// .claude/settings.local.json (고성능 Mac, gitignored)
+// .claude/settings.local.json (gitignored, 머신별)
 {
   "enabledPlugins": { "expo-mcp@expo-mcp": true }
 }
@@ -63,8 +63,8 @@ WWDR **G3** 중간 인증서 자동 설치 / SSH(Background)→Aqua(GUI) 세션 
 저장하지 않는다** — `eas build --local`이 빌드 시점에 EAS(SoT)에서 distribution cert +
 provisioning profile을 다운로드한다.
 
-> **이 스크립트는 고성능 Mac 전용.** 이 8GB 머신에서 실행 금지(`CLAUDE.md` 정책). 스크립트
-> 헤더에도 동일 경고가 박혀 있다.
+> **로컬 빌드는 백그라운드로 돌리고 절대 죽이지 말 것** — 중간 SIGTERM 이 CALCULATE phase
+> abort 를 유발한다 (`.claude/rules/native-build.md` H2 설명).
 
 ### `eas build --local` fingerprint 게이트 (해결됨 — PR #560)
 

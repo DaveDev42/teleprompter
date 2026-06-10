@@ -14,7 +14,7 @@
     "dev": "turbo run dev",
     "dev:app": "cd apps/app && npx expo start --web",
     "dev:pair": "bun run scripts/dev-pair.ts",
-    "test": "bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay",
+    "test": "bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay && bun test apps/app",
     "test:e2e": "npx playwright test --project=local",
     "test:e2e:ci": "npx playwright test --project=ci",
     "test:turbo": "turbo run test",

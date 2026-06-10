@@ -3,12 +3,12 @@
 # ios-dev-build.sh — build a local iOS development build (.ipa) using
 # EAS-managed credentials, runnable from anywhere (incl. a headless SSH session).
 #
-# ┌─ HIGH-PERF MAC ONLY ───────────────────────────────────────────────────┐
-# │ Do NOT run this on the 8GB dev machine. iOS Simulator + Xcode/native    │
-# │ compile overload it (load 100+, heavy swap) — see CLAUDE.md "iOS 빌드 &  │
-# │ 검증 워크플로우". Native verification is delegated to a 16GB+ Mac per     │
-# │ docs/local-verification-queue.md. TestFlight/Store builds stay on EAS    │
-# │ cloud; this script is only for the high-perf Mac's local dev .ipa.       │
+# ┌─ LOCAL DEV BUILD ──────────────────────────────────────────────────────┐
+# │ Builds a signed dev .ipa locally (verified on the 64GB M1 Max machine — │
+# │ see .claude/rules/native-build.md). Run it in the background and never  │
+# │ send SIGTERM mid-build (CALCULATE phase abort, H2). TestFlight/Store    │
+# │ builds stay on EAS cloud; this script is only for local dev .ipa builds │
+# │ driven by docs/local-verification-queue.md.                             │
 # └────────────────────────────────────────────────────────────────────────┘
 #
 # Why this script exists (the gotchas it handles, all verified on macOS 15 / Xcode 26):

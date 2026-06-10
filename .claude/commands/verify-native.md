@@ -1,6 +1,6 @@
 ---
 description: 네이티브 트랙 로컬 검증 큐 순회 (고성능 Mac 전용)
-argument-hint: '[all | Q1..Q7 | gate]'
+argument-hint: '[all | Q1..Q10 | gate]'
 ---
 
 ## 네이티브 검증: $ARGUMENTS
@@ -34,8 +34,8 @@ grep -A2 enabledPlugins .claude/settings.local.json   # expo-mcp: true
 ### Step 1 — 인자 해석
 
 - **`gate`** → Step 0만 실행하고 결과 보고 후 종료(셋업 점검용).
-- **`all` 또는 생략** → 큐 문서의 Q1–Q7 전체를 순서대로(독립적으로) 순회.
-- **`Q1`..`Q7`** → 해당 항목만 실행.
+- **`all` 또는 생략** → 큐 문서의 Q1–Q10 전체를 순서대로(독립적으로) 순회.
+- **`Q1`..`Q10`** → 해당 항목만 실행.
 
 ### Step 2 — dev build 확보 (Simulator/실기기 항목 전)
 
@@ -43,8 +43,9 @@ grep -A2 enabledPlugins .claude/settings.local.json   # expo-mcp: true
 **`eas build --local` + 실기기**:
 
 ```bash
-scripts/ios-dev-build.sh --profile device --output /tmp/teleprompter-dev.ipa   # 실기기 (Q1–Q3)
-eas build --profile development --platform ios --local                          # Simulator (Q4)
+scripts/ios-dev-build.sh --profile device --output /tmp/teleprompter-dev.ipa   # iOS 실기기 (Q1+Q2)
+eas build --platform android --profile device --local                          # Android 실기기 (Q3)
+eas build --profile development --platform ios --local                          # iOS Simulator (Q4)
 ```
 
 빌드 함정(WWDR G3 / Aqua 세션 / root 강등 / tmp 청소)은 `ios-dev-build.sh`가 처리한다 — 큐 문서의
@@ -76,5 +77,5 @@ eas build --profile development --platform ios --local                          
 
 ### Step 5 — 보고
 
-순회 종료 후 Q1–Q7의 판정 요약을 출력(PASS/FAIL/BLOCKED 카운트 + FAIL 항목 사유). PASS가 아닌데
+순회 종료 후 Q1–Q10의 판정 요약을 출력(PASS/FAIL/BLOCKED 카운트 + FAIL 항목 사유). PASS가 아닌데
 미수행 항목이 있으면 INCONCLUSIVE로 보고 — 모호한 "다 됐음" 금지.

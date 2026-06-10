@@ -8,7 +8,20 @@
  * protocol module to verify the failure/caching path.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, describe, expect, mock, test } from "bun:test";
+import * as realProtocolClient from "@teleprompter/protocol/client";
+
+// bun:test module mocks persist process-wide, and test-file order is
+// filesystem-dependent (Linux CI runs this file before stores/*.test.ts,
+// macOS after). Snapshot the real exports at load time — before any
+// mock.module() below patches the namespace in place — and restore them
+// after this file, so later files importing @teleprompter/protocol/client
+// get working crypto instead of the throwing stubs.
+const realExports = { ...realProtocolClient };
+
+afterAll(() => {
+  mock.module("@teleprompter/protocol/client", () => realExports);
+});
 
 describe("crypto-native (libsodium available)", () => {
   test("checkCryptoAvailability resolves true on Bun", async () => {

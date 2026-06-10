@@ -12,12 +12,24 @@ paths:
 
 ## 명령어
 ```bash
-bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay  # 전체 Tier 1-3
-bun test apps/app      # RN 앱 단위 테스트 — 반드시 별도 invocation (아래 apps/app 섹션 참조)
+bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay  # 전체 Tier 1-3
+bun test ./apps/app    # RN 앱 단위 테스트 — 반드시 별도 invocation (아래 apps/app 섹션 참조)
 pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner, app)
 pnpm test:e2e          # Playwright E2E (local, 전체)
 pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 ```
+
+### macOS rooted paths (선행 `./` 필수)
+
+> **macOS 로컬 실행은 반드시 rooted 경로(`./...`)를 사용한다.** `bun test packages/daemon` 처럼
+> 선행 `./`(또는 `/`)가 없는 인자는 bun 이 **filter** 로 해석해 repo 전체(~22k 파일)를 스캔하고,
+> 디렉토리 fd ~11.6k 개를 쥔 채로 테스트를 실행한다. 이후 테스트가 `spawnSync` 를 부르면 pipe fd 가
+> Darwin `OPEN_MAX`(10240, `sys/syslimits.h` 커널 상수) 이상 번호를 받는데, macOS `posix_spawn` 은
+> 그 fd 를 자식에 연결하지 못한다 — node 는 `EBADF` 를 던지지만 **bun 은 에러를 조용히 삼켜 자식
+> stdout 이 빈 값**이 된다. `worktree-manager.test.ts` 6 fail 의 실제 원인이며, 어떤 터미널에서든
+> 재현된다 (Claude Code 샌드박스와 무관). Linux 는 이 제한이 없어 CI 는 영향 없다.
+> 회피책 (모두 검증됨): 선행 `./` 경로, 해당 패키지 디렉토리로 `cd` 후 실행, 또는 `--config /dev/null`.
+> rooted/un-rooted 의 테스트 발견 범위는 동일하다 (311/311, 1460/1460, 294/294 parity 확인).
 
 ## Tier 1: Unit Tests
 외부 의존성 없이 빠르게 실행.
@@ -93,7 +105,7 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `apps/cli/src/commands/daemon-status.test.ts` — `tp daemon status` 출력 배너/힌트 스모크
 - `apps/cli/src/commands/forward-claude.test.ts` — `CLAUDE_UTILITY_SUBCOMMANDS` set 구성
 - `apps/cli/src/commands/forward-claude.integration.test.ts` — `forwardToClaudeCommand` argv verbatim + exit-code propagation + "claude not found" error path (fake claude via env param)
-- `apps/cli/src/commands/doctor.integration.test.ts` — `doctorCommand` tool probe (node/pnpm/claude/git present vs missing), daemon-down path, claude-doctor invocation; Bun.spawnSync/spawn mocked (macOS sandbox blocks sh-script stdout pipes in bun:test)
+- `apps/cli/src/commands/doctor.integration.test.ts` — `doctorCommand` tool probe (node/pnpm/claude/git present vs missing), daemon-down path, claude-doctor invocation; Bun.spawnSync/spawn mocked (un-rooted invocations push pipe fds past Darwin `OPEN_MAX` → 자식 stdout 소실 — 위 "macOS rooted paths" 참조)
 - `apps/cli/src/lib/colors.test.ts` — ANSI color wrapper (NO_COLOR honor)
 - `apps/cli/src/lib/e2ee-verify.test.ts` — `verifyE2EECrypto` 자가검증 (daemon↔frontend, relay isolation)
 - `apps/cli/src/lib/ensure-daemon.test.ts` — `isDaemonRunning` / install prompt 결정 / yes-no 파싱

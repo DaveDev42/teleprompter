@@ -118,12 +118,17 @@ fix-탐색 워크플로우는 가드가 구조에 박힌 `.claude/workflows/fact
 
 ### 명령어
 ```bash
-bun test packages/protocol packages/daemon packages/runner apps/cli packages/relay  # 전체 Tier 1-3
-bun test apps/app      # RN 앱 단위 테스트 — 반드시 별도 invocation (mock.module 전역 누출이 타 패키지 crypto 테스트를 오염)
+bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay  # 전체 Tier 1-3
+bun test ./apps/app    # RN 앱 단위 테스트 — 반드시 별도 invocation (mock.module 전역 누출이 타 패키지 crypto 테스트를 오염)
 pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner, app)
 pnpm test:e2e          # Playwright E2E (local, 전체)
 pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 ```
+
+> **macOS 로컬에서는 경로에 반드시 선행 `./` 를 붙인다.** un-rooted 경로(`bun test packages/daemon`)는
+> bun filter 모드로 repo 전체를 스캔하며 fd ~11k 를 쥐고, spawnSync pipe fd 가 Darwin
+> `OPEN_MAX`(10240)를 넘으면 자식 stdout 이 조용히 빈 값이 된다 (worktree-manager 6 fail 의
+> 실제 원인). 상세는 `.claude/rules/testing-inventory.md`.
 
 또는 슬래시 커맨드 사용 — 변경 파일 기반 자동 dispatch:
 - `/test [auto|protocol|daemon|runner|relay|cli|app|e2e|unit|all]` — 변경 범위 감지 후 실행

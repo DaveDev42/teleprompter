@@ -49,7 +49,9 @@ teleprompter/
 │   │   │   ├── store/         # 로컬 저장소
 │   │   │   ├── transport/     # Relay client (E2EE WS client)
 │   │   │   ├── worktree/      # git worktree 관리
-│   │   │   └── ipc/           # Runner IPC 서버
+│   │   │   ├── ipc/           # Runner IPC 서버
+│   │   │   ├── pairing/       # 페어링 오케스트레이션 (pending + orchestrator)
+│   │   │   └── push/          # Push notification 발송 (push-notifier)
 │   │   └── package.json
 │   │
 │   ├── runner/                # @teleprompter/runner — Bun PTY 관리
@@ -255,6 +257,10 @@ Relay Protocol v2 (Daemon/Frontend ↔ Relay):
                    interruptionLevel = "active" | "time-sensitive" (옵셔널, 미지정 → active).
                    attention-needed 이벤트(PermissionRequest/Notification/Elicitation)는 time-sensitive
                    로 Focus/DND 돌파 + APNs priority 10. 정보성 이벤트는 active (Focus 존중).
+  relay.push.register  Frontend → Relay: Expo push token 등록 (sealed + platform). Relay 가 PushSealer 로
+                   봉인하여 relay.push.token 으로 Daemon 에 라우팅.
+  relay.push.token Relay → Daemon: 봉인된 push token (frontendId + sealed blob + platform). Daemon 이
+                   복호화 후 Expo Push API 호출에 사용.
   relay.notification Relay → Frontend: push payload 전달 (앱이 백그라운드일 때 알림)
   relay.ping/pong  keepalive
 
@@ -335,7 +341,7 @@ Daemon                     Relay                     Frontend
 - **Frontend**: expo-secure-store (iOS: Keychain, Android: Keystore, Web: localStorage)에
   `Map<daemonId, PairingInfo>`를 base64-serialized JSON으로 저장.
 
-### 5.2 암호화 프레임 구조
+### 5.5 암호화 프레임 구조
 
 ```
 ┌──────────┬──────────────────────────────┐
@@ -505,7 +511,7 @@ hooks events ──────▶ Chat 렌더러 (hooks-only — PTY io 는 Ter
 
 ```
 macOS/Linux: Unix domain socket
-  경로: $XDG_RUNTIME_DIR/teleprompter/daemon.sock
+  경로: $XDG_RUNTIME_DIR/daemon.sock  (또는 /run/user/<uid>/daemon.sock)
   또는: /tmp/teleprompter-{uid}/daemon.sock
 ```
 
@@ -629,7 +635,7 @@ curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts
 
 ### 10.2 Relay 서버
 
-배포: `deploy-relay.yml` (main push 시 자동, 또는 수동 트리거)
+배포: `deploy-relay.yml` (main push 시 — `packages/relay/**`, `packages/protocol/**`, `packages/daemon/**`, `pnpm-lock.yaml` 경로 변경 시만 자동, 또는 수동 트리거)
 - SSH로 원격 서버에 바이너리 전송 → systemd 서비스 재시작 → health check
 - 서버 아키텍처 자동 감지 (aarch64/x86_64)
 

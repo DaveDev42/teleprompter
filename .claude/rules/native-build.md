@@ -1,7 +1,6 @@
 ---
 paths:
   - "apps/app/ios/**"
-  - "apps/app/android/**"
   - "apps/app/app.json"
   - "apps/app/eas.json"
   - "scripts/ios-dev-build.sh"

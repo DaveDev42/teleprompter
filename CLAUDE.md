@@ -93,11 +93,11 @@ Connection flow: daemon `register → auth → broadcast pubkey via kx`; fronten
 
 ## Subagent Dispatch
 
-Agent 호출 시 항상 `model` 명시. plugin agent (e.g., `superpowers:code-reviewer`)는
+Agent 호출 시 항상 `model` 명시. plugin agent 는
 frontmatter가 `model: inherit`이라 미명시 시 부모 Opus 상속.
 
 - **탐색/grep/짧은 요약**: `model: "haiku"` (e.g., `Explore`, file lookups)
-- **코드 작업/리뷰/구현**: `model: "sonnet"` (e.g., `superpowers:code-reviewer`,
+- **코드 작업/리뷰/구현**: `model: "sonnet"` (e.g., plugin review agents,
   `general-purpose`)
 - **어려운 설계/추론만 opus**: 명확히 필요할 때만
 - **QA**: 회귀(`.spec.ts` 실행) = `haiku`,
@@ -114,7 +114,7 @@ fix-탐색 워크플로우는 가드가 구조에 박힌 `.claude/workflows/fact
 
 ## Testing Strategy
 
-4계층 테스트, 모두 `bun:test` 사용 (Tier 4 로컬 QA 기본값은 RN Web + Playwright MCP — Simulator/Maestro 는 일상 작업에서 생략, 필요 시 `/verify-native` 큐 참조).
+4계층 테스트. Tier 1–3: `bun:test` 사용. Tier 4 (Playwright E2E / QA): `npx playwright test` (`pnpm test:e2e` / `pnpm test:e2e:ci`) 또는 Expo MCP — 로컬 QA 기본값은 RN Web + Playwright MCP (Simulator/Maestro 는 일상 작업에서 생략, 필요 시 `/verify-native` 큐 참조).
 
 ### 명령어
 ```bash
@@ -126,7 +126,7 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 ```
 
 > **macOS 로컬에서는 경로에 반드시 선행 `./` 를 붙인다.** un-rooted 경로(`bun test packages/daemon`)는
-> bun filter 모드로 repo 전체를 스캔하며 fd ~11k 를 쥐고, spawnSync pipe fd 가 Darwin
+> bun filter 모드로 repo 전체를 스캔하며 fd ~11.6k 를 쥐고, spawnSync pipe fd 가 Darwin
 > `OPEN_MAX`(10240)를 넘으면 자식 stdout 이 조용히 빈 값이 된다 (worktree-manager 6 fail 의
 > 실제 원인). 상세는 `.claude/rules/testing-inventory.md`.
 
@@ -271,6 +271,8 @@ tp setup-token             # claude setup-token
 
 # Daemon 관리
 tp daemon start [options]  # Daemon 포그라운드 실행
+tp daemon stop             # 실행 중인 daemon 정지
+tp daemon status           # daemon 실행 상태 확인
 tp daemon install          # OS 서비스 등록 (macOS: launchd, Linux: systemd)
 tp daemon uninstall        # OS 서비스 해제
 

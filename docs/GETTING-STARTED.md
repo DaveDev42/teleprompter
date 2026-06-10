@@ -140,20 +140,20 @@ see the empty state above. Tap a session to open it in the dual Chat/Terminal vi
 - **Chat tab** — structured conversation view with tool-use cards and streaming text
 - **Terminal tab** — full PTY output rendered via ghostty-web
 
+### Daemons
+
+The Daemons tab lists all paired daemons. Tap **Add Daemon** to pair with a new machine by
+scanning a QR code (iOS/Android) or pasting the pairing URL (web). Tap a daemon to manage
+its connection or remove the pairing.
+
 ### Settings
 
 ![Settings](screenshots/02-settings.png)
 
 Configure appearance (theme, fonts, font size), voice input (OpenAI API key), and check
-the app version and OTA updates.
-
-### Diagnostics
-
-![Diagnostics panel](screenshots/03-diagnostics.png)
-
-Tap **Diagnostics** at the bottom of Settings to open the diagnostics panel. Shows
-real-time connection status, relay/pairing state, E2EE crypto self-test, and session
-summary with per-session detail.
+the app version and OTA updates. Tap **Diagnostics** at the bottom of Settings to open the
+diagnostics panel, which shows real-time connection status, relay/pairing state, E2EE crypto
+self-test, and session summary with per-session detail.
 
 ## CLI Reference
 

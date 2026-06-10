@@ -8,7 +8,7 @@ paths:
 
 # Testing Inventory
 
-4계층 테스트, 모두 `bun:test` 사용 (Tier 4는 Expo MCP Plugin + Playwright MCP).
+Tier 1–3: `bun:test` 사용. Tier 4 (Playwright E2E / Expo MCP QA): `npx playwright test` (`pnpm test:e2e` / `pnpm test:e2e:ci`) 또는 MCP 에이전트 위임 — `bun:test` 아님.
 
 ## 명령어
 ```bash
@@ -176,25 +176,16 @@ Stub 프로세스로 전체 파이프라인 검증.
 - `app-web-qa` — React Native Web (Playwright MCP + Playwright Test) — **기본 로컬 QA 경로** (가볍고 빠름)
 - `expo-mcp:qa` — iOS Simulator / Android Emulator (Expo MCP Plugin `DaveDev42/expo-mcp` + Maestro). Maestro/JDK-26 불안정 주의 (JDK 17-21 필요). expo-mcp 활성화는 **머신별 결정** — 공유 `.claude/settings.json`은 enable 플래그를 들지 않고(marketplace + `app_dir` config만 유지), 각 머신의 gitignored `.claude/settings.local.json`이 켜고 끈다. **이 64GB M1 Max Mac = `true` (Q4 2026-06-05 PASS)**, 저사양 머신 = `false`. 일상 네이티브 iOS/Android 검증은 EAS 클라우드 빌드 → TestFlight/Internal → 사용자 실기기 디버깅, 큐 항목은 `/verify-native` 로 처리 (CLAUDE.md "iOS 빌드 & 검증 워크플로우" 참조).
 - Playwright E2E: `pnpm test:e2e`
-  - `e2e/app-web.spec.ts` — UI smoke tests (Sessions header, empty state, tabs, dark theme)
-  - `e2e/app-settings.spec.ts` — settings tab (appearance, theme toggle, fonts, diagnostics, version)
-  - `e2e/app-daemon.spec.ts` — daemon-connected session list
-  - `e2e/app-session-switch.spec.ts` — session list and navigation
-  - `e2e/app-resume.spec.ts` — daemon restart recovery
-  - `e2e/app-keyboard-nav.spec.ts` — keyboard navigation (Tab focus, Enter activation, Escape modal dismiss, focus ring)
-  - `e2e/app-modal-escape.spec.ts` — Escape key closes modal even when focus is inside a TextInput (RN Web stopPropagation regression)
-  - `e2e/app-chat-enter.spec.ts` — chat input Enter-to-send / Shift+Enter-newline (RN Web multiline TextInput regression)
-  - `e2e/app-daemons-empty.spec.ts` — daemons empty state on web routes to manual-entry, not the QR-scan dead-end
-  - `e2e/app-session-disconnect-banner.spec.ts` — session view shows a "Disconnected — messages will send after reconnect" banner when relay isn't connected
-  - `e2e/app-pairing-a11y.spec.ts` — manual pairing screen heading/button roles + textarea label + Connect button keyboard reachability
-  - `e2e/app-pairing-scan-web.spec.ts` — /pairing/scan web fallback "Go Back" button has role=button + aria-label and is keyboard-reachable
-  - `e2e/app-font-picker-a11y.spec.ts` — FontPickerModal items expose aria-selected on web (RN Web doesn't translate accessibilityState.selected)
-  - `e2e/app-aria-disabled.spec.ts` — FontSizeModal boundary buttons expose aria-disabled on web (RN Web doesn't translate accessibilityState.disabled)
-  - `e2e/app-sessions-bulk-delete.spec.ts` — Sessions bulk-delete functional flow (edit mode, checkboxes, confirm modal, delete removes rows)
-  - `e2e/app-sessions-bulk-delete-a11y.spec.ts` — Sessions bulk-delete a11y (Edit/Cancel/Delete aria attributes, checkbox role, live region mount)
-  - `e2e/app-relay-e2e.spec.ts` — full relay pipeline (pair → relay → daemon → E2EE) (local only)
-  - `e2e/app-roundtrip.spec.ts` — input/output roundtrip (local only)
-  - `e2e/app-real-e2e.spec.ts` — real Claude PTY E2E (local only)
-  - `e2e/app-chat-roundtrip.spec.ts` — chat input/output roundtrip (local only)
-  - `e2e/app-multi-daemon-nxn.spec.ts` — N:N multi-daemon: two daemons paired into one app, E2EE independence, disconnect isolation (local only)
-  - `e2e/app-multi-daemon-2x2.spec.ts` — 2×2 multi-daemon/multi-frontend: four pairings (2 daemons × 2 frontend contexts), pairing fan-out, independent E2EE keys per frontend, daemon kill isolation (local only)
+  - `e2e/` 에 현재 169개 spec 파일 존재. **CI 실행 목록의 canonical source 는 `playwright.config.ts` `ci` project `testMatch` 배열** (현재 158개) — 새 spec 추가 시 이 배열에 등록해야 CI 에서 실행된다 (`dogfooding.md` "디버그 중 발견한 UI 버그 처리" 참조).
+  - 아래 11개 spec 은 **local-only** (daemon/relay 실제 연결 필요 — CI `testMatch` 제외):
+    - `e2e/app-chat-resume-dedup.spec.ts` — chat resume deduplication (daemon 필요)
+    - `e2e/app-chat-roundtrip.spec.ts` — chat input/output roundtrip (daemon 필요)
+    - `e2e/app-daemon.spec.ts` — daemon-connected session list (daemon 필요)
+    - `e2e/app-multi-daemon-2x2.spec.ts` — 2×2 multi-daemon/multi-frontend E2EE isolation (daemon 필요)
+    - `e2e/app-multi-daemon-nxn.spec.ts` — N:N multi-daemon E2EE independence (daemon 필요)
+    - `e2e/app-real-e2e.spec.ts` — real Claude PTY E2E (claude CLI 필요)
+    - `e2e/app-relay-e2e.spec.ts` — full relay pipeline (pair → relay → daemon → E2EE)
+    - `e2e/app-resume.spec.ts` — daemon restart recovery (daemon 필요)
+    - `e2e/app-roundtrip.spec.ts` — input/output roundtrip (daemon 필요)
+    - `e2e/app-session-switch.spec.ts` — session list and navigation (daemon 필요)
+    - `e2e/app-sessions-refresh-live.spec.ts` — live session list refresh (daemon 필요)

@@ -23,7 +23,7 @@ sw_vers                                  # Developer Beta 아님
 java -version                            # JDK 17–21 (OpenJDK 26 ❌)
 xcrun simctl list runtimes               # iOS 런타임 ≥1
 eas whoami                               # 로그인됨
-grep -A2 enabledPlugins .claude/settings.local.json   # expo-mcp: true
+grep -A2 enabledPlugins .claude/settings.local.json   # "expo-mcp@expo-mcp": true
 ```
 
 - 하나라도 실패 → 그 사유를 출력하고 **중단**. (특히 `hw.memsize < 16GB`이면 이 머신은 이 커맨드의

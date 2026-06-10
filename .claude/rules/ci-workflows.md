@@ -1,7 +1,7 @@
 ---
 paths:
   - ".github/**"
-  - ".eas/**"
+  - "apps/app/.eas/**"
   - "scripts/**"
 ---
 

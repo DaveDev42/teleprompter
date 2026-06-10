@@ -4,7 +4,7 @@ Push notifications require a real device — Simulator and Expo Go cannot receiv
 
 ## Prerequisites
 
-- iPhone/iPad with the current TestFlight build installed
+- iPhone/iPad with the current dev or TestFlight build installed (a locally-built `.ipa` via `eas build --profile device --local` also works)
 - `tp` CLI installed on your Mac
 - Both devices on a network (relay or local)
 

@@ -16,7 +16,7 @@ argument-hint: '<auto | protocol | daemon | runner | relay | cli | app | e2e | u
 | `packages/runner/` | runner | `bun test ./packages/runner` |
 | `packages/relay/` | relay | `bun test ./packages/relay` |
 | `apps/cli/` | cli | `bun test ./apps/cli` |
-| `apps/app/` | app (e2e) | `pnpm test:e2e` |
+| `apps/app/` | app (unit + e2e) | `bun test ./apps/app` then `pnpm test:e2e` |
 | `e2e/` | app (e2e) | `pnpm test:e2e` |
 
 **의존성 전파 규칙:**
@@ -41,8 +41,9 @@ argument-hint: '<auto | protocol | daemon | runner | relay | cli | app | e2e | u
 | `runner` | `bun test ./packages/runner` |
 | `relay` | `bun test ./packages/relay` |
 | `cli` | `bun test ./apps/cli` |
-| `app` 또는 `e2e` | `pnpm test:e2e` |
-| `unit` | `bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay` |
+| `app` | `bun test ./apps/app` then `pnpm test:e2e` |
+| `e2e` | `pnpm test:e2e` |
+| `unit` | `bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay` then `bun test ./apps/app` (별도 invocation 필수) |
 | `all` | type-check → unit → e2e 순차 실행 |
 
 여러 대상 지정 가능: `/test protocol daemon` → protocol + daemon 테스트.

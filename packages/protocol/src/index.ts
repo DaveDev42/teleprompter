@@ -11,6 +11,7 @@ export {
 export { parseControlMessage } from "./control-guard";
 export type { KeyPair, SessionKeys } from "./crypto";
 export {
+  __setCryptoProviderFactory,
   decrypt,
   deriveKxKey,
   derivePushSealKey,
@@ -28,6 +29,7 @@ export {
   toBase64,
   toHex,
 } from "./crypto";
+export type { CryptoProvider } from "./crypto-provider";
 export { parseHookEvent } from "./hook-guard";
 export { parseIpcMessage } from "./ipc-guard";
 export type { LogLevel } from "./logger";

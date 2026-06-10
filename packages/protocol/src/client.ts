@@ -13,6 +13,7 @@ export {
 export { parseControlMessage } from "./control-guard";
 export type { KeyPair, SessionKeys } from "./crypto";
 export {
+  __setCryptoProviderFactory,
   decrypt,
   deriveKxKey,
   deriveRegistrationProof,
@@ -27,6 +28,7 @@ export {
   toBase64,
   toHex,
 } from "./crypto";
+export type { CryptoProvider } from "./crypto-provider";
 export type { LogLevel } from "./logger";
 export { createLogger, setLogLevel } from "./logger";
 export type { PairingBundle, PairingData } from "./pairing";

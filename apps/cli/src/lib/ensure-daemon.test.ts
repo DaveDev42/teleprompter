@@ -263,10 +263,10 @@ describe("waitForDaemonReady check-then-sleep ordering (idx 65)", () => {
       new URL("./ensure-daemon.ts", import.meta.url).pathname,
     ).text();
 
-    // Find the waitForDaemonReady function body
-    const fnMatch = src.match(/function waitForDaemonReady[\s\S]*?^}/m);
+    // Find the waitForDaemonReady function body (kept for debugging context, not used in assertions)
+    const _fnMatch = src.match(/function waitForDaemonReady[\s\S]*?^}/m);
     // Fallback: match from async through the closing brace of the while block
-    const bodyMatch = src.match(
+    const _bodyMatch = src.match(
       /async function waitForDaemonReady\([\s\S]*?while[\s\S]*?\{([\s\S]*?)\}/,
     );
     // Verify check appears before sleep in the while body

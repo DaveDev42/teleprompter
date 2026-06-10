@@ -1,5 +1,58 @@
 # Changelog
 
+## [0.1.47](https://github.com/DaveDev42/teleprompter/compare/v0.1.46...v0.1.47) (2026-06-10)
+
+
+### Features
+
+* **push:** per-event iOS interruption level for push notifications ([#575](https://github.com/DaveDev42/teleprompter/issues/575)) ([b878780](https://github.com/DaveDev42/teleprompter/commit/b87878072cdda1525ef9df6b2e8c8e31f1a595a1))
+* seal Expo push tokens at the relay (Path X) ([#579](https://github.com/DaveDev42/teleprompter/issues/579)) ([33b8375](https://github.com/DaveDev42/teleprompter/commit/33b83759c4024d2b3a78e7fef978d0ecd4bdda98))
+
+
+### Bug Fixes
+
+* **app:** add missing expo-dev-client dependency ([8afaa09](https://github.com/DaveDev42/teleprompter/commit/8afaa09621e11d2a3f35217d1f48792d19cc3f6c))
+* **app:** announce in-flight Sessions refresh via aria-busy ([#588](https://github.com/DaveDev42/teleprompter/issues/588)) ([95742bc](https://github.com/DaveDev42/teleprompter/commit/95742bcd897e403351d14fff5fd62967cc4f8050))
+* **app:** dedup refined-prompt emit, bound unknown-bucket, fix timer/audio-node leaks ([#557](https://github.com/DaveDev42/teleprompter/issues/557)) ([84dc1a5](https://github.com/DaveDev42/teleprompter/commit/84dc1a52a6e04071680532cb1ecd70b4bf7216bb))
+* **app:** exclude SDK-56-frozen expo packages from expo-doctor to unblock eas-gate ([#566](https://github.com/DaveDev42/teleprompter/issues/566)) ([4b2cc13](https://github.com/DaveDev42/teleprompter/commit/4b2cc13b539e5941a1767e7a348916ec872586ec))
+* **app:** filter libsodium wasm2js init noise at the console binding source ([#577](https://github.com/DaveDev42/teleprompter/issues/577)) ([f3c654c](https://github.com/DaveDev42/teleprompter/commit/f3c654c0812c5f3d6375cf59a50b51b07b93fa64))
+* **app:** Ghostty cleanup rejections + typed refs, ChatCard md/dup, modal a11y label ([#546](https://github.com/DaveDev42/teleprompter/issues/546)) ([574c143](https://github.com/DaveDev42/teleprompter/commit/574c14342ab0d3fb12a49cba2c67ae0d2dba4745))
+* **app:** home-relative cwd display + sessions edit-mode fixes ([#586](https://github.com/DaveDev42/teleprompter/issues/586)) ([f55de8c](https://github.com/DaveDev42/teleprompter/commit/f55de8c149531ddc82c2d0db8830af710b1b6c2d))
+* **app:** keep session-store derived state in sync and harden relay-client connect state ([#541](https://github.com/DaveDev42/teleprompter/issues/541)) ([769029b](https://github.com/DaveDev42/teleprompter/commit/769029b8c28cd0d37e44bf805db11e4d376ed36f))
+* **app:** pin @expo/dom-webview to 56.0.5 to match Expo SDK 56 ([#563](https://github.com/DaveDev42/teleprompter/issues/563)) ([d06c485](https://github.com/DaveDev42/teleprompter/commit/d06c485d99b472caaabff4a21f3ce27077b553f5))
+* **app:** pin react to 19.2.3 to match react-native renderer ([#561](https://github.com/DaveDev42/teleprompter/issues/561)) ([db19cba](https://github.com/DaveDev42/teleprompter/commit/db19cbad8e10fef7a8ee4919bf8fbf0cd45aa79c))
+* **app:** refresh Sessions list on reconnect + add manual refresh ([#584](https://github.com/DaveDev42/teleprompter/issues/584)) ([f620806](https://github.com/DaveDev42/teleprompter/commit/f620806541413b956434910220162356b703a231))
+* **app:** route Hermes rejection report through ErrorUtils, drop deep import ([#596](https://github.com/DaveDev42/teleprompter/issues/596)) ([74fee62](https://github.com/DaveDev42/teleprompter/commit/74fee62fa306f8c496bf808840386e3e95c0848d))
+* **app:** store-layer races, JSON validation, exhaustiveness, typed term ref ([#547](https://github.com/DaveDev42/teleprompter/issues/547)) ([89974bb](https://github.com/DaveDev42/teleprompter/commit/89974bb16d03ece9f23445b3e15e8d590920d9c2))
+* **app:** surface foreground push as in-app toast ([#574](https://github.com/DaveDev42/teleprompter/issues/574)) ([ea0b5d5](https://github.com/DaveDev42/teleprompter/commit/ea0b5d55d906eba754319fd6b59a6a7ad7490a15))
+* **app:** terminal-search cache-key + typed Terminal, validate cached resume token ([#544](https://github.com/DaveDev42/teleprompter/issues/544)) ([33f63f8](https://github.com/DaveDev42/teleprompter/commit/33f63f82ff0c947a7ae2248985da0cbcd8b18b71))
+* **app:** unblock eas local dev builds via static runtimeVersion override ([#560](https://github.com/DaveDev42/teleprompter/issues/560)) ([feb362e](https://github.com/DaveDev42/teleprompter/commit/feb362e04967ddc164fa8cbba373b37d5df64846))
+* **cli:** atomic rename EXDEV fallback, dedup error messages, daemon-ensure guard ([#548](https://github.com/DaveDev42/teleprompter/issues/548)) ([46c5095](https://github.com/DaveDev42/teleprompter/commit/46c50952baa13e95bfb1499264ef572602f2127b))
+* **cli:** stop --watch from accumulating crash/signal handlers across restarts ([#540](https://github.com/DaveDev42/teleprompter/issues/540)) ([32832d9](https://github.com/DaveDev42/teleprompter/commit/32832d96d8ceefb2d431341e92e34bf98ba471ac))
+* **daemon:** remove shell from gitOutput to close worktree branch-name injection ([#537](https://github.com/DaveDev42/teleprompter/issues/537)) ([957a57b](https://github.com/DaveDev42/teleprompter/commit/957a57ba523b534a31c4478ab69820a9cb111ce6))
+* **daemon:** resolve runtime dir to /run/user/&lt;uid&gt; when XDG unset ([#559](https://github.com/DaveDev42/teleprompter/issues/559)) ([7f3f4f4](https://github.com/DaveDev42/teleprompter/commit/7f3f4f4393a15fd3755d1aba499906399d5b25e1))
+* **daemon:** unhandled rejections, detached-HEAD worktree parse, exhaustiveness, dedup ([#543](https://github.com/DaveDev42/teleprompter/issues/543)) ([1095222](https://github.com/DaveDev42/teleprompter/commit/1095222cdb998cb93888ed6ba7524c8eaf2bf4d5))
+* guard prune TTL and CLI int args against silent data loss ([#554](https://github.com/DaveDev42/teleprompter/issues/554)) ([dacc9e2](https://github.com/DaveDev42/teleprompter/commit/dacc9e215b0408754174177cd2f6879030eebe19))
+* harden daemon/runner against malformed hooks, bad log levels, and unbounded buffers ([#555](https://github.com/DaveDev42/teleprompter/issues/555)) ([9590ebc](https://github.com/DaveDev42/teleprompter/commit/9590ebcdd0c0893a9afec740312bbf40e3624fa4))
+* **protocol:** bound frame size and require resume token on resumed auth ([#536](https://github.com/DaveDev42/teleprompter/issues/536)) ([0be0423](https://github.com/DaveDev42/teleprompter/commit/0be04238da95a7d1e57eca380a116a09a67f967e))
+* reject trailing-garbage relay int flags so the CI test job stops hanging ([#552](https://github.com/DaveDev42/teleprompter/issues/552)) ([1762f55](https://github.com/DaveDev42/teleprompter/commit/1762f550109d7f69d5fb6c96d987fec5905e0951))
+* **relay:** code-health batch idx 15/16/54/55/56/57/58 ([#549](https://github.com/DaveDev42/teleprompter/issues/549)) ([34d0405](https://github.com/DaveDev42/teleprompter/commit/34d0405501e85dc3c491e673ad7fd9b94752fc66))
+* **relay:** converge tp-relay systemd unit on deploy to end stale-binary drift ([#572](https://github.com/DaveDev42/teleprompter/issues/572)) ([1e25b92](https://github.com/DaveDev42/teleprompter/commit/1e25b92213197df82a2a3868034d16b7acd82520))
+* **relay:** expose build SHA in /health and verify it after deploy ([#570](https://github.com/DaveDev42/teleprompter/issues/570)) ([f41c0d9](https://github.com/DaveDev42/teleprompter/commit/f41c0d997ec809a05fd290d3ca0fa6610d7abaa3))
+* **relay:** harden /admin XSS, ping auth, registration proof sentinel, and memory leaks ([#553](https://github.com/DaveDev42/teleprompter/issues/553)) ([3248e7f](https://github.com/DaveDev42/teleprompter/commit/3248e7f8b903d8d43abe5c5c333bd8eda589e06c))
+* **relay:** inspect Expo push tickets to surface silently-rejected pushes ([#576](https://github.com/DaveDev42/teleprompter/issues/576)) ([1c9c481](https://github.com/DaveDev42/teleprompter/commit/1c9c481e82b394782d698801d0c4edc325d69061))
+* **relay:** purge tokens on daemon evict/re-register, fix per-frontend close and push window reset ([#539](https://github.com/DaveDev42/teleprompter/issues/539)) ([5daee1d](https://github.com/DaveDev42/teleprompter/commit/5daee1d7aa7ecfac73fed569206606b3f8c41d96))
+* **runner:** handle IPC overflow as hard error and clean up on shutdown/start failure ([#538](https://github.com/DaveDev42/teleprompter/issues/538)) ([e5c7f75](https://github.com/DaveDev42/teleprompter/commit/e5c7f75bd9a81edee4464085f8993b67f4f1cb41))
+* **runner:** hook-receiver buffering/TOCTOU, SocketState union, exhaustiveness guards ([#545](https://github.com/DaveDev42/teleprompter/issues/545)) ([c11b0f3](https://github.com/DaveDev42/teleprompter/commit/c11b0f30020ea9c7f11c91deaa0b2713f85733ec))
+* **runner:** single-quote the bun -e hook command to stop shell quote collision ([#569](https://github.com/DaveDev42/teleprompter/issues/569)) ([39b6c5e](https://github.com/DaveDev42/teleprompter/commit/39b6c5e3a54790a9e67999de63af50637f588dc0))
+
+
+### Refactor
+
+* **protocol:** extract shared guard primitives and tighten numeric wire validation ([#556](https://github.com/DaveDev42/teleprompter/issues/556)) ([ba7a2e4](https://github.com/DaveDev42/teleprompter/commit/ba7a2e4c962f4a04172d4bfd4f459eb03a7f45d7))
+* **protocol:** replace session.prune olderThanMs null with AgeFilter union ([#558](https://github.com/DaveDev42/teleprompter/issues/558)) ([a214bae](https://github.com/DaveDev42/teleprompter/commit/a214baea79b07c538c4ef6959043b627bb4de0a2))
+* **protocol:** tighten guards, dedup KDF/record-kind/namespace, fix compat patch check ([#542](https://github.com/DaveDev42/teleprompter/issues/542)) ([8a4461e](https://github.com/DaveDev42/teleprompter/commit/8a4461e463357cd40ec6ef74f2e73d85a33338ef))
+
 ## [0.1.46](https://github.com/DaveDev42/teleprompter/compare/v0.1.45...v0.1.46) (2026-06-05)
 
 

@@ -17,7 +17,8 @@
 import type { CryptoProvider } from "./crypto-provider";
 
 export async function createLibsodiumProvider(): Promise<CryptoProvider> {
-  const s = require("libsodium-wrappers") as typeof import("libsodium-wrappers");
+  const s =
+    require("libsodium-wrappers") as typeof import("libsodium-wrappers");
   await s.ready;
 
   return {

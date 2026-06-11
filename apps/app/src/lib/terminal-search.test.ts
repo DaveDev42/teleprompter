@@ -35,7 +35,7 @@ function makeTerminalStub(lines: string[]) {
   const bufferLines = lines.map(makeLine);
   const selections: Array<{ col: number; row: number; length: number }> = [];
   let cleared = 0;
-  let scrolledTo: number[] = [];
+  const scrolledTo: number[] = [];
 
   return {
     buffer: {

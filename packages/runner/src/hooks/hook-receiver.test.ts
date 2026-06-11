@@ -120,7 +120,9 @@ describe("HookReceiver", () => {
     // Verify the implementation delegates to the canonical resolver rather than
     // hand-rolling its own 2-step fallback.  We spy on resolveRuntimeDir and
     // assert it is called when defaultSocketPath is invoked.
-    const spy = spyOn(protocol, "resolveRuntimeDir").mockReturnValue("/fake/runtime");
+    const spy = spyOn(protocol, "resolveRuntimeDir").mockReturnValue(
+      "/fake/runtime",
+    );
     try {
       const path = HookReceiver.defaultSocketPath("test-sid");
       expect(spy).toHaveBeenCalled();
@@ -136,7 +138,9 @@ describe("HookReceiver", () => {
     // the Linux systemd case where /run/user/<uid> is the canonical resolution.
     const uid = process.getuid?.() ?? 0;
     const systemdDir = `/run/user/${uid}`;
-    const spy = spyOn(protocol, "resolveRuntimeDir").mockReturnValue(systemdDir);
+    const spy = spyOn(protocol, "resolveRuntimeDir").mockReturnValue(
+      systemdDir,
+    );
     try {
       const savedXdg = process.env["XDG_RUNTIME_DIR"];
       delete process.env["XDG_RUNTIME_DIR"];

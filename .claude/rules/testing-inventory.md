@@ -127,17 +127,17 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 
 ### apps/app (RN 앱 단위 테스트 — 런타임 의존성 없음, CI 포함)
 > **반드시 별도 `bun test apps/app` invocation 으로 실행.** `crypto-native.test.ts` 가
-> `mock.module("@teleprompter/protocol/client", …)` 를 쓰는데 bun:test 의 module mock 은
+> `mock.module("@teleprompter/protocol/client", …)` 를, `crypto-provider-native.test.ts` 가
+> `mock.module("react-native-quick-crypto", …)` 를 쓰는데 bun:test 의 module mock 은
 > 프로세스 전역에 잔류한다 — 같은 invocation 에 다른 패키지를 섞으면 후속 crypto 의존
 > 테스트 (PairingOrchestrator, RelayClient v2 등 ~38개) 가 스텁을 받아 깨진다.
 - `apps/app/src/components/chat-card-md.test.ts` — chat card markdown rendering helpers
 - `apps/app/src/hooks/push-toast.test.ts` — push toast hook
 - `apps/app/src/lib/ansi-strip.test.ts` — ANSI escape stripping
 - `apps/app/src/lib/copy-text.test.ts` — clipboard copy helper
-- `apps/app/src/lib/crypto-native.test.ts` — native crypto bridge
-- `apps/app/src/lib/crypto-polyfill.test.ts` — crypto polyfill (getRandomValues)
-- `apps/app/src/lib/crypto-polyfill-binding.test.ts` — polyfill binding order
-- `apps/app/src/lib/crypto-polyfill-hermes-rejection.test.ts` — Hermes libsodium rejection swallow + ErrorUtils routing
+- `apps/app/src/lib/crypto-native.test.ts` — crypto availability probe (ensureSodium 성공/실패 캐싱)
+- `apps/app/src/lib/crypto-polyfill.test.ts` — crypto polyfill (boot marker 모듈, getRandomValues)
+- `apps/app/src/lib/crypto-provider-native.test.ts` — RNQC native CryptoProvider cross-provider oracle (kx/KDF vs libsodium + BoringSSL X25519, AEAD 레이아웃, base64/hex/UTF-8)
 - `apps/app/src/lib/relay-client.test.ts` — FrontendRelayClient (ping cadence, missed-pong force-close)
 - `apps/app/src/lib/secure-storage.test.ts` — secureGet/secureSet platform split
 - `apps/app/src/lib/session-ux.test.ts` — session UX helpers

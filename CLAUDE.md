@@ -12,7 +12,7 @@ Teleprompter is a remote Claude Code session controller. An Expo frontend (React
 - **Runtime**: Bun v1.3.13+ (Runner, Daemon, Relay), Expo (Frontend)
 - **Monorepo**: Turborepo + pnpm
 - **Frontend**: Expo (React Native + RN Web), Zustand, NativeWind (Tailwind), ghostty-web (terminal)
-- **Encryption**: libsodium (X25519 + XChaCha20-Poly1305)
+- **Encryption**: X25519 + XChaCha20-Poly1305 via CryptoProvider seam — libsodium (Bun/Web), react-native-quick-crypto (app native/Hermes)
 - **Voice**: OpenAI Realtime API
 
 ## Monorepo Layout

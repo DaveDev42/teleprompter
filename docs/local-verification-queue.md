@@ -655,8 +655,25 @@ URL) 을 쓰고, write 브릿지가 base64 bytes 로 바뀌어 **바이너리 PT
 - **pass**: (a) 오프라인 상태에서도 터미널 UI 렌더 (WASM data-URL init 성공), (b) 한글/이모지/
   ANSI 출력 무손실 (바이너리 write 경로), (c) 리플레이 정상, (d) `[GhosttyNative] webview
   error` / `failed to load bundled ghostty-web` 콘솔 에러 0건.
-- **result**: **PENDING — 실기기 필요** (Q12 와 같은 세션에서 함께 돌리면 효율적; 이쪽은 기존
-  빌드로도 가능).
+- **result**: **PARTIAL PASS 2026-06-12 (Simulator/Hermes dev — iPhone 17 Pro, Expo Go +
+  Metro dev bundle, CDP + maestro 구동).** 항목별:
+  - (b) **한글/이모지/ANSI write 라운드트립 PASS** — `q13-ghostty-verify` 세션에 base64 `in.term`
+    으로 `다음 텍스트를 정확히 그대로 출력해줘 (코드블록 없이): Q13-PATTERN 한글출력 안녕하세요
+    🚀👋🎉 box ┌─┬─┐ end` 를 전송 → ghostty-web 가 입력 에코 + claude `⏺` 응답을 한글/이모지/
+    box-drawing 무손실로 렌더 (PTY 로그 `⏺ Q13-PATTERN 한글출력 안녕하세요 🚀👋🎉 box ┌─┬─┐ end`
+    바이트 확인 + 스크린샷). 바이너리 write 브릿지(base64 bytes) 경로가 실제 WKWebView 안에서 동작.
+  - (c) **리플레이 PASS** — Chat↔Terminal 탭 플립으로 GhosttyNative WebView 를 언마운트→리마운트
+    했을 때 전체 스크롤백(한글/이모지/box 포함)이 손상 없이 재렌더 (`q13-replay-term2.png`).
+  - (d) **콘솔 클린 PASS** — `[GhosttyNative] webview error` / `failed to load bundled ghostty-web`
+    / crypto·sodium·AEAD 에러 **0건**. boot marker `[tp-app boot] engine=hermes dev=true` 정상.
+    잔여 콘솔 ERROR 는 (i) Sessions 리스트 중복 React key (`.$session-…` — 재페어링 후 stale 캐시,
+    Q13 무관 별도 버그) (ii) restart 세션의 `bun` PATH 미스 hook 에러 (non-blocking, 렌더 무관) 뿐.
+  - (a) **오프라인(비행기 모드) 임베디드 번들 렌더는 미검증** — 시뮬레이터는 Metro dev 번들을
+    서빙하므로 esm.sh fetch 제거 → 로컬 에셋 동작의 "오프라인 증명"은 TestFlight/임베디드 빌드
+    실기기에서만 성립. 이 한 항목만 실기기로 승계 (Dave 폰 연결 중, 동일 CDP 기법 적용 가능).
+  - 비고: Mac 잠금화면으로 GUI 클릭이 막혀 전 과정을 **CDP**(Hermes JS 컨텍스트: expo-router push,
+    Zustand introspection, transport `sendTermInput`/`session.restart`, React fiber 탭 플립)로
+    구동, SpringBoard `tp://` openurl 잔류 다이얼로그만 maestro `tapOn 취소` 로 정리.
 
 ---
 

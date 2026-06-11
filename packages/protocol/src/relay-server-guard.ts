@@ -24,8 +24,11 @@ import {
   isNonNegativeInt,
   isNumber,
   isObject,
+  isOptionalBoolean,
   isOptionalNumber,
   isOptionalString,
+  isPlatform,
+  isRole,
   isString,
   isStringArray,
 } from "./guard-primitives";
@@ -43,18 +46,6 @@ import type {
   RelayRegisterOk,
   RelayServerMessage,
 } from "./types/relay";
-
-function isOptionalBoolean(v: unknown): v is boolean | undefined {
-  return v === undefined || typeof v === "boolean";
-}
-
-function isRole(v: unknown): v is "daemon" | "frontend" {
-  return v === "daemon" || v === "frontend";
-}
-
-function isPlatform(v: unknown): v is "ios" | "android" {
-  return v === "ios" || v === "android";
-}
 
 /**
  * Validate the optional `data` navigation payload shared by relay.notification.

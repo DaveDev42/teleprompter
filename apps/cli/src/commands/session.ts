@@ -13,9 +13,9 @@ import { getSocketPath } from "@teleprompter/protocol";
 import { promptText } from "../components/ink/text-prompt";
 import { promptYesNo } from "../components/ink/yes-no-prompt";
 import { dim, fail, ok, yellow } from "../lib/colors";
+import { requestDaemonOp } from "../lib/daemon-op";
 import { isDaemonRunning } from "../lib/ensure-daemon";
 import { formatAge } from "../lib/format";
-import { requestDaemonOp } from "../lib/daemon-op";
 import { parseArgsFriendly } from "../lib/parse-args";
 
 /**

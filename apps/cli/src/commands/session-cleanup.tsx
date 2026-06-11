@@ -25,9 +25,9 @@ import { Box, render, Text, useInput } from "ink";
 import type React from "react";
 import { useState } from "react";
 import { fail, ok } from "../lib/colors";
+import { requestDaemonOp } from "../lib/daemon-op";
 import { isDaemonRunning } from "../lib/ensure-daemon";
 import { formatAge } from "../lib/format";
-import { requestDaemonOp } from "../lib/daemon-op";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

@@ -7,10 +7,8 @@ import {
   View,
 } from "react-native";
 import { useKeyboard } from "../hooks/use-keyboard";
+import { FOCUSABLE_SELECTOR } from "../lib/focusable";
 import { registerOpenModal } from "../lib/modal-open-registry";
-
-const FOCUSABLE_SELECTOR =
-  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 export function ModalContainer({
   visible,

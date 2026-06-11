@@ -55,6 +55,19 @@
     background-color: var(--tp-bg);
   }
 
+  /* Gamepad navigation (web): use-gamepad-nav.ts moves focus with
+     programmatic el.focus() from a poll loop, which does not satisfy
+     Chromium's :focus-visible heuristic — the per-element
+     focus-visible:ring-* classes never render for controller moves.
+     While a controller is connected the hook keeps .tp-gamepad-nav on
+     <html> and this rule shows a ring for *any* focus. Specificity
+     (0,2,1) deliberately beats the Tailwind focus-visible:outline-none
+     utility (0,2,0). */
+  html.tp-gamepad-nav :focus {
+    outline: 2px solid var(--tp-border-focus);
+    outline-offset: 2px;
+  }
+
   /* WCAG 2.1 SC 2.3.3: honor the user's reduced-motion preference. Cuts
      transitions and animations to ~0 so motion-sensitive users don't get
      unsolicited movement. Keep a tiny non-zero duration so transitionend

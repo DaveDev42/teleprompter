@@ -337,9 +337,8 @@ describe("PairingOrchestrator", () => {
     });
 
     expect(manager.buildEvents).toHaveBeenCalledTimes(1);
-    const buildEventsArgs = (
-      manager.buildEvents as ReturnType<typeof mock>
-    ).mock.calls[0] as [unknown, unknown, string];
+    const buildEventsArgs = (manager.buildEvents as ReturnType<typeof mock>)
+      .mock.calls[0] as [unknown, unknown, string];
     // Third argument must be the resolved daemonId, NOT '' or undefined.
     expect(buildEventsArgs[2]).toBe("daemon-push-test");
   });
@@ -355,9 +354,8 @@ describe("PairingOrchestrator", () => {
     const info = await orch.begin({ relayUrl: "wss://r" });
 
     expect(manager.buildEvents).toHaveBeenCalledTimes(1);
-    const buildEventsArgs = (
-      manager.buildEvents as ReturnType<typeof mock>
-    ).mock.calls[0] as [unknown, unknown, string];
+    const buildEventsArgs = (manager.buildEvents as ReturnType<typeof mock>)
+      .mock.calls[0] as [unknown, unknown, string];
     expect(buildEventsArgs[2]).toBe(info.daemonId);
     expect(info.daemonId).toMatch(/^daemon-/);
   });

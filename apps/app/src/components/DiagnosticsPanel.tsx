@@ -146,9 +146,9 @@ export function DiagnosticsPanel() {
     else if (typeof document !== "undefined") result.platform = "web";
     else result.platform = "unknown";
 
-    // Wrap the entire self-test so any unexpected throw (e.g. libsodium WASM
-    // abort on platforms without WebAssembly) is contained in the UI handler
-    // and cannot bring the app down via an unhandled rejection.
+    // Wrap the entire self-test so any unexpected throw (e.g. a crypto
+    // provider failing to initialize) is contained in the UI handler and
+    // cannot bring the app down via an unhandled rejection.
     try {
       let t0 = Date.now();
       try {

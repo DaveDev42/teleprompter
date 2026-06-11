@@ -25,6 +25,7 @@ paths:
 - Key exchange: X25519 via `crypto_kx` (daemon=server, frontend=client)
 - Encryption: XChaCha20-Poly1305, random nonce per frame
 - Key derivation: BLAKE2b (`crypto_generichash`), domain-separated (kxKey, registrationProof)
+- 구현은 CryptoProvider seam: `crypto-provider.ts` interface + `__setCryptoProviderFactory`. 기본 provider = libsodium-wrappers (`crypto-provider-libsodium.ts` — factory 본문에서 lazy require, import 만으로는 evaluate 안 됨). 앱 native(Hermes)는 react-native-quick-crypto provider 를 주입 (`apps/app/src/lib/crypto-provider-native.ts`). 새 crypto 연산 추가 시 interface + 양쪽 provider + cross-provider 테스트를 함께 갱신
 - Secret key 로깅 금지
 
 ## Relay Protocol v2 (wire messages)

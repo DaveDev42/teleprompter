@@ -43,8 +43,9 @@ paths:
 - Import 정렬: Biome organizeImports 위임
 
 ## Crypto & Security
-- `await ensureSodium()` — 모든 crypto 연산 전 lazy init 필수
-- `crypto-polyfill.ts`: expo-crypto `getRandomValues` → `self.crypto.getRandomValues` polyfill
+- `await ensureSodium()` — 모든 crypto 연산 전 lazy init 필수. Provider 는 CryptoProvider seam (`@teleprompter/protocol/client` 의 `__setCryptoProviderFactory`) 으로 결정된다.
+- Native (Hermes): react-native-quick-crypto provider (`lib/crypto-provider-native.ts`, `USE_NATIVE_CRYPTO` in `lib/crypto-flag.ts`). `index.ts` 가 module-eval 시 factory 를 설치 → libsodium-wrappers 는 native 에서 절대 evaluate 되지 않는다 (wasm2js 워크어라운드 전부 제거됨). Web/bun:test: libsodium-wrappers (WASM). Cross-provider oracle: `lib/crypto-provider-native.test.ts`, on-device 게이트: `docs/local-verification-queue.md` Q11.
+- `crypto-polyfill.ts`: `[tp-app boot]` boot marker (on-device 콘솔 검증용) + expo-crypto `getRandomValues` → `self.crypto.getRandomValues` polyfill
   - `apps/app/index.ts`에서 최초 import 필수
 - Key storage: iOS/Android → expo-secure-store (Keychain/Keystore), Web → localStorage `tp_` prefix
 - Uint8Array 저장 시 base64 변환 (`toBase64`/`fromBase64` from protocol)

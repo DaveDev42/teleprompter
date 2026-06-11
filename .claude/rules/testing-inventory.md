@@ -128,7 +128,8 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 ### apps/app (RN 앱 단위 테스트 — 런타임 의존성 없음, CI 포함)
 > **반드시 별도 `bun test apps/app` invocation 으로 실행.** `crypto-native.test.ts` 가
 > `mock.module("@teleprompter/protocol/client", …)` 를, `crypto-provider-native.test.ts` 가
-> `mock.module("react-native-quick-crypto", …)` 를 쓰는데 bun:test 의 module mock 은
+> `mock.module("react-native-quick-crypto", …)` 를, `audio-native.test.ts` 가
+> `mock.module("react-native-audio-api", …)` 를 쓰는데 bun:test 의 module mock 은
 > 프로세스 전역에 잔류한다 — 같은 invocation 에 다른 패키지를 섞으면 후속 crypto 의존
 > 테스트 (PairingOrchestrator, RelayClient v2 등 ~38개) 가 스텁을 받아 깨진다.
 - `apps/app/src/components/chat-card-md.test.ts` — chat card markdown rendering helpers
@@ -149,6 +150,8 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `apps/app/src/stores/session-store.test.ts` — session store (relayState discriminated union)
 - `apps/app/src/stores/settings-store.test.ts` — settings store
 - `apps/app/src/stores/voice-store.test.ts` — voice store
+- `apps/app/src/voice/pcm.test.ts` — PCM16/base64/linear-resample pure helpers (web+native 공유)
+- `apps/app/src/voice/audio-native.test.ts` — native AudioCapture/AudioPlayer (react-native-audio-api mocked: 권한 흐름, 24kHz 리샘플 캡처, 재생 스케줄링)
 
 ## Tier 2: Integration Tests (stub runner)
 Stub 프로세스로 전체 파이프라인 검증.

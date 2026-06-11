@@ -10,17 +10,9 @@ import {
   View,
 } from "react-native";
 import { ariaLevel, getPlatformProps } from "../../src/lib/get-platform-props";
+import { getPalette } from "../../src/lib/tokens";
 import { usePairingStore } from "../../src/stores/pairing-store";
 import { useThemeStore } from "../../src/stores/theme-store";
-
-// Mirrors `--tp-text-tertiary` / `--tp-text-secondary` in global.css.
-// TextInput.placeholderTextColor and ActivityIndicator.color expect
-// literals — CSS variables only resolve on web; native silently falls
-// back to the platform default, leaving these surfaces unreadable.
-const PLACEHOLDER_LIGHT = "#a1a1aa";
-const PLACEHOLDER_DARK = "#71717a";
-const INDICATOR_LIGHT = "#71717a";
-const INDICATOR_DARK = "#a1a1aa";
 
 export default function PairingScreen() {
   const router = useRouter();
@@ -29,8 +21,9 @@ export default function PairingScreen() {
   const [manualInput, setManualInput] = useState(params.pairingData ?? "");
   const pp = getPlatformProps();
   const isDark = useThemeStore((s) => s.isDark);
-  const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
-  const indicatorColor = isDark ? INDICATOR_DARK : INDICATOR_LIGHT;
+  const palette = getPalette(isDark);
+  const placeholderColor = palette.textTertiary;
+  const indicatorColor = palette.textSecondary;
   const canSubmit = manualInput.trim().length > 0;
   const connectRef = useRef<View>(null);
   const inputRef = useRef<TextInput>(null);

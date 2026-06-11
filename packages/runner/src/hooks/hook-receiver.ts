@@ -2,6 +2,7 @@ import {
   createLogger,
   type HookEventBase,
   parseHookEvent,
+  resolveRuntimeDir,
 } from "@teleprompter/protocol";
 import { chmodSync, mkdirSync, rmSync } from "fs";
 import { dirname, join } from "path";
@@ -103,11 +104,6 @@ export class HookReceiver {
   }
 
   static defaultSocketPath(sid: string): string {
-    const xdgRuntimeDir = process.env["XDG_RUNTIME_DIR"];
-    if (xdgRuntimeDir) {
-      return join(xdgRuntimeDir, `hook-${sid}.sock`);
-    }
-    const runtimeDir = join("/tmp", `teleprompter-${process.getuid?.()}`);
-    return join(runtimeDir, `hook-${sid}.sock`);
+    return join(resolveRuntimeDir(), `hook-${sid}.sock`);
   }
 }

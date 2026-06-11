@@ -1018,6 +1018,8 @@ describe("IpcCommandDispatcher.dispatchRelayControl", () => {
     expect((out[0]?.msg as { e?: string }).e).toBe("NOT_FOUND");
   });
 
+  const NO_REPO_MESSAGE = "No repository configured for worktree management";
+
   test("worktree.list without repo configured returns NO_REPO", async () => {
     const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
     const { dispatcher } = makeHarness({ getWorktreeManager: () => null });
@@ -1030,7 +1032,46 @@ describe("IpcCommandDispatcher.dispatchRelayControl", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(out.length).toBe(1);
-    expect((out[0]?.msg as { e?: string }).e).toBe("NO_REPO");
+    expect((out[0]?.msg as { t: string; e?: string; m?: string }).e).toBe(
+      "NO_REPO",
+    );
+    expect((out[0]?.msg as { t: string; e?: string; m?: string }).m).toBe(
+      NO_REPO_MESSAGE,
+    );
+  });
+
+  test("worktree.create without repo configured returns NO_REPO", async () => {
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const { dispatcher } = makeHarness({ getWorktreeManager: () => null });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "worktree.create", branch: "feat/x" },
+      "f1",
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(out.length).toBe(1);
+    const reply = out[0]?.msg as { t: string; e?: string; m?: string };
+    expect(reply.t).toBe("err");
+    expect(reply.e).toBe("NO_REPO");
+    expect(reply.m).toBe(NO_REPO_MESSAGE);
+  });
+
+  test("worktree.remove without repo configured returns NO_REPO", async () => {
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const { dispatcher } = makeHarness({ getWorktreeManager: () => null });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "worktree.remove", path: "some/path" },
+      "f1",
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(out.length).toBe(1);
+    const reply = out[0]?.msg as { t: string; e?: string; m?: string };
+    expect(reply.t).toBe("err");
+    expect(reply.e).toBe("NO_REPO");
+    expect(reply.m).toBe(NO_REPO_MESSAGE);
   });
 
   test("resize forwards to the runner IPC when found", () => {

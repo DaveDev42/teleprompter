@@ -53,7 +53,9 @@ describe("requestDaemonOp", () => {
     const reply: IpcAck = { t: "ack", sid: "s1", seq: 1 };
     server = startFakeServer(sockPath, (sock) => {
       // send a non-matching ack first (seq 999), then the one we expect (seq 1)
-      sock.write(encodeFrame({ t: "ack", sid: "s1", seq: 999 } satisfies IpcMessage));
+      sock.write(
+        encodeFrame({ t: "ack", sid: "s1", seq: 999 } satisfies IpcMessage),
+      );
       sock.write(encodeFrame(reply));
     });
 
@@ -131,7 +133,9 @@ describe("requestDaemonOp", () => {
       socket: {
         open() {},
         data(sock) {
-          sock.write(encodeFrame({ t: "ack", sid: "s1", seq: 1 } satisfies IpcMessage));
+          sock.write(
+            encodeFrame({ t: "ack", sid: "s1", seq: 1 } satisfies IpcMessage),
+          );
         },
         close() {
           clientEndCalls++;

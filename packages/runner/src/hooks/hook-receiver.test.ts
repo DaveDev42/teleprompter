@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import type { HookEventBase } from "@teleprompter/protocol";
+import * as protocol from "@teleprompter/protocol";
 import { rmRetry } from "@teleprompter/protocol/test-utils";
 import { mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
@@ -113,6 +114,42 @@ describe("HookReceiver", () => {
   test("defaultSocketPath generates valid path", () => {
     const path = HookReceiver.defaultSocketPath("my-session");
     expect(path).toContain("hook-my-session.sock");
+  });
+
+  test("defaultSocketPath delegates to resolveRuntimeDir()", () => {
+    // Verify the implementation delegates to the canonical resolver rather than
+    // hand-rolling its own 2-step fallback.  We spy on resolveRuntimeDir and
+    // assert it is called when defaultSocketPath is invoked.
+    const spy = spyOn(protocol, "resolveRuntimeDir").mockReturnValue("/fake/runtime");
+    try {
+      const path = HookReceiver.defaultSocketPath("test-sid");
+      expect(spy).toHaveBeenCalled();
+      expect(path).toBe("/fake/runtime/hook-test-sid.sock");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("defaultSocketPath uses /run/user/<uid> when XDG_RUNTIME_DIR is unset and dir exists", () => {
+    // When XDG_RUNTIME_DIR is unset, resolveRuntimeDir checks /run/user/<uid>.
+    // On macOS that dir does not exist, so we stub resolveRuntimeDir to simulate
+    // the Linux systemd case where /run/user/<uid> is the canonical resolution.
+    const uid = process.getuid?.() ?? 0;
+    const systemdDir = `/run/user/${uid}`;
+    const spy = spyOn(protocol, "resolveRuntimeDir").mockReturnValue(systemdDir);
+    try {
+      const savedXdg = process.env["XDG_RUNTIME_DIR"];
+      delete process.env["XDG_RUNTIME_DIR"];
+      try {
+        const path = HookReceiver.defaultSocketPath("sid-123");
+        expect(spy).toHaveBeenCalled();
+        expect(path).toBe(`${systemdDir}/hook-sid-123.sock`);
+      } finally {
+        if (savedXdg !== undefined) process.env["XDG_RUNTIME_DIR"] = savedXdg;
+      }
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   test("accumulates fragmented payload across data chunks (idx 5)", async () => {

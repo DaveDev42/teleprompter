@@ -7,6 +7,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { InAppToast } from "../src/components/InAppToast";
 import { ShortcutHelpModal } from "../src/components/ShortcutHelpModal";
 import { UpdateBanner } from "../src/components/UpdateBanner";
+import { useGamepadNav } from "../src/hooks/use-gamepad-nav";
 import { useGlobalShortcuts } from "../src/hooks/use-global-shortcuts";
 import { useOtaUpdate } from "../src/hooks/use-ota-update";
 import { usePairingDeepLink } from "../src/hooks/use-pairing-deep-link";
@@ -121,6 +122,11 @@ export default function RootLayout() {
     [router],
   );
   useGlobalShortcuts(shortcutMap);
+
+  // Web-only gamepad navigation: polls connected controllers and maps
+  // D-pad/A/B/LB/RB onto the same focus + navigation semantics as the
+  // keyboard layer above. Inert while no controller is connected.
+  useGamepadNav();
 
   // E2EE relay connections for all paired daemons
   useRelay();

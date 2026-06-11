@@ -21,6 +21,8 @@ import {
   isObject,
   isOptionalNumber,
   isOptionalString,
+  isPlatform,
+  isRole,
   isString,
 } from "./guard-primitives";
 import type {
@@ -37,14 +39,6 @@ import type {
   RelaySubscribe,
   RelayUnsubscribe,
 } from "./types/relay";
-
-function isRole(v: unknown): v is "daemon" | "frontend" {
-  return v === "daemon" || v === "frontend";
-}
-
-function isPlatform(v: unknown): v is "ios" | "android" {
-  return v === "ios" || v === "android";
-}
 
 /**
  * Validate the optional `data` navigation payload on a relay.push. When

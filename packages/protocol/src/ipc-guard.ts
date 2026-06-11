@@ -83,8 +83,6 @@ function parseAgeFilter(v: unknown): AgeFilter | null {
   return null;
 }
 
-const RECORD_KINDS = RECORD_KIND_SET;
-const NAMESPACES = NAMESPACE_SET;
 const PAIR_BEGIN_REASONS: ReadonlySet<IpcPairBeginErrReason> = new Set([
   "already-pending",
   "daemon-id-taken",
@@ -114,12 +112,12 @@ const SESSION_PRUNE_REASONS: ReadonlySet<IpcSessionPruneErrReason> = new Set([
 ]);
 
 function isRecordKind(v: unknown): v is RecordKind {
-  return typeof v === "string" && RECORD_KINDS.has(v as RecordKind);
+  return typeof v === "string" && RECORD_KIND_SET.has(v as RecordKind);
 }
 
 function isOptionalNamespace(v: unknown): v is Namespace | undefined {
   if (v === undefined) return true;
-  return typeof v === "string" && NAMESPACES.has(v as Namespace);
+  return typeof v === "string" && NAMESPACE_SET.has(v as Namespace);
 }
 
 function isPairBeginReason(v: unknown): v is IpcPairBeginErrReason {

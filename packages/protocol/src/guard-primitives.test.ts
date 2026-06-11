@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isBoolean,
   isNonNegativeInt,
   isNumber,
   isObject,
+  isOptionalBoolean,
   isOptionalNumber,
   isOptionalString,
+  isPlatform,
   isPositiveInt,
+  isRole,
   isString,
   isStringArray,
 } from "./guard-primitives";
@@ -194,5 +198,66 @@ describe("isStringArray", () => {
     expect(isStringArray("string")).toBe(false);
     expect(isStringArray(null)).toBe(false);
     expect(isStringArray({})).toBe(false);
+  });
+});
+
+describe("isBoolean", () => {
+  test("accepts true and false", () => {
+    expect(isBoolean(true)).toBe(true);
+    expect(isBoolean(false)).toBe(true);
+  });
+
+  test("rejects non-booleans", () => {
+    expect(isBoolean(1)).toBe(false);
+    expect(isBoolean(0)).toBe(false);
+    expect(isBoolean("true")).toBe(false);
+    expect(isBoolean(null)).toBe(false);
+    expect(isBoolean(undefined)).toBe(false);
+    expect(isBoolean({})).toBe(false);
+  });
+});
+
+describe("isOptionalBoolean", () => {
+  test("accepts true, false, and undefined", () => {
+    expect(isOptionalBoolean(true)).toBe(true);
+    expect(isOptionalBoolean(false)).toBe(true);
+    expect(isOptionalBoolean(undefined)).toBe(true);
+  });
+
+  test("rejects null and non-booleans", () => {
+    expect(isOptionalBoolean(null)).toBe(false);
+    expect(isOptionalBoolean(1)).toBe(false);
+    expect(isOptionalBoolean("true")).toBe(false);
+    expect(isOptionalBoolean({})).toBe(false);
+  });
+});
+
+describe("isRole", () => {
+  test("accepts daemon and frontend", () => {
+    expect(isRole("daemon")).toBe(true);
+    expect(isRole("frontend")).toBe(true);
+  });
+
+  test("rejects other strings and non-strings", () => {
+    expect(isRole("relay")).toBe(false);
+    expect(isRole("")).toBe(false);
+    expect(isRole(null)).toBe(false);
+    expect(isRole(undefined)).toBe(false);
+    expect(isRole(42)).toBe(false);
+  });
+});
+
+describe("isPlatform", () => {
+  test("accepts ios and android", () => {
+    expect(isPlatform("ios")).toBe(true);
+    expect(isPlatform("android")).toBe(true);
+  });
+
+  test("rejects other strings and non-strings", () => {
+    expect(isPlatform("web")).toBe(false);
+    expect(isPlatform("")).toBe(false);
+    expect(isPlatform(null)).toBe(false);
+    expect(isPlatform(undefined)).toBe(false);
+    expect(isPlatform(42)).toBe(false);
   });
 });

@@ -271,7 +271,8 @@ bump는 cloud-unsafe라 금지.**
 - **prereq**: Q1과 동일 빌드.
 - **command**: 페어링 키가 expo-secure-store(Keychain)에 저장·복원되는지(앱 재시작 후 페어링 유지),
   App Switcher background→foreground 왕복 시 relay 재연결 배너 정상, (VoiceButton 네이티브 구현 후)
-  audio capture. 현재 `VoiceButton`은 네이티브에서 `null` 반환(TODO) — audio는 구현 전까지 `N/A`.
+  audio capture. 검증 당시 `VoiceButton`은 네이티브에서 `null` 반환이라 audio 는 `N/A` — 구현 후의
+  on-device 음성 왕복은 **Q12** 가 승계.
 - **pass**: 앱 강제종료 후 재실행에도 페어링 살아있음. background 진입 후 복귀 시 reconnect.
 - **result**: **PASS 2026-06-07 (build #59, sealed Path X #579 `33b8375` — keychain 영속 + bg→fg 재연결 실기기 확인).**
   iPhone 15 Pro(`FFB34007-…`)의 build 59에서 Dave가 라이프사이클 거동을 직접 조작·확인:
@@ -609,6 +610,29 @@ RNQC native AEAD (xchacha20-poly1305 JSI) ↔ Bun daemon libsodium 상호 복호
     --payload-url "tp://expo-development-client/?url=http%3A%2F%2F<mac-ip>%3A8081" dev.tpmt.app`
     (scheme 은 app.json 의 `tp`; 폰 잠금 상태면 FBSOpenApplicationErrorDomain error 7 — 잠금
     해제 후 재시도).
+
+### Q12. VoiceButton 네이티브 — on-device 음성 왕복 (mic → Realtime API → TTS 재생)
+
+VoiceButton 네이티브 구현 (react-native-audio-api 0.12.2 — `voice/audio-native.ts`) 이 들어가며
+iOS/Android 에서도 음성 입력이 활성화됐다. 유닛 레벨에서는 `voice/pcm.test.ts` (PCM16/base64/
+리샘플) + `voice/audio-native.test.ts` (mocked recorder/context: 권한 흐름, 24kHz 리샘플 캡처,
+재생 스케줄링) 가 커버하지만, **실제 마이크 캡처 hw 샘플레이트, AVAudioSession voiceChat
+에코캔슬, 스피커 TTS 재생 품질은 온디바이스에서만 증명 가능**하다. Q2 Test 3 (audio) 의 `N/A`
+를 이 항목이 승계한다.
+
+- **prereq**: react-native-audio-api plugin 이 포함된 **새 dev build** — 네이티브 모듈 + config
+  plugin 추가라 fingerprint runtimeVersion 이 바뀐다 (기존 빌드 재사용 불가, OTA 불가, FULL 빌드).
+  OpenAI API key (Settings 에서 입력), 페어링된 daemon + 활성 세션 1개.
+- **command**: (1) 세션 화면에서 mic 버튼 탭 → OS 마이크 권한 프롬프트 승인 → "Connecting" →
+  "Listening" 전이. (2) 음성으로 간단한 지시 발화 → transcript 라이브 표시 → TTS 확인 응답이
+  스피커로 재생 → refined prompt 가 Claude 세션에 전송되는지. (3) TTS 재생 중 말 끼어들기
+  (barge-in) → 재생 중단 + 재청취. (4) 권한 거부 경로: 설정에서 mic 권한 끄고 mic 탭 →
+  "Connecting" 후 idle 복귀 (크래시/행 없음). (5) 백그라운드 전환 시 캡처 중단 확인.
+- **pass**: (a) 권한 프롬프트 → 캡처 → transcript → TTS 재생 → refined prompt 전송 풀 사이클
+  동작, (b) TTS 가 마이크로 재유입돼 자기 대화가 도는 에코 루프 없음 (voiceChat 에코캔슬),
+  (c) 권한 거부 시 graceful idle 복귀, (d) 콘솔에 `[Voice]` 에러 0건.
+- **result**: **PENDING — 새 dev build + 실기기 필요.** (iOS 우선; Android 는 골든 패스에 묶어
+  후속.)
 
 ---
 

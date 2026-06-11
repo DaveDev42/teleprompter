@@ -3,6 +3,13 @@
  * Only works on web platform.
  */
 
+import {
+  base64ToBytes,
+  bytesToBase64,
+  float32ToPcm16,
+  pcm16ToFloat32,
+} from "./pcm";
+
 const SAMPLE_RATE = 24000; // Realtime API expects 24kHz
 
 /**
@@ -36,7 +43,7 @@ export class AudioCapture {
     this.processor.onaudioprocess = (e) => {
       const float32 = e.inputBuffer.getChannelData(0);
       const pcm16 = float32ToPcm16(float32);
-      const base64 = uint8ArrayToBase64(new Uint8Array(pcm16.buffer));
+      const base64 = bytesToBase64(new Uint8Array(pcm16.buffer));
       this.onChunk?.(base64);
     };
 
@@ -80,8 +87,10 @@ export class AudioPlayer {
   play(base64: string): void {
     if (!this.audioContext || !this.playing) return;
 
-    const pcm16 = base64ToUint8Array(base64);
-    const float32 = pcm16ToFloat32(new Int16Array(pcm16.buffer));
+    const bytes = base64ToBytes(base64);
+    const float32 = pcm16ToFloat32(
+      new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2),
+    );
 
     const buffer = this.audioContext.createBuffer(
       1,
@@ -116,40 +125,4 @@ export class AudioPlayer {
   resume(): void {
     this.playing = true;
   }
-}
-
-// ── Helpers ──
-
-function float32ToPcm16(float32: Float32Array): Int16Array {
-  const pcm16 = new Int16Array(float32.length);
-  for (let i = 0; i < float32.length; i++) {
-    const s = Math.max(-1, Math.min(1, float32[i]!));
-    pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-  }
-  return pcm16;
-}
-
-function pcm16ToFloat32(pcm16: Int16Array): Float32Array {
-  const float32 = new Float32Array(pcm16.length);
-  for (let i = 0; i < pcm16.length; i++) {
-    float32[i] = pcm16[i]! / (pcm16[i]! < 0 ? 0x8000 : 0x7fff);
-  }
-  return float32;
-}
-
-function uint8ArrayToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]!);
-  }
-  return btoa(binary);
-}
-
-function base64ToUint8Array(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
 }

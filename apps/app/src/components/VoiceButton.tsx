@@ -56,10 +56,6 @@ export function VoiceButton({ disabled = false }: { disabled?: boolean }) {
     transcriptEl?.setAttribute("aria-atomic", "true");
   }, [liveRegionsMounted]);
 
-  if (Platform.OS !== "web") {
-    return null; // Web only for now
-  }
-
   if (keyState.status !== "present") {
     return null; // Need API key first
   }

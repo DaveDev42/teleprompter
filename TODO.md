@@ -13,7 +13,7 @@
 - [x] **Sessions Refresh 버튼이 in-flight 상태를 보조기기에 알리지 않음** — Refresh(testID `sessions-refresh-button`)가 ~1.2s 스피너를 도는 동안 `aria-busy` 가 없어 스크린리더 사용자에게 "진행 중" 신호가 안 감. RN Web `Pressable` 은 `accessibilityState.busy` 를 web DOM `aria-busy` 로 변환 안 하므로 `Platform.OS === "web"` 가드로 명시 spread (네이티브는 `accessibilityState.busy` 가 커버). WCAG 4.1.2. PR #588, **live dogfood PASS** — paired daemon(`daemon-mpbjjuvj`, production relay)에 연결된 실세션 6개에서 Refresh 클릭 시 `aria-busy` 가 `false→true(~1150ms)→false` 로 토글됨을 50ms 폴링으로 포착(stuck-true 없음, 콘솔 에러 0), adversarial verifier 가 독립 PASS 확인. CI(daemon-free)는 `sent===0` short-circuit 으로 `aria-busy="false"` idle 만 검증 가능 — `true` 발화는 daemon 연결 경로에서만 일어나므로 live dogfood + daemon-backed `e2e/app-sessions-refresh-live.spec.ts` 로만 보장됨. 회귀: `e2e/app-sessions-refresh.spec.ts`(CI, idle false) + `e2e/app-sessions-refresh-live.spec.ts`(local, true→false 토글).
 
 ### Voice
-- [ ] `VoiceButton`이 iOS/Android에서 `null` 반환 — 네이티브 오디오 캡처/재생 미구현 (expo-av 등 필요)
+- [x] `VoiceButton`이 iOS/Android에서 `null` 반환 — 네이티브 오디오 캡처/재생 미구현. **react-native-audio-api 0.12.2 로 구현 (2026-06-11)**: `voice/audio-native.ts` (AudioRecorder 캡처 → 24kHz 리샘플 → PCM16 base64, AudioContext 재생 스케줄링, voiceChat 세션 = iOS 에코캔슬), 공유 헬퍼 `voice/pcm.ts`, `VoiceAudioCapture`/`VoiceAudioPlayer` 계약 (`voice/audio-types.ts`) 으로 web/native 스왑. 네이티브 모듈 추가 → fingerprint 변경 → 풀빌드. on-device 음성 왕복 검증은 `docs/local-verification-queue.md` **Q12** 가 추적.
 
 ### 미검증 항목 (잠재 이슈)
 - [x] **Push Notifications 실기기** — APNs push token 발급 + 알림 왕복 E2E 실기기 검증 완료. Q1 PASS 2026-06-07 (build #59, sealed Path X #579 `33b8375` — end-to-end APNs 실기기 도착 확인). 상세는 `docs/local-verification-queue.md` Q1.

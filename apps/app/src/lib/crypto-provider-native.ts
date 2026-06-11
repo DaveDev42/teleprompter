@@ -26,11 +26,15 @@
  *
  * AEAD (XChaCha20-Poly1305-IETF) layout
  * ───────────────────────────────────────
- * RNQC's createCipheriv / createDecipheriv work like Node.js crypto:
- * encrypt returns ciphertext; getAuthTag() returns the 16-byte tag.
- * We concatenate ct‖tag to match libsodium's combined output.
- * decrypt must split the last 16 bytes as the tag and call setAuthTag
- * before final().
+ * RNQC's XChaCha20Poly1305Cipher (libsodium-backed, one-shot) does NOT
+ * stream like Node.js ciphers: update() only buffers input and returns an
+ * EMPTY buffer; final() runs crypto_aead_xchacha20poly1305_ietf_*_detached
+ * over the whole buffer and returns the entire ciphertext (encrypt) or
+ * plaintext (decrypt). getAuthTag() is only valid after final().
+ * We concatenate update()‖final() outputs so both the one-shot contract and
+ * a Node-style streaming contract produce the same bytes, then append the
+ * 16-byte tag to match libsodium's combined output. decrypt splits the last
+ * 16 bytes as the tag and calls setAuthTag before update/final.
  */
 
 import type { CryptoProvider } from "@teleprompter/protocol/client";
@@ -221,15 +225,16 @@ export async function createNativeCryptoProvider(): Promise<CryptoProvider> {
       if (aad !== null) {
         cipher.setAAD(aad);
       }
-      const ctBuf: RnqcBuffer = cipher.update(plaintext);
-      cipher.final(); // xchacha20-poly1305 produces no additional bytes on final
-      const tagBuf: RnqcBuffer = cipher.getAuthTag();
-      const ct = toU8(ctBuf);
-      const tag = toU8(tagBuf);
+      // One-shot cipher: update() buffers (returns empty), final() returns the
+      // full ciphertext. Concatenate both so a streaming impl works too.
+      const upd = toU8(cipher.update(plaintext) as RnqcBuffer);
+      const fin = toU8(cipher.final() as RnqcBuffer);
+      const tag = toU8(cipher.getAuthTag() as RnqcBuffer);
       // Combined: ct ‖ tag (libsodium style)
-      const combined = new Uint8Array(ct.length + tag.length);
-      combined.set(ct, 0);
-      combined.set(tag, ct.length);
+      const combined = new Uint8Array(upd.length + fin.length + tag.length);
+      combined.set(upd, 0);
+      combined.set(fin, upd.length);
+      combined.set(tag, upd.length + fin.length);
       return combined;
     },
 
@@ -245,9 +250,16 @@ export async function createNativeCryptoProvider(): Promise<CryptoProvider> {
       if (aad !== null) {
         decipher.setAAD(aad);
       }
-      const ptBuf: RnqcBuffer = decipher.update(ct);
-      decipher.final();
-      return toU8(ptBuf);
+      // One-shot cipher: update() buffers (returns empty), final() returns the
+      // full plaintext (and performs tag verification).
+      const upd = toU8(decipher.update(ct) as RnqcBuffer);
+      const fin = toU8(decipher.final() as RnqcBuffer);
+      if (upd.length === 0) return fin;
+      if (fin.length === 0) return upd;
+      const out = new Uint8Array(upd.length + fin.length);
+      out.set(upd, 0);
+      out.set(fin, upd.length);
+      return out;
     },
 
     // ── Randomness ────────────────────────────────────────────────────────

@@ -1,27 +1,22 @@
 /**
- * Native crypto availability check.
+ * Crypto availability probe.
  *
- * libsodium-wrappers ships a Wasm2js polyfill, but in practice it can still
- * fail on some Hermes runtimes (iOS simulator on certain SDK versions) where
- * the embedded `new WebAssembly.Module(...)` shim aborts. We treat crypto as
- * a probe — call `checkCryptoAvailability()` early, surface the boolean to
- * the UI, and short-circuit features that require E2EE on failure rather
- * than letting the abort propagate as an unhandled rejection.
- *
- * Platform behavior:
- * - Web: libsodium uses native WASM (fast)
- * - Bun: libsodium uses native WASM (fast)
- * - Hermes (iOS/Android): libsodium uses bundled Wasm2js polyfill when
- *   available; if the runtime rejects it, this probe returns false.
+ * `ensureSodium()` resolves whichever CryptoProvider is installed — the
+ * react-native-quick-crypto provider on native Hermes (see apps/app/index.ts
+ * and crypto-flag.ts), libsodium-wrappers (WASM) on web/Bun. Init can still
+ * fail (e.g. a broken native module install), so we treat crypto as a probe —
+ * call `checkCryptoAvailability()` early, surface the boolean to the UI, and
+ * short-circuit features that require E2EE on failure rather than letting the
+ * init error propagate as an unhandled rejection.
  */
 
 let _cryptoChecked = false;
 let _cryptoAvailable = false;
 
 /**
- * Check whether libsodium can initialize on the current platform.
- * Caches the result after first call. Must be called with `await` before
- * using E2EE functions.
+ * Check whether the active CryptoProvider can initialize on the current
+ * platform. Caches the result after first call. Must be called with `await`
+ * before using E2EE functions.
  */
 export async function checkCryptoAvailability(): Promise<boolean> {
   if (_cryptoChecked) return _cryptoAvailable;
@@ -46,8 +41,8 @@ export async function assertCryptoAvailable(): Promise<void> {
   if (!available) {
     throw new Error(
       "E2EE crypto failed to initialize on this platform. " +
-        "libsodium asm.js fallback may not be supported on this runtime. " +
-        "Please use the web version for encrypted relay connections.",
+        "The active crypto provider (react-native-quick-crypto on native, " +
+        "libsodium on web) could not be initialized.",
     );
   }
 }

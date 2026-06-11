@@ -111,7 +111,15 @@ function makeMockRnqc() {
 
     // Bun's node:crypto lacks xchacha20-poly1305 — back the cipher mock with
     // libsodium's combined-output AEAD and split/store the tag ourselves.
-    // Call order in the provider: setAAD? → update → final → getAuthTag.
+    //
+    // The mock mirrors RNQC's REAL XChaCha20Poly1305Cipher semantics
+    // (cpp/cipher/XChaCha20Poly1305Cipher.cpp): the cipher is one-shot —
+    // update() only buffers input and returns an EMPTY buffer; final() runs
+    // the AEAD over the whole buffer and returns the entire ciphertext
+    // (encrypt) / plaintext (decrypt); getAuthTag() throws before final().
+    // A Node-style streaming mock here once hid a provider bug that dropped
+    // the entire ciphertext on-device (Q11 2026-06-11) — do not "simplify"
+    // this back to returning data from update().
     createCipheriv(
       _algorithm: string,
       key: Uint8Array,
@@ -119,28 +127,38 @@ function makeMockRnqc() {
       _opts: object,
     ) {
       let aad: Uint8Array | null = null;
+      let buf = new Uint8Array(0);
       let tag: Buffer | null = null;
+      let finalized = false;
       return {
         setAAD(a: Uint8Array) {
           aad = new Uint8Array(a);
           return this;
         },
         update(plaintext: Uint8Array) {
+          const chunk = new Uint8Array(plaintext);
+          const merged = new Uint8Array(buf.length + chunk.length);
+          merged.set(buf, 0);
+          merged.set(chunk, buf.length);
+          buf = merged;
+          return Buffer.alloc(0);
+        },
+        final() {
           const combined = s().aeadEncrypt(
-            new Uint8Array(plaintext),
+            buf,
             aad,
             new Uint8Array(nonce),
             new Uint8Array(key),
           );
           tag = Buffer.from(combined.subarray(combined.length - 16));
+          finalized = true;
           return Buffer.from(combined.subarray(0, combined.length - 16));
         },
-        final() {
-          return Buffer.alloc(0);
-        },
         getAuthTag() {
-          if (!tag) {
-            throw new Error("mock cipher: getAuthTag before update");
+          if (!finalized || !tag) {
+            throw new Error(
+              "mock cipher: getAuthTag must be called after final()",
+            );
           }
           return tag;
         },
@@ -148,7 +166,8 @@ function makeMockRnqc() {
     },
 
     // Call order in the provider: setAuthTag → setAAD? → update → final.
-    // Authentication happens inside update (libsodium verifies the tag there).
+    // One-shot like the real cipher: update() buffers, final() verifies the
+    // tag and returns the full plaintext.
     createDecipheriv(
       _algorithm: string,
       key: Uint8Array,
@@ -157,6 +176,7 @@ function makeMockRnqc() {
     ) {
       let aad: Uint8Array | null = null;
       let tag: Uint8Array | null = null;
+      let buf = new Uint8Array(0);
       return {
         setAuthTag(t: Uint8Array) {
           tag = new Uint8Array(t);
@@ -167,12 +187,20 @@ function makeMockRnqc() {
           return this;
         },
         update(ct: Uint8Array) {
+          const chunk = new Uint8Array(ct);
+          const merged = new Uint8Array(buf.length + chunk.length);
+          merged.set(buf, 0);
+          merged.set(chunk, buf.length);
+          buf = merged;
+          return Buffer.alloc(0);
+        },
+        final() {
           if (!tag) {
-            throw new Error("mock decipher: update before setAuthTag");
+            throw new Error("mock decipher: final before setAuthTag");
           }
-          const combined = new Uint8Array(ct.length + tag.length);
-          combined.set(new Uint8Array(ct), 0);
-          combined.set(tag, ct.length);
+          const combined = new Uint8Array(buf.length + tag.length);
+          combined.set(buf, 0);
+          combined.set(tag, buf.length);
           return Buffer.from(
             s().aeadDecrypt(
               combined,
@@ -181,9 +209,6 @@ function makeMockRnqc() {
               new Uint8Array(key),
             ),
           );
-        },
-        final() {
-          return Buffer.alloc(0);
         },
       };
     },

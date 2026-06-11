@@ -1,5 +1,46 @@
 import { describe, expect, test } from "bun:test";
-import { encodeUtf8Base64 } from "./utf8-base64";
+import { bytesToBase64, encodeUtf8Base64 } from "./utf8-base64";
+
+describe("bytesToBase64", () => {
+  test("empty input", () => {
+    expect(bytesToBase64(new Uint8Array(0))).toBe("");
+  });
+
+  test("ascii bytes match btoa", () => {
+    const bytes = new TextEncoder().encode("hello world");
+    expect(bytesToBase64(bytes)).toBe(btoa("hello world"));
+  });
+
+  // The terminal write bridge (GhosttyNative) sends raw PTY bytes —
+  // every value 0..255 must survive, not just valid UTF-8.
+  test("all 256 byte values round-trip", () => {
+    const bytes = new Uint8Array(256);
+    for (let i = 0; i < 256; i++) bytes[i] = i;
+    const decoded = Uint8Array.from(atob(bytesToBase64(bytes)), (c) =>
+      c.charCodeAt(0),
+    );
+    expect(decoded).toEqual(bytes);
+  });
+
+  test("large buffer crosses the chunk boundary intact", () => {
+    // 3 chunks + a partial (CHUNK = 0x8000).
+    const bytes = new Uint8Array(0x8000 * 3 + 17);
+    for (let i = 0; i < bytes.length; i++) bytes[i] = i % 256;
+    const decoded = Uint8Array.from(atob(bytesToBase64(bytes)), (c) =>
+      c.charCodeAt(0),
+    );
+    expect(decoded).toEqual(bytes);
+  });
+
+  test("subarray view encodes only the view", () => {
+    const backing = new Uint8Array([1, 2, 3, 4, 5, 6]);
+    const view = backing.subarray(2, 5);
+    const decoded = Uint8Array.from(atob(bytesToBase64(view)), (c) =>
+      c.charCodeAt(0),
+    );
+    expect(decoded).toEqual(new Uint8Array([3, 4, 5]));
+  });
+});
 
 describe("encodeUtf8Base64", () => {
   test("ascii is identical to btoa", () => {

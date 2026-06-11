@@ -6,6 +6,7 @@ import { ConfirmUnpairModal } from "../../src/components/ConfirmUnpairModal";
 import { RenamePairingModal } from "../../src/components/RenamePairingModal";
 import { useRelayConnectionStore } from "../../src/hooks/use-relay";
 import { ariaLevel, getPlatformProps } from "../../src/lib/get-platform-props";
+import { timeAgo } from "../../src/lib/session-ux";
 import { useNotificationStore } from "../../src/stores/notification-store";
 import type { PairingInfo } from "../../src/stores/pairing-store";
 import { usePairingStore } from "../../src/stores/pairing-store";
@@ -18,17 +19,6 @@ import { useSessionStore } from "../../src/stores/session-store";
  */
 function labelValueOf(info: PairingInfo): string | undefined {
   return info.label.set ? info.label.value : undefined;
-}
-
-function timeAgo(ts: number): string {
-  const diff = Date.now() - ts;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
 }
 
 function DaemonCard({

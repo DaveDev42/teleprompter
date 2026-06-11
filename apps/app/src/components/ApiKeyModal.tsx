@@ -1,15 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Platform, Pressable, Text, TextInput, View } from "react-native";
 import { ariaLevel, getPlatformProps } from "../lib/get-platform-props";
+import { getPalette } from "../lib/tokens";
 import { useThemeStore } from "../stores/theme-store";
 import { ModalContainer } from "./ModalContainer";
-
-// React Native's TextInput placeholderTextColor needs a plain color literal —
-// passing a CSS variable string falls back to the platform default on
-// iOS/Android. Mirror the values from app/session/[sid].tsx so the chat
-// composer and this modal stay in sync if the palette is retuned.
-const PLACEHOLDER_LIGHT = "#a1a1aa";
-const PLACEHOLDER_DARK = "#71717a";
 
 export function ApiKeyModal({
   visible,
@@ -24,7 +18,7 @@ export function ApiKeyModal({
 }) {
   const pp = getPlatformProps();
   const isDark = useThemeStore((s) => s.isDark);
-  const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
+  const placeholderColor = getPalette(isDark).textTertiary;
   const [value, setValue] = useState(currentKey ?? "");
 
   // Reset the local input each time the modal opens so unsaved drafts from

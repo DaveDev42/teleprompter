@@ -5,6 +5,7 @@ import {
   formatCwd,
   isSessionRunning,
   isSessionStopped,
+  timeAgo,
 } from "./session-ux";
 
 // Accept the SessionState union plus arbitrary test-only values (e.g. "crashed",
@@ -164,5 +165,29 @@ describe("formatCwd", () => {
 
   test("whitespace-only cwd is treated as empty", () => {
     expect(formatCwd("  /Users/dave/x  ")).toBe("~/x");
+  });
+});
+
+describe("timeAgo", () => {
+  test("less than 1 minute shows 'just now'", () => {
+    expect(timeAgo(Date.now() - 30_000)).toBe("just now");
+    expect(timeAgo(Date.now())).toBe("just now");
+  });
+
+  test("1–59 minutes shows Xm ago", () => {
+    expect(timeAgo(Date.now() - 60_000)).toBe("1m ago");
+    expect(timeAgo(Date.now() - 30 * 60_000)).toBe("30m ago");
+    expect(timeAgo(Date.now() - 59 * 60_000)).toBe("59m ago");
+  });
+
+  test("1–23 hours shows Xh ago", () => {
+    expect(timeAgo(Date.now() - 60 * 60_000)).toBe("1h ago");
+    expect(timeAgo(Date.now() - 12 * 60 * 60_000)).toBe("12h ago");
+    expect(timeAgo(Date.now() - 23 * 60 * 60_000)).toBe("23h ago");
+  });
+
+  test("24+ hours shows Xd ago", () => {
+    expect(timeAgo(Date.now() - 24 * 60 * 60_000)).toBe("1d ago");
+    expect(timeAgo(Date.now() - 7 * 24 * 60 * 60_000)).toBe("7d ago");
   });
 });

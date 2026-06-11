@@ -26,7 +26,7 @@ import {
   isSessionStopped,
 } from "../../src/lib/session-ux";
 import type { TerminalSearch } from "../../src/lib/terminal-search";
-import { TERMINAL_COLORS } from "../../src/lib/tokens";
+import { getPalette, TERMINAL_COLORS } from "../../src/lib/tokens";
 import { encodeUtf8Base64 } from "../../src/lib/utf8-base64";
 import {
   addOptimisticUserMessage,
@@ -38,12 +38,6 @@ import { useNotificationStore } from "../../src/stores/notification-store";
 import { useSessionStore } from "../../src/stores/session-store";
 import { useThemeStore } from "../../src/stores/theme-store";
 import { setGlobalTermRef, useVoiceStore } from "../../src/stores/voice-store";
-
-// Concrete placeholder colors per theme. `var(--tp-text-tertiary)` resolves
-// natively on web but React Native's TextInput needs a plain color literal —
-// passing a CSS variable string falls back to the platform default on iOS/Android.
-const PLACEHOLDER_LIGHT = "#a1a1aa";
-const PLACEHOLDER_DARK = "#71717a";
 
 // Platform-specific terminal component
 // biome-ignore lint/suspicious/noExplicitAny: dynamic require of platform-specific component; no shared interface to reference
@@ -412,7 +406,7 @@ function ChatView({
   const setOnPromptReady = useVoiceStore((s) => s.setOnPromptReady);
   const pp = getPlatformProps();
   const isDark = useThemeStore((s) => s.isDark);
-  const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
+  const placeholderColor = getPalette(isDark).textTertiary;
   const { isEditable, canSend } = deriveInputGates(session, connected, sid);
 
   // Derive once so both accessibilityHint (native) and aria-description

@@ -7,6 +7,7 @@ import {
   View,
 } from "react-native";
 import { useKeyboard } from "../hooks/use-keyboard";
+import { registerOpenModal } from "../lib/modal-open-registry";
 
 const FOCUSABLE_SELECTOR =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -62,6 +63,14 @@ export function ModalContainer({
     [visible, onClose],
   );
   useKeyboard(keyMap);
+
+  // Suppress global single-key shortcuts while this dialog is up — the
+  // inert-siblings walk below does not stop capture-phase document
+  // listeners, so useGlobalShortcuts checks this registry instead.
+  useEffect(() => {
+    if (!visible) return;
+    return registerOpenModal();
+  }, [visible]);
 
   // Focus trap (Web only). initialFocusRef is a ref whose .current is read
   // inside the timer at call-time, so it doesn't belong in the dep array

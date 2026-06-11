@@ -51,6 +51,14 @@ paths:
 - Key storage: iOS/Android → expo-secure-store (Keychain/Keystore), Web → localStorage `tp_` prefix
 - Uint8Array 저장 시 base64 변환 (`toBase64`/`fromBase64` from protocol)
 
+## Global Keyboard Shortcuts (web)
+- `useGlobalShortcuts(keyMap)` (`hooks/use-global-shortcuts.ts`) — document **capture-phase** keydown, web 전용 (native 는 no-op). keyMap 은 반드시 `useMemo` 로 만들 것 (identity 가 바뀌면 매 렌더 listener 재등록).
+- **단일 printable key 만, modifier 조합 금지** (shift 는 예외 — `?` 가 필요). 브라우저/OS 코드를 절대 섀도잉하지 않는 GitHub/Linear 스타일.
+- Eligibility guards: `lib/shortcut-guards.ts` `isShortcutEligible` — `defaultPrevented` / ctrl·meta·alt / `repeat` / editable target (INPUT·TEXTAREA·SELECT, `isContentEditable`, `[data-shortcuts-disabled]` 조상) 이면 스킵. 터미널은 `GhosttyTerminal` 컨테이너의 `data-shortcuts-disabled=""` 로 서브트리 전체 opt-out (ghostty 의 a11y mirror div 는 focusable 하지만 editable 이 아니라서 data-attr 가 필요).
+- Modal 억제: `lib/modal-open-registry.ts` 모듈 카운터 — `ModalContainer` 가 visible 동안 `registerOpenModal()` 을 잡는다. `inert` 는 capture-phase document listener 를 막지 못하므로 레지스트리가 별도로 필요.
+- 현재 바인딩: root `_layout.tsx` — `?` (help overlay), `1`/`2`/`3` (bottom tabs); `session/[sid].tsx` — `c`/`t` (Chat/Terminal), `[`/`]` (이웃 세션). **새 단축키 추가 시 `ShortcutHelpModal` SECTIONS 에도 같이 등록**할 것.
+- 회귀 가드: `e2e/app-keyboard-shortcuts.spec.ts` + `lib/shortcut-guards.test.ts` / `lib/modal-open-registry.test.ts`.
+
 ## Relay Client Heartbeat
 - `FrontendRelayClient`는 `relay.auth.ok` 후 15초 간격으로 자체 `relay.ping`을 보낸다 (`RELAY_PING_INTERVAL_MS`). 2회 연속 `relay.pong`이 없으면 (`RELAY_MAX_MISSED_PONGS`) 소켓을 강제 close 해서 reconnect를 트리거. 이 자체 핑이 없으면 모바일 슬립/캡티브 포털/Wi-Fi 핸드오프로 죽은 TCP는 relay의 90s idle-timeout이 만료될 때까지 "connected"로 남는다.
 - 수치를 손대기 전에 `apps/app/src/lib/relay-client.test.ts`의 "client-side ping" describe 블록이 fake `setInterval`로 cadence + missed-pong force-close를 검증한다는 사실을 기억할 것.

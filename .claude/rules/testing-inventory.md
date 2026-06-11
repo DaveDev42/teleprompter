@@ -139,9 +139,11 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `apps/app/src/lib/crypto-native.test.ts` — crypto availability probe (ensureSodium 성공/실패 캐싱)
 - `apps/app/src/lib/crypto-polyfill.test.ts` — crypto polyfill (boot marker 모듈, getRandomValues)
 - `apps/app/src/lib/crypto-provider-native.test.ts` — RNQC native CryptoProvider cross-provider oracle (kx/KDF vs libsodium + BoringSSL X25519, AEAD 레이아웃, base64/hex/UTF-8)
+- `apps/app/src/lib/modal-open-registry.test.ts` — modal-open counter (global shortcut 억제용, nested/double-release)
 - `apps/app/src/lib/relay-client.test.ts` — FrontendRelayClient (ping cadence, missed-pong force-close)
 - `apps/app/src/lib/secure-storage.test.ts` — secureGet/secureSet platform split
 - `apps/app/src/lib/session-ux.test.ts` — session UX helpers
+- `apps/app/src/lib/shortcut-guards.test.ts` — global shortcut eligibility guards (editable target / modifier / repeat / `data-shortcuts-disabled`)
 - `apps/app/src/lib/terminal-search.test.ts` — terminal search
 - `apps/app/src/lib/utf8-base64.test.ts` — UTF-8 base64 round-trip
 - `apps/app/src/stores/chat-store.test.ts` — chat store (hooks-only event processing)
@@ -181,7 +183,7 @@ Stub 프로세스로 전체 파이프라인 검증.
 - `app-web-qa` — React Native Web (Playwright MCP + Playwright Test) — **기본 로컬 QA 경로** (가볍고 빠름)
 - `expo-mcp:qa` — iOS Simulator / Android Emulator (Expo MCP Plugin `DaveDev42/expo-mcp` + Maestro). Maestro/JDK-26 불안정 주의 (JDK 17-21 필요). expo-mcp 활성화는 **머신별 결정** — 공유 `.claude/settings.json`은 enable 플래그를 들지 않고(marketplace + `app_dir` config만 유지), 각 머신의 gitignored `.claude/settings.local.json`이 켜고 끈다. **이 64GB M1 Max Mac = `true` (Q4 2026-06-05 PASS)**, 저사양 머신 = `false`. 일상 네이티브 iOS/Android 검증은 EAS 클라우드 빌드 → TestFlight/Internal → 사용자 실기기 디버깅, 큐 항목은 `/verify-native` 로 처리 (CLAUDE.md "iOS 빌드 & 검증 워크플로우" 참조).
 - Playwright E2E: `pnpm test:e2e`
-  - `e2e/` 에 현재 169개 spec 파일 존재. **CI 실행 목록의 canonical source 는 `playwright.config.ts` `ci` project `testMatch` 배열** (현재 158개) — 새 spec 추가 시 이 배열에 등록해야 CI 에서 실행된다 (`dogfooding.md` "디버그 중 발견한 UI 버그 처리" 참조).
+  - `e2e/` 에 현재 170개 spec 파일 존재. **CI 실행 목록의 canonical source 는 `playwright.config.ts` `ci` project `testMatch` 배열** (현재 159개) — 새 spec 추가 시 이 배열에 등록해야 CI 에서 실행된다 (`dogfooding.md` "디버그 중 발견한 UI 버그 처리" 참조).
   - 아래 11개 spec 은 **local-only** (daemon/relay 실제 연결 필요 — CI `testMatch` 제외):
     - `e2e/app-chat-resume-dedup.spec.ts` — chat resume deduplication (daemon 필요)
     - `e2e/app-chat-roundtrip.spec.ts` — chat input/output roundtrip (daemon 필요)

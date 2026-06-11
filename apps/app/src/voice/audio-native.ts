@@ -61,7 +61,7 @@ export class AudioCapture {
     configureVoiceSession();
 
     this.recorder = new AudioRecorder();
-    this.recorder.onAudioReady(
+    const registered = this.recorder.onAudioReady(
       // ~85ms per chunk at 24 kHz — close to the web path's 4096-sample
       // ScriptProcessor cadence while keeping VAD latency low.
       { sampleRate: SAMPLE_RATE, bufferLength: 2048, channelCount: 1 },
@@ -76,16 +76,27 @@ export class AudioCapture {
         this.onChunk?.(bytesToBase64(new Uint8Array(pcm16.buffer)));
       },
     );
-    this.recorder.start();
+    // react-native-audio-api reports failures via Result objects, never JSI
+    // throws — surface them as exceptions so the caller's catch path (the
+    // same one that handles web getUserMedia rejection) fires.
+    if (registered.status === "error") {
+      throw new Error(
+        `[Voice] onAudioReady registration: ${registered.message}`,
+      );
+    }
+    const started = this.recorder.start();
+    if (started.status === "error") {
+      throw new Error(`[Voice] recorder start: ${started.message}`);
+    }
   }
 
   stop(): void {
     this.recorder?.clearOnAudioReady();
-    try {
-      this.recorder?.stop();
-    } catch {
-      // stop() throws if the recorder never started (e.g. permission revoked
-      // between start() and the first buffer) — nothing to release then.
+    // Result API — stop() never throws, even when the recorder was never
+    // started; an error Result is informational only at teardown.
+    const result = this.recorder?.stop();
+    if (result?.status === "error") {
+      console.warn("[Voice] recorder stop:", result.message);
     }
     this.recorder = null;
     this.onChunk = null;
@@ -101,11 +112,32 @@ export class AudioPlayer {
   private audioContext: NativeAudioContext | null = null;
   private nextPlayTime = 0;
   private playing = false;
+  /** Pending native close() from a previous stop() — see start(). */
+  private closing: Promise<unknown> | null = null;
 
   start(): void {
+    this.playing = true;
+    const pending = this.closing;
+    if (pending) {
+      // Barge-in path (stop() immediately followed by start()): the previous
+      // context's native close() is still in flight. Creating a second
+      // context while the old one is mid-teardown races inside the native
+      // module, so defer creation until the close settles. Chunks arriving
+      // in the gap are dropped by play()'s null-context guard — acceptable,
+      // since barge-in means the user is cancelling that TTS anyway.
+      pending.then(() => {
+        if (this.playing && !this.audioContext) {
+          this.openContext();
+        }
+      });
+      return;
+    }
+    this.openContext();
+  }
+
+  private openContext(): void {
     this.audioContext = new NativeAudioContext({ sampleRate: SAMPLE_RATE });
     this.nextPlayTime = this.audioContext.currentTime;
-    this.playing = true;
   }
 
   play(base64: string): void {
@@ -137,8 +169,19 @@ export class AudioPlayer {
 
   stop(): void {
     this.playing = false;
-    this.audioContext?.close();
+    const ctx = this.audioContext;
     this.audioContext = null;
+    if (ctx) {
+      const done = ctx
+        .close()
+        .catch(() => {})
+        .then(() => {
+          if (this.closing === done) {
+            this.closing = null;
+          }
+        });
+      this.closing = done;
+    }
   }
 
   pause(): void {

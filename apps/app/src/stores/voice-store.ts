@@ -81,6 +81,14 @@ const VOICE_STORAGE_KEY = "voice_api_key";
 let realtimeClient: RealtimeClient | null = null;
 let audioCapture: VoiceAudioCapture | null = null;
 let audioPlayer: VoiceAudioPlayer | null = null;
+/**
+ * Invalidation token for in-flight async work. startVoice suspends twice
+ * (native permission dialog, dynamic audio-module import) and the user can
+ * tap Stop — or start a new session — during either gap. Every teardown
+ * bumps the generation; resumed work compares its captured value and bails
+ * instead of opening a socket or mic for a session that no longer exists.
+ */
+let voiceGeneration = 0;
 
 export const useVoiceStore = create<VoiceStore>((set, get) => ({
   connection: { status: "idle" },
@@ -122,6 +130,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
     // Clean up any lingering client before creating a new one (defensive guard
     // against concurrent calls racing past the status check above).
     cleanup();
+    const gen = ++voiceGeneration;
     set({ connection: { status: "connecting" }, refinedPrompt: "" });
 
     // Native: surface the OS microphone prompt before opening the realtime
@@ -133,6 +142,9 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
         "../voice/audio-native"
       );
       const granted = await ensureRecordingPermission();
+      // stopVoice (or a newer startVoice) ran while the permission dialog
+      // was up — don't open a socket for an abandoned session.
+      if (gen !== voiceGeneration) return;
       if (!granted) {
         console.error("[Voice] microphone permission denied");
         set({ connection: { status: "idle" } });
@@ -151,6 +163,7 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
       { apiKey: key, systemPrompt },
       {
         onConnected: async () => {
+          if (gen !== voiceGeneration) return;
           set({
             connection: {
               status: "listening",
@@ -165,12 +178,25 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
             Platform.OS === "web"
               ? await import("../voice/audio-web")
               : await import("../voice/audio-native");
+          // stopVoice ran while the import was in flight — starting capture
+          // now would orphan a live mic with no UI left to stop it.
+          if (gen !== voiceGeneration) return;
           audioCapture = new audioModule.AudioCapture();
           audioPlayer = new audioModule.AudioPlayer();
           audioPlayer.start();
-          await audioCapture.start((chunk: string) => {
-            realtimeClient?.sendAudio(chunk);
-          });
+          try {
+            await audioCapture.start((chunk: string) => {
+              realtimeClient?.sendAudio(chunk);
+            });
+          } catch (error) {
+            // getUserMedia rejection (web) or recorder start failure
+            // (native) — without this the user sees "Listening" while the
+            // mic is silently dead.
+            console.error("[Voice] audio capture failed to start", error);
+            if (gen !== voiceGeneration) return;
+            cleanup();
+            set({ connection: { status: "idle" } });
+          }
         },
         onDisconnected: () => {
           set({ connection: { status: "idle" } });
@@ -261,6 +287,9 @@ export const useVoiceStore = create<VoiceStore>((set, get) => ({
 }));
 
 function cleanup() {
+  // Invalidate any suspended startVoice / onConnected continuation —
+  // teardown means whatever they were setting up is no longer wanted.
+  voiceGeneration++;
   audioCapture?.stop();
   audioCapture = null;
   audioPlayer?.stop();

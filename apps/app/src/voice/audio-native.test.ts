@@ -50,15 +50,27 @@ class FakeAudioBuffer {
   }
 }
 
+/** Mirrors react-native-audio-api's Result union — methods never throw. */
+type FakeResult = { status: "success" } | { status: "error"; message: string };
+
+const SUCCESS: FakeResult = { status: "success" };
+
 const recorderLog: string[] = [];
 let registeredCallback: AudioReadyCallback | null = null;
 let registeredOptions: Record<string, unknown> | null = null;
+let onAudioReadyResult: FakeResult = SUCCESS;
+let recorderStartResult: FakeResult = SUCCESS;
+let recorderStopResult: FakeResult = SUCCESS;
 
 class FakeAudioRecorder {
-  onAudioReady(options: Record<string, unknown>, cb: AudioReadyCallback) {
+  onAudioReady(
+    options: Record<string, unknown>,
+    cb: AudioReadyCallback,
+  ): FakeResult {
     registeredOptions = options;
     registeredCallback = cb;
     recorderLog.push("onAudioReady");
+    return onAudioReadyResult;
   }
 
   clearOnAudioReady() {
@@ -66,12 +78,14 @@ class FakeAudioRecorder {
     recorderLog.push("clearOnAudioReady");
   }
 
-  start() {
+  start(): FakeResult {
     recorderLog.push("start");
+    return recorderStartResult;
   }
 
-  stop() {
+  stop(): FakeResult {
     recorderLog.push("stop");
+    return recorderStopResult;
   }
 }
 
@@ -121,10 +135,18 @@ class FakeAudioContext {
   }
 
   async close() {
+    // closed flips synchronously (native teardown begins immediately) but
+    // the returned promise stays pending until the test resolves it — this
+    // is what lets tests exercise the stop→start close-serialization gap.
     this.closed = true;
     playerLog.push("close");
+    await new Promise<void>((resolve) => {
+      closeResolvers.push(resolve);
+    });
   }
 }
+
+const closeResolvers: Array<() => void> = [];
 
 const permissionCalls: string[] = [];
 let checkResult = "Granted";
@@ -166,7 +188,16 @@ beforeEach(() => {
   lastContext = null;
   checkResult = "Granted";
   requestResult = "Granted";
+  onAudioReadyResult = SUCCESS;
+  recorderStartResult = SUCCESS;
+  recorderStopResult = SUCCESS;
+  closeResolvers.length = 0;
 });
+
+/** Flush pending microtask chains (promise .then hops in the SUT). */
+async function flushAsync(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 // ---------------------------------------------------------------------------
 // ensureRecordingPermission
@@ -273,6 +304,26 @@ describe("AudioCapture", () => {
     const capture = new AudioCapture();
     expect(() => capture.stop()).not.toThrow();
   });
+
+  test("start throws when the recorder reports a start error", async () => {
+    recorderStartResult = { status: "error", message: "mic busy" };
+    const capture = new AudioCapture();
+    await expect(capture.start(() => {})).rejects.toThrow("mic busy");
+  });
+
+  test("start throws when callback registration reports an error", async () => {
+    onAudioReadyResult = { status: "error", message: "bad options" };
+    const capture = new AudioCapture();
+    await expect(capture.start(() => {})).rejects.toThrow("bad options");
+  });
+
+  test("stop with an error Result warns without throwing", async () => {
+    const capture = new AudioCapture();
+    await capture.start(() => {});
+    recorderStopResult = { status: "error", message: "never started" };
+    expect(() => capture.stop()).not.toThrow();
+    expect(recorderLog).toContain("stop");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -331,5 +382,40 @@ describe("AudioPlayer", () => {
     player.resume();
     player.play(makeChunk([0.1, 0.2]));
     expect(scheduledSources.length).toBe(1);
+  });
+
+  test("barge-in restart defers the new context until close settles", async () => {
+    const player = new AudioPlayer();
+    player.start();
+    expect(playerLog).toEqual(["context(24000)"]);
+
+    // onSpeechStart barge-in: stop + immediate start while close is pending.
+    player.stop();
+    player.start();
+    expect(playerLog).toEqual(["context(24000)", "close"]);
+
+    // Chunks in the gap are dropped — barge-in cancels that TTS anyway.
+    player.play(makeChunk([0.1]));
+    expect(scheduledSources.length).toBe(0);
+
+    closeResolvers.shift()?.();
+    await flushAsync();
+    expect(playerLog).toEqual(["context(24000)", "close", "context(24000)"]);
+
+    player.play(makeChunk([0.1]));
+    expect(scheduledSources.length).toBe(1);
+  });
+
+  test("stop during a deferred restart does not resurrect the context", async () => {
+    const player = new AudioPlayer();
+    player.start();
+    player.stop();
+    player.start(); // deferred behind pending close
+    player.stop(); // user stopped before the close settled
+
+    closeResolvers.shift()?.();
+    await flushAsync();
+    // Only the original context was ever created.
+    expect(playerLog).toEqual(["context(24000)", "close"]);
   });
 });

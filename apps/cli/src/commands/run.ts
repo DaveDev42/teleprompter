@@ -23,13 +23,27 @@ export async function runCommand(argv: string[]): Promise<void> {
     cwd,
     worktreePath: values["worktree-path"],
     socketPath: values["socket-path"],
-    cols: parseInt(values.cols ?? "120", 10),
-    rows: parseInt(values.rows ?? "40", 10),
+    cols: Math.max(1, parseInt(values.cols ?? "120", 10) || 120),
+    rows: Math.max(1, parseInt(values.rows ?? "40", 10) || 40),
     claudeArgs: positionals,
   });
 
-  process.on("SIGINT", () => process.exit(0));
-  process.on("SIGTERM", () => process.exit(0));
+  // Graceful shutdown: call runner.stop() so hook receiver socket is removed
+  // and the 'bye' IPC message is sent before exiting. A second signal while
+  // stopping forces an immediate exit to avoid hanging forever.
+  let stopping = false;
+  function gracefulShutdown(signal: string): void {
+    if (stopping) {
+      // Second signal — force exit immediately
+      process.exit(1);
+    }
+    stopping = true;
+    runner.stop(signal === "SIGINT" ? 130 : 143);
+    process.exit(0);
+  }
+
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 
   try {
     await runner.start();

@@ -1,34 +1,21 @@
 import { Platform } from "react-native";
 import { create } from "zustand";
 import { secureDelete, secureGet, secureSet } from "../lib/secure-storage";
+import type { TermHandle } from "../lib/term-handle";
 import type { VoiceAudioCapture, VoiceAudioPlayer } from "../voice/audio-types";
 import { RealtimeClient } from "../voice/realtime-client";
 import { formatTerminalContext } from "../voice/terminal-context";
 
 /**
- * Minimal terminal interface exposed to the voice store.
- * Mirrors the TerminalLike shape in terminal-context.ts — kept here as a
- * structural type so voice-store.ts does not import from the voice/ layer's
- * own implementation file, and so tsc enforces the contract rather than
- * relying on an invisible unknown→TerminalLike cast at the call site.
+ * Global terminal ref — set by the Terminal screen. Typed as the shared
+ * TermHandle seam (lib/term-handle.ts) so the voice layer and the terminal
+ * implementations agree on one contract instead of mirroring shapes.
  */
-interface TerminalLike {
-  buffer?: {
-    active?: {
-      length: number;
-      getLine(
-        y: number,
-      ): { translateToString(trimRight?: boolean): string } | undefined;
-    };
-  };
-}
-
-/** Global terminal ref — set by the Terminal screen */
-let globalTermRef: TerminalLike | null = null;
-export function setGlobalTermRef(ref: TerminalLike | null) {
+let globalTermRef: TermHandle | null = null;
+export function setGlobalTermRef(ref: TermHandle | null) {
   globalTermRef = ref;
 }
-export function getGlobalTermRef(): TerminalLike | null {
+export function getGlobalTermRef(): TermHandle | null {
   return globalTermRef;
 }
 

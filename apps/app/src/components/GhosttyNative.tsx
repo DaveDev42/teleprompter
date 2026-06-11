@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
+import type { TerminalViewProps } from "../lib/term-handle";
 import { TERMINAL_COLORS } from "../lib/tokens";
 import { useSettingsStore } from "../stores/settings-store";
 
@@ -14,11 +15,6 @@ type WebViewMsg =
   | { type: "data"; data: string }
   | { type: "resize"; cols: number; rows: number }
   | { type: "ready" };
-
-/** Minimal public interface exposed through termRef for the native WebView terminal. */
-interface NativeTermRef {
-  write: (data: string) => void;
-}
 
 // Only import WebView on native platforms
 let WebView: any = null;
@@ -141,12 +137,7 @@ export function GhosttyNative({
   onResize,
   onReady,
   termRef,
-}: {
-  onData?: (data: string) => void;
-  onResize?: (cols: number, rows: number) => void;
-  onReady?: () => void;
-  termRef?: React.MutableRefObject<NativeTermRef | null>;
-}) {
+}: TerminalViewProps) {
   const webViewRef = useRef<any>(null);
   const [html, setHtml] = useState<string | null>(null);
 
@@ -191,11 +182,15 @@ export function GhosttyNative({
     loadWasm();
   }, []);
 
-  // Expose a write method via termRef
+  // Expose a write method via termRef. KNOWN GAP: a Uint8Array (the common
+  // case — SessionTerminalView decodes io records to bytes) does not survive
+  // JSON.stringify (it becomes a numeric-key object the WebView side can't
+  // feed to term.write). Fixing the bridge encoding needs on-device
+  // verification — tracked as Rung 1 in docs/native-terminal-plan.md.
   useEffect(() => {
     if (termRef) {
       termRef.current = {
-        write: (data: string) => {
+        write: (data: string | Uint8Array) => {
           webViewRef.current?.postMessage(
             JSON.stringify({ type: "write", data }),
           );

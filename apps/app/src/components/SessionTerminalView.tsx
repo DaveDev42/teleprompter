@@ -1,7 +1,9 @@
 import type { SessionRec } from "@teleprompter/protocol/client";
+import type { ComponentType } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, Text, View } from "react-native";
 import { getTransport } from "../hooks/use-transport";
+import type { TermHandle, TerminalViewProps } from "../lib/term-handle";
 import type { TerminalSearch } from "../lib/terminal-search";
 import { TERMINAL_COLORS } from "../lib/tokens";
 import { encodeUtf8Base64 } from "../lib/utf8-base64";
@@ -9,8 +11,7 @@ import { useSessionStore } from "../stores/session-store";
 import { setGlobalTermRef } from "../stores/voice-store";
 
 // Platform-specific terminal component
-// biome-ignore lint/suspicious/noExplicitAny: dynamic require of platform-specific component; no shared interface to reference
-let TerminalComponent: any = null;
+let TerminalComponent: ComponentType<TerminalViewProps> | null = null;
 if (Platform.OS === "web") {
   TerminalComponent = require("./GhosttyTerminal").GhosttyTerminal;
 } else {
@@ -26,8 +27,7 @@ export function SessionTerminalView({
 }) {
   const addRecHandler = useSessionStore((s) => s.addRecHandler);
   const removeRecHandler = useSessionStore((s) => s.removeRecHandler);
-  // biome-ignore lint/suspicious/noExplicitAny: termRef is a cross-platform handle; GhosttyTerminal and GhosttyNative both type their own ref as MutableRefObject<any>
-  const termRef = useRef<any>(null);
+  const termRef = useRef<TermHandle | null>(null);
   const searchRef = useRef<TerminalSearch | null>(null);
   // `hasIo` flips true once any io record arrives (live or replayed).
   // `replaySettled` flips true only after 500ms of silence from the

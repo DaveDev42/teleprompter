@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
-import type { TerminalSearch } from "../lib/terminal-search";
+import type { TerminalViewProps } from "../lib/term-handle";
 import { TERMINAL_COLORS } from "../lib/tokens";
 import { useSettingsStore } from "../stores/settings-store";
 
@@ -10,7 +10,10 @@ import { useSettingsStore } from "../stores/settings-store";
  * Renders nothing on native platforms.
  */
 
-/** Minimal interface for a ghostty-web Terminal instance. */
+/**
+ * Full web-side surface of a ghostty-web Terminal instance — a superset of
+ * the shared TermHandle (lib/term-handle.ts) that the rest of the app sees.
+ */
 interface GhosttyTermInstance {
   cols: number;
   rows: number;
@@ -19,7 +22,7 @@ interface GhosttyTermInstance {
   } | null;
   open: (el: HTMLDivElement) => void;
   resize: (cols: number, rows: number) => void;
-  write: (data: string) => void;
+  write: (data: string | Uint8Array) => void;
   dispose: () => void;
   onData: (cb: (data: string) => void) => void;
   onResize: (cb: (size: { cols: number; rows: number }) => void) => void;
@@ -31,13 +34,7 @@ export function GhosttyTerminal({
   termRef,
   onReady,
   searchRef,
-}: {
-  onData?: (data: string) => void;
-  onResize?: (cols: number, rows: number) => void;
-  termRef?: React.MutableRefObject<GhosttyTermInstance | null>;
-  onReady?: () => void;
-  searchRef?: React.MutableRefObject<TerminalSearch | null>;
-}) {
+}: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termInstanceRef = useRef<GhosttyTermInstance | null>(null);
   const onDataRef = useRef(onData);

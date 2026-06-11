@@ -1,11 +1,13 @@
 import "../global.css";
 import { Stack, usePathname, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Platform, useColorScheme, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { InAppToast } from "../src/components/InAppToast";
+import { ShortcutHelpModal } from "../src/components/ShortcutHelpModal";
 import { UpdateBanner } from "../src/components/UpdateBanner";
+import { useGlobalShortcuts } from "../src/hooks/use-global-shortcuts";
 import { useOtaUpdate } from "../src/hooks/use-ota-update";
 import { usePairingDeepLink } from "../src/hooks/use-pairing-deep-link";
 import { usePushNotifications } from "../src/hooks/use-push-notifications";
@@ -103,6 +105,23 @@ export default function RootLayout() {
     }
   }, [pathname]);
 
+  // Web-only global shortcuts: "?" cheat-sheet + digit keys for the bottom
+  // tabs. Single keys without modifiers (GitHub style) — useGlobalShortcuts
+  // guards typing contexts, the terminal, and open modals, and never
+  // shadows browser chords. Session-screen shortcuts (c/t/[/]) register in
+  // session/[sid].tsx where the tab state lives.
+  const [showShortcutHelp, setShowShortcutHelp] = useState(false);
+  const shortcutMap = useMemo(
+    () => ({
+      "?": () => setShowShortcutHelp(true),
+      "1": () => router.navigate("/(tabs)/"),
+      "2": () => router.navigate("/(tabs)/daemons"),
+      "3": () => router.navigate("/(tabs)/settings"),
+    }),
+    [router],
+  );
+  useGlobalShortcuts(shortcutMap);
+
   // E2EE relay connections for all paired daemons
   useRelay();
 
@@ -133,6 +152,10 @@ export default function RootLayout() {
         </Stack>
         <UpdateBanner status={otaStatus} onRestart={restart} />
         <InAppToast />
+        <ShortcutHelpModal
+          visible={showShortcutHelp}
+          onClose={() => setShowShortcutHelp(false)}
+        />
       </View>
     </SafeAreaProvider>
   );

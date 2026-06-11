@@ -231,6 +231,12 @@ export function GhosttyTerminal({
     <div
       ref={containerRef}
       data-testid="terminal-container"
+      // Opt the whole terminal subtree out of global single-key shortcuts
+      // (see lib/shortcut-guards.ts). The editable-target guard already
+      // covers ghostty's hidden textarea, but its a11y mirror div is
+      // focusable without being editable — keystrokes there must reach the
+      // PTY, not trigger app navigation.
+      data-shortcuts-disabled=""
       style={{
         width: "100%",
         height: "100%",

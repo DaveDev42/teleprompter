@@ -117,9 +117,9 @@ export async function doctorCommand(
 
   // Pairing data
   const store = new Store();
-  let pairings: ReturnType<Store["loadPairings"]>;
+  let pairings: ReturnType<Store["listPairings"]>;
   try {
-    pairings = store.loadPairings();
+    pairings = store.listPairings();
   } finally {
     store.close();
   }
@@ -154,8 +154,15 @@ export async function doctorCommand(
       const relayOk = await checkRelayConnectivityViaIpc();
       if (!relayOk) issues++;
     } else {
-      const relayOk = await checkRelayConnectivity(pairing);
-      if (!relayOk) issues++;
+      // The daemon is the sole relay WebSocket client (architecture invariant).
+      // Without the daemon running, relay connectivity cannot be probed directly
+      // from the CLI. Inform the user and let them start the daemon.
+      check(
+        "Relay",
+        `daemon not running — relay connectivity is verified via the daemon; start it with \`tp daemon start\` or run any tp command`,
+        false,
+      );
+      issues++;
     }
   }
 
@@ -275,114 +282,6 @@ async function checkRelayConnectivityViaIpc(): Promise<boolean> {
     stop();
     const msg = err instanceof Error ? err.message : String(err);
     check("Relay", `IPC probe failed (${msg})`, false);
-    return false;
-  }
-}
-
-/**
- * Ping relay and report status.
- * Returns true if relay is reachable.
- */
-async function checkRelayConnectivity(pairing: {
-  relayUrl: string;
-  relayToken: string;
-  daemonId: string;
-}): Promise<boolean> {
-  const PING_COUNT = 3;
-  const stop = spinner(`Pinging ${pairing.relayUrl}...`);
-
-  try {
-    const ws = new WebSocket(pairing.relayUrl);
-
-    const result = await new Promise<number[]>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        ws.close();
-        reject(new Error("timeout"));
-      }, 10000);
-
-      let pongResolve: ((rtt: number) => void) | null = null;
-
-      ws.onopen = () => {
-        ws.send(
-          JSON.stringify({
-            t: "relay.auth",
-            role: "daemon",
-            daemonId: pairing.daemonId,
-            token: pairing.relayToken,
-            v: 1,
-          }),
-        );
-      };
-
-      ws.onerror = () => {
-        clearTimeout(timeout);
-        reject(new Error("connection failed"));
-      };
-
-      ws.onmessage = async (event) => {
-        try {
-          const msg = JSON.parse(
-            typeof event.data === "string"
-              ? event.data
-              : new TextDecoder().decode(event.data as ArrayBuffer),
-          );
-
-          if (msg.t === "relay.auth.ok") {
-            // Run pings
-            const rtts: number[] = [];
-            for (let i = 0; i < PING_COUNT; i++) {
-              const rtt = await new Promise<number>((res) => {
-                let tid: ReturnType<typeof setTimeout>;
-                pongResolve = (rtt: number) => {
-                  clearTimeout(tid);
-                  res(rtt);
-                };
-                tid = setTimeout(() => {
-                  pongResolve = null;
-                  res(-1);
-                }, 5000);
-                ws.send(JSON.stringify({ t: "relay.ping", ts: Date.now() }));
-              });
-              if (rtt >= 0) rtts.push(rtt);
-              if (i < PING_COUNT - 1) {
-                await new Promise((r) => setTimeout(r, 300));
-              }
-            }
-            clearTimeout(timeout);
-            ws.close();
-            resolve(rtts);
-          } else if (msg.t === "relay.pong" && msg.ts && pongResolve) {
-            pongResolve(Date.now() - msg.ts);
-            pongResolve = null;
-          } else if (msg.t === "relay.auth.err") {
-            clearTimeout(timeout);
-            ws.close();
-            reject(new Error(`auth failed: ${msg.e}`));
-          }
-        } catch {}
-      };
-    });
-
-    if (result.length > 0) {
-      const sorted = [...result].sort((a, b) => a - b);
-      const min = sorted[0];
-      const max = sorted[sorted.length - 1];
-      const avg = Math.round(result.reduce((a, b) => a + b, 0) / result.length);
-      stop();
-      check(
-        "Relay",
-        `${pairing.relayUrl} (min=${min}ms avg=${avg}ms max=${max}ms)`,
-        true,
-      );
-      return true;
-    }
-    stop();
-    check("Relay", `${pairing.relayUrl} (all pings timed out)`, false);
-    return false;
-  } catch (err) {
-    stop();
-    const msg = err instanceof Error ? err.message : String(err);
-    check("Relay", `${pairing.relayUrl} (${msg})`, false);
     return false;
   }
 }

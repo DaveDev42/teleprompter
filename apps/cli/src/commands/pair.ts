@@ -28,6 +28,7 @@ import { promptYesNo } from "../components/ink/yes-no-prompt";
 import { dim, fail, green, ok } from "../lib/colors";
 import { ensureDaemon, isDaemonRunning } from "../lib/ensure-daemon";
 import { formatAge, messageOf } from "../lib/format";
+import { requestDaemonOp } from "../lib/daemon-op";
 import { connectIpcAsClient, type IpcClient } from "../lib/ipc-client";
 import { copyToClipboard, isClipboardSupportLikely } from "../lib/osc52";
 import { acquirePairLock, releasePairLock } from "../lib/pair-lock";
@@ -657,60 +658,28 @@ async function pairRename(argv: string[]): Promise<void> {
 type PairRemoveResult = IpcPairRemoveOk | IpcPairRemoveErr;
 type PairRenameResult = IpcPairRenameOk | IpcPairRenameErr;
 
-const PAIR_OP_TIMEOUT_MS = 30_000;
-
 /**
  * Send a `pair.remove` / `pair.rename` request to the running daemon and
  * await its single-shot reply. The daemon already holds the authoritative
  * RelayClient for that pairing, so we never open our own relay connection.
  *
- * A 30s timeout matches `requestSessionOp` — a daemon that accepts the IPC
- * connection but never replies (e.g. stalled relay write) would otherwise
- * hang `tp pair delete/rename` forever.
+ * Delegates to {@link requestDaemonOp} — the 30s timeout and
+ * connect/send/close lifecycle are handled there.
  */
 async function requestPairOp(msg: IpcPairRemove): Promise<PairRemoveResult>;
 async function requestPairOp(msg: IpcPairRename): Promise<PairRenameResult>;
 async function requestPairOp(
   msg: IpcPairRemove | IpcPairRename,
 ): Promise<PairRemoveResult | PairRenameResult> {
-  const ipc = await connectIpcAsClient(getSocketPath());
-  try {
-    return await new Promise<PairRemoveResult | PairRenameResult>(
-      (resolve, reject) => {
-        const timer = setTimeout(() => {
-          reject(
-            new Error(
-              `Daemon did not reply within ${PAIR_OP_TIMEOUT_MS / 1000}s; try 'tp daemon status' or restart the daemon`,
-            ),
-          );
-        }, PAIR_OP_TIMEOUT_MS);
-        const done = (settle: () => void): void => {
-          clearTimeout(timer);
-          settle();
-        };
-        ipc.onMessage((r) => {
-          switch (r.t) {
-            case "pair.remove.ok":
-            case "pair.remove.err":
-            case "pair.rename.ok":
-            case "pair.rename.err":
-              done(() => resolve(r));
-              return;
-          }
-        });
-        ipc.onClose(() =>
-          done(() => reject(new Error("Daemon disconnected before replying"))),
-        );
-        ipc.send(msg);
-      },
-    );
-  } finally {
-    try {
-      ipc.close();
-    } catch {
-      /* best effort */
-    }
-  }
+  return requestDaemonOp<PairRemoveResult | PairRenameResult>(
+    getSocketPath(),
+    msg,
+    (r): r is PairRemoveResult | PairRenameResult =>
+      r.t === "pair.remove.ok" ||
+      r.t === "pair.remove.err" ||
+      r.t === "pair.rename.ok" ||
+      r.t === "pair.rename.err",
+  );
 }
 
 function printPairUsage(): void {

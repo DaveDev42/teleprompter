@@ -15,7 +15,11 @@
 
 import { basename } from "node:path";
 import { Store } from "@teleprompter/daemon";
-import type { IpcSessionDelete } from "@teleprompter/protocol";
+import type {
+  IpcSessionDelete,
+  IpcSessionDeleteErr,
+  IpcSessionDeleteOk,
+} from "@teleprompter/protocol";
 import { getSocketPath } from "@teleprompter/protocol";
 import { Box, render, Text, useInput } from "ink";
 import type React from "react";
@@ -23,7 +27,7 @@ import { useState } from "react";
 import { fail, ok } from "../lib/colors";
 import { isDaemonRunning } from "../lib/ensure-daemon";
 import { formatAge } from "../lib/format";
-import { connectIpcAsClient } from "../lib/ipc-client";
+import { requestDaemonOp } from "../lib/daemon-op";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -160,52 +164,27 @@ function MultiSelectApp({
   );
 }
 
-// ─── IPC helper (mirrors the pattern in session.ts) ────────────────────────
+// ─── IPC helper ────────────────────────────────────────────────────────────
 
-const SESSION_OP_TIMEOUT_MS = 30_000;
-
+/**
+ * Delete a session via the running daemon. Throws on `session.delete.err`
+ * (propagated as an Error message) or on timeout / early disconnect.
+ *
+ * Delegates to {@link requestDaemonOp} for the connect/send/close lifecycle
+ * and the 30s default timeout.
+ */
 async function deleteSessionViaIpc(sid: string): Promise<void> {
-  const ipc = await connectIpcAsClient(getSocketPath());
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(
-          new Error(
-            `Daemon did not reply within ${SESSION_OP_TIMEOUT_MS / 1000}s`,
-          ),
-        );
-      }, SESSION_OP_TIMEOUT_MS);
-      const done = (settle: () => void): void => {
-        clearTimeout(timer);
-        settle();
-      };
-      ipc.onMessage((r) => {
-        if (r.t === "session.delete.ok" || r.t === "session.delete.err") {
-          if (r.t === "session.delete.err") {
-            done(() =>
-              reject(
-                new Error(
-                  `Delete failed: ${r.reason}${r.message ? ` — ${r.message}` : ""}`,
-                ),
-              ),
-            );
-          } else {
-            done(() => resolve());
-          }
-        }
-      });
-      ipc.onClose(() =>
-        done(() => reject(new Error("Daemon disconnected before replying"))),
-      );
-      const msg: IpcSessionDelete = { t: "session.delete", sid };
-      ipc.send(msg);
-    });
-  } finally {
-    try {
-      ipc.close();
-    } catch {
-      /* best effort */
-    }
+  const msg: IpcSessionDelete = { t: "session.delete", sid };
+  const reply = await requestDaemonOp<IpcSessionDeleteOk | IpcSessionDeleteErr>(
+    getSocketPath(),
+    msg,
+    (r): r is IpcSessionDeleteOk | IpcSessionDeleteErr =>
+      r.t === "session.delete.ok" || r.t === "session.delete.err",
+  );
+  if (reply.t === "session.delete.err") {
+    throw new Error(
+      `Delete failed: ${reply.reason}${reply.message ? ` — ${reply.message}` : ""}`,
+    );
   }
 }
 

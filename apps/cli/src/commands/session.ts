@@ -1,6 +1,7 @@
 import { Store } from "@teleprompter/daemon";
 import type {
   AgeFilter,
+  IpcMessage,
   IpcSessionDelete,
   IpcSessionDeleteErr,
   IpcSessionDeleteOk,
@@ -14,7 +15,7 @@ import { promptYesNo } from "../components/ink/yes-no-prompt";
 import { dim, fail, ok, yellow } from "../lib/colors";
 import { isDaemonRunning } from "../lib/ensure-daemon";
 import { formatAge } from "../lib/format";
-import { connectIpcAsClient } from "../lib/ipc-client";
+import { requestDaemonOp } from "../lib/daemon-op";
 import { parseArgsFriendly } from "../lib/parse-args";
 
 /**
@@ -512,49 +513,25 @@ async function sessionCleanup(argv: string[]): Promise<void> {
 }
 
 /**
- * Fallback for a daemon that accepts the request but never sends a reply
- * of the expected shape (e.g. protocol drift, bug). `--all` on a giant store
- * still fits well under this cap because each delete is a single SQLite
- * write — 30s buys >> 1000 rows.
+ * Thin wrapper around {@link requestDaemonOp} for session IPC ops.
+ *
+ * Callers pass the expected reply discriminants (`expectedTypes`); any other
+ * inbound message is ignored until the reply or timeout arrives. The 30s
+ * default timeout is inherited from {@link DAEMON_OP_TIMEOUT_MS} — generous
+ * enough for any single SQLite write even on a `--all` prune of a giant store.
  */
-const SESSION_OP_TIMEOUT_MS = 30_000;
-
-async function requestSessionOp<R extends { t: string }>(
+async function requestSessionOp<R extends IpcMessage>(
   msg: IpcSessionDelete | IpcSessionPrune,
   expectedTypes: readonly string[],
 ): Promise<R> {
-  const ipc = await connectIpcAsClient(getSocketPath());
-  try {
-    return await new Promise<R>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(
-          new Error(
-            `Daemon did not reply within ${SESSION_OP_TIMEOUT_MS / 1000}s; try 'tp daemon status' or restart the daemon`,
-          ),
-        );
-      }, SESSION_OP_TIMEOUT_MS);
-      const done = (settle: () => void): void => {
-        clearTimeout(timer);
-        settle();
-      };
-      ipc.onMessage((msg) => {
-        // `msg` is already a validated IpcMessage (parseIpcMessage runs at the
-        // transport boundary). We still narrow to the caller's expected reply
-        // subset by discriminant before handing it back as R.
-        if (expectedTypes.includes(msg.t)) done(() => resolve(msg as R));
-      });
-      ipc.onClose(() =>
-        done(() => reject(new Error("Daemon disconnected before replying"))),
-      );
-      ipc.send(msg);
-    });
-  } finally {
-    try {
-      ipc.close();
-    } catch {
-      /* best effort */
-    }
-  }
+  return requestDaemonOp<R>(
+    getSocketPath(),
+    msg,
+    // `msg` is already a validated IpcMessage (parseIpcMessage runs at the
+    // transport boundary). We still narrow to the caller's expected reply
+    // subset by discriminant before handing it back as R.
+    (r): r is R => expectedTypes.includes(r.t),
+  );
 }
 
 function printSessionUsage(): void {

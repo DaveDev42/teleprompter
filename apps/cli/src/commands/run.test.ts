@@ -80,7 +80,11 @@ describe("run.ts gracefulShutdown logic (idx-run-1)", () => {
 
   test("SIGINT calls runner.stop(130) then exit(0)", () => {
     const stopCalls: number[] = [];
-    const runner = { stop: (code: number) => { stopCalls.push(code); } };
+    const runner = {
+      stop: (code: number) => {
+        stopCalls.push(code);
+      },
+    };
     const { gracefulShutdown, exits } = makeGracefulShutdown(runner);
 
     expect(() => gracefulShutdown("SIGINT")).toThrow("exit(0)");
@@ -90,7 +94,11 @@ describe("run.ts gracefulShutdown logic (idx-run-1)", () => {
 
   test("SIGTERM calls runner.stop(143) then exit(0)", () => {
     const stopCalls: number[] = [];
-    const runner = { stop: (code: number) => { stopCalls.push(code); } };
+    const runner = {
+      stop: (code: number) => {
+        stopCalls.push(code);
+      },
+    };
     const { gracefulShutdown, exits } = makeGracefulShutdown(runner);
 
     expect(() => gracefulShutdown("SIGTERM")).toThrow("exit(0)");
@@ -100,7 +108,11 @@ describe("run.ts gracefulShutdown logic (idx-run-1)", () => {
 
   test("second signal forces exit(1) without calling stop() again", () => {
     const stopCalls: number[] = [];
-    const runner = { stop: (code: number) => { stopCalls.push(code); } };
+    const runner = {
+      stop: (code: number) => {
+        stopCalls.push(code);
+      },
+    };
     const { gracefulShutdown, exits } = makeGracefulShutdown(runner);
 
     // First signal
@@ -115,10 +127,18 @@ describe("run.ts gracefulShutdown logic (idx-run-1)", () => {
 
   test("stop() is called before exit, not skipped", () => {
     const order: string[] = [];
-    const runner = { stop: (_code: number) => { order.push("stop"); } };
+    const runner = {
+      stop: (_code: number) => {
+        order.push("stop");
+      },
+    };
     const { gracefulShutdown } = makeGracefulShutdown(runner);
 
-    try { gracefulShutdown("SIGTERM"); } catch { /* expected exit throw */ }
+    try {
+      gracefulShutdown("SIGTERM");
+    } catch {
+      /* expected exit throw */
+    }
     // stop must appear before exit in call order
     expect(order[0]).toBe("stop");
   });

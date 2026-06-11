@@ -26,6 +26,7 @@ export default defineConfig({
         "app-web.spec.ts",
         "app-settings.spec.ts",
         "app-keyboard-nav.spec.ts",
+        "app-keyboard-shortcuts.spec.ts",
         "app-modal-escape.spec.ts",
         "app-chat-enter.spec.ts",
         "app-daemons-empty.spec.ts",

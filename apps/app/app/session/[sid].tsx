@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -20,6 +20,7 @@ import {
 } from "../../src/components/SessionSegmentedControl";
 import { SessionStoppedLiveRegion } from "../../src/components/SessionStoppedLiveRegion";
 import { SessionTerminalView } from "../../src/components/SessionTerminalView";
+import { useGlobalShortcuts } from "../../src/hooks/use-global-shortcuts";
 import { useAnyRelayConnected } from "../../src/hooks/use-relay";
 import { getTransport } from "../../src/hooks/use-transport";
 import { getPlatformProps } from "../../src/lib/get-platform-props";
@@ -66,6 +67,27 @@ export default function SessionDetailScreen() {
   const session = sessions.find((s) => s.sid === sid);
   const stopped = isSessionStopped(session);
   const isRunning = isSessionRunning(session);
+
+  // Web-only session-screen shortcuts: c/t switch the Chat/Terminal tab,
+  // [ and ] jump to the neighboring session in list order. The session list
+  // is read via getState() at keypress time so the keyMap identity (and the
+  // document listener) doesn't churn on every sessions-store update.
+  const shortcutMap = useMemo(() => {
+    const goNeighbor = (delta: -1 | 1) => {
+      const list = useSessionStore.getState().sessions;
+      const idx = list.findIndex((s) => s.sid === sid);
+      if (idx < 0) return;
+      const target = list[idx + delta];
+      if (target) router.replace(`/session/${target.sid}`);
+    };
+    return {
+      c: () => setMode("chat"),
+      t: () => setMode("terminal"),
+      "[": () => goNeighbor(-1),
+      "]": () => goNeighbor(1),
+    };
+  }, [sid, router]);
+  useGlobalShortcuts(shortcutMap);
 
   // Attach to session on mount
   useEffect(() => {

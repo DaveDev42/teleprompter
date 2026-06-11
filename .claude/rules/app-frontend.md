@@ -45,6 +45,7 @@ paths:
 ## Crypto & Security
 - `await ensureSodium()` — 모든 crypto 연산 전 lazy init 필수. Provider 는 CryptoProvider seam (`@teleprompter/protocol/client` 의 `__setCryptoProviderFactory`) 으로 결정된다.
 - Native (Hermes): react-native-quick-crypto provider (`lib/crypto-provider-native.ts`, `USE_NATIVE_CRYPTO` in `lib/crypto-flag.ts`). `index.ts` 가 module-eval 시 factory 를 설치 → libsodium-wrappers 는 native 에서 절대 evaluate 되지 않는다 (wasm2js 워크어라운드 전부 제거됨). Web/bun:test: libsodium-wrappers (WASM). Cross-provider oracle: `lib/crypto-provider-native.test.ts`, on-device 게이트: `docs/local-verification-queue.md` Q11.
+- **RNQC plugin 은 반드시 `["react-native-quick-crypto", { "sodiumEnabled": true }]` 로 등록** (`app.json` plugins). XChaCha20-Poly1305 는 RNQC 네이티브 빌드에 libsodium 이 컴파일되어야 동작 (`BLSALLOC_SODIUM`) — bare 등록하면 빌드는 성공하지만 on-device 런타임에서 `Cipher.update(...): libsodium must be enabled (BLSALLOC_SODIUM)` 가 터져 모든 AEAD encrypt/decrypt 가 실패한다 (Q11 2026-06-11 실측). 플러그인이 iOS Podfile 에 `ENV['SODIUM_ENABLED']='1'` (pod install 시 libsodium 1.0.22 소스 빌드), Android 에 `sodiumEnabled` gradle property 를 주입한다. 단위 oracle 은 이걸 못 잡는다 (bun:test 의 AEAD 는 libsodium-backed) — 네이티브 빌드 플래그 회귀는 Q11 on-device 게이트가 유일한 검증선.
 - `crypto-polyfill.ts`: `[tp-app boot]` boot marker (on-device 콘솔 검증용) + expo-crypto `getRandomValues` → `self.crypto.getRandomValues` polyfill
   - `apps/app/index.ts`에서 최초 import 필수
 - Key storage: iOS/Android → expo-secure-store (Keychain/Keystore), Web → localStorage `tp_` prefix

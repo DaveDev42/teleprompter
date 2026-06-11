@@ -148,19 +148,18 @@ describe("matchPairings", () => {
 });
 
 describe("pair.ts requestPairOp timeout guard (idx 63)", () => {
-  // Verifies that requestPairOp wires a 30s timeout so a daemon that accepts
-  // the IPC connection but never replies doesn't hang tp pair delete/rename.
-  test("requestPairOp has a PAIR_OP_TIMEOUT_MS constant and wires a timer", async () => {
+  // Verifies that requestPairOp delegates to requestDaemonOp (which owns the
+  // 30s timeout + connect/close lifecycle). The local constant was removed in
+  // the shared-helper refactor — timeout behaviour is tested in daemon-op.test.ts.
+  test("requestPairOp delegates to requestDaemonOp", async () => {
     const src = await Bun.file(
       new URL("./pair.ts", import.meta.url).pathname,
     ).text();
-    // The constant must be declared
-    expect(src).toMatch(/const PAIR_OP_TIMEOUT_MS = 30_000;/);
-    // A setTimeout call using it must exist inside requestPairOp
-    expect(src).toContain("PAIR_OP_TIMEOUT_MS");
-    expect(src).toMatch(/setTimeout\(/);
-    // The timer must be cleared on success to prevent leaks
-    expect(src).toMatch(/clearTimeout\(timer\)/);
+    // Must import the shared helper
+    expect(src).toContain("requestDaemonOp");
+    // Local duplication must be gone
+    expect(src).not.toMatch(/const PAIR_OP_TIMEOUT_MS/);
+    expect(src).not.toMatch(/const SESSION_OP_TIMEOUT_MS/);
   });
 });
 

@@ -87,6 +87,7 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `apps/cli/src/commands/help.test.ts` — `tp --help` subcommand coverage
 - `apps/cli/src/commands/session-cleanup.test.ts` — non-TTY cleanup path
 - `apps/cli/src/commands/relay.test.ts` — relay subcommand smoke
+- `apps/cli/src/lib/daemon-op.test.ts` — `requestDaemonOp` shared IPC helper (resolve, timeout, early-close, always-closes)
 - `apps/cli/src/lib/download.test.ts` — binary download + checksum
 - `apps/cli/src/lib/osc52.test.ts` — OSC52 clipboard
 - `apps/cli/src/lib/paths.test.ts` — `resolveTpBinary` path resolution

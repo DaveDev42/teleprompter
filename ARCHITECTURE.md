@@ -455,15 +455,20 @@ interface VoiceStore {
   GhosttyTerminal.tsx — ghostty-web (libghostty WASM) Canvas 2D 직접 렌더링
 
 iOS/Android:
-  GhosttyNative.tsx — react-native-webview 안에서 ghostty-web 을 로드
-  (WASM 바이너리를 base64 로 인라인 — null-origin CORS 회피). xterm.js 가 아니다.
+  GhosttyNative.tsx — react-native-webview 안에서 ghostty-web 을 로드.
+  마운트 시 esm.sh 에서 ghostty-web@0.3.0 JS + WASM 을 런타임 fetch 한 뒤 WASM 을
+  base64 로 HTML 에 인라인 (null-origin CORS 회피). 즉 빌드타임 번들이 아니라
+  런타임 네트워크 의존이며, web 의 ghostty-web@^0.4.0 과 버전 skew 가 있다.
+  xterm.js 가 아니다.
   RN ↔ WebView 메시지 브릿지:
-    RN → WebView: terminal.write(data), terminal.resize(cols, rows)
-    WebView → RN: onData(input), onResize(cols, rows)
+    RN → WebView: postMessage {type:"write"|"fit"} — ref 표면은 write 만,
+      리사이즈는 WebView 내부 FitAddon 이 처리 (외부 resize(cols, rows) API 없음)
+    WebView → RN: {type:"data"|"resize"|"ready"}
 ```
 
 터미널 컴포넌트는 `apps/app/src/components/`의 `GhosttyTerminal.tsx`(웹 — Canvas 직접)와
 `GhosttyNative.tsx`(네이티브 — WebView 안 ghostty-web) 두 파일로 구성된다.
+네이티브 GPU 터미널(libghostty/SwiftTerm)로의 전환 계획은 `docs/native-terminal-plan.md`.
 
 ### 7.3 Chat UI 렌더링 파이프라인
 

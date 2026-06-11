@@ -19,6 +19,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { Store } from "@teleprompter/daemon";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -294,5 +295,72 @@ describe("doctorCommand with daemon not running", () => {
     // No pairings in the empty store → relay block skipped → IPC probe never
     // attempted even if daemon socket were present.
     await expect(doctorCommand([])).resolves.toBeUndefined();
+  });
+});
+
+// --------------------------------------------------------------------------
+// 6. Relay info message when daemon is down but pairing exists
+// --------------------------------------------------------------------------
+
+describe("doctorCommand relay check when daemon is down and pairing exists", () => {
+  /**
+   * Insert a fake pairing into the store so that the relay connectivity block
+   * is entered. With the daemon not running, the new code path must:
+   *   - Print an info line (not attempt a WebSocket connection)
+   *   - Count the relay as an issue (daemon must be running to verify relay)
+   *
+   * Architecture invariant: "Daemon은 relay의 유일한 클라이언트다. CLI는 직접
+   * relay WebSocket을 열지 않는다." The WebSocket global must never be called.
+   */
+  function insertFakePairing(): void {
+    const store = new Store();
+    try {
+      store.savePairing({
+        daemonId: "test-daemon-id",
+        relayUrl: "wss://relay.example.com",
+        relayToken: "test-token",
+        registrationProof: "test-proof",
+        publicKey: new Uint8Array(32).fill(1),
+        secretKey: new Uint8Array(32).fill(2),
+        pairingSecret: new Uint8Array(32).fill(3),
+      });
+    } finally {
+      store.close();
+    }
+  }
+
+  test("prints daemon-not-running info line instead of opening a WebSocket", async () => {
+    setupHappyMocks();
+    insertFakePairing();
+
+    // Sentinel: if WebSocket were constructed, this would be called.
+    const wsConstructorSpy = spyOn(
+      globalThis,
+      "WebSocket" as keyof typeof globalThis,
+    );
+
+    await doctorCommand([]);
+
+    const output = logLines.join("\n");
+
+    // The new daemon-down info path must be present.
+    expect(output).toContain("daemon not running");
+    expect(output).toContain("tp daemon start");
+
+    // No WebSocket must have been opened.
+    expect(wsConstructorSpy).not.toHaveBeenCalled();
+
+    wsConstructorSpy.mockRestore();
+  });
+
+  test("counts relay as an issue when daemon is not running", async () => {
+    setupHappyMocks();
+    insertFakePairing();
+
+    await doctorCommand([]);
+
+    const output = logLines.join("\n");
+    // At minimum the relay issue + no-pairings-warning = at least 1 issue
+    expect(output).toMatch(/issue/i);
   });
 });

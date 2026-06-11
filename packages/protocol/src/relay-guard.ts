@@ -20,6 +20,7 @@ import {
   isNonNegativeInt,
   isNumber,
   isObject,
+  isOptionalBoolean,
   isOptionalNumber,
   isOptionalString,
   isPositiveInt,
@@ -65,10 +66,6 @@ function isOptionalPositiveInt(v: unknown): v is number | undefined {
   return (
     v === undefined || (typeof v === "number" && Number.isInteger(v) && v > 0)
   );
-}
-
-function isOptionalBoolean(v: unknown): v is boolean | undefined {
-  return v === undefined || typeof v === "boolean";
 }
 
 function isRecordKindArray(v: unknown): v is RecordKind[] | undefined {

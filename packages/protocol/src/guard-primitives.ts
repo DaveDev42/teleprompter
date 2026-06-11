@@ -69,3 +69,23 @@ export function isPositiveInt(v: unknown): v is number {
 export function isStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.every((x) => typeof x === "string");
 }
+
+/** Narrow `v` to a boolean. */
+export function isBoolean(v: unknown): v is boolean {
+  return typeof v === "boolean";
+}
+
+/** Narrow `v` to a boolean or `undefined`. */
+export function isOptionalBoolean(v: unknown): v is boolean | undefined {
+  return v === undefined || typeof v === "boolean";
+}
+
+/** Narrow `v` to the relay role union `"daemon" | "frontend"`. */
+export function isRole(v: unknown): v is "daemon" | "frontend" {
+  return v === "daemon" || v === "frontend";
+}
+
+/** Narrow `v` to the push platform union `"ios" | "android"`. */
+export function isPlatform(v: unknown): v is "ios" | "android" {
+  return v === "ios" || v === "android";
+}

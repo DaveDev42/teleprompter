@@ -568,8 +568,31 @@ RNQC native AEAD (xchacha20-poly1305 JSI) ↔ Bun daemon libsodium 상호 복호
   DiagnosticsPanel self-test 전 항목 ok, (c) verify_on_device `verdict:PASS` +
   `fresh_execution_proved:true` 로 boot-marker present·에러 시그니처 absent, (d) 콜드 런치
   체감 지연 회귀 없음 (wasm2js init 제거로 오히려 개선 기대).
-- **result**: **PENDING — PR3 머지 게이트. `USE_NATIVE_CRYPTO=true` 포함 dev build 필요
-  (fingerprint 변경 → FULL 빌드).**
+- **result**: **PASS 2026-06-11 (iPhone 17 Pro Simulator iOS 26.2, dev build, 2 real bugs
+  found & fixed)**. 검증 중 실버그 2건 발견 — 이 항목이 merge gate 가 아니었다면 둘 다 프로덕션
+  으로 나갔다:
+  - **FAIL #1 — `BLSALLOC_SODIUM`**: RNQC 를 bare 등록하면 XChaCha20-Poly1305 가 native 빌드에
+    libsodium 없이 컴파일되어 `Cipher.update(...): libsodium must be enabled (BLSALLOC_SODIUM)`
+    로 모든 AEAD 가 런타임 실패. fix = `app.json` plugins 를
+    `["react-native-quick-crypto", { "sodiumEnabled": true }]` 로 (commit `6d4f773`) + native
+    재빌드. 단위 oracle 은 구조적으로 못 잡음 (bun:test AEAD 는 libsodium-backed).
+  - **FAIL #2 — RNQC one-shot cipher contract**: RNQC 의 XChaCha cipher 는 Node 스트리밍이 아닌
+    one-shot — `update()` 는 버퍼만 하고 **빈 버퍼**를 반환, `final()` 이 전체 ct/pt 를 반환
+    (`XChaCha20Poly1305Cipher.cpp`). Node 식으로 update() 출력만 쓰면 **모든 E2EE 프레임이
+    16-byte tag 만 담겨** daemon 이 `ciphertext cannot be decrypted using that key` 로 거부.
+    fix = provider 가 update()‖final() 출력을 concat (양방향), 단위 mock 도 one-shot 의미론으로
+    재작성해 blind spot 구조적 폐쇄 (이전 mock 은 틀린 스트리밍 계약을 검증하고 있었음).
+  - 최종 PASS 증거: (a) 신규 페어링 `✓ Paired q11-sim (daemon-mq90027d)` CLI 정상 종료 +
+    daemon.log `key exchange completed` + `pairing pp-mq90027e-dpr21f completed` + sealed push
+    token 등록 2건 (app→daemon AEAD) + Sessions 목록 렌더/pull-to-refresh 라이브 갱신
+    (daemon→app AEAD) — 양방향 상호 복호화 증명. (b) DiagnosticsPanel self-test: Platform
+    hermes, Sodium Init OK (150ms), Key Gen OK (0ms), Encrypt/Decrypt OK (2ms), E2EE Active.
+    (c) verify_on_device 대체 — expo-mcp `start_session` 이 이 머신에서 고장이라 Metro 로그
+    직접 검증으로 동등 증거 확보: `[tp-app boot] engine=hermes dev=true` present, 에러 시그니처
+    (`crypto-provider-native`, `E2EE crypto failed`, `WebAssembly.RuntimeError`, `Aborted(`,
+    `BLSALLOC_SODIUM`) absent. (d) 콜드 런치 정상 (full bundle 10221ms/2043 modules, crypto
+    에러 0건). 절차 메모: Maestro 는 RN 버튼 텍스트를 못 보는 경우가 많아 point-tap 사용,
+    Expo dev-tools 기어 버블이 탭을 가로채므로 swipe 로 이동 후 진행.
 
 ---
 

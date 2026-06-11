@@ -22,15 +22,10 @@ import {
 import { useKeyboard } from "../../src/hooks/use-keyboard";
 import { useOtaUpdate } from "../../src/hooks/use-ota-update";
 import { ariaLevel, getPlatformProps } from "../../src/lib/get-platform-props";
+import { getPalette } from "../../src/lib/tokens";
 import { useSettingsStore } from "../../src/stores/settings-store";
 import { type Theme, useThemeStore } from "../../src/stores/theme-store";
 import { useVoiceStore } from "../../src/stores/voice-store";
-
-// Mirrors `--tp-text-secondary` in global.css. ActivityIndicator.color
-// expects a literal — CSS variables only resolve on web. Keep these in
-// sync with the secondary text token across themes.
-const INDICATOR_LIGHT = "#71717a";
-const INDICATOR_DARK = "#a1a1aa";
 
 function SectionLabel({ children }: { children: string }) {
   // The Settings screen heading is level 1. These section labels sit directly
@@ -228,7 +223,7 @@ function UpdateStatusValue({
   status: import("../../src/hooks/use-ota-update").OtaStatus;
 }) {
   const isDark = useThemeStore((s) => s.isDark);
-  const indicatorColor = isDark ? INDICATOR_DARK : INDICATOR_LIGHT;
+  const indicatorColor = getPalette(isDark).textSecondary;
   if (status === "checking" || status === "downloading") {
     const spinnerLabel =
       status === "checking" ? "Checking for updates" : "Downloading update";

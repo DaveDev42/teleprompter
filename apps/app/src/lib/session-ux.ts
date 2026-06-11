@@ -4,6 +4,24 @@ import type { SessionMeta, SessionState } from "@teleprompter/protocol/client";
 const RUNNING = "running" satisfies SessionState;
 
 /**
+ * Format a millisecond timestamp as a human-readable relative time string.
+ * Resolution: "just now" → Xm ago → Xh ago → Xd ago.
+ *
+ * Pure function — no side effects, no React dependency. Centralised here so
+ * the session list and daemon list screens don't duplicate the logic.
+ */
+export function timeAgo(ts: number): string {
+  const diff = Date.now() - ts;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+/**
  * A session is considered stopped when its state is anything other than
  * "running". An undefined session (metadata hasn't arrived yet) is NOT
  * treated as stopped — callers should default to the optimistic path so the

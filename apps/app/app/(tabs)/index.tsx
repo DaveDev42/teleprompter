@@ -15,27 +15,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ConfirmDeleteSessionsModal } from "../../src/components/ConfirmDeleteSessionsModal";
 import { refreshSessionList } from "../../src/hooks/use-relay";
 import { ariaLevel, getPlatformProps } from "../../src/lib/get-platform-props";
-import { formatCwd } from "../../src/lib/session-ux";
+import { formatCwd, timeAgo } from "../../src/lib/session-ux";
+import { getPalette } from "../../src/lib/tokens";
 import { useNotificationStore } from "../../src/stores/notification-store";
 import { useSessionStore } from "../../src/stores/session-store";
 import { useThemeStore } from "../../src/stores/theme-store";
-
-// Mirrors `--tp-text-tertiary` in global.css. TextInput.placeholderTextColor
-// only resolves CSS variables on web; native silently falls back to the
-// system default, which is often unreadable on light themes.
-const PLACEHOLDER_LIGHT = "#a1a1aa";
-const PLACEHOLDER_DARK = "#71717a";
-
-function timeAgo(ts: number): string {
-  const diff = Date.now() - ts;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 function SessionRow({
   session,
@@ -279,7 +263,7 @@ export default function SessionsScreen() {
   const [filter, setFilter] = useState("");
   const pp = getPlatformProps();
   const isDark = useThemeStore((s) => s.isDark);
-  const placeholderColor = isDark ? PLACEHOLDER_DARK : PLACEHOLDER_LIGHT;
+  const placeholderColor = getPalette(isDark).textTertiary;
   const searchRef = useRef<TextInput>(null);
 
   // ── Pull-to-refresh / manual refresh ──

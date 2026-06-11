@@ -456,14 +456,16 @@ interface VoiceStore {
 
 iOS/Android:
   GhosttyNative.tsx — react-native-webview 안에서 ghostty-web 을 로드.
-  마운트 시 esm.sh 에서 ghostty-web@0.3.0 JS + WASM 을 런타임 fetch 한 뒤 WASM 을
-  base64 로 HTML 에 인라인 (null-origin CORS 회피). 즉 빌드타임 번들이 아니라
-  런타임 네트워크 의존이며, web 의 ghostty-web@^0.4.0 과 버전 skew 가 있다.
-  xterm.js 가 아니다.
+  ghostty-web 의 UMD 빌드가 Metro 에셋(apps/app/assets/ghostty-web.umd.txt,
+  설치된 패키지와 byte-identical — ghostty-web-asset.test.ts 가 SHA-256 으로 핀)
+  으로 번들되고, lib/ghostty-native-html.ts 가 HTML 에 인라인한다. WASM 은 UMD
+  내부에 base64 data URL 로 내장 — 런타임 네트워크 의존 없음, web 과 동일 패키지
+  버전 (skew 없음). xterm.js 가 아니다.
   RN ↔ WebView 메시지 브릿지:
-    RN → WebView: postMessage {type:"write"|"fit"} — ref 표면은 write 만,
-      리사이즈는 WebView 내부 FitAddon 이 처리 (외부 resize(cols, rows) API 없음)
-    WebView → RN: {type:"data"|"resize"|"ready"}
+    RN → WebView: postMessage {type:"write", b64}|{type:"fit"} — 모든 write 는
+      base64 bytes (바이너리 PTY 출력이 JSON 경계를 무손실 통과). ref 표면은
+      write 만, 리사이즈는 WebView 내부 FitAddon 이 처리.
+    WebView → RN: {type:"data"|"resize"|"ready"|"error"}
 ```
 
 터미널 컴포넌트는 `apps/app/src/components/`의 `GhosttyTerminal.tsx`(웹 — Canvas 직접)와

@@ -140,13 +140,15 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `apps/app/src/lib/crypto-polyfill.test.ts` — crypto polyfill (boot marker 모듈, getRandomValues)
 - `apps/app/src/lib/crypto-provider-native.test.ts` — RNQC native CryptoProvider cross-provider oracle (kx/KDF vs libsodium + BoringSSL X25519, AEAD 레이아웃, base64/hex/UTF-8)
 - `apps/app/src/lib/gamepad-input-mapper.test.ts` — gamepad snapshot diff → semantic nav actions (edge-trigger, stick threshold, D-pad/stick 병합)
+- `apps/app/src/lib/ghostty-native-html.test.ts` — GhosttyNative WebView HTML builder (UMD 인라인 escape, 브릿지 프로토콜 표면, 폰트/테마 interpolation)
+- `apps/app/src/lib/ghostty-web-asset.test.ts` — assets/ghostty-web.umd.txt 신선도 oracle (설치 패키지와 SHA-256 동일) + inline 안전성 (`</script`/`<!--` 부재)
 - `apps/app/src/lib/modal-open-registry.test.ts` — modal-open counter (global shortcut 억제용, nested/double-release)
 - `apps/app/src/lib/relay-client.test.ts` — FrontendRelayClient (ping cadence, missed-pong force-close)
 - `apps/app/src/lib/secure-storage.test.ts` — secureGet/secureSet platform split
 - `apps/app/src/lib/session-ux.test.ts` — session UX helpers
 - `apps/app/src/lib/shortcut-guards.test.ts` — global shortcut eligibility guards (editable target / modifier / repeat / `data-shortcuts-disabled`)
 - `apps/app/src/lib/terminal-search.test.ts` — terminal search
-- `apps/app/src/lib/utf8-base64.test.ts` — UTF-8 base64 round-trip
+- `apps/app/src/lib/utf8-base64.test.ts` — UTF-8 base64 round-trip + bytesToBase64 (write 브릿지 raw bytes, 청크 경계)
 - `apps/app/src/stores/chat-store.test.ts` — chat store (hooks-only event processing)
 - `apps/app/src/stores/offline-store.test.ts` — offline queue store
 - `apps/app/src/stores/pairing-store.test.ts` — pairing store (Label tagged union)

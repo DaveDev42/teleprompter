@@ -634,6 +634,30 @@ iOS/Android 에서도 음성 입력이 활성화됐다. 유닛 레벨에서는 `
 - **result**: **PENDING — 새 dev build + 실기기 필요.** (iOS 우선; Android 는 골든 패스에 묶어
   후속.)
 
+### Q13. 네이티브 터미널 — ghostty-web 로컬 번들 (오프라인 렌더 + write 브릿지 라운드트립)
+
+Rung 1 (docs/native-terminal-plan.md §5) 출시로 GhosttyNative 의 WebView 터미널이 esm.sh
+런타임 fetch 대신 **로컬 번들 에셋** (`assets/ghostty-web.umd.txt`, WASM 은 UMD 내장 data
+URL) 을 쓰고, write 브릿지가 base64 bytes 로 바뀌어 **바이너리 PTY 출력(Uint8Array) 버그가
+수정**됐다. 유닛 레벨은 `ghostty-web-asset.test.ts` (에셋 신선도 SHA-256 oracle + inline
+안전성) + `ghostty-native-html.test.ts` (HTML builder/브릿지 표면) + `utf8-base64.test.ts`
+(b64 인코딩) 가 커버하지만, **WKWebView 안에서의 UMD eval + data-URL WASM init + 실제 PTY
+스트림 렌더는 온디바이스에서만 증명 가능**하다. RN Web QA 는 이 컴포넌트를 아예 타지 않는다.
+
+- **prereq**: dev build 설치된 실기기 (JS-only 변경이라 **기존 post-#622 빌드 + Metro/OTA 로
+  도달 가능** — 새 네이티브 빌드 불필요), 페어링된 daemon + 활성 세션 1개.
+- **command**: (1) Metro 연결 후 세션 Terminal 탭 진입 → 터미널 렌더 확인. (2) **비행기 모드
+  (Wi-Fi/셀룰러 차단) 후 앱 재시작 → Terminal 탭** — 로컬 에셋이므로 렌더돼야 한다 (구버전은
+  esm.sh fetch 실패로 사망). 단 relay 연결은 오프라인이라 PTY 스트림은 없음 — 렌더 자체만 확인
+  후 네트워크 복원. (3) `tp` 세션에서 한글/이모지/ANSI 컬러 출력 (`echo "한글 🚀 \x1b[31mred"`)
+  → Terminal 탭에 무손실 표시 (write 브릿지 base64 라운드트립). (4) 세션 재진입 시 record
+  리플레이로 기존 출력 복원. (5) 콘솔에서 `[GhosttyNative]` 에러 0건 확인.
+- **pass**: (a) 오프라인 상태에서도 터미널 UI 렌더 (WASM data-URL init 성공), (b) 한글/이모지/
+  ANSI 출력 무손실 (바이너리 write 경로), (c) 리플레이 정상, (d) `[GhosttyNative] webview
+  error` / `failed to load bundled ghostty-web` 콘솔 에러 0건.
+- **result**: **PENDING — 실기기 필요** (Q12 와 같은 세션에서 함께 돌리면 효율적; 이쪽은 기존
+  빌드로도 가능).
+
 ---
 
 ## 실행 규약 (커맨드가 따르는 규칙)

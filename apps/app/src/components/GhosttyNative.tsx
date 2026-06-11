@@ -1,20 +1,31 @@
+import { Asset } from "expo-asset";
+import { readAsStringAsync } from "expo-file-system/legacy";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
+import ghosttyUmdAsset from "../../assets/ghostty-web.umd.txt";
+import { buildGhosttyHtml } from "../lib/ghostty-native-html";
 import type { TerminalViewProps } from "../lib/term-handle";
 import { TERMINAL_COLORS } from "../lib/tokens";
+import { bytesToBase64, encodeUtf8Base64 } from "../lib/utf8-base64";
 import { useSettingsStore } from "../stores/settings-store";
 
 /**
  * Native ghostty-web terminal via WebView for iOS/Android.
- * Loads ghostty-web inside a WebView with the WASM binary
- * inlined as base64 to avoid CORS issues from null-origin fetch.
+ *
+ * The ghostty-web UMD build ships as a bundled Metro asset
+ * (assets/ghostty-web.umd.txt — same package version as the web terminal,
+ * freshness pinned by lib/ghostty-web-asset.test.ts) and is inlined into
+ * the WebView HTML by lib/ghostty-native-html.ts. The WASM binary is
+ * embedded in the UMD as a base64 data URL, so the terminal works fully
+ * offline — no CDN fetch, no version skew with the web bundle.
  */
 
 /** Tagged-union for messages posted from the in-WebView script to React Native. */
 type WebViewMsg =
   | { type: "data"; data: string }
   | { type: "resize"; cols: number; rows: number }
-  | { type: "ready" };
+  | { type: "ready" }
+  | { type: "error"; message: string };
 
 // Only import WebView on native platforms
 let WebView: any = null;
@@ -26,112 +37,6 @@ if (Platform.OS !== "web") {
   }
 }
 
-/**
- * Build the HTML page that loads ghostty-web inside the WebView.
- * The WASM binary is passed as a base64 string to avoid CORS issues
- * when loading from inline HTML (null origin).
- */
-/** Escape a string for safe injection into an HTML template literal. */
-function escapeHtml(s: string): string {
-  return s.replace(/[&"'<>\\]/g, (c) => `&#${c.charCodeAt(0)};`);
-}
-
-function buildGhosttyHtml(
-  wasmBase64: string,
-  terminalFont: string,
-  fontSize: number,
-): string {
-  const safeFont = escapeHtml(terminalFont);
-  return `<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<style>
-  body { margin: 0; background: ${TERMINAL_COLORS.background}; overflow: hidden; }
-  #terminal { width: 100%; height: 100vh; }
-</style>
-</head>
-<body>
-<div id="terminal"></div>
-<script type="module">
-  // Decode base64 WASM and instantiate ghostty-web
-  const wasmBase64 = "${wasmBase64}";
-  const wasmBytes = Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0));
-
-  // Import ghostty-web from CDN (ESM)
-  const { Terminal, FitAddon } = await import("https://esm.sh/ghostty-web@0.3.0");
-
-  // Override WASM loading: compile from our inlined bytes
-  const wasmModule = await WebAssembly.compile(wasmBytes);
-
-  // ghostty-web init() fetches WASM, but we already have it.
-  // We need to call init() with the module. If init() doesn't accept
-  // a pre-compiled module, we'll patch the fetch to return our bytes.
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (input, opts) => {
-    if (typeof input === 'string' && input.includes('ghostty-vt.wasm')) {
-      return new Response(wasmBytes.buffer, {
-        status: 200,
-        headers: { 'Content-Type': 'application/wasm' },
-      });
-    }
-    return originalFetch(input, opts);
-  };
-
-  const { init } = await import("https://esm.sh/ghostty-web@0.3.0");
-  await init();
-
-  // Restore original fetch
-  globalThis.fetch = originalFetch;
-
-  const term = new Terminal({
-    cursorBlink: true,
-    fontSize: ${fontSize},
-    fontFamily: "${safeFont}, Menlo, Monaco, 'Courier New', monospace",
-    theme: { background: '${TERMINAL_COLORS.background}', foreground: '${TERMINAL_COLORS.foreground}', cursor: '${TERMINAL_COLORS.cursor}' },
-    scrollback: 10000,
-  });
-
-  const fitAddon = new FitAddon();
-  term.loadAddon(fitAddon);
-  term.open(document.getElementById('terminal'));
-  fitAddon.fit();
-
-  // Send keyboard input to React Native
-  term.onData(data => {
-    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'data', data }));
-  });
-
-  term.onResize(({ cols, rows }) => {
-    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'resize', cols, rows }));
-  });
-
-  // Receive messages from React Native
-  function handleMessage(e) {
-    try {
-      const msg = JSON.parse(e.data);
-      if (msg.type === 'write') {
-        term.write(msg.data);
-      } else if (msg.type === 'fit') {
-        fitAddon.fit();
-      }
-    } catch (e) {
-      console.warn('[ghostty] failed to handle message from React Native:', e);
-    }
-  }
-
-  window.addEventListener('message', handleMessage);
-  document.addEventListener('message', handleMessage); // iOS
-
-  window.addEventListener('resize', () => fitAddon.fit());
-
-  // Signal ready
-  window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ready' }));
-</script>
-</body>
-</html>`;
-}
-
 export function GhosttyNative({
   onData,
   onResize,
@@ -141,58 +46,54 @@ export function GhosttyNative({
   const webViewRef = useRef<any>(null);
   const [html, setHtml] = useState<string | null>(null);
 
-  // Load WASM binary and convert to base64 on mount
+  // Read the bundled UMD asset and build the WebView page on mount.
   useEffect(() => {
-    async function loadWasm() {
+    if (Platform.OS === "web") return;
+    let cancelled = false;
+
+    async function loadBundledGhostty() {
       try {
-        // Read the WASM file from the installed package
-        // In React Native, we can't directly read node_modules files at runtime.
-        // Instead, bundle the base64 at build time via a generated module,
-        // or fetch from a known CDN at runtime.
-        // For now, fetch from CDN (esm.sh serves the WASM too):
-        const response = await fetch(
-          "https://esm.sh/ghostty-web@0.3.0/ghostty-vt.wasm",
-        );
-        if (!response.ok) {
-          throw new Error(
-            `Failed to fetch ghostty WASM: ${response.status} ${response.statusText}`,
-          );
+        const asset = Asset.fromModule(ghosttyUmdAsset);
+        await asset.downloadAsync();
+        if (!asset.localUri) {
+          throw new Error("asset has no localUri after downloadAsync");
         }
-        const buffer = await response.arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-
-        // Convert to base64
-        let binary = "";
-        const chunkSize = 8192;
-        for (let i = 0; i < bytes.length; i += chunkSize) {
-          const chunk = bytes.subarray(i, i + chunkSize);
-          binary += String.fromCharCode(...chunk);
-        }
-        const base64 = btoa(binary);
-
+        const umdJs = await readAsStringAsync(asset.localUri, {
+          encoding: "utf8",
+        });
+        if (cancelled) return;
         const settings = useSettingsStore.getState();
         setHtml(
-          buildGhosttyHtml(base64, settings.terminalFont, settings.fontSize),
+          buildGhosttyHtml(umdJs, settings.terminalFont, settings.fontSize),
         );
       } catch (err) {
-        console.error("Failed to load ghostty WASM:", err);
+        console.error(
+          "[GhosttyNative] failed to load bundled ghostty-web:",
+          err,
+        );
       }
     }
 
-    loadWasm();
+    loadBundledGhostty();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Expose a write method via termRef. KNOWN GAP: a Uint8Array (the common
-  // case — SessionTerminalView decodes io records to bytes) does not survive
-  // JSON.stringify (it becomes a numeric-key object the WebView side can't
-  // feed to term.write). Fixing the bridge encoding needs on-device
-  // verification — tracked as Rung 1 in docs/native-terminal-plan.md.
+  // Expose the shared TermHandle write surface. All writes cross the
+  // postMessage bridge as base64 bytes so binary PTY output (the common
+  // case — SessionTerminalView decodes io records to Uint8Array) survives
+  // JSON serialization intact.
   useEffect(() => {
     if (termRef) {
       termRef.current = {
         write: (data: string | Uint8Array) => {
+          const b64 =
+            typeof data === "string"
+              ? encodeUtf8Base64(data)
+              : bytesToBase64(data);
           webViewRef.current?.postMessage(
-            JSON.stringify({ type: "write", data }),
+            JSON.stringify({ type: "write", b64 }),
           );
         },
       };
@@ -215,6 +116,11 @@ export function GhosttyNative({
             break;
           case "ready":
             onReady?.();
+            break;
+          case "error":
+            // Surface in-WebView failures (UMD eval, WASM init, bridge
+            // decode) to the RN console for on-device debugging.
+            console.error("[GhosttyNative] webview error:", msg.message);
             break;
         }
       } catch {

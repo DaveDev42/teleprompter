@@ -59,6 +59,16 @@ paths:
 - 현재 바인딩: root `_layout.tsx` — `?` (help overlay), `1`/`2`/`3` (bottom tabs); `session/[sid].tsx` — `c`/`t` (Chat/Terminal), `[`/`]` (이웃 세션). **새 단축키 추가 시 `ShortcutHelpModal` SECTIONS 에도 같이 등록**할 것.
 - 회귀 가드: `e2e/app-keyboard-shortcuts.spec.ts` + `lib/shortcut-guards.test.ts` / `lib/modal-open-registry.test.ts`.
 
+## Gamepad Navigation (web)
+
+- `useGamepadNav()` (`hooks/use-gamepad-nav.ts`, root `_layout.tsx` 마운트) — Gamepad API 폴링 브리지. 컨트롤러 입력을 기존 focus/keyboard 시맨틱 위에 매핑: D-pad/왼스틱 = focus 이동, A = `el.click()` (RN Web Pressable 의 Enter 경로와 동일), B = 모달 synthetic Escape / 터미널 focus 해제 / `session-back` 클릭, LB/RB = bottom tab 순환 (`1/2/3` 단축키와 같은 `router.navigate` 타겟).
+- **Pure 레이어 분리**: `lib/gamepad-input-mapper.ts` 가 snapshot diff → semantic action 을 DOM-free 로 계산 (edge-trigger, auto-repeat 없음, 스틱 0.5 threshold, D-pad/스틱 digital 병합). bun:test 가능 — DOM 실행 레이어(hook)는 e2e 로만 검증.
+- **폴링 라이프사이클**: `gamepadconnected` 에서 rAF 루프 시작 + connect toast, 모든 패드 disconnect 시 정지 (tick 자체도 패드 0개면 self-stop). rAF 는 hidden tab 에서 자체 정지하므로 background 내비게이션 없음. Gamepad API 미지원/패드 없음 = 완전 inert. **패드 identity 추적**: `prev` snapshot 은 `activePadIndex` 와 함께 저장 — 연결 직후/패드 전환 첫 프레임은 baseline (그 순간 눌려있는 버튼, 특히 Chromium 의 wake-up press 가 phantom edge 로 발화하지 않음).
+- **Focus ring**: 폴링 루프의 programmatic `el.focus()` 는 Chromium `:focus-visible` 휴리스틱을 만족하지 않는다 — 패드 연결 동안 `<html>` 에 `tp-gamepad-nav` 클래스 + 게임패드가 포커스한 엘리먼트에 `data-gamepad-focus` 마커를 찍고, `global.css` 가 그 페어링에만 outline 렌더 (키보드 focus-visible/마우스 클릭은 패드 연결 중에도 기존 스타일 유지).
+- **위젯 위임**: focus 가 `tablist/listbox/spinbutton/radiogroup` 안이면 방향 입력을 cancelable synthetic Arrow keydown 으로 dispatch — 위젯의 기존 roving-tabindex 핸들러가 `preventDefault()` 하면 소비로 간주, 아니면 DOM-order 선형 이동으로 폴백.
+- **가드 재사용**: 모달 = `isAnyModalOpen()` (열려있으면 D-pad/A 를 top `[data-gamepad-modal-root]` — ModalContainer 의 sheet card — 범위로 제한, LB/RB 억제; backdrop Pressable 은 focusable 이라 `role="dialog"` wrapper 를 root 로 쓰면 D-pad 가 backdrop 에 닿아 A 가 모달을 닫아버림), 터미널 = `[data-shortcuts-disabled]` 조상 체크 (B 만 동작). `lib/focusable.ts` 의 `FOCUSABLE_SELECTOR`/`getVisibleFocusables` 는 ModalContainer focus trap 과 공유.
+- 회귀 가드: `e2e/app-gamepad-nav.spec.ts` (`addInitScript` 로 `navigator.getGamepads` stub) + `lib/gamepad-input-mapper.test.ts`. 새 컨트롤러 바인딩 추가 시 `ShortcutHelpModal` "Game controller" 섹션에도 등록.
+
 ## Relay Client Heartbeat
 - `FrontendRelayClient`는 `relay.auth.ok` 후 15초 간격으로 자체 `relay.ping`을 보낸다 (`RELAY_PING_INTERVAL_MS`). 2회 연속 `relay.pong`이 없으면 (`RELAY_MAX_MISSED_PONGS`) 소켓을 강제 close 해서 reconnect를 트리거. 이 자체 핑이 없으면 모바일 슬립/캡티브 포털/Wi-Fi 핸드오프로 죽은 TCP는 relay의 90s idle-timeout이 만료될 때까지 "connected"로 남는다.
 - 수치를 손대기 전에 `apps/app/src/lib/relay-client.test.ts`의 "client-side ping" describe 블록이 fake `setInterval`로 cadence + missed-pong force-close를 검증한다는 사실을 기억할 것.

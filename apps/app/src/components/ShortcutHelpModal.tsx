@@ -28,6 +28,15 @@ const SECTIONS: { title: string; items: ShortcutItem[] }[] = [
       { keys: ["]"], description: "Next session" },
     ],
   },
+  {
+    title: "Game controller",
+    items: [
+      { keys: ["D-pad"], description: "Move focus" },
+      { keys: ["A"], description: "Select" },
+      { keys: ["B"], description: "Back / close dialog" },
+      { keys: ["LB", "RB"], description: "Previous / next tab" },
+    ],
+  },
 ];
 
 function KeyChip({ label }: { label: string }) {

@@ -7,10 +7,8 @@ import {
   View,
 } from "react-native";
 import { useKeyboard } from "../hooks/use-keyboard";
+import { FOCUSABLE_SELECTOR } from "../lib/focusable";
 import { registerOpenModal } from "../lib/modal-open-registry";
-
-const FOCUSABLE_SELECTOR =
-  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 export function ModalContainer({
   visible,
@@ -219,6 +217,16 @@ export function ModalContainer({
             ref={dialogRef}
             className="bg-tp-bg-elevated rounded-t-2xl w-full max-w-[540px] mx-auto"
             accessibilityLabel={accessibilityLabel}
+            // Gamepad traversal root (use-gamepad-nav.ts). Scoping to the
+            // sheet card — not the role="dialog" wrapper — keeps the D-pad
+            // off the backdrop Pressable (focusable, and clicking it would
+            // close the dialog). Unlike role="dialog", which RN Web only
+            // sets after the 250ms slide animation, this attribute exists
+            // from first render, so there is no window where the modal is
+            // registered open but has no traversal root.
+            {...(Platform.OS === "web"
+              ? ({ dataSet: { gamepadModalRoot: "true" } } as object)
+              : {})}
             {...(Platform.OS === "web"
               ? {
                   onClick: (e: { stopPropagation: () => void }) =>

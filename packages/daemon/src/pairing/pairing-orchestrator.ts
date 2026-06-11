@@ -84,6 +84,7 @@ export class PairingOrchestrator {
     const events = this.deps.relayManager.buildEvents(
       () => relayRef,
       args.label ?? LABEL_UNSET,
+      daemonId,
     );
     const pp = new PendingPairing({
       relayUrl: args.relayUrl,

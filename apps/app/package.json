@@ -15,6 +15,7 @@
     "@expo/metro-runtime": "~56.0.13",
     "@expo/vector-icons": "^15.1.1",
     "@teleprompter/protocol": "workspace:*",
+    "blakejs": "^1.2.1",
     "expo": "~56.0.8",
     "expo-build-properties": "~56.0.16",
     "expo-camera": "~56.0.7",
@@ -37,6 +38,9 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.85.3",
+    "react-native-nitro-modules": "^0.35.9",
+    "react-native-quick-base64": "^3.0.0",
+    "react-native-quick-crypto": "1.1.5",
     "react-native-reanimated": "4.3.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.25.2",
@@ -54,7 +58,7 @@
   },
   "expo": {
     "install": {
-      "comment": "Deliberate SDK-56 freeze: every package below is pinned to exactly what the installed expo@56.0.8 bundledNativeModules.json declares (e.g. @expo/metro-runtime ~56.0.13, expo-router ~56.2.8). expo-doctor's 'expected' values come from a newer npm patch (expo@56.0.9), NOT the installed SDK, so the flags are false positives. exclude is a doctor/`expo install`-only suppression — it does not touch the lockfile, npm/pnpm resolution, or EAS cloud builds (which run pnpm install --frozen-lockfile). Do NOT bump these to silence doctor: bumping ahead of the pinned expo@56.0.8 SDK is cloud-unsafe (see docs/local-verification-queue.md). Mirrors PR #452 (react/react-dom).",
+      "comment": "Deliberate SDK-56 freeze: every package below is pinned to exactly what the installed expo@56.0.8 bundledNativeModules.json declares (e.g. @expo/metro-runtime ~56.0.13, expo-router ~56.2.8). expo-doctor's 'expected' values come from a newer npm patch (expo@56.0.9), NOT the installed SDK, so the flags are false positives. exclude is a doctor/`expo install`-only suppression — it does not touch the lockfile, npm/pnpm resolution, or EAS cloud builds (which run pnpm install --frozen-lockfile). Do NOT bump these to silence doctor: bumping ahead of the pinned expo@56.0.8 SDK is cloud-unsafe (see docs/local-verification-queue.md). Mirrors PR #452 (react/react-dom). react-native-quick-crypto, react-native-nitro-modules, react-native-quick-base64 excluded because they are not in the Expo SDK bundledNativeModules — their versions are driven by RNQC's own peer ranges (nitro-modules >=0.31.2, quick-base64 >=3.0.0), not expo.",
       "exclude": [
         "react",
         "react-dom",
@@ -66,7 +70,11 @@
         "expo-notifications",
         "expo-router",
         "expo-sharing",
-        "expo-updates"
+        "expo-updates",
+        "react-native-quick-crypto",
+        "react-native-nitro-modules",
+        "react-native-quick-base64",
+        "blakejs"
       ]
     }
   }

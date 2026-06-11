@@ -1069,6 +1069,27 @@ ${daemons
     }
   }
 
+  /** Convert a CachedFrame to the wire RelayFrame shape. No intermediate objects
+   * are created beyond the returned literal — safe for the hot relay path. */
+  private static frameFromCache(frame: CachedFrame): RelayFrame {
+    return frame.from === "frontend"
+      ? {
+          t: "relay.frame",
+          sid: frame.sid,
+          ct: frame.ct,
+          seq: frame.seq,
+          from: "frontend",
+          frontendId: frame.frontendId,
+        }
+      : {
+          t: "relay.frame",
+          sid: frame.sid,
+          ct: frame.ct,
+          seq: frame.seq,
+          from: "daemon",
+        };
+  }
+
   private handlePublish(
     ws: ServerWebSocket,
     msg: RelayClientMessage & { t: "relay.pub" },
@@ -1129,26 +1150,9 @@ ${daemons
     const group = this.daemonGroups.get(client.daemonId);
     if (!group) return;
 
-    // RelayFrame.frontendId is optional in the wire protocol (it's only
-    // meaningful for frontend-originated frames and may be absent for daemon
-    // frames). Construct it only when the sender is a frontend.
-    const relayFrame: RelayFrame =
-      client.role === "frontend"
-        ? {
-            t: "relay.frame",
-            sid: msg.sid,
-            ct: msg.ct,
-            seq: msg.seq,
-            from: "frontend",
-            frontendId: client.frontendId,
-          }
-        : {
-            t: "relay.frame",
-            sid: msg.sid,
-            ct: msg.ct,
-            seq: msg.seq,
-            from: "daemon",
-          };
+    // Reuse the cached-frame shape that was just stored — wire output is
+    // identical since the cache entry was built from the same msg fields.
+    const relayFrame: RelayFrame = RelayServer.frameFromCache(frame);
 
     for (const peerWs of group) {
       if (peerWs === ws) continue; // don't echo back
@@ -1193,32 +1197,13 @@ ${daemons
       }
     }
 
-    // Send cached recent frames if requested. CachedFrame is a discriminated
-    // union — frontendId is only present on the frontend arm, so we spread the
-    // frame into the RelayFrame shape using the discriminant.
+    // Send cached recent frames if requested.
     if (msg.after !== undefined) {
       const key = `${client.daemonId}:${msg.sid}`;
       const frames = this.recentFrames.get(key) ?? [];
       for (const frame of frames) {
         if (frame.seq > msg.after) {
-          const replayFrame: RelayFrame =
-            frame.from === "frontend"
-              ? {
-                  t: "relay.frame",
-                  sid: frame.sid,
-                  ct: frame.ct,
-                  seq: frame.seq,
-                  from: "frontend",
-                  frontendId: frame.frontendId,
-                }
-              : {
-                  t: "relay.frame",
-                  sid: frame.sid,
-                  ct: frame.ct,
-                  seq: frame.seq,
-                  from: "daemon",
-                };
-          this.send(ws, replayFrame);
+          this.send(ws, RelayServer.frameFromCache(frame));
         }
       }
     }

@@ -6,22 +6,12 @@
  * system prompt.
  */
 
-/** Minimal terminal interface for buffer access (ghostty-web or xterm.js compatible) */
-interface TerminalLike {
-  buffer?: {
-    active?: {
-      length: number;
-      getLine(
-        y: number,
-      ): { translateToString(trimRight?: boolean): string } | undefined;
-    };
-  };
-}
+import type { TermHandle } from "../lib/term-handle";
 
 /**
  * Get the last N lines of visible terminal content.
  */
-export function getTerminalLines(term: TerminalLike, maxLines = 50): string[] {
+export function getTerminalLines(term: TermHandle, maxLines = 50): string[] {
   if (!term?.buffer?.active) return [];
 
   const buffer = term.buffer.active;
@@ -48,10 +38,7 @@ export function getTerminalLines(term: TerminalLike, maxLines = 50): string[] {
 /**
  * Format terminal content for inclusion in a system prompt.
  */
-export function formatTerminalContext(
-  term: TerminalLike,
-  maxLines = 30,
-): string {
+export function formatTerminalContext(term: TermHandle, maxLines = 30): string {
   const lines = getTerminalLines(term, maxLines);
   if (lines.length === 0) return "";
 

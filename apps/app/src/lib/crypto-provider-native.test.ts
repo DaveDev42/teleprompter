@@ -156,7 +156,9 @@ function makeMockRnqc() {
         },
         getAuthTag() {
           if (!finalized || !tag) {
-            throw new Error("mock cipher: getAuthTag must be called after final()");
+            throw new Error(
+              "mock cipher: getAuthTag must be called after final()",
+            );
           }
           return tag;
         },

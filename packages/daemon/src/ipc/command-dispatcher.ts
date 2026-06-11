@@ -51,6 +51,9 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** Unified NO_REPO error message published when no WorktreeManager is configured. */
+const NO_REPO_MESSAGE = "No repository configured for worktree management";
+
 /**
  * Dependencies injected into {@link IpcCommandDispatcher}.
  *
@@ -734,120 +737,115 @@ export class IpcCommandDispatcher {
       .catch(() => {});
   }
 
-  private async handleRelayWorktreeList(
+  /**
+   * Guard helper for worktree relay handlers.
+   *
+   * If `getWorktreeManager()` returns `null`, publishes a `NO_REPO` error to
+   * the frontend and returns without calling `fn`. Otherwise calls `fn` with
+   * the live `WorktreeManager`. Any exception thrown by `fn` is caught and
+   * published as a `WORKTREE_ERROR` frame using `fallbackMsg` as the fallback
+   * when the error has no message.
+   */
+  private async withWorktreeManager(
     relay: RelayClient,
     frontendId: string,
+    fallbackMsg: string,
+    fn: (wm: WorktreeManager) => Promise<void>,
   ): Promise<void> {
-    const worktreeManager = this.deps.getWorktreeManager();
-    if (!worktreeManager) {
+    const wm = this.deps.getWorktreeManager();
+    if (!wm) {
       relay
         .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
           t: "err",
           e: "NO_REPO",
-          m: "No repository configured for worktree management",
+          m: NO_REPO_MESSAGE,
         })
         .catch(() => {});
       return;
     }
 
     try {
-      const worktrees = await worktreeManager.list();
-      relay
-        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
-          t: "worktree.list",
-          d: worktrees,
-        })
-        .catch(() => {});
+      await fn(wm);
     } catch (err) {
       relay
         .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
           t: "err",
           e: "WORKTREE_ERROR",
-          m: err instanceof Error ? err.message : "Failed to list worktrees",
+          m: err instanceof Error ? err.message : fallbackMsg,
         })
         .catch(() => {});
     }
   }
 
-  private async handleRelayWorktreeCreate(
+  private handleRelayWorktreeList(
+    relay: RelayClient,
+    frontendId: string,
+  ): void {
+    void this.withWorktreeManager(
+      relay,
+      frontendId,
+      "Failed to list worktrees",
+      async (wm) => {
+        const worktrees = await wm.list();
+        relay
+          .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
+            t: "worktree.list",
+            d: worktrees,
+          })
+          .catch(() => {});
+      },
+    );
+  }
+
+  private handleRelayWorktreeCreate(
     relay: RelayClient,
     frontendId: string,
     branch: string,
     baseBranch?: string,
     path?: string,
-  ): Promise<void> {
-    const worktreeManager = this.deps.getWorktreeManager();
-    if (!worktreeManager) {
-      relay
-        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
-          t: "err",
-          e: "NO_REPO",
-          m: "No repository configured",
-        })
-        .catch(() => {});
-      return;
-    }
+  ): void {
+    void this.withWorktreeManager(
+      relay,
+      frontendId,
+      "Failed to create worktree",
+      async (wm) => {
+        const ts = Date.now().toString(36);
+        const wtPath = path ?? `${branch}-${ts}`;
+        const wt = await wm.add(wtPath, branch, baseBranch);
+        const sid = `${branch}-${ts}`;
+        this.deps.createSession(sid, wt.path, { worktreePath: wt.path });
 
-    try {
-      const ts = Date.now().toString(36);
-      const wtPath = path ?? `${branch}-${ts}`;
-      const wt = await worktreeManager.add(wtPath, branch, baseBranch);
-      const sid = `${branch}-${ts}`;
-      this.deps.createSession(sid, wt.path, { worktreePath: wt.path });
-
-      relay
-        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
-          t: "worktree.created",
-          d: wt,
-          sid,
-        })
-        .catch(() => {});
-    } catch (err) {
-      relay
-        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
-          t: "err",
-          e: "WORKTREE_ERROR",
-          m: err instanceof Error ? err.message : "Failed to create worktree",
-        })
-        .catch(() => {});
-    }
+        relay
+          .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
+            t: "worktree.created",
+            d: wt,
+            sid,
+          })
+          .catch(() => {});
+      },
+    );
   }
 
-  private async handleRelayWorktreeRemove(
+  private handleRelayWorktreeRemove(
     relay: RelayClient,
     frontendId: string,
     path: string,
     force?: boolean,
-  ): Promise<void> {
-    const worktreeManager = this.deps.getWorktreeManager();
-    if (!worktreeManager) {
-      relay
-        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
-          t: "err",
-          e: "NO_REPO",
-          m: "No repository configured",
-        })
-        .catch(() => {});
-      return;
-    }
-
-    try {
-      await worktreeManager.remove(path, force);
-      relay
-        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
-          t: "worktree.removed",
-          path,
-        })
-        .catch(() => {});
-    } catch (err) {
-      relay
-        .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
-          t: "err",
-          e: "WORKTREE_ERROR",
-          m: err instanceof Error ? err.message : "Failed to remove worktree",
-        })
-        .catch(() => {});
-    }
+  ): void {
+    void this.withWorktreeManager(
+      relay,
+      frontendId,
+      "Failed to remove worktree",
+      async (wm) => {
+        await wm.remove(path, force);
+        relay
+          .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
+            t: "worktree.removed",
+            path,
+          })
+          .catch(() => {});
+      },
+    );
   }
 
   private handleRelaySessionExport(

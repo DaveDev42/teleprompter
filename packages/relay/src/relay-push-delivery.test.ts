@@ -8,10 +8,10 @@
  * and no exhaustive switch guard.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { RelayServerMessage } from "@teleprompter/protocol";
 import { setLogLevel } from "@teleprompter/protocol";
 import { PushService } from "./push";
 import { RelayServer } from "./relay-server";
+import { connectWs, waitForMessage } from "./test-helpers";
 
 /**
  * A fetch stub that always returns a 200 response with an "ok" Expo ticket.
@@ -32,35 +32,6 @@ afterEach(() => setLogLevel("info"));
 
 const TOKEN = "push-delivery-test-token";
 const DAEMON_ID = "push-delivery-daemon";
-
-function connectWs(port: number): Promise<WebSocket> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://localhost:${port}`);
-    ws.onopen = () => resolve(ws);
-    ws.onerror = () => reject(new Error("WS connect failed"));
-    setTimeout(() => reject(new Error("WS connect timeout")), 3000);
-  });
-}
-
-function waitForMessage(
-  ws: WebSocket,
-  predicate?: (msg: RelayServerMessage) => boolean,
-): Promise<RelayServerMessage> {
-  return new Promise((resolve, reject) => {
-    const handler = (e: MessageEvent) => {
-      const msg = JSON.parse(e.data as string) as RelayServerMessage;
-      if (!predicate || predicate(msg)) {
-        ws.removeEventListener("message", handler);
-        resolve(msg);
-      }
-    };
-    ws.addEventListener("message", handler);
-    setTimeout(() => {
-      ws.removeEventListener("message", handler);
-      reject(new Error("waitForMessage timeout"));
-    }, 3000);
-  });
-}
 
 describe("handlePush DeliveryResult exhaustive handling (idx 58)", () => {
   let relay: RelayServer;
@@ -138,7 +109,7 @@ describe("handlePush DeliveryResult exhaustive handling (idx 58)", () => {
     daemon.send(pushMsg());
     const reply = await waitForMessage(daemon, (m) => m.t === "relay.err");
     expect(reply.t).toBe("relay.err");
-    const e = (reply as { t: "relay.err"; e: string })["e"];
+    const e = (reply as { t: "relay.err"; e: string }).e;
     expect(e).toBe("PUSH_RATE_LIMITED");
 
     daemon.close();

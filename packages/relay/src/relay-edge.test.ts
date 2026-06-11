@@ -1,44 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type {
-  RelayError,
-  RelayFrame,
-  RelayServerMessage,
-} from "@teleprompter/protocol";
+import type { RelayError, RelayFrame } from "@teleprompter/protocol";
 import { RelayServer } from "./relay-server";
-
-function connectWs(port: number): Promise<WebSocket> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://localhost:${port}`);
-    ws.onopen = () => resolve(ws);
-    ws.onerror = () => reject(new Error("connect failed"));
-    setTimeout(() => reject(new Error("timeout")), 3000);
-  });
-}
+import { connectWs, waitForMessage } from "./test-helpers";
 
 async function fetchAttached(port: number): Promise<number> {
   const res = await fetch(`http://localhost:${port}/health`);
   const body = (await res.json()) as { attached: number };
   return body.attached;
-}
-
-function waitMsg(
-  ws: WebSocket,
-  pred?: (m: RelayServerMessage) => boolean,
-): Promise<RelayServerMessage> {
-  return new Promise((resolve, reject) => {
-    const handler = (e: MessageEvent) => {
-      const msg = JSON.parse(e.data as string) as RelayServerMessage;
-      if (!pred || pred(msg)) {
-        ws.removeEventListener("message", handler);
-        resolve(msg);
-      }
-    };
-    ws.addEventListener("message", handler);
-    setTimeout(() => {
-      ws.removeEventListener("message", handler);
-      reject(new Error("timeout"));
-    }, 3000);
-  });
 }
 
 describe("RelayServer edge cases", () => {
@@ -64,7 +32,7 @@ describe("RelayServer edge cases", () => {
         token: "token-1",
       }),
     );
-    const msg = await waitMsg(ws);
+    const msg = await waitForMessage(ws);
     expect(msg.t).toBe("relay.auth.err");
     ws.close();
   });
@@ -72,7 +40,7 @@ describe("RelayServer edge cases", () => {
   test("handles malformed JSON gracefully", async () => {
     const ws = await connectWs(port);
     ws.send("not json at all {{{");
-    const msg = await waitMsg(ws);
+    const msg = await waitForMessage(ws);
     expect(msg.t).toBe("relay.err");
     expect((msg as RelayError).e).toBe("PARSE_ERROR");
     ws.close();
@@ -90,10 +58,10 @@ describe("RelayServer edge cases", () => {
         frontendId: "fe-edge-1",
       }),
     );
-    await waitMsg(ws, (m) => m.t === "relay.auth.ok");
+    await waitForMessage(ws, (m) => m.t === "relay.auth.ok");
 
     ws.send(JSON.stringify({ t: "relay.nonexistent" }));
-    const err = await waitMsg(ws, (m) => m.t === "relay.err");
+    const err = await waitForMessage(ws, (m) => m.t === "relay.err");
     expect((err as RelayError).e).toBe("UNKNOWN_TYPE");
     ws.close();
   });
@@ -116,17 +84,17 @@ describe("RelayServer edge cases", () => {
         frontendId: "fe-edge-2",
       }),
     );
-    await waitMsg(ws, (m) => m.t === "relay.auth.ok");
+    await waitForMessage(ws, (m) => m.t === "relay.auth.ok");
 
     // relay.pub with no sid/ct/seq — structurally a "known type", semantically
     // garbage. Must be rejected, not dispatched.
     ws.send(JSON.stringify({ t: "relay.pub" }));
-    const err = await waitMsg(ws, (m) => m.t === "relay.err");
+    const err = await waitForMessage(ws, (m) => m.t === "relay.err");
     expect((err as RelayError).e).toBe("UNKNOWN_TYPE");
 
     // Connection survived: a subsequent well-formed ping still gets a pong.
     ws.send(JSON.stringify({ t: "relay.ping", ts: 1 }));
-    const pong = await waitMsg(ws, (m) => m.t === "relay.pong");
+    const pong = await waitForMessage(ws, (m) => m.t === "relay.pong");
     expect(pong.t).toBe("relay.pong");
     ws.close();
   });
@@ -143,12 +111,12 @@ describe("RelayServer edge cases", () => {
         frontendId: "fe-edge-3",
       }),
     );
-    await waitMsg(ws, (m) => m.t === "relay.auth.ok");
+    await waitForMessage(ws, (m) => m.t === "relay.auth.ok");
 
     // sid/ct present but seq is a string — the old cast would have let this
     // through and broken ordering math downstream.
     ws.send(JSON.stringify({ t: "relay.pub", sid: "s", ct: "x", seq: "1" }));
-    const err = await waitMsg(ws, (m) => m.t === "relay.err");
+    const err = await waitForMessage(ws, (m) => m.t === "relay.err");
     expect((err as RelayError).e).toBe("UNKNOWN_TYPE");
     ws.close();
   });
@@ -168,7 +136,7 @@ describe("RelayServer edge cases", () => {
         token: "token-1",
       }),
     );
-    await waitMsg(daemon, (m) => m.t === "relay.auth.ok");
+    await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
     frontend1.send(
       JSON.stringify({
         t: "relay.auth",
@@ -179,7 +147,7 @@ describe("RelayServer edge cases", () => {
         frontendId: "fe-multi-1",
       }),
     );
-    await waitMsg(frontend1, (m) => m.t === "relay.auth.ok");
+    await waitForMessage(frontend1, (m) => m.t === "relay.auth.ok");
     frontend2.send(
       JSON.stringify({
         t: "relay.auth",
@@ -190,7 +158,7 @@ describe("RelayServer edge cases", () => {
         frontendId: "fe-multi-2",
       }),
     );
-    await waitMsg(frontend2, (m) => m.t === "relay.auth.ok");
+    await waitForMessage(frontend2, (m) => m.t === "relay.auth.ok");
 
     // Both frontends subscribe
     frontend1.send(JSON.stringify({ t: "relay.sub", sid: "s1" }));
@@ -203,8 +171,8 @@ describe("RelayServer edge cases", () => {
     );
 
     // Both frontends receive
-    const f1msg = await waitMsg(frontend1, (m) => m.t === "relay.frame");
-    const f2msg = await waitMsg(frontend2, (m) => m.t === "relay.frame");
+    const f1msg = await waitForMessage(frontend1, (m) => m.t === "relay.frame");
+    const f2msg = await waitForMessage(frontend2, (m) => m.t === "relay.frame");
     expect((f1msg as RelayFrame).ct).toBe("payload");
     expect((f2msg as RelayFrame).ct).toBe("payload");
 
@@ -226,7 +194,7 @@ describe("RelayServer edge cases", () => {
         token: "token-1",
       }),
     );
-    await waitMsg(daemon, (m) => m.t === "relay.auth.ok");
+    await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
 
     frontend.send(
       JSON.stringify({
@@ -238,7 +206,7 @@ describe("RelayServer edge cases", () => {
         frontendId: "fe-edge-4",
       }),
     );
-    await waitMsg(frontend, (m) => m.t === "relay.auth.ok");
+    await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
 
     // Subscribe, receive, unsubscribe, should not receive
     frontend.send(JSON.stringify({ t: "relay.sub", sid: "s1" }));
@@ -247,7 +215,7 @@ describe("RelayServer edge cases", () => {
     daemon.send(
       JSON.stringify({ t: "relay.pub", sid: "s1", ct: "visible", seq: 1 }),
     );
-    const msg = await waitMsg(frontend, (m) => m.t === "relay.frame");
+    const msg = await waitForMessage(frontend, (m) => m.t === "relay.frame");
     expect((msg as RelayFrame).ct).toBe("visible");
 
     // Unsubscribe
@@ -271,7 +239,7 @@ describe("RelayServer edge cases", () => {
         seq: 3,
       }),
     );
-    const msg2 = await waitMsg(frontend, (m) => m.t === "relay.frame");
+    const msg2 = await waitForMessage(frontend, (m) => m.t === "relay.frame");
     expect((msg2 as RelayFrame).ct).toBe("visible-again");
 
     daemon.close();
@@ -299,7 +267,7 @@ describe("RelayServer edge cases", () => {
         token: "token-1",
       }),
     );
-    await waitMsg(daemon, (m) => m.t === "relay.auth.ok");
+    await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
     frontend1.send(
       JSON.stringify({
         t: "relay.auth",
@@ -310,7 +278,7 @@ describe("RelayServer edge cases", () => {
         frontendId: "fe-m13-1",
       }),
     );
-    await waitMsg(frontend1, (m) => m.t === "relay.auth.ok");
+    await waitForMessage(frontend1, (m) => m.t === "relay.auth.ok");
     frontend2.send(
       JSON.stringify({
         t: "relay.auth",
@@ -321,7 +289,7 @@ describe("RelayServer edge cases", () => {
         frontendId: "fe-m13-2",
       }),
     );
-    await waitMsg(frontend2, (m) => m.t === "relay.auth.ok");
+    await waitForMessage(frontend2, (m) => m.t === "relay.auth.ok");
 
     // frontend1 subscribes to two sessions (s-shared + s-f1-only).
     // frontend2 subscribes to s-shared only.
@@ -351,7 +319,7 @@ describe("RelayServer edge cases", () => {
         seq: 1,
       }),
     );
-    const frame = await waitMsg(frontend2, (m) => m.t === "relay.frame");
+    const frame = await waitForMessage(frontend2, (m) => m.t === "relay.frame");
     expect((frame as RelayFrame).ct).toBe("after-f1-close");
 
     daemon.close();
@@ -374,7 +342,7 @@ describe("RelayServer edge cases", () => {
         frontendId: "fe-edge-5",
       }),
     );
-    await waitMsg(frontend, (m) => m.t === "relay.auth.ok");
+    await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
 
     // Subscribe to two distinct sessions; each adds one attached entry.
     frontend.send(JSON.stringify({ t: "relay.sub", sid: "s1" }));

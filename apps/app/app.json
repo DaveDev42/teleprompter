@@ -37,6 +37,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "react-native-quick-crypto",
       "expo-router",
       "expo-secure-store",
       [

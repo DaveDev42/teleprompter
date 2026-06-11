@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.1.48](https://github.com/DaveDev42/teleprompter/compare/v0.1.47...v0.1.48) (2026-06-11)
+
+
+### Features
+
+* **app:** add react-native-quick-crypto native provider behind a flag ([#604](https://github.com/DaveDev42/teleprompter/issues/604)) ([e7ac9f8](https://github.com/DaveDev42/teleprompter/commit/e7ac9f87fa464626e7023243c583b8b3bd644a0a))
+
+
+### Bug Fixes
+
+* **app:** deduplicate expo-constants via pnpm override to resolve eas-gate ([#618](https://github.com/DaveDev42/teleprompter/issues/618)) ([45ee598](https://github.com/DaveDev42/teleprompter/commit/45ee5983b5d02704d02b06a5ca3ee65228c12847))
+* **app:** stabilize EAS runtime-version fingerprint against pod-install node_modules mutations ([#620](https://github.com/DaveDev42/teleprompter/issues/620)) ([a5e94c0](https://github.com/DaveDev42/teleprompter/commit/a5e94c0f2bac5f522060c36690c177009e971e20))
+* **app:** update expo-camera, expo-file-system, expo-linking to SDK 56 patch versions ([#615](https://github.com/DaveDev42/teleprompter/issues/615)) ([68af2ed](https://github.com/DaveDev42/teleprompter/commit/68af2edab72380e4bf9bc8fad99da95bf1fdf1af))
+* **cli:** remove direct relay WebSocket from tp doctor ([#608](https://github.com/DaveDev42/teleprompter/issues/608)) ([4be7b3e](https://github.com/DaveDev42/teleprompter/commit/4be7b3e1535028c40455dcdea2614113285a1b9f))
+* **daemon:** pass daemonId to buildEvents in pairing orchestrator ([#607](https://github.com/DaveDev42/teleprompter/issues/607)) ([ae32ab4](https://github.com/DaveDev42/teleprompter/commit/ae32ab47c9b27ee4cf673019644cb23b84b8b98d))
+* **runner:** run runner.stop() on SIGINT/SIGTERM in run entry ([#606](https://github.com/DaveDev42/teleprompter/issues/606)) ([e59b5e8](https://github.com/DaveDev42/teleprompter/commit/e59b5e89d593b4742f6623f068555a9a3e70aad8))
+
+
+### Refactor
+
+* **app:** dedupe session relative-time and placeholder-color helpers ([#616](https://github.com/DaveDev42/teleprompter/issues/616)) ([f4cbcaf](https://github.com/DaveDev42/teleprompter/commit/f4cbcafe809f31e0677851cd4765568c95117592))
+* **app:** enable native crypto on Hermes and remove libsodium wasm2js workarounds ([#605](https://github.com/DaveDev42/teleprompter/issues/605)) ([f5bcf3a](https://github.com/DaveDev42/teleprompter/commit/f5bcf3a0ef50ad50dbbf5f9ad389853f473c0c24))
+* **app:** split session screen into focused components ([#617](https://github.com/DaveDev42/teleprompter/issues/617)) ([ad7615f](https://github.com/DaveDev42/teleprompter/commit/ad7615f81dc23e68973f23b51be57ae6cb213f37))
+* **cli:** extract shared requestDaemonOp IPC helper ([#614](https://github.com/DaveDev42/teleprompter/issues/614)) ([86a8531](https://github.com/DaveDev42/teleprompter/commit/86a8531b4a22701dcf35f14795c06454a5535fdb))
+* **daemon:** extract withWorktreeManager helper for worktree relay handlers ([#613](https://github.com/DaveDev42/teleprompter/issues/613)) ([838cc31](https://github.com/DaveDev42/teleprompter/commit/838cc3188e41db94f1799a18d0ff3da050a641a8))
+* **protocol:** consolidate duplicate guard helpers into guard-primitives ([#610](https://github.com/DaveDev42/teleprompter/issues/610)) ([0e43b4c](https://github.com/DaveDev42/teleprompter/commit/0e43b4cec92c1f79ee1c939929f18bf45c191833))
+* **relay:** extract frameFromCache helper to eliminate duplicate RelayFrame construction ([#611](https://github.com/DaveDev42/teleprompter/issues/611)) ([1266dac](https://github.com/DaveDev42/teleprompter/commit/1266dacb63cf2dfa5e73b64c0e78e45e8d4dbcc5))
+* **relay:** extract shared connectWs/waitForMessage/waitForClose test helpers ([#612](https://github.com/DaveDev42/teleprompter/issues/612)) ([256336d](https://github.com/DaveDev42/teleprompter/commit/256336df23259f8f53bcbbbc279f325ec2335037))
+
 ## [0.1.47](https://github.com/DaveDev42/teleprompter/compare/v0.1.46...v0.1.47) (2026-06-10)
 
 

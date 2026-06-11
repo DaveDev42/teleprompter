@@ -593,6 +593,22 @@ RNQC native AEAD (xchacha20-poly1305 JSI) ↔ Bun daemon libsodium 상호 복호
     `BLSALLOC_SODIUM`) absent. (d) 콜드 런치 정상 (full bundle 10221ms/2043 modules, crypto
     에러 0건). 절차 메모: Maestro 는 RN 버튼 텍스트를 못 보는 경우가 많아 point-tap 사용,
     Expo dev-tools 기어 버블이 탭을 가로채므로 swipe 로 이동 후 진행.
+  - **실기기 addendum — PASS 2026-06-11 (Dave-iPhone15Pro, iOS 26, device dev build)**:
+    PR3 브랜치에서 `scripts/ios-dev-build.sh --profile device` 로 .ipa 로컬 빌드 →
+    `xcrun devicectl device install app` 설치 → 딥링크 콜드 런치 → Metro 연결. 증거:
+    (a) 폰에서 스트리밍된 boot marker `[tp-app boot] engine=hermes dev=true` ×2 (Metro 로그),
+    (b) daemon 재시작 후 폰 frontend 가 kx 재수행 — daemon.log `key exchange completed with
+    frontend 24f0d6fc...` + `registered sealed push token ... (ios)` ×4 (app=RNQC 암호화 →
+    daemon=libsodium 복호화 성공 증명), (c) 에러 시그니처 (`BLSALLOC_SODIUM`,
+    `handleMessage threw`, `encrypt failed`, `crypto-provider-native`) 0건. Simulator PASS 와
+    합쳐 RNQC native AEAD ↔ Bun daemon libsodium 양방향 상호 복호화가 실기기에서도 확정.
+  - **운영 팁 — dev client 가 launcher 홈에서 대기하는 문제**: 신규 설치 후 plain launch 는
+    dev client launcher 홈에서 멈춘다 (Metro 자동 연결 안 됨). 딥링크로 런치하면 launcher 를
+    건너뛰고 즉시 Metro 에 붙는다:
+    `xcrun devicectl device process launch --terminate-existing --device <UDID>
+    --payload-url "tp://expo-development-client/?url=http%3A%2F%2F<mac-ip>%3A8081" dev.tpmt.app`
+    (scheme 은 app.json 의 `tp`; 폰 잠금 상태면 FBSOpenApplicationErrorDomain error 7 — 잠금
+    해제 후 재시도).
 
 ---
 

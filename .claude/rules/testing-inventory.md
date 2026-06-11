@@ -93,6 +93,7 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `apps/cli/src/args.test.ts` — `--tp-*` 인자 분리
 - `apps/cli/src/spawn.test.ts` — runner command resolution
 - `apps/cli/src/install-script.test.ts` — `scripts/install.sh` syntax + `NO_COMPLETIONS` / TTY gate / PATH gate 검증
+- `apps/cli/src/commands/run.test.ts` — `runCommand` graceful shutdown logic (SIGINT/SIGTERM calls runner.stop + double-signal guard) and NaN guard parity for cols/rows
 - `apps/cli/src/commands/version.test.ts` — version output
 - `apps/cli/src/commands/status.test.ts` — daemon status display
 - `apps/cli/src/commands/pair.test.ts` — pairing data generation

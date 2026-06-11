@@ -21,4 +21,9 @@ if (config.watcher) {
   delete config.watcher.unstable_workerThreads;
 }
 
+// ghostty-web's UMD build ships as a bundled .txt asset for the native
+// WebView terminal (assets/ghostty-web.umd.txt — see GhosttyNative.tsx).
+// "txt" is not in Metro's default assetExts.
+config.resolver.assetExts = [...config.resolver.assetExts, "txt"];
+
 module.exports = withNativeWind(config, { input: "./global.css" });

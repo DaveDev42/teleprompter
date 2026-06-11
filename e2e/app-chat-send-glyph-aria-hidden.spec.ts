@@ -2,9 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 
-// Regression: the chat composer Send button in
-// `apps/app/app/session/[sid].tsx` renders a `↑` (U+2191 UPWARDS ARROW)
-// `<Text>` as a direct child of a Pressable with
+// Regression: the chat composer Send button renders a `↑` (U+2191 UPWARDS
+// ARROW) `<Text>` as a direct child of a Pressable with
 // `accessibilityLabel="Send message"`. The parent's `aria-label`
 // replaces the accessible name on focus, but `role="button"` is NOT
 // atomic for virtual-cursor navigation in NVDA browse mode / JAWS
@@ -23,8 +22,14 @@ import { expect, test } from "@playwright/test";
 // the `↑` `<Text>` in the canonical web-gated `aria-hidden` spread,
 // matching the same pattern as the SettingsRow / SessionRow chevron
 // and FontSizeModal ± glyph fixes.
+//
+// The Send button lives in SessionChatView (extracted from [sid].tsx in
+// the session-screen split refactor — PR #617).
 test("Chat Send button glyph Text spreads web-only aria-hidden in source", () => {
-  const filePath = resolve(__dirname, "../apps/app/app/session/[sid].tsx");
+  const filePath = resolve(
+    __dirname,
+    "../apps/app/src/components/SessionChatView.tsx",
+  );
   let body = readFileSync(filePath, "utf-8");
 
   // Strip JSX block comments `{/* ... */}` so the explanatory comment
@@ -40,7 +45,10 @@ test("Chat Send button glyph Text spreads web-only aria-hidden in source", () =>
   // Find the "↑" literal in the remaining JSX. After comment stripping
   // there should be exactly one — the Send button glyph.
   const glyphIndex = body.indexOf("↑");
-  expect(glyphIndex, "send-button glyph in [sid].tsx JSX").toBeGreaterThan(-1);
+  expect(
+    glyphIndex,
+    "send-button glyph in SessionChatView.tsx JSX",
+  ).toBeGreaterThan(-1);
 
   // Walk backwards to the enclosing `<Text` open tag.
   const beforeGlyph = body.slice(0, glyphIndex);

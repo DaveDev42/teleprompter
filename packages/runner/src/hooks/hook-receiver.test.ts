@@ -51,7 +51,7 @@ describe("HookReceiver", () => {
     await Bun.sleep(100);
     expect(receivedEvents.length).toBe(1);
     expect(receivedEvents[0]?.hook_event_name).toBe("Stop");
-    expect(receivedEvents[0]?.["last_assistant_message"]).toBe("Done!");
+    expect(receivedEvents[0]?.last_assistant_message).toBe("Done!");
   });
 
   test("receives multiple events from different connections", async () => {
@@ -107,7 +107,7 @@ describe("HookReceiver", () => {
 
     await Bun.sleep(100);
     expect(receivedEvents.length).toBe(1);
-    expect(receivedEvents[0]!.hook_event_name).toBe("Stop");
+    expect(receivedEvents[0]?.hook_event_name).toBe("Stop");
   });
 
   test("defaultSocketPath generates valid path", () => {
@@ -150,9 +150,9 @@ describe("HookReceiver", () => {
     await Bun.sleep(200);
     expect(fragReceived).toBe(true);
     expect(receivedEvents.length).toBe(1);
-    expect(receivedEvents[0]!.hook_event_name).toBe("Stop");
+    expect(receivedEvents[0]?.hook_event_name).toBe("Stop");
     const msg = receivedEvents[0] as { last_assistant_message?: string };
-    expect(msg["last_assistant_message"]).toHaveLength(4096);
+    expect(msg.last_assistant_message).toHaveLength(4096);
   });
 
   test("stop() is idempotent — second call does not throw (idx 52)", () => {
@@ -205,6 +205,6 @@ describe("HookReceiver", () => {
 
     await Bun.sleep(100);
     expect(receivedEvents.length).toBe(1);
-    expect(receivedEvents[0]!.hook_event_name).toBe("Stop");
+    expect(receivedEvents[0]?.hook_event_name).toBe("Stop");
   });
 });

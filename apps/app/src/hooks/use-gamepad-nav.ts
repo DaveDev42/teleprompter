@@ -21,6 +21,14 @@ import { useNotificationStore } from "../stores/notification-store";
  */
 export const GAMEPAD_ACTIVE_CLASS = "tp-gamepad-nav";
 
+/**
+ * Marks the element the controller focused last, so the global.css ring
+ * only renders for gamepad-driven focus — keyboard focus keeps its
+ * focus-visible styling and mouse clicks stay ring-free even while a
+ * controller is connected.
+ */
+const GAMEPAD_FOCUS_ATTR = "data-gamepad-focus";
+
 // Same targets and order as the 1/2/3 keyboard shortcuts in _layout.tsx
 // and the tab bar render order in (tabs)/_layout.tsx.
 const TAB_ROUTES = ["/(tabs)/", "/(tabs)/daemons", "/(tabs)/settings"];
@@ -40,14 +48,27 @@ function isTerminalFocused(): boolean {
 }
 
 /**
- * Root to traverse when a ModalContainer dialog is up. RN Web's <Modal>
- * renders a role="dialog" wrapper inline; the last one in DOM order is the
- * top-most. The registry (not the DOM query) is the open/closed authority —
- * the query only scopes traversal once the registry says a modal is open.
+ * Root to traverse when a ModalContainer dialog is up: the sheet card
+ * marked data-gamepad-modal-root (last in DOM order = top-most). Scoping
+ * to the card, not the role="dialog" wrapper, keeps the backdrop Pressable
+ * (focusable; clicking it closes the dialog) out of D-pad reach — and the
+ * attribute exists from first render, unlike role="dialog" which RN Web
+ * only sets once the slide-in animation finishes. The registry (not this
+ * query) is the open/closed authority; the query only scopes traversal.
  */
 function topDialog(): HTMLElement | null {
-  const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"]');
-  return dialogs.length > 0 ? (dialogs[dialogs.length - 1] ?? null) : null;
+  const sheets = document.querySelectorAll<HTMLElement>(
+    "[data-gamepad-modal-root]",
+  );
+  return sheets.length > 0 ? (sheets[sheets.length - 1] ?? null) : null;
+}
+
+/** Move the gamepad-focus ring marker to `el` (clearing any previous). */
+function markGamepadFocus(el: Element | null): void {
+  for (const marked of document.querySelectorAll(`[${GAMEPAD_FOCUS_ATTR}]`)) {
+    if (marked !== el) marked.removeAttribute(GAMEPAD_FOCUS_ATTR);
+  }
+  el?.setAttribute(GAMEPAD_FOCUS_ATTR, "");
 }
 
 /**
@@ -66,7 +87,10 @@ function moveFocus(delta: 1 | -1, root: ParentNode): void {
         ? focusables[0]
         : focusables[focusables.length - 1]
       : focusables[(idx + delta + focusables.length) % focusables.length];
-  target?.focus();
+  if (target) {
+    markGamepadFocus(target);
+    target.focus();
+  }
 }
 
 /**
@@ -90,7 +114,12 @@ function moveOrDelegate(
   delta: 1 | -1,
   root: ParentNode,
 ): void {
-  if (dispatchArrowToWidget(arrowKey)) return;
+  if (dispatchArrowToWidget(arrowKey)) {
+    // The widget's roving handler moved focus synchronously — mark the
+    // new target so the gamepad ring follows it.
+    markGamepadFocus(document.activeElement);
+    return;
+  }
   moveFocus(delta, root);
 }
 
@@ -201,6 +230,11 @@ export function useGamepadNav(): void {
     let rafId: number | null = null;
     let running = false;
     let prev: GamepadSnapshot | null = null;
+    // Which physical pad `prev` belongs to. Diffing snapshots from two
+    // different controllers (first pad disconnects, the poll silently moves
+    // to the next) would fire a phantom edge for every button the new pad
+    // happens to hold — on identity change we re-baseline instead.
+    let activePadIndex: number | null = null;
 
     const navigateToTab = (route: string) => {
       // biome-ignore lint/suspicious/noExplicitAny: expo-router's typed routes don't cover dynamically chosen tab hrefs
@@ -218,15 +252,27 @@ export function useGamepadNav(): void {
       rafId = null;
       if (!running) return;
       const pad = firstConnectedPad();
-      if (pad) {
-        const next = readGamepadSnapshot(pad);
+      if (!pad) {
+        // Every pad is gone — stop now rather than spinning no-op frames
+        // until the (task-queued) gamepaddisconnected event lands.
+        stopPolling();
+        return;
+      }
+      if (pad.index !== activePadIndex) {
+        // New or switched controller: make this frame the baseline rather
+        // than diffing against the old pad's state (or null). Buttons held
+        // at this moment — including the press that woke the pad up in
+        // Chromium — must not fire as edges.
+        activePadIndex = pad.index;
+        prev = null;
+      }
+      const next = readGamepadSnapshot(pad);
+      if (prev) {
         for (const action of diffGamepadActions(prev, next)) {
           executeAction(action, navigateToTab);
         }
-        prev = next;
-      } else {
-        prev = null;
       }
+      prev = next;
       rafId = requestAnimationFrame(tick);
     };
 
@@ -245,6 +291,7 @@ export function useGamepadNav(): void {
       document.documentElement.classList.remove(GAMEPAD_ACTIVE_CLASS);
       running = false;
       prev = null;
+      activePadIndex = null;
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
         rafId = null;

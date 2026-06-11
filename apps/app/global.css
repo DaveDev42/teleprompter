@@ -59,11 +59,13 @@
      programmatic el.focus() from a poll loop, which does not satisfy
      Chromium's :focus-visible heuristic — the per-element
      focus-visible:ring-* classes never render for controller moves.
-     While a controller is connected the hook keeps .tp-gamepad-nav on
-     <html> and this rule shows a ring for *any* focus. Specificity
-     (0,2,1) deliberately beats the Tailwind focus-visible:outline-none
-     utility (0,2,0). */
-  html.tp-gamepad-nav :focus {
+     The hook keeps .tp-gamepad-nav on <html> while a controller is
+     connected and stamps data-gamepad-focus on the element it focused
+     last; the ring renders only for that pairing, so keyboard focus
+     keeps its focus-visible styling and mouse clicks stay ring-free
+     even with a pad attached. Specificity (0,3,1) deliberately beats
+     the Tailwind focus-visible:outline-none utility (0,2,0). */
+  html.tp-gamepad-nav [data-gamepad-focus]:focus {
     outline: 2px solid var(--tp-border-focus);
     outline-offset: 2px;
   }

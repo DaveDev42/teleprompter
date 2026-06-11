@@ -13,7 +13,7 @@ import { expect, type Page, test } from "@playwright/test";
 
 declare global {
   interface Window {
-    __setGamepadButtons: (pressed: number[]) => void;
+    __setGamepadButtons: (pressed: number[], axes?: number[]) => void;
     __disconnectGamepad: () => void;
   }
 }
@@ -25,7 +25,7 @@ const GAMEPAD_STUB = `
       configurable: true,
       value: () => pads,
     });
-    window.__setGamepadButtons = (pressed) => {
+    window.__setGamepadButtons = (pressed, axes) => {
       pads[0] = {
         id: "Stub Gamepad (STANDARD GAMEPAD)",
         index: 0,
@@ -37,7 +37,7 @@ const GAMEPAD_STUB = `
           touched: pressed.includes(i),
           value: pressed.includes(i) ? 1 : 0,
         })),
-        axes: [0, 0, 0, 0],
+        axes: axes ?? [0, 0, 0, 0],
       };
     };
     window.__disconnectGamepad = () => {
@@ -54,6 +54,10 @@ async function connectGamepad(page: Page) {
   });
   // Poll loop is up once the focus-ring class lands on <html>.
   await expect(page.locator("html")).toHaveClass(/tp-gamepad-nav/);
+  // Let the baseline frame pass — the hook deliberately swallows the first
+  // frame's state (buttons held during connect must not fire as edges), so
+  // a press issued before that frame would be silently absorbed.
+  await settleFrames(page);
 }
 
 /** Wait until the rAF poll loop has processed at least one full frame. */
@@ -124,9 +128,29 @@ test.describe("Gamepad Navigation", () => {
     const focused = await page.evaluate(() => ({
       tag: document.activeElement?.tagName ?? "",
       isBody: document.activeElement === document.body,
+      hasRingMarker: document.activeElement?.hasAttribute("data-gamepad-focus"),
     }));
     expect(focused.isBody).toBe(false);
     expect(focused.tag).not.toBe("");
+    // The ring marker must follow gamepad focus — it is what global.css
+    // keys the visible outline on (programmatic focus() never matches
+    // :focus-visible).
+    expect(focused.hasRingMarker).toBe(true);
+  });
+
+  test("left stick deflection moves focus like the D-pad", async ({ page }) => {
+    await connectGamepad(page);
+
+    // Deflect the stick fully down, then recenter (edge-triggered).
+    await page.evaluate(() => window.__setGamepadButtons([], [0, 1, 0, 0]));
+    await settleFrames(page);
+    await page.evaluate(() => window.__setGamepadButtons([], [0, 0, 0, 0]));
+    await settleFrames(page);
+
+    const isBody = await page.evaluate(
+      () => document.activeElement === document.body,
+    );
+    expect(isBody).toBe(false);
   });
 
   test("A activates the focused control and B closes a dialog", async ({
@@ -172,6 +196,32 @@ test.describe("Gamepad Navigation", () => {
     // Registry released — RB navigates again.
     await pressButton(page, 5);
     await expect(page).toHaveURL(/\/daemons$/);
+  });
+
+  test("D-pad traversal inside a dialog never reaches the backdrop", async ({
+    page,
+  }) => {
+    await connectGamepad(page);
+
+    await page.keyboard.press("?");
+    const modal = page.getByTestId("shortcut-help-modal");
+    await expect(modal).toBeVisible();
+    await page.waitForFunction(
+      () => document.activeElement?.getAttribute("aria-label") === "Done",
+    );
+
+    // The help dialog's only focusable is Done. Traversal is scoped to the
+    // sheet card (data-gamepad-modal-root), so D-pad down wraps back onto
+    // Done — with the role="dialog" wrapper as root it would land on the
+    // backdrop Pressable instead, and A would then close the dialog.
+    await pressButton(page, 13); // D-pad down
+    const focusedLabel = await page.evaluate(() =>
+      document.activeElement?.getAttribute("aria-label"),
+    );
+    expect(focusedLabel).toBe("Done");
+
+    await pressButton(page, 1); // B closes (cleanup)
+    await expect(modal).not.toBeVisible({ timeout: 3_000 });
   });
 
   test("help dialog lists the controller bindings", async ({ page }) => {

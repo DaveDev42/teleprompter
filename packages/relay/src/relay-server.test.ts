@@ -11,15 +11,7 @@ import type {
 import { PushService } from "./push";
 import { PushSealer } from "./push-seal";
 import { RelayServer } from "./relay-server";
-
-function connectWs(port: number): Promise<WebSocket> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://localhost:${port}`);
-    ws.onopen = () => resolve(ws);
-    ws.onerror = () => reject(new Error("WS connect failed"));
-    setTimeout(() => reject(new Error("WS connect timeout")), 3000);
-  });
-}
+import { connectWs, waitForMessage } from "./test-helpers";
 
 type HealthResponse = {
   attached: number;
@@ -29,26 +21,6 @@ type HealthResponse = {
 async function fetchHealth(port: number): Promise<HealthResponse> {
   const res = await fetch(`http://localhost:${port}/health`);
   return (await res.json()) as HealthResponse;
-}
-
-function waitForMessage(
-  ws: WebSocket,
-  predicate?: (msg: RelayServerMessage) => boolean,
-): Promise<RelayServerMessage> {
-  return new Promise((resolve, reject) => {
-    const handler = (e: MessageEvent) => {
-      const msg = JSON.parse(e.data as string) as RelayServerMessage;
-      if (!predicate || predicate(msg)) {
-        ws.removeEventListener("message", handler);
-        resolve(msg);
-      }
-    };
-    ws.addEventListener("message", handler);
-    setTimeout(() => {
-      ws.removeEventListener("message", handler);
-      reject(new Error("waitForMessage timeout"));
-    }, 3000);
-  });
 }
 
 function collectMessages(

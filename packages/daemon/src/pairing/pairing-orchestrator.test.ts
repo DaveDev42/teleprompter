@@ -322,6 +322,44 @@ describe("PairingOrchestrator", () => {
     expect(orch.hasPending).toBe(false);
   });
 
+  test("begin() passes resolved daemonId to buildEvents (push-token regression)", async () => {
+    // Regression: buildEvents was called without the daemonId argument, so push
+    // tokens received during pairing were stored with daemonId="" — unroutable.
+    const relay = makeFakeRelayClient();
+    const manager = makeFakeRelayManager({ factory: () => relay });
+    const store = makeFakeStore();
+    const orch = makeOrchestrator(manager, store);
+
+    await orch.begin({
+      relayUrl: "wss://r",
+      daemonId: "daemon-push-test",
+      label: makeLabel("host"),
+    });
+
+    expect(manager.buildEvents).toHaveBeenCalledTimes(1);
+    const buildEventsArgs = (manager.buildEvents as ReturnType<typeof mock>)
+      .mock.calls[0] as [unknown, unknown, string];
+    // Third argument must be the resolved daemonId, NOT '' or undefined.
+    expect(buildEventsArgs[2]).toBe("daemon-push-test");
+  });
+
+  test("begin() passes auto-generated daemonId to buildEvents", async () => {
+    // When no explicit daemonId is supplied, begin() generates one — that
+    // auto-generated id must also be forwarded to buildEvents.
+    const relay = makeFakeRelayClient();
+    const manager = makeFakeRelayManager({ factory: () => relay });
+    const store = makeFakeStore();
+    const orch = makeOrchestrator(manager, store);
+
+    const info = await orch.begin({ relayUrl: "wss://r" });
+
+    expect(manager.buildEvents).toHaveBeenCalledTimes(1);
+    const buildEventsArgs = (manager.buildEvents as ReturnType<typeof mock>)
+      .mock.calls[0] as [unknown, unknown, string];
+    expect(buildEventsArgs[2]).toBe(info.daemonId);
+    expect(info.daemonId).toMatch(/^daemon-/);
+  });
+
   test("attachHandlers is called on the factory-produced client", async () => {
     const relay = makeFakeRelayClient();
     const manager = makeFakeRelayManager({ factory: () => relay });

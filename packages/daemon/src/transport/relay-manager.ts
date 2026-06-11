@@ -96,7 +96,7 @@ export class RelayConnectionManager {
   buildEvents(
     getClient: () => RelayClient | null,
     label?: Label,
-    daemonId?: string,
+    daemonId = "",
   ): RelayClientEvents {
     return {
       onInput: (kind, sid, data) => {
@@ -149,20 +149,18 @@ export class RelayConnectionManager {
         // relay.push.token). Store the plaintext token AS the "sealed" field —
         // the relay's unseal() classifies a non-"tpps1." blob as "legacy" and
         // uses it directly as the Expo push token.
-        const did = daemonId ?? "";
         this.deps.pushNotifier.registerSealedToken(
           frontendId,
-          did,
+          daemonId,
           token,
           platform,
         );
       },
       onPushTokenSealed: (frontendId, sealed, platform) => {
         // Path X primary path: relay has already sealed the token.
-        const did = daemonId ?? "";
         this.deps.pushNotifier.registerSealedToken(
           frontendId,
-          did,
+          daemonId,
           sealed,
           platform,
         );

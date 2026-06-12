@@ -59,6 +59,12 @@
     "typescript": "~6.0.3"
   },
   "expo": {
+    "autolinking": {
+      "comment": "iOS buildFromSource [.*] forces every Expo/RN pod to compile from source at the autolinking level (precompiled_modules.rb rejects prebuilt artifacts per pod). This is the enforcement layer that works even on EAS, where the builder image exports EXPO_USE_PRECOMPILED_MODULES=1 at INSTALL_PODS and bypasses the app.json usePrecompiledModules Podfile property (build #72 incident — prebuilt ExpoCamera ABI mismatch launch crash). See .claude/rules/native-build.md.",
+      "ios": {
+        "buildFromSource": [".*"]
+      }
+    },
     "install": {
       "comment": "Deliberate SDK-56 freeze: every package below is pinned to exactly what the installed expo@56.0.8 bundledNativeModules.json declares (e.g. @expo/metro-runtime ~56.0.13, expo-router ~56.2.8). expo-doctor's 'expected' values come from a newer npm patch (expo@56.0.9), NOT the installed SDK, so the flags are false positives. exclude is a doctor/`expo install`-only suppression \u2014 it does not touch the lockfile, npm/pnpm resolution, or EAS cloud builds (which run pnpm install --frozen-lockfile). Do NOT bump these to silence doctor: bumping ahead of the pinned expo@56.0.8 SDK is cloud-unsafe (see docs/local-verification-queue.md). Mirrors PR #452 (react/react-dom). react-native-quick-crypto, react-native-nitro-modules, react-native-quick-base64 excluded because they are not in the Expo SDK bundledNativeModules \u2014 their versions are driven by RNQC's own peer ranges (nitro-modules >=0.31.2, quick-base64 >=3.0.0), not expo.",
       "exclude": [

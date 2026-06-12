@@ -32,6 +32,9 @@
       "expo-constants": "~56.0.18",
       "react": "19.2.3",
       "react-dom": "19.2.3"
+    },
+    "patchedDependencies": {
+      "react-native-audio-api": "patches/react-native-audio-api.patch"
     }
   },
   "devDependencies": {

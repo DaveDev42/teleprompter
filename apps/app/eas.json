@@ -29,11 +29,17 @@
     "preview": {
       "distribution": "store",
       "channel": "preview",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_USE_PRECOMPILED_MODULES": "0"
+      }
     },
     "production": {
       "autoIncrement": true,
-      "channel": "production"
+      "channel": "production",
+      "env": {
+        "EXPO_USE_PRECOMPILED_MODULES": "0"
+      }
     }
   },
   "submit": {

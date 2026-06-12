@@ -60,7 +60,7 @@ RNWorklets 가 ReactCodegen 헤더 전파를 끊어 `'rnworklets/rnworklets.h' f
 
 ## Precompiled Expo modules 비활성 (2026-06-13, 영구)
 
-**`app.json` expo-build-properties 에 `ios.usePrecompiledModules: false` 고정** — 켜지 말 것.
+**iOS precompiled Expo modules 는 영구 비활성 — 아래 3중 레이어 중 어느 것도 제거하지 말 것.**
 TestFlight 0.1.19 (71) 이 실기기에서 즉시 런치 크래시: dyld `Symbol not found:
 ExpoModulesCore.Record.from(dictionary:appContext:)` — CDN prebuilt `ExpoCamera.xcframework` 가
 expo-modules-core ≥56.0.15 기준으로 빌드됐는데 우리 lockfile 은 56.0.14 (해당 심볼 없음, 56.0.15
@@ -70,10 +70,22 @@ expo-modules-core ≥56.0.15 기준으로 빌드됐는데 우리 lockfile 은 56
 근본 원인은 **CDN 아티팩트가 패키지 버전으로만 키잉되고 content-hash/lockfile 핀이 없다**는 것:
 Expo 가 같은 버전 번호의 아티팩트를 더 새로운 core 기준으로 재업로드할 수 있어, 우리 쪽 변경
 없이 빌드 결과가 달라진다. 이 클래스 사고 3번째 (reanimated fingerprint mismatch → rnworklets
-헤더 단절 → 이번 ABI 런치 크래시). `usePrecompiledModules: false` 는 expo-build-properties 가
-Podfile property `EXPO_USE_PRECOMPILED_MODULES: "false"` 를 쓰게 하고, 생성된 Podfile 이
-`!= 'false'` 일 때만 ENV 를 세팅하므로 `precompiled_modules.rb` 게이트가 닫혀 모든 Expo 모듈이
-소스 빌드된다 = **빌드가 lockfile 의 순수 함수가 된다.**
+헤더 단절 → 이번 ABI 런치 크래시). 목표 = 모든 Expo 모듈 소스 빌드 = **빌드가 lockfile 의 순수
+함수가 된다.**
+
+**비활성은 3중 레이어다 — app.json 노브만으로는 EAS 에서 안 꺼진다 (빌드 #72 사고):**
+1. `apps/app/package.json` `expo.autolinking.ios.buildFromSource: [".*"]` — **유일하게 EAS 에서
+   확실히 동작하는 강제선.** autolinking 레벨에서 pod 단위로 prebuilt 를 거부한다
+   (`precompiled_modules.rb` `build_from_source?` → `{ available: false }`). ENV 가 뭐든 무관.
+2. `apps/app/eas.json` preview/production `env.EXPO_USE_PRECOMPILED_MODULES: "0"` — EAS worker
+   가 user env 를 존중하면 다운로드 자체를 생략 (방어선, 공식 문서의 EAS opt-out 경로).
+3. `app.json` expo-build-properties `ios.usePrecompiledModules: false` — Podfile property
+   (`!= 'false'` 일 때만 ENV 세팅). **로컬 prebuild 에는 충분하지만 EAS 에서는 무력**: EAS 빌더
+   이미지가 `EAS_USE_PRECOMPILED_MODULES=1` 을 들고 INSTALL_PODS 단계에서 "Detected expo=...;
+   enabling precompiled modules use" 와 함께 `EXPO_USE_PRECOMPILED_MODULES=1` 을 진짜 프로세스
+   env 로 export 해 Podfile 의 `||=` 를 우회한다. 빌드 #72 (0.1.19/72) 가 이 경로로 노브를 무시하고
+   여전히 prebuilt ExpoCamera 를 링크해 동일 크래시 — `.ipa` 심볼 검사로 실증 (`nm -u` ExpoCamera
+   가 missing 심볼 참조, ExpoModulesCore 는 미export). **TestFlight 빌드 72 는 설치 금지 불량 빌드.**
 
 비용: 풀빌드 +1–3분 (실측 — 소스 시대 #35–53: 4.6–5.6분 vs prebuilt 시대 #54–71: 5.0–6.2분).
 RN core 는 별도 노브 `buildReactNativeFromSource` (기본 false) 라 계속 prebuilt — 영향 없음.

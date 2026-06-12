@@ -145,6 +145,7 @@ jobs:
             app:
               - 'apps/app/**'
               - 'packages/protocol/**'
+              - 'patches/**'
 
       - uses: ./.github/actions/setup
         if: steps.changes.outputs.app == 'true'

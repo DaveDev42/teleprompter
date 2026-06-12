@@ -48,6 +48,16 @@ paths:
 Expo Go 분기 (`Constants.appOwnership` / `executionEnvironment` 체크) 는 없다 — **새로 추가하지
 말 것.** `expo start` 는 expo-dev-client 감지로 dev-client 모드가 기본값이다.
 
+**react-native-audio-api 는 pnpm patch 적용 중** (`patches/react-native-audio-api.patch`):
+upstream PR software-mansion/react-native-audio-api#1102 (미머지) 의 verbatim 적용 —
+AudioAPIModule.mm 의 `<worklets/apple/WorkletsModule.h>` import 를 forward-declaration 으로
+대체 + podspec HEADER_SEARCH_PATHS 에 ReactCodegen 경로 추가. EAS 빌더에서 prebuilt
+RNWorklets 가 ReactCodegen 헤더 전파를 끊어 `'rnworklets/rnworklets.h' file not found` 가
+나는 문제의 fix. **upstream 이 #1102 (또는 동등 fix) 를 릴리즈하면 버전 bump 와 함께 patch
+를 제거할 것.** 절대 Podfile post_install 에서 `config.build_settings["HEADER_SEARCH_PATHS"]`
+에 문자열을 쓰지 말 것 — Xcodeproj array-normalize + ExpoModulesCore 후행 hook 의 `Array.to_s`
+가 `$(inherited)` 를 literal string 에 파묻어 모든 헤더 경로를 차단한다 (#630/#632 사고, #633 revert).
+
 네이티브 모듈 추가 제약 해제됨 — JSI/커스텀 네이티브 모듈 자유롭게 도입 가능. 단 네이티브
 변경은 fingerprint runtimeVersion 을 바꿔 OTA 대신 풀빌드를 유발한다 (`.claude/rules/release-deploy.md`):
 - ✓ libsodium-wrappers (WASM on Web/Bun, asm.js fallback on Hermes)

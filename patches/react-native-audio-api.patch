@@ -1,0 +1,45 @@
+diff --git a/RNAudioAPI.podspec b/RNAudioAPI.podspec
+index 0cb4d08c2805a8b3f6596efee4547a1cb6477359..509c2a3784fbd7beaa3de80e09a8d9d8a5c94da6 100644
+--- a/RNAudioAPI.podspec
++++ b/RNAudioAPI.podspec
+@@ -98,7 +98,11 @@ Pod::Spec.new do |s|
+       "\"$(PODS_TARGET_SRCROOT)/#{external_dir_relative}/include/vorbis\"",
+     ]
+     .concat($RN_AUDIO_API_FFMPEG_DISABLED ? [] : ["\"$(PODS_TARGET_SRCROOT)/#{external_dir_relative}/include_ffmpeg\""])
+-    .concat(worklets_enabled ? ['"$(PODS_ROOT)/Headers/Public/RNWorklets"'] : [])
++    .concat(worklets_enabled ? [
++      '"$(PODS_ROOT)/Headers/Public/RNWorklets"',
++      '"$(PODS_ROOT)/Headers/Private/ReactCodegen"',
++      '"$(PODS_ROOT)/../build/generated/ios/ReactCodegen"',
++    ] : [])
+     .join(' '),
+     "CLANG_CXX_LANGUAGE_STANDARD" => "c++20",
+     "GCC_PREPROCESSOR_DEFINITIONS" => '$(inherited) HAVE_ACCELERATE=1',
+@@ -119,6 +123,8 @@ Pod::Spec.new do |s|
+     ]
+     .concat(worklets_enabled ? [
+       '"$(PODS_ROOT)/Headers/Public/RNWorklets"',
++      '"$(PODS_ROOT)/Headers/Private/ReactCodegen"',
++      '"$(PODS_ROOT)/../build/generated/ios/ReactCodegen"',
+       "\"$(PODS_ROOT)/#{$audio_api_config[:dynamic_frameworks_worklets_dir]}/apple\"",
+       "\"$(PODS_ROOT)/#{$audio_api_config[:dynamic_frameworks_worklets_dir]}/Common/cpp\""
+     ] : [])
+diff --git a/ios/audioapi/ios/AudioAPIModule.mm b/ios/audioapi/ios/AudioAPIModule.mm
+index c09633854a5822d71229de53681135696e1bcd10..0d01c4e85ac20233646aa5a38239658a0af2475a 100644
+--- a/ios/audioapi/ios/AudioAPIModule.mm
++++ b/ios/audioapi/ios/AudioAPIModule.mm
+@@ -3,7 +3,13 @@
+ 
+ #import <audioapi/core/utils/worklets/SafeIncludes.h>
+ #if RN_AUDIO_API_ENABLE_WORKLETS
+-#import <worklets/apple/WorkletsModule.h>
++// Forward-declare the single method used from WorkletsModule instead of importing
++// <worklets/apple/WorkletsModule.h>, which transitively includes the codegen-generated
++// <rnworklets/rnworklets.h> that is not visible to this compile unit in all build setups
++// (e.g. prebuilt RNWorklets in EAS builds).
++@interface WorkletsModule : NSObject
++- (std::shared_ptr<worklets::WorkletsModuleProxy>)getWorkletsModuleProxy;
++@end
+ #endif
+ #ifdef RCT_NEW_ARCH_ENABLED
+ #import <React/RCTCallInvoker.h>

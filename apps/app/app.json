@@ -93,8 +93,7 @@
             "backgroundColor": "#09090B"
           }
         }
-      ],
-      "./plugins/withAudioApiWorkletsHeaders"
+      ]
     ],
     "extra": {
       "router": {},

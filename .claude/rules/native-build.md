@@ -58,6 +58,28 @@ RNWorklets 가 ReactCodegen 헤더 전파를 끊어 `'rnworklets/rnworklets.h' f
 에 문자열을 쓰지 말 것 — Xcodeproj array-normalize + ExpoModulesCore 후행 hook 의 `Array.to_s`
 가 `$(inherited)` 를 literal string 에 파묻어 모든 헤더 경로를 차단한다 (#630/#632 사고, #633 revert).
 
+## Precompiled Expo modules 비활성 (2026-06-13, 영구)
+
+**`app.json` expo-build-properties 에 `ios.usePrecompiledModules: false` 고정** — 켜지 말 것.
+TestFlight 0.1.19 (71) 이 실기기에서 즉시 런치 크래시: dyld `Symbol not found:
+ExpoModulesCore.Record.from(dictionary:appContext:)` — CDN prebuilt `ExpoCamera.xcframework` 가
+expo-modules-core ≥56.0.15 기준으로 빌드됐는데 우리 lockfile 은 56.0.14 (해당 심볼 없음, 56.0.15
+에서 추가). 앱이 JS 실행 전에 죽는 최악의 실패 모드 — 빌드는 성공하고 TestFlight 자동 제출까지
+통과한 뒤 기기에서만 터진다.
+
+근본 원인은 **CDN 아티팩트가 패키지 버전으로만 키잉되고 content-hash/lockfile 핀이 없다**는 것:
+Expo 가 같은 버전 번호의 아티팩트를 더 새로운 core 기준으로 재업로드할 수 있어, 우리 쪽 변경
+없이 빌드 결과가 달라진다. 이 클래스 사고 3번째 (reanimated fingerprint mismatch → rnworklets
+헤더 단절 → 이번 ABI 런치 크래시). `usePrecompiledModules: false` 는 expo-build-properties 가
+Podfile property `EXPO_USE_PRECOMPILED_MODULES: "false"` 를 쓰게 하고, 생성된 Podfile 이
+`!= 'false'` 일 때만 ENV 를 세팅하므로 `precompiled_modules.rb` 게이트가 닫혀 모든 Expo 모듈이
+소스 빌드된다 = **빌드가 lockfile 의 순수 함수가 된다.**
+
+비용: 풀빌드 +1–3분 (실측 — 소스 시대 #35–53: 4.6–5.6분 vs prebuilt 시대 #54–71: 5.0–6.2분).
+RN core 는 별도 노브 `buildReactNativeFromSource` (기본 false) 라 계속 prebuilt — 영향 없음.
+런타임 성능 차이 없음 (동일 코드의 컴파일 위치 차이일 뿐). 재활성화는 Expo 가 lockfile-pinned
+(content-addressed) 아티팩트를 제공할 때만 검토.
+
 네이티브 모듈 추가 제약 해제됨 — JSI/커스텀 네이티브 모듈 자유롭게 도입 가능. 단 네이티브
 변경은 fingerprint runtimeVersion 을 바꿔 OTA 대신 풀빌드를 유발한다 (`.claude/rules/release-deploy.md`):
 - ✓ libsodium-wrappers (WASM on Web/Bun, asm.js fallback on Hermes)

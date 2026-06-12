@@ -59,7 +59,8 @@
         {
           "ios": {
             "deploymentTarget": "16.4",
-            "newArchEnabled": true
+            "newArchEnabled": true,
+            "usePrecompiledModules": false
           },
           "android": {
             "minSdkVersion": 24,

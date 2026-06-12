@@ -656,12 +656,19 @@ URL) 을 쓰고, write 브릿지가 base64 bytes 로 바뀌어 **바이너리 PT
   ANSI 출력 무손실 (바이너리 write 경로), (c) 리플레이 정상, (d) `[GhosttyNative] webview
   error` / `failed to load bundled ghostty-web` 콘솔 에러 0건.
 - **result**: **PARTIAL PASS 2026-06-12 (Simulator/Hermes dev — iPhone 17 Pro, Expo Go +
-  Metro dev bundle, CDP + maestro 구동).** 항목별:
-  - (b) **한글/이모지/ANSI write 라운드트립 PASS** — `q13-ghostty-verify` 세션에 base64 `in.term`
-    으로 `다음 텍스트를 정확히 그대로 출력해줘 (코드블록 없이): Q13-PATTERN 한글출력 안녕하세요
-    🚀👋🎉 box ┌─┬─┐ end` 를 전송 → ghostty-web 가 입력 에코 + claude `⏺` 응답을 한글/이모지/
-    box-drawing 무손실로 렌더 (PTY 로그 `⏺ Q13-PATTERN 한글출력 안녕하세요 🚀👋🎉 box ┌─┬─┐ end`
-    바이트 확인 + 스크린샷). 바이너리 write 브릿지(base64 bytes) 경로가 실제 WKWebView 안에서 동작.
+  Metro dev bundle, CDP + maestro 구동; (b) write 라운드트립은 실기기에서도 추가 검증).** 항목별:
+  - (b) **한글/이모지/ANSI write 라운드트립 PASS (Simulator + 실기기 둘 다)** — Simulator: `q13-ghostty-verify`
+    세션에 base64 `in.term` 으로 `다음 텍스트를 정확히 그대로 출력해줘 (코드블록 없이): Q13-PATTERN
+    한글출력 안녕하세요 🚀👋🎉 box ┌─┬─┐ end` 를 전송 → ghostty-web 가 입력 에코 + claude `⏺` 응답을
+    한글/이모지/box-drawing 무손실로 렌더 (PTY 로그 `⏺ Q13-PATTERN 한글출력 안녕하세요 🚀👋🎉 box ┌─┬─┐
+    end` 바이트 확인 + 스크린샷). 바이너리 write 브릿지(base64 bytes) 경로가 실제 WKWebView 안에서 동작.
+    **실기기 추가 검증 (Dave iPhone, `dev.tpmt.app` dev-client)**: 동일 패턴 `Q13-PATTERN 한글출력
+    안녕하세요 🚀👋🎉 box ┌─┬─┐ end` 를 Terminal 탭에서 **수동 입력** → daemon PTY 로그(`tp logs
+    q13-ghostty-verify`)가 입력 에코(`Q13-PATTERN 한글출력 안녕하세요` / `🚀👋🎉 box ┌─┬─┐ end`) +
+    claude `⏺ Q13-PATTERN 한글출력 안녕하세요` 응답을 무손실 캡처. 이 라운드트립은 **relay 연결만**
+    경유(Metro/CDP 독립) — 폰 키 입력 → relay E2EE → daemon 복호화 → PTY write → claude → PTY out →
+    outbound frame 전 구간이 실기기에서 증명됨. PTY hit 지점이 복호화 직후·outbound 직전이라 relay
+    E2EE 복호화 성공의 결정적 신호.
   - (c) **리플레이 PASS** — Chat↔Terminal 탭 플립으로 GhosttyNative WebView 를 언마운트→리마운트
     했을 때 전체 스크롤백(한글/이모지/box 포함)이 손상 없이 재렌더 (`q13-replay-term2.png`).
   - (d) **콘솔 클린 PASS** — `[GhosttyNative] webview error` / `failed to load bundled ghostty-web`

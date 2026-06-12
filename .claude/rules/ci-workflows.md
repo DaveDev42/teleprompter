@@ -10,7 +10,7 @@ paths:
 ## GitHub Actions
 - CI: Node 22 + Bun 1.3.13 + pnpm, 5개 독립 병렬 job (`lint`, `type-check`, `test`, `build-cli`, `e2e`) + 1 gate (`eas-gate`)
 - 캐시: Playwright browsers (`playwright-{os}-`), Expo web build (`expo-web-{os}-`)
-- EAS 게이트: 5개 병렬 job 전부 pass + `dorny/paths-filter`로 app/protocol 변경 감지 → `expo-doctor` → `eas-cli workflow:run .eas/workflows/preview.yaml` (비동기 — fingerprint 기반 빌드/OTA 분기는 preview.yaml 내부에서 처리)
+- EAS 게이트: 5개 병렬 job 전부 pass + `dorny/paths-filter`로 app/protocol/patches 변경 감지 (`apps/app/**`, `packages/protocol/**`, `patches/**` — pnpm patch 는 apps/app 밖에 살지만 네이티브 빌드를 바꾼다, #634 에서 gate 미발화 실측) → `expo-doctor` → `eas-cli workflow:run .eas/workflows/preview.yaml` (비동기 — fingerprint 기반 빌드/OTA 분기는 preview.yaml 내부에서 처리)
 - Secrets: `RELAY_HOST`, `RELAY_USER`, `RELAY_SSH_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `EXPO_TOKEN` (EAS gate)
 
 ## EAS Workflows

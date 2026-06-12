@@ -62,7 +62,9 @@
     "autolinking": {
       "comment": "iOS buildFromSource [.*] forces every Expo/RN pod to compile from source at the autolinking level (precompiled_modules.rb rejects prebuilt artifacts per pod). This is the enforcement layer that works even on EAS, where the builder image exports EXPO_USE_PRECOMPILED_MODULES=1 at INSTALL_PODS and bypasses the app.json usePrecompiledModules Podfile property (build #72 incident — prebuilt ExpoCamera ABI mismatch launch crash). See .claude/rules/native-build.md.",
       "ios": {
-        "buildFromSource": [".*"]
+        "buildFromSource": [
+          ".*"
+        ]
       }
     },
     "install": {

@@ -52,8 +52,55 @@ const RECONNECT_MAX_MS = 30000;
 const MAX_RECONNECT_ATTEMPT = Math.ceil(
   Math.log2(RECONNECT_MAX_MS / RECONNECT_BASE_MS),
 );
+/**
+ * After this many consecutive reconnects without any frontend peer ever
+ * joining, the pairing is treated as "dead" (a closed browser tab, an old
+ * app instance, an unscanned QR) and its reconnect cadence is throttled to
+ * {@link PEERLESS_RECONNECT_MS} so a pile of dead pairings cannot drown the
+ * relay in a reconnect storm. A real frontend joining (key exchange in
+ * `handleKxFrame`) resets the counter to 0, restoring fast reconnect — so a
+ * phone that was merely asleep for days reconnects at full speed the moment
+ * it comes back. The threshold is small but non-zero so a single transient
+ * network blip on a live-but-momentarily-idle pairing does not get throttled.
+ */
+const PEERLESS_RECONNECT_THRESHOLD = 3;
+/**
+ * Throttled reconnect interval (30 min) applied once a pairing crosses
+ * {@link PEERLESS_RECONNECT_THRESHOLD}. At 10 dead pairings this caps the
+ * total reconnect rate at ~20/hour instead of the thousands/hour an
+ * un-throttled 30 s cadence produced (observed: 3113 re-auths over 41 h
+ * from 9 mostly-dead pairings).
+ */
+const PEERLESS_RECONNECT_MS = 30 * 60_000;
 /** How often to send relay.ping (ms) */
 const PING_INTERVAL_MS = 30_000;
+
+/**
+ * Pure reconnect-delay policy, extracted so the dead-pairing throttle can be
+ * unit-tested without standing up a relay or faking WebSocket internals.
+ *
+ * - `peerlessReconnects >= PEERLESS_RECONNECT_THRESHOLD` → the pairing has
+ *   reconnected this many times with no frontend ever joining: it is treated
+ *   as dead and throttled to {@link PEERLESS_RECONNECT_MS} (30 min), so a pile
+ *   of dead pairings cannot storm the relay.
+ * - Otherwise → standard exponential backoff
+ *   `RECONNECT_BASE_MS * 2^attempt`, capped at `RECONNECT_MAX_MS`.
+ *
+ * Returns both the delay and the next `attempt` value (clamped). The throttled
+ * branch leaves `attempt` unchanged so a recovered pairing resumes fast
+ * backoff from where it left off.
+ */
+export function computeReconnectPlan(
+  attempt: number,
+  peerlessReconnects: number,
+): { delay: number; nextAttempt: number } {
+  if (peerlessReconnects >= PEERLESS_RECONNECT_THRESHOLD) {
+    return { delay: PEERLESS_RECONNECT_MS, nextAttempt: attempt };
+  }
+  const delay = Math.min(RECONNECT_BASE_MS * 2 ** attempt, RECONNECT_MAX_MS);
+  const nextAttempt = Math.min(attempt + 1, MAX_RECONNECT_ATTEMPT);
+  return { delay, nextAttempt };
+}
 
 interface FrontendPeer {
   frontendId: string;
@@ -129,6 +176,15 @@ export class RelayClient {
   /** Symmetric key for key-exchange envelopes (from pairing secret) */
   private kxKey: Uint8Array | null = null;
   private reconnectAttempt = 0;
+  /**
+   * Consecutive reconnects in which no frontend peer ever joined. Incremented
+   * in `scheduleReconnect`, reset to 0 in `handleKxFrame` when a real frontend
+   * completes key exchange. Drives the dead-pairing throttle (see
+   * {@link PEERLESS_RECONNECT_THRESHOLD}). Unlike `reconnectAttempt` this is
+   * NOT reset on `ws.onopen` — a dead pairing's socket opens fine; what makes
+   * it dead is that no peer ever follows.
+   */
+  private peerlessReconnects = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private disposed = false;
@@ -420,6 +476,10 @@ export class RelayClient {
         sessionKeys,
         protocolVersion,
       });
+
+      // A real frontend just joined: this pairing is alive. Clear the
+      // dead-pairing throttle so any future reconnect happens at full speed.
+      this.peerlessReconnects = 0;
 
       log.info(`key exchange completed with frontend ${data.frontendId}`);
       this.events.onFrontendJoined?.(data.frontendId);
@@ -743,16 +803,21 @@ export class RelayClient {
 
   private scheduleReconnect(): void {
     if (this.disposed) return;
-    const delay = Math.min(
-      RECONNECT_BASE_MS * 2 ** this.reconnectAttempt,
-      RECONNECT_MAX_MS,
+
+    // A reconnect with no peer attached counts toward the dead-pairing
+    // throttle. `peers` is cleared on every `cleanup()`/`connect()`, so a
+    // genuinely-dead pairing (socket opens, but no frontend ever completes
+    // kx) accumulates these; a live pairing resets the counter in
+    // `handleKxFrame` the moment its frontend rejoins.
+    if (this.peers.size === 0) {
+      this.peerlessReconnects += 1;
+    }
+
+    const { delay, nextAttempt } = computeReconnectPlan(
+      this.reconnectAttempt,
+      this.peerlessReconnects,
     );
-    // Cap at MAX_RECONNECT_ATTEMPT so the exponent never grows past the point
-    // where delay already equals RECONNECT_MAX_MS (avoids 2**1024 = Infinity).
-    this.reconnectAttempt = Math.min(
-      this.reconnectAttempt + 1,
-      MAX_RECONNECT_ATTEMPT,
-    );
+    this.reconnectAttempt = nextAttempt;
     this.reconnectTimer = setTimeout(() => this.connect(), delay);
   }
 

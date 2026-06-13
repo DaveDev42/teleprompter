@@ -675,9 +675,14 @@ URL) 을 쓰고, write 브릿지가 base64 bytes 로 바뀌어 **바이너리 PT
     / crypto·sodium·AEAD 에러 **0건**. boot marker `[tp-app boot] engine=hermes dev=true` 정상.
     잔여 콘솔 ERROR 는 (i) Sessions 리스트 중복 React key (`.$session-…` — 재페어링 후 stale 캐시,
     Q13 무관 별도 버그) (ii) restart 세션의 `bun` PATH 미스 hook 에러 (non-blocking, 렌더 무관) 뿐.
-  - (a) **오프라인(비행기 모드) 임베디드 번들 렌더는 미검증** — 시뮬레이터는 Metro dev 번들을
-    서빙하므로 esm.sh fetch 제거 → 로컬 에셋 동작의 "오프라인 증명"은 TestFlight/임베디드 빌드
-    실기기에서만 성립. 이 한 항목만 실기기로 승계 (Dave 폰 연결 중, 동일 CDP 기법 적용 가능).
+  - (a) **오프라인(비행기 모드) 임베디드 번들 렌더 PASS 2026-06-13 (TestFlight 빌드 73 / 0.1.19,
+    Dave iPhone 15 Pro, fresh install).** 온라인 정상 부팅(baseline) → 비행기 모드(Wi-Fi/셀룰러
+    차단) → 앱 강제 종료 후 재실행 → Terminal 탭 진입 → 터미널 UI 렌더 확인. 임베디드 FILE 번들이
+    esm.sh 런타임 fetch 없이 로컬 에셋(`assets/ghostty-web.umd.txt` + data-URL WASM)으로 부팅,
+    오프라인에서도 WASM init 성공. (구버전은 esm.sh fetch 실패로 사망 → 회귀 확인됨.) 이로써 Q13
+    전 항목 (a)(b)(c)(d) 모두 실기기 검증 완료. 참고: 이 빌드 73 은 precompiled Expo modules 영구
+    비활성(buildFromSource) 적용 후 첫 정상 부팅 빌드 — 빌드 72(prebuilt ExpoCamera ABI mismatch
+    런치 크래시)는 폐기, `.claude/rules/native-build.md` 참조.
   - 비고: Mac 잠금화면으로 GUI 클릭이 막혀 전 과정을 **CDP**(Hermes JS 컨텍스트: expo-router push,
     Zustand introspection, transport `sendTermInput`/`session.restart`, React fiber 탭 플립)로
     구동, SpringBoard `tp://` openurl 잔류 다이얼로그만 maestro `tapOn 취소` 로 정리.

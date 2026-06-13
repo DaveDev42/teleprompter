@@ -19,7 +19,7 @@ import {
   toBase64,
 } from "@teleprompter/protocol";
 import { RelayServer } from "../../../relay/src/relay-server";
-import { RelayClient } from "./relay-client";
+import { computeReconnectPlan, RelayClient } from "./relay-client";
 
 // Bound the WebSocket open handshake so a frontend socket that never opens
 // (e.g. a relay frame delayed or dropped under a constrained CI runner) fails
@@ -1020,5 +1020,65 @@ describe("RelayClient.sendPush — wire field selection (back-compat)", () => {
     expect(msg.t).toBe("relay.push");
     expect(msg.token).toBe("ExponentPushToken[legacy]");
     expect(msg.sealed).toBeUndefined();
+  });
+});
+
+describe("computeReconnectPlan (dead-pairing throttle)", () => {
+  // Constants mirrored from relay-client.ts. The throttle exists so a pile of
+  // dead pairings (closed tabs, unscanned QRs) cannot storm the relay with
+  // reconnects — observed: 9 mostly-dead pairings produced 3113 re-auths over
+  // 41h, drowning the one live pairing so its frontend never got a backfill.
+  const RECONNECT_BASE_MS = 1000;
+  const RECONNECT_MAX_MS = 30_000;
+  const PEERLESS_RECONNECT_MS = 30 * 60_000;
+  const THRESHOLD = 3;
+
+  test("below threshold: exponential backoff, attempt increments", () => {
+    // A live (or merely briefly-flapping) pairing keeps peerlessReconnects=0
+    // and rides standard backoff: 1s, 2s, 4s, ... capped at 30s.
+    expect(computeReconnectPlan(0, 0)).toEqual({
+      delay: RECONNECT_BASE_MS,
+      nextAttempt: 1,
+    });
+    expect(computeReconnectPlan(1, 0)).toEqual({ delay: 2000, nextAttempt: 2 });
+    expect(computeReconnectPlan(2, 0)).toEqual({ delay: 4000, nextAttempt: 3 });
+  });
+
+  test("below threshold: backoff is capped at RECONNECT_MAX_MS", () => {
+    const plan = computeReconnectPlan(20, 0);
+    expect(plan.delay).toBe(RECONNECT_MAX_MS);
+    // attempt is clamped so 2**attempt never overflows to Infinity.
+    expect(plan.nextAttempt).toBeLessThanOrEqual(20);
+  });
+
+  test("a peerless pairing under the threshold still uses fast backoff", () => {
+    // 1 or 2 peerless reconnects is within the tolerance for a transient blip
+    // on an otherwise-live pairing — do NOT throttle yet.
+    expect(computeReconnectPlan(0, THRESHOLD - 1).delay).toBe(
+      RECONNECT_BASE_MS,
+    );
+  });
+
+  test("at/above threshold: throttled to 30 min, attempt frozen", () => {
+    // Dead pairing: socket opens fine but no frontend ever joins. After
+    // THRESHOLD peerless reconnects we throttle hard. attempt is left
+    // unchanged so a recovered pairing resumes fast backoff where it left off.
+    const atThreshold = computeReconnectPlan(2, THRESHOLD);
+    expect(atThreshold.delay).toBe(PEERLESS_RECONNECT_MS);
+    expect(atThreshold.nextAttempt).toBe(2);
+
+    const wellAbove = computeReconnectPlan(5, 100);
+    expect(wellAbove.delay).toBe(PEERLESS_RECONNECT_MS);
+    expect(wellAbove.nextAttempt).toBe(5);
+  });
+
+  test("10 dead pairings stay under ~20 reconnects/hour combined", () => {
+    // The user's requirement: 5–10 pairings (some possibly dead) must stay
+    // smooth. With each dead pairing throttled to one reconnect per 30 min,
+    // 10 dead pairings produce at most 2/hr each = 20/hr total — a far cry
+    // from the thousands/hour an un-throttled 30s cadence produced.
+    const deadPairings = 10;
+    const reconnectsPerHourEach = 60 / (PEERLESS_RECONNECT_MS / 60_000);
+    expect(deadPairings * reconnectsPerHourEach).toBeLessThanOrEqual(20);
   });
 });

@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ConfirmDeleteSessionsModal } from "../../src/components/ConfirmDeleteSessionsModal";
+import { NewSessionModal } from "../../src/components/NewSessionModal";
 import { refreshSessionList } from "../../src/hooks/use-relay";
 import { ariaLevel, getPlatformProps } from "../../src/lib/get-platform-props";
 import { formatCwd, timeAgo } from "../../src/lib/session-ux";
@@ -296,6 +297,7 @@ export default function SessionsScreen() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedSids, setSelectedSids] = useState<Set<string>>(new Set());
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showNewSessionModal, setShowNewSessionModal] = useState(false);
 
   // Live region announcement text (mount-only pattern for NVDA/JAWS:
   // the wrapper exists at all times; only the text content changes so
@@ -537,6 +539,17 @@ export default function SessionsScreen() {
             </Text>
 
             <View className="flex-row items-center gap-4">
+              <Pressable
+                onPress={() => setShowNewSessionModal(true)}
+                accessibilityRole="button"
+                accessibilityLabel="New session"
+                tabIndex={pp.tabIndex}
+                className={pp.className}
+                testID="sessions-new-button"
+              >
+                <Text className="text-tp-accent text-xl">+</Text>
+              </Pressable>
+
               <Pressable
                 onPress={handleRefresh}
                 accessibilityRole="button"
@@ -820,6 +833,12 @@ export default function SessionsScreen() {
         sessions={selectedForDelete}
         onCancel={() => setShowConfirmModal(false)}
         onConfirm={handleConfirmDelete}
+      />
+
+      {/* New session modal */}
+      <NewSessionModal
+        visible={showNewSessionModal}
+        onClose={() => setShowNewSessionModal(false)}
       />
     </View>
   );

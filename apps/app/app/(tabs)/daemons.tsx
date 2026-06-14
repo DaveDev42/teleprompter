@@ -6,20 +6,12 @@ import { ConfirmUnpairModal } from "../../src/components/ConfirmUnpairModal";
 import { RenamePairingModal } from "../../src/components/RenamePairingModal";
 import { useRelayConnectionStore } from "../../src/hooks/use-relay";
 import { ariaLevel, getPlatformProps } from "../../src/lib/get-platform-props";
+import { labelValueOf } from "../../src/lib/pairing-label";
 import { timeAgo } from "../../src/lib/session-ux";
 import { useNotificationStore } from "../../src/stores/notification-store";
 import type { PairingInfo } from "../../src/stores/pairing-store";
 import { usePairingStore } from "../../src/stores/pairing-store";
 import { useSessionStore } from "../../src/stores/session-store";
-
-/**
- * The label string to show for a pairing, or `undefined` when it has none.
- * `info.label.value` is already trimmed by `makeLabel`, so callers fall back to
- * the daemon-id prefix on `undefined`.
- */
-function labelValueOf(info: PairingInfo): string | undefined {
-  return info.label.set ? info.label.value : undefined;
-}
 
 function DaemonCard({
   info,

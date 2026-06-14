@@ -183,6 +183,7 @@ export default defineConfig({
         "app-sessions-refresh.spec.ts",
         "app-session-row-cwd-display.spec.ts",
         "app-session-row-edit-time-accessible-name.spec.ts",
+        "app-new-session.spec.ts",
       ],
     },
     {

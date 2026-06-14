@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Teleprompter is a remote Claude Code session controller. An Expo frontend (React Native + RN Web) connects to a Bun-based Daemon via encrypted relay to control Claude Code sessions with a dual Chat/Terminal UI.
 
+> **방향 전환 진행 중 (2026-06, ADR-0001).** 전면 재작성이 아니라 두 독립 트랙 — **Track A**(앱: Expo/RN 셸 유지 + 터미널만 네이티브 Expo Module, `docs/native-terminal-plan.md`), **Track B**(백엔드: Rust 코어 `tp-core` + UniFFI 순수함수 노출, 단계적). SoT = `docs/adr/0001-rust-backend-incremental-native-app.md`. 진행 추적 = GitHub Project #1 + `TODO.md` 피벗 섹션. 아래 Tech Stack/Architecture invariant 는 현행 구현 기준이며 wire(framed JSON)·relay ciphertext-only·daemon=relay 유일 클라이언트 불변식은 피벗 후에도 보존된다.
+
 ## Tech Stack
 
 - **Language**: TypeScript (single stack across all components)

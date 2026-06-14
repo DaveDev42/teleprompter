@@ -6,6 +6,12 @@ Teleprompter PRD
 
 Teleprompter는 Expo(React Native + RN Web) Frontend에서 원격의 Daemon(macOS/Linux; Windows는 WSL 안에서 Linux 빌드)을 통해 Claude Code Session을 제어하는 제품이다. 핵심은 hooks + PTY 하이브리드 Chat UI, PTY terminal streaming, git worktree 직접 관리, QR 기반 E2EE 페어링, ciphertext-only relay, 그리고 음성 친화 Chat UI다.
 
+> **방향 전환 진행 중 (2026-06, ADR-0001).** Apple 생태계 집중(watchOS/iOS/iPadOS/macOS) + 백엔드 성능을
+> 위해 점진 피봇 중이다. **전면 재작성이 아니라** 두 독립 트랙으로 진행: (A) 앱은 RN 셸 유지 + 터미널만
+> 네이티브 Expo Module 로 교체 (SwiftTerm→libghostty), (B) 백엔드는 Rust 코어(`tp-core`) + UniFFI 로
+> 단계 전환 (relay→daemon, transport WS→QUIC 평가). CLI 는 TypeScript 유지, Web/Android 우선순위 강등.
+> 결정 근거: `docs/adr/0001-rust-backend-incremental-native-app.md`. 터미널 사다리: `docs/native-terminal-plan.md`.
+
 1.2 문제 정의
 
 기존 원격 Claude Code 사용 방식은 다음 문제가 있다.

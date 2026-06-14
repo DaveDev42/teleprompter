@@ -17,6 +17,34 @@
                      per-frontend sessionKeys via frontendId.     여러 Daemon에 동시 연결.
 ```
 
+> **위 다이어그램은 현재(2026-06) 구현 상태다.** 진행 중인 피봇의 목표 아키텍처는 §1-bis 참조.
+
+## 1-bis. 목표 아키텍처 (피봇 — ADR-0001)
+
+> 결정 SoT: `docs/adr/0001-rust-backend-incremental-native-app.md`. 터미널 실행 SoT:
+> `docs/native-terminal-plan.md`. **전면 Swift/Rust 재작성이 아니라 두 개의 독립 트랙으로 점진 전환.**
+
+**트랙 A — 앱 (RN 셸 유지, 터미널만 네이티브화):**
+- Expo/RN 셸 유지. 터미널을 네이티브 Expo Module `TPTerminalView` 로 교체 (SwiftTerm now → libghostty 후 스왑).
+- Chat/Sessions/Pairing 은 RN 유지 → OTA 보존. Web/Android 우선순위 강등 (코드는 kill-switch 보존).
+- watchOS 는 별도 Swift WatchKit 앱 (Phase 1 후, Expo 미지원). 페어링은 `WatchConnectivity` 로 iPhone 에서 시크릿 전달.
+
+**트랙 B — 백엔드 (Rust 코어 + UniFFI, 단계적):**
+```
+tp-core (Rust crate) ── framed codec · crypto(XChaCha/BLAKE2b KDF) · pairing · Envelope
+  │  (transport·언어 무관 seam)
+  ├─ UniFFI(순수 함수만) ─→ Swift (앱 네이티브 모듈 / watchOS)
+  ├─ daemon (Rust, tokio)
+  ├─ relay  (Rust, tokio)   ← Phase 2: transport WS→QUIC/HTTP3 (quinn/tokio-quiche) 전환 평가
+  ├─ runner (Rust, portable-pty)
+  └─ cli    → TypeScript 유지 (Ink TUI, bun --compile 단일 바이너리; daemon Store 직접 import 를 IPC 로 끊는 선행 작업 후 재평가)
+```
+- UniFFI 경계 = **순수 함수만** (encrypt/decrypt/encode/decode/pairing). 소켓 I/O·상태머신·스트림은 호스트 네이티브 (UniFFI async cancellation 미지원 회피).
+- 단계: **Phase 0 crypto/UniFFI 스파이크 (Go/No-Go)** → relay (+ QUIC 평가) → daemon/runner.
+- crypto byte-exactness 위험 소멸: Rust 코어 1개를 Swift 가 UniFFI 로 링크 (각각 구현 안 함).
+
+**불변(피봇 후에도 유지):** wire = framed JSON (transport 무관), relay = ciphertext-only zero-trust, daemon = relay 의 유일 클라이언트, E2EE = payload 안 (transport 아래 아님).
+
 ## 2. 모노레포 구조
 
 ```

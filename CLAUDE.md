@@ -4,33 +4,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Teleprompter is a remote Claude Code session controller. An Expo frontend (React Native + RN Web) connects to a Bun-based Daemon via encrypted relay to control Claude Code sessions with a dual Chat/Terminal UI.
+Teleprompter is a remote Claude Code session controller. A native **Swift (SwiftUI)** iOS app connects to a Bun-based Daemon via encrypted relay to control Claude Code sessions with a dual Chat/Terminal UI.
+
+> **전면 네이티브 재작성 진행 중 (2026-06, ADR-0001).** Expo/RN/RN Web 프런트엔드 + EAS 클라우드 빌드를 **전면 제거**하고, 앱은 Swift(SwiftUI) 네이티브로, 공유 코어는 Rust(`tp-core`, UniFFI 순수함수)로 재작성한다. 빌드/검증은 **로컬 iOS Simulator 하니스**(`ios/scripts/ios.sh` + XcodeGen `ios/project.yml`)가 담당한다 (EAS 클라우드 빌드 대체). SoT = `docs/adr/0001-full-native-rewrite-swift-rust.md`. 백엔드(daemon/relay/runner)와 CLI 는 **현행 Bun/TypeScript 구현을 레퍼런스로 유지** (Rust 이관은 후순위 Phase). 아래 wire(framed JSON)·relay ciphertext-only·daemon=relay 유일 클라이언트 불변식은 재작성 후에도 보존된다.
 
 ## Tech Stack
 
-- **Language**: TypeScript (single stack across all components)
-- **Runtime**: Bun v1.3.13+ (Runner, Daemon, Relay), Expo (Frontend)
-- **Monorepo**: Turborepo + pnpm
-- **Frontend**: Expo (React Native + RN Web), Zustand, NativeWind (Tailwind), ghostty-web (terminal)
-- **Encryption**: X25519 + XChaCha20-Poly1305 via CryptoProvider seam — libsodium (Bun/Web), react-native-quick-crypto (app native/Hermes)
+- **App (iOS)**: Swift + SwiftUI. iOS Simulator 우선. 빌드/검증 = 로컬 하니스 (`xcodebuild` + `xcrun simctl`, `ios/scripts/ios.sh`). EAS 미사용.
+- **Shared core**: Rust (`tp-core`) — wire codec + E2EE crypto + pairing + Envelope. Swift 에 UniFFI FFI(순수 함수만)로 노출. (Phase 2, 미구현)
+- **Backend / CLI**: TypeScript on Bun v1.3.13+ (Runner, Daemon, Relay, CLI). 현행 구현 = 동작 레퍼런스 + dogfood 파이프라인. Turborepo + pnpm 모노레포.
+- **Encryption**: X25519 + XChaCha20-Poly1305 (libsodium on Bun). 재작성 후 `tp-core` 가 byte-exact 재현.
 - **Voice**: OpenAI Realtime API
 
 ## Monorepo Layout
 
 ```
+ios/           # Swift (SwiftUI) iOS app — project.yml (XcodeGen SoT), Sources/, Tests/, scripts/ios.sh (local Simulator harness)
 apps/
   cli/         # @teleprompter/cli — unified `tp` binary (subcommand router)
-  app/         # @teleprompter/app — Expo app (iOS > Web > Android)
 packages/
   daemon/      # @teleprompter/daemon — Bun long-running service (session mgmt, vault, E2EE, worktree)
   runner/      # @teleprompter/runner — Bun per-session process (PTY via Bun.spawn terminal, hooks collection)
   relay/       # @teleprompter/relay — Bun WebSocket ciphertext-only relay server
-  protocol/    # @teleprompter/protocol — shared types, framed JSON codec, envelope types
+  protocol/    # @teleprompter/protocol — shared types, framed JSON codec, envelope types (Rust tp-core port reference)
   tsconfig/    # Shared TS configs (base.json, bun.json)
 scripts/
-  build.ts     # Multi-platform `bun build --compile` script
+  build.ts     # Multi-platform `bun build --compile` script (tp binary)
   install.sh   # curl-pipe-sh installer for GitHub Releases (macOS/Linux)
-e2e/           # Playwright E2E tests (.spec.ts)
 ```
 
 ## Architecture
@@ -38,8 +38,8 @@ e2e/           # Playwright E2E tests (.spec.ts)
 - **Runner** spawns Claude Code in a PTY (`PtyBun` via `Bun.spawn({ terminal })`), collects io streams and hooks events, sends Records to Daemon via IPC (Unix domain socket)
 - **Daemon** is a long-running mux that (a) spawns and supervises one Runner per session, (b) manages git worktrees (`git worktree add/remove/list`), (c) stores Records in Store (append-only per session, with session delete/prune support), (d) persists pairings in store DB for auto-reconnect, (e) encrypts with libsodium per-frontend keys, (f) holds the **only** outbound WebSocket client to the Relay(s), and (g) handles pair-ops IPC (`pair.remove` / `pair.rename`) from the CLI so the CLI never opens its own RelayClient
 - **Relay** is a stateless ciphertext forwarder — holds only recent 10 encrypted frames per session
-- **Frontend** decrypts and renders: Terminal tab (ghostty-web) + Chat tab (hooks events only — PTY io records go exclusively to the Terminal tab)
-- Data flow: Runner → Daemon → Relay → Frontend (and reverse for input)
+- **App (Swift)** decrypts and renders: Terminal tab + Chat tab (hooks events only — PTY io records go exclusively to the Terminal tab). 현재는 Phase 0 부트마커 셸 단계 — pairing/chat/terminal parity 는 Phase 3 (ADR-0001).
+- Data flow: Runner → Daemon → Relay → App (and reverse for input)
 
 ## Architecture Invariants (절대 위반 금지)
 
@@ -75,7 +75,7 @@ Connection flow: daemon `register → auth → broadcast pubkey via kx`; fronten
 - Chat UI is **hooks-only** (PTY-to-chat fallback removed in PR #457): hooks events render as structured message cards; the Stop event's `last_assistant_message` is the canonical response. PTY io records go exclusively to the Terminal tab.
 - Worktree management is done directly by Daemon (`git worktree add/remove/list`), no external tool dependency. N:1 relationship — multiple sessions per worktree allowed.
 - E2EE pairing via QR code containing pairing secret + daemon pubkey + relay URL + daemon ID. Daemon pubkey is delivered offline via QR; Frontend pubkey is exchanged in-band via `relay.kx` (encrypted with kxKey derived from pairing secret). Both sides perform ECDH (X25519 `crypto_kx`) → per-frontend session keys → XChaCha20-Poly1305 encryption. Relay token is self-registered via `relay.register` (proof-based, no pre-registration needed). N:N supported — one app connects to multiple daemons, one daemon serves multiple frontends, each with independent E2EE keys identified by `frontendId`.
-- Platform priority: iOS > Web > Android. Responsive layout required for mobile/tablet/desktop.
+- Platform priority: iOS (Simulator 우선). Web/Android 는 재작성 이후 강등 (ADR-0001).
 - Deployment: `bun build --compile` for `tp` binary (subcommands: daemon, run, relay).
 - Passthrough mode: `tp <claude args>` runs claude directly through tp pipeline. `--tp-*` flags are consumed by tp, rest forwarded to claude.
 - **Windows is unsupported natively.** `tp` exits at startup on `process.platform === "win32"` with a message pointing to WSL. Run inside WSL (Ubuntu/Debian) and install the Linux build.
@@ -83,12 +83,9 @@ Connection flow: daemon `register → auth → broadcast pubkey via kx`; fronten
 
 ## Coding Conventions (Summary)
 
-- Files: kebab-case. Components: PascalCase. Types: PascalCase. No default exports.
-- Frontend import: `@teleprompter/protocol/client`. Backend: `@teleprompter/protocol`.
-- Type-only: `import type { ... }`. Import sort: Biome 위임.
-- Zustand: `create<Interface>((set, get) => ({...}))`, 미들웨어 없음.
-- Styling: `tp-*` semantic tokens only. Raw Tailwind colors 금지.
+- TypeScript (backend/CLI): Files kebab-case. Types: PascalCase. No default exports. Import: `@teleprompter/protocol`. Type-only: `import type { ... }`. Import sort: Biome 위임.
 - Tests: `bun:test`, 소스 옆 co-located. Biome = lint + format (ESLint/Prettier 금지).
+- Swift (`ios/`): SwiftUI. 컨벤션은 재작성 진행에 따라 `ios/README.md` + 별도 rule 로 정착 예정.
 - 영역별 상세 컨벤션은 `.claude/rules/`에서 자동 로드됨.
 
 ## Subagent Dispatch
@@ -100,10 +97,9 @@ frontmatter가 `model: inherit`이라 미명시 시 부모 Opus 상속.
 - **코드 작업/리뷰/구현**: `model: "sonnet"` (e.g., plugin review agents,
   `general-purpose`)
 - **어려운 설계/추론만 opus**: 명확히 필요할 때만
-- **QA**: 회귀(`.spec.ts` 실행) = `haiku`,
-  탐색적 QA (버그 hunt, 새 시나리오, 페어링/세팅 우회 추론 필요) = `sonnet`.
-  로컬 QA 는 항상 `app-web-qa` (RN Web). `expo-mcp:qa` / Simulator / Maestro 는
-  일상 작업에서는 띄우지 않는다 (JDK/Maestro 부수 비용 — "iOS 빌드 & 검증 워크플로우" 참조).
+- **QA**: 백엔드 회귀(`bun test`) = `haiku`. 앱 검증은 로컬 Swift Simulator 하니스
+  (`ios/scripts/ios.sh build|smoke|test`)로 수행 — RN Web/Playwright/Maestro/expo-mcp QA 는
+  재작성으로 제거됨.
 
 **워크플로우/서브에이전트 BRIEF 에 *미검증 과거 서술*을 ground truth 로 박지 말 것.**
 commit/PR body·이전 세션 서술은 hearsay — agent 가 HEAD 워킹트리 실파일을 직접 읽어
@@ -114,15 +110,15 @@ fix-탐색 워크플로우는 가드가 구조에 박힌 `.claude/workflows/fact
 
 ## Testing Strategy
 
-4계층 테스트. Tier 1–3: `bun:test` 사용. Tier 4 (Playwright E2E / QA): `npx playwright test` (`pnpm test:e2e` / `pnpm test:e2e:ci`) 또는 Expo MCP — 로컬 QA 기본값은 RN Web + Playwright MCP (Simulator/Maestro 는 일상 작업에서 생략, 필요 시 `/verify-native` 큐 참조).
+- **Backend/CLI (Bun, Tier 1–3)**: `bun:test`. 소스 옆 co-located 유닛/통합 테스트.
+- **App (Swift)**: `ios/scripts/ios.sh test` (XCTest on Simulator) + `smoke` (부트마커 검증). 상세는 `ios/README.md`.
 
 ### 명령어
 ```bash
-bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay  # 전체 Tier 1-3
-bun test ./apps/app    # RN 앱 단위 테스트 — 반드시 별도 invocation (mock.module 전역 누출이 타 패키지 crypto 테스트를 오염)
-pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner, app)
-pnpm test:e2e          # Playwright E2E (local, 전체)
-pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
+bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay  # 백엔드 전체
+pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner)
+ios/scripts/ios.sh test    # Swift 앱 XCTest (Simulator)
+ios/scripts/ios.sh smoke   # Swift 앱 빌드+설치+부트마커 스모크
 ```
 
 > **macOS 로컬에서는 경로에 반드시 선행 `./` 를 붙인다.** un-rooted 경로(`bun test packages/daemon`)는
@@ -131,15 +127,14 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 > 실제 원인). 상세는 `.claude/rules/testing-inventory.md`.
 
 또는 슬래시 커맨드 사용 — 변경 파일 기반 자동 dispatch:
-- `/test [auto|protocol|daemon|runner|relay|cli|app|e2e|unit|all]` — 변경 범위 감지 후 실행
-- `/qa [auto|frontend]` — Tier 4 QA agent (`app-web-qa`, RN Web + Playwright) 에 위임. 네이티브(iOS/Android) 실기기 검증은 로컬에서 안 하고 TestFlight/Internal + 사용자 디버깅으로 넘긴다
+- `/test [auto|protocol|daemon|runner|relay|cli|all]` — 변경 범위 감지 후 실행
 - `/deploy-check` — CI와 동일한 로컬 사전 검증
 
-Tier 1-4 분류 및 전체 test 파일 인벤토리는 `.claude/rules/testing-inventory.md` 참조 — `*.test.ts` / `e2e/**` / `packages/**` / `apps/**` 파일 작업 시 자동 로드됨.
+백엔드 test 파일 인벤토리는 `.claude/rules/testing-inventory.md` 참조 — `*.test.ts` / `packages/**` / `apps/cli/**` 파일 작업 시 자동 로드됨.
 
-## Dog-fooding (tp + RN Web 라이브 디버그)
+## Dog-fooding (tp 백엔드 파이프라인)
 
-이 repo 에서 Claude Code 는 **항상 `tp` 로 실행** (`claude ...` 아님) — 모든 세션이 로컬 daemon → relay → RN Web 파이프라인을 타게 해 Chat/Terminal UI 변경을 매일 dogfood. 라이브 디버그 절차·페어링 재활용(`pnpm dev:pair`)·관찰 체크리스트·UI 버그 처리 플로우는 `.claude/rules/dogfooding.md` (SoT, dev/qa 시 자동 로드).
+이 repo 에서 Claude Code 는 **항상 `tp` 로 실행** (`claude ...` 아님) — 모든 세션이 로컬 daemon → relay 파이프라인을 타게 해 백엔드(daemon/relay/runner) 를 매일 dogfood 한다. (RN Web 라이브 UI dogfood 는 Expo 제거로 사라졌다 — Swift 앱이 Phase 3 parity 에 도달하면 Simulator dogfood 로 복귀한다. 그때까지 UI 검증은 `ios/scripts/ios.sh`.)
 
 ### Local `tp` Binary Freshness (자동 룰)
 
@@ -169,8 +164,8 @@ update the relevant documentation files in the same commit. 영역별 상세 운
 파일 작업 시 자동 로드) — 그 영역을 바꾸면 같은 commit 에서 해당 rules 파일도 갱신.
 
 > **CLAUDE.md 는 40k char 한도 아래로 유지.** 장황한 운영 디테일(relay capacity,
-> dogfooding 절차, deployment/release, version/OTA, iOS/native build)은 CLAUDE.md 에
-> 핵심+포인터만 두고 본문은 `.claude/rules/` 에 둔다. 한도 근접 시 같은 패턴으로 분리.
+> deployment/release, testing inventory)은 CLAUDE.md 에 핵심+포인터만 두고 본문은
+> `.claude/rules/` 에 둔다. 한도 근접 시 같은 패턴으로 분리.
 
 ## Branch Strategy
 
@@ -226,7 +221,7 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 
 ## Deployment Pipeline
 
-평상시 release 는 `/release` 슬래시 커맨드가 전 과정을 자동화. 전체 SoT (main push / v* tag / 수동 dispatch 표, EAS 빌드 최적화, 릴리즈 수동 절차, Infrastructure, GitHub Secrets, EAS Credentials) 는 `.claude/rules/release-deploy.md`.
+`tp` 바이너리 release 는 `/release` 슬래시 커맨드가 전 과정을 자동화 (release-please → multi-platform `bun build --compile` → GitHub Release → Homebrew tap). 전체 SoT (main push / v* tag / 수동 dispatch 표, 릴리즈 수동 절차, Infrastructure, GitHub Secrets) 는 `.claude/rules/release-deploy.md`. iOS 앱은 로컬 Simulator 하니스(`ios/scripts/ios.sh`)로 빌드/검증 — EAS 클라우드 빌드는 제거됨.
 
 ## CLI Commands
 
@@ -316,11 +311,11 @@ Fish는 완성 스크립트를 디스크에 기록하므로 `tp upgrade` 후 `tp
 
 ## Version Management
 
-- **NEVER bump versions** (package.json, app.json, manifest) unless the user explicitly requests it.
+- **NEVER bump versions** (package.json, manifest) unless the user explicitly requests it.
 - Pre-1.0: only patch bumps (0.0.x). 0.1.0 은 App Store 공개 release 용으로 예약.
 - release-please 가 Conventional Commits 로 자동 bump (`bump-patch-for-minor-pre-major` → pre-1.0 에서 `feat:` 도 patch). `version` 필드 수동 편집 금지.
 
-OTA 정책 (fingerprint runtimeVersion), 사람버전/빌드카운터/runtimeVersion 3축, 설정·운영규칙·안티패턴은 `.claude/rules/release-deploy.md` (SoT).
+릴리즈 설정·운영규칙·안티패턴은 `.claude/rules/release-deploy.md` (SoT).
 
 ## Language
 
@@ -328,6 +323,15 @@ PRD and internal docs are written in Korean. Code, comments, and commit messages
 
 ## iOS / Native Build
 
-**네이티브 빌드/배포는 기본적으로 EAS 클라우드에 위임한다 (회귀 표면 최소화, 빠른 반복).** 로컬 검증 = RN Web, 네이티브 빌드/배포 = EAS 클라우드 + TestFlight, 실기기 디버깅 = 사용자(Dave)에게 요청. 네이티브 검증 항목은 `docs/local-verification-queue.md` 큐에 정의되어 있고 `/verify-native` 로 순회한다 (이 64GB 머신에서 실행 가능).
+**iOS 앱 빌드/검증은 로컬 Simulator 하니스가 담당한다 (EAS 클라우드 제거).** XcodeGen `ios/project.yml` 이 프로젝트 SoT (`.xcodeproj` 는 생성물, gitignore). 하니스 = `ios/scripts/ios.sh`:
 
-전체 절차는 `.claude/rules/native-build.md` (SoT). **Expo Go 는 미지원 (드롭 완료)** — 앱은 development build 전용이며, 소스에 Expo Go 분기를 추가하지 않는다.
+```bash
+ios/scripts/ios.sh gen      # xcodegen generate (.xcodeproj 재생성)
+ios/scripts/ios.sh boot     # Simulator 부팅 (TP_SIM, default "iPhone 17 Pro")
+ios/scripts/ios.sh build    # xcodebuild (Debug-iphonesimulator)
+ios/scripts/ios.sh run      # install + launch
+ios/scripts/ios.sh smoke    # build + install + launch + 부트마커(TP_BOOT_OK) 검증
+ios/scripts/ios.sh test     # XCTest on Simulator
+```
+
+부트마커는 `os.Logger(subsystem: "dev.tpmt.teleprompter", category: "boot")` 로 emit, 하니스가 Simulator unified log 를 `--predicate "subsystem == ..."` 로 grep 검증. 상세는 `ios/README.md`. 실기기/TestFlight 배포는 재작성 진행에 따라 별도 정착.

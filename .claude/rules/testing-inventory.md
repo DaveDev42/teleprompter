@@ -1,22 +1,18 @@
 ---
 paths:
   - "**/*.test.ts"
-  - "e2e/**"
   - "packages/**"
-  - "apps/**"
+  - "apps/cli/**"
 ---
 
 # Testing Inventory
 
-Tier 1–3: `bun:test` 사용. Tier 4 (Playwright E2E / Expo MCP QA): `npx playwright test` (`pnpm test:e2e` / `pnpm test:e2e:ci`) 또는 MCP 에이전트 위임 — `bun:test` 아님.
+Tier 1–3: `bun:test` 사용. Expo/RN Web/Playwright/Maestro/expo-mcp 기반 Tier 4는 제거됨 (앱이 Swift로 리라이트됨 — ADR-0001).
 
 ## 명령어
 ```bash
 bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay  # 전체 Tier 1-3
-bun test ./apps/app    # RN 앱 단위 테스트 — 반드시 별도 invocation (아래 apps/app 섹션 참조)
-pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner, app)
-pnpm test:e2e          # Playwright E2E (local, 전체)
-pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
+pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner)
 ```
 
 ### macOS rooted paths (선행 `./` 필수)
@@ -125,39 +121,6 @@ pnpm test:e2e:ci       # Playwright E2E (CI, daemon 불필요 테스트만)
 - `packages/protocol/src/compat.test.ts` — protocol version compatibility
 - `packages/runner/src/pty/pty-manager.test.ts` — PTY spawn, resize, lifecycle
 
-### apps/app (RN 앱 단위 테스트 — 런타임 의존성 없음, CI 포함)
-> **반드시 별도 `bun test apps/app` invocation 으로 실행.** `crypto-native.test.ts` 가
-> `mock.module("@teleprompter/protocol/client", …)` 를, `crypto-provider-native.test.ts` 가
-> `mock.module("react-native-quick-crypto", …)` 를, `audio-native.test.ts` 가
-> `mock.module("react-native-audio-api", …)` 를 쓰는데 bun:test 의 module mock 은
-> 프로세스 전역에 잔류한다 — 같은 invocation 에 다른 패키지를 섞으면 후속 crypto 의존
-> 테스트 (PairingOrchestrator, RelayClient v2 등 ~38개) 가 스텁을 받아 깨진다.
-- `apps/app/src/components/chat-card-md.test.ts` — chat card markdown rendering helpers
-- `apps/app/src/hooks/push-toast.test.ts` — push toast hook
-- `apps/app/src/lib/ansi-strip.test.ts` — ANSI escape stripping
-- `apps/app/src/lib/copy-text.test.ts` — clipboard copy helper
-- `apps/app/src/lib/crypto-native.test.ts` — crypto availability probe (ensureSodium 성공/실패 캐싱)
-- `apps/app/src/lib/crypto-polyfill.test.ts` — crypto polyfill (boot marker 모듈, getRandomValues)
-- `apps/app/src/lib/crypto-provider-native.test.ts` — RNQC native CryptoProvider cross-provider oracle (kx/KDF vs libsodium + BoringSSL X25519, AEAD 레이아웃, base64/hex/UTF-8)
-- `apps/app/src/lib/gamepad-input-mapper.test.ts` — gamepad snapshot diff → semantic nav actions (edge-trigger, stick threshold, D-pad/stick 병합)
-- `apps/app/src/lib/ghostty-native-html.test.ts` — GhosttyNative WebView HTML builder (UMD 인라인 escape, 브릿지 프로토콜 표면, 폰트/테마 interpolation)
-- `apps/app/src/lib/ghostty-web-asset.test.ts` — assets/ghostty-web.umd.txt 신선도 oracle (설치 패키지와 SHA-256 동일) + inline 안전성 (`</script`/`<!--` 부재)
-- `apps/app/src/lib/modal-open-registry.test.ts` — modal-open counter (global shortcut 억제용, nested/double-release)
-- `apps/app/src/lib/relay-client.test.ts` — FrontendRelayClient (ping cadence, missed-pong force-close)
-- `apps/app/src/lib/secure-storage.test.ts` — secureGet/secureSet platform split
-- `apps/app/src/lib/session-ux.test.ts` — session UX helpers
-- `apps/app/src/lib/shortcut-guards.test.ts` — global shortcut eligibility guards (editable target / modifier / repeat / `data-shortcuts-disabled`)
-- `apps/app/src/lib/terminal-search.test.ts` — terminal search
-- `apps/app/src/lib/utf8-base64.test.ts` — UTF-8 base64 round-trip + bytesToBase64 (write 브릿지 raw bytes, 청크 경계)
-- `apps/app/src/stores/chat-store.test.ts` — chat store (hooks-only event processing)
-- `apps/app/src/stores/offline-store.test.ts` — offline queue store
-- `apps/app/src/stores/pairing-store.test.ts` — pairing store (Label tagged union)
-- `apps/app/src/stores/session-store.test.ts` — session store (relayState discriminated union)
-- `apps/app/src/stores/settings-store.test.ts` — settings store
-- `apps/app/src/stores/voice-store.test.ts` — voice store
-- `apps/app/src/voice/pcm.test.ts` — PCM16/base64/linear-resample pure helpers (web+native 공유)
-- `apps/app/src/voice/audio-native.test.ts` — native AudioCapture/AudioPlayer (react-native-audio-api mocked: 권한 흐름, 24kHz 리샘플 캡처, 재생 스케줄링)
-
 ## Tier 2: Integration Tests (stub runner)
 Stub 프로세스로 전체 파이프라인 검증.
 - `packages/daemon/src/integration.test.ts` — IPC 파이프라인 (mock Runner→Daemon→Store)
@@ -176,26 +139,7 @@ Stub 프로세스로 전체 파이프라인 검증.
 
 ## Tier 3: Real E2E Tests (requires claude CLI)
 실제 claude PTY를 통한 전체 tp 파이프라인. `claude`가 PATH에 없으면 skip.
-- 현재 비어있음 — UI 수준 claude PTY E2E는 Playwright(`e2e/app-real-e2e.spec.ts`)로 이관됨.
+- 현재 비어있음.
 
 ## Benchmarks
 - `packages/relay/src/bench.test.ts` — relay throughput benchmark
-
-## Tier 4: QA Agent Tests (Playwright MCP)
-`/qa` 커맨드로 QA agent에 위임. **로컬 Tier 4 기본 경로는 `app-web-qa` (RN Web)이고, 이 64GB Mac에서는 `expo-mcp:qa`도 로컬 실행 가능:**
-- `app-web-qa` — React Native Web (Playwright MCP + Playwright Test) — **기본 로컬 QA 경로** (가볍고 빠름)
-- `expo-mcp:qa` — iOS Simulator / Android Emulator (Expo MCP Plugin `DaveDev42/expo-mcp` + Maestro). Maestro/JDK-26 불안정 주의 (JDK 17-21 필요). expo-mcp 활성화는 **머신별 결정** — 공유 `.claude/settings.json`은 enable 플래그를 들지 않고(marketplace + `app_dir` config만 유지), 각 머신의 gitignored `.claude/settings.local.json`이 켜고 끈다. **이 64GB M1 Max Mac = `true` (Q4 2026-06-05 PASS)**, 저사양 머신 = `false`. 일상 네이티브 iOS/Android 검증은 EAS 클라우드 빌드 → TestFlight/Internal → 사용자 실기기 디버깅, 큐 항목은 `/verify-native` 로 처리 (CLAUDE.md "iOS 빌드 & 검증 워크플로우" 참조).
-- Playwright E2E: `pnpm test:e2e`
-  - `e2e/` 에 현재 171개 spec 파일 존재. **CI 실행 목록의 canonical source 는 `playwright.config.ts` `ci` project `testMatch` 배열** (현재 160개) — 새 spec 추가 시 이 배열에 등록해야 CI 에서 실행된다 (`dogfooding.md` "디버그 중 발견한 UI 버그 처리" 참조).
-  - 아래 11개 spec 은 **local-only** (daemon/relay 실제 연결 필요 — CI `testMatch` 제외):
-    - `e2e/app-chat-resume-dedup.spec.ts` — chat resume deduplication (daemon 필요)
-    - `e2e/app-chat-roundtrip.spec.ts` — chat input/output roundtrip (daemon 필요)
-    - `e2e/app-daemon.spec.ts` — daemon-connected session list (daemon 필요)
-    - `e2e/app-multi-daemon-2x2.spec.ts` — 2×2 multi-daemon/multi-frontend E2EE isolation (daemon 필요)
-    - `e2e/app-multi-daemon-nxn.spec.ts` — N:N multi-daemon E2EE independence (daemon 필요)
-    - `e2e/app-real-e2e.spec.ts` — real Claude PTY E2E (claude CLI 필요)
-    - `e2e/app-relay-e2e.spec.ts` — full relay pipeline (pair → relay → daemon → E2EE)
-    - `e2e/app-resume.spec.ts` — daemon restart recovery (daemon 필요)
-    - `e2e/app-roundtrip.spec.ts` — input/output roundtrip (daemon 필요)
-    - `e2e/app-session-switch.spec.ts` — session list and navigation (daemon 필요)
-    - `e2e/app-sessions-refresh-live.spec.ts` — live session list refresh (daemon 필요)

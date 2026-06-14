@@ -1,22 +1,15 @@
 ---
 paths:
   - ".github/**"
-  - "apps/app/.eas/**"
+  - "ios/**"
   - "scripts/**"
 ---
 
 # CI/CD & Deployment Conventions
 
 ## GitHub Actions
-- CI: Node 22 + Bun 1.3.13 + pnpm, 5개 독립 병렬 job (`lint`, `type-check`, `test`, `build-cli`, `e2e`) + 1 gate (`eas-gate`)
-- 캐시: Playwright browsers (`playwright-{os}-`), Expo web build (`expo-web-{os}-`)
-- EAS 게이트: 5개 병렬 job 전부 pass + `dorny/paths-filter`로 app/protocol/patches 변경 감지 (`apps/app/**`, `packages/protocol/**`, `patches/**` — pnpm patch 는 apps/app 밖에 살지만 네이티브 빌드를 바꾼다, #634 에서 gate 미발화 실측) → `expo-doctor` → `eas-cli workflow:run .eas/workflows/preview.yaml` (비동기 — fingerprint 기반 빌드/OTA 분기는 preview.yaml 내부에서 처리)
-- Secrets: `RELAY_HOST`, `RELAY_USER`, `RELAY_SSH_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `EXPO_TOKEN` (EAS gate)
-
-## EAS Workflows
-- Fingerprint 기반: 네이티브 코드 해시로 기존 빌드 재사용 판단
-- JS만 변경 → OTA 업데이트 (~2분, $0), 네이티브 변경 → 풀빌드 + 스토어 제출
-- Channels: development, preview, production
+- CI: Node 22 + Bun 1.3.13 + pnpm, 4개 독립 병렬 job (`lint`, `type-check`, `test`, `build-cli`)
+- Secrets: `RELAY_HOST`, `RELAY_USER`, `RELAY_SSH_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`
 
 ## Release (`release.yml`, triggered on `v*` tag push or manual `workflow_dispatch -f tag=vX.Y.Z`)
 - tag-push event 는 GitHub API tag-creation 시 누락되는 케이스가 잦아 (#172) **항상 manual dispatch 로 트리거**: `gh workflow run release.yml -f tag=vX.Y.Z`

@@ -529,6 +529,22 @@ export class FrontendRelayClient implements TransportClient {
    * label arrives here instead of in the QR to keep the QR small.
    * Decryption failures are swallowed — the worst case is the frontend
    * keeps its fallback label, which is acceptable.
+   *
+   * Defense-in-depth: also re-sends the frontend's own key exchange so
+   * that a daemon that (re)connects AFTER the phone has already completed
+   * the initial kx will still receive our pubkey and can establish the peer.
+   *
+   * Loop safety: the daemon's handleKxFrame only calls peers.set() +
+   * onFrontendJoined — it does NOT re-broadcast its own pubkey in response
+   * to a frontend kx. The sequence is therefore:
+   *   daemon reconnects → broadcasts kx → phone re-sends kx → daemon sets
+   *   peer → (no further daemon kx broadcast) → sequence terminates.
+   *
+   * This is unconditional (we always reply, even when already paired). The
+   * cost is a single encrypt + one relay.kx frame per daemon kx broadcast,
+   * which is negligible (kx frames are rare — once per daemon reconnect).
+   * Idempotency is safe: if the daemon already has our peer entry it simply
+   * overwrites it with identical keys, which is a no-op in practice.
    */
   private async handleDaemonKxFrame(frame: {
     ct: string;
@@ -555,6 +571,14 @@ export class FrontendRelayClient implements TransportClient {
       }
     } catch {
       // Decrypt or parse failure — ignore, fallback label stays in effect.
+    }
+    // Re-send our own kx so a late-joining daemon (one that (re)connected
+    // after the initial handshake) receives our pubkey and can establish a
+    // peer entry. Only sent when the WS is authenticated so the kxKey and
+    // sessionKeys are ready; if auth.ok hasn't fired yet the initial kx path
+    // in handleMessage's relay.auth.ok branch will handle it instead.
+    if (this.authenticated) {
+      await this.sendKeyExchange();
     }
   }
 

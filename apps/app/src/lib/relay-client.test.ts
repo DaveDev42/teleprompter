@@ -1132,6 +1132,131 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
     ]);
     client.dispose();
   });
+
+  // ── Daemon-rejoin kx-reply regression ─────────────────────────────────────
+  //
+  // Scenario: the phone paired and completed the initial kx successfully.
+  // The daemon then disconnects from the relay (crash, network blip, deploy)
+  // and reconnects. The daemon's new RelayClient has an empty peers map —
+  // it broadcasts relay.kx again on its auth.ok. The phone must reply with
+  // its own kx so the daemon can re-establish the peer and start decrypting
+  // frames again. Without this the phone stays blank until the user force-
+  // kills the app and re-opens it.
+
+  test("receiving relay.kx.frame from daemon re-sends frontend kx (daemon-rejoin fix)", async () => {
+    const p = await setupPairing();
+    const client = new FrontendRelayClient(makeConfig(p));
+    const ws = await authenticate(client);
+
+    // Count relay.kx frames sent so far (the initial kx on auth.ok).
+    const initialKxCount = ws
+      .parsedSent()
+      .filter((m) => m.t === "relay.kx").length;
+    expect(initialKxCount).toBe(1); // sanity: one kx on initial auth
+
+    // Simulate the daemon reconnecting: it broadcasts its pubkey again via
+    // relay.kx.frame (from="daemon"). The phone must reply with its own kx.
+    const daemonKxPayload = JSON.stringify({
+      pk: await toBase64(p.daemonKp.publicKey),
+      role: "daemon",
+      label: { set: false },
+    });
+    const daemonKxCt = await encrypt(
+      new TextEncoder().encode(daemonKxPayload),
+      p.kxKey,
+    );
+    ws.simulateMessage({
+      t: "relay.kx.frame",
+      ct: daemonKxCt,
+      from: "daemon",
+    } as RelayServerMessage);
+    await flushPromises();
+
+    // A second relay.kx frame from the frontend must be on the wire.
+    const kxFrames = ws.parsedSent().filter((m) => m.t === "relay.kx");
+    expect(kxFrames.length).toBe(2);
+
+    // The re-sent kx must be valid — decrypt it with the kxKey and assert
+    // it carries our pubkey + frontendId so the daemon can re-establish the
+    // peer entry.
+    const secondKx = kxFrames[1] as { ct: string; role: string };
+    expect(secondKx.role).toBe("frontend");
+    const pt = await decrypt(secondKx.ct, p.kxKey);
+    const decoded = JSON.parse(new TextDecoder().decode(pt));
+    expect(decoded.role).toBe("frontend");
+    expect(decoded.frontendId).toBe("frontend-test");
+    expect(decoded.pk).toBe(await toBase64(p.frontendKp.publicKey));
+
+    client.dispose();
+  });
+
+  test("daemon kx from=frontend is ignored (no spurious kx reply)", async () => {
+    // A relay.kx.frame with from="frontend" should be silently dropped —
+    // the frontend only replies to daemon kx broadcasts, not its own echoes.
+    const p = await setupPairing();
+    const client = new FrontendRelayClient(makeConfig(p));
+    const ws = await authenticate(client);
+
+    const initialKxCount = ws
+      .parsedSent()
+      .filter((m) => m.t === "relay.kx").length;
+
+    const daemonKxPayload = JSON.stringify({
+      pk: await toBase64(p.daemonKp.publicKey),
+      role: "daemon",
+    });
+    const ct = await encrypt(
+      new TextEncoder().encode(daemonKxPayload),
+      p.kxKey,
+    );
+    ws.simulateMessage({
+      t: "relay.kx.frame",
+      ct,
+      from: "frontend", // wrong direction — must be dropped
+    } as RelayServerMessage);
+    await flushPromises();
+
+    // No additional relay.kx on the wire.
+    expect(ws.parsedSent().filter((m) => m.t === "relay.kx").length).toBe(
+      initialKxCount,
+    );
+
+    client.dispose();
+  });
+
+  test("no infinite kx loop: daemon does not re-broadcast after receiving frontend kx", async () => {
+    // Verify loop termination: on the daemon side, handleKxFrame only sets
+    // peers and fires onFrontendJoined; it does NOT call broadcastDaemonPublicKey.
+    // This test exercises the phone side only — we assert that receiving ONE
+    // daemon kx produces EXACTLY ONE additional frontend kx (not a storm).
+    const p = await setupPairing();
+    const client = new FrontendRelayClient(makeConfig(p));
+    const ws = await authenticate(client);
+
+    const beforeCount = ws
+      .parsedSent()
+      .filter((m) => m.t === "relay.kx").length;
+
+    // Deliver one daemon kx broadcast.
+    const payload = JSON.stringify({
+      pk: await toBase64(p.daemonKp.publicKey),
+      role: "daemon",
+    });
+    const ct = await encrypt(new TextEncoder().encode(payload), p.kxKey);
+    ws.simulateMessage({
+      t: "relay.kx.frame",
+      ct,
+      from: "daemon",
+    } as RelayServerMessage);
+    await flushPromises(40); // generous headroom — if a loop fires, extra kx will show up
+
+    // Exactly one more relay.kx must be on the wire (no storm).
+    expect(ws.parsedSent().filter((m) => m.t === "relay.kx").length).toBe(
+      beforeCount + 1,
+    );
+
+    client.dispose();
+  });
 });
 
 // ── H8 / M26 regression tests ─────────────────────────────────────────────

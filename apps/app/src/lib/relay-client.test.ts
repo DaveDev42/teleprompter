@@ -1217,9 +1217,9 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
     await flushPromises();
 
     // No additional relay.kx on the wire.
-    expect(
-      ws.parsedSent().filter((m) => m.t === "relay.kx").length,
-    ).toBe(initialKxCount);
+    expect(ws.parsedSent().filter((m) => m.t === "relay.kx").length).toBe(
+      initialKxCount,
+    );
 
     client.dispose();
   });
@@ -1251,9 +1251,9 @@ describe("FrontendRelayClient — WebSocket state machine", () => {
     await flushPromises(40); // generous headroom — if a loop fires, extra kx will show up
 
     // Exactly one more relay.kx must be on the wire (no storm).
-    expect(
-      ws.parsedSent().filter((m) => m.t === "relay.kx").length,
-    ).toBe(beforeCount + 1);
+    expect(ws.parsedSent().filter((m) => m.t === "relay.kx").length).toBe(
+      beforeCount + 1,
+    );
 
     client.dispose();
   });

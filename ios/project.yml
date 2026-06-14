@@ -28,6 +28,18 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      # UniFFI-generated Swift bindings for the Rust core (tp-core). Produced by
+      # `scripts/ios.sh rust` (= rust/build-xcframework.sh); gitignored. The dir
+      # may be empty before the first Rust build — generateEmptyDirectories keeps
+      # the project valid; `scripts/ios.sh build` regenerates it on demand.
+      - path: Generated
+        optional: true
+    dependencies:
+      # tp-core static library (byte-exact wire primitives). Not embedded — a
+      # static archive links into the binary directly. The xcframework lives
+      # under rust/target (gitignored) and is built before any app build.
+      - framework: ../rust/target/TpCore.xcframework
+        embed: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.teleprompter

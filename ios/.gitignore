@@ -5,3 +5,7 @@ Teleprompter.xcodeproj/
 build/
 DerivedData/
 *.xcresult
+
+# UniFFI-generated Swift bindings — reproducible via `scripts/ios.sh rust`
+# (= rust/build-xcframework.sh). Generated from rust/tp-core, not checked in.
+Generated/

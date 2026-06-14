@@ -6,10 +6,11 @@
 #
 # Usage:
 #   scripts/ios.sh gen          Regenerate Teleprompter.xcodeproj from project.yml
-#   scripts/ios.sh build        Build the app for the iOS Simulator
+#   scripts/ios.sh rust         Build TpCore.xcframework + Swift bindings from rust/tp-core
+#   scripts/ios.sh build        Build the app for the iOS Simulator (rust first)
 #   scripts/ios.sh run          Install + launch on the Simulator
-#   scripts/ios.sh smoke        Full loop: gen → build → install → launch → verify boot marker
-#   scripts/ios.sh test         Run the XCTest bundle on the Simulator
+#   scripts/ios.sh smoke        Full loop: rust → gen → build → install → launch → verify markers
+#   scripts/ios.sh test         Run the XCTest bundle on the Simulator (rust first)
 #   scripts/ios.sh boot         Boot the target simulator (idempotent)
 #
 # Env:
@@ -26,6 +27,8 @@ SCHEME="${TP_SCHEME:-Teleprompter}"
 SIM_NAME="${TP_SIM:-iPhone 17 Pro}"
 BUNDLE_ID="dev.tpmt.teleprompter"
 BOOT_MARKER="TP_BOOT_OK"
+CORE_MARKER="TP_CORE_OK"
+XCFRAMEWORK="$REPO_ROOT/rust/target/TpCore.xcframework"
 
 # Diagnostics go to stderr so `$(cmd_boot)` etc. capture only the clean stdout value.
 log()  { printf '\033[1;34m[ios]\033[0m %s\n' "$*" >&2; }
@@ -56,6 +59,29 @@ cmd_gen() {
 
 ensure_project() { [ -d "$PROJECT" ] || cmd_gen; }
 
+# Build the Rust core into TpCore.xcframework + regenerate Swift bindings.
+# Delegates to rust/build-xcframework.sh, which handles the rustup PATH-shim
+# workaround, the 3 iOS slices, the simulator lipo, and binding generation.
+cmd_rust() {
+  log "building TpCore.xcframework + Swift bindings (rust/tp-core)"
+  "$REPO_ROOT/rust/build-xcframework.sh" "$@"
+}
+
+# The app/test targets link the xcframework; build it first if missing. Pass
+# --force to always rebuild (e.g. after editing Rust sources).
+ensure_xcframework() {
+  if [ "${TP_SKIP_RUST:-}" = "1" ]; then
+    log "TP_SKIP_RUST=1 — skipping xcframework build"
+    [ -d "$XCFRAMEWORK" ] || die "TP_SKIP_RUST set but xcframework absent: $XCFRAMEWORK"
+    return
+  fi
+  if [ -d "$XCFRAMEWORK" ] && [ "${1:-}" != "--force" ] && [ "${TP_FORCE_RUST:-}" != "1" ]; then
+    log "xcframework present ($XCFRAMEWORK) — skipping rebuild (set TP_FORCE_RUST=1 to force)"
+  else
+    cmd_rust
+  fi
+}
+
 cmd_boot() {
   local udid; udid="$(sim_udid)" || die "simulator not found: $SIM_NAME (set TP_SIM)"
   local state
@@ -77,6 +103,7 @@ for devs in d["devices"].values():
 
 cmd_build() {
   require xcodebuild
+  ensure_xcframework
   ensure_project
   log "building $SCHEME for iOS Simulator"
   xcodebuild \
@@ -110,36 +137,45 @@ cmd_run() {
 }
 
 cmd_smoke() {
+  ensure_xcframework
   cmd_gen
   cmd_build
   local udid; udid="$(cmd_boot)"
   local app; app="$(app_path)"
   log "installing"
   xcrun simctl install "$udid" "$app"
-  # Fresh launch so the boot marker is emitted now (terminate any prior instance).
+  # Fresh launch so the markers are emitted now (terminate any prior instance).
   xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
-  log "launching + watching log for '$BOOT_MARKER'"
+  log "launching + watching log for '$BOOT_MARKER' and '$CORE_MARKER'"
   xcrun simctl launch "$udid" "$BUNDLE_ID" >/dev/null
-  # Poll the unified log for the marker emitted in ContentView.onAppear. Filter
+  # Poll the unified log for the markers emitted in ContentView.onAppear. Filter
   # by our subsystem — the default `log show` level drops Debug/Info lines.
-  local found=""
+  # TP_CORE_OK proves the Rust FFI is linked AND the encode→encrypt→decrypt→decode
+  # round-trip succeeds on-device; TP_CORE_FAIL means it linked but a step diverged.
+  local boot_seen="" core_line=""
   for _ in $(seq 1 20); do
-    if xcrun simctl spawn "$udid" log show --last 30s --style compact \
-         --predicate "subsystem == \"$BUNDLE_ID\"" 2>/dev/null \
-         | grep -q "$BOOT_MARKER"; then
-      found="yes"; break
-    fi
+    # Capture into a variable first — `| grep -q` SIGPIPEs the producer under
+    # pipefail (rc=141) once grep exits on the first match.
+    local out
+    out="$(xcrun simctl spawn "$udid" log show --last 30s --style compact \
+            --predicate "subsystem == \"$BUNDLE_ID\"" 2>/dev/null)" || true
+    case "$out" in *"$BOOT_MARKER"*) boot_seen="yes" ;; esac
+    # Grab the whole TP_CORE_ line so a FAIL surfaces its step/detail.
+    core_line="$(printf '%s\n' "$out" | grep -Eo 'TP_CORE_(OK|FAIL)[^"]*' | tail -n1 || true)"
+    if [ -n "$boot_seen" ] && [ -n "$core_line" ]; then break; fi
     sleep 0.5
   done
-  if [ -n "$found" ]; then
-    log "✅ SMOKE PASS — boot marker '$BOOT_MARKER' observed on $SIM_NAME"
-  else
-    die "SMOKE FAIL — boot marker '$BOOT_MARKER' not seen in Simulator log"
-  fi
+  [ -n "$boot_seen" ] || die "SMOKE FAIL — boot marker '$BOOT_MARKER' not seen in Simulator log"
+  [ -n "$core_line" ] || die "SMOKE FAIL — boot OK but no '$CORE_MARKER'/TP_CORE_FAIL line (tp-core FFI never ran?)"
+  case "$core_line" in
+    "$CORE_MARKER"*) log "✅ SMOKE PASS — boot marker + '$core_line' observed on $SIM_NAME" ;;
+    *) die "SMOKE FAIL — tp-core round-trip failed on-device: $core_line" ;;
+  esac
 }
 
 cmd_test() {
   require xcodebuild
+  ensure_xcframework
   ensure_project
   log "running tests for $SCHEME on iOS Simulator"
   xcodebuild \
@@ -156,12 +192,13 @@ main() {
   local sub="${1:-smoke}"; shift || true
   case "$sub" in
     gen)   cmd_gen ;;
+    rust)  cmd_rust "$@" ;;
     boot)  cmd_boot ;;
-    build) cmd_build ;;
+    build) cmd_build "$@" ;;
     run)   cmd_run ;;
     smoke) cmd_smoke ;;
     test)  cmd_test ;;
-    *) die "unknown subcommand: $sub (use: gen|boot|build|run|smoke|test)" ;;
+    *) die "unknown subcommand: $sub (use: gen|rust|boot|build|run|smoke|test)" ;;
   esac
 }
 

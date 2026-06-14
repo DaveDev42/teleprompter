@@ -6,29 +6,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Teleprompter is a remote Claude Code session controller. A native **Swift (SwiftUI)** iOS app connects to a Bun-based Daemon via encrypted relay to control Claude Code sessions with a dual Chat/Terminal UI.
 
-> **전면 네이티브 재작성 진행 중 (2026-06, ADR-0001).** Expo/RN/RN Web 프런트엔드 + EAS 클라우드 빌드를 **전면 제거**하고, 앱은 Swift(SwiftUI) 네이티브로, 공유 코어는 Rust(`tp-core`, UniFFI 순수함수)로 재작성한다. 빌드/검증은 **로컬 iOS Simulator 하니스**(`ios/scripts/ios.sh` + XcodeGen `ios/project.yml`)가 담당한다 (EAS 클라우드 빌드 대체). SoT = `docs/adr/0001-full-native-rewrite-swift-rust.md`. 백엔드(daemon/relay/runner)와 CLI 는 **현행 Bun/TypeScript 구현을 레퍼런스로 유지** (Rust 이관은 후순위 Phase). 아래 wire(framed JSON)·relay ciphertext-only·daemon=relay 유일 클라이언트 불변식은 재작성 후에도 보존된다.
+> **전면 네이티브 재작성 진행 중 (2026-06, ADR-0001).** Expo/RN/RN Web 프런트엔드 + EAS 클라우드 빌드를 **전면 제거**하고, 앱은 Swift(SwiftUI) 네이티브로, 공유 코어는 Rust(`tp-core`, UniFFI 순수함수)로 재작성한다. 빌드/검증은 **로컬 iOS Simulator 하니스**(`scripts/ios.sh` + XcodeGen `ios/project.yml`)가 담당한다 (EAS 클라우드 빌드 대체). SoT = `docs/adr/0001-full-native-rewrite-swift-rust.md`. 백엔드(daemon/relay/runner)와 CLI 는 **현행 Bun/TypeScript 구현을 레퍼런스로 유지** (Rust 이관은 후순위 Phase). 아래 wire(framed JSON)·relay ciphertext-only·daemon=relay 유일 클라이언트 불변식은 재작성 후에도 보존된다.
 
 ## Tech Stack
 
-- **App (iOS)**: Swift + SwiftUI. iOS Simulator 우선. 빌드/검증 = 로컬 하니스 (`xcodebuild` + `xcrun simctl`, `ios/scripts/ios.sh`). EAS 미사용.
-- **Shared core**: Rust (`tp-core`) — wire codec + E2EE crypto + pairing + Envelope. Swift 에 UniFFI FFI(순수 함수만)로 노출. (Phase 2, 미구현)
+- **App (iOS)**: Swift + SwiftUI. iOS Simulator 우선. 빌드/검증 = 로컬 하니스 (`xcodebuild` + `xcrun simctl`, `scripts/ios.sh`). EAS 미사용.
+- **Shared core**: Rust (`rust/tp-core`) — wire codec + E2EE crypto(AEAD/KDF/crypto_kx/ratchet) + pairing. Swift 에 UniFFI FFI(순수 함수만)로 노출, TS 구현과 byte-exact (골든벡터 교차검증). xcframework = `rust/build-xcframework.sh` (= `scripts/ios.sh rust`). 상세 = `rust/README.md`. **(Phase 2 ✅ 구현 + Simulator 검증 완료)**
 - **Backend / CLI**: TypeScript on Bun v1.3.13+ (Runner, Daemon, Relay, CLI). 현행 구현 = 동작 레퍼런스 + dogfood 파이프라인. Turborepo + pnpm 모노레포.
-- **Encryption**: X25519 + XChaCha20-Poly1305 (libsodium on Bun). 재작성 후 `tp-core` 가 byte-exact 재현.
+- **Encryption**: X25519 + XChaCha20-Poly1305 (libsodium on Bun; `tp-core` 가 순수 Rust crate 로 byte-exact 재현, 골든벡터 검증 완료).
 - **Voice**: OpenAI Realtime API
 
 ## Monorepo Layout
 
 ```
-ios/           # Swift (SwiftUI) iOS app — project.yml (XcodeGen SoT), Sources/, Tests/, scripts/ios.sh (local Simulator harness)
+ios/           # Swift (SwiftUI) iOS app — project.yml (XcodeGen SoT), Sources/, Tests/, Generated/ (UniFFI bindings, gitignored)
+rust/          # Rust workspace — tp-core crate (wire codec + E2EE + pairing), build-xcframework.sh, README.md
 apps/
   cli/         # @teleprompter/cli — unified `tp` binary (subcommand router)
 packages/
   daemon/      # @teleprompter/daemon — Bun long-running service (session mgmt, vault, E2EE, worktree)
   runner/      # @teleprompter/runner — Bun per-session process (PTY via Bun.spawn terminal, hooks collection)
   relay/       # @teleprompter/relay — Bun WebSocket ciphertext-only relay server
-  protocol/    # @teleprompter/protocol — shared types, framed JSON codec, envelope types (Rust tp-core port reference)
+  protocol/    # @teleprompter/protocol — shared types, framed JSON codec, envelope types (tp-core byte-exact source)
   tsconfig/    # Shared TS configs (base.json, bun.json)
 scripts/
+  ios.sh       # Local iOS Simulator harness (rust→gen→build→install→launch→smoke/test)
   build.ts     # Multi-platform `bun build --compile` script (tp binary)
   install.sh   # curl-pipe-sh installer for GitHub Releases (macOS/Linux)
 ```
@@ -98,7 +100,7 @@ frontmatter가 `model: inherit`이라 미명시 시 부모 Opus 상속.
   `general-purpose`)
 - **어려운 설계/추론만 opus**: 명확히 필요할 때만
 - **QA**: 백엔드 회귀(`bun test`) = `haiku`. 앱 검증은 로컬 Swift Simulator 하니스
-  (`ios/scripts/ios.sh build|smoke|test`)로 수행 — RN Web/Playwright/Maestro/expo-mcp QA 는
+  (`scripts/ios.sh build|smoke|test`)로 수행 — RN Web/Playwright/Maestro/expo-mcp QA 는
   재작성으로 제거됨.
 
 **워크플로우/서브에이전트 BRIEF 에 *미검증 과거 서술*을 ground truth 로 박지 말 것.**
@@ -111,14 +113,16 @@ fix-탐색 워크플로우는 가드가 구조에 박힌 `.claude/workflows/fact
 ## Testing Strategy
 
 - **Backend/CLI (Bun, Tier 1–3)**: `bun:test`. 소스 옆 co-located 유닛/통합 테스트.
-- **App (Swift)**: `ios/scripts/ios.sh test` (XCTest on Simulator) + `smoke` (부트마커 검증). 상세는 `ios/README.md`.
+- **Rust core (`tp-core`)**: `cargo test -p tp-core` — 유닛 + 와이어 골든벡터(TS 교차검증). 상세는 `rust/README.md`.
+- **App (Swift)**: `scripts/ios.sh test` (XCTest on Simulator) + `smoke` (부트+코어 마커 검증). 상세는 `ios/README.md`.
 
 ### 명령어
 ```bash
 bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay  # 백엔드 전체
 pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner)
-ios/scripts/ios.sh test    # Swift 앱 XCTest (Simulator)
-ios/scripts/ios.sh smoke   # Swift 앱 빌드+설치+부트마커 스모크
+( cd rust && cargo test -p tp-core )   # Rust 코어 (호스트; rustup shim PATH 주의 — rust/README.md)
+scripts/ios.sh test    # Swift 앱 XCTest (Simulator; tp-core FFI 포함)
+scripts/ios.sh smoke   # Swift 앱 빌드+설치+부트마커+코어마커 스모크
 ```
 
 > **macOS 로컬에서는 경로에 반드시 선행 `./` 를 붙인다.** un-rooted 경로(`bun test packages/daemon`)는
@@ -134,7 +138,7 @@ ios/scripts/ios.sh smoke   # Swift 앱 빌드+설치+부트마커 스모크
 
 ## Dog-fooding (tp 백엔드 파이프라인)
 
-이 repo 에서 Claude Code 는 **항상 `tp` 로 실행** (`claude ...` 아님) — 모든 세션이 로컬 daemon → relay 파이프라인을 타게 해 백엔드(daemon/relay/runner) 를 매일 dogfood 한다. (RN Web 라이브 UI dogfood 는 Expo 제거로 사라졌다 — Swift 앱이 Phase 3 parity 에 도달하면 Simulator dogfood 로 복귀한다. 그때까지 UI 검증은 `ios/scripts/ios.sh`.)
+이 repo 에서 Claude Code 는 **항상 `tp` 로 실행** (`claude ...` 아님) — 모든 세션이 로컬 daemon → relay 파이프라인을 타게 해 백엔드(daemon/relay/runner) 를 매일 dogfood 한다. (RN Web 라이브 UI dogfood 는 Expo 제거로 사라졌다 — Swift 앱이 Phase 3 parity 에 도달하면 Simulator dogfood 로 복귀한다. 그때까지 UI 검증은 `scripts/ios.sh`.)
 
 ### Local `tp` Binary Freshness (자동 룰)
 
@@ -221,7 +225,7 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 
 ## Deployment Pipeline
 
-`tp` 바이너리 release 는 `/release` 슬래시 커맨드가 전 과정을 자동화 (release-please → multi-platform `bun build --compile` → GitHub Release → Homebrew tap). 전체 SoT (main push / v* tag / 수동 dispatch 표, 릴리즈 수동 절차, Infrastructure, GitHub Secrets) 는 `.claude/rules/release-deploy.md`. iOS 앱은 로컬 Simulator 하니스(`ios/scripts/ios.sh`)로 빌드/검증 — EAS 클라우드 빌드는 제거됨.
+`tp` 바이너리 release 는 `/release` 슬래시 커맨드가 전 과정을 자동화 (release-please → multi-platform `bun build --compile` → GitHub Release → Homebrew tap). 전체 SoT (main push / v* tag / 수동 dispatch 표, 릴리즈 수동 절차, Infrastructure, GitHub Secrets) 는 `.claude/rules/release-deploy.md`. iOS 앱은 로컬 Simulator 하니스(`scripts/ios.sh`)로 빌드/검증 — EAS 클라우드 빌드는 제거됨.
 
 ## CLI Commands
 
@@ -323,15 +327,18 @@ PRD and internal docs are written in Korean. Code, comments, and commit messages
 
 ## iOS / Native Build
 
-**iOS 앱 빌드/검증은 로컬 Simulator 하니스가 담당한다 (EAS 클라우드 제거).** XcodeGen `ios/project.yml` 이 프로젝트 SoT (`.xcodeproj` 는 생성물, gitignore). 하니스 = `ios/scripts/ios.sh`:
+**iOS 앱 빌드/검증은 로컬 Simulator 하니스가 담당한다 (EAS 클라우드 제거).** XcodeGen `ios/project.yml` 이 프로젝트 SoT (`.xcodeproj` 는 생성물, gitignore). 하니스 = `scripts/ios.sh`:
 
 ```bash
-ios/scripts/ios.sh gen      # xcodegen generate (.xcodeproj 재생성)
-ios/scripts/ios.sh boot     # Simulator 부팅 (TP_SIM, default "iPhone 17 Pro")
-ios/scripts/ios.sh build    # xcodebuild (Debug-iphonesimulator)
-ios/scripts/ios.sh run      # install + launch
-ios/scripts/ios.sh smoke    # build + install + launch + 부트마커(TP_BOOT_OK) 검증
-ios/scripts/ios.sh test     # XCTest on Simulator
+scripts/ios.sh rust     # TpCore.xcframework + UniFFI Swift 바인딩 빌드 (rust/tp-core)
+scripts/ios.sh gen      # xcodegen generate (.xcodeproj 재생성)
+scripts/ios.sh boot     # Simulator 부팅 (TP_SIM, default "iPhone 17 Pro")
+scripts/ios.sh build    # xcodebuild (Debug-iphonesimulator); xcframework 없으면 먼저 빌드
+scripts/ios.sh run      # install + launch
+scripts/ios.sh smoke    # rust→gen→build→install→launch + 부트마커(TP_BOOT_OK)+코어마커(TP_CORE_OK) 검증
+scripts/ios.sh test     # XCTest on Simulator (xcframework 먼저)
 ```
 
-부트마커는 `os.Logger(subsystem: "dev.tpmt.teleprompter", category: "boot")` 로 emit, 하니스가 Simulator unified log 를 `--predicate "subsystem == ..."` 로 grep 검증. 상세는 `ios/README.md`. 실기기/TestFlight 배포는 재작성 진행에 따라 별도 정착.
+`TP_FORCE_RUST=1` = xcframework 매번 재빌드(Rust 수정 후), `TP_SKIP_RUST=1` = 재빌드 스킵(빠른 반복).
+
+부트마커는 `os.Logger(subsystem: "dev.tpmt.teleprompter", category: "boot")` 로 emit, 하니스가 Simulator unified log 를 `--predicate "subsystem == ..."` 로 grep 검증. **코어마커**(`TP_CORE_OK`/`TP_CORE_FAIL`)는 `TpCoreCheck` 가 encode→encrypt→decrypt→decode 라운드트립을 FFI 로 실행한 결과 — Rust 정적 라이브러리가 링크됐고 실기 런타임에서 동작함을 증명한다. 상세는 `ios/README.md` + `rust/README.md`. 실기기/TestFlight 배포는 재작성 진행에 따라 별도 정착.

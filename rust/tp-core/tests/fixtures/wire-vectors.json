@@ -1,0 +1,53 @@
+{
+  "kdf": {
+    "pairingSecret_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "relayToken": "a16760de00195ffd72a318d567eca9c2ee0fa7003e7e87cfec03538c4e7aa5c9",
+    "kxKey_hex": "af02870d5ab8d6d936ecbf215619df5b8fcd6ed5135be0276acd62da3352998b",
+    "registrationProof": "49eba1bb9eb0028f6b13e085f11df6a3b198e369633729bd2523e68454230126",
+    "pushSealKey_hex": "114db8325c0fb1e9128ec6bb44f5dc1f1660dc3c0117acd2e1cd191719defa7f"
+  },
+  "aead": {
+    "key_hex": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+    "nonce_hex": "808182838485868788898a8b8c8d8e8f9091929394959697",
+    "plaintext_utf8": "hello teleprompter wire",
+    "encoded_b64": "gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXasYala8SLRFG6Yxr6QKzIctV8c76pQC7rq8GpdS4Hz3yxRQZbps2",
+    "ct_tag_hex": "6ac61a95af122d1146e98c6be902b321cb55f1cefaa500bbaeaf06a5d4b81f3df2c514196e9b36"
+  },
+  "aead_aad": {
+    "aad_utf8": "frontend-A.sid-123",
+    "encoded_b64": "gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXasYala8SLRFG6Yxr6QKzIctV8c76pQAKX2vvzQl4isgWqjNL6o1U"
+  },
+  "kx": {
+    "daemonSeed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "frontendSeed_hex": "fffefdfcfbfaf9f8f7f6f5f4f3f2f1f0efeeedecebeae9e8e7e6e5e4e3e2e1e0",
+    "daemonPk_hex": "0e0216223f147143d32615a91189c288c1728cba3cc5f9f621b1026e03d83129",
+    "daemonSk_hex": "cb2f5160fc1f7e05a55ef49d340b48da2e5a78099d53393351cd579dd42503d6",
+    "frontendPk_hex": "59d737a5c94ef34a79051f121f3541f4d9583bde6092b93ba04d3bfab2e20607",
+    "frontendSk_hex": "4bc64fa6d2ae2329d6e9c10af0d162d0183cb2b6ca6389c6405a0965c44f51a6",
+    "daemon_rx_hex": "e05d9b8df77a72de90df05fe2c0d9bd506ff905390aa7933d5224ab4d54ea9b9",
+    "daemon_tx_hex": "f06ca841575630387dba384a1791a42bcc52c022eedec404052e7a17dfa38700",
+    "frontend_rx_hex": "f06ca841575630387dba384a1791a42bcc52c022eedec404052e7a17dfa38700",
+    "frontend_tx_hex": "e05d9b8df77a72de90df05fe2c0d9bd506ff905390aa7933d5224ab4d54ea9b9"
+  },
+  "ratchet": {
+    "sid": "sess-xyz",
+    "daemon_tx_hex": "ab30b4edcddd06c9c4f115c4461f9be09832c6dcb3b088c63c6d1c74e004a588",
+    "daemon_rx_hex": "fa7763a240bd99f3b3726107a2e4791fdaa747afd5bd40bd0cabdcb5f151e91a",
+    "frontend_tx_hex": "fa7763a240bd99f3b3726107a2e4791fdaa747afd5bd40bd0cabdcb5f151e91a",
+    "frontend_rx_hex": "ab30b4edcddd06c9c4f115c4461f9be09832c6dcb3b088c63c6d1c74e004a588"
+  },
+  "codec": {
+    "json_only_hex": "0000004a000000007b2274223a226672616d65222c22736964223a22736573732d78797a222c22736571223a372c226b223a22696f222c226e73223a22636c61756465222c2264223a7b226869223a317d7d",
+    "json_only_envelope": {
+      "t": "frame",
+      "sid": "sess-xyz",
+      "seq": 7,
+      "k": "io",
+      "ns": "claude",
+      "d": {
+        "hi": 1
+      }
+    },
+    "with_binary_hex": "00000020000000057b2274223a226672616d65222c22736964223a2273222c226b223a22696f227d0102030405"
+  }
+}

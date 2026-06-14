@@ -895,6 +895,60 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     dispatcher.dispatchIpc(runner, { t: "doctor.probe" });
     expect(calls.ipcSends).toEqual([{ t: "doctor.probe.ok", relays: [] }]);
   });
+
+  // CLI passthrough service-daemon path: input/resize forwarding
+  // The dispatcher must forward `input` / `resize` messages from any IPC
+  // connection (including a CLI passthrough client) to the runner identified
+  // by `msg.sid`. This is the mechanism that lets `passthroughViaServiceDaemon`
+  // relay local stdin and resize events to the runner without the CLI opening
+  // its own relay WebSocket (architecture invariant: only the daemon opens relay WS).
+  test("input message is forwarded to the runner for matching sid", () => {
+    const { dispatcher, calls } = makeHarness();
+    // "present" is the sid that makeHarness's findRunnerBySid resolves.
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "input",
+      sid: "present",
+      data: "aGVsbG8=", // base64("hello")
+    });
+    expect(calls.ipcSends).toEqual([
+      { t: "input", sid: "present", data: "aGVsbG8=" },
+    ]);
+  });
+
+  test("input message is silently dropped when no runner found for sid", () => {
+    const { dispatcher, calls } = makeHarness();
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "input",
+      sid: "unknown-sid",
+      data: "dGVzdA==",
+    });
+    // No IPC send — runner not found, no error reply (fire-and-forget).
+    expect(calls.ipcSends).toEqual([]);
+  });
+
+  test("resize message is forwarded to the runner for matching sid", () => {
+    const { dispatcher, calls } = makeHarness();
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "resize",
+      sid: "present",
+      cols: 200,
+      rows: 50,
+    });
+    expect(calls.ipcSends).toEqual([
+      { t: "resize", sid: "present", cols: 200, rows: 50 },
+    ]);
+  });
+
+  test("resize message is silently dropped when no runner found for sid", () => {
+    const { dispatcher, calls } = makeHarness();
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "resize",
+      sid: "unknown-sid",
+      cols: 80,
+      rows: 24,
+    });
+    expect(calls.ipcSends).toEqual([]);
+  });
 });
 
 describe("IpcCommandDispatcher.dispatchRelayControl", () => {

@@ -158,14 +158,30 @@ export class IpcCommandDispatcher {
       case "bye":
         this.handleBye(msg);
         return;
+      // CLI→Daemon passthrough: forward input/resize to the runner for the
+      // given sid. This allows a passthrough CLI process to relay local stdin
+      // bytes and terminal resize events to a session whose runner is managed
+      // by this daemon (service-daemon routing path).
+      case "input": {
+        const inputRunner = this.deps.ipcServer.findRunnerBySid(msg.sid);
+        if (inputRunner) {
+          this.deps.ipcServer.send(inputRunner, msg);
+        }
+        return;
+      }
+      case "resize": {
+        const resizeRunner = this.deps.ipcServer.findRunnerBySid(msg.sid);
+        if (resizeRunner) {
+          this.deps.ipcServer.send(resizeRunner, msg);
+        }
+        return;
+      }
       // The following are daemon→runner messages. A runner that echoes one
       // back is misbehaving but harmless — log and move on. The explicit arms
       // (rather than a catch-all `default`) make the switch exhaustive so the
       // TypeScript compiler will flag any newly-added IpcMessage variant that
       // is neither handled nor explicitly ignored here.
       case "ack":
-      case "input":
-      case "resize":
       case "pair.begin.ok":
       case "pair.begin.err":
       case "pair.completed":

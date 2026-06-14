@@ -39,9 +39,7 @@ export function NewSessionModal({
       (info) => connections.get(info.daemonId) ?? false,
     );
     const firstAny = pairingList[0];
-    setSelectedDaemonId(
-      firstOnline?.daemonId ?? firstAny?.daemonId ?? null,
-    );
+    setSelectedDaemonId(firstOnline?.daemonId ?? firstAny?.daemonId ?? null);
     // pairingList / connections are derived from stores — stable string keys
     // biome-ignore lint/correctness/useExhaustiveDependencies: intentional — only re-run when visible flips true
   }, [visible]);
@@ -177,7 +175,9 @@ export function NewSessionModal({
             accessibilityState={{ disabled: isDisabled }}
             testID="new-session-start"
           >
-            <Text className="text-tp-accent text-base font-semibold">Start</Text>
+            <Text className="text-tp-accent text-base font-semibold">
+              Start
+            </Text>
           </Pressable>
         </View>
 
@@ -219,7 +219,11 @@ export function NewSessionModal({
                       } as object)
                     : {})}
                   className={`flex-row items-center gap-3 py-2 ${!online ? "opacity-40" : ""}`}
-                  tabIndex={online ? pp.tabIndex : getPlatformProps({ focusable: false }).tabIndex}
+                  tabIndex={
+                    online
+                      ? pp.tabIndex
+                      : getPlatformProps({ focusable: false }).tabIndex
+                  }
                 >
                   {/* Status dot */}
                   <View
@@ -252,7 +256,7 @@ export function NewSessionModal({
           <View className="flex-row items-center gap-3 mb-4">
             <View
               className={`w-2 h-2 rounded-full ${
-                connections.get(pairingList[0]!.daemonId) ?? false
+                (connections.get(pairingList[0]!.daemonId) ?? false)
                   ? "bg-tp-success"
                   : "bg-tp-text-tertiary"
               }`}

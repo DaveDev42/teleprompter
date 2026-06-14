@@ -179,7 +179,10 @@ test.describe("New-session modal — heading and aria", () => {
 
   test("dialog heading is role=heading level=2", async ({ page }) => {
     await openModal(page);
-    const heading = page.getByRole("heading", { name: "New Session", level: 2 });
+    const heading = page.getByRole("heading", {
+      name: "New Session",
+      level: 2,
+    });
     await expect(heading).toBeVisible();
   });
 

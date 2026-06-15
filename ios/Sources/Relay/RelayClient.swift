@@ -572,6 +572,56 @@ final class RelayClient: NSObject {
         ioHistory[sid]
     }
 
+    // MARK: - Control-message bridge (integration pass)
+
+    /// The daemon this client is paired with. Read-only mirror of the pairing so
+    /// extensions (session CRUD, control.rename/unpair) can address the daemon
+    /// without reaching into the `private` `pairing` field.
+    var daemonId: String { pairing.daemonId }
+
+    /// This frontend's stable identity on the relay (for `control.*` messages).
+    var frontendId: String { pairing.frontendId }
+
+    /// Whether the E2EE session keys have been derived — i.e. it is safe to seal
+    /// and publish. `publishControl` checks this too; exposed so callers can give
+    /// UI feedback ("not connected yet") before attempting a send.
+    var isReady: Bool { sessionKeys != nil }
+
+    /// Seal an app-level control message with the frontend's tx key and publish
+    /// it via `relay.pub` on `sid`. This is the single bridge that cross-file
+    /// extensions use for control sends — `session.create` (RelaySessionOps),
+    /// `control.rename` / `control.unpair` (PairingRelayOps) — so the raw crypto
+    /// members (`sessionKeys`, `send`, `randomBytes`, `seal`) stay `private`.
+    ///
+    /// Mirrors the established attach/resume/input seal→publish pattern exactly:
+    /// seal with `keys.tx` + a fresh 24-byte nonce, then `RelayPublish(sid, ct)`.
+    /// No-op (logged) if kx has not completed, matching the other senders.
+    ///
+    /// - Parameters:
+    ///   - msg: any `Encodable` control payload (its own `t` tags the wire type).
+    ///   - sid: routing channel — a session sid, or `RelayChannel.meta` /
+    ///          `RelayChannel.control` for daemon-level control.
+    @discardableResult
+    func publishControl<T: Encodable>(_ msg: T, on sid: String) -> Bool {
+        guard let keys = sessionKeys else {
+            log.notice("control send before kx — dropping sid=\(sid, privacy: .public)")
+            return false
+        }
+        do {
+            let body = try JSONEncoder().encode(msg)
+            let ct = try seal(plaintext: body, key: keys.tx, nonce: try randomBytes(24))
+            send(RelayPublish(sid: sid, ct: ct, seq: 0)) { [weak self] error in
+                if let error {
+                    self?.log.notice("control \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
+            }
+            return true
+        } catch {
+            log.error("control send seal sid=\(sid, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
     /// Install the three Tranche E terminal relay callbacks on `sessionStore`
     /// (via the associated-object extension in `TerminalOps.swift`). Called in
     /// the `sessionStore` didSet so the store is always wired before any view

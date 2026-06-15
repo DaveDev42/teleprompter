@@ -139,10 +139,42 @@ final class PairingViewModel {
     }
 
     func remove(_ daemonId: String) {
+        // Notify the peer (control.unpair) BEFORE tearing down the socket — the
+        // frame can't leave once disconnected. Best-effort: no-op if kx is not
+        // complete, in which case the daemon prunes the dead pairing on its own.
+        clients[daemonId]?.sendControlUnpair()
         clients[daemonId]?.disconnect()
         clients[daemonId] = nil
         store.remove(daemonId: daemonId)
         reload()
+    }
+
+    /// Rename a daemon's local label and notify the peer (`control.rename`).
+    /// The label is persisted by the caller (`PairingStore.setLabel`); this only
+    /// pushes the change to the connected daemon. Pass `nil` to clear.
+    func renameLabel(_ label: String?, for daemonId: String) {
+        clients[daemonId]?.sendControlRename(label: label)
+    }
+
+    /// Request the daemon to create a new session at `cwd`. Routes to the client
+    /// for `daemonId` when given, else the sole connected client (single-daemon
+    /// flow). Returns whether the control frame was published.
+    @discardableResult
+    func createSession(cwd: String, daemonId: String? = nil) -> Bool {
+        let client = daemonId.flatMap { clients[$0] } ?? clients.values.first
+        return client?.createSession(cwd: cwd) ?? false
+    }
+
+    /// Read-only accessor: the relay client for a daemon (status dots, diagnostics).
+    func client(for daemonId: String) -> RelayClient? { clients[daemonId] }
+
+    /// Read-only accessor: the sole connected client (single-daemon convenience).
+    func firstClient() -> RelayClient? { clients.values.first }
+
+    /// Connection readiness for a daemon — `true` once kx completes (E2EE keys
+    /// derived). Drives the online/offline status dot in DaemonsTab.
+    func isConnected(_ daemonId: String) -> Bool {
+        clients[daemonId]?.isReady ?? false
     }
 
     /// Send a chat line into a session (M5). Routes to the client owning the

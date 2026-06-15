@@ -41,8 +41,8 @@ ios/
 `Teleprompter-macOS.entitlements` 가 SoT 이고, 프로젝트는 `scripts/ios.sh gen`
 (= `xcodegen generate`), 바인딩은 `scripts/ios.sh rust` (= `../rust/build-xcframework.sh`)
 으로 재현 가능하게 생성한다. 앱 타깃은 `../rust/target/TpCore.xcframework`
-(정적 라이브러리, **3 슬라이스**: ios-device / ios-sim-fat / macos-fat, `embed: false`) 를
-링크한다.
+(정적 라이브러리, **5 슬라이스**: ios-device / ios-sim-fat / macos-fat / xros-device /
+xros-sim, `embed: false`) 를 링크한다.
 
 ### 멀티플랫폼 빌드 (Phase 3.x A2)
 
@@ -81,7 +81,7 @@ Developer ID / MAS 인증서 없이는 요청 불가 — 로컬 `open` 실행 ma
 ```bash
 # iOS/iPadOS (기본, TP_PLATFORM 미설정 또는 ios)
 scripts/ios.sh smoke   # rust → gen → build → install → launch → 8 마커 검증 (재실행 가능)
-scripts/ios.sh rust    # TpCore.xcframework + Swift 바인딩 빌드 (rust/tp-core, 3 슬라이스)
+scripts/ios.sh rust    # TpCore.xcframework + Swift 바인딩 빌드 (rust/tp-core, 5 슬라이스)
 scripts/ios.sh build   # iOS Simulator 용 빌드만
 scripts/ios.sh run     # 설치 + 실행
 scripts/ios.sh test    # XCTest 번들을 Simulator 에서 실행 (xcframework 먼저)

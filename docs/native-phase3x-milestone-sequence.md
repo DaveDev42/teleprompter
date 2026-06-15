@@ -249,13 +249,19 @@ Until this gate passed, visionOS/watchOS were kept entirely out of
 `supportedDestinations` and the xcframework so an absent slice couldn't fail the
 Phase-A iOS/macOS smoke at link time. That constraint is now lifted for B1+.
 
-### B1 — tp-core xcframework: add visionOS slices (5 total)
-After B0 passes: add `aarch64-apple-visionos` (device) + `aarch64-apple-visionos-sim`
+### B1 — tp-core xcframework: add visionOS slices (5 total) ✅ DONE
+Added `aarch64-apple-visionos` (device) + `aarch64-apple-visionos-sim`
 (arm64-only, no lipo) to `build-xcframework.sh`. Final `-create-xcframework` = 5
 `-library` slices (ios-device, ios-sim-fat, macos-fat, visionos-device, visionos-sim).
 UniFFI bindings stay single-gen (host build, platform-agnostic). tp-core is pure
-portable Rust (zero `cfg(target_os)`) → straight recompiles. Verify:
-`plutil -p …/Info.plist | grep -c LibraryIdentifier == 5`.
+portable Rust (zero `cfg(target_os)`) → straight recompiles.
+
+**Verified:** `plutil -p …/Info.plist | grep -c LibraryIdentifier == 5` (slices:
+`ios-arm64`, `ios-arm64_x86_64-simulator`, `macos-arm64_x86_64`, `xros-arm64`,
+`xros-arm64-simulator`). No Phase A regression — iOS smoke 8/8, macOS smoke 8/8,
+0 orphan windows. Docs updated: `rust/README.md` + `ios/README.md` (3→5 슬라이스).
+Both visionOS Rust targets installed via `rustup target add` (stable, prebuilt std,
+no build-std — per B0). xcframework binary stays gitignored.
 
 ### B2 — visionOS destination + adaptation
 Add `visionOS` to `supportedDestinations`, `visionOS "1.0"` deployment target.

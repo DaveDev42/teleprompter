@@ -6,13 +6,22 @@ import SwiftUI
 /// which is wired to `RelayClient.sendInput(sid:kind:.chat text:)` by the
 /// app host (SessionDetailView → ContentView → RelayClient). No relay ops are
 /// added here — the existing send path is reused unchanged.
+///
+/// Tranche G (Voice): hosts a `VoiceButton` to the left of the send button.
+/// The `VoiceStore` is created lazily here so each chat session owns its own
+/// voice state; it is wired to call `onSend(sid, refinedPrompt)` when a
+/// refined prompt arrives from the Realtime API.
 struct ChatComposer: View {
     let sid: String
     /// `(sid, text)` — matches the `onSend` signature in SessionDetailView.
     let onSend: (String, String) -> Void
+    /// Injected so Voice can read the terminal viewport for context injection.
+    var sessionStore: SessionStore? = nil
 
     @State private var draft = ""
     @FocusState private var focused: Bool
+    /// Per-session voice store (created once, torn down with the view).
+    @State private var voice = VoiceStore()
 
     /// `true` when the session is no longer running. Disables input.
     var sessionStopped: Bool = false
@@ -25,6 +34,9 @@ struct ChatComposer: View {
         VStack(spacing: 0) {
             Divider()
             HStack(alignment: .bottom, spacing: 8) {
+                // Voice button (Tranche G) — hidden when no API key or session stopped.
+                VoiceButton(voice: voice, disabled: sessionStopped)
+
                 // Multi-line text field — grows up to ~5 lines then scrolls.
                 TextField(
                     sessionStopped ? "Session ended" : "Send a message…",
@@ -58,6 +70,20 @@ struct ChatComposer: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+        }
+        .onAppear {
+            // Wire up VoiceStore dependencies.
+            voice.sessionStore = sessionStore
+            voice.activeSid = sid
+            voice.onPromptReady = { [sid] prompt in
+                onSend(sid, prompt)
+            }
+        }
+        .onChange(of: sid) { _, newSid in
+            voice.activeSid = newSid
+            voice.onPromptReady = { prompt in
+                onSend(newSid, prompt)
+            }
         }
     }
 

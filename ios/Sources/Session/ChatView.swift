@@ -96,10 +96,12 @@ struct ChatView: View {
             }
 
             // Chat composer — only shown when a sid is known and onSend is wired.
+            // Pass `store` so the VoiceButton (Tranche G) can read terminal context.
             if let sid, let onSend {
                 ChatComposer(
                     sid: sid,
                     onSend: onSend,
+                    sessionStore: store,
                     sessionStopped: sessionStopped
                 )
             }

@@ -4,6 +4,16 @@
 > file:line citations (verified, not hearsay). Backend stays TypeScript — this phase
 > is about the **app**, not porting the backend (that's Phase 4).
 
+> **✅ PHASE 3 COMPLETE (2026-06-15).** All milestones M1–M5 shipped and
+> Simulator-verified: M1 pairing ingestion (#645), M2 relay auth (#645), M3 in-band
+> kx + first frame (#645), M4 live session render / Chat + history backfill (#647),
+> M5 send input + terminal io tab (#648). Full on-device marker chain
+> `TP_BOOT_OK → TP_CORE_OK → TP_PAIR_OK → TP_RELAY_AUTH_OK → TP_KX_OK → TP_FRAME_OK
+> → TP_SESSION_OK → TP_INPUT_OK` green on iPhone 17 Pro; 45/45 XCTest pass. The
+> next-phase fork (3.x ANSI terminal vs. real QR pairing UI vs. hardening) is
+> outlined in **Next phase** at the bottom — it needs a scope decision, not a
+> mechanical continuation.
+
 The app must become a functional teleprompter client: consume a pairing bundle, connect
 to the relay over WebSocket, complete the E2EE handshake as the **frontend** role, and
 render a live session (hooks events in Chat, terminal io in Terminal; send input back).
@@ -399,3 +409,34 @@ authoritative signal; the XCTest is the hermetic CI fallback.
   live byte-exact frontend handshake — the canonical sequence to copy),
   `packages/daemon/src/transport/relay-manager.ts`,
   `packages/daemon/src/ipc/command-dispatcher.ts`.
+
+## Next phase (post-M5 — needs a scope decision)
+
+Phase 3 delivered a functional client over the **loopback** harness: pairing via deep
+link, E2EE handshake, live render, input. The remaining gaps before this is a real
+day-to-day app are independent tracks; pick one as the next milestone (each is a fresh
+plan doc + branch):
+
+- **3.x — Full ANSI terminal emulation.** `TerminalView` currently does raw byte append
+  (escape sequences shown verbatim). Replace with SwiftTerm or a libghostty binding so the
+  io stream renders as a real terminal (cursor, colors, clears, alt-screen). Largest user-
+  visible upgrade for the Terminal tab. No wire changes — purely a render-layer swap behind
+  `terminalOutput`. Verify: visual + an XCTest that the parser consumes a known CSI stream.
+- **Real pairing UX.** Today pairing is deep-link-only (`tp://p?d=…`). Add an in-app QR
+  scanner (`AVFoundation`) + a manual-paste fallback so a user can pair against a `tp pair
+  new` QR without a deep link. Touches `DeepLinkHandler`/`PairingStore` (already the right
+  seam) + a camera-permission Info.plist key. Device-gated camera, but the QR-decode +
+  bundle-parse path is Simulator-testable with a static image.
+- **Multi-session / multi-daemon UI.** `TerminalView`/`ChatView` show
+  `sessions.keys.sorted().first` — a single session. Add a session picker and route
+  `sendInput` by the owning daemon (the `clients.values.first` shortcut in
+  `PairingViewModel.sendInput` assumes one daemon). Needed once N daemons each serve their
+  own sessions (the N:N the protocol already supports).
+- **Hardening pass.** Reconnect/backoff on socket drop, resume-token fast-path
+  (`relay.auth.resume`, currently deferred), foreground/background lifecycle, and slow-
+  consumer/idle-close survival (relay-capacity rule). Less flashy, but what makes the client
+  survive real network conditions.
+
+Recommended order if optimizing for a usable demo: **3.x ANSI** (biggest visible win) →
+**real pairing UX** (removes the deep-link-only friction) → multi-session → hardening.
+But this is a user-facing priority call, not a mechanical next step.

@@ -62,6 +62,12 @@ targets:
         CFBundleDisplayName: Teleprompter
         UILaunchScreen: {}
         UIApplicationSupportsIndirectInputEvents: true
+        # App Transport Security. Production relay is `wss://relay.tpmt.dev` (TLS),
+        # which needs no exception. The local loopback relay used by the M2 smoke
+        # test (`ws://localhost:7090`) is cleartext, so allow local networking —
+        # the narrow exemption (loopback + .local + link-local), not arbitrary loads.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         # Scene manifest is required for the scene lifecycle to deliver inbound
         # URL contexts to the scene delegate. SwiftUI normally auto-injects this
         # when GENERATE_INFOPLIST_FILE=YES; an explicit plist must declare the

@@ -10,8 +10,9 @@
 #   scripts/ios.sh build        Build the app for the iOS Simulator (rust first)
 #   scripts/ios.sh run          Install + launch on the Simulator
 #   scripts/ios.sh smoke        Full loop: rust → gen → build → install → launch → verify
-#                               boot+core markers, then inject a tp://p?d=… deep link and
-#                               verify the TP_PAIR_OK pairing marker (M1, no daemon needed)
+#                               boot+core markers; inject a tp://p?d=… deep link and verify
+#                               the TP_PAIR_OK pairing marker (M1); then start a loopback
+#                               relay and verify TP_RELAY_AUTH_OK frontend auth (M2)
 #   scripts/ios.sh test         Run the XCTest bundle on the Simulator (rust first)
 #   scripts/ios.sh boot         Boot the target simulator (idempotent)
 #
@@ -35,6 +36,14 @@ PAIR_MARKER="TP_PAIR_OK"
 # Layout (pairing.rs v3): magic "tp" | ver 3 | did_len | did | relay_len(0=default)
 # | ps(32×0x01) | pk(32×0x02); base64url-wrapped as tp://p?d=…
 SMOKE_DAEMON_ID="daemon-smoketest"
+# M2: relay connect + frontend auth. A local loopback relay (scripts/
+# local-relay-loopback.ts) pre-seeds the golden token so the app's relay.auth
+# (role=frontend) succeeds → TP_RELAY_AUTH_OK. The pairing link points the app at
+# ws://localhost:$RELAY_LOOPBACK_PORT with the golden secret (0x00..0x1f).
+RELAY_AUTH_OK_MARKER="TP_RELAY_AUTH_OK"
+RELAY_AUTH_FAIL_MARKER="TP_RELAY_AUTH_FAIL"
+RELAY_LOOPBACK_PORT="${TP_RELAY_LOOPBACK_PORT:-7099}"
+RELAY_LOOPBACK_SCRIPT="$REPO_ROOT/scripts/local-relay-loopback.ts"
 XCFRAMEWORK="$REPO_ROOT/rust/target/TpCore.xcframework"
 # Ad-hoc sign Simulator builds so entitlements (keychain-access-groups) embed —
 # the Simulator Keychain rejects SecItemAdd without an entitlement (-34018).
@@ -65,24 +74,37 @@ sys.exit(1)
 # Emit the deterministic smoke pairing deep link (tp://p?d=…) to stdout.
 # Built in Python to match pairing.rs's v3 binary layout + base64url byte-for-byte
 # so the on-device FFI decode (`decodePairingData`) succeeds without a daemon.
+# smoke_pair_link <daemonId> [relayURL] [secretMode]
+#   relayURL   "" → relay_len 0 (default relay); else embedded as the relay URL.
+#   secretMode "ones" (default, ps=32×0x01) | "golden" (ps=0x00..0x1f, the
+#              wire-vectors secret whose derive_relay_token matches the loopback's
+#              seeded token a16760de…). pk is always 32×0x02.
 smoke_pair_link() {
   /usr/bin/python3 -c '
 import base64, sys
 did = sys.argv[1]
+relay = sys.argv[2] if len(sys.argv) > 2 else ""
+secret_mode = sys.argv[3] if len(sys.argv) > 3 else "ones"
 prefix = "daemon-"
 wire_did = did[len(prefix):] if did.startswith(prefix) else did
+ps = bytes(range(32)) if secret_mode == "golden" else bytes([0x01]) * 32
 buf = bytearray()
 buf += b"tp"                       # magic
 buf.append(3)                       # version
 buf.append(len(wire_did))          # did_len
 buf += wire_did.encode()           # did
-buf.append(0)                       # relay_len = 0 → default relay
-buf += bytes([0x01]) * 32          # ps
-buf += bytes([0x02]) * 32          # pk
+if relay:
+    rb = relay.encode()
+    buf.append(len(rb))            # relay_len
+    buf += rb                       # relay url
+else:
+    buf.append(0)                   # relay_len = 0 → default relay
+buf += ps                           # ps (32)
+buf += bytes([0x02]) * 32          # pk (32)
 b64 = base64.b64encode(bytes(buf)).decode()
 b64url = b64.replace("+", "-").replace("/", "_").rstrip("=")
 print(f"tp://p?d={b64url}")
-' "$1"
+' "$@"
 }
 
 cmd_gen() {
@@ -206,31 +228,83 @@ cmd_smoke() {
     *) die "SMOKE FAIL — tp-core round-trip failed on-device: $core_line" ;;
   esac
 
-  # M1: offline pairing ingestion. Open a deterministic tp://p?d=… deep link and
-  # verify the app decodes it via FFI and emits TP_PAIR_OK did=<id> (or
-  # TP_PAIR_FAIL). This exercises the OS URL-routing path + DeepLinkHandler +
-  # PairingStore + Keychain end-to-end, no daemon required.
-  local link; link="$(smoke_pair_link "$SMOKE_DAEMON_ID")"
-  log "opening pairing deep link (M1) — watching for '$PAIR_MARKER did=$SMOKE_DAEMON_ID'"
+  # M1 + M2 share ONE pairing deep link, mirroring the real flow: a single
+  # tp://p?d=… both (M1) ingests offline → TP_PAIR_OK and (M2) drives the app's
+  # auto-connect → relay.auth → TP_RELAY_AUTH_OK. The link points at a local
+  # loopback relay (started here, golden secret so the FFI token matches the
+  # pre-seeded one), so no prod relay is ever contacted. Bring the relay up
+  # BEFORE injecting the link, since the app connects the instant it ingests.
+  start_loopback
+
+  # Golden secret + localhost relay so both the pairing ingest and the relay
+  # auth target the loopback. did=$SMOKE_DAEMON_ID matches the seeded token's id.
+  local link
+  link="$(smoke_pair_link "$SMOKE_DAEMON_ID" "ws://localhost:$RELAY_LOOPBACK_PORT" "golden")"
+  log "opening pairing deep link (M1+M2) — want '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
   xcrun simctl openurl "$udid" "$link" >/dev/null
-  local pair_line=""
-  for _ in $(seq 1 20); do
-    local pout
-    pout="$(xcrun simctl spawn "$udid" log show --last 30s --style compact \
-             --predicate "subsystem == \"$BUNDLE_ID\"" 2>/dev/null)" || true
-    pair_line="$(printf '%s\n' "$pout" | grep -Eo 'TP_PAIR_(OK|FAIL)[^"]*' | tail -n1 || true)"
-    if [ -n "$pair_line" ]; then break; fi
+
+  # Poll for both the pairing marker (M1) and the relay-auth marker (M2).
+  local pair_line="" auth_line=""
+  for _ in $(seq 1 30); do
+    local out
+    out="$(xcrun simctl spawn "$udid" log show --last 30s --style compact \
+            --predicate "subsystem == \"$BUNDLE_ID\"" 2>/dev/null)" || true
+    pair_line="$(printf '%s\n' "$out" | grep -Eo 'TP_PAIR_(OK|FAIL)[^"]*' | tail -n1 || true)"
+    auth_line="$(printf '%s\n' "$out" | grep -Eo "${RELAY_AUTH_OK_MARKER}[^\"]*|${RELAY_AUTH_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    if [ -n "$pair_line" ] && [ -n "$auth_line" ]; then break; fi
     sleep 0.5
   done
+
+  # M1 assertion.
   [ -n "$pair_line" ] || die "SMOKE FAIL — pairing deep link opened but no '$PAIR_MARKER'/TP_PAIR_FAIL line (URL not routed to app?)"
   case "$pair_line" in
-    "$PAIR_MARKER did=$SMOKE_DAEMON_ID"*)
-      log "✅ SMOKE PASS — boot + core + pairing markers observed on $SIM_NAME ('$pair_line')" ;;
-    "$PAIR_MARKER"*)
-      die "SMOKE FAIL — pairing succeeded but wrong daemon id: $pair_line (want did=$SMOKE_DAEMON_ID)" ;;
-    *)
-      die "SMOKE FAIL — pairing ingestion failed on-device: $pair_line" ;;
+    "$PAIR_MARKER did=$SMOKE_DAEMON_ID"*) log "pairing OK (M1) — '$pair_line'" ;;
+    "$PAIR_MARKER"*) die "SMOKE FAIL — pairing wrong daemon id: $pair_line (want did=$SMOKE_DAEMON_ID)" ;;
+    *) die "SMOKE FAIL — pairing ingestion failed on-device: $pair_line" ;;
   esac
+
+  # M2 assertion.
+  [ -n "$auth_line" ] || die "SMOKE FAIL — paired but no '$RELAY_AUTH_OK_MARKER'/'$RELAY_AUTH_FAIL_MARKER' line (relay connect never ran?)"
+  case "$auth_line" in
+    "$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID"*) log "relay auth OK (M2) — '$auth_line'" ;;
+    "$RELAY_AUTH_OK_MARKER"*) die "SMOKE FAIL — relay auth wrong daemon: $auth_line" ;;
+    *) die "SMOKE FAIL — relay auth failed on-device: $auth_line" ;;
+  esac
+
+  # Relay-side confirmation: a frontend is now connected (clients >= 1).
+  local clients
+  clients="$(curl -s "http://localhost:$RELAY_LOOPBACK_PORT/health" \
+              | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("clients",0))' 2>/dev/null || echo 0)"
+  [ "${clients:-0}" -ge 1 ] || die "SMOKE FAIL — relay /health reports clients=$clients (expected >=1)"
+  log "relay /health confirms clients=$clients"
+
+  log "✅ SMOKE PASS — boot + core + pairing + relay-auth markers observed on $SIM_NAME"
+}
+
+# start_loopback — bring up the local seeded relay used by the M2 auth check and
+# register cleanup so it always dies (RETURN is bypassed by `die`→exit, so trap
+# EXIT too). Sets $LOOPBACK_PID for callers that want it.
+start_loopback() {
+  require bun
+  [ -f "$RELAY_LOOPBACK_SCRIPT" ] || die "SMOKE FAIL — missing $RELAY_LOOPBACK_SCRIPT"
+
+  # Reap any orphan relay still holding the port (a prior run that died before
+  # its cleanup ran) so we always start fresh.
+  lsof -nP -iTCP:"$RELAY_LOOPBACK_PORT" -sTCP:LISTEN -t 2>/dev/null | xargs -r kill 2>/dev/null || true
+
+  local lb_out; lb_out="$(mktemp -t tp-loopback.XXXXXX)"
+  log "starting loopback relay on ws://localhost:$RELAY_LOOPBACK_PORT"
+  RELAY_PORT="$RELAY_LOOPBACK_PORT" bun run "$RELAY_LOOPBACK_SCRIPT" >"$lb_out" 2>&1 &
+  local lb_pid=$!
+  trap 'kill "'"$lb_pid"'" 2>/dev/null || true; rm -f "'"$lb_out"'" 2>/dev/null || true' EXIT
+
+  local ready=""
+  for _ in $(seq 1 30); do
+    kill -0 "$lb_pid" 2>/dev/null || die "SMOKE FAIL — loopback relay exited early: $(cat "$lb_out")"
+    case "$(cat "$lb_out" 2>/dev/null)" in *"LOOPBACK_READY"*) ready="yes"; break ;; esac
+    sleep 0.2
+  done
+  [ -n "$ready" ] || die "SMOKE FAIL — loopback relay never signalled LOOPBACK_READY: $(cat "$lb_out")"
 }
 
 cmd_test() {

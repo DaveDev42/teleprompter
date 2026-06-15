@@ -174,22 +174,50 @@ markers: `TP_PAIR_OK`, `TP_RELAY_AUTH_OK`, `TP_KX_OK`, `TP_FRAME_OK`, `TP_SESSIO
   `Data(base64Encoded:)` is correct (url-safe is only the outer `?d=` blob, handled inside
   `decode_pairing_data`). Confirmed on-device.
 
-### M2 — WebSocket connect + frontend auth (FIRST REAL E2E SIGNAL)
+### M2 — WebSocket connect + frontend auth (FIRST REAL E2E SIGNAL) ✅ DONE (2026-06-15, Simulator-verified)
 - **Goal:** app opens WS, authenticates as `role=frontend`; relay accepts + logs.
 - **Rust:** none (`derive_relay_token` `lib.rs:136`; auth has no ciphertext).
-- **Swift:** `ios/Sources/Relay/RelayClient.swift` (wraps `URLSessionWebSocketTask`, no dep;
-  state machine connecting→authenticating→authenticated; send `relay.auth`; receive loop
-  parses `RelayServerMessage`; on `relay.auth.ok` cache resume token; `relay.ping` every 30s
-  per `relay-client.ts:784-789`; reconnect backoff). `ios/Sources/Relay/RelayMessages.swift`
-  (Codable structs from `types/relay.ts`, field names verbatim: `t`,`ct`,`sid`,`seq`,
-  `frontendId`,`v`).
-- **Verify:** `TP_RELAY_AUTH_OK daemon=<id>`. Two-sided: app marker + `loopback` asserts
-  `/health clients>=1` (or relay log `frontend authenticated for daemon`,
-  `relay-server.ts:873`). XCTest `RelayAuthTests`: against in-test relay if reachable, else
-  assert the exact `relay.auth` JSON bytes vs the literal in `unpair-e2e.test.ts:78-86`.
-- **Risks:** `URLSessionWebSocketTask` non-101 handling; relay closes 1008 on auth-timeout
-  (`relay-server.ts:526`). ATS: `ws://localhost` exempt on Simulator; prod `wss://` needs no
-  exception. Defer `relay.auth.resume` — first connect uses full auth.
+- **Landed:**
+  - `ios/Sources/Relay/RelayMessages.swift` — Codable wire structs, field names verbatim
+    from `types/relay.ts`: `RelayAuth {t,v,role,daemonId,token,frontendId}` (the six-field
+    literal, matching `unpair-e2e.test.ts:77-86` / `multi-frontend.test.ts:79-88`),
+    `RelayAuthOk`/`RelayAuthErr`/`RelayPresence`/`RelayPong`, `RelayServerEnvelope` (tag-only
+    pre-decode), `RelayPing`/`RelayAuthResume` (resume deferred).
+  - `ios/Sources/Relay/RelayClient.swift` — `URLSessionWebSocketTask` wrapper, no dep.
+    State machine `idle→connecting→authenticating→authenticated(daemonId)|failed`. Token =
+    FFI `deriveRelayToken(pairingSecret)` (lowercase hex BLAKE2b-256(secret‖"relay-auth"),
+    proven byte-equal to the relay's expectation by `wire_vectors.rs:28`). Receive loop
+    re-decodes by `t`; on `relay.auth.ok` caches resume token + emits `TP_RELAY_AUTH_OK
+    daemon=<id>`; `relay.ping` every 30s. Never logs the token/secret.
+  - `TeleprompterApp.swift` — `PairingViewModel` now owns the relay clients: auto-connects on
+    pairing (`.onOpenURL` `.paired` branch) and on relaunch (`init` over existing pairings).
+    `connect()` **rebuilds** the client from the freshly-loaded pairing each call (a re-pair
+    can change secret/relay URL — a reused stale client would auth with the wrong token).
+  - `project.yml` — `NSAppTransportSecurity.NSAllowsLocalNetworking=true` so `ws://localhost`
+    (the loopback) is reachable on the Simulator; prod `wss://` needs no exception.
+  - `scripts/local-relay-loopback.ts` — in-process `RelayServer` + `registerToken` (the exact
+    pattern `relay-server.test.ts:61` uses; the relay has **no** auth-bypass dev mode). Seeds
+    the golden token `a16760de…` → `daemon-smoketest`. Prints `LOOPBACK_READY port=<p>`.
+  - `scripts/ios.sh` — `smoke` now starts the loopback, injects ONE golden-secret localhost
+    `tp://p?d=…` link (`smoke_pair_link` gained relay-URL + secret-mode args), and asserts
+    BOTH `TP_PAIR_OK` (M1 ingest) AND `TP_RELAY_AUTH_OK` (M2 auto-connect) from a single link
+    — the realistic flow — plus relay `/health clients>=1`. Orphan-relay reaping + EXIT-trap
+    cleanup (a `die`→exit bypasses a RETURN trap).
+- **Verify (passing):** `scripts/ios.sh smoke` ⇒ boot + core + pairing + relay-auth markers
+  + `clients=1`. XCTest `RelayAuthTests` (11 cases: token-vs-golden parity, six-field JSON
+  byte-shape, `v` is integer-2, auth.ok/err/presence decode, client lifecycle, marker
+  stability) ⇒ 28/28 total. Rust host 20/20.
+- **Two gotchas discovered (do NOT re-derive):**
+  1. **Relay has no token-bypass.** A loopback must pre-seed the token (`registerToken` or a
+     real `relay.register`); there is no `ALLOW_ANY_TOKEN`/`INSECURE` env. The seeded token
+     must be `derive_relay_token` of the *exact* secret the app pairs with — so the smoke
+     link uses the golden 0x00..0x1f secret (token `a16760de…`), NOT the M1 0x01 secret.
+  2. **Auto-connect makes the pairing link's relay URL live immediately.** The app connects
+     the instant it ingests, so (a) the loopback must be up BEFORE the link is injected, and
+     (b) a smoke link pointing at the default prod relay would fire a junk-token auth at
+     prod. Fix: the single smoke link points at the loopback; `connect()` rebuilds per-pair.
+- **Deferred to later:** `relay.auth.resume` fast-path (first connect uses full auth);
+  reconnect backoff (M2 connects once); multi-daemon fan-out UI.
 
 ### M3 — In-band kx + first decrypted frame (RISKIEST)
 - **Goal:** app completes kx, daemon registers it as a peer, app decrypts the daemon's

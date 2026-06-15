@@ -18,10 +18,14 @@ ios/
     Pairing/
       PairingStore.swift     # tp://p?d=… 인제스트 → Keychain(secret)+UserDefaults(meta/frontendId)
       DeepLinkHandler.swift  # tp:// 라우팅 + TP_PAIR_OK/TP_PAIR_FAIL 마커
+    Relay/
+      RelayMessages.swift    # relay 프로토콜 v2 Codable wire 타입 (types/relay.ts 와 동일 필드명)
+      RelayClient.swift      # URLSessionWebSocketTask 래퍼 — relay.auth(role=frontend) + TP_RELAY_AUTH_OK
   Tests/               # XCTest (Simulator 에서 실행)
     SmokeTests.swift
     TpCoreTests.swift  # tp-core FFI 단위 테스트 (codec/kx/aead/pairing)
     PairingStoreTests.swift  # M1 페어링 인제스트 (decode→persist→load, Keychain 왕복)
+    RelayAuthTests.swift     # M2 relay.auth wire-byte 계약 + 토큰 골든 일치 + 클라 라이프사이클
   Generated/           # ⚠️ 생성물 — gitignore. UniFFI Swift 바인딩 (scripts/ios.sh rust)
   Teleprompter-Info.plist   # ⚠️ 생성물 — gitignore. XcodeGen 이 project.yml info.properties 에서 생성
   Teleprompter.xcodeproj/   # ⚠️ 생성물 — gitignore. `xcodegen generate` 로 재생성
@@ -81,9 +85,15 @@ scripts/ios.sh boot    # 대상 시뮬레이터 부팅 (idempotent)
   OS URL 라우팅 → `.onOpenURL` → FFI `decodePairingData` → `PairingStore` → Keychain
   왕복을 daemon 없이 end-to-end 검증. 실패 시 `TP_PAIR_FAIL detail=…` 를 출력하고 실패시킨다.
   링크는 `smoke_pair_link` (pairing.rs v3 레이아웃을 바이트 동일하게 Python 으로 생성).
+- **릴레이 인증 마커 (M2)**: M1 과 같은 딥링크 하나로 — smoke 가 로컬 loopback relay
+  (`scripts/local-relay-loopback.ts`, 골든 토큰 pre-seed) 를 띄우고, golden-secret +
+  `ws://localhost` 링크를 주입하면 앱이 인제스트 직후 자동 `relay.auth(role=frontend)` 를
+  보낸다. `TP_RELAY_AUTH_OK daemon=daemon-smoketest` (앱) + relay `/health clients>=1`
+  (릴레이) 양면 확인 — 실제 WS 왕복 = 첫 E2E 네트워크 신호. 실패 시
+  `TP_RELAY_AUTH_FAIL detail=…`. 토큰은 FFI `deriveRelayToken` (= Rust 골든벡터와 바이트 일치).
 - 새 마일스톤마다 `scripts/ios.sh smoke` + `scripts/ios.sh test` 를 돌려 회귀를 차단한다.
   (Rust 호스트 테스트 = `cd rust && cargo test -p tp-core`, 와이어 골든벡터 포함.)
-  현재: smoke = boot+core+pairing 3 마커, XCTest 17/17, Rust 호스트 20/20.
+  현재: smoke = boot+core+pairing+relay-auth 4 마커, XCTest 28/28, Rust 호스트 20/20.
 
 ## 요구 도구
 

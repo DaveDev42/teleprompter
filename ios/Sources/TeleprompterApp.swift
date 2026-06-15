@@ -4,9 +4,10 @@ import os
 /// Entry point for the native Teleprompter iOS app (ADR-0001 rewrite).
 ///
 /// Boots on the iOS Simulator and routes inbound `tp://` deep links (pairing
-/// bundles) to `DeepLinkHandler` via SwiftUI's `.onOpenURL`. Real features
-/// (relay client, sessions, chat, terminal) land on top of this shell as the
-/// rewrite progresses (Phase 3 M2+).
+/// bundles) to `DeepLinkHandler` via SwiftUI's `.onOpenURL`. On a successful
+/// pairing (and on relaunch with existing pairings) it opens a relay connection
+/// and authenticates as `role=frontend` (M2). Sessions/chat/terminal land on top
+/// of this shell as the rewrite progresses (Phase 3 M3+).
 ///
 /// `.onOpenURL` only fires once the Info.plist declares a scene manifest
 /// (`UIApplicationSceneManifest`); without it the iOS 26 Simulator drops inbound
@@ -21,29 +22,59 @@ struct TeleprompterApp: App {
             RootView(pairings: pairings)
                 .onOpenURL { url in
                     self.log.notice("onOpenURL url=\(url.absoluteString, privacy: .public)")
-                    _ = DeepLinkHandler.handle(url)
-                    pairings.reload()
+                    if case let .paired(daemonId) = DeepLinkHandler.handle(url) {
+                        pairings.reload()
+                        // M2: connect to the relay as soon as a pairing lands so the
+                        // auth round-trip happens on-device (emits TP_RELAY_AUTH_OK).
+                        pairings.connect(daemonId: daemonId)
+                    } else {
+                        pairings.reload()
+                    }
                 }
         }
     }
 }
 
 /// Observable list of paired daemons, backed by `PairingStore`.
+///
+/// Also owns the live relay clients (M2): one per paired daemon, started on
+/// pairing and on a relaunch with existing pairings. Holding the clients here
+/// keeps their sockets alive for the app's lifetime.
 @Observable
 final class PairingViewModel {
     private(set) var daemonIds: [String] = []
     private let store: PairingStore
+    /// Retained relay clients keyed by daemon id (kept out of observation —
+    /// the socket lifecycle is not view state).
+    @ObservationIgnored private var clients: [String: RelayClient] = [:]
 
     init(store: PairingStore = .shared) {
         self.store = store
         reload()
+        // Reconnect any pairing that survived a relaunch.
+        for did in daemonIds { connect(daemonId: did) }
     }
 
     func reload() {
         daemonIds = store.daemonIds()
     }
 
+    /// Open a relay connection for one daemon and authenticate.
+    ///
+    /// Always rebuilds the client from the freshly-loaded pairing: a re-pair can
+    /// change the secret or relay URL, and a stale client would auth with the old
+    /// secret (wrong token). Any existing client for this daemon is torn down first.
+    func connect(daemonId: String) {
+        guard let pairing = try? store.load(daemonId: daemonId) else { return }
+        clients[daemonId]?.disconnect()
+        let client = RelayClient(pairing: pairing)
+        clients[daemonId] = client
+        client.connect()
+    }
+
     func remove(_ daemonId: String) {
+        clients[daemonId]?.disconnect()
+        clients[daemonId] = nil
         store.remove(daemonId: daemonId)
         reload()
     }

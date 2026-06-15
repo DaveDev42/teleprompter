@@ -67,7 +67,33 @@ Rust `tp-core` 는 위 상수를 **byte-for-byte** 재현해야 기존 daemon/re
   회귀 표면을 끝내지 못함. Dave 가 전면 재작성으로 결정.
 - **EAS 클라우드 빌드 유지:** 빌드 회귀·반복 지연. 로컬 Simulator 하니스로 대체.
 
-## 6. 결과
+## 6. 향후 플랫폼 (Android / Windows) — 확장 경로
+
+iOS 가 E2E 로 완성된 뒤(Phase 3 M5) 검토한다. 지금 구현하지 않지만, 진행 중인 작업이
+이 경로의 문을 닫지 않도록 다음 규율을 지킨다. **공유 단위는 `tp-core`(Rust)** 이며, 새 플랫폼이
+와도 crypto/wire 는 한 줄도 재구현하지 않는다 — 분기는 UI 셸에만 생긴다.
+
+- **공유 코어는 OS·언어 중립.** `tp-core` 의 wire codec + E2EE(AEAD/KDF/crypto_kx/ratchet) +
+  pairing 은 순수 Rust 라 모든 타깃에 byte-exact 로 재사용된다.
+  - **Android**: `cargo-ndk` 빌드 → UniFFI 가 **Kotlin** 바인딩 자동 생성 (iOS 의 Swift 바인딩과
+    동일 메커니즘). UI 셸은 Jetpack Compose 별도. Swift 는 Android 로 가지 않으므로 Swift 레이어
+    (RelayClient/세션 디코드)는 iOS/macOS/watchOS 한정 — **진짜 공유 단위는 `tp-core` 다**.
+  - **Windows**: (a) controller GUI 앱이면 `tp-core` C ABI → Tauri(Rust+web) 또는 .NET P/Invoke.
+    (b) daemon **호스트**로서의 Windows 는 **이미 WSL 로 지원**(네이티브 Windows 는 startup 차단);
+    네이티브 Windows daemon 은 Phase 4(백엔드 Rust 이관) 시 재검토.
+- **와이어는 이미 N:N 멀티플랫폼.** relay v2 는 기기별 고유 `frontendId` 로 N:N 라우팅하므로
+  iPhone·Mac·Android·Watch 가 같은 daemon 에 동시 접속하는 게 설계에 내장돼 있다. `frontendId` 는
+  반드시 기기-로컬(동기화 금지) — daemon 이 세션키를 `frontendId` 로 스코프하기 때문 (Phase 3
+  결정 참조).
+- **Push 는 provider 별로 분리.** push egress 를 `apns.ts` 로 독립시킨 패턴(Expo→APNs 마이그레이션)
+  을 그대로 따라, Android 는 `fcm.ts`(FCM), Windows 는 WNS 를 `platform` 필드로 분기한다
+  (`platform: 'ios'|'android'` 는 이미 와이어에 존재). 환경 선택은 relay 배포별 env 모델(APNS_ENV)
+  과 동일 패턴으로 키만 추가.
+- **시크릿 저장소 대응**: iOS/macOS Keychain(+iCloud 동기화) ↔ Android Keystore ↔ Windows DPAPI/
+  Credential Manager. 동기화는 Apple 생태계만 iCloud Keychain; Android/Windows 는 QR 재페어링
+  또는 각 OS 백업 메커니즘.
+
+## 7. 결과
 
 - (+) 순수 네이티브 UX, Rust 단일 crypto/codec 코어(byte-exactness 위험 소멸), EAS 의존 제거.
 - (−) RN Web 핫리로드 도그푸드 손실 → Simulator 빌드 사이클로 대체(하니스가 이 비용을 흡수).

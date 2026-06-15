@@ -19,7 +19,13 @@ settings:
     MARKETING_VERSION: "0.0.1"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
-    CODE_SIGNING_ALLOWED: "NO" # Simulator builds need no signing.
+    # Ad-hoc sign Simulator builds so entitlements (keychain-access-groups) are
+    # embedded. Without an entitlement the Simulator Keychain rejects SecItemAdd
+    # with errSecMissingEntitlement (-34018). Ad-hoc ("-") needs no developer
+    # identity and the Simulator accepts it.
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGNING_ALLOWED: "YES"
     ENABLE_USER_SCRIPT_SANDBOXING: "YES"
 
 targets:
@@ -43,11 +49,44 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.teleprompter
-        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
-        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: Teleprompter
         TARGETED_DEVICE_FAMILY: "1,2" # iPhone + iPad.
-        GENERATE_INFOPLIST_FILE: "YES"
+        CODE_SIGN_ENTITLEMENTS: Teleprompter.entitlements
+    # Explicit Info.plist (checked in) so we can register the custom `tp://` URL
+    # scheme — CFBundleURLTypes has no INFOPLIST_KEY_* equivalent, so a generated
+    # plist won't carry it. XcodeGen writes this file from `properties` and points
+    # INFOPLIST_FILE at it. The OS routes pairing deep links (`tp://p?d=…`) to the
+    # app; verified via `xcrun simctl openurl`.
+    info:
+      path: Teleprompter-Info.plist
+      properties:
+        CFBundleDisplayName: Teleprompter
+        UILaunchScreen: {}
+        UIApplicationSupportsIndirectInputEvents: true
+        # App Transport Security. Production relay is `wss://relay.tpmt.dev` (TLS),
+        # which needs no exception. The local loopback relay used by the M2 smoke
+        # test (`ws://localhost:7090`) is cleartext, so allow local networking —
+        # the narrow exemption (loopback + .local + link-local), not arbitrary loads.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        # Scene manifest is required for the scene lifecycle to deliver inbound
+        # URL contexts to the scene delegate. SwiftUI normally auto-injects this
+        # when GENERATE_INFOPLIST_FILE=YES; an explicit plist must declare the
+        # full scene configuration (with a named delegate class) or `tp://` deep
+        # links never reach the app on the iOS 26 Simulator.
+        # No UISceneDelegateClassName — SwiftUI's WindowGroup owns the scene and
+        # bridges inbound URL contexts to `.onOpenURL`. Declaring our own scene
+        # delegate is ignored by SwiftUI; the manifest's presence alone is what
+        # `.onOpenURL` needs to receive `tp://` deep links.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default Configuration
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.tpmt.teleprompter.pairing
+            CFBundleTypeRole: Editor
+            CFBundleURLSchemes:
+              - tp
 
   TeleprompterTests:
     type: bundle.unit-test

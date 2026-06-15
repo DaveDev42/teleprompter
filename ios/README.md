@@ -1,8 +1,9 @@
 # Teleprompter — native iOS / iPadOS / macOS app (Swift)
 
-ADR-0001 전면 재작성의 앱 트랙. SwiftUI 네이티브 앱 + Rust `tp-core` FFI (UniFFI).
-빌드/배포/검증은 **로컬 하니스**로 한다 (EAS 없음): iOS/iPadOS = iOS Simulator,
-macOS = native macOS (Catalyst 아님).
+ADR-0001 전면 재작성의 앱 트랙 + ADR-0002 Apple 멀티플랫폼 확장. 단일 멀티플랫폼
+SwiftUI 타깃 + Rust `tp-core` FFI (UniFFI). 빌드/배포/검증은 **로컬 하니스**로
+한다 (EAS 없음): iOS/iPadOS = iOS Simulator, macOS = native macOS (Catalyst 아님).
+visionOS(완전) + watchOS(제한 경험)은 Rust toolchain 게이트 뒤 Phase B (ADR-0002 참조).
 
 Rust 코어 자체(crate, 와이어 불변식, xcframework 빌드)는 [`../rust/README.md`](../rust/README.md) 참조.
 

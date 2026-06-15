@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Teleprompter native app harness (ADR-0001 rewrite, Phase 3.x A2).
+# Teleprompter native app harness (ADR-0001 rewrite + ADR-0002 multiplatform).
 #
-# Drives the Swift app headlessly: generate project → build → install/launch
-# → verify boot/core markers, plus run the XCTest bundle. No Xcode GUI required.
+# Drives the Swift multiplatform app (iOS/iPadOS/macOS) headlessly: generate
+# project → build → install/launch → verify the 8 on-device markers, plus run
+# the XCTest bundle. No Xcode GUI required. Platform = TP_PLATFORM (ios | macos).
+# visionOS/watchOS are toolchain-gated Phase B (ADR-0002) — not yet wired here.
 #
 # Usage:
 #   scripts/ios.sh gen          Regenerate Teleprompter.xcodeproj from project.yml

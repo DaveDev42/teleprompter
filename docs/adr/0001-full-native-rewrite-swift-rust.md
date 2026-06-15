@@ -1,6 +1,6 @@
 # ADR-0001 — 전면 네이티브 재작성 (Swift 앱 + Rust 코어)
 
-- 상태: **Accepted** (2026-06-15)
+- 상태: **Accepted** (2026-06-15) · **플랫폼 범위는 [ADR-0002](./0002-multiplatform-apple-expansion.md) 가 대체(Superseded by 0002, platform scope)** — §6 "향후 플랫폼" 및 "iOS Simulator 우선 / watchOS post-Phase-3" 전제는 0002 로 갱신. 나머지 본문(전면 재작성 결정, `tp-core` 공유 코어, 보존 불변식, 로컬 하니스)은 유효.
 - 결정자: Dave
 - 대체: (없음) — 점진 피봇 제안(`chore/pivot-planning-docs` 브랜치의 미머지 초안)을 **기각**하고 전면 재작성을 택함.
 

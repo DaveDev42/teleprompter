@@ -1,7 +1,7 @@
-# XcodeGen spec — Teleprompter native app (ADR-0001 rewrite, Phase 3.x A2).
+# XcodeGen spec — Teleprompter native multiplatform app (ADR-0001 + ADR-0002).
 #
 # Supports iOS Simulator, iPadOS, and native macOS (NOT Catalyst) from ONE target.
-# visionOS/watchOS are out of scope (Rust toolchain blocked — Phase B).
+# visionOS/watchOS are out of scope here (Rust toolchain blocked — Phase B, ADR-0002).
 #
 # The generated Teleprompter.xcodeproj is NOT checked in (see ios/.gitignore);
 # regenerate it reproducibly with `xcodegen generate` (or scripts/ios.sh gen).
@@ -121,8 +121,10 @@ targets:
     dependencies:
       - target: Teleprompter
       # SwiftTerm must be added directly to the test bundle: @testable import
-      # Teleprompter does NOT re-export SwiftTerm, so HeadlessTerminal (used in
-      # TerminalEmulatorTests) is unreachable from the test bundle otherwise.
+      # Teleprompter does NOT re-export SwiftTerm, so the SwiftTerm.Terminal type
+      # used in TerminalEmulatorTests is unreachable from the test bundle otherwise.
+      # (HeadlessTerminal is #if !os(iOS) — unavailable on the iOS test target — so
+      # the tests drive Terminal directly with a minimal TerminalDelegate stub.)
       - package: SwiftTerm
     settings:
       base:

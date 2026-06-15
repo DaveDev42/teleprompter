@@ -8,7 +8,7 @@ INPUT=$(cat)
 FILE=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 
 case "$FILE" in
-  *package.json|*app.json|*.release-please-manifest.json)
+  *package.json|*.release-please-manifest.json)
     CONTENT=$(echo "$INPUT" | jq -r '.tool_input.new_string // .tool_input.content // empty')
     if echo "$CONTENT" | grep -qE '"version"\s*:'; then
       echo "BLOCKED: version 필드 수동 편집 금지. Release Please가 자동 관리합니다." >&2

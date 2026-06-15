@@ -160,10 +160,11 @@ final class PairingStore {
             relayURL: relay, daemonId: did, frontendId: frontendId(), version: v)
     }
 
-    /// Remove a pairing (Keychain secret + metadata + index entry).
+    /// Remove a pairing (Keychain secret + metadata + label + index entry).
     func remove(daemonId: String) {
         keychainDelete(account: daemonId)
         defaults.removeObject(forKey: Key.meta(daemonId))
+        defaults.removeObject(forKey: "tp.pairing.\(daemonId).label")
         defaults.set(daemonIds().filter { $0 != daemonId }, forKey: Key.daemonIndex)
     }
 

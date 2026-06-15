@@ -130,147 +130,107 @@ final class PairingViewModel {
     }
 }
 
-/// The three top-level destinations, shared by both platform shells so the
-/// labels/icons and the view bodies live in exactly one place.
-enum AppSection: String, CaseIterable, Identifiable, Hashable {
-    case sessions, chat, terminal
+/// The three top-level navigation destinations. Both platform shells (iOS TabView
+/// and macOS NavigationSplitView sidebar) are driven by this enum so labels, icons,
+/// and ordering live in exactly one place.
+enum AppTab: String, CaseIterable, Identifiable, Hashable {
+    case sessions, daemons, settings
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .sessions: return "Sessions"
-        case .chat: return "Chat"
-        case .terminal: return "Terminal"
+        case .daemons:  return "Daemons"
+        case .settings: return "Settings"
         }
     }
 
     var systemImage: String {
         switch self {
         case .sessions: return "list.bullet"
-        case .chat: return "bubble.left.and.bubble.right"
-        case .terminal: return "terminal"
-        }
-    }
-}
-
-/// Renders the view body for a given `AppSection`. Both platform shells route
-/// through this one builder so the macOS sidebar detail pane and the iOS tab
-/// content are guaranteed identical — the only platform divergence is the chrome.
-struct SectionView: View {
-    let section: AppSection
-    let pairings: PairingViewModel
-    @ObservedObject var sessionStore: SessionStore
-    /// Rust-core status string, computed in `TeleprompterApp.init` and surfaced in
-    /// `SessionsView`.
-    let coreStatus: String
-
-    var body: some View {
-        switch section {
-        case .sessions:
-            SessionsView(pairings: pairings, coreStatus: coreStatus)
-        case .chat:
-            ChatView(store: sessionStore)
-        case .terminal:
-            TerminalView(store: sessionStore) { sid, text in
-                pairings.sendInput(sid: sid, text: text)
-            }
+        case .daemons:  return "server.rack"
+        case .settings: return "gearshape"
         }
     }
 }
 
 /// Root navigation. iOS/iPadOS use a bottom `TabView`; native macOS uses a
 /// `NavigationSplitView` sidebar (A4 — a bottom tab bar reads as foreign on the
-/// desktop). Both shells render the same `SectionView` bodies, so the only
-/// platform divergence is the chrome, not the content.
+/// desktop). Both shells render the same tab bodies so the only platform divergence
+/// is the chrome, not the content.
 ///
 /// `coreStatus` is computed once at app launch (`TeleprompterApp.init`) and passed
 /// in for display — the boot/core *markers* are emitted there, not from any view,
-/// so verification is independent of which section/tab is on screen.
+/// so verification is independent of which tab is on screen.
 struct RootView: View {
     let pairings: PairingViewModel
     @ObservedObject var sessionStore: SessionStore
     let coreStatus: String
 
+    @AppStorage("theme") private var theme: AppTheme = .system
+
     var body: some View {
+        content
+            .preferredColorScheme(theme.colorScheme)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         #if os(macOS)
         MacRootView(pairings: pairings, sessionStore: sessionStore, coreStatus: coreStatus)
         #else
         TabView {
-            ForEach(AppSection.allCases) { section in
-                SectionView(section: section,
-                            pairings: pairings,
-                            sessionStore: sessionStore,
-                            coreStatus: coreStatus)
-                    .tabItem { Label(section.title, systemImage: section.systemImage) }
+            ForEach(AppTab.allCases) { tab in
+                tabContent(tab)
+                    .tabItem { Label(tab.title, systemImage: tab.systemImage) }
             }
         }
         #endif
     }
+
+    @ViewBuilder
+    private func tabContent(_ tab: AppTab) -> some View {
+        switch tab {
+        case .sessions:
+            SessionsTab(sessionStore: sessionStore, pairings: pairings)
+        case .daemons:
+            DaemonsTab(pairings: pairings)
+        case .settings:
+            SettingsTab(coreStatus: coreStatus)
+        }
+    }
 }
 
 #if os(macOS)
-/// macOS sidebar shell (A4). A `NavigationSplitView` with the three sections in
-/// the sidebar and the selected section's view in the detail pane. Selection is
+/// macOS sidebar shell (A4). A `NavigationSplitView` with the three tabs in
+/// the sidebar and the selected tab's view in the detail pane. Selection is
 /// keyboard-navigable (↑/↓ in the sidebar `List`), satisfying the A4
 /// keyboard-first goal without bespoke key handling.
 struct MacRootView: View {
     let pairings: PairingViewModel
     @ObservedObject var sessionStore: SessionStore
     let coreStatus: String
-    @State private var selection: AppSection? = .sessions
+    @State private var selection: AppTab? = .sessions
 
     var body: some View {
         NavigationSplitView {
-            List(AppSection.allCases, selection: $selection) { section in
-                Label(section.title, systemImage: section.systemImage)
-                    .tag(section)
-                    .accessibilityIdentifier("sidebar-\(section.rawValue)")
+            List(AppTab.allCases, selection: $selection) { tab in
+                Label(tab.title, systemImage: tab.systemImage)
+                    .tag(tab)
+                    .accessibilityIdentifier("sidebar-\(tab.rawValue)")
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
             .navigationTitle("Teleprompter")
         } detail: {
-            SectionView(section: selection ?? .sessions,
-                        pairings: pairings,
-                        sessionStore: sessionStore,
-                        coreStatus: coreStatus)
+            switch selection ?? .sessions {
+            case .sessions:
+                SessionsTab(sessionStore: sessionStore, pairings: pairings)
+            case .daemons:
+                DaemonsTab(pairings: pairings)
+            case .settings:
+                SettingsTab(coreStatus: coreStatus)
+            }
         }
     }
 }
 #endif
-
-/// The FFI diagnostics header plus the paired-daemons list (pre-M4 RootView body).
-struct SessionsView: View {
-    let pairings: PairingViewModel
-    /// Rust-core status, produced by `RootView`'s boot probe and shown in the header.
-    var coreStatus: String = "checking…"
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    ContentView(coreStatus: coreStatus)
-                        .frame(maxWidth: .infinity)
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                }
-                Section("Paired daemons") {
-                    if pairings.daemonIds.isEmpty {
-                        Text("No pairings yet. Open a tp://p?d=… link.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(pairings.daemonIds, id: \.self) { did in
-                            Text(did)
-                                .font(.callout.monospaced())
-                                .accessibilityIdentifier("daemon-\(did)")
-                        }
-                        .onDelete { offsets in
-                            offsets.map { pairings.daemonIds[$0] }.forEach(pairings.remove)
-                        }
-                    }
-                }
-            }
-            .navigationTitle("Teleprompter")
-        }
-    }
-}

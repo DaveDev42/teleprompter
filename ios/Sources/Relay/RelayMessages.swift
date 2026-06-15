@@ -13,6 +13,15 @@ enum RelayProtocol {
     static let version = 2
 }
 
+/// Well-known sid channels (not real sessions). The daemon publishes the session
+/// list (`hello`) on `__meta__` and control ops (unpair/rename) on `__control__`;
+/// the frontend must subscribe to both to receive them
+/// (`packages/relay/src/relay-server.ts` only forwards to subscribers).
+enum RelayChannel {
+    static let meta = "__meta__"
+    static let control = "__control__"
+}
+
 // MARK: - Frontend → Relay
 
 /// `relay.auth` — the frontend authenticates after the socket opens.
@@ -43,6 +52,51 @@ struct RelayAuthResume: Encodable, Equatable {
 struct RelayPing: Encodable, Equatable {
     let t = "relay.ping"
     let ts: Double?
+}
+
+/// `relay.kx` — in-band public-key exchange (M3). The relay fans this out to the
+/// opposite-role peer(s); the daemon decrypts `ct` with the kx-envelope key
+/// (`derive_kx_key(pairingSecret)`) to recover the frontend's pubkey + frontendId.
+///
+/// Wire shape is exactly `{ t, ct, role }` — `frontendId` is NOT at the envelope
+/// level, it lives ONLY inside the sealed `ct` plaintext
+/// (`packages/protocol/src/types/relay.ts` `RelayKeyExchange`). The sealed
+/// plaintext is `{ pk, frontendId, role: "frontend" }` (3 fields, no `v`) — the
+/// tested daemon-decode norm at `relay-client.ts:451-454`.
+struct RelayKeyExchange: Encodable, Equatable {
+    let t = "relay.kx"
+    let ct: String
+    let role = "frontend"
+}
+
+/// The sealed plaintext inside a frontend `relay.kx`'s `ct`. `pk` is standard
+/// base64 (libsodium original `+/` with padding) of the 32-byte X25519 pubkey.
+/// `v` is deliberately omitted to match the tested daemon-decode norm
+/// (`relay-client.ts:451-454`; daemon defaults absent `v` to 1).
+struct KxPayload: Encodable, Equatable {
+    let pk: String
+    let frontendId: String
+    let role = "frontend"
+}
+
+/// `relay.sub` — subscribe to a sid so the relay forwards its frames. `after` is
+/// the last-seen seq for cache replay: the relay replays cached frames with
+/// `seq > after` ONLY when `after` is present (`relay-server.ts:1201-1209`); a
+/// subscribe with no `after` does NOT replay. We subscribe with `after: 0` so an
+/// auto-`hello` the daemon may have pushed before we subscribed is still recovered.
+struct RelaySubscribe: Encodable, Equatable {
+    let t = "relay.sub"
+    let sid: String
+    let after: Int?
+}
+
+/// `relay.pub` — publish an E2EE frame on a sid. `ct` is sealed with the
+/// frontend's tx session key. Used for the on-demand `hello` fallback.
+struct RelayPublish: Encodable, Equatable {
+    let t = "relay.pub"
+    let sid: String
+    let ct: String
+    let seq: Int
 }
 
 // MARK: - Relay → Frontend
@@ -77,6 +131,72 @@ struct RelayPresence: Decodable, Equatable {
 struct RelayPong: Decodable, Equatable {
     let t: String
     let ts: Double?
+}
+
+/// `relay.kx.frame` — the relay delivers a peer's `relay.kx` here. `from` is the
+/// originating role; the frontend only acts on `from == "daemon"` frames (mirror
+/// of `relay-client.ts:446`). `ct` is sealed with the kx-envelope key.
+struct RelayKeyExchangeFrame: Decodable, Equatable {
+    let t: String
+    let ct: String
+    let from: String
+}
+
+/// The daemon's kx plaintext, recovered by decrypting a `relay.kx.frame(from:
+/// daemon)`'s `ct` with the kx-envelope key. The daemon seals 4 fields
+/// (`{pk, role, v, label}`, `relay-client.ts:431-436`); M3 reads only `pk`, the
+/// daemon's *current* X25519 pubkey (standard base64). This is the authoritative
+/// pubkey for session-key derivation — it tracks a daemon keypair rotation that a
+/// stale pairing-bundle pubkey would miss.
+struct DaemonKxPayload: Decodable, Equatable {
+    let pk: String
+}
+
+/// `relay.frame` — an inbound E2EE data frame. The auto-`hello` arrives as a
+/// `relay.frame` with `sid == "__meta__"` and `from == "daemon"`; `ct` is bare
+/// sealed JSON (NOT the u32-length framed codec — that is IPC-only). Decrypt with
+/// the frontend's rx session key, then JSON-decode the discriminated payload.
+struct RelayFrame: Decodable, Equatable {
+    let t: String
+    let sid: String
+    let ct: String
+    let seq: Int
+    let from: String
+    let frontendId: String?
+}
+
+/// `hello` (`SessionHelloReply`) — the daemon's session-list reply, decrypted out
+/// of a `__meta__` `relay.frame`. `v` is hardcoded to 1 on both daemon paths
+/// (`relay-manager.ts:129`, `command-dispatcher.ts:459`) — do not gate on it.
+/// Sessions live at `d.sessions`; the status field is `state`, NOT `status`.
+struct SessionHelloReply: Decodable, Equatable {
+    let t: String
+    let v: Int
+    let d: HelloData
+
+    struct HelloData: Decodable, Equatable {
+        let sessions: [SessionMeta]
+    }
+}
+
+/// One session's metadata (`packages/protocol/src/types/session-proto.ts:11-20`).
+/// Only the fields the frontend renders are decoded; `daemonLabel` (a tagged
+/// union) and optional fields are intentionally omitted from M3's first decode.
+struct SessionMeta: Decodable, Equatable {
+    let sid: String
+    let state: String // "running" | "stopped" | "error" — NOT named "status"
+    let cwd: String
+    let createdAt: Double
+    let updatedAt: Double
+    let lastSeq: Int
+}
+
+/// The on-demand `hello` request the frontend seals with its tx key and publishes
+/// on `__meta__` when no auto-`hello` arrives (belt-and-suspenders against the
+/// kx→publish timing race). The daemon's command-dispatcher replies on `__meta__`.
+struct HelloRequest: Encodable, Equatable {
+    let t = "hello"
+    let v = RelayProtocol.version
 }
 
 /// A server message decoded far enough to dispatch on `t`. The full payload is

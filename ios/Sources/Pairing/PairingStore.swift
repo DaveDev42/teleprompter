@@ -70,6 +70,14 @@ final class PairingStore {
     // MARK: frontendId
 
     /// The stable per-install identity, generated once and persisted.
+    ///
+    /// MUST stay **device-local** — never sync via iCloud. The daemon scopes a
+    /// frontend's E2EE session keys by `frontendId` (`relay-client.ts` keys its
+    /// `peers` map on it), so two devices sharing one `frontendId` would silently
+    /// clobber each other's session keys (the second device's kx overwrites the
+    /// first's, breaking decryption on both). `UserDefaults.standard` is per-device;
+    /// do NOT move this to `NSUbiquitousKeyValueStore`. Only the *pairing secret*
+    /// (a shared group credential) is synced — see `keychainSet`.
     func frontendId() -> String {
         if let existing = defaults.string(forKey: Key.frontendId), !existing.isEmpty {
             return existing
@@ -166,10 +174,19 @@ final class PairingStore {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: account,
+            // The pairing secret is a shared *group* credential (the kx-envelope
+            // key). Sync it via iCloud Keychain so a user who pairs once on iPhone
+            // gets it on Mac/Watch with no QR re-pair. This is orthogonal to the
+            // daemon↔frontend E2EE: each device still does its own kx with its own
+            // device-local `frontendId`, so synced secret + per-device frontendId
+            // is the correct multi-device combination (see `frontendId()`).
+            kSecAttrSynchronizable as String: kCFBooleanTrue!,
         ]
         SecItemDelete(base as CFDictionary) // idempotent overwrite
         var add = base
         add[kSecValueData as String] = data
+        // Synchronizable items must use a sync-compatible accessibility class;
+        // AfterFirstUnlock is the recommended one for background-reachable secrets.
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         let status = SecItemAdd(add as CFDictionary, nil)
         guard status == errSecSuccess else { throw PairingError.keychain(status) }
@@ -180,6 +197,8 @@ final class PairingStore {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: account,
+            // Match both synced and (legacy) local items written before sync.
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
@@ -195,6 +214,8 @@ final class PairingStore {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: account,
+            // Delete both synced and local variants.
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
         ]
         SecItemDelete(query as CFDictionary)
     }

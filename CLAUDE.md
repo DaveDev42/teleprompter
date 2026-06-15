@@ -6,11 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Teleprompter is a remote Claude Code session controller. A native **Swift (SwiftUI)** iOS app connects to a Bun-based Daemon via encrypted relay to control Claude Code sessions with a dual Chat/Terminal UI.
 
-> **전면 네이티브 재작성 진행 중 (2026-06, ADR-0001).** Expo/RN/RN Web 프런트엔드 + EAS 클라우드 빌드를 **전면 제거**하고, 앱은 Swift(SwiftUI) 네이티브로, 공유 코어는 Rust(`tp-core`, UniFFI 순수함수)로 재작성한다. **앱은 단일 멀티플랫폼 SwiftUI 타깃** — iOS/iPadOS/네이티브 macOS(Catalyst 아님)가 현재 출하 범위(Phase A), visionOS + watchOS(제한 경험)는 Rust toolchain 게이트 뒤 Phase B (ADR-0002). 빌드/검증은 **로컬 Apple 하니스**(`scripts/ios.sh`, `TP_PLATFORM=ios|macos` + XcodeGen `ios/project.yml`)가 담당한다 (EAS 클라우드 빌드 대체). SoT = `docs/adr/0001-full-native-rewrite-swift-rust.md` + **플랫폼 범위 `docs/adr/0002-multiplatform-apple-expansion.md`**. 백엔드(daemon/relay/runner)와 CLI 는 **현행 Bun/TypeScript 구현을 레퍼런스로 유지** (Rust 이관은 후순위 Phase). 아래 wire(framed JSON)·relay ciphertext-only·daemon=relay 유일 클라이언트 불변식은 재작성 후에도 보존된다.
+> **전면 네이티브 재작성 진행 중 (2026-06, ADR-0001).** Expo/RN/RN Web 프런트엔드 + EAS 클라우드 빌드를 **전면 제거**하고, 앱은 Swift(SwiftUI) 네이티브로, 공유 코어는 Rust(`tp-core`, UniFFI 순수함수)로 재작성한다. **앱은 단일 멀티플랫폼 SwiftUI 타깃** — iOS/iPadOS/네이티브 macOS(Catalyst 아님)가 현재 출하 범위(Phase A), visionOS + watchOS(제한 경험)는 Rust toolchain 게이트 뒤 Phase B (ADR-0002). 빌드/검증은 **로컬 Apple 하니스**(`scripts/ios.sh`, `TP_PLATFORM=ios|macos|visionos|watchos` + XcodeGen `ios/project.yml`)가 담당한다 (EAS 클라우드 빌드 대체). SoT = `docs/adr/0001-full-native-rewrite-swift-rust.md` + **플랫폼 범위 `docs/adr/0002-multiplatform-apple-expansion.md`**. 백엔드(daemon/relay/runner)와 CLI 는 **현행 Bun/TypeScript 구현을 레퍼런스로 유지** (Rust 이관은 후순위 Phase). 아래 wire(framed JSON)·relay ciphertext-only·daemon=relay 유일 클라이언트 불변식은 재작성 후에도 보존된다.
 
 ## Tech Stack
 
-- **App (Apple multiplatform)**: Swift + SwiftUI, 단일 멀티플랫폼 타깃. 현재 출하 = iOS Simulator / iPadOS / 네이티브 macOS (Phase A) + **visionOS Simulator (B2 ✅)**; watchOS 제한 경험은 Phase B3 (ADR-0002). 빌드/검증 = 로컬 하니스 (`xcodebuild` + `xcrun simctl`(iOS/visionOS) / `open` + 호스트 unified log(macOS), `scripts/ios.sh` + `TP_PLATFORM`). EAS 미사용.
+- **App (Apple multiplatform)**: Swift + SwiftUI, 단일 멀티플랫폼 타깃 + **별도 `TeleprompterWatch` 타깃(B3 ✅)**. 현재 출하 = iOS Simulator / iPadOS / 네이티브 macOS (Phase A) + **visionOS Simulator (B2 ✅)** + **watchOS Simulator 제한 경험 (B3 ✅)**. 빌드/검증 = 로컬 하니스 (`xcodebuild` + `xcrun simctl`(iOS/visionOS/watchOS) / `open` + 호스트 unified log(macOS), `scripts/ios.sh` + `TP_PLATFORM`). EAS 미사용.
 - **Shared core**: Rust (`rust/tp-core`) — wire codec + E2EE crypto(AEAD/KDF/crypto_kx/ratchet) + pairing. Swift 에 UniFFI FFI(순수 함수만)로 노출, TS 구현과 byte-exact (골든벡터 교차검증). xcframework = `rust/build-xcframework.sh` (= `scripts/ios.sh rust`). 상세 = `rust/README.md`. **(Phase 2 ✅ 구현 + Simulator 검증 완료)**
 - **Backend / CLI**: TypeScript on Bun v1.3.13+ (Runner, Daemon, Relay, CLI). 현행 구현 = 동작 레퍼런스 + dogfood 파이프라인. Turborepo + pnpm 모노레포.
 - **Encryption**: X25519 + XChaCha20-Poly1305 (libsodium on Bun; `tp-core` 가 순수 Rust crate 로 byte-exact 재현, 골든벡터 검증 완료).
@@ -100,7 +100,7 @@ frontmatter가 `model: inherit`이라 미명시 시 부모 Opus 상속.
   `general-purpose`)
 - **어려운 설계/추론만 opus**: 명확히 필요할 때만
 - **QA**: 백엔드 회귀(`bun test`) = `haiku`. 앱 검증은 로컬 Swift 하니스
-  (`scripts/ios.sh build|smoke|test`, `TP_PLATFORM=ios|macos|visionos`)로 수행 — macOS-native smoke 는
+  (`scripts/ios.sh build|smoke|test`, `TP_PLATFORM=ios|macos|visionos|watchos`)로 수행 — macOS-native smoke 는
   sim 부팅 없는 빠른 회귀 경로. RN Web/Playwright/Maestro/expo-mcp QA 는 재작성으로 제거됨.
 
 **워크플로우/서브에이전트 BRIEF 에 *미검증 과거 서술*을 ground truth 로 박지 말 것.**
@@ -114,7 +114,7 @@ fix-탐색 워크플로우는 가드가 구조에 박힌 `.claude/workflows/fact
 
 - **Backend/CLI (Bun, Tier 1–3)**: `bun:test`. 소스 옆 co-located 유닛/통합 테스트.
 - **Rust core (`tp-core`)**: `cargo test -p tp-core` — 유닛 + 와이어 골든벡터(TS 교차검증). 상세는 `rust/README.md`.
-- **App (Swift, multiplatform)**: `scripts/ios.sh test` (XCTest) + `smoke` (8 마커 검증), `TP_PLATFORM=ios`(기본, Simulator) / `TP_PLATFORM=macos`(네이티브, 호스트 로그). 상세는 `ios/README.md`.
+- **App (Swift, multiplatform)**: `scripts/ios.sh test` (XCTest) + `smoke` (iOS/macOS/visionOS 8마커, watchOS 7마커), `TP_PLATFORM=ios`(기본, Simulator) / `TP_PLATFORM=macos`(네이티브, 호스트 로그) / `TP_PLATFORM=visionos`(xrOS Sim) / `TP_PLATFORM=watchos`(watchOS Sim, B3 ✅). 상세는 `ios/README.md`.
 
 ### 명령어
 ```bash
@@ -124,6 +124,7 @@ pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner)
 scripts/ios.sh test    # Swift 앱 XCTest (Simulator; tp-core FFI 포함)
 scripts/ios.sh smoke   # Swift 앱 빌드+설치+8마커 스모크 (TP_PLATFORM=ios 기본)
 TP_PLATFORM=macos scripts/ios.sh smoke   # 네이티브 macOS 스모크 (sim 없는 빠른 회귀 경로)
+TP_PLATFORM=watchos scripts/ios.sh smoke  # watchOS Simulator 7마커 스모크 (B3 ✅, TP_INPUT_OK 제외)
 ```
 
 > **macOS 로컬에서는 경로에 반드시 선행 `./` 를 붙인다.** un-rooted 경로(`bun test packages/daemon`)는
@@ -139,7 +140,7 @@ TP_PLATFORM=macos scripts/ios.sh smoke   # 네이티브 macOS 스모크 (sim 없
 
 ## Dog-fooding (tp 백엔드 파이프라인)
 
-이 repo 에서 Claude Code 는 **항상 `tp` 로 실행** (`claude ...` 아님) — 모든 세션이 로컬 daemon → relay 파이프라인을 타게 해 백엔드(daemon/relay/runner) 를 매일 dogfood 한다. (RN Web 라이브 UI dogfood 는 Expo 제거로 사라졌다 — Swift 앱은 `scripts/ios.sh` 하니스(`TP_PLATFORM=ios|macos`)의 8마커 smoke + XCTest 로 검증한다. 인터랙티브 UI dogfood 복귀는 후속.)
+이 repo 에서 Claude Code 는 **항상 `tp` 로 실행** (`claude ...` 아님) — 모든 세션이 로컬 daemon → relay 파이프라인을 타게 해 백엔드(daemon/relay/runner) 를 매일 dogfood 한다. (RN Web 라이브 UI dogfood 는 Expo 제거로 사라졌다 — Swift 앱은 `scripts/ios.sh` 하니스(`TP_PLATFORM=ios|macos|visionos|watchos`)의 smoke + XCTest 로 검증한다. 인터랙티브 UI dogfood 복귀는 후속.)
 
 ### Local `tp` Binary Freshness (자동 룰)
 
@@ -226,7 +227,7 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 
 ## Deployment Pipeline
 
-`tp` 바이너리 release 는 `/release` 슬래시 커맨드가 전 과정을 자동화 (release-please → multi-platform `bun build --compile` → GitHub Release → Homebrew tap). 전체 SoT (main push / v* tag / 수동 dispatch 표, 릴리즈 수동 절차, Infrastructure, GitHub Secrets) 는 `.claude/rules/release-deploy.md`. Apple 멀티플랫폼 앱(iOS/iPadOS/macOS)은 로컬 하니스(`scripts/ios.sh`, `TP_PLATFORM=ios|macos`)로 빌드/검증 — EAS 클라우드 빌드는 제거됨.
+`tp` 바이너리 release 는 `/release` 슬래시 커맨드가 전 과정을 자동화 (release-please → multi-platform `bun build --compile` → GitHub Release → Homebrew tap). 전체 SoT (main push / v* tag / 수동 dispatch 표, 릴리즈 수동 절차, Infrastructure, GitHub Secrets) 는 `.claude/rules/release-deploy.md`. Apple 멀티플랫폼 앱(iOS/iPadOS/macOS/visionOS/watchOS)은 로컬 하니스(`scripts/ios.sh`, `TP_PLATFORM=ios|macos|visionos|watchos`)로 빌드/검증 — EAS 클라우드 빌드는 제거됨.
 
 ## CLI Commands
 
@@ -328,18 +329,18 @@ PRD and internal docs are written in Korean. Code, comments, and commit messages
 
 ## Native App Build (Multiplatform)
 
-**Apple 멀티플랫폼 앱(iOS/iPadOS/macOS/visionOS) 빌드/검증은 로컬 하니스가 담당한다 (EAS 클라우드 제거).** XcodeGen `ios/project.yml` 이 프로젝트 SoT — 단일 타깃 `platform: auto` + `supportedDestinations: [iOS, macOS, visionOS]` (`.xcodeproj` 는 생성물, gitignore; 디렉터리명은 `ios/` 유지, ADR-0002). 하니스 = `scripts/ios.sh` (`TP_PLATFORM=ios` 기본 / `macos` / `visionos`):
+**Apple 멀티플랫폼 앱(iOS/iPadOS/macOS/visionOS + watchOS 별도 타깃) 빌드/검증은 로컬 하니스가 담당한다 (EAS 클라우드 제거).** XcodeGen `ios/project.yml` 이 프로젝트 SoT — 멀티플랫폼 타깃 `platform: auto` + `supportedDestinations: [iOS, macOS, visionOS]` + 별도 `TeleprompterWatch` 타깃(`platform: watchOS`, B3 ✅) (`.xcodeproj` 는 생성물, gitignore; 디렉터리명은 `ios/` 유지, ADR-0002). 하니스 = `scripts/ios.sh` (`TP_PLATFORM=ios` 기본 / `macos` / `visionos` / `watchos`):
 
 ```bash
-scripts/ios.sh rust     # TpCore.xcframework (5 슬라이스: ios-device/ios-sim-fat/macos-fat/xros-arm64/xros-sim) + UniFFI 바인딩
+scripts/ios.sh rust     # TpCore.xcframework (7 슬라이스: ios-arm64/ios-sim-fat/macos-fat/xros-arm64/xros-sim/watchos-arm64/watchos-sim) + UniFFI 바인딩
 scripts/ios.sh gen      # xcodegen generate (.xcodeproj 재생성)
 scripts/ios.sh boot     # Simulator 부팅 (TP_SIM, default "iPhone 17 Pro"; iOS 전용)
-scripts/ios.sh build    # xcodebuild (iOS: Debug-iphonesimulator / macOS: platform=macOS / visionOS: Debug-xrsimulator)
+scripts/ios.sh build    # xcodebuild (iOS: Debug-iphonesimulator / macOS: platform=macOS / visionOS: Debug-xrsimulator / watchOS: Debug-watchsimulator)
 scripts/ios.sh run      # install + launch (macOS: open -n)
-scripts/ios.sh smoke    # rust→gen→build→launch + 8마커 검증 (TP_BOOT_OK … TP_INPUT_OK)
+scripts/ios.sh smoke    # rust→gen→build→launch + 마커 검증 (iOS/macOS/visionOS: 8마커, watchOS: 7마커)
 scripts/ios.sh test     # XCTest (iOS Simulator; xcframework 먼저)
 ```
 
-`TP_FORCE_RUST=1` = xcframework 매번 재빌드(Rust 수정 후), `TP_SKIP_RUST=1` = 재빌드 스킵(빠른 반복). `TP_PLATFORM=macos` = 네이티브 macOS 경로(sim 없이 `open` + 호스트 unified log 스크랩 — 빠른 회귀). `TP_PLATFORM=visionos` = visionOS Simulator 경로(B2 ✅). watchOS 는 Phase B3 (별도 타깃, ADR-0002).
+`TP_FORCE_RUST=1` = xcframework 매번 재빌드(Rust 수정 후), `TP_SKIP_RUST=1` = 재빌드 스킵(빠른 반복). `TP_PLATFORM=macos` = 네이티브 macOS 경로(sim 없이 `open` + 호스트 unified log 스크랩 — 빠른 회귀). `TP_PLATFORM=visionos` = visionOS Simulator 경로(B2 ✅). `TP_PLATFORM=watchos` = watchOS Simulator 경로, `TeleprompterWatch` 타깃 빌드, 7마커(TP_INPUT_OK 제외, B3 ✅). `TP_WATCH_SIM` = watchOS Simulator 기기명(기본 `"Apple Watch Series 11 (46mm)"`). ADR-0002.
 
 부트마커는 `os.Logger(subsystem: "dev.tpmt.teleprompter", category: "boot")` 로 emit, 하니스가 Simulator unified log 를 `--predicate "subsystem == ..."` 로 grep 검증. **코어마커**(`TP_CORE_OK`/`TP_CORE_FAIL`)는 `TpCoreCheck` 가 encode→encrypt→decrypt→decode 라운드트립을 FFI 로 실행한 결과 — Rust 정적 라이브러리가 링크됐고 실기 런타임에서 동작함을 증명한다. 상세는 `ios/README.md` + `rust/README.md`. 실기기/TestFlight 배포는 재작성 진행에 따라 별도 정착.

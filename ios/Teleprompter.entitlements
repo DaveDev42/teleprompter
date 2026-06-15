@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for the native Teleprompter app.
+
+  keychain-access-groups is required for the Keychain to be usable. On the iOS
+  Simulator an unsigned app (CODE_SIGNING_ALLOWED=NO) has no entitlements, so
+  SecItemAdd fails with errSecMissingEntitlement (-34018); ad-hoc signing this
+  entitlements file fixes it. The group uses the bundle id so it's stable across
+  signed (device) and ad-hoc (simulator) builds.
+-->
+<plist version="1.0">
+<dict>
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)dev.tpmt.teleprompter</string>
+    </array>
+</dict>
+</plist>

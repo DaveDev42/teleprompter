@@ -137,20 +137,42 @@ markers: `TP_PAIR_OK`, `TP_RELAY_AUTH_OK`, `TP_KX_OK`, `TP_FRAME_OK`, `TP_SESSIO
 - **Risks:** bash background-process lifecycle (trap EXIT); `tp` must be built; document
   `localhost` reachability.
 
-### M1 — Pairing bundle ingestion (offline)
+### M1 — Pairing bundle ingestion (offline) ✅ DONE (2026-06-15, Simulator-verified)
 - **Goal:** app accepts `tp://p?d=…`, decodes via FFI, persists the pairing.
 - **Rust:** none (`decode_pairing_data` `lib.rs:258` → `FfiPairingData{ps,pk,relay,did,v}`).
-- **Swift:** `ios/Sources/Pairing/PairingStore.swift` (model:
-  `{pairingSecret:Data, daemonPublicKey:Data, relayUrl, daemonId, frontendId}`; base64-decode
-  `ps`/`pk`; generate+persist stable `frontendId` UUID; Keychain for secrets, UserDefaults
-  for the rest); `DeepLinkHandler.swift` (`onOpenURL` on `TeleprompterApp`); minimal paired-
-  daemons list UI.
-- **Verify:** `TP_PAIR_OK did=<id>` marker. XCTest `PairingStoreTests` (reuse vector from
-  `ios/Tests/TpCoreTests.swift:54-67`; assert fields + 32-byte secret/pubkey). Extend
-  `smoke` to grep `TP_PAIR_OK` when a deep link is injected (M0).
-- **Risks:** `ps`/`pk` are **standard** base64 (`pairing.ts:291-295`), so Swift
-  `Data(base64Encoded:)` is correct (the url-safe encoding is only the outer `?d=` blob,
-  handled inside `decode_pairing_data`). Keychain first-launch access.
+- **Swift (landed):** `ios/Sources/Pairing/PairingStore.swift` (`Pairing` model
+  `{pairingSecret:Data, daemonPublicKey:Data, relayURL, daemonId, frontendId, version}`;
+  standard-base64-decode `ps`/`pk` with 32-byte guards; stable `frontendId` UUID in
+  UserDefaults; secret in Keychain keyed by daemon id; non-secret meta + index in
+  UserDefaults). `ios/Sources/Pairing/DeepLinkHandler.swift` (routes `tp://p`,
+  emits `TP_PAIR_OK did=<id>` / `TP_PAIR_FAIL detail=<…>`). `TeleprompterApp.swift`
+  `.onOpenURL` → handler; `RootView` paired-daemons list (`@Observable PairingViewModel`).
+- **Verify (passing):** `scripts/ios.sh smoke` injects a deterministic `tp://p?d=…`
+  (`smoke_pair_link`, did `daemon-smoketest`) via `xcrun simctl openurl` and greps
+  `TP_PAIR_OK did=daemon-smoketest`. XCTest `PairingStoreTests` (9 cases) + existing 8 ⇒
+  17/17. Rust host 20/20.
+- **Two Simulator gotchas discovered (cost the most time — do NOT re-derive):**
+  1. **Scene manifest required.** `.onOpenURL` silently never fires unless the Info.plist
+     declares `UIApplicationSceneManifest` (with a `UISceneConfigurations` entry). The
+     prior harness used `GENERATE_INFOPLIST_FILE=YES`, which SwiftUI auto-injected it; the
+     custom `tp://` scheme needs an explicit Info.plist (`CFBundleURLTypes` has no
+     `INFOPLIST_KEY_*`), so the manifest must be added by hand in `project.yml`
+     `info.properties`. Do **not** declare your own `UISceneDelegateClassName` — SwiftUI
+     ignores it and owns the scene; only the manifest's *presence* matters for `.onOpenURL`.
+  2. **Keychain needs an entitlement + ad-hoc signing.** Unsigned Simulator builds
+     (`CODE_SIGNING_ALLOWED=NO`) have no entitlements, so `SecItemAdd` fails with
+     `errSecMissingEntitlement` (-34018). Fix = `ios/Teleprompter.entitlements`
+     (`keychain-access-groups = $(AppIdentifierPrefix)dev.tpmt.teleprompter`) + ad-hoc sign
+     (`CODE_SIGN_IDENTITY=-`, `CODE_SIGNING_ALLOWED=YES`, `CODE_SIGNING_REQUIRED=NO`).
+     The harness passes these as `$SIGN_FLAGS` (replaced the old `CODE_SIGNING_ALLOWED=NO`).
+  3. **Adding a new URL scheme needs a LaunchServices refresh.** The first build that adds
+     `tp://` won't route until the Simulator's LaunchServices re-registers — a
+     `simctl shutdown && boot` (or device erase) clears the stale cache. Subsequent
+     installs route fine. (Symptom: `CoreSimulatorBridge` logs "Opening URL … with
+     dev.tpmt.teleprompter" + `lsd` "No override", but the app process gets nothing.)
+- **Note:** `ps`/`pk` are **standard** base64 (`pairing.ts:291-295`) → Swift
+  `Data(base64Encoded:)` is correct (url-safe is only the outer `?d=` blob, handled inside
+  `decode_pairing_data`). Confirmed on-device.
 
 ### M2 — WebSocket connect + frontend auth (FIRST REAL E2E SIGNAL)
 - **Goal:** app opens WS, authenticates as `role=frontend`; relay accepts + logs.

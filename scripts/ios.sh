@@ -9,7 +9,9 @@
 #   scripts/ios.sh rust         Build TpCore.xcframework + Swift bindings from rust/tp-core
 #   scripts/ios.sh build        Build the app for the iOS Simulator (rust first)
 #   scripts/ios.sh run          Install + launch on the Simulator
-#   scripts/ios.sh smoke        Full loop: rust → gen → build → install → launch → verify markers
+#   scripts/ios.sh smoke        Full loop: rust → gen → build → install → launch → verify
+#                               boot+core markers, then inject a tp://p?d=… deep link and
+#                               verify the TP_PAIR_OK pairing marker (M1, no daemon needed)
 #   scripts/ios.sh test         Run the XCTest bundle on the Simulator (rust first)
 #   scripts/ios.sh boot         Boot the target simulator (idempotent)
 #
@@ -28,7 +30,16 @@ SIM_NAME="${TP_SIM:-iPhone 17 Pro}"
 BUNDLE_ID="dev.tpmt.teleprompter"
 BOOT_MARKER="TP_BOOT_OK"
 CORE_MARKER="TP_CORE_OK"
+PAIR_MARKER="TP_PAIR_OK"
+# Deterministic pairing deep link injected during smoke (M1 offline ingestion).
+# Layout (pairing.rs v3): magic "tp" | ver 3 | did_len | did | relay_len(0=default)
+# | ps(32×0x01) | pk(32×0x02); base64url-wrapped as tp://p?d=…
+SMOKE_DAEMON_ID="daemon-smoketest"
 XCFRAMEWORK="$REPO_ROOT/rust/target/TpCore.xcframework"
+# Ad-hoc sign Simulator builds so entitlements (keychain-access-groups) embed —
+# the Simulator Keychain rejects SecItemAdd without an entitlement (-34018).
+# No developer identity needed; "-" is accepted by the Simulator.
+SIGN_FLAGS="CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES"
 
 # Diagnostics go to stderr so `$(cmd_boot)` etc. capture only the clean stdout value.
 log()  { printf '\033[1;34m[ios]\033[0m %s\n' "$*" >&2; }
@@ -49,6 +60,29 @@ for runtime,devs in d["devices"].items():
             print(dev["udid"]); sys.exit(0)
 sys.exit(1)
 ' "$SIM_NAME"
+}
+
+# Emit the deterministic smoke pairing deep link (tp://p?d=…) to stdout.
+# Built in Python to match pairing.rs's v3 binary layout + base64url byte-for-byte
+# so the on-device FFI decode (`decodePairingData`) succeeds without a daemon.
+smoke_pair_link() {
+  /usr/bin/python3 -c '
+import base64, sys
+did = sys.argv[1]
+prefix = "daemon-"
+wire_did = did[len(prefix):] if did.startswith(prefix) else did
+buf = bytearray()
+buf += b"tp"                       # magic
+buf.append(3)                       # version
+buf.append(len(wire_did))          # did_len
+buf += wire_did.encode()           # did
+buf.append(0)                       # relay_len = 0 → default relay
+buf += bytes([0x01]) * 32          # ps
+buf += bytes([0x02]) * 32          # pk
+b64 = base64.b64encode(bytes(buf)).decode()
+b64url = b64.replace("+", "-").replace("/", "_").rstrip("=")
+print(f"tp://p?d={b64url}")
+' "$1"
 }
 
 cmd_gen() {
@@ -112,7 +146,7 @@ cmd_build() {
     -configuration Debug \
     -destination "platform=iOS Simulator,name=$SIM_NAME" \
     -derivedDataPath "$DERIVED" \
-    CODE_SIGNING_ALLOWED=NO \
+    $SIGN_FLAGS \
     build | xcbeautify_or_cat
 }
 
@@ -168,8 +202,34 @@ cmd_smoke() {
   [ -n "$boot_seen" ] || die "SMOKE FAIL — boot marker '$BOOT_MARKER' not seen in Simulator log"
   [ -n "$core_line" ] || die "SMOKE FAIL — boot OK but no '$CORE_MARKER'/TP_CORE_FAIL line (tp-core FFI never ran?)"
   case "$core_line" in
-    "$CORE_MARKER"*) log "✅ SMOKE PASS — boot marker + '$core_line' observed on $SIM_NAME" ;;
+    "$CORE_MARKER"*) log "core OK — '$core_line'" ;;
     *) die "SMOKE FAIL — tp-core round-trip failed on-device: $core_line" ;;
+  esac
+
+  # M1: offline pairing ingestion. Open a deterministic tp://p?d=… deep link and
+  # verify the app decodes it via FFI and emits TP_PAIR_OK did=<id> (or
+  # TP_PAIR_FAIL). This exercises the OS URL-routing path + DeepLinkHandler +
+  # PairingStore + Keychain end-to-end, no daemon required.
+  local link; link="$(smoke_pair_link "$SMOKE_DAEMON_ID")"
+  log "opening pairing deep link (M1) — watching for '$PAIR_MARKER did=$SMOKE_DAEMON_ID'"
+  xcrun simctl openurl "$udid" "$link" >/dev/null
+  local pair_line=""
+  for _ in $(seq 1 20); do
+    local pout
+    pout="$(xcrun simctl spawn "$udid" log show --last 30s --style compact \
+             --predicate "subsystem == \"$BUNDLE_ID\"" 2>/dev/null)" || true
+    pair_line="$(printf '%s\n' "$pout" | grep -Eo 'TP_PAIR_(OK|FAIL)[^"]*' | tail -n1 || true)"
+    if [ -n "$pair_line" ]; then break; fi
+    sleep 0.5
+  done
+  [ -n "$pair_line" ] || die "SMOKE FAIL — pairing deep link opened but no '$PAIR_MARKER'/TP_PAIR_FAIL line (URL not routed to app?)"
+  case "$pair_line" in
+    "$PAIR_MARKER did=$SMOKE_DAEMON_ID"*)
+      log "✅ SMOKE PASS — boot + core + pairing markers observed on $SIM_NAME ('$pair_line')" ;;
+    "$PAIR_MARKER"*)
+      die "SMOKE FAIL — pairing succeeded but wrong daemon id: $pair_line (want did=$SMOKE_DAEMON_ID)" ;;
+    *)
+      die "SMOKE FAIL — pairing ingestion failed on-device: $pair_line" ;;
   esac
 }
 
@@ -184,7 +244,7 @@ cmd_test() {
     -configuration Debug \
     -destination "platform=iOS Simulator,name=$SIM_NAME" \
     -derivedDataPath "$DERIVED" \
-    CODE_SIGNING_ALLOWED=NO \
+    $SIGN_FLAGS \
     test | xcbeautify_or_cat
 }
 

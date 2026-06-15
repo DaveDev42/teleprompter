@@ -1,6 +1,10 @@
 import SwiftUI
 import SwiftTerm
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 /// A SwiftUI view that wraps SwiftTerm's `TerminalView` for ANSI/VT100 emulation
 /// in the Terminal tab (ADR-0001 Phase 3.x, milestone A1).
@@ -23,11 +27,16 @@ import UIKit
 /// **A1 limitation — columns/rows not negotiated.**
 /// The terminal uses SwiftTerm's default (80×24). The daemon/runner does not receive a
 /// resize signal from the frontend in A1.
-struct SwiftTermView: UIViewRepresentable {
-    // Use SwiftTerm.TerminalView (the UIKit class) as the UIViewType, disambiguating
-    // from the Teleprompter.TerminalView SwiftUI struct in this module.
-    typealias UIViewType = SwiftTerm.TerminalView
-
+/// `SwiftTerm.TerminalView` is a `UIView` subclass on iOS/visionOS (`iOSTerminalView.swift`)
+/// and an `NSView` subclass on macOS (`MacTerminalView.swift`). The `feed(byteArray:)` API
+/// (`Apple/AppleTerminalView.swift:1916`), the `terminalDelegate` property
+/// (`MacTerminalView.swift:96`), and the `TerminalViewDelegate` protocol
+/// (`Apple/TerminalViewDelegate.swift`, gated `#if os(iOS) || os(visionOS) || os(macOS)`)
+/// are identical across platforms — only the SwiftUI representable wrapper differs
+/// (`UIViewRepresentable` vs `NSViewRepresentable`). The make/update/dismantle bodies are
+/// kept in shared `_make`/`_update`/`_dismantle` helpers so the platform split is a thin
+/// protocol-method shim, not duplicated logic.
+struct SwiftTermView {
     let store: SessionStore
     let sid: String
     let onSend: (String, String) -> Void
@@ -36,25 +45,69 @@ struct SwiftTermView: UIViewRepresentable {
         Coordinator(sid: sid, store: store, onSend: onSend)
     }
 
+    // MARK: - Shared make/update/dismantle (platform-agnostic)
+
     @MainActor
-    func makeUIView(context: Context) -> SwiftTerm.TerminalView {
+    private func _make(coordinator: Coordinator) -> SwiftTerm.TerminalView {
         let view = SwiftTerm.TerminalView(frame: .zero)
-        view.terminalDelegate = context.coordinator
-        context.coordinator.attach(to: view)
+        view.terminalDelegate = coordinator
+        coordinator.attach(to: view)
         return view
     }
 
     @MainActor
-    func updateUIView(_ uiView: SwiftTerm.TerminalView, context: Context) {
+    private func _update(_ view: SwiftTerm.TerminalView, coordinator: Coordinator) {
         // Re-register the sink if sid or store changed.
-        context.coordinator.reattach(sid: sid, store: store, to: uiView)
+        coordinator.reattach(sid: sid, store: store, to: view)
+    }
+
+    @MainActor
+    private static func _dismantle(_ coordinator: Coordinator) {
+        coordinator.detach()
+    }
+}
+
+#if os(macOS)
+extension SwiftTermView: NSViewRepresentable {
+    typealias NSViewType = SwiftTerm.TerminalView
+
+    @MainActor
+    func makeNSView(context: Context) -> SwiftTerm.TerminalView {
+        _make(coordinator: context.coordinator)
+    }
+
+    @MainActor
+    func updateNSView(_ nsView: SwiftTerm.TerminalView, context: Context) {
+        _update(nsView, coordinator: context.coordinator)
+    }
+
+    @MainActor
+    static func dismantleNSView(_ nsView: SwiftTerm.TerminalView, coordinator: Coordinator) {
+        _dismantle(coordinator)
+    }
+}
+#else
+extension SwiftTermView: UIViewRepresentable {
+    // Use SwiftTerm.TerminalView (the UIKit class) as the UIViewType, disambiguating
+    // from the Teleprompter.TerminalView SwiftUI struct in this module.
+    typealias UIViewType = SwiftTerm.TerminalView
+
+    @MainActor
+    func makeUIView(context: Context) -> SwiftTerm.TerminalView {
+        _make(coordinator: context.coordinator)
+    }
+
+    @MainActor
+    func updateUIView(_ uiView: SwiftTerm.TerminalView, context: Context) {
+        _update(uiView, coordinator: context.coordinator)
     }
 
     @MainActor
     static func dismantleUIView(_ uiView: SwiftTerm.TerminalView, coordinator: Coordinator) {
-        coordinator.detach()
+        _dismantle(coordinator)
     }
 }
+#endif
 
 // MARK: - Coordinator
 
@@ -67,7 +120,9 @@ extension SwiftTermView {
     /// except two have no default implementations and must be provided:
     ///   sizeChanged, setTerminalTitle, hostCurrentDirectoryUpdate, send,
     ///   scrolled, requestOpenLink, clipboardCopy, rangeChanged.
-    /// Methods with defaults (iOSTerminalView.swift:2657–2668): bell, iTermContent.
+    /// Methods with defaults (Apple/TerminalViewDelegate.swift:64,83): bell, iTermContent.
+    /// The protocol and these defaults are shared across iOS/visionOS/macOS, so this
+    /// Coordinator is platform-agnostic.
     final class Coordinator: NSObject, SwiftTerm.TerminalViewDelegate {
         private var currentSid: String
         private weak var currentStore: SessionStore?

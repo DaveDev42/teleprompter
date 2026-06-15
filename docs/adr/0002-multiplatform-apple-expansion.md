@@ -132,7 +132,26 @@ B0 게이트 통과 결과 (2026-06-15 검증):
   `handleSmokeURLIfPresent()` (ProcessInfo.arguments) 로 LS 완전 우회. iOS smoke 도 동일 방식 적용.
 - **검증**: iOS 8/8 ✅, macOS 8/8 ✅, visionOS 8/8 ✅.
 
-Phase B 슬라이스 카운트: visionOS 완료 5슬라이스(B1 ✅, B2 ✅), watchOS 추가 시 7슬라이스(B3 예정).
+### B3 ✅ — watchOS 별도 타깃 + 7-슬라이스 xcframework + 하니스 (2026-06-16)
+
+- `build-xcframework.sh` 에 `aarch64-apple-watchos` (device) + `aarch64-apple-watchos-sim`
+  (Simulator) 두 슬라이스 추가 → **7-slice xcframework** (ios-device, ios-sim-fat,
+  macos-fat, xros-arm64, xros-arm64-simulator, watchos-arm64, watchos-arm64-simulator).
+- `ios/project.yml`: `deploymentTarget.watchOS: "10.0"` + 별도 `TeleprompterWatch` 타깃
+  (`platform: watchOS`, `type: application`, `INFOPLIST_KEY_WKApplication_IsIndependentApp: YES`,
+  `WKCompanionAppBundleIdentifier: dev.tpmt.teleprompter`, `WKRunsIndependentlyOfCompanionApp: YES`).
+  공유 소스 = RelayClient, RelayMessages, RelaySessionOps, PairingStore, PairingRelayOps,
+  DeepLinkHandler, SessionStore, TpCoreCheck, TerminalOps (Foundation/Security/ObjectiveC 전용).
+  제외 = SwiftTermView (UIKit), NotificationService (APNs/iOS), QRScannerView, voice.
+- `ios/Watch/Sources/`: `TeleprompterWatchApp.swift` (@main, TP_BOOT_OK/TP_CORE_OK 방출,
+  --tp-smoke-url 주입), `WatchRootView.swift` (session list glance), `WatchSessionDetailView.swift`
+  (last response + approve/deny 버튼).
+- `scripts/ios.sh`: `TP_PLATFORM=watchos` 경로 추가 — `watch_sim_udid()`, `watchos_app_path()`,
+  `cmd_build` watchOS 분기 (`-target TeleprompterWatch -sdk watchsimulator26.5 ARCHS=arm64`),
+  `cmd_smoke_watchos` (7 마커, TP_INPUT_OK 의도적 제외).
+- **검증**: iOS 8/8 ✅, macOS 8/8 ✅, visionOS 8/8 ✅, watchOS 7/7 ✅.
+
+Phase B 슬라이스 카운트: visionOS 5슬라이스(B1 ✅, B2 ✅), watchOS 추가 7슬라이스(B3 ✅) **완료**.
 
 ## 6. 보존 불변식
 

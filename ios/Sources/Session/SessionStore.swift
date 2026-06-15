@@ -29,6 +29,11 @@ struct ChatItem: Identifiable, Equatable {
 final class SessionStore: ObservableObject {
     /// sid → ordered chat items (oldest first, ascending `seq`).
     @Published private(set) var chatItems: [String: [ChatItem]] = [:]
+    /// sid → concatenated terminal output, oldest first. Built by appending each
+    /// `k == "io"` record's decoded bytes (M5 Terminal tab). This is raw byte
+    /// append — full ANSI emulation is a Phase 3.x follow-up (the plan scopes M5
+    /// to "bytes append + input send").
+    @Published private(set) var terminalOutput: [String: String] = [:]
     /// sid → latest known metadata (from `hello` and `state` frames).
     @Published private(set) var sessions: [String: SessionMeta] = [:]
 
@@ -66,20 +71,40 @@ final class SessionStore: ObservableObject {
         for rec in recs { appendRec(rec) }
     }
 
-    /// Apply one record. Advances the cursor; turns `event` records into chat
-    /// items. `io`/`meta` records advance the cursor (so resume doesn't re-fetch
-    /// them) but do not render in Chat — `io` belongs to the Terminal tab (M5).
+    /// Apply one record. Advances the cursor; routes by `k`: `event` → chat item
+    /// (Chat tab), `io` → appended terminal bytes (Terminal tab, M5), `meta` →
+    /// cursor only. `io` is deliberately NOT a chat item — the Chat tab is
+    /// hooks-only (CLAUDE.md design decision).
     func appendRec(_ rec: SessionRec) {
         guard rec.seq > cursor(for: rec.sid) else { return } // dedup / out-of-order
         cursors[rec.sid] = rec.seq
 
-        guard rec.k == "event" else { return } // io/meta: cursor only, no chat row
-
-        guard let item = Self.chatItem(from: rec) else {
-            log.error("event rec decode failed seq=\(rec.seq, privacy: .public)")
-            return
+        switch rec.k {
+        case "event":
+            guard let item = Self.chatItem(from: rec) else {
+                log.error("event rec decode failed seq=\(rec.seq, privacy: .public)")
+                return
+            }
+            chatItems[rec.sid, default: []].append(item)
+        case "io":
+            guard let text = Self.ioText(from: rec) else {
+                log.error("io rec decode failed seq=\(rec.seq, privacy: .public)")
+                return
+            }
+            terminalOutput[rec.sid, default: ""] += text
+        default:
+            break // meta: cursor only
         }
-        chatItems[rec.sid, default: []].append(item)
+    }
+
+    /// Decode a `k == "io"` record's base64 `d` into UTF-8 text for the Terminal
+    /// tab. `d` is always base64 (daemon encodes raw PTY bytes unconditionally,
+    /// `command-dispatcher.ts:665`). Lossy UTF-8 so a chunk that splits a
+    /// multi-byte sequence still appends (the next chunk completes it visually);
+    /// returns nil only if `d` is not valid base64 at all.
+    static func ioText(from rec: SessionRec) -> String? {
+        guard let data = Data(base64Encoded: rec.d) else { return nil }
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// Decode a `k == "event"` record's base64 `d` into a `ChatItem`. `d` is

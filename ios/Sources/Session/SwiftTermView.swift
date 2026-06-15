@@ -192,6 +192,7 @@ extension SwiftTermView {
         @MainActor
         func detach() {
             currentStore?.terminalByteSink = nil
+            currentStore?.terminalReadText = nil
         }
 
         /// Feed buffered history bytes into `view` once at attach time so
@@ -216,6 +217,21 @@ extension SwiftTermView {
                 // feed(byteArray:) is defined on SwiftTerm.TerminalView
                 // (AppleTerminalView.swift:1916) — accepts ArraySlice<UInt8>.
                 view.feed(byteArray: [UInt8](data)[...])
+            }
+            registerReadText()
+        }
+
+        /// Publish the viewport-read closure on the store so the Voice tranche can
+        /// inject terminal context into the Realtime system prompt
+        /// (`formatTerminalContext` → `SessionStore.terminalReadText`). Sid-keyed:
+        /// returns the snapshot only when the requested sid matches the attached
+        /// terminal, mirroring `terminalByteSink`. Cleared on `detach()`.
+        @MainActor
+        private func registerReadText() {
+            let capSid = currentSid
+            currentStore?.terminalReadText = { [weak self] requestedSid in
+                guard requestedSid == capSid, let self else { return nil }
+                return self.readVisibleText()
             }
         }
 

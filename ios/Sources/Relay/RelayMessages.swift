@@ -205,3 +205,88 @@ struct HelloRequest: Encodable, Equatable {
 struct RelayServerEnvelope: Decodable {
     let t: String
 }
+
+// MARK: - M4 Session messages (Frontend → Daemon)
+
+/// `attach` — open a session; the daemon replies with a `state` frame
+/// (`command-dispatcher.ts:468-479`). This is an *application-level* message
+/// sealed with the frontend's tx key and published via `relay.pub` on the
+/// session sid — distinct from the relay-level `relay.sub`, which only routes
+/// frames. The frontend must send BOTH: subscribe (so the relay forwards the
+/// daemon's reply) and attach (so the daemon produces one). Wire: `{ t, sid }`
+/// (`packages/protocol/src/types/session-proto.ts:31-33`).
+struct SessionAttach: Encodable, Equatable {
+    let t = "attach"
+    let sid: String
+}
+
+/// `resume` — request history backfill; the daemon replies with a `batch` of all
+/// records whose `seq > c` (`command-dispatcher.ts:730-753`). The cursor field is
+/// named `c` (NOT `after`/`cursor`/`seq`) and must be a non-negative integer
+/// (`relay-guard.ts:120-128`). `c: 0` requests the full history. Sealed with tx,
+/// published via `relay.pub` on the session sid.
+/// Wire: `{ t, sid, c }` (`session-proto.ts:41-44`).
+struct SessionResume: Encodable, Equatable {
+    let t = "resume"
+    let sid: String
+    let c: Int
+}
+
+// MARK: - M4 Session messages (Daemon → Frontend)
+
+/// `state` — the daemon's reply to `attach` (and a push on session state change).
+/// Carries the full `SessionMeta`. Wire: `{ t, sid, d }`
+/// (`session-proto.ts:158-162`).
+struct SessionStateMsg: Decodable, Equatable {
+    let t: String
+    let sid: String
+    let d: SessionMeta
+}
+
+/// `rec` — one session record. Arrives inside a `batch` (history) and live during
+/// a running session. `d` is **always base64-encoded** regardless of `k` (the
+/// daemon does `Buffer.from(payload).toString("base64")` unconditionally,
+/// `command-dispatcher.ts:950`), so decode base64 before any UTF-8/JSON parse.
+/// `ns`/`n` are optional; everything else is required.
+/// Wire: `{ t, sid, seq, k, ns?, n?, d, ts }` (`session-proto.ts:164-173`).
+struct SessionRec: Decodable, Equatable {
+    let t: String
+    let sid: String
+    let seq: Int
+    let k: String // "io" | "event" | "meta"
+    let ns: String?
+    let n: String?
+    let d: String // base64 payload, always present
+    let ts: Double
+}
+
+/// `batch` — the daemon's reply to `resume`: the records with `seq > c`, oldest
+/// first. Wire: `{ t, sid, d: [SessionRec] }` (`session-proto.ts:175-179`).
+struct SessionBatch: Decodable, Equatable {
+    let t: String
+    let sid: String
+    let d: [SessionRec]
+}
+
+// MARK: - M4 hook-event payloads (decoded from SessionRec.d when k == "event")
+
+/// The always-present fields of a Claude hook event (`event.ts:19-24`). The TS
+/// type has an open index signature, so event-subtype fields (`tool_name`,
+/// `last_assistant_message`, …) are decoded separately from the same bytes.
+struct HookEventBase: Decodable, Equatable {
+    let session_id: String
+    let hook_event_name: String
+    let cwd: String
+}
+
+/// `Stop`/`StopFailure` extra field (`event.ts:26-29`). The Stop event's
+/// `last_assistant_message` is the canonical assistant response (CLAUDE.md).
+struct HookEventStop: Decodable, Equatable {
+    let last_assistant_message: String?
+}
+
+/// `PreToolUse`/`PostToolUse` extra field (`event.ts:31-42`). `tool_input` is an
+/// open shape and not rendered in M4, so only `tool_name` is decoded.
+struct HookEventTool: Decodable, Equatable {
+    let tool_name: String
+}

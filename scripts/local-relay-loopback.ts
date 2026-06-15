@@ -47,7 +47,10 @@ const PORT = parseInt(process.env["RELAY_PORT"] ?? "7090", 10);
 // The golden pairing secret (0x00..0x1f) — the kx-envelope key is derived from
 // it, byte-exact with the Swift app's deriveKxKey(pairing.pairingSecret).
 const GOLDEN_SECRET = new Uint8Array(Array.from({ length: 32 }, (_, i) => i));
-// One fake session so TP_FRAME_OK sessions=<n> proves a non-empty render.
+// One fake session so TP_FRAME_OK sessions=<n> proves a non-empty render and M4
+// has a sid to attach + backfill. `lastSeq` matches the single synthetic event
+// record the daemon returns on `resume` (seq=1), so the app's resume cursor math
+// lines up with the batch it gets back.
 const FAKE_SESSIONS = [
   {
     sid: "sess-smoketest",
@@ -55,9 +58,30 @@ const FAKE_SESSIONS = [
     cwd: "/tmp/smoke",
     createdAt: 1_700_000_000_000,
     updatedAt: 1_700_000_000_000,
-    lastSeq: 0,
+    lastSeq: 1,
   },
 ];
+
+// The history backfill the daemon replies with on `resume { c }` — one `event`
+// record carrying a Stop hook event. `d` is base64 of the event JSON (the daemon
+// always base64-encodes the payload regardless of `k`,
+// command-dispatcher.ts:950), so the app base64-decodes → UTF8 → JSON to render
+// `last_assistant_message`. seq=1 > the app's resume cursor (0) so it applies.
+const FAKE_EVENT_REC = {
+  t: "rec",
+  sid: "sess-smoketest",
+  seq: 1,
+  k: "event",
+  d: Buffer.from(
+    JSON.stringify({
+      session_id: "sess-smoketest",
+      hook_event_name: "Stop",
+      cwd: "/tmp/smoke",
+      last_assistant_message: "smoke ok",
+    }),
+  ).toString("base64"),
+  ts: 1_700_000_000_000,
+};
 
 const relay = new RelayServer();
 const bound = relay.start(PORT);
@@ -123,6 +147,11 @@ async function startFakeDaemon(): Promise<void> {
         // authoritative delivery is the re-broadcast on the frontend's kx.frame.)
         sendJson({ t: "relay.sub", sid: "__meta__", after: 0 });
         sendJson({ t: "relay.sub", sid: "__control__", after: 0 });
+        // Subscribe to each session sid so the app's app-level attach/resume
+        // frames (published on the session sid) reach us (M4).
+        for (const s of FAKE_SESSIONS) {
+          sendJson({ t: "relay.sub", sid: s.sid, after: 0 });
+        }
         await broadcastDaemonKx();
         console.log("[loopback:daemon] authed + kx broadcast");
         break;
@@ -159,19 +188,32 @@ async function startFakeDaemon(): Promise<void> {
         break;
       }
       case "relay.frame": {
-        // On-demand hello fallback: the app may publish {t:'hello'} on __meta__.
+        // App-level frames the app publishes (sealed with its tx = our rx):
+        //   {t:'hello'}  → on-demand hello fallback (M3)
+        //   {t:'attach'} → reply with a `state` frame (M4)
+        //   {t:'resume'} → reply with a `batch` of records seq > c (M4)
         if (!sessionKeys || msg["from"] !== "frontend") return;
         try {
           const plain = await decrypt(String(msg["ct"]), sessionKeys.rx);
           const inner = JSON.parse(new TextDecoder().decode(plain)) as {
             t?: string;
+            sid?: string;
+            c?: number;
           };
           if (inner.t === "hello") {
             console.log("[loopback:daemon] on-demand hello request");
             await pushHello();
+          } else if (inner.t === "attach" && inner.sid) {
+            console.log(`[loopback:daemon] attach sid=${inner.sid}`);
+            await pushState(inner.sid);
+          } else if (inner.t === "resume" && inner.sid) {
+            console.log(
+              `[loopback:daemon] resume sid=${inner.sid} c=${inner.c ?? 0}`,
+            );
+            await pushBatch(inner.sid, inner.c ?? 0);
           }
         } catch {
-          // ignore non-hello frames
+          // ignore undecodable / unknown frames
         }
         break;
       }
@@ -191,6 +233,31 @@ async function startFakeDaemon(): Promise<void> {
     sendJson({ t: "relay.pub", sid: "__meta__", ct, seq: metaSeq++ });
     console.log(
       `[loopback:daemon] hello pushed sessions=${FAKE_SESSIONS.length}`,
+    );
+  }
+
+  // Publish a sealed app-level frame on a session sid (mirrors the real daemon's
+  // sendEncrypted path; the app subscribed to this sid via relay.sub on attach).
+  async function pushOnSid(sid: string, payload: string): Promise<void> {
+    if (!sessionKeys) return;
+    const ct = await encrypt(new TextEncoder().encode(payload), sessionKeys.tx);
+    sendJson({ t: "relay.pub", sid, ct, seq: metaSeq++ });
+  }
+
+  // Reply to `attach` with a `state` frame carrying the session's metadata.
+  async function pushState(sid: string): Promise<void> {
+    const meta = FAKE_SESSIONS.find((s) => s.sid === sid) ?? FAKE_SESSIONS[0];
+    await pushOnSid(sid, JSON.stringify({ t: "state", sid, d: meta }));
+    console.log(`[loopback:daemon] state pushed sid=${sid}`);
+  }
+
+  // Reply to `resume { c }` with a `batch` of records seq > c. We hold one
+  // synthetic event rec (seq=1), so c<1 backfills it and c>=1 returns empty.
+  async function pushBatch(sid: string, c: number): Promise<void> {
+    const recs = FAKE_EVENT_REC.seq > c ? [FAKE_EVENT_REC] : [];
+    await pushOnSid(sid, JSON.stringify({ t: "batch", sid, d: recs }));
+    console.log(
+      `[loopback:daemon] batch pushed sid=${sid} recs=${recs.length}`,
     );
   }
 

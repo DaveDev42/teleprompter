@@ -38,6 +38,10 @@ PAIR_MARKER="TP_PAIR_OK"
 # Layout (pairing.rs v3): magic "tp" | ver 3 | did_len | did | relay_len(0=default)
 # | ps(32×0x01) | pk(32×0x02); base64url-wrapped as tp://p?d=…
 SMOKE_DAEMON_ID="daemon-smoketest"
+# M4: the loopback's one fake session sid (must match FAKE_SESSIONS[0].sid in
+# scripts/local-relay-loopback.ts). The app auto-attaches it and the daemon
+# backfills one event record, driving TP_SESSION_OK sid=$SMOKE_SESSION_ID.
+SMOKE_SESSION_ID="sess-smoketest"
 # M2: relay connect + frontend auth. A local loopback relay (scripts/
 # local-relay-loopback.ts) pre-seeds the golden token so the app's relay.auth
 # (role=frontend) succeeds → TP_RELAY_AUTH_OK. The pairing link points the app at
@@ -52,6 +56,12 @@ KX_OK_MARKER="TP_KX_OK"
 KX_FAIL_MARKER="TP_KX_FAIL"
 FRAME_OK_MARKER="TP_FRAME_OK"
 FRAME_FAIL_MARKER="TP_FRAME_FAIL"
+# M4: live session render. After the hello, the app auto-attaches the first
+# session (attach → state → resume → batch) and the loopback daemon replies with
+# one synthetic event record, so the app reaches TP_SESSION_OK sid=<sid>
+# events=<n> (>=1 hook event decoded + rendered as a chat item).
+SESSION_OK_MARKER="TP_SESSION_OK"
+SESSION_FAIL_MARKER="TP_SESSION_FAIL"
 RELAY_LOOPBACK_PORT="${TP_RELAY_LOOPBACK_PORT:-7099}"
 RELAY_LOOPBACK_SCRIPT="$REPO_ROOT/scripts/local-relay-loopback.ts"
 XCFRAMEWORK="$REPO_ROOT/rust/target/TpCore.xcframework"
@@ -263,8 +273,9 @@ cmd_smoke() {
   log "opening pairing deep link (M1+M2) — want '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
   xcrun simctl openurl "$udid" "$link" >/dev/null
 
-  # Poll for the pairing (M1), relay-auth (M2), kx + first-frame (M3) markers.
-  local pair_line="" auth_line="" kx_line="" frame_line=""
+  # Poll for the pairing (M1), relay-auth (M2), kx + first-frame (M3), and
+  # session-render (M4) markers.
+  local pair_line="" auth_line="" kx_line="" frame_line="" session_line=""
   for _ in $(seq 1 40); do
     local out
     out="$(xcrun simctl spawn "$udid" log show --last 40s --style compact \
@@ -273,7 +284,8 @@ cmd_smoke() {
     auth_line="$(printf '%s\n' "$out" | grep -Eo "${RELAY_AUTH_OK_MARKER}[^\"]*|${RELAY_AUTH_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
     kx_line="$(printf '%s\n' "$out" | grep -Eo "${KX_OK_MARKER}[^\"]*|${KX_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
     frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    if [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ]; then break; fi
+    session_line="$(printf '%s\n' "$out" | grep -Eo "${SESSION_OK_MARKER}[^\"]*|${SESSION_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    if [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ]; then break; fi
     sleep 0.5
   done
 
@@ -315,6 +327,22 @@ cmd_smoke() {
     *) die "SMOKE FAIL — first frame decrypt/decode failed on-device: $frame_line" ;;
   esac
 
+  # M4 assertion — live session render: the app auto-attached the first session
+  # (attach → state → resume → batch) and rendered >= 1 hook event as a chat
+  # item. events=<n> must be >= 1 (the loopback daemon returns one synthetic Stop
+  # event record on resume) to prove the full backfill + decode + render path.
+  [ -n "$session_line" ] || die "SMOKE FAIL — frame OK but no '$SESSION_OK_MARKER'/'$SESSION_FAIL_MARKER' line (attach/resume never ran?)"
+  case "$session_line" in
+    "$SESSION_OK_MARKER sid=$SMOKE_SESSION_ID events="*)
+      local ev="${session_line#"$SESSION_OK_MARKER" sid="$SMOKE_SESSION_ID" events=}"
+      ev="${ev%% *}"
+      [ "${ev:-0}" -ge 1 ] || die "SMOKE FAIL — session attached but events=$ev (expected >=1)"
+      log "session OK (M4) — '$session_line'"
+      ;;
+    "$SESSION_OK_MARKER"*) die "SMOKE FAIL — session render wrong sid: $session_line (want sid=$SMOKE_SESSION_ID)" ;;
+    *) die "SMOKE FAIL — session attach/backfill failed on-device: $session_line" ;;
+  esac
+
   # Relay-side confirmation: both the frontend and the fake daemon are connected
   # (clients >= 2 with the M3 loopback daemon peer).
   local clients
@@ -323,7 +351,7 @@ cmd_smoke() {
   [ "${clients:-0}" -ge 2 ] || die "SMOKE FAIL — relay /health reports clients=$clients (expected >=2: app + fake daemon)"
   log "relay /health confirms clients=$clients"
 
-  log "✅ SMOKE PASS — boot + core + pairing + relay-auth + kx + first-frame markers observed on $SIM_NAME"
+  log "✅ SMOKE PASS — boot + core + pairing + relay-auth + kx + first-frame + session-render markers observed on $SIM_NAME"
 }
 
 # start_loopback — bring up the local seeded relay used by the M2 auth check and

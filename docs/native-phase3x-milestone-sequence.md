@@ -166,15 +166,38 @@ markers green from the host log; `scripts/ios.sh test` runs XCTest per platform.
 **macOS-native is the FAST regression path** (no sim boot) — good default for non-UI
 logic.
 
-### A4 — macOS-native UX polish
+### A4 — macOS-native UX polish ✅ (shipped)
 **Goal:** a complete native-Mac experience, not a stretched iPad app: window min-size
 + restoration, a Commands menu (New Pairing / Disconnect / Copy daemon id), keyboard-
 first nav, and a macOS-idiomatic `NavigationSplitView` sidebar where the bottom
 `TabView` doesn't fit. Platform branches live in a dedicated `MacCommands.swift`
 (`#if os(macOS)`) to keep core views neutral and avoid `#if os()` sprawl on the iOS path.
 
-**Verify:** `TP_PLATFORM=macos smoke` stays green; `MacWindowTests` (`#if os(macOS)`)
-asserts scene/commands wiring.
+**Shipped as:**
+- `MacCommands.swift` (`#if os(macOS)`) — `Commands` replacing the File→New slot:
+  New Pairing… (⌘N, guidance alert — pairing is out-of-band via `tp pair`), Copy
+  Daemon ID (⌘⇧C), Disconnect (⌘⌫). All operate on the single active daemon
+  (matching the current single-daemon flow); disabled when no pairing exists.
+- `RootView` split: iOS/iPadOS keep the bottom `TabView`; macOS uses
+  `NavigationSplitView` (sidebar selection, keyboard-navigable) via `MacRootView`.
+  Both render the **same** `SectionView` bodies (shared `AppSection` enum) so the
+  shells can never drift — the only divergence is the chrome.
+- Window scene: `.defaultSize(980×680)` + `.windowResizability(.contentMinSize)` +
+  a `640×480` content floor (`#if os(macOS)`), so the window can't collapse below a
+  usable size.
+- **Boot/core markers moved to `TeleprompterApp.init`** (was `ContentView.onAppear`).
+  The macOS `NavigationSplitView` detail pane mounts lazily and its appearance hook
+  does NOT fire for a window launched in the background (`open -gn`, as the headless
+  smoke does), so `TP_BOOT_OK`/`TP_CORE_OK` must emit at process launch, independent
+  of view appearance. This is also simply more correct (an app-launch fact, not a
+  per-tab one).
+
+**Verified:** `TP_PLATFORM=macos smoke` 8/8 green (0 orphans), iOS smoke 8/8 green,
+51/51 XCTest (+3 `AppSectionTests` pinning the shared navigation model). A dedicated
+macOS test target was deferred — the test bundle is `platform: iOS`, so a
+`MacWindowTests` (`#if os(macOS)`) would not run there; the macOS shell is instead
+exercised end-to-end by the macOS smoke, and the shared `AppSection` model (the real
+new logic) is unit-tested on the iOS target.
 
 ### A5 — ADR-0002 + doc sweep (lands with the A-track, not after)
 - **CREATE `docs/adr/0002-multiplatform-apple-expansion.md`** (new ADR — Accepted ADRs

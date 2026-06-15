@@ -18,17 +18,32 @@ struct TeleprompterApp: App {
     /// sessions it serves) and observed by the Chat tab (M4).
     @State private var sessionStore: SessionStore
     @State private var pairings: PairingViewModel
+    /// Rust-core self-check result, computed once at launch and surfaced in the UI.
+    private let coreStatus: String
     private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "deeplink")
+    private static let bootLog = Logger(subsystem: "dev.tpmt.teleprompter", category: "boot")
 
     init() {
         let store = SessionStore()
         _sessionStore = State(initialValue: store)
         _pairings = State(initialValue: PairingViewModel(sessionStore: store))
+
+        // Emit the boot + core markers at process launch — NOT from a view's
+        // onAppear. The app struct is instantiated before any window appears, so
+        // this fires regardless of platform chrome. macOS (A4) launches its
+        // window in the background during the headless smoke (`open -gn`) and its
+        // NavigationSplitView detail pane mounts lazily, so a view-appearance hook
+        // is unreliable there. "Did the app launch + is the Rust core live" is an
+        // app-level fact, so the app shell is the correct emitter.
+        Self.bootLog.notice("\(bootMarker, privacy: .public)")
+        let summary = TpCoreCheck.summary()
+        Self.bootLog.notice("\(summary, privacy: .public)")
+        coreStatus = summary
     }
 
     var body: some Scene {
         WindowGroup {
-            RootView(pairings: pairings, sessionStore: sessionStore)
+            RootView(pairings: pairings, sessionStore: sessionStore, coreStatus: coreStatus)
                 .onOpenURL { url in
                     self.log.notice("onOpenURL url=\(url.absoluteString, privacy: .public)")
                     if case let .paired(daemonId) = DeepLinkHandler.handle(url) {
@@ -40,7 +55,20 @@ struct TeleprompterApp: App {
                         pairings.reload()
                     }
                 }
+                // A4: a desktop window must not collapse below a usable size. The
+                // sidebar (~220) + a readable terminal column needs ~640×480 floor.
+                // No-op on iOS where the scene fills the device.
+                #if os(macOS)
+                .frame(minWidth: 640, minHeight: 480)
+                #endif
         }
+        // A4 (macOS): open at a comfortable desktop size and clamp shrink to the
+        // content's declared minimum so the chrome never overlaps the content.
+        #if os(macOS)
+        .defaultSize(width: 980, height: 680)
+        .windowResizability(.contentMinSize)
+        .commands { MacCommands(pairings: pairings) }
+        #endif
     }
 }
 
@@ -102,34 +130,125 @@ final class PairingViewModel {
     }
 }
 
-/// Root navigation: a Sessions/diagnostics tab plus the live Chat tab (M4).
-struct RootView: View {
-    let pairings: PairingViewModel
-    @ObservedObject var sessionStore: SessionStore
+/// The three top-level destinations, shared by both platform shells so the
+/// labels/icons and the view bodies live in exactly one place.
+enum AppSection: String, CaseIterable, Identifiable, Hashable {
+    case sessions, chat, terminal
+    var id: String { rawValue }
 
-    var body: some View {
-        TabView {
-            SessionsView(pairings: pairings)
-                .tabItem { Label("Sessions", systemImage: "list.bullet") }
-            ChatView(store: sessionStore)
-                .tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right") }
-            TerminalView(store: sessionStore) { sid, text in
-                pairings.sendInput(sid: sid, text: text)
-            }
-            .tabItem { Label("Terminal", systemImage: "terminal") }
+    var title: String {
+        switch self {
+        case .sessions: return "Sessions"
+        case .chat: return "Chat"
+        case .terminal: return "Terminal"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .sessions: return "list.bullet"
+        case .chat: return "bubble.left.and.bubble.right"
+        case .terminal: return "terminal"
         }
     }
 }
 
+/// Renders the view body for a given `AppSection`. Both platform shells route
+/// through this one builder so the macOS sidebar detail pane and the iOS tab
+/// content are guaranteed identical — the only platform divergence is the chrome.
+struct SectionView: View {
+    let section: AppSection
+    let pairings: PairingViewModel
+    @ObservedObject var sessionStore: SessionStore
+    /// Rust-core status string, computed in `TeleprompterApp.init` and surfaced in
+    /// `SessionsView`.
+    let coreStatus: String
+
+    var body: some View {
+        switch section {
+        case .sessions:
+            SessionsView(pairings: pairings, coreStatus: coreStatus)
+        case .chat:
+            ChatView(store: sessionStore)
+        case .terminal:
+            TerminalView(store: sessionStore) { sid, text in
+                pairings.sendInput(sid: sid, text: text)
+            }
+        }
+    }
+}
+
+/// Root navigation. iOS/iPadOS use a bottom `TabView`; native macOS uses a
+/// `NavigationSplitView` sidebar (A4 — a bottom tab bar reads as foreign on the
+/// desktop). Both shells render the same `SectionView` bodies, so the only
+/// platform divergence is the chrome, not the content.
+///
+/// `coreStatus` is computed once at app launch (`TeleprompterApp.init`) and passed
+/// in for display — the boot/core *markers* are emitted there, not from any view,
+/// so verification is independent of which section/tab is on screen.
+struct RootView: View {
+    let pairings: PairingViewModel
+    @ObservedObject var sessionStore: SessionStore
+    let coreStatus: String
+
+    var body: some View {
+        #if os(macOS)
+        MacRootView(pairings: pairings, sessionStore: sessionStore, coreStatus: coreStatus)
+        #else
+        TabView {
+            ForEach(AppSection.allCases) { section in
+                SectionView(section: section,
+                            pairings: pairings,
+                            sessionStore: sessionStore,
+                            coreStatus: coreStatus)
+                    .tabItem { Label(section.title, systemImage: section.systemImage) }
+            }
+        }
+        #endif
+    }
+}
+
+#if os(macOS)
+/// macOS sidebar shell (A4). A `NavigationSplitView` with the three sections in
+/// the sidebar and the selected section's view in the detail pane. Selection is
+/// keyboard-navigable (↑/↓ in the sidebar `List`), satisfying the A4
+/// keyboard-first goal without bespoke key handling.
+struct MacRootView: View {
+    let pairings: PairingViewModel
+    @ObservedObject var sessionStore: SessionStore
+    let coreStatus: String
+    @State private var selection: AppSection? = .sessions
+
+    var body: some View {
+        NavigationSplitView {
+            List(AppSection.allCases, selection: $selection) { section in
+                Label(section.title, systemImage: section.systemImage)
+                    .tag(section)
+                    .accessibilityIdentifier("sidebar-\(section.rawValue)")
+            }
+            .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
+            .navigationTitle("Teleprompter")
+        } detail: {
+            SectionView(section: selection ?? .sessions,
+                        pairings: pairings,
+                        sessionStore: sessionStore,
+                        coreStatus: coreStatus)
+        }
+    }
+}
+#endif
+
 /// The FFI diagnostics header plus the paired-daemons list (pre-M4 RootView body).
 struct SessionsView: View {
     let pairings: PairingViewModel
+    /// Rust-core status, produced by `RootView`'s boot probe and shown in the header.
+    var coreStatus: String = "checking…"
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
-                    ContentView()
+                    ContentView(coreStatus: coreStatus)
                         .frame(maxWidth: .infinity)
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)

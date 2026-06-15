@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build TpCore.xcframework from the tp-core crate (ADR-0001 Phase 2).
 #
-# Produces a binary xcframework containing static libs for (5 slices):
+# Produces a binary xcframework containing static libs for (7 slices):
 #   - aarch64-apple-ios            (device)
 #   - aarch64-apple-ios-sim        (Apple-silicon Simulator)
 #   - x86_64-apple-ios-sim         (Intel Simulator)   [lipo'd with arm64-sim]
@@ -9,12 +9,14 @@
 #   - x86_64-apple-darwin          (Intel macOS)        [lipo'd with arm64 → macOS fat]
 #   - aarch64-apple-visionos       (Apple Vision Pro device)              [B1, ADR-0002]
 #   - aarch64-apple-visionos-sim   (visionOS Simulator, arm64-only — no lipo) [B1]
+#   - aarch64-apple-watchos        (watchOS device, arm64-only — no lipo) [B3, ADR-0002]
+#   - aarch64-apple-watchos-sim    (watchOS Simulator, arm64-only — no lipo) [B3]
 # plus the UniFFI-generated Swift bindings (tp_core.swift) and the C
 # header/modulemap the xcframework needs.
 #
-# visionOS targets are stable on Rust ≥1.96 with prebuilt std (B0 gate, no
-# build-std). tp-core is pure portable Rust (zero cfg(target_os)) → straight
-# recompiles. watchOS slices land later in B3 (separate TeleprompterWatch target).
+# visionOS and watchOS targets are stable on Rust ≥1.96 with prebuilt std (B0
+# gate, no build-std). tp-core is pure portable Rust (zero cfg(target_os)) →
+# straight recompiles.
 #
 # Output:
 #   rust/target/TpCore.xcframework   (gitignored binary artifact)
@@ -63,6 +65,7 @@ ensure_targets() {
     aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
     aarch64-apple-darwin x86_64-apple-darwin
     aarch64-apple-visionos aarch64-apple-visionos-sim   # B1 (ADR-0002)
+    aarch64-apple-watchos aarch64-apple-watchos-sim     # B3 (ADR-0002)
   )
   local installed; installed="$(rustup target list --installed)"
   for t in "${needed[@]}"; do
@@ -95,7 +98,7 @@ gen_bindings() {
 }
 
 assemble_xcframework() {
-  log "assembling TpCore.xcframework (5 slices: ios-device, ios-sim-fat, macos-fat, visionos-device, visionos-sim)"
+  log "assembling TpCore.xcframework (7 slices: ios-device, ios-sim-fat, macos-fat, visionos-device, visionos-sim, watchos-device, watchos-sim)"
   # Combine the two iOS simulator slices (arm64 + x86_64) into one fat archive —
   # an xcframework allows at most one library per (platform, variant).
   local sim_fat="$TARGET_DIR/libtp_core-sim-fat.a"
@@ -116,6 +119,10 @@ assemble_xcframework() {
   local visionos_dev="$TARGET_DIR/aarch64-apple-visionos/$PROFILE/libtp_core.a"
   local visionos_sim="$TARGET_DIR/aarch64-apple-visionos-sim/$PROFILE/libtp_core.a"
 
+  # watchOS device + simulator are both arm64-only — no lipo needed (mirrors visionOS).
+  local watchos_dev="$TARGET_DIR/aarch64-apple-watchos/$PROFILE/libtp_core.a"
+  local watchos_sim="$TARGET_DIR/aarch64-apple-watchos-sim/$PROFILE/libtp_core.a"
+
   rm -rf "$XCF"
   xcodebuild -create-xcframework \
     -library "$TARGET_DIR/aarch64-apple-ios/$PROFILE/libtp_core.a" -headers "$TARGET_DIR/headers" \
@@ -123,6 +130,8 @@ assemble_xcframework() {
     -library "$macos_fat" -headers "$TARGET_DIR/headers" \
     -library "$visionos_dev" -headers "$TARGET_DIR/headers" \
     -library "$visionos_sim" -headers "$TARGET_DIR/headers" \
+    -library "$watchos_dev" -headers "$TARGET_DIR/headers" \
+    -library "$watchos_sim" -headers "$TARGET_DIR/headers" \
     -output "$XCF" >&2
   log "✅ xcframework: $XCF"
 }
@@ -137,6 +146,8 @@ main() {
   build_target x86_64-apple-darwin   # Intel macOS
   build_target aarch64-apple-visionos       # Apple Vision Pro device (B1)
   build_target aarch64-apple-visionos-sim   # visionOS Simulator, arm64 (B1)
+  build_target aarch64-apple-watchos        # watchOS device, arm64 (B3)
+  build_target aarch64-apple-watchos-sim    # watchOS Simulator, arm64 (B3)
   gen_bindings
   assemble_xcframework
 }

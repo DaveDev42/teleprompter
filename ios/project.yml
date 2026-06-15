@@ -18,6 +18,7 @@ options:
     iOS: "17.0"
     macOS: "14.0"
     visionOS: "2.0"
+    watchOS: "10.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
 
@@ -150,6 +151,58 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.teleprompter.tests
         GENERATE_INFOPLIST_FILE: "YES"
 
+  # B3 (ADR-0002): standalone watchOS app — glance UI with session list +
+  # last assistant message + approve/deny. Reuses relay/pairing/session layers
+  # from the main app; excludes UIKit-only (SwiftTermView, NotificationService,
+  # QRScannerView) and voice sources. Separate target, separate bundle.
+  TeleprompterWatch:
+    type: application
+    platform: watchOS
+    deploymentTarget: "10.0"
+    sources:
+      # Watch-specific app sources (entry point + glance views)
+      - path: Watch/Sources
+      # Shared platform-neutral Swift sources (relay, pairing, session, core).
+      # EXCLUDED: SwiftTermView (UIKit), NotificationService (APNs/iOS),
+      #           QRScannerView (AVFoundation), voice, all main-app views.
+      - path: Sources/Relay/RelayClient.swift
+      - path: Sources/Relay/RelayMessages.swift
+      - path: Sources/Relay/RelaySessionOps.swift
+      - path: Sources/Pairing/PairingStore.swift
+      - path: Sources/Pairing/DeepLinkHandler.swift
+      - path: Sources/Pairing/PairingRelayOps.swift
+      - path: Sources/Session/SessionStore.swift
+      - path: Sources/TpCoreCheck.swift
+      # TerminalOps provides SessionStore+terminal callback properties used by
+      # RelayClient. Safe on watchOS (Foundation + ObjectiveC only; no UIKit).
+      - path: Sources/Session/Terminal/TerminalOps.swift
+      - path: Generated
+        optional: true
+    dependencies:
+      # tp-core static library — watchOS slices added in B3. Not embedded.
+      - framework: ../rust/target/TpCore.xcframework
+        embed: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.teleprompter.watch
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: Teleprompter
+        # Standalone watch app (not a watchOS extension of the iOS companion).
+        INFOPLIST_KEY_WKApplication_IsIndependentApp: "YES"
+        # simctl install validates bundle ID prefix against companion app's bundle ID.
+        # Use the main app's bundle ID as the companion so the prefix check passes
+        # (dev.tpmt.teleprompter → dev.tpmt.teleprompter.watch is a valid prefix).
+        # WKRunsIndependentlyOfCompanionApp = YES makes it a truly standalone app
+        # that works without the iOS companion installed.
+        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: "dev.tpmt.teleprompter"
+        INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp: "YES"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGNING_ALLOWED: "YES"
+        # Allow Simulator builds alongside real-device watchOS builds.
+        # Without this, xcodebuild only exposes real-device destinations (SDKROOT=watchos).
+        SUPPORTED_PLATFORMS: "watchos watchsimulator"
+
 schemes:
   Teleprompter:
     build:
@@ -162,3 +215,10 @@ schemes:
       config: Debug
       targets:
         - TeleprompterTests
+
+  TeleprompterWatch:
+    build:
+      targets:
+        TeleprompterWatch: all
+    run:
+      config: Debug

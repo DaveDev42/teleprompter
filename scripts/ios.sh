@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Teleprompter native app harness (ADR-0001 rewrite + ADR-0002 multiplatform).
 #
-# Drives the Swift multiplatform app (iOS/iPadOS/macOS/visionOS) headlessly:
-# generate project → build → install/launch → verify the 8 on-device markers,
-# plus run the XCTest bundle. No Xcode GUI required.
-# Platform = TP_PLATFORM (ios | macos | visionos).
+# Drives the Swift multiplatform app (iOS/iPadOS/macOS/visionOS/watchOS) headlessly:
+# generate project → build → install/launch → verify the 8 on-device markers (7 on
+# watchOS — TP_INPUT_OK is excluded per ADR-0002 §watchOS), plus run the XCTest bundle.
+# No Xcode GUI required.
+# Platform = TP_PLATFORM (ios | macos | visionos | watchos).
 #
 # Usage:
 #   scripts/ios.sh gen          Regenerate Teleprompter.xcodeproj from project.yml
@@ -12,25 +13,31 @@
 #   scripts/ios.sh build        Build the app (for iOS Simulator by default, or macOS)
 #   scripts/ios.sh run          Install + launch on the Simulator (ios) or open on macOS
 #   scripts/ios.sh smoke        Full loop: rust → gen → build → install → launch → verify
-#                               (TP_PLATFORM selects iOS Simulator / macOS / visionOS Simulator)
+#                               (TP_PLATFORM selects iOS Simulator / macOS / visionOS /
+#                               watchOS Simulator)
 #                               boot+core markers; inject a tp://p?d=… deep link and verify
 #                               the TP_PAIR_OK pairing marker (M1); then start a loopback
 #                               relay (+ fake daemon peer) and verify TP_RELAY_AUTH_OK
 #                               frontend auth (M2), then TP_KX_OK + TP_FRAME_OK (M3 in-band
-#                               kx + first decrypted hello frame)
+#                               kx + first decrypted hello frame).
+#                               watchOS verifies 7 markers (TP_INPUT_OK intentionally absent).
 #   scripts/ios.sh test         Run the XCTest bundle on the Simulator (ios only; rust first)
 #   scripts/ios.sh boot         Boot the target iOS Simulator (idempotent; ios only)
 #
 # Env:
-#   TP_PLATFORM     Target platform: "ios" (default), "macos", or "visionos".
+#   TP_PLATFORM     Target platform: "ios" (default), "macos", "visionos", or "watchos".
 #                   When unset or "ios", behaviour is byte-for-byte identical to
 #                   the original harness. When "macos", builds for native macOS
 #                   (NOT Catalyst), launches via `open`, and polls the HOST unified
 #                   log instead of `xcrun simctl spawn`. When "visionos", builds
 #                   for the visionOS Simulator (xrsimulator SDK), installs/launches
 #                   via xcrun simctl, and polls the Simulator unified log.
+#                   When "watchos", builds TeleprompterWatch for the watchOS Simulator
+#                   (watchsimulator SDK), installs/launches via xcrun simctl, and verifies
+#                   7 markers (TP_INPUT_OK absent — no terminal input on watch).
 #   TP_SIM          iOS Simulator device name (default: "iPhone 17 Pro"; ios only)
 #   TP_VISION_SIM   visionOS Simulator device name (default: "Apple Vision Pro")
+#   TP_WATCH_SIM    watchOS Simulator device name (default: "Apple Watch Series 11 (46mm)")
 #   TP_SCHEME       Xcode scheme (default: "Teleprompter")
 #   TP_SKIP_RUST    Set to 1 to skip xcframework rebuild (xcframework must exist)
 #   TP_FORCE_RUST   Set to 1 to always rebuild xcframework even when present
@@ -44,7 +51,9 @@ DERIVED="$IOS_DIR/build/DerivedData"
 SCHEME="${TP_SCHEME:-Teleprompter}"
 SIM_NAME="${TP_SIM:-iPhone 17 Pro}"
 VISION_SIM_NAME="${TP_VISION_SIM:-Apple Vision Pro}"
+WATCH_SIM_NAME="${TP_WATCH_SIM:-Apple Watch Series 11 (46mm)}"
 BUNDLE_ID="dev.tpmt.teleprompter"
+WATCH_BUNDLE_ID="dev.tpmt.teleprompter.watch"
 BOOT_MARKER="TP_BOOT_OK"
 CORE_MARKER="TP_CORE_OK"
 PAIR_MARKER="TP_PAIR_OK"
@@ -156,6 +165,28 @@ for runtime,devs in d["devices"].items():
 if best_udid: print(best_udid); sys.exit(0)
 sys.exit(1)
 ' "$VISION_SIM_NAME"
+}
+
+# Resolve the UDID for $WATCH_SIM_NAME among available watchOS Simulator devices.
+# Prefers the device with the highest runtime version, mirroring vision_sim_udid().
+watch_sim_udid() {
+  xcrun simctl list devices available -j \
+    | /usr/bin/python3 -c '
+import json,sys
+name=sys.argv[1]
+d=json.load(sys.stdin)
+best_udid=""
+best_rt=""
+for runtime,devs in d["devices"].items():
+    if "watch" not in runtime.lower():
+        continue
+    for dev in devs:
+        if dev.get("isAvailable") and dev["name"]==name:
+            if runtime > best_rt:
+                best_rt=runtime; best_udid=dev["udid"]
+if best_udid: print(best_udid); sys.exit(0)
+sys.exit(1)
+' "$WATCH_SIM_NAME"
 }
 
 # Emit the deterministic smoke pairing deep link (tp://p?d=…) to stdout.
@@ -282,6 +313,26 @@ cmd_build() {
       -derivedDataPath "$DERIVED" \
       $SIGN_FLAGS \
       build | xcbeautify_or_cat
+  elif [ "$TP_PLATFORM" = "watchos" ]; then
+    log "building TeleprompterWatch for watchOS Simulator ($WATCH_SIM_NAME)"
+    # watchOS Simulator: use -target (not -scheme) with the watchsimulator SDK to
+    # bypass destination-matching, which fails when a real watch is paired (Xcode
+    # tries the device first and rejects it because watchOS 26.5 device software
+    # isn't installed). ARCHS=arm64 + ONLY_ACTIVE_ARCH=YES ensures the arm64
+    # watchOS Simulator slice of TpCore.xcframework is linked (not x86_64).
+    # -derivedDataPath cannot be used with -target; use SYMROOT/OBJROOT instead
+    # to place build products in the same DerivedData tree as other platforms.
+    xcodebuild \
+      -project "$PROJECT" \
+      -target TeleprompterWatch \
+      -configuration Debug \
+      -sdk watchsimulator26.5 \
+      $SIGN_FLAGS \
+      ARCHS=arm64 \
+      ONLY_ACTIVE_ARCH=YES \
+      SYMROOT="$DERIVED/Build/Products" \
+      OBJROOT="$DERIVED/Build/Intermediates.noindex" \
+      build | xcbeautify_or_cat
   else
     log "building $SCHEME for iOS Simulator"
     xcodebuild \
@@ -318,6 +369,15 @@ macos_app_path() {
 visionos_app_path() {
   local p="$DERIVED/Build/Products/Debug-xrsimulator/Teleprompter.app"
   [ -d "$p" ] || die "visionOS app not built yet: $p (run: TP_PLATFORM=visionos scripts/ios.sh build)"
+  echo "$p"
+}
+
+# watchOS Simulator app product path.
+# NOTE: -target builds go into $DERIVED/Build/Products/ (not DerivedDataPath sub-path).
+# When -derivedDataPath is set, products land in $DERIVED/Build/Products/Debug-watchsimulator/.
+watchos_app_path() {
+  local p="$DERIVED/Build/Products/Debug-watchsimulator/TeleprompterWatch.app"
+  [ -d "$p" ] || die "watchOS app not built yet: $p (run: TP_PLATFORM=watchos scripts/ios.sh build)"
   echo "$p"
 }
 
@@ -405,6 +465,8 @@ cmd_smoke() {
     cmd_smoke_macos
   elif [ "$TP_PLATFORM" = "visionos" ]; then
     cmd_smoke_visionos
+  elif [ "$TP_PLATFORM" = "watchos" ]; then
+    cmd_smoke_watchos
   else
     cmd_smoke_ios
   fi
@@ -863,6 +925,148 @@ for devs in d["devices"].values():
   log "relay /health confirms clients=$clients"
 
   log "✅ SMOKE PASS (visionOS) — boot + core + pairing + relay-auth + kx + first-frame + session-render + input-roundtrip markers observed on $VISION_SIM_NAME"
+}
+
+cmd_smoke_watchos() {
+  local udid; udid="$(watch_sim_udid)" || die "watchOS simulator not found: $WATCH_SIM_NAME (set TP_WATCH_SIM)"
+  log "watchOS Simulator UDID: $udid"
+
+  # Boot the watchOS Simulator (idempotent). watchOS sim boot can take 60s+.
+  local state
+  state="$(xcrun simctl list devices -j | /usr/bin/python3 -c '
+import json,sys
+u=sys.argv[1]; d=json.load(sys.stdin)
+for devs in d["devices"].values():
+    for dev in devs:
+        if dev["udid"]==u: print(dev.get("state","unknown")); sys.exit(0)
+sys.exit(0)
+' "$udid")"
+  if [ "$state" != "Booted" ]; then
+    log "booting $WATCH_SIM_NAME ($udid) — watchOS Simulator boot may take 60s+"
+    xcrun simctl boot "$udid"
+    local booted=""
+    for _ in $(seq 1 60); do
+      local s
+      s="$(xcrun simctl list devices -j | /usr/bin/python3 -c '
+import json,sys
+u=sys.argv[1]; d=json.load(sys.stdin)
+for devs in d["devices"].values():
+    for dev in devs:
+        if dev["udid"]==u: print(dev["state"]); sys.exit(0)
+' "$udid" 2>/dev/null || echo "Unknown")"
+      if [ "$s" = "Booted" ]; then booted="yes"; break; fi
+      sleep 2
+    done
+    [ -n "$booted" ] || die "watchOS Simulator $WATCH_SIM_NAME ($udid) failed to boot in 120s"
+  else
+    log "$WATCH_SIM_NAME already booted ($udid)"
+  fi
+
+  local app; app="$(watchos_app_path)"
+
+  # Clean install for test isolation (same rationale as iOS path).
+  log "uninstalling (clean container for test isolation)"
+  xcrun simctl terminate "$udid" "$WATCH_BUNDLE_ID" >/dev/null 2>&1 || true
+  xcrun simctl uninstall "$udid" "$WATCH_BUNDLE_ID" >/dev/null 2>&1 || true
+  log "installing"
+  xcrun simctl install "$udid" "$app"
+
+  # M1+M2: bring loopback relay up BEFORE launching, then launch with --tp-smoke-url
+  # to bypass LaunchServices URL-scheme approval (same fix as iOS/visionOS path).
+  start_loopback
+
+  local link
+  link="$(smoke_pair_link "$SMOKE_DAEMON_ID" "ws://localhost:$RELAY_LOOPBACK_PORT" "golden")"
+
+  xcrun simctl terminate "$udid" "$WATCH_BUNDLE_ID" >/dev/null 2>&1 || true
+  log "launching with --tp-smoke-url (watchOS M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
+  xcrun simctl launch "$udid" "$WATCH_BUNDLE_ID" -- --tp-smoke-url "$link" >/dev/null
+
+  # Poll 7 markers (no TP_INPUT_OK on watch — no terminal input per ADR-0002 §watchOS).
+  # Generous 120s poll loop: watchOS Simulator log delivery can lag behind iOS.
+  local boot_seen="" core_line="" pair_line="" auth_line="" kx_line="" frame_line="" session_line=""
+  for _ in $(seq 1 120); do
+    local out
+    out="$(xcrun simctl spawn "$udid" log show --last 120s --style compact \
+      --predicate "subsystem == \"$BUNDLE_ID\"" 2>/dev/null || true)"
+    case "$out" in *"$BOOT_MARKER"*) boot_seen="yes" ;; esac
+    core_line="$(printf '%s\n' "$out" | grep -Eo 'TP_CORE_(OK|FAIL)[^"]*' | tail -n1 || true)"
+    pair_line="$(printf '%s\n' "$out" | grep -Eo 'TP_PAIR_(OK|FAIL)[^"]*' | tail -n1 || true)"
+    auth_line="$(printf '%s\n' "$out" | grep -Eo "${RELAY_AUTH_OK_MARKER}[^\"]*|${RELAY_AUTH_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    kx_line="$(printf '%s\n' "$out" | grep -Eo "${KX_OK_MARKER}[^\"]*|${KX_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    session_line="$(printf '%s\n' "$out" | grep -Eo "${SESSION_OK_MARKER}[^\"]*|${SESSION_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    if [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ]; then break; fi
+    sleep 1
+  done
+
+  # M0 assertions.
+  [ -n "$boot_seen" ] || die "SMOKE FAIL (watchOS) — boot marker '$BOOT_MARKER' not seen in Simulator log"
+  [ -n "$core_line" ] || die "SMOKE FAIL (watchOS) — boot OK but no '$CORE_MARKER'/TP_CORE_FAIL line (tp-core FFI never ran?)"
+  case "$core_line" in
+    "$CORE_MARKER"*) log "core OK (watchOS) — '$core_line'" ;;
+    *) die "SMOKE FAIL (watchOS) — tp-core round-trip failed on-device: $core_line" ;;
+  esac
+
+  # M1 assertion.
+  [ -n "$pair_line" ] || die "SMOKE FAIL (watchOS) — --tp-smoke-url injected but no '$PAIR_MARKER'/TP_PAIR_FAIL (DeepLinkHandler.handle never ran?)"
+  case "$pair_line" in
+    "$PAIR_MARKER did=$SMOKE_DAEMON_ID"*) log "pairing OK (watchOS M1) — '$pair_line'" ;;
+    "$PAIR_MARKER"*) die "SMOKE FAIL (watchOS) — pairing wrong daemon id: $pair_line (want did=$SMOKE_DAEMON_ID)" ;;
+    *) die "SMOKE FAIL (watchOS) — pairing ingestion failed on-device: $pair_line" ;;
+  esac
+
+  # M2 assertion.
+  [ -n "$auth_line" ] || die "SMOKE FAIL (watchOS) — paired but no '$RELAY_AUTH_OK_MARKER'/'$RELAY_AUTH_FAIL_MARKER' (relay connect never ran?)"
+  case "$auth_line" in
+    "$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID"*) log "relay auth OK (watchOS M2) — '$auth_line'" ;;
+    "$RELAY_AUTH_OK_MARKER"*) die "SMOKE FAIL (watchOS) — relay auth wrong daemon: $auth_line" ;;
+    *) die "SMOKE FAIL (watchOS) — relay auth failed on-device: $auth_line" ;;
+  esac
+
+  # M3 assertion — in-band kx.
+  [ -n "$kx_line" ] || die "SMOKE FAIL (watchOS) — relay auth OK but no '$KX_OK_MARKER'/'$KX_FAIL_MARKER' (kx never ran?)"
+  case "$kx_line" in
+    "$KX_OK_MARKER daemon=$SMOKE_DAEMON_ID"*) log "kx OK (watchOS M3) — '$kx_line'" ;;
+    "$KX_OK_MARKER"*) die "SMOKE FAIL (watchOS) — kx wrong daemon: $kx_line" ;;
+    *) die "SMOKE FAIL (watchOS) — kx failed on-device: $kx_line" ;;
+  esac
+
+  # M3 assertion — first decrypted frame.
+  [ -n "$frame_line" ] || die "SMOKE FAIL (watchOS) — kx OK but no '$FRAME_OK_MARKER'/'$FRAME_FAIL_MARKER' (hello never decrypted?)"
+  case "$frame_line" in
+    "$FRAME_OK_MARKER sessions="*)
+      local n="${frame_line#"$FRAME_OK_MARKER" sessions=}"
+      n="${n%% *}"
+      [ "${n:-0}" -ge 1 ] || die "SMOKE FAIL (watchOS) — hello decrypted but sessions=$n (expected >=1)"
+      log "frame OK (watchOS M3) — '$frame_line'"
+      ;;
+    *) die "SMOKE FAIL (watchOS) — first frame decrypt/decode failed on-device: $frame_line" ;;
+  esac
+
+  # M4 assertion — live session render.
+  [ -n "$session_line" ] || die "SMOKE FAIL (watchOS) — frame OK but no '$SESSION_OK_MARKER'/'$SESSION_FAIL_MARKER' (attach/resume never ran?)"
+  case "$session_line" in
+    "$SESSION_OK_MARKER sid=$SMOKE_SESSION_ID events="*)
+      local ev="${session_line#"$SESSION_OK_MARKER" sid="$SMOKE_SESSION_ID" events=}"
+      ev="${ev%% *}"
+      [ "${ev:-0}" -ge 1 ] || die "SMOKE FAIL (watchOS) — session attached but events=$ev (expected >=1)"
+      log "session OK (watchOS M4) — '$session_line'"
+      ;;
+    "$SESSION_OK_MARKER"*) die "SMOKE FAIL (watchOS) — session render wrong sid: $session_line (want sid=$SMOKE_SESSION_ID)" ;;
+    *) die "SMOKE FAIL (watchOS) — session attach/backfill failed on-device: $session_line" ;;
+  esac
+
+  # NOTE: TP_INPUT_OK is intentionally NOT checked on watchOS. The watch app
+  # provides read-mostly glance experience — no terminal input (ADR-0002 §4).
+
+  local clients
+  clients="$(curl -s "http://localhost:$RELAY_LOOPBACK_PORT/health" \
+              | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("clients",0))' 2>/dev/null || echo 0)"
+  [ "${clients:-0}" -ge 2 ] || die "SMOKE FAIL (watchOS) — relay /health reports clients=$clients (expected >=2: app + fake daemon)"
+  log "relay /health confirms clients=$clients"
+
+  log "✅ SMOKE PASS (watchOS) — 7/7 markers: boot + core + pairing + relay-auth + kx + first-frame + session-render observed on $WATCH_SIM_NAME (TP_INPUT_OK intentionally absent)"
 }
 
 # start_loopback — bring up the local seeded relay used by the M2 auth check and

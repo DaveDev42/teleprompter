@@ -222,20 +222,32 @@ new logic) is unit-tested on the iOS target.
 
 ## PHASE B — toolchain-gated (do NOT start until the gate passes)
 
-### B0 — HARD GATE: Rust toolchain for visionOS / watchOS
+### B0 — HARD GATE: Rust toolchain for visionOS / watchOS ✅ (PASSED 2026-06-15)
 ```
-rustup update stable
+rustup update stable            # 1.92.0 → 1.96.0 (ac68faa20 2026-05-25)
 rustup target list | grep -E 'visionos|watchos'
 ```
-- **visionOS listed & `rustup target add aarch64-apple-visionos aarch64-apple-visionos-sim`
-  succeeds** → B1/B2 proceed as recompiles.
-- **Still absent / no prebuilt artifacts** → the only path is a nightly toolchain +
-  `cargo +nightly build -Z build-std=std,panic_abort --target …`, which needs a
-  **new branch in `build-xcframework.sh`** for those slices. watchOS `arm64_32` is the
-  canonical build-std-only triple — expect this for watchOS regardless.
-- Until this gate passes, **keep visionOS/watchOS entirely out of `supportedDestinations`
-  and out of the xcframework** so an absent slice can't fail the Phase-A iOS/macOS smoke
-  at link time.
+**Result — UNBLOCKED, better than predicted.** On stable **1.96.0**, BOTH platforms
+are stable rustup targets with **prebuilt `rust-std`** — no nightly, no `-Z build-std`:
+- `aarch64-apple-visionos` + `aarch64-apple-visionos-sim`
+- `aarch64-apple-watchos` + `aarch64-apple-watchos-sim`
+
+`rustup target add aarch64-apple-visionos-sim aarch64-apple-watchos-sim` succeeded
+(downloaded prebuilt std), and **`tp-core` compiles cleanly for both sim targets**
+(`cargo build -p tp-core --target …` — full UniFFI + crypto stack: x25519-dalek,
+chacha20poly1305, blake2). So the watchOS Rust core — the part feared to need
+build-std for `arm64_32` — is a straight recompile on the *current* triples.
+
+**Implication for B1–B3:** the original "watchOS `arm64_32` is build-std-only" caveat
+is **superseded for the simulator/`aarch64` device path** — Phase B's Rust side is a
+recompile, not a research project. The lone remaining build-std risk is the legacy
+**watchOS `arm64_32`** device triple (older Apple Watch hardware); the modern
+`aarch64-apple-watchos` device slice is stable. Decide at B3 whether to ship
+`arm64_32` at all (it only matters for Series 3-era 32-bit watches).
+
+Until this gate passed, visionOS/watchOS were kept entirely out of
+`supportedDestinations` and the xcframework so an absent slice couldn't fail the
+Phase-A iOS/macOS smoke at link time. That constraint is now lifted for B1+.
 
 ### B1 — tp-core xcframework: add visionOS slices (5 total)
 After B0 passes: add `aarch64-apple-visionos` (device) + `aarch64-apple-visionos-sim`
@@ -255,8 +267,11 @@ Verify: `TP_PLATFORM=visionos smoke` → 8 markers on Apple Vision Pro sim.
 
 ### B3 — watchOS limited target (SEPARATE target)
 A separate `TeleprompterWatch` target (NOT in `supportedDestinations` — watch app +
-WidgetKit model differs), reusing tp-core (watchOS xcframework slices: device arm64 +
-`arm64_32` + sim → likely build-std) + the platform-neutral Swift (RelayClient,
+WidgetKit model differs), reusing tp-core (watchOS xcframework slices: device
+`aarch64-apple-watchos` + `aarch64-apple-watchos-sim` — **both stable targets, plain
+recompile, NO build-std**, confirmed at B0; legacy 32-bit `arm64_32` is the ONLY
+build-std-needing triple and is optional, Series 3-era hardware only) + the
+platform-neutral Swift (RelayClient,
 RelayMessages, SessionStore, PairingStore, TpCoreCheck — all UIKit-free, cross-compile
 free). **Standalone** (own frontendId, own kx, pairing secret via synced iCloud
 Keychain — `kSecAttrSynchronizable` already set, `PairingStore.swift:183`).

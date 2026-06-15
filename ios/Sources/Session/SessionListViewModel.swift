@@ -22,13 +22,8 @@ extension PairingViewModel {
     ///    that arrives, `upsertSessions` replaces the placeholder with the
     ///    authoritative metadata (real `sid`, correct `createdAt`, etc.).
     ///
-    /// ## Wire gap
-    /// `RelayClient.createSession(cwd:)` currently cannot seal+send the control
-    /// message because `sessionKeys` / `send` are `private` in RelayClient.swift
-    /// (Swift cross-file private rule). The relay call is a no-op today; it logs
-    /// the intent. Close by making those members `internal`, or adding a bridging
-    /// method to RelayClient.swift.
-    /// TODO(sessions-crud): remove this note once the wire gap is closed.
+    /// The relay send is bridged through `RelayClient.publishControl`
+    /// (integration pass) and routed via `PairingViewModel.createSession(cwd:)`.
     @MainActor
     func createSession(cwd: String, sessionStore: SessionStore) {
         // 1. Optimistic local entry: use a client-generated sid prefixed
@@ -46,30 +41,13 @@ extension PairingViewModel {
         )
         sessionStore.upsertSessions([placeholder])
 
-        // 2. Relay send (best-effort; no-op today due to wire gap).
-        //    Routes to the first authenticated relay client. When N-daemon
-        //    support lands, the caller should pass the target daemonId.
-        //    TODO(sessions-crud): pass the selected daemonId once the wire
-        //    gap is closed and multi-daemon create is needed.
-        sendCreateSession(cwd: cwd)
-    }
-
-    /// Internal: broadcast `session.create { cwd }` to the first available
-    /// relay client. Safe to call even when no client is connected — the
-    /// client's `createSession(cwd:)` is a no-op if not authenticated.
-    private func sendCreateSession(cwd: String) {
-        // `clients` is `private` on PairingViewModel (defined in TeleprompterApp.swift),
-        // so we cannot iterate it here. We route through the public `sendInput`
-        // method as an indirect proxy — the relay path is a TODO.
-        //
-        // TODO(sessions-crud): Once RelayClient.createSession exposes proper
-        // relay send (closing the sessionKeys gap), wire it here by either:
-        //   a) Adding `func sendToFirstClient<F: Encodable>(control: F, sid: String)` to
-        //      PairingViewModel in TeleprompterApp.swift, or
-        //   b) Making `clients` internal and calling client.createSession(cwd:) here.
-        //
-        // For now: the relay send is a no-op; the optimistic local entry in
-        // createSession(cwd:sessionStore:) keeps the UI consistent.
+        // 2. Relay send (best-effort). Routes through PairingViewModel, which
+        //    owns the relay clients, to the sole connected client. When a session
+        //    fires back via `hello`, the daemon's real sid upserts over the
+        //    placeholder. If kx is not yet complete the send is a no-op and the
+        //    optimistic local entry keeps the UI consistent until reconnect.
+        //    TODO(sessions-crud): pass the selected daemonId for multi-daemon.
+        createSession(cwd: cwd)
     }
 
     // MARK: Delete (local-only)

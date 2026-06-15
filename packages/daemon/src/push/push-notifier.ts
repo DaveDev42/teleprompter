@@ -190,6 +190,30 @@ export class PushNotifier {
     );
   }
 
+  /**
+   * Called when the relay replies with PUSH_TOKEN_DEAD — APNs returned 400
+   * (BadDeviceToken) or 410 (Unregistered). Drops the stale entry from the
+   * Map and from the store so future notification events don't keep sending to
+   * a permanently-dead APNs token. The app will re-register on next connect.
+   *
+   * The relay.err wire type does not carry a frontendId, so we drop ALL tokens
+   * for this daemon and let them re-register. This is the same behaviour as
+   * handleUnsealFailed — a known v1 limitation noted in the relay-client.
+   */
+  handleTokenDead(frontendId: string): void {
+    if (!this.tokens.has(frontendId)) {
+      log.debug(
+        `handleTokenDead: no token for frontend ${frontendId}, ignoring`,
+      );
+      return;
+    }
+    this.tokens.delete(frontendId);
+    this.deps.deleteToken(frontendId);
+    log.warn(
+      `dropped dead APNs token for frontend ${frontendId} after PUSH_TOKEN_DEAD`,
+    );
+  }
+
   onRecord(rec: RecordInfo): void {
     if (rec.kind !== "event") return;
     if (!rec.name || !NOTIFY_EVENTS.has(rec.name)) return;

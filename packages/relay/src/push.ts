@@ -1,9 +1,9 @@
 import type { PushInterruptionLevel } from "@teleprompter/protocol";
 import { createLogger } from "@teleprompter/protocol";
+import type { ApnsClient } from "./apns";
 
 const log = createLogger("Push");
 
-const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 const DEFAULT_RATE_LIMIT_PER_MINUTE = 5;
 const DEFAULT_DEDUP_WINDOW_MS = 60_000;
 const DEDUP_CLEANUP_INTERVAL_MS = 30_000;
@@ -14,57 +14,23 @@ export type DeliveryResult =
   | "push"
   | "rate_limited"
   | "deduped"
-  | "error";
-
-/**
- * A single push ticket as returned by the Expo Push API. For a single-message
- * send the response shape is `{ data: ExpoPushTicket }` historically, but Expo
- * actually returns `{ data: [ExpoPushTicket] }` (an array) — we tolerate both.
- * `status: "error"` carries a human `message` plus machine `details.error`
- * (e.g. "DeviceNotRegistered", "InvalidCredentials").
- */
-interface ExpoPushTicket {
-  status: "ok" | "error";
-  id?: string;
-  message?: string;
-  details?: { error?: string };
-}
-
-/**
- * Pull the ticket out of an Expo Push API 200 response, tolerating both the
- * array form (`{ data: [ticket] }`) and the bare-object form (`{ data: ticket }`).
- * Returns null if the body can't be parsed — caller treats that as "no ticket
- * error visible", since a malformed-but-200 body is not itself a delivery error.
- */
-async function parseExpoTicket(
-  response: Response,
-): Promise<ExpoPushTicket | null> {
-  try {
-    const json = (await response.json()) as {
-      data?: ExpoPushTicket | ExpoPushTicket[];
-    };
-    const data = json?.data;
-    if (Array.isArray(data)) return data[0] ?? null;
-    if (data && typeof data === "object") return data;
-    return null;
-  } catch {
-    return null;
-  }
-}
+  | "error"
+  | "dead_token";
 
 export interface PushRequest {
   frontendId: string;
   daemonId: string;
+  /** Hex-encoded APNs device token. */
   token: string;
   title: string;
   body: string;
   isFrontendConnected: boolean;
   /**
-   * iOS interruption level forwarded to the Expo Push API. Absent → "active"
+   * iOS interruption level forwarded to APNs. Absent → "active"
    * (normal delivery, respects Focus). "time-sensitive" breaks through Focus /
    * DND when the user has allowed it, and additionally forces APNs priority 10
-   * (see the payload builder) since a low-priority push can be deferred and
-   * would defeat the point of time-sensitive.
+   * since a low-priority push can be deferred and would defeat the point of
+   * time-sensitive.
    */
   interruptionLevel?: PushInterruptionLevel;
   data?: { sid: string; daemonId: string; event: string };
@@ -75,6 +41,20 @@ export interface PushServiceOptions {
   dedupWindowMs?: number;
   /** Override the rate-limit window duration in ms (default: 60 000). For testing. */
   rateLimitWindowMs?: number;
+  /**
+   * APNs delivery client. Required in production; when absent, push delivery
+   * returns "error" (used by unit tests that only exercise dedup/rate-limit).
+   */
+  apnsClient?: ApnsClient;
+  /**
+   * Override the raw HTTP fetch used internally by ApnsClient for testing.
+   * When provided AND apnsClient is absent, a fake ApnsClient that delegates
+   * to this fn is constructed so callers don't need to assemble the full
+   * ApnsClient in tests.
+   *
+   * Deprecated for new code — prefer passing a real/fake ApnsClient directly.
+   * Retained for test compatibility with the existing test harness.
+   */
   fetchFn?: typeof fetch;
 }
 
@@ -87,7 +67,7 @@ export class PushService {
   private readonly rateLimitPerMinute: number;
   private readonly dedupWindowMs: number;
   private readonly rateLimitWindowMs: number;
-  private readonly fetchFn: typeof fetch;
+  private readonly apnsClient: ApnsClient | null;
 
   /** frontendId → rate limit state */
   private readonly rateLimits = new Map<string, RateLimitEntry>();
@@ -102,7 +82,16 @@ export class PushService {
       options.rateLimitPerMinute ?? DEFAULT_RATE_LIMIT_PER_MINUTE;
     this.dedupWindowMs = options.dedupWindowMs ?? DEFAULT_DEDUP_WINDOW_MS;
     this.rateLimitWindowMs = options.rateLimitWindowMs ?? RATE_LIMIT_WINDOW_MS;
-    this.fetchFn = options.fetchFn ?? fetch;
+
+    if (options.apnsClient) {
+      this.apnsClient = options.apnsClient;
+    } else if (options.fetchFn) {
+      // Test shim: wrap a fetchFn in a minimal fake ApnsClient so existing
+      // tests that inject fetchFn still work.
+      this.apnsClient = buildFakeApnsClient(options.fetchFn);
+    } else {
+      this.apnsClient = null;
+    }
 
     this.cleanupInterval = setInterval(() => {
       this.cleanupDedup();
@@ -161,56 +150,32 @@ export class PushService {
       return "rate_limited";
     }
 
-    // Step 4: Call Expo Push API
+    // Step 4: Call APNs
+    if (!this.apnsClient) {
+      log.warn(`APNs client not configured — cannot deliver push for frontendId ${frontendId}`);
+      return "error";
+    }
+
     try {
-      // interruptionLevel maps to APNs `aps.interruption-level`. For
-      // time-sensitive we also lift priority to "high" (APNs priority 10):
-      // a normal-priority push can be throttled/coalesced by the system, which
-      // would defeat the whole point of breaking through Focus. "active" (the
-      // default) is left without an explicit priority so Expo/APNs use their
-      // own default. The fields are top-level on the Expo message, not nested
-      // under ios/aps.
-      const isTimeSensitive = interruptionLevel === "time-sensitive";
-      const payload = {
-        to: token,
+      const result = await this.apnsClient.send({
+        deviceToken: token,
         title,
         body,
+        interruptionLevel,
         data,
-        sound: "default",
-        ...(interruptionLevel ? { interruptionLevel } : {}),
-        ...(isTimeSensitive ? { priority: "high" as const } : {}),
-      };
-      const response = await this.fetchFn(EXPO_PUSH_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify(payload),
       });
 
-      if (!response.ok) {
+      if (!result.ok) {
+        if (result.deadToken) {
+          // APNs returned 400 (BadDeviceToken) or 410 (Unregistered): the token
+          // is permanently dead. Signal the caller to evict it from the store.
+          log.warn(
+            `APNs dead token for frontendId ${frontendId}: ${result.reason}`,
+          );
+          return "dead_token";
+        }
         log.warn(
-          `Expo Push API returned ${response.status} for frontendId ${frontendId}`,
-        );
-        // Drain the body so the underlying TCP connection returns to the fetch
-        // keep-alive pool instead of being held open until GC.
-        await response.body?.cancel();
-        return "error";
-      }
-
-      // CRITICAL: Expo returns HTTP 200 even when it rejects the push (bad
-      // token, missing/mismatched APNs credentials, etc.). The real verdict is
-      // in the response ticket: `{ data: [{ status: "ok" | "error", ... }] }`.
-      // Treating HTTP 200 as success (the old behavior) silently swallowed
-      // DeviceNotRegistered / InvalidCredentials and made "sent but never
-      // arrived" undiagnosable. Parse the ticket and surface errors loudly.
-      const ticket = await parseExpoTicket(response);
-      if (ticket && ticket.status === "error") {
-        const reason = ticket.details?.error ?? "unknown";
-        log.warn(
-          `Expo push ticket error for frontendId ${frontendId}: ` +
-            `${ticket.message ?? reason} (${reason})`,
+          `APNs delivery error for frontendId ${frontendId}: ${result.reason}`,
         );
         return "error";
       }
@@ -232,7 +197,7 @@ export class PushService {
       log.info(`push sent to frontendId ${frontendId}`);
       return "push";
     } catch (err) {
-      log.warn(`push fetch failed for frontendId ${frontendId}: ${err}`);
+      log.warn(`push failed for frontendId ${frontendId}: ${err}`);
       return "error";
     }
   }
@@ -280,4 +245,53 @@ export class PushService {
   dispose(): void {
     clearInterval(this.cleanupInterval);
   }
+}
+
+/**
+ * Build a minimal fake ApnsClient that delegates HTTP calls to `fetchFn`.
+ *
+ * Used exclusively by PushServiceOptions.fetchFn for backward-compatible tests.
+ * The fake interprets the HTTP response as follows:
+ *  - fetch throws → return error
+ *  - !response.ok → check body for {reason} and map to dead_token if
+ *    reason is "BadDeviceToken" or "Unregistered", else return error
+ *  - response.ok → return ok
+ *
+ * This mirrors the real ApnsClient.send() contract so existing test assertions
+ * (`"push"`, `"error"`, `"dead_token"`) translate 1:1.
+ */
+function buildFakeApnsClient(fetchFn: typeof fetch): ApnsClient {
+  return {
+    send: async (payload: import("./apns").ApnsPayload) => {
+      let response: Response;
+      try {
+        response = await fetchFn(
+          `https://apns-fake/3/device/${payload.deviceToken}`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ deviceToken: payload.deviceToken }),
+          },
+        );
+      } catch (err) {
+        return { ok: false, deadToken: false, reason: String(err) };
+      }
+
+      if (response.ok) {
+        await response.body?.cancel();
+        return { ok: true };
+      }
+
+      let reason = `HTTP ${response.status}`;
+      try {
+        const json = (await response.json()) as { reason?: string };
+        if (json?.reason) reason = json.reason;
+      } catch {
+        await response.body?.cancel();
+      }
+
+      const DEAD = new Set(["BadDeviceToken", "Unregistered"]);
+      return { ok: false, deadToken: DEAD.has(reason), reason };
+    },
+  } as unknown as ApnsClient;
 }

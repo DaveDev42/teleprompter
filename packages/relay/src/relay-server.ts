@@ -148,9 +148,9 @@ export interface RelayServerOptions {
   /** Resume token TTL in ms (default: 1h, env: TP_RELAY_RESUME_TTL_MS) */
   resumeTtlMs?: number;
   /**
-   * Override the PushService used for Expo push delivery. Primarily for tests
-   * that need a deterministic delivery result (e.g. a mock fetchFn returning a
-   * known Expo ticket) without hitting the real Expo Push API over the network.
+   * Override the PushService used for APNs push delivery. Primarily for tests
+   * that need a deterministic delivery result (e.g. a mock ApnsClient) without
+   * hitting the real APNs API over the network.
    * Defaults to a fresh `new PushService()`.
    */
   pushService?: PushService;
@@ -1373,39 +1373,31 @@ ${daemons
 
     const isFrontendConnected = targetFrontendWs !== null;
 
-    // The guard enforces exactly one of {token, sealed} is present.
-    // Path X: if `sealed` is present, unseal before calling Expo.
-    // Legacy: if `token` is present, use it directly (plaintext back-compat).
+    // Unseal the sealed APNs device token blob.
+    // "tpps1." blobs are decrypted by PushSealer; a legacy non-"tpps1." blob
+    // (back-compat upgrade window: an old daemon may have stored a plaintext
+    // token as the sealed field) is used verbatim.
     let plaintextToken: string;
-    if (msg.sealed !== undefined) {
-      const unsealResult = await this.pushSealer.unseal(msg.sealed);
-      if (unsealResult.ok) {
-        plaintextToken = unsealResult.token;
-      } else if (unsealResult.reason === "legacy") {
-        // A non-"tpps1." blob arrived in the `sealed` slot. This happens in the
-        // upgrade window when an old daemon (no token/sealed split) puts a
-        // plaintext Expo token into `sealed`. Use it verbatim — same treatment
-        // as the `token` field — so the push isn't dropped. (A new daemon sends
-        // such legacy plaintext via `token`, but we accept it here too.)
-        plaintextToken = msg.sealed;
-      } else {
-        // reason === "unseal_failed": a real "tpps1." blob we cannot decrypt
-        // (key rotated out of the current/prev window, or tampered). The token
-        // is unrecoverable — signal the daemon to drop it and let the app
-        // re-register a fresh sealed token.
-        log.warn(
-          `push unseal failed for frontendId ${msg.frontendId}: reason=${unsealResult.reason}`,
-        );
-        this.send(ws, {
-          t: "relay.err",
-          e: "PUSH_UNSEAL_FAILED",
-          m: `Push token unseal failed for frontendId ${msg.frontendId}`,
-        });
-        return;
-      }
+    const unsealResult = await this.pushSealer.unseal(msg.sealed);
+    if (unsealResult.ok) {
+      plaintextToken = unsealResult.token;
+    } else if (unsealResult.reason === "legacy") {
+      // A non-"tpps1." blob in the sealed slot — use verbatim as the APNs token.
+      plaintextToken = msg.sealed;
     } else {
-      // Legacy plaintext token path (back-compat)
-      plaintextToken = msg.token ?? "";
+      // reason === "unseal_failed": a real "tpps1." blob we cannot decrypt
+      // (key rotated out of the current/prev window, or tampered). The token
+      // is unrecoverable — signal the daemon to drop it and let the app
+      // re-register a fresh sealed token.
+      log.warn(
+        `push unseal failed for frontendId ${msg.frontendId}: reason=${unsealResult.reason}`,
+      );
+      this.send(ws, {
+        t: "relay.err",
+        e: "PUSH_UNSEAL_FAILED",
+        m: `Push token unseal failed for frontendId ${msg.frontendId}`,
+      });
+      return;
     }
 
     const result = await this.pushService.sendOrDeliver({
@@ -1436,8 +1428,8 @@ ${daemons
         }
         break;
       case "push":
-        // Expo push sent successfully — no reply needed; daemon is fire-and-forget.
-        log.debug(`push delivered via Expo for frontendId ${msg.frontendId}`);
+        // APNs push sent successfully — no reply needed; daemon is fire-and-forget.
+        log.debug(`push delivered via APNs for frontendId ${msg.frontendId}`);
         break;
       case "rate_limited":
         // Push rate-limited — inform the daemon so it can back off.
@@ -1452,11 +1444,26 @@ ${daemons
         log.debug(`push deduped for frontendId ${msg.frontendId}`);
         break;
       case "error":
-        // Expo API error — inform the daemon so it can retry or surface.
+        // APNs error — inform the daemon so it can retry or surface.
         this.send(ws, {
           t: "relay.err",
           e: "PUSH_DELIVERY_ERROR",
           m: `Push delivery failed for frontendId ${msg.frontendId}`,
+        });
+        break;
+      case "dead_token":
+        // APNs returned 400/410 — the device token is permanently dead.
+        // Signal the daemon to evict the stale entry from push_tokens so
+        // future notification events don't keep sending to a dead token.
+        // Mirrors the PUSH_UNSEAL_FAILED self-heal: relay tells daemon → daemon
+        // deletes the row → app re-registers on next connect.
+        log.warn(
+          `APNs dead token for frontendId ${msg.frontendId} — signalling daemon to evict`,
+        );
+        this.send(ws, {
+          t: "relay.err",
+          e: "PUSH_TOKEN_DEAD",
+          m: `APNs device token is dead for frontendId ${msg.frontendId}`,
         });
         break;
       default: {

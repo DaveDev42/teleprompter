@@ -97,7 +97,6 @@ export type {
   SessionMeta,
   SessionPing,
   SessionPong,
-  SessionPushToken,
   SessionRec,
   SessionResize,
   SessionRestart,

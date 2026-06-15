@@ -968,11 +968,9 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
   });
 });
 
-describe("RelayClient.sendPush — wire field selection (back-compat)", () => {
-  // A new daemon must put a real sealed blob ("tpps1.…") in the `sealed` field
-  // but a legacy plaintext token in the `token` field, so an OLD relay (which
-  // requires a `token` field) still accepts and delivers the push. The protocol
-  // guard enforces exactly one of {token, sealed}.
+describe("RelayClient.sendPush — wire field selection", () => {
+  // All tokens (sealed blobs and back-compat legacy plaintext) now ride the
+  // `sealed` field. The legacy `token` field has been removed from the protocol.
   function captureSend(): {
     client: RelayClient;
     sent: RelayClientMessage[];
@@ -1002,24 +1000,25 @@ describe("RelayClient.sendPush — wire field selection (back-compat)", () => {
     return { client, sent };
   }
 
-  test("real sealed blob rides the `sealed` field, never `token`", () => {
+  test("sealed blob always rides the `sealed` field", () => {
     const { client, sent } = captureSend();
     client.sendPush("fe-1", "tpps1.1.abc123", "Title", "Body");
     expect(sent).toHaveLength(1);
     const msg = sent[0] as RelayClientMessage & { t: "relay.push" };
     expect(msg.t).toBe("relay.push");
     expect(msg.sealed).toBe("tpps1.1.abc123");
-    expect(msg.token).toBeUndefined();
   });
 
-  test("legacy plaintext token rides the `token` field (old-relay compatible)", () => {
+  test("back-compat legacy plaintext token also rides the `sealed` field", () => {
+    // Legacy plaintext APNs tokens (upgrade-window back-compat) go in `sealed`;
+    // the relay's PushSealer.unseal() classifies non-"tpps1." blobs as "legacy"
+    // and uses the value verbatim as the APNs hex device token.
     const { client, sent } = captureSend();
-    client.sendPush("fe-1", "ExponentPushToken[legacy]", "Title", "Body");
+    client.sendPush("fe-1", "aabbccddeeff1234", "Title", "Body");
     expect(sent).toHaveLength(1);
     const msg = sent[0] as RelayClientMessage & { t: "relay.push" };
     expect(msg.t).toBe("relay.push");
-    expect(msg.token).toBe("ExponentPushToken[legacy]");
-    expect(msg.sealed).toBeUndefined();
+    expect(msg.sealed).toBe("aabbccddeeff1234");
   });
 });
 

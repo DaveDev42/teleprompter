@@ -166,11 +166,10 @@ export function parseRelayClientMessage(
 
     case "relay.push": {
       if (!isString(raw["frontendId"])) return null;
-      if (!isOptionalString(raw["token"])) return null;
-      if (!isOptionalString(raw["sealed"])) return null;
-      // Exactly one of {token, sealed} must be present.
-      if ((raw["token"] === undefined) === (raw["sealed"] === undefined))
-        return null;
+      // `sealed` is now required — the legacy plaintext `token` field has been
+      // removed. Any frame arriving without a `sealed` string is rejected at
+      // the zero-trust boundary.
+      if (!isString(raw["sealed"])) return null;
       if (!isString(raw["title"])) return null;
       if (!isString(raw["body"])) return null;
       if (!isOptionalInterruptionLevel(raw["interruptionLevel"])) return null;
@@ -178,7 +177,6 @@ export function parseRelayClientMessage(
       return {
         t: "relay.push",
         frontendId: raw["frontendId"],
-        token: raw["token"],
         sealed: raw["sealed"],
         title: raw["title"],
         body: raw["body"],

@@ -12,7 +12,6 @@ export type FrameType =
   | "state"
   | "ping"
   | "pong"
-  | "pushToken"
   | "err";
 
 export interface Envelope {

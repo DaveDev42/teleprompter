@@ -1,26 +1,33 @@
 #!/usr/bin/env bash
-# Teleprompter native iOS Simulator harness (ADR-0001 rewrite).
+# Teleprompter native app harness (ADR-0001 rewrite, Phase 3.x A2).
 #
-# Drives the Swift app headlessly: generate project → build → install → launch
-# → verify boot, plus run the XCTest bundle. No Xcode GUI required.
+# Drives the Swift app headlessly: generate project → build → install/launch
+# → verify boot/core markers, plus run the XCTest bundle. No Xcode GUI required.
 #
 # Usage:
 #   scripts/ios.sh gen          Regenerate Teleprompter.xcodeproj from project.yml
 #   scripts/ios.sh rust         Build TpCore.xcframework + Swift bindings from rust/tp-core
-#   scripts/ios.sh build        Build the app for the iOS Simulator (rust first)
-#   scripts/ios.sh run          Install + launch on the Simulator
+#   scripts/ios.sh build        Build the app (for iOS Simulator by default, or macOS)
+#   scripts/ios.sh run          Install + launch on the Simulator (ios) or open on macOS
 #   scripts/ios.sh smoke        Full loop: rust → gen → build → install → launch → verify
 #                               boot+core markers; inject a tp://p?d=… deep link and verify
 #                               the TP_PAIR_OK pairing marker (M1); then start a loopback
 #                               relay (+ fake daemon peer) and verify TP_RELAY_AUTH_OK
 #                               frontend auth (M2), then TP_KX_OK + TP_FRAME_OK (M3 in-band
 #                               kx + first decrypted hello frame)
-#   scripts/ios.sh test         Run the XCTest bundle on the Simulator (rust first)
-#   scripts/ios.sh boot         Boot the target simulator (idempotent)
+#   scripts/ios.sh test         Run the XCTest bundle on the Simulator (ios only; rust first)
+#   scripts/ios.sh boot         Boot the target iOS Simulator (idempotent; ios only)
 #
 # Env:
-#   TP_SIM     Simulator device name (default: "iPhone 17 Pro")
-#   TP_SCHEME  Xcode scheme (default: "Teleprompter")
+#   TP_PLATFORM   Target platform: "ios" (default) or "macos".
+#                 When unset or "ios", behaviour is byte-for-byte identical to
+#                 the original harness. When "macos", builds for native macOS
+#                 (NOT Catalyst), launches via `open`, and polls the HOST unified
+#                 log instead of `xcrun simctl spawn`.
+#   TP_SIM        Simulator device name (default: "iPhone 17 Pro"; ios only)
+#   TP_SCHEME     Xcode scheme (default: "Teleprompter")
+#   TP_SKIP_RUST  Set to 1 to skip xcframework rebuild (xcframework must exist)
+#   TP_FORCE_RUST Set to 1 to always rebuild xcframework even when present
 
 set -euo pipefail
 
@@ -70,10 +77,13 @@ INPUT_FAIL_MARKER="TP_INPUT_FAIL"
 RELAY_LOOPBACK_PORT="${TP_RELAY_LOOPBACK_PORT:-7099}"
 RELAY_LOOPBACK_SCRIPT="$REPO_ROOT/scripts/local-relay-loopback.ts"
 XCFRAMEWORK="$REPO_ROOT/rust/target/TpCore.xcframework"
-# Ad-hoc sign Simulator builds so entitlements (keychain-access-groups) embed —
+# Ad-hoc sign Simulator/macOS local builds so entitlements embed —
 # the Simulator Keychain rejects SecItemAdd without an entitlement (-34018).
-# No developer identity needed; "-" is accepted by the Simulator.
+# No developer identity needed; "-" is accepted by both Simulator and macOS local.
 SIGN_FLAGS="CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES"
+
+# Resolve the target platform (ios default = unchanged behaviour).
+TP_PLATFORM="${TP_PLATFORM:-ios}"
 
 # Diagnostics go to stderr so `$(cmd_boot)` etc. capture only the clean stdout value.
 log()  { printf '\033[1;34m[ios]\033[0m %s\n' "$*" >&2; }
@@ -142,7 +152,7 @@ ensure_project() { [ -d "$PROJECT" ] || cmd_gen; }
 
 # Build the Rust core into TpCore.xcframework + regenerate Swift bindings.
 # Delegates to rust/build-xcframework.sh, which handles the rustup PATH-shim
-# workaround, the 3 iOS slices, the simulator lipo, and binding generation.
+# workaround, the iOS slices, the macOS fat slice, and binding generation.
 cmd_rust() {
   log "building TpCore.xcframework + Swift bindings (rust/tp-core)"
   "$REPO_ROOT/rust/build-xcframework.sh" "$@"
@@ -163,6 +173,8 @@ ensure_xcframework() {
   fi
 }
 
+# ── iOS-specific helpers ──────────────────────────────────────────────────────
+
 cmd_boot() {
   local udid; udid="$(sim_udid)" || die "simulator not found: $SIM_NAME (set TP_SIM)"
   local state
@@ -182,19 +194,39 @@ for devs in d["devices"].values():
   echo "$udid"
 }
 
+# ── Build ─────────────────────────────────────────────────────────────────────
+
 cmd_build() {
   require xcodebuild
   ensure_xcframework
   ensure_project
-  log "building $SCHEME for iOS Simulator"
-  xcodebuild \
-    -project "$PROJECT" \
-    -scheme "$SCHEME" \
-    -configuration Debug \
-    -destination "platform=iOS Simulator,name=$SIM_NAME" \
-    -derivedDataPath "$DERIVED" \
-    $SIGN_FLAGS \
-    build | xcbeautify_or_cat
+  if [ "$TP_PLATFORM" = "macos" ]; then
+    log "building $SCHEME for native macOS (NOT Catalyst)"
+    # macOS ad-hoc signing: keychain-access-groups requires a real certificate on
+    # macOS native (unlike iOS Simulator where ad-hoc works). Clear the entitlements
+    # so the local dev build signs without them — Keychain access just falls back to
+    # the default (unsigned items). For App Store/Developer ID distribution, sign
+    # with a real certificate and Teleprompter-macOS.entitlements instead.
+    xcodebuild \
+      -project "$PROJECT" \
+      -scheme "$SCHEME" \
+      -configuration Debug \
+      -destination 'platform=macOS' \
+      -derivedDataPath "$DERIVED" \
+      $SIGN_FLAGS \
+      CODE_SIGN_ENTITLEMENTS="" \
+      build | xcbeautify_or_cat
+  else
+    log "building $SCHEME for iOS Simulator"
+    xcodebuild \
+      -project "$PROJECT" \
+      -scheme "$SCHEME" \
+      -configuration Debug \
+      -destination "platform=iOS Simulator,name=$SIM_NAME" \
+      -derivedDataPath "$DERIVED" \
+      $SIGN_FLAGS \
+      build | xcbeautify_or_cat
+  fi
 }
 
 # Pretty-print xcodebuild output if xcbeautify exists, else pass through.
@@ -202,27 +234,87 @@ xcbeautify_or_cat() {
   if command -v xcbeautify >/dev/null 2>&1; then xcbeautify; else cat; fi
 }
 
-app_path() {
+# iOS app product path (for simctl install).
+ios_app_path() {
   local p="$DERIVED/Build/Products/Debug-iphonesimulator/Teleprompter.app"
   [ -d "$p" ] || die "app not built yet: $p (run: scripts/ios.sh build)"
   echo "$p"
 }
 
-cmd_run() {
-  local udid; udid="$(cmd_boot)"
-  local app; app="$(app_path)"
-  log "installing $app"
-  xcrun simctl install "$udid" "$app"
-  log "launching $BUNDLE_ID"
-  xcrun simctl launch "$udid" "$BUNDLE_ID"
+# macOS app product path (no SDK suffix for native macOS destination).
+macos_app_path() {
+  local p="$DERIVED/Build/Products/Debug/Teleprompter.app"
+  [ -d "$p" ] || die "macOS app not built yet: $p (run: TP_PLATFORM=macos scripts/ios.sh build)"
+  echo "$p"
 }
+
+cmd_run() {
+  if [ "$TP_PLATFORM" = "macos" ]; then
+    local app; app="$(macos_app_path)"
+    log "opening $app (macOS)"
+    open "$app"
+  else
+    local udid; udid="$(cmd_boot)"
+    local app; app="$(ios_app_path)"
+    log "installing $app"
+    xcrun simctl install "$udid" "$app"
+    log "launching $BUNDLE_ID"
+    xcrun simctl launch "$udid" "$BUNDLE_ID"
+  fi
+}
+
+# ── Log polling helpers ────────────────────────────────────────────────────────
+
+# ios_log_snapshot — capture recent simulator log for our subsystem.
+ios_log_snapshot() {
+  local udid="$1" secs="$2"
+  xcrun simctl spawn "$udid" log show --last "${secs}s" --style compact \
+    --predicate "subsystem == \"$BUNDLE_ID\"" 2>/dev/null || true
+}
+
+# macos_log_snapshot — return lines captured so far from $MACOS_LOG_FILE.
+# macOS `log show --last Ns` drops Default-level messages from app bundles
+# (historical compression). We instead stream live via `log stream` (started
+# before launch) into a tmp file and poll the file. No argument needed.
+macos_log_snapshot() {
+  cat "${MACOS_LOG_FILE:-/dev/null}" 2>/dev/null || true
+}
+
+# start_macos_log_stream — start `log stream` for our subsystem into $MACOS_LOG_FILE.
+# Must be called before launching the app. The stream process is cleaned up via
+# the EXIT trap (merged with start_loopback's trap).
+# NOTE: use /usr/bin/log explicitly — there is a bash log() function in this script
+# that would shadow the `log` command if called without the full path.
+MACOS_LOG_FILE=""
+start_macos_log_stream() {
+  MACOS_LOG_FILE="$(mktemp -t tp-macos-log.XXXXXX)"
+  /usr/bin/log stream --debug --info \
+    --predicate "subsystem == \"$BUNDLE_ID\"" \
+    > "$MACOS_LOG_FILE" 2>/dev/null &
+  MACOS_LOG_PID=$!
+  # Merge cleanup into the EXIT trap (start_loopback sets its own; we add ours).
+  trap 'kill "${MACOS_LOG_PID:-}" 2>/dev/null || true; rm -f "${MACOS_LOG_FILE:-}" 2>/dev/null || true' EXIT
+  # Give the stream a moment to start up before the app launches.
+  sleep 0.3
+}
+
+# ── Smoke ─────────────────────────────────────────────────────────────────────
 
 cmd_smoke() {
   ensure_xcframework
   cmd_gen
   cmd_build
+
+  if [ "$TP_PLATFORM" = "macos" ]; then
+    cmd_smoke_macos
+  else
+    cmd_smoke_ios
+  fi
+}
+
+cmd_smoke_ios() {
   local udid; udid="$(cmd_boot)"
-  local app; app="$(app_path)"
+  local app; app="$(ios_app_path)"
   # Uninstall first so each smoke run starts from a clean app container: this
   # clears UserDefaults (the device-local `frontendId` + the saved `daemonIds`
   # that drive boot-time auto-reconnect). Without it, a prior run's saved pairing
@@ -248,8 +340,7 @@ cmd_smoke() {
     # Capture into a variable first — `| grep -q` SIGPIPEs the producer under
     # pipefail (rc=141) once grep exits on the first match.
     local out
-    out="$(xcrun simctl spawn "$udid" log show --last 30s --style compact \
-            --predicate "subsystem == \"$BUNDLE_ID\"" 2>/dev/null)" || true
+    out="$(ios_log_snapshot "$udid" 30)"
     case "$out" in *"$BOOT_MARKER"*) boot_seen="yes" ;; esac
     # Grab the whole TP_CORE_ line so a FAIL surfaces its step/detail.
     core_line="$(printf '%s\n' "$out" | grep -Eo 'TP_CORE_(OK|FAIL)[^"]*' | tail -n1 || true)"
@@ -283,8 +374,7 @@ cmd_smoke() {
   local pair_line="" auth_line="" kx_line="" frame_line="" session_line="" input_line=""
   for _ in $(seq 1 40); do
     local out
-    out="$(xcrun simctl spawn "$udid" log show --last 40s --style compact \
-            --predicate "subsystem == \"$BUNDLE_ID\"" 2>/dev/null)" || true
+    out="$(ios_log_snapshot "$udid" 40)"
     pair_line="$(printf '%s\n' "$out" | grep -Eo 'TP_PAIR_(OK|FAIL)[^"]*' | tail -n1 || true)"
     auth_line="$(printf '%s\n' "$out" | grep -Eo "${RELAY_AUTH_OK_MARKER}[^\"]*|${RELAY_AUTH_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
     kx_line="$(printf '%s\n' "$out" | grep -Eo "${KX_OK_MARKER}[^\"]*|${KX_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
@@ -370,6 +460,154 @@ cmd_smoke() {
   log "✅ SMOKE PASS — boot + core + pairing + relay-auth + kx + first-frame + session-render + input-roundtrip markers observed on $SIM_NAME"
 }
 
+cmd_smoke_macos() {
+  local app; app="$(macos_app_path)"
+
+  # Kill any prior macOS instance so each smoke run starts fresh. Use -KILL to
+  # ensure the process doesn't survive a SIGTERM grace period, then wait for the
+  # kernel to reap it before launching fresh (avoids `open` waking the old instance
+  # via macOS AppKit single-instance behaviour).
+  log "killing any prior macOS Teleprompter instance"
+  pkill -9 -x Teleprompter 2>/dev/null || true
+  local wait_count=0
+  while pgrep -x Teleprompter >/dev/null 2>&1; do
+    sleep 0.2; (( wait_count++ )); [ "$wait_count" -lt 20 ] || break
+  done
+  sleep 0.3  # extra buffer for AppKit deregistration
+
+  # Clean macOS Keychain entries from prior smoke runs. On macOS, a rebuild changes
+  # the app's code signature, so previously written Keychain items (keyed to the old
+  # code hash) trigger a Keychain ACL prompt on the next access — blocking the app
+  # before onAppear can fire. Delete the item to ensure a clean start.
+  # (Analogous to `xcrun simctl uninstall` clearing UserDefaults/Keychain on iOS.)
+  log "cleaning macOS Keychain entries from prior smoke runs"
+  security delete-generic-password -s "dev.tpmt.teleprompter.pairing" 2>/dev/null || true
+  # Also clear the UserDefaults tp.pairings.index and tp.pairing.*.meta keys so the
+  # app doesn't try to reconnect to a stale pairing on boot (which would block kx).
+  defaults delete dev.tpmt.teleprompter tp.pairings.index 2>/dev/null || true
+  defaults delete dev.tpmt.teleprompter tp.frontendId 2>/dev/null || true
+  # Delete all tp.pairing.* keys (the pairing meta stored by PairingStore).
+  for key in $(defaults read dev.tpmt.teleprompter 2>/dev/null | grep '"tp\.pairing\.' | awk -F'"' '{print $2}'); do
+    defaults delete dev.tpmt.teleprompter "$key" 2>/dev/null || true
+  done
+
+  # Start streaming the host unified log BEFORE launching the app. macOS `log show
+  # --last Ns` silently drops Default-level messages from app bundles (historical
+  # compression) even with --debug --info. `log stream` captures them in real-time.
+  start_macos_log_stream
+
+  log "opening macOS app (TP_PLATFORM=macos)"
+  open -n "$app"  # -n: always open new instance, even if bundle already running
+
+  # Poll the live stream file for boot + core markers.
+  local boot_seen="" core_line=""
+  for _ in $(seq 1 30); do
+    local out
+    out="$(macos_log_snapshot)"
+    case "$out" in *"$BOOT_MARKER"*) boot_seen="yes" ;; esac
+    core_line="$(printf '%s\n' "$out" | grep -Eo 'TP_CORE_(OK|FAIL)[^"]*' | tail -n1 || true)"
+    if [ -n "$boot_seen" ] && [ -n "$core_line" ]; then break; fi
+    sleep 0.5
+  done
+  [ -n "$boot_seen" ] || die "SMOKE FAIL (macOS) — boot marker '$BOOT_MARKER' not seen in host log (subsystem=$BUNDLE_ID)"
+  [ -n "$core_line" ] || die "SMOKE FAIL (macOS) — boot OK but no '$CORE_MARKER'/TP_CORE_FAIL line (tp-core FFI never ran?)"
+  case "$core_line" in
+    "$CORE_MARKER"*) log "core OK (macOS) — '$core_line'" ;;
+    *) die "SMOKE FAIL (macOS) — tp-core round-trip failed: $core_line" ;;
+  esac
+
+  # M1+M2: bring up loopback relay, inject the golden deep link via LaunchServices.
+  start_loopback
+
+  local link
+  link="$(smoke_pair_link "$SMOKE_DAEMON_ID" "ws://localhost:$RELAY_LOOPBACK_PORT" "golden")"
+  log "opening pairing deep link via 'open' (macOS LaunchServices)"
+  # Register the URL scheme handler first: macOS LaunchServices caches the
+  # handler list and a freshly built app may not be registered yet. Reboot
+  # of LaunchServices DB via lsregister forces registration.
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+    -f "$app" 2>/dev/null || true
+  open "$link"
+
+  local pair_line="" auth_line="" kx_line="" frame_line="" session_line="" input_line=""
+  for _ in $(seq 1 60); do
+    local out
+    out="$(macos_log_snapshot)"
+    pair_line="$(printf '%s\n' "$out" | grep -Eo 'TP_PAIR_(OK|FAIL)[^"]*' | tail -n1 || true)"
+    auth_line="$(printf '%s\n' "$out" | grep -Eo "${RELAY_AUTH_OK_MARKER}[^\"]*|${RELAY_AUTH_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    kx_line="$(printf '%s\n' "$out" | grep -Eo "${KX_OK_MARKER}[^\"]*|${KX_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    session_line="$(printf '%s\n' "$out" | grep -Eo "${SESSION_OK_MARKER}[^\"]*|${SESSION_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    input_line="$(printf '%s\n' "$out" | grep -Eo "${INPUT_OK_MARKER}[^\"]*|${INPUT_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    if [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && [ -n "$input_line" ]; then break; fi
+    sleep 0.5
+  done
+
+  # M1 assertion.
+  [ -n "$pair_line" ] || die "SMOKE FAIL (macOS) — deep link opened but no '$PAIR_MARKER'/TP_PAIR_FAIL (URL not routed to app? try: lsregister -f $app)"
+  case "$pair_line" in
+    "$PAIR_MARKER did=$SMOKE_DAEMON_ID"*) log "pairing OK (macOS M1) — '$pair_line'" ;;
+    "$PAIR_MARKER"*) die "SMOKE FAIL (macOS) — pairing wrong daemon id: $pair_line" ;;
+    *) die "SMOKE FAIL (macOS) — pairing ingestion failed: $pair_line" ;;
+  esac
+
+  # M2 assertion.
+  [ -n "$auth_line" ] || die "SMOKE FAIL (macOS) — paired but no '$RELAY_AUTH_OK_MARKER'/'$RELAY_AUTH_FAIL_MARKER' (relay connect never ran?)"
+  case "$auth_line" in
+    "$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID"*) log "relay auth OK (macOS M2) — '$auth_line'" ;;
+    "$RELAY_AUTH_OK_MARKER"*) die "SMOKE FAIL (macOS) — relay auth wrong daemon: $auth_line" ;;
+    *) die "SMOKE FAIL (macOS) — relay auth failed: $auth_line" ;;
+  esac
+
+  # M3 assertions.
+  [ -n "$kx_line" ] || die "SMOKE FAIL (macOS) — relay auth OK but no '$KX_OK_MARKER'/'$KX_FAIL_MARKER'"
+  case "$kx_line" in
+    "$KX_OK_MARKER daemon=$SMOKE_DAEMON_ID"*) log "kx OK (macOS M3) — '$kx_line'" ;;
+    "$KX_OK_MARKER"*) die "SMOKE FAIL (macOS) — kx wrong daemon: $kx_line" ;;
+    *) die "SMOKE FAIL (macOS) — kx failed: $kx_line" ;;
+  esac
+
+  [ -n "$frame_line" ] || die "SMOKE FAIL (macOS) — kx OK but no '$FRAME_OK_MARKER'/'$FRAME_FAIL_MARKER'"
+  case "$frame_line" in
+    "$FRAME_OK_MARKER sessions="*)
+      local n="${frame_line#"$FRAME_OK_MARKER" sessions=}"
+      n="${n%% *}"
+      [ "${n:-0}" -ge 1 ] || die "SMOKE FAIL (macOS) — hello decrypted but sessions=$n"
+      log "frame OK (macOS M3) — '$frame_line'"
+      ;;
+    *) die "SMOKE FAIL (macOS) — frame decrypt/decode failed: $frame_line" ;;
+  esac
+
+  # M4 assertion.
+  [ -n "$session_line" ] || die "SMOKE FAIL (macOS) — frame OK but no '$SESSION_OK_MARKER'/'$SESSION_FAIL_MARKER'"
+  case "$session_line" in
+    "$SESSION_OK_MARKER sid=$SMOKE_SESSION_ID events="*)
+      local ev="${session_line#"$SESSION_OK_MARKER" sid="$SMOKE_SESSION_ID" events=}"
+      ev="${ev%% *}"
+      [ "${ev:-0}" -ge 1 ] || die "SMOKE FAIL (macOS) — session attached but events=$ev"
+      log "session OK (macOS M4) — '$session_line'"
+      ;;
+    "$SESSION_OK_MARKER"*) die "SMOKE FAIL (macOS) — session render wrong sid: $session_line" ;;
+    *) die "SMOKE FAIL (macOS) — session attach/backfill failed: $session_line" ;;
+  esac
+
+  # M5 assertion.
+  [ -n "$input_line" ] || die "SMOKE FAIL (macOS) — session OK but no '$INPUT_OK_MARKER'/'$INPUT_FAIL_MARKER'"
+  case "$input_line" in
+    "$INPUT_OK_MARKER sid=$SMOKE_SESSION_ID"*) log "input OK (macOS M5) — '$input_line'" ;;
+    "$INPUT_OK_MARKER"*) die "SMOKE FAIL (macOS) — input round-trip wrong sid: $input_line" ;;
+    *) die "SMOKE FAIL (macOS) — input send/echo failed: $input_line" ;;
+  esac
+
+  local clients
+  clients="$(curl -s "http://localhost:$RELAY_LOOPBACK_PORT/health" \
+              | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("clients",0))' 2>/dev/null || echo 0)"
+  [ "${clients:-0}" -ge 2 ] || die "SMOKE FAIL (macOS) — relay /health reports clients=$clients (expected >=2)"
+  log "relay /health confirms clients=$clients"
+
+  log "✅ SMOKE PASS (macOS) — all 8 markers observed"
+}
+
 # start_loopback — bring up the local seeded relay used by the M2 auth check and
 # register cleanup so it always dies (RETURN is bypassed by `die`→exit, so trap
 # EXIT too). Sets $LOOPBACK_PID for callers that want it.
@@ -398,6 +636,9 @@ start_loopback() {
 
 cmd_test() {
   require xcodebuild
+  if [ "$TP_PLATFORM" = "macos" ]; then
+    die "XCTest (cmd_test) is ios-only in this milestone. Use TP_PLATFORM=ios for tests."
+  fi
   ensure_xcframework
   ensure_project
   log "running tests for $SCHEME on iOS Simulator"
@@ -416,7 +657,10 @@ main() {
   case "$sub" in
     gen)   cmd_gen ;;
     rust)  cmd_rust "$@" ;;
-    boot)  cmd_boot ;;
+    boot)
+      [ "$TP_PLATFORM" != "macos" ] || die "'boot' is iOS-only (TP_PLATFORM=macos has no Simulator to boot)"
+      cmd_boot
+      ;;
     build) cmd_build "$@" ;;
     run)   cmd_run ;;
     smoke) cmd_smoke ;;

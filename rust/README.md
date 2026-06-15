@@ -70,7 +70,7 @@ TC="/Users/dave/.rustup/toolchains/stable-aarch64-apple-darwin/bin"; export PATH
 
 `build-xcframework.sh` 는 `rustup which cargo` 로 이를 자동 처리한다.
 
-## iOS xcframework 빌드
+## iOS/macOS xcframework 빌드
 
 ```bash
 rust/build-xcframework.sh            # release (기본)
@@ -80,15 +80,26 @@ scripts/ios.sh rust
 ```
 
 산출물:
-- `rust/target/TpCore.xcframework` — 2 slice: `ios-arm64`(기기) +
-  `ios-arm64_x86_64-simulator`(arm64+x86_64 lipo). gitignored 바이너리.
+- `rust/target/TpCore.xcframework` — **3 슬라이스**:
+  - `ios-arm64` — iOS 실기기 (arm64)
+  - `ios-arm64_x86_64-simulator` — iOS/iPadOS Simulator (arm64 + x86_64 lipo fat)
+  - `macos-arm64_x86_64` — native macOS (arm64 + x86_64 lipo fat, Catalyst 아님)
+  gitignored 바이너리.
 - `ios/Generated/{tp_core.swift, tp_coreFFI.h, tp_coreFFI.modulemap}` — UniFFI Swift
   바인딩. gitignored, 재현 가능.
 
-iOS 타깃 필요: `rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios`.
+타깃 필요:
+```bash
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios \
+                  aarch64-apple-darwin x86_64-apple-darwin
+```
 
 > xcframework 는 (platform, variant) 당 라이브러리 1개만 허용하므로, arm64-sim 과
 > x86_64-sim 두 정적 아카이브를 `lipo` 로 fat archive 하나로 합쳐 simulator slice 로 넣는다.
+> macOS 도 같은 방식 (arm64-darwin + x86_64-darwin → macos-fat).
+>
+> `xcodebuild -create-xcframework` 결과를 `plutil -p Info.plist | grep LibraryIdentifier`
+> 로 확인하면 3개의 LibraryIdentifier 가 나와야 한다.
 
 ## Swift 에서 쓰기
 

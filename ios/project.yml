@@ -1,16 +1,21 @@
-# XcodeGen spec — Teleprompter native iOS app (ADR-0001 rewrite).
+# XcodeGen spec — Teleprompter native app (ADR-0001 rewrite, Phase 3.x A2).
+#
+# Supports iOS Simulator, iPadOS, and native macOS (NOT Catalyst) from ONE target.
+# visionOS/watchOS are out of scope (Rust toolchain blocked — Phase B).
 #
 # The generated Teleprompter.xcodeproj is NOT checked in (see ios/.gitignore);
 # regenerate it reproducibly with `xcodegen generate` (or scripts/ios.sh gen).
 #
-# Driven headlessly by scripts/ios.sh: build → install → launch → smoke-test
-# on the iOS Simulator, no Xcode GUI required.
+# Driven headlessly by scripts/ios.sh:
+#   TP_PLATFORM=ios  (default) — Simulator build → install → launch → smoke-test
+#   TP_PLATFORM=macos          — native macOS build → open → verify from host log
 
 name: Teleprompter
 options:
   bundleIdPrefix: dev.tpmt
   deploymentTarget:
     iOS: "17.0"
+    macOS: "14.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
 
@@ -22,7 +27,7 @@ settings:
     # Ad-hoc sign Simulator builds so entitlements (keychain-access-groups) are
     # embedded. Without an entitlement the Simulator Keychain rejects SecItemAdd
     # with errSecMissingEntitlement (-34018). Ad-hoc ("-") needs no developer
-    # identity and the Simulator accepts it.
+    # identity and the Simulator accepts it. Same applies to macOS local builds.
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGNING_REQUIRED: "NO"
     CODE_SIGNING_ALLOWED: "YES"
@@ -31,7 +36,12 @@ settings:
 targets:
   Teleprompter:
     type: application
-    platform: iOS
+    # platform: auto + supportedDestinations enables multiplatform from one target.
+    # iPadOS is implicitly included in the iOS destination via TARGETED_DEVICE_FAMILY
+    # (injected by the iOS setting preset: "1,2" = iPhone+iPad). Do NOT add a
+    # hardcoded TARGETED_DEVICE_FAMILY here — the presets handle it per-destination.
+    platform: auto
+    supportedDestinations: [iOS, macOS]
     sources:
       - path: Sources
       # UniFFI-generated Swift bindings for the Rust core (tp-core). Produced by
@@ -42,20 +52,26 @@ targets:
         optional: true
     dependencies:
       # tp-core static library (byte-exact wire primitives). Not embedded — a
-      # static archive links into the binary directly. The xcframework lives
-      # under rust/target (gitignored) and is built before any app build.
+      # static archive links into the binary directly. The xcframework now contains
+      # 3 slices: ios-arm64 (device), ios-arm64_x86_64-simulator, macos-arm64_x86_64.
       - framework: ../rust/target/TpCore.xcframework
         embed: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.teleprompter
-        TARGETED_DEVICE_FAMILY: "1,2" # iPhone + iPad.
+        # iOS entitlements (keychain-access-groups for Simulator Keychain).
+        # macOS overrides this with the sandbox + network.client entitlements file.
         CODE_SIGN_ENTITLEMENTS: Teleprompter.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Teleprompter-macOS.entitlements
     # Explicit Info.plist (checked in) so we can register the custom `tp://` URL
     # scheme — CFBundleURLTypes has no INFOPLIST_KEY_* equivalent, so a generated
     # plist won't carry it. XcodeGen writes this file from `properties` and points
-    # INFOPLIST_FILE at it. The OS routes pairing deep links (`tp://p?d=…`) to the
-    # app; verified via `xcrun simctl openurl`.
+    # INFOPLIST_FILE at it.
+    #
+    # UI* keys (UILaunchScreen, UIApplicationSceneManifest,
+    # UIApplicationSupportsIndirectInputEvents) are iOS/iPadOS-only; AppKit ignores
+    # them silently on macOS — the macOS build succeeds without any plist split.
+    # Verified: macOS xcodebuild reaches the linker with no plist-related errors.
     info:
       path: Teleprompter-Info.plist
       properties:
@@ -63,7 +79,7 @@ targets:
         UILaunchScreen: {}
         UIApplicationSupportsIndirectInputEvents: true
         # App Transport Security. Production relay is `wss://relay.tpmt.dev` (TLS),
-        # which needs no exception. The local loopback relay used by the M2 smoke
+        # which needs no exception. The local loopback relay used by the smoke
         # test (`ws://localhost:7090`) is cleartext, so allow local networking —
         # the narrow exemption (loopback + .local + link-local), not arbitrary loads.
         NSAppTransportSecurity:
@@ -77,6 +93,8 @@ targets:
         # bridges inbound URL contexts to `.onOpenURL`. Declaring our own scene
         # delegate is ignored by SwiftUI; the manifest's presence alone is what
         # `.onOpenURL` needs to receive `tp://` deep links.
+        # On macOS (native, not Catalyst) SwiftUI's WindowGroup works without a
+        # scene manifest — the key is ignored by AppKit.
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
           UISceneConfigurations:

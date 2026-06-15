@@ -1,11 +1,18 @@
 import SwiftUI
 
-/// The Terminal tab (ADR-0001 Phase 3, M5). Renders the raw `k == "io"` byte
-/// stream for a session and offers a composer that sends `in.chat` input.
+/// The Terminal tab (ADR-0001 Phase 3, M5 → A1 ANSI upgrade). Renders the
+/// `k == "io"` byte stream for a session using a real VT100/xterm emulator
+/// (SwiftTerm, Phase 3.x milestone A1) and offers a composer for `in.chat`
+/// input.
 ///
-/// This is **raw byte append**, not a full ANSI terminal — escape sequences are
-/// shown verbatim. Full emulation (SwiftTerm/libghostty) is a Phase 3.x
-/// follow-up; M5's scope is "bytes append + input send" (native-phase3-plan.md).
+/// **ANSI emulation (A1)**: `SwiftTermView` handles cursor movement, SGR
+/// colour, erase/clear, alt-screen, and scrollback. The raw-byte `ScrollView`
+/// + `Text` block has been replaced with `SwiftTermView`.
+///
+/// **Probe accumulator preserved**: `SessionStore.terminalOutput[sid]` (the
+/// raw String accumulator used by `RelayClient.checkInputEcho` to detect the
+/// `"tp-input-probe"` echo) is NOT rerouted through SwiftTerm.  Both paths run
+/// independently — the probe/smoke invariant is unaffected by this upgrade.
 /// PTY io lives here, never in Chat (CLAUDE.md: Chat is hooks-only).
 struct TerminalView: View {
     @ObservedObject var store: SessionStore
@@ -21,11 +28,6 @@ struct TerminalView: View {
         store.sessions.keys.sorted().first
     }
 
-    private var output: String {
-        guard let sid else { return "" }
-        return store.terminalOutput[sid] ?? ""
-    }
-
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -35,16 +37,9 @@ struct TerminalView: View {
                         systemImage: "terminal",
                         description: Text("Attach a running session to see its terminal."))
                 } else {
-                    ScrollView {
-                        ScrollViewReader { _ in
-                            Text(output.isEmpty ? "(no output yet)" : output)
-                                .font(.system(.caption, design: .monospaced))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
-                                .padding(8)
-                                .accessibilityIdentifier("terminal-output")
-                        }
-                    }
+                    SwiftTermView(store: store, sid: sid!, onSend: onSend)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .accessibilityIdentifier("terminal-output")
                     composer
                 }
             }

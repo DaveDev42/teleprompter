@@ -29,6 +29,7 @@ ios/
     TpCoreTests.swift  # tp-core FFI 단위 테스트 (codec/kx/aead/pairing)
     PairingStoreTests.swift  # M1 페어링 인제스트 (decode→persist→load, Keychain 왕복)
     RelayAuthTests.swift     # M2 relay.auth wire-byte 계약 + 토큰 골든 일치 + 클라 라이프사이클
+    TerminalEmulatorTests.swift  # Phase 3.x A1: SwiftTerm SGR colour + CUP/EL + probe-survives
   Generated/           # ⚠️ 생성물 — gitignore. UniFFI Swift 바인딩 (scripts/ios.sh rust)
   Teleprompter-Info.plist   # ⚠️ 생성물 — gitignore. XcodeGen 이 project.yml info.properties 에서 생성
   Teleprompter.xcodeproj/   # ⚠️ 생성물 — gitignore. `xcodegen generate` 로 재생성
@@ -138,7 +139,30 @@ OSLog privacy: macOS native 빌드는 String 변수 보간을 기본 `<private>`
 - 새 마일스톤마다 `scripts/ios.sh smoke` + `scripts/ios.sh test` 를 돌려 회귀를 차단한다.
   (Rust 호스트 테스트 = `cd rust && cargo test -p tp-core`, 와이어 골든벡터 포함.)
   현재: smoke (iOS) = 8 마커 (boot+core+pairing+relay-auth+kx+frame+session+input),
-  smoke (macOS) = 8 마커 동일, XCTest 45/45 (iOS Simulator), Rust 호스트 20/20.
+  smoke (macOS) = 8 마커 동일, XCTest 48/48 (iOS Simulator), Rust 호스트 20/20.
+
+### ANSI 터미널 에뮬레이터 (Phase 3.x A1)
+
+**의존성**: SwiftTerm 1.13.0 (MIT, SPM) — `ios/project.yml` `packages:` 블록에 선언.
+
+**아키텍처 결정**:
+- `SessionStore.terminalOutput[sid]` (raw String 누산기) 는 유지. `RelayClient.checkInputEcho`
+  가 `"tp-input-probe"` 토큰을 이 String 에서 스캔해 `TP_INPUT_OK` 를 발행한다. 절대 제거/우회 금지.
+- `SessionStore.terminalByteSink` 는 **additive** 병렬 바이트 싱크 — `appendRec` 에서 String
+  append 이후 실행. SwiftTerm 에뮬레이터에만 공급하고, String 경로는 건드리지 않는다.
+- `SwiftTermView` (Sources/Session/SwiftTermView.swift): `UIViewRepresentable` 래퍼. sid 변경
+  시 싱크 재등록, dismantleUIView 시 싱크 nil 처리.
+- `TerminalView.swift` 의 `ScrollView+Text` 블록을 `SwiftTermView` 로 교체.
+
+**A1 제한**:
+- **Go-forward 전용**: 뷰가 나타나기 전 bytes (history backfill 포함) 는 에뮬레이터에 공급되지
+  않는다 (`String.utf8` 재인코딩 vs 원본 `Data` 의 split multi-byte 발산 문제). `terminalOutput`
+  (String) 은 full history 를 보유한다.
+- **cols/rows 협상 없음**: SwiftTerm 기본값(80×24) 사용. A1 에서 daemon/runner 에 resize 신호
+  미전송.
+
+**테스트**: `TerminalEmulatorTests.swift` — SGR colour (ESC[31m → fg 속성 검증), CUP+EL 덮어쓰기,
+probe-survives (String 누산기 독립성 검증). 모두 Simulator XCTest 로 실행 (`scripts/ios.sh test`).
 
 ## 요구 도구
 

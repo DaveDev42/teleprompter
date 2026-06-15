@@ -1,5 +1,6 @@
 import SwiftUI
 import os
+import UserNotifications
 
 /// Entry point for the native Teleprompter iOS app (ADR-0001 rewrite).
 ///
@@ -41,9 +42,26 @@ struct TeleprompterApp: App {
         coreStatus = summary
     }
 
+    /// Set up notification authorization + APNs scaffold at scene-connection
+    /// time (after the window scene is established, which is required for
+    /// `UIApplication.shared.registerForRemoteNotifications` on iOS).
+    ///
+    /// `NotificationService.setup()` is Simulator-safe: it requests
+    /// UNUserNotificationCenter authorization (works everywhere) and guards the
+    /// APNs registration call behind `#if os(iOS)` so macOS never calls it.
+    private func setupNotifications() {
+        Task { @MainActor in
+            NotificationService.shared.setup()
+        }
+    }
+
+    /// Keyboard shortcut help sheet visibility (driven from Commands menu + ⌘/).
+    @State private var showShortcutHelp = false
+
     var body: some Scene {
         WindowGroup {
-            RootView(pairings: pairings, sessionStore: sessionStore, coreStatus: coreStatus)
+            RootView(pairings: pairings, sessionStore: sessionStore, coreStatus: coreStatus,
+                     showShortcutHelp: $showShortcutHelp)
                 .onOpenURL { url in
                     self.log.notice("onOpenURL url=\(url.absoluteString, privacy: .public)")
                     if case let .paired(daemonId) = DeepLinkHandler.handle(url) {
@@ -55,6 +73,12 @@ struct TeleprompterApp: App {
                         pairings.reload()
                     }
                 }
+                // Wire up the app-wide toast overlay above all content.
+                .toastOverlay()
+                // Shortcut help sheet, toggled by ⌘/ or the Help menu (macOS).
+                .shortcutHelpSheet(isPresented: $showShortcutHelp)
+                // Notification setup after the scene is ready.
+                .onAppear { setupNotifications() }
                 // A4: a desktop window must not collapse below a usable size. The
                 // sidebar (~220) + a readable terminal column needs ~640×480 floor.
                 // No-op on iOS where the scene fills the device.
@@ -67,7 +91,7 @@ struct TeleprompterApp: App {
         #if os(macOS)
         .defaultSize(width: 980, height: 680)
         .windowResizability(.contentMinSize)
-        .commands { MacCommands(pairings: pairings) }
+        .commands { MacCommands(pairings: pairings, showShortcutHelp: $showShortcutHelp) }
         #endif
     }
 }
@@ -166,6 +190,7 @@ struct RootView: View {
     let pairings: PairingViewModel
     @ObservedObject var sessionStore: SessionStore
     let coreStatus: String
+    @Binding var showShortcutHelp: Bool
 
     @AppStorage("theme") private var theme: AppTheme = .system
 
@@ -177,7 +202,8 @@ struct RootView: View {
     @ViewBuilder
     private var content: some View {
         #if os(macOS)
-        MacRootView(pairings: pairings, sessionStore: sessionStore, coreStatus: coreStatus)
+        MacRootView(pairings: pairings, sessionStore: sessionStore, coreStatus: coreStatus,
+                    showShortcutHelp: $showShortcutHelp)
         #else
         TabView {
             ForEach(AppTab.allCases) { tab in
@@ -210,6 +236,7 @@ struct MacRootView: View {
     let pairings: PairingViewModel
     @ObservedObject var sessionStore: SessionStore
     let coreStatus: String
+    @Binding var showShortcutHelp: Bool
     @State private var selection: AppTab? = .sessions
 
     var body: some View {

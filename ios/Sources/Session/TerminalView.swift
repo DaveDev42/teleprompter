@@ -1,15 +1,26 @@
 import SwiftUI
 
-/// Terminal pane (ADR-0001 Phase 3, M5 → A1 ANSI upgrade). Renders the
+/// Terminal pane (ADR-0001 Phase 3, M5 → Tranche E interactive upgrade). Renders the
 /// `k == "io"` byte stream for a session using a real VT100/xterm emulator
-/// (SwiftTerm, Phase 3.x milestone A1) and offers a composer for `in.chat` input.
+/// (SwiftTerm) and offers a composer for `in.chat` input.
 ///
 /// When `sid` is provided (SessionDetailView), it shows exactly that session's
 /// terminal. When `sid` is nil (legacy standalone use), it falls back to
 /// `store.sessions.keys.sorted().first` so the smoke harness / direct use still works.
 ///
-/// **ANSI emulation (A1)**: `SwiftTermView` handles cursor movement, SGR colour,
+/// **ANSI emulation**: `SwiftTermView` handles cursor movement, SGR colour,
 /// erase/clear, alt-screen, and scrollback.
+///
+/// **Interactive (Tranche E)**:
+/// - Hardware keyboard input (iPad / macOS) routes through SwiftTerm's `send`
+///   delegate → `store.terminalSendBytes` → `RelayClient.sendInput(kind:.term)`.
+/// - The on-screen text composer sends `in.chat` lines via `onSend`.
+/// - `sizeChanged` → `store.terminalResize` → `RelayClient.sendResize`.
+/// - History backfill: `store.terminalHistory` is called at attach time to replay
+///   io bytes already buffered by `RelayClient.ioHistory` before the view appeared.
+///
+/// The three relay callbacks are installed on `store` by `RelayClient` (Tranche E,
+/// `TerminalOps.swift`) so `SessionDetailView` does not need to be changed.
 ///
 /// **Probe accumulator preserved**: `SessionStore.terminalOutput[sid]` (the raw
 /// String accumulator used by `RelayClient.checkInputEcho` to detect the
@@ -20,8 +31,8 @@ struct TerminalView: View {
     @ObservedObject var store: SessionStore
     /// When non-nil, show exactly this session. When nil, fall back to first known.
     var sid: String? = nil
-    /// Sends a chat line into the given session. Wired to the relay client's
-    /// `sendInput` by the app; takes (sid, text).
+    /// Sends a chat line (in.chat) into the given session. Wired to
+    /// `RelayClient.sendInput(kind:.chat)` by the app; takes (sid, text).
     let onSend: (String, String) -> Void
 
     @State private var draft = ""
@@ -40,9 +51,17 @@ struct TerminalView: View {
                     systemImage: "terminal",
                     description: Text("Attach a running session to see its terminal."))
             } else {
-                SwiftTermView(store: store, sid: resolvedSid!, onSend: onSend)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .accessibilityIdentifier("terminal-output")
+                let sid = resolvedSid!
+                SwiftTermView(
+                    store: store,
+                    sid: sid,
+                    onSend: onSend,
+                    onTermInput: { bytes in store.terminalSendBytes?(sid, bytes) },
+                    onResize: { cols, rows in store.terminalResize?(sid, cols, rows) },
+                    fetchHistory: { store.terminalHistory?(sid) }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("terminal-output")
                 composer
             }
         }

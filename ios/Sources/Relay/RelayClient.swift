@@ -248,7 +248,7 @@ final class RelayClient: NSObject {
         resumeToken = ok.resumeToken
         resumeExpiresAt = ok.resumeExpiresAt
         state = .authenticated(daemonId: ok.daemonId)
-        log.notice("\(Self.authOkMarker) daemon=\(ok.daemonId, privacy: .public)")
+        log.notice("\(Self.authOkMarker, privacy: .public) daemon=\(ok.daemonId, privacy: .public)")
         startPing()
         // Subscribe BEFORE sending relay.kx so we never miss the daemon's
         // auto-`hello`: it publishes to `__meta__` the instant kx completes
@@ -289,7 +289,7 @@ final class RelayClient: NSObject {
                 if let error { self?.log.notice("attach \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)") }
             }
         } catch {
-            log.error("\(Self.sessionFailMarker) sid=\(sid, privacy: .public) detail=attach seal: \(error.localizedDescription, privacy: .public)")
+            log.error("\(Self.sessionFailMarker, privacy: .public) sid=\(sid, privacy: .public) detail=attach seal: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -308,7 +308,7 @@ final class RelayClient: NSObject {
                 if let error { self?.log.notice("resume \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)") }
             }
         } catch {
-            log.error("\(Self.sessionFailMarker) sid=\(sid, privacy: .public) detail=resume seal: \(error.localizedDescription, privacy: .public)")
+            log.error("\(Self.sessionFailMarker, privacy: .public) sid=\(sid, privacy: .public) detail=resume seal: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -365,7 +365,7 @@ final class RelayClient: NSObject {
             let keys = try kxClientSessionKeys(
                 pk: kp.publicKey, sk: kp.secretKey, peerPk: daemonPk)
             sessionKeys = keys
-            log.notice("\(Self.kxOkMarker) daemon=\(self.pairing.daemonId, privacy: .public)")
+            log.notice("\(Self.kxOkMarker, privacy: .public) daemon=\(self.pairing.daemonId, privacy: .public)")
             scheduleHelloFallback()
         } catch {
             kxFail("daemon kx.frame: \(error)")
@@ -373,7 +373,7 @@ final class RelayClient: NSObject {
     }
 
     private func kxFail(_ reason: String) {
-        log.error("\(Self.kxFailMarker) detail=\(reason, privacy: .public)")
+        log.error("\(Self.kxFailMarker, privacy: .public) detail=\(reason, privacy: .public)")
     }
 
     // MARK: first decrypted frame (M3) + session render (M4)
@@ -396,7 +396,7 @@ final class RelayClient: NSObject {
             case "hello":
                 let reply = try JSONDecoder().decode(SessionHelloReply.self, from: plaintext)
                 helloReceived = true
-                log.notice("\(Self.frameOkMarker) sessions=\(reply.d.sessions.count)")
+                log.notice("\(Self.frameOkMarker, privacy: .public) sessions=\(reply.d.sessions.count, privacy: .public)")
                 onHello(reply.d.sessions)
             case "state":
                 let msg = try JSONDecoder().decode(SessionStateMsg.self, from: plaintext)
@@ -411,7 +411,7 @@ final class RelayClient: NSObject {
                 log.notice("relay.frame decrypted t=\(env.t, privacy: .public) sid=\(frame.sid, privacy: .public)")
             }
         } catch {
-            log.error("\(Self.frameFailMarker) detail=\(error.localizedDescription, privacy: .public)")
+            log.error("\(Self.frameFailMarker, privacy: .public) detail=\(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -476,7 +476,7 @@ final class RelayClient: NSObject {
     private func emitSessionOk(sid: String, events: Int) {
         guard events >= 1, !sessionOkEmitted.contains(sid) else { return }
         sessionOkEmitted.insert(sid)
-        log.notice("\(Self.sessionOkMarker) sid=\(sid, privacy: .public) events=\(events)")
+        log.notice("\(Self.sessionOkMarker, privacy: .public) sid=\(sid, privacy: .public) events=\(events, privacy: .public)")
     }
 
     // MARK: send input (M5)
@@ -506,7 +506,7 @@ final class RelayClient: NSObject {
                 if let error { self?.log.notice("input \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)") }
             }
         } catch {
-            log.error("\(Self.inputFailMarker) sid=\(sid, privacy: .public) detail=input seal: \(error.localizedDescription, privacy: .public)")
+            log.error("\(Self.inputFailMarker, privacy: .public) sid=\(sid, privacy: .public) detail=input seal: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -528,7 +528,7 @@ final class RelayClient: NSObject {
         guard let probe = inputProbe[sid], !inputOkEmitted.contains(sid) else { return }
         guard let out = sessionStore?.terminalOutput[sid], out.contains(probe) else { return }
         inputOkEmitted.insert(sid)
-        log.notice("\(Self.inputOkMarker) sid=\(sid, privacy: .public)")
+        log.notice("\(Self.inputOkMarker, privacy: .public) sid=\(sid, privacy: .public)")
     }
 
     /// Belt-and-suspenders against the kx→auto-hello timing race: if no `hello`
@@ -565,7 +565,7 @@ final class RelayClient: NSObject {
     private func fail(_ reason: String) {
         // Never log the token or secret — `reason` is constructed from relay
         // error strings and URLError descriptions only.
-        log.error("\(Self.authFailMarker) detail=\(reason, privacy: .public)")
+        log.error("\(Self.authFailMarker, privacy: .public) detail=\(reason, privacy: .public)")
         state = .failed(reason: reason)
         disconnect()
     }

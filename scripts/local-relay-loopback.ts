@@ -256,7 +256,9 @@ async function startFakeDaemon(): Promise<void> {
   async function pushBatch(sid: string, c: number): Promise<void> {
     const recs = FAKE_EVENT_REC.seq > c ? [FAKE_EVENT_REC] : [];
     await pushOnSid(sid, JSON.stringify({ t: "batch", sid, d: recs }));
-    console.log(`[loopback:daemon] batch pushed sid=${sid} recs=${recs.length}`);
+    console.log(
+      `[loopback:daemon] batch pushed sid=${sid} recs=${recs.length}`,
+    );
   }
 
   // Resolve once the daemon has authed so the harness only injects the app's

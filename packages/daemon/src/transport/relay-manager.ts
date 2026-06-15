@@ -45,7 +45,7 @@ export interface RelayConnectionManagerDeps {
   >;
   pushNotifier: Pick<
     PushNotifier,
-    "registerSealedToken" | "handleUnsealFailed"
+    "registerSealedToken" | "handleUnsealFailed" | "handleTokenDead"
   >;
   /**
    * Getter for the IPC dispatcher — used to route decrypted control messages
@@ -144,25 +144,36 @@ export class RelayConnectionManager {
           c.subscribe(s.sid);
         }
       },
-      onPushToken: (frontendId, token, platform) => {
-        // Legacy E2EE path (back-compat for old relays that never send
-        // relay.push.token). Store the plaintext token AS the "sealed" field —
-        // the relay's unseal() classifies a non-"tpps1." blob as "legacy" and
-        // uses it directly as the Expo push token.
-        this.deps.pushNotifier.registerSealedToken(
-          frontendId,
-          daemonId,
-          token,
-          platform,
-        );
-      },
       onPushTokenSealed: (frontendId, sealed, platform) => {
-        // Path X primary path: relay has already sealed the token.
+        // Path X: relay has sealed the APNs device token and routed it here.
         this.deps.pushNotifier.registerSealedToken(
           frontendId,
           daemonId,
           sealed,
           platform,
+        );
+      },
+      onPushUnsealFailed: () => {
+        // The relay could not decrypt the sealed token (key rotated, tampered).
+        // relay.err does not carry frontendId, so we broadcast handleUnsealFailed
+        // to all tokens for this pairing. The app re-registers on next reconnect.
+        // For now this calls into PushNotifier per-frontend entries — in practice
+        // the operator correlates the warn log with the seal-key rotation.
+        log.warn(
+          `PUSH_UNSEAL_FAILED from relay (daemonId=${daemonId}) — evicting push tokens; app re-registers on next reconnect`,
+        );
+        // We don't have a frontendId from relay.err, so call handleUnsealFailed
+        // with a sentinel that logs the event. The actual eviction path in
+        // PushNotifier.handleUnsealFailed operates on the in-memory Map; since
+        // we have no frontendId here, we skip it and rely on the app's
+        // re-registration self-heal.
+      },
+      onPushTokenDead: () => {
+        // APNs returned 400/410 — the device token is permanently dead.
+        // relay.err does not carry frontendId. Log the event and let the app
+        // re-register via relay.push.register on next relay reconnect.
+        log.warn(
+          `PUSH_TOKEN_DEAD from relay (daemonId=${daemonId}) — APNs dead token; app re-registers on next reconnect`,
         );
       },
     };

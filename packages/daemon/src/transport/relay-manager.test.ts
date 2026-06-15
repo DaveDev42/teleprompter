@@ -466,11 +466,9 @@ describe("RelayConnectionManager", () => {
     });
   });
 
-  test("buildEvents.onPushToken registers token with the supplied daemonId, not ''", () => {
-    // Regression: PairingOrchestrator previously called buildEvents() without
-    // the daemonId argument, so push tokens were stored with daemonId="" making
-    // them unroutable for push dispatch and deletion. This asserts the daemonId
-    // flows through to registerSealedToken correctly.
+  test("buildEvents.onPushTokenSealed registers sealed token with the supplied daemonId", () => {
+    // The legacy onPushToken E2EE path has been removed. Only the Path X
+    // onPushTokenSealed handler (relay → daemon relay.push.token) is active.
     const registrations: Array<{
       frontendId: string;
       daemonId: string;
@@ -487,9 +485,9 @@ describe("RelayConnectionManager", () => {
         registrations.push({ frontendId, daemonId, token, platform });
       },
       handleUnsealFailed: () => {},
+      handleTokenDead: () => {},
     };
     const deps = makeDeps();
-    // Override the pushNotifier with our spy
     (
       deps as unknown as {
         pushNotifier: typeof fakePushNotifier;
@@ -499,21 +497,10 @@ describe("RelayConnectionManager", () => {
     const mgr = new RelayConnectionManager(deps);
     const stub = makeStubClient("d1");
 
-    // Build events WITH an explicit daemonId (the fixed path)
     const events = mgr.buildEvents(() => stub, undefined, "daemon-abc");
-
-    // Trigger the legacy onPushToken handler
-    events.onPushToken?.("frontend-1", "ExponentPushToken[xxx]", "ios");
-    // Trigger the sealed onPushTokenSealed handler
     events.onPushTokenSealed?.("frontend-2", "tpps1.v1.sealed-blob", "android");
 
     expect(registrations).toEqual([
-      {
-        frontendId: "frontend-1",
-        daemonId: "daemon-abc",
-        token: "ExponentPushToken[xxx]",
-        platform: "ios",
-      },
       {
         frontendId: "frontend-2",
         daemonId: "daemon-abc",
@@ -521,37 +508,6 @@ describe("RelayConnectionManager", () => {
         platform: "android",
       },
     ]);
-  });
-
-  test("buildEvents.onPushToken uses empty string when no daemonId supplied (backward-compat baseline)", () => {
-    // Documents the default-empty-string behavior when daemonId is omitted.
-    // Production callers (addClient, pairing-orchestrator) always supply it.
-    const registrations: Array<{ daemonId: string }> = [];
-    const fakePushNotifier = {
-      registerSealedToken: (
-        _frontendId: string,
-        daemonId: string,
-        _token: string,
-        _platform: string,
-      ) => {
-        registrations.push({ daemonId });
-      },
-      handleUnsealFailed: () => {},
-    };
-    const deps = makeDeps();
-    (
-      deps as unknown as {
-        pushNotifier: typeof fakePushNotifier;
-      }
-    ).pushNotifier = fakePushNotifier;
-
-    const mgr = new RelayConnectionManager(deps);
-    const stub = makeStubClient("d1");
-    const events = mgr.buildEvents(() => stub); // no daemonId
-
-    events.onPushToken?.("f1", "tok", "ios");
-
-    expect(registrations[0]?.daemonId).toBe("");
   });
 
   test("stop() disposes every client and clears the pool", async () => {

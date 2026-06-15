@@ -99,13 +99,11 @@ export interface RelayPing {
 
 /**
  * iOS notification interruption level (maps to Apple's
- * UNNotificationInterruptionLevel). Expo Push API accepts this as a top-level
- * field and forwards it as `aps.interruption-level`. We only ever send the two
- * non-privileged levels:
+ * UNNotificationInterruptionLevel). The APNs HTTP/2 provider API accepts this
+ * as `aps.interruption-level`. We only ever send the two non-privileged levels:
  *  - "time-sensitive": breaks through Focus / Do Not Disturb when the user has
  *    allowed time-sensitive notifications. Used for attention-needed events
- *    (permission prompts, elicitation) — entitlement is auto-injected by the
- *    expo-notifications plugin, no special Apple approval required.
+ *    (permission prompts, elicitation) — no special Apple entitlement required.
  *  - "active" (the implicit default): normal delivery, respects Focus.
  * "critical" (overrides the mute switch) needs a special Apple entitlement and
  * is intentionally not modeled here.
@@ -117,17 +115,12 @@ export interface RelayPush {
   /** Target frontend */
   frontendId: string;
   /**
-   * LEGACY plaintext Expo push token. Optional now — back-compat during
-   * rollout. Exactly ONE of {token, sealed} is present (enforced by the guard).
+   * Sealed APNs device token blob ("tpps1.<v>.<b64>"). The relay unseals it
+   * with PushSealer to recover the hex device token before calling APNs.
+   * Daemon treats this as an opaque blob and never persists the plaintext.
+   * Required — the legacy plaintext `token` field has been removed.
    */
-  token?: string;
-  /**
-   * Sealed push token blob ("tpps1.<v>.<b64>"). Preferred over `token` once
-   * the relay supports Path X. Relay unseals before calling Expo. Daemon
-   * treats this as an opaque blob and never persists the plaintext.
-   * Exactly ONE of {token, sealed} is present (enforced by the guard).
-   */
-  sealed?: string;
+  sealed: string;
   /** Notification title */
   title: string;
   /** Notification body */
@@ -147,16 +140,15 @@ export interface RelayPush {
 }
 
 /**
- * Frontend → Relay: register a plaintext push token so the relay can seal it.
- * Sent in ADDITION to the existing E2EE `pushToken` session frame for back-compat.
- * The relay seals the token with a key-versioned relay-side key and routes
- * `relay.push.token` to the daemon. Token is never persisted in plaintext.
+ * Frontend → Relay: register a plaintext APNs device token so the relay can
+ * seal it. The relay seals the token with a key-versioned relay-side key and
+ * routes `relay.push.token` to the daemon. Token is never persisted in plaintext.
  */
 export interface RelayPushRegister {
   t: "relay.push.register";
   /** Frontend identifier (matches the frontendId used in relay.auth) */
   frontendId: string;
-  /** Plaintext Expo push token — relay seals it immediately, never stored plaintext */
+  /** Plaintext APNs hex device token — relay seals it immediately, never stored plaintext */
   token: string;
   /** Push platform */
   platform: "ios" | "android";

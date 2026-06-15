@@ -779,7 +779,7 @@ describe("RelayServer", () => {
         JSON.stringify({
           t: "relay.push",
           frontendId: "fe-1",
-          token: "ExponentPushToken[fake-token]",
+          sealed: "legacy-device-token",
           title: "New message",
           body: "Claude responded",
           data: { sid: "s1", daemonId: DAEMON_ID, event: "stop" },
@@ -825,7 +825,7 @@ describe("RelayServer", () => {
         JSON.stringify({
           t: "relay.push",
           frontendId: "fe-2",
-          token: "ExponentPushToken[fake-token]",
+          sealed: "legacy-device-token",
           title: "Unauthorized",
           body: "Should fail",
         }),
@@ -838,7 +838,7 @@ describe("RelayServer", () => {
       frontend.close();
     });
 
-    test("calls Expo Push API when frontend is disconnected", async () => {
+    test("calls APNs when frontend is disconnected", async () => {
       // Connect daemon only, no frontend
       const daemon = await connectWs(port);
       daemon.send(
@@ -857,14 +857,14 @@ describe("RelayServer", () => {
         JSON.stringify({
           t: "relay.push",
           frontendId: "fe-disconnected",
-          token: "ExponentPushToken[test]",
+          sealed: "aabbccddeeff001122334455disc0000",
           title: "Test",
           body: "Test body",
         }),
       );
 
       // No WS notification should be received (no frontend to receive it)
-      // The push service will try Expo API (which will fail in test env, but that's OK)
+      // The push service will attempt APNs (which may fail in test env, but that's OK)
       // Just verify no crash and daemon stays connected
       await Bun.sleep(200);
       daemon.send(JSON.stringify({ t: "relay.ping" }));
@@ -1105,7 +1105,7 @@ describe("RelayServer", () => {
         (m) => m.t === "relay.auth.ok",
       )) as RelayAuthOk;
       expect(frontendAuthOk.resumeToken).toBeDefined();
-      const resumeToken = frontendAuthOk.resumeToken!;
+      const resumeToken = frontendAuthOk.resumeToken ?? "";
 
       // Close and reconnect with resume token.
       frontend.close();
@@ -1449,18 +1449,11 @@ describe("Path X: relay.push.register → relay.push.token sealing", () => {
     daemon.close();
   });
 
-  test("relay.push with valid sealed blob → Expo push sent with plaintext token", async () => {
-    const capturedTokens: string[] = [];
-    const captureFetch = (async (_url: string, init?: RequestInit) => {
-      // PushService sends a single object payload (not an array)
-      const msg = JSON.parse((init?.body as string) ?? "{}") as {
-        to?: string;
-      };
-      if (msg.to) capturedTokens.push(msg.to);
-      return new Response(
-        JSON.stringify({ data: [{ status: "ok", id: "t1" }] }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+  test("relay.push with valid sealed blob → APNs push sent with plaintext token in URL", async () => {
+    const capturedUrls: string[] = [];
+    const captureFetch = (async (input: RequestInfo | URL) => {
+      capturedUrls.push(typeof input === "string" ? input : String(input));
+      return new Response(null, { status: 200 });
     }) as unknown as typeof fetch;
 
     const sealRelay = new RelayServer({
@@ -1493,9 +1486,10 @@ describe("Path X: relay.push.register → relay.push.token sealing", () => {
       setTimeout(() => reject(new Error("auth timeout")), 3000);
     });
 
-    // Seal a token ourselves to send as relay.push
+    // Seal a real APNs-style hex token
     const sealer = new PushSealer({ secret: PUSH_SEAL_SECRET });
-    const sealed = await sealer.seal("ExponentPushToken[valid-token]");
+    const plainToken = "aabbccddeeff001122334455aabbccddeeff001122334455";
+    const sealed = await sealer.seal(plainToken);
 
     daemon2.send(
       JSON.stringify({
@@ -1508,7 +1502,8 @@ describe("Path X: relay.push.register → relay.push.token sealing", () => {
     );
 
     await Bun.sleep(300);
-    expect(capturedTokens).toContain("ExponentPushToken[valid-token]");
+    // The fake ApnsClient posts to https://apns-fake/3/device/<token>
+    expect(capturedUrls.some((u) => u.includes(plainToken))).toBe(true);
 
     daemon2.close();
     sealRelay.stop();
@@ -1581,18 +1576,15 @@ describe("Path X: relay.push.register → relay.push.token sealing", () => {
     sealRelay.stop();
   });
 
-  test("legacy relay.push with plaintext token still delivers (back-compat)", async () => {
-    const capturedTokens: string[] = [];
-    const captureFetch = (async (_url: string, init?: RequestInit) => {
-      // PushService sends a single object payload (not an array)
-      const msg = JSON.parse((init?.body as string) ?? "{}") as {
-        to?: string;
-      };
-      if (msg.to) capturedTokens.push(msg.to);
-      return new Response(
-        JSON.stringify({ data: [{ status: "ok", id: "t1" }] }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+  test("legacy plaintext token in the sealed slot still delivers (back-compat)", async () => {
+    // The legacy plaintext `token` wire field has been removed. Daemons in the
+    // upgrade window may carry a plaintext APNs token stored as the `sealed` value
+    // (non-"tpps1." prefix). The relay classifies it via PushSealer.unseal() as
+    // reason="legacy" and uses it verbatim as the APNs device token.
+    const capturedUrls: string[] = [];
+    const captureFetch = (async (input: RequestInfo | URL) => {
+      capturedUrls.push(typeof input === "string" ? input : String(input));
+      return new Response(null, { status: 200 });
     }) as unknown as typeof fetch;
 
     const legacyRelay = new RelayServer({
@@ -1625,38 +1617,33 @@ describe("Path X: relay.push.register → relay.push.token sealing", () => {
       setTimeout(() => reject(new Error("auth timeout")), 3000);
     });
 
-    // Legacy: send token field directly (no sealed)
+    // Legacy: plaintext token in the sealed slot (non-"tpps1." prefix).
+    const legacyToken = "aabbccddeeff001122334455legacy00";
     daemonL.send(
       JSON.stringify({
         t: "relay.push",
         frontendId: "fe-legacy",
-        token: "ExponentPushToken[legacy-token]",
+        sealed: legacyToken,
         title: "Legacy push",
         body: "Hello legacy",
       }),
     );
 
     await Bun.sleep(300);
-    expect(capturedTokens).toContain("ExponentPushToken[legacy-token]");
+    expect(capturedUrls.some((u) => u.includes(legacyToken))).toBe(true);
 
     daemonL.close();
     legacyRelay.stop();
   });
 
   test("legacy plaintext token in the `sealed` slot still delivers (upgrade-window back-compat)", async () => {
-    // Cell (f): a daemon that has not yet received a relay.push.token may carry
-    // a plaintext Expo token in its sealed slot. A new daemon routes that via
-    // the `token` field, but an in-between daemon could put it in `sealed`.
-    // The relay's unseal() returns reason="legacy" for non-"tpps1." blobs and
-    // must use the value verbatim rather than replying PUSH_UNSEAL_FAILED.
-    const capturedTokens: string[] = [];
-    const captureFetch = (async (_url: string, init?: RequestInit) => {
-      const msg = JSON.parse((init?.body as string) ?? "{}") as { to?: string };
-      if (msg.to) capturedTokens.push(msg.to);
-      return new Response(
-        JSON.stringify({ data: [{ status: "ok", id: "t1" }] }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      );
+    // Non-"tpps1." sealed values are treated as verbatim APNs device tokens
+    // (legacy upgrade-window path). The relay must POST to the APNs URL that
+    // includes the plaintext token (not return PUSH_UNSEAL_FAILED).
+    const capturedUrls: string[] = [];
+    const captureFetch = (async (input: RequestInfo | URL) => {
+      capturedUrls.push(typeof input === "string" ? input : String(input));
+      return new Response(null, { status: 200 });
     }) as unknown as typeof fetch;
 
     const relayF = new RelayServer({
@@ -1690,18 +1677,19 @@ describe("Path X: relay.push.register → relay.push.token sealing", () => {
     });
 
     // Plaintext token in the `sealed` slot (non-"tpps1." → reason="legacy").
+    const upgradeToken = "aabbccddeeff001122334455upgrade0";
     daemonF.send(
       JSON.stringify({
         t: "relay.push",
         frontendId: "fe-upgrade",
-        sealed: "ExponentPushToken[upgrade-window]",
+        sealed: upgradeToken,
         title: "Upgrade push",
         body: "Hello upgrade",
       }),
     );
 
     await Bun.sleep(300);
-    expect(capturedTokens).toContain("ExponentPushToken[upgrade-window]");
+    expect(capturedUrls.some((u) => u.includes(upgradeToken))).toBe(true);
 
     daemonF.close();
     relayF.stop();

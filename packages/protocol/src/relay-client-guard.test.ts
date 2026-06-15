@@ -209,10 +209,11 @@ describe("parseRelayClientMessage", () => {
   });
 
   describe("relay.push", () => {
+    // `sealed` is now REQUIRED — the legacy plaintext `token` field has been removed.
     const valid = {
       t: "relay.push",
       frontendId: "fe",
-      token: "ExponentPushToken[x]",
+      sealed: "tpps1.1.abc123",
       title: "Hi",
       body: "Body",
     };
@@ -233,7 +234,8 @@ describe("parseRelayClientMessage", () => {
     });
     test.each<[string, unknown]>([
       ["missing frontendId", { ...valid, frontendId: undefined }],
-      ["missing token", { ...valid, token: undefined }],
+      ["missing sealed", { ...valid, sealed: undefined }],
+      ["non-string sealed", { ...valid, sealed: 123 }],
       ["missing title", { ...valid, title: undefined }],
       ["missing body", { ...valid, body: undefined }],
       ["data not an object", { ...valid, data: "nope" }],
@@ -283,35 +285,6 @@ describe("parseRelayClientMessage", () => {
       ["non-string token", { ...valid, token: 42 }],
     ])("rejects %s", (_l, m) => {
       expectRejected(m);
-    });
-  });
-
-  describe("relay.push — sealed token variants", () => {
-    const base = {
-      t: "relay.push",
-      frontendId: "fe",
-      title: "Hi",
-      body: "Body",
-    };
-
-    test("accepts with sealed only", () => {
-      expectAccepted({ ...base, sealed: "tpps1.1.abc123" });
-    });
-
-    test("accepts with token only (legacy back-compat)", () => {
-      expectAccepted({ ...base, token: "ExponentPushToken[x]" });
-    });
-
-    test("rejects when both token and sealed are present", () => {
-      expectRejected({
-        ...base,
-        token: "ExponentPushToken[x]",
-        sealed: "tpps1.1.abc123",
-      });
-    });
-
-    test("rejects when both token and sealed are absent", () => {
-      expectRejected(base);
     });
   });
 

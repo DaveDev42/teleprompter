@@ -1105,7 +1105,7 @@ describe("RelayServer", () => {
         (m) => m.t === "relay.auth.ok",
       )) as RelayAuthOk;
       expect(frontendAuthOk.resumeToken).toBeDefined();
-      const resumeToken = frontendAuthOk.resumeToken!;
+      const resumeToken = frontendAuthOk.resumeToken ?? "";
 
       // Close and reconnect with resume token.
       frontend.close();

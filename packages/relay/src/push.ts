@@ -152,7 +152,9 @@ export class PushService {
 
     // Step 4: Call APNs
     if (!this.apnsClient) {
-      log.warn(`APNs client not configured — cannot deliver push for frontendId ${frontendId}`);
+      log.warn(
+        `APNs client not configured — cannot deliver push for frontendId ${frontendId}`,
+      );
       return "error";
     }
 

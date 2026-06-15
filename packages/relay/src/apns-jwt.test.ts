@@ -12,15 +12,9 @@
  *  - invalidate(): forces a re-sign on next getToken() call
  *  - derToP1363: converts a DER ECDSA sig to raw P1363 format
  */
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  test,
-} from "bun:test";
-import { generateKeyPairSync } from "crypto";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { setLogLevel } from "@teleprompter/protocol";
+import { generateKeyPairSync } from "crypto";
 import { ApnsJwtSigner, derToP1363 } from "./apns-jwt";
 
 beforeAll(() => setLogLevel("silent"));
@@ -156,7 +150,7 @@ describe("ApnsJwtSigner", () => {
       expect(t1).not.toBe(t2);
       const { claims: c1 } = parseJwt(t1);
       const { claims: c2 } = parseJwt(t2);
-      expect((c2["iat"] as number)).toBeGreaterThan(c1["iat"] as number);
+      expect(c2["iat"] as number).toBeGreaterThan(c1["iat"] as number);
     });
 
     test("cachedAgeMs() returns 0 when not cached", () => {
@@ -193,10 +187,7 @@ describe("derToP1363", () => {
     const rDer = Buffer.concat([Buffer.from([0x02, 32]), r]);
     const sDer = Buffer.concat([Buffer.from([0x02, 32]), s]);
     const seq = Buffer.concat([rDer, sDer]);
-    const der = Buffer.concat([
-      Buffer.from([0x30, seq.length]),
-      seq,
-    ]);
+    const der = Buffer.concat([Buffer.from([0x30, seq.length]), seq]);
 
     const p1363 = derToP1363(der);
     expect(p1363.length).toBe(64);

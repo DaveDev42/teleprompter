@@ -17,8 +17,10 @@ import AppKit
 ///   this shows guidance rather than opening a sheet).
 /// - **Disconnect** (⌘⌫): removes the active pairing (tears down its relay client).
 /// - **Copy daemon id** (⌘⇧C): copies the active daemon id to the pasteboard.
+/// - **Keyboard Shortcuts** (⌘/): opens the shortcut help sheet.
 struct MacCommands: Commands {
     let pairings: PairingViewModel
+    @Binding var showShortcutHelp: Bool
 
     var body: some Commands {
         // Replace the default "New Item" (⌘N) slot with pairing-oriented actions
@@ -36,6 +38,12 @@ struct MacCommands: Commands {
             Button("Disconnect") { disconnectActive() }
                 .keyboardShortcut(.delete, modifiers: .command)
                 .disabled(pairings.daemonIds.isEmpty)
+        }
+
+        // Help menu: Keyboard Shortcuts (⌘/).
+        CommandGroup(after: .help) {
+            Button("Keyboard Shortcuts") { showShortcutHelp = true }
+                .keyboardShortcut("/", modifiers: .command)
         }
     }
 

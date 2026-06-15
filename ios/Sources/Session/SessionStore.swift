@@ -55,6 +55,20 @@ final class SessionStore: ObservableObject {
 
     private static let persistKey = "tp.sessions.v1"
 
+    /// Initialise the store and immediately hydrate from `UserDefaults` so the
+    /// session list is populated before the first relay `hello` arrives. The
+    /// load is synchronous on the main actor (harmless at init time: the UI
+    /// hasn't rendered yet).
+    init() {
+        // Load synchronously — `self` is on the main actor at this point because
+        // the whole class is `@MainActor`, so `sessions` can be mutated safely.
+        if let data = UserDefaults.standard.data(forKey: Self.persistKey),
+           let decoded = try? JSONDecoder().decode([String: SessionMeta].self, from: data) {
+            // Hydrate before first render; relay hello will upsert on top.
+            sessions = decoded
+        }
+    }
+
     /// Load persisted sessions from UserDefaults. Called once at app init.
     /// Relay data (chatItems, terminalOutput) is always ephemeral — not persisted.
     func loadPersisted() {

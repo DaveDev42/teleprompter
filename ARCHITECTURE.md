@@ -4,12 +4,12 @@
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Runner    │────▶│   Daemon    │◀───▶│   Relay     │◀───▶│  Frontend   │
-│  (per-session)│  IPC │ (long-running)│  WS  │  (ciphertext) │  WS  │ (Expo app)  │
+│   Runner    │────▶│   Daemon    │◀───▶│   Relay     │◀───▶│    App      │
+│  (per-session)│  IPC │ (long-running)│  WS  │  (ciphertext) │  WS  │ (Swift app) │
 │             │     │             │     │             │     │             │
-│ Bun PTY     │     │ Store       │     │ 공식/셀프    │     │ ghostty-web │
+│ Bun PTY     │     │ Store       │     │ 공식/셀프    │     │ SwiftUI     │
 │ hooks 수집   │     │ E2EE        │     │ hosted      │     │ Chat UI     │
-│             │     │ worktree    │     │             │     │ Voice       │
+│             │     │ worktree    │     │             │     │ Terminal    │
 └─────────────┘     └──────┬──────┘     └─────────────┘     └──────┬──────┘
                            │                                       │
                      N:N 지원: 하나의 Daemon이 여러 Frontend에        │
@@ -22,19 +22,6 @@
 ```
 teleprompter/
 ├── apps/
-│   ├── app/                   # @teleprompter/app — Expo (React Native + RN Web)
-│   │   ├── app/               # Expo Router
-│   │   ├── src/
-│   │   │   ├── components/    # UI 컴포넌트
-│   │   │   ├── hooks/         # React hooks
-│   │   │   ├── stores/        # Zustand stores
-│   │   │   ├── lib/           # Relay client (E2EE), secure storage
-│   │   │   └── voice/         # OpenAI Realtime API, audio capture/playback
-│   │   ├── app.json
-│   │   ├── metro.config.js
-│   │   ├── tailwind.config.ts # NativeWind
-│   │   └── package.json
-│   │
 │   └── cli/                   # @teleprompter/cli — 통합 CLI (`tp` 바이너리)
 │       ├── src/
 │       │   ├── index.ts       # 서브커맨드 라우터
@@ -96,13 +83,17 @@ teleprompter/
 │       └── bun.json           # Bun 서비스용
 │       # 린트/포맷은 Biome (root biome.json) — ESLint/Prettier 없음
 │
+├── ios/                       # Swift 앱 — SwiftUI (Phase 0 완료, Phase 2–3 진행 중)
+│   ├── project.yml            # XcodeGen 스펙
+│   ├── Sources/               # Swift 소스
+│   ├── Tests/                 # Swift 테스트
+│   └── Teleprompter.xcodeproj # XcodeGen 생성
+│
 ├── scripts/
-│   ├── build.ts               # 멀티 플랫폼 bun build --compile
+│   ├── build.ts               # 멀티 플랫폼 bun build --compile (tp CLI)
+│   ├── ios.sh                 # iOS Simulator 빌드/설치/실행 하니스
 │   ├── deploy-relay.sh        # relay 배포 스크립트
 │   └── install.sh             # curl-pipe-sh 설치 스크립트
-│
-├── e2e/                       # Playwright E2E 테스트 — app-*.spec.ts glob (160+ 파일)
-│   └── ...                    # 대표 시나리오 목록은 .claude/rules/testing-inventory.md Tier 4 (curated subset)
 │
 ├── turbo.json
 ├── pnpm-workspace.yaml
@@ -138,12 +129,12 @@ Bun.spawn({ terminal })     Runner 프로세스
     │                         Relay (ciphertext 중계)
     │                              │
     │                              ▼
-    │                         Frontend (E2EE decrypt)
+    │                         Swift 앱 (E2EE decrypt)
     │                              │
-    │                              ├── Terminal 탭: ghostty-web.write(rawBytes) — ANSI 완벽 재현
+    │                              ├── Terminal 탭: 터미널 렌더러에 rawBytes 전달
     │                              └── Chat 탭: hooks events 전용 (io records 는 Terminal 탭으로만)
     │
-    ◀── terminal.write(input) ◀── Frontend 입력 (역방향)
+    ◀── terminal.write(input) ◀── 앱 입력 (역방향)
 ```
 
 ### 3.2 Hooks event 흐름 (Chat)
@@ -226,7 +217,7 @@ interface Envelope {
 ### 4.3 Frame Type 흐름
 
 ```
-Frontend → Daemon:
+앱 → Daemon:
   hello     초기 핸드셰이크
   attach    Session 연결
   detach    Session 분리
@@ -235,7 +226,7 @@ Frontend → Daemon:
   in.term   Terminal 입력
   ping      keepalive
 
-Daemon → Frontend:
+Daemon → 앱:
   hello     핸드셰이크 응답
   state     Session 상태 스냅샷
   rec       단일 Record
@@ -243,7 +234,7 @@ Daemon → Frontend:
   pong      keepalive 응답
   err       에러
 
-Relay Protocol v2 (Daemon/Frontend ↔ Relay):
+Relay Protocol v2 (Daemon/앱 ↔ Relay):
   relay.register   Daemon token self-registration (proof 기반)
   relay.auth       인증 (frontendId 포함)
   relay.auth.resume HMAC 토큰 fast-path 재연결 (relay 재시작 생존)
@@ -253,15 +244,15 @@ Relay Protocol v2 (Daemon/Frontend ↔ Relay):
   relay.frame      암호화 데이터 수신 (frontendId 포함)
   relay.kx.frame   pubkey 교환 수신
   relay.presence   Daemon online/offline + 세션 목록
-  relay.push       Daemon → Relay: 대상 frontend 에 Expo push 발송 요청 (token+title+body+interruptionLevel?+data)
+  relay.push       Daemon → Relay: 대상 앱에 push 발송 요청 (token+title+body+interruptionLevel?+data)
                    interruptionLevel = "active" | "time-sensitive" (옵셔널, 미지정 → active).
                    attention-needed 이벤트(PermissionRequest/Notification/Elicitation)는 time-sensitive
                    로 Focus/DND 돌파 + APNs priority 10. 정보성 이벤트는 active (Focus 존중).
-  relay.push.register  Frontend → Relay: Expo push token 등록 (sealed + platform). Relay 가 PushSealer 로
+  relay.push.register  앱 → Relay: push token 등록 (sealed + platform). Relay 가 PushSealer 로
                    봉인하여 relay.push.token 으로 Daemon 에 라우팅.
   relay.push.token Relay → Daemon: 봉인된 push token (frontendId + sealed blob + platform). Daemon 이
-                   복호화 후 Expo Push API 호출에 사용.
-  relay.notification Relay → Frontend: push payload 전달 (앱이 백그라운드일 때 알림)
+                   복호화 후 APNs push API 호출에 사용.
+  relay.notification Relay → 앱: push payload 전달 (앱이 백그라운드일 때 알림)
   relay.ping/pong  keepalive
 
   control.unpair   E2EE 페어링 해제 알림 (relay.pub on __control__ sid)
@@ -338,8 +329,7 @@ Daemon                     Relay                     Frontend
 
 - **Daemon**: vault SQLite의 `pairings` 테이블에 key pair + pairing secret 저장.
   재시작 시 `reconnectSavedRelays()`로 자동 재연결.
-- **Frontend**: expo-secure-store (iOS: Keychain, Android: Keystore, Web: localStorage)에
-  `Map<daemonId, PairingInfo>`를 base64-serialized JSON으로 저장.
+- **Swift 앱**: iOS Keychain에 `Map<daemonId, PairingInfo>`를 저장 (Phase 3에서 구현 예정).
 
 ### 5.5 암호화 프레임 구조
 
@@ -416,63 +406,41 @@ sendToHookReceiver({  // → Runner → Daemon
 PTY에서 나오는 raw bytes는 ANSI escape 시퀀스(색상, 커서 이동, 대체 화면 버퍼 등)를 포함한다.
 
 ```
-Terminal 탭: raw bytes → ghostty-web.write(data) — ANSI 완벽 재현, 직접 파싱 불필요
+Terminal 탭: raw bytes → 터미널 렌더러에 전달 — ANSI 완벽 재현, 직접 파싱 불필요
 Chat 탭:    io records 미사용 — hooks events 전용 (hooks-only, PR #457에서 PTY 폴백 제거)
 ```
 
-ghostty-web은 libghostty(Ghostty 터미널 코어)를 WASM으로 컴파일해 Canvas 2D로 렌더링하며, Claude Code의 rich TUI를 완벽하게 재현한다.
+터미널 렌더러 엔진은 Phase 3에서 결정 (SwiftTerm 또는 libghostty Swift 바인딩 후보).
+Bun 레퍼런스 구현은 ghostty-web(libghostty WASM, Canvas 2D)을 사용했다 (기록용).
 
-## 7. Frontend 아키텍처
+## 7. 앱 아키텍처 (재작성 진행 중)
 
-### 7.1 상태 관리 (Zustand)
+> **재작성 상태:** ADR-0001 기준 Phase 0 완료 (Swift→Simulator 하니스), Phase 1 진행 중
+> (Expo/EAS 정리). Phase 2 (Rust `tp-core` + Swift FFI), Phase 3 (기능 parity) 는 미착수.
+> 현재 Swift 앱은 최소 부팅 마커 셸(boot-marker)이다.
 
-```typescript
-// stores/session.ts (개념 스케치)
-interface SessionStore {
-  sessions: Map<SID, SessionState>;
-  activeSession: SID | null;
-  // 연결은 항상 pairing 경유 — pairing 번들이 relay URL + daemonId 를 담는다.
-  // 프론트엔드가 daemon URL 을 직접 잡는 경로는 존재하지 않는다 (relay-only invariant).
-  connect: (pairing: PairingInfo) => void;
-  attachSession: (sid: SID) => void;
-  sendChat: (text: string) => void;
-  sendTerminal: (data: Uint8Array) => void;
-}
-
-// stores/voice.ts
-interface VoiceStore {
-  isListening: boolean;
-  transcript: string;
-  startVoiceMode: () => void;
-  stopVoiceMode: () => void;
-}
-```
-
-### 7.2 Terminal 렌더링
+### 7.1 Swift 앱 구조
 
 ```
-웹:
-  GhosttyTerminal.tsx — ghostty-web (libghostty WASM) Canvas 2D 직접 렌더링
+ios/
+  project.yml              # XcodeGen 스펙
+  Sources/                 # SwiftUI 앱 소스 (Phase 0: 최소 부팅 마커)
+  Tests/                   # Swift 테스트
+  Teleprompter.xcodeproj   # XcodeGen 생성
 
-iOS/Android:
-  GhosttyNative.tsx — react-native-webview 안에서 ghostty-web 을 로드.
-  ghostty-web 의 UMD 빌드가 Metro 에셋(apps/app/assets/ghostty-web.umd.txt,
-  설치된 패키지와 byte-identical — ghostty-web-asset.test.ts 가 SHA-256 으로 핀)
-  으로 번들되고, lib/ghostty-native-html.ts 가 HTML 에 인라인한다. WASM 은 UMD
-  내부에 base64 data URL 로 내장 — 런타임 네트워크 의존 없음, web 과 동일 패키지
-  버전 (skew 없음). xterm.js 가 아니다.
-  RN ↔ WebView 메시지 브릿지:
-    RN → WebView: postMessage {type:"write", b64}|{type:"fit"} — 모든 write 는
-      base64 bytes (바이너리 PTY 출력이 JSON 경계를 무손실 통과). ref 표면은
-      write 만, 리사이즈는 WebView 내부 FitAddon 이 처리.
-    WebView → RN: {type:"data"|"resize"|"ready"|"error"}
+scripts/ios.sh             # Simulator 빌드→설치→실행→스모크 테스트 재실행 스크립트
 ```
 
-터미널 컴포넌트는 `apps/app/src/components/`의 `GhosttyTerminal.tsx`(웹 — Canvas 직접)와
-`GhosttyNative.tsx`(네이티브 — WebView 안 ghostty-web) 두 파일로 구성된다.
-네이티브 GPU 터미널(libghostty/SwiftTerm)로의 전환 계획은 `docs/native-terminal-plan.md`.
+### 7.2 빌드 / 검증
 
-### 7.3 Chat UI 렌더링 파이프라인
+```bash
+# Simulator 빌드 + 설치 + 실행
+bash scripts/ios.sh        # xcodebuild → xcrun simctl install/launch
+```
+
+EAS 클라우드 빌드는 제거됨. 로컬 `scripts/ios.sh` + Simulator 하니스가 기준.
+
+### 7.3 Chat UI 렌더링 파이프라인 (Phase 3 계획)
 
 ```
 hooks events ──────▶ Chat 렌더러 (hooks-only — PTY io 는 Terminal 탭 전용)
@@ -485,11 +453,14 @@ hooks events ──────▶ Chat 렌더러 (hooks-only — PTY io 는 Ter
                         └── activity badge (기타 이벤트)
 ```
 
-## 8. 음성 UX 아키텍처
+Chat UI는 Phase 3에서 구현 예정. 데이터 전략(hooks-only, io records는 Terminal 탭 전용)은
+기존 Bun 레퍼런스 구현과 동일하게 유지한다.
+
+## 8. 음성 UX 아키텍처 (Phase 3 계획)
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  Frontend                                        │
+│  Swift 앱 (Phase 3 구현 예정)                     │
 │                                                  │
 │  ┌──────────┐    ┌───────────────────┐           │
 │  │ 마이크    │───▶│ OpenAI Realtime   │           │
@@ -613,9 +584,9 @@ bun run build:cli          # → dist/tp-{darwin_arm64,darwin_x64,linux_x64,linu
 # dev 모드: bun run apps/cli/src/index.ts daemon start → bun run ... run (fallback)
 ```
 
-### GitHub Release (Release Please + EAS)
+### GitHub Release (Release Please)
 
-릴리즈 플로우:
+릴리즈 플로우 (`tp` CLI 바이너리 기준):
 1. `release-please.yml` (workflow_dispatch 전용 — push 트리거 없음). 한 dispatch당 한 동작만 수행하므로
    patch 릴리즈는 dispatch 2회가 필요하다:
    - 1차 dispatch → 버전 PR 생성/갱신 (CHANGELOG, package.json 업데이트)
@@ -623,11 +594,9 @@ bun run build:cli          # → dist/tp-{darwin_arm64,darwin_x64,linux_x64,linu
 2. `release.yml` (push: tags `v*` + workflow_dispatch) → darwin-arm64 + linux-x64/arm64 바이너리 빌드,
    GitHub Release 생성, 이어서 Homebrew tap(`DaveDev42/homebrew-tap-release`) formula 갱신.
    (#172 push-event 누락 케이스가 잦아 실무에선 항상 manual dispatch로 트리거)
-3. EAS는 release.yml과 분리:
-   - `preview.yaml` (TestFlight / Android Internal) — ci.yml `eas-gate` job이 5개 CI job 통과 +
-     `apps/app/**`·`packages/protocol/**` 변경 감지 시 main에서 자동 트리거 (`eas workflow:run`).
-   - `production.yaml` (App Store / Play Store) — 수동 전용. release.yml이나 어떤 CI 이벤트도 자동 트리거하지 않는다.
-   - 두 워크플로우 모두 fingerprint 기반: 동일 fingerprint 빌드가 있으면 OTA update, 없으면 full build 후 store 제출.
+
+> **EAS/App Store 배포는 제거됨.** Expo 앱(`apps/app`) 삭제 + EAS 인프라 철거 완료 (ADR-0001
+> Phase 1). Swift 앱 배포 방식은 Phase 3 이후 별도 결정.
 
 ```bash
 # 설치 (curl-pipe-sh)
@@ -636,8 +605,6 @@ curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts
 
 버전 관리:
 - Root `package.json` 단일 버전 → Release Please가 관리 (tp CLI 바이너리 버전)
-- `apps/app/app.json` `expo.version` → 사람 버전, 손으로 관리 (release-please는 건드리지 않음)
-- OTA runtimeVersion → cloud preview/production: `policy: fingerprint` (네이티브 의존성 해시 기반; JS-only 변경은 같은 runtime, 네이티브 변경 시 자동 격리). 로컬 dev/device 프로파일: `APP_VARIANT=dev-local` 시 `runtimeVersion: "dev-local"` 정적 문자열 override (app.config.js + eas.json development/device 프로파일). 자세한 사항은 `CLAUDE.md` "OTA 정책" 참조.
 - 태그 패턴: `v*` (예: `v0.1.19`). release-please-config.json의 `include-component-in-tag: false` 라서 컴포넌트/접두사 없음.
 
 ### 10.2 Relay 서버
@@ -646,13 +613,15 @@ curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts
 - SSH로 원격 서버에 바이너리 전송 → systemd 서비스 재시작 → health check
 - 서버 아키텍처 자동 감지 (aarch64/x86_64)
 
-### 10.3 Frontend
+### 10.3 Swift 앱 (로컬 Simulator 하니스)
 
 ```bash
-# 웹 빌드
-npx expo export --platform web
+# Simulator 빌드 + 설치 + 실행 (scripts/ios.sh)
+bash scripts/ios.sh
 
-# iOS/Android 빌드 (EAS)
-eas build --platform ios --profile production
-eas build --platform android --profile production
+# 직접 빌드 (xcodebuild)
+xcodebuild -project ios/Teleprompter.xcodeproj \
+  -scheme Teleprompter -destination 'platform=iOS Simulator,name=iPhone 16'
 ```
+
+EAS 클라우드 빌드는 제거됨 (ADR-0001). 모든 검증은 로컬 Simulator 하니스(`scripts/ios.sh`)로 수행한다.

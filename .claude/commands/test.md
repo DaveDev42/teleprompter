@@ -1,6 +1,6 @@
 ---
 description: 변경 파일 기반 스마트 테스트 실행
-argument-hint: '<auto | protocol | daemon | runner | relay | cli | app | e2e | unit | all>'
+argument-hint: '<auto | protocol | daemon | runner | relay | cli | app | unit | all>'
 ---
 
 ## 테스트 실행: $ARGUMENTS
@@ -16,8 +16,7 @@ argument-hint: '<auto | protocol | daemon | runner | relay | cli | app | e2e | u
 | `packages/runner/` | runner | `bun test ./packages/runner` |
 | `packages/relay/` | relay | `bun test ./packages/relay` |
 | `apps/cli/` | cli | `bun test ./apps/cli` |
-| `apps/app/` | app (unit + e2e) | `bun test ./apps/app` then `pnpm test:e2e` |
-| `e2e/` | app (e2e) | `pnpm test:e2e` |
+| `ios/` | app (Swift) | `ios/scripts/ios.sh test` |
 
 **의존성 전파 규칙:**
 - `packages/protocol/` 변경 → protocol + 이를 의존하는 daemon, runner, relay, cli도 함께 테스트
@@ -41,10 +40,9 @@ argument-hint: '<auto | protocol | daemon | runner | relay | cli | app | e2e | u
 | `runner` | `bun test ./packages/runner` |
 | `relay` | `bun test ./packages/relay` |
 | `cli` | `bun test ./apps/cli` |
-| `app` | `bun test ./apps/app` then `pnpm test:e2e` |
-| `e2e` | `pnpm test:e2e` |
-| `unit` | `bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay` then `bun test ./apps/app` (별도 invocation 필수) |
-| `all` | type-check → unit → e2e 순차 실행 |
+| `app` | `ios/scripts/ios.sh test` (Swift XCTest on Simulator) |
+| `unit` | `bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay` |
+| `all` | type-check → unit → app(Swift) 순차 실행 |
 
 여러 대상 지정 가능: `/test protocol daemon` → protocol + daemon 테스트.
 

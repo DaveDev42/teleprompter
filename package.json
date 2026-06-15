@@ -10,38 +10,19 @@
     "build": "turbo run build",
     "build:cli": "bun run scripts/build.ts --all",
     "build:cli:local": "bun run scripts/build.ts",
-    "build:web": "cd apps/app && npx expo export --platform web && cd ../.. && bun run scripts/inject-theme-bootstrap.ts",
     "dev": "turbo run dev",
-    "dev:app": "cd apps/app && npx expo start --web",
-    "dev:pair": "bun run scripts/dev-pair.ts",
-    "test": "bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay && bun test ./apps/app",
-    "test:e2e": "npx playwright test --project=local",
-    "test:e2e:ci": "npx playwright test --project=ci",
+    "test": "bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay",
     "test:turbo": "turbo run test",
     "type-check": "turbo run type-check",
-    "type-check:all": "npx tsc --noEmit -p packages/daemon/tsconfig.json && npx tsc --noEmit -p apps/cli/tsconfig.json && npx tsc --noEmit -p packages/relay/tsconfig.json && npx tsc --noEmit -p packages/runner/tsconfig.json && cd apps/app && npx tsc --noEmit",
+    "type-check:all": "npx tsc --noEmit -p packages/daemon/tsconfig.json && npx tsc --noEmit -p apps/cli/tsconfig.json && npx tsc --noEmit -p packages/relay/tsconfig.json && npx tsc --noEmit -p packages/runner/tsconfig.json",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "doctor": "bun run apps/cli/src/index.ts doctor",
     "status": "bun run apps/cli/src/index.ts status"
   },
-  "pnpm": {
-    "overrides": {
-      "@expo/dom-webview": "56.0.5",
-      "expo-constants": "~56.0.18",
-      "react": "19.2.3",
-      "react-dom": "19.2.3"
-    },
-    "patchedDependencies": {
-      "react-native-audio-api": "patches/react-native-audio-api.patch"
-    }
-  },
   "devDependencies": {
     "@biomejs/biome": "^2.4.10",
-    "@playwright/mcp": "^0.0.69",
-    "@playwright/test": "^1.58.2",
-    "serve": "^14.2.6",
     "turbo": "^2.5.4",
     "typescript": "~6.0.3"
   },

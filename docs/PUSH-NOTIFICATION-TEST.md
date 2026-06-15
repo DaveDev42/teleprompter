@@ -1,10 +1,12 @@
 # Push Notification Manual Test Checklist
 
-Push notifications require a real device — Simulator and Expo Go cannot receive actual APNs push.
+> **Note:** The iOS app is being rewritten in Swift/SwiftUI (see `ios/` and ADR-0001). Push notification infrastructure has not yet been ported to the Swift app (Phase 0 is a boot-marker shell). This checklist documents the target behaviour for when push notifications are implemented in a later phase. Steps that required EAS cloud builds have been removed.
+
+Push notifications require a real device — iOS Simulator cannot receive actual APNs push.
 
 ## Prerequisites
 
-- iPhone/iPad with the current dev or TestFlight build installed (a locally-built `.ipa` via `eas build --profile device --local` also works)
+- iPhone/iPad with the current development build installed
 - `tp` CLI installed on your Mac
 - Both devices on a network (relay or local)
 

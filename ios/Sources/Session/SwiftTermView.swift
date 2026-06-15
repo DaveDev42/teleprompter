@@ -7,7 +7,7 @@ import UIKit
 #endif
 
 /// A SwiftUI view that wraps SwiftTerm's `TerminalView` for ANSI/VT100 emulation
-/// in the Terminal tab (ADR-0001 Phase 3.x, milestone A1).
+/// in the Terminal tab (ADR-0001 Phase 3.x, Tranche E interactive).
 ///
 /// **Design: additive byte sink, not a reroute.**
 /// `SessionStore.terminalOutput[sid]` (the raw String accumulator) is preserved
@@ -16,17 +16,20 @@ import UIKit
 /// bytes into SwiftTerm. Both paths run independently; bad base64 in either path is
 /// already gated upstream in `appendRec`.
 ///
-/// **A1 limitation — go-forward render only.**
-/// The emulator starts empty. Bytes received *before* the view appears (e.g. history
-/// backfill) are not back-filled. This is the agreed A1 default: `terminalOutput` (the
-/// raw String accumulator) still carries the full history; the SwiftTerm view
-/// shows go-forward bytes only. Back-fill from the accumulated String is intentionally
-/// skipped because `String.utf8` re-encoding vs raw `Data` diverges on split multi-byte
-/// sequences → U+FFFD artifacts.
+/// **Tranche E: fully interactive.**
+/// - Keyboard input (hardware keyboard on iPad/macOS, software on iOS): SwiftTerm's
+///   `send(source:data:)` delegate fires for every keystroke. Bytes are forwarded to
+///   the PTY via `onTermInput` → `RelayClient.sendInput(kind:.term)`.
+/// - Resize negotiation: `sizeChanged(source:newCols:newRows:)` fires when the view
+///   geometry changes. The delegate calls `onResize` → `RelayClient.sendResize`.
+/// - History backfill: `fetchHistory()` is called once at attach time. If the caller
+///   provides buffered raw bytes (from `RelayClient.ioHistory`), they are fed into
+///   SwiftTerm so reconnecting shows full scrollback.
 ///
-/// **A1 limitation — columns/rows not negotiated.**
-/// The terminal uses SwiftTerm's default (80×24). The daemon/runner does not receive a
-/// resize signal from the frontend in A1.
+/// **Terminal buffer read API (for Voice tranche)**:
+/// `Coordinator.readVisibleText()` returns the current visible viewport as a plain
+/// UTF-8 string by iterating `terminal.buffer.lines` from SwiftTerm's Terminal model.
+///
 /// `SwiftTerm.TerminalView` is a `UIView` subclass on iOS/visionOS (`iOSTerminalView.swift`)
 /// and an `NSView` subclass on macOS (`MacTerminalView.swift`). The `feed(byteArray:)` API
 /// (`Apple/AppleTerminalView.swift:1916`), the `terminalDelegate` property
@@ -40,9 +43,20 @@ struct SwiftTermView {
     let store: SessionStore
     let sid: String
     let onSend: (String, String) -> Void
+    /// Called with raw PTY bytes the user typed (hardware keyboard). Takes bytes
+    /// as `[UInt8]` so the caller can base64-encode them for `in.term`.
+    var onTermInput: ([UInt8]) -> Void = { _ in }
+    /// Called when the terminal's col/row dimensions change due to view resize.
+    /// Caller sends a `resize` frame to the daemon.
+    var onResize: (Int, Int) -> Void = { _, _ in }
+    /// Called once at attach time to retrieve buffered io bytes for history replay.
+    /// Nil return means no buffered history (fresh session or not yet backfilled).
+    var fetchHistory: (() -> Data?)? = nil
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(sid: sid, store: store, onSend: onSend)
+        Coordinator(sid: sid, store: store, onSend: onSend,
+                    onTermInput: onTermInput, onResize: onResize,
+                    fetchHistory: fetchHistory)
     }
 
     // MARK: - Shared make/update/dismantle (platform-agnostic)
@@ -112,8 +126,15 @@ extension SwiftTermView: UIViewRepresentable {
 // MARK: - Coordinator
 
 extension SwiftTermView {
-    /// Adapts `SwiftTerm.TerminalViewDelegate` for the display-only A1 milestone.
-    /// Also manages the `terminalByteSink` registration lifecycle.
+    /// Manages the `terminalByteSink` registration lifecycle and the
+    /// `TerminalViewDelegate` protocol conformance.
+    ///
+    /// **Interactive (Tranche E)**:
+    ///   `send(source:data:)` → `onTermInput` (hardware keyboard → PTY)
+    ///   `sizeChanged(source:newCols:newRows:)` → `onResize` (PTY resize)
+    ///
+    /// **Terminal buffer read API (public, for Voice tranche)**:
+    ///   `readVisibleText() -> String` — snapshot of the current viewport.
     ///
     /// **TerminalViewDelegate conformance.**
     /// All methods in `TerminalViewDelegate` (Apple/TerminalViewDelegate.swift:12–91)
@@ -128,11 +149,25 @@ extension SwiftTermView {
         private weak var currentStore: SessionStore?
         private weak var terminalView: SwiftTerm.TerminalView?
         let onSend: (String, String) -> Void
+        /// Routes raw keystroke bytes from SwiftTerm to the relay.
+        private var onTermInput: ([UInt8]) -> Void
+        /// Routes PTY resize events (cols, rows) to the relay.
+        private var onResize: (Int, Int) -> Void
+        /// Optional closure to fetch buffered io history for initial backfill.
+        private var fetchHistory: (() -> Data?)?
 
-        init(sid: String, store: SessionStore, onSend: @escaping (String, String) -> Void) {
+        init(sid: String,
+             store: SessionStore,
+             onSend: @escaping (String, String) -> Void,
+             onTermInput: @escaping ([UInt8]) -> Void,
+             onResize: @escaping (Int, Int) -> Void,
+             fetchHistory: (() -> Data?)?) {
             self.currentSid = sid
             self.currentStore = store
             self.onSend = onSend
+            self.onTermInput = onTermInput
+            self.onResize = onResize
+            self.fetchHistory = fetchHistory
         }
 
         // MARK: - Sink lifecycle
@@ -140,6 +175,7 @@ extension SwiftTermView {
         @MainActor
         func attach(to view: SwiftTerm.TerminalView) {
             terminalView = view
+            replayHistory(into: view)
             registerSink()
         }
 
@@ -149,12 +185,22 @@ extension SwiftTermView {
             currentSid = sid
             currentStore = store
             terminalView = view
+            replayHistory(into: view)
             registerSink()
         }
 
         @MainActor
         func detach() {
             currentStore?.terminalByteSink = nil
+        }
+
+        /// Feed buffered history bytes into `view` once at attach time so
+        /// the terminal shows full scrollback even when the user navigates
+        /// to this tab after the backfill batch has already been processed.
+        @MainActor
+        private func replayHistory(into view: SwiftTerm.TerminalView) {
+            guard let history = fetchHistory?() else { return }
+            view.feed(byteArray: [UInt8](history)[...])
         }
 
         @MainActor
@@ -173,39 +219,72 @@ extension SwiftTermView {
             }
         }
 
-        // MARK: - TerminalViewDelegate (required stubs)
+        // MARK: - Terminal buffer read API (Voice tranche)
 
-        // Required: terminal emulator requested the host resize the view.
-        // A1: cols/rows negotiation not wired — ignore.
-        func sizeChanged(source: SwiftTerm.TerminalView, newCols: Int, newRows: Int) {}
+        /// Snapshot the current visible terminal viewport as a plain UTF-8 string.
+        ///
+        /// Uses `Terminal.getBufferAsData(kind:.active)` (public API) to serialise
+        /// the active buffer, then trims it to the last `rows` lines so the caller
+        /// gets only the viewport (not the full scrollback). Each line is
+        /// right-trimmed by `translateToString(trimRight:true)` inside SwiftTerm.
+        ///
+        /// **Signature (public, for Voice tranche)**:
+        /// `Coordinator.readVisibleText() -> String`
+        ///
+        /// Returns an empty string when no terminal view is attached.
+        public func readVisibleText() -> String {
+            guard let view = terminalView else { return "" }
+            let terminal = view.getTerminal()
+            let rows = terminal.rows
+            // getBufferAsData encodes every line (scrollback + viewport) as UTF-8
+            // with newline terminators. Split and take the last `rows` lines.
+            let data = terminal.getBufferAsData(kind: .active)
+            guard let text = String(data: data, encoding: .utf8) else { return "" }
+            var allLines = text.components(separatedBy: "\n")
+            // getBufferAsData appends a trailing newline after the last line, so
+            // the last element is always empty — drop it before slicing.
+            if allLines.last == "" { allLines.removeLast() }
+            let viewportLines = allLines.suffix(rows)
+            return viewportLines.joined(separator: "\n")
+        }
+
+        // MARK: - TerminalViewDelegate (required)
+
+        // Called when the view's geometry changes and SwiftTerm recalculates cols/rows.
+        // Forward to the relay so the daemon can resize the PTY to match the display.
+        func sizeChanged(source: SwiftTerm.TerminalView, newCols: Int, newRows: Int) {
+            onResize(newCols, newRows)
+        }
 
         // Required: remote application set the window title.
-        // A1: title bar not updated — ignore.
+        // Not surfaced in the current UI — ignore.
         func setTerminalTitle(source: SwiftTerm.TerminalView, title: String) {}
 
         // Required: OSC 7 "current directory" update.
-        // A1: not surfaced — ignore.
+        // Not surfaced in the current UI — ignore.
         func hostCurrentDirectoryUpdate(source: SwiftTerm.TerminalView, directory: String?) {}
 
-        // Required: the terminal emulator is asking to *send* bytes to the PTY.
-        // A1 is display-only; hardware keyboard input is disabled — no-op.
-        // The TextField composer calls onSend directly (not through this delegate).
-        func send(source: SwiftTerm.TerminalView, data: ArraySlice<UInt8>) {}
+        // Required: the terminal emulator forwards keystrokes the user typed.
+        // Forward the raw bytes to the relay as `in.term` (base64-encoded by the caller).
+        // The TextField composer sends `in.chat` via onSend — these are independent paths.
+        func send(source: SwiftTerm.TerminalView, data: ArraySlice<UInt8>) {
+            onTermInput(Array(data))
+        }
 
         // Required: terminal scrolled; position ∈ [0,1].
-        // A1: scroll indicator not synced externally — ignore.
+        // Scroll indicator not synced externally — ignore.
         func scrolled(source: SwiftTerm.TerminalView, position: Double) {}
 
         // Required: user activated a hyperlink (OSC 8 or implicit URL).
-        // A1: not handled — ignore.
+        // Not handled in the current milestone — ignore.
         func requestOpenLink(source: SwiftTerm.TerminalView, link: String, params: [String: String]) {}
 
         // Required: OSC 52 clipboard copy.
-        // A1: not handled — ignore.
+        // Not handled in the current milestone — ignore.
         func clipboardCopy(source: SwiftTerm.TerminalView, content: Data) {}
 
         // Required: visual range changed (notifyUpdateChanges must be true to receive).
-        // A1: not used — ignore.
+        // Not used — ignore.
         func rangeChanged(source: SwiftTerm.TerminalView, startY: Int, endY: Int) {}
 
         // bell and iTermContent have default implementations in SwiftTerm's

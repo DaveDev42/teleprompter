@@ -41,6 +41,11 @@ final class RelayClient: NSObject {
     /// rendered as a chat item). Emitted once per session after its first `batch`.
     static let sessionOkMarker = "TP_SESSION_OK"
     static let sessionFailMarker = "TP_SESSION_FAIL"
+    /// M5 marker: input round-tripped — the app sent an `in.chat` probe and saw
+    /// the daemon echo it back as an `io` record (the bytes the app sent appeared
+    /// in the terminal stream). Emitted once per session.
+    static let inputOkMarker = "TP_INPUT_OK"
+    static let inputFailMarker = "TP_INPUT_FAIL"
 
     private(set) var state: State = .idle {
         didSet { onStateChange?(state) }
@@ -86,6 +91,19 @@ final class RelayClient: NSObject {
     /// Sessions for which a `TP_SESSION_OK` has already been emitted, so a second
     /// `batch` (overlapping resume + cache replay) does not double-emit the marker.
     private var sessionOkEmitted: Set<String> = []
+
+    // MARK: input round-trip probe (M5)
+
+    /// The probe text the app auto-sends as `in.chat` once a session is attached +
+    /// backfilled, used to prove the input→io round-trip on-device. A daemon (or
+    /// the loopback) echoes input back as an `io` record; when that record's bytes
+    /// contain this token, the app emits `TP_INPUT_OK`. Per sid: nil until sent.
+    private var inputProbe: [String: String] = [:]
+    /// Sessions for which `TP_INPUT_OK` has fired, so a repeated echo (or a later
+    /// io record still containing the token) does not double-emit.
+    private var inputOkEmitted: Set<String> = []
+    /// A fixed probe token — deterministic so the smoke harness can correlate it.
+    private static let probeToken = "tp-input-probe"
 
     /// - Parameters:
     ///   - pairing: the daemon pairing carrying relay URL, daemonId, secret, frontendId.
@@ -421,8 +439,10 @@ final class RelayClient: NSObject {
         }
     }
 
-    /// Daemon's reply to `resume`: apply the history batch, then emit
-    /// `TP_SESSION_OK` once we have ≥1 rendered chat item for this session.
+    /// Daemon's reply to `resume`: apply the history batch, emit `TP_SESSION_OK`
+    /// once we have ≥1 rendered chat item, then (M5) auto-send the input probe so
+    /// the input→io round-trip is exercised on-device. Also check for an echoed
+    /// probe in case io records arrived inside the backfill batch.
     private func onBatch(_ msg: SessionBatch) {
         let store = sessionStore
         let sid = msg.sid
@@ -431,11 +451,14 @@ final class RelayClient: NSObject {
             store?.appendBatch(sid: sid, recs: recs)
             let count = store?.chatItems[sid]?.count ?? 0
             self.emitSessionOk(sid: sid, events: count)
+            self.maybeSendProbe(sid: sid)
+            self.checkInputEcho(sid: sid)
         }
     }
 
-    /// A live record outside a batch (running session). Apply it; if it produces
-    /// the session's first chat item, emit `TP_SESSION_OK` too.
+    /// A live record outside a batch (running session). Apply it, emit
+    /// `TP_SESSION_OK` if it's the first chat item, and (M5) check whether an io
+    /// record carried the echoed input probe.
     private func onRec(_ rec: SessionRec) {
         let store = sessionStore
         let sid = rec.sid
@@ -443,6 +466,7 @@ final class RelayClient: NSObject {
             store?.appendRec(rec)
             let count = store?.chatItems[sid]?.count ?? 0
             self.emitSessionOk(sid: sid, events: count)
+            self.checkInputEcho(sid: sid)
         }
     }
 
@@ -453,6 +477,58 @@ final class RelayClient: NSObject {
         guard events >= 1, !sessionOkEmitted.contains(sid) else { return }
         sessionOkEmitted.insert(sid)
         log.notice("\(Self.sessionOkMarker) sid=\(sid, privacy: .public) events=\(events)")
+    }
+
+    // MARK: send input (M5)
+
+    /// Send input into a session. `kind == .chat` sends `in.chat` with plain text
+    /// (the daemon appends the newline); `kind == .term` sends `in.term` with the
+    /// text's UTF-8 bytes base64-encoded (raw PTY bytes). Sealed with tx, published
+    /// via `relay.pub` on the session sid — the same path as attach/resume.
+    enum InputKind { case chat, term }
+
+    func sendInput(sid: String, kind: InputKind, text: String) {
+        guard let keys = sessionKeys else {
+            log.notice("input before kx — dropping sid=\(sid, privacy: .public)")
+            return
+        }
+        do {
+            let body: Data
+            switch kind {
+            case .chat:
+                body = try JSONEncoder().encode(SessionInChat(sid: sid, d: text))
+            case .term:
+                let d = Data(text.utf8).base64EncodedString()
+                body = try JSONEncoder().encode(SessionInTerm(sid: sid, d: d))
+            }
+            let ct = try seal(plaintext: body, key: keys.tx, nonce: try randomBytes(24))
+            send(RelayPublish(sid: sid, ct: ct, seq: 0)) { [weak self] error in
+                if let error { self?.log.notice("input \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)") }
+            }
+        } catch {
+            log.error("\(Self.inputFailMarker) sid=\(sid, privacy: .public) detail=input seal: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Auto-send the input probe once per session (after attach+backfill), so the
+    /// smoke harness exercises the input→io round-trip without a UI gesture. The
+    /// probe token is fixed so the loopback daemon can echo it back as an io rec.
+    @MainActor
+    private func maybeSendProbe(sid: String) {
+        guard inputProbe[sid] == nil else { return }
+        inputProbe[sid] = Self.probeToken
+        sendInput(sid: sid, kind: .chat, text: Self.probeToken)
+    }
+
+    /// After any io record applies, check whether the session's terminal output
+    /// now contains the probe token (the daemon echoed our input back). If so,
+    /// emit `TP_INPUT_OK` once — the on-device proof the input round-trip works.
+    @MainActor
+    private func checkInputEcho(sid: String) {
+        guard let probe = inputProbe[sid], !inputOkEmitted.contains(sid) else { return }
+        guard let out = sessionStore?.terminalOutput[sid], out.contains(probe) else { return }
+        inputOkEmitted.insert(sid)
+        log.notice("\(Self.inputOkMarker) sid=\(sid, privacy: .public)")
     }
 
     /// Belt-and-suspenders against the kx→auto-hello timing race: if no `hello`

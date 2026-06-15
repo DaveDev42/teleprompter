@@ -92,6 +92,14 @@ final class PairingViewModel {
         store.remove(daemonId: daemonId)
         reload()
     }
+
+    /// Send a chat line into a session (M5). Routes to the client owning the
+    /// session; for the current single-daemon flow that's the sole client. (A
+    /// session→daemon map lands when N daemons each serve their own sessions.)
+    func sendInput(sid: String, text: String) {
+        let client = clients.values.first
+        client?.sendInput(sid: sid, kind: .chat, text: text)
+    }
 }
 
 /// Root navigation: a Sessions/diagnostics tab plus the live Chat tab (M4).
@@ -105,6 +113,10 @@ struct RootView: View {
                 .tabItem { Label("Sessions", systemImage: "list.bullet") }
             ChatView(store: sessionStore)
                 .tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right") }
+            TerminalView(store: sessionStore) { sid, text in
+                pairings.sendInput(sid: sid, text: text)
+            }
+            .tabItem { Label("Terminal", systemImage: "terminal") }
         }
     }
 }

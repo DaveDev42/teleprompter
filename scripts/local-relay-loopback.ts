@@ -97,6 +97,9 @@ async function startFakeDaemon(): Promise<void> {
   const daemonKp = await generateKeyPair();
   let sessionKeys: SessionKeys | null = null;
   let metaSeq = 0;
+  // io record seq counter — starts at 2 so echoed io recs sort AFTER the seq=1
+  // synthetic event rec from the backfill batch (the app gates on seq > cursor).
+  let ioSeq = 2;
 
   const ws = new WebSocket(`ws://localhost:${bound}`);
 
@@ -189,9 +192,11 @@ async function startFakeDaemon(): Promise<void> {
       }
       case "relay.frame": {
         // App-level frames the app publishes (sealed with its tx = our rx):
-        //   {t:'hello'}  → on-demand hello fallback (M3)
-        //   {t:'attach'} → reply with a `state` frame (M4)
-        //   {t:'resume'} → reply with a `batch` of records seq > c (M4)
+        //   {t:'hello'}    → on-demand hello fallback (M3)
+        //   {t:'attach'}   → reply with a `state` frame (M4)
+        //   {t:'resume'}   → reply with a `batch` of records seq > c (M4)
+        //   {t:'in.chat'}  → echo the line back as an `io` rec (M5)
+        //   {t:'in.term'}  → echo the (base64) bytes back as an `io` rec (M5)
         if (!sessionKeys || msg["from"] !== "frontend") return;
         try {
           const plain = await decrypt(String(msg["ct"]), sessionKeys.rx);
@@ -199,6 +204,7 @@ async function startFakeDaemon(): Promise<void> {
             t?: string;
             sid?: string;
             c?: number;
+            d?: string;
           };
           if (inner.t === "hello") {
             console.log("[loopback:daemon] on-demand hello request");
@@ -211,6 +217,22 @@ async function startFakeDaemon(): Promise<void> {
               `[loopback:daemon] resume sid=${inner.sid} c=${inner.c ?? 0}`,
             );
             await pushBatch(inner.sid, inner.c ?? 0);
+          } else if (
+            (inner.t === "in.chat" || inner.t === "in.term") &&
+            inner.sid &&
+            typeof inner.d === "string"
+          ) {
+            // Echo input back as an io record, mirroring a PTY echoing typed
+            // input. in.chat `d` is plain text (real daemon appends \n,
+            // relay-manager.ts:107); in.term `d` is already base64 PTY bytes.
+            const rawBytes =
+              inner.t === "in.chat"
+                ? Buffer.from(`${inner.d}\n`)
+                : Buffer.from(inner.d, "base64");
+            console.log(
+              `[loopback:daemon] input ${inner.t} sid=${inner.sid} → io echo`,
+            );
+            await pushIoRec(inner.sid, rawBytes);
           }
         } catch {
           // ignore undecodable / unknown frames
@@ -259,6 +281,23 @@ async function startFakeDaemon(): Promise<void> {
     console.log(
       `[loopback:daemon] batch pushed sid=${sid} recs=${recs.length}`,
     );
+  }
+
+  // Push a live `io` record carrying raw PTY bytes (base64), mirroring the
+  // daemon's encoding (command-dispatcher.ts:665 — io payload is always base64).
+  // Used to echo input back so the app can prove the input→io round-trip (M5).
+  async function pushIoRec(sid: string, bytes: Buffer): Promise<void> {
+    const rec = {
+      t: "rec",
+      sid,
+      seq: ioSeq++,
+      k: "io",
+      ns: "runner",
+      d: bytes.toString("base64"),
+      ts: 1_700_000_000_000,
+    };
+    await pushOnSid(sid, JSON.stringify(rec));
+    console.log(`[loopback:daemon] io rec pushed sid=${sid} seq=${rec.seq}`);
   }
 
   // Resolve once the daemon has authed so the harness only injects the app's

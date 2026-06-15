@@ -232,6 +232,29 @@ struct SessionResume: Encodable, Equatable {
     let c: Int
 }
 
+// MARK: - M5 Input messages (Frontend → Daemon)
+
+/// `in.chat` — send a chat line into a session. `d` is **plain text**; the daemon
+/// appends a trailing `\n` before writing to the PTY (`relay-manager.ts:107`), so
+/// the app sends the line WITHOUT its own newline. Sealed with tx, published via
+/// `relay.pub` on the session sid. Wire: `{ t, sid, d }`
+/// (`packages/protocol/src/types/session-proto.ts:46-50`).
+struct SessionInChat: Encodable, Equatable {
+    let t = "in.chat"
+    let sid: String
+    let d: String // PLAIN text (daemon adds the newline)
+}
+
+/// `in.term` — send raw terminal bytes into a session. `d` is **base64** of the
+/// raw PTY bytes; the daemon passes it straight through to the runner, which
+/// base64-decodes before the PTY write (`runner.ts:186`). Sealed with tx,
+/// published via `relay.pub`. Wire: `{ t, sid, d }` (`session-proto.ts:52-56`).
+struct SessionInTerm: Encodable, Equatable {
+    let t = "in.term"
+    let sid: String
+    let d: String // base64 of raw PTY bytes
+}
+
 // MARK: - M4 Session messages (Daemon → Frontend)
 
 /// `state` — the daemon's reply to `attach` (and a push on session state change).

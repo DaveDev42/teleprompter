@@ -323,7 +323,25 @@ These were decided during M2 wrap-up and bind M3+ and the post-M5 deployment wor
   (relay-capacity rule); track cursors precisely. `SessionMeta` shape
   (`session-proto.ts:11-20`). Terminal `io` explicitly NOT shown in Chat (ADR).
 
-### M5 — Send input + terminal io tab
+### M5 — Send input + terminal io tab ✅ DONE (2026-06-15, Simulator-verified)
+- **Shipped:** `RelayClient.sendInput(sid, kind, text)` seals `in.chat` (d=plain text) /
+  `in.term` (d=base64) with the tx key and publishes via `relay.pub` on the session sid
+  (`ios/Sources/Relay/RelayMessages.swift` `SessionInChat`/`SessionInTerm`, cited to
+  `session-proto.ts:46-56`). `SessionStore` routes `k=io` records into a new
+  `terminalOutput[sid]` (base64-decode `d` → lossy UTF-8 append; `io` never becomes a chat
+  item — hooks-only Chat), sharing the M4 `seq`-gated cursor for dedup. New
+  `ios/Sources/Session/TerminalView.swift` is a third tab rendering the raw byte stream
+  (monospaced, raw append — full ANSI emulation is a Phase 3.x follow-up) with a composer
+  that calls `PairingViewModel.sendInput` → `RelayClient.sendInput`. On-device the app
+  auto-sends one `in.chat` probe (`tp-input-probe`) after attach+backfill and emits
+  `TP_INPUT_OK` once the daemon echoes it back as an `io` rec (per-sid guards prevent
+  double-send/double-emit).
+- **Verified:** smoke `TP_INPUT_OK sid=sess-smoketest` (full M1→M5 chain on Simulator;
+  loopback echoes the `in.chat` probe back as an `io` rec, app sees the token in
+  `terminalOutput`) + `InputEncodeTests` (3 tests: `in.chat`/`in.term` wire shape, plain-text
+  vs base64 `d`, no app-added newline) + `TerminalRenderTests` (6 tests: io decode/append,
+  concat, cursor dedup, non-base64 reject, bad-payload skip, event/io tab split) — 45/45
+  XCTest pass.
 - **Goal:** send `in.chat`/`in.term`; render `k=io` in a Terminal tab.
 - **Rust:** none for wire (full ANSI emulation via SwiftTerm/libghostty is a Phase 3.x
   follow-up; this milestone = raw io append + input send).

@@ -62,6 +62,11 @@ FRAME_FAIL_MARKER="TP_FRAME_FAIL"
 # events=<n> (>=1 hook event decoded + rendered as a chat item).
 SESSION_OK_MARKER="TP_SESSION_OK"
 SESSION_FAIL_MARKER="TP_SESSION_FAIL"
+# M5: send input + terminal io tab. After the backfill, the app auto-sends an
+# in.chat probe; the loopback daemon echoes it back as an io record; the app sees
+# the probe bytes in the terminal stream and emits TP_INPUT_OK sid=<sid>.
+INPUT_OK_MARKER="TP_INPUT_OK"
+INPUT_FAIL_MARKER="TP_INPUT_FAIL"
 RELAY_LOOPBACK_PORT="${TP_RELAY_LOOPBACK_PORT:-7099}"
 RELAY_LOOPBACK_SCRIPT="$REPO_ROOT/scripts/local-relay-loopback.ts"
 XCFRAMEWORK="$REPO_ROOT/rust/target/TpCore.xcframework"
@@ -273,9 +278,9 @@ cmd_smoke() {
   log "opening pairing deep link (M1+M2) — want '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
   xcrun simctl openurl "$udid" "$link" >/dev/null
 
-  # Poll for the pairing (M1), relay-auth (M2), kx + first-frame (M3), and
-  # session-render (M4) markers.
-  local pair_line="" auth_line="" kx_line="" frame_line="" session_line=""
+  # Poll for the pairing (M1), relay-auth (M2), kx + first-frame (M3),
+  # session-render (M4), and input round-trip (M5) markers.
+  local pair_line="" auth_line="" kx_line="" frame_line="" session_line="" input_line=""
   for _ in $(seq 1 40); do
     local out
     out="$(xcrun simctl spawn "$udid" log show --last 40s --style compact \
@@ -285,7 +290,8 @@ cmd_smoke() {
     kx_line="$(printf '%s\n' "$out" | grep -Eo "${KX_OK_MARKER}[^\"]*|${KX_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
     frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
     session_line="$(printf '%s\n' "$out" | grep -Eo "${SESSION_OK_MARKER}[^\"]*|${SESSION_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    if [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ]; then break; fi
+    input_line="$(printf '%s\n' "$out" | grep -Eo "${INPUT_OK_MARKER}[^\"]*|${INPUT_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    if [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && [ -n "$input_line" ]; then break; fi
     sleep 0.5
   done
 
@@ -343,6 +349,16 @@ cmd_smoke() {
     *) die "SMOKE FAIL — session attach/backfill failed on-device: $session_line" ;;
   esac
 
+  # M5 assertion — input round-trip: the app auto-sent an in.chat probe, the
+  # loopback daemon echoed it back as an io record, and the app saw the probe
+  # bytes in the terminal stream (TP_INPUT_OK). Proves the full send→io path.
+  [ -n "$input_line" ] || die "SMOKE FAIL — session OK but no '$INPUT_OK_MARKER'/'$INPUT_FAIL_MARKER' line (input never sent/echoed?)"
+  case "$input_line" in
+    "$INPUT_OK_MARKER sid=$SMOKE_SESSION_ID"*) log "input OK (M5) — '$input_line'" ;;
+    "$INPUT_OK_MARKER"*) die "SMOKE FAIL — input round-trip wrong sid: $input_line (want sid=$SMOKE_SESSION_ID)" ;;
+    *) die "SMOKE FAIL — input send/echo failed on-device: $input_line" ;;
+  esac
+
   # Relay-side confirmation: both the frontend and the fake daemon are connected
   # (clients >= 2 with the M3 loopback daemon peer).
   local clients
@@ -351,7 +367,7 @@ cmd_smoke() {
   [ "${clients:-0}" -ge 2 ] || die "SMOKE FAIL — relay /health reports clients=$clients (expected >=2: app + fake daemon)"
   log "relay /health confirms clients=$clients"
 
-  log "✅ SMOKE PASS — boot + core + pairing + relay-auth + kx + first-frame + session-render markers observed on $SIM_NAME"
+  log "✅ SMOKE PASS — boot + core + pairing + relay-auth + kx + first-frame + session-render + input-roundtrip markers observed on $SIM_NAME"
 }
 
 # start_loopback — bring up the local seeded relay used by the M2 auth check and

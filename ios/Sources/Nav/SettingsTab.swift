@@ -1,8 +1,15 @@
 import SwiftUI
 
-/// Settings tab. Tranche 0 content: Appearance (theme) + About (diagnostics, version).
-/// Fonts / API Key / Updates are TODO placeholders for later tranches — the section
-/// skeleton is laid out here so they just add rows without restructuring.
+/// Settings tab — Tranche C: full feature-parity.
+///
+/// Sections:
+///   • Appearance: theme + Chat/Code/Terminal font pickers + font size
+///   • Voice: OpenAI API key (Keychain via OpenAIKeychain)
+///   • About: version + diagnostics panel
+///
+/// Font and font-size settings are owned by `SettingsStore.shared` (an
+/// `@Observable` singleton backed by UserDefaults). Voice/Chat/Terminal tranches
+/// consume settings via `SettingsStore.shared` from any context.
 struct SettingsTab: View {
     let coreStatus: String
 
@@ -19,9 +26,24 @@ struct SettingsTab: View {
     }
 }
 
+// MARK: - SettingsForm
+
 struct SettingsForm: View {
     let coreStatus: String
     @Binding var theme: AppTheme
+
+    // MARK: Appearance state
+
+    @State private var settings = SettingsStore.shared
+    @State private var fontPickerMode: FontPickerMode? = nil
+    @State private var showFontSize = false
+
+    // MARK: API key state
+
+    @State private var hasApiKey: Bool = OpenAIKeychain.isPresent()
+    @State private var showApiKey = false
+
+    // MARK: Diagnostics state
 
     @State private var showDiagnostics = false
 
@@ -36,17 +58,50 @@ struct SettingsForm: View {
                 }
                 .pickerStyle(.menu)
 
-                // TODO (later tranche): Font size picker
-                // TODO (later tranche): Terminal font family
+                // Chat Font
+                Button {
+                    fontPickerMode = .chat
+                } label: {
+                    SettingsValueRow(label: "Chat Font", value: settings.chatFont)
+                }
+                .foregroundStyle(.primary)
+
+                // Code Font
+                Button {
+                    fontPickerMode = .code
+                } label: {
+                    SettingsValueRow(label: "Code Font", value: settings.codeFont)
+                }
+                .foregroundStyle(.primary)
+
+                // Terminal Font
+                Button {
+                    fontPickerMode = .terminal
+                } label: {
+                    SettingsValueRow(label: "Terminal Font", value: settings.terminalFont)
+                }
+                .foregroundStyle(.primary)
+
+                // Font Size
+                Button {
+                    showFontSize = true
+                } label: {
+                    SettingsValueRow(label: "Font Size", value: "\(settings.fontSize)pt")
+                }
+                .foregroundStyle(.primary)
             }
 
-            // MARK: Voice (placeholder for later tranche)
+            // MARK: Voice
             Section("Voice") {
-                // TODO (later tranche): OpenAI API key entry
-                // TODO (later tranche): voice model picker
-                Text("Voice settings — coming soon")
-                    .foregroundStyle(.secondary)
-                    .font(.callout)
+                Button {
+                    showApiKey = true
+                } label: {
+                    SettingsValueRow(
+                        label: "OpenAI API Key",
+                        value: hasApiKey ? "Configured" : "Not set"
+                    )
+                }
+                .foregroundStyle(.primary)
             }
 
             // MARK: About
@@ -62,13 +117,35 @@ struct SettingsForm: View {
                         .foregroundStyle(.secondary)
                         .font(.callout.monospaced())
                 }
-
-                // TODO (later tranche): Check for updates row
             }
         }
+
+        // MARK: Font picker sheet
+        .sheet(item: $fontPickerMode) { mode in
+            fontPickerBinding(for: mode).map { binding in
+                FontPickerSheet(mode: mode, currentFont: binding)
+            }
+        }
+
+        // MARK: Font size sheet
+        .sheet(isPresented: $showFontSize) {
+            FontSizeSheet(fontSize: Binding(
+                get: { settings.fontSize },
+                set: { settings.fontSize = $0 }
+            ))
+        }
+
+        // MARK: API key sheet
+        .sheet(isPresented: $showApiKey) {
+            ApiKeySheet(hasKey: hasApiKey) {
+                hasApiKey = OpenAIKeychain.isPresent()
+            }
+        }
+
+        // MARK: Diagnostics sheet
         .sheet(isPresented: $showDiagnostics) {
             NavigationStack {
-                ContentView(coreStatus: coreStatus)
+                DiagnosticsView(coreStatus: coreStatus)
                     .navigationTitle("Diagnostics")
                     #if os(iOS)
                     .navigationBarTitleDisplayMode(.inline)
@@ -82,9 +159,56 @@ struct SettingsForm: View {
         }
     }
 
+    // MARK: Helpers
+
     private var appVersion: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
-        return "\(version) (\(build))"
+        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        return "\(v) (\(b))"
     }
+
+    /// Return a `Binding<String>` into `SettingsStore.shared` for the given font mode.
+    private func fontPickerBinding(for mode: FontPickerMode) -> Binding<String>? {
+        switch mode {
+        case .chat:
+            return Binding(
+                get: { settings.chatFont },
+                set: { settings.chatFont = $0 }
+            )
+        case .code:
+            return Binding(
+                get: { settings.codeFont },
+                set: { settings.codeFont = $0 }
+            )
+        case .terminal:
+            return Binding(
+                get: { settings.terminalFont },
+                set: { settings.terminalFont = $0 }
+            )
+        }
+    }
+}
+
+// MARK: - SettingsValueRow
+
+/// A labeled row with a secondary trailing value — for use inside List/Form buttons.
+private struct SettingsValueRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text(value)
+                .foregroundStyle(.secondary)
+                .font(.callout)
+        }
+    }
+}
+
+// MARK: - FontPickerMode: Identifiable
+
+extension FontPickerMode: Identifiable {
+    var id: String { title }
 }

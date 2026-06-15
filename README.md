@@ -4,7 +4,7 @@
 [![Deploy Relay](https://github.com/DaveDev42/teleprompter/actions/workflows/deploy-relay.yml/badge.svg)](https://github.com/DaveDev42/teleprompter/actions/workflows/deploy-relay.yml)
 [![License: BSD-2-Clause](https://img.shields.io/badge/License-BSD_2--Clause-blue.svg)](./LICENSE)
 
-Remote Claude Code session controller with E2EE relay, dual Chat/Terminal UI, and voice input.
+Remote Claude Code session controller with E2EE relay, dual Chat/Terminal UI, and voice input. **Full native rewrite in progress** (Swift app + Rust core — see [ADR-0001](./docs/adr/0001-full-native-rewrite-swift-rust.md)). The Expo/RN app stack has been removed; the backend (Bun daemon/relay/runner) is retained as reference while the rewrite progresses.
 
 ## Quick Start
 
@@ -60,7 +60,9 @@ tp pair
 tp pair --relay wss://relay.example.com
 ```
 
-Scan the QR code with the Teleprompter app (iOS TestFlight / Android Internal / [tpmt.dev](https://tpmt.dev)). The app connects to your daemon **through the relay** with end-to-end encryption — no direct local connection.
+Scan the QR code with the Teleprompter app. The app connects to your daemon **through the relay** with end-to-end encryption — no direct local connection.
+
+> **Note:** The Expo/RN Web app and TestFlight/Android builds have been removed (full native rewrite in progress — ADR-0001). The Swift iOS app is currently a minimal Phase-0 shell; pairing UI and full feature parity are planned for Phase 3.
 
 ### Auto-start on Login
 
@@ -103,13 +105,13 @@ tp daemon uninstall    # Remove
 
 ```
 Runner ──IPC──→ Daemon ──WSS (E2EE)──→ Relay ──WSS (E2EE)──→ App
- (PTY)          (Store)                (forwarder)           (Expo)
+ (PTY)          (Store)                (forwarder)           (Swift)
 ```
 
 - **Runner**: Spawns Claude Code in a PTY, collects io streams and hooks events, communicates with Daemon via IPC (Unix domain socket)
 - **Daemon**: Manages sessions, stores records, encrypts with libsodium per-frontend keys, connects to Relay(s) as a client
 - **Relay**: Stateless ciphertext forwarder (zero-trust, 10 encrypted frames cached per session). Never sees plaintext.
-- **App**: Expo app (iOS/Web/Android) with Chat + Terminal + Voice UI. Connects to paired daemon(s) via Relay only.
+- **App**: Swift (SwiftUI) iOS app — full native rewrite in progress (ADR-0001). Currently Phase-0 boot-marker shell; Chat + Terminal + Voice UI planned for Phase 3. Connects to paired daemon(s) via Relay only.
 
 **All frontend↔daemon traffic flows through the Relay with E2EE.** Daemon does not run a WebSocket server; the App does not connect directly to the Daemon. Pairing (QR/JSON) delivers the Daemon's public key and relay URL offline; frontend pubkey is exchanged in-band via `relay.kx`.
 
@@ -118,7 +120,10 @@ Runner ──IPC──→ Daemon ──WSS (E2EE)──→ Relay ──WSS (E2EE
 ```
 apps/
   cli/            # Unified `tp` binary
-  app/            # Expo app (iOS + Web + Android)
+ios/              # Swift app (SwiftUI — full native rewrite, Phase 0 done)
+  project.yml     # XcodeGen spec
+  Sources/        # Swift source
+  Tests/          # Swift tests
 packages/
   daemon/         # Session management, Store, IPC server, Relay client
   runner/         # PTY management, hooks collection
@@ -126,7 +131,8 @@ packages/
   protocol/       # Shared types, codec, crypto, pairing
   tsconfig/       # Shared TypeScript configs
 scripts/
-  build.ts        # Multi-platform bun build --compile
+  build.ts        # Multi-platform bun build --compile (tp CLI)
+  ios.sh          # iOS Simulator build/install/launch harness
   install.sh      # curl-pipe-sh installer (macOS/Linux; Windows users run under WSL)
 ```
 
@@ -138,12 +144,6 @@ pnpm install
 # Run all bun:test suites across the workspace (unit + integration)
 pnpm test
 
-# Run Playwright E2E specs (CI subset — daemon-free)
-pnpm test:e2e:ci
-
-# Run Playwright E2E specs (local — full, includes real-daemon flows)
-pnpm test:e2e
-
 # Type check every workspace package
 pnpm type-check:all
 
@@ -151,11 +151,8 @@ pnpm type-check:all
 pnpm build:cli:local    # current platform
 pnpm build:cli          # every release target (see scripts/build.ts TARGETS)
 
-# Frontend dev server
-pnpm dev:app
-
-# Build frontend for production
-pnpm build:web
+# Swift app — iOS Simulator build + install + launch
+bash scripts/ios.sh
 
 # Environment diagnostics
 pnpm doctor
@@ -163,12 +160,11 @@ pnpm doctor
 
 ## Key Technologies
 
-- **TypeScript** — single stack across all components
-- **Bun** — runtime for Runner, Daemon, Relay
-- **Expo** — React Native + Web frontend
+- **TypeScript + Bun** — backend stack (Runner, Daemon, Relay, CLI)
+- **Swift (SwiftUI)** — iOS app (full native rewrite — ADR-0001, Phase 0 done)
+- **Rust (`tp-core`)** — shared crypto/codec core via UniFFI FFI (Phase 2, not yet built)
 - **libsodium** — X25519 key exchange + XChaCha20-Poly1305 AEAD encryption
-- **ghostty-web** — terminal rendering (libghostty WASM, Canvas 2D)
-- **OpenAI Realtime API** — voice input/output with STT + TTS
+- **OpenAI Realtime API** — voice input/output with STT + TTS (planned Phase 3)
 
 ## Security
 
@@ -176,7 +172,7 @@ pnpm doctor
 - QR-based pairing with X25519 ECDH key exchange
 - Per-session ephemeral key ratchet
 - Relay sees only ciphertext (zero-trust)
-- API keys stored in OS Keychain/Keystore (native) or localStorage (web)
+- API keys stored in iOS Keychain (planned Phase 3)
 
 ## Documentation
 

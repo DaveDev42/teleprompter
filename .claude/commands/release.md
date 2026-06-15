@@ -64,10 +64,9 @@ this is the **target version**. All later steps reference it as
 The release-please PR only edits `CHANGELOG.md`, `package.json`
 (version bump), and `.release-please-manifest.json`. `ci.yml` has
 **no path filters** and runs on all PRs, so lint / type-check / test /
-build-cli / e2e **do** run — and should pass cleanly on these changes.
-The `eas-gate` job does not run on PRs (gated by
-`github.ref == 'refs/heads/main'`), so it is absent from the PR check
-list.
+build-cli **do** run — and should pass cleanly on these changes.
+(The EAS gate and e2e jobs were removed in the ADR-0001 rewrite, so
+the PR check list is just those four jobs.)
 
 Use the merge-state rollup as the definitive gate:
 
@@ -80,12 +79,12 @@ gh pr view <num> --json mergeable,mergeStateStatus,statusCheckRollup
   with the rollup payload.
 
 `ci.yml` runs on the release-please PR exactly as it would on a feature
-PR — lint, type-check, test, build-cli, and e2e jobs all execute. They
+PR — lint, type-check, test, and build-cli jobs all execute. They
 should pass since no application logic is changed. Branch protection has
 no required status checks configured, so mergeability is determined
 solely by the `mergeable`/`mergeStateStatus` fields.
 
-Do not run `bun test` / `pnpm type-check:all` / `pnpm test:e2e` locally
+Do not run `bun test` / `pnpm type-check:all` locally
 — `ci.yml` covers all of these on every PR, including release-please PRs.
 
 ### Step 3 — Merge

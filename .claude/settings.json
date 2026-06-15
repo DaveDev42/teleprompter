@@ -42,22 +42,6 @@
     ]
   },
   "enabledPlugins": {
-    "playwright@claude-plugins-official": true,
     "superpowers@claude-plugins-official": false
-  },
-  "extraKnownMarketplaces": {
-    "expo-mcp": {
-      "source": {
-        "source": "github",
-        "repo": "DaveDev42/expo-mcp"
-      }
-    }
-  },
-  "pluginConfigs": {
-    "expo-mcp@expo-mcp": {
-      "options": {
-        "app_dir": "apps/app"
-      }
-    }
   }
 }

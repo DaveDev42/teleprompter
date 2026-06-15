@@ -29,7 +29,7 @@ pnpm build:cli:local    # builds for current platform → dist/tp
 | Linux | arm64, x64 | Fully supported |
 | Windows | — | Not supported natively. Run the Linux build inside [WSL](https://learn.microsoft.com/windows/wsl/). |
 
-The mobile app (Expo) runs on iOS, Android, and Web. Platform priority: iOS > Web > Android.
+The mobile app is a Swift/SwiftUI app targeting iOS (in `ios/`). A full native rewrite is in progress per [ADR-0001](adr/0001-full-native-rewrite-swift-rust.md) — the Swift app is currently at Phase 0 (boot-marker shell). Android and Web are not targets for the rewrite.
 
 ### Do I need Claude Code installed?
 
@@ -198,7 +198,7 @@ Voice input uses the **OpenAI Realtime API** for speech-to-text and text-to-spee
 
 ### Is voice available on mobile?
 
-Not currently. Voice input is **Web-only**. On iOS and Android, the VoiceButton is hidden because native audio capture (via `expo-av` or similar) is not yet implemented. This is a known limitation.
+Not currently. The Swift app rewrite is at an early phase (boot-marker shell); voice input has not been ported yet. Voice via the OpenAI Realtime API is a planned feature for a later rewrite phase.
 
 ---
 
@@ -248,20 +248,18 @@ pnpm install
 # paths trigger bun's filter mode, whose repo scan pushes subprocess pipe fds
 # past Darwin's OPEN_MAX and silently empties child stdout)
 bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay
-bun test ./apps/app  # RN app tests — separate invocation required (mock.module global leak contaminates other crypto tests)
 
 # Type checking
 pnpm type-check:all
 
-# Playwright E2E tests
-pnpm test:e2e       # local (full suite)
-pnpm test:e2e:ci    # CI-safe subset (no daemon required)
+# iOS Simulator tests (Swift app — requires Xcode)
+bash ios/scripts/ios.sh test
 
 # Lint + format (Biome)
 pnpm lint
 ```
 
-Tests use `bun:test` exclusively — no Jest or Vitest. Test files are co-located next to source files.
+Backend tests use `bun:test` exclusively — no Jest or Vitest. Test files are co-located next to source files. Swift unit tests live under `ios/Tests/` and run via `xcodebuild test`.
 
 ### How do I build the CLI?
 
@@ -272,16 +270,17 @@ pnpm build:cli          # every release target (see scripts/build.ts TARGETS)
 
 Builds use `bun build --compile` to produce standalone binaries.
 
-### How do I run the frontend locally?
+### How do I run the iOS app locally?
+
+The app is a Swift/SwiftUI project in `ios/`. Build and launch it in the iOS Simulator with:
 
 ```bash
-# Development mode (hot reload)
-pnpm dev:app
-# or: cd apps/app && npx expo start --web
-
-# Production build
-pnpm build:web
+bash ios/scripts/ios.sh build   # build with xcodebuild
+bash ios/scripts/ios.sh sim     # boot Simulator and install
+bash ios/scripts/ios.sh run     # build + install + launch
 ```
+
+The Swift app rewrite is in progress (ADR-0001). The current Phase 0 build is a boot-marker shell — full pairing/chat/terminal features are not yet implemented.
 
 ### How do I run a relay server locally?
 
@@ -335,8 +334,9 @@ This means the key exchange between daemon and frontend didn't complete. The dae
 
 ## Known Limitations
 
-- **Voice input**: Web-only; not available on iOS/Android
+- **Swift app rewrite in progress**: The iOS app (in `ios/`) is at Phase 0 (boot-marker shell). Pairing, chat, and terminal features are not yet implemented. See [ADR-0001](adr/0001-full-native-rewrite-swift-rust.md) for the phased roadmap.
+- **Voice input**: Not yet available. Planned for a later rewrite phase.
 - **Windows**: native Windows is not supported. Windows users run the Linux build inside WSL.
-- **Pre-1.0**: Expect breaking changes. Version scheme: `0.x.y` patch bumps (release-please; `feat:` also triggers patch pre-1.0). v0.1.0 marked the App Store public release; further breaking changes still ship as patches until v1.0
+- **Pre-1.0**: Expect breaking changes. Version scheme: `0.x.y` patch bumps (release-please; `feat:` also triggers patch pre-1.0).
 - **Session export**: 50,000 record limit per export
 - **Relay presence**: 90-second window where a dead daemon may appear online

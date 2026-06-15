@@ -1,0 +1,4 @@
+# Cargo build output — reproducible via `cargo build` / build-xcframework.sh.
+/target
+# Per-crate target dirs (if any tooling creates them).
+**/target

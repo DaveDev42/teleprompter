@@ -36,7 +36,6 @@ jobs:
           npx tsc --noEmit -p apps/cli/tsconfig.json & pids+=($!)
           npx tsc --noEmit -p packages/relay/tsconfig.json & pids+=($!)
           npx tsc --noEmit -p packages/runner/tsconfig.json & pids+=($!)
-          npx tsc --noEmit -p apps/app/tsconfig.json & pids+=($!)
           fail=0
           for pid in "${pids[@]}"; do wait "$pid" || fail=1; done
           exit $fail
@@ -49,10 +48,6 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Test with coverage
         run: bun test --coverage --timeout 30000 packages/protocol packages/daemon packages/runner apps/cli packages/relay
-      - name: Test app unit tests
-        # Separate invocation: apps/app tests use mock.module("@teleprompter/protocol/client")
-        # which leaks process-wide in bun:test and breaks crypto suites in other packages.
-        run: bun test --coverage --timeout 30000 apps/app
 
   build-cli:
     runs-on: ubuntu-latest
@@ -85,79 +80,3 @@ jobs:
             echo "WARNING: Unexpected output — runner may not have spawned"
             cat /tmp/tp-smoke.log
           fi
-
-  e2e:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            playwright-${{ runner.os }}-
-
-      - name: Cache Expo web build
-        id: expo-cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            apps/app/dist
-            apps/app/node_modules/.cache
-          key: expo-web-${{ runner.os }}-${{ hashFiles('apps/app/**/*.ts', 'apps/app/**/*.tsx', 'apps/app/**/*.css', 'apps/app/app.json', 'packages/protocol/src/**/*.ts', 'scripts/inject-theme-bootstrap.ts', 'pnpm-lock.yaml') }}
-          restore-keys: |
-            expo-web-${{ runner.os }}-
-
-      - name: Build web frontend
-        if: steps.expo-cache.outputs.cache-hit != 'true'
-        run: pnpm build:web
-
-      - name: Install Playwright
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: npx playwright install chromium
-
-      - name: Install Playwright deps
-        run: npx playwright install-deps chromium
-
-      - name: Playwright E2E
-        run: npx playwright test --project=ci
-
-  eas-gate:
-    needs: [lint, type-check, test, build-cli, e2e]
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Detect app/protocol changes
-        id: changes
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            app:
-              - 'apps/app/**'
-              - 'packages/protocol/**'
-              - 'patches/**'
-
-      - uses: ./.github/actions/setup
-        if: steps.changes.outputs.app == 'true'
-
-      - name: Expo Doctor
-        if: steps.changes.outputs.app == 'true'
-        working-directory: apps/app
-        run: npx expo-doctor
-
-      - name: Trigger EAS Preview Workflow
-        if: steps.changes.outputs.app == 'true' && env.EXPO_TOKEN != ''
-        working-directory: apps/app
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: npx eas-cli workflow:run .eas/workflows/preview.yaml --ref ${{ github.sha }} --non-interactive

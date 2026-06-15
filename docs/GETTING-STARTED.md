@@ -89,11 +89,9 @@ you see in `tp pair list` and in the app; the ID is the internal identifier tied
 E2EE keys. Rename later with `tp pair rename <id-prefix> <new label>` — the peer is
 notified automatically.
 
-This outputs a QR code and **blocks** until the mobile app completes the ECDH key exchange (press Ctrl+C to cancel). In the Teleprompter app:
+This outputs a QR code and **blocks** until the mobile app completes the ECDH key exchange (press Ctrl+C to cancel).
 
-1. Open the **Daemons** tab
-2. Tap **Add Daemon**
-3. Scan the QR code or paste the pairing string
+> **Note:** The iOS app (Swift/SwiftUI, in `ios/`) is currently at Phase 0 of the native rewrite (ADR-0001) — a boot-marker shell. Full pairing UI is not yet implemented. The pairing flow described above will be wired up in a later phase.
 
 The connection is end-to-end encrypted (X25519 + XChaCha20-Poly1305). The relay server
 never sees your plaintext data.
@@ -128,32 +126,7 @@ This checks:
 
 ## Using the App
 
-The Teleprompter app has three main tabs:
-
-### Sessions
-
-![Sessions — empty state](screenshots/01-sessions-empty.png)
-
-The Sessions tab shows all active Claude Code sessions. When no daemon is connected, you'll
-see the empty state above. Tap a session to open it in the dual Chat/Terminal view:
-
-- **Chat tab** — structured conversation view with tool-use cards and streaming text
-- **Terminal tab** — full PTY output rendered via ghostty-web
-
-### Daemons
-
-The Daemons tab lists all paired daemons. Tap **Add Daemon** to pair with a new machine by
-scanning a QR code (iOS/Android) or pasting the pairing URL (web). Tap a daemon to manage
-its connection or remove the pairing.
-
-### Settings
-
-![Settings](screenshots/02-settings.png)
-
-Configure appearance (theme, fonts, font size), voice input (OpenAI API key), and check
-the app version and OTA updates. Tap **Diagnostics** at the bottom of Settings to open the
-diagnostics panel, which shows real-time connection status, relay/pairing state, E2EE crypto
-self-test, and session summary with per-session detail.
+> **Rewrite in progress:** The iOS app has been rewritten in Swift/SwiftUI (see `ios/` and [ADR-0001](../docs/adr/0001-full-native-rewrite-swift-rust.md)). The app is currently at Phase 0 — a boot-marker shell. The full Chat/Terminal/Daemons/Settings UI described below is the target design and will be implemented in subsequent phases. This section will be updated as each phase ships.
 
 ## CLI Reference
 

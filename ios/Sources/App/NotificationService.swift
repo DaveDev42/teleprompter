@@ -1,6 +1,9 @@
 import Foundation
 import UserNotifications
 import os
+#if os(iOS)
+import UIKit
+#endif
 
 /// App-level notification service.
 ///
@@ -94,6 +97,11 @@ final class NotificationService: NSObject {
         // UIApplication.shared must be accessed on the main actor (already here).
         UIApplication.shared.registerForRemoteNotifications()
         log.notice("APNs registration requested (Simulator: token unusable for real pushes)")
+#elseif os(visionOS)
+        // visionOS: APNs registration requires a real provisioning profile with
+        // the APS Environment entitlement. Out of scope for B2 (Simulator path);
+        // local notifications via UNUserNotificationCenter still work.
+        log.notice("APNs registration skipped (visionOS — TODO)")
 #else
         // macOS: UNUserNotificationCenter authorization above is sufficient for
         // local notifications. APNs on macOS requires NSApplication-based

@@ -37,6 +37,10 @@ final class RelayClient: NSObject {
     static let kxFailMarker = "TP_KX_FAIL"
     static let frameOkMarker = "TP_FRAME_OK"
     static let frameFailMarker = "TP_FRAME_FAIL"
+    /// M4 marker: a session attached + its history backfilled (≥1 event record
+    /// rendered as a chat item). Emitted once per session after its first `batch`.
+    static let sessionOkMarker = "TP_SESSION_OK"
+    static let sessionFailMarker = "TP_SESSION_FAIL"
 
     private(set) var state: State = .idle {
         didSet { onStateChange?(state) }
@@ -69,6 +73,19 @@ final class RelayClient: NSObject {
     /// Set once the first `hello` frame is decrypted, so the on-demand fallback
     /// timer does not double-request after a successful auto-`hello`.
     private var helloReceived = false
+
+    // MARK: session attach / backfill (M4)
+
+    /// The UI store fed by decrypted session records. Weak: the app owns it for
+    /// the process lifetime; the client only writes into it. All writes hop to
+    /// `@MainActor` (the store is main-actor isolated).
+    weak var sessionStore: SessionStore?
+    /// Guard so the auto-attach (on the first `hello`) fires once per connection —
+    /// a re-`hello` (e.g. the on-demand fallback also lands) must not re-attach.
+    private var didAutoAttach = false
+    /// Sessions for which a `TP_SESSION_OK` has already been emitted, so a second
+    /// `batch` (overlapping resume + cache replay) does not double-emit the marker.
+    private var sessionOkEmitted: Set<String> = []
 
     /// - Parameters:
     ///   - pairing: the daemon pairing carrying relay URL, daemonId, secret, frontendId.
@@ -233,6 +250,50 @@ final class RelayClient: NSObject {
         }
     }
 
+    // MARK: session attach / backfill (M4)
+
+    /// Attach to a session. Sends BOTH the relay-level `relay.sub` (so the relay
+    /// forwards the daemon's reply on this sid) AND the app-level `attach` (sealed
+    /// with tx, published via `relay.pub` — so the daemon produces a `state`
+    /// reply). `relay.sub` alone yields no daemon response; `attach` without a sub
+    /// means the reply is dropped. The daemon's `state` reply then triggers
+    /// `resume` (`onState`).
+    func attach(sid: String) {
+        guard let keys = sessionKeys else {
+            log.notice("attach before kx — dropping sid=\(sid, privacy: .public)")
+            return
+        }
+        subscribe(sid, after: 0)
+        do {
+            let body = try JSONEncoder().encode(SessionAttach(sid: sid))
+            let ct = try seal(plaintext: body, key: keys.tx, nonce: try randomBytes(24))
+            send(RelayPublish(sid: sid, ct: ct, seq: 0)) { [weak self] error in
+                if let error { self?.log.notice("attach \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)") }
+            }
+        } catch {
+            log.error("\(Self.sessionFailMarker) sid=\(sid, privacy: .public) detail=attach seal: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Request a history backfill for `sid` from `cursor`: `resume { c: cursor }`
+    /// returns records with `seq > cursor`. Sealed with tx, published on the
+    /// session sid; the daemon replies with a `batch` (`onBatch`).
+    func sendResume(sid: String, cursor: Int) {
+        guard let keys = sessionKeys else {
+            log.notice("resume before kx — dropping sid=\(sid, privacy: .public)")
+            return
+        }
+        do {
+            let body = try JSONEncoder().encode(SessionResume(sid: sid, c: cursor))
+            let ct = try seal(plaintext: body, key: keys.tx, nonce: try randomBytes(24))
+            send(RelayPublish(sid: sid, ct: ct, seq: 0)) { [weak self] error in
+                if let error { self?.log.notice("resume \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)") }
+            }
+        } catch {
+            log.error("\(Self.sessionFailMarker) sid=\(sid, privacy: .public) detail=resume seal: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     /// Generate the frontend's ephemeral keypair and send its pubkey + frontendId
     /// to the daemon (sealed with the kx-envelope key). Session keys are NOT
     /// derived here — they need the daemon's *current* pubkey, which arrives in
@@ -297,10 +358,13 @@ final class RelayClient: NSObject {
         log.error("\(Self.kxFailMarker) detail=\(reason, privacy: .public)")
     }
 
-    // MARK: first decrypted frame (M3)
+    // MARK: first decrypted frame (M3) + session render (M4)
 
     /// Handle an inbound E2EE data frame. The first `hello` on `__meta__` from the
-    /// daemon is the M3 success terminal: decrypt with rx, decode the session list.
+    /// daemon is the M3 success terminal (decrypt with rx, decode the session
+    /// list); M4 adds the session render path: on `hello` we auto-attach the first
+    /// session, then route the daemon's `state`/`batch`/`rec` replies into the
+    /// `SessionStore`.
     private func onRelayFrame(_ frame: RelayFrame) {
         guard frame.from == "daemon" else { return }
         guard let keys = sessionKeys else {
@@ -315,12 +379,80 @@ final class RelayClient: NSObject {
                 let reply = try JSONDecoder().decode(SessionHelloReply.self, from: plaintext)
                 helloReceived = true
                 log.notice("\(Self.frameOkMarker) sessions=\(reply.d.sessions.count)")
+                onHello(reply.d.sessions)
+            case "state":
+                let msg = try JSONDecoder().decode(SessionStateMsg.self, from: plaintext)
+                onState(msg)
+            case "batch":
+                let msg = try JSONDecoder().decode(SessionBatch.self, from: plaintext)
+                onBatch(msg)
+            case "rec":
+                let rec = try JSONDecoder().decode(SessionRec.self, from: plaintext)
+                onRec(rec)
             default:
                 log.notice("relay.frame decrypted t=\(env.t, privacy: .public) sid=\(frame.sid, privacy: .public)")
             }
         } catch {
             log.error("\(Self.frameFailMarker) detail=\(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// On the first `hello`: store the session list and auto-attach the first
+    /// running-or-any session so M4 can drive attach→state→resume→batch on-device
+    /// without manual selection. Guarded to fire once per connection.
+    private func onHello(_ sessions: [SessionMeta]) {
+        let store = sessionStore
+        Task { @MainActor in store?.upsertSessions(sessions) }
+        guard !didAutoAttach, let first = sessions.first else { return }
+        didAutoAttach = true
+        attach(sid: first.sid)
+    }
+
+    /// Daemon's reply to `attach`: refresh metadata, then request the full history
+    /// backfill (`resume { c }`) using the store's cursor so we never re-fetch
+    /// records already applied (idempotent on overlap).
+    private func onState(_ msg: SessionStateMsg) {
+        let store = sessionStore
+        let sid = msg.sid
+        Task { @MainActor in
+            store?.appendState(msg.d)
+            let cursor = store?.cursor(for: sid) ?? 0
+            self.sendResume(sid: sid, cursor: cursor)
+        }
+    }
+
+    /// Daemon's reply to `resume`: apply the history batch, then emit
+    /// `TP_SESSION_OK` once we have ≥1 rendered chat item for this session.
+    private func onBatch(_ msg: SessionBatch) {
+        let store = sessionStore
+        let sid = msg.sid
+        let recs = msg.d
+        Task { @MainActor in
+            store?.appendBatch(sid: sid, recs: recs)
+            let count = store?.chatItems[sid]?.count ?? 0
+            self.emitSessionOk(sid: sid, events: count)
+        }
+    }
+
+    /// A live record outside a batch (running session). Apply it; if it produces
+    /// the session's first chat item, emit `TP_SESSION_OK` too.
+    private func onRec(_ rec: SessionRec) {
+        let store = sessionStore
+        let sid = rec.sid
+        Task { @MainActor in
+            store?.appendRec(rec)
+            let count = store?.chatItems[sid]?.count ?? 0
+            self.emitSessionOk(sid: sid, events: count)
+        }
+    }
+
+    /// Emit the M4 success marker once per session, only when ≥1 event rendered.
+    /// Hops back off the main actor to keep the log call on the client's queue.
+    @MainActor
+    private func emitSessionOk(sid: String, events: Int) {
+        guard events >= 1, !sessionOkEmitted.contains(sid) else { return }
+        sessionOkEmitted.insert(sid)
+        log.notice("\(Self.sessionOkMarker) sid=\(sid, privacy: .public) events=\(events)")
     }
 
     /// Belt-and-suspenders against the kx→auto-hello timing race: if no `hello`

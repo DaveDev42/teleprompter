@@ -292,9 +292,23 @@ These were decided during M2 wrap-up and bind M3+ and the post-M5 deployment wor
   automatically on join (`relay-manager.ts:127-134`) — handle unsolicited `__meta__` frames.
   Fresh 24 random bytes per `seal` (nonce is an FFI arg `lib.rs:165`; reuse catastrophic).
 
-### M4 — Live session render: Chat (hooks) + history backfill
+### M4 — Live session render: Chat (hooks) + history backfill ✅ DONE (2026-06-15, Simulator-verified)
 - **Goal:** open a session, backfill via `resume`, render `k=event` hooks in Chat; live
   `rec` frames stream.
+- **Shipped:** `RelayClient.attach(sid)` sends BOTH `relay.sub` (route) and a sealed
+  app-level `attach` (`relay.pub`) → daemon `state` → `sendResume(sid, cursor)` →
+  `batch`. `onRelayFrame` routes `state`/`batch`/`rec` into a `@MainActor`
+  `SessionStore` (`ios/Sources/Session/SessionStore.swift`): base64-decode `d` → UTF-8
+  JSON → `HookEventBase` + subtype (`HookEventStop.last_assistant_message`,
+  `HookEventTool.tool_name`); `seq`-gated dedup doubles as the resume cursor; `io`/`meta`
+  advance the cursor but never render (hooks-only Chat). `ChatView` is a Sessions/Chat
+  `TabView` rendering event rows oldest-first. Auto-attaches `sessions.first` on the first
+  `hello` (guarded). Wire structs in `RelayMessages.swift` (attach/resume/state/rec/batch),
+  cited to `session-proto.ts`/`event.ts`/`command-dispatcher.ts`.
+- **Verified:** smoke `TP_SESSION_OK sid=sess-smoketest events=1` (full
+  attach→state→resume→batch on Simulator, loopback returns one synthetic Stop event) +
+  `ChatRenderTests` (8 offline tests: event decode, hooks-only, dedup, batch ordering,
+  re-resume idempotence, malformed payload, state upsert) — 36/36 XCTest pass.
 - **Rust:** none.
 - **Swift:** `RelayClient`: `attach(sid)`, `resume(sid, cursor)` (→ `batch`), route
   `rec`/`batch`/`state` to `SessionStore` (decrypt `rx`; `rec.d` is base64;

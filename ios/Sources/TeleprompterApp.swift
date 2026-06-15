@@ -14,12 +14,21 @@ import os
 /// URL contexts. The manifest is set in `project.yml` (`info.properties`).
 @main
 struct TeleprompterApp: App {
-    @State private var pairings = PairingViewModel()
+    /// The single session store, shared by every relay client (each writes the
+    /// sessions it serves) and observed by the Chat tab (M4).
+    @State private var sessionStore: SessionStore
+    @State private var pairings: PairingViewModel
     private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "deeplink")
+
+    init() {
+        let store = SessionStore()
+        _sessionStore = State(initialValue: store)
+        _pairings = State(initialValue: PairingViewModel(sessionStore: store))
+    }
 
     var body: some Scene {
         WindowGroup {
-            RootView(pairings: pairings)
+            RootView(pairings: pairings, sessionStore: sessionStore)
                 .onOpenURL { url in
                     self.log.notice("onOpenURL url=\(url.absoluteString, privacy: .public)")
                     if case let .paired(daemonId) = DeepLinkHandler.handle(url) {
@@ -44,12 +53,16 @@ struct TeleprompterApp: App {
 final class PairingViewModel {
     private(set) var daemonIds: [String] = []
     private let store: PairingStore
+    /// Shared session store injected into every relay client so decrypted records
+    /// land in one place the Chat tab observes (M4).
+    @ObservationIgnored private let sessionStore: SessionStore
     /// Retained relay clients keyed by daemon id (kept out of observation —
     /// the socket lifecycle is not view state).
     @ObservationIgnored private var clients: [String: RelayClient] = [:]
 
-    init(store: PairingStore = .shared) {
+    init(store: PairingStore = .shared, sessionStore: SessionStore) {
         self.store = store
+        self.sessionStore = sessionStore
         reload()
         // Reconnect any pairing that survived a relaunch.
         for did in daemonIds { connect(daemonId: did) }
@@ -68,6 +81,7 @@ final class PairingViewModel {
         guard let pairing = try? store.load(daemonId: daemonId) else { return }
         clients[daemonId]?.disconnect()
         let client = RelayClient(pairing: pairing)
+        client.sessionStore = sessionStore
         clients[daemonId] = client
         client.connect()
     }
@@ -80,8 +94,23 @@ final class PairingViewModel {
     }
 }
 
-/// Root navigation: the FFI diagnostics header plus the paired-daemons list.
+/// Root navigation: a Sessions/diagnostics tab plus the live Chat tab (M4).
 struct RootView: View {
+    let pairings: PairingViewModel
+    @ObservedObject var sessionStore: SessionStore
+
+    var body: some View {
+        TabView {
+            SessionsView(pairings: pairings)
+                .tabItem { Label("Sessions", systemImage: "list.bullet") }
+            ChatView(store: sessionStore)
+                .tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right") }
+        }
+    }
+}
+
+/// The FFI diagnostics header plus the paired-daemons list (pre-M4 RootView body).
+struct SessionsView: View {
     let pairings: PairingViewModel
 
     var body: some View {

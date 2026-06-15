@@ -25,6 +25,7 @@
 // Prints `LOOPBACK_READY port=<port>` once listening + daemon authed, then stays
 // up until killed.
 
+import type { SessionKeys } from "../packages/protocol/src/crypto";
 import {
   decrypt,
   deriveKxKey,
@@ -34,7 +35,6 @@ import {
   generateKeyPair,
   toBase64,
 } from "../packages/protocol/src/crypto";
-import type { SessionKeys } from "../packages/protocol/src/crypto";
 import { RelayServer } from "../packages/relay/src/relay-server";
 
 // derive_relay_token(0x00..0x1f) — must match the Swift FFI deriveRelayToken
@@ -111,9 +111,7 @@ async function startFakeDaemon(): Promise<void> {
   ws.addEventListener("message", async (ev: MessageEvent) => {
     let msg: { t?: string; [k: string]: unknown };
     try {
-      msg = JSON.parse(
-        typeof ev.data === "string" ? ev.data : String(ev.data),
-      );
+      msg = JSON.parse(typeof ev.data === "string" ? ev.data : String(ev.data));
     } catch {
       return;
     }
@@ -191,7 +189,9 @@ async function startFakeDaemon(): Promise<void> {
     });
     const ct = await encrypt(new TextEncoder().encode(hello), sessionKeys.tx);
     sendJson({ t: "relay.pub", sid: "__meta__", ct, seq: metaSeq++ });
-    console.log(`[loopback:daemon] hello pushed sessions=${FAKE_SESSIONS.length}`);
+    console.log(
+      `[loopback:daemon] hello pushed sessions=${FAKE_SESSIONS.length}`,
+    );
   }
 
   // Resolve once the daemon has authed so the harness only injects the app's

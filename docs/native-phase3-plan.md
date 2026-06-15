@@ -219,6 +219,51 @@ markers: `TP_PAIR_OK`, `TP_RELAY_AUTH_OK`, `TP_KX_OK`, `TP_FRAME_OK`, `TP_SESSIO
 - **Deferred to later:** `relay.auth.resume` fast-path (first connect uses full auth);
   reconnect backoff (M2 connects once); multi-daemon fan-out UI.
 
+### Cross-cutting decisions (2026-06-15) — multi-platform, key sync, deployment
+These were decided during M2 wrap-up and bind M3+ and the post-M5 deployment work.
+
+- **iCloud Keychain syncs the pairing secret; `frontendId` stays device-local (decided, must
+  land WITH M3).** The pairing secret is a *group* credential (kx-envelope key) — sync it so a
+  user who pairs once on iPhone gets it free on Mac/Watch (no QR re-pair). But `frontendId` is a
+  *per-device identity* and MUST be unique per device. Wire/routing proof (read live HEAD):
+  - The daemon's session-key table is keyed by `frontendId`:
+    `peers.set(data.frontendId, {sessionKeys})` (`packages/daemon/src/transport/relay-client.ts:473`).
+    Two devices sharing one `frontendId` → the second device's kx **silently overwrites** the
+    first's session keys → first device can't decrypt daemon broadcasts and the daemon hits AEAD
+    failures on the first device's frames. No connection rejection — silent E2EE breakage.
+  - The relay keys clients by WebSocket object, not by `frontendId`, with no duplicate guard
+    (`packages/relay/src/relay-server.ts:240,963`) — both sockets coexist, so the breakage is
+    purely at the crypto layer.
+  - `relay.push` targets a single `frontendId` (linear scan, break on first match,
+    `relay-server.ts:1362-1369`) → only one of two same-`frontendId` devices gets pushes.
+  - **Action:** in `PairingStore`, add `kSecAttrSynchronizable: true` to the pairing-secret
+    Keychain item (`PairingStore.swift:164-176`); keep `frontendId` (`PairingStore.swift:73-80`)
+    device-local — it lives in `UserDefaults` today (already per-device); do NOT move it to
+    `NSUbiquitousKeyValueStore`. Add a code comment stating the invariant so a future refactor
+    can't accidentally sync it.
+- **watchOS / macOS deferred until iOS is E2E-complete (M5).** Then macOS (Catalyst or native)
+  → watchOS. Rust `tp-core` is already multi-arch, so platform divergence is confined to the
+  Swift UI layer. **Apple Watch must support a limited *standalone* mode** (not just a phone
+  relay): the Watch authenticates to the relay with its own unique `frontendId`, does its own
+  kx (pairing secret arrives via synced iCloud Keychain — no re-pair), and renders a reduced
+  surface (session list, the Stop event's `last_assistant_message` card, approve/deny, short
+  voice). **M3 action:** write `RelayClient` + session-decode logic as platform-neutral Swift
+  (extractable into a shared Swift package) so the watchOS target reuses it nearly for free.
+- **Backend (daemon/runner/relay/agent) keeps its 3-OS support — unaffected by the app track.**
+  macOS + Linux native (`bun build --compile`, darwin/linux × arm64/x64), Windows via WSL
+  (native Windows exits at startup; CLAUDE.md "Windows is unsupported natively"). The app's
+  multi-platform story is a *separate axis* from backend OS support; nothing in Phase 3 narrows
+  it. A future Track-B Rust daemon could revisit native Windows, but the standing commitment is
+  "do not break the current 3-OS support."
+- **App deployment = Xcode Cloud → TestFlight (set up post-M5).** EAS is gone (PR #644); the
+  native deploy pipeline is currently empty. Xcode Cloud fits: Apple-managed signing/profiles,
+  native TestFlight upload, 25 free build-hrs/mo (ample — the app is small: SwiftUI shell + a
+  *static* `tp-core` lib, `ios/project.yml:48`, no embedded framework, no JS bundle/Hermes).
+  One caveat: install the Rust toolchain in the build env via `ci_scripts/ci_post_clone.sh`
+  (rustup + `rust/build-xcframework.sh` — same work `scripts/ios.sh rust` does). Keep this
+  separate from the backend release (release-please + `release.yml` → brew/curl Bun binaries).
+  Interim CI: a GitHub Actions iOS build+XCTest job (Simulator, no signing) for PR regression.
+
 ### M3 — In-band kx + first decrypted frame (RISKIEST)
 - **Goal:** app completes kx, daemon registers it as a peer, app decrypts the daemon's
   `hello` (session list) on `__meta__`.
@@ -231,6 +276,11 @@ markers: `TP_PAIR_OK`, `TP_RELAY_AUTH_OK`, `TP_KX_OK`, `TP_FRAME_OK`, `TP_SESSIO
   `__meta__`/`__control__`. Inbound `relay.frame`: `open(ct, rx)` → parse `Session*` → route
   by `sid` + inner `t`; marker on first `hello`. `ios/Sources/Session/SessionStore.swift`
   (`@Observable`, session list from `hello.d.sessions`).
+- **Land WITH M3 (see Cross-cutting decisions):** (a) set `kSecAttrSynchronizable: true` on the
+  pairing-secret Keychain item and keep `frontendId` device-local (kx keys are scoped by
+  `frontendId` on the daemon — a shared one silently clobbers session keys); (b) keep
+  `RelayClient` + the session-decode path platform-neutral so a watchOS standalone target can
+  reuse it.
 - **Verify:** `TP_KX_OK` + `TP_FRAME_OK sessions=<n>`. Strongest: against loopback,
   `tp pair new` **unblocks** (waits for frontend kx, `relay-manager.ts:117`) — assert the
   subprocess exits 0. Relay-side: daemon log `key exchange completed with frontend <id>`

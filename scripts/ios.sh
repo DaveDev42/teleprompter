@@ -93,6 +93,27 @@ die()  { printf '\033[1;31m[ios] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 
 require() { command -v "$1" >/dev/null 2>&1 || die "missing tool: $1"; }
 
+# ── Cleanup accumulator ────────────────────────────────────────────────────────
+#
+# bash keeps only ONE EXIT trap — each bare `trap '...' EXIT` clobbers the previous
+# one. Several helpers need exit-time cleanup (loopback relay, macOS log stream, the
+# launched macOS app instance). Without a single shared trap, the last helper to set
+# its trap wins and the others' resources leak — that is exactly how macOS smoke runs
+# left orphan Teleprompter windows piling up on the desktop.
+#
+# Register cleanup commands here instead of calling `trap '...' EXIT` directly. They
+# run in LIFO order (most-recently-added first) on any exit: normal return, `die`→exit,
+# or interrupt.
+TP_CLEANUP_CMDS=()
+tp_cleanup_add() { TP_CLEANUP_CMDS+=("$1"); }
+tp_run_cleanup() {
+  local i
+  for (( i=${#TP_CLEANUP_CMDS[@]}-1; i>=0; i-- )); do
+    eval "${TP_CLEANUP_CMDS[$i]}" || true
+  done
+}
+trap 'tp_run_cleanup' EXIT
+
 # Resolve the UDID for $SIM_NAME among available devices. Exact name match.
 sim_udid() {
   xcrun simctl list devices available -j \
@@ -294,8 +315,9 @@ start_macos_log_stream() {
     --predicate "subsystem == \"$BUNDLE_ID\"" \
     > "$MACOS_LOG_FILE" 2>/dev/null &
   MACOS_LOG_PID=$!
-  # Merge cleanup into the EXIT trap (start_loopback sets its own; we add ours).
-  trap 'kill "${MACOS_LOG_PID:-}" 2>/dev/null || true; rm -f "${MACOS_LOG_FILE:-}" 2>/dev/null || true' EXIT
+  # Register cleanup via the shared accumulator (a bare `trap ... EXIT` would clobber
+  # start_loopback's trap and the app-kill, leaking the relay/app on exit).
+  tp_cleanup_add 'kill "${MACOS_LOG_PID:-}" 2>/dev/null || true; rm -f "${MACOS_LOG_FILE:-}" 2>/dev/null || true'
   # Give the stream a moment to start up before the app launches.
   sleep 0.3
 }
@@ -499,7 +521,22 @@ cmd_smoke_macos() {
   start_macos_log_stream
 
   log "opening macOS app (TP_PLATFORM=macos)"
-  open -n "$app"  # -n: always open new instance, even if bundle already running
+  # -n: always open new instance, even if bundle already running. -g: don't steal
+  # focus. Capture the launched PID so the EXIT trap can kill exactly this instance
+  # (so smoke runs never leave orphan windows piling up on the desktop).
+  open -gn "$app"
+  # `open` returns immediately; resolve the PID of the instance we just launched.
+  local app_pid=""
+  for _ in $(seq 1 20); do
+    app_pid="$(pgrep -n -x Teleprompter 2>/dev/null || true)"
+    [ -n "$app_pid" ] && break
+    sleep 0.1
+  done
+  MACOS_APP_PID="$app_pid"
+  # Ensure the launched app is killed on ANY exit (pass, fail-via-die, or interrupt).
+  # bash keeps only one EXIT trap, and start_loopback/start_macos_log_stream each set
+  # their own; register the app kill via the shared cleanup accumulator instead.
+  tp_cleanup_add "kill -9 '${MACOS_APP_PID:-0}' 2>/dev/null || true"
 
   # Poll the live stream file for boot + core markers.
   local boot_seen="" core_line=""
@@ -625,7 +662,10 @@ start_loopback() {
   log "starting loopback relay on ws://localhost:$RELAY_LOOPBACK_PORT"
   RELAY_PORT="$RELAY_LOOPBACK_PORT" bun run "$RELAY_LOOPBACK_SCRIPT" >"$lb_out" 2>&1 &
   local lb_pid=$!
-  trap 'kill "'"$lb_pid"'" 2>/dev/null || true; rm -f "'"$lb_out"'" 2>/dev/null || true' EXIT
+  # Bake the local pid/path into the cleanup command now (they go out of scope when
+  # this function returns). Registered on the shared accumulator so it coexists with
+  # the macOS log-stream and app-kill cleanups instead of clobbering them.
+  tp_cleanup_add "kill '$lb_pid' 2>/dev/null || true; rm -f '$lb_out' 2>/dev/null || true"
 
   local ready=""
   for _ in $(seq 1 30); do

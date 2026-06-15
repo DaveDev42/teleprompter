@@ -14,6 +14,11 @@ options:
   createIntermediateGroups: true
   generateEmptyDirectories: true
 
+packages:
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    from: "1.13.0"
+
 settings:
   base:
     MARKETING_VERSION: "0.0.1"
@@ -46,6 +51,8 @@ targets:
       # under rust/target (gitignored) and is built before any app build.
       - framework: ../rust/target/TpCore.xcframework
         embed: false
+      # SwiftTerm: VT100/xterm emulator for the Terminal tab (A1 ANSI milestone).
+      - package: SwiftTerm
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.teleprompter
@@ -95,6 +102,10 @@ targets:
       - path: Tests
     dependencies:
       - target: Teleprompter
+      # SwiftTerm must be added directly to the test bundle: @testable import
+      # Teleprompter does NOT re-export SwiftTerm, so HeadlessTerminal (used in
+      # TerminalEmulatorTests) is unreachable from the test bundle otherwise.
+      - package: SwiftTerm
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.teleprompter.tests

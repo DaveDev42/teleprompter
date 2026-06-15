@@ -91,10 +91,21 @@ final class SessionStore: ObservableObject {
                 log.error("io rec decode failed seq=\(rec.seq, privacy: .public)")
                 return
             }
+            // LOAD-BEARING: this String accumulator is the source for
+            // checkInputEcho / TP_INPUT_OK — never remove or reroute this line.
             terminalOutput[rec.sid, default: ""] += text
+            // ADDITIVE: fire the byte sink for the SwiftTerm ANSI emulator.
+            // Runs only on successful decode, only after the String append.
+            if let d = Self.ioData(from: rec) { terminalByteSink?(rec.sid, d) }
         default:
             break // meta: cursor only
         }
+    }
+
+    /// Decode a `k == "io"` record's base64 `d` into raw bytes.
+    /// Returns nil only if `d` is not valid base64.
+    static func ioData(from rec: SessionRec) -> Data? {
+        Data(base64Encoded: rec.d)
     }
 
     /// Decode a `k == "io"` record's base64 `d` into UTF-8 text for the Terminal
@@ -103,9 +114,17 @@ final class SessionStore: ObservableObject {
     /// multi-byte sequence still appends (the next chunk completes it visually);
     /// returns nil only if `d` is not valid base64 at all.
     static func ioText(from rec: SessionRec) -> String? {
-        guard let data = Data(base64Encoded: rec.d) else { return nil }
-        return String(decoding: data, as: UTF8.self)
+        guard let d = ioData(from: rec) else { return nil }
+        return String(decoding: d, as: UTF8.self)
     }
+
+    /// Optional byte sink for the SwiftTerm ANSI emulator (A1 milestone).
+    /// Called on MainActor after every successfully-decoded `io` record, with
+    /// the session id and raw PTY bytes. Registration is additive — the String
+    /// accumulator (`terminalOutput`) is NOT rerouted through this sink; both
+    /// paths run independently. The smoke probe (`TP_INPUT_OK`) depends only on
+    /// `terminalOutput`, so this sink has zero impact on smoke correctness.
+    @MainActor var terminalByteSink: ((String, Data) -> Void)?
 
     /// Decode a `k == "event"` record's base64 `d` into a `ChatItem`. `d` is
     /// always base64 (daemon encodes unconditionally), then UTF-8 JSON of a hook

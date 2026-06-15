@@ -1,15 +1,28 @@
 import SwiftUI
 
-/// Chat pane (ADR-0001 Phase 3, M4). Renders hook-event records as structured
-/// message rows — **hooks-only** by design (CLAUDE.md "Key Design Decisions"):
-/// PTY `io` records never reach here; they belong to the Terminal pane (M5).
+/// Chat pane (ADR-0001 Phase 3, M4 → Tranche D). Renders hook-event records as
+/// rich, visually-differentiated message cards — **hooks-only** by design
+/// (CLAUDE.md "Key Design Decisions"): PTY `io` records never reach here; they
+/// belong exclusively to the Terminal pane.
 ///
-/// When `sid` is provided (SessionDetailView), only that session's items are shown.
-/// When `sid` is nil, all sessions are flattened oldest-first (legacy/standalone use).
+/// Card styles by hook event:
+///   - `PrePrompt`          → right-aligned user bubble
+///   - `Stop` / `StopFailure` → left-aligned assistant bubble with markdown
+///   - `PreToolUse`         → tool-running card (orange dot)
+///   - `PostToolUse`        → tool-done card (green dot)
+///   - everything else      → centred system pill (e.g. `Notification`)
+///
+/// When the session is still running (last event is not a Stop) an animated
+/// "working" indicator is shown below the last card.
+///
+/// When `sid` is provided (SessionDetailView), only that session's items are
+/// shown. When `sid` is nil, all sessions are flattened oldest-first.
 struct ChatView: View {
     @ObservedObject var store: SessionStore
     /// When non-nil, show only this session's chat items.
     var sid: String? = nil
+    /// `(sid, text)` — routes chat input to RelayClient.sendInput via the host.
+    var onSend: ((String, String) -> Void)? = nil
 
     /// Chat items to display — scoped to `sid` when provided, else all sessions.
     private var items: [ChatItem] {
@@ -21,44 +34,75 @@ struct ChatView: View {
         }
     }
 
+    /// `true` when the session is still running (last event is not a Stop).
+    private var isWorking: Bool {
+        guard let last = items.last else { return false }
+        switch ChatEventCardKind(item: last) {
+        case .assistant: return false
+        default:         return true
+        }
+    }
+
+    /// `true` when the session's state is "stopped" (no more input accepted).
+    private var sessionStopped: Bool {
+        guard let sid else { return false }
+        return store.sessions[sid]?.state == "stopped"
+    }
+
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
             if items.isEmpty {
                 ContentUnavailableView(
                     "No messages yet",
                     systemImage: "bubble.left.and.bubble.right",
                     description: Text("Attach a running session to see its hook events."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(items) { item in
-                    ChatItemRow(item: item)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(items) { item in
+                                ChatItemCard(item: item)
+                                    .padding(.horizontal, 12)
+                                    .id(item.id)
+                            }
+                            // Animated "working" indicator while the assistant is responding.
+                            if isWorking {
+                                AssistantWorkingIndicator()
+                                    .padding(.horizontal, 12)
+                                    .id("__working__")
+                            }
+                            // Scroll anchor so auto-scroll reaches below the last item.
+                            Color.clear
+                                .frame(height: 1)
+                                .id("__bottom__")
+                        }
+                        .padding(.vertical, 8)
+                    }
+                    .onChange(of: items.count) { _ in
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo("__bottom__", anchor: .bottom)
+                        }
+                    }
+                    .onChange(of: isWorking) { _ in
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo("__bottom__", anchor: .bottom)
+                        }
+                    }
+                    .onAppear {
+                        proxy.scrollTo("__bottom__", anchor: .bottom)
+                    }
                 }
-                .listStyle(.plain)
+            }
+
+            // Chat composer — only shown when a sid is known and onSend is wired.
+            if let sid, let onSend {
+                ChatComposer(
+                    sid: sid,
+                    onSend: onSend,
+                    sessionStopped: sessionStopped
+                )
             }
         }
-    }
-}
-
-/// One hook-event row. A `Stop` event shows its `last_assistant_message` (the
-/// canonical assistant response); a tool event shows the tool name; everything
-/// else shows just the event label.
-private struct ChatItemRow: View {
-    let item: ChatItem
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(item.hookEventName)
-                .font(.caption.bold())
-                .foregroundStyle(.tint)
-                .accessibilityIdentifier("event-name-\(item.seq)")
-            if let msg = item.lastAssistantMessage, !msg.isEmpty {
-                Text(msg)
-                    .font(.body)
-            } else if let tool = item.toolName {
-                Text(tool)
-                    .font(.callout.monospaced())
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 2)
     }
 }

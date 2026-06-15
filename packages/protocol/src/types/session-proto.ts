@@ -120,14 +120,6 @@ export interface SessionExport {
   limit?: number;
 }
 
-export interface SessionPushToken {
-  t: "pushToken";
-  /** Expo push token (e.g., "ExponentPushToken[xxx]") */
-  token: string;
-  /** Client platform */
-  platform: "ios" | "android";
-}
-
 export type SessionClientMessage =
   | SessionHello
   | SessionAttach
@@ -143,8 +135,7 @@ export type SessionClientMessage =
   | SessionCreate
   | SessionStop
   | SessionRestart
-  | SessionExport
-  | SessionPushToken;
+  | SessionExport;
 
 // ── Daemon → Frontend ──
 

@@ -95,7 +95,7 @@ export class PushSealer {
 
   private async getKey(version: number): Promise<Uint8Array | null> {
     if (this.keyCache.has(version)) {
-      return this.keyCache.get(version)!;
+      return this.keyCache.get(version) ?? null;
     }
     // Current version → current secret
     if (version === this.version) {

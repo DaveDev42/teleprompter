@@ -150,12 +150,6 @@ export interface RelayClientEvents {
   onPresence?: (online: boolean, sessions?: string[]) => void;
   /** Called when a new frontend completes key exchange */
   onFrontendJoined?: (frontendId: string) => void;
-  /** Called when a frontend sends a pushToken message (legacy E2EE path, back-compat) */
-  onPushToken?: (
-    frontendId: string,
-    token: string,
-    platform: "ios" | "android",
-  ) => void;
   /**
    * Called when the relay routes a relay.push.token to us (Path X).
    * `sealed` is the opaque blob ("tpps1.<v>.<b64>") sealed by the relay.
@@ -165,6 +159,20 @@ export interface RelayClientEvents {
     sealed: string,
     platform: "ios" | "android",
   ) => void;
+  /**
+   * Called when the relay replies PUSH_UNSEAL_FAILED — the sealed blob could
+   * not be decrypted (key rotated out of the current/prev window, or tampered).
+   * The daemon should evict all push tokens and await re-registration from the
+   * app. No frontendId is available in the relay.err wire type.
+   */
+  onPushUnsealFailed?: () => void;
+  /**
+   * Called when the relay replies PUSH_TOKEN_DEAD — APNs returned 400
+   * (BadDeviceToken) or 410 (Unregistered). The daemon should evict all push
+   * tokens for this pairing and await re-registration from the app.
+   * No frontendId is available in the relay.err wire type.
+   */
+  onPushTokenDead?: () => void;
 }
 
 export class RelayClient {
@@ -368,13 +376,25 @@ export class RelayClient {
           // so we cannot surgically evict the specific stale entry from
           // PushNotifier here — that is a known v1 limitation. Self-heal path:
           // the app re-registers via relay.push.register on every relay
-          // reconnect (use-relay.ts onConnected → sendPushTokenForSeal), which
-          // makes the relay re-seal under the current key and route a fresh
-          // relay.push.token to us. Log at warn so operators can correlate the
-          // event with a seal-key rotation.
+          // reconnect, which makes the relay re-seal under the current key and
+          // route a fresh relay.push.token to us. Log at warn so operators can
+          // correlate the event with a seal-key rotation.
           log.warn(
             `relay reported PUSH_UNSEAL_FAILED — sealed push token rejected by relay; app re-registers on next relay reconnect. relay: ${msg.m ?? "(no detail)"}`,
           );
+          this.events.onPushUnsealFailed?.();
+        } else if (msg.e === "PUSH_TOKEN_DEAD") {
+          // APNs returned 400 (BadDeviceToken) or 410 (Unregistered) — the
+          // device token is permanently dead. Signal the daemon to evict the
+          // stale entry from push_tokens so future notification events don't
+          // keep sending to a dead token. The relay.err wire type does not
+          // carry a frontendId, so we cannot surgically evict by ID — same v1
+          // limitation as PUSH_UNSEAL_FAILED. The app re-registers on next
+          // relay reconnect via relay.push.register.
+          log.warn(
+            `relay reported PUSH_TOKEN_DEAD — APNs device token permanently invalid; app re-registers on next relay reconnect. relay: ${msg.m ?? "(no detail)"}`,
+          );
+          this.events.onPushTokenDead?.();
         } else {
           log.error(`relay error: ${msg.m ?? msg.e}`);
         }
@@ -564,17 +584,6 @@ export class RelayClient {
       }
       const kind = msg.t === "in.chat" ? "chat" : "term";
       this.events.onInput?.(kind, msg.sid, msg.d, peer.frontendId);
-    } else if (msg.t === "pushToken") {
-      // The push token registers an APNs/FCM target — reject anything but a
-      // string token on a known platform.
-      if (
-        typeof msg.token !== "string" ||
-        (msg.platform !== "ios" && msg.platform !== "android")
-      ) {
-        log.warn("dropped malformed pushToken frame");
-        return;
-      }
-      this.events.onPushToken?.(peer.frontendId, msg.token, msg.platform);
     } else {
       // Control plane messages: attach, detach, resume, resize, ping,
       // session.create, session.stop, session.restart, session.export,
@@ -726,12 +735,13 @@ export class RelayClient {
 
   /**
    * Send a push notification request to the relay server.
-   * The relay forwards this to the Expo Push API on behalf of the daemon.
+   * The relay unseals the blob and delivers to APNs on behalf of the daemon.
    *
-   * `sealed` is an opaque blob from the relay ("tpps1.<v>.<b64>") or a legacy
-   * plaintext token (no "tpps1." prefix — relay classifies it as legacy and
-   * uses it verbatim for back-compat with old relays). The daemon treats it
-   * as opaque and never unwraps it.
+   * `sealed` is the opaque blob from the relay ("tpps1.<v>.<b64>") or, in the
+   * back-compat upgrade window, a legacy plaintext APNs token stored before
+   * Path X was active. The daemon treats it as opaque and never unwraps it;
+   * the relay's PushSealer classifies non-"tpps1." blobs as "legacy" and uses
+   * them verbatim as the APNs device token.
    */
   sendPush(
     frontendId: string,
@@ -741,18 +751,10 @@ export class RelayClient {
     interruptionLevel?: PushInterruptionLevel,
     data?: { sid: string; daemonId?: string; event: string },
   ): void {
-    // Wire field selection is back-compat sensitive. A real sealed blob
-    // ("tpps1.…") goes in `sealed` — a new relay unseals it, and an old relay
-    // (which requires a `token` field) can't process it anyway. But a LEGACY
-    // plaintext token (stored in the sealed slot via the E2EE pushToken path
-    // when no relay.push.token has arrived yet) must ride the `token` field so
-    // an OLD relay still accepts and delivers it. The protocol guard enforces
-    // exactly one of {token, sealed}, so we set exactly one here.
-    const isSealedBlob = sealed.startsWith("tpps1.");
     const msg: RelayClientMessage = {
       t: "relay.push",
       frontendId,
-      ...(isSealedBlob ? { sealed } : { token: sealed }),
+      sealed,
       title,
       body,
       interruptionLevel,

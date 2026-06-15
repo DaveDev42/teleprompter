@@ -20,11 +20,18 @@ paths:
 | `idleTimeout` | 90 s | (코드 상수) | Bun WS idleTimeout. daemon ping 30s → 3 missed = close |
 | `resumeSecret` | random/ephemeral | `TP_RELAY_RESUME_SECRET` | HMAC key for `relay.auth.resume` tokens. ≥32 chars. 미설정 시 프로세스 시작마다 새로 생성 — 재시작 시 모든 client는 full auth로 폴백. Production은 반드시 고정값 설정. |
 | `resumeTtlMs` | 1 h | `TP_RELAY_RESUME_TTL_MS` | resume token 유효기간. 만료 시 client는 full auth로 폴백. |
-| `pushSealSecret` | random/ephemeral | `TP_RELAY_PUSH_SEAL_SECRET` | HMAC/AEAD key for sealing Expo push tokens (Path X). ≥32 chars. 미설정 시 ephemeral (프로세스 재시작 = 모든 sealed token 무효화). Production은 반드시 고정값 설정. 회전 시 `TP_RELAY_PUSH_SEAL_SECRET_PREV`에 이전 값 유지. |
+| `pushSealSecret` | random/ephemeral | `TP_RELAY_PUSH_SEAL_SECRET` | HMAC/AEAD key for sealing APNs device tokens (PushSealer). ≥32 chars. 미설정 시 ephemeral (프로세스 재시작 = 모든 sealed token 무효화). Production은 반드시 고정값 설정. 회전 시 `TP_RELAY_PUSH_SEAL_SECRET_PREV`에 이전 값 유지. |
+| `apnsKey` | (none) | `APNS_KEY` | APNs HTTP/2 인증용 ES256 P-256 private key. `.p8` 파일 경로 또는 PEM 문자열. |
+| `apnsKeyId` | (none) | `APNS_KEY_ID` | APNs Key ID (10자 대문자). Apple Developer Console에서 발급. |
+| `apnsTeamId` | (none) | `APNS_TEAM_ID` | Apple Team ID (10자 대문자). |
+| `apnsBundleId` | (none) | `APNS_BUNDLE_ID` | APNs topic (app bundle ID, e.g. `dev.tpmt.teleprompter`). |
+| `apnsEnv` | `"sandbox"` | `APNS_ENV` | APNs 환경: `"sandbox"` (개발) 또는 `"prod"` (배포). **per-deployment, not on wire.** |
 | `pushSealSecretPrev` | (none) | `TP_RELAY_PUSH_SEAL_SECRET_PREV` | 이전 push seal key (회전 오버랩용). 설정 시 unseal 시도 순서: 현재 키 → 이전 키. 회전 완료 후 제거. |
 | `pushSealVersion` | 1 | `TP_RELAY_PUSH_SEAL_VERSION` | sealed blob에 삽입되는 version 숫자 (positive integer). Key rotation 추적용. |
 
 **Push seal key 회전 절차 (one-step only):** unseal 윈도우는 `version`(현재) 과 `version-1`(prev) 두 단계뿐이다. 회전 시 반드시 `TP_RELAY_PUSH_SEAL_VERSION` 을 **정확히 +1** 하고 직전 secret 을 `TP_RELAY_PUSH_SEAL_SECRET_PREV` 로 옮긴다. 버전을 건너뛰면(예: 1→3) 기존 v1/v2 sealed token 이 전부 고아가 되어 즉시 `PUSH_UNSEAL_FAILED` 가 되고, 영향받은 frontend 는 다음 relay 재연결 때 re-register(`relay.push.register`) 로만 복구된다. `PREV` 는 outstanding sealed token 이 모두 새 키로 재등록될 때까지(= 모든 daemon 이 재연결로 fresh `relay.push.token` 을 받을 때까지) 유지.
+
+**Dead APNs token eviction:** APNs가 HTTP 400 `BadDeviceToken` 또는 410 `Unregistered` 를 반환하면 relay는 daemon에 `relay.err { e: "PUSH_TOKEN_DEAD" }` 를 전송한다. Daemon은 이를 받아 `handleTokenDead(frontendId)` → store의 push_token 행 삭제. Frontend가 앱 재설치 또는 재연결 시 새 `relay.push.register`로 재등록한다. APNs JWT 토큰(`ApnsJwtSigner`)은 50분마다 자동 갱신된다.
 
 ## Capacity invariants
 

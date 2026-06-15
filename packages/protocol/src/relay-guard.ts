@@ -9,7 +9,6 @@
  *
  * Not covered here:
  *  - `in.chat` / `in.term` — routed via the `onInput` callback path
- *  - `pushToken` — routed via the `onPushToken` callback path
  *  - `control.unpair` / `control.rename` — intercepted inside
  *    `RelayClient.decryptAndDispatch` and never reach this guard.
  *

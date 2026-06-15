@@ -175,7 +175,7 @@ describe("PushService", () => {
       // SUCCESSFUL push. A dead_token must leave both untouched so a retry
       // (e.g. after the user re-registers) is not blocked by dedup.
       let call = 0;
-      const fn = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const fn = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
         call++;
         if (call === 1) {
           return new Response(JSON.stringify({ reason: "BadDeviceToken" }), {

@@ -90,6 +90,17 @@ targets:
         CFBundleDisplayName: Teleprompter
         UILaunchScreen: {}
         UIApplicationSupportsIndirectInputEvents: true
+        # Usage descriptions for runtime-permission features (feature-parity with
+        # the old Expo app). Declared up front so the parallel feature tranches
+        # (Daemons/Pairing QR scan, Voice) never have to edit this shared file.
+        #   - Camera: in-app QR pairing scan (AVCaptureSession metadata output).
+        #   - Microphone: OpenAI Realtime voice (AVAudioEngine capture).
+        NSCameraUsageDescription: >-
+          Teleprompter uses the camera to scan a pairing QR code shown by the
+          tp CLI, so this device can securely connect to your daemon.
+        NSMicrophoneUsageDescription: >-
+          Teleprompter uses the microphone for voice control of your Claude Code
+          session via the OpenAI Realtime API.
         # App Transport Security. Production relay is `wss://relay.tpmt.dev` (TLS),
         # which needs no exception. The local loopback relay used by the smoke
         # test (`ws://localhost:7090`) is cleartext, so allow local networking —

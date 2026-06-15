@@ -170,6 +170,17 @@ final class PairingStore {
     // MARK: Keychain (generic password, keyed by daemon id)
 
     private func keychainSet(_ data: Data, account: String) throws {
+        // On macOS local/ad-hoc builds (no keychain-access-groups entitlement),
+        // kSecAttrSynchronizable = true fails with errSecMissingEntitlement (-34018)
+        // because iCloud Keychain sync requires the entitlement even for generic
+        // passwords. Use non-synchronized storage on macOS for local dev builds.
+        // On iOS/iPadOS the pairing secret IS synchronized (iCloud Keychain) so a
+        // user who pairs once on iPhone gets it on other devices without re-pairing.
+        #if os(macOS)
+        let syncValue: CFBoolean = kCFBooleanFalse!
+        #else
+        let syncValue: CFBoolean = kCFBooleanTrue!
+        #endif
         let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
@@ -180,7 +191,7 @@ final class PairingStore {
             // daemon↔frontend E2EE: each device still does its own kx with its own
             // device-local `frontendId`, so synced secret + per-device frontendId
             // is the correct multi-device combination (see `frontendId()`).
-            kSecAttrSynchronizable as String: kCFBooleanTrue!,
+            kSecAttrSynchronizable as String: syncValue,
         ]
         SecItemDelete(base as CFDictionary) // idempotent overwrite
         var add = base

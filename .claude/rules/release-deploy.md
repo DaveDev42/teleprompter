@@ -65,7 +65,7 @@ brew update && brew upgrade davedev42/tap/tp && tp version
 ## Infrastructure
 - **Relay**: Vultr Seoul `relay.tpmt.dev` (wss://, Caddy TLS + systemd: `tp-relay`)
 - **CLI**: GitHub Releases → `bun build --compile` (darwin/linux × arm64/x64; Windows users run the linux build under WSL)
-- **iOS App**: 로컬 Simulator 하네스 (`scripts/ios.sh` / `ios/`) — EAS 클라우드 빌드 제거됨. 네이티브 앱은 리라이트 진행 중 (ADR-0001 참조).
+- **Native App (iOS/iPadOS/macOS)**: 로컬 하네스 (`scripts/ios.sh`, `TP_PLATFORM=ios|macos` / `ios/`) — EAS 클라우드 빌드 제거됨. 단일 멀티플랫폼 SwiftUI 타깃; visionOS/watchOS 는 toolchain 게이트 뒤 Phase B (ADR-0001 재작성 + ADR-0002 플랫폼 범위 참조).
 
 ## GitHub Secrets
 | Secret | 용도 |

@@ -21,4 +21,5 @@
 
 | # | 제목 | 상태 |
 |---|---|---|
-| [0001](./0001-full-native-rewrite-swift-rust.md) | 전면 네이티브 재작성 (Swift 앱 + Rust 코어) | Accepted (2026-06-15) |
+| [0001](./0001-full-native-rewrite-swift-rust.md) | 전면 네이티브 재작성 (Swift 앱 + Rust 코어) | Accepted (2026-06-15) · 플랫폼 범위 Superseded by 0002 |
+| [0002](./0002-multiplatform-apple-expansion.md) | Apple 멀티플랫폼 확장 (iOS/iPadOS/macOS/visionOS 완전 + watchOS 제한) | Accepted (2026-06-15) |

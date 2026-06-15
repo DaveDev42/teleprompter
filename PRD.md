@@ -4,7 +4,7 @@ Teleprompter PRD
 
 1.1 한줄 요약
 
-Teleprompter는 Swift(SwiftUI) 앱에서 원격의 Daemon(macOS/Linux; Windows는 WSL 안에서 Linux 빌드)을 통해 Claude Code Session을 제어하는 제품이다. 핵심은 hooks + PTY 하이브리드 Chat UI, PTY terminal streaming, git worktree 직접 관리, QR 기반 E2EE 페어링, ciphertext-only relay, 그리고 음성 친화 Chat UI다. **현재 전면 네이티브 재작성 진행 중 (ADR-0001).** 앱 스택: Expo/RN → Swift(SwiftUI) + Rust 코어(`tp-core`)로 전환.
+Teleprompter는 Swift(SwiftUI) 앱에서 원격의 Daemon(macOS/Linux; Windows는 WSL 안에서 Linux 빌드)을 통해 Claude Code Session을 제어하는 제품이다. 핵심은 hooks + PTY 하이브리드 Chat UI, PTY terminal streaming, git worktree 직접 관리, QR 기반 E2EE 페어링, ciphertext-only relay, 그리고 음성 친화 Chat UI다. **현재 전면 네이티브 재작성 진행 중 (ADR-0001).** 앱 스택: Expo/RN → Swift(SwiftUI) + Rust 코어(`tp-core`)로 전환. **클라이언트 앱은 Apple 멀티플랫폼** — iOS/iPadOS/네이티브 macOS 완전 경험(출하), visionOS 완전 + watchOS 제한 경험은 toolchain 게이트 뒤 Phase B (ADR-0002).
 
 1.2 문제 정의
 

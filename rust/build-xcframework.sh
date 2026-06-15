@@ -5,6 +5,8 @@
 #   - aarch64-apple-ios            (device)
 #   - aarch64-apple-ios-sim        (Apple-silicon Simulator)
 #   - x86_64-apple-ios-sim         (Intel Simulator)   [lipo'd with arm64-sim]
+#   - aarch64-apple-darwin         (Apple-silicon macOS)
+#   - x86_64-apple-darwin          (Intel macOS)        [lipo'd with arm64 → macOS fat]
 # plus the UniFFI-generated Swift bindings (tp_core.swift) and the C
 # header/modulemap the xcframework needs.
 #
@@ -51,7 +53,7 @@ ensure_toolchain() {
 }
 
 ensure_targets() {
-  local needed=(aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios)
+  local needed=(aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-apple-darwin x86_64-apple-darwin)
   local installed; installed="$(rustup target list --installed)"
   for t in "${needed[@]}"; do
     echo "$installed" | grep -qx "$t" || die "missing rust target: $t (rustup target add $t)"
@@ -83,7 +85,7 @@ gen_bindings() {
 }
 
 assemble_xcframework() {
-  log "assembling TpCore.xcframework"
+  log "assembling TpCore.xcframework (3 slices: ios-device, ios-sim-fat, macos-fat)"
   # Combine the two simulator slices (arm64 + x86_64) into one fat archive —
   # an xcframework allows at most one library per (platform, variant).
   local sim_fat="$TARGET_DIR/libtp_core-sim-fat.a"
@@ -92,10 +94,18 @@ assemble_xcframework() {
     "$TARGET_DIR/x86_64-apple-ios/$PROFILE/libtp_core.a" \
     -output "$sim_fat" 2>/dev/null || die "lipo failed combining simulator slices"
 
+  # Combine the two macOS slices (arm64 + x86_64) into one fat archive.
+  local macos_fat="$TARGET_DIR/libtp_core-macos-fat.a"
+  lipo -create \
+    "$TARGET_DIR/aarch64-apple-darwin/$PROFILE/libtp_core.a" \
+    "$TARGET_DIR/x86_64-apple-darwin/$PROFILE/libtp_core.a" \
+    -output "$macos_fat" 2>/dev/null || die "lipo failed combining macOS slices"
+
   rm -rf "$XCF"
   xcodebuild -create-xcframework \
     -library "$TARGET_DIR/aarch64-apple-ios/$PROFILE/libtp_core.a" -headers "$TARGET_DIR/headers" \
     -library "$sim_fat" -headers "$TARGET_DIR/headers" \
+    -library "$macos_fat" -headers "$TARGET_DIR/headers" \
     -output "$XCF" >&2
   log "✅ xcframework: $XCF"
 }
@@ -106,6 +116,8 @@ main() {
   build_target aarch64-apple-ios
   build_target aarch64-apple-ios-sim
   build_target x86_64-apple-ios      # x86_64 sim slice (target triple is x86_64-apple-ios)
+  build_target aarch64-apple-darwin  # Apple-silicon macOS
+  build_target x86_64-apple-darwin   # Intel macOS
   gen_bindings
   assemble_xcframework
 }

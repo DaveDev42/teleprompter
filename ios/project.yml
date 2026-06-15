@@ -55,6 +55,9 @@ targets:
       # the project valid; `scripts/ios.sh build` regenerates it on demand.
       - path: Generated
         optional: true
+      # App icon asset catalog. Contains AppIcon.appiconset with universal iOS
+      # 1024×1024 + macOS idiom PNGs. Wired via ASSETCATALOG_COMPILER_APPICON_NAME.
+      - path: Assets.xcassets
     dependencies:
       # tp-core static library (byte-exact wire primitives). Not embedded — a
       # static archive links into the binary directly. The xcframework now contains
@@ -70,6 +73,8 @@ targets:
         # macOS overrides this with the sandbox + network.client entitlements file.
         CODE_SIGN_ENTITLEMENTS: Teleprompter.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Teleprompter-macOS.entitlements
+        # Wire the AppIcon asset catalog into both iOS and macOS targets.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     # Explicit Info.plist (checked in) so we can register the custom `tp://` URL
     # scheme — CFBundleURLTypes has no INFOPLIST_KEY_* equivalent, so a generated
     # plist won't carry it. XcodeGen writes this file from `properties` and points

@@ -1,14 +1,16 @@
 import SwiftUI
-import os
 
 /// Boot marker used by the Simulator harness to confirm the app launched.
-/// `scripts/ios.sh smoke` greps the Simulator log for this exact string.
+/// `scripts/ios.sh smoke` greps the Simulator log for this exact string. It is
+/// *emitted* at app launch in `TeleprompterApp.init` (not here) so the marker is
+/// independent of which view appears — see that file for the rationale (macOS
+/// NavigationSplitView mounts its detail pane lazily under a backgrounded launch).
 let bootMarker = "TP_BOOT_OK"
 
-private let bootLog = Logger(subsystem: "dev.tpmt.teleprompter", category: "boot")
-
 struct ContentView: View {
-    @State private var coreStatus = "checking…"
+    /// Core status is owned by the app shell (so the probe fires at the root) and
+    /// passed down for display. Defaults to "checking…" for the SwiftUI preview.
+    var coreStatus: String = "checking…"
 
     var body: some View {
         VStack(spacing: 12) {
@@ -30,16 +32,6 @@ struct ContentView: View {
                 .accessibilityIdentifier("core-status")
         }
         .padding()
-        .onAppear {
-            // Emit the boot marker to the unified log for the headless harness.
-            bootLog.notice("\(bootMarker, privacy: .public)")
-            // Exercise the Rust core across the FFI boundary and emit its result
-            // (TP_CORE_OK / TP_CORE_FAIL) so `scripts/ios.sh smoke` can verify
-            // the static library is linked AND functional, not merely present.
-            let summary = TpCoreCheck.summary()
-            coreStatus = summary
-            bootLog.notice("\(summary, privacy: .public)")
-        }
     }
 }
 

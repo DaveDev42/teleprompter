@@ -42,6 +42,35 @@ struct TeleprompterApp: App {
         coreStatus = summary
     }
 
+    // MARK: - Smoke harness deep-link injection
+
+    /// Handle `--tp-smoke-url <url>` launch argument — allows the harness to
+    /// inject a `tp://` deep link without going through LaunchServices routing
+    /// (which requires OS-level URL-scheme approval on Simulator builds with
+    /// ad-hoc signing). Only fires if the argument is present, so it is a
+    /// strict no-op in normal app execution.
+    ///
+    /// Called from `onAppear` after the window is established (required on iOS
+    /// so `PairingViewModel` bindings are wired before `connect()` is called).
+    private func handleSmokeURLIfPresent() {
+        let args = ProcessInfo.processInfo.arguments
+        guard let idx = args.firstIndex(of: "--tp-smoke-url"),
+              idx + 1 < args.count else { return }
+        let raw = args[idx + 1]
+        let smokeLog = Logger(subsystem: "dev.tpmt.teleprompter", category: "deeplink")
+        smokeLog.notice("smoke url injection: \(raw, privacy: .public)")
+        guard let url = URL(string: raw) else {
+            smokeLog.error("smoke url invalid: \(raw, privacy: .public)")
+            return
+        }
+        if case let .paired(daemonId) = DeepLinkHandler.handle(url) {
+            pairings.reload()
+            pairings.connect(daemonId: daemonId)
+        } else {
+            pairings.reload()
+        }
+    }
+
     /// Set up notification authorization + APNs scaffold at scene-connection
     /// time (after the window scene is established, which is required for
     /// `UIApplication.shared.registerForRemoteNotifications` on iOS).
@@ -78,10 +107,16 @@ struct TeleprompterApp: App {
                 // Shortcut help sheet, toggled by ⌘/ or the Help menu (macOS).
                 .shortcutHelpSheet(isPresented: $showShortcutHelp)
                 // Notification setup after the scene is ready.
-                .onAppear { setupNotifications() }
+                // Also handle --tp-smoke-url harness injection (bypasses
+                // LaunchServices URL routing, which is unreliable for sideloaded
+                // apps on iOS 26.5 Simulator with ad-hoc signing).
+                .onAppear {
+                    setupNotifications()
+                    handleSmokeURLIfPresent()
+                }
                 // A4: a desktop window must not collapse below a usable size. The
                 // sidebar (~220) + a readable terminal column needs ~640×480 floor.
-                // No-op on iOS where the scene fills the device.
+                // No-op on iOS/visionOS where the scene fills the device/space.
                 #if os(macOS)
                 .frame(minWidth: 640, minHeight: 480)
                 #endif
@@ -92,6 +127,11 @@ struct TeleprompterApp: App {
         .defaultSize(width: 980, height: 680)
         .windowResizability(.contentMinSize)
         .commands { MacCommands(pairings: pairings, showShortcutHelp: $showShortcutHelp) }
+        #elseif os(visionOS)
+        // B2 (visionOS): open at a comfortable spatial-window size — wide enough
+        // for the terminal column, tall enough for the tab bar and content. The
+        // system may adjust for the user's environment; this is the initial size.
+        .defaultSize(width: 960, height: 640)
         #endif
     }
 }
@@ -236,6 +276,20 @@ struct RootView: View {
         #if os(macOS)
         MacRootView(pairings: pairings, sessionStore: sessionStore, coreStatus: coreStatus,
                     showShortcutHelp: $showShortcutHelp)
+        #elseif os(visionOS)
+        // B2 (visionOS): use a TabView like iOS (bottom ornament-style tab bar
+        // rendered by the system in a spatial window). Apply glass background to
+        // the outermost container so the window material reads well in immersive
+        // and passthrough environments. The .tabViewStyle default is correct for
+        // visionOS — no override needed; the platform renders an appropriate tab
+        // bar ornament automatically.
+        TabView {
+            ForEach(AppTab.allCases) { tab in
+                tabContent(tab)
+                    .glassBackgroundEffect()
+                    .tabItem { Label(tab.title, systemImage: tab.systemImage) }
+            }
+        }
         #else
         TabView {
             ForEach(AppTab.allCases) { tab in

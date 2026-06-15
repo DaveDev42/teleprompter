@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Teleprompter native app harness (ADR-0001 rewrite + ADR-0002 multiplatform).
 #
-# Drives the Swift multiplatform app (iOS/iPadOS/macOS) headlessly: generate
-# project → build → install/launch → verify the 8 on-device markers, plus run
-# the XCTest bundle. No Xcode GUI required. Platform = TP_PLATFORM (ios | macos).
-# visionOS/watchOS are toolchain-gated Phase B (ADR-0002) — not yet wired here.
+# Drives the Swift multiplatform app (iOS/iPadOS/macOS/visionOS) headlessly:
+# generate project → build → install/launch → verify the 8 on-device markers,
+# plus run the XCTest bundle. No Xcode GUI required.
+# Platform = TP_PLATFORM (ios | macos | visionos).
 #
 # Usage:
 #   scripts/ios.sh gen          Regenerate Teleprompter.xcodeproj from project.yml
@@ -12,6 +12,7 @@
 #   scripts/ios.sh build        Build the app (for iOS Simulator by default, or macOS)
 #   scripts/ios.sh run          Install + launch on the Simulator (ios) or open on macOS
 #   scripts/ios.sh smoke        Full loop: rust → gen → build → install → launch → verify
+#                               (TP_PLATFORM selects iOS Simulator / macOS / visionOS Simulator)
 #                               boot+core markers; inject a tp://p?d=… deep link and verify
 #                               the TP_PAIR_OK pairing marker (M1); then start a loopback
 #                               relay (+ fake daemon peer) and verify TP_RELAY_AUTH_OK
@@ -21,15 +22,18 @@
 #   scripts/ios.sh boot         Boot the target iOS Simulator (idempotent; ios only)
 #
 # Env:
-#   TP_PLATFORM   Target platform: "ios" (default) or "macos".
-#                 When unset or "ios", behaviour is byte-for-byte identical to
-#                 the original harness. When "macos", builds for native macOS
-#                 (NOT Catalyst), launches via `open`, and polls the HOST unified
-#                 log instead of `xcrun simctl spawn`.
-#   TP_SIM        Simulator device name (default: "iPhone 17 Pro"; ios only)
-#   TP_SCHEME     Xcode scheme (default: "Teleprompter")
-#   TP_SKIP_RUST  Set to 1 to skip xcframework rebuild (xcframework must exist)
-#   TP_FORCE_RUST Set to 1 to always rebuild xcframework even when present
+#   TP_PLATFORM     Target platform: "ios" (default), "macos", or "visionos".
+#                   When unset or "ios", behaviour is byte-for-byte identical to
+#                   the original harness. When "macos", builds for native macOS
+#                   (NOT Catalyst), launches via `open`, and polls the HOST unified
+#                   log instead of `xcrun simctl spawn`. When "visionos", builds
+#                   for the visionOS Simulator (xrsimulator SDK), installs/launches
+#                   via xcrun simctl, and polls the Simulator unified log.
+#   TP_SIM          iOS Simulator device name (default: "iPhone 17 Pro"; ios only)
+#   TP_VISION_SIM   visionOS Simulator device name (default: "Apple Vision Pro")
+#   TP_SCHEME       Xcode scheme (default: "Teleprompter")
+#   TP_SKIP_RUST    Set to 1 to skip xcframework rebuild (xcframework must exist)
+#   TP_FORCE_RUST   Set to 1 to always rebuild xcframework even when present
 
 set -euo pipefail
 
@@ -39,6 +43,7 @@ PROJECT="$IOS_DIR/Teleprompter.xcodeproj"
 DERIVED="$IOS_DIR/build/DerivedData"
 SCHEME="${TP_SCHEME:-Teleprompter}"
 SIM_NAME="${TP_SIM:-iPhone 17 Pro}"
+VISION_SIM_NAME="${TP_VISION_SIM:-Apple Vision Pro}"
 BUNDLE_ID="dev.tpmt.teleprompter"
 BOOT_MARKER="TP_BOOT_OK"
 CORE_MARKER="TP_CORE_OK"
@@ -114,7 +119,7 @@ tp_run_cleanup() {
 }
 trap 'tp_run_cleanup' EXIT
 
-# Resolve the UDID for $SIM_NAME among available devices. Exact name match.
+# Resolve the UDID for $SIM_NAME among available iOS Simulator devices.
 sim_udid() {
   xcrun simctl list devices available -j \
     | /usr/bin/python3 -c '
@@ -127,6 +132,30 @@ for runtime,devs in d["devices"].items():
             print(dev["udid"]); sys.exit(0)
 sys.exit(1)
 ' "$SIM_NAME"
+}
+
+# Resolve the UDID for $VISION_SIM_NAME among available visionOS Simulator devices.
+# Prefers the device with the highest runtime version (xrOS-26-5 > xrOS-26-2) so
+# that the build targets the same runtime version as the installed SDK when multiple
+# devices share the same name.
+vision_sim_udid() {
+  xcrun simctl list devices available -j \
+    | /usr/bin/python3 -c '
+import json,sys
+name=sys.argv[1]
+d=json.load(sys.stdin)
+best_udid=""
+best_rt=""
+for runtime,devs in d["devices"].items():
+    if "xr" not in runtime.lower() and "vision" not in runtime.lower():
+        continue
+    for dev in devs:
+        if dev.get("isAvailable") and dev["name"]==name:
+            if runtime > best_rt:
+                best_rt=runtime; best_udid=dev["udid"]
+if best_udid: print(best_udid); sys.exit(0)
+sys.exit(1)
+' "$VISION_SIM_NAME"
 }
 
 # Emit the deterministic smoke pairing deep link (tp://p?d=…) to stdout.
@@ -239,6 +268,20 @@ cmd_build() {
       $SIGN_FLAGS \
       CODE_SIGN_ENTITLEMENTS="" \
       build | xcbeautify_or_cat
+  elif [ "$TP_PLATFORM" = "visionos" ]; then
+    log "building $SCHEME for visionOS Simulator ($VISION_SIM_NAME)"
+    local vision_udid; vision_udid="$(vision_sim_udid)" \
+      || die "visionOS simulator not found: $VISION_SIM_NAME (set TP_VISION_SIM)"
+    # Use UDID-based destination: name-based fails when multiple devices share the
+    # same name (e.g. both xrOS-26.2 and xrOS-26.5 devices named "Apple Vision Pro").
+    xcodebuild \
+      -project "$PROJECT" \
+      -scheme "$SCHEME" \
+      -configuration Debug \
+      -destination "id=$vision_udid" \
+      -derivedDataPath "$DERIVED" \
+      $SIGN_FLAGS \
+      build | xcbeautify_or_cat
   else
     log "building $SCHEME for iOS Simulator"
     xcodebuild \
@@ -271,11 +314,40 @@ macos_app_path() {
   echo "$p"
 }
 
+# visionOS Simulator app product path.
+visionos_app_path() {
+  local p="$DERIVED/Build/Products/Debug-xrsimulator/Teleprompter.app"
+  [ -d "$p" ] || die "visionOS app not built yet: $p (run: TP_PLATFORM=visionos scripts/ios.sh build)"
+  echo "$p"
+}
+
 cmd_run() {
   if [ "$TP_PLATFORM" = "macos" ]; then
     local app; app="$(macos_app_path)"
     log "opening $app (macOS)"
     open "$app"
+  elif [ "$TP_PLATFORM" = "visionos" ]; then
+    local udid; udid="$(vision_sim_udid)" || die "visionOS simulator not found: $VISION_SIM_NAME (set TP_VISION_SIM)"
+    local state
+    state="$(xcrun simctl list devices -j | /usr/bin/python3 -c '
+import json,sys
+u=sys.argv[1]; d=json.load(sys.stdin)
+for devs in d["devices"].values():
+    for dev in devs:
+        if dev["udid"]==u: print(dev.get("state","unknown")); sys.exit(0)
+sys.exit(0)
+' "$udid")"
+    if [ "$state" != "Booted" ]; then
+      log "booting $VISION_SIM_NAME ($udid)"
+      xcrun simctl boot "$udid"
+    else
+      log "$VISION_SIM_NAME already booted ($udid)"
+    fi
+    local app; app="$(visionos_app_path)"
+    log "installing $app on visionOS Simulator"
+    xcrun simctl install "$udid" "$app"
+    log "launching $BUNDLE_ID on visionOS Simulator"
+    xcrun simctl launch "$udid" "$BUNDLE_ID"
   else
     local udid; udid="$(cmd_boot)"
     local app; app="$(ios_app_path)"
@@ -331,6 +403,8 @@ cmd_smoke() {
 
   if [ "$TP_PLATFORM" = "macos" ]; then
     cmd_smoke_macos
+  elif [ "$TP_PLATFORM" = "visionos" ]; then
+    cmd_smoke_visionos
   else
     cmd_smoke_ios
   fi
@@ -351,26 +425,52 @@ cmd_smoke_ios() {
   xcrun simctl uninstall "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
   log "installing"
   xcrun simctl install "$udid" "$app"
-  # Fresh launch so the markers are emitted now (terminate any prior instance).
+
+  # M1 + M2 share ONE pairing deep link, mirroring the real flow: a single
+  # tp://p?d=… both (M1) ingests offline → TP_PAIR_OK and (M2) drives the app's
+  # auto-connect → relay.auth → TP_RELAY_AUTH_OK. The link points at a local
+  # loopback relay, so no prod relay is ever contacted.
+  #
+  # Bring the loopback relay up BEFORE launching the app: the app connects the
+  # instant the pairing is ingested in onAppear.
+  #
+  # We pass the link as --tp-smoke-url <link> launch argument instead of using
+  # `xcrun simctl openurl`. This bypasses LaunchServices URL-scheme approval
+  # routing, which started blocking ad-hoc-signed sideloaded apps on iOS 26.5
+  # Simulator (lsd error -10814 "Error fetching bundle record for scheme
+  # approval"). The TeleprompterApp reads --tp-smoke-url in its onAppear and
+  # calls DeepLinkHandler.handle() directly, producing the same M1 marker.
+  start_loopback
+
+  local link
+  link="$(smoke_pair_link "$SMOKE_DAEMON_ID" "ws://localhost:$RELAY_LOOPBACK_PORT" "golden")"
+
+  # Terminate any prior instance before launching with the URL arg.
   xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
-  log "launching + watching log for '$BOOT_MARKER' and '$CORE_MARKER'"
-  xcrun simctl launch "$udid" "$BUNDLE_ID" >/dev/null
-  # Poll the unified log for the markers emitted in ContentView.onAppear. Filter
-  # by our subsystem — the default `log show` level drops Debug/Info lines.
-  # TP_CORE_OK proves the Rust FFI is linked AND the encode→encrypt→decrypt→decode
-  # round-trip succeeds on-device; TP_CORE_FAIL means it linked but a step diverged.
-  local boot_seen="" core_line=""
-  for _ in $(seq 1 20); do
-    # Capture into a variable first — `| grep -q` SIGPIPEs the producer under
-    # pipefail (rc=141) once grep exits on the first match.
+  log "launching with --tp-smoke-url (M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
+  xcrun simctl launch "$udid" "$BUNDLE_ID" -- --tp-smoke-url "$link" >/dev/null
+
+  # Poll for ALL markers in one loop: boot+core (M0) + pairing (M1) + relay-auth
+  # (M2) + kx + first-frame (M3) + session-render (M4) + input round-trip (M5).
+  # Since we launch with --tp-smoke-url, the boot/core markers and the pairing
+  # markers are both emitted in the same process run.
+  local boot_seen="" core_line="" pair_line="" auth_line="" kx_line="" frame_line="" session_line="" input_line=""
+  for _ in $(seq 1 60); do
     local out
-    out="$(ios_log_snapshot "$udid" 30)"
+    out="$(ios_log_snapshot "$udid" 60)"
     case "$out" in *"$BOOT_MARKER"*) boot_seen="yes" ;; esac
-    # Grab the whole TP_CORE_ line so a FAIL surfaces its step/detail.
     core_line="$(printf '%s\n' "$out" | grep -Eo 'TP_CORE_(OK|FAIL)[^"]*' | tail -n1 || true)"
-    if [ -n "$boot_seen" ] && [ -n "$core_line" ]; then break; fi
+    pair_line="$(printf '%s\n' "$out" | grep -Eo 'TP_PAIR_(OK|FAIL)[^"]*' | tail -n1 || true)"
+    auth_line="$(printf '%s\n' "$out" | grep -Eo "${RELAY_AUTH_OK_MARKER}[^\"]*|${RELAY_AUTH_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    kx_line="$(printf '%s\n' "$out" | grep -Eo "${KX_OK_MARKER}[^\"]*|${KX_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    session_line="$(printf '%s\n' "$out" | grep -Eo "${SESSION_OK_MARKER}[^\"]*|${SESSION_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    input_line="$(printf '%s\n' "$out" | grep -Eo "${INPUT_OK_MARKER}[^\"]*|${INPUT_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    if [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && [ -n "$input_line" ]; then break; fi
     sleep 0.5
   done
+
+  # M0 assertions.
   [ -n "$boot_seen" ] || die "SMOKE FAIL — boot marker '$BOOT_MARKER' not seen in Simulator log"
   [ -n "$core_line" ] || die "SMOKE FAIL — boot OK but no '$CORE_MARKER'/TP_CORE_FAIL line (tp-core FFI never ran?)"
   case "$core_line" in
@@ -378,39 +478,8 @@ cmd_smoke_ios() {
     *) die "SMOKE FAIL — tp-core round-trip failed on-device: $core_line" ;;
   esac
 
-  # M1 + M2 share ONE pairing deep link, mirroring the real flow: a single
-  # tp://p?d=… both (M1) ingests offline → TP_PAIR_OK and (M2) drives the app's
-  # auto-connect → relay.auth → TP_RELAY_AUTH_OK. The link points at a local
-  # loopback relay (started here, golden secret so the FFI token matches the
-  # pre-seeded one), so no prod relay is ever contacted. Bring the relay up
-  # BEFORE injecting the link, since the app connects the instant it ingests.
-  start_loopback
-
-  # Golden secret + localhost relay so both the pairing ingest and the relay
-  # auth target the loopback. did=$SMOKE_DAEMON_ID matches the seeded token's id.
-  local link
-  link="$(smoke_pair_link "$SMOKE_DAEMON_ID" "ws://localhost:$RELAY_LOOPBACK_PORT" "golden")"
-  log "opening pairing deep link (M1+M2) — want '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
-  xcrun simctl openurl "$udid" "$link" >/dev/null
-
-  # Poll for the pairing (M1), relay-auth (M2), kx + first-frame (M3),
-  # session-render (M4), and input round-trip (M5) markers.
-  local pair_line="" auth_line="" kx_line="" frame_line="" session_line="" input_line=""
-  for _ in $(seq 1 40); do
-    local out
-    out="$(ios_log_snapshot "$udid" 40)"
-    pair_line="$(printf '%s\n' "$out" | grep -Eo 'TP_PAIR_(OK|FAIL)[^"]*' | tail -n1 || true)"
-    auth_line="$(printf '%s\n' "$out" | grep -Eo "${RELAY_AUTH_OK_MARKER}[^\"]*|${RELAY_AUTH_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    kx_line="$(printf '%s\n' "$out" | grep -Eo "${KX_OK_MARKER}[^\"]*|${KX_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    session_line="$(printf '%s\n' "$out" | grep -Eo "${SESSION_OK_MARKER}[^\"]*|${SESSION_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    input_line="$(printf '%s\n' "$out" | grep -Eo "${INPUT_OK_MARKER}[^\"]*|${INPUT_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    if [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && [ -n "$input_line" ]; then break; fi
-    sleep 0.5
-  done
-
   # M1 assertion.
-  [ -n "$pair_line" ] || die "SMOKE FAIL — pairing deep link opened but no '$PAIR_MARKER'/TP_PAIR_FAIL line (URL not routed to app?)"
+  [ -n "$pair_line" ] || die "SMOKE FAIL — --tp-smoke-url injected but no '$PAIR_MARKER'/TP_PAIR_FAIL line (DeepLinkHandler.handle never ran?)"
   case "$pair_line" in
     "$PAIR_MARKER did=$SMOKE_DAEMON_ID"*) log "pairing OK (M1) — '$pair_line'" ;;
     "$PAIR_MARKER"*) die "SMOKE FAIL — pairing wrong daemon id: $pair_line (want did=$SMOKE_DAEMON_ID)" ;;
@@ -647,6 +716,155 @@ cmd_smoke_macos() {
   log "✅ SMOKE PASS (macOS) — all 8 markers observed"
 }
 
+cmd_smoke_visionos() {
+  local udid; udid="$(vision_sim_udid)" || die "visionOS simulator not found: $VISION_SIM_NAME (set TP_VISION_SIM)"
+  log "visionOS Simulator UDID: $udid"
+
+  # Boot the visionOS Simulator (idempotent).
+  local state
+  state="$(xcrun simctl list devices -j | /usr/bin/python3 -c '
+import json,sys
+u=sys.argv[1]; d=json.load(sys.stdin)
+for devs in d["devices"].values():
+    for dev in devs:
+        if dev["udid"]==u: print(dev.get("state","unknown")); sys.exit(0)
+sys.exit(0)
+' "$udid")"
+  if [ "$state" != "Booted" ]; then
+    log "booting $VISION_SIM_NAME ($udid) — visionOS Simulator boot may take 60s+"
+    xcrun simctl boot "$udid"
+    # Wait for boot to complete (visionOS Simulator can be slow).
+    local booted=""
+    for _ in $(seq 1 60); do
+      local s
+      s="$(xcrun simctl list devices -j | /usr/bin/python3 -c '
+import json,sys
+u=sys.argv[1]; d=json.load(sys.stdin)
+for devs in d["devices"].values():
+    for dev in devs:
+        if dev["udid"]==u: print(dev["state"]); sys.exit(0)
+' "$udid" 2>/dev/null || echo "Unknown")"
+      if [ "$s" = "Booted" ]; then booted="yes"; break; fi
+      sleep 2
+    done
+    [ -n "$booted" ] || die "visionOS Simulator $VISION_SIM_NAME ($udid) failed to boot in 120s"
+  else
+    log "$VISION_SIM_NAME already booted ($udid)"
+  fi
+
+  local app; app="$(visionos_app_path)"
+
+  # Clean install for test isolation (same rationale as iOS path).
+  log "uninstalling (clean container for test isolation)"
+  xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
+  xcrun simctl uninstall "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
+  log "installing"
+  xcrun simctl install "$udid" "$app"
+
+  # M1+M2: bring loopback relay up BEFORE launching, then launch with --tp-smoke-url
+  # to bypass LaunchServices URL-scheme approval (same fix as iOS path — simctl openurl
+  # hits the -10814 bundle-record approval error on visionOS Simulator too).
+  start_loopback
+
+  local link
+  link="$(smoke_pair_link "$SMOKE_DAEMON_ID" "ws://localhost:$RELAY_LOOPBACK_PORT" "golden")"
+
+  xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
+  log "launching with --tp-smoke-url (visionOS M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
+  xcrun simctl launch "$udid" "$BUNDLE_ID" -- --tp-smoke-url "$link" >/dev/null
+
+  # Poll all 8 markers in one loop (boot+core+M1–M5), with longer timeouts for visionOS sim.
+  local boot_seen="" core_line="" pair_line="" auth_line="" kx_line="" frame_line="" session_line="" input_line=""
+  for _ in $(seq 1 90); do
+    local out
+    out="$(xcrun simctl spawn "$udid" log show --last 90s --style compact \
+      --predicate "subsystem == \"$BUNDLE_ID\"" 2>/dev/null || true)"
+    case "$out" in *"$BOOT_MARKER"*) boot_seen="yes" ;; esac
+    core_line="$(printf '%s\n' "$out" | grep -Eo 'TP_CORE_(OK|FAIL)[^"]*' | tail -n1 || true)"
+    pair_line="$(printf '%s\n' "$out" | grep -Eo 'TP_PAIR_(OK|FAIL)[^"]*' | tail -n1 || true)"
+    auth_line="$(printf '%s\n' "$out" | grep -Eo "${RELAY_AUTH_OK_MARKER}[^\"]*|${RELAY_AUTH_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    kx_line="$(printf '%s\n' "$out" | grep -Eo "${KX_OK_MARKER}[^\"]*|${KX_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    session_line="$(printf '%s\n' "$out" | grep -Eo "${SESSION_OK_MARKER}[^\"]*|${SESSION_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    input_line="$(printf '%s\n' "$out" | grep -Eo "${INPUT_OK_MARKER}[^\"]*|${INPUT_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    if [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && [ -n "$input_line" ]; then break; fi
+    sleep 1
+  done
+
+  # M0 assertions.
+  [ -n "$boot_seen" ] || die "SMOKE FAIL (visionOS) — boot marker '$BOOT_MARKER' not seen in Simulator log"
+  [ -n "$core_line" ] || die "SMOKE FAIL (visionOS) — boot OK but no '$CORE_MARKER'/TP_CORE_FAIL line (tp-core FFI never ran?)"
+  case "$core_line" in
+    "$CORE_MARKER"*) log "core OK (visionOS) — '$core_line'" ;;
+    *) die "SMOKE FAIL (visionOS) — tp-core round-trip failed on-device: $core_line" ;;
+  esac
+
+  # M1 assertion.
+  [ -n "$pair_line" ] || die "SMOKE FAIL (visionOS) — --tp-smoke-url injected but no '$PAIR_MARKER'/TP_PAIR_FAIL (DeepLinkHandler.handle never ran?)"
+  case "$pair_line" in
+    "$PAIR_MARKER did=$SMOKE_DAEMON_ID"*) log "pairing OK (visionOS M1) — '$pair_line'" ;;
+    "$PAIR_MARKER"*) die "SMOKE FAIL (visionOS) — pairing wrong daemon id: $pair_line (want did=$SMOKE_DAEMON_ID)" ;;
+    *) die "SMOKE FAIL (visionOS) — pairing ingestion failed on-device: $pair_line" ;;
+  esac
+
+  # M2 assertion.
+  [ -n "$auth_line" ] || die "SMOKE FAIL (visionOS) — paired but no '$RELAY_AUTH_OK_MARKER'/'$RELAY_AUTH_FAIL_MARKER' (relay connect never ran?)"
+  case "$auth_line" in
+    "$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID"*) log "relay auth OK (visionOS M2) — '$auth_line'" ;;
+    "$RELAY_AUTH_OK_MARKER"*) die "SMOKE FAIL (visionOS) — relay auth wrong daemon: $auth_line" ;;
+    *) die "SMOKE FAIL (visionOS) — relay auth failed on-device: $auth_line" ;;
+  esac
+
+  # M3 assertion — in-band kx.
+  [ -n "$kx_line" ] || die "SMOKE FAIL (visionOS) — relay auth OK but no '$KX_OK_MARKER'/'$KX_FAIL_MARKER' (kx never ran?)"
+  case "$kx_line" in
+    "$KX_OK_MARKER daemon=$SMOKE_DAEMON_ID"*) log "kx OK (visionOS M3) — '$kx_line'" ;;
+    "$KX_OK_MARKER"*) die "SMOKE FAIL (visionOS) — kx wrong daemon: $kx_line" ;;
+    *) die "SMOKE FAIL (visionOS) — kx failed on-device: $kx_line" ;;
+  esac
+
+  # M3 assertion — first decrypted frame.
+  [ -n "$frame_line" ] || die "SMOKE FAIL (visionOS) — kx OK but no '$FRAME_OK_MARKER'/'$FRAME_FAIL_MARKER' (hello never decrypted?)"
+  case "$frame_line" in
+    "$FRAME_OK_MARKER sessions="*)
+      local n="${frame_line#"$FRAME_OK_MARKER" sessions=}"
+      n="${n%% *}"
+      [ "${n:-0}" -ge 1 ] || die "SMOKE FAIL (visionOS) — hello decrypted but sessions=$n (expected >=1)"
+      log "frame OK (visionOS M3) — '$frame_line'"
+      ;;
+    *) die "SMOKE FAIL (visionOS) — first frame decrypt/decode failed on-device: $frame_line" ;;
+  esac
+
+  # M4 assertion — live session render.
+  [ -n "$session_line" ] || die "SMOKE FAIL (visionOS) — frame OK but no '$SESSION_OK_MARKER'/'$SESSION_FAIL_MARKER' (attach/resume never ran?)"
+  case "$session_line" in
+    "$SESSION_OK_MARKER sid=$SMOKE_SESSION_ID events="*)
+      local ev="${session_line#"$SESSION_OK_MARKER" sid="$SMOKE_SESSION_ID" events=}"
+      ev="${ev%% *}"
+      [ "${ev:-0}" -ge 1 ] || die "SMOKE FAIL (visionOS) — session attached but events=$ev (expected >=1)"
+      log "session OK (visionOS M4) — '$session_line'"
+      ;;
+    "$SESSION_OK_MARKER"*) die "SMOKE FAIL (visionOS) — session render wrong sid: $session_line (want sid=$SMOKE_SESSION_ID)" ;;
+    *) die "SMOKE FAIL (visionOS) — session attach/backfill failed on-device: $session_line" ;;
+  esac
+
+  # M5 assertion — input round-trip.
+  [ -n "$input_line" ] || die "SMOKE FAIL (visionOS) — session OK but no '$INPUT_OK_MARKER'/'$INPUT_FAIL_MARKER' (input never sent/echoed?)"
+  case "$input_line" in
+    "$INPUT_OK_MARKER sid=$SMOKE_SESSION_ID"*) log "input OK (visionOS M5) — '$input_line'" ;;
+    "$INPUT_OK_MARKER"*) die "SMOKE FAIL (visionOS) — input round-trip wrong sid: $input_line (want sid=$SMOKE_SESSION_ID)" ;;
+    *) die "SMOKE FAIL (visionOS) — input send/echo failed on-device: $input_line" ;;
+  esac
+
+  local clients
+  clients="$(curl -s "http://localhost:$RELAY_LOOPBACK_PORT/health" \
+              | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("clients",0))' 2>/dev/null || echo 0)"
+  [ "${clients:-0}" -ge 2 ] || die "SMOKE FAIL (visionOS) — relay /health reports clients=$clients (expected >=2: app + fake daemon)"
+  log "relay /health confirms clients=$clients"
+
+  log "✅ SMOKE PASS (visionOS) — boot + core + pairing + relay-auth + kx + first-frame + session-render + input-roundtrip markers observed on $VISION_SIM_NAME"
+}
+
 # start_loopback — bring up the local seeded relay used by the M2 auth check and
 # register cleanup so it always dies (RETURN is bypassed by `die`→exit, so trap
 # EXIT too). Sets $LOOPBACK_PID for callers that want it.
@@ -678,7 +896,7 @@ start_loopback() {
 
 cmd_test() {
   require xcodebuild
-  if [ "$TP_PLATFORM" = "macos" ]; then
+  if [ "$TP_PLATFORM" = "macos" ] || [ "$TP_PLATFORM" = "visionos" ]; then
     die "XCTest (cmd_test) is ios-only in this milestone. Use TP_PLATFORM=ios for tests."
   fi
   ensure_xcframework
@@ -700,7 +918,7 @@ main() {
     gen)   cmd_gen ;;
     rust)  cmd_rust "$@" ;;
     boot)
-      [ "$TP_PLATFORM" != "macos" ] || die "'boot' is iOS-only (TP_PLATFORM=macos has no Simulator to boot)"
+      [ "$TP_PLATFORM" != "macos" ] || die "'boot' is Simulator-only (TP_PLATFORM=macos has no Simulator to boot)"
       cmd_boot
       ;;
     build) cmd_build "$@" ;;

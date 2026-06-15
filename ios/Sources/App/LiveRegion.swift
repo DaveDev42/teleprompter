@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(iOS) || os(visionOS)
+import UIKit
+#endif
 
 /// A subtle connection-state banner + VoiceOver live-region announcement,
 /// ported from the Expo `ConnectionLiveRegion` component.
@@ -147,7 +150,7 @@ struct SessionStoppedBanner: View {
 /// The announcement is "polite" (not an interrupt), matching the `role=status`
 /// semantic from the Expo live-region components.
 func postAccessibilityAnnouncement(_ message: String) {
-#if os(iOS)
+#if os(iOS) || os(visionOS)
     UIAccessibility.post(notification: .announcement, argument: message)
 #elseif os(macOS)
     NSAccessibility.post(

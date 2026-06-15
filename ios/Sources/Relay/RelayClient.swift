@@ -84,7 +84,29 @@ final class RelayClient: NSObject {
     /// The UI store fed by decrypted session records. Weak: the app owns it for
     /// the process lifetime; the client only writes into it. All writes hop to
     /// `@MainActor` (the store is main-actor isolated).
-    weak var sessionStore: SessionStore?
+    ///
+    /// On assignment, installs the three Tranche E terminal relay callbacks so
+    /// `TerminalView` can call `in.term` / `resize` / history fetch without
+    /// having a direct reference to this client (SessionDetailView is frozen and
+    /// cannot add new parameters to TerminalView).
+    weak var sessionStore: SessionStore? {
+        didSet { installTerminalCallbacks() }
+    }
+
+    // MARK: terminal history buffer (Tranche E)
+
+    /// Concatenated raw PTY bytes for each session, accumulated from io records
+    /// (both batch backfill and live). Used for history replay when a terminal
+    /// view attaches after backfill has already fired (e.g. user navigates to
+    /// the terminal tab later).
+    ///
+    /// `nonisolated(unsafe)` because all writes happen inside `Task { @MainActor in }`
+    /// blocks (serialized on the main actor), and all reads occur on the main actor
+    /// from TerminalView / SwiftTermView. The non-isolated annotation suppresses the
+    /// concurrency checker so the value can be captured in non-`@MainActor` closures
+    /// stored as `(String) -> Data?` in the associated-object slots on SessionStore.
+    /// Callers MUST only access this property on the main actor.
+    nonisolated(unsafe) private(set) var ioHistory: [String: Data] = [:]
     /// Guard so the auto-attach (on the first `hello`) fires once per connection —
     /// a re-`hello` (e.g. the on-demand fallback also lands) must not re-attach.
     private var didAutoAttach = false
@@ -449,6 +471,12 @@ final class RelayClient: NSObject {
         let recs = msg.d
         Task { @MainActor in
             store?.appendBatch(sid: sid, recs: recs)
+            // Accumulate raw io bytes for terminal history replay.
+            for rec in recs where rec.k == "io" {
+                if let d = SessionStore.ioData(from: rec) {
+                    self.ioHistory[sid, default: Data()].append(d)
+                }
+            }
             let count = store?.chatItems[sid]?.count ?? 0
             self.emitSessionOk(sid: sid, events: count)
             self.maybeSendProbe(sid: sid)
@@ -464,6 +492,10 @@ final class RelayClient: NSObject {
         let sid = rec.sid
         Task { @MainActor in
             store?.appendRec(rec)
+            // Accumulate raw io bytes for terminal history replay.
+            if rec.k == "io", let d = SessionStore.ioData(from: rec) {
+                self.ioHistory[sid, default: Data()].append(d)
+            }
             let count = store?.chatItems[sid]?.count ?? 0
             self.emitSessionOk(sid: sid, events: count)
             self.checkInputEcho(sid: sid)
@@ -507,6 +539,60 @@ final class RelayClient: NSObject {
             }
         } catch {
             log.error("\(Self.inputFailMarker, privacy: .public) sid=\(sid, privacy: .public) detail=input seal: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Send a PTY resize for a session. Wire: `{ t:"resize", sid, cols, rows }`.
+    /// Sealed with tx, published via `relay.pub` on the session sid so the daemon
+    /// routes it to the runner's PTY (`parseRelayControlMessage` → resize branch).
+    /// `cols` and `rows` must be positive integers; values ≤ 0 are clamped to 1
+    /// to satisfy the daemon's `isPositiveInt` guard.
+    func sendResize(sid: String, cols: Int, rows: Int) {
+        guard let keys = sessionKeys else {
+            log.notice("resize before kx — dropping sid=\(sid, privacy: .public)")
+            return
+        }
+        let safeCols = max(1, cols)
+        let safeRows = max(1, rows)
+        do {
+            let body = try JSONEncoder().encode(SessionResize(sid: sid, cols: safeCols, rows: safeRows))
+            let ct = try seal(plaintext: body, key: keys.tx, nonce: try randomBytes(24))
+            send(RelayPublish(sid: sid, ct: ct, seq: 0)) { [weak self] error in
+                if let error { self?.log.notice("resize \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)") }
+            }
+        } catch {
+            log.error("resize \(sid, privacy: .public) detail=seal: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Retrieve buffered raw PTY bytes for `sid` for terminal history replay.
+    /// Returns nil when no io records have been received yet for this session.
+    /// Callers MUST be on the main actor (matches the write side).
+    func terminalHistory(for sid: String) -> Data? {
+        ioHistory[sid]
+    }
+
+    /// Install the three Tranche E terminal relay callbacks on `sessionStore`
+    /// (via the associated-object extension in `TerminalOps.swift`). Called in
+    /// the `sessionStore` didSet so the store is always wired before any view
+    /// can observe it. Weak capture prevents a retain cycle (store → client).
+    private func installTerminalCallbacks() {
+        guard let store = sessionStore else { return }
+        Task { @MainActor [weak self, weak store] in
+            guard let store else { return }
+            store.terminalSendBytes = { [weak self] sid, bytes in
+                guard let client = self else { return }
+                let b64 = Data(bytes).base64EncodedString()
+                client.sendInput(sid: sid, kind: .term, text: b64)
+            }
+            store.terminalResize = { [weak self] sid, cols, rows in
+                self?.sendResize(sid: sid, cols: cols, rows: rows)
+            }
+            store.terminalHistory = { [weak self] sid in
+                // ioHistory is @MainActor; this closure is always called from
+                // the main actor (TerminalView attaches on MainActor).
+                self?.ioHistory[sid]
+            }
         }
     }
 

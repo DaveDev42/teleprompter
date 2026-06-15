@@ -291,6 +291,22 @@ struct SessionBatch: Decodable, Equatable {
     let d: [SessionRec]
 }
 
+// MARK: - E Terminal input/resize (Frontend → Daemon)
+
+/// `resize` — resize the PTY of a running session. `cols` and `rows` must be
+/// positive integers. The daemon validates both fields with `isPositiveInt`
+/// (`relay-guard.ts`, `parseRelayControlMessage`) and forwards the message to
+/// the runner IPC. Wire: `{ t, sid, cols, rows }`.
+///
+/// Reference: `packages/protocol/src/types/session-proto.ts`, `SessionResize`.
+/// Validation: `packages/protocol/src/relay-guard.ts`, `parseRelayControlMessage`.
+struct SessionResize: Encodable, Equatable {
+    let t = "resize"
+    let sid: String
+    let cols: Int
+    let rows: Int
+}
+
 // MARK: - M4 hook-event payloads (decoded from SessionRec.d when k == "event")
 
 /// The always-present fields of a Claude hook event (`event.ts:19-24`). The TS

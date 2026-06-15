@@ -45,6 +45,12 @@
       "assist": { "enabled": false }
     },
     {
+      "includes": ["ios/**/*.xcassets/**", "ios/**/Contents.json"],
+      "linter": { "enabled": false },
+      "formatter": { "enabled": false },
+      "assist": { "enabled": false }
+    },
+    {
       "includes": ["**/*.css"],
       "linter": {
         "rules": {

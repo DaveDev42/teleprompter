@@ -43,6 +43,8 @@ test-results/
 .claude/worktrees/
 # local-only one-shot workflow scripts (reusable shared workflows go in .claude/workflows/)
 .claude/wf/
+# local agent worktree clone cache (machine-specific scratch, not shared)
+.clone/
 
 # Typo variant of .claude/ — stale local directory, not tracked
 .claire/

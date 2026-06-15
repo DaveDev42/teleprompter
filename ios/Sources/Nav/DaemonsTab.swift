@@ -1,13 +1,10 @@
 import SwiftUI
 
-/// Daemons tab — lists paired daemons with rename, unpair, and in-app QR /
-/// manual pairing (Tranche B).
+/// Daemons tab — lists paired daemons with online/offline status, rename,
+/// unpair, and in-app QR / manual pairing (Tranche B + integration pass).
 ///
-/// Online/offline status requires `PairingViewModel.clientState(for:)` which
-/// needs access to the private `clients` dict owned by `TeleprompterApp.swift`.
-/// That dict is private-scoped and cannot be reached from here without modifying
-/// TeleprompterApp.swift (owned by another agent). Status indicators are
-/// therefore noted as a gap (see PR body).
+/// Online/offline status reads `PairingViewModel.isConnected(_:)` (kx complete);
+/// rename/unpair notify the peer via `control.rename` / `control.unpair`.
 struct DaemonsTab: View {
     let pairings: PairingViewModel
 
@@ -67,6 +64,7 @@ struct DaemonsListView: View {
                     ForEach(pairings.daemonIds, id: \.self) { did in
                         DaemonRow(
                             daemonId: did,
+                            isConnected: pairings.isConnected(did),
                             onRename: { activeSheet = .rename(daemonId: did) },
                             onUnpair: { activeSheet = .confirmUnpair(daemonId: did) }
                         )
@@ -191,9 +189,10 @@ struct DaemonsListView: View {
                 onSave: { newLabel in
                     activeSheet = nil
                     let trimmed = newLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-                    PairingStore.shared.setLabel(trimmed.isEmpty ? nil : trimmed, for: did)
-                    // Note: relay-side control.rename is a gap — requires exposing
-                    // a public seal+publish API on RelayClient (see PR body).
+                    let label = trimmed.isEmpty ? nil : trimmed
+                    PairingStore.shared.setLabel(label, for: did)
+                    // Notify the peer of the label change (best-effort).
+                    pairings.renameLabel(label, for: did)
                 },
                 onCancel: {
                     activeSheet = nil
@@ -207,8 +206,8 @@ struct DaemonsListView: View {
                 displayName: label,
                 onConfirm: {
                     activeSheet = nil
+                    // `remove` notifies the peer via control.unpair before disconnect.
                     pairings.remove(did)
-                    // Note: relay-side control.unpair is a gap — same reason as above.
                 },
                 onCancel: {
                     activeSheet = nil
@@ -253,6 +252,7 @@ struct DaemonsListView: View {
 /// and Rename / Unpair action buttons.
 private struct DaemonRow: View {
     let daemonId: String
+    var isConnected: Bool = false
     var onRename: () -> Void
     var onUnpair: () -> Void
 
@@ -264,8 +264,13 @@ private struct DaemonRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Header: name + action buttons
+            // Header: status dot + name + action buttons
             HStack(spacing: 8) {
+                Circle()
+                    .fill(isConnected ? Color.green : Color.secondary.opacity(0.5))
+                    .frame(width: 9, height: 9)
+                    .accessibilityLabel(isConnected ? "Online" : "Offline")
+                    .accessibilityIdentifier("daemon-status-\(daemonId)")
                 VStack(alignment: .leading, spacing: 2) {
                     Text(displayName)
                         .font(.headline)

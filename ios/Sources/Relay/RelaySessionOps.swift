@@ -27,24 +27,19 @@ extension RelayClient {
     /// `onHello` routes into `SessionStore`).
     ///
     /// - Parameter cwd: Absolute path for the new session's working directory.
+    /// - Returns: `true` if the control message was published (kx complete),
+    ///   `false` if the client is not ready yet (the optimistic local entry in
+    ///   `SessionStore` still keeps the UI consistent in that case).
     ///
-    /// ## Backend wire gap
-    /// `sessionKeys` and `send(_:completion:)` are `private` in RelayClient.swift,
-    /// so this extension **cannot** access them directly (Swift does not allow
-    /// cross-file `private` member access even in the same module). The actual
-    /// encrypt+send must be bridged via one of:
-    ///   1. Change `sessionKeys` and `send` to `internal` in RelayClient.swift.
-    ///   2. Add a `sendControlMessage<T: Encodable>(_ msg: T, sid: String)` internal
-    ///      method to RelayClient.swift that this extension can call.
-    /// Until that bridge exists, `createSession(cwd:)` is a no-op relay-wise.
-    /// The UI layer adds the session optimistically via `SessionStore`; the daemon
-    /// will create it once the wire gap is closed.
-    ///
-    /// TODO(sessions-crud): Close the private-member gap so this actually sends.
-    func createSession(cwd: String) {
-        // The implementation intentionally logs the intent but cannot seal/send
-        // due to Swift private access rules across files. See the doc comment.
+    /// Bridged through `publishControl` (RelayClient.swift), which seals with the
+    /// frontend's tx key and publishes on `__meta__`. The daemon spawns a runner
+    /// and the session list update arrives as a `hello` push (`onHello` →
+    /// `SessionStore`), replacing the optimistic placeholder.
+    @discardableResult
+    func createSession(cwd: String) -> Bool {
         let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "relay.session")
-        log.notice("createSession cwd=\(cwd, privacy: .public) — relay send TODO (sessionKeys private)")
+        let sent = publishControl(SessionCreate(cwd: cwd, sid: nil), on: RelayChannel.meta)
+        log.notice("createSession cwd=\(cwd, privacy: .public) sent=\(sent, privacy: .public)")
+        return sent
     }
 }

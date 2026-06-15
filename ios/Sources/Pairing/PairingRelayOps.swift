@@ -40,6 +40,41 @@ struct ControlUnpairMsg: Encodable {
     let ts: Double
 }
 
+// MARK: - RelayClient control sends (integration pass)
+
+extension RelayClient {
+    /// Notify the daemon that this frontend changed its local label.
+    ///
+    /// Publishes `control.rename` on `__control__` (sealed via `publishControl`).
+    /// `label == nil` clears the name on the peer. The daemon's RelayClient
+    /// applies it via `control.rename` → `renamePairing`. Best-effort: a `false`
+    /// return means kx is not yet complete and the peer was not notified (the
+    /// local label is still persisted by the caller).
+    @discardableResult
+    func sendControlRename(label: String?) -> Bool {
+        let msg = ControlRenameMsg(
+            daemonId: daemonId,
+            frontendId: frontendId,
+            label: label,
+            ts: Date().timeIntervalSince1970 * 1000)
+        return publishControl(msg, on: RelayChannel.control)
+    }
+
+    /// Notify the daemon that this frontend removed the pairing.
+    ///
+    /// Publishes `control.unpair` on `__control__` so the daemon tears down its
+    /// side (`control.unpair` → `removePairing`). Call this *before* disconnecting
+    /// the socket, otherwise the frame never leaves. Best-effort.
+    @discardableResult
+    func sendControlUnpair() -> Bool {
+        let msg = ControlUnpairMsg(
+            daemonId: daemonId,
+            frontendId: frontendId,
+            ts: Date().timeIntervalSince1970 * 1000)
+        return publishControl(msg, on: RelayChannel.control)
+    }
+}
+
 // MARK: - PairingStore label helpers
 
 extension PairingStore {

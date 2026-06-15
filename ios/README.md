@@ -1,9 +1,9 @@
-# Teleprompter — native iOS / iPadOS / macOS app (Swift)
+# Teleprompter — native iOS / iPadOS / macOS / visionOS app (Swift)
 
 ADR-0001 전면 재작성의 앱 트랙 + ADR-0002 Apple 멀티플랫폼 확장. 단일 멀티플랫폼
 SwiftUI 타깃 + Rust `tp-core` FFI (UniFFI). 빌드/배포/검증은 **로컬 하니스**로
-한다 (EAS 없음): iOS/iPadOS = iOS Simulator, macOS = native macOS (Catalyst 아님).
-visionOS(완전) + watchOS(제한 경험)은 Rust toolchain 게이트 뒤 Phase B (ADR-0002 참조).
+한다 (EAS 없음): iOS/iPadOS = iOS Simulator, macOS = native macOS (Catalyst 아님),
+visionOS = visionOS Simulator (Phase B, B2 완료). watchOS(제한 경험)는 Phase B3.
 
 Rust 코어 자체(crate, 와이어 불변식, xcframework 빌드)는 [`../rust/README.md`](../rust/README.md) 참조.
 
@@ -12,7 +12,7 @@ Rust 코어 자체(crate, 와이어 불변식, xcframework 빌드)는 [`../rust/
 ```
 ios/
   project.yml          # XcodeGen 스펙 (SoT, 체크인됨) — URL scheme/scene manifest/entitlements 포함
-                       # platform: auto + supportedDestinations: [iOS, macOS] — 단일 소스, 3 대상
+                       # platform: auto + supportedDestinations: [iOS, macOS, visionOS] — 단일 소스, 4 대상
   Teleprompter.entitlements        # keychain-access-groups (iOS/iPadOS Simulator 용)
   Teleprompter-macOS.entitlements  # macOS 엔타이틀먼트 (keychain-access-groups; ad-hoc 로컬 빌드용)
   Sources/             # 앱 소스 (SwiftUI — iOS/iPadOS/macOS 공유, #if os(macOS) 조건부 분기)
@@ -44,15 +44,16 @@ ios/
 (정적 라이브러리, **5 슬라이스**: ios-device / ios-sim-fat / macos-fat / xros-device /
 xros-sim, `embed: false`) 를 링크한다.
 
-### 멀티플랫폼 빌드 (Phase 3.x A2)
+### 멀티플랫폼 빌드 (Phase A2 + B2)
 
-`project.yml` 이 `platform: auto` + `supportedDestinations: [iOS, macOS]` 로 선언돼
-단일 소스트리가 3 대상을 빌드한다:
+`project.yml` 이 `platform: auto` + `supportedDestinations: [iOS, macOS, visionOS]` 로 선언돼
+단일 소스트리가 4 대상을 빌드한다:
 
-| 대상 | SDK | `TARGETED_DEVICE_FAMILY` |
-|------|-----|--------------------------|
-| iPhone + iPad | `iphonesimulator` / `iphoneos` | 1,2 (XcodeGen 기본) |
-| native macOS | `macosx` | — |
+| 대상 | SDK | 검증 방법 |
+|------|-----|-----------|
+| iPhone + iPad | `iphonesimulator` / `iphoneos` | `TP_PLATFORM=ios scripts/ios.sh smoke` |
+| native macOS | `macosx` | `TP_PLATFORM=macos scripts/ios.sh smoke` |
+| visionOS Simulator | `xrsimulator` | `TP_PLATFORM=visionos scripts/ios.sh smoke` |
 
 macOS 는 **Mac Catalyst 아님** (`SUPPORTS_MACCATALYST=NO`). macOS 대상은
 `[sdk=macosx*]` 조건부 빌드 설정으로 `Teleprompter-macOS.entitlements` 를 선택한다.
@@ -61,6 +62,12 @@ macOS 는 **Mac Catalyst 아님** (`SUPPORTS_MACCATALYST=NO`). macOS 대상은
 Developer ID / MAS 인증서 없이는 요청 불가 — 로컬 `open` 실행 macOS 앱은 샌드박스
 없이도 동작한다. `kSecAttrSynchronizable` 은 macOS 에서 `kCFBooleanFalse` (iCloud sync
 비활성 — `#if os(macOS)` 조건부, `PairingStore.swift`).
+
+**visionOS 공간 UX (B2)**: `#if os(visionOS)` 조건부로 `TabView` 탭 컨텐츠에
+`.glassBackgroundEffect()` 적용 + `.defaultSize(width: 960, height: 640)` 초기 창 크기.
+TabView 스타일은 플랫폼 기본값(탭 바 ornament) — 별도 override 불필요.
+`#if os(iOS) || os(visionOS)` 로 UIKit `UIAccessibility` import 가드 추가 (LiveRegion).
+APNs 등록은 visionOS 에서 skip (Simulator 단계, 엔타이틀먼트 미설정 — `NotificationService.swift`).
 
 ### 딥링크 / Keychain (M1)
 
@@ -72,9 +79,13 @@ Developer ID / MAS 인증서 없이는 요청 불가 — 로컬 `open` 실행 ma
 - **Keychain entitlement + ad-hoc 서명**: 미서명 Simulator 빌드는 entitlement 이 없어
   `SecItemAdd` 가 `-34018` (errSecMissingEntitlement) 로 실패. `Teleprompter.entitlements`
   (`keychain-access-groups`) + ad-hoc 서명 (`CODE_SIGN_IDENTITY=-`) 으로 해결.
-- **새 URL scheme 추가 시 1회**: Simulator LaunchServices 캐시 갱신 필요 —
-  `xcrun simctl shutdown <udid> && xcrun simctl boot <udid>` (또는 erase). 안 하면
-  `simctl openurl` 이 rc=0 인데도 앱에 전달 안 됨.
+
+**iOS/visionOS 26.5 Simulator URL scheme 라우팅 이슈**: iOS/visionOS 26.5 Simulator 에서
+`xcrun simctl openurl` 이 ad-hoc 서명된 sideload 앱에 대해 LaunchServices `-10814`
+("Error fetching bundle record for scheme approval") 를 반환하며 URL 이 앱에 전달되지 않는다.
+smoke 하니스는 `--tp-smoke-url <link>` launch arg 로 URL 을 주입해 LS 라우팅을 우회한다
+(`TeleprompterApp.handleSmokeURLIfPresent()` → `DeepLinkHandler.handle()` 직접 호출).
+실제 사용자 QR 스캔 경로는 영향받지 않는다 (앱 내부에서 파싱, LS 라우팅 불필요).
 
 ## 하니스 (`scripts/ios.sh`)
 
@@ -91,12 +102,19 @@ scripts/ios.sh boot    # 대상 시뮬레이터 부팅 (idempotent)
 # native macOS (TP_PLATFORM=macos)
 TP_PLATFORM=macos scripts/ios.sh build  # macOS 앱 빌드 (Debug, My Mac 대상)
 TP_PLATFORM=macos scripts/ios.sh smoke  # macOS 8 마커 smoke (log stream 기반 — Keychain 자동 청소)
+
+# visionOS Simulator (TP_PLATFORM=visionos, Phase B2)
+TP_PLATFORM=visionos scripts/ios.sh build  # visionOS Simulator 빌드 (Debug-xrsimulator)
+TP_PLATFORM=visionos scripts/ios.sh smoke  # visionOS 8 마커 smoke (xcrun simctl, --tp-smoke-url 주입)
+TP_PLATFORM=visionos scripts/ios.sh run    # visionOS Simulator 에 설치 + 실행
 ```
 
 환경 변수:
-- `TP_PLATFORM` — 빌드/smoke 대상 플랫폼. `ios` (기본) 또는 `macos`.
+- `TP_PLATFORM` — 빌드/smoke 대상 플랫폼. `ios` (기본), `macos`, 또는 `visionos`.
   `ios` 는 기존 동작과 바이트 동일. `macos` 는 native macOS 빌드 + `open` 기반 실행.
-- `TP_SIM` — 시뮬레이터 디바이스 이름 (기본 `iPhone 17 Pro`, iOS 경로에서만 사용)
+  `visionos` 는 visionOS Simulator 빌드 + `xcrun simctl` 기반 실행.
+- `TP_SIM` — iOS 시뮬레이터 디바이스 이름 (기본 `iPhone 17 Pro`, iOS 경로에서만 사용)
+- `TP_VISION_SIM` — visionOS 시뮬레이터 디바이스 이름 (기본 `Apple Vision Pro`)
 - `TP_SCHEME` — Xcode scheme (기본 `Teleprompter`)
 - `TP_FORCE_RUST=1` — xcframework 가 이미 있어도 매 빌드마다 재빌드 (Rust 소스 수정 후)
 - `TP_SKIP_RUST=1` — xcframework 재빌드 스킵 (기존 산출물 필수; Rust 미변경 빠른 반복)
@@ -126,11 +144,13 @@ OSLog privacy: macOS native 빌드는 String 변수 보간을 기본 `<private>`
   encode→encrypt→decrypt→decode 라운드트립이 실기 런타임에서 통과). smoke 가 두 마커를
   모두 확인하며, `TP_CORE_FAIL` 이면 step/detail 을 출력하고 실패시킨다.
   마커 상수를 바꾸면 `scripts/ios.sh` 도 같이 바꾼다.
-- **페어링 마커 (M1)**: smoke 가 부팅+코어 확인 후 결정적 `tp://p?d=…` 딥링크를
-  `xcrun simctl openurl` 로 주입하고 `TP_PAIR_OK did=daemon-smoketest` 를 확인한다 —
-  OS URL 라우팅 → `.onOpenURL` → FFI `decodePairingData` → `PairingStore` → Keychain
-  왕복을 daemon 없이 end-to-end 검증. 실패 시 `TP_PAIR_FAIL detail=…` 를 출력하고 실패시킨다.
+- **페어링 마커 (M1)**: smoke 가 결정적 `tp://p?d=…` 딥링크를 `--tp-smoke-url` launch arg
+  로 주입하면 앱 `onAppear` 에서 `handleSmokeURLIfPresent()` → `DeepLinkHandler.handle()` →
+  FFI `decodePairingData` → `PairingStore` → Keychain 왕복을 daemon 없이 end-to-end 검증.
+  `TP_PAIR_OK did=daemon-smoketest` 확인. 실패 시 `TP_PAIR_FAIL detail=…` 출력 후 실패.
   링크는 `smoke_pair_link` (pairing.rs v3 레이아웃을 바이트 동일하게 Python 으로 생성).
+  (이전: `xcrun simctl openurl` 사용 — iOS/visionOS 26.5 Simulator 에서 LS -10814 error 로
+  URL 이 앱에 전달되지 않는 회귀 발견. launch arg 주입으로 LS 라우팅 우회.)
 - **릴레이 인증 마커 (M2)**: M1 과 같은 딥링크 하나로 — smoke 가 로컬 loopback relay
   (`scripts/local-relay-loopback.ts`, 골든 토큰 pre-seed) 를 띄우고, golden-secret +
   `ws://localhost` 링크를 주입하면 앱이 인제스트 직후 자동 `relay.auth(role=frontend)` 를

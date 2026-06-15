@@ -10,7 +10,7 @@ Teleprompter is a remote Claude Code session controller. A native **Swift (Swift
 
 ## Tech Stack
 
-- **App (Apple multiplatform)**: Swift + SwiftUI, 단일 멀티플랫폼 타깃. 현재 출하 = iOS Simulator / iPadOS / 네이티브 macOS (Phase A); visionOS + watchOS 제한 경험은 Phase B (ADR-0002). 빌드/검증 = 로컬 하니스 (`xcodebuild` + `xcrun simctl`(iOS) / `open` + 호스트 unified log(macOS), `scripts/ios.sh` + `TP_PLATFORM`). EAS 미사용.
+- **App (Apple multiplatform)**: Swift + SwiftUI, 단일 멀티플랫폼 타깃. 현재 출하 = iOS Simulator / iPadOS / 네이티브 macOS (Phase A) + **visionOS Simulator (B2 ✅)**; watchOS 제한 경험은 Phase B3 (ADR-0002). 빌드/검증 = 로컬 하니스 (`xcodebuild` + `xcrun simctl`(iOS/visionOS) / `open` + 호스트 unified log(macOS), `scripts/ios.sh` + `TP_PLATFORM`). EAS 미사용.
 - **Shared core**: Rust (`rust/tp-core`) — wire codec + E2EE crypto(AEAD/KDF/crypto_kx/ratchet) + pairing. Swift 에 UniFFI FFI(순수 함수만)로 노출, TS 구현과 byte-exact (골든벡터 교차검증). xcframework = `rust/build-xcframework.sh` (= `scripts/ios.sh rust`). 상세 = `rust/README.md`. **(Phase 2 ✅ 구현 + Simulator 검증 완료)**
 - **Backend / CLI**: TypeScript on Bun v1.3.13+ (Runner, Daemon, Relay, CLI). 현행 구현 = 동작 레퍼런스 + dogfood 파이프라인. Turborepo + pnpm 모노레포.
 - **Encryption**: X25519 + XChaCha20-Poly1305 (libsodium on Bun; `tp-core` 가 순수 Rust crate 로 byte-exact 재현, 골든벡터 검증 완료).
@@ -100,7 +100,7 @@ frontmatter가 `model: inherit`이라 미명시 시 부모 Opus 상속.
   `general-purpose`)
 - **어려운 설계/추론만 opus**: 명확히 필요할 때만
 - **QA**: 백엔드 회귀(`bun test`) = `haiku`. 앱 검증은 로컬 Swift 하니스
-  (`scripts/ios.sh build|smoke|test`, `TP_PLATFORM=ios|macos`)로 수행 — macOS-native smoke 는
+  (`scripts/ios.sh build|smoke|test`, `TP_PLATFORM=ios|macos|visionos`)로 수행 — macOS-native smoke 는
   sim 부팅 없는 빠른 회귀 경로. RN Web/Playwright/Maestro/expo-mcp QA 는 재작성으로 제거됨.
 
 **워크플로우/서브에이전트 BRIEF 에 *미검증 과거 서술*을 ground truth 로 박지 말 것.**
@@ -328,18 +328,18 @@ PRD and internal docs are written in Korean. Code, comments, and commit messages
 
 ## Native App Build (Multiplatform)
 
-**Apple 멀티플랫폼 앱(iOS/iPadOS/macOS) 빌드/검증은 로컬 하니스가 담당한다 (EAS 클라우드 제거).** XcodeGen `ios/project.yml` 이 프로젝트 SoT — 단일 타깃 `platform: auto` + `supportedDestinations: [iOS, macOS]` (`.xcodeproj` 는 생성물, gitignore; 디렉터리명은 `ios/` 유지, ADR-0002). 하니스 = `scripts/ios.sh` (`TP_PLATFORM=ios` 기본 / `macos`):
+**Apple 멀티플랫폼 앱(iOS/iPadOS/macOS/visionOS) 빌드/검증은 로컬 하니스가 담당한다 (EAS 클라우드 제거).** XcodeGen `ios/project.yml` 이 프로젝트 SoT — 단일 타깃 `platform: auto` + `supportedDestinations: [iOS, macOS, visionOS]` (`.xcodeproj` 는 생성물, gitignore; 디렉터리명은 `ios/` 유지, ADR-0002). 하니스 = `scripts/ios.sh` (`TP_PLATFORM=ios` 기본 / `macos` / `visionos`):
 
 ```bash
-scripts/ios.sh rust     # TpCore.xcframework (3 슬라이스: ios-device/ios-sim-fat/macos-fat) + UniFFI 바인딩
+scripts/ios.sh rust     # TpCore.xcframework (5 슬라이스: ios-device/ios-sim-fat/macos-fat/xros-arm64/xros-sim) + UniFFI 바인딩
 scripts/ios.sh gen      # xcodegen generate (.xcodeproj 재생성)
 scripts/ios.sh boot     # Simulator 부팅 (TP_SIM, default "iPhone 17 Pro"; iOS 전용)
-scripts/ios.sh build    # xcodebuild (iOS: Debug-iphonesimulator / macOS: platform=macOS); xcframework 없으면 먼저 빌드
+scripts/ios.sh build    # xcodebuild (iOS: Debug-iphonesimulator / macOS: platform=macOS / visionOS: Debug-xrsimulator)
 scripts/ios.sh run      # install + launch (macOS: open -n)
 scripts/ios.sh smoke    # rust→gen→build→launch + 8마커 검증 (TP_BOOT_OK … TP_INPUT_OK)
 scripts/ios.sh test     # XCTest (iOS Simulator; xcframework 먼저)
 ```
 
-`TP_FORCE_RUST=1` = xcframework 매번 재빌드(Rust 수정 후), `TP_SKIP_RUST=1` = 재빌드 스킵(빠른 반복). `TP_PLATFORM=macos` = 네이티브 macOS 경로(sim 없이 `open` + 호스트 unified log 스크랩 — 빠른 회귀). visionOS/watchOS 는 toolchain 게이트 뒤 Phase B (ADR-0002).
+`TP_FORCE_RUST=1` = xcframework 매번 재빌드(Rust 수정 후), `TP_SKIP_RUST=1` = 재빌드 스킵(빠른 반복). `TP_PLATFORM=macos` = 네이티브 macOS 경로(sim 없이 `open` + 호스트 unified log 스크랩 — 빠른 회귀). `TP_PLATFORM=visionos` = visionOS Simulator 경로(B2 ✅). watchOS 는 Phase B3 (별도 타깃, ADR-0002).
 
 부트마커는 `os.Logger(subsystem: "dev.tpmt.teleprompter", category: "boot")` 로 emit, 하니스가 Simulator unified log 를 `--predicate "subsystem == ..."` 로 grep 검증. **코어마커**(`TP_CORE_OK`/`TP_CORE_FAIL`)는 `TpCoreCheck` 가 encode→encrypt→decrypt→decode 라운드트립을 FFI 로 실행한 결과 — Rust 정적 라이브러리가 링크됐고 실기 런타임에서 동작함을 증명한다. 상세는 `ios/README.md` + `rust/README.md`. 실기기/TestFlight 배포는 재작성 진행에 따라 별도 정착.

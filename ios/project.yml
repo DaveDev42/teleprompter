@@ -1,14 +1,15 @@
 # XcodeGen spec — Teleprompter native multiplatform app (ADR-0001 + ADR-0002).
 #
-# Supports iOS Simulator, iPadOS, and native macOS (NOT Catalyst) from ONE target.
-# visionOS/watchOS are out of scope here (Rust toolchain blocked — Phase B, ADR-0002).
+# Supports iOS Simulator, iPadOS, native macOS (NOT Catalyst), and visionOS
+# from ONE target (Phase A + B2). watchOS is a separate target, Phase B3.
 #
 # The generated Teleprompter.xcodeproj is NOT checked in (see ios/.gitignore);
 # regenerate it reproducibly with `xcodegen generate` (or scripts/ios.sh gen).
 #
 # Driven headlessly by scripts/ios.sh:
-#   TP_PLATFORM=ios  (default) — Simulator build → install → launch → smoke-test
-#   TP_PLATFORM=macos          — native macOS build → open → verify from host log
+#   TP_PLATFORM=ios      (default) — Simulator build → install → launch → smoke-test
+#   TP_PLATFORM=macos              — native macOS build → open → verify from host log
+#   TP_PLATFORM=visionos           — visionOS Simulator build → install → launch → smoke-test
 
 name: Teleprompter
 options:
@@ -16,6 +17,7 @@ options:
   deploymentTarget:
     iOS: "17.0"
     macOS: "14.0"
+    visionOS: "2.0"
   createIntermediateGroups: true
   generateEmptyDirectories: true
 
@@ -46,7 +48,7 @@ targets:
     # (injected by the iOS setting preset: "1,2" = iPhone+iPad). Do NOT add a
     # hardcoded TARGETED_DEVICE_FAMILY here — the presets handle it per-destination.
     platform: auto
-    supportedDestinations: [iOS, macOS]
+    supportedDestinations: [iOS, macOS, visionOS]
     sources:
       - path: Sources
       # UniFFI-generated Swift bindings for the Rust core (tp-core). Produced by
@@ -60,8 +62,9 @@ targets:
       - path: Assets.xcassets
     dependencies:
       # tp-core static library (byte-exact wire primitives). Not embedded — a
-      # static archive links into the binary directly. The xcframework now contains
-      # 3 slices: ios-arm64 (device), ios-arm64_x86_64-simulator, macos-arm64_x86_64.
+      # static archive links into the binary directly. The xcframework contains
+      # 5 slices: ios-arm64 (device), ios-arm64_x86_64-simulator, macos-arm64_x86_64,
+      # xros-arm64 (visionOS device, B2), xros-arm64-simulator (visionOS sim, B2).
       - framework: ../rust/target/TpCore.xcframework
         embed: false
       # SwiftTerm: VT100/xterm emulator for the Terminal tab (A1 ANSI milestone).

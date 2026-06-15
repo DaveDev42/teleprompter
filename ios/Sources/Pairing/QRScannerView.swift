@@ -1,5 +1,8 @@
 import SwiftUI
 import AVFoundation
+#if os(iOS)
+import UIKit
+#endif
 
 // MARK: - Camera availability
 
@@ -107,16 +110,22 @@ struct QRScannerRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: .zero)
         let previewLayer = AVCaptureVideoPreviewLayer()
-        previewLayer.frame = view.bounds
-        previewLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        // CALayer.autoresizingMask was removed in iOS 26.5; use needsDisplayOnBoundsChange
+        // and resize in layoutSublayers instead. For our use case, set frame in updateUIView.
         view.layer.addSublayer(previewLayer)
+        // Store the previewLayer in the view's tag-space via associated object isn't
+        // needed here; we'll resize it in updateUIView. Set initial frame.
+        previewLayer.frame = view.bounds
 
         context.coordinator.prepare(previewLayer: previewLayer) { _ in }
         return view
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        // Layout updates handled via autoresizingMask.
+        // Resize the preview layer to fill the view whenever bounds change.
+        if let previewLayer = uiView.layer.sublayers?.first as? AVCaptureVideoPreviewLayer {
+            previewLayer.frame = uiView.bounds
+        }
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: QRScannerCoordinator) {

@@ -276,9 +276,13 @@ extension RealtimeClient: URLSessionWebSocketDelegate {
         task: URLSessionTask,
         didCompleteWithError error: Error?
     ) {
-        guard error != nil else { return }
+        guard let error else { return }
+        // L12: Route transport errors (e.g. 401 Bad API key — WebSocket upgrade
+        // rejected by server) to onError so VoiceStore.lastError is set and
+        // the red badge appears. Previously any non-nil error landed in
+        // onDisconnected, leaving lastError nil and the failure silent.
         DispatchQueue.main.async { [weak self] in
-            self?.events.onDisconnected?()
+            self?.events.onError?(error.localizedDescription)
         }
     }
 }

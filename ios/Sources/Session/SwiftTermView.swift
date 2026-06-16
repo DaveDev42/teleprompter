@@ -6,6 +6,57 @@ import AppKit
 import UIKit
 #endif
 
+// MARK: - TerminalSearchProxy (M3)
+
+/// Mediates in-buffer search between the SwiftUI search bar and the underlying
+/// SwiftTerm.TerminalView (UIView/NSView).
+///
+/// SwiftTerm.TerminalView ships `findNext(_:options:scrollToResult:)` /
+/// `findPrevious(_:options:scrollToResult:)` / `clearSearch()` as public methods
+/// on extensions in TerminalViewSearch.swift.  SwiftUI cannot call UIView/NSView
+/// methods directly; this proxy bridges the gap:
+///   1. `SwiftTermView.Coordinator.attach(to:)` registers the three actions.
+///   2. `TerminalView`'s search bar calls `findNext(query:)` / `findPrevious(query:)`.
+///
+/// Thread-safety: all accesses on the main actor (SwiftTermView is always
+/// created on the main actor and search is triggered by UI events).
+@MainActor
+final class TerminalSearchProxy: ObservableObject {
+    /// True when the search field should be visible.
+    @Published var isVisible = false
+
+    fileprivate var _findNext: ((String) -> Bool)?
+    fileprivate var _findPrevious: ((String) -> Bool)?
+    fileprivate var _clearSearch: (() -> Void)?
+
+    /// Perform findNext. Returns true if a match was found.
+    @discardableResult
+    func findNext(query: String) -> Bool {
+        guard !query.isEmpty, let action = _findNext else { return false }
+        return action(query)
+    }
+
+    /// Perform findPrevious. Returns true if a match was found.
+    @discardableResult
+    func findPrevious(query: String) -> Bool {
+        guard !query.isEmpty, let action = _findPrevious else { return false }
+        return action(query)
+    }
+
+    func clearSearch() {
+        _clearSearch?()
+    }
+
+    func show() { isVisible = true }
+    func hide() {
+        isVisible = false
+        clearSearch()
+    }
+    func toggle() { isVisible ? hide() : show() }
+}
+
+// MARK: - SwiftTermView
+
 /// A SwiftUI view that wraps SwiftTerm's `TerminalView` for ANSI/VT100 emulation
 /// in the Terminal tab (ADR-0001 Phase 3.x, Tranche E interactive).
 ///
@@ -30,6 +81,11 @@ import UIKit
 /// `Coordinator.readVisibleText()` returns the current visible viewport as a plain
 /// UTF-8 string by iterating `terminal.buffer.lines` from SwiftTerm's Terminal model.
 ///
+/// **M3: In-buffer search** — pass a `TerminalSearchProxy` and call
+/// `proxy.findNext(query:)` / `proxy.findPrevious(query:)` from the UI. The proxy
+/// delegates to SwiftTerm's built-in `findNext(_:)` / `findPrevious(_:)` API
+/// (TerminalViewSearch.swift) which highlights and scrolls to the match.
+///
 /// `SwiftTerm.TerminalView` is a `UIView` subclass on iOS/visionOS (`iOSTerminalView.swift`)
 /// and an `NSView` subclass on macOS (`MacTerminalView.swift`). The `feed(byteArray:)` API
 /// (`Apple/AppleTerminalView.swift:1916`), the `terminalDelegate` property
@@ -52,11 +108,15 @@ struct SwiftTermView {
     /// Called once at attach time to retrieve buffered io bytes for history replay.
     /// Nil return means no buffered history (fresh session or not yet backfilled).
     var fetchHistory: (() -> Data?)? = nil
+    /// M3: Optional search proxy — when provided, the Coordinator registers
+    /// SwiftTerm's findNext/findPrevious/clearSearch on it.
+    var searchProxy: TerminalSearchProxy? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(sid: sid, store: store, onSend: onSend,
                     onTermInput: onTermInput, onResize: onResize,
-                    fetchHistory: fetchHistory)
+                    fetchHistory: fetchHistory,
+                    searchProxy: searchProxy)
     }
 
     // MARK: - Shared make/update/dismantle (platform-agnostic)
@@ -136,6 +196,10 @@ extension SwiftTermView {
     /// **Terminal buffer read API (public, for Voice tranche)**:
     ///   `readVisibleText() -> String` — snapshot of the current viewport.
     ///
+    /// **M3: In-buffer search**
+    ///   Registers `findNext`/`findPrevious`/`clearSearch` on `searchProxy` (if set)
+    ///   so the TerminalView search bar can drive SwiftTerm's built-in search.
+    ///
     /// **TerminalViewDelegate conformance.**
     /// All methods in `TerminalViewDelegate` (Apple/TerminalViewDelegate.swift:12–91)
     /// except two have no default implementations and must be provided:
@@ -155,19 +219,23 @@ extension SwiftTermView {
         private var onResize: (Int, Int) -> Void
         /// Optional closure to fetch buffered io history for initial backfill.
         private var fetchHistory: (() -> Data?)?
+        /// M3: Optional search proxy — registers search actions on attach.
+        private weak var searchProxy: TerminalSearchProxy?
 
         init(sid: String,
              store: SessionStore,
              onSend: @escaping (String, String) -> Void,
              onTermInput: @escaping ([UInt8]) -> Void,
              onResize: @escaping (Int, Int) -> Void,
-             fetchHistory: (() -> Data?)?) {
+             fetchHistory: (() -> Data?)?,
+             searchProxy: TerminalSearchProxy?) {
             self.currentSid = sid
             self.currentStore = store
             self.onSend = onSend
             self.onTermInput = onTermInput
             self.onResize = onResize
             self.fetchHistory = fetchHistory
+            self.searchProxy = searchProxy
         }
 
         // MARK: - Sink lifecycle
@@ -177,6 +245,7 @@ extension SwiftTermView {
             terminalView = view
             replayHistory(into: view)
             registerSink()
+            registerSearch(on: view)
         }
 
         @MainActor
@@ -187,6 +256,7 @@ extension SwiftTermView {
             terminalView = view
             replayHistory(into: view)
             registerSink()
+            registerSearch(on: view)
         }
 
         @MainActor
@@ -232,6 +302,24 @@ extension SwiftTermView {
             currentStore?.terminalReadText = { [weak self] requestedSid in
                 guard requestedSid == capSid, let self else { return nil }
                 return self.readVisibleText()
+            }
+        }
+
+        /// M3: Register the SwiftTerm search methods on the proxy so the
+        /// TerminalView search bar can call them without holding a UIView reference.
+        /// TerminalViewSearch.swift is gated `#if os(macOS) || os(iOS) || os(visionOS)`,
+        /// which covers all our supported platforms.
+        @MainActor
+        private func registerSearch(on view: SwiftTerm.TerminalView) {
+            guard let proxy = searchProxy else { return }
+            proxy._findNext = { [weak view] query in
+                view?.findNext(query, scrollToResult: true) ?? false
+            }
+            proxy._findPrevious = { [weak view] query in
+                view?.findPrevious(query, scrollToResult: true) ?? false
+            }
+            proxy._clearSearch = { [weak view] in
+                view?.clearSearch()
             }
         }
 
@@ -296,8 +384,22 @@ extension SwiftTermView {
         func requestOpenLink(source: SwiftTerm.TerminalView, link: String, params: [String: String]) {}
 
         // Required: OSC 52 clipboard copy.
-        // Not handled in the current milestone — ignore.
-        func clipboardCopy(source: SwiftTerm.TerminalView, content: Data) {}
+        // L8: Write the decoded string to the system clipboard so terminal apps
+        // that emit OSC 52 (e.g. tmux "copy-mode") work correctly.
+        // Uses the same platform-gated pasteboard pattern as ChatCard.swift.
+        func clipboardCopy(source: SwiftTerm.TerminalView, content: Data) {
+            guard let text = String(data: content, encoding: .utf8), !text.isEmpty else { return }
+            #if os(iOS) || os(visionOS)
+            UIPasteboard.general.string = text
+            #elseif os(macOS)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            #endif
+            // Optional brief toast so the user knows a copy happened silently.
+            Task { @MainActor in
+                ToastCenter.shared.show(title: "Copied", body: text.prefix(60).description)
+            }
+        }
 
         // Required: visual range changed (notifyUpdateChanges must be true to receive).
         // Not used — ignore.

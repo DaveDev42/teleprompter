@@ -71,12 +71,16 @@ struct RelayKeyExchange: Encodable, Equatable {
 
 /// The sealed plaintext inside a frontend `relay.kx`'s `ct`. `pk` is standard
 /// base64 (libsodium original `+/` with padding) of the 32-byte X25519 pubkey.
-/// `v` is deliberately omitted to match the tested daemon-decode norm
-/// (`relay-client.ts:451-454`; daemon defaults absent `v` to 1).
+/// `v` advertises the frontend's WS protocol version so the daemon can gate the
+/// `Label` tagged-union it sends in `control.rename` — daemons built before this
+/// field default absent `v` to 1 and send the legacy string form.
+/// (`relay-client.ts:488-491`).
 struct KxPayload: Encodable, Equatable {
     let pk: String
     let frontendId: String
     let role = "frontend"
+    /// M11: advertise protocol version 2 so the daemon sends Label union (not legacy string).
+    let v = RelayProtocol.version
 }
 
 /// `relay.sub` — subscribe to a sid so the relay forwards its frames. `after` is
@@ -144,12 +148,27 @@ struct RelayKeyExchangeFrame: Decodable, Equatable {
 
 /// The daemon's kx plaintext, recovered by decrypting a `relay.kx.frame(from:
 /// daemon)`'s `ct` with the kx-envelope key. The daemon seals 4 fields
-/// (`{pk, role, v, label}`, `relay-client.ts:431-436`); M3 reads only `pk`, the
-/// daemon's *current* X25519 pubkey (standard base64). This is the authoritative
-/// pubkey for session-key derivation — it tracks a daemon keypair rotation that a
-/// stale pairing-bundle pubkey would miss.
+/// (`{pk, role, v, label}`, `relay-client.ts:431-456`). `pk` is the daemon's
+/// current X25519 pubkey (authoritative for session-key derivation, tracking
+/// keypair rotations a stale pairing-bundle pubkey would miss). `label` carries
+/// the daemon's configured name; the frontend adopts it when the local label is
+/// unset (M10). `v` is the daemon's WS protocol version — absent means v1.
 struct DaemonKxPayload: Decodable, Equatable {
     let pk: String
+    /// Daemon label tagged-union. `{ set: true, value: "…" }` → set name;
+    /// `{ set: false }` → daemon has no label (keep current local label).
+    /// Absent field → treat as no-label (keep). Optional so old daemons decode.
+    let label: LabelWire?
+    /// WS protocol version the daemon advertises. Absent = 1 (legacy).
+    let v: Int?
+
+    /// Tagged-union form of the Label type sent in the daemon's kx payload and
+    /// inbound `control.rename` messages. `{ set: true, value: "…" }` sets a name;
+    /// `{ set: false }` is an authoritative "no label" signal.
+    struct LabelWire: Decodable, Equatable {
+        let set: Bool
+        let value: String?
+    }
 }
 
 /// `relay.frame` — an inbound E2EE data frame. The auto-`hello` arrives as a
@@ -305,6 +324,37 @@ struct SessionResize: Encodable, Equatable {
     let sid: String
     let cols: Int
     let rows: Int
+}
+
+// MARK: - Inbound control messages (Daemon → Frontend, on __control__ sid)
+
+/// Inbound `control.unpair` — the daemon notifies this frontend that the pairing
+/// was removed on the daemon side (e.g. `tp pair delete`). Received as a
+/// `relay.frame` on the `__control__` sid, decrypted with `rx` session keys.
+/// Wire: `{ t, daemonId, frontendId, reason, ts }` (`packages/protocol/src/types/control.ts`).
+struct ControlUnpairInbound: Decodable {
+    let t: String
+    let daemonId: String
+    let frontendId: String
+    let reason: String
+}
+
+/// Inbound `control.rename` — the daemon notifies this frontend that its label
+/// was changed (e.g. `tp pair rename`). The `label` field is a tagged union:
+/// `{ set: true, value: "…" }` sets a name; `{ set: false }` clears it.
+/// Wire: `{ t, daemonId, frontendId, label: { set, value? }, ts }`.
+/// Daemons at v1 (peer `protocolVersion` < 2 in the kx payload) may send a bare
+/// `String` for `label` — those are rejected at decode and logged (no crash).
+struct ControlRenameInbound: Decodable {
+    let t: String
+    let daemonId: String
+    let frontendId: String
+    let label: LabelWire
+
+    struct LabelWire: Decodable {
+        let set: Bool
+        let value: String?
+    }
 }
 
 // MARK: - M4 hook-event payloads (decoded from SessionRec.d when k == "event")

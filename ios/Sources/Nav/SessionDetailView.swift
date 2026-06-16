@@ -60,7 +60,8 @@ struct SessionDetailView: View {
 
             // Swipeable pager — .page style with no dots (the Picker is the indicator).
             TabView(selection: $pane) {
-                ChatView(store: sessionStore, sid: sid)
+                // H1: pass onSend so ChatComposer renders (gated on `if let onSend`).
+                ChatView(store: sessionStore, sid: sid, onSend: onSend)
                     .tag(SessionPane.chat)
 
                 TerminalView(store: sessionStore, sid: sid, onSend: onSend)

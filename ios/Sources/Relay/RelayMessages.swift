@@ -370,12 +370,96 @@ struct HookEventBase: Decodable, Equatable {
 
 /// `Stop`/`StopFailure` extra field (`event.ts:26-29`). The Stop event's
 /// `last_assistant_message` is the canonical assistant response (CLAUDE.md).
+/// `error` is present on `StopFailure` events (L6).
 struct HookEventStop: Decodable, Equatable {
     let last_assistant_message: String?
+    let error: String?
 }
 
-/// `PreToolUse`/`PostToolUse` extra field (`event.ts:31-42`). `tool_input` is an
-/// open shape and not rendered in M4, so only `tool_name` is decoded.
+/// `PreToolUse`/`PostToolUse` extra field (`event.ts:31-42`). `tool_name` is
+/// required; `tool_input`/`tool_result` are open shapes decoded as compact JSON
+/// strings (I1 — capped at 500 chars for display).
 struct HookEventTool: Decodable, Equatable {
     let tool_name: String
+    let tool_input: RawJSONString?
+    let tool_result: RawJSONString?
+}
+
+/// `UserPromptSubmit` extra field (H2). Expo ground truth (`chat-store.ts:107-109`):
+/// `user_prompt ?? prompt ?? ""`.
+struct HookEventPrompt: Decodable, Equatable {
+    let user_prompt: String?
+    let prompt: String?
+}
+
+/// `PermissionRequest` extra field (M5). `tool_name` may be absent.
+struct HookEventPermission: Decodable, Equatable {
+    let tool_name: String?
+}
+
+/// `Elicitation` extra field (M5). `message` carries the prompt text.
+struct HookEventElicitation: Decodable, Equatable {
+    let message: String?
+}
+
+// MARK: - RawJSONString
+
+/// A Decodable wrapper that captures any JSON value (object, array, scalar) as
+/// a compact JSON string. Used for open-shape fields like `tool_input`/`tool_result`
+/// where a typed struct would over-constrain the schema (I1).
+struct RawJSONString: Decodable, Equatable {
+    let value: String
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        // Try common scalar types first to avoid the expense of JSONSerialization.
+        if let s = try? c.decode(String.self) {
+            value = s
+        } else if let i = try? c.decode(Int.self) {
+            value = "\(i)"
+        } else if let d = try? c.decode(Double.self) {
+            value = "\(d)"
+        } else if let b = try? c.decode(Bool.self) {
+            value = b ? "true" : "false"
+        } else {
+            // Structured value: re-encode via JSONSerialization.
+            // Decode as generic Any first by going through the raw representation.
+            // We abuse JSONDecoder to get the raw bytes back for re-serialisation.
+            let raw = try c.decode(AnyDecodable.self)
+            if let data = try? JSONSerialization.data(withJSONObject: raw.value,
+                                                       options: [.sortedKeys]),
+               let s = String(data: data, encoding: .utf8) {
+                value = s
+            } else {
+                value = "<unserializable>"
+            }
+        }
+    }
+
+    /// Display-safe compact string, capped at 500 characters.
+    var displayValue: String {
+        value.count > 500 ? String(value.prefix(500)) + "…" : value
+    }
+}
+
+// MARK: - AnyDecodable helper
+
+/// Minimal Any-typed Decodable for capturing arbitrary JSON (used by RawJSONString).
+private struct AnyDecodable: Decodable {
+    let value: Any
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let v = try? c.decode(Bool.self)   { value = v; return }
+        if let v = try? c.decode(Int.self)    { value = v; return }
+        if let v = try? c.decode(Double.self) { value = v; return }
+        if let v = try? c.decode(String.self) { value = v; return }
+        if let v = try? c.decode([String: AnyDecodable].self) {
+            value = v.mapValues { $0.value }; return
+        }
+        if let v = try? c.decode([AnyDecodable].self) {
+            value = v.map { $0.value }; return
+        }
+        value = NSNull()
+    }
 }

@@ -10,8 +10,14 @@ struct ChatItem: Identifiable, Equatable {
     let seq: Int // == SessionRec.seq; SwiftUI identity + dedup key
     let sid: String
     let hookEventName: String
-    let toolName: String? // PreToolUse/PostToolUse only
-    let lastAssistantMessage: String? // Stop/StopFailure only
+    let toolName: String?              // PreToolUse/PostToolUse only
+    let lastAssistantMessage: String?  // Stop only (success)
+    let errorText: String?             // StopFailure only (L6)
+    let prompt: String?                // UserPromptSubmit only (H2)
+    let toolInput: String?             // PostToolUse compact JSON (I1)
+    let toolResult: String?            // PostToolUse compact JSON (I1)
+    let message: String?               // Elicitation message (M5)
+    let permissionTool: String?        // PermissionRequest tool_name (M5)
     let ts: Double
 
     var id: Int { seq }
@@ -239,23 +245,37 @@ final class SessionStore: ObservableObject {
 
     /// Decode a `k == "event"` record's base64 `d` into a `ChatItem`. `d` is
     /// always base64 (daemon encodes unconditionally), then UTF-8 JSON of a hook
-    /// event. Subtype fields (`tool_name`, `last_assistant_message`) are decoded
-    /// from the same bytes against their narrow structs.
+    /// event. Subtype fields are decoded from the same bytes against narrow structs.
     static func chatItem(from rec: SessionRec) -> ChatItem? {
         guard let data = Data(base64Encoded: rec.d) else { return nil }
         let decoder = JSONDecoder()
         guard let base = try? decoder.decode(HookEventBase.self, from: data) else {
             return nil
         }
-        let toolName = try? decoder.decode(HookEventTool.self, from: data).tool_name
-        let lastMsg = try? decoder.decode(HookEventStop.self, from: data)
-            .last_assistant_message
+        let toolDec   = try? decoder.decode(HookEventTool.self, from: data)
+        let stopDec   = try? decoder.decode(HookEventStop.self, from: data)
+        let promptDec = try? decoder.decode(HookEventPrompt.self, from: data)
+        let permDec   = try? decoder.decode(HookEventPermission.self, from: data)
+        let elicDec   = try? decoder.decode(HookEventElicitation.self, from: data)
+
+        // H2: user prompt text — prefer `user_prompt`, fall back to `prompt`.
+        let prompt = promptDec?.user_prompt ?? promptDec?.prompt
+
+        // L6: StopFailure error text lives in `error` field, not last_assistant_message.
+        let errorText = stopDec?.error
+
         return ChatItem(
             seq: rec.seq,
             sid: rec.sid,
             hookEventName: base.hook_event_name,
-            toolName: toolName,
-            lastAssistantMessage: lastMsg ?? nil,
+            toolName: toolDec?.tool_name,
+            lastAssistantMessage: stopDec?.last_assistant_message,
+            errorText: errorText,
+            prompt: prompt,
+            toolInput: toolDec?.tool_input?.displayValue,
+            toolResult: toolDec?.tool_result?.displayValue,
+            message: elicDec?.message,
+            permissionTool: permDec?.tool_name,
             ts: rec.ts,
         )
     }

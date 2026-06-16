@@ -602,12 +602,40 @@ final class RelayClient: NSObject {
     /// On the first `hello`: store the session list and auto-attach the first
     /// running-or-any session so M4 can drive attach→state→resume→batch on-device
     /// without manual selection. Guarded to fire once per connection.
+    ///
+    /// H3 fix: uses `replaceSessionsForDaemon` instead of `upsertSessions` so
+    /// that daemon-deleted sessions are removed from the UI on the next hello —
+    /// ghost rows no longer persist. Passes `daemonId` so the store can maintain
+    /// the per-daemon bucket correctly.
     private func onHello(_ sessions: [SessionMeta]) {
         let store = sessionStore
-        Task { @MainActor in store?.upsertSessions(sessions) }
+        let did = daemonId
+        Task { @MainActor in store?.replaceSessionsForDaemon(daemonId: did, sessions: sessions) }
         guard !didAutoAttach, let first = sessions.first else { return }
         didAutoAttach = true
         attach(sid: first.sid)
+    }
+
+    /// Send a fresh `hello` request to the daemon on demand (e.g. pull-to-refresh).
+    ///
+    /// M1 fix: mirrors Expo `handleRefresh → refreshSessionList`. Seals a `hello`
+    /// request with the frontend's tx key and publishes on `__meta__`; the daemon
+    /// replies with the current session list, which lands in `onHello` →
+    /// `replaceSessionsForDaemon`. No-op if kx has not completed yet.
+    func sendHello() {
+        guard let keys = sessionKeys else {
+            log.notice("sendHello before kx — no-op")
+            return
+        }
+        do {
+            let req = try JSONEncoder().encode(HelloRequest())
+            let ct = try seal(plaintext: req, key: keys.tx, nonce: try randomBytes(24))
+            send(RelayPublish(sid: RelayChannel.meta, ct: ct, seq: 0)) { [weak self] error in
+                if let error { self?.log.notice("sendHello: \(error.localizedDescription, privacy: .public)") }
+            }
+        } catch {
+            log.notice("sendHello seal: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     /// Daemon's reply to `attach`: refresh metadata, then request the full history

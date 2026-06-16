@@ -146,6 +146,108 @@ final class ChatRenderTests: XCTestCase {
         XCTAssertEqual(store.cursor(for: sid), 1)
     }
 
+    // MARK: H2 — UserPromptSubmit carries prompt text
+
+    /// `UserPromptSubmit` decodes `user_prompt` as the prompt text (H2).
+    func testUserPromptSubmitDecodesPromptText() {
+        let store = SessionStore()
+        store.appendRec(eventRec(seq: 10, json: [
+            "session_id": sid,
+            "hook_event_name": "UserPromptSubmit",
+            "cwd": "/tmp/smoke",
+            "user_prompt": "hello world",
+        ]))
+        let items = store.chatItems[sid] ?? []
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items[0].hookEventName, "UserPromptSubmit")
+        XCTAssertEqual(items[0].prompt, "hello world")
+        // ChatEventCardKind maps this to .user(text:)
+        let kind = ChatEventCardKind(item: items[0])
+        if case .user(let text) = kind {
+            XCTAssertEqual(text, "hello world")
+        } else {
+            XCTFail("Expected .user kind for UserPromptSubmit")
+        }
+    }
+
+    /// Falls back to `prompt` field when `user_prompt` is absent (H2).
+    func testUserPromptSubmitFallsBackToPromptField() {
+        let store = SessionStore()
+        store.appendRec(eventRec(seq: 11, json: [
+            "session_id": sid,
+            "hook_event_name": "UserPromptSubmit",
+            "cwd": "/tmp/smoke",
+            "prompt": "fallback prompt",
+        ]))
+        let items = store.chatItems[sid] ?? []
+        XCTAssertEqual(items[0].prompt, "fallback prompt")
+    }
+
+    // MARK: L6 — StopFailure shows error field
+
+    /// `StopFailure` uses the `error` field, not `last_assistant_message` (L6).
+    func testStopFailureDecodesErrorField() {
+        let store = SessionStore()
+        store.appendRec(eventRec(seq: 20, json: [
+            "session_id": sid,
+            "hook_event_name": "StopFailure",
+            "cwd": "/tmp/smoke",
+            "error": "something went wrong",
+        ]))
+        let items = store.chatItems[sid] ?? []
+        XCTAssertEqual(items[0].hookEventName, "StopFailure")
+        XCTAssertEqual(items[0].errorText, "something went wrong")
+        let kind = ChatEventCardKind(item: items[0])
+        if case .assistant(let text, let isFailure) = kind {
+            XCTAssertTrue(isFailure)
+            XCTAssertEqual(text, "something went wrong")
+        } else {
+            XCTFail("Expected .assistant(isFailure: true) for StopFailure")
+        }
+    }
+
+    // MARK: M5 — PermissionRequest and Elicitation
+
+    /// `PermissionRequest` maps to `.permission(tool:)` kind (M5).
+    func testPermissionRequestMapsToPemissionKind() {
+        let store = SessionStore()
+        store.appendRec(eventRec(seq: 30, json: [
+            "session_id": sid,
+            "hook_event_name": "PermissionRequest",
+            "cwd": "/tmp/smoke",
+            "tool_name": "Bash",
+        ]))
+        let items = store.chatItems[sid] ?? []
+        XCTAssertEqual(items[0].hookEventName, "PermissionRequest")
+        XCTAssertEqual(items[0].permissionTool, "Bash")
+        let kind = ChatEventCardKind(item: items[0])
+        if case .permission(let tool) = kind {
+            XCTAssertEqual(tool, "Bash")
+        } else {
+            XCTFail("Expected .permission kind for PermissionRequest")
+        }
+    }
+
+    /// `Elicitation` maps to `.elicitation(message:)` kind (M5).
+    func testElicitationMapsToElicitationKind() {
+        let store = SessionStore()
+        store.appendRec(eventRec(seq: 31, json: [
+            "session_id": sid,
+            "hook_event_name": "Elicitation",
+            "cwd": "/tmp/smoke",
+            "message": "What is your name?",
+        ]))
+        let items = store.chatItems[sid] ?? []
+        XCTAssertEqual(items[0].hookEventName, "Elicitation")
+        XCTAssertEqual(items[0].message, "What is your name?")
+        let kind = ChatEventCardKind(item: items[0])
+        if case .elicitation(let msg) = kind {
+            XCTAssertEqual(msg, "What is your name?")
+        } else {
+            XCTFail("Expected .elicitation kind for Elicitation")
+        }
+    }
+
     // MARK: session metadata
 
     /// `appendState` upserts metadata without touching chat items or the cursor.

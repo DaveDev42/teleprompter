@@ -46,27 +46,20 @@ private struct CopyButton: View {
 
 // MARK: - User card
 
-/// Renders a user-prompt card (right-aligned bubble, `PrePrompt` event).
-/// The Chat tab is hooks-only: user messages come from `PrePrompt` hook
+/// Renders a user-prompt card (right-aligned bubble, `UserPromptSubmit` event).
+/// The Chat tab is hooks-only: user messages come from `UserPromptSubmit` hook
 /// events — not from PTY io records (CLAUDE.md Key Design Decisions).
 struct UserChatCard: View {
     let item: ChatItem
-
-    /// `PrePrompt` carries the prompt text in `last_assistant_message` because
-    /// that field is decoded from the event bytes by `SessionStore.chatItem`.
-    /// When not available, fall back to a short label.
-    private var promptText: String {
-        if let msg = item.lastAssistantMessage, !msg.isEmpty { return msg }
-        return "(user prompt)"
-    }
+    let promptText: String // H2: carried from ChatEventCardKind.user(text:)
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             Spacer(minLength: 44)
             VStack(alignment: .trailing, spacing: 4) {
                 HStack(alignment: .top, spacing: 8) {
-                    CopyButton(text: promptText)
-                    Text(promptText)
+                    CopyButton(text: promptText.isEmpty ? "(user prompt)" : promptText)
+                    Text(promptText.isEmpty ? "(user prompt)" : promptText)
                         .font(.body)
                         .foregroundStyle(.white)
                         .textSelection(.enabled)
@@ -85,7 +78,7 @@ struct UserChatCard: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("You: \(promptText)")
+        .accessibilityLabel("You: \(promptText.isEmpty ? "(user prompt)" : promptText)")
     }
 }
 
@@ -94,6 +87,7 @@ struct UserChatCard: View {
 /// Renders Claude's response (left-aligned bubble, `Stop`/`StopFailure` events).
 /// The `last_assistant_message` field of a `Stop` event is the canonical
 /// assistant response (CLAUDE.md Key Design Decisions).
+/// For `StopFailure`, the `error` field is shown instead (L6).
 struct AssistantChatCard: View {
     let item: ChatItem
     let isFailure: Bool
@@ -143,6 +137,8 @@ struct AssistantChatCard: View {
 // MARK: - Tool card
 
 /// Renders a tool invocation card (`PreToolUse` / `PostToolUse`).
+/// For `PostToolUse`, shows a collapsed summary of `tool_input` and `tool_result`
+/// when available (I1).
 struct ToolChatCard: View {
     let item: ChatItem
     let toolName: String
@@ -173,6 +169,25 @@ struct ToolChatCard: View {
                                 .fill((isDone ? Color.green : Color.orange).opacity(0.15))
                         )
                 }
+
+                // I1: Show tool_input/tool_result summary when available (PostToolUse only).
+                if isDone {
+                    if let input = item.toolInput, !input.isEmpty {
+                        Text("in: \(input)")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                    }
+                    if let result = item.toolResult, !result.isEmpty {
+                        Text("out: \(result)")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                    }
+                }
+
                 Text(formattedTime(item.ts))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -189,6 +204,94 @@ struct ToolChatCard: View {
                 )
         )
         .accessibilityLabel("Tool \(toolName), \(isDone ? "completed" : "running")")
+    }
+}
+
+// MARK: - Permission card
+
+/// Renders a permission request card (`PermissionRequest` event, M5).
+/// Shown as a warning-style card with a lock icon and the tool name.
+struct PermissionChatCard: View {
+    let item: ChatItem
+    let tool: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "lock.shield")
+                .foregroundStyle(.orange)
+                .font(.callout)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Permission requested")
+                    .font(.caption.bold())
+                    .foregroundStyle(.orange)
+                Text(tool)
+                    .font(.callout.monospaced())
+                    .foregroundStyle(.primary)
+                Text(formattedTime(item.ts))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.orange.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color.orange.opacity(0.3), lineWidth: 0.5)
+                )
+        )
+        .accessibilityLabel("Permission requested for \(tool)")
+    }
+}
+
+// MARK: - Elicitation card
+
+/// Renders an elicitation / input-requested card (`Elicitation` event, M5).
+/// Shown as an info-style card indicating Claude is requesting user input.
+struct ElicitationChatCard: View {
+    let item: ChatItem
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "text.bubble")
+                .foregroundStyle(Color.accentColor)
+                .font(.callout)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Input requested")
+                    .font(.caption.bold())
+                    .foregroundStyle(Color.accentColor)
+                if !message.isEmpty {
+                    Text(message)
+                        .font(.callout)
+                        .foregroundStyle(.primary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text(formattedTime(item.ts))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(.regularMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(.quaternary, lineWidth: 0.5)
+                )
+        )
+        .accessibilityLabel("Input requested: \(message)")
     }
 }
 
@@ -270,14 +373,18 @@ struct ChatItemCard: View {
         let kind = ChatEventCardKind(item: item)
         Group {
             switch kind {
-            case .user:
-                UserChatCard(item: item)
+            case .user(let text):
+                UserChatCard(item: item, promptText: text)
             case .assistant(let text, let isFailure):
                 AssistantChatCard(item: item, isFailure: isFailure, text: text)
             case .toolRunning(let name):
                 ToolChatCard(item: item, toolName: name, isDone: false)
             case .toolDone(let name):
                 ToolChatCard(item: item, toolName: name, isDone: true)
+            case .permission(let tool):
+                PermissionChatCard(item: item, tool: tool)
+            case .elicitation(let message):
+                ElicitationChatCard(item: item, message: message)
             case .system:
                 SystemChatCard(item: item)
             }

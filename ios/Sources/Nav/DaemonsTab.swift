@@ -62,8 +62,12 @@ struct DaemonsListView: View {
             } else {
                 List {
                     ForEach(pairings.daemonIds, id: \.self) { did in
+                        // M9: pass label from the observable `pairings.labels` dict
+                        // so DaemonRow re-renders immediately after any rename (local
+                        // via sheet or inbound control.rename). No onAppear read needed.
                         DaemonRow(
                             daemonId: did,
+                            label: pairings.label(for: did),
                             isConnected: pairings.isConnected(did),
                             onRename: { activeSheet = .rename(daemonId: did) },
                             onUnpair: { activeSheet = .confirmUnpair(daemonId: did) }
@@ -250,14 +254,17 @@ struct DaemonsListView: View {
 
 /// One row in the daemon list: display name (label or short id), relay info,
 /// and Rename / Unpair action buttons.
+///
+/// M9: `label` is now a `let` driven from `PairingViewModel.labels` (observable)
+/// rather than a `@State` set in `onAppear`. This means the row re-renders
+/// immediately when a rename completes (local sheet or inbound control.rename).
 private struct DaemonRow: View {
     let daemonId: String
+    /// M9: Reactive label from PairingViewModel. Nil = not set, falls back to short ID.
+    var label: String? = nil
     var isConnected: Bool = false
     var onRename: () -> Void
     var onUnpair: () -> Void
-
-    // Refresh label on appear so renames on this session are reflected.
-    @State private var label: String? = nil
 
     private var displayName: String { label ?? String(daemonId.prefix(8)) }
     private var hasLabel: Bool { label != nil }
@@ -311,7 +318,6 @@ private struct DaemonRow: View {
             }
         }
         .padding(.vertical, 6)
-        .onAppear { label = PairingStore.shared.label(for: daemonId) }
     }
 
     private func loadRelayURL() -> String? {

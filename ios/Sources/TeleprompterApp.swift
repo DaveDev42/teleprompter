@@ -102,8 +102,14 @@ struct TeleprompterApp: App {
                         pairings.reload()
                     }
                 }
-                // Wire up the app-wide toast overlay above all content.
-                .toastOverlay()
+                // M13: toast overlay with session navigation wired up.
+                // When the user taps a toast that carries a `sid`, the closure
+                // posts to SessionNavigator so the root view switches to the
+                // Sessions tab (and SessionsTab pushes the detail once it
+                // observes the pendingSid).
+                .toastOverlay(onNavigateToSession: { sid in
+                    SessionNavigator.shared.pendingSid = sid
+                })
                 // Shortcut help sheet, toggled by ⌘/ or the Help menu (macOS).
                 .shortcutHelpSheet(isPresented: $showShortcutHelp)
                 // Notification setup after the scene is ready.
@@ -168,6 +174,8 @@ final class PairingViewModel {
 
     func reload() {
         daemonIds = store.daemonIds()
+        // M9: refresh observable label cache so DaemonRow re-renders after any rename.
+        refreshLabels()
     }
 
     /// Open a relay connection for one daemon and authenticate.
@@ -264,6 +272,44 @@ final class PairingViewModel {
         daemonOnline[daemonId] == true && isConnected(daemonId)
     }
 
+    // MARK: - M9: Observable label cache
+
+    /// M9: Per-daemon label cache. Keyed by daemonId; value is the human-readable
+    /// label (or nil if not set). Observable (NOT @ObservationIgnored) so any view
+    /// reading `labels[did]` re-renders immediately after a rename — both local
+    /// (DaemonsTab rename sheet) and inbound control.rename (H8) paths.
+    private(set) var labels: [String: String?] = [:]
+
+    /// M9: Reactive label accessor — reads from the observable cache (so SwiftUI
+    /// tracks this as a dependency). Falls back to `PairingStore` on cache miss
+    /// (e.g. before the first `reload` for a freshly-booted session).
+    func label(for daemonId: String) -> String? {
+        if let cached = labels[daemonId] { return cached }
+        return store.label(for: daemonId)
+    }
+
+    /// M9: Refresh the label cache from PairingStore for all known daemons.
+    /// Call after any `setLabel` so the observable dict drives SwiftUI re-renders.
+    func refreshLabels() {
+        for did in daemonIds {
+            labels[did] = store.label(for: did)
+        }
+    }
+
+    // MARK: - M12: RTT / Ping
+
+    /// M12: Latest measured round-trip time (ms) for a daemon's relay connection.
+    /// Nil when no pong has been received yet or the connection is down.
+    func rtt(for daemonId: String) -> Int? {
+        clients[daemonId]?.latestRTT
+    }
+
+    /// M12: Send an immediate relay.ping to the daemon, triggering a RTT measurement.
+    /// The result is available via `rtt(for:)` after the next pong arrives (~30ms–2s).
+    func sendPing(to daemonId: String) {
+        clients[daemonId]?.sendManualPing()
+    }
+
     /// Send a chat line into a session (M5). Routes to the client owning the
     /// session; for the current single-daemon flow that's the sole client. (A
     /// session→daemon map lands when N daemons each serve their own sessions.)
@@ -305,6 +351,11 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
 /// `coreStatus` is computed once at app launch (`TeleprompterApp.init`) and passed
 /// in for display — the boot/core *markers* are emitted there, not from any view,
 /// so verification is independent of which tab is on screen.
+///
+/// M13: Observes `SessionNavigator.shared.pendingSid` to handle notification-tap
+/// navigation. When `pendingSid` is set, the shell switches to the Sessions tab
+/// so the user lands in the right context. The actual session detail push is
+/// driven by `SessionsTab` once it observes the same `pendingSid`.
 struct RootView: View {
     let pairings: PairingViewModel
     @ObservedObject var sessionStore: SessionStore
@@ -313,9 +364,28 @@ struct RootView: View {
 
     @AppStorage("theme") private var theme: AppTheme = .system
 
+    // M13: tab selection state for programmatic navigation (notification + toast taps).
+    @State private var selectedTab: AppTab = .sessions
+    // M13: shared navigator — observe pendingSid for notification-tap navigation.
+    private var navigator: SessionNavigator { SessionNavigator.shared }
+
     var body: some View {
         content
             .preferredColorScheme(theme.colorScheme)
+            // M13: react to notification tap → switch to Sessions tab.
+            .onChange(of: navigator.pendingSid) { _, sid in
+                guard sid != nil else { return }
+                selectedTab = .sessions
+                // Note: clearing pendingSid is done by SessionsTab after it pushes
+                // the detail view. If SessionsTab hasn't been updated yet, the sid
+                // persists until it is consumed — zero-cost, zero-crash.
+            }
+    }
+
+    // M13: shared navigation callback for both toast taps and notification taps.
+    private func navigateToSession(_ sid: String) {
+        SessionNavigator.shared.pendingSid = sid
+        selectedTab = .sessions
     }
 
     @ViewBuilder
@@ -330,18 +400,21 @@ struct RootView: View {
         // and passthrough environments. The .tabViewStyle default is correct for
         // visionOS — no override needed; the platform renders an appropriate tab
         // bar ornament automatically.
-        TabView {
+        TabView(selection: $selectedTab) {
             ForEach(AppTab.allCases) { tab in
                 tabContent(tab)
                     .glassBackgroundEffect()
                     .tabItem { Label(tab.title, systemImage: tab.systemImage) }
+                    .tag(tab)
             }
         }
         #else
-        TabView {
+        // M13: bind selection so notification/toast taps can switch tabs.
+        TabView(selection: $selectedTab) {
             ForEach(AppTab.allCases) { tab in
                 tabContent(tab)
                     .tabItem { Label(tab.title, systemImage: tab.systemImage) }
+                    .tag(tab)
             }
         }
         #endif
@@ -355,7 +428,9 @@ struct RootView: View {
         case .daemons:
             DaemonsTab(pairings: pairings)
         case .settings:
-            SettingsTab(coreStatus: coreStatus)
+            // H10: pass pairings + sessionStore so DiagnosticsView can show
+            // live relay WS state, E2EE status, session counts, and RTT (M12).
+            SettingsTab(coreStatus: coreStatus, pairings: pairings, sessionStore: sessionStore)
         }
     }
 }
@@ -388,7 +463,8 @@ struct MacRootView: View {
             case .daemons:
                 DaemonsTab(pairings: pairings)
             case .settings:
-                SettingsTab(coreStatus: coreStatus)
+                // H10: pass pairings + sessionStore for DiagnosticsView wiring.
+                SettingsTab(coreStatus: coreStatus, pairings: pairings, sessionStore: sessionStore)
             }
         }
     }

@@ -12,16 +12,26 @@ import SwiftUI
 /// consume settings via `SettingsStore.shared` from any context.
 struct SettingsTab: View {
     let coreStatus: String
+    /// H10: injected for DiagnosticsView relay WS state + E2EE + RTT (M12).
+    /// Optional so existing call sites (macOS sidebar) compile without changes.
+    var pairings: PairingViewModel? = nil
+    /// H10: injected for DiagnosticsView session counts.
+    var sessionStore: SessionStore? = nil
 
     @AppStorage("theme") private var theme: AppTheme = .system
 
     var body: some View {
         NavigationStack {
-            SettingsForm(coreStatus: coreStatus, theme: $theme)
-                .navigationTitle("Settings")
-                #if os(iOS)
-                .navigationBarTitleDisplayMode(.large)
-                #endif
+            SettingsForm(
+                coreStatus: coreStatus,
+                theme: $theme,
+                pairings: pairings,
+                sessionStore: sessionStore
+            )
+            .navigationTitle("Settings")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.large)
+            #endif
         }
     }
 }
@@ -31,6 +41,9 @@ struct SettingsTab: View {
 struct SettingsForm: View {
     let coreStatus: String
     @Binding var theme: AppTheme
+    /// H10: forwarded to DiagnosticsView.
+    var pairings: PairingViewModel? = nil
+    var sessionStore: SessionStore? = nil
 
     // MARK: Appearance state
 
@@ -145,16 +158,23 @@ struct SettingsForm: View {
         // MARK: Diagnostics sheet
         .sheet(isPresented: $showDiagnostics) {
             NavigationStack {
-                DiagnosticsView(coreStatus: coreStatus)
-                    .navigationTitle("Diagnostics")
-                    #if os(iOS)
-                    .navigationBarTitleDisplayMode(.inline)
-                    #endif
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showDiagnostics = false }
-                        }
+                // H10: inject PairingViewModel + SessionStore so DiagnosticsView
+                // can display live relay WS state, E2EE status, session counts,
+                // and RTT (M12) instead of TODO placeholders.
+                DiagnosticsView(
+                    coreStatus: coreStatus,
+                    pairings: pairings,
+                    sessionStore: sessionStore
+                )
+                .navigationTitle("Diagnostics")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                #endif
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { showDiagnostics = false }
                     }
+                }
             }
         }
     }

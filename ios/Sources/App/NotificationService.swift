@@ -5,6 +5,31 @@ import os
 import UIKit
 #endif
 
+// MARK: - SessionNavigator (M13)
+
+/// Lightweight @Observable navigator that carries a session-navigation intent
+/// from any context (notification tap, toast tap) to the root SwiftUI shell.
+///
+/// Usage:
+///   - Notification response handler posts `pendingSid` here.
+///   - `RootView` / `TeleprompterApp` observes and clears it after switching
+///     to the Sessions tab and pushing the session detail.
+///
+/// The navigator is a process-lifetime singleton shared via `SessionNavigator.shared`.
+/// It is intentionally NOT placed in the SwiftUI environment — it is used as a
+/// side-channel between non-SwiftUI code (UNUserNotificationCenterDelegate) and
+/// the root view, where environment injection is unavailable.
+@MainActor
+@Observable
+final class SessionNavigator {
+    static let shared = SessionNavigator()
+    private init() {}
+
+    /// A session id that should be navigated to immediately, or `nil` when idle.
+    /// Consumers must clear this after acting on it (set back to `nil`).
+    var pendingSid: String? = nil
+}
+
 /// App-level notification service.
 ///
 /// Handles:
@@ -169,17 +194,25 @@ extension NotificationService: UNUserNotificationCenterDelegate {
     /// Notification tap response handler (app was backgrounded when the OS
     /// banner appeared; user tapped it to open the app).
     ///
-    /// TODO(device-gated / Phase 3): navigate to the session via deep-link
-    /// or a shared navigator once the session detail navigator is wired up.
+    /// M13: Posts the `sid` to `SessionNavigator.shared` so the root SwiftUI
+    /// shell (RootView) can switch to the Sessions tab and push the session
+    /// detail. The actual navigation runs on the main actor in the root view's
+    /// `.onChange(of: SessionNavigator.shared.pendingSid)` observer.
+    ///
+    /// Simulator-safe: this path fires for local notifications too (e.g. from
+    /// `NotificationService.scheduleLocal(title:body:sid:)`), so the navigation
+    /// path is testable without real APNs infrastructure.
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
         let userInfo = response.notification.request.content.userInfo
         guard let sid = userInfo["sid"] as? String else { return }
-        // TODO(Phase 3): navigate to session — need to call the session navigator.
-        // For now, log the intent so it surfaces in unified log.
         let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "notifications")
         log.notice("Notification tap: navigate to session \(sid, privacy: .public)")
+        // M13: post the sid to the shared navigator so the root view switches tabs.
+        await MainActor.run {
+            SessionNavigator.shared.pendingSid = sid
+        }
     }
 }

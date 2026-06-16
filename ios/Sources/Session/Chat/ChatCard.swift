@@ -1,4 +1,5 @@
 import SwiftUI
+// ChatMarkdown.swift exports chatBodyFont(settings:) from the same module.
 
 // MARK: - Timestamp formatter
 
@@ -60,7 +61,7 @@ struct UserChatCard: View {
                 HStack(alignment: .top, spacing: 8) {
                     CopyButton(text: promptText.isEmpty ? "(user prompt)" : promptText)
                     Text(promptText.isEmpty ? "(user prompt)" : promptText)
-                        .font(.body)
+                        .font(chatBodyFont(settings: SettingsStore.shared))
                         .foregroundStyle(.white)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)

@@ -212,8 +212,6 @@ struct MdInlineText: View {
     /// Code font to apply to inline code segments (L7). Defaults to system monospaced caption.
     var codeFont: Font = .system(.caption, design: .monospaced)
 
-    @Environment(\.openURL) private var openURL
-
     var body: some View {
         let segs = parseMdInline(raw)
         // Build a single Text from concatenated attributed spans.

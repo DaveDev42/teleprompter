@@ -194,7 +194,12 @@ struct DaemonsListView: View {
                     activeSheet = nil
                     let trimmed = newLabel.trimmingCharacters(in: .whitespacesAndNewlines)
                     let label = trimmed.isEmpty ? nil : trimmed
+                    // Persist to store first so refreshLabels reads the new value.
                     PairingStore.shared.setLabel(label, for: did)
+                    // M9 fix: refresh the observable labels cache so DaemonRow re-renders
+                    // immediately with the new name. Without this call the cache holds the
+                    // old label until the next reload() (e.g. reconnect or app restart).
+                    pairings.refreshLabels()
                     // Notify the peer of the label change (best-effort).
                     pairings.renameLabel(label, for: did)
                 },

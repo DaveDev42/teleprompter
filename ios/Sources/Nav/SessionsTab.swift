@@ -3,17 +3,37 @@ import SwiftUI
 /// Sessions tab — root of the session navigation stack. Lists all known sessions
 /// with status, search/filter, multi-select delete, and new session creation.
 /// Feature-parity with the old Expo `app/(tabs)/index.tsx`.
+///
+/// M13: Holds a controlled `navPath` so notification-tap navigation (via
+/// `SessionNavigator.shared.pendingSid`) can programmatically push the session
+/// detail view. The existing `NavigationLink(value:)` + `.navigationDestination`
+/// tap-driven navigation continues to work unchanged because both paths share the
+/// same `navPath` binding.
 struct SessionsTab: View {
     @ObservedObject var sessionStore: SessionStore
     let pairings: PairingViewModel
 
+    /// M13: Controlled navigation path so programmatic pushes (notification taps)
+    /// can open the session detail view without user interaction.
+    @State private var navPath: [String] = []
+
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navPath) {
             SessionListView(sessionStore: sessionStore, pairings: pairings)
                 .navigationTitle("Sessions")
                 #if os(iOS)
                 .navigationBarTitleDisplayMode(.large)
                 #endif
+        }
+        // M13: Consume pendingSid from SessionNavigator so notification taps open the
+        // detail view. RootView has already switched the tab to .sessions before this
+        // onChange fires, so navPath = [sid] pushes immediately.
+        // Clearing pendingSid after acting prevents spurious re-fires if subsequent
+        // nil→value transitions occur.
+        .onChange(of: SessionNavigator.shared.pendingSid) { _, sid in
+            guard let sid else { return }
+            navPath = [sid]
+            SessionNavigator.shared.pendingSid = nil
         }
     }
 }

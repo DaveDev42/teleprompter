@@ -341,8 +341,11 @@ final class RelayClient: NSObject {
         case "relay.pong":
             // L5: reset missed-pong counter on every pong.
             missedPongs = 0
-            // M12: compute RTT from ping-sent timestamp. Snapshot sentAt before the
-            // Task hop so the receive-loop context doesn't race with the main actor.
+            // M12: compute RTT from ping-sent timestamp. Both lastPingSentAt and
+            // latestRTT are accessed inside the @MainActor block so reads/writes are
+            // serialized with all writers (ping timer, sendManualPing).
+            // pongAt is captured outside so the timestamp reflects actual pong arrival,
+            // not the moment the main actor eventually runs the block.
             let pongAt = Date()
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -1023,11 +1026,15 @@ final class RelayClient: NSObject {
                 self.scheduleReconnect()
                 return
             }
-            // M12: record the send time for RTT computation on the next pong.
-            // Hop to main actor for the write so all RTT property accesses are serialized.
-            Task { @MainActor [weak self] in self?.lastPingSentAt = Date() }
-            self.send(RelayPing(ts: nil)) { error in
-                if let error { self.log.notice("ping: \(error.localizedDescription, privacy: .public)") }
+            // M12: record the send time then immediately send the ping, both inside
+            // the @MainActor Task so lastPingSentAt is guaranteed to be set before any
+            // pong can arrive and read it on the same actor.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.lastPingSentAt = Date()
+                self.send(RelayPing(ts: nil)) { [weak self] error in
+                    if let error { self?.log.notice("ping: \(error.localizedDescription, privacy: .public)") }
+                }
             }
         }
         timer.resume()
@@ -1040,10 +1047,14 @@ final class RelayClient: NSObject {
     /// The result is available via `latestRTT` after the next `relay.pong` arrives.
     /// Safe to call at any connection state — the send is a no-op if the task is nil.
     func sendManualPing() {
-        // M12: funnel write through main actor (matches the ping-timer path).
-        Task { @MainActor [weak self] in self?.lastPingSentAt = Date() }
-        send(RelayPing(ts: nil)) { [weak self] error in
-            if let error { self?.log.notice("manual ping: \(error.localizedDescription, privacy: .public)") }
+        // M12: set lastPingSentAt and send the ping atomically on the main actor so
+        // the timestamp is always set before any pong can arrive on the main actor.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.lastPingSentAt = Date()
+            self.send(RelayPing(ts: nil)) { [weak self] error in
+                if let error { self?.log.notice("manual ping: \(error.localizedDescription, privacy: .public)") }
+            }
         }
     }
 

@@ -98,7 +98,12 @@ final class RelayClient: NSObject {
     private var sessionKeys: FfiSessionKeys?
     /// Set once the first `hello` frame is decrypted, so the on-demand fallback
     /// timer does not double-request after a successful auto-`hello`.
+    /// Reset to false on normal reconnect so the fallback can fire again on the
+    /// new connection. Does NOT gate `TP_FRAME_OK` — use `frameOkEmitted` for that.
     private var helloReceived = false
+    /// Sticky per-process flag: once `TP_FRAME_OK` is logged it stays true so a
+    /// reconnect-triggered second successful `hello` never re-emits the marker.
+    private var frameOkEmitted = false
 
     // MARK: session attach / backfill (M4)
 
@@ -166,13 +171,18 @@ final class RelayClient: NSObject {
 
     // MARK: M12 RTT tracking
 
-    /// Timestamp (seconds since epoch) of the most recently sent `relay.ping`.
-    /// Set in `startPing`'s event handler; cleared to nil after the pong arrives.
-    private var lastPingSentAt: Date? = nil
+    /// Timestamp of the most recently sent `relay.ping`.
+    /// Written from three contexts (ping DispatchSource, receiveLoop, sendManualPing);
+    /// all writes are serialized through `Task { @MainActor in }` to avoid data races.
+    /// `nonisolated(unsafe)` lets the value be captured in non-isolated closures that
+    /// are guaranteed to only write through the main actor.
+    /// Callers MUST only access this property on the main actor.
+    nonisolated(unsafe) private var lastPingSentAt: Date? = nil
     /// The most recent measured round-trip time in milliseconds, computed as
     /// (pong arrival time) − (ping sent time) × 1000. Nil until the first pong.
     /// Exposed via `PairingViewModel.rtt(for:)` for the Diagnostics panel (M12).
-    private(set) var latestRTT: Int? = nil
+    /// All writes go through `Task { @MainActor in }`. Callers MUST be on main actor.
+    nonisolated(unsafe) private(set) var latestRTT: Int? = nil
 
     // MARK: M7 resume-token UserDefaults keys
 
@@ -331,10 +341,18 @@ final class RelayClient: NSObject {
         case "relay.pong":
             // L5: reset missed-pong counter on every pong.
             missedPongs = 0
-            // M12: compute RTT from ping-sent timestamp.
-            if let sentAt = lastPingSentAt {
-                latestRTT = Int(Date().timeIntervalSince(sentAt) * 1000)
-                lastPingSentAt = nil
+            // M12: compute RTT from ping-sent timestamp. Both lastPingSentAt and
+            // latestRTT are accessed inside the @MainActor block so reads/writes are
+            // serialized with all writers (ping timer, sendManualPing).
+            // pongAt is captured outside so the timestamp reflects actual pong arrival,
+            // not the moment the main actor eventually runs the block.
+            let pongAt = Date()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let sentAt = self.lastPingSentAt {
+                    self.latestRTT = Int(pongAt.timeIntervalSince(sentAt) * 1000)
+                    self.lastPingSentAt = nil
+                }
             }
         case "relay.kx.frame":
             if let frame = try? JSONDecoder().decode(RelayKeyExchangeFrame.self, from: data) {
@@ -378,9 +396,12 @@ final class RelayClient: NSObject {
             isResuming = false
             resumeToken = nil
             resumeExpiresAt = nil
-            // Close the current socket — the reconnect will pick the slow path.
-            task?.cancel(with: .goingAway, reason: nil)
-            task = nil
+            // Bug 2 fix: do NOT manually cancel the task here. scheduleReconnect()
+            // already tears it down (task?.cancel + task = nil). Cancelling here
+            // causes the pending receiveLoop .receive callback to fire .failure,
+            // which calls scheduleReconnect() a second time — the idempotency guard
+            // in scheduleReconnect() stops the second call, but we avoid the race
+            // entirely by letting scheduleReconnect() own teardown.
             scheduleReconnect()
         } else {
             fail("relay.auth.err: \(detail)")
@@ -499,23 +520,38 @@ final class RelayClient: NSObject {
                 kxFail("daemon kx.frame bad pk")
                 return
             }
-            // Frontend = CLIENT role → kxClientSessionKeys(own pub, own sec, daemon pub).
-            // rx decrypts frames FROM the daemon, tx encrypts frames TO it.
-            let keys = try kxClientSessionKeys(
-                pk: kp.publicKey, sk: kp.secretKey, peerPk: daemonPk)
-
             let alreadyKeyed = sessionKeys != nil
-            sessionKeys = keys
 
             if alreadyKeyed {
-                // H5: daemon restarted with a fresh kx broadcast — re-send our own
-                // kx so the daemon re-populates its peers map for our frontendId.
-                // Also reset the hello guard so the hello handshake runs again.
+                // H5 / Bug 1 fix: daemon restarted with a fresh kx broadcast — re-send
+                // our own kx so the daemon re-populates its peers map for our frontendId.
+                //
+                // CRITICAL ORDER: call startKeyExchange() FIRST so a NEW keypair is
+                // generated and stored in kxKeyPair. Then re-read kxKeyPair and derive
+                // session keys from it. The old code derived keys from the OLD `kp`
+                // (captured above) then called startKeyExchange() — the daemon receives
+                // our NEW pubkey (from startKeyExchange) but the frontend's sessionKeys
+                // were derived from the OLD secret key → AEAD mismatch in both directions.
                 log.notice("relay: daemon kx re-exchange (daemon restart?) — re-sending kx")
                 helloReceived = false
                 didAutoAttach = false
                 startKeyExchange()
+                // Re-read the keypair that startKeyExchange() just stored so we derive
+                // session keys from the SAME keypair whose pubkey was just sent.
+                guard let freshKp = kxKeyPair else {
+                    kxFail("kx re-exchange: keypair missing after startKeyExchange")
+                    return
+                }
+                let keys = try kxClientSessionKeys(
+                    pk: freshKp.publicKey, sk: freshKp.secretKey, peerPk: daemonPk)
+                sessionKeys = keys
             } else {
+                // First kx: derive session keys from the keypair we already sent.
+                // Frontend = CLIENT role → kxClientSessionKeys(own pub, own sec, daemon pub).
+                // rx decrypts frames FROM the daemon, tx encrypts frames TO it.
+                let keys = try kxClientSessionKeys(
+                    pk: kp.publicKey, sk: kp.secretKey, peerPk: daemonPk)
+                sessionKeys = keys
                 log.notice("\(Self.kxOkMarker, privacy: .public) daemon=\(self.pairing.daemonId, privacy: .public)")
             }
 
@@ -595,7 +631,13 @@ final class RelayClient: NSObject {
             case "hello":
                 let reply = try JSONDecoder().decode(SessionHelloReply.self, from: plaintext)
                 helloReceived = true
-                log.notice("\(Self.frameOkMarker, privacy: .public) sessions=\(reply.d.sessions.count, privacy: .public)")
+                // Bug 3 fix: gate the marker on frameOkEmitted (sticky), not helloReceived
+                // (which resets on reconnect). This prevents double-emitting TP_FRAME_OK
+                // when a reconnect triggers a second successful hello.
+                if !frameOkEmitted {
+                    frameOkEmitted = true
+                    log.notice("\(Self.frameOkMarker, privacy: .public) sessions=\(reply.d.sessions.count, privacy: .public)")
+                }
                 onHello(reply.d.sessions)
             case "state":
                 let msg = try JSONDecoder().decode(SessionStateMsg.self, from: plaintext)
@@ -918,7 +960,13 @@ final class RelayClient: NSObject {
 
     /// Schedule the next reconnect attempt using exponential backoff (1s, 2s, 4s…
     /// capped at 30s). Resets kx state so the full handshake runs on reconnect.
+    /// Idempotent: a second call while a reconnect timer is already pending is a
+    /// no-op. This prevents the double-fire that occurs when `onAuthErr` cancels
+    /// the task (causing a `.failure` in the receive loop) and both code paths
+    /// call `scheduleReconnect()` — only the first call creates a timer (Bug 2 fix).
     private func scheduleReconnect() {
+        // Bug 2 fix: if a reconnect timer is already queued, don't create another.
+        guard reconnectTimer == nil else { return }
         // Clear state so the reconnect starts fresh (kx, hello, probe).
         pingTimer?.cancel()
         pingTimer = nil
@@ -927,11 +975,15 @@ final class RelayClient: NSObject {
         sessionKeys = nil
         kxKeyPair = nil
         didAutoAttach = false
+        helloReceived = false   // Bug 3 fix: allow fallback hello on new connection
         // M12: clear RTT on disconnect — stale values are misleading.
-        lastPingSentAt = nil
-        latestRTT = nil
-        // Note: do NOT clear helloReceived/sessionOkEmitted — those are per-session
-        // guards that should survive reconnect to avoid double-emitting markers.
+        // Hop to main actor (all RTT writes serialized there — Bug 4 fix).
+        Task { @MainActor [weak self] in
+            self?.lastPingSentAt = nil
+            self?.latestRTT = nil
+        }
+        // helloReceived was reset above (Bug 3 fix) so scheduleHelloFallback fires again.
+        // Do NOT reset frameOkEmitted (sticky marker guard) or sessionOkEmitted (per-session).
 
         let delay = Self.reconnectDelay(attempt: reconnectAttempt)
         reconnectAttempt += 1
@@ -974,10 +1026,15 @@ final class RelayClient: NSObject {
                 self.scheduleReconnect()
                 return
             }
-            // M12: record the send time for RTT computation on the next pong.
-            self.lastPingSentAt = Date()
-            self.send(RelayPing(ts: nil)) { error in
-                if let error { self.log.notice("ping: \(error.localizedDescription, privacy: .public)") }
+            // M12: record the send time then immediately send the ping, both inside
+            // the @MainActor Task so lastPingSentAt is guaranteed to be set before any
+            // pong can arrive and read it on the same actor.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.lastPingSentAt = Date()
+                self.send(RelayPing(ts: nil)) { [weak self] error in
+                    if let error { self?.log.notice("ping: \(error.localizedDescription, privacy: .public)") }
+                }
             }
         }
         timer.resume()
@@ -990,9 +1047,14 @@ final class RelayClient: NSObject {
     /// The result is available via `latestRTT` after the next `relay.pong` arrives.
     /// Safe to call at any connection state — the send is a no-op if the task is nil.
     func sendManualPing() {
-        lastPingSentAt = Date()
-        send(RelayPing(ts: nil)) { [weak self] error in
-            if let error { self?.log.notice("manual ping: \(error.localizedDescription, privacy: .public)") }
+        // M12: set lastPingSentAt and send the ping atomically on the main actor so
+        // the timestamp is always set before any pong can arrive on the main actor.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.lastPingSentAt = Date()
+            self.send(RelayPing(ts: nil)) { [weak self] error in
+                if let error { self?.log.notice("manual ping: \(error.localizedDescription, privacy: .public)") }
+            }
         }
     }
 

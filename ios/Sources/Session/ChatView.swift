@@ -1,5 +1,23 @@
 import SwiftUI
 
+// MARK: - Sentinel geometry helpers (M6 near-bottom detection)
+
+/// Carries the sentinel view's maxY and the scroll viewport's maxY in global coordinates.
+private struct SentinelOffset: Equatable {
+    var sentinelMaxY: CGFloat
+    var viewportMaxY: CGFloat
+    static let zero = SentinelOffset(sentinelMaxY: 0, viewportMaxY: 0)
+}
+
+/// PreferenceKey used by the bottom-sentinel GeometryReader to propagate
+/// its frame up the view tree to the ScrollView's onPreferenceChange handler.
+private struct SentinelOffsetKey: PreferenceKey {
+    static var defaultValue: SentinelOffset { .zero }
+    static func reduce(value: inout SentinelOffset, nextValue: () -> SentinelOffset) {
+        value = nextValue()
+    }
+}
+
 /// Chat pane (ADR-0001 Phase 3, M4 → Tranche D). Renders hook-event records as
 /// rich, visually-differentiated message cards — **hooks-only** by design
 /// (CLAUDE.md "Key Design Decisions"): PTY `io` records never reach here; they
@@ -31,6 +49,9 @@ struct ChatView: View {
 
     // M6: track whether the user is near the bottom of the scroll view.
     // Starts true so the initial render scrolls to bottom on appear.
+    // Updated via geometry measurement (not onAppear/onDisappear) so content
+    // insertions that push the sentinel out of the viewport do not falsely set
+    // this to false — only a real user scroll-up suppresses auto-scroll.
     @State private var isNearBottom: Bool = true
 
     /// Chat items to display — scoped to `sid` when provided, else all sessions.
@@ -67,50 +88,77 @@ struct ChatView: View {
                     description: Text("Attach a running session to see its hook events."))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 8) {
-                            ForEach(items) { item in
-                                ChatItemCard(item: item)
-                                    .padding(.horizontal, 12)
-                                    .id(item.id)
+                // Outer GeometryReader captures the scroll view's frame in global
+                // coordinates so the inner sentinel can compare against it.
+                GeometryReader { scrollGeo in
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 8) {
+                                ForEach(items) { item in
+                                    ChatItemCard(item: item)
+                                        .padding(.horizontal, 12)
+                                        .id(item.id)
+                                }
+                                // Animated "working" indicator while the assistant is responding.
+                                if isWorking {
+                                    AssistantWorkingIndicator()
+                                        .padding(.horizontal, 12)
+                                        .id("__working__")
+                                }
+                                // Near-bottom sentinel (M6): a 1pt invisible view placed at
+                                // the very bottom of the scroll content. We measure its
+                                // position in the global coordinate space and compare it to
+                                // the scroll view's own frame — if the sentinel is within
+                                // 80pt of the visible bottom we are "near bottom".
+                                // Using geometry (not onAppear/onDisappear) means content
+                                // insertions that push the sentinel offscreen only update
+                                // isNearBottom when the sentinel's minY actually moves
+                                // outside the visible area due to a user drag, not due to
+                                // a layout pass triggered by inserting the working indicator.
+                                Color.clear
+                                    .frame(height: 1)
+                                    .id("__bottom__")
+                                    .background(
+                                        GeometryReader { sentinelGeo in
+                                            Color.clear.preference(
+                                                key: SentinelOffsetKey.self,
+                                                value: SentinelOffset(
+                                                    sentinelMaxY: sentinelGeo.frame(in: .global).maxY,
+                                                    viewportMaxY: scrollGeo.frame(in: .global).maxY
+                                                )
+                                            )
+                                        }
+                                    )
                             }
-                            // Animated "working" indicator while the assistant is responding.
-                            if isWorking {
-                                AssistantWorkingIndicator()
-                                    .padding(.horizontal, 12)
-                                    .id("__working__")
+                            .padding(.vertical, 8)
+                        }
+                        // M6: only auto-scroll when the user is already at/near the bottom.
+                        .onChange(of: items.count) { _ in
+                            guard isNearBottom else { return }
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                proxy.scrollTo("__bottom__", anchor: .bottom)
                             }
-                            // Near-bottom sentinel: a tiny invisible view whose visibility
-                            // tells us whether the user is scrolled to the bottom (M6).
-                            // We use a GeometryReader-based approach: the sentinel sits at
-                            // the very bottom; when it's in the scroll view's frame we're
-                            // "near bottom". Touching the scroll-bottom anchor also resets.
-                            Color.clear
-                                .frame(height: 1)
-                                .id("__bottom__")
-                                .onAppear { isNearBottom = true }
-                                .onDisappear { isNearBottom = false }
                         }
-                        .padding(.vertical, 8)
-                    }
-                    // M6: only auto-scroll when the user is already at/near the bottom.
-                    .onChange(of: items.count) { _ in
-                        guard isNearBottom else { return }
-                        withAnimation(.easeOut(duration: 0.2)) {
+                        .onChange(of: isWorking) { _ in
+                            guard isNearBottom else { return }
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                proxy.scrollTo("__bottom__", anchor: .bottom)
+                            }
+                        }
+                        .onAppear {
+                            // Initial render: always scroll to bottom.
                             proxy.scrollTo("__bottom__", anchor: .bottom)
+                            isNearBottom = true
                         }
-                    }
-                    .onChange(of: isWorking) { _ in
-                        guard isNearBottom else { return }
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo("__bottom__", anchor: .bottom)
+                        // Update isNearBottom from real geometry, not lifecycle events.
+                        .onPreferenceChange(SentinelOffsetKey.self) { value in
+                            // Sentinel is "near bottom" when it is within 80pt of or below
+                            // the visible bottom edge of the scroll view. A positive delta
+                            // means the sentinel is still below the viewport bottom (clipped
+                            // content), which means the user has NOT scrolled to the bottom.
+                            let threshold: CGFloat = 80
+                            isNearBottom = value.sentinelMaxY <= value.viewportMaxY + threshold
                         }
-                    }
-                    .onAppear {
-                        // Initial render: always scroll to bottom.
-                        proxy.scrollTo("__bottom__", anchor: .bottom)
-                        isNearBottom = true
                     }
                 }
             }

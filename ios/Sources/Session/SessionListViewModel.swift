@@ -13,41 +13,33 @@ extension PairingViewModel {
 
     /// Request the daemon to create a new session at `cwd`.
     ///
-    /// The operation has two parts:
-    /// 1. **Local optimistic add**: a placeholder `SessionMeta` is inserted into
-    ///    `sessionStore` immediately so the UI reflects the intent without waiting
-    ///    for the daemon round-trip.
-    /// 2. **Relay send**: `session.create { cwd }` is sent to the daemon via the
-    ///    relay. The daemon spawns a runner and pushes a `hello` update; when
-    ///    that arrives, `upsertSessions` replaces the placeholder with the
-    ///    authoritative metadata (real `sid`, correct `createdAt`, etc.).
+    /// H4 fix: the previous optimistic `pending-*` placeholder was never replaced
+    /// by the daemon's real sid (different key in the dict), so it persisted as a
+    /// ghost row. Expo had NO optimistic add — it relied on the daemon's hello push.
+    /// We match Expo: just fire the relay send and let the next `hello` (which calls
+    /// `replaceSessionsForDaemon`) bring in the new session. L1's 3s toast in the
+    /// sheet provides failure feedback when the daemon doesn't respond.
     ///
     /// The relay send is bridged through `RelayClient.publishControl`
     /// (integration pass) and routed via `PairingViewModel.createSession(cwd:)`.
     @MainActor
     func createSession(cwd: String, sessionStore: SessionStore) {
-        // 1. Optimistic local entry: use a client-generated sid prefixed
-        //    "pending-" so it's distinguishable from daemon-assigned sids.
-        //    The daemon's hello push will upsert the real sid on top.
-        let placeholderSid = "pending-\(UUID().uuidString.prefix(8).lowercased())"
-        let now = Date().timeIntervalSince1970 * 1000 // ms
-        let placeholder = SessionMeta(
-            sid: placeholderSid,
-            state: "stopped",     // will be updated to "running" by daemon push
-            cwd: cwd,
-            createdAt: now,
-            updatedAt: now,
-            lastSeq: 0,
-        )
-        sessionStore.upsertSessions([placeholder])
-
-        // 2. Relay send (best-effort). Routes through PairingViewModel, which
-        //    owns the relay clients, to the sole connected client. When a session
-        //    fires back via `hello`, the daemon's real sid upserts over the
-        //    placeholder. If kx is not yet complete the send is a no-op and the
-        //    optimistic local entry keeps the UI consistent until reconnect.
-        //    TODO(sessions-crud): pass the selected daemonId for multi-daemon.
+        // Relay send (best-effort). Routes through PairingViewModel, which
+        // owns the relay clients, to the sole connected client. When a session
+        // fires back via `hello`, replaceSessionsForDaemon adds it to the list.
+        // TODO(sessions-crud): pass the selected daemonId for multi-daemon.
         createSession(cwd: cwd)
+    }
+
+    // MARK: Refresh
+
+    /// Ask every connected daemon for a fresh session list (M1 pull-to-refresh).
+    /// Each client sends a sealed `hello` request on `__meta__`; the daemon replies
+    /// with its current session list via `replaceSessionsForDaemon`.
+    func refreshSessions() {
+        for did in daemonIds {
+            client(for: did)?.sendHello()
+        }
     }
 
     // MARK: Delete (local-only)

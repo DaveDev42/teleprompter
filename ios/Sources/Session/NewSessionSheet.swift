@@ -5,6 +5,10 @@ import SwiftUI
 /// Collects a working-directory path and forwards the creation request to
 /// `PairingViewModel.createSession(cwd:sessionStore:)`. Validates that the
 /// field is not blank before enabling the Start button.
+///
+/// L1 fix: after the create request is sent, waits up to 3 seconds for a new
+/// non-pending session to appear in the store (mirrors Expo NewSessionModal's
+/// `pendingTimerRef`). If none appears in time, shows a toast via ToastCenter.
 struct NewSessionSheet: View {
     @ObservedObject var sessionStore: SessionStore
     let pairings: PairingViewModel
@@ -69,9 +73,25 @@ struct NewSessionSheet: View {
             return
         }
         errorMessage = nil
+        // Snapshot the current session count so we can detect the daemon's reply.
+        let countBefore = sessionStore.sessions.count
         Task { @MainActor in
             pairings.createSession(cwd: trimmed, sessionStore: sessionStore)
         }
         onDismiss()
+
+        // L1 fix: mirrors Expo NewSessionModal pendingTimerRef.
+        // Wait 3 s for at least one new non-pending session to appear. If the
+        // session count grows, the daemon accepted the request — no toast needed.
+        // If it doesn't, the daemon may be offline or rejected the path.
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3))
+            let countAfter = sessionStore.sessions.count
+            guard countAfter <= countBefore else { return }
+            ToastCenter.shared.show(
+                title: "Couldn't start session",
+                body: "Daemon may be offline or rejected the path."
+            )
+        }
     }
 }

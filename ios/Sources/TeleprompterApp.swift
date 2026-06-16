@@ -151,6 +151,12 @@ final class PairingViewModel {
     /// Retained relay clients keyed by daemon id (kept out of observation —
     /// the socket lifecycle is not view state).
     @ObservationIgnored private var clients: [String: RelayClient] = [:]
+    /// M8: Per-daemon online presence, as observed by status dots.
+    /// Keyed by daemonId; true = daemon is connected to relay & has signalled presence.
+    /// Observable (NOT @ObservationIgnored) so status dots update reactively.
+    private(set) var daemonOnline: [String: Bool] = [:]
+
+    private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "pairing-vm")
 
     init(store: PairingStore = .shared, sessionStore: SessionStore) {
         self.store = store
@@ -174,6 +180,40 @@ final class PairingViewModel {
         clients[daemonId]?.disconnect()
         let client = RelayClient(pairing: pairing)
         client.sessionStore = sessionStore
+
+        // M8: wire presence callback → observable daemonOnline dict.
+        client.onPresence = { [weak self] did, online in
+            Task { @MainActor [weak self] in
+                self?.daemonOnline[did] = online
+            }
+        }
+
+        // H7: inbound control.unpair from daemon → remove our side of the pairing.
+        client.onUnpair = { [weak self] did, reason in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.log.notice("control.unpair from daemon \(did, privacy: .public) reason=\(reason, privacy: .public) — removing pairing")
+                // Remove local pairing (do NOT send another control.unpair back — we received this).
+                self.clients[did]?.disconnect()
+                self.clients[did] = nil
+                self.daemonOnline.removeValue(forKey: did)
+                self.store.remove(daemonId: did)
+                self.reload()
+            }
+        }
+
+        // H8: inbound control.rename from daemon → persist new label.
+        client.onRename = { [weak self] did, newLabel in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.log.notice("control.rename from daemon \(did, privacy: .public) label=\(newLabel ?? "(clear)", privacy: .public)")
+                self.store.setLabel(newLabel, for: did)
+                // Trigger observation by reloading (daemonIds array itself didn't change,
+                // but downstream consumers reading label(for:) should refresh).
+                self.reload()
+            }
+        }
+
         clients[daemonId] = client
         client.connect()
     }
@@ -185,6 +225,7 @@ final class PairingViewModel {
         clients[daemonId]?.sendControlUnpair()
         clients[daemonId]?.disconnect()
         clients[daemonId] = nil
+        daemonOnline.removeValue(forKey: daemonId)
         store.remove(daemonId: daemonId)
         reload()
     }
@@ -215,6 +256,12 @@ final class PairingViewModel {
     /// derived). Drives the online/offline status dot in DaemonsTab.
     func isConnected(_ daemonId: String) -> Bool {
         clients[daemonId]?.isReady ?? false
+    }
+
+    /// M8: Whether a daemon is currently online per relay.presence.
+    /// `true` only after the daemon signals presence AND kx is complete.
+    func isOnline(_ daemonId: String) -> Bool {
+        daemonOnline[daemonId] == true && isConnected(daemonId)
     }
 
     /// Send a chat line into a session (M5). Routes to the client owning the

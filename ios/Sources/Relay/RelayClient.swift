@@ -16,8 +16,8 @@ import os
 /// client subscribes to `__meta__`/`__control__`, sends its sealed `relay.kx`
 /// pubkey + frontendId, derives per-frontend session keys, and decrypts the first
 /// `hello` frame (the session list) — emitting `TP_KX_OK` then `TP_FRAME_OK`.
-/// Resume (`relay.auth.resume`) remains deferred. The auth token is the verbatim
-/// FFI `deriveRelayToken` output (lowercase hex of
+/// M7 implements the fast-path `relay.auth.resume` (persisted across background).
+/// The auth token is the verbatim FFI `deriveRelayToken` output (lowercase hex of
 /// BLAKE2b-256(pairingSecret || "relay-auth")), byte-equal to the TS golden vector.
 final class RelayClient: NSObject {
     /// Connection lifecycle. `authenticated` is the M2 success terminal.
@@ -54,9 +54,30 @@ final class RelayClient: NSObject {
     /// Optional observer (UI). Invoked on the URLSession delegate queue.
     var onStateChange: ((State) -> Void)?
 
-    /// Cached after `relay.auth.ok` for the (deferred) resume fast-path.
-    private(set) var resumeToken: String?
-    private(set) var resumeExpiresAt: Double?
+    /// M8: Called when an inbound `control.presence` frame arrives. `online` is
+    /// the daemon's current presence. Used to drive per-daemon status dots.
+    var onPresence: ((_ daemonId: String, _ online: Bool) -> Void)?
+
+    /// H7: Called when an inbound `control.unpair` frame is received from the
+    /// daemon. The app should remove the pairing from PairingStore and dismiss
+    /// any UI associated with this daemon.
+    var onUnpair: ((_ daemonId: String, _ reason: String) -> Void)?
+
+    /// H8: Called when an inbound `control.rename` frame is received from the
+    /// daemon. The new label should be persisted in PairingStore.
+    var onRename: ((_ daemonId: String, _ label: String?) -> Void)?
+
+    /// Cached after `relay.auth.ok` for the M7 resume fast-path. Persisted to
+    /// UserDefaults so it survives backgrounding (keyed by daemonId).
+    private(set) var resumeToken: String? {
+        didSet { persistResumeToken() }
+    }
+    private(set) var resumeExpiresAt: Double? {
+        didSet { persistResumeToken() }
+    }
+    /// True while the current connection attempt is trying the resume fast-path.
+    /// On `relay.auth.err` during resume: clear token + retry full auth.
+    private var isResuming = false
 
     private let pairing: Pairing
     private let session: URLSession
@@ -127,6 +148,31 @@ final class RelayClient: NSObject {
     /// A fixed probe token — deterministic so the smoke harness can correlate it.
     private static let probeToken = "tp-input-probe"
 
+    // MARK: H6 reconnect state
+
+    /// Number of consecutive reconnect attempts. Reset to 0 on successful auth.
+    private var reconnectAttempt = 0
+    /// Maximum reconnect backoff in seconds. Cap matches the daemon's RECONNECT_MAX_MS.
+    private static let reconnectMaxDelay: TimeInterval = 30
+    /// Timer driving the next reconnect attempt.
+    private var reconnectTimer: DispatchSourceTimer?
+
+    // MARK: L5 missed-pong tracking
+
+    /// Number of consecutive missed relay.pong responses. Reset on every pong.
+    private var missedPongs = 0
+    /// After this many missed pongs, cancel the socket and trigger reconnect.
+    private static let maxMissedPongs = 2
+
+    // MARK: M7 resume-token UserDefaults keys
+
+    private var resumeTokenDefaultsKey: String {
+        "tp.relay.\(pairing.daemonId).resumeToken"
+    }
+    private var resumeExpiresAtDefaultsKey: String {
+        "tp.relay.\(pairing.daemonId).resumeExpiresAt"
+    }
+
     /// - Parameters:
     ///   - pairing: the daemon pairing carrying relay URL, daemonId, secret, frontendId.
     ///   - session: injectable for tests (default ephemeral, no cookies/cache).
@@ -138,6 +184,12 @@ final class RelayClient: NSObject {
         self.session = session
         self.pingInterval = pingInterval
         super.init()
+        // M7: Load persisted resume token so it survives backgrounding.
+        let defaults = UserDefaults.standard
+        resumeToken = defaults.string(forKey: resumeTokenDefaultsKey)
+        if let exp = defaults.object(forKey: resumeExpiresAtDefaultsKey) as? Double {
+            resumeExpiresAt = exp
+        }
     }
 
     deinit { disconnect() }
@@ -150,8 +202,8 @@ final class RelayClient: NSObject {
 
     // MARK: connect / auth
 
-    /// Open the WebSocket and send `relay.auth`. Idempotent against re-entry: a
-    /// second call while already connecting/authenticated is ignored.
+    /// Open the WebSocket and send auth. Idempotent against re-entry: a second
+    /// call while already connecting/authenticated is ignored.
     func connect() {
         switch state {
         case .connecting, .authenticating, .authenticated:
@@ -173,6 +225,8 @@ final class RelayClient: NSObject {
 
     /// Tear down the socket and timers. Safe to call repeatedly.
     func disconnect() {
+        reconnectTimer?.cancel()
+        reconnectTimer = nil
         pingTimer?.cancel()
         pingTimer = nil
         task?.cancel(with: .goingAway, reason: nil)
@@ -180,6 +234,22 @@ final class RelayClient: NSObject {
     }
 
     private func sendAuth() {
+        // M7: Use resume fast-path if we have a non-expired token.
+        if let token = resumeToken,
+           let exp = resumeExpiresAt,
+           Date().timeIntervalSince1970 * 1000 < exp {
+            isResuming = true
+            state = .authenticating
+            let resume = RelayAuthResume(token: token)
+            send(resume) { [weak self] error in
+                if let error { self?.fail("auth.resume send: \(error)") }
+            }
+        } else {
+            sendFullAuth()
+        }
+    }
+
+    private func sendFullAuth() {
         let auth = RelayAuth(
             daemonId: pairing.daemonId,
             token: authToken(),
@@ -218,12 +288,9 @@ final class RelayClient: NSObject {
                 self.handle(message)
                 self.receiveLoop() // continue until the socket closes
             case let .failure(error):
-                // A clean close after auth is not a failure; before auth it is.
-                if case .authenticated = self.state {
-                    self.log.notice("relay closed: \(error.localizedDescription, privacy: .public)")
-                } else {
-                    self.fail("receive: \(error.localizedDescription)")
-                }
+                // H6: any receive failure → schedule reconnect.
+                self.log.notice("relay closed: \(error.localizedDescription, privacy: .public)")
+                self.scheduleReconnect()
             }
         }
     }
@@ -246,13 +313,14 @@ final class RelayClient: NSObject {
             }
         case "relay.auth.err":
             let detail = (try? JSONDecoder().decode(RelayAuthErr.self, from: data))?.e ?? "unknown"
-            fail("relay.auth.err: \(detail)")
+            onAuthErr(detail: detail)
         case "relay.presence":
             if let p = try? JSONDecoder().decode(RelayPresence.self, from: data) {
-                log.notice("relay.presence daemon=\(p.daemonId, privacy: .public) online=\(p.online)")
+                onPresenceFrame(p)
             }
         case "relay.pong":
-            break // liveness ack
+            // L5: reset missed-pong counter on every pong.
+            missedPongs = 0
         case "relay.kx.frame":
             if let frame = try? JSONDecoder().decode(RelayKeyExchangeFrame.self, from: data) {
                 onKeyExchangeFrame(frame)
@@ -267,8 +335,13 @@ final class RelayClient: NSObject {
     }
 
     private func onAuthOk(_ ok: RelayAuthOk) {
-        resumeToken = ok.resumeToken
-        resumeExpiresAt = ok.resumeExpiresAt
+        // M7: Cache the rolling resume token.
+        if let token = ok.resumeToken, let exp = ok.resumeExpiresAt {
+            resumeToken = token
+            resumeExpiresAt = exp
+        }
+        isResuming = false
+        reconnectAttempt = 0
         state = .authenticated(daemonId: ok.daemonId)
         log.notice("\(Self.authOkMarker, privacy: .public) daemon=\(ok.daemonId, privacy: .public)")
         startPing()
@@ -280,6 +353,30 @@ final class RelayClient: NSObject {
         subscribe(RelayChannel.meta, after: 0)
         subscribe(RelayChannel.control, after: 0)
         startKeyExchange()
+    }
+
+    private func onAuthErr(detail: String) {
+        if isResuming {
+            // M7: Resume failed (token expired / rotated secret). Clear the token
+            // and reconnect using full auth on the next attempt.
+            log.notice("relay.auth.err during resume (\(detail, privacy: .public)); falling back to full auth")
+            isResuming = false
+            resumeToken = nil
+            resumeExpiresAt = nil
+            // Close the current socket — the reconnect will pick the slow path.
+            task?.cancel(with: .goingAway, reason: nil)
+            task = nil
+            scheduleReconnect()
+        } else {
+            fail("relay.auth.err: \(detail)")
+        }
+    }
+
+    // MARK: M8 presence
+
+    private func onPresenceFrame(_ p: RelayPresence) {
+        log.notice("relay.presence daemon=\(p.daemonId, privacy: .public) online=\(p.online)")
+        onPresence?(p.daemonId, p.online)
     }
 
     // MARK: kx (M3)
@@ -347,7 +444,8 @@ final class RelayClient: NSObject {
             let kp = try kxSeedKeypair(seed: try randomBytes(32))
             kxKeyPair = kp
 
-            // Seal {pk, frontendId, role} with derive_kx_key(pairingSecret).
+            // Seal {pk, frontendId, role, v} with derive_kx_key(pairingSecret).
+            // M11: include `v` so the daemon knows our protocol version.
             let kxKey = deriveKxKey(pairingSecret: pairing.pairingSecret)
             let payload = KxPayload(
                 pk: kp.publicKey.base64EncodedString(),
@@ -365,11 +463,15 @@ final class RelayClient: NSObject {
     /// The daemon broadcasts its own `relay.kx` on connect; the relay delivers it
     /// here. Decrypt the daemon's sealed kx payload with the kx-envelope key to
     /// recover its authoritative pubkey, then derive the per-frontend session
-    /// keys. Idempotent: a second daemon kx.frame (e.g. after the daemon
-    /// reconnects) is ignored once keys exist.
+    /// keys.
+    ///
+    /// H5 fix: when a daemon kx.frame arrives and we already have session keys
+    /// (e.g. after a daemon restart), we STILL re-send our own kx via
+    /// `startKeyExchange()` so the daemon re-establishes its peer entry for our
+    /// frontendId. Session keys are re-derived unconditionally so a daemon keypair
+    /// rotation is handled correctly (the daemon's new pubkey is in the fresh frame).
     private func onKeyExchangeFrame(_ frame: RelayKeyExchangeFrame) {
         guard frame.from == "daemon" else { return }
-        guard sessionKeys == nil else { return } // already derived
         guard let kp = kxKeyPair else {
             kxFail("daemon kx.frame before frontend keypair")
             return
@@ -386,8 +488,33 @@ final class RelayClient: NSObject {
             // rx decrypts frames FROM the daemon, tx encrypts frames TO it.
             let keys = try kxClientSessionKeys(
                 pk: kp.publicKey, sk: kp.secretKey, peerPk: daemonPk)
+
+            let alreadyKeyed = sessionKeys != nil
             sessionKeys = keys
-            log.notice("\(Self.kxOkMarker, privacy: .public) daemon=\(self.pairing.daemonId, privacy: .public)")
+
+            if alreadyKeyed {
+                // H5: daemon restarted with a fresh kx broadcast — re-send our own
+                // kx so the daemon re-populates its peers map for our frontendId.
+                // Also reset the hello guard so the hello handshake runs again.
+                log.notice("relay: daemon kx re-exchange (daemon restart?) — re-sending kx")
+                helloReceived = false
+                didAutoAttach = false
+                startKeyExchange()
+            } else {
+                log.notice("\(Self.kxOkMarker, privacy: .public) daemon=\(self.pairing.daemonId, privacy: .public)")
+            }
+
+            // M10: Adopt the daemon's label if local label is unset.
+            if let labelWire = payload.label, labelWire.set,
+               let labelValue = labelWire.value, !labelValue.isEmpty {
+                let store = PairingStore.shared
+                let did = self.pairing.daemonId
+                if store.label(for: did) == nil {
+                    store.setLabel(labelValue, for: did)
+                    log.notice("relay: adopted daemon label '\(labelValue, privacy: .public)' for daemon=\(did, privacy: .public)")
+                }
+            }
+
             scheduleHelloFallback()
         } catch {
             kxFail("daemon kx.frame: \(error)")
@@ -404,9 +531,44 @@ final class RelayClient: NSObject {
     /// daemon is the M3 success terminal (decrypt with rx, decode the session
     /// list); M4 adds the session render path: on `hello` we auto-attach the first
     /// session, then route the daemon's `state`/`batch`/`rec` replies into the
-    /// `SessionStore`.
+    /// `SessionStore`. H7/H8: frames on `__control__` are decoded as control messages.
     private func onRelayFrame(_ frame: RelayFrame) {
         guard frame.from == "daemon" else { return }
+
+        // H7/H8: handle inbound control messages from the daemon.
+        if frame.sid == RelayChannel.control {
+            guard let keys = sessionKeys else {
+                log.notice("control frame before kx — dropping")
+                return
+            }
+            do {
+                let plaintext = try open(encoded: frame.ct, key: keys.rx)
+                let env = try JSONDecoder().decode(RelayServerEnvelope.self, from: plaintext)
+                switch env.t {
+                case "control.unpair":
+                    if let msg = try? JSONDecoder().decode(ControlUnpairInbound.self, from: plaintext) {
+                        log.notice("relay: inbound control.unpair daemon=\(msg.daemonId, privacy: .public) reason=\(msg.reason, privacy: .public)")
+                        onUnpair?(msg.daemonId, msg.reason)
+                    } else {
+                        log.notice("relay: malformed control.unpair — dropping")
+                    }
+                case "control.rename":
+                    if let msg = try? JSONDecoder().decode(ControlRenameInbound.self, from: plaintext) {
+                        let newLabel: String? = msg.label.set ? msg.label.value : nil
+                        log.notice("relay: inbound control.rename daemon=\(msg.daemonId, privacy: .public) label=\(newLabel ?? "(clear)", privacy: .public)")
+                        onRename?(msg.daemonId, newLabel)
+                    } else {
+                        log.notice("relay: malformed control.rename (possibly legacy string label from v1 daemon) — dropping")
+                    }
+                default:
+                    log.notice("relay: ignoring control t=\(env.t, privacy: .public)")
+                }
+            } catch {
+                log.error("relay: control frame decrypt failed: \(error.localizedDescription, privacy: .public)")
+            }
+            return
+        }
+
         guard let keys = sessionKeys else {
             log.notice("relay.frame before kx — dropping")
             return
@@ -585,6 +747,9 @@ final class RelayClient: NSObject {
     /// Whether the E2EE session keys have been derived — i.e. it is safe to seal
     /// and publish. `publishControl` checks this too; exposed so callers can give
     /// UI feedback ("not connected yet") before attempting a send.
+    ///
+    /// M8: this now also reflects reconnect — keys are cleared on each reconnect
+    /// and re-established after kx completes. UI should observe `PairingViewModel.isOnline`.
     var isReady: Bool { sessionKeys != nil }
 
     /// Seal an app-level control message with the frontend's tx key and publish
@@ -706,19 +871,81 @@ final class RelayClient: NSObject {
         disconnect()
     }
 
-    // MARK: keep-alive
+    // MARK: H6 auto-reconnect
+
+    /// Schedule the next reconnect attempt using exponential backoff (1s, 2s, 4s…
+    /// capped at 30s). Resets kx state so the full handshake runs on reconnect.
+    private func scheduleReconnect() {
+        // Clear state so the reconnect starts fresh (kx, hello, probe).
+        pingTimer?.cancel()
+        pingTimer = nil
+        task?.cancel(with: .goingAway, reason: nil)
+        task = nil
+        sessionKeys = nil
+        kxKeyPair = nil
+        didAutoAttach = false
+        // Note: do NOT clear helloReceived/sessionOkEmitted — those are per-session
+        // guards that should survive reconnect to avoid double-emitting markers.
+
+        let delay = Self.reconnectDelay(attempt: reconnectAttempt)
+        reconnectAttempt += 1
+        log.notice("relay: scheduling reconnect in \(delay, privacy: .public)s (attempt=\(self.reconnectAttempt, privacy: .public))")
+
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.schedule(deadline: .now() + delay)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.reconnectTimer = nil
+            self.state = .idle
+            self.connect()
+        }
+        timer.resume()
+        reconnectTimer = timer
+    }
+
+    /// Exponential backoff: 1s × 2^attempt, capped at `reconnectMaxDelay` (30s).
+    static func reconnectDelay(attempt: Int) -> TimeInterval {
+        let base = 1.0
+        let cap = reconnectMaxDelay
+        return min(base * pow(2.0, Double(attempt)), cap)
+    }
+
+    // MARK: keep-alive + L5 missed-pong
 
     private func startPing() {
         pingTimer?.cancel()
+        missedPongs = 0
         let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
         timer.schedule(deadline: .now() + pingInterval, repeating: pingInterval)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
+            // L5: track missed pongs — disconnect after maxMissedPongs consecutive misses.
+            self.missedPongs += 1
+            if self.missedPongs > Self.maxMissedPongs {
+                self.log.notice("relay: \(self.missedPongs, privacy: .public) missed pongs — triggering reconnect")
+                self.pingTimer?.cancel()
+                self.pingTimer = nil
+                self.scheduleReconnect()
+                return
+            }
             self.send(RelayPing(ts: nil)) { error in
                 if let error { self.log.notice("ping: \(error.localizedDescription, privacy: .public)") }
             }
         }
         timer.resume()
         pingTimer = timer
+    }
+
+    // MARK: M7 resume-token persistence
+
+    private func persistResumeToken() {
+        let defaults = UserDefaults.standard
+        if let token = resumeToken, let exp = resumeExpiresAt {
+            defaults.set(token, forKey: resumeTokenDefaultsKey)
+            defaults.set(exp, forKey: resumeExpiresAtDefaultsKey)
+        } else {
+            defaults.removeObject(forKey: resumeTokenDefaultsKey)
+            defaults.removeObject(forKey: resumeExpiresAtDefaultsKey)
+        }
     }
 }

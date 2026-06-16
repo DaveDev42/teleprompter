@@ -73,21 +73,24 @@ struct NewSessionSheet: View {
             return
         }
         errorMessage = nil
-        // Snapshot the current session count so we can detect the daemon's reply.
-        let countBefore = sessionStore.sessions.count
+        // Snapshot the current session sids so we can detect the daemon's reply
+        // by identity rather than count. Count-based detection is vulnerable to
+        // concurrent deletes (countAfter < countBefore satisfies <=, giving a
+        // false-positive failure toast even when the new session was created).
+        let sidsBefore = Set(sessionStore.sessions.keys)
         Task { @MainActor in
             pairings.createSession(cwd: trimmed, sessionStore: sessionStore)
         }
         onDismiss()
 
         // L1 fix: mirrors Expo NewSessionModal pendingTimerRef.
-        // Wait 3 s for at least one new non-pending session to appear. If the
-        // session count grows, the daemon accepted the request — no toast needed.
-        // If it doesn't, the daemon may be offline or rejected the path.
+        // Wait 3 s for at least one new sid to appear that was not in the
+        // snapshot. If a new sid appears, the daemon accepted the request —
+        // no toast needed. Concurrent deletes/creates do not affect this check.
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(3))
-            let countAfter = sessionStore.sessions.count
-            guard countAfter <= countBefore else { return }
+            let hasNew = !Set(sessionStore.sessions.keys).subtracting(sidsBefore).isEmpty
+            guard !hasNew else { return }
             ToastCenter.shared.show(
                 title: "Couldn't start session",
                 body: "Daemon may be offline or rejected the path."

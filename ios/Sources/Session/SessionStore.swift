@@ -154,7 +154,9 @@ final class SessionStore: ObservableObject {
         persistSessions()
     }
 
-    /// Remove one session from local state. Also clears its chat/terminal data.
+    /// Remove one session from local state. Also clears its chat/terminal data
+    /// and removes the sid from every daemon bucket so that the next
+    /// `replaceSessionsForDaemon` call (for any daemon) does not re-insert it.
     /// NOTE: This is local-only — there is no `session.delete` relay message.
     /// The daemon-side delete must be triggered separately (CLI or future relay op).
     func removeSession(_ sid: String) {
@@ -162,6 +164,9 @@ final class SessionStore: ObservableObject {
         chatItems.removeValue(forKey: sid)
         terminalOutput.removeValue(forKey: sid)
         cursors.removeValue(forKey: sid)
+        // Remove from all daemon buckets so a future replaceSessionsForDaemon
+        // (even for an unrelated daemon) does not resurrect this sid as a ghost row.
+        for key in sessionsByDaemon.keys { sessionsByDaemon[key]?.removeValue(forKey: sid) }
         persistSessions()
     }
 
@@ -177,6 +182,9 @@ final class SessionStore: ObservableObject {
         chatItems.removeValue(forKey: sid)
         terminalOutput.removeValue(forKey: sid)
         cursors.removeValue(forKey: sid)
+        // Remove from all daemon buckets so a future replaceSessionsForDaemon
+        // does not resurrect this sid as a ghost row.
+        for key in sessionsByDaemon.keys { sessionsByDaemon[key]?.removeValue(forKey: sid) }
     }
 
     // MARK: - Record ingestion

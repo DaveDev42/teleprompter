@@ -173,4 +173,64 @@ final class SessionStoreGhostRowTests: XCTestCase {
         XCTAssertEqual(store.sessions["s1"]?.state, "running")
         XCTAssertEqual(store.sessions["s1"]?.lastSeq, 7)
     }
+
+    // MARK: - H3 regression: removeSession must purge daemon buckets
+
+    /// Regression test for the ghost-row-via-delete path.
+    ///
+    /// Scenario: two daemons are connected. A session owned by daemon A is
+    /// deleted locally via `removeSession`. Daemon B then sends a periodic hello
+    /// (unchanged). `replaceSessionsForDaemon` for daemon B must NOT re-insert
+    /// the deleted sid from daemon A's stale bucket.
+    func testRemoveSessionDoesNotGhostOnSubsequentHello() {
+        let store = SessionStore()
+
+        // Daemon A has s1; daemon B has s2.
+        store.replaceSessionsForDaemon(daemonId: daemonA, sessions: [meta(sid: "s1")])
+        store.replaceSessionsForDaemon(daemonId: daemonB, sessions: [meta(sid: "s2")])
+        XCTAssertEqual(store.sessions.count, 2)
+
+        // User deletes s1 (owned by daemon A) locally.
+        store.removeSession("s1")
+        XCTAssertNil(store.sessions["s1"], "s1 must be removed immediately")
+        XCTAssertEqual(store.sessions.count, 1)
+
+        // Daemon B sends a periodic hello with its unchanged session list.
+        store.replaceSessionsForDaemon(daemonId: daemonB, sessions: [meta(sid: "s2")])
+
+        // s1 must NOT reappear — the stale daemon-A bucket should have been cleared.
+        XCTAssertNil(store.sessions["s1"],
+                     "deleted s1 must not ghost-row after an unrelated daemon's hello")
+        XCTAssertNotNil(store.sessions["s2"], "daemon-B s2 must survive")
+        XCTAssertEqual(store.sessions.count, 1)
+    }
+
+    /// Same ghost-row regression via `removeSessions` (batch delete path).
+    func testRemoveSessionsBatchDoesNotGhostOnSubsequentHello() {
+        let store = SessionStore()
+
+        // Daemon A has s1 and s3; daemon B has s2.
+        store.replaceSessionsForDaemon(daemonId: daemonA, sessions: [
+            meta(sid: "s1"), meta(sid: "s3"),
+        ])
+        store.replaceSessionsForDaemon(daemonId: daemonB, sessions: [meta(sid: "s2")])
+        XCTAssertEqual(store.sessions.count, 3)
+
+        // User batch-deletes s1 and s3.
+        store.removeSessions(["s1", "s3"])
+        XCTAssertNil(store.sessions["s1"])
+        XCTAssertNil(store.sessions["s3"])
+        XCTAssertEqual(store.sessions.count, 1)
+
+        // Daemon B sends a periodic hello.
+        store.replaceSessionsForDaemon(daemonId: daemonB, sessions: [meta(sid: "s2")])
+
+        // Neither s1 nor s3 must reappear.
+        XCTAssertNil(store.sessions["s1"],
+                     "batch-deleted s1 must not ghost after unrelated hello")
+        XCTAssertNil(store.sessions["s3"],
+                     "batch-deleted s3 must not ghost after unrelated hello")
+        XCTAssertNotNil(store.sessions["s2"])
+        XCTAssertEqual(store.sessions.count, 1)
+    }
 }

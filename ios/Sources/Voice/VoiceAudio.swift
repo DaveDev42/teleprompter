@@ -210,8 +210,8 @@ final class PcmAudioPlayer: VoiceAudioPlayerProtocol {
             // Derive the anchor from the actual scheduled start time so subsequent
             // chunks queue contiguously regardless of when lastRenderTime was sampled.
             // playerTime(atHostTime:) / nodeTime(forPlayerTime:) may not be available
-            // on the very first frame; use a small pre-roll constant in that case.
-            let preRollFrames = AVAudioFramePosition(sampleRate * 0.05) // 50 ms pre-roll
+            // on the very first frame; fall back to the player-timeline origin (0)
+            // plus the first chunk's duration so the next chunk queues contiguously.
             let anchorSample: AVAudioFramePosition
             if let renderTime = player.lastRenderTime,
                renderTime.isSampleTimeValid,
@@ -220,8 +220,10 @@ final class PcmAudioPlayer: VoiceAudioPlayerProtocol {
                 // Anchor: current player-timeline position + duration of this chunk.
                 anchorSample = playerTime.sampleTime + AVAudioFramePosition(frameDuration * sampleRate)
             } else {
-                // Fallback: pre-roll so the next chunk lands slightly in the future.
-                anchorSample = preRollFrames + AVAudioFramePosition(frameDuration * sampleRate)
+                // Fallback: the first chunk was scheduled at nil (player-timeline 0),
+                // so the next chunk should start exactly one chunk-duration later.
+                // No pre-roll offset — adding one would insert a silent gap.
+                anchorSample = AVAudioFramePosition(frameDuration * sampleRate)
             }
             nextPlayTime = AVAudioTime(sampleTime: anchorSample, atRate: sampleRate)
         }

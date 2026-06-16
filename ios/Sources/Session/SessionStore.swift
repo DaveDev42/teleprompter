@@ -40,6 +40,15 @@ final class SessionStore: ObservableObject {
     /// sid → latest known metadata (from `hello` and `state` frames).
     @Published private(set) var sessions: [String: SessionMeta] = [:]
 
+    /// Per-daemon session buckets: daemonId → { sid → SessionMeta }.
+    ///
+    /// H3 fix: mirrors Expo `session-store.ts setSessions` which replaces the
+    /// daemon's slice entirely on each `hello`. By replacing (not merging) we
+    /// automatically drop sessions that the daemon no longer reports — ghost rows
+    /// from daemon-deleted sessions never persist. The flat `sessions` dict is
+    /// rebuilt by merging all buckets after each replace.
+    private var sessionsByDaemon: [String: [String: SessionMeta]] = [:]
+
     /// Highest `seq` ingested per sid. A record is applied only when its `seq`
     /// exceeds this — so an overlapping resume `batch` (which returns `seq > c`,
     /// but the relay cache may also replay) never double-renders. Also the cursor
@@ -94,8 +103,40 @@ final class SessionStore: ObservableObject {
     /// exactly the gap.
     func cursor(for sid: String) -> Int { cursors[sid] ?? 0 }
 
-    /// Record/refresh a session's metadata (from `hello` sessions or a `state`
-    /// frame). Does not touch chat items or the cursor.
+    /// Replace all sessions for one daemon with the list from a fresh `hello`.
+    ///
+    /// H3 fix: mirrors Expo `session-store.ts setSessions`. By replacing the
+    /// daemon's entire bucket (not merging), sessions that the daemon no longer
+    /// reports (deleted on the daemon side) automatically disappear from the UI.
+    ///
+    /// H4 fix: pending-* placeholders live only in-memory and are never placed in
+    /// a daemon bucket, so they are implicitly discarded here. Additionally, any
+    /// remaining `pending-*` key in the flat `sessions` dict is stripped after the
+    /// merge — handles the edge case where a placeholder was added before kx.
+    ///
+    /// Call sites: `RelayClient.onHello` (passing the `daemonId` from the client).
+    func replaceSessionsForDaemon(daemonId: String, sessions metas: [SessionMeta]) {
+        // Build the daemon's fresh bucket.
+        var bucket: [String: SessionMeta] = [:]
+        for m in metas { bucket[m.sid] = m }
+        sessionsByDaemon[daemonId] = bucket
+
+        // Rebuild flat sessions dict from all daemon buckets.
+        var merged: [String: SessionMeta] = [:]
+        for (_, daemonBucket) in sessionsByDaemon {
+            for (sid, meta) in daemonBucket { merged[sid] = meta }
+        }
+        // H4: strip any pending-* placeholders that slipped into sessions.
+        for sid in merged.keys where sid.hasPrefix("pending-") {
+            merged.removeValue(forKey: sid)
+        }
+        sessions = merged
+        persistSessions()
+    }
+
+    /// Record/refresh a session's metadata (from a `state` frame).
+    /// Does not touch chat items or the cursor. NOTE: for `hello`-driven updates
+    /// use `replaceSessionsForDaemon` instead — that one prevents ghost rows.
     func upsertSessions(_ metas: [SessionMeta]) {
         for m in metas { sessions[m.sid] = m }
         persistSessions()

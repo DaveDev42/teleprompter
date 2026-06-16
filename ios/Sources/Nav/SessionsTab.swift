@@ -37,6 +37,11 @@ struct SessionListView: View {
     // MARK: - Sorted / filtered sessions
 
     /// All sessions sorted: running first, then by updatedAt descending.
+    ///
+    /// L3 note: Expo sorted purely by updatedAt desc. We intentionally diverge —
+    /// pinning running sessions to the top provides better UX when there are many
+    /// stopped sessions (the active session stays visible without scrolling).
+    /// Within each group (running / not-running) ordering is still updatedAt desc.
     private var allSorted: [SessionMeta] {
         sessionStore.sessions.values.sorted { a, b in
             let aRunning = (a.state == "running")
@@ -60,8 +65,13 @@ struct SessionListView: View {
     }
 
     /// Stopped sessions (the only ones selectable for deletion in edit mode).
+    ///
+    /// M2 fix: use `== "stopped"` (match Expo) instead of `!= "running"` so
+    /// "error" sessions are excluded from Select All and the delete count.
+    /// Error rows remain visible in the list and navigable; they are simply not
+    /// batch-selectable.
     private var stoppedSessions: [SessionMeta] {
-        sessionStore.sessions.values.filter { $0.state != "running" }
+        sessionStore.sessions.values.filter { $0.state == "stopped" }
     }
 
     private var allStoppedSelected: Bool {
@@ -191,6 +201,15 @@ struct SessionListView: View {
             }
         }
         .listStyle(.plain)
+        // M1 fix: pull-to-refresh — mirrors Expo handleRefresh → refreshSessionList.
+        // Sends a hello request to every connected daemon; the replies land in
+        // replaceSessionsForDaemon (H3 fix), refreshing the list and removing ghosts.
+        .refreshable {
+            pairings.refreshSessions()
+            // Brief yield so SwiftUI can animate the spinner; the actual update
+            // is async (relay round-trip) so we don't await a specific result.
+            try? await Task.sleep(for: .milliseconds(500))
+        }
         // Search bar — placement varies by platform (navigationBarDrawer is iOS-only).
         #if os(iOS)
         .searchable(
@@ -278,8 +297,16 @@ struct SessionListView: View {
     private func confirmDelete() {
         showConfirmDelete = false
         let sids = selectedForDelete.map(\.sid)
+        let count = sids.count
         Task { @MainActor in
             pairings.deleteSessions(sids, from: sessionStore)
+            // L2 fix: show a toast confirming deletion (matches Expo handleConfirmDelete).
+            let message = count == 1 ? "1 session removed" : "\(count) sessions removed"
+            ToastCenter.shared.show(title: message, body: "Removed from this app's list.")
+            // L2 fix: post an accessibility announcement so VoiceOver users hear the result.
+            #if os(iOS) || os(visionOS)
+            UIAccessibility.post(notification: .announcement, argument: message)
+            #endif
         }
         exitEditMode()
     }

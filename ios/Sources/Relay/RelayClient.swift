@@ -164,6 +164,16 @@ final class RelayClient: NSObject {
     /// After this many missed pongs, cancel the socket and trigger reconnect.
     private static let maxMissedPongs = 2
 
+    // MARK: M12 RTT tracking
+
+    /// Timestamp (seconds since epoch) of the most recently sent `relay.ping`.
+    /// Set in `startPing`'s event handler; cleared to nil after the pong arrives.
+    private var lastPingSentAt: Date? = nil
+    /// The most recent measured round-trip time in milliseconds, computed as
+    /// (pong arrival time) − (ping sent time) × 1000. Nil until the first pong.
+    /// Exposed via `PairingViewModel.rtt(for:)` for the Diagnostics panel (M12).
+    private(set) var latestRTT: Int? = nil
+
     // MARK: M7 resume-token UserDefaults keys
 
     private var resumeTokenDefaultsKey: String {
@@ -321,6 +331,11 @@ final class RelayClient: NSObject {
         case "relay.pong":
             // L5: reset missed-pong counter on every pong.
             missedPongs = 0
+            // M12: compute RTT from ping-sent timestamp.
+            if let sentAt = lastPingSentAt {
+                latestRTT = Int(Date().timeIntervalSince(sentAt) * 1000)
+                lastPingSentAt = nil
+            }
         case "relay.kx.frame":
             if let frame = try? JSONDecoder().decode(RelayKeyExchangeFrame.self, from: data) {
                 onKeyExchangeFrame(frame)
@@ -912,6 +927,9 @@ final class RelayClient: NSObject {
         sessionKeys = nil
         kxKeyPair = nil
         didAutoAttach = false
+        // M12: clear RTT on disconnect — stale values are misleading.
+        lastPingSentAt = nil
+        latestRTT = nil
         // Note: do NOT clear helloReceived/sessionOkEmitted — those are per-session
         // guards that should survive reconnect to avoid double-emitting markers.
 
@@ -956,12 +974,26 @@ final class RelayClient: NSObject {
                 self.scheduleReconnect()
                 return
             }
+            // M12: record the send time for RTT computation on the next pong.
+            self.lastPingSentAt = Date()
             self.send(RelayPing(ts: nil)) { error in
                 if let error { self.log.notice("ping: \(error.localizedDescription, privacy: .public)") }
             }
         }
         timer.resume()
         pingTimer = timer
+    }
+
+    // MARK: M12 manual ping (for Diagnostics RTT button)
+
+    /// Send a one-shot `relay.ping` for an immediate RTT measurement.
+    /// The result is available via `latestRTT` after the next `relay.pong` arrives.
+    /// Safe to call at any connection state — the send is a no-op if the task is nil.
+    func sendManualPing() {
+        lastPingSentAt = Date()
+        send(RelayPing(ts: nil)) { [weak self] error in
+            if let error { self?.log.notice("manual ping: \(error.localizedDescription, privacy: .public)") }
+        }
     }
 
     // MARK: M7 resume-token persistence

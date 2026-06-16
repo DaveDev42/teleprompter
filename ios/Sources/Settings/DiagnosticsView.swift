@@ -4,15 +4,22 @@ import SwiftUI
 
 /// Full diagnostics panel (feature-parity port of the old DiagnosticsPanel.tsx).
 ///
-/// Wires real data where available; clearly marks anything not yet exposed with
-/// a "TODO" note. Sections mirror the old app: Build, Connection, Relay/Pairing,
-/// E2EE Crypto (tp-core round-trip), Session Summary.
+/// H10: Wired with PairingViewModel + SessionStore (read-only) so the relay WS
+/// state, E2EE status, and session counts are live data rather than TODO stubs.
+/// M12: Exposes RTT metric with a "Ping" button that triggers an on-demand
+/// relay.ping and displays the round-trip time with a VoiceOver announcement.
 ///
-/// Reads from `PairingStore.shared` directly (no PairingViewModel required) so
-/// the caller only needs to pass `coreStatus` from the app shell.
+/// Sections mirror the old app: Build, Connection, Relay/Pairing, E2EE Crypto
+/// (tp-core round-trip), Session Summary.
 struct DiagnosticsView: View {
     /// Rust-core FFI self-check result, forwarded from the app shell.
     let coreStatus: String
+    /// H10: PairingViewModel for relay WS state, E2EE status, RTT (M12).
+    /// Optional so the caller in SettingsTab can inject it without API breakage.
+    var pairings: PairingViewModel? = nil
+    /// H10: SessionStore for session counts and per-session cursors (lastSeq).
+    /// Optional — nil falls back to the old "TODO" placeholder text.
+    var sessionStore: SessionStore? = nil
 
     @State private var daemonIds: [String] = []
 
@@ -47,12 +54,31 @@ struct DiagnosticsView: View {
 
     private var connectionSection: some View {
         Section("CONNECTION") {
-            // Relay WebSocket connected state is not yet exposed as an observable
-            // property on PairingViewModel / RelayClient. The relay client has a
-            // `state` enum but it's not surfaced through a shared observable yet.
             DiagRow(label: "Paired Daemons", value: "\(daemonIds.count)")
-            DiagRow(label: "Relay WS", value: "TODO — relay state not yet wired")
-            DiagRow(label: "Active Session", value: "TODO — session state not yet wired")
+            // H10: relay WS state from RelayClient.state via PairingViewModel.
+            if let pairings {
+                ForEach(pairings.daemonIds, id: \.self) { did in
+                    DiagRow(
+                        label: "Relay WS (\(String(did.prefix(8))))",
+                        value: relayStateString(for: did, pairings: pairings)
+                    )
+                }
+                if pairings.daemonIds.isEmpty {
+                    DiagRow(label: "Relay WS", value: "No pairings")
+                }
+            } else {
+                DiagRow(label: "Relay WS", value: "—")
+            }
+            // H10: active session count from SessionStore.
+            if let store = sessionStore {
+                DiagRow(
+                    label: "Active Session",
+                    value: store.sessions.values.first(where: { $0.state == "running" })
+                        .map { String($0.sid.prefix(12)) } ?? "None"
+                )
+            } else {
+                DiagRow(label: "Active Session", value: "—")
+            }
         }
     }
 
@@ -68,13 +94,48 @@ struct DiagnosticsView: View {
                     Group {
                         DiagRow(label: "Daemon ID", value: did)
                         DiagRow(label: "Relay URL", value: pairing?.relayURL ?? "—")
-                        // E2EE state requires access to per-daemon RelayClient which
-                        // is held in PairingViewModel (not accessible here without
-                        // threading it through). TODO: expose via environment object.
-                        DiagRow(label: "E2EE", value: "TODO — relay client state not yet wired")
+                        // H10: E2EE status from PairingViewModel.isOnline / isConnected.
+                        DiagRow(
+                            label: "E2EE",
+                            value: e2eeStatusString(for: did)
+                        )
+                        // M12: RTT row with Ping button.
+                        rttRow(for: did)
                     }
                 }
             }
+        }
+    }
+
+    /// Human-readable relay WS state string for the given daemon.
+    private func relayStateString(for daemonId: String, pairings: PairingViewModel) -> String {
+        guard let client = pairings.client(for: daemonId) else { return "Not connected" }
+        switch client.state {
+        case .idle:                          return "Idle"
+        case .connecting:                    return "Connecting…"
+        case .authenticating:                return "Authenticating…"
+        case .authenticated(let did):        return "Authenticated (\(String(did.prefix(8))))"
+        case .failed(let reason):            return "Failed: \(reason)"
+        }
+    }
+
+    /// Human-readable E2EE status string for the given daemon.
+    private func e2eeStatusString(for daemonId: String) -> String {
+        guard let pairings else { return "—" }
+        if pairings.isOnline(daemonId) { return "OK (online + kx complete)" }
+        if pairings.isConnected(daemonId) { return "KX complete (offline)" }
+        return "Not ready"
+    }
+
+    // MARK: M12 RTT Row
+
+    /// RTT metric row: shows the latest ping RTT and a "Ping" button that
+    /// triggers an on-demand relay.ping. Includes a VoiceOver live-region
+    /// announcement when the result arrives.
+    @ViewBuilder
+    private func rttRow(for daemonId: String) -> some View {
+        if pairings != nil {
+            RTTRow(daemonId: daemonId, pairings: pairings!)
         }
     }
 
@@ -143,14 +204,31 @@ struct DiagnosticsView: View {
 
     // MARK: Session Summary
 
+    /// H10: Session counts from SessionStore (total / running / stopped).
     private var sessionSummarySection: some View {
         Section("SESSION SUMMARY") {
-            // TODO: SessionStore is not yet injected into Settings. Session counts
-            // will be wired once the Session tranche exposes the store through the
-            // environment (SwiftUI environment object or @Observable singleton).
-            DiagRow(label: "Total", value: "TODO — session store not yet wired")
-            DiagRow(label: "Running", value: "TODO — session store not yet wired")
-            DiagRow(label: "Stopped", value: "TODO — session store not yet wired")
+            if let store = sessionStore {
+                let all = store.sessions.values
+                let total = all.count
+                let running = all.filter { $0.state == "running" }.count
+                let stopped = all.filter { $0.state == "stopped" }.count
+                DiagRow(label: "Total", value: "\(total)")
+                DiagRow(label: "Running", value: "\(running)")
+                DiagRow(label: "Stopped", value: "\(stopped)")
+                // Per-session last seq (cursor) from store.cursor(for:).
+                if !all.isEmpty {
+                    ForEach(Array(store.sessions.keys.prefix(5)), id: \.self) { sid in
+                        DiagRow(
+                            label: "seq (\(String(sid.prefix(8))))",
+                            value: "\(store.cursor(for: sid))"
+                        )
+                    }
+                }
+            } else {
+                DiagRow(label: "Total", value: "—")
+                DiagRow(label: "Running", value: "—")
+                DiagRow(label: "Stopped", value: "—")
+            }
         }
     }
 
@@ -170,6 +248,79 @@ struct DiagnosticsView: View {
         #else
         return "unknown"
         #endif
+    }
+}
+
+// MARK: - RTTRow (M12)
+
+/// Inline RTT metric row for one daemon in the Diagnostics panel.
+///
+/// Shows the latest measured round-trip time (in ms) and a "Ping" button
+/// that triggers an on-demand relay.ping for an immediate measurement.
+/// Announces the result via a VoiceOver live-region (polite) once it arrives.
+private struct RTTRow: View {
+    let daemonId: String
+    let pairings: PairingViewModel
+
+    @State private var pinging = false
+    @State private var announcement: String = ""
+
+    private var rttValue: String {
+        if let ms = pairings.rtt(for: daemonId) { return "\(ms)ms" }
+        return "—"
+    }
+
+    var body: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Ping RTT")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Text(pinging ? "Pinging…" : rttValue)
+                    .font(.footnote.monospaced())
+                    .foregroundStyle(.primary)
+                    // SR live-region: announces the RTT result to VoiceOver.
+                    .accessibilityLabel(announcement.isEmpty ? "Ping RTT: \(rttValue)" : announcement)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+            Spacer()
+            Button {
+                sendPing()
+            } label: {
+                Text("Ping")
+                    .font(.footnote)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(pinging)
+            .accessibilityLabel("Send ping to measure round-trip time")
+        }
+        // Watch the rtt value so we can clear the pinging state and announce.
+        .onChange(of: pairings.rtt(for: daemonId)) { _, newRTT in
+            if pinging, let ms = newRTT {
+                pinging = false
+                announcement = "Ping round-trip time: \(ms) milliseconds"
+                postAccessibilityAnnouncement(announcement)
+            }
+        }
+    }
+
+    private func sendPing() {
+        guard !pinging else { return }
+        pinging = true
+        announcement = ""
+        pairings.sendPing(to: daemonId)
+        // Safety fallback: clear pinging state after 5s if no pong arrives.
+        Task {
+            try? await Task.sleep(for: .seconds(5))
+            await MainActor.run {
+                if pinging {
+                    pinging = false
+                    announcement = "Ping timed out"
+                    postAccessibilityAnnouncement("Ping timed out")
+                }
+            }
+        }
     }
 }
 

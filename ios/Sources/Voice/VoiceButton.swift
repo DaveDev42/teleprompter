@@ -75,13 +75,26 @@ struct VoiceButton: View {
                 }
             }
 
-            // Status label (polite live region equivalent).
+            // Status label + live transcript (polite live region equivalent).
+            // L11: Show transcript text below status when active and non-empty.
+            // Matches VoiceButton.tsx voice-transcript-live-region.
             if voice.connection.isActive {
-                Text(voice.connection.label)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel(voice.connection.label)
-                    .accessibilityIdentifier("voice-status-label")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(voice.connection.label)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(voice.connection.label)
+                        .accessibilityIdentifier("voice-status-label")
+                    let transcript = voice.connection.transcript
+                    if !transcript.isEmpty {
+                        Text(transcript)
+                            .font(.caption2)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                            .accessibilityLabel("Transcript: \(transcript)")
+                            .accessibilityIdentifier("voice-transcript-label")
+                    }
+                }
             }
         }
         // Stop voice when session becomes read-only (matches tsx useEffect).

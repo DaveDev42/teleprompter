@@ -39,7 +39,6 @@ struct TerminalView: View {
     /// `RelayClient.sendInput(kind:.chat)` by the app; takes (sid, text).
     let onSend: (String, String) -> Void
 
-    @State private var draft = ""
     /// L9: True once ~500 ms has elapsed since the current session was attached,
     /// mirroring the Expo `replaySettled` timer. Prevents flashing the "no output"
     /// empty-state during initial history replay.
@@ -100,7 +99,16 @@ struct TerminalView: View {
                         .accessibilityIdentifier("terminal-empty-state")
                     }
                 }
-                composer
+
+                // Terminal composer — raw keystroke / control-sequence forwarding
+                // with a practical key-row (Esc/Tab/Ctrl/arrows/symbols). Distinct
+                // from the Chat composer because terminal input is keystrokes, not
+                // whole prompts (CLAUDE.md: PTY io lives here, never in Chat).
+                TerminalComposer(
+                    sid: sid,
+                    sendBytes: { bytes in store.terminalSendBytes?(sid, bytes) },
+                    sessionStopped: sessionStopped(sid: sid)
+                )
             }
         }
         // L9: Reset and restart the settle timer whenever the resolved session changes.
@@ -226,24 +234,9 @@ struct TerminalView: View {
         }
     }
 
-    // MARK: - Composer
-
-    private var composer: some View {
-        HStack(spacing: 8) {
-            TextField("Send to session…", text: $draft)
-                .textFieldStyle(.roundedBorder)
-                .autocorrectionDisabled()
-                .onSubmit(send)
-                .accessibilityIdentifier("terminal-input")
-            Button("Send", action: send)
-                .disabled(draft.isEmpty || resolvedSid == nil)
-        }
-        .padding(8)
-    }
-
-    private func send() {
-        guard let sid = resolvedSid, !draft.isEmpty else { return }
-        onSend(sid, draft)
-        draft = ""
+    /// Whether the given session is stopped (no more input accepted).
+    private func sessionStopped(sid: String) -> Bool {
+        let state = store.sessions[sid]?.state ?? ""
+        return state == "stopped" || state == "error"
     }
 }

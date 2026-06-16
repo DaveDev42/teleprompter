@@ -160,6 +160,21 @@ struct QRScannerView: View {
 
     private let cameraAvailable: Bool = hasCameraDevice()
 
+    /// Platform-specific explanation for why the live camera scanner is absent.
+    /// The iOS Simulator has no capture hardware (`AVCaptureDevice` returns nil),
+    /// and native macOS pairs by pasting the code — so guide the user to the
+    /// manual-paste fallback instead of implying a fault.
+    private var unavailableReason: String {
+        #if targetEnvironment(simulator)
+        return "The iOS Simulator has no camera. Run `tp pair new` on your daemon "
+            + "and paste the pairing code below (or open the tp:// link)."
+        #elseif os(macOS)
+        return "Pair on macOS by pasting the code from `tp pair new` below."
+        #else
+        return "The camera is not available on this device.\nPaste your pairing code below."
+        #endif
+    }
+
     var body: some View {
         if cameraAvailable {
             cameraBody
@@ -278,7 +293,7 @@ struct QRScannerView: View {
                 .accessibilityIdentifier("qr-camera-unavailable")
             Text("Camera Not Available")
                 .font(.headline)
-            Text("The camera is not available on this device.\nPaste your pairing code below.")
+            Text(unavailableReason)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

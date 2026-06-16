@@ -7,6 +7,11 @@ import SwiftUI
 /// app host (SessionDetailView → ContentView → RelayClient). No relay ops are
 /// added here — the existing send path is reused unchanged.
 ///
+/// Unlike `TerminalComposer` (which forwards raw keystrokes / control
+/// sequences), the chat composer sends a whole *prompt* as one message:
+/// multi-line, autocorrected, voice-enabled. The two share their input-line
+/// look via `SessionComposerChrome` but keep their own input semantics.
+///
 /// Tranche G (Voice): hosts a `VoiceButton` to the left of the send button.
 /// The `VoiceStore` is created lazily here so each chat session owns its own
 /// voice state; it is wired to call `onSend(sid, refinedPrompt)` when a
@@ -33,44 +38,38 @@ struct ChatComposer: View {
     var body: some View {
         VStack(spacing: 0) {
             Divider()
-            HStack(alignment: .bottom, spacing: 8) {
-                // Voice button (Tranche G) — hidden when no API key or session stopped.
-                VoiceButton(voice: voice, disabled: sessionStopped)
-
-                // Multi-line text field — grows up to ~5 lines then scrolls.
-                TextField(
-                    sessionStopped ? "Session ended" : "Send a message…",
-                    text: $draft,
-                    axis: .vertical
-                )
-                .lineLimit(1...5)
-                .textFieldStyle(.roundedBorder)
-                .focused($focused)
-                .disabled(sessionStopped)
-                .submitLabel(.send)
-                .onSubmit {
-                    // onSubmit fires only for single-line submit (Return key on
-                    // iOS hardware keyboard). The user uses the button for multi-
-                    // line messages. Keep this for fast single-line sends.
-                    sendIfReady()
+            SessionComposerChrome(
+                canSend: canSend,
+                onSend: sendIfReady,
+                sendLabel: "Send message",
+                leading: {
+                    // Voice button (Tranche G) — hidden when no API key or session stopped.
+                    VoiceButton(voice: voice, disabled: sessionStopped)
+                },
+                field: {
+                    // Multi-line text field — grows up to ~5 lines then scrolls.
+                    TextField(
+                        sessionStopped ? "Session ended" : "Send a message…",
+                        text: $draft,
+                        axis: .vertical
+                    )
+                    .lineLimit(1...5)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focused)
+                    .disabled(sessionStopped)
+                    .submitLabel(.send)
+                    .onSubmit {
+                        // onSubmit fires only for single-line submit (Return key on
+                        // iOS hardware keyboard). The user uses the button for multi-
+                        // line messages. Keep this for fast single-line sends.
+                        sendIfReady()
+                    }
+                    .accessibilityLabel("Message input")
+                    .accessibilityIdentifier("chat-input")
                 }
-                .accessibilityLabel("Message input")
-                .accessibilityIdentifier("chat-input")
-
-                // Send button
-                Button(action: sendIfReady) {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(canSend ? Color.accentColor : Color.secondary)
-                }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
-                .accessibilityLabel("Send message")
-                .accessibilityIdentifier("chat-send")
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            )
         }
+        .background(.bar)
         .onAppear {
             // Wire up VoiceStore dependencies.
             voice.sessionStore = sessionStore

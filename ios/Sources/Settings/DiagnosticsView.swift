@@ -9,8 +9,15 @@ import SwiftUI
 /// M12: Exposes RTT metric with a "Ping" button that triggers an on-demand
 /// relay.ping and displays the round-trip time with a VoiceOver announcement.
 ///
-/// Sections mirror the old app: Build, Connection, Relay/Pairing, E2EE Crypto
-/// (tp-core round-trip), Session Summary.
+/// **Relay-grouped layout:** because one app can pair to many daemons across
+/// *multiple relays* (N:N), the panel is split into:
+///   - **GLOBAL** — facts independent of any relay (build, platform, tp-core
+///     FFI, E2EE crypto self-test, session totals).
+///   - **One section per distinct relay URL** — each daemon reached through that
+///     relay nests its WS state / E2EE status / RTT underneath, so the user can
+///     reason about connectivity per relay endpoint rather than a flat list.
+/// When there are no pairings the relay area shows a friendly empty state, not
+/// an error-looking blank (the absence of a connection is expected, not a bug).
 struct DiagnosticsView: View {
     /// Rust-core FFI self-check result, forwarded from the app shell.
     let coreStatus: String
@@ -23,13 +30,32 @@ struct DiagnosticsView: View {
 
     @State private var daemonIds: [String] = []
 
+    /// A relay endpoint and the daemons reached through it.
+    private struct RelayGroup: Identifiable {
+        let relayURL: String
+        let daemonIds: [String]
+        var id: String { relayURL }
+    }
+
+    /// Group the paired daemons by their relay URL. Daemons whose pairing can't
+    /// be loaded fall into an "(unknown relay)" bucket so they're never dropped.
+    private var relayGroups: [RelayGroup] {
+        var byRelay: [String: [String]] = [:]
+        var order: [String] = []
+        for did in daemonIds {
+            let url = (try? PairingStore.shared.load(daemonId: did))?.relayURL ?? "(unknown relay)"
+            if byRelay[url] == nil { order.append(url) }
+            byRelay[url, default: []].append(did)
+        }
+        return order.map { RelayGroup(relayURL: $0, daemonIds: byRelay[$0] ?? []) }
+    }
+
     var body: some View {
         List {
-            buildSection
-            connectionSection
-            relayPairingSection
+            globalSection
             cryptoSection
             sessionSummarySection
+            relaySections
         }
         #if os(iOS)
         .listStyle(.insetGrouped)
@@ -39,71 +65,90 @@ struct DiagnosticsView: View {
         .onAppear { daemonIds = PairingStore.shared.daemonIds() }
     }
 
-    // MARK: Build / Version
+    // MARK: GLOBAL (relay-independent)
 
-    private var buildSection: some View {
-        Section("BUILD") {
+    private var globalSection: some View {
+        Section {
             DiagRow(label: "Version", value: appVersion)
             DiagRow(label: "Bundle ID", value: Bundle.main.bundleIdentifier ?? "—")
             DiagRow(label: "Platform", value: platformString)
             DiagRow(label: "tp-core FFI", value: coreStatus)
-        }
-    }
-
-    // MARK: Connection
-
-    private var connectionSection: some View {
-        Section("CONNECTION") {
             DiagRow(label: "Paired Daemons", value: "\(daemonIds.count)")
-            // H10: relay WS state from RelayClient.state via PairingViewModel.
-            if let pairings {
-                ForEach(pairings.daemonIds, id: \.self) { did in
-                    DiagRow(
-                        label: "Relay WS (\(String(did.prefix(8))))",
-                        value: relayStateString(for: did, pairings: pairings)
-                    )
-                }
-                if pairings.daemonIds.isEmpty {
-                    DiagRow(label: "Relay WS", value: "No pairings")
-                }
-            } else {
-                DiagRow(label: "Relay WS", value: "—")
-            }
-            // H10: active session count from SessionStore.
+            DiagRow(label: "Relay Endpoints", value: "\(relayGroups.count)")
+            // Active session — relay-independent summary of the running session.
             if let store = sessionStore {
                 DiagRow(
                     label: "Active Session",
                     value: store.sessions.values.first(where: { $0.state == "running" })
                         .map { String($0.sid.prefix(12)) } ?? "None"
                 )
-            } else {
-                DiagRow(label: "Active Session", value: "—")
+            }
+        } header: {
+            Text("GLOBAL")
+        } footer: {
+            Text("Facts that do not depend on any relay connection.")
+        }
+    }
+
+    // MARK: Per-relay sections
+
+    @ViewBuilder
+    private var relaySections: some View {
+        if daemonIds.isEmpty {
+            Section("RELAYS") {
+                ContentUnavailableView {
+                    Label("No pairings yet", systemImage: "antenna.radiowaves.left.and.right.slash")
+                } description: {
+                    Text("Pair a daemon (Daemons tab) to see its relay connection here.")
+                }
+            }
+        } else {
+            ForEach(relayGroups) { group in
+                Section {
+                    ForEach(group.daemonIds, id: \.self) { did in
+                        daemonRows(for: did)
+                    }
+                } header: {
+                    relayHeader(group)
+                }
             }
         }
     }
 
-    // MARK: Relay / Pairing
+    /// Section header for a relay group: the relay URL + an aggregate reachability
+    /// dot derived from whether any daemon on this relay is online.
+    @ViewBuilder
+    private func relayHeader(_ group: RelayGroup) -> some View {
+        let anyOnline = pairings.map { p in
+            group.daemonIds.contains { p.isOnline($0) }
+        } ?? false
+        HStack(spacing: 6) {
+            Circle()
+                .fill(anyOnline ? Color.green : Color.secondary)
+                .frame(width: 8, height: 8)
+            Text(group.relayURL)
+                .font(.caption)
+                .textCase(nil)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Relay \(group.relayURL), \(anyOnline ? "online" : "offline")")
+    }
 
-    private var relayPairingSection: some View {
-        Section("RELAY / PAIRING") {
-            if daemonIds.isEmpty {
-                DiagRow(label: "Pairing", value: "None")
-            } else {
-                ForEach(daemonIds, id: \.self) { did in
-                    let pairing = try? PairingStore.shared.load(daemonId: did)
-                    Group {
-                        DiagRow(label: "Daemon ID", value: did)
-                        DiagRow(label: "Relay URL", value: pairing?.relayURL ?? "—")
-                        // H10: E2EE status from PairingViewModel.isOnline / isConnected.
-                        DiagRow(
-                            label: "E2EE",
-                            value: e2eeStatusString(for: did)
-                        )
-                        // M12: RTT row with Ping button.
-                        rttRow(for: did)
-                    }
-                }
-            }
+    /// The rows for a single daemon nested under its relay group.
+    @ViewBuilder
+    private func daemonRows(for did: String) -> some View {
+        let label = pairings?.label(for: did)
+        DiagRow(label: "Daemon", value: label.map { "\($0) (\(String(did.prefix(8))))" }
+            ?? String(did.prefix(12)))
+        if let pairings {
+            DiagRow(label: "Relay WS", value: relayStateString(for: did, pairings: pairings))
+            DiagRow(label: "E2EE", value: e2eeStatusString(for: did))
+            rttRow(for: did)
+        } else {
+            DiagRow(label: "Relay WS", value: "—")
+            DiagRow(label: "E2EE", value: "—")
         }
     }
 
@@ -146,7 +191,6 @@ struct DiagnosticsView: View {
 
     private var cryptoSection: some View {
         Section("E2EE CRYPTO (tp-core)") {
-            DiagRow(label: "Platform", value: platformString)
             DiagRow(label: "Core self-test", value: cryptoSummary)
 
             Button {

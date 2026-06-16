@@ -190,19 +190,40 @@ final class PcmAudioPlayer: VoiceAudioPlayerProtocol {
         }
 
         // Sequential scheduling: queue each buffer to start immediately after the previous one.
+        // L10: For the first chunk, anchor nextPlayTime from the render-time of the
+        // scheduled buffer rather than lastRenderTime (which is a past timestamp and
+        // causes chunk overlap or gaps).  We schedule at nil (immediate), then convert
+        // the player-time of the scheduled buffer's start into the host-timeline via
+        // nodeTime(forPlayerTime:).  If the conversion isn't available yet (the
+        // player hasn't rendered its first frame), we fall back to a small fixed
+        // pre-roll so the second chunk queues cleanly.  This mirrors the TypeScript
+        // AudioPlayer's monotonically-advancing currentTime.
         let sampleRate = format.sampleRate
+        let frameDuration = Double(samples.count) / sampleRate
         if let next = nextPlayTime {
             player.scheduleBuffer(pcmBuffer, at: next, options: [], completionHandler: nil)
-            let frameDuration = Double(samples.count) / sampleRate
             let nextSample = next.sampleTime + AVAudioFramePosition(frameDuration * sampleRate)
             nextPlayTime = AVAudioTime(sampleTime: nextSample, atRate: sampleRate)
         } else {
-            // First chunk: schedule immediately.
+            // First chunk: schedule at nil (immediate play after player.play() in start()).
             player.scheduleBuffer(pcmBuffer, at: nil, options: [], completionHandler: nil)
-            let now = player.lastRenderTime ?? AVAudioTime(sampleTime: 0, atRate: sampleRate)
-            let frameDuration = Double(samples.count) / sampleRate
-            let nextSample = now.sampleTime + AVAudioFramePosition(frameDuration * sampleRate)
-            nextPlayTime = AVAudioTime(sampleTime: nextSample, atRate: sampleRate)
+            // Derive the anchor from the actual scheduled start time so subsequent
+            // chunks queue contiguously regardless of when lastRenderTime was sampled.
+            // playerTime(atHostTime:) / nodeTime(forPlayerTime:) may not be available
+            // on the very first frame; use a small pre-roll constant in that case.
+            let preRollFrames = AVAudioFramePosition(sampleRate * 0.05) // 50 ms pre-roll
+            let anchorSample: AVAudioFramePosition
+            if let renderTime = player.lastRenderTime,
+               renderTime.isSampleTimeValid,
+               let playerTime = player.playerTime(forNodeTime: renderTime),
+               playerTime.isSampleTimeValid {
+                // Anchor: current player-timeline position + duration of this chunk.
+                anchorSample = playerTime.sampleTime + AVAudioFramePosition(frameDuration * sampleRate)
+            } else {
+                // Fallback: pre-roll so the next chunk lands slightly in the future.
+                anchorSample = preRollFrames + AVAudioFramePosition(frameDuration * sampleRate)
+            }
+            nextPlayTime = AVAudioTime(sampleTime: anchorSample, atRate: sampleRate)
         }
 
         if !eng.isRunning { try? eng.start() }

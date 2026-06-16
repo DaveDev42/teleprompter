@@ -68,3 +68,33 @@ receive() main-actor hop (safe under Swift 5; delegateQueue=.main), offline-stor
 (diagnostics-only counter; relay's 10-frame cache is the real primitive), APNs token forwarding
 (device-gated scaffold), foreground push suppression (APNs entitlement intentionally absent),
 theme-change VoiceOver announcement (native Picker announces selection itself).
+
+## Post-merge correctness review (2026-06) — 12 additional bugs in the parity fixes themselves
+
+After Batch A–E merged, a second adversarial review (`wf_070e82cf-95b`, 17 agents) of the
+~1,650 lines of newly-merged Swift found **12 confirmed defects, 0 false-positives** — bugs
+that compiled and passed the 8-marker smoke but broke at runtime (the exact failure class
+the smoke harness cannot catch). Notably, several of the *first-pass fixes were themselves
+broken*. Fixed across #677–#680, then a third review of the fix diffs confirmed **12/12 OK,
+no new regressions**. Integrated main: iOS Simulator smoke 8/8 + XCTest 98/98 green.
+
+HIGH:
+- **#677** kx re-exchange (RelayClient) derived session keys from the OLD frontend keypair
+  while sending the NEW one to the daemon → guaranteed AEAD mismatch on every daemon restart
+  (the H5 fix itself was broken). Fix: generate+send new keypair first, derive keys from it.
+- **#678/#679** `removeSession`/`removeSessions` left stale entries in `sessionsByDaemon` →
+  deleted sessions reappeared on the next hello from any daemon (H3 ghost-row class, via the
+  delete path). Fix: purge the sid from every daemon bucket + 2 regression tests.
+- **#678/#679** M13 `pendingSid` set on notification tap but never consumed → session detail
+  never opened + leaked (spurious tab switches). Fix: controlled `NavigationStack(path:)`.
+- **#678/#679** M9 local daemon rename never refreshed the observable `labels` cache →
+  DaemonRow showed the stale name. Fix: `refreshLabels()` after persist.
+
+MEDIUM: #677 resume-auth double `scheduleReconnect` (orphaned timer, ineffective disconnect);
+#677 `helloReceived` never reset on reconnect (dead hello-fallback) — split into sticky
+`frameOkEmitted` marker-guard; #677 RTT props data race (→ main-actor confined);
+#680 chat near-bottom auto-scroll guard self-defeated on working-indicator insertion (→
+GeometryReader); #678/#679 create-failure toast false-positive on concurrent delete (→ sid-set diff).
+
+LOW: #680 UserChatCard ignored SettingsStore font; dead `@Environment(\.openURL)`; voice PCM
+50 ms fallback gap between chunks 1–2.

@@ -32,6 +32,7 @@ jobs:
       - name: Type check
         run: |
           pids=()
+          npx tsc --noEmit -p packages/protocol/tsconfig.json & pids+=($!)
           npx tsc --noEmit -p packages/daemon/tsconfig.json & pids+=($!)
           npx tsc --noEmit -p apps/cli/tsconfig.json & pids+=($!)
           npx tsc --noEmit -p packages/relay/tsconfig.json & pids+=($!)
@@ -80,3 +81,31 @@ jobs:
             echo "WARNING: Unexpected output — runner may not have spawned"
             cat /tmp/tp-smoke.log
           fi
+
+  # Rust core (tp-core FFI + tp-proto message-type parity). Runs clippy as a
+  # hard gate (-D warnings; the default lint set is clean at HEAD) and the full
+  # test suite, including the TS↔Rust golden vectors (wire_vectors.rs,
+  # message_vectors.rs) that prove byte-exact parity. Toolchain is pinned by
+  # rust/rust-toolchain.toml. `cargo fmt --check` is added in a follow-up once
+  # the tree is reflowed under rustfmt.toml.
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      # Pin to the same channel as rust/rust-toolchain.toml so the action's
+      # pre-install matches what rustup would auto-fetch (no double toolchain).
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test (incl. golden vectors)
+        run: cargo test --workspace

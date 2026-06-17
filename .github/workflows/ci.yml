@@ -82,12 +82,16 @@ jobs:
             cat /tmp/tp-smoke.log
           fi
 
-  # Rust core (tp-core FFI + tp-proto message-type parity). Runs clippy as a
-  # hard gate (-D warnings; the default lint set is clean at HEAD) and the full
-  # test suite, including the TS↔Rust golden vectors (wire_vectors.rs,
-  # message_vectors.rs) that prove byte-exact parity. Toolchain is pinned by
-  # rust/rust-toolchain.toml. `cargo fmt --check` is added in a follow-up once
-  # the tree is reflowed under rustfmt.toml.
+  # Rust core (tp-core FFI + tp-proto message-type parity). Lint severity is the
+  # `[workspace.lints]` table in rust/Cargo.toml — NOT a CLI flag — so the policy
+  # lives in one place and `cargo clippy` (local) and CI agree byte-for-byte:
+  # `clippy::all = "deny"` is the hard gate, `clippy::pedantic = "warn"` surfaces
+  # stricter suggestions without blocking (ratchet to deny later). We deliberately
+  # do NOT pass `-- -D warnings`: that flag would over-promote the pedantic group
+  # to errors and break the build. `cargo fmt --check` enforces rustfmt.toml. The
+  # test suite includes the TS↔Rust golden vectors (wire_vectors.rs,
+  # message_vectors.rs) that prove byte-exact parity. Toolchain pinned by
+  # rust/rust-toolchain.toml.
   rust:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -105,7 +109,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      - name: Clippy (deny warnings)
-        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Format check
+        run: cargo fmt --all -- --check
+      - name: Clippy (severity from [workspace.lints]; all=deny gates)
+        run: cargo clippy --workspace --all-targets
       - name: Test (incl. golden vectors)
         run: cargo test --workspace

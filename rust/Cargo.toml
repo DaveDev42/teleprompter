@@ -12,6 +12,9 @@ members = ["tp-core", "tp-proto"]
 
 [workspace.package]
 edition = "2021"
+# MSRV — keep in step with rust/rust-toolchain.toml. Declaring it makes a build
+# on an older compiler fail with a clear message instead of a cryptic error.
+rust-version = "1.96"
 license = "MIT"
 repository = "https://github.com/DaveDev42/teleprompter"
 

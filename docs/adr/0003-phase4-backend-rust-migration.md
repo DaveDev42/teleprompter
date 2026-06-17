@@ -1,6 +1,6 @@
 # ADR-0003 — Phase 4 백엔드 Rust 이관 (staged, dual-run cutover)
 
-- 상태: **Proposed** (2026-06-17) — 승인 대기 (Dave)
+- 상태: **Accepted** (2026-06-17, Dave) — **Stage 0 ✅ 완료** (2026-06-18, `tp-proto` 크레이트 + 106-케이스 골든벡터 green). Stage 1–5 는 각 직전 gate 통과 조건부.
 - 결정자: Dave (제안: Claude Code 세션)
 - 관련: [ADR-0001 §2.3](./0001-full-native-rewrite-swift-rust.md) (백엔드 최종 Rust 이관 = 후순위 Phase 로 이미 합의됨) 을 **구체화**한다. 이 ADR 은 그 "어떻게"를 staged plan 으로 박제한다.
 - 근거 자료: 5-subsystem 적대적 서베이 워크플로 (`relay/daemon/runner/protocol/cli` 라이브 HEAD 리딩 + opus 합성, 2026-06-17). file:line 인용은 그 서베이 산출물에 grounding.
@@ -58,10 +58,11 @@ ADR-0001 §3 및 `.claude/rules/{protocol,relay-capacity}.md` SoT 와 일치 —
 
 > 원칙: 매 stage 후 `tp` 가 main 에서 계속 작동. leaf-most / `tp-core`-overlap 최대 / 리스크 최소 우선.
 
-### Stage 0 — 워크스페이스 + 메시지 타입 parity (behavior 변화 0, cutover 0)
+### Stage 0 — 워크스페이스 + 메시지 타입 parity (behavior 변화 0, cutover 0) — ✅ 완료 (2026-06-17)
 - **포트:** serde 메시지 타입 enum + parse-boundary 등가물(`parseRelayClientMessage`/`parseIpcMessage`/`parseControlMessage`, 관대한 `Label` 디코더)을 `tp-core` 형제 크레이트로. 랜덤 `generate_keypair`(`OsRng`) 추가(`tp-core` 는 결정적 `kx_seed_keypair` 만 보유).
 - **유지:** 모든 런타임 TS.
 - **gate:** `message-vectors.json` — TS 직렬화 → Rust 필드별 역직렬화. `Label` 4-shape 호환 벡터(`''`, `'Office Mac'`, `{set:true,value}`, `{set:false}`, null). **첫 CI gate, 이후 모든 stage 의 선행조건.**
+- **구현 결과:** `rust/tp-proto/` 형제 크레이트(host-only rlib, xcframework 미포함). 4개 파스 boundary 를 **수동 fallible parse**(`parse_*(&serde_json::Value) -> Option<T>`)로 포팅 — serde derive-deserialize 가 아니라 TS predicate 게이트를 순서대로 재현(null-vs-absent, 정수값 float `Number.isInteger(2.0)`, 관대한 `Label` legacy-string read 의 3개 발산을 정확히 보존). `scripts/gen-message-vectors.ts` 가 **라이브 `@teleprompter/protocol` 가드**를 import 해 accept/reject 벡터를 생성(`relayClient=25, ipc=54, control=9, label=18` = 106 케이스). `tests/message_vectors.rs` 가 각 raw 를 Rust 파서로 통과시켜 accept/reject parity + 직렬화 동등성을 검증(JS 의 단일 number 타입을 반영해 `Number(1)`==`Number(1.0)` 를 값 기준 `json_eq` 로 비교). **`cargo test -p tp-proto` = 22 unit + 4 golden green.** TS 런타임 변경 0 (git status = `rust/` + `scripts/` + `docs/` 만).
 
 ### Stage 1 — Relay (stateless, dual-run 가장 쉬움, 절대 복호화 안 함)
 - **포트:** Rust relay (axum + tokio-tungstenite) relay protocol v2; resume-token HMAC; push-seal(`tp-core` BLAKE2b 재사용); APNs JWT + HTTP/2(`reqwest` http2).
@@ -121,4 +122,4 @@ ADR-0001 §3 및 `.claude/rules/{protocol,relay-capacity}.md` SoT 와 일치 —
 
 ---
 
-**다음 행동:** 이 ADR 이 **Accepted** 되면 Stage 0 (메시지 타입 골든벡터 크레이트) 부터 착수한다. 그 전에는 코드 cutover 없음.
+**다음 행동:** Stage 0 (메시지 타입 골든벡터 크레이트) ✅ 완료. 다음은 **Stage 1 (Rust relay, dual-run second-port)** — `tp-core` codec/E2EE 를 재사용하는 axum+tokio-tungstenite relay protocol v2 포팅. Stage 1 착수 전 §6.7~6.9 크레이트/시크릿공유/soak 하니스 결정 필요.

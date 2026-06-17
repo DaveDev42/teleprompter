@@ -1,0 +1,1612 @@
+{
+  "relayClient": [
+    {
+      "name": "auth-daemon",
+      "raw": {
+        "t": "relay.auth",
+        "role": "daemon",
+        "daemonId": "d1",
+        "token": "tok",
+        "v": 2
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.auth",
+        "role": "daemon",
+        "daemonId": "d1",
+        "token": "tok",
+        "v": 2
+      }
+    },
+    {
+      "name": "auth-frontend-with-fid",
+      "raw": {
+        "t": "relay.auth",
+        "role": "frontend",
+        "daemonId": "d1",
+        "token": "tok",
+        "v": 2,
+        "frontendId": "f1"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.auth",
+        "role": "frontend",
+        "daemonId": "d1",
+        "token": "tok",
+        "v": 2,
+        "frontendId": "f1"
+      }
+    },
+    {
+      "name": "auth-resume",
+      "raw": {
+        "t": "relay.auth.resume",
+        "token": "signed.tok",
+        "v": 2
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.auth.resume",
+        "token": "signed.tok",
+        "v": 2
+      }
+    },
+    {
+      "name": "register",
+      "raw": {
+        "t": "relay.register",
+        "daemonId": "d1",
+        "proof": "pf",
+        "token": "tok",
+        "v": 2
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.register",
+        "daemonId": "d1",
+        "proof": "pf",
+        "token": "tok",
+        "v": 2
+      }
+    },
+    {
+      "name": "kx",
+      "raw": {
+        "t": "relay.kx",
+        "ct": "ciphertext",
+        "role": "frontend"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.kx",
+        "ct": "ciphertext",
+        "role": "frontend"
+      }
+    },
+    {
+      "name": "pub",
+      "raw": {
+        "t": "relay.pub",
+        "sid": "s1",
+        "ct": "ct",
+        "seq": 7
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.pub",
+        "sid": "s1",
+        "ct": "ct",
+        "seq": 7
+      }
+    },
+    {
+      "name": "pub-seq-integer-float",
+      "raw": {
+        "t": "relay.pub",
+        "sid": "s1",
+        "ct": "ct",
+        "seq": 2
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.pub",
+        "sid": "s1",
+        "ct": "ct",
+        "seq": 2
+      }
+    },
+    {
+      "name": "sub-with-after",
+      "raw": {
+        "t": "relay.sub",
+        "sid": "s1",
+        "after": 3
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.sub",
+        "sid": "s1",
+        "after": 3
+      }
+    },
+    {
+      "name": "sub-no-after",
+      "raw": {
+        "t": "relay.sub",
+        "sid": "s1"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.sub",
+        "sid": "s1"
+      }
+    },
+    {
+      "name": "unsub",
+      "raw": {
+        "t": "relay.unsub",
+        "sid": "s1"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.unsub",
+        "sid": "s1"
+      }
+    },
+    {
+      "name": "unsub-extra-field-dropped",
+      "raw": {
+        "t": "relay.unsub",
+        "sid": "s1",
+        "evil": "x"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.unsub",
+        "sid": "s1"
+      }
+    },
+    {
+      "name": "ping-no-ts",
+      "raw": {
+        "t": "relay.ping"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.ping"
+      }
+    },
+    {
+      "name": "ping-with-ts",
+      "raw": {
+        "t": "relay.ping",
+        "ts": 12.5
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.ping",
+        "ts": 12.5
+      }
+    },
+    {
+      "name": "push-full",
+      "raw": {
+        "t": "relay.push",
+        "frontendId": "f1",
+        "sealed": "tpps1.1.AAAA",
+        "title": "T",
+        "body": "B",
+        "interruptionLevel": "time-sensitive",
+        "data": {
+          "sid": "s1",
+          "daemonId": "d1",
+          "event": "Stop"
+        }
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.push",
+        "frontendId": "f1",
+        "sealed": "tpps1.1.AAAA",
+        "title": "T",
+        "body": "B",
+        "interruptionLevel": "time-sensitive",
+        "data": {
+          "sid": "s1",
+          "daemonId": "d1",
+          "event": "Stop"
+        }
+      }
+    },
+    {
+      "name": "push-minimal",
+      "raw": {
+        "t": "relay.push",
+        "frontendId": "f1",
+        "sealed": "tpps1.1.AAAA",
+        "title": "T",
+        "body": "B"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.push",
+        "frontendId": "f1",
+        "sealed": "tpps1.1.AAAA",
+        "title": "T",
+        "body": "B"
+      }
+    },
+    {
+      "name": "push-register",
+      "raw": {
+        "t": "relay.push.register",
+        "frontendId": "f1",
+        "token": "deadbeef",
+        "platform": "ios"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.push.register",
+        "frontendId": "f1",
+        "token": "deadbeef",
+        "platform": "ios"
+      }
+    },
+    {
+      "name": "unknown-type",
+      "raw": {
+        "t": "relay.bogus"
+      },
+      "accept": false
+    },
+    {
+      "name": "auth-bad-role",
+      "raw": {
+        "t": "relay.auth",
+        "role": "admin",
+        "daemonId": "d",
+        "token": "t",
+        "v": 2
+      },
+      "accept": false
+    },
+    {
+      "name": "auth-null-fid",
+      "raw": {
+        "t": "relay.auth",
+        "role": "daemon",
+        "daemonId": "d",
+        "token": "t",
+        "v": 2,
+        "frontendId": null
+      },
+      "accept": false
+    },
+    {
+      "name": "pub-seq-noninteger",
+      "raw": {
+        "t": "relay.pub",
+        "sid": "s",
+        "ct": "c",
+        "seq": 1.5
+      },
+      "accept": false
+    },
+    {
+      "name": "ping-null-ts",
+      "raw": {
+        "t": "relay.ping",
+        "ts": null
+      },
+      "accept": false
+    },
+    {
+      "name": "sub-null-after",
+      "raw": {
+        "t": "relay.sub",
+        "sid": "s",
+        "after": null
+      },
+      "accept": false
+    },
+    {
+      "name": "push-null-interruption",
+      "raw": {
+        "t": "relay.push",
+        "frontendId": "f",
+        "sealed": "s",
+        "title": "T",
+        "body": "B",
+        "interruptionLevel": null
+      },
+      "accept": false
+    },
+    {
+      "name": "push-null-data",
+      "raw": {
+        "t": "relay.push",
+        "frontendId": "f",
+        "sealed": "s",
+        "title": "T",
+        "body": "B",
+        "data": null
+      },
+      "accept": false
+    },
+    {
+      "name": "push-missing-sealed",
+      "raw": {
+        "t": "relay.push",
+        "frontendId": "f",
+        "title": "T",
+        "body": "B"
+      },
+      "accept": false
+    },
+    {
+      "name": "push-critical-level",
+      "raw": {
+        "t": "relay.push",
+        "frontendId": "f",
+        "sealed": "s",
+        "title": "T",
+        "body": "B",
+        "interruptionLevel": "critical"
+      },
+      "accept": false
+    },
+    {
+      "name": "push-bad-data",
+      "raw": {
+        "t": "relay.push",
+        "frontendId": "f",
+        "sealed": "s",
+        "title": "T",
+        "body": "B",
+        "data": {
+          "sid": "s"
+        }
+      },
+      "accept": false
+    },
+    {
+      "name": "push-register-bad-platform",
+      "raw": {
+        "t": "relay.push.register",
+        "frontendId": "f",
+        "token": "t",
+        "platform": "web"
+      },
+      "accept": false
+    }
+  ],
+  "ipc": [
+    {
+      "name": "hello-min",
+      "raw": {
+        "t": "hello",
+        "sid": "s",
+        "cwd": "/x",
+        "pid": 42
+      },
+      "accept": true,
+      "json": {
+        "t": "hello",
+        "sid": "s",
+        "cwd": "/x",
+        "pid": 42
+      }
+    },
+    {
+      "name": "hello-full",
+      "raw": {
+        "t": "hello",
+        "sid": "s",
+        "cwd": "/x",
+        "pid": 42,
+        "worktreePath": "/wt",
+        "claudeVersion": "1.2.3"
+      },
+      "accept": true,
+      "json": {
+        "t": "hello",
+        "sid": "s",
+        "cwd": "/x",
+        "pid": 42,
+        "worktreePath": "/wt",
+        "claudeVersion": "1.2.3"
+      }
+    },
+    {
+      "name": "rec-min",
+      "raw": {
+        "t": "rec",
+        "sid": "s",
+        "kind": "io",
+        "ts": 1,
+        "payload": "AAAA"
+      },
+      "accept": true,
+      "json": {
+        "t": "rec",
+        "sid": "s",
+        "kind": "io",
+        "ts": 1,
+        "payload": "AAAA"
+      }
+    },
+    {
+      "name": "rec-full",
+      "raw": {
+        "t": "rec",
+        "sid": "s",
+        "kind": "event",
+        "ts": 1.5,
+        "payload": "AAAA",
+        "ns": "claude",
+        "name": "Stop"
+      },
+      "accept": true,
+      "json": {
+        "t": "rec",
+        "sid": "s",
+        "kind": "event",
+        "ts": 1.5,
+        "payload": "AAAA",
+        "ns": "claude",
+        "name": "Stop"
+      }
+    },
+    {
+      "name": "bye",
+      "raw": {
+        "t": "bye",
+        "sid": "s",
+        "exitCode": 0
+      },
+      "accept": true,
+      "json": {
+        "t": "bye",
+        "sid": "s",
+        "exitCode": 0
+      }
+    },
+    {
+      "name": "bye-nonzero-float",
+      "raw": {
+        "t": "bye",
+        "sid": "s",
+        "exitCode": -1
+      },
+      "accept": true,
+      "json": {
+        "t": "bye",
+        "sid": "s",
+        "exitCode": -1
+      }
+    },
+    {
+      "name": "ack",
+      "raw": {
+        "t": "ack",
+        "sid": "s",
+        "seq": 0
+      },
+      "accept": true,
+      "json": {
+        "t": "ack",
+        "sid": "s",
+        "seq": 0
+      }
+    },
+    {
+      "name": "input",
+      "raw": {
+        "t": "input",
+        "sid": "s",
+        "data": "AAAA"
+      },
+      "accept": true,
+      "json": {
+        "t": "input",
+        "sid": "s",
+        "data": "AAAA"
+      }
+    },
+    {
+      "name": "resize",
+      "raw": {
+        "t": "resize",
+        "sid": "s",
+        "cols": 80,
+        "rows": 24
+      },
+      "accept": true,
+      "json": {
+        "t": "resize",
+        "sid": "s",
+        "cols": 80,
+        "rows": 24
+      }
+    },
+    {
+      "name": "pair-begin-min",
+      "raw": {
+        "t": "pair.begin",
+        "relayUrl": "wss://r"
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.begin",
+        "relayUrl": "wss://r"
+      }
+    },
+    {
+      "name": "pair-begin-full",
+      "raw": {
+        "t": "pair.begin",
+        "relayUrl": "wss://r",
+        "daemonId": "d",
+        "label": {
+          "set": true,
+          "value": "Mac"
+        }
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.begin",
+        "relayUrl": "wss://r",
+        "daemonId": "d",
+        "label": {
+          "set": true,
+          "value": "Mac"
+        }
+      }
+    },
+    {
+      "name": "pair-begin-string-label",
+      "raw": {
+        "t": "pair.begin",
+        "relayUrl": "wss://r",
+        "label": "Office"
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.begin",
+        "relayUrl": "wss://r",
+        "label": {
+          "set": true,
+          "value": "Office"
+        }
+      }
+    },
+    {
+      "name": "pair-begin-ok",
+      "raw": {
+        "t": "pair.begin.ok",
+        "pairingId": "p",
+        "qrString": "tp://...",
+        "daemonId": "d"
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.begin.ok",
+        "pairingId": "p",
+        "qrString": "tp://...",
+        "daemonId": "d"
+      }
+    },
+    {
+      "name": "pair-begin-err",
+      "raw": {
+        "t": "pair.begin.err",
+        "reason": "daemon-id-taken",
+        "message": "taken"
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.begin.err",
+        "reason": "daemon-id-taken",
+        "message": "taken"
+      }
+    },
+    {
+      "name": "pair-begin-err-no-msg",
+      "raw": {
+        "t": "pair.begin.err",
+        "reason": "internal"
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.begin.err",
+        "reason": "internal"
+      }
+    },
+    {
+      "name": "pair-cancel",
+      "raw": {
+        "t": "pair.cancel",
+        "pairingId": "p"
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.cancel",
+        "pairingId": "p"
+      }
+    },
+    {
+      "name": "pair-completed",
+      "raw": {
+        "t": "pair.completed",
+        "pairingId": "p",
+        "daemonId": "d",
+        "label": {
+          "set": false
+        }
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.completed",
+        "pairingId": "p",
+        "daemonId": "d",
+        "label": {
+          "set": false
+        }
+      }
+    },
+    {
+      "name": "pair-completed-absent-label",
+      "raw": {
+        "t": "pair.completed",
+        "pairingId": "p",
+        "daemonId": "d"
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.completed",
+        "pairingId": "p",
+        "daemonId": "d",
+        "label": {
+          "set": false
+        }
+      }
+    },
+    {
+      "name": "pair-cancelled",
+      "raw": {
+        "t": "pair.cancelled",
+        "pairingId": "p"
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.cancelled",
+        "pairingId": "p"
+      }
+    },
+    {
+      "name": "pair-error",
+      "raw": {
+        "t": "pair.error",
+        "pairingId": "p",
+        "reason": "kx-decrypt-failed"
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.error",
+        "pairingId": "p",
+        "reason": "kx-decrypt-failed"
+      }
+    },
+    {
+      "name": "pair-remove",
+      "raw": {
+        "t": "pair.remove",
+        "daemonId": "d"
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.remove",
+        "daemonId": "d"
+      }
+    },
+    {
+      "name": "pair-remove-ok",
+      "raw": {
+        "t": "pair.remove.ok",
+        "daemonId": "d",
+        "notifiedPeers": 1
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.remove.ok",
+        "daemonId": "d",
+        "notifiedPeers": 1
+      }
+    },
+    {
+      "name": "pair-remove-err",
+      "raw": {
+        "t": "pair.remove.err",
+        "daemonId": "d",
+        "reason": "not-found"
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.remove.err",
+        "daemonId": "d",
+        "reason": "not-found"
+      }
+    },
+    {
+      "name": "pair-rename",
+      "raw": {
+        "t": "pair.rename",
+        "daemonId": "d",
+        "label": {
+          "set": true,
+          "value": "New"
+        }
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.rename",
+        "daemonId": "d",
+        "label": {
+          "set": true,
+          "value": "New"
+        }
+      }
+    },
+    {
+      "name": "pair-rename-string-clear",
+      "raw": {
+        "t": "pair.rename",
+        "daemonId": "d",
+        "label": ""
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.rename",
+        "daemonId": "d",
+        "label": {
+          "set": false
+        }
+      }
+    },
+    {
+      "name": "pair-rename-absent-label",
+      "raw": {
+        "t": "pair.rename",
+        "daemonId": "d"
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.rename",
+        "daemonId": "d",
+        "label": {
+          "set": false
+        }
+      }
+    },
+    {
+      "name": "pair-rename-ok",
+      "raw": {
+        "t": "pair.rename.ok",
+        "daemonId": "d",
+        "label": {
+          "set": true,
+          "value": "New"
+        },
+        "notifiedPeers": 2
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.rename.ok",
+        "daemonId": "d",
+        "label": {
+          "set": true,
+          "value": "New"
+        },
+        "notifiedPeers": 2
+      }
+    },
+    {
+      "name": "pair-rename-err",
+      "raw": {
+        "t": "pair.rename.err",
+        "daemonId": "d",
+        "reason": "internal",
+        "message": "boom"
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.rename.err",
+        "daemonId": "d",
+        "reason": "internal",
+        "message": "boom"
+      }
+    },
+    {
+      "name": "session-delete",
+      "raw": {
+        "t": "session.delete",
+        "sid": "s"
+      },
+      "accept": true,
+      "json": {
+        "t": "session.delete",
+        "sid": "s"
+      }
+    },
+    {
+      "name": "session-delete-ok",
+      "raw": {
+        "t": "session.delete.ok",
+        "sid": "s",
+        "wasRunning": true
+      },
+      "accept": true,
+      "json": {
+        "t": "session.delete.ok",
+        "sid": "s",
+        "wasRunning": true
+      }
+    },
+    {
+      "name": "session-delete-err",
+      "raw": {
+        "t": "session.delete.err",
+        "sid": "s",
+        "reason": "not-found"
+      },
+      "accept": true,
+      "json": {
+        "t": "session.delete.err",
+        "sid": "s",
+        "reason": "not-found"
+      }
+    },
+    {
+      "name": "session-prune-all",
+      "raw": {
+        "t": "session.prune",
+        "age": {
+          "kind": "all"
+        },
+        "includeRunning": false,
+        "dryRun": true
+      },
+      "accept": true,
+      "json": {
+        "t": "session.prune",
+        "age": {
+          "kind": "all"
+        },
+        "includeRunning": false,
+        "dryRun": true
+      }
+    },
+    {
+      "name": "session-prune-older",
+      "raw": {
+        "t": "session.prune",
+        "age": {
+          "kind": "olderThan",
+          "ms": 86400000
+        },
+        "includeRunning": true,
+        "dryRun": false
+      },
+      "accept": true,
+      "json": {
+        "t": "session.prune",
+        "age": {
+          "kind": "olderThan",
+          "ms": 86400000
+        },
+        "includeRunning": true,
+        "dryRun": false
+      }
+    },
+    {
+      "name": "session-prune-ok",
+      "raw": {
+        "t": "session.prune.ok",
+        "sids": [
+          "a",
+          "b"
+        ],
+        "runningKilled": 1,
+        "dryRun": false
+      },
+      "accept": true,
+      "json": {
+        "t": "session.prune.ok",
+        "sids": [
+          "a",
+          "b"
+        ],
+        "runningKilled": 1,
+        "dryRun": false
+      }
+    },
+    {
+      "name": "session-prune-err",
+      "raw": {
+        "t": "session.prune.err",
+        "reason": "internal",
+        "partialSids": [
+          "a"
+        ],
+        "partialRunningKilled": 0
+      },
+      "accept": true,
+      "json": {
+        "t": "session.prune.err",
+        "reason": "internal",
+        "partialSids": [
+          "a"
+        ],
+        "partialRunningKilled": 0
+      }
+    },
+    {
+      "name": "doctor-probe",
+      "raw": {
+        "t": "doctor.probe"
+      },
+      "accept": true,
+      "json": {
+        "t": "doctor.probe"
+      }
+    },
+    {
+      "name": "doctor-probe-ok",
+      "raw": {
+        "t": "doctor.probe.ok",
+        "relays": [
+          {
+            "daemonId": "d",
+            "relayUrl": "wss://r",
+            "connected": true,
+            "peerCount": 2
+          }
+        ]
+      },
+      "accept": true,
+      "json": {
+        "t": "doctor.probe.ok",
+        "relays": [
+          {
+            "daemonId": "d",
+            "relayUrl": "wss://r",
+            "connected": true,
+            "peerCount": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "doctor-probe-ok-empty",
+      "raw": {
+        "t": "doctor.probe.ok",
+        "relays": []
+      },
+      "accept": true,
+      "json": {
+        "t": "doctor.probe.ok",
+        "relays": []
+      }
+    },
+    {
+      "name": "unknown",
+      "raw": {
+        "t": "nope"
+      },
+      "accept": false
+    },
+    {
+      "name": "hello-pid-zero",
+      "raw": {
+        "t": "hello",
+        "sid": "s",
+        "cwd": "/x",
+        "pid": 0
+      },
+      "accept": false
+    },
+    {
+      "name": "hello-null-worktree",
+      "raw": {
+        "t": "hello",
+        "sid": "s",
+        "cwd": "/x",
+        "pid": 1,
+        "worktreePath": null
+      },
+      "accept": false
+    },
+    {
+      "name": "rec-bad-ns",
+      "raw": {
+        "t": "rec",
+        "sid": "s",
+        "kind": "io",
+        "ts": 1,
+        "payload": "x",
+        "ns": "bogus"
+      },
+      "accept": false
+    },
+    {
+      "name": "rec-null-ns",
+      "raw": {
+        "t": "rec",
+        "sid": "s",
+        "kind": "io",
+        "ts": 1,
+        "payload": "x",
+        "ns": null
+      },
+      "accept": false
+    },
+    {
+      "name": "rec-bad-kind",
+      "raw": {
+        "t": "rec",
+        "sid": "s",
+        "kind": "nope",
+        "ts": 1,
+        "payload": "x"
+      },
+      "accept": false
+    },
+    {
+      "name": "ack-negative-seq",
+      "raw": {
+        "t": "ack",
+        "sid": "s",
+        "seq": -1
+      },
+      "accept": false
+    },
+    {
+      "name": "resize-zero-cols",
+      "raw": {
+        "t": "resize",
+        "sid": "s",
+        "cols": 0,
+        "rows": 24
+      },
+      "accept": false
+    },
+    {
+      "name": "pair-rename-number-label",
+      "raw": {
+        "t": "pair.rename",
+        "daemonId": "d",
+        "label": 42
+      },
+      "accept": false
+    },
+    {
+      "name": "pair-rename-obj-without-set",
+      "raw": {
+        "t": "pair.rename",
+        "daemonId": "d",
+        "label": {
+          "name": "x"
+        }
+      },
+      "accept": false
+    },
+    {
+      "name": "pair-rename-array-label",
+      "raw": {
+        "t": "pair.rename",
+        "daemonId": "d",
+        "label": [
+          "x"
+        ]
+      },
+      "accept": false
+    },
+    {
+      "name": "pair-begin-number-label",
+      "raw": {
+        "t": "pair.begin",
+        "relayUrl": "wss://r",
+        "label": 5
+      },
+      "accept": false
+    },
+    {
+      "name": "session-prune-older-no-ms",
+      "raw": {
+        "t": "session.prune",
+        "age": {
+          "kind": "olderThan"
+        },
+        "includeRunning": false,
+        "dryRun": false
+      },
+      "accept": false
+    },
+    {
+      "name": "session-prune-truthy-include",
+      "raw": {
+        "t": "session.prune",
+        "age": {
+          "kind": "all"
+        },
+        "includeRunning": 1,
+        "dryRun": false
+      },
+      "accept": false
+    },
+    {
+      "name": "session-delete-ok-truthy-running",
+      "raw": {
+        "t": "session.delete.ok",
+        "sid": "s",
+        "wasRunning": 1
+      },
+      "accept": false
+    },
+    {
+      "name": "doctor-probe-ok-relay-missing-peer",
+      "raw": {
+        "t": "doctor.probe.ok",
+        "relays": [
+          {
+            "daemonId": "d",
+            "relayUrl": "r",
+            "connected": false
+          }
+        ]
+      },
+      "accept": false
+    },
+    {
+      "name": "pair-begin-null-label",
+      "raw": {
+        "t": "pair.begin",
+        "relayUrl": "wss://r",
+        "label": null
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.begin",
+        "relayUrl": "wss://r",
+        "label": {
+          "set": false
+        }
+      }
+    },
+    {
+      "name": "pair-begin-bool-label",
+      "raw": {
+        "t": "pair.begin",
+        "relayUrl": "wss://r",
+        "label": true
+      },
+      "accept": false
+    },
+    {
+      "name": "pair-completed-null-label",
+      "raw": {
+        "t": "pair.completed",
+        "pairingId": "p",
+        "daemonId": "d",
+        "label": null
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.completed",
+        "pairingId": "p",
+        "daemonId": "d",
+        "label": {
+          "set": false
+        }
+      }
+    },
+    {
+      "name": "pair-rename-ok-absent-label",
+      "raw": {
+        "t": "pair.rename.ok",
+        "daemonId": "d",
+        "notifiedPeers": 1
+      },
+      "accept": true,
+      "json": {
+        "t": "pair.rename.ok",
+        "daemonId": "d",
+        "label": {
+          "set": false
+        },
+        "notifiedPeers": 1
+      }
+    }
+  ],
+  "control": [
+    {
+      "name": "unpair",
+      "raw": {
+        "t": "control.unpair",
+        "daemonId": "d",
+        "frontendId": "f",
+        "reason": "rotated",
+        "ts": 123
+      },
+      "accept": true,
+      "json": {
+        "t": "control.unpair",
+        "daemonId": "d",
+        "frontendId": "f",
+        "reason": "rotated",
+        "ts": 123
+      }
+    },
+    {
+      "name": "rename-union",
+      "raw": {
+        "t": "control.rename",
+        "daemonId": "d",
+        "frontendId": "f",
+        "label": {
+          "set": true,
+          "value": "X"
+        },
+        "ts": 1
+      },
+      "accept": true,
+      "json": {
+        "t": "control.rename",
+        "daemonId": "d",
+        "frontendId": "f",
+        "label": {
+          "set": true,
+          "value": "X"
+        },
+        "ts": 1
+      }
+    },
+    {
+      "name": "rename-legacy-string",
+      "raw": {
+        "t": "control.rename",
+        "daemonId": "d",
+        "frontendId": "f",
+        "label": "Office Mac",
+        "ts": 1
+      },
+      "accept": true,
+      "json": {
+        "t": "control.rename",
+        "daemonId": "d",
+        "frontendId": "f",
+        "label": {
+          "set": true,
+          "value": "Office Mac"
+        },
+        "ts": 1
+      }
+    },
+    {
+      "name": "rename-absent-label",
+      "raw": {
+        "t": "control.rename",
+        "daemonId": "d",
+        "frontendId": "f",
+        "ts": 1
+      },
+      "accept": true,
+      "json": {
+        "t": "control.rename",
+        "daemonId": "d",
+        "frontendId": "f",
+        "label": {
+          "set": false
+        },
+        "ts": 1
+      }
+    },
+    {
+      "name": "rename-garbage-label-tolerated",
+      "raw": {
+        "t": "control.rename",
+        "daemonId": "d",
+        "frontendId": "f",
+        "label": 42,
+        "ts": 1
+      },
+      "accept": true,
+      "json": {
+        "t": "control.rename",
+        "daemonId": "d",
+        "frontendId": "f",
+        "label": {
+          "set": false
+        },
+        "ts": 1
+      }
+    },
+    {
+      "name": "unknown",
+      "raw": {
+        "t": "control.bogus"
+      },
+      "accept": false
+    },
+    {
+      "name": "unpair-bad-reason",
+      "raw": {
+        "t": "control.unpair",
+        "daemonId": "d",
+        "frontendId": "f",
+        "reason": "nope",
+        "ts": 1
+      },
+      "accept": false
+    },
+    {
+      "name": "unpair-missing-ts",
+      "raw": {
+        "t": "control.unpair",
+        "daemonId": "d",
+        "frontendId": "f",
+        "reason": "rotated"
+      },
+      "accept": false
+    },
+    {
+      "name": "rename-missing-daemonid",
+      "raw": {
+        "t": "control.rename",
+        "frontendId": "f",
+        "label": "x",
+        "ts": 1
+      },
+      "accept": false
+    },
+    {
+      "name": "unpair-noninteger-ts",
+      "raw": {
+        "t": "control.unpair",
+        "daemonId": "d",
+        "frontendId": "f",
+        "reason": "rotated",
+        "ts": 1.5
+      },
+      "accept": true,
+      "json": {
+        "t": "control.unpair",
+        "daemonId": "d",
+        "frontendId": "f",
+        "reason": "rotated",
+        "ts": 1.5
+      }
+    },
+    {
+      "name": "rename-null-ts",
+      "raw": {
+        "t": "control.rename",
+        "daemonId": "d",
+        "frontendId": "f",
+        "label": "x",
+        "ts": null
+      },
+      "accept": false
+    },
+    {
+      "name": "rename-absent-ts",
+      "raw": {
+        "t": "control.rename",
+        "daemonId": "d",
+        "frontendId": "f",
+        "label": "x"
+      },
+      "accept": false
+    },
+    {
+      "name": "unpair-absent-reason",
+      "raw": {
+        "t": "control.unpair",
+        "daemonId": "d",
+        "frontendId": "f",
+        "ts": 1
+      },
+      "accept": false
+    }
+  ],
+  "label": [
+    {
+      "name": "null",
+      "raw": null,
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "string",
+      "raw": "Office Mac",
+      "wire": {
+        "set": true,
+        "value": "Office Mac"
+      },
+      "kxOrKeep": {
+        "set": true,
+        "value": "Office Mac"
+      }
+    },
+    {
+      "name": "string-padded",
+      "raw": "  Office Mac  ",
+      "wire": {
+        "set": true,
+        "value": "Office Mac"
+      },
+      "kxOrKeep": {
+        "set": true,
+        "value": "Office Mac"
+      }
+    },
+    {
+      "name": "string-empty",
+      "raw": "",
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "string-whitespace",
+      "raw": "   ",
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "union-set",
+      "raw": {
+        "set": true,
+        "value": "x"
+      },
+      "wire": {
+        "set": true,
+        "value": "x"
+      },
+      "kxOrKeep": {
+        "set": true,
+        "value": "x"
+      }
+    },
+    {
+      "name": "union-set-padded",
+      "raw": {
+        "set": true,
+        "value": "  x  "
+      },
+      "wire": {
+        "set": true,
+        "value": "x"
+      },
+      "kxOrKeep": {
+        "set": true,
+        "value": "x"
+      }
+    },
+    {
+      "name": "union-set-empty-value",
+      "raw": {
+        "set": true,
+        "value": ""
+      },
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "union-set-nonstring-value",
+      "raw": {
+        "set": true,
+        "value": 42
+      },
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "union-set-missing-value",
+      "raw": {
+        "set": true
+      },
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "union-unset",
+      "raw": {
+        "set": false
+      },
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "union-unset-stray-value",
+      "raw": {
+        "set": false,
+        "value": "x"
+      },
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "set-non-bool",
+      "raw": {
+        "set": 1
+      },
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "set-string-true",
+      "raw": {
+        "set": "true"
+      },
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "object-without-set",
+      "raw": {
+        "name": "x"
+      },
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "number",
+      "raw": 42,
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "array",
+      "raw": [
+        "x"
+      ],
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "bool",
+      "raw": true,
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    }
+  ]
+}

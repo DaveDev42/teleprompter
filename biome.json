@@ -20,7 +20,7 @@
         "useExhaustiveDependencies": "warn"
       },
       "suspicious": {
-        "noExplicitAny": "warn",
+        "noExplicitAny": "error",
         "noControlCharactersInRegex": "off",
         "noArrayIndexKey": "warn",
         "noImplicitAnyLet": "warn"

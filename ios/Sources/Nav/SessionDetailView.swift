@@ -93,13 +93,23 @@ struct SessionDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         // FIX #5: gate macOS session commands — a detail screen is on-screen.
-        .onAppear { nav.hasActiveDetail = true }
+        // Depth-counted (detailAppeared/Disappeared) so the appear-before-
+        // disappear order during a ⌘[/⌘] session swap can't strand the gate.
+        .onAppear {
+            nav.detailAppeared()
+            // The terminal view owns the keyboard whenever the Terminal pane is
+            // showing — seed the gate from the initial pane.
+            nav.terminalPaneActive = (pane == .terminal)
+        }
         .onDisappear {
-            nav.hasActiveDetail = false
+            nav.detailDisappeared()
             // FIX #4: a torn-down composer can't fire its own focus-loss change,
             // so clear the flag here too — otherwise it stays stuck `true` and
             // permanently disables the session shortcuts.
             nav.composerHasFocus = false
+            // The terminal is no longer on screen; release the terminal gate so
+            // the session chords aren't left disabled after this detail closes.
+            nav.terminalPaneActive = false
         }
         // Consume the pane-switch intent (⌃⌘C / ⌘T) and clear it so it fires once.
         .onChange(of: nav.paneIntent) { intent in
@@ -109,8 +119,12 @@ struct SessionDetailView: View {
         }
         // FIX #4: switching panes tears down the previous composer; reset focus so
         // a stale `true` doesn't survive the transition and disable the shortcuts.
-        .onChange(of: pane) { _ in
+        // Also track which pane owns the keyboard: the SwiftTerm view captures
+        // every keystroke on the Terminal pane (FIX #6), so the session chords
+        // must be inert there too — not just while a composer TextField is focused.
+        .onChange(of: pane) { newPane in
             nav.composerHasFocus = false
+            nav.terminalPaneActive = (newPane == .terminal)
         }
         // iOS/iPadOS/visionOS: no menu bar — carry the SESSION-scoped chords on
         // hidden zero-opacity buttons that exist only while this detail screen is
@@ -122,28 +136,34 @@ struct SessionDetailView: View {
     }
 
     #if !os(macOS)
-    /// Hidden buttons carrying the session-screen keyboard chords. Each is
-    /// `.disabled(nav.composerHasFocus)` so they go inert while a composer field
-    /// is first responder (FIX #3) — letting the chords reach the composer.
+    /// Hidden buttons carrying the session-screen keyboard chords. Two gating
+    /// tiers mirror `MacCommands`:
+    ///   • Pane switches (⌃⌘C / ⌘T) stay reachable while the Terminal pane owns
+    ///     the keyboard — gated on `composerHasFocus` only — so they remain the
+    ///     escape hatch out of the terminal (FIX #3).
+    ///   • Movement chords (⌘[ / ⌘] / ⌘K) get the full `inputCapturing` gate so
+    ///     they don't steal a keystroke from a focused composer (FIX #3) or the
+    ///     terminal PTY (FIX #6).
     @ViewBuilder
     private var sessionShortcutButtons: some View {
-        let typing = nav.composerHasFocus
+        let composing = nav.composerHasFocus
+        let capturing = nav.inputCapturing
         ZStack {
             Button("") { pane = .chat }
                 .keyboardShortcut("c", modifiers: [.control, .command])
-                .disabled(typing)
+                .disabled(composing)
             Button("") { pane = .terminal }
                 .keyboardShortcut("t", modifiers: .command)
-                .disabled(typing)
+                .disabled(composing)
             Button("") { nav.step(-1) }
                 .keyboardShortcut("[", modifiers: .command)
-                .disabled(typing)
+                .disabled(capturing)
             Button("") { nav.step(1) }
                 .keyboardShortcut("]", modifiers: .command)
-                .disabled(typing)
+                .disabled(capturing)
             Button("") { nav.showQuickSwitcher = true }
                 .keyboardShortcut("k", modifiers: .command)
-                .disabled(typing)
+                .disabled(capturing)
         }
         .opacity(0)
         .accessibilityHidden(true)

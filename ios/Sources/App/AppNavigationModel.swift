@@ -31,11 +31,15 @@ import Foundation
 /// # Focus / availability gates
 ///
 /// `composerHasFocus` is published by the chat/terminal composers while their
-/// `TextField` is first responder; `hasActiveDetail` is true while a
-/// `SessionDetailView` is on screen. Session commands are disabled when either
-/// gate forbids them (`composerHasFocus || !hasActiveDetail`) so the shortcuts
-/// are inert while typing and when no session is open. Tab-nav (⌘1/2/3) is NOT
-/// gated — it stays active everywhere, including while typing.
+/// `TextField` is first responder; `terminalPaneActive` is true while the
+/// Terminal pane (whose SwiftTerm view owns the keyboard outside SwiftUI's
+/// `@FocusState`) is on screen; `hasActiveDetail` is true while a
+/// `SessionDetailView` is on screen. `inputCapturing` = `composerHasFocus ||
+/// terminalPaneActive`. Session-movement commands (⌘[ / ⌘] / ⌘K) are disabled
+/// when `inputCapturing || !hasActiveDetail`, and pane switches (⌃⌘C / ⌘T) only
+/// when `composerHasFocus || !hasActiveDetail` (they stay reachable from the
+/// terminal so the user can always leave it). Tab-nav (⌘1/2/3) is NOT gated — it
+/// stays active everywhere, including while typing.
 @MainActor
 @Observable
 final class AppNavigationModel {
@@ -84,10 +88,46 @@ final class AppNavigationModel {
     /// so a torn-down composer can't leave focus stuck `true`.
     var composerHasFocus: Bool = false
 
-    /// `true` while a `SessionDetailView` is on screen. Gates the macOS session
-    /// commands (and is available to any consumer) so they are inert when no
-    /// session detail is open. `SessionDetailView` sets it on appear/disappear.
-    var hasActiveDetail: Bool = false
+    /// `true` while the Terminal pane is the active pane of the on-screen session
+    /// detail. The SwiftTerm view (a UIView/NSView) becomes first responder and
+    /// receives EVERY hardware keystroke through its own responder chain, NOT
+    /// through a SwiftUI `@FocusState`, so `composerHasFocus` never reflects it.
+    /// Without this gate, ⌘[ / ⌘] / ⌘K would steal keystrokes from the live PTY —
+    /// exactly where bracket/⌘K chords matter most — so those three gate on this
+    /// (via `inputCapturing`). The pane switches (⌃⌘C / ⌘T) deliberately do NOT,
+    /// so they stay reachable as the escape hatch out of the terminal.
+    /// `SessionDetailView` sets this from its `pane` (true ⇔ `.terminal`) and
+    /// clears it on disappear. ⌘F is unaffected — it lives in the TerminalView
+    /// toolbar, not the gated chords.
+    var terminalPaneActive: Bool = false
+
+    /// Number of `SessionDetailView` instances currently on screen. Modeled as a
+    /// depth counter, NOT a bare `Bool`: during a ⌘[ / ⌘] session step (or a ⌘K
+    /// quick-switch) `SessionsTab` replaces `navPath` with a DIFFERENT sid, so
+    /// SwiftUI pushes the incoming detail and pops the outgoing one — and it does
+    /// NOT guarantee `onDisappear(old)` runs before `onAppear(new)`. With a Bool
+    /// toggled per-instance, the common `new.onAppear` → `old.onDisappear` order
+    /// would leave the flag stuck `false` while a detail is still on screen,
+    /// permanently disabling the macOS session commands. Incrementing on appear
+    /// and decrementing on disappear keeps the count ≥ 1 throughout the swap.
+    /// Use `detailAppeared()` / `detailDisappeared()` — do not mutate directly.
+    private(set) var activeDetailCount: Int = 0
+
+    /// `true` while at least one `SessionDetailView` is on screen. Gates the
+    /// macOS session commands (and is available to any consumer) so they are
+    /// inert when no session detail is open.
+    var hasActiveDetail: Bool { activeDetailCount > 0 }
+
+    /// A `SessionDetailView` appeared. Pair with `detailDisappeared()`.
+    func detailAppeared() {
+        activeDetailCount += 1
+    }
+
+    /// A `SessionDetailView` disappeared. Clamped at 0 so an extra disappear
+    /// (defensive) can never drive the count negative.
+    func detailDisappeared() {
+        activeDetailCount = max(0, activeDetailCount - 1)
+    }
 
     // MARK: - Convenience helpers
 
@@ -110,10 +150,19 @@ final class AppNavigationModel {
         showQuickSwitcher = true
     }
 
+    /// `true` while *any* keyboard surface that should swallow the session chords
+    /// is capturing input: a SwiftUI composer `TextField` (`composerHasFocus`) OR
+    /// the SwiftTerm terminal view (`terminalPaneActive`). Session chords are
+    /// inert while this is `true` so they never steal a keystroke from the field
+    /// or the PTY the user is typing into.
+    var inputCapturing: Bool {
+        composerHasFocus || terminalPaneActive
+    }
+
     /// Whether session-scoped shortcuts may fire right now: a detail screen is on
-    /// screen and no composer is capturing keystrokes. Producers can use this to
-    /// drive `.disabled(!nav.sessionCommandsEnabled)`.
+    /// screen and no composer/terminal is capturing keystrokes. Producers can use
+    /// this to drive `.disabled(!nav.sessionCommandsEnabled)`.
     var sessionCommandsEnabled: Bool {
-        hasActiveDetail && !composerHasFocus
+        hasActiveDetail && !inputCapturing
     }
 }

@@ -19,6 +19,15 @@
 - [x] `VoiceButton` 네이티브 오디오 — Expo 스택에서 react-native-audio-api 0.12.2로 구현 (2026-06-11). Swift 재작성 시 AVFoundation/Swift Concurrency 기반으로 재구현 예정 (Phase 3).
 - [x] **온디바이스 voice 백엔드 + 선택형 토글 (2026-06)** — `VoiceBackend` 프로토콜 seam 뒤로 두 백엔드: (a) **온디바이스(오프라인)** = `SFSpeechRecognizer` STT(`requiresOnDeviceRecognition` 지원 시 강제, 무음 타이머 VAD) + **Foundation Models** refine/요약(iOS 26+, `SystemLanguageModel.default.availability` 게이트 + 원문 transcript fallback) + `AVSpeechSynthesizer` TTS, **API 키 불필요**, (b) **OpenAI Realtime**(키 필요, 기존 `RealtimeClient`을 `RealtimeClientBackend` 어댑터로 무변경 보존). Settings 토글(Auto/On-device/OpenAI), 키 없으면 온디바이스 기본값. `VoiceConnectionStatus` 상태머신은 `VoiceStore`가 단독 소유 — `onRefinedPrompt`에서 `.listening` 복원(processing 멈춤 over-fit 수정). `VoiceButton` 게이팅 = 온디바이스 가용 OR 키 존재. `NSSpeechRecognitionUsageDescription` 추가. macOS+iOS smoke 8/8 + XCTest 98/98 green. (실기기 STT 턴 QA = 후속 — Sim/macOS는 마이크 없음.)
 
+### Post-merge correctness audit — #683 voice + #684 shortcuts (2026-06)
+- [x] **머지 후 적대적 정합성 감사 → 6개 confirmed 버그 수정 (2026-06)** — #683/#684 머지 직후 4-lens(state-machine / integration-wiring / platform-availability / focus-input-safety) 적대적 감사 워크플로(각 finding 독립 3인 회의·다수 반박 시 기각, 25 에이전트). 7 candidate→7 confirmed→0 기각. 수정(6개 distinct):
+  - **voice gen-guard 2건** — `VoiceStore.onRefinedPrompt`에 형제 핸들러와 동일한 `generation == gen` 가드 추가 (dispose 후 버퍼된 OpenAI `response.text.done`가 stale 프롬프트 재전송 + `.idle`→listening 부활하던 레이스 차단); 소스단 belt-and-suspenders로 `RealtimeClient.handleMessage` 상단 `guard !disposed`. `OnDeviceVoiceClient.handleRecognition`에 `gen` 파라미터 추가(task 생성 시점 캡처) — `rearm()`가 generation을 bump한 뒤 옛 recognitionTask의 늦은 `isFinal` 콜백이 utterance를 2번 commit하던 중복 제출 차단.
+  - **AVAudioEngine tap 데이터 레이스** — 오디오 렌더 스레드의 tap 클로저가 `@MainActor` 격리 `self.request`를 cross-thread로 읽던 것을 로컬 강참조 `req` 캡처로 교체(UAF/레이스 제거; `removeTap`가 전달 경계 보장).
+  - **`hasActiveDetail` 라이프사이클 레이스** — bare `Bool`(인스턴스별 onAppear/onDisappear 토글)을 `AppNavigationModel`의 depth 카운터(`activeDetailCount`, `detailAppeared/Disappeared`)로 전환 — ⌘[/⌘] 세션 전환 시 appear-before-disappear 순서가 플래그를 stuck-false로 남겨 macOS 세션 커맨드 전부 비활성화하던 것 해소.
+  - **ShortcutHelpSheet iOS 도달 불가** — ⌘/가 `MacCommands`(macOS 전용)에만 배선돼 iOS/iPadOS/visionOS에서 도움말 시트가 dead였음 → `RootView.tabNavShortcuts`에 hidden ⌘/ 버튼 추가.
+  - **터미널 first-responder가 focus 게이트 우회** — SwiftTerm view(UIView/NSView)가 키스트로크를 받는데 `composerHasFocus`(SwiftUI `@FocusState`)에 반영 안 돼 ⌘[/⌘]/⌘K가 라이브 PTY 키 입력을 가로채던 것 → `terminalPaneActive` + `inputCapturing`(=`composerHasFocus || terminalPaneActive`) 2-tier 게이트. 이동 chord(⌘[/⌘]/⌘K)는 `inputCapturing` 게이트, 페인 전환(⌃⌘C/⌘T)은 `composerHasFocus`만 게이트(터미널 탈출용 escape hatch 보존). macOS/iOS 양쪽 동일 적용.
+  - 검증: macOS smoke 8/8 + iOS smoke 8/8 + XCTest 104/104(98+6 TpCore), 적대적 재검증 6/6 PASS(no regression).
+
 ### 미검증 항목 (완료)
 - [x] **Push Notifications 실기기** — APNs push token 발급 + 알림 왕복 E2E 실기기 검증 완료 (2026-06-07, build #59).
 - [x] **N:N 다중 daemon/frontend 회귀** — 2×1 및 2×2 N:N 회귀 테스트 완료.

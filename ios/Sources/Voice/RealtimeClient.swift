@@ -196,6 +196,12 @@ final class RealtimeClient: NSObject {
     }
 
     private func handleMessage(_ json: String) {
+        // Drop frames buffered before dispose() — the URLSession receive
+        // completion can still deliver an already-queued `response.text.done`
+        // after the task is cancelled, which would otherwise fire onRefinedPrompt
+        // on a disposed client. Belt-and-suspenders alongside VoiceStore's
+        // generation guard.
+        guard !disposed else { return }
         guard let data = json.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type_ = obj["type"] as? String else { return }

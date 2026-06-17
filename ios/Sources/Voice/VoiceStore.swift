@@ -266,7 +266,12 @@ final class VoiceStore {
         }
 
         ev.onRefinedPrompt = { [weak self] prompt in
-            guard let self else { return }
+            // Generation guard (matches every sibling handler): a late
+            // `response.text.done` buffered before dispose() must NOT submit a
+            // stale prompt or resurrect the connection from `.idle` after the
+            // user stopped voice. RealtimeClient.handleMessage has no disposed
+            // guard, so a buffered final-text frame can still arrive post-dispose.
+            guard let self, self.generation == gen else { return }
             self.refinedPrompt = prompt
             self.onPromptReady?(prompt)
             // Restore the listening state so the next utterance can start. The

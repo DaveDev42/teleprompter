@@ -80,6 +80,16 @@ final class AppNavigationModel {
     /// and flips this back to `false`.
     var showQuickSwitcher: Bool = false
 
+    // MARK: - Back request (consumed by SessionsTab)
+
+    /// Monotonic token bumped when a gamepad `B` press requests popping the open
+    /// session detail (the controller counterpart of the navigation-bar back
+    /// button). `SessionsTab` observes the change and pops its controlled
+    /// `navPath`. A token (not a `Bool`) so repeated B presses always fire
+    /// `.onChange`. Gated by the producer on `hasActiveDetail`, so a bump only
+    /// arrives when there is something to pop.
+    private(set) var sessionBack: Int = 0
+
     // MARK: - Focus / availability gates
 
     /// `true` while a chat or terminal composer `TextField` is first responder.
@@ -148,6 +158,12 @@ final class AppNavigationModel {
     /// Request the ⌘K quick-switcher sheet.
     func openQuickSwitcher() {
         showQuickSwitcher = true
+    }
+
+    /// Request popping the open session detail (gamepad `B`). Bumps `sessionBack`
+    /// so the `SessionsTab` consumer's `.onChange` fires even on repeated presses.
+    func requestBack() {
+        sessionBack &+= 1
     }
 
     /// `true` while *any* keyboard surface that should swallow the session chords

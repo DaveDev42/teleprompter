@@ -63,6 +63,13 @@ struct SessionsTab: View {
         .onChange(of: nav.sessionStep) { _, _ in
             stepSession(by: nav.stepDirection)
         }
+        // Gamepad B (back): pop the open session detail off the controlled stack.
+        // SessionDetailView.onDisappear keeps the detail-depth counter accurate;
+        // here we just drop the top sid. The producer only bumps `sessionBack`
+        // while `hasActiveDetail`, but guard against an empty stack anyway.
+        .onChange(of: nav.sessionBack) { _, _ in
+            if !navPath.isEmpty { navPath.removeLast() }
+        }
         // ⌘K quick switch: present a sheet over the controlled stack. Tapping a row
         // sets navPath = [sid] (same stack) and dismisses.
         .sheet(isPresented: Bindable(nav).showQuickSwitcher) {
@@ -198,6 +205,19 @@ struct SessionListView: View {
 
     @State private var searchText = ""
 
+    // MARK: - Gamepad roving focus
+    //
+    // The one place native gamepad D-pad/stick focus is bound: a roving
+    // `@FocusState` over the session rows. `GamepadCoordinator` publishes a
+    // monotonic `focusMove` token (+ `focusDelta`) on each direction press and an
+    // `activateToken` on A; we move `focusedSid` over `filteredSessions` (with
+    // wrap) and, on activate, open the focused session via the shared navigator's
+    // `pendingSid` (the same programmatic-push path notification taps use, which
+    // `SessionsTab` already consumes into its controlled `navPath`).
+
+    @FocusState private var focusedSid: String?
+    private let gamepad = GamepadCoordinator.shared
+
     // MARK: - Sorted / filtered sessions
 
     /// All sessions sorted: running first, then by updatedAt descending.
@@ -280,6 +300,35 @@ struct SessionListView: View {
             )
         }
         .toolbar { toolbarContent }
+        // Gamepad D-pad / stick — move the roving focus over the visible rows.
+        // Only acts in normal mode (edit-mode rows aren't focusable navigation
+        // targets) and when this list is on screen with no detail pushed (the
+        // coordinator suppresses bumper/tab actions under a detail, but D-pad
+        // focus-move here is harmless when a detail covers the list anyway).
+        .onChange(of: gamepad.focusMove) { _, _ in
+            moveFocus(by: gamepad.focusDelta)
+        }
+        // Gamepad A — activate the focused row: open it via the shared navigator's
+        // programmatic-push path (SessionsTab consumes pendingSid into navPath).
+        .onChange(of: gamepad.activateToken) { _, _ in
+            guard let sid = focusedSid else { return }
+            SessionNavigator.shared.pendingSid = sid
+        }
+    }
+
+    /// Move the roving `focusedSid` by `delta` over `filteredSessions`, wrapping
+    /// at the ends. With nothing focused, +1 starts at the first row and −1 at
+    /// the last (matching the web bridge's `moveFocus` wrap semantics).
+    private func moveFocus(by delta: Int) {
+        guard delta != 0, !isEditMode else { return }
+        let rows = filteredSessions.map(\.sid)
+        guard !rows.isEmpty else { return }
+        guard let current = focusedSid, let idx = rows.firstIndex(of: current) else {
+            focusedSid = delta > 0 ? rows.first : rows.last
+            return
+        }
+        let next = (idx + (delta > 0 ? 1 : -1) + rows.count) % rows.count
+        focusedSid = rows[next]
     }
 
     // MARK: - Toolbar
@@ -412,10 +461,19 @@ struct SessionListView: View {
             }
             .accessibilityIdentifier("session-\(meta.sid)")
         } else {
-            // Normal mode: navigation to detail.
+            // Normal mode: navigation to detail. `.focused` binds this row to the
+            // gamepad roving-focus state; `.focusable()` makes the row a focus
+            // target on platforms where a List row isn't focusable by default
+            // (macOS/visionOS render a visible focus ring there). On iOS a List
+            // row exposes no visible focus ring, so the D-pad still moves
+            // `focusedSid` and A still opens it — there's just no on-screen ring;
+            // that's an accepted iOS limitation, not a logic gap. Keyboard /
+            // VoiceOver focus is unaffected.
             NavigationLink(value: meta.sid) {
                 SessionRow(meta: meta)
             }
+            .focusable()
+            .focused($focusedSid, equals: meta.sid)
             .accessibilityIdentifier("session-\(meta.sid)")
         }
     }

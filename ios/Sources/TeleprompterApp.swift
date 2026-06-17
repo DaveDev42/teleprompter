@@ -91,6 +91,10 @@ struct TeleprompterApp: App {
         WindowGroup {
             RootView(pairings: pairings, sessionStore: sessionStore, coreStatus: coreStatus,
                      showShortcutHelp: $showShortcutHelp)
+                // Start observing MFi/Xbox/PlayStation controllers. Idempotent —
+                // the coordinator's `started` guard makes re-appearances no-ops.
+                // The tick only runs while ≥1 pad is connected (self-stops at zero).
+                .onAppear { GamepadCoordinator.shared.activate() }
                 .onOpenURL { url in
                     self.log.notice("onOpenURL url=\(url.absoluteString, privacy: .public)")
                     if case let .paired(daemonId) = DeepLinkHandler.handle(url) {

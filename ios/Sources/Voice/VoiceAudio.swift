@@ -1,5 +1,5 @@
-import Foundation
 import AVFoundation
+import Foundation
 import os
 
 // MARK: - Voice audio protocols (matches audio-types.ts)
@@ -106,8 +106,9 @@ final class MicCapture: VoiceAudioCapture {
         // voiceChat mode enables HW echo cancellation so TTS is not re-captured.
         #if !os(macOS)
         let audioSession = AVAudioSession.sharedInstance()
-        try audioSession.setCategory(.playAndRecord, mode: .voiceChat,
-                                     options: [.defaultToSpeaker, .allowBluetoothHFP])
+        try audioSession.setCategory(
+            .playAndRecord, mode: .voiceChat,
+            options: [.defaultToSpeaker, .allowBluetoothHFP])
         try audioSession.setActive(true)
         #endif
 
@@ -181,18 +182,20 @@ final class PcmAudioPlayer: VoiceAudioPlayerProtocol {
     private var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
     private var nextPlayTime: AVAudioTime?
-    private let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
-                                       sampleRate: targetSampleRate,
-                                       channels: 1,
-                                       interleaved: false)!
+    private let format = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32,
+        sampleRate: targetSampleRate,
+        channels: 1,
+        interleaved: false)!
 
     func start() {
-        stop() // tear down any previous engine first (barge-in)
+        stop()  // tear down any previous engine first (barge-in)
 
         #if !os(macOS)
         // Re-activate the session in case stop() deactivated it.
-        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .voiceChat,
-                                                          options: [.defaultToSpeaker, .allowBluetoothHFP])
+        try? AVAudioSession.sharedInstance().setCategory(
+            .playAndRecord, mode: .voiceChat,
+            options: [.defaultToSpeaker, .allowBluetoothHFP])
         try? AVAudioSession.sharedInstance().setActive(true)
         #endif
 
@@ -212,8 +215,11 @@ final class PcmAudioPlayer: VoiceAudioPlayerProtocol {
         let samples = decodePcm16Base64(base64)
         guard !samples.isEmpty else { return }
 
-        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: format,
-                                               frameCapacity: AVAudioFrameCount(samples.count)) else {
+        guard
+            let pcmBuffer = AVAudioPCMBuffer(
+                pcmFormat: format,
+                frameCapacity: AVAudioFrameCount(samples.count))
+        else {
             return
         }
         pcmBuffer.frameLength = AVAudioFrameCount(samples.count)
@@ -248,11 +254,13 @@ final class PcmAudioPlayer: VoiceAudioPlayerProtocol {
             // plus the first chunk's duration so the next chunk queues contiguously.
             let anchorSample: AVAudioFramePosition
             if let renderTime = player.lastRenderTime,
-               renderTime.isSampleTimeValid,
-               let playerTime = player.playerTime(forNodeTime: renderTime),
-               playerTime.isSampleTimeValid {
+                renderTime.isSampleTimeValid,
+                let playerTime = player.playerTime(forNodeTime: renderTime),
+                playerTime.isSampleTimeValid
+            {
                 // Anchor: current player-timeline position + duration of this chunk.
-                anchorSample = playerTime.sampleTime + AVAudioFramePosition(frameDuration * sampleRate)
+                anchorSample =
+                    playerTime.sampleTime + AVAudioFramePosition(frameDuration * sampleRate)
             } else {
                 // Fallback: the first chunk was scheduled at nil (player-timeline 0),
                 // so the next chunk should start exactly one chunk-duration later.
@@ -284,8 +292,8 @@ enum VoiceError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .microphoneUnavailable: return "Microphone unavailable"
-        case .permissionDenied:      return "Microphone permission denied"
-        case .noApiKey:              return "OpenAI API key not set"
+        case .permissionDenied: return "Microphone permission denied"
+        case .noApiKey: return "OpenAI API key not set"
         }
     }
 }

@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import Teleprompter
 
 /// Unit tests for M2 relay connect + frontend auth (ADR-0001 Phase 3).
@@ -14,14 +15,16 @@ import XCTest
 final class RelayAuthTests: XCTestCase {
     // The golden vector secret (`wire-vectors.json` kdf.pairingSecret_hex):
     // 32 incrementing bytes 0x00..0x1f → relayToken a16760de…4e7aa5c9.
-    private let goldenSecret = Data((0 ..< 32).map { UInt8($0) })
+    private let goldenSecret = Data((0..<32).map { UInt8($0) })
     private let goldenRelayToken =
         "a16760de00195ffd72a318d567eca9c2ee0fa7003e7e87cfec03538c4e7aa5c9"
     private let daemonPk = Data(repeating: 0x02, count: 32)
 
-    private func makePairing(daemonId: String = "daemon-test",
-                             frontendId: String = "frontend-A",
-                             relay: String = "wss://relay.tpmt.dev") -> Pairing {
+    private func makePairing(
+        daemonId: String = "daemon-test",
+        frontendId: String = "frontend-A",
+        relay: String = "wss://relay.tpmt.dev"
+    ) -> Pairing {
         Pairing(
             pairingSecret: goldenSecret,
             daemonPublicKey: daemonPk,
@@ -70,8 +73,9 @@ final class RelayAuthTests: XCTestCase {
     /// `v` is the integer 2 (not a string) — the wire guard requires a number.
     func testProtocolVersionIsIntegerTwo() throws {
         XCTAssertEqual(RelayProtocol.version, 2)
-        let data = try JSONEncoder().encode(RelayAuth(
-            daemonId: "d", token: "t", frontendId: "f"))
+        let data = try JSONEncoder().encode(
+            RelayAuth(
+                daemonId: "d", token: "t", frontendId: "f"))
         let json = String(decoding: data, as: UTF8.self)
         XCTAssertTrue(json.contains("\"v\":2"), "v must serialize as a bare number, got: \(json)")
     }
@@ -80,8 +84,8 @@ final class RelayAuthTests: XCTestCase {
 
     func testAuthOkDecodesWithResumeFields() throws {
         let json = """
-        {"t":"relay.auth.ok","daemonId":"daemon-test","resumeToken":"rt-abc","resumeExpiresAt":1750000000000,"resumed":false}
-        """
+            {"t":"relay.auth.ok","daemonId":"daemon-test","resumeToken":"rt-abc","resumeExpiresAt":1750000000000,"resumed":false}
+            """
         let ok = try JSONDecoder().decode(RelayAuthOk.self, from: Data(json.utf8))
         XCTAssertEqual(ok.t, "relay.auth.ok")
         XCTAssertEqual(ok.daemonId, "daemon-test")
@@ -108,8 +112,8 @@ final class RelayAuthTests: XCTestCase {
 
     func testPresenceDecodes() throws {
         let json = """
-        {"t":"relay.presence","daemonId":"daemon-test","online":true,"sessions":["s1","s2"],"lastSeen":1750000000000}
-        """
+            {"t":"relay.presence","daemonId":"daemon-test","online":true,"sessions":["s1","s2"],"lastSeen":1750000000000}
+            """
         let p = try JSONDecoder().decode(RelayPresence.self, from: Data(json.utf8))
         XCTAssertTrue(p.online)
         XCTAssertEqual(p.sessions, ["s1", "s2"])
@@ -117,7 +121,8 @@ final class RelayAuthTests: XCTestCase {
     }
 
     func testEnvelopeExtractsTagFromAnyMessage() throws {
-        let json = #"{"t":"relay.presence","daemonId":"d","online":false,"sessions":[],"lastSeen":0}"#
+        let json =
+            #"{"t":"relay.presence","daemonId":"d","online":false,"sessions":[],"lastSeen":0}"#
         let env = try JSONDecoder().decode(RelayServerEnvelope.self, from: Data(json.utf8))
         XCTAssertEqual(env.t, "relay.presence")
     }

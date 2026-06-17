@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import Teleprompter
 
 /// Unit tests for M5 terminal rendering (ADR-0001 Phase 3): how `SessionStore`
@@ -49,8 +50,8 @@ final class TerminalRenderTests: XCTestCase {
     func testIoRecDedupByCursor() {
         let store = SessionStore()
         store.appendRec(ioRec("once", seq: 5))
-        store.appendRec(ioRec("DUP", seq: 5)) // same seq → dropped
-        store.appendRec(ioRec("DUP2", seq: 3)) // older seq → dropped
+        store.appendRec(ioRec("DUP", seq: 5))  // same seq → dropped
+        store.appendRec(ioRec("DUP2", seq: 3))  // older seq → dropped
         XCTAssertEqual(store.terminalOutput[sid], "once")
     }
 

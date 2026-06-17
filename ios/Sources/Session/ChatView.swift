@@ -69,7 +69,7 @@ struct ChatView: View {
         guard let last = items.last else { return false }
         switch ChatEventCardKind(item: last) {
         case .assistant: return false
-        default:         return true
+        default: return true
         }
     }
 
@@ -85,8 +85,9 @@ struct ChatView: View {
                 ContentUnavailableView(
                     "No messages yet",
                     systemImage: "bubble.left.and.bubble.right",
-                    description: Text("Attach a running session to see its hook events."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    description: Text("Attach a running session to see its hook events.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 // Outer GeometryReader captures the scroll view's frame in global
                 // coordinates so the inner sentinel can compare against it.
@@ -123,7 +124,8 @@ struct ChatView: View {
                                             Color.clear.preference(
                                                 key: SentinelOffsetKey.self,
                                                 value: SentinelOffset(
-                                                    sentinelMaxY: sentinelGeo.frame(in: .global).maxY,
+                                                    sentinelMaxY: sentinelGeo.frame(in: .global)
+                                                        .maxY,
                                                     viewportMaxY: scrollGeo.frame(in: .global).maxY
                                                 )
                                             )

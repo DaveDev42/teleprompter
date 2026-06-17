@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import Teleprompter
 
 /// Minimal smoke test that runs on the iOS Simulator. Proves the test bundle

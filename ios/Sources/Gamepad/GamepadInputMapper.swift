@@ -112,16 +112,17 @@ enum GamepadInputMapper {
     /// (the element types are Sendable, but a tuple of them is not auto-Sendable),
     /// and a private `KeyPath` literal can't be hoisted to a Sendable context.
     /// Marking the constant unsafe is the right tool: there is no mutable state.
-    nonisolated(unsafe) private static let actionByKey: [(KeyPath<DigitalState, Bool>, GamepadNavAction)] = [
-        (\.up, .focusUp),
-        (\.down, .focusDown),
-        (\.left, .focusLeft),
-        (\.right, .focusRight),
-        (\.activate, .activate),
-        (\.back, .back),
-        (\.tabPrev, .tabPrev),
-        (\.tabNext, .tabNext),
-    ]
+    nonisolated(unsafe) private static let actionByKey:
+        [(KeyPath<DigitalState, Bool>, GamepadNavAction)] = [
+            (\.up, .focusUp),
+            (\.down, .focusDown),
+            (\.left, .focusLeft),
+            (\.right, .focusRight),
+            (\.activate, .activate),
+            (\.back, .back),
+            (\.tabPrev, .tabPrev),
+            (\.tabNext, .tabNext),
+        ]
 
     /// Edge-triggered diff: an action fires only on the frame its input goes
     /// from released to pressed. Holding a button emits nothing further (no

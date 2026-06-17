@@ -15,7 +15,8 @@ enum MdBlock {
 /// lists, and paragraphs. Blank lines are consumed as separators.
 func parseMdBlocks(_ markdown: String) -> [MdBlock] {
     var blocks: [MdBlock] = []
-    let lines = markdown
+    let lines =
+        markdown
         .replacingOccurrences(of: "\r\n", with: "\n")
         .replacingOccurrences(of: "\r", with: "\n")
         .components(separatedBy: "\n")
@@ -32,7 +33,10 @@ func parseMdBlocks(_ markdown: String) -> [MdBlock] {
             i += 1
             while i < lines.count {
                 let cl = lines[i].trimmingCharacters(in: .init(charactersIn: " \t"))
-                if cl.hasPrefix("```") { i += 1; break }
+                if cl.hasPrefix("```") {
+                    i += 1
+                    break
+                }
                 codeLines.append(lines[i])
                 i += 1
             }
@@ -56,10 +60,13 @@ func parseMdBlocks(_ markdown: String) -> [MdBlock] {
         if let m = line.range(of: "^\\s*[-*]\\s+(.*)", options: .regularExpression) {
             var items: [String] = []
             func extractUl(_ l: String) -> String? {
-                guard let r = l.range(of: "^\\s*[-*]\\s+(.*)", options: .regularExpression) else { return nil }
+                guard let r = l.range(of: "^\\s*[-*]\\s+(.*)", options: .regularExpression) else {
+                    return nil
+                }
                 let full = String(l[r])
-                return String(full.drop(while: { $0 == " " || $0 == "\t" || $0 == "-" || $0 == "*" })
-                    .drop(while: { $0 == " " }))
+                return String(
+                    full.drop(while: { $0 == " " || $0 == "\t" || $0 == "-" || $0 == "*" })
+                        .drop(while: { $0 == " " }))
             }
             items.append(extractUl(line) ?? "")
             i += 1
@@ -67,7 +74,7 @@ func parseMdBlocks(_ markdown: String) -> [MdBlock] {
                 items.append(item)
                 i += 1
             }
-            _ = m // silence unused warning
+            _ = m  // silence unused warning
             blocks.append(.list(ordered: false, items: items))
             continue
         }
@@ -76,7 +83,8 @@ func parseMdBlocks(_ markdown: String) -> [MdBlock] {
         if let m = line.range(of: "^\\s*\\d+\\.\\s+(.*)", options: .regularExpression) {
             var items: [String] = []
             func extractOl(_ l: String) -> String? {
-                guard let r = l.range(of: "^\\s*\\d+\\.\\s+(.*)", options: .regularExpression) else { return nil }
+                guard let r = l.range(of: "^\\s*\\d+\\.\\s+(.*)", options: .regularExpression)
+                else { return nil }
                 let full = String(l[r])
                 // drop the "N. " prefix
                 if let dotIdx = full.firstIndex(of: ".") {
@@ -144,13 +152,14 @@ enum MdInlineSeg {
 func parseMdInline(_ raw: String) -> [MdInlineSeg] {
     // Link alternative FIRST (before emphasis) so brackets aren't re-interpreted.
     // Only http/https/mailto URLs are permitted (matches Expo ground truth).
-    let pattern = "("
-        + "\\[[^\\]]+\\]\\((?:https?://|mailto:)[^\\s)]+\\)"   // link
-        + "|`[^`]+`"                                             // inline code
-        + "|\\*\\*[\\s\\S]+?\\*\\*"                             // **bold**
+    let pattern =
+        "("
+        + "\\[[^\\]]+\\]\\((?:https?://|mailto:)[^\\s)]+\\)"  // link
+        + "|`[^`]+`"  // inline code
+        + "|\\*\\*[\\s\\S]+?\\*\\*"  // **bold**
         + "|(?<![A-Za-z0-9_])__[\\s\\S]+?__(?![A-Za-z0-9_])"  // __bold__
-        + "|\\*[\\s\\S]+?\\*"                                   // *italic*
-        + "|(?<![A-Za-z0-9_])_[\\s\\S]+?_(?![A-Za-z0-9_])"    // _italic_
+        + "|\\*[\\s\\S]+?\\*"  // *italic*
+        + "|(?<![A-Za-z0-9_])_[\\s\\S]+?_(?![A-Za-z0-9_])"  // _italic_
         + ")"
     guard let regex = try? NSRegularExpression(pattern: pattern) else {
         return [.text(raw)]
@@ -164,20 +173,22 @@ func parseMdInline(_ raw: String) -> [MdInlineSeg] {
     for m in matches {
         let range = m.range
         if range.location > last {
-            segs.append(.text(ns.substring(with: NSRange(location: last, length: range.location - last))))
+            segs.append(
+                .text(ns.substring(with: NSRange(location: last, length: range.location - last))))
         }
         let tok = ns.substring(with: range)
         if tok.hasPrefix("[") {
             // M4: inline link `[text](url)` — split at `](`.
             if let bracketClose = tok.range(of: "]("),
-               let textRange = tok.range(of: "["),
-               let urlClose = tok.last, urlClose == ")" {
+                let textRange = tok.range(of: "["),
+                let urlClose = tok.last, urlClose == ")"
+            {
                 let textStart = tok.index(after: textRange.lowerBound)
-                let textEnd   = bracketClose.lowerBound
-                let urlStart  = bracketClose.upperBound
-                let urlEnd    = tok.index(before: tok.endIndex)
-                let linkText  = String(tok[textStart..<textEnd])
-                let linkUrl   = String(tok[urlStart..<urlEnd])
+                let textEnd = bracketClose.lowerBound
+                let urlStart = bracketClose.upperBound
+                let urlEnd = tok.index(before: tok.endIndex)
+                let linkText = String(tok[textStart..<textEnd])
+                let linkUrl = String(tok[urlStart..<urlEnd])
                 segs.append(.link(text: linkText, url: linkUrl))
             } else {
                 segs.append(.text(tok))
@@ -225,7 +236,8 @@ struct MdInlineText: View {
             case .italic(let s):
                 return acc + Text(s).font(bodyFont).italic()
             case .code(let s):
-                return acc + Text(s)
+                return acc
+                    + Text(s)
                     .font(codeFont)
                     .foregroundStyle(Color.green.opacity(0.9))
             case .link(let text, let url):
@@ -263,7 +275,7 @@ func chatBodyFont(settings: SettingsStore) -> Font {
 /// `@MainActor` for the same reason as `chatBodyFont`.
 @MainActor
 func chatCodeFont(settings: SettingsStore) -> Font {
-    let size = CGFloat(settings.fontSize) - 2 // slightly smaller than body
+    let size = CGFloat(settings.fontSize) - 2  // slightly smaller than body
     if settings.codeFont == "Menlo" || settings.codeFont == "SF Mono" {
         return .system(size: size, design: .monospaced)
     }
@@ -276,7 +288,8 @@ func chatCodeFont(settings: SettingsStore) -> Font {
 /// Also detects markdown links (M4) and fast-paths to markdown render.
 private func hasMd(_ text: String) -> Bool {
     // NSRegularExpression with .anchorsMatchLines so ^ and $ match per-line.
-    let pattern = "```|^#{1,3}\\s|^\\s*[-*]\\s|^\\s*\\d+\\.\\s|\\*\\*|\\*[^*]|__[^_]|_[^_]|`[^`]|\\[[^\\]]+\\]\\((?:https?://|mailto:)"
+    let pattern =
+        "```|^#{1,3}\\s|^\\s*[-*]\\s|^\\s*\\d+\\.\\s|\\*\\*|\\*[^*]|__[^_]|_[^_]|`[^`]|\\[[^\\]]+\\]\\((?:https?://|mailto:)"
     guard let re = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]) else {
         return false
     }
@@ -293,7 +306,7 @@ struct ChatMarkdownView: View {
     // L7: observe SettingsStore for reactive font changes.
     // SettingsStore is @Observable, so we read it directly — SwiftUI tracks
     // the accessed properties and re-renders when they change.
-    @State private var settingsTick: Int = 0 // forces re-eval when settings change
+    @State private var settingsTick: Int = 0  // forces re-eval when settings change
 
     private var settings: SettingsStore { SettingsStore.shared }
     private var bodyFont: Font { chatBodyFont(settings: settings) }
@@ -340,15 +353,19 @@ struct ChatMarkdownView: View {
         // Headings use fixed sizes relative to body; apply chatFont family.
         let size = CGFloat(settings.fontSize)
         let headingFont: Font = {
-            let name = settings.chatFont == "System" || settings.chatFont == "SF Pro"
+            let name =
+                settings.chatFont == "System" || settings.chatFont == "SF Pro"
                 ? nil : settings.chatFont as String?
             switch level {
             case 1:
-                return name.map { .custom($0, size: size + 4) } ?? .system(size: size + 4, weight: .bold)
+                return name.map { .custom($0, size: size + 4) }
+                    ?? .system(size: size + 4, weight: .bold)
             case 2:
-                return name.map { .custom($0, size: size + 2) } ?? .system(size: size + 2, weight: .semibold)
+                return name.map { .custom($0, size: size + 2) }
+                    ?? .system(size: size + 2, weight: .semibold)
             default:
-                return name.map { .custom($0, size: size + 1) } ?? .system(size: size + 1, weight: .semibold)
+                return name.map { .custom($0, size: size + 1) }
+                    ?? .system(size: size + 1, weight: .semibold)
             }
         }()
         Text(text)

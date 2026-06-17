@@ -42,14 +42,15 @@ struct TeleprompterWatchApp: App {
     private func handleSmokeURLIfPresent() {
         let args = ProcessInfo.processInfo.arguments
         guard let idx = args.firstIndex(of: "--tp-smoke-url"),
-              idx + 1 < args.count else { return }
+            idx + 1 < args.count
+        else { return }
         let raw = args[idx + 1]
         Self.smokeLog.notice("smoke url injection: \(raw, privacy: .public)")
         guard let url = URL(string: raw) else {
             Self.smokeLog.error("smoke url invalid: \(raw, privacy: .public)")
             return
         }
-        if case let .paired(daemonId) = DeepLinkHandler.handle(url) {
+        if case .paired(let daemonId) = DeepLinkHandler.handle(url) {
             pairings.reload()
             pairings.connect(daemonId: daemonId)
         } else {
@@ -62,7 +63,7 @@ struct TeleprompterWatchApp: App {
             WatchRootView(sessionStore: sessionStore, pairings: pairings)
                 .onOpenURL { url in
                     Self.smokeLog.notice("onOpenURL url=\(url.absoluteString, privacy: .public)")
-                    if case let .paired(daemonId) = DeepLinkHandler.handle(url) {
+                    if case .paired(let daemonId) = DeepLinkHandler.handle(url) {
                         pairings.reload()
                         pairings.connect(daemonId: daemonId)
                     } else {

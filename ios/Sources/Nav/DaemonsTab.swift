@@ -13,7 +13,7 @@ struct DaemonsTab: View {
             DaemonsListView(pairings: pairings)
                 .navigationTitle("Daemons")
                 #if os(iOS)
-                .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.large)
                 #endif
         }
     }
@@ -33,10 +33,10 @@ struct DaemonsListView: View {
 
         var id: String {
             switch self {
-            case .scanner:                    return "scanner"
-            case .manual:                     return "manual"
-            case .rename(let did):            return "rename-\(did)"
-            case .confirmUnpair(let did):     return "unpair-\(did)"
+            case .scanner: return "scanner"
+            case .manual: return "manual"
+            case .rename(let did): return "rename-\(did)"
+            case .confirmUnpair(let did): return "unpair-\(did)"
             }
         }
     }
@@ -232,7 +232,8 @@ struct DaemonsListView: View {
         // If `raw` is a `tp://` URL use it directly; otherwise pass to ingest directly.
         let outcome: DeepLinkHandler.Outcome
         if let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
-           url.scheme == "tp" {
+            url.scheme == "tp"
+        {
             outcome = DeepLinkHandler.handle(url)
         } else {
             do {

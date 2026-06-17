@@ -119,9 +119,10 @@ struct DiagnosticsView: View {
     /// dot derived from whether any daemon on this relay is online.
     @ViewBuilder
     private func relayHeader(_ group: RelayGroup) -> some View {
-        let anyOnline = pairings.map { p in
-            group.daemonIds.contains { p.isOnline($0) }
-        } ?? false
+        let anyOnline =
+            pairings.map { p in
+                group.daemonIds.contains { p.isOnline($0) }
+            } ?? false
         HStack(spacing: 6) {
             Circle()
                 .fill(anyOnline ? Color.green : Color.secondary)
@@ -140,8 +141,10 @@ struct DiagnosticsView: View {
     @ViewBuilder
     private func daemonRows(for did: String) -> some View {
         let label = pairings?.label(for: did)
-        DiagRow(label: "Daemon", value: label.map { "\($0) (\(String(did.prefix(8))))" }
-            ?? String(did.prefix(12)))
+        DiagRow(
+            label: "Daemon",
+            value: label.map { "\($0) (\(String(did.prefix(8))))" }
+                ?? String(did.prefix(12)))
         if let pairings {
             DiagRow(label: "Relay WS", value: relayStateString(for: did, pairings: pairings))
             DiagRow(label: "E2EE", value: e2eeStatusString(for: did))
@@ -156,11 +159,11 @@ struct DiagnosticsView: View {
     private func relayStateString(for daemonId: String, pairings: PairingViewModel) -> String {
         guard let client = pairings.client(for: daemonId) else { return "Not connected" }
         switch client.state {
-        case .idle:                          return "Idle"
-        case .connecting:                    return "Connecting…"
-        case .authenticating:                return "Authenticating…"
-        case .authenticated(let did):        return "Authenticated (\(String(did.prefix(8))))"
-        case .failed(let reason):            return "Failed: \(reason)"
+        case .idle: return "Idle"
+        case .connecting: return "Connecting…"
+        case .authenticating: return "Authenticating…"
+        case .authenticated(let did): return "Authenticated (\(String(did.prefix(8))))"
+        case .failed(let reason): return "Failed: \(reason)"
         }
     }
 
@@ -204,7 +207,9 @@ struct DiagnosticsView: View {
                     }
                     Text(cryptoRunning ? "Running…" : "Run tp-core Self-Test")
                         .font(.callout)
-                        .foregroundStyle(cryptoRunning ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
+                        .foregroundStyle(
+                            cryptoRunning
+                                ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
                 }
             }
             .disabled(cryptoRunning)
@@ -213,8 +218,8 @@ struct DiagnosticsView: View {
 
     private var cryptoSummary: String {
         switch cryptoResult {
-        case .notRun:      return "—"
-        case .ok(let ms):  return "OK (\(ms)ms)"
+        case .notRun: return "—"
+        case .ok(let ms): return "OK (\(ms)ms)"
         case .fail(let e): return "FAIL: \(e)"
         }
     }
@@ -236,7 +241,8 @@ struct DiagnosticsView: View {
             // self-test that fires at launch to emit TP_CORE_OK/TP_CORE_FAIL.
             let summary = TpCoreCheck.summary()
             let ms = Int(Date().timeIntervalSince(t0) * 1000)
-            let result: CryptoTestResult = summary.hasPrefix("TP_CORE_OK")
+            let result: CryptoTestResult =
+                summary.hasPrefix("TP_CORE_OK")
                 ? .ok(ms: ms)
                 : .fail(summary)
             await MainActor.run {
@@ -324,7 +330,9 @@ private struct RTTRow: View {
                     .font(.footnote.monospaced())
                     .foregroundStyle(.primary)
                     // SR live-region: announces the RTT result to VoiceOver.
-                    .accessibilityLabel(announcement.isEmpty ? "Ping RTT: \(rttValue)" : announcement)
+                    .accessibilityLabel(
+                        announcement.isEmpty ? "Ping RTT: \(rttValue)" : announcement
+                    )
                     .accessibilityAddTraits(.updatesFrequently)
             }
             Spacer()

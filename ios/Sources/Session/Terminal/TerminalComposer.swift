@@ -6,23 +6,23 @@ import SwiftUI
 /// remote PTY interprets them identically to a hardware keyboard. References:
 /// ECMA-48 / xterm control sequences.
 enum TerminalKey: Hashable {
-    case escape          // \x1b
-    case tab             // \x09
-    case controlPrefix   // arms Ctrl- for the next typed character (handled in-composer)
+    case escape  // \x1b
+    case tab  // \x09
+    case controlPrefix  // arms Ctrl- for the next typed character (handled in-composer)
     case up, down, left, right
-    case literal(String) // a plain string inserted into the field (e.g. "/", "|")
+    case literal(String)  // a plain string inserted into the field (e.g. "/", "|")
 
     /// The bytes to send to the PTY for keys that emit directly. `nil` for keys
     /// handled in-composer (controlPrefix) or that insert into the text field
     /// (literal — those go through the field, not as raw bytes).
     var bytes: [UInt8]? {
         switch self {
-        case .escape:  return [0x1b]
-        case .tab:     return [0x09]
-        case .up:      return Array("\u{1b}[A".utf8)
-        case .down:    return Array("\u{1b}[B".utf8)
-        case .right:   return Array("\u{1b}[C".utf8)
-        case .left:    return Array("\u{1b}[D".utf8)
+        case .escape: return [0x1b]
+        case .tab: return [0x09]
+        case .up: return Array("\u{1b}[A".utf8)
+        case .down: return Array("\u{1b}[B".utf8)
+        case .right: return Array("\u{1b}[C".utf8)
+        case .left: return Array("\u{1b}[D".utf8)
         case .controlPrefix, .literal:
             return nil
         }
@@ -31,13 +31,13 @@ enum TerminalKey: Hashable {
     /// SF Symbol or text shown on the key cap.
     var cap: String {
         switch self {
-        case .escape:        return "esc"
-        case .tab:           return "arrow.right.to.line"   // ⇥
+        case .escape: return "esc"
+        case .tab: return "arrow.right.to.line"  // ⇥
         case .controlPrefix: return "control"
-        case .up:            return "chevron.up"
-        case .down:          return "chevron.down"
-        case .left:          return "chevron.left"
-        case .right:         return "chevron.right"
+        case .up: return "chevron.up"
+        case .down: return "chevron.down"
+        case .left: return "chevron.left"
+        case .right: return "chevron.right"
         case .literal(let s): return s
         }
     }
@@ -52,13 +52,13 @@ enum TerminalKey: Hashable {
 
     var a11y: String {
         switch self {
-        case .escape:        return "Escape"
-        case .tab:           return "Tab"
+        case .escape: return "Escape"
+        case .tab: return "Tab"
         case .controlPrefix: return "Control modifier"
-        case .up:            return "Up arrow"
-        case .down:          return "Down arrow"
-        case .left:          return "Left arrow"
-        case .right:         return "Right arrow"
+        case .up: return "Up arrow"
+        case .down: return "Down arrow"
+        case .left: return "Left arrow"
+        case .right: return "Right arrow"
         case .literal(let s): return "Insert \(s)"
         }
     }
@@ -124,8 +124,10 @@ struct TerminalKeyRow: View {
             .padding(.horizontal, 4)
             .background(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(armed ? Color.accentColor.opacity(0.85)
-                                : Color.secondary.opacity(0.16))
+                    .fill(
+                        armed
+                            ? Color.accentColor.opacity(0.85)
+                            : Color.secondary.opacity(0.16))
             )
             .foregroundStyle(armed ? Color.white : Color.primary)
         }
@@ -258,7 +260,7 @@ struct TerminalComposer: View {
         }
         guard !draft.isEmpty else { return }
         var bytes = Array(draft.utf8)
-        bytes.append(0x0d) // carriage return — the shell line terminator
+        bytes.append(0x0d)  // carriage return — the shell line terminator
         sendBytes(bytes)
         draft = ""
     }
@@ -266,7 +268,8 @@ struct TerminalComposer: View {
     /// Map a printable character to its Ctrl- control code (Ctrl-A = 1 … Ctrl-Z = 26).
     private func controlCode(for ch: Character) -> UInt8? {
         guard let ascii = ch.uppercased().first?.asciiValue,
-              ascii >= 0x41, ascii <= 0x5a else { return nil }
-        return ascii - 0x40 // 'A'(0x41) → 0x01
+            ascii >= 0x41, ascii <= 0x5a
+        else { return nil }
+        return ascii - 0x40  // 'A'(0x41) → 0x01
     }
 }

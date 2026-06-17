@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import Teleprompter
 
 /// FFI tests for the Rust core (`tp-core`) exercised through the app target.
@@ -34,7 +35,7 @@ final class TpCoreTests: XCTestCase {
         let sealed = try seal(plaintext: Data("x".utf8), key: key, nonce: nonce)
         // Flip a character in the base64 to corrupt the ciphertext/tag.
         var bytes = Array(sealed.utf8)
-        bytes[bytes.count - 2] = bytes[bytes.count - 2] == 65 ? 66 : 65 // 'A'<->'B'
+        bytes[bytes.count - 2] = bytes[bytes.count - 2] == 65 ? 66 : 65  // 'A'<->'B'
         let tampered = String(decoding: bytes, as: UTF8.self)
         XCTAssertThrowsError(try open(encoded: tampered, key: key)) { err in
             // UniFFI maps Rust TpError::Crypto to a Swift TpError case.

@@ -1,4 +1,5 @@
 import SwiftUI
+
 #if os(iOS) || os(visionOS)
 import UIKit
 #endif
@@ -156,16 +157,16 @@ struct SessionStoppedBanner: View {
 /// modifiers), so this isolation adds no friction.
 @MainActor
 func postAccessibilityAnnouncement(_ message: String) {
-#if os(iOS) || os(visionOS)
+    #if os(iOS) || os(visionOS)
     UIAccessibility.post(notification: .announcement, argument: message)
-#elseif os(macOS)
+    #elseif os(macOS)
     NSAccessibility.post(
         element: NSApp as AnyObject,
         notification: .announcementRequested,
         userInfo: [
             .announcement: message as NSString,
-            .priority: NSAccessibilityPriorityLevel.medium.rawValue as NSNumber
+            .priority: NSAccessibilityPriorityLevel.medium.rawValue as NSNumber,
         ]
     )
-#endif
+    #endif
 }

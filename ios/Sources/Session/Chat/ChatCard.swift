@@ -1,4 +1,5 @@
 import SwiftUI
+
 // ChatMarkdown.swift exports chatBodyFont(settings:) from the same module.
 
 // MARK: - Timestamp formatter
@@ -52,7 +53,7 @@ private struct CopyButton: View {
 /// events — not from PTY io records (CLAUDE.md Key Design Decisions).
 struct UserChatCard: View {
     let item: ChatItem
-    let promptText: String // H2: carried from ChatEventCardKind.user(text:)
+    let promptText: String  // H2: carried from ChatEventCardKind.user(text:)
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
@@ -305,8 +306,10 @@ struct SystemChatCard: View {
 
     private var label: String {
         item.hookEventName
-            .replacingOccurrences(of: "(?<!^)(?=[A-Z])", with: " ",
-                                  options: .regularExpression)
+            .replacingOccurrences(
+                of: "(?<!^)(?=[A-Z])", with: " ",
+                options: .regularExpression
+            )
             .trimmingCharacters(in: .whitespaces)
     }
 

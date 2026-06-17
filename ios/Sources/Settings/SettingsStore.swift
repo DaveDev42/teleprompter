@@ -1,5 +1,5 @@
-import SwiftUI
 import Security
+import SwiftUI
 import os
 
 // MARK: - Font constants
@@ -45,19 +45,28 @@ final class SettingsStore {
     /// Font family for chat message text. Default: "System".
     var chatFont: String {
         get { _chatFont }
-        set { _chatFont = newValue; UserDefaults.standard.set(newValue, forKey: Keys.chatFont) }
+        set {
+            _chatFont = newValue
+            UserDefaults.standard.set(newValue, forKey: Keys.chatFont)
+        }
     }
 
     /// Font family for inline code spans in chat. Default: "Menlo".
     var codeFont: String {
         get { _codeFont }
-        set { _codeFont = newValue; UserDefaults.standard.set(newValue, forKey: Keys.codeFont) }
+        set {
+            _codeFont = newValue
+            UserDefaults.standard.set(newValue, forKey: Keys.codeFont)
+        }
     }
 
     /// Font family for the terminal tab. Default: "Menlo".
     var terminalFont: String {
         get { _terminalFont }
-        set { _terminalFont = newValue; UserDefaults.standard.set(newValue, forKey: Keys.terminalFont) }
+        set {
+            _terminalFont = newValue
+            UserDefaults.standard.set(newValue, forKey: Keys.terminalFont)
+        }
     }
 
     /// Base font size in points (range 10–24). Default: 15.
@@ -75,7 +84,10 @@ final class SettingsStore {
     /// is present). Resolve to a concrete kind via `resolvedVoiceBackendKind(hasKey:)`.
     var voiceBackend: VoiceBackendPreference {
         get { _voiceBackend }
-        set { _voiceBackend = newValue; UserDefaults.standard.set(newValue.rawValue, forKey: Keys.voiceBackend) }
+        set {
+            _voiceBackend = newValue
+            UserDefaults.standard.set(newValue.rawValue, forKey: Keys.voiceBackend)
+        }
     }
 
     // MARK: Backing storage
@@ -89,21 +101,22 @@ final class SettingsStore {
     // MARK: UserDefaults keys
 
     private enum Keys {
-        static let chatFont     = "tp.settings.chatFont"
-        static let codeFont     = "tp.settings.codeFont"
+        static let chatFont = "tp.settings.chatFont"
+        static let codeFont = "tp.settings.codeFont"
         static let terminalFont = "tp.settings.terminalFont"
-        static let fontSize     = "tp.settings.fontSize"
+        static let fontSize = "tp.settings.fontSize"
         static let voiceBackend = "tp.settings.voiceBackend"
     }
 
     init() {
         let ud = UserDefaults.standard
-        _chatFont     = ud.string(forKey: Keys.chatFont)     ?? "System"
-        _codeFont     = ud.string(forKey: Keys.codeFont)     ?? "Menlo"
+        _chatFont = ud.string(forKey: Keys.chatFont) ?? "System"
+        _codeFont = ud.string(forKey: Keys.codeFont) ?? "Menlo"
         _terminalFont = ud.string(forKey: Keys.terminalFont) ?? "Menlo"
         let stored = ud.integer(forKey: Keys.fontSize)
-        _fontSize     = (stored >= 10 && stored <= 24) ? stored : 15
-        _voiceBackend = ud.string(forKey: Keys.voiceBackend)
+        _fontSize = (stored >= 10 && stored <= 24) ? stored : 15
+        _voiceBackend =
+            ud.string(forKey: Keys.voiceBackend)
             .flatMap(VoiceBackendPreference.init(rawValue:)) ?? .auto
     }
 
@@ -115,9 +128,9 @@ final class SettingsStore {
     /// so this accessor stays a pure preference→kind mapping.
     var voiceBackendPreference: VoiceBackendKind? {
         switch voiceBackend {
-        case .auto:     return nil
+        case .auto: return nil
         case .onDevice: return .onDevice
-        case .openAI:   return .openAIRealtime
+        case .openAI: return .openAIRealtime
         }
     }
 }
@@ -138,9 +151,9 @@ enum VoiceBackendPreference: String, CaseIterable {
     /// Human-readable title for pickers.
     var title: String {
         switch self {
-        case .auto:     return "Auto"
+        case .auto: return "Auto"
         case .onDevice: return "On-device"
-        case .openAI:   return "OpenAI Realtime"
+        case .openAI: return "OpenAI Realtime"
         }
     }
 }
@@ -177,12 +190,12 @@ enum OpenAIKeychain {
     /// Never throws — failures silently return nil so UI never blocks on Keychain errors.
     static func get() -> String? {
         let query: [String: Any] = [
-            kSecClass as String:       kSecClassGenericPassword,
+            kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
-            kSecReturnData as String:  true,
-            kSecMatchLimit as String:  kSecMatchLimitOne,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var out: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &out)
@@ -200,18 +213,19 @@ enum OpenAIKeychain {
         #if os(macOS)
         let syncValue: CFBoolean = kCFBooleanFalse!
         #else
-        let syncValue: CFBoolean = kCFBooleanFalse! // API key is device-local (not shared across devices)
+        // API key is device-local (not shared across devices).
+        let syncValue: CFBoolean = kCFBooleanFalse!
         #endif
         let base: [String: Any] = [
-            kSecClass as String:             kSecClassGenericPassword,
-            kSecAttrService as String:       service,
-            kSecAttrAccount as String:       account,
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
             kSecAttrSynchronizable as String: syncValue,
         ]
         SecItemDelete(base as CFDictionary)
         var add = base
-        add[kSecValueData as String]        = data
-        add[kSecAttrAccessible as String]   = kSecAttrAccessibleAfterFirstUnlock
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 
@@ -220,9 +234,9 @@ enum OpenAIKeychain {
     /// Removes the stored API key from the Keychain (idempotent).
     static func delete() {
         let query: [String: Any] = [
-            kSecClass as String:             kSecClassGenericPassword,
-            kSecAttrService as String:       service,
-            kSecAttrAccount as String:       account,
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
             kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
         ]
         SecItemDelete(query as CFDictionary)
@@ -233,12 +247,12 @@ enum OpenAIKeychain {
     /// Returns `true` if a key is present without reading the key value.
     static func isPresent() -> Bool {
         let query: [String: Any] = [
-            kSecClass as String:             kSecClassGenericPassword,
-            kSecAttrService as String:       service,
-            kSecAttrAccount as String:       account,
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
             kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
-            kSecMatchLimit as String:        kSecMatchLimitOne,
-            kSecReturnData as String:        false,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: false,
         ]
         return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
     }

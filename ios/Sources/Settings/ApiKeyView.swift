@@ -28,8 +28,8 @@ struct ApiKeySheet: View {
                     SecureField("sk-…", text: $inputValue)
                         .autocorrectionDisabled()
                         #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        .submitLabel(.done)
+                    .textInputAutocapitalization(.never)
+                    .submitLabel(.done)
                         #endif
                         .onSubmit { if canSave { saveKey() } }
                         .accessibilityLabel("OpenAI API key")
@@ -37,8 +37,10 @@ struct ApiKeySheet: View {
                 } header: {
                     Text("OpenAI API Key")
                 } footer: {
-                    Text("Required for voice input. Stored securely in the Keychain — never shared or logged.")
-                        .font(.footnote)
+                    Text(
+                        "Required for voice input. Stored securely in the Keychain — never shared or logged."
+                    )
+                    .font(.footnote)
                 }
 
                 Section {
@@ -80,7 +82,9 @@ struct ApiKeySheet: View {
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Your OpenAI API key will be removed from this device. Voice features will stop working until a key is entered again.")
+                Text(
+                    "Your OpenAI API key will be removed from this device. Voice features will stop working until a key is entered again."
+                )
             }
         }
     }

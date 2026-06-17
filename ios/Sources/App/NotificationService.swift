@@ -1,6 +1,7 @@
 import Foundation
 import UserNotifications
 import os
+
 #if os(iOS)
 import UIKit
 #endif
@@ -94,13 +95,17 @@ final class NotificationService: NSObject {
     }
 
     private func requestAuthorization() {
-        center.requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, error in
+        center.requestAuthorization(options: [.alert, .sound, .badge]) {
+            [weak self] granted, error in
             guard let self else { return }
             if let error {
-                self.log.error("Notification authorization error: \(error.localizedDescription, privacy: .public)")
+                self.log.error(
+                    "Notification authorization error: \(error.localizedDescription, privacy: .public)"
+                )
                 return
             }
-            self.log.notice("Notification authorization: \(granted ? "granted" : "denied", privacy: .public)")
+            self.log.notice(
+                "Notification authorization: \(granted ? "granted" : "denied", privacy: .public)")
             if granted {
                 Task { @MainActor in
                     self.registerForRemoteNotificationsIfSupported()
@@ -118,23 +123,23 @@ final class NotificationService: NSObject {
     /// to receive and forward the device token to the relay/daemon when targeting
     /// a real device.
     private func registerForRemoteNotificationsIfSupported() {
-#if os(iOS)
+        #if os(iOS)
         // UIApplication.shared must be accessed on the main actor (already here).
         UIApplication.shared.registerForRemoteNotifications()
         log.notice("APNs registration requested (Simulator: token unusable for real pushes)")
-#elseif os(visionOS)
+        #elseif os(visionOS)
         // visionOS: APNs registration requires a real provisioning profile with
         // the APS Environment entitlement. Out of scope for B2 (Simulator path);
         // local notifications via UNUserNotificationCenter still work.
         log.notice("APNs registration skipped (visionOS — TODO)")
-#else
+        #else
         // macOS: UNUserNotificationCenter authorization above is sufficient for
         // local notifications. APNs on macOS requires NSApplication-based
         // `registerForRemoteNotifications`, a separate entitlement
         // ("APS Environment" = "development"/"production" in the Mac app
         // entitlements), and is out of scope for Phase A.
         log.notice("APNs registration skipped (macOS — TODO)")
-#endif
+        #endif
     }
 
     // MARK: - Local Notifications (Simulator / testing)
@@ -157,11 +162,13 @@ final class NotificationService: NSObject {
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,
             content: content,
-            trigger: nil // deliver immediately
+            trigger: nil  // deliver immediately
         )
         center.add(request) { [weak self] error in
             if let error {
-                self?.log.error("Local notification delivery error: \(error.localizedDescription, privacy: .public)")
+                self?.log.error(
+                    "Local notification delivery error: \(error.localizedDescription, privacy: .public)"
+                )
             }
         }
     }

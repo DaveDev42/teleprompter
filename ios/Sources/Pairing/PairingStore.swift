@@ -34,9 +34,10 @@ enum PairingError: Error, CustomStringConvertible {
 
     var description: String {
         switch self {
-        case let .decode(d): return "decode: \(d)"
-        case let .malformedSecret(field, bytes): return "malformed \(field): \(bytes)B (want 32)"
-        case let .keychain(status): return "keychain: OSStatus \(status)"
+        case .decode(let d): return "decode: \(d)"
+        case .malformedSecret(let field, let bytes):
+            return "malformed \(field): \(bytes)B (want 32)"
+        case .keychain(let status): return "keychain: OSStatus \(status)"
         case .notFound: return "not found"
         }
     }
@@ -66,12 +67,14 @@ final class PairingStore: @unchecked Sendable {
 
     private enum Key {
         static let frontendId = "tp.frontendId"
-        static let daemonIndex = "tp.pairings.index" // [String] of daemon ids
-        static func meta(_ did: String) -> String { "tp.pairing.\(did).meta" } // [String:String]
+        static let daemonIndex = "tp.pairings.index"  // [String] of daemon ids
+        static func meta(_ did: String) -> String { "tp.pairing.\(did).meta" }  // [String:String]
     }
 
-    init(defaults: UserDefaults = .standard,
-         keychainService: String = "dev.tpmt.teleprompter.pairing") {
+    init(
+        defaults: UserDefaults = .standard,
+        keychainService: String = "dev.tpmt.teleprompter.pairing"
+    ) {
         self.defaults = defaults
         self.keychainService = keychainService
     }
@@ -159,9 +162,9 @@ final class PairingStore: @unchecked Sendable {
     /// Load a persisted pairing by daemon id, or throw `.notFound`.
     func load(daemonId: String) throws -> Pairing {
         guard let meta = defaults.dictionary(forKey: Key.meta(daemonId)) as? [String: String],
-              let pkB64 = meta["pk"], let daemonPk = Data(base64Encoded: pkB64),
-              let relay = meta["relay"], let did = meta["did"],
-              let vStr = meta["v"], let v = UInt8(vStr)
+            let pkB64 = meta["pk"], let daemonPk = Data(base64Encoded: pkB64),
+            let relay = meta["relay"], let did = meta["did"],
+            let vStr = meta["v"], let v = UInt8(vStr)
         else { throw PairingError.notFound }
         let secret = try keychainGet(account: daemonId)
         return Pairing(
@@ -203,7 +206,7 @@ final class PairingStore: @unchecked Sendable {
             // is the correct multi-device combination (see `frontendId()`).
             kSecAttrSynchronizable as String: syncValue,
         ]
-        SecItemDelete(base as CFDictionary) // idempotent overwrite
+        SecItemDelete(base as CFDictionary)  // idempotent overwrite
         var add = base
         add[kSecValueData as String] = data
         // Synchronizable items must use a sync-compatible accessibility class;

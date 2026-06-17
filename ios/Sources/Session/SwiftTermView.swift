@@ -1,5 +1,6 @@
-import SwiftUI
 import SwiftTerm
+import SwiftUI
+
 #if os(macOS)
 import AppKit
 #else
@@ -113,10 +114,11 @@ struct SwiftTermView {
     var searchProxy: TerminalSearchProxy? = nil
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(sid: sid, store: store, onSend: onSend,
-                    onTermInput: onTermInput, onResize: onResize,
-                    fetchHistory: fetchHistory,
-                    searchProxy: searchProxy)
+        Coordinator(
+            sid: sid, store: store, onSend: onSend,
+            onTermInput: onTermInput, onResize: onResize,
+            fetchHistory: fetchHistory,
+            searchProxy: searchProxy)
     }
 
     // MARK: - Shared make/update/dismantle (platform-agnostic)
@@ -222,13 +224,15 @@ extension SwiftTermView {
         /// M3: Optional search proxy — registers search actions on attach.
         private weak var searchProxy: TerminalSearchProxy?
 
-        init(sid: String,
-             store: SessionStore,
-             onSend: @escaping (String, String) -> Void,
-             onTermInput: @escaping ([UInt8]) -> Void,
-             onResize: @escaping (Int, Int) -> Void,
-             fetchHistory: (() -> Data?)?,
-             searchProxy: TerminalSearchProxy?) {
+        init(
+            sid: String,
+            store: SessionStore,
+            onSend: @escaping (String, String) -> Void,
+            onTermInput: @escaping ([UInt8]) -> Void,
+            onResize: @escaping (Int, Int) -> Void,
+            fetchHistory: (() -> Data?)?,
+            searchProxy: TerminalSearchProxy?
+        ) {
             self.currentSid = sid
             self.currentStore = store
             self.onSend = onSend
@@ -385,7 +389,8 @@ extension SwiftTermView {
 
         // Required: user activated a hyperlink (OSC 8 or implicit URL).
         // Not handled in the current milestone — ignore.
-        func requestOpenLink(source: SwiftTerm.TerminalView, link: String, params: [String: String]) {}
+        func requestOpenLink(source: SwiftTerm.TerminalView, link: String, params: [String: String])
+        {}
 
         // Required: OSC 52 clipboard copy.
         // L8: Write the decoded string to the system clipboard so terminal apps

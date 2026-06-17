@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import Teleprompter
 
 /// Unit tests for the H3 ghost-row fix and H4 pending-placeholder fix in
@@ -36,8 +37,9 @@ final class SessionStoreGhostRowTests: XCTestCase {
     /// Helper: make a minimal `SessionMeta`.
     private func meta(sid: String, state: String = "stopped") -> SessionMeta {
         let now = Date().timeIntervalSince1970 * 1000
-        return SessionMeta(sid: sid, state: state, cwd: "/tmp/\(sid)",
-                           createdAt: now, updatedAt: now, lastSeq: 0)
+        return SessionMeta(
+            sid: sid, state: state, cwd: "/tmp/\(sid)",
+            createdAt: now, updatedAt: now, lastSeq: 0)
     }
 
     // MARK: - H3: ghost-row removal
@@ -48,17 +50,21 @@ final class SessionStoreGhostRowTests: XCTestCase {
         let store = SessionStore()
 
         // First hello: sessions s1 and s2.
-        store.replaceSessionsForDaemon(daemonId: daemonA, sessions: [
-            meta(sid: "s1"), meta(sid: "s2"),
-        ])
+        store.replaceSessionsForDaemon(
+            daemonId: daemonA,
+            sessions: [
+                meta(sid: "s1"), meta(sid: "s2"),
+            ])
         XCTAssertEqual(store.sessions.count, 2)
         XCTAssertNotNil(store.sessions["s1"])
         XCTAssertNotNil(store.sessions["s2"])
 
         // Second hello: only s1 (s2 was deleted on daemon side).
-        store.replaceSessionsForDaemon(daemonId: daemonA, sessions: [
-            meta(sid: "s1"),
-        ])
+        store.replaceSessionsForDaemon(
+            daemonId: daemonA,
+            sessions: [
+                meta(sid: "s1")
+            ])
         XCTAssertEqual(store.sessions.count, 1, "s2 should be removed — ghost row fix")
         XCTAssertNotNil(store.sessions["s1"])
         XCTAssertNil(store.sessions["s2"], "s2 was not in hello → must be gone")
@@ -68,9 +74,11 @@ final class SessionStoreGhostRowTests: XCTestCase {
     func testEmptyHelloClearsAllSessionsForDaemon() {
         let store = SessionStore()
 
-        store.replaceSessionsForDaemon(daemonId: daemonA, sessions: [
-            meta(sid: "s1"), meta(sid: "s2"),
-        ])
+        store.replaceSessionsForDaemon(
+            daemonId: daemonA,
+            sessions: [
+                meta(sid: "s1"), meta(sid: "s2"),
+            ])
         XCTAssertEqual(store.sessions.count, 2)
 
         store.replaceSessionsForDaemon(daemonId: daemonA, sessions: [])
@@ -107,8 +115,9 @@ final class SessionStoreGhostRowTests: XCTestCase {
 
         // New hello: same sid but now running.
         let now = Date().timeIntervalSince1970 * 1000
-        let updated = SessionMeta(sid: "s1", state: "running", cwd: "/tmp/s1",
-                                  createdAt: now, updatedAt: now, lastSeq: 5)
+        let updated = SessionMeta(
+            sid: "s1", state: "running", cwd: "/tmp/s1",
+            createdAt: now, updatedAt: now, lastSeq: 5)
         store.replaceSessionsForDaemon(daemonId: daemonA, sessions: [updated])
 
         XCTAssertEqual(store.sessions["s1"]?.state, "running", "metadata must update")
@@ -131,8 +140,9 @@ final class SessionStoreGhostRowTests: XCTestCase {
         // Daemon's hello arrives with the real session.
         store.replaceSessionsForDaemon(daemonId: daemonA, sessions: [meta(sid: "real-sid-1")])
 
-        XCTAssertNil(store.sessions["pending-abc12345"],
-                     "pending placeholder must be stripped after hello")
+        XCTAssertNil(
+            store.sessions["pending-abc12345"],
+            "pending placeholder must be stripped after hello")
         XCTAssertNotNil(store.sessions["real-sid-1"], "real session from hello must be present")
     }
 
@@ -147,10 +157,12 @@ final class SessionStoreGhostRowTests: XCTestCase {
         ])
         XCTAssertEqual(store.sessions.count, 3)
 
-        store.replaceSessionsForDaemon(daemonId: daemonA, sessions: [
-            meta(sid: "real-existing"),
-            meta(sid: "real-new"),
-        ])
+        store.replaceSessionsForDaemon(
+            daemonId: daemonA,
+            sessions: [
+                meta(sid: "real-existing"),
+                meta(sid: "real-new"),
+            ])
 
         XCTAssertNil(store.sessions["pending-aaa"], "pending-aaa must be gone")
         XCTAssertNil(store.sessions["pending-bbb"], "pending-bbb must be gone")
@@ -169,8 +181,9 @@ final class SessionStoreGhostRowTests: XCTestCase {
         store.replaceSessionsForDaemon(daemonId: daemonA, sessions: [meta(sid: "s1")])
         // A state-frame update via upsertSessions.
         let now = Date().timeIntervalSince1970 * 1000
-        let updated = SessionMeta(sid: "s1", state: "running", cwd: "/tmp/s1",
-                                  createdAt: now, updatedAt: now, lastSeq: 7)
+        let updated = SessionMeta(
+            sid: "s1", state: "running", cwd: "/tmp/s1",
+            createdAt: now, updatedAt: now, lastSeq: 7)
         store.upsertSessions([updated])
 
         XCTAssertEqual(store.sessions["s1"]?.state, "running")
@@ -202,8 +215,9 @@ final class SessionStoreGhostRowTests: XCTestCase {
         store.replaceSessionsForDaemon(daemonId: daemonB, sessions: [meta(sid: "s2")])
 
         // s1 must NOT reappear — the stale daemon-A bucket should have been cleared.
-        XCTAssertNil(store.sessions["s1"],
-                     "deleted s1 must not ghost-row after an unrelated daemon's hello")
+        XCTAssertNil(
+            store.sessions["s1"],
+            "deleted s1 must not ghost-row after an unrelated daemon's hello")
         XCTAssertNotNil(store.sessions["s2"], "daemon-B s2 must survive")
         XCTAssertEqual(store.sessions.count, 1)
     }
@@ -213,9 +227,11 @@ final class SessionStoreGhostRowTests: XCTestCase {
         let store = SessionStore()
 
         // Daemon A has s1 and s3; daemon B has s2.
-        store.replaceSessionsForDaemon(daemonId: daemonA, sessions: [
-            meta(sid: "s1"), meta(sid: "s3"),
-        ])
+        store.replaceSessionsForDaemon(
+            daemonId: daemonA,
+            sessions: [
+                meta(sid: "s1"), meta(sid: "s3"),
+            ])
         store.replaceSessionsForDaemon(daemonId: daemonB, sessions: [meta(sid: "s2")])
         XCTAssertEqual(store.sessions.count, 3)
 
@@ -229,10 +245,12 @@ final class SessionStoreGhostRowTests: XCTestCase {
         store.replaceSessionsForDaemon(daemonId: daemonB, sessions: [meta(sid: "s2")])
 
         // Neither s1 nor s3 must reappear.
-        XCTAssertNil(store.sessions["s1"],
-                     "batch-deleted s1 must not ghost after unrelated hello")
-        XCTAssertNil(store.sessions["s3"],
-                     "batch-deleted s3 must not ghost after unrelated hello")
+        XCTAssertNil(
+            store.sessions["s1"],
+            "batch-deleted s1 must not ghost after unrelated hello")
+        XCTAssertNil(
+            store.sessions["s3"],
+            "batch-deleted s3 must not ghost after unrelated hello")
         XCTAssertNotNil(store.sessions["s2"])
         XCTAssertEqual(store.sessions.count, 1)
     }

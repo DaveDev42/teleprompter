@@ -116,10 +116,10 @@ struct WatchSessionDetailView: View {
     private func hookEventIcon(_ name: String) -> String {
         switch name {
         case "Stop", "StopFailure": return "stop.circle"
-        case "PreToolUse":          return "arrow.right.circle"
-        case "PostToolUse":         return "checkmark.circle"
-        case "Notification":        return "bell"
-        default:                    return "circle"
+        case "PreToolUse": return "arrow.right.circle"
+        case "PostToolUse": return "checkmark.circle"
+        case "Notification": return "bell"
+        default: return "circle"
         }
     }
 }

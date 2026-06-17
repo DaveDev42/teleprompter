@@ -1,5 +1,6 @@
-import XCTest
 import SwiftTerm
+import XCTest
+
 @testable import Teleprompter
 
 /// Emulator-level tests for the A1 ANSI milestone (Phase 3.x).
@@ -36,8 +37,9 @@ final class TerminalEmulatorTests: XCTestCase {
         let opts = TerminalOptions(cols: 80, rows: 24)
         let t = Terminal(delegate: delegate, options: opts)
         // Retain delegate through the terminal's lifetime via objc association.
-        objc_setAssociatedObject(t, &TerminalEmulatorTests.delegateKey,
-                                 delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        objc_setAssociatedObject(
+            t, &TerminalEmulatorTests.delegateKey,
+            delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return t
     }
 
@@ -68,7 +70,8 @@ final class TerminalEmulatorTests: XCTestCase {
         // The character 'A' lands at (col=0, row=0) in the visible buffer.
         // Verify it is present (guards that the run actually landed on-screen).
         let ch = t.getCharacter(col: 0, row: 0)
-        XCTAssertEqual(ch, "A",
+        XCTAssertEqual(
+            ch, "A",
             "Expected 'A' at (0,0) after SGR+print; got \(ch.map { String($0) } ?? "nil")")
 
         // Verify the foreground colour attribute carries ANSI red (code 1).
@@ -82,9 +85,9 @@ final class TerminalEmulatorTests: XCTestCase {
             // check for ansi256 without hard-coding the exact index.
             switch fg {
             case .ansi256:
-                break // ✓ SGR colour was applied
+                break  // ✓ SGR colour was applied
             case .trueColor:
-                break // ✓ also valid (some SwiftTerm builds map basic ANSI to trueColor)
+                break  // ✓ also valid (some SwiftTerm builds map basic ANSI to trueColor)
             case .defaultColor, .defaultInvertedColor:
                 XCTFail("Expected non-default fg colour after ESC[31m, got defaultColor")
             }
@@ -110,7 +113,8 @@ final class TerminalEmulatorTests: XCTestCase {
         for col in 0..<5 {
             if let ch = t.getCharacter(col: col, row: 0) { got.append(ch) }
         }
-        XCTAssertEqual(got, "WORLD",
+        XCTAssertEqual(
+            got, "WORLD",
             "Expected WORLD after EL+overwrite at row 0; got '\(got)'")
 
         // Confirm HELLO is NOT present anywhere in row 0 cols 0–7.
@@ -118,7 +122,8 @@ final class TerminalEmulatorTests: XCTestCase {
         for col in 0..<8 {
             if let ch = t.getCharacter(col: col, row: 0) { row0.append(ch) }
         }
-        XCTAssertFalse(row0.contains("HELLO"),
+        XCTAssertFalse(
+            row0.contains("HELLO"),
             "HELLO should have been erased, but row0 contains: '\(row0)'")
     }
 
@@ -154,18 +159,22 @@ final class TerminalEmulatorTests: XCTestCase {
 
         // 1. The EXACT checkInputEcho predicate must pass.
         let out = store.terminalOutput[sid]
-        XCTAssertNotNil(out,
+        XCTAssertNotNil(
+            out,
             "terminalOutput[sid] is nil — probe was not appended to the String accumulator")
-        XCTAssertTrue(out?.contains("tp-input-probe") == true,
+        XCTAssertTrue(
+            out?.contains("tp-input-probe") == true,
             "terminalOutput[sid] does not contain 'tp-input-probe': '\(out ?? "nil")'")
 
         // 2. The byte sink was called exactly once (successful decode fires it once).
-        XCTAssertEqual(sinkCallCount, 1,
+        XCTAssertEqual(
+            sinkCallCount, 1,
             "Byte sink expected 1 call but got \(sinkCallCount)")
 
         // 3. terminalOutput contains only the decoded probe text — the sink
         //    must not have mutated it (it's a separate code path).
-        XCTAssertEqual(out, probeText,
+        XCTAssertEqual(
+            out, probeText,
             "terminalOutput[sid] value should be exactly the decoded probe text")
     }
 }

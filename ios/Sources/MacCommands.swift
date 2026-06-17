@@ -23,10 +23,12 @@ import AppKit
 /// action mutates the shared `AppNavigationModel` so the menu bar and the
 /// `MacRootView` sidebar/detail stay a single source of truth.
 /// - **Tab nav** (⌘1/⌘2/⌘3): jump to Sessions / Daemons / Settings.
-/// - **Session screen** (⌃⌘C Chat, ⌘T Terminal, ⌘[ Prev, ⌘] Next, ⌘K Quick
-///   Switch): only meaningful while a session detail is on screen, so every one
-///   is `.disabled(nav.composerHasFocus || !nav.hasActiveDetail)` — inert while
-///   typing in a composer (FIX #3) and when no detail is open (FIX #5).
+/// - **Session screen** — two gating tiers (all also require `hasActiveDetail`,
+///   FIX #5): pane switches (⌃⌘C Chat, ⌘T Terminal) gate on `composerHasFocus`
+///   only so they stay reachable from the terminal (the escape hatch); movement
+///   chords (⌘[ Prev, ⌘] Next, ⌘K Quick Switch) gate on the full
+///   `inputCapturing` — inert while typing in a composer (FIX #3) AND while the
+///   Terminal pane owns the keyboard (FIX #6).
 struct MacCommands: Commands {
     let pairings: PairingViewModel
     @Binding var showShortcutHelp: Bool
@@ -66,12 +68,19 @@ struct MacCommands: Commands {
                 .keyboardShortcut("3", modifiers: .command)
         }
 
-        // Session-screen navigation. Every button is gated on
-        // `composerHasFocus || !hasActiveDetail` (FIX #3 + #5): inert while a
-        // composer is first responder and when no `SessionDetailView` is on
-        // screen. ⌘[/⌘] are advertised as Prev/Next; because these only act
-        // while a detail is open and SwiftUI's NavigationStack back/forward maps
-        // are not bound here on macOS, there is no observed collision.
+        // Session-screen navigation. Two gating tiers:
+        //
+        //  • Pane switches (⌃⌘C Chat, ⌘T Terminal) are the user's escape hatch
+        //    OUT of the terminal, so they must stay reachable while the Terminal
+        //    pane owns the keyboard — gate them only on `composerHasFocus ||
+        //    !hasActiveDetail` (FIX #3 + #5). ⌃⌘C / ⌘T are distinct chords the PTY
+        //    does not consume (Ctrl+C → SIGINT is ^C, not ⌃⌘C).
+        //
+        //  • Movement chords (⌘[ Prev, ⌘] Next, ⌘K Quick Switch) emit bracket/k
+        //    keystrokes the terminal cares about and would silently swap the
+        //    session mid-command, so they get the full `inputCapturing` gate —
+        //    inert while a composer is focused AND while the Terminal pane owns
+        //    the keyboard (FIX #6) — plus `!hasActiveDetail` (FIX #5).
         CommandMenu("Session") {
             Button("Chat") { nav.cyclePane(to: .chat) }
                 .keyboardShortcut("c", modifiers: [.control, .command])
@@ -84,16 +93,16 @@ struct MacCommands: Commands {
 
             Button("Previous Session") { nav.step(-1) }
                 .keyboardShortcut("[", modifiers: .command)
-                .disabled(nav.composerHasFocus || !nav.hasActiveDetail)
+                .disabled(nav.inputCapturing || !nav.hasActiveDetail)
             Button("Next Session") { nav.step(1) }
                 .keyboardShortcut("]", modifiers: .command)
-                .disabled(nav.composerHasFocus || !nav.hasActiveDetail)
+                .disabled(nav.inputCapturing || !nav.hasActiveDetail)
 
             Divider()
 
             Button("Quick Switch Session…") { nav.showQuickSwitcher = true }
                 .keyboardShortcut("k", modifiers: .command)
-                .disabled(nav.composerHasFocus || !nav.hasActiveDetail)
+                .disabled(nav.inputCapturing || !nav.hasActiveDetail)
         }
 
         // Help menu: Keyboard Shortcuts (⌘/).

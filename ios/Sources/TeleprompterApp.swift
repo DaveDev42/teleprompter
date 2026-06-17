@@ -393,8 +393,11 @@ struct RootView: View {
     }
 
     #if !os(macOS)
-    /// Hidden zero-opacity buttons carrying the ⌘1/⌘2/⌘3 tab-switch chords for
-    /// iOS/iPadOS/visionOS (no menu bar). Mirrors the macOS MacCommands tab group.
+    /// Hidden zero-opacity buttons carrying the ⌘1/⌘2/⌘3 tab-switch chords and the
+    /// global ⌘/ shortcut-help chord for iOS/iPadOS/visionOS (no menu bar). Mirrors
+    /// the macOS MacCommands tab group + Help → Keyboard Shortcuts. Without the ⌘/
+    /// button here the help sheet would be unreachable on every non-macOS platform
+    /// (it is only wired in MacCommands, which never compiles off macOS).
     @ViewBuilder
     private var tabNavShortcuts: some View {
         ZStack {
@@ -404,6 +407,10 @@ struct RootView: View {
                 .keyboardShortcut("2", modifiers: .command)
             Button("") { nav.selectedTab = .settings }
                 .keyboardShortcut("3", modifiers: .command)
+            // ⌘/ opens the shortcut-help sheet (the macOS Help menu item's iOS
+            // counterpart). Global — no focus/detail gate, matching MacCommands.
+            Button("") { showShortcutHelp = true }
+                .keyboardShortcut("/", modifiers: .command)
         }
         .opacity(0)
     }

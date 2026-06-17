@@ -98,13 +98,20 @@ targets:
         # the old Expo app). Declared up front so the parallel feature tranches
         # (Daemons/Pairing QR scan, Voice) never have to edit this shared file.
         #   - Camera: in-app QR pairing scan (AVCaptureSession metadata output).
-        #   - Microphone: OpenAI Realtime voice (AVAudioEngine capture).
+        #   - Microphone: voice control (AVAudioEngine capture — both the
+        #     OpenAI Realtime backend and the on-device Apple Speech backend).
+        #   - Speech recognition: on-device STT via SFSpeechRecognizer when the
+        #     voice backend is set to on-device (offline) mode. Audio stays on
+        #     device (requiresOnDeviceRecognition); no audio leaves the phone.
         NSCameraUsageDescription: >-
           Teleprompter uses the camera to scan a pairing QR code shown by the
           tp CLI, so this device can securely connect to your daemon.
         NSMicrophoneUsageDescription: >-
           Teleprompter uses the microphone for voice control of your Claude Code
-          session via the OpenAI Realtime API.
+          session, either on-device (offline) or via the OpenAI Realtime API.
+        NSSpeechRecognitionUsageDescription: >-
+          Teleprompter transcribes your voice on this device to turn spoken
+          requests into prompts for your Claude Code session.
         # App Transport Security. Production relay is `wss://relay.tpmt.dev` (TLS),
         # which needs no exception. The local loopback relay used by the smoke
         # test (`ws://localhost:7090`) is cleartext, so allow local networking —

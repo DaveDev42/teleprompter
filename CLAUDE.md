@@ -14,7 +14,7 @@ Teleprompter is a remote Claude Code session controller. A native **Swift (Swift
 - **Shared core**: Rust (`rust/tp-core`) — wire codec + E2EE crypto(AEAD/KDF/crypto_kx/ratchet) + pairing. Swift 에 UniFFI FFI(순수 함수만)로 노출, TS 구현과 byte-exact (골든벡터 교차검증). xcframework = `rust/build-xcframework.sh` (= `scripts/ios.sh rust`). 상세 = `rust/README.md`. **(Phase 2 ✅ 구현 + Simulator 검증 완료)**
 - **Backend / CLI**: TypeScript on Bun v1.3.13+ (Runner, Daemon, Relay, CLI). 현행 구현 = 동작 레퍼런스 + dogfood 파이프라인. Turborepo + pnpm 모노레포.
 - **Encryption**: X25519 + XChaCha20-Poly1305 (libsodium on Bun; `tp-core` 가 순수 Rust crate 로 byte-exact 재현, 골든벡터 검증 완료).
-- **Voice**: OpenAI Realtime API
+- **Voice**: selectable backend — **on-device (offline)** [SFSpeechRecognizer STT + Foundation Models refine/summarize (iOS 26+, availability-gated, raw-transcript fallback) + AVSpeechSynthesizer TTS, no API key] **or OpenAI Realtime API** [key required]. Settings toggle (Auto / On-device / OpenAI Realtime); default on-device when no key. Both backends drive one `VoiceConnectionStatus` state machine via the `VoiceBackend` protocol seam (`ios/Sources/Voice/`).
 
 ## Monorepo Layout
 

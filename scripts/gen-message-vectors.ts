@@ -126,7 +126,10 @@ const relayClient: ParseCase[] = [
     sid: "s1",
     after: 3,
   }),
-  parseCase(parseRelayClientMessage, "sub-no-after", { t: "relay.sub", sid: "s1" }),
+  parseCase(parseRelayClientMessage, "sub-no-after", {
+    t: "relay.sub",
+    sid: "s1",
+  }),
   parseCase(parseRelayClientMessage, "unsub", { t: "relay.unsub", sid: "s1" }),
   parseCase(parseRelayClientMessage, "unsub-extra-field-dropped", {
     t: "relay.unsub",
@@ -134,7 +137,10 @@ const relayClient: ParseCase[] = [
     evil: "x",
   }),
   parseCase(parseRelayClientMessage, "ping-no-ts", { t: "relay.ping" }),
-  parseCase(parseRelayClientMessage, "ping-with-ts", { t: "relay.ping", ts: 12.5 }),
+  parseCase(parseRelayClientMessage, "ping-with-ts", {
+    t: "relay.ping",
+    ts: 12.5,
+  }),
   parseCase(parseRelayClientMessage, "push-full", {
     t: "relay.push",
     frontendId: "f1",
@@ -180,7 +186,10 @@ const relayClient: ParseCase[] = [
     ct: "c",
     seq: 1.5,
   }),
-  parseCase(parseRelayClientMessage, "ping-null-ts", { t: "relay.ping", ts: null }),
+  parseCase(parseRelayClientMessage, "ping-null-ts", {
+    t: "relay.ping",
+    ts: null,
+  }),
   // hardening (audit wq3kcwnks): null-valued optionals must REJECT on both sides.
   parseCase(parseRelayClientMessage, "sub-null-after", {
     t: "relay.sub",
@@ -236,7 +245,12 @@ const relayClient: ParseCase[] = [
 // ── IPC (parseIpcMessage) ──────────────────────────────────────────────────
 const ipc: ParseCase[] = [
   // accepts
-  parseCase(parseIpcMessage, "hello-min", { t: "hello", sid: "s", cwd: "/x", pid: 42 }),
+  parseCase(parseIpcMessage, "hello-min", {
+    t: "hello",
+    sid: "s",
+    cwd: "/x",
+    pid: 42,
+  }),
   parseCase(parseIpcMessage, "hello-full", {
     t: "hello",
     sid: "s",
@@ -262,10 +276,19 @@ const ipc: ParseCase[] = [
     name: "Stop",
   }),
   parseCase(parseIpcMessage, "bye", { t: "bye", sid: "s", exitCode: 0 }),
-  parseCase(parseIpcMessage, "bye-nonzero-float", { t: "bye", sid: "s", exitCode: -1 }),
+  parseCase(parseIpcMessage, "bye-nonzero-float", {
+    t: "bye",
+    sid: "s",
+    exitCode: -1,
+  }),
   parseCase(parseIpcMessage, "ack", { t: "ack", sid: "s", seq: 0 }),
   parseCase(parseIpcMessage, "input", { t: "input", sid: "s", data: "AAAA" }),
-  parseCase(parseIpcMessage, "resize", { t: "resize", sid: "s", cols: 80, rows: 24 }),
+  parseCase(parseIpcMessage, "resize", {
+    t: "resize",
+    sid: "s",
+    cols: 80,
+    rows: 24,
+  }),
   parseCase(parseIpcMessage, "pair-begin-min", {
     t: "pair.begin",
     relayUrl: "wss://r",
@@ -296,7 +319,10 @@ const ipc: ParseCase[] = [
     t: "pair.begin.err",
     reason: "internal",
   }),
-  parseCase(parseIpcMessage, "pair-cancel", { t: "pair.cancel", pairingId: "p" }),
+  parseCase(parseIpcMessage, "pair-cancel", {
+    t: "pair.cancel",
+    pairingId: "p",
+  }),
   parseCase(parseIpcMessage, "pair-completed", {
     t: "pair.completed",
     pairingId: "p",
@@ -308,13 +334,19 @@ const ipc: ParseCase[] = [
     pairingId: "p",
     daemonId: "d",
   }),
-  parseCase(parseIpcMessage, "pair-cancelled", { t: "pair.cancelled", pairingId: "p" }),
+  parseCase(parseIpcMessage, "pair-cancelled", {
+    t: "pair.cancelled",
+    pairingId: "p",
+  }),
   parseCase(parseIpcMessage, "pair-error", {
     t: "pair.error",
     pairingId: "p",
     reason: "kx-decrypt-failed",
   }),
-  parseCase(parseIpcMessage, "pair-remove", { t: "pair.remove", daemonId: "d" }),
+  parseCase(parseIpcMessage, "pair-remove", {
+    t: "pair.remove",
+    daemonId: "d",
+  }),
   parseCase(parseIpcMessage, "pair-remove-ok", {
     t: "pair.remove.ok",
     daemonId: "d",
@@ -351,7 +383,10 @@ const ipc: ParseCase[] = [
     reason: "internal",
     message: "boom",
   }),
-  parseCase(parseIpcMessage, "session-delete", { t: "session.delete", sid: "s" }),
+  parseCase(parseIpcMessage, "session-delete", {
+    t: "session.delete",
+    sid: "s",
+  }),
   parseCase(parseIpcMessage, "session-delete-ok", {
     t: "session.delete.ok",
     sid: "s",
@@ -399,7 +434,12 @@ const ipc: ParseCase[] = [
   }),
   // rejects
   parseCase(parseIpcMessage, "unknown", { t: "nope" }),
-  parseCase(parseIpcMessage, "hello-pid-zero", { t: "hello", sid: "s", cwd: "/x", pid: 0 }),
+  parseCase(parseIpcMessage, "hello-pid-zero", {
+    t: "hello",
+    sid: "s",
+    cwd: "/x",
+    pid: 0,
+  }),
   parseCase(parseIpcMessage, "hello-null-worktree", {
     t: "hello",
     sid: "s",
@@ -430,7 +470,11 @@ const ipc: ParseCase[] = [
     ts: 1,
     payload: "x",
   }),
-  parseCase(parseIpcMessage, "ack-negative-seq", { t: "ack", sid: "s", seq: -1 }),
+  parseCase(parseIpcMessage, "ack-negative-seq", {
+    t: "ack",
+    sid: "s",
+    seq: -1,
+  }),
   parseCase(parseIpcMessage, "resize-zero-cols", {
     t: "resize",
     sid: "s",

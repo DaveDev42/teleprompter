@@ -105,7 +105,17 @@ struct SettingsForm: View {
             }
 
             // MARK: Voice
-            Section("Voice") {
+            Section {
+                Picker("Voice backend", selection: Binding(
+                    get: { settings.voiceBackend },
+                    set: { settings.voiceBackend = $0 }
+                )) {
+                    ForEach(VoiceBackendPreference.allCases, id: \.self) { pref in
+                        Text(pref.title).tag(pref)
+                    }
+                }
+                .pickerStyle(.menu)
+
                 Button {
                     showApiKey = true
                 } label: {
@@ -115,6 +125,11 @@ struct SettingsForm: View {
                     )
                 }
                 .foregroundStyle(.primary)
+            } header: {
+                Text("Voice")
+            } footer: {
+                Text("On-device runs offline and needs no API key. OpenAI Realtime requires an API key. Auto uses on-device when no key is set, OpenAI Realtime when one is.")
+                    .font(.footnote)
             }
 
             // MARK: About

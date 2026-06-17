@@ -1,8 +1,9 @@
-import SwiftUI
 // @preconcurrency: AVCaptureSession/AVCaptureVideoPreviewLayer/etc. predate Swift
 // concurrency and are not yet Sendable; suppress cross-isolation capture errors
 // from AVFoundation until Apple annotates these types upstream.
 @preconcurrency import AVFoundation
+import SwiftUI
+
 #if os(iOS)
 import UIKit
 #endif
@@ -12,11 +13,11 @@ import UIKit
 /// Returns true only on real iOS/iPadOS hardware with a camera device.
 /// On macOS (native) and iOS Simulator there is no capture device.
 private func hasCameraDevice() -> Bool {
-#if os(iOS)
+    #if os(iOS)
     return AVCaptureDevice.default(for: .video) != nil
-#else
+    #else
     return false
-#endif
+    #endif
 }
 
 // MARK: - AVCapture coordinator (iOS-only)
@@ -48,8 +49,10 @@ final class QRScannerCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelega
     private var pendingPreviewLayer: AVCaptureVideoPreviewLayer?
     private var pendingCompletion: ((Error?) -> Void)?
 
-    func prepare(previewLayer: AVCaptureVideoPreviewLayer,
-                 completion: @escaping (Error?) -> Void) {
+    func prepare(
+        previewLayer: AVCaptureVideoPreviewLayer,
+        completion: @escaping (Error?) -> Void
+    ) {
         // Store args on self so the @Sendable requestAccess closure only captures
         // [weak self] — avoiding non-Sendable cross-isolation captures.
         pendingPreviewLayer = previewLayer
@@ -60,7 +63,8 @@ final class QRScannerCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelega
                 guard let self else { return }
                 if granted {
                     guard let layer = self.pendingPreviewLayer,
-                          let cb = self.pendingCompletion else { return }
+                        let cb = self.pendingCompletion
+                    else { return }
                     self.pendingPreviewLayer = nil
                     self.pendingCompletion = nil
                     self.setupSession(previewLayer: layer, completion: cb)
@@ -73,19 +77,26 @@ final class QRScannerCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelega
         }
     }
 
-    private func setupSession(previewLayer: AVCaptureVideoPreviewLayer,
-                              completion: @escaping (Error?) -> Void) {
+    private func setupSession(
+        previewLayer: AVCaptureVideoPreviewLayer,
+        completion: @escaping (Error?) -> Void
+    ) {
         let s = AVCaptureSession()
         guard let device = AVCaptureDevice.default(for: .video),
-              let input = try? AVCaptureDeviceInput(device: device) else {
-            completion(NSError(domain: "QRScanner", code: 1,
-                               userInfo: [NSLocalizedDescriptionKey: "No video device"]))
+            let input = try? AVCaptureDeviceInput(device: device)
+        else {
+            completion(
+                NSError(
+                    domain: "QRScanner", code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "No video device"]))
             return
         }
         let output = AVCaptureMetadataOutput()
         guard s.canAddInput(input), s.canAddOutput(output) else {
-            completion(NSError(domain: "QRScanner", code: 2,
-                               userInfo: [NSLocalizedDescriptionKey: "Cannot configure capture session"]))
+            completion(
+                NSError(
+                    domain: "QRScanner", code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "Cannot configure capture session"]))
             return
         }
         s.addInput(input)
@@ -118,12 +129,15 @@ final class QRScannerCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelega
     //
     // Extract the String value (Sendable) from the non-Sendable [AVMetadataObject]
     // array BEFORE calling assumeIsolated to avoid "sending non-Sendable" errors.
-    nonisolated func metadataOutput(_ output: AVCaptureMetadataOutput,
-                                    didOutput metadataObjects: [AVMetadataObject],
-                                    from connection: AVCaptureConnection) {
+    nonisolated func metadataOutput(
+        _ output: AVCaptureMetadataOutput,
+        didOutput metadataObjects: [AVMetadataObject],
+        from connection: AVCaptureConnection
+    ) {
         // Extract the QR string here (nonisolated context) — String is Sendable.
         guard let obj = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
-              let str = obj.stringValue else { return }
+            let str = obj.stringValue
+        else { return }
         // Now only cross the boundary with the Sendable String, not AVMetadataObject.
         MainActor.assumeIsolated {
             guard !hasDelivered else { return }
@@ -226,7 +240,7 @@ struct QRScannerView: View {
 
     @ViewBuilder
     private var cameraBody: some View {
-#if os(iOS)
+        #if os(iOS)
         ZStack {
             Color.black.ignoresSafeArea()
 
@@ -254,9 +268,9 @@ struct QRScannerView: View {
                 Button("Cancel", action: onCancel)
             }
         }
-#else
+        #else
         unavailableBody
-#endif
+        #endif
     }
 
     // MARK: Viewfinder overlay

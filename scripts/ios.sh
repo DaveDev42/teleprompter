@@ -1116,6 +1116,36 @@ cmd_test() {
     test | xcbeautify_or_cat
 }
 
+# Swift source roots that swift-format formats/lints (app + tests + watch target).
+SWIFT_FMT_PATHS=("$IOS_DIR/Sources" "$IOS_DIR/Tests" "$IOS_DIR/Watch")
+SWIFT_FMT_CONFIG="$REPO_ROOT/.swift-format"
+
+# `swift-format` is bundled with Xcode — invoke via `xcrun` (no Homebrew dep).
+swift_format() {
+  require xcrun
+  xcrun swift-format "$@"
+}
+
+# Rewrite all Swift sources in place per .swift-format (formatting rules only;
+# lint-only rules like naming are never auto-applied). Run before committing.
+cmd_fmt() {
+  log "swift-format format -i (config: .swift-format)"
+  swift_format format -i --configuration "$SWIFT_FMT_CONFIG" --recursive "${SWIFT_FMT_PATHS[@]}"
+  log "✅ formatted"
+}
+
+# Fail on any style deviation. `--strict` promotes every finding to a nonzero
+# exit so this is usable as a gate (mirrors `cargo fmt --check` on the Rust side).
+cmd_lint() {
+  log "swift-format lint --strict (config: .swift-format)"
+  if swift_format lint --strict --configuration "$SWIFT_FMT_CONFIG" \
+       --recursive "${SWIFT_FMT_PATHS[@]}"; then
+    log "✅ swift-format lint clean"
+  else
+    die "swift-format lint failed — run 'scripts/ios.sh fmt' to auto-fix formatting"
+  fi
+}
+
 main() {
   local sub="${1:-smoke}"; shift || true
   case "$sub" in
@@ -1129,7 +1159,9 @@ main() {
     run)   cmd_run ;;
     smoke) cmd_smoke ;;
     test)  cmd_test ;;
-    *) die "unknown subcommand: $sub (use: gen|rust|boot|build|run|smoke|test)" ;;
+    fmt)   cmd_fmt ;;
+    lint)  cmd_lint ;;
+    *) die "unknown subcommand: $sub (use: gen|rust|boot|build|run|smoke|test|fmt|lint)" ;;
   esac
 }
 

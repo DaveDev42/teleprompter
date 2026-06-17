@@ -19,7 +19,7 @@ struct RealtimeEvents {
     var onDisconnected: (() -> Void)?
     var onError: ((String) -> Void)?
     var onTranscript: ((String) -> Void)?
-    var onAudio: ((String) -> Void)?       // base64 PCM16 24kHz chunk
+    var onAudio: ((String) -> Void)?  // base64 PCM16 24kHz chunk
     var onAudioDone: (() -> Void)?
     var onSpeechStart: (() -> Void)?
     var onSpeechEnd: (() -> Void)?
@@ -89,8 +89,8 @@ final class RealtimeClient: NSObject {
             "item": [
                 "type": "message",
                 "role": "user",
-                "content": [["type": "input_text", "text": text]]
-            ]
+                "content": [["type": "input_text", "text": text]],
+            ],
         ])
         send(["type": "response.create"])
     }
@@ -135,39 +135,40 @@ final class RealtimeClient: NSObject {
                     "type": "server_vad",
                     "threshold": 0.5,
                     "prefix_padding_ms": 300,
-                    "silence_duration_ms": 500
-                ]
-            ]
+                    "silence_duration_ms": 500,
+                ],
+            ],
         ]
         send(payload)
     }
 
     private func defaultSystemPrompt() -> String {
         return """
-        You are a voice interface for Teleprompter, a remote Claude Code controller.
+            You are a voice interface for Teleprompter, a remote Claude Code controller.
 
-        Your role:
-        1. Listen to the user's voice input
-        2. Clean up and refine it into a clear, actionable prompt for Claude Code
-        3. Respond briefly with a spoken confirmation
+            Your role:
+            1. Listen to the user's voice input
+            2. Clean up and refine it into a clear, actionable prompt for Claude Code
+            3. Respond briefly with a spoken confirmation
 
-        Rules:
-        - Keep spoken responses SHORT (1-2 sentences max)
-        - Output the refined prompt as text in your response
-        - The refined prompt will be automatically sent to Claude Code
-        - If the user's intent is unclear, ask a brief clarifying question
+            Rules:
+            - Keep spoken responses SHORT (1-2 sentences max)
+            - Output the refined prompt as text in your response
+            - The refined prompt will be automatically sent to Claude Code
+            - If the user's intent is unclear, ask a brief clarifying question
 
-        Example:
-        - User: "um, can you like fix the bug in the login page, the one where it crashes"
-        - Your response: "Fixing the login crash bug."
-        - (Refined prompt sent to Claude: "Fix the bug in the login page that causes a crash")
-        """
+            Example:
+            - User: "um, can you like fix the bug in the login page, the one where it crashes"
+            - Your response: "Fixing the login crash bug."
+            - (Refined prompt sent to Claude: "Fix the bug in the login page that causes a crash")
+            """
     }
 
     private func send(_ payload: [String: Any]) {
         guard let task, task.state == .running else { return }
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
-              let str = String(data: data, encoding: .utf8) else { return }
+            let str = String(data: data, encoding: .utf8)
+        else { return }
         task.send(.string(str)) { _ in }
     }
 
@@ -214,8 +215,9 @@ final class RealtimeClient: NSObject {
         // generation guard.
         guard !disposed else { return }
         guard let data = json.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type_ = obj["type"] as? String else { return }
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let type_ = obj["type"] as? String
+        else { return }
 
         switch type_ {
         case "session.created", "session.updated":

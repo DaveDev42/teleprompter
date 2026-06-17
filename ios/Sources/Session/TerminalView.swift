@@ -154,7 +154,7 @@ struct TerminalView: View {
                 .textFieldStyle(.plain)
                 .autocorrectionDisabled()
                 #if os(iOS) || os(visionOS)
-                .autocapitalization(.none)
+            .autocapitalization(.none)
                 #endif
                 .accessibilityIdentifier("terminal-search-field")
                 .onSubmit { performSearch(next: true) }
@@ -209,7 +209,8 @@ struct TerminalView: View {
 
     private func performSearch(next: Bool) {
         guard !searchQuery.isEmpty else { return }
-        let found = next
+        let found =
+            next
             ? searchProxy.findNext(query: searchQuery)
             : searchProxy.findPrevious(query: searchQuery)
         searchHasMatch = found

@@ -203,7 +203,7 @@ struct SessionHelloReply: Decodable, Equatable {
 /// union) and optional fields are intentionally omitted from M3's first decode.
 struct SessionMeta: Decodable, Equatable {
     let sid: String
-    let state: String // "running" | "stopped" | "error" — NOT named "status"
+    let state: String  // "running" | "stopped" | "error" — NOT named "status"
     let cwd: String
     let createdAt: Double
     let updatedAt: Double
@@ -261,7 +261,7 @@ struct SessionResume: Encodable, Equatable {
 struct SessionInChat: Encodable, Equatable {
     let t = "in.chat"
     let sid: String
-    let d: String // PLAIN text (daemon adds the newline)
+    let d: String  // PLAIN text (daemon adds the newline)
 }
 
 /// `in.term` — send raw terminal bytes into a session. `d` is **base64** of the
@@ -271,7 +271,7 @@ struct SessionInChat: Encodable, Equatable {
 struct SessionInTerm: Encodable, Equatable {
     let t = "in.term"
     let sid: String
-    let d: String // base64 of raw PTY bytes
+    let d: String  // base64 of raw PTY bytes
 }
 
 // MARK: - M4 Session messages (Daemon → Frontend)
@@ -295,10 +295,10 @@ struct SessionRec: Decodable, Equatable {
     let t: String
     let sid: String
     let seq: Int
-    let k: String // "io" | "event" | "meta"
+    let k: String  // "io" | "event" | "meta"
     let ns: String?
     let n: String?
-    let d: String // base64 payload, always present
+    let d: String  // base64 payload, always present
     let ts: Double
 }
 
@@ -426,9 +426,11 @@ struct RawJSONString: Decodable, Equatable {
             // Decode as generic Any first by going through the raw representation.
             // We abuse JSONDecoder to get the raw bytes back for re-serialisation.
             let raw = try c.decode(AnyDecodable.self)
-            if let data = try? JSONSerialization.data(withJSONObject: raw.value,
-                                                       options: [.sortedKeys]),
-               let s = String(data: data, encoding: .utf8) {
+            if let data = try? JSONSerialization.data(
+                withJSONObject: raw.value,
+                options: [.sortedKeys]),
+                let s = String(data: data, encoding: .utf8)
+            {
                 value = s
             } else {
                 value = "<unserializable>"
@@ -450,15 +452,29 @@ private struct AnyDecodable: Decodable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
-        if let v = try? c.decode(Bool.self)   { value = v; return }
-        if let v = try? c.decode(Int.self)    { value = v; return }
-        if let v = try? c.decode(Double.self) { value = v; return }
-        if let v = try? c.decode(String.self) { value = v; return }
+        if let v = try? c.decode(Bool.self) {
+            value = v
+            return
+        }
+        if let v = try? c.decode(Int.self) {
+            value = v
+            return
+        }
+        if let v = try? c.decode(Double.self) {
+            value = v
+            return
+        }
+        if let v = try? c.decode(String.self) {
+            value = v
+            return
+        }
         if let v = try? c.decode([String: AnyDecodable].self) {
-            value = v.mapValues { $0.value }; return
+            value = v.mapValues { $0.value }
+            return
         }
         if let v = try? c.decode([AnyDecodable].self) {
-            value = v.map { $0.value }; return
+            value = v.map { $0.value }
+            return
         }
         value = NSNull()
     }

@@ -209,9 +209,11 @@ final class RelayClient: NSObject, @unchecked Sendable {
     ///   - pairing: the daemon pairing carrying relay URL, daemonId, secret, frontendId.
     ///   - session: injectable for tests (default ephemeral, no cookies/cache).
     ///   - pingInterval: keep-alive cadence; 30s matches the daemon + relay idle window.
-    init(pairing: Pairing,
-         session: URLSession = .init(configuration: .ephemeral),
-         pingInterval: TimeInterval = 30) {
+    init(
+        pairing: Pairing,
+        session: URLSession = .init(configuration: .ephemeral),
+        pingInterval: TimeInterval = 30
+    ) {
         self.pairing = pairing
         self.session = session
         self.pingInterval = pingInterval
@@ -268,8 +270,9 @@ final class RelayClient: NSObject, @unchecked Sendable {
     private func sendAuth() {
         // M7: Use resume fast-path if we have a non-expired token.
         if let token = resumeToken,
-           let exp = resumeExpiresAt,
-           Date().timeIntervalSince1970 * 1000 < exp {
+            let exp = resumeExpiresAt,
+            Date().timeIntervalSince1970 * 1000 < exp
+        {
             isResuming = true
             state = .authenticating
             let resume = RelayAuthResume(token: token)
@@ -294,7 +297,8 @@ final class RelayClient: NSObject, @unchecked Sendable {
 
     // MARK: send
 
-    private func send<T: Encodable>(_ message: T, completion: @escaping @Sendable (Error?) -> Void) {
+    private func send<T: Encodable>(_ message: T, completion: @escaping @Sendable (Error?) -> Void)
+    {
         guard let task else {
             completion(URLError(.networkConnectionLost))
             return
@@ -316,10 +320,10 @@ final class RelayClient: NSObject, @unchecked Sendable {
         task?.receive { [weak self] result in
             guard let self else { return }
             switch result {
-            case let .success(message):
+            case .success(let message):
                 self.handle(message)
-                self.receiveLoop() // continue until the socket closes
-            case let .failure(error):
+                self.receiveLoop()  // continue until the socket closes
+            case .failure(let error):
                 // H6: any receive failure → schedule reconnect.
                 self.log.notice("relay closed: \(error.localizedDescription, privacy: .public)")
                 self.scheduleReconnect()
@@ -330,8 +334,8 @@ final class RelayClient: NSObject, @unchecked Sendable {
     private func handle(_ message: URLSessionWebSocketTask.Message) {
         let data: Data
         switch message {
-        case let .string(s): data = Data(s.utf8)
-        case let .data(d): data = d
+        case .string(let s): data = Data(s.utf8)
+        case .data(let d): data = d
         @unknown default: return
         }
         guard let envelope = try? JSONDecoder().decode(RelayServerEnvelope.self, from: data) else {
@@ -404,7 +408,9 @@ final class RelayClient: NSObject, @unchecked Sendable {
         if isResuming {
             // M7: Resume failed (token expired / rotated secret). Clear the token
             // and reconnect using full auth on the next attempt.
-            log.notice("relay.auth.err during resume (\(detail, privacy: .public)); falling back to full auth")
+            log.notice(
+                "relay.auth.err during resume (\(detail, privacy: .public)); falling back to full auth"
+            )
             isResuming = false
             resumeToken = nil
             resumeExpiresAt = nil
@@ -431,7 +437,10 @@ final class RelayClient: NSObject, @unchecked Sendable {
 
     private func subscribe(_ sid: String, after: Int?) {
         send(RelaySubscribe(sid: sid, after: after)) { [weak self] error in
-            if let error { self?.log.notice("sub \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)") }
+            if let error {
+                self?.log.notice(
+                    "sub \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
@@ -453,10 +462,16 @@ final class RelayClient: NSObject, @unchecked Sendable {
             let body = try JSONEncoder().encode(SessionAttach(sid: sid))
             let ct = try seal(plaintext: body, key: keys.tx, nonce: try randomBytes(24))
             send(RelayPublish(sid: sid, ct: ct, seq: 0)) { [weak self] error in
-                if let error { self?.log.notice("attach \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)") }
+                if let error {
+                    self?.log.notice(
+                        "attach \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                    )
+                }
             }
         } catch {
-            log.error("\(Self.sessionFailMarker, privacy: .public) sid=\(sid, privacy: .public) detail=attach seal: \(error.localizedDescription, privacy: .public)")
+            log.error(
+                "\(Self.sessionFailMarker, privacy: .public) sid=\(sid, privacy: .public) detail=attach seal: \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -472,10 +487,16 @@ final class RelayClient: NSObject, @unchecked Sendable {
             let body = try JSONEncoder().encode(SessionResume(sid: sid, c: cursor))
             let ct = try seal(plaintext: body, key: keys.tx, nonce: try randomBytes(24))
             send(RelayPublish(sid: sid, ct: ct, seq: 0)) { [weak self] error in
-                if let error { self?.log.notice("resume \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)") }
+                if let error {
+                    self?.log.notice(
+                        "resume \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                    )
+                }
             }
         } catch {
-            log.error("\(Self.sessionFailMarker, privacy: .public) sid=\(sid, privacy: .public) detail=resume seal: \(error.localizedDescription, privacy: .public)")
+            log.error(
+                "\(Self.sessionFailMarker, privacy: .public) sid=\(sid, privacy: .public) detail=resume seal: \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -564,17 +585,22 @@ final class RelayClient: NSObject, @unchecked Sendable {
                 let keys = try kxClientSessionKeys(
                     pk: kp.publicKey, sk: kp.secretKey, peerPk: daemonPk)
                 sessionKeys = keys
-                log.notice("\(Self.kxOkMarker, privacy: .public) daemon=\(self.pairing.daemonId, privacy: .public)")
+                log.notice(
+                    "\(Self.kxOkMarker, privacy: .public) daemon=\(self.pairing.daemonId, privacy: .public)"
+                )
             }
 
             // M10: Adopt the daemon's label if local label is unset.
             if let labelWire = payload.label, labelWire.set,
-               let labelValue = labelWire.value, !labelValue.isEmpty {
+                let labelValue = labelWire.value, !labelValue.isEmpty
+            {
                 let store = PairingStore.shared
                 let did = self.pairing.daemonId
                 if store.label(for: did) == nil {
                     store.setLabel(labelValue, for: did)
-                    log.notice("relay: adopted daemon label '\(labelValue, privacy: .public)' for daemon=\(did, privacy: .public)")
+                    log.notice(
+                        "relay: adopted daemon label '\(labelValue, privacy: .public)' for daemon=\(did, privacy: .public)"
+                    )
                 }
             }
 
@@ -609,25 +635,37 @@ final class RelayClient: NSObject, @unchecked Sendable {
                 let env = try JSONDecoder().decode(RelayServerEnvelope.self, from: plaintext)
                 switch env.t {
                 case "control.unpair":
-                    if let msg = try? JSONDecoder().decode(ControlUnpairInbound.self, from: plaintext) {
-                        log.notice("relay: inbound control.unpair daemon=\(msg.daemonId, privacy: .public) reason=\(msg.reason, privacy: .public)")
+                    if let msg = try? JSONDecoder().decode(
+                        ControlUnpairInbound.self, from: plaintext)
+                    {
+                        log.notice(
+                            "relay: inbound control.unpair daemon=\(msg.daemonId, privacy: .public) reason=\(msg.reason, privacy: .public)"
+                        )
                         onUnpair?(msg.daemonId, msg.reason)
                     } else {
                         log.notice("relay: malformed control.unpair — dropping")
                     }
                 case "control.rename":
-                    if let msg = try? JSONDecoder().decode(ControlRenameInbound.self, from: plaintext) {
+                    if let msg = try? JSONDecoder().decode(
+                        ControlRenameInbound.self, from: plaintext)
+                    {
                         let newLabel: String? = msg.label.set ? msg.label.value : nil
-                        log.notice("relay: inbound control.rename daemon=\(msg.daemonId, privacy: .public) label=\(newLabel ?? "(clear)", privacy: .public)")
+                        log.notice(
+                            "relay: inbound control.rename daemon=\(msg.daemonId, privacy: .public) label=\(newLabel ?? "(clear)", privacy: .public)"
+                        )
                         onRename?(msg.daemonId, newLabel)
                     } else {
-                        log.notice("relay: malformed control.rename (possibly legacy string label from v1 daemon) — dropping")
+                        log.notice(
+                            "relay: malformed control.rename (possibly legacy string label from v1 daemon) — dropping"
+                        )
                     }
                 default:
                     log.notice("relay: ignoring control t=\(env.t, privacy: .public)")
                 }
             } catch {
-                log.error("relay: control frame decrypt failed: \(error.localizedDescription, privacy: .public)")
+                log.error(
+                    "relay: control frame decrypt failed: \(error.localizedDescription, privacy: .public)"
+                )
             }
             return
         }
@@ -648,7 +686,9 @@ final class RelayClient: NSObject, @unchecked Sendable {
                 // when a reconnect triggers a second successful hello.
                 if !frameOkEmitted {
                     frameOkEmitted = true
-                    log.notice("\(Self.frameOkMarker, privacy: .public) sessions=\(reply.d.sessions.count, privacy: .public)")
+                    log.notice(
+                        "\(Self.frameOkMarker, privacy: .public) sessions=\(reply.d.sessions.count, privacy: .public)"
+                    )
                 }
                 onHello(reply.d.sessions)
             case "state":
@@ -661,10 +701,14 @@ final class RelayClient: NSObject, @unchecked Sendable {
                 let rec = try JSONDecoder().decode(SessionRec.self, from: plaintext)
                 onRec(rec)
             default:
-                log.notice("relay.frame decrypted t=\(env.t, privacy: .public) sid=\(frame.sid, privacy: .public)")
+                log.notice(
+                    "relay.frame decrypted t=\(env.t, privacy: .public) sid=\(frame.sid, privacy: .public)"
+                )
             }
         } catch {
-            log.error("\(Self.frameFailMarker, privacy: .public) detail=\(error.localizedDescription, privacy: .public)")
+            log.error(
+                "\(Self.frameFailMarker, privacy: .public) detail=\(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -700,7 +744,9 @@ final class RelayClient: NSObject, @unchecked Sendable {
             let req = try JSONEncoder().encode(HelloRequest())
             let ct = try seal(plaintext: req, key: keys.tx, nonce: try randomBytes(24))
             send(RelayPublish(sid: RelayChannel.meta, ct: ct, seq: 0)) { [weak self] error in
-                if let error { self?.log.notice("sendHello: \(error.localizedDescription, privacy: .public)") }
+                if let error {
+                    self?.log.notice("sendHello: \(error.localizedDescription, privacy: .public)")
+                }
             }
         } catch {
             log.notice("sendHello seal: \(error.localizedDescription, privacy: .public)")
@@ -767,7 +813,9 @@ final class RelayClient: NSObject, @unchecked Sendable {
     private func emitSessionOk(sid: String, events: Int) {
         guard events >= 1, !sessionOkEmitted.contains(sid) else { return }
         sessionOkEmitted.insert(sid)
-        log.notice("\(Self.sessionOkMarker, privacy: .public) sid=\(sid, privacy: .public) events=\(events, privacy: .public)")
+        log.notice(
+            "\(Self.sessionOkMarker, privacy: .public) sid=\(sid, privacy: .public) events=\(events, privacy: .public)"
+        )
     }
 
     // MARK: send input (M5)
@@ -794,10 +842,16 @@ final class RelayClient: NSObject, @unchecked Sendable {
             }
             let ct = try seal(plaintext: body, key: keys.tx, nonce: try randomBytes(24))
             send(RelayPublish(sid: sid, ct: ct, seq: 0)) { [weak self] error in
-                if let error { self?.log.notice("input \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)") }
+                if let error {
+                    self?.log.notice(
+                        "input \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                    )
+                }
             }
         } catch {
-            log.error("\(Self.inputFailMarker, privacy: .public) sid=\(sid, privacy: .public) detail=input seal: \(error.localizedDescription, privacy: .public)")
+            log.error(
+                "\(Self.inputFailMarker, privacy: .public) sid=\(sid, privacy: .public) detail=input seal: \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -814,13 +868,20 @@ final class RelayClient: NSObject, @unchecked Sendable {
         let safeCols = max(1, cols)
         let safeRows = max(1, rows)
         do {
-            let body = try JSONEncoder().encode(SessionResize(sid: sid, cols: safeCols, rows: safeRows))
+            let body = try JSONEncoder().encode(
+                SessionResize(sid: sid, cols: safeCols, rows: safeRows))
             let ct = try seal(plaintext: body, key: keys.tx, nonce: try randomBytes(24))
             send(RelayPublish(sid: sid, ct: ct, seq: 0)) { [weak self] error in
-                if let error { self?.log.notice("resize \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)") }
+                if let error {
+                    self?.log.notice(
+                        "resize \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                    )
+                }
             }
         } catch {
-            log.error("resize \(sid, privacy: .public) detail=seal: \(error.localizedDescription, privacy: .public)")
+            log.error(
+                "resize \(sid, privacy: .public) detail=seal: \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -874,12 +935,16 @@ final class RelayClient: NSObject, @unchecked Sendable {
             let ct = try seal(plaintext: body, key: keys.tx, nonce: try randomBytes(24))
             send(RelayPublish(sid: sid, ct: ct, seq: 0)) { [weak self] error in
                 if let error {
-                    self?.log.notice("control \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                    self?.log.notice(
+                        "control \(sid, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                    )
                 }
             }
             return true
         } catch {
-            log.error("control send seal sid=\(sid, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            log.error(
+                "control send seal sid=\(sid, privacy: .public): \(error.localizedDescription, privacy: .public)"
+            )
             return false
         }
     }
@@ -939,7 +1004,10 @@ final class RelayClient: NSObject, @unchecked Sendable {
                 let req = try JSONEncoder().encode(HelloRequest())
                 let ct = try seal(plaintext: req, key: keys.tx, nonce: try self.randomBytes(24))
                 self.send(RelayPublish(sid: RelayChannel.meta, ct: ct, seq: 0)) { error in
-                    if let error { self.log.notice("hello req: \(error.localizedDescription, privacy: .public)") }
+                    if let error {
+                        self.log.notice(
+                            "hello req: \(error.localizedDescription, privacy: .public)")
+                    }
                 }
             } catch {
                 self.log.notice("hello req seal: \(error.localizedDescription, privacy: .public)")
@@ -954,8 +1022,9 @@ final class RelayClient: NSObject, @unchecked Sendable {
             SecRandomCopyBytes(kSecRandomDefault, count, ptr.baseAddress!)
         }
         guard rc == errSecSuccess else {
-            throw NSError(domain: "RelayClient", code: Int(rc),
-                          userInfo: [NSLocalizedDescriptionKey: "SecRandomCopyBytes failed"])
+            throw NSError(
+                domain: "RelayClient", code: Int(rc),
+                userInfo: [NSLocalizedDescriptionKey: "SecRandomCopyBytes failed"])
         }
         return bytes
     }
@@ -987,7 +1056,7 @@ final class RelayClient: NSObject, @unchecked Sendable {
         sessionKeys = nil
         kxKeyPair = nil
         didAutoAttach = false
-        helloReceived = false   // Bug 3 fix: allow fallback hello on new connection
+        helloReceived = false  // Bug 3 fix: allow fallback hello on new connection
         // M12: clear RTT on disconnect — stale values are misleading.
         // Hop to main actor (all RTT writes serialized there — Bug 4 fix).
         Task { @MainActor [weak self] in
@@ -999,7 +1068,9 @@ final class RelayClient: NSObject, @unchecked Sendable {
 
         let delay = Self.reconnectDelay(attempt: reconnectAttempt)
         reconnectAttempt += 1
-        log.notice("relay: scheduling reconnect in \(delay, privacy: .public)s (attempt=\(self.reconnectAttempt, privacy: .public))")
+        log.notice(
+            "relay: scheduling reconnect in \(delay, privacy: .public)s (attempt=\(self.reconnectAttempt, privacy: .public))"
+        )
 
         let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
         timer.schedule(deadline: .now() + delay)
@@ -1032,7 +1103,9 @@ final class RelayClient: NSObject, @unchecked Sendable {
             // L5: track missed pongs — disconnect after maxMissedPongs consecutive misses.
             self.missedPongs += 1
             if self.missedPongs > Self.maxMissedPongs {
-                self.log.notice("relay: \(self.missedPongs, privacy: .public) missed pongs — triggering reconnect")
+                self.log.notice(
+                    "relay: \(self.missedPongs, privacy: .public) missed pongs — triggering reconnect"
+                )
                 self.pingTimer?.cancel()
                 self.pingTimer = nil
                 self.scheduleReconnect()
@@ -1045,7 +1118,9 @@ final class RelayClient: NSObject, @unchecked Sendable {
                 guard let self else { return }
                 self.lastPingSentAt = Date()
                 self.send(RelayPing(ts: nil)) { [weak self] error in
-                    if let error { self?.log.notice("ping: \(error.localizedDescription, privacy: .public)") }
+                    if let error {
+                        self?.log.notice("ping: \(error.localizedDescription, privacy: .public)")
+                    }
                 }
             }
         }
@@ -1065,7 +1140,9 @@ final class RelayClient: NSObject, @unchecked Sendable {
             guard let self else { return }
             self.lastPingSentAt = Date()
             self.send(RelayPing(ts: nil)) { [weak self] error in
-                if let error { self?.log.notice("manual ping: \(error.localizedDescription, privacy: .public)") }
+                if let error {
+                    self?.log.notice("manual ping: \(error.localizedDescription, privacy: .public)")
+                }
             }
         }
     }

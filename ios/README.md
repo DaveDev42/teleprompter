@@ -206,6 +206,28 @@ SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES" # 경고가 조용히 회귀하지 못함 
 > Apple AVFoundation 류 아직-Sendable-아님 타입은 `@preconcurrency import` 로 처리
 > (`QRScannerView.swift`) — Apple 이 upstream 어노테이트하면 제거.
 
+## 포맷/린트 (swift-format)
+
+Apple 공식 `swift-format` (Xcode 번들, `xcrun swift-format` — Homebrew 불필요) 가 단일
+포맷+린트 도구다. 설정은 repo 루트 `.swift-format` (4-space indent, lineLength 100 — rustfmt 와
+정렬). 하니스:
+
+```bash
+scripts/ios.sh fmt    # swift-format format -i (포맷 규칙만 in-place 적용; 커밋 전 실행)
+scripts/ios.sh lint   # swift-format lint --strict (gate — 위반 시 nonzero; cargo fmt --check 대응)
+```
+
+- `format` 은 **포맷 규칙만** 적용한다 — `AlwaysUseLowerCamelCase` 같은 lint-only 규칙은 절대
+  자동 재작성하지 않으므로 식별자 이름이 바뀌지 않는다 (안전한 reflow).
+- **`AlwaysUseLowerCamelCase` 는 `false`** (`.swift-format`): wire-bound `Decodable` 구조체
+  (`RelayMessages.swift` 의 `HookEvent*`) 가 daemon 의 snake_case JSON 키를 synthesized Codable 로
+  직접 미러링한다 — `session_id`/`last_assistant_message`/`tool_name` 등을 camelCase 로 바꾸면
+  디코딩이 깨진다. 키워드 이스케이프 파라미터(`type_`/`protocol_`)도 같은 규칙에 걸려 함께 off.
+- swift-format 의 config 는 **순수 JSON** (주석 키 금지 — `//foo` 를 넣으면 파싱 에러로 린트가
+  조용히 무력화됨). 비활성 규칙의 근거는 이 README 에 둔다.
+- SwiftLint(Realm)는 도입하지 않는다 — swift-format 이 Apple 공식 + 툴체인 번들이라 단일 도구로
+  충분하고, 두 도구의 규칙 중복/충돌을 피한다.
+
 ### ANSI 터미널 에뮬레이터 (Phase 3.x A1)
 
 **의존성**: SwiftTerm 1.13.0 (MIT, SPM) — `ios/project.yml` `packages:` 블록에 선언.

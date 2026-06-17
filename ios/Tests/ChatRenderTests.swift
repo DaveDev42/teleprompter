@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import Teleprompter
 
 /// Unit tests for M4 live session render (ADR-0001 Phase 3): the `SessionStore`
@@ -40,12 +41,15 @@ final class ChatRenderTests: XCTestCase {
     /// A Stop event surfaces its `last_assistant_message` (the canonical reply).
     func testStopEventRendersAssistantMessage() {
         let store = SessionStore()
-        store.appendRec(eventRec(seq: 1, json: [
-            "session_id": sid,
-            "hook_event_name": "Stop",
-            "cwd": "/tmp/smoke",
-            "last_assistant_message": "hello from claude",
-        ]))
+        store.appendRec(
+            eventRec(
+                seq: 1,
+                json: [
+                    "session_id": sid,
+                    "hook_event_name": "Stop",
+                    "cwd": "/tmp/smoke",
+                    "last_assistant_message": "hello from claude",
+                ]))
         let items = store.chatItems[sid] ?? []
         XCTAssertEqual(items.count, 1)
         XCTAssertEqual(items[0].hookEventName, "Stop")
@@ -57,13 +61,16 @@ final class ChatRenderTests: XCTestCase {
     /// A PreToolUse event surfaces its tool name, no assistant message.
     func testToolEventRendersToolName() {
         let store = SessionStore()
-        store.appendRec(eventRec(seq: 2, json: [
-            "session_id": sid,
-            "hook_event_name": "PreToolUse",
-            "cwd": "/tmp/smoke",
-            "tool_name": "Bash",
-            "tool_input": ["command": "ls"],
-        ]))
+        store.appendRec(
+            eventRec(
+                seq: 2,
+                json: [
+                    "session_id": sid,
+                    "hook_event_name": "PreToolUse",
+                    "cwd": "/tmp/smoke",
+                    "tool_name": "Bash",
+                    "tool_input": ["command": "ls"],
+                ]))
         let items = store.chatItems[sid] ?? []
         XCTAssertEqual(items.count, 1)
         XCTAssertEqual(items[0].hookEventName, "PreToolUse")
@@ -86,12 +93,14 @@ final class ChatRenderTests: XCTestCase {
     /// resume `batch` that re-delivers an applied record must not double-render.
     func testDuplicateSeqIsDeduped() {
         let store = SessionStore()
-        let rec = eventRec(seq: 1, json: [
-            "session_id": sid, "hook_event_name": "Stop", "cwd": "/tmp/smoke",
-            "last_assistant_message": "once",
-        ])
+        let rec = eventRec(
+            seq: 1,
+            json: [
+                "session_id": sid, "hook_event_name": "Stop", "cwd": "/tmp/smoke",
+                "last_assistant_message": "once",
+            ])
         store.appendRec(rec)
-        store.appendRec(rec) // same seq → ignored
+        store.appendRec(rec)  // same seq → ignored
         XCTAssertEqual(store.chatItems[sid]?.count, 1)
     }
 
@@ -100,14 +109,18 @@ final class ChatRenderTests: XCTestCase {
     func testBatchAppliesInOrderAndAdvancesCursor() {
         let store = SessionStore()
         let batch = [
-            eventRec(seq: 1, json: [
-                "session_id": sid, "hook_event_name": "UserPromptSubmit",
-                "cwd": "/tmp/smoke",
-            ]),
-            eventRec(seq: 2, json: [
-                "session_id": sid, "hook_event_name": "Stop", "cwd": "/tmp/smoke",
-                "last_assistant_message": "done",
-            ]),
+            eventRec(
+                seq: 1,
+                json: [
+                    "session_id": sid, "hook_event_name": "UserPromptSubmit",
+                    "cwd": "/tmp/smoke",
+                ]),
+            eventRec(
+                seq: 2,
+                json: [
+                    "session_id": sid, "hook_event_name": "Stop", "cwd": "/tmp/smoke",
+                    "last_assistant_message": "done",
+                ]),
         ]
         store.appendBatch(sid: sid, recs: batch)
         let items = store.chatItems[sid] ?? []
@@ -121,13 +134,15 @@ final class ChatRenderTests: XCTestCase {
     func testReResumeOverBatchIsIdempotent() {
         let store = SessionStore()
         let batch = [
-            eventRec(seq: 1, json: [
-                "session_id": sid, "hook_event_name": "Stop", "cwd": "/tmp/smoke",
-                "last_assistant_message": "a",
-            ]),
+            eventRec(
+                seq: 1,
+                json: [
+                    "session_id": sid, "hook_event_name": "Stop", "cwd": "/tmp/smoke",
+                    "last_assistant_message": "a",
+                ])
         ]
         store.appendBatch(sid: sid, recs: batch)
-        store.appendBatch(sid: sid, recs: batch) // overlap → ignored
+        store.appendBatch(sid: sid, recs: batch)  // overlap → ignored
         XCTAssertEqual(store.chatItems[sid]?.count, 1)
         XCTAssertEqual(store.cursor(for: sid), 1)
     }
@@ -151,12 +166,15 @@ final class ChatRenderTests: XCTestCase {
     /// `UserPromptSubmit` decodes `user_prompt` as the prompt text (H2).
     func testUserPromptSubmitDecodesPromptText() {
         let store = SessionStore()
-        store.appendRec(eventRec(seq: 10, json: [
-            "session_id": sid,
-            "hook_event_name": "UserPromptSubmit",
-            "cwd": "/tmp/smoke",
-            "user_prompt": "hello world",
-        ]))
+        store.appendRec(
+            eventRec(
+                seq: 10,
+                json: [
+                    "session_id": sid,
+                    "hook_event_name": "UserPromptSubmit",
+                    "cwd": "/tmp/smoke",
+                    "user_prompt": "hello world",
+                ]))
         let items = store.chatItems[sid] ?? []
         XCTAssertEqual(items.count, 1)
         XCTAssertEqual(items[0].hookEventName, "UserPromptSubmit")
@@ -173,12 +191,15 @@ final class ChatRenderTests: XCTestCase {
     /// Falls back to `prompt` field when `user_prompt` is absent (H2).
     func testUserPromptSubmitFallsBackToPromptField() {
         let store = SessionStore()
-        store.appendRec(eventRec(seq: 11, json: [
-            "session_id": sid,
-            "hook_event_name": "UserPromptSubmit",
-            "cwd": "/tmp/smoke",
-            "prompt": "fallback prompt",
-        ]))
+        store.appendRec(
+            eventRec(
+                seq: 11,
+                json: [
+                    "session_id": sid,
+                    "hook_event_name": "UserPromptSubmit",
+                    "cwd": "/tmp/smoke",
+                    "prompt": "fallback prompt",
+                ]))
         let items = store.chatItems[sid] ?? []
         XCTAssertEqual(items[0].prompt, "fallback prompt")
     }
@@ -188,12 +209,15 @@ final class ChatRenderTests: XCTestCase {
     /// `StopFailure` uses the `error` field, not `last_assistant_message` (L6).
     func testStopFailureDecodesErrorField() {
         let store = SessionStore()
-        store.appendRec(eventRec(seq: 20, json: [
-            "session_id": sid,
-            "hook_event_name": "StopFailure",
-            "cwd": "/tmp/smoke",
-            "error": "something went wrong",
-        ]))
+        store.appendRec(
+            eventRec(
+                seq: 20,
+                json: [
+                    "session_id": sid,
+                    "hook_event_name": "StopFailure",
+                    "cwd": "/tmp/smoke",
+                    "error": "something went wrong",
+                ]))
         let items = store.chatItems[sid] ?? []
         XCTAssertEqual(items[0].hookEventName, "StopFailure")
         XCTAssertEqual(items[0].errorText, "something went wrong")
@@ -211,12 +235,15 @@ final class ChatRenderTests: XCTestCase {
     /// `PermissionRequest` maps to `.permission(tool:)` kind (M5).
     func testPermissionRequestMapsToPemissionKind() {
         let store = SessionStore()
-        store.appendRec(eventRec(seq: 30, json: [
-            "session_id": sid,
-            "hook_event_name": "PermissionRequest",
-            "cwd": "/tmp/smoke",
-            "tool_name": "Bash",
-        ]))
+        store.appendRec(
+            eventRec(
+                seq: 30,
+                json: [
+                    "session_id": sid,
+                    "hook_event_name": "PermissionRequest",
+                    "cwd": "/tmp/smoke",
+                    "tool_name": "Bash",
+                ]))
         let items = store.chatItems[sid] ?? []
         XCTAssertEqual(items[0].hookEventName, "PermissionRequest")
         XCTAssertEqual(items[0].permissionTool, "Bash")
@@ -231,12 +258,15 @@ final class ChatRenderTests: XCTestCase {
     /// `Elicitation` maps to `.elicitation(message:)` kind (M5).
     func testElicitationMapsToElicitationKind() {
         let store = SessionStore()
-        store.appendRec(eventRec(seq: 31, json: [
-            "session_id": sid,
-            "hook_event_name": "Elicitation",
-            "cwd": "/tmp/smoke",
-            "message": "What is your name?",
-        ]))
+        store.appendRec(
+            eventRec(
+                seq: 31,
+                json: [
+                    "session_id": sid,
+                    "hook_event_name": "Elicitation",
+                    "cwd": "/tmp/smoke",
+                    "message": "What is your name?",
+                ]))
         let items = store.chatItems[sid] ?? []
         XCTAssertEqual(items[0].hookEventName, "Elicitation")
         XCTAssertEqual(items[0].message, "What is your name?")

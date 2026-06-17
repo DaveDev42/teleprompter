@@ -6,7 +6,7 @@ enum SessionPane: String, CaseIterable, Hashable {
 
     var title: String {
         switch self {
-        case .chat:     return "Chat"
+        case .chat: return "Chat"
         case .terminal: return "Terminal"
         }
     }

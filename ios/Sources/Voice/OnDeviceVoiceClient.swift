@@ -1,5 +1,5 @@
-import Foundation
 import AVFoundation
+import Foundation
 import Speech
 import os
 
@@ -113,8 +113,9 @@ final class OnDeviceVoiceClient: NSObject, VoiceBackend {
                 case .authorized:
                     self.beginListening()
                 case .denied, .restricted:
-                    self.events.onError?(VoiceError.permissionDenied.errorDescription
-                                         ?? "Speech recognition permission denied")
+                    self.events.onError?(
+                        VoiceError.permissionDenied.errorDescription
+                            ?? "Speech recognition permission denied")
                 case .notDetermined:
                     self.events.onError?("Speech recognition not authorized")
                 @unknown default:
@@ -140,16 +141,18 @@ final class OnDeviceVoiceClient: NSObject, VoiceBackend {
         guard !disposed else { return }
 
         guard let recognizer, recognizer.isAvailable else {
-            events.onError?(VoiceError.microphoneUnavailable.errorDescription
-                            ?? "Speech recognizer unavailable")
+            events.onError?(
+                VoiceError.microphoneUnavailable.errorDescription
+                    ?? "Speech recognizer unavailable")
             return
         }
 
         // 2. Mic availability — on Simulator/macOS with no input device, degrade.
         guard hasMicrophoneDevice() else {
             log.notice("On-device voice: microphone unavailable — degrading gracefully")
-            events.onError?(VoiceError.microphoneUnavailable.errorDescription
-                            ?? "Microphone unavailable")
+            events.onError?(
+                VoiceError.microphoneUnavailable.errorDescription
+                    ?? "Microphone unavailable")
             return
         }
 
@@ -157,8 +160,9 @@ final class OnDeviceVoiceClient: NSObject, VoiceBackend {
         #if !os(macOS)
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .voiceChat,
-                                    options: [.defaultToSpeaker, .allowBluetoothHFP])
+            try session.setCategory(
+                .playAndRecord, mode: .voiceChat,
+                options: [.defaultToSpeaker, .allowBluetoothHFP])
             try session.setActive(true)
         } catch {
             events.onError?(error.localizedDescription)
@@ -182,8 +186,9 @@ final class OnDeviceVoiceClient: NSObject, VoiceBackend {
 
         guard hardwareFormat.channelCount > 0 else {
             teardown()
-            events.onError?(VoiceError.microphoneUnavailable.errorDescription
-                            ?? "Microphone unavailable")
+            events.onError?(
+                VoiceError.microphoneUnavailable.errorDescription
+                    ?? "Microphone unavailable")
             return
         }
 
@@ -278,8 +283,10 @@ final class OnDeviceVoiceClient: NSObject, VoiceBackend {
     private func restartSilenceTimer() {
         silenceTimer?.invalidate()
         let gen = generation
-        silenceTimer = Timer.scheduledTimer(withTimeInterval: silenceTimeout,
-                                            repeats: false) { [weak self] _ in
+        silenceTimer = Timer.scheduledTimer(
+            withTimeInterval: silenceTimeout,
+            repeats: false
+        ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, !self.disposed, self.generation == gen else { return }
                 // No new speech for `silenceTimeout` → treat as end-of-utterance.
@@ -336,18 +343,20 @@ final class OnDeviceVoiceClient: NSObject, VoiceBackend {
             }
             do {
                 let instructions = """
-                You convert a user's spoken, possibly messy request into a single
-                clean, actionable prompt for Claude Code (a coding agent). Keep it
-                faithful to the user's intent — do not add tasks they didn't ask
-                for and do not answer the request yourself. Remove filler words and
-                false starts. Output ONLY the refined prompt text, nothing else.
-                """
+                    You convert a user's spoken, possibly messy request into a single
+                    clean, actionable prompt for Claude Code (a coding agent). Keep it
+                    faithful to the user's intent — do not add tasks they didn't ask
+                    for and do not answer the request yourself. Remove filler words and
+                    false starts. Output ONLY the refined prompt text, nothing else.
+                    """
                 let session = LanguageModelSession(instructions: instructions)
                 let response = try await session.respond(to: transcript)
                 let refined = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
                 return refined.isEmpty ? transcript : refined
             } catch {
-                log.error("FoundationModels refine failed, using raw transcript: \(error.localizedDescription)")
+                log.error(
+                    "FoundationModels refine failed, using raw transcript: \(error.localizedDescription)"
+                )
                 return transcript
             }
         }
@@ -393,10 +402,10 @@ final class OnDeviceVoiceClient: NSObject, VoiceBackend {
             if SystemLanguageModel.default.availability == .available {
                 do {
                     let instructions = """
-                    Summarize the following Claude Code prompt into ONE short spoken
-                    confirmation sentence (max 8 words), present tense, like "Fixing
-                    the login crash." Output only that sentence.
-                    """
+                        Summarize the following Claude Code prompt into ONE short spoken
+                        confirmation sentence (max 8 words), present tense, like "Fixing
+                        the login crash." Output only that sentence.
+                        """
                     let session = LanguageModelSession(instructions: instructions)
                     let response = try await session.respond(to: refinedPrompt)
                     let summary = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -447,8 +456,9 @@ final class OnDeviceVoiceClient: NSObject, VoiceBackend {
         stopAudio()
         synthesizer.stopSpeaking(at: .immediate)
         #if !os(macOS)
-        try? AVAudioSession.sharedInstance().setActive(false,
-                                                       options: .notifyOthersOnDeactivation)
+        try? AVAudioSession.sharedInstance().setActive(
+            false,
+            options: .notifyOthersOnDeactivation)
         #endif
     }
 }

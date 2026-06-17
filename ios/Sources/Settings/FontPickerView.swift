@@ -7,15 +7,15 @@ enum FontPickerMode {
 
     var title: String {
         switch self {
-        case .chat:     return "Chat Font"
-        case .code:     return "Code Font"
+        case .chat: return "Chat Font"
+        case .code: return "Code Font"
         case .terminal: return "Terminal Font"
         }
     }
 
     var options: [String] {
         switch self {
-        case .chat:             return chatFontOptions
+        case .chat: return chatFontOptions
         case .code, .terminal: return monoFontOptions
         }
     }
@@ -95,12 +95,13 @@ struct FontSizeSheet: View {
                 }
 
                 Section {
-                    Stepper("Font Size: \(fontSize)pt",
-                            value: Binding(
-                                get: { fontSize },
-                                set: { fontSize = $0 }
-                            ),
-                            in: minSize...maxSize)
+                    Stepper(
+                        "Font Size: \(fontSize)pt",
+                        value: Binding(
+                            get: { fontSize },
+                            set: { fontSize = $0 }
+                        ),
+                        in: minSize...maxSize)
                 }
 
                 Section {

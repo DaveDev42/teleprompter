@@ -13,7 +13,10 @@ import Foundation
 /// functions used here — `tpCoreVersion`, `kxSeedKeypair`, `seal`/`open`,
 /// `encodeFrame`/`decodeFrames`, `encodePairingData`/`decodePairingData`.
 enum TpCoreCheck {
-    struct Failure: Error { let step: String; let detail: String }
+    struct Failure: Error {
+        let step: String
+        let detail: String
+    }
 
     /// Run the round-trip. Returns the linked tp-core version string on success;
     /// throws `Failure` describing the first step that diverged.
@@ -29,8 +32,8 @@ enum TpCoreCheck {
         let frame = encodeFrame(json: json, binary: sidecar)
         let decoded = try decodeFrames(chunk: frame)
         guard decoded.count == 1,
-              decoded[0].json == json,
-              decoded[0].binary == sidecar
+            decoded[0].json == json,
+            decoded[0].binary == sidecar
         else {
             throw Failure(step: "codec", detail: "frame round-trip mismatch")
         }

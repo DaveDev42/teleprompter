@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import Teleprompter
 
 /// Unit tests for M5 input encoding (ADR-0001 Phase 3): the wire shape of the
@@ -23,7 +24,7 @@ final class InputEncodeTests: XCTestCase {
         let obj = decode(data)
         XCTAssertEqual(obj["t"], "in.chat")
         XCTAssertEqual(obj["sid"], sid)
-        XCTAssertEqual(obj["d"], "hello") // plain text, no trailing \n
+        XCTAssertEqual(obj["d"], "hello")  // plain text, no trailing \n
         XCTAssertEqual(obj.count, 3)
     }
 

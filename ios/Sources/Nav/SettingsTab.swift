@@ -106,10 +106,13 @@ struct SettingsForm: View {
 
             // MARK: Voice
             Section {
-                Picker("Voice backend", selection: Binding(
-                    get: { settings.voiceBackend },
-                    set: { settings.voiceBackend = $0 }
-                )) {
+                Picker(
+                    "Voice backend",
+                    selection: Binding(
+                        get: { settings.voiceBackend },
+                        set: { settings.voiceBackend = $0 }
+                    )
+                ) {
                     ForEach(VoiceBackendPreference.allCases, id: \.self) { pref in
                         Text(pref.title).tag(pref)
                     }
@@ -128,8 +131,10 @@ struct SettingsForm: View {
             } header: {
                 Text("Voice")
             } footer: {
-                Text("On-device runs offline and needs no API key. OpenAI Realtime requires an API key. Auto uses on-device when no key is set, OpenAI Realtime when one is.")
-                    .font(.footnote)
+                Text(
+                    "On-device runs offline and needs no API key. OpenAI Realtime requires an API key. Auto uses on-device when no key is set, OpenAI Realtime when one is."
+                )
+                .font(.footnote)
             }
 
             // MARK: About
@@ -157,10 +162,11 @@ struct SettingsForm: View {
 
         // MARK: Font size sheet
         .sheet(isPresented: $showFontSize) {
-            FontSizeSheet(fontSize: Binding(
-                get: { settings.fontSize },
-                set: { settings.fontSize = $0 }
-            ))
+            FontSizeSheet(
+                fontSize: Binding(
+                    get: { settings.fontSize },
+                    set: { settings.fontSize = $0 }
+                ))
         }
 
         // MARK: API key sheet

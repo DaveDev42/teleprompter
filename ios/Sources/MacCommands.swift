@@ -121,9 +121,9 @@ struct MacCommands: Commands {
         let alert = NSAlert()
         alert.messageText = "Pair a new daemon"
         alert.informativeText = """
-        Run `tp pair new` on the machine running the daemon, then open the \
-        printed tp:// link on this Mac (it deep-links into Teleprompter).
-        """
+            Run `tp pair new` on the machine running the daemon, then open the \
+            printed tp:// link on this Mac (it deep-links into Teleprompter).
+            """
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }

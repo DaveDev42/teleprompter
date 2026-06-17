@@ -27,8 +27,8 @@ struct NewSessionSheet: View {
                     TextField("/path/to/project", text: $cwd)
                         .autocorrectionDisabled()
                         #if os(iOS)
-                        .autocapitalization(.none)
-                        .keyboardType(.URL)
+                    .autocapitalization(.none)
+                    .keyboardType(.URL)
                         #endif
                         .focused($cwdFocused)
                         .accessibilityIdentifier("new-session-cwd-input")

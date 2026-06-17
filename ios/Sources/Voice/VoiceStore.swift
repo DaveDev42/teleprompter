@@ -14,16 +14,16 @@ enum VoiceConnectionStatus: Equatable {
     var isActive: Bool {
         switch self {
         case .idle: return false
-        default:    return true
+        default: return true
         }
     }
 
     var label: String {
         switch self {
-        case .idle:        return "Mic"
-        case .connecting:  return "Connecting"
-        case .listening:   return "Listening"
-        case .processing:  return "Thinking"
+        case .idle: return "Mic"
+        case .connecting: return "Connecting"
+        case .listening: return "Listening"
+        case .processing: return "Thinking"
         }
     }
 
@@ -35,8 +35,8 @@ enum VoiceConnectionStatus: Equatable {
     var transcript: String {
         switch self {
         case .listening(_, let t): return t
-        case .processing(let t):   return t
-        default:                   return ""
+        case .processing(let t): return t
+        default: return ""
         }
     }
 }
@@ -301,23 +301,23 @@ final class VoiceStore {
 
     private func buildSystemPrompt() -> String {
         return """
-        You are a voice interface for Teleprompter, a remote Claude Code controller.
+            You are a voice interface for Teleprompter, a remote Claude Code controller.
 
-        Your role:
-        1. Listen to the user's voice input
-        2. Clean up and refine it into a clear, actionable prompt for Claude Code
-        3. Respond briefly with a spoken confirmation
+            Your role:
+            1. Listen to the user's voice input
+            2. Clean up and refine it into a clear, actionable prompt for Claude Code
+            3. Respond briefly with a spoken confirmation
 
-        Rules:
-        - Keep spoken responses SHORT (1-2 sentences max)
-        - Output the refined prompt as text in your response
-        - The refined prompt will be automatically sent to Claude Code
-        - If the user's intent is unclear, ask a brief clarifying question
+            Rules:
+            - Keep spoken responses SHORT (1-2 sentences max)
+            - Output the refined prompt as text in your response
+            - The refined prompt will be automatically sent to Claude Code
+            - If the user's intent is unclear, ask a brief clarifying question
 
-        Example:
-        - User: "um, can you like fix the bug in the login page, the one where it crashes"
-        - Your response: "Fixing the login crash bug."
-        - (Refined prompt sent to Claude: "Fix the bug in the login page that causes a crash")
-        """
+            Example:
+            - User: "um, can you like fix the bug in the login page, the one where it crashes"
+            - Your response: "Fixing the login crash bug."
+            - (Refined prompt sent to Claude: "Fix the bug in the login page that causes a crash")
+            """
     }
 }

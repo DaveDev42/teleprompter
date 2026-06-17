@@ -28,9 +28,11 @@ struct ShortcutHelpSheet: View {
                 }
 
                 Section {
-                    Text("Tab navigation (⌘1/⌘2/⌘3) always works. While you are typing or the Terminal pane is open, the session-movement shortcuts (⌘[ / ⌘] / ⌘K) are inactive so they don't steal a keystroke. The pane switches (⌃⌘C / ⌘T) and Find (⌘F) stay active so you can always leave the terminal.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    Text(
+                        "Tab navigation (⌘1/⌘2/⌘3) always works. While you are typing or the Terminal pane is open, the session-movement shortcuts (⌘[ / ⌘] / ⌘K) are inactive so they don't steal a keystroke. The pane switches (⌃⌘C / ⌘T) and Find (⌘F) stay active so you can always leave the terminal."
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("Keyboard Shortcuts")
@@ -55,36 +57,44 @@ struct ShortcutSection: Identifiable {
     let items: [ShortcutEntry]
 
     static let all: [ShortcutSection] = [
-        ShortcutSection(title: "Navigation", items: [
-            ShortcutEntry(keys: ["⌘1"], description: "Go to Sessions"),
-            ShortcutEntry(keys: ["⌘2"], description: "Go to Daemons"),
-            ShortcutEntry(keys: ["⌘3"], description: "Go to Settings"),
-        ]),
-        ShortcutSection(title: "Session screen", items: [
-            ShortcutEntry(keys: ["⌃⌘C"], description: "Chat tab"),
-            ShortcutEntry(keys: ["⌘T"], description: "Terminal tab"),
-            ShortcutEntry(keys: ["⌘F"], description: "Find in terminal"),
-            ShortcutEntry(keys: ["⌘["], description: "Previous session"),
-            ShortcutEntry(keys: ["⌘]"], description: "Next session"),
-            ShortcutEntry(keys: ["⌘K"], description: "Quick switch session"),
-        ]),
-        ShortcutSection(title: "Global", items: [
-            ShortcutEntry(keys: ["⌘/"], description: "Show keyboard shortcuts"),
-            ShortcutEntry(keys: ["⌘N"], description: "New Pairing"),
-            // macOS menu-bar commands (MacCommands.swift); inert on iOS/iPadOS.
-            ShortcutEntry(keys: ["⌘⇧C"], description: "Copy daemon ID (macOS)"),
-            ShortcutEntry(keys: ["⌘⌫"], description: "Disconnect daemon (macOS)"),
-        ]),
+        ShortcutSection(
+            title: "Navigation",
+            items: [
+                ShortcutEntry(keys: ["⌘1"], description: "Go to Sessions"),
+                ShortcutEntry(keys: ["⌘2"], description: "Go to Daemons"),
+                ShortcutEntry(keys: ["⌘3"], description: "Go to Settings"),
+            ]),
+        ShortcutSection(
+            title: "Session screen",
+            items: [
+                ShortcutEntry(keys: ["⌃⌘C"], description: "Chat tab"),
+                ShortcutEntry(keys: ["⌘T"], description: "Terminal tab"),
+                ShortcutEntry(keys: ["⌘F"], description: "Find in terminal"),
+                ShortcutEntry(keys: ["⌘["], description: "Previous session"),
+                ShortcutEntry(keys: ["⌘]"], description: "Next session"),
+                ShortcutEntry(keys: ["⌘K"], description: "Quick switch session"),
+            ]),
+        ShortcutSection(
+            title: "Global",
+            items: [
+                ShortcutEntry(keys: ["⌘/"], description: "Show keyboard shortcuts"),
+                ShortcutEntry(keys: ["⌘N"], description: "New Pairing"),
+                // macOS menu-bar commands (MacCommands.swift); inert on iOS/iPadOS.
+                ShortcutEntry(keys: ["⌘⇧C"], description: "Copy daemon ID (macOS)"),
+                ShortcutEntry(keys: ["⌘⌫"], description: "Disconnect daemon (macOS)"),
+            ]),
         // Game controller (MFi/Xbox/PlayStation) — handled by GamepadCoordinator.
         // Connect a controller and these apply; D-pad/stick focus moves over the
         // Sessions list, A opens the focused session, B leaves the terminal / goes
         // back, bumpers cycle the tabs.
-        ShortcutSection(title: "Game controller", items: [
-            ShortcutEntry(keys: ["D-pad", "Stick"], description: "Move focus (Sessions list)"),
-            ShortcutEntry(keys: ["A"], description: "Open focused session"),
-            ShortcutEntry(keys: ["B"], description: "Leave terminal / back"),
-            ShortcutEntry(keys: ["LB", "RB"], description: "Cycle tabs"),
-        ]),
+        ShortcutSection(
+            title: "Game controller",
+            items: [
+                ShortcutEntry(keys: ["D-pad", "Stick"], description: "Move focus (Sessions list)"),
+                ShortcutEntry(keys: ["A"], description: "Open focused session"),
+                ShortcutEntry(keys: ["B"], description: "Leave terminal / back"),
+                ShortcutEntry(keys: ["LB", "RB"], description: "Cycle tabs"),
+            ]),
     ]
 }
 

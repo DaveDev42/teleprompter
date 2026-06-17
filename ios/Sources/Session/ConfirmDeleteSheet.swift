@@ -33,8 +33,10 @@ struct ConfirmDeleteSheet: View {
                 } header: {
                     Text("Sessions to remove")
                 } footer: {
-                    Text("Removes from this app's list only. To delete daemon data, run: tp session delete <sid>")
-                        .foregroundStyle(.secondary)
+                    Text(
+                        "Removes from this app's list only. To delete daemon data, run: tp session delete <sid>"
+                    )
+                    .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle(title)

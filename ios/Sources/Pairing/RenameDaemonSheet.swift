@@ -15,10 +15,12 @@ struct RenameDaemonSheet: View {
     @State private var labelText: String
     @FocusState private var inputFocused: Bool
 
-    init(daemonId: String,
-         currentLabel: String,
-         onSave: @escaping (String) -> Void,
-         onCancel: @escaping () -> Void) {
+    init(
+        daemonId: String,
+        currentLabel: String,
+        onSave: @escaping (String) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
         self.daemonId = daemonId
         self.currentLabel = currentLabel
         self.onSave = onSave

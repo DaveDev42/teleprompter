@@ -3,10 +3,11 @@ import SwiftUI
 /// Keyboard shortcut help sheet, ported from the Expo `ShortcutHelpModal`.
 ///
 /// Differences from the Expo version:
-/// - Game-controller section dropped (web/tvOS-only).
 /// - Web single-key global shortcuts ("?", "1", "2", "3") dropped.
 /// - Native iPad/macOS keyboard shortcuts documented instead.
 /// - Presented as a SwiftUI `.sheet` (not a modal overlay).
+/// - Game-controller section restored natively (MFi/Xbox/PlayStation via
+///   `GamepadCoordinator`) — connect a controller and the listed actions apply.
 ///
 /// The sheet is opened by:
 /// - macOS: Help → Keyboard Shortcuts menu item (wired in `MacCommands`).
@@ -73,6 +74,16 @@ struct ShortcutSection: Identifiable {
             // macOS menu-bar commands (MacCommands.swift); inert on iOS/iPadOS.
             ShortcutEntry(keys: ["⌘⇧C"], description: "Copy daemon ID (macOS)"),
             ShortcutEntry(keys: ["⌘⌫"], description: "Disconnect daemon (macOS)"),
+        ]),
+        // Game controller (MFi/Xbox/PlayStation) — handled by GamepadCoordinator.
+        // Connect a controller and these apply; D-pad/stick focus moves over the
+        // Sessions list, A opens the focused session, B leaves the terminal / goes
+        // back, bumpers cycle the tabs.
+        ShortcutSection(title: "Game controller", items: [
+            ShortcutEntry(keys: ["D-pad", "Stick"], description: "Move focus (Sessions list)"),
+            ShortcutEntry(keys: ["A"], description: "Open focused session"),
+            ShortcutEntry(keys: ["B"], description: "Leave terminal / back"),
+            ShortcutEntry(keys: ["LB", "RB"], description: "Cycle tabs"),
         ]),
     ]
 }

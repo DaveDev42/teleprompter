@@ -73,7 +73,11 @@ final class VoiceStore {
 
     // MARK: - Private audio/realtime state
 
-    @ObservationIgnored private var client: RealtimeClient?
+    @ObservationIgnored private var backend: (any VoiceBackend)?
+    /// Which backend is currently active — gates the mic-capture pump (only the
+    /// OpenAI Realtime backend needs VoiceStore to pump PCM; the on-device
+    /// backend owns its own audio tap).
+    @ObservationIgnored private var activeKind: VoiceBackendKind?
     @ObservationIgnored private var capture: MicCapture?
     @ObservationIgnored private var player: PcmAudioPlayer?
     /// Generation counter — incremented on every teardown to invalidate in-flight async work.
@@ -81,13 +85,26 @@ final class VoiceStore {
 
     // MARK: - Public API
 
-    /// Start voice session. No-op if already active or no API key is configured.
+    /// Start voice session. No-op if already active.
+    ///
+    /// Backend selection: read the user preference; if it resolves to the
+    /// OpenAI Realtime path, an API key is required (hard-fail with `.noApiKey`
+    /// when absent). The on-device path needs no key, so the legacy hard guard
+    /// is scoped to the OpenAI branch only.
     func startVoice() async {
         guard !connection.isActive else { return }
 
-        guard let apiKey = OpenAIKeychain.get(), !apiKey.isEmpty else {
-            lastError = VoiceError.noApiKey.errorDescription
-            return
+        let kind = resolveBackendKind()
+
+        // Only the OpenAI Realtime backend requires an API key. Resolve it up
+        // front so the on-device path stays reachable with no key configured.
+        var openAIKey: String?
+        if kind == .openAIRealtime {
+            guard let apiKey = OpenAIKeychain.get(), !apiKey.isEmpty else {
+                lastError = VoiceError.noApiKey.errorDescription
+                return
+            }
+            openAIKey = apiKey
         }
 
         lastError = nil
@@ -117,10 +134,40 @@ final class VoiceStore {
         capture = cap
         player = pl
 
-        let newClient = RealtimeClient(systemPrompt: prompt, events: makeEvents(gen: gen))
-        client = newClient
-        // API key is passed here and never stored in a logged property.
-        newClient.connect(apiKey: apiKey)
+        activeKind = kind
+        let events = makeEvents(gen: gen)
+        let newBackend: any VoiceBackend
+        switch kind {
+        case .openAIRealtime:
+            // openAIKey is guaranteed non-nil here (guarded above for this kind).
+            // The key is passed into the backend and never stored in a logged property.
+            newBackend = RealtimeClientBackend(
+                apiKey: openAIKey ?? "",
+                systemPrompt: prompt,
+                events: events
+            )
+        case .onDevice:
+            newBackend = OnDeviceVoiceClient(systemPrompt: prompt, events: events)
+        }
+        backend = newBackend
+        newBackend.start()
+    }
+
+    /// Resolve which voice backend to use.
+    ///
+    /// Honors the persisted `SettingsStore.voiceBackendPreference`; when that is
+    /// "auto"/unset, default to on-device when no API key is present and to the
+    /// OpenAI Realtime backend when a key is configured.
+    private func resolveBackendKind() -> VoiceBackendKind {
+        if let pref = SettingsStore.shared.voiceBackendPreference {
+            // An explicit OpenAI preference still falls back to on-device when no
+            // key is configured, so the button never selects an unusable backend.
+            if pref == .openAIRealtime && !OpenAIKeychain.isPresent() {
+                return .onDevice
+            }
+            return pref
+        }
+        return OpenAIKeychain.isPresent() ? .openAIRealtime : .onDevice
     }
 
     /// Stop voice session.
@@ -135,19 +182,22 @@ final class VoiceStore {
 
     // MARK: - Private helpers
 
-    private func makeEvents(gen: Int) -> RealtimeEvents {
-        var ev = RealtimeEvents()
+    private func makeEvents(gen: Int) -> VoiceBackendEvents {
+        var ev = VoiceBackendEvents()
 
         ev.onConnected = { [weak self] in
             guard let self, self.generation == gen else { return }
             self.connection = .listening(isSpeaking: false, transcript: "")
+            // The on-device backend owns its own audio tap — only pump mic PCM
+            // into the backend for the OpenAI Realtime path.
+            guard self.activeKind == .openAIRealtime else { return }
             // Start capture after connection established.
             Task { @MainActor [weak self] in
                 guard let self, self.generation == gen else { return }
                 do {
                     self.player?.start()
                     try await self.capture?.start { [weak self] chunk in
-                        self?.client?.sendAudio(chunk)
+                        self?.backend?.sendAudio(chunk)
                     }
                 } catch let err as VoiceError {
                     log.error("Voice capture failed: \(err.localizedDescription)")
@@ -219,6 +269,12 @@ final class VoiceStore {
             guard let self else { return }
             self.refinedPrompt = prompt
             self.onPromptReady?(prompt)
+            // Restore the listening state so the next utterance can start. The
+            // on-device backend emits no onAudio/onAudioDone (TTS is local), so
+            // without this the connection would stall in `.processing` forever.
+            // Backend-neutral and idempotent for OpenAI — its turn is also
+            // complete at onRefinedPrompt.
+            self.connection = .listening(isSpeaking: false, transcript: "")
         }
 
         return ev
@@ -230,8 +286,9 @@ final class VoiceStore {
         capture = nil
         player?.stop()
         player = nil
-        client?.dispose()
-        client = nil
+        backend?.dispose()
+        backend = nil
+        activeKind = nil
     }
 
     private func buildSystemPrompt() -> String {

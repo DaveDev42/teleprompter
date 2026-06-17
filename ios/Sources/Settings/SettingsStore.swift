@@ -64,12 +64,21 @@ final class SettingsStore {
         }
     }
 
+    /// Which voice backend to use for voice input. Default: `.auto`
+    /// (on-device when no OpenAI key is configured, OpenAI Realtime when a key
+    /// is present). Resolve to a concrete kind via `resolvedVoiceBackendKind(hasKey:)`.
+    var voiceBackend: VoiceBackendPreference {
+        get { _voiceBackend }
+        set { _voiceBackend = newValue; UserDefaults.standard.set(newValue.rawValue, forKey: Keys.voiceBackend) }
+    }
+
     // MARK: Backing storage
 
     private var _chatFont: String
     private var _codeFont: String
     private var _terminalFont: String
     private var _fontSize: Int
+    private var _voiceBackend: VoiceBackendPreference
 
     // MARK: UserDefaults keys
 
@@ -78,6 +87,7 @@ final class SettingsStore {
         static let codeFont     = "tp.settings.codeFont"
         static let terminalFont = "tp.settings.terminalFont"
         static let fontSize     = "tp.settings.fontSize"
+        static let voiceBackend = "tp.settings.voiceBackend"
     }
 
     init() {
@@ -87,7 +97,59 @@ final class SettingsStore {
         _terminalFont = ud.string(forKey: Keys.terminalFont) ?? "Menlo"
         let stored = ud.integer(forKey: Keys.fontSize)
         _fontSize     = (stored >= 10 && stored <= 24) ? stored : 15
+        _voiceBackend = ud.string(forKey: Keys.voiceBackend)
+            .flatMap(VoiceBackendPreference.init(rawValue:)) ?? .auto
     }
+
+    // MARK: Voice backend resolution
+
+    /// Resolves the persisted preference to a concrete `VoiceBackendKind`, or
+    /// `nil` for `.auto`. `VoiceStore.resolveBackendKind()` owns the `.auto`
+    /// default + the "OpenAI chosen but no key → fall back to on-device" guard,
+    /// so this accessor stays a pure preference→kind mapping.
+    var voiceBackendPreference: VoiceBackendKind? {
+        switch voiceBackend {
+        case .auto:     return nil
+        case .onDevice: return .onDevice
+        case .openAI:   return .openAIRealtime
+        }
+    }
+}
+
+// MARK: - VoiceBackendPreference
+
+/// User-selectable voice backend preference, persisted in UserDefaults
+/// (`tp.settings.voiceBackend`). Resolved to a concrete `VoiceBackendKind`
+/// via `SettingsStore.resolvedVoiceBackendKind(hasKey:)`.
+enum VoiceBackendPreference: String, CaseIterable {
+    /// On-device when no OpenAI key, OpenAI Realtime when a key is present.
+    case auto
+    /// Always on-device (offline STT/TTS, no API key required).
+    case onDevice
+    /// Always OpenAI Realtime (requires an API key).
+    case openAI
+
+    /// Human-readable title for pickers.
+    var title: String {
+        switch self {
+        case .auto:     return "Auto"
+        case .onDevice: return "On-device"
+        case .openAI:   return "OpenAI Realtime"
+        }
+    }
+}
+
+// MARK: - VoiceBackendKind
+
+/// Concrete voice backend to instantiate. Canonical definition lives here so
+/// `SettingsStore.resolvedVoiceBackendKind(hasKey:)` compiles standalone; the
+/// voice seam's adapter (`Voice/VoiceBackend.swift`) consumes this type and MUST
+/// NOT redeclare it (same module = single definition).
+enum VoiceBackendKind: String, CaseIterable {
+    /// On-device STT (SFSpeechRecognizer) + optional FoundationModels refine + AVSpeechSynthesizer TTS.
+    case onDevice
+    /// OpenAI Realtime API over WebSocket (RealtimeClient).
+    case openAIRealtime
 }
 
 // MARK: - OpenAI API key (Keychain)

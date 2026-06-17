@@ -17,8 +17,9 @@ struct VoiceButton: View {
     var disabled: Bool = false
 
     var body: some View {
-        // Hide when no API key is configured.
-        if OpenAIKeychain.isPresent() && !disabled {
+        // Show when voice is available via EITHER an OpenAI API key OR the
+        // on-device backend (SFSpeechRecognizer present + auth not denied).
+        if (OpenAIKeychain.isPresent() || OnDeviceVoiceClient.isAvailable()) && !disabled {
             content
         }
     }

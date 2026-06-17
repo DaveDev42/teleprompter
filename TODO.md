@@ -17,6 +17,7 @@
 
 ### Voice (Expo 스택 완료 이력 — 재작성 대상)
 - [x] `VoiceButton` 네이티브 오디오 — Expo 스택에서 react-native-audio-api 0.12.2로 구현 (2026-06-11). Swift 재작성 시 AVFoundation/Swift Concurrency 기반으로 재구현 예정 (Phase 3).
+- [x] **온디바이스 voice 백엔드 + 선택형 토글 (2026-06)** — `VoiceBackend` 프로토콜 seam 뒤로 두 백엔드: (a) **온디바이스(오프라인)** = `SFSpeechRecognizer` STT(`requiresOnDeviceRecognition` 지원 시 강제, 무음 타이머 VAD) + **Foundation Models** refine/요약(iOS 26+, `SystemLanguageModel.default.availability` 게이트 + 원문 transcript fallback) + `AVSpeechSynthesizer` TTS, **API 키 불필요**, (b) **OpenAI Realtime**(키 필요, 기존 `RealtimeClient`을 `RealtimeClientBackend` 어댑터로 무변경 보존). Settings 토글(Auto/On-device/OpenAI), 키 없으면 온디바이스 기본값. `VoiceConnectionStatus` 상태머신은 `VoiceStore`가 단독 소유 — `onRefinedPrompt`에서 `.listening` 복원(processing 멈춤 over-fit 수정). `VoiceButton` 게이팅 = 온디바이스 가용 OR 키 존재. `NSSpeechRecognitionUsageDescription` 추가. macOS+iOS smoke 8/8 + XCTest 98/98 green. (실기기 STT 턴 QA = 후속 — Sim/macOS는 마이크 없음.)
 
 ### 미검증 항목 (완료)
 - [x] **Push Notifications 실기기** — APNs push token 발급 + 알림 왕복 E2E 실기기 검증 완료 (2026-06-07, build #59).

@@ -913,20 +913,14 @@
       "name": "session-prune-ok",
       "raw": {
         "t": "session.prune.ok",
-        "sids": [
-          "a",
-          "b"
-        ],
+        "sids": ["a", "b"],
         "runningKilled": 1,
         "dryRun": false
       },
       "accept": true,
       "json": {
         "t": "session.prune.ok",
-        "sids": [
-          "a",
-          "b"
-        ],
+        "sids": ["a", "b"],
         "runningKilled": 1,
         "dryRun": false
       }
@@ -936,18 +930,14 @@
       "raw": {
         "t": "session.prune.err",
         "reason": "internal",
-        "partialSids": [
-          "a"
-        ],
+        "partialSids": ["a"],
         "partialRunningKilled": 0
       },
       "accept": true,
       "json": {
         "t": "session.prune.err",
         "reason": "internal",
-        "partialSids": [
-          "a"
-        ],
+        "partialSids": ["a"],
         "partialRunningKilled": 0
       }
     },
@@ -1106,9 +1096,7 @@
       "raw": {
         "t": "pair.rename",
         "daemonId": "d",
-        "label": [
-          "x"
-        ]
+        "label": ["x"]
       },
       "accept": false
     },
@@ -1592,9 +1580,7 @@
     },
     {
       "name": "array",
-      "raw": [
-        "x"
-      ],
+      "raw": ["x"],
       "wire": {
         "set": false
       },

@@ -18,6 +18,22 @@ rust-version = "1.96"
 license = "MIT"
 repository = "https://github.com/DaveDev42/teleprompter"
 
+# Workspace-wide lint policy, inherited by each crate via `[lints] workspace =
+# true`. The default clippy set is clean at HEAD, so `clippy::all = "deny"` is a
+# hard gate from day one; `clippy::pedantic = "warn"` surfaces the stricter
+# suggestions without blocking (ratchet to "deny" later, wave by wave).
+# `unsafe_code = "forbid"` makes the all-safe-code invariant compiler-enforced —
+# a contributor cannot silently add `unsafe` (verified: both crates build clean
+# under it, incl. uniffi 0.28 scaffolding).
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_imports = "warn"
+dead_code = "warn"
+
+[workspace.lints.clippy]
+all = "deny"
+pedantic = "warn"
+
 # Smaller, faster release artifacts for the xcframework we ship into the app.
 [profile.release]
 opt-level = "z"

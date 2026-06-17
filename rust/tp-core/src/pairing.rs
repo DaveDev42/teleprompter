@@ -90,7 +90,9 @@ pub fn encode_pairing_data(data: &PairingData) -> Result<String> {
     let pk = b64_std_decode(&data.pk)?;
 
     if did.is_empty() {
-        return Err(TpError::Pairing("daemon id suffix must not be empty".into()));
+        return Err(TpError::Pairing(
+            "daemon id suffix must not be empty".into(),
+        ));
     }
     if did.len() > 255 {
         return Err(TpError::Pairing("daemon id exceeds 255 bytes".into()));
@@ -102,11 +104,12 @@ pub fn encode_pairing_data(data: &PairingData) -> Result<String> {
         return Err(TpError::Pairing("pairing secret must be 32 bytes".into()));
     }
     if pk.len() != 32 {
-        return Err(TpError::Pairing("daemon public key must be 32 bytes".into()));
+        return Err(TpError::Pairing(
+            "daemon public key must be 32 bytes".into(),
+        ));
     }
 
-    let mut buf =
-        Vec::with_capacity(2 + 1 + 1 + did.len() + 1 + relay.len() + 32 + 32);
+    let mut buf = Vec::with_capacity(2 + 1 + 1 + did.len() + 1 + relay.len() + 32 + 32);
     buf.extend_from_slice(PAIRING_BINARY_MAGIC);
     buf.push(PAIRING_BINARY_VERSION);
     buf.push(did.len() as u8);

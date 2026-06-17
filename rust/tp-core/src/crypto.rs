@@ -100,7 +100,12 @@ fn aead_encrypt(plaintext: &[u8], aad: Option<&[u8]>, nonce: &[u8], key: &[u8]) 
         .map_err(|e| TpError::Crypto(format!("aead encrypt failed: {e}")))
 }
 
-fn aead_decrypt(ciphertext: &[u8], aad: Option<&[u8]>, nonce: &[u8], key: &[u8]) -> Result<Vec<u8>> {
+fn aead_decrypt(
+    ciphertext: &[u8],
+    aad: Option<&[u8]>,
+    nonce: &[u8],
+    key: &[u8],
+) -> Result<Vec<u8>> {
     if nonce.len() != NPUB_BYTES {
         return Err(TpError::InvalidInput(format!(
             "nonce must be {NPUB_BYTES} bytes, got {}",

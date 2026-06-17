@@ -68,12 +68,10 @@ impl FrameDecoder {
 
         let mut offset = 0usize;
         while self.buf.len() - offset >= HEADER_SIZE {
-            let json_len = u32::from_be_bytes(
-                self.buf[offset..offset + 4].try_into().unwrap(),
-            ) as usize;
-            let bin_len = u32::from_be_bytes(
-                self.buf[offset + 4..offset + 8].try_into().unwrap(),
-            ) as usize;
+            let json_len =
+                u32::from_be_bytes(self.buf[offset..offset + 4].try_into().unwrap()) as usize;
+            let bin_len =
+                u32::from_be_bytes(self.buf[offset + 4..offset + 8].try_into().unwrap()) as usize;
 
             // H1: reject oversized frames before attempting to buffer the body.
             if json_len + bin_len > MAX_FRAME_SIZE {

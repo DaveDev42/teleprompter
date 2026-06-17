@@ -36,3 +36,6 @@ uniffi = { version = "0.28", features = ["cli"] }
 
 [dev-dependencies]
 serde_json = "1"
+
+[lints]
+workspace = true

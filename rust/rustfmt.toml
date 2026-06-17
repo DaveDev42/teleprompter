@@ -1,0 +1,5 @@
+# Freeze the formatting contract independently of rustfmt's shifting defaults,
+# so `cargo fmt --check` in CI is deterministic across toolchain patch releases.
+# These are stable-channel options only (no `unstable_features`).
+edition = "2021"
+max_width = 100

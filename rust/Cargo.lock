@@ -741,6 +741,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tp-proto"
+version = "0.0.1"
+dependencies = [
+ "rand_core",
+ "serde",
+ "serde_json",
+ "x25519-dalek",
+]
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

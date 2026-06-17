@@ -109,7 +109,7 @@ describe("PushService", () => {
       const req = makeRequest();
       await service.sendOrDeliver(req);
       // The fake ApnsClient posts to https://apns-fake/3/device/<token>
-      expect(calls[0]!.url).toContain(req.token);
+      expect(calls[0]?.url).toContain(req.token);
     });
 
     test("omits apns-priority when interruptionLevel is absent (default active)", async () => {
@@ -119,7 +119,7 @@ describe("PushService", () => {
       // The fake client doesn't pass apns-priority for non-time-sensitive pushes.
       // We verify by confirming the call was made and no error occurred.
       expect(calls.length).toBe(1);
-      const body = JSON.parse(await calls[0]!.text());
+      const body = JSON.parse((await calls[0]?.text()) ?? "null");
       // The fake client body is minimal; just confirm it was called.
       expect(body).toBeDefined();
     });

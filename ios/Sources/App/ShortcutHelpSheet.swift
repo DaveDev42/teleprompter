@@ -10,8 +10,8 @@ import SwiftUI
 ///
 /// The sheet is opened by:
 /// - macOS: Help → Keyboard Shortcuts menu item (wired in `MacCommands`).
-/// - iPad: ⌘/ keyboard shortcut on the root window (wired in `RootView`).
-/// - Any platform: the `?` button in `SettingsTab` (future, Phase 3).
+/// - iOS / iPadOS / visionOS: the ⌘/ keyboard shortcut on the root window
+///   (wired as a hidden button in `RootView.tabNavShortcuts`).
 struct ShortcutHelpSheet: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -27,7 +27,7 @@ struct ShortcutHelpSheet: View {
                 }
 
                 Section {
-                    Text("Tab navigation (⌘1/⌘2/⌘3) always works. Session shortcuts are inactive while you are typing or the terminal has focus — except Find (⌘F), which stays active.")
+                    Text("Tab navigation (⌘1/⌘2/⌘3) always works. While you are typing or the Terminal pane is open, the session-movement shortcuts (⌘[ / ⌘] / ⌘K) are inactive so they don't steal a keystroke. The pane switches (⌃⌘C / ⌘T) and Find (⌘F) stay active so you can always leave the terminal.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

@@ -189,21 +189,32 @@ final class OnDeviceVoiceClient: NSObject, VoiceBackend {
 
         // Install a tap in the native hardware format; feed each buffer to the
         // recognition request. ~85ms buffer matches VoiceAudio.swift cadence.
+        //
+        // The tap runs on AVAudioEngine's realtime render thread. It must NOT
+        // read `self.request` (a @MainActor-isolated stored property that
+        // stopAudio() nils on main) — that is a cross-thread data race and a
+        // use-after-free on the request. Capture a local strong reference to the
+        // request instead: the closure appends to `req` directly, the request
+        // stays alive for the closure's lifetime, and there is no read of actor
+        // state off the main actor. removeTap() (in stopAudio) bounds delivery.
         let tapBufferSize = AVAudioFrameCount(hardwareFormat.sampleRate * 0.085)
         inputNode.installTap(onBus: 0, bufferSize: tapBufferSize, format: hardwareFormat) {
-            [weak self] (buffer, _) in
-            // Tap runs on a realtime audio thread. The request is thread-safe for
-            // append; capture only the request reference (do not touch actor state).
-            self?.request?.append(buffer)
+            (buffer, _) in
+            req.append(buffer)
         }
 
         latestTranscript = ""
         utteranceCommitted = false
 
-        // 5. Start the recognition task.
+        // 5. Start the recognition task. Capture the current generation so a
+        //    late callback from THIS task (after a rearm() bumps the generation
+        //    and starts a fresh task) is dropped — `task.cancel()` only requests
+        //    cancellation and does not synchronously suppress already-delivered
+        //    results, and the `Task {}` hop decouples timing further.
+        let gen = generation
         task = recognizer.recognitionTask(with: req) { [weak self] result, error in
             Task { @MainActor [weak self] in
-                self?.handleRecognition(result: result, error: error)
+                self?.handleRecognition(result: result, error: error, gen: gen)
             }
         }
 
@@ -222,8 +233,14 @@ final class OnDeviceVoiceClient: NSObject, VoiceBackend {
     }
 
     /// Handle a partial/final recognition callback on the main actor.
-    private func handleRecognition(result: SFSpeechRecognitionResult?, error: Error?) {
-        guard !disposed else { return }
+    ///
+    /// `gen` is the generation captured when the originating `recognitionTask`
+    /// was created. A callback whose `gen` no longer matches `generation` is
+    /// stale (a fresh task was started by `rearm()`), so it is dropped — without
+    /// this, a buffered `isFinal` from the OLD task would `commitUtterance` a
+    /// second time after `rearm()` reset `utteranceCommitted` to false.
+    private func handleRecognition(result: SFSpeechRecognitionResult?, error: Error?, gen: Int) {
+        guard !disposed, generation == gen else { return }
 
         if let result {
             let text = result.bestTranscription.formattedString

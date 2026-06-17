@@ -1,5 +1,8 @@
 import SwiftUI
-import AVFoundation
+// @preconcurrency: AVCaptureSession/AVCaptureVideoPreviewLayer/etc. predate Swift
+// concurrency and are not yet Sendable; suppress cross-isolation capture errors
+// from AVFoundation until Apple annotates these types upstream.
+@preconcurrency import AVFoundation
 #if os(iOS)
 import UIKit
 #endif
@@ -26,6 +29,13 @@ private func hasCameraDevice() -> Bool {
 /// as long as the `UIView` is in the hierarchy. On `prepare()` it asks for camera
 /// permission, creates the session, and starts scanning. `tearDown()` must be
 /// called from `dismantleUIView` to stop the session on a background thread.
+///
+/// @MainActor: all mutable state (session, onDecoded, etc.) is UI-driven and
+/// accessed from the main actor. The requestAccess callback captures only `self`
+/// (not the non-Sendable previewLayer/completion) to satisfy Swift 6 isolation.
+/// The delegate method is nonisolated (AVFoundation calls it on the capture queue)
+/// and hops back with Task { @MainActor in }.
+@MainActor
 final class QRScannerCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelegate {
     /// Called at most once with the decoded QR payload string.
     var onDecoded: ((String) -> Void)?
@@ -34,14 +44,31 @@ final class QRScannerCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelega
     private var session: AVCaptureSession?
     private var hasDelivered = false
 
+    // Stored pending args so requestAccess callback only captures `self`.
+    private var pendingPreviewLayer: AVCaptureVideoPreviewLayer?
+    private var pendingCompletion: ((Error?) -> Void)?
+
     func prepare(previewLayer: AVCaptureVideoPreviewLayer,
                  completion: @escaping (Error?) -> Void) {
+        // Store args on self so the @Sendable requestAccess closure only captures
+        // [weak self] — avoiding non-Sendable cross-isolation captures.
+        pendingPreviewLayer = previewLayer
+        pendingCompletion = completion
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-            guard let self else { return }
-            if granted {
-                self.setupSession(previewLayer: previewLayer, completion: completion)
-            } else {
-                DispatchQueue.main.async { self.onPermissionDenied?() }
+            // Hop to MainActor; only `self` (MainActor-isolated) is captured.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if granted {
+                    guard let layer = self.pendingPreviewLayer,
+                          let cb = self.pendingCompletion else { return }
+                    self.pendingPreviewLayer = nil
+                    self.pendingCompletion = nil
+                    self.setupSession(previewLayer: layer, completion: cb)
+                } else {
+                    self.pendingPreviewLayer = nil
+                    self.pendingCompletion = nil
+                    self.onPermissionDenied?()
+                }
             }
         }
     }
@@ -63,34 +90,46 @@ final class QRScannerCoordinator: NSObject, AVCaptureMetadataOutputObjectsDelega
         }
         s.addInput(input)
         s.addOutput(output)
+        // Deliver delegate callbacks on main queue — already on MainActor here.
         output.setMetadataObjectsDelegate(self, queue: .main)
         output.metadataObjectTypes = [.qr]
 
-        DispatchQueue.main.async {
-            previewLayer.session = s
-            previewLayer.videoGravity = .resizeAspectFill
-            completion(nil)
-        }
+        previewLayer.session = s
+        previewLayer.videoGravity = .resizeAspectFill
+        completion(nil)
         session = s
+        // startRunning() must not be called on the main thread per AVFoundation docs.
+        // s is a local (not crossing a MainActor boundary from a @Sendable closure).
         DispatchQueue.global(qos: .userInitiated).async { s.startRunning() }
     }
 
     func tearDown() {
-        let s = session
+        guard let s = session else { return }
         session = nil
-        DispatchQueue.global(qos: .userInitiated).async { s?.stopRunning() }
+        // stopRunning() must not be called on the main thread. s is a local copy.
+        DispatchQueue.global(qos: .userInitiated).async { s.stopRunning() }
     }
 
     // MARK: AVCaptureMetadataOutputObjectsDelegate
-
-    func metadataOutput(_ output: AVCaptureMetadataOutput,
-                        didOutput metadataObjects: [AVMetadataObject],
-                        from connection: AVCaptureConnection) {
-        guard !hasDelivered,
-              let obj = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+    //
+    // nonisolated: AVFoundation delivers this on the queue we passed (queue: .main),
+    // so we are actually on the main thread. We use MainActor.assumeIsolated to re-
+    // enter the MainActor isolation domain without an async hop.
+    //
+    // Extract the String value (Sendable) from the non-Sendable [AVMetadataObject]
+    // array BEFORE calling assumeIsolated to avoid "sending non-Sendable" errors.
+    nonisolated func metadataOutput(_ output: AVCaptureMetadataOutput,
+                                    didOutput metadataObjects: [AVMetadataObject],
+                                    from connection: AVCaptureConnection) {
+        // Extract the QR string here (nonisolated context) — String is Sendable.
+        guard let obj = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
               let str = obj.stringValue else { return }
-        hasDelivered = true
-        onDecoded?(str)
+        // Now only cross the boundary with the Sendable String, not AVMetadataObject.
+        MainActor.assumeIsolated {
+            guard !hasDelivered else { return }
+            hasDelivered = true
+            onDecoded?(str)
+        }
     }
 }
 

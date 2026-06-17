@@ -277,11 +277,14 @@ extension SwiftTermView {
         @MainActor
         private func registerSink() {
             let capSid = currentSid
-            weak var weakView = terminalView
+            // `terminalView` is already a `weak var` property of the coordinator;
+            // reach it through `self` (also captured weakly) instead of a separate
+            // local weak var, which Swift 6 + WAE rejects as "never mutated".
             currentStore?.terminalByteSink = { [weak self] incomingSid, data in
                 guard incomingSid == capSid else { return }
-                guard let view = weakView else {
-                    self?.currentStore?.terminalByteSink = nil
+                guard let self else { return }
+                guard let view = self.terminalView else {
+                    self.currentStore?.terminalByteSink = nil
                     return
                 }
                 // feed(byteArray:) is defined on SwiftTerm.TerminalView
@@ -336,6 +339,7 @@ extension SwiftTermView {
         /// `Coordinator.readVisibleText() -> String`
         ///
         /// Returns an empty string when no terminal view is attached.
+        @MainActor
         public func readVisibleText() -> String {
             guard let view = terminalView else { return "" }
             let terminal = view.getTerminal()

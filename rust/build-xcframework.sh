@@ -90,6 +90,20 @@ gen_bindings() {
   log "generating Swift bindings → $GEN_DIR"
   ( cd "$RUST_DIR" && cargo run $PROFILE_FLAG --bin uniffi-bindgen -- generate \
       --library "$lib" --language swift --out-dir "$GEN_DIR" )
+  # Swift 6 fix: UniFFI 0.28 emits `private var initializationResult` — a mutable
+  # global the Swift-6 concurrency checker flags as non-Sendable shared state
+  # (error under SWIFT_VERSION=6.0). It's a lazily-evaluated init-once constant
+  # (Swift guarantees the closure runs exactly once, single-threaded), so it is
+  # genuinely race-free; `nonisolated(unsafe)` is the correct annotation. UniFFI
+  # fixed this upstream in 0.29 — drop this patch when the crate is bumped. We
+  # own ios/Generated (gitignored, regenerated every build), so patching the
+  # emitted file here is safe and reproducible.
+  local gen_swift="$GEN_DIR/tp_core.swift"
+  if [ -f "$gen_swift" ] && grep -q '^private var initializationResult' "$gen_swift"; then
+    # BSD sed (macOS) in-place edit; the pattern is anchored and idempotent.
+    sed -i '' 's/^private var initializationResult:/private nonisolated(unsafe) var initializationResult:/' "$gen_swift"
+    log "patched tp_core.swift: initializationResult → nonisolated(unsafe) (Swift 6)"
+  fi
   # The xcframework's headers dir needs the C header + a modulemap NAMED
   # `module.modulemap` (Xcode convention). UniFFI emits `<name>FFI.modulemap`.
   mkdir -p "$TARGET_DIR/headers"

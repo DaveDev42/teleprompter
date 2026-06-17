@@ -19,7 +19,19 @@ import os
 /// M7 implements the fast-path `relay.auth.resume` (persisted across background).
 /// The auth token is the verbatim FFI `deriveRelayToken` output (lowercase hex of
 /// BLAKE2b-256(pairingSecret || "relay-auth")), byte-equal to the TS golden vector.
-final class RelayClient: NSObject {
+// `@unchecked Sendable`: RelayClient uses a hand-rolled hybrid concurrency model
+// that the compiler cannot verify statically. Thread-safety is maintained manually:
+// - All SessionStore / PairingStore writes hop to the main actor via
+//   `Task { @MainActor in }` (see onHello, onState, onBatch, onRec,
+//   scheduleReconnect, startPing, sendManualPing).
+// - Mutable properties written from URLSession delegate / DispatchSource handlers
+//   are either guarded by those serial queues or are `nonisolated(unsafe)` with the
+//   documented invariant that all writes go through `Task { @MainActor in }`.
+// - The class is deliberately NOT @MainActor so URLSession callbacks run off-main
+//   on the session's queue and then hop to the main actor only for store mutations.
+// This assertion is intentional and correct — do not replace with `Sendable` without
+// first auditing all stored-property access patterns.
+final class RelayClient: NSObject, @unchecked Sendable {
     /// Connection lifecycle. `authenticated` is the M2 success terminal.
     enum State: Equatable {
         case idle
@@ -282,7 +294,7 @@ final class RelayClient: NSObject {
 
     // MARK: send
 
-    private func send<T: Encodable>(_ message: T, completion: @escaping (Error?) -> Void) {
+    private func send<T: Encodable>(_ message: T, completion: @escaping @Sendable (Error?) -> Void) {
         guard let task else {
             completion(URLError(.networkConnectionLost))
             return

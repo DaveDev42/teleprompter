@@ -4,12 +4,20 @@ import os
 
 // MARK: - Voice audio protocols (matches audio-types.ts)
 
+// @MainActor: both protocols are implemented by MainActor-isolated classes
+// (MicCapture, PcmAudioPlayer) and are called exclusively from MainActor
+// contexts (VoiceStore). Annotating the protocols avoids Swift 6
+// "conformance crosses into main actor-isolated code" errors.
+@MainActor
 protocol VoiceAudioCapture {
     /// Start microphone capture, streaming base64 PCM16 24 kHz chunks.
-    func start(onChunk: @escaping (String) -> Void) async throws
+    /// `@Sendable`: chunks are delivered from a real-time audio thread, so the
+    /// callback crosses isolation domains (see `MicCapture.onChunk`).
+    func start(onChunk: @escaping @Sendable (String) -> Void) async throws
     func stop()
 }
 
+@MainActor
 protocol VoiceAudioPlayerProtocol {
     func start()
     /// Queue a base64 PCM16 24 kHz chunk for sequential playback.
@@ -26,9 +34,12 @@ protocol VoiceAudioPlayerProtocol {
 /// environments. Matches the QRScannerView.hasCameraDevice() pattern.
 func hasMicrophoneDevice() -> Bool {
     #if os(macOS)
-    // On macOS, check if any audio input is available via AVCaptureDevice
-    let devices = AVCaptureDevice.devices(for: .audio)
-    return !devices.isEmpty
+    // On macOS, use AVCaptureDeviceDiscoverySession (devices(for:) deprecated macOS 10.15).
+    let session = AVCaptureDevice.DiscoverySession(
+        deviceTypes: [.microphone],
+        mediaType: .audio,
+        position: .unspecified)
+    return !session.devices.isEmpty
     #else
     // On iOS/iPadOS: the input node is always present on real hardware.
     // On Simulator without host mic, inputNode.inputFormat(forBus:) returns 0 channels.
@@ -49,11 +60,21 @@ private let targetSampleRate: Double = 24000
 /// encodes to PCM16, and calls `onChunk` with base64-encoded data.
 ///
 /// Degrades gracefully when no microphone is available (simulator / macOS without mic).
+///
+/// @MainActor: MicCapture is always created and managed on the main actor by
+/// VoiceStore; marking it MainActor prevents Swift 6 "sending non-Sendable" errors
+/// when VoiceStore awaits its methods from MainActor-isolated async Tasks.
+@MainActor
 final class MicCapture: VoiceAudioCapture {
     private var engine: AVAudioEngine?
-    private var onChunk: ((String) -> Void)?
+    // `@Sendable`: the callback is invoked from the AVAudioEngine tap (a real-time
+    // audio thread). It is captured into a local constant before `installTap` so
+    // the audio-thread closure never reads `self` (a `@MainActor` instance) off
+    // the main actor — the only thing crossing the thread boundary is this
+    // Sendable closure plus the produced base64 String.
+    private var onChunk: (@Sendable (String) -> Void)?
 
-    func start(onChunk: @escaping (String) -> Void) async throws {
+    func start(onChunk: @escaping @Sendable (String) -> Void) async throws {
         self.onChunk = onChunk
 
         // Check mic availability before configuring — prevents crashes on
@@ -65,9 +86,15 @@ final class MicCapture: VoiceAudioCapture {
         // Request permission (iOS) — on macOS this is handled by the system prompt
         // or entitlement; AVAudioSession is iOS-only.
         #if !os(macOS)
-        let granted = await withCheckedContinuation { cont in
-            AVAudioSession.sharedInstance().requestRecordPermission { allowed in
-                cont.resume(returning: allowed)
+        // Use AVAudioApplication on iOS 17+ (requestRecordPermission deprecated in iOS 17).
+        let granted: Bool
+        if #available(iOS 17.0, *) {
+            granted = await AVAudioApplication.requestRecordPermission()
+        } else {
+            granted = await withCheckedContinuation { cont in
+                AVAudioSession.sharedInstance().requestRecordPermission { allowed in
+                    cont.resume(returning: allowed)
+                }
             }
         }
         guard granted else {
@@ -80,7 +107,7 @@ final class MicCapture: VoiceAudioCapture {
         #if !os(macOS)
         let audioSession = AVAudioSession.sharedInstance()
         try audioSession.setCategory(.playAndRecord, mode: .voiceChat,
-                                     options: [.defaultToSpeaker, .allowBluetooth])
+                                     options: [.defaultToSpeaker, .allowBluetoothHFP])
         try audioSession.setActive(true)
         #endif
 
@@ -101,9 +128,12 @@ final class MicCapture: VoiceAudioCapture {
         // Buffer size ~85ms at 24kHz ≈ 2048 samples — close to audio-native.ts cadence.
         let tapBufferSize = AVAudioFrameCount(hardwareFormat.sampleRate * 0.085)
 
+        // Capture the @Sendable callback into a local BEFORE installing the tap.
+        // The tap block runs on a real-time audio thread, so it must not touch
+        // `self` (a @MainActor instance) — it closes over `cb` (Sendable) only.
+        let cb = onChunk
         inputNode.installTap(onBus: 0, bufferSize: tapBufferSize, format: hardwareFormat) {
-            [weak self] (buffer, _) in
-            guard let self, let cb = self.onChunk else { return }
+            (buffer, _) in
             guard let channelData = buffer.floatChannelData else { return }
 
             let frameCount = Int(buffer.frameLength)
@@ -143,6 +173,10 @@ final class MicCapture: VoiceAudioCapture {
 /// Plays base64-encoded PCM16 24 kHz audio chunks sequentially via AVAudioPlayerNode.
 ///
 /// Mirrors the TypeScript AudioPlayer's sequential-scheduling + barge-in stop/start logic.
+///
+/// @MainActor: PcmAudioPlayer is always created and managed on the main actor by
+/// VoiceStore; this prevents Swift 6 region-isolation errors on the stored property.
+@MainActor
 final class PcmAudioPlayer: VoiceAudioPlayerProtocol {
     private var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
@@ -158,7 +192,7 @@ final class PcmAudioPlayer: VoiceAudioPlayerProtocol {
         #if !os(macOS)
         // Re-activate the session in case stop() deactivated it.
         try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .voiceChat,
-                                                          options: [.defaultToSpeaker, .allowBluetooth])
+                                                          options: [.defaultToSpeaker, .allowBluetoothHFP])
         try? AVAudioSession.sharedInstance().setActive(true)
         #endif
 

@@ -48,7 +48,16 @@ enum PairingError: Error, CustomStringConvertible {
 /// daemon id. Non-secret fields and the install's `frontendId` live in
 /// `UserDefaults`. The index of known daemon ids is kept in `UserDefaults` so we
 /// can enumerate pairings without scanning the Keychain.
-final class PairingStore {
+///
+/// `@unchecked Sendable`: every stored property is a `let` (no mutable in-memory
+/// state), and the two non-`Sendable`-typed ones — `defaults: UserDefaults` and
+/// the Keychain accessed via `keychainService: String` — wrap system APIs that
+/// Apple documents as thread-safe. `UserDefaults` is not annotated `Sendable` by
+/// the stdlib, so the compiler can't prove this; `@unchecked` records the
+/// author-verified guarantee. Instances are therefore shared safely across
+/// isolation domains — the main actor (SwiftUI views) AND `RelayClient`'s
+/// off-main URLSession receive loop (`RelayClient.swift` `onKeyExchangeFrame`).
+final class PairingStore: @unchecked Sendable {
     static let shared = PairingStore()
 
     private let defaults: UserDefaults

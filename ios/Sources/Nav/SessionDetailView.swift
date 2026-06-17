@@ -112,7 +112,7 @@ struct SessionDetailView: View {
             nav.terminalPaneActive = false
         }
         // Consume the pane-switch intent (⌃⌘C / ⌘T) and clear it so it fires once.
-        .onChange(of: nav.paneIntent) { intent in
+        .onChange(of: nav.paneIntent) { _, intent in
             guard let intent else { return }
             pane = intent
             nav.paneIntent = nil
@@ -122,7 +122,7 @@ struct SessionDetailView: View {
         // Also track which pane owns the keyboard: the SwiftTerm view captures
         // every keystroke on the Terminal pane (FIX #6), so the session chords
         // must be inert there too — not just while a composer TextField is focused.
-        .onChange(of: pane) { newPane in
+        .onChange(of: pane) { _, newPane in
             nav.composerHasFocus = false
             nav.terminalPaneActive = (newPane == .terminal)
         }

@@ -173,24 +173,35 @@ final class RealtimeClient: NSObject {
 
     private func receive() {
         guard let task else { return }
+        // The completion handler is delivered on the main queue (the URLSession
+        // is created with `delegateQueue: .main` in connect()), so every call
+        // below genuinely runs on the main actor. Swift's concurrency checker
+        // can't see that — `URLSessionWebSocketTask.receive(completionHandler:)`
+        // hands back a nonisolated @Sendable closure — so we bridge with
+        // `MainActor.assumeIsolated`. It's an assertion, not a suppression:
+        // it crashes loudly if the guarantee is ever violated, instead of
+        // silently racing. (Some SDKs annotate `receive` to hide this; visionOS
+        // does not, which is why the diagnostic only surfaces there.)
         task.receive { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .success(let message):
-                switch message {
-                case .string(let str):
-                    self.handleMessage(str)
-                case .data(let data):
-                    if let str = String(data: data, encoding: .utf8) {
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                switch result {
+                case .success(let message):
+                    switch message {
+                    case .string(let str):
                         self.handleMessage(str)
+                    case .data(let data):
+                        if let str = String(data: data, encoding: .utf8) {
+                            self.handleMessage(str)
+                        }
+                    @unknown default:
+                        break
                     }
-                @unknown default:
+                    self.receive()
+                case .failure:
+                    // Socket closed or error — onDisconnected fires via delegate.
                     break
                 }
-                self.receive()
-            case .failure:
-                // Socket closed or error — onDisconnected fires via delegate.
-                break
             }
         }
     }

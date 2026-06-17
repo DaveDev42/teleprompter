@@ -1,6 +1,6 @@
 import SwiftUI
-import os
 import UserNotifications
+import os
 
 /// Entry point for the native Teleprompter iOS app (ADR-0001 rewrite).
 ///
@@ -55,7 +55,8 @@ struct TeleprompterApp: App {
     private func handleSmokeURLIfPresent() {
         let args = ProcessInfo.processInfo.arguments
         guard let idx = args.firstIndex(of: "--tp-smoke-url"),
-              idx + 1 < args.count else { return }
+            idx + 1 < args.count
+        else { return }
         let raw = args[idx + 1]
         let smokeLog = Logger(subsystem: "dev.tpmt.teleprompter", category: "deeplink")
         smokeLog.notice("smoke url injection: \(raw, privacy: .public)")
@@ -63,7 +64,7 @@ struct TeleprompterApp: App {
             smokeLog.error("smoke url invalid: \(raw, privacy: .public)")
             return
         }
-        if case let .paired(daemonId) = DeepLinkHandler.handle(url) {
+        if case .paired(let daemonId) = DeepLinkHandler.handle(url) {
             pairings.reload()
             pairings.connect(daemonId: daemonId)
         } else {
@@ -89,55 +90,60 @@ struct TeleprompterApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView(pairings: pairings, sessionStore: sessionStore, coreStatus: coreStatus,
-                     showShortcutHelp: $showShortcutHelp)
-                // Start observing MFi/Xbox/PlayStation controllers. Idempotent —
-                // the coordinator's `started` guard makes re-appearances no-ops.
-                // The tick only runs while ≥1 pad is connected (self-stops at zero).
-                .onAppear { GamepadCoordinator.shared.activate() }
-                .onOpenURL { url in
-                    self.log.notice("onOpenURL url=\(url.absoluteString, privacy: .public)")
-                    if case let .paired(daemonId) = DeepLinkHandler.handle(url) {
-                        pairings.reload()
-                        // M2: connect to the relay as soon as a pairing lands so the
-                        // auth round-trip happens on-device (emits TP_RELAY_AUTH_OK).
-                        pairings.connect(daemonId: daemonId)
-                    } else {
-                        pairings.reload()
-                    }
+            RootView(
+                pairings: pairings, sessionStore: sessionStore, coreStatus: coreStatus,
+                showShortcutHelp: $showShortcutHelp
+            )
+            // Start observing MFi/Xbox/PlayStation controllers. Idempotent —
+            // the coordinator's `started` guard makes re-appearances no-ops.
+            // The tick only runs while ≥1 pad is connected (self-stops at zero).
+            .onAppear { GamepadCoordinator.shared.activate() }
+            .onOpenURL { url in
+                self.log.notice("onOpenURL url=\(url.absoluteString, privacy: .public)")
+                if case .paired(let daemonId) = DeepLinkHandler.handle(url) {
+                    pairings.reload()
+                    // M2: connect to the relay as soon as a pairing lands so the
+                    // auth round-trip happens on-device (emits TP_RELAY_AUTH_OK).
+                    pairings.connect(daemonId: daemonId)
+                } else {
+                    pairings.reload()
                 }
-                // M13: toast overlay with session navigation wired up.
-                // When the user taps a toast that carries a `sid`, the closure
-                // posts to SessionNavigator so the root view switches to the
-                // Sessions tab (and SessionsTab pushes the detail once it
-                // observes the pendingSid).
-                .toastOverlay(onNavigateToSession: { sid in
-                    SessionNavigator.shared.pendingSid = sid
-                })
-                // Shortcut help sheet, toggled by ⌘/ or the Help menu (macOS).
-                .shortcutHelpSheet(isPresented: $showShortcutHelp)
-                // Notification setup after the scene is ready.
-                // Also handle --tp-smoke-url harness injection (bypasses
-                // LaunchServices URL routing, which is unreliable for sideloaded
-                // apps on iOS 26.5 Simulator with ad-hoc signing).
-                .onAppear {
-                    setupNotifications()
-                    handleSmokeURLIfPresent()
-                }
-                // A4: a desktop window must not collapse below a usable size. The
-                // sidebar (~220) + a readable terminal column needs ~640×480 floor.
-                // No-op on iOS/visionOS where the scene fills the device/space.
-                #if os(macOS)
-                .frame(minWidth: 640, minHeight: 480)
-                #endif
+            }
+            // M13: toast overlay with session navigation wired up.
+            // When the user taps a toast that carries a `sid`, the closure
+            // posts to SessionNavigator so the root view switches to the
+            // Sessions tab (and SessionsTab pushes the detail once it
+            // observes the pendingSid).
+            .toastOverlay(onNavigateToSession: { sid in
+                SessionNavigator.shared.pendingSid = sid
+            })
+            // Shortcut help sheet, toggled by ⌘/ or the Help menu (macOS).
+            .shortcutHelpSheet(isPresented: $showShortcutHelp)
+            // Notification setup after the scene is ready.
+            // Also handle --tp-smoke-url harness injection (bypasses
+            // LaunchServices URL routing, which is unreliable for sideloaded
+            // apps on iOS 26.5 Simulator with ad-hoc signing).
+            .onAppear {
+                setupNotifications()
+                handleSmokeURLIfPresent()
+            }
+            // A4: a desktop window must not collapse below a usable size. The
+            // sidebar (~220) + a readable terminal column needs ~640×480 floor.
+            // No-op on iOS/visionOS where the scene fills the device/space.
+            #if os(macOS)
+            .frame(minWidth: 640, minHeight: 480)
+            #endif
         }
         // A4 (macOS): open at a comfortable desktop size and clamp shrink to the
         // content's declared minimum so the chrome never overlaps the content.
         #if os(macOS)
         .defaultSize(width: 980, height: 680)
         .windowResizability(.contentMinSize)
-        .commands { MacCommands(pairings: pairings, showShortcutHelp: $showShortcutHelp,
-                                nav: AppNavigationModel.shared) }
+        .commands {
+            MacCommands(
+                pairings: pairings, showShortcutHelp: $showShortcutHelp,
+                nav: AppNavigationModel.shared)
+        }
         #elseif os(visionOS)
         // B2 (visionOS): open at a comfortable spatial-window size — wide enough
         // for the terminal column, tall enough for the tab bar and content. The
@@ -212,7 +218,9 @@ final class PairingViewModel {
         client.onUnpair = { [weak self] did, reason in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.log.notice("control.unpair from daemon \(did, privacy: .public) reason=\(reason, privacy: .public) — removing pairing")
+                self.log.notice(
+                    "control.unpair from daemon \(did, privacy: .public) reason=\(reason, privacy: .public) — removing pairing"
+                )
                 // Remove local pairing (do NOT send another control.unpair back — we received this).
                 self.clients[did]?.disconnect()
                 self.clients[did] = nil
@@ -226,7 +234,9 @@ final class PairingViewModel {
         client.onRename = { [weak self] did, newLabel in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.log.notice("control.rename from daemon \(did, privacy: .public) label=\(newLabel ?? "(clear)", privacy: .public)")
+                self.log.notice(
+                    "control.rename from daemon \(did, privacy: .public) label=\(newLabel ?? "(clear)", privacy: .public)"
+                )
                 self.store.setLabel(newLabel, for: did)
                 // Trigger observation by reloading (daemonIds array itself didn't change,
                 // but downstream consumers reading label(for:) should refresh).
@@ -341,7 +351,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .sessions: return "Sessions"
-        case .daemons:  return "Daemons"
+        case .daemons: return "Daemons"
         case .settings: return "Settings"
         }
     }
@@ -349,7 +359,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
     var systemImage: String {
         switch self {
         case .sessions: return "list.bullet"
-        case .daemons:  return "server.rack"
+        case .daemons: return "server.rack"
         case .settings: return "gearshape"
         }
     }
@@ -399,7 +409,7 @@ struct RootView: View {
             // session detail). macOS registers these via MacCommands instead, so
             // guard the iOS attach to avoid a duplicate-shortcut registration.
             #if !os(macOS)
-            .background(tabNavShortcuts)
+        .background(tabNavShortcuts)
             #endif
     }
 
@@ -430,8 +440,9 @@ struct RootView: View {
     @ViewBuilder
     private var content: some View {
         #if os(macOS)
-        MacRootView(pairings: pairings, sessionStore: sessionStore, coreStatus: coreStatus,
-                    showShortcutHelp: $showShortcutHelp)
+        MacRootView(
+            pairings: pairings, sessionStore: sessionStore, coreStatus: coreStatus,
+            showShortcutHelp: $showShortcutHelp)
         #elseif os(visionOS)
         // B2 (visionOS): use a TabView like iOS (bottom ornament-style tab bar
         // rendered by the system in a spatial window). Apply glass background to
@@ -439,8 +450,11 @@ struct RootView: View {
         // and passthrough environments. The .tabViewStyle default is correct for
         // visionOS — no override needed; the platform renders an appropriate tab
         // bar ornament automatically.
-        TabView(selection: Binding(get: { nav.selectedTab },
-                                   set: { nav.selectedTab = $0 })) {
+        TabView(
+            selection: Binding(
+                get: { nav.selectedTab },
+                set: { nav.selectedTab = $0 })
+        ) {
             ForEach(AppTab.allCases) { tab in
                 tabContent(tab)
                     .glassBackgroundEffect()
@@ -450,8 +464,11 @@ struct RootView: View {
         }
         #else
         // M13: bind selection so notification/toast taps can switch tabs.
-        TabView(selection: Binding(get: { nav.selectedTab },
-                                   set: { nav.selectedTab = $0 })) {
+        TabView(
+            selection: Binding(
+                get: { nav.selectedTab },
+                set: { nav.selectedTab = $0 })
+        ) {
             ForEach(AppTab.allCases) { tab in
                 tabContent(tab)
                     .tabItem { Label(tab.title, systemImage: tab.systemImage) }
@@ -491,8 +508,9 @@ struct MacRootView: View {
     // binding, so adapt nil → .sessions on read and ignore nil on write.
     private var nav: AppNavigationModel { AppNavigationModel.shared }
     private var selection: Binding<AppTab?> {
-        Binding(get: { nav.selectedTab },
-                set: { if let tab = $0 { nav.selectedTab = tab } })
+        Binding(
+            get: { nav.selectedTab },
+            set: { if let tab = $0 { nav.selectedTab = tab } })
     }
 
     var body: some View {

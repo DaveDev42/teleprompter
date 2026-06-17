@@ -67,7 +67,9 @@ extension RelayClient {
         let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "relay.session")
         let msg = SessionCreate(cwd: cwd, sid: nil, cols: cols, rows: rows)
         let sent = publishControl(msg, on: RelayChannel.meta)
-        log.notice("createSession cwd=\(cwd, privacy: .public) cols=\(cols.map(String.init) ?? "nil", privacy: .public) rows=\(rows.map(String.init) ?? "nil", privacy: .public) sent=\(sent, privacy: .public)")
+        log.notice(
+            "createSession cwd=\(cwd, privacy: .public) cols=\(cols.map(String.init) ?? "nil", privacy: .public) rows=\(rows.map(String.init) ?? "nil", privacy: .public) sent=\(sent, privacy: .public)"
+        )
         return sent
     }
 }

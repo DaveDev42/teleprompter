@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import Teleprompter
 
 // MARK: - PCM codec golden tests (ported from pcm.test.ts)
@@ -17,7 +18,7 @@ final class PcmCodecTests: XCTestCase {
             let buf = ptr.bindMemory(to: Int16.self)
             XCTAssertEqual(buf[0], Int16(bitPattern: 0x8000))  // -32768
             XCTAssertEqual(buf[1], 0)
-            XCTAssertEqual(buf[2], 0x7fff)                     // 32767
+            XCTAssertEqual(buf[2], 0x7fff)  // 32767
         }
     }
 
@@ -26,7 +27,7 @@ final class PcmCodecTests: XCTestCase {
         out.withUnsafeBytes { ptr in
             let buf = ptr.bindMemory(to: Int16.self)
             XCTAssertEqual(buf[0], Int16(bitPattern: 0x8000))  // -32768
-            XCTAssertEqual(buf[1], 0x7fff)                     // 32767
+            XCTAssertEqual(buf[1], 0x7fff)  // 32767
         }
     }
 
@@ -37,8 +38,9 @@ final class PcmCodecTests: XCTestCase {
         // Maximum quantization error is 1/0x7fff for non-negative values.
         let epsilon: Float = 1.0 / 32767.0 + 1e-6
         for i in 0..<input.count {
-            XCTAssertLessThan(abs(back[i] - input[i]), epsilon,
-                              "Sample \(i): expected \(input[i]), got \(back[i])")
+            XCTAssertLessThan(
+                abs(back[i] - input[i]), epsilon,
+                "Sample \(i): expected \(input[i]), got \(back[i])")
         }
     }
 
@@ -88,7 +90,7 @@ final class PcmCodecTests: XCTestCase {
     }
 
     func testResampleLinear_halvesCount_48kTo24k() {
-        let input = [Float](repeating: 0, count: 4800)   // 100ms at 48kHz
+        let input = [Float](repeating: 0, count: 4800)  // 100ms at 48kHz
         let out = resampleLinear(input, fromRate: 48000, toRate: 24000)
         XCTAssertEqual(out.count, 2400)
     }

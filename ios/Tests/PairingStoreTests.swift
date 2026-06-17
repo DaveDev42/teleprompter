@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import Teleprompter
 
 /// Unit tests for M1 pairing ingestion (ADR-0001 Phase 3).
@@ -83,7 +84,7 @@ final class PairingStoreTests: XCTestCase {
         let link = try makeDeepLink()
         _ = try store.ingest(deepLink: link)
         _ = try store.ingest(deepLink: link)
-        XCTAssertEqual(store.daemonIds(), ["daemon-test"]) // not duplicated
+        XCTAssertEqual(store.daemonIds(), ["daemon-test"])  // not duplicated
     }
 
     func testRemoveClearsEverything() throws {

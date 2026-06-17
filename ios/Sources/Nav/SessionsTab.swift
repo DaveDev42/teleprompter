@@ -43,7 +43,7 @@ struct SessionsTab: View {
             SessionListView(sessionStore: sessionStore, pairings: pairings)
                 .navigationTitle("Sessions")
                 #if os(iOS)
-                .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.large)
                 #endif
         }
         // M13: Consume pendingSid from SessionNavigator so notification taps open the
@@ -93,10 +93,10 @@ struct SessionsTab: View {
         guard !order.isEmpty else { return }
         // Resolve the currently-open session from the controlled stack.
         guard let currentSid = navPath.last,
-              let idx = order.firstIndex(of: currentSid)
+            let idx = order.firstIndex(of: currentSid)
         else { return }
         let next = min(max(idx + delta, 0), order.count - 1)
-        guard next != idx else { return } // already at an end
+        guard next != idx else { return }  // already at an end
         navPath = [order[next]]
     }
 }
@@ -137,9 +137,13 @@ private struct QuickSwitcherSheet: View {
                 } label: {
                     HStack(spacing: 8) {
                         Circle()
-                            .fill(meta.state == "running" ? Color.green
-                                : (meta.state == "error" ? Color.red
-                                    : Color.secondary.opacity(0.4)))
+                            .fill(
+                                meta.state == "running"
+                                    ? Color.green
+                                    : (meta.state == "error"
+                                        ? Color.red
+                                        : Color.secondary.opacity(0.4))
+                            )
                             .frame(width: 8, height: 8)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(quickLabel(meta))
@@ -243,8 +247,8 @@ struct SessionListView: View {
         let q = searchText.lowercased()
         return allSorted.filter { meta in
             meta.sid.lowercased().contains(q)
-            || meta.cwd.lowercased().contains(q)
-            || meta.state.lowercased().contains(q)
+                || meta.cwd.lowercased().contains(q)
+                || meta.state.lowercased().contains(q)
         }
     }
 
@@ -359,7 +363,9 @@ struct SessionListView: View {
         } else {
             // Normal mode: New + Edit
             ToolbarItem(placement: .primaryAction) {
-                Button { showNewSession = true } label: {
+                Button {
+                    showNewSession = true
+                } label: {
                     Image(systemName: "plus")
                 }
                 .accessibilityLabel("New session")
@@ -484,7 +490,8 @@ struct SessionListView: View {
         ContentUnavailableView(
             "No sessions yet",
             systemImage: "terminal",
-            description: Text("Connect a daemon via Daemons to start a session, or tap + to create one.")
+            description: Text(
+                "Connect a daemon via Daemons to start a session, or tap + to create one.")
         )
     }
 
@@ -581,8 +588,8 @@ private struct SessionRow: View {
     private var statusColor: Color {
         switch meta.state {
         case "running": return .green
-        case "error":   return .red
-        default:        return Color.secondary.opacity(0.4)
+        case "error": return .red
+        default: return Color.secondary.opacity(0.4)
         }
     }
 
@@ -613,7 +620,7 @@ private struct SessionRow: View {
     }
 
     private func relativeTimestamp(_ ts: Double) -> String {
-        let date = Date(timeIntervalSince1970: ts / 1000) // ms → s
+        let date = Date(timeIntervalSince1970: ts / 1000)  // ms → s
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: .now)

@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import Teleprompter
 
 /// Tests for Batch B relay resilience features:
@@ -18,8 +19,10 @@ final class RelayResilienceTests: XCTestCase {
     private let goldenSecret = Data((0..<32).map { UInt8($0) })
     private let daemonPk = Data(repeating: 0x02, count: 32)
 
-    private func makePairing(daemonId: String = "daemon-test",
-                             frontendId: String = "frontend-A") -> Pairing {
+    private func makePairing(
+        daemonId: String = "daemon-test",
+        frontendId: String = "frontend-A"
+    ) -> Pairing {
         Pairing(
             pairingSecret: goldenSecret,
             daemonPublicKey: daemonPk,
@@ -39,8 +42,10 @@ final class RelayResilienceTests: XCTestCase {
         XCTAssertEqual(RelayClient.reconnectDelay(attempt: 2), 4.0, accuracy: 0.001)
         XCTAssertEqual(RelayClient.reconnectDelay(attempt: 3), 8.0, accuracy: 0.001)
         XCTAssertEqual(RelayClient.reconnectDelay(attempt: 4), 16.0, accuracy: 0.001)
-        XCTAssertEqual(RelayClient.reconnectDelay(attempt: 5), 30.0, accuracy: 0.001) // 32 → capped
-        XCTAssertEqual(RelayClient.reconnectDelay(attempt: 10), 30.0, accuracy: 0.001) // 1024 → capped
+        // attempt 5 → 32, capped to 30
+        XCTAssertEqual(RelayClient.reconnectDelay(attempt: 5), 30.0, accuracy: 0.001)
+        // attempt 10 → 1024, capped to 30
+        XCTAssertEqual(RelayClient.reconnectDelay(attempt: 10), 30.0, accuracy: 0.001)
     }
 
     func testReconnectDelayNeverExceedsCap() {
@@ -86,8 +91,8 @@ final class RelayResilienceTests: XCTestCase {
 
     func testDaemonKxPayloadDecodesLabelSet() throws {
         let json = """
-        {"pk":"AAECBA==","role":"daemon","v":2,"label":{"set":true,"value":"My Mac"}}
-        """
+            {"pk":"AAECBA==","role":"daemon","v":2,"label":{"set":true,"value":"My Mac"}}
+            """
         let payload = try JSONDecoder().decode(
             DaemonKxPayload.self, from: Data(json.utf8))
         XCTAssertEqual(payload.pk, "AAECBA==")
@@ -98,8 +103,8 @@ final class RelayResilienceTests: XCTestCase {
 
     func testDaemonKxPayloadDecodesLabelUnset() throws {
         let json = """
-        {"pk":"AAECBA==","role":"daemon","v":2,"label":{"set":false}}
-        """
+            {"pk":"AAECBA==","role":"daemon","v":2,"label":{"set":false}}
+            """
         let payload = try JSONDecoder().decode(
             DaemonKxPayload.self, from: Data(json.utf8))
         XCTAssertEqual(payload.label?.set, false)
@@ -109,8 +114,8 @@ final class RelayResilienceTests: XCTestCase {
     func testDaemonKxPayloadDecodesWithoutLabel() throws {
         // Old daemons that don't send the label field.
         let json = """
-        {"pk":"AAECBA==","role":"daemon"}
-        """
+            {"pk":"AAECBA==","role":"daemon"}
+            """
         let payload = try JSONDecoder().decode(
             DaemonKxPayload.self, from: Data(json.utf8))
         XCTAssertNil(payload.label, "absent label must decode as nil, not throw")
@@ -121,14 +126,14 @@ final class RelayResilienceTests: XCTestCase {
 
     func testControlUnpairInboundDecodes() throws {
         let json = """
-        {
-            "t": "control.unpair",
-            "daemonId": "daemon-test",
-            "frontendId": "fe-abc",
-            "reason": "user-initiated",
-            "ts": 1750000000000
-        }
-        """
+            {
+                "t": "control.unpair",
+                "daemonId": "daemon-test",
+                "frontendId": "fe-abc",
+                "reason": "user-initiated",
+                "ts": 1750000000000
+            }
+            """
         let msg = try JSONDecoder().decode(
             ControlUnpairInbound.self, from: Data(json.utf8))
         XCTAssertEqual(msg.t, "control.unpair")
@@ -139,8 +144,8 @@ final class RelayResilienceTests: XCTestCase {
 
     func testControlUnpairInboundDecodesWithOtherReason() throws {
         let json = """
-        {"t":"control.unpair","daemonId":"d","frontendId":"f","reason":"daemon-initiated","ts":0}
-        """
+            {"t":"control.unpair","daemonId":"d","frontendId":"f","reason":"daemon-initiated","ts":0}
+            """
         let msg = try JSONDecoder().decode(
             ControlUnpairInbound.self, from: Data(json.utf8))
         XCTAssertEqual(msg.reason, "daemon-initiated")
@@ -150,14 +155,14 @@ final class RelayResilienceTests: XCTestCase {
 
     func testControlRenameInboundDecodesLabelSet() throws {
         let json = """
-        {
-            "t": "control.rename",
-            "daemonId": "daemon-test",
-            "frontendId": "fe-abc",
-            "label": {"set": true, "value": "Dave's Mac"},
-            "ts": 1750000000000
-        }
-        """
+            {
+                "t": "control.rename",
+                "daemonId": "daemon-test",
+                "frontendId": "fe-abc",
+                "label": {"set": true, "value": "Dave's Mac"},
+                "ts": 1750000000000
+            }
+            """
         let msg = try JSONDecoder().decode(
             ControlRenameInbound.self, from: Data(json.utf8))
         XCTAssertEqual(msg.t, "control.rename")
@@ -168,8 +173,8 @@ final class RelayResilienceTests: XCTestCase {
 
     func testControlRenameInboundDecodesLabelClear() throws {
         let json = """
-        {"t":"control.rename","daemonId":"d","frontendId":"f","label":{"set":false},"ts":0}
-        """
+            {"t":"control.rename","daemonId":"d","frontendId":"f","label":{"set":false},"ts":0}
+            """
         let msg = try JSONDecoder().decode(
             ControlRenameInbound.self, from: Data(json.utf8))
         XCTAssertFalse(msg.label.set)
@@ -180,8 +185,8 @@ final class RelayResilienceTests: XCTestCase {
         // v1 daemons send a bare string for label — this should fail to decode.
         // We log and drop these frames rather than crashing.
         let json = """
-        {"t":"control.rename","daemonId":"d","frontendId":"f","label":"legacy-string","ts":0}
-        """
+            {"t":"control.rename","daemonId":"d","frontendId":"f","label":"legacy-string","ts":0}
+            """
         XCTAssertThrowsError(
             try JSONDecoder().decode(ControlRenameInbound.self, from: Data(json.utf8)),
             "legacy string-shaped label must fail to decode as ControlRenameInbound"
@@ -192,14 +197,14 @@ final class RelayResilienceTests: XCTestCase {
 
     func testRelayPresenceDecodes() throws {
         let json = """
-        {
-            "t": "relay.presence",
-            "daemonId": "daemon-test",
-            "online": true,
-            "sessions": ["s1"],
-            "lastSeen": 1750000000000
-        }
-        """
+            {
+                "t": "relay.presence",
+                "daemonId": "daemon-test",
+                "online": true,
+                "sessions": ["s1"],
+                "lastSeen": 1750000000000
+            }
+            """
         let p = try JSONDecoder().decode(RelayPresence.self, from: Data(json.utf8))
         XCTAssertTrue(p.online)
         XCTAssertEqual(p.daemonId, "daemon-test")
@@ -208,8 +213,8 @@ final class RelayResilienceTests: XCTestCase {
 
     func testRelayPresenceOfflineDecodes() throws {
         let json = """
-        {"t":"relay.presence","daemonId":"d","online":false,"sessions":[],"lastSeen":0}
-        """
+            {"t":"relay.presence","daemonId":"d","online":false,"sessions":[],"lastSeen":0}
+            """
         let p = try JSONDecoder().decode(RelayPresence.self, from: Data(json.utf8))
         XCTAssertFalse(p.online)
         XCTAssertTrue(p.sessions.isEmpty)

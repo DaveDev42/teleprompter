@@ -13,7 +13,7 @@ struct WatchRootView: View {
     private var sortedSessions: [SessionMeta] {
         sessionStore.sessions.values.sorted {
             if $0.state != $1.state {
-                return $0.state == "running" // running first
+                return $0.state == "running"  // running first
             }
             return $0.updatedAt > $1.updatedAt
         }
@@ -43,13 +43,17 @@ struct WatchRootView: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(sessions, id: \.sid) { session in
-                            NavigationLink(destination: WatchSessionDetailView(
-                                session: session,
-                                sessionStore: sessionStore,
-                                pairings: pairings
-                            )) {
-                                WatchSessionRow(session: session,
-                                               lastMessage: sessionStore.lastAssistantMessage(for: session.sid))
+                            NavigationLink(
+                                destination: WatchSessionDetailView(
+                                    session: session,
+                                    sessionStore: sessionStore,
+                                    pairings: pairings
+                                )
+                            ) {
+                                WatchSessionRow(
+                                    session: session,
+                                    lastMessage: sessionStore.lastAssistantMessage(for: session.sid)
+                                )
                             }
                         }
                     }

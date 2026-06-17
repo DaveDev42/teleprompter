@@ -9,8 +9,8 @@ enum AppTheme: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .system: return "System"
-        case .dark:   return "Dark"
-        case .light:  return "Light"
+        case .dark: return "Dark"
+        case .light: return "Light"
         }
     }
 
@@ -18,8 +18,8 @@ enum AppTheme: String, CaseIterable, Identifiable {
     var colorScheme: ColorScheme? {
         switch self {
         case .system: return nil
-        case .dark:   return .dark
-        case .light:  return .light
+        case .dark: return .dark
+        case .light: return .light
         }
     }
 }

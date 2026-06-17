@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import Teleprompter
 
 /// Unit tests for `GamepadInputMapper.diff` — a 1:1 port of the old Expo web
@@ -95,8 +96,9 @@ final class GamepadInputMapperTests: XCTestCase {
 
     func testMissingButtonIndicesAndShortAxesReadAsReleased() {
         XCTAssertEqual(
-            M.diff(prev: GamepadSnapshot(buttons: [], axes: []),
-                   next: GamepadSnapshot(buttons: [], axes: [])),
+            M.diff(
+                prev: GamepadSnapshot(buttons: [], axes: []),
+                next: GamepadSnapshot(buttons: [], axes: [])),
             []
         )
         XCTAssertEqual(

@@ -37,7 +37,9 @@ struct VoiceButton: View {
                     .frame(width: 20, height: 20)
                     .background(
                         RoundedRectangle(cornerRadius: 4)
-                            .fill(voice.includeTerminal ? Color.accentColor : Color.secondary.opacity(0.15))
+                            .fill(
+                                voice.includeTerminal
+                                    ? Color.accentColor : Color.secondary.opacity(0.15))
                     )
             }
             .buttonStyle(.plain)
@@ -61,9 +63,11 @@ struct VoiceButton: View {
                     .background(Circle().fill(micBackground))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(voice.connection.isActive
-                                ? "Stop voice (\(voice.connection.label))"
-                                : "Start voice input")
+            .accessibilityLabel(
+                voice.connection.isActive
+                    ? "Stop voice (\(voice.connection.label))"
+                    : "Start voice input"
+            )
             .accessibilityIdentifier("voice-mic-button")
             .help(voice.connection.isActive ? "Stop voice" : "Start voice input")
             // Show error badge.
@@ -105,10 +109,12 @@ struct VoiceButton: View {
             }
         }
         // Tooltip for last error.
-        .popover(isPresented: Binding(
-            get: { voice.lastError != nil },
-            set: { if !$0 { voice.lastError = nil } }
-        )) {
+        .popover(
+            isPresented: Binding(
+                get: { voice.lastError != nil },
+                set: { if !$0 { voice.lastError = nil } }
+            )
+        ) {
             if let err = voice.lastError {
                 Text(err)
                     .padding(12)
@@ -121,30 +127,30 @@ struct VoiceButton: View {
 
     private var micIcon: String {
         switch voice.connection {
-        case .idle:       return "mic"
+        case .idle: return "mic"
         case .connecting: return "mic"
-        case .listening:  return voice.connection.isSpeaking ? "speaker.wave.2" : "mic.fill"
+        case .listening: return voice.connection.isSpeaking ? "speaker.wave.2" : "mic.fill"
         case .processing: return "ellipsis"
         }
     }
 
     private var micColor: Color {
         switch voice.connection {
-        case .idle:                 return .secondary
-        case .connecting:           return .orange
-        case .listening(true, _):   return .white
-        case .listening(false, _):  return .white
-        case .processing:           return .white
+        case .idle: return .secondary
+        case .connecting: return .orange
+        case .listening(true, _): return .white
+        case .listening(false, _): return .white
+        case .processing: return .white
         }
     }
 
     private var micBackground: Color {
         switch voice.connection {
-        case .idle:                return Color.secondary.opacity(0.1)
-        case .connecting:          return Color.orange.opacity(0.2)
-        case .listening(true, _):  return Color.accentColor
+        case .idle: return Color.secondary.opacity(0.1)
+        case .connecting: return Color.orange.opacity(0.2)
+        case .listening(true, _): return Color.accentColor
         case .listening(false, _): return Color.red
-        case .processing:          return Color.orange
+        case .processing: return Color.orange
         }
     }
 }

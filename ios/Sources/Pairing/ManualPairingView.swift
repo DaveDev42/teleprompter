@@ -35,7 +35,7 @@ struct ManualPairingView: View {
                     TextField("Paste pairing URL or code", text: $rawInput, axis: .vertical)
                         .lineLimit(4, reservesSpace: true)
                         #if os(iOS)
-                        .textInputAutocapitalization(.never)
+                    .textInputAutocapitalization(.never)
                         #endif
                         .disableAutocorrection(true)
                         .font(.system(.body, design: .monospaced))
@@ -94,7 +94,10 @@ struct ManualPairingView: View {
                     Button("Pair") {
                         runIngest()
                     }
-                    .disabled(rawInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isProcessing)
+                    .disabled(
+                        rawInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            || isProcessing
+                    )
                     .accessibilityIdentifier("pairing-pair-btn")
                 }
             }

@@ -47,8 +47,9 @@ extension SessionStore {
 @MainActor
 func formatTerminalContext(store: SessionStore, sid: String, maxLines: Int = 30) -> String {
     guard let reader = store.terminalReadText,
-          let raw = reader(sid),
-          !raw.isEmpty else {
+        let raw = reader(sid),
+        !raw.isEmpty
+    else {
         return ""
     }
 
@@ -61,5 +62,6 @@ func formatTerminalContext(store: SessionStore, sid: String, maxLines: Int = 30)
 
     // Take the last `maxLines` lines.
     let slice = lines.suffix(maxLines)
-    return "\n\n--- Terminal Output (last \(slice.count) lines) ---\n\(slice.joined(separator: "\n"))\n--- End Terminal ---"
+    return
+        "\n\n--- Terminal Output (last \(slice.count) lines) ---\n\(slice.joined(separator: "\n"))\n--- End Terminal ---"
 }

@@ -21,7 +21,8 @@ func float32ToPcm16(_ samples: [Float]) -> Data {
         let buf = ptr.bindMemory(to: Int16.self)
         for (i, f) in samples.enumerated() {
             let s = max(-1.0, min(1.0, f))
-            let v: Int16 = s < 0
+            let v: Int16 =
+                s < 0
                 ? Int16(clamping: Int32(s * 32768.0))
                 : Int16(clamping: Int32(s * 32767.0))
             buf[i] = v
@@ -42,7 +43,8 @@ func pcm16ToFloat32(_ data: Data) -> [Float] {
         let buf = ptr.bindMemory(to: Int16.self)
         for i in 0..<count {
             let v = buf[i]
-            out[i] = v < 0
+            out[i] =
+                v < 0
                 ? Float(v) / 32768.0
                 : Float(v) / 32767.0
         }

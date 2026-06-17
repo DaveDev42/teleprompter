@@ -7,17 +7,17 @@ import os
 /// items. The identity is the record's `seq` — monotonic per session, so it
 /// doubles as the SwiftUI `id` and the dedup key.
 struct ChatItem: Identifiable, Equatable {
-    let seq: Int // == SessionRec.seq; SwiftUI identity + dedup key
+    let seq: Int  // == SessionRec.seq; SwiftUI identity + dedup key
     let sid: String
     let hookEventName: String
-    let toolName: String?              // PreToolUse/PostToolUse only
+    let toolName: String?  // PreToolUse/PostToolUse only
     let lastAssistantMessage: String?  // Stop only (success)
-    let errorText: String?             // StopFailure only (L6)
-    let prompt: String?                // UserPromptSubmit only (H2)
-    let toolInput: String?             // PostToolUse compact JSON (I1)
-    let toolResult: String?            // PostToolUse compact JSON (I1)
-    let message: String?               // Elicitation message (M5)
-    let permissionTool: String?        // PermissionRequest tool_name (M5)
+    let errorText: String?  // StopFailure only (L6)
+    let prompt: String?  // UserPromptSubmit only (H2)
+    let toolInput: String?  // PostToolUse compact JSON (I1)
+    let toolResult: String?  // PostToolUse compact JSON (I1)
+    let message: String?  // Elicitation message (M5)
+    let permissionTool: String?  // PermissionRequest tool_name (M5)
     let ts: Double
 
     var id: Int { seq }
@@ -78,7 +78,8 @@ final class SessionStore: ObservableObject {
         // Load synchronously — `self` is on the main actor at this point because
         // the whole class is `@MainActor`, so `sessions` can be mutated safely.
         if let data = UserDefaults.standard.data(forKey: Self.persistKey),
-           let decoded = try? JSONDecoder().decode([String: SessionMeta].self, from: data) {
+            let decoded = try? JSONDecoder().decode([String: SessionMeta].self, from: data)
+        {
             // Hydrate before first render; relay hello will upsert on top.
             sessions = decoded
         }
@@ -88,7 +89,7 @@ final class SessionStore: ObservableObject {
     /// Relay data (chatItems, terminalOutput) is always ephemeral — not persisted.
     func loadPersisted() {
         guard let data = UserDefaults.standard.data(forKey: Self.persistKey),
-              let decoded = try? JSONDecoder().decode([String: SessionMeta].self, from: data)
+            let decoded = try? JSONDecoder().decode([String: SessionMeta].self, from: data)
         else { return }
         // Merge: live sessions (from relay hello) take precedence over persisted.
         for (sid, meta) in decoded where sessions[sid] == nil {
@@ -201,7 +202,7 @@ final class SessionStore: ObservableObject {
     /// cursor only. `io` is deliberately NOT a chat item — the Chat tab is
     /// hooks-only (CLAUDE.md design decision).
     func appendRec(_ rec: SessionRec) {
-        guard rec.seq > cursor(for: rec.sid) else { return } // dedup / out-of-order
+        guard rec.seq > cursor(for: rec.sid) else { return }  // dedup / out-of-order
         cursors[rec.sid] = rec.seq
 
         switch rec.k {
@@ -223,7 +224,7 @@ final class SessionStore: ObservableObject {
             // Runs only on successful decode, only after the String append.
             if let d = Self.ioData(from: rec) { terminalByteSink?(rec.sid, d) }
         default:
-            break // meta: cursor only
+            break  // meta: cursor only
         }
     }
 
@@ -260,11 +261,11 @@ final class SessionStore: ObservableObject {
         guard let base = try? decoder.decode(HookEventBase.self, from: data) else {
             return nil
         }
-        let toolDec   = try? decoder.decode(HookEventTool.self, from: data)
-        let stopDec   = try? decoder.decode(HookEventStop.self, from: data)
+        let toolDec = try? decoder.decode(HookEventTool.self, from: data)
+        let stopDec = try? decoder.decode(HookEventStop.self, from: data)
         let promptDec = try? decoder.decode(HookEventPrompt.self, from: data)
-        let permDec   = try? decoder.decode(HookEventPermission.self, from: data)
-        let elicDec   = try? decoder.decode(HookEventElicitation.self, from: data)
+        let permDec = try? decoder.decode(HookEventPermission.self, from: data)
+        let elicDec = try? decoder.decode(HookEventElicitation.self, from: data)
 
         // H2: user prompt text — prefer `user_prompt`, fall back to `prompt`.
         let prompt = promptDec?.user_prompt ?? promptDec?.prompt

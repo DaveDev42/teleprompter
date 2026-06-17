@@ -13,9 +13,9 @@ private enum TerminalOpsKey {
     // there is no shared mutable state to race on. `nonisolated(unsafe)` tells the
     // Swift 6 concurrency checker exactly that; it's the canonical annotation for
     // ObjC associated-object key tokens.
-    nonisolated(unsafe) static var sendBytes  = 0
-    nonisolated(unsafe) static var resize     = 0
-    nonisolated(unsafe) static var history    = 0
+    nonisolated(unsafe) static var sendBytes = 0
+    nonisolated(unsafe) static var resize = 0
+    nonisolated(unsafe) static var history = 0
 }
 
 /// Extension of `SessionStore` that exposes relay-backed terminal callbacks.

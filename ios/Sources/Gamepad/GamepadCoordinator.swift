@@ -1,5 +1,6 @@
 import Foundation
 import os
+
 #if canImport(GameController)
 import GameController
 #endif
@@ -225,7 +226,7 @@ final class GamepadCoordinator {
         buttons[GamepadInputMapper.buttonDpadRight] = gp.dpad.right.isPressed
 
         let x = gp.leftThumbstick.xAxis.value
-        let y = -gp.leftThumbstick.yAxis.value // UP-positive → DOWN-positive
+        let y = -gp.leftThumbstick.yAxis.value  // UP-positive → DOWN-positive
         return GamepadSnapshot(buttons: buttons, axes: [x, y])
     }
     #endif

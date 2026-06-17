@@ -119,7 +119,7 @@ describe("PushService", () => {
       // The fake client doesn't pass apns-priority for non-time-sensitive pushes.
       // We verify by confirming the call was made and no error occurred.
       expect(calls.length).toBe(1);
-      const body = JSON.parse(await calls[0]?.text());
+      const body = JSON.parse((await calls[0]?.text()) ?? "null");
       // The fake client body is minimal; just confirm it was called.
       expect(body).toBeDefined();
     });

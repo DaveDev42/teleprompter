@@ -41,7 +41,11 @@ final class TerminalEmulatorTests: XCTestCase {
         return t
     }
 
-    private static var delegateKey = "terminalDelegate"
+    // Associated-object key token: only its ADDRESS is used. A `String` value
+    // (the old form) can't have `&` taken under Swift 6 — it would expose the
+    // String's internal representation. An `Int` token is the canonical idiom;
+    // `nonisolated(unsafe)` because the value is never read, only its address.
+    nonisolated(unsafe) private static var delegateKey = 0
 
     /// Feed raw bytes (as a Swift string) into the terminal.
     private func feed(_ terminal: Terminal, _ text: String) {

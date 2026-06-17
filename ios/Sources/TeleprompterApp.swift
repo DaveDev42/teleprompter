@@ -152,6 +152,13 @@ struct TeleprompterApp: App {
 /// Also owns the live relay clients (M2): one per paired daemon, started on
 /// pairing and on a relaunch with existing pairings. Holding the clients here
 /// keeps their sockets alive for the app's lifetime.
+///
+/// `@MainActor`: an `@Observable` view-model consumed by SwiftUI. Its mutable
+/// state (`daemonIds`, `daemonOnline`, `clients`) is driven from views and from
+/// RelayClient callbacks that already hop here via `Task { @MainActor in }`, so
+/// main-actor isolation is the natural home and lets those `@Sendable` callbacks
+/// capture `self` legally.
+@MainActor
 @Observable
 final class PairingViewModel {
     private(set) var daemonIds: [String] = []

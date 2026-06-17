@@ -248,6 +248,9 @@ struct MdInlineText: View {
 
 /// Build a chat body font from SettingsStore values.
 /// "System" → `.system(size:)`; any other name → `.custom(_:size:)`.
+/// `@MainActor`: reads `SettingsStore` (main-actor-isolated) and is only ever
+/// called from SwiftUI `body` (already main-actor).
+@MainActor
 func chatBodyFont(settings: SettingsStore) -> Font {
     let size = CGFloat(settings.fontSize)
     if settings.chatFont == "System" || settings.chatFont == "SF Pro" {
@@ -257,6 +260,8 @@ func chatBodyFont(settings: SettingsStore) -> Font {
 }
 
 /// Build a code/monospaced font from SettingsStore values.
+/// `@MainActor` for the same reason as `chatBodyFont`.
+@MainActor
 func chatCodeFont(settings: SettingsStore) -> Font {
     let size = CGFloat(settings.fontSize) - 2 // slightly smaller than body
     if settings.codeFont == "Menlo" || settings.codeFont == "SF Mono" {

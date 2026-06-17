@@ -133,13 +133,13 @@ struct ChatView: View {
                             .padding(.vertical, 8)
                         }
                         // M6: only auto-scroll when the user is already at/near the bottom.
-                        .onChange(of: items.count) { _ in
+                        .onChange(of: items.count) { _, _ in
                             guard isNearBottom else { return }
                             withAnimation(.easeOut(duration: 0.2)) {
                                 proxy.scrollTo("__bottom__", anchor: .bottom)
                             }
                         }
-                        .onChange(of: isWorking) { _ in
+                        .onChange(of: isWorking) { _, _ in
                             guard isNearBottom else { return }
                             withAnimation(.easeOut(duration: 0.2)) {
                                 proxy.scrollTo("__bottom__", anchor: .bottom)

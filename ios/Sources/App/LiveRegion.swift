@@ -149,6 +149,12 @@ struct SessionStoppedBanner: View {
 /// Uses the UIAccessibility API on iOS/iPadOS and NSAccessibility on macOS.
 /// The announcement is "polite" (not an interrupt), matching the `role=status`
 /// semantic from the Expo live-region components.
+///
+/// `@MainActor`: posting a VoiceOver/Accessibility announcement is a UI operation
+/// on both platforms, and the macOS path references `NSApp` (a main-actor-isolated
+/// AppKit global). All call sites are already on the main actor (SwiftUI view
+/// modifiers), so this isolation adds no friction.
+@MainActor
 func postAccessibilityAnnouncement(_ message: String) {
 #if os(iOS) || os(visionOS)
     UIAccessibility.post(notification: .announcement, argument: message)

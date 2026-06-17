@@ -7,7 +7,10 @@ import ObjectiveC
 // the associated-object closure pattern (mirrors TerminalOps.swift / Tranche E).
 
 private enum TerminalContextKey {
-    static var readText = 0
+    // Address-only associated-object key token (see TerminalOps.swift) — the Int
+    // value is never accessed, so nonisolated(unsafe) is the correct Swift 6
+    // annotation.
+    nonisolated(unsafe) static var readText = 0
 }
 
 /// Extension of `SessionStore` that exposes a closure for reading the current

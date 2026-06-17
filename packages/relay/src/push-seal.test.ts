@@ -135,7 +135,7 @@ describe("PushSealer", () => {
     // Corrupt a character in the base64 body
     const parts = blob.split(".");
     // parts = ["tpps1", "1", "<b64>"]
-    const b64 = parts[2]!;
+    const b64 = parts[2] ?? "";
     const tampered =
       b64.slice(0, 5) + (b64[5] === "A" ? "B" : "A") + b64.slice(6);
     const tamperedBlob = `${parts[0]}.${parts[1]}.${tampered}`;

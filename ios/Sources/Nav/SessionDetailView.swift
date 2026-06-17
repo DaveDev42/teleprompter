@@ -36,6 +36,12 @@ struct SessionDetailView: View {
 
     @State private var pane: SessionPane = .chat
 
+    /// Shared app-wide navigation model (keyboard shortcuts, pane intents).
+    /// Accessed directly via the process-lifetime singleton, mirroring
+    /// `SessionNavigator.shared`. Reading its `@Observable` properties inside
+    /// `body` establishes SwiftUI dependency tracking for `.onChange`/`.disabled`.
+    private var nav: AppNavigationModel { AppNavigationModel.shared }
+
     /// `true` when the daemon associated with this session is online.
     /// Resolves via pairings.isOnline(first daemon) — single-daemon convenience
     /// for now; a session→daemon map lands when N daemons each serve their own sessions.
@@ -86,5 +92,61 @@ struct SessionDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        // FIX #5: gate macOS session commands — a detail screen is on-screen.
+        .onAppear { nav.hasActiveDetail = true }
+        .onDisappear {
+            nav.hasActiveDetail = false
+            // FIX #4: a torn-down composer can't fire its own focus-loss change,
+            // so clear the flag here too — otherwise it stays stuck `true` and
+            // permanently disables the session shortcuts.
+            nav.composerHasFocus = false
+        }
+        // Consume the pane-switch intent (⌃⌘C / ⌘T) and clear it so it fires once.
+        .onChange(of: nav.paneIntent) { intent in
+            guard let intent else { return }
+            pane = intent
+            nav.paneIntent = nil
+        }
+        // FIX #4: switching panes tears down the previous composer; reset focus so
+        // a stale `true` doesn't survive the transition and disable the shortcuts.
+        .onChange(of: pane) { _ in
+            nav.composerHasFocus = false
+        }
+        // iOS/iPadOS/visionOS: no menu bar — carry the SESSION-scoped chords on
+        // hidden zero-opacity buttons that exist only while this detail screen is
+        // up. macOS routes the same chords through `MacCommands`, so guard with
+        // `#if !os(macOS)` to avoid duplicate-shortcut registration.
+        #if !os(macOS)
+        .background(sessionShortcutButtons)
+        #endif
     }
+
+    #if !os(macOS)
+    /// Hidden buttons carrying the session-screen keyboard chords. Each is
+    /// `.disabled(nav.composerHasFocus)` so they go inert while a composer field
+    /// is first responder (FIX #3) — letting the chords reach the composer.
+    @ViewBuilder
+    private var sessionShortcutButtons: some View {
+        let typing = nav.composerHasFocus
+        ZStack {
+            Button("") { pane = .chat }
+                .keyboardShortcut("c", modifiers: [.control, .command])
+                .disabled(typing)
+            Button("") { pane = .terminal }
+                .keyboardShortcut("t", modifiers: .command)
+                .disabled(typing)
+            Button("") { nav.step(-1) }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(typing)
+            Button("") { nav.step(1) }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(typing)
+            Button("") { nav.showQuickSwitcher = true }
+                .keyboardShortcut("k", modifiers: .command)
+                .disabled(typing)
+        }
+        .opacity(0)
+        .accessibilityHidden(true)
+    }
+    #endif
 }

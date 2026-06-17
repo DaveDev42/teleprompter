@@ -27,7 +27,7 @@ struct ShortcutHelpSheet: View {
                 }
 
                 Section {
-                    Text("Shortcuts are inactive while you are typing or the terminal has focus.")
+                    Text("Tab navigation (⌘1/⌘2/⌘3) always works. Session shortcuts are inactive while you are typing or the terminal has focus — except Find (⌘F), which stays active.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -60,14 +60,19 @@ struct ShortcutSection: Identifiable {
             ShortcutEntry(keys: ["⌘3"], description: "Go to Settings"),
         ]),
         ShortcutSection(title: "Session screen", items: [
-            ShortcutEntry(keys: ["⌘C"], description: "Chat tab"),
+            ShortcutEntry(keys: ["⌃⌘C"], description: "Chat tab"),
             ShortcutEntry(keys: ["⌘T"], description: "Terminal tab"),
+            ShortcutEntry(keys: ["⌘F"], description: "Find in terminal"),
             ShortcutEntry(keys: ["⌘["], description: "Previous session"),
             ShortcutEntry(keys: ["⌘]"], description: "Next session"),
+            ShortcutEntry(keys: ["⌘K"], description: "Quick switch session"),
         ]),
         ShortcutSection(title: "Global", items: [
             ShortcutEntry(keys: ["⌘/"], description: "Show keyboard shortcuts"),
             ShortcutEntry(keys: ["⌘N"], description: "New Pairing"),
+            // macOS menu-bar commands (MacCommands.swift); inert on iOS/iPadOS.
+            ShortcutEntry(keys: ["⌘⇧C"], description: "Copy daemon ID (macOS)"),
+            ShortcutEntry(keys: ["⌘⌫"], description: "Disconnect daemon (macOS)"),
         ]),
     ]
 }

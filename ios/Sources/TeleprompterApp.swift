@@ -132,7 +132,8 @@ struct TeleprompterApp: App {
         #if os(macOS)
         .defaultSize(width: 980, height: 680)
         .windowResizability(.contentMinSize)
-        .commands { MacCommands(pairings: pairings, showShortcutHelp: $showShortcutHelp) }
+        .commands { MacCommands(pairings: pairings, showShortcutHelp: $showShortcutHelp,
+                                nav: AppNavigationModel.shared) }
         #elseif os(visionOS)
         // B2 (visionOS): open at a comfortable spatial-window size — wide enough
         // for the terminal column, tall enough for the tab bar and content. The
@@ -364,8 +365,10 @@ struct RootView: View {
 
     @AppStorage("theme") private var theme: AppTheme = .system
 
-    // M13: tab selection state for programmatic navigation (notification + toast taps).
-    @State private var selectedTab: AppTab = .sessions
+    // Tab selection is now the single source of truth on AppNavigationModel, so
+    // the macOS menu-bar (⌘1/2/3) and the iOS hidden shortcut buttons mutate the
+    // same value the TabView/sidebar render. The local @State was removed.
+    private var nav: AppNavigationModel { AppNavigationModel.shared }
     // M13: shared navigator — observe pendingSid for notification-tap navigation.
     private var navigator: SessionNavigator { SessionNavigator.shared }
 
@@ -375,18 +378,36 @@ struct RootView: View {
             // M13: react to notification tap → switch to Sessions tab.
             .onChange(of: navigator.pendingSid) { _, sid in
                 guard sid != nil else { return }
-                selectedTab = .sessions
+                nav.selectedTab = .sessions
                 // Note: clearing pendingSid is done by SessionsTab after it pushes
                 // the detail view. If SessionsTab hasn't been updated yet, the sid
                 // persists until it is consumed — zero-cost, zero-crash.
             }
+            // Tab-nav shortcuts (⌘1/2/3) are global — they stay active even while a
+            // composer is focused, so they live on the root content (not in the
+            // session detail). macOS registers these via MacCommands instead, so
+            // guard the iOS attach to avoid a duplicate-shortcut registration.
+            #if !os(macOS)
+            .background(tabNavShortcuts)
+            #endif
     }
 
-    // M13: shared navigation callback for both toast taps and notification taps.
-    private func navigateToSession(_ sid: String) {
-        SessionNavigator.shared.pendingSid = sid
-        selectedTab = .sessions
+    #if !os(macOS)
+    /// Hidden zero-opacity buttons carrying the ⌘1/⌘2/⌘3 tab-switch chords for
+    /// iOS/iPadOS/visionOS (no menu bar). Mirrors the macOS MacCommands tab group.
+    @ViewBuilder
+    private var tabNavShortcuts: some View {
+        ZStack {
+            Button("") { nav.selectedTab = .sessions }
+                .keyboardShortcut("1", modifiers: .command)
+            Button("") { nav.selectedTab = .daemons }
+                .keyboardShortcut("2", modifiers: .command)
+            Button("") { nav.selectedTab = .settings }
+                .keyboardShortcut("3", modifiers: .command)
+        }
+        .opacity(0)
     }
+    #endif
 
     @ViewBuilder
     private var content: some View {
@@ -400,7 +421,8 @@ struct RootView: View {
         // and passthrough environments. The .tabViewStyle default is correct for
         // visionOS — no override needed; the platform renders an appropriate tab
         // bar ornament automatically.
-        TabView(selection: $selectedTab) {
+        TabView(selection: Binding(get: { nav.selectedTab },
+                                   set: { nav.selectedTab = $0 })) {
             ForEach(AppTab.allCases) { tab in
                 tabContent(tab)
                     .glassBackgroundEffect()
@@ -410,7 +432,8 @@ struct RootView: View {
         }
         #else
         // M13: bind selection so notification/toast taps can switch tabs.
-        TabView(selection: $selectedTab) {
+        TabView(selection: Binding(get: { nav.selectedTab },
+                                   set: { nav.selectedTab = $0 })) {
             ForEach(AppTab.allCases) { tab in
                 tabContent(tab)
                     .tabItem { Label(tab.title, systemImage: tab.systemImage) }
@@ -445,11 +468,18 @@ struct MacRootView: View {
     @ObservedObject var sessionStore: SessionStore
     let coreStatus: String
     @Binding var showShortcutHelp: Bool
-    @State private var selection: AppTab? = .sessions
+    // Sidebar selection is driven by the shared AppNavigationModel so ⌘1/2/3 (and
+    // ↑/↓ in the List) all move the one selectedTab. The List wants an optional
+    // binding, so adapt nil → .sessions on read and ignore nil on write.
+    private var nav: AppNavigationModel { AppNavigationModel.shared }
+    private var selection: Binding<AppTab?> {
+        Binding(get: { nav.selectedTab },
+                set: { if let tab = $0 { nav.selectedTab = tab } })
+    }
 
     var body: some View {
         NavigationSplitView {
-            List(AppTab.allCases, selection: $selection) { tab in
+            List(AppTab.allCases, selection: selection) { tab in
                 Label(tab.title, systemImage: tab.systemImage)
                     .tag(tab)
                     .accessibilityIdentifier("sidebar-\(tab.rawValue)")
@@ -457,7 +487,7 @@ struct MacRootView: View {
             .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
             .navigationTitle("Teleprompter")
         } detail: {
-            switch selection ?? .sessions {
+            switch nav.selectedTab {
             case .sessions:
                 SessionsTab(sessionStore: sessionStore, pairings: pairings)
             case .daemons:

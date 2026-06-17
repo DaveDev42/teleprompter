@@ -30,6 +30,12 @@ let monoFontOptions: [String] = [
 ///
 /// Voice/Chat/Terminal tranches should read these values via the environment
 /// object injected at the root, or directly from `SettingsStore.shared`.
+///
+/// `@MainActor` because every call site is main-actor-bound: SwiftUI views
+/// (`SettingsTab`, `ChatCard`, `ChatMarkdown`) and `VoiceStore` which is itself
+/// `@MainActor`. The class holds mutable `var` backing fields, so `Sendable` is
+/// not appropriate — main-actor isolation serializes all reads and writes.
+@MainActor
 @Observable
 final class SettingsStore {
     static let shared = SettingsStore()

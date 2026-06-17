@@ -8,9 +8,14 @@ import ObjectiveC
 /// `SessionStore` is declared in a separate file and cannot receive stored
 /// properties in an extension.
 private enum TerminalOpsKey {
-    static var sendBytes  = 0
-    static var resize     = 0
-    static var history    = 0
+    // Only the ADDRESS of each token is used (`&TerminalOpsKey.sendBytes` as the
+    // objc_getAssociatedObject key) — the Int value is never read or written, so
+    // there is no shared mutable state to race on. `nonisolated(unsafe)` tells the
+    // Swift 6 concurrency checker exactly that; it's the canonical annotation for
+    // ObjC associated-object key tokens.
+    nonisolated(unsafe) static var sendBytes  = 0
+    nonisolated(unsafe) static var resize     = 0
+    nonisolated(unsafe) static var history    = 0
 }
 
 /// Extension of `SessionStore` that exposes relay-backed terminal callbacks.

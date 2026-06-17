@@ -31,7 +31,18 @@ settings:
   base:
     MARKETING_VERSION: "0.0.1"
     CURRENT_PROJECT_VERSION: "1"
-    SWIFT_VERSION: "5.0"
+    # Swift 6 strictness — the full ladder, each rung verified clean locally
+    # (macOS + iOS Simulator builds) before landing (see ios/README.md →
+    # "Swift strictness"). The native rewrite was written concurrency-correct from
+    # the start, so all three rungs build with ZERO diagnostics — no burn-down
+    # phase was needed and the rungs are applied together:
+    #   1. SWIFT_STRICT_CONCURRENCY=complete — full Swift-6 data-race checking.
+    #   2. SWIFT_VERSION=6.0 — Swift 6 language mode (data-race safety as ERRORS,
+    #      @MainActor-by-default for the module is NOT enabled; explicit isolation).
+    #   3. SWIFT_TREAT_WARNINGS_AS_ERRORS=YES — no warning may regress silently.
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES"
     # Ad-hoc sign Simulator builds so entitlements (keychain-access-groups) are
     # embedded. Without an entitlement the Simulator Keychain rejects SecItemAdd
     # with errSecMissingEntitlement (-34018). Ad-hoc ("-") needs no developer

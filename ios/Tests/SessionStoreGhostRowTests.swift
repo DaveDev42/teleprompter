@@ -18,7 +18,10 @@ final class SessionStoreGhostRowTests: XCTestCase {
     /// single test process this leaks state across tests (the count asserts then
     /// see residue from a prior test). Clear the key before and after each test so
     /// every `SessionStore()` starts from an empty persisted list.
-    private static let persistKey = "tp.sessions.v1"
+    // `nonisolated`: an immutable String constant, read from `setUp`/`tearDown`,
+    // which are nonisolated overrides of XCTestCase under Swift 6 (the @MainActor
+    // class annotation does not extend to those base-class overrides).
+    nonisolated private static let persistKey = "tp.sessions.v1"
 
     override func setUp() {
         super.setUp()

@@ -41,7 +41,7 @@ struct GamepadSnapshot: Equatable {
 }
 
 /// Semantic navigation actions produced by `GamepadInputMapper.diff`.
-enum GamepadNavAction: String, Equatable {
+enum GamepadNavAction: String, Equatable, Sendable {
     case focusUp = "focus-up"
     case focusDown = "focus-down"
     case focusLeft = "focus-left"
@@ -73,7 +73,7 @@ enum GamepadInputMapper {
     static let axisThreshold: Float = 0.5
 
     /// Collapsed digital state per semantic key (D-pad ∪ stick for directions).
-    private struct DigitalState {
+    private struct DigitalState: Sendable {
         var up = false
         var down = false
         var left = false
@@ -105,7 +105,14 @@ enum GamepadInputMapper {
     /// Ordered (key, action) pairs — fixes the deterministic emit order for
     /// simultaneous presses (directions before activate/back, matching the TS
     /// `ACTION_BY_KEY` table so ported tests stay green).
-    private static let actionByKey: [(KeyPath<DigitalState, Bool>, GamepadNavAction)] = [
+    ///
+    /// `nonisolated(unsafe)`: this is an immutable `let` constant computed once at
+    /// load and never mutated, so it cannot race. The Swift 6 checker still flags
+    /// it because a `[(KeyPath<…>, …)]` tuple-array type isn't provably Sendable
+    /// (the element types are Sendable, but a tuple of them is not auto-Sendable),
+    /// and a private `KeyPath` literal can't be hoisted to a Sendable context.
+    /// Marking the constant unsafe is the right tool: there is no mutable state.
+    nonisolated(unsafe) private static let actionByKey: [(KeyPath<DigitalState, Bool>, GamepadNavAction)] = [
         (\.up, .focusUp),
         (\.down, .focusDown),
         (\.left, .focusLeft),

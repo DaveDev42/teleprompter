@@ -196,8 +196,11 @@ final class VoiceStore {
                 guard let self, self.generation == gen else { return }
                 do {
                     self.player?.start()
+                    // The chunk callback is @Sendable (delivered from the audio
+                    // tap thread); `backend`/`sendAudio` are @MainActor, so hop
+                    // back to the main actor to forward the PCM chunk.
                     try await self.capture?.start { [weak self] chunk in
-                        self?.backend?.sendAudio(chunk)
+                        Task { @MainActor in self?.backend?.sendAudio(chunk) }
                     }
                 } catch let err as VoiceError {
                     log.error("Voice capture failed: \(err.localizedDescription)")

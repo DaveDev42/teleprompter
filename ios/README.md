@@ -168,7 +168,43 @@ OSLog privacy: macOS native 빌드는 String 변수 보간을 기본 `<private>`
 - 새 마일스톤마다 `scripts/ios.sh smoke` + `scripts/ios.sh test` 를 돌려 회귀를 차단한다.
   (Rust 호스트 테스트 = `cd rust && cargo test -p tp-core`, 와이어 골든벡터 포함.)
   현재: smoke (iOS) = 8 마커 (boot+core+pairing+relay-auth+kx+frame+session+input),
-  smoke (macOS) = 8 마커 동일, XCTest 48/48 (iOS Simulator), Rust 호스트 20/20.
+  smoke (macOS) = 8 마커 동일, XCTest 115/115 (iOS Simulator), Rust 호스트 20/20.
+
+## Swift strictness (Swift 6 language mode)
+
+앱 타깃은 **Swift 6 언어 모드 + 완전 동시성 검사 + 경고=에러**로 빌드된다 (`ios/project.yml`
+`settings.base`):
+
+```yaml
+SWIFT_VERSION: "6.0"                  # Swift 6 언어 모드 — 데이터 레이스 안전성이 에러
+SWIFT_STRICT_CONCURRENCY: complete    # 전체 actor-isolation / Sendable 진단
+SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES" # 경고가 조용히 회귀하지 못함 (deprecation 포함)
+```
+
+네이티브 재작성을 처음부터 동시성-정확하게 작성했기에 세 레버를 **한꺼번에** 켰고, 네 플랫폼
+(macOS/iOS/visionOS/watchOS) 모두 진단 0으로 빌드된다. 적용 시 정리한 패턴(코드 주석에 근거 기록):
+
+- **UI 구동 타입/뷰모델/스토어** (`PairingViewModel`, `SettingsStore`, voice capture/player
+  프로토콜·구현, `MicCapture`/`PcmAudioPlayer`, `QRScannerCoordinator`) → `@MainActor`.
+- **스레드를 진짜 넘는 콜백** (오디오 탭→메인, URLSession 큐→메인) → 클로저 타입에 `@Sendable`,
+  본문에서 `Task { @MainActor in … }` 로 홉. 오디오 탭 콜백은 `self`(@MainActor)를 읽지 않도록
+  로컬 상수로 캡처 후 사용 (`MicCapture`).
+- **델리게이트 큐가 메인임이 보장된 동기 콜백** (`RealtimeClient`/`QRScannerCoordinator`의
+  `queue: .main` 델리게이트) → `nonisolated` + `MainActor.assumeIsolated { … }` (억제가 아니라
+  단언 — 보장이 깨지면 크래시).
+- **손으로 동기화한 클래스** (`RelayClient`: `Task{@MainActor}` 홉 + `nonisolated(unsafe)` 쓰기
+  규율) → `@unchecked Sendable`. 시스템-스레드세이프 핸들만 보유한 스토어(`PairingStore`:
+  `UserDefaults`/Keychain) → `@unchecked Sendable`.
+- **ObjC associated-object 키 토큰** (주소만 사용) → `nonisolated(unsafe) static var key = 0`.
+- **deprecated API** (WAE 로 에러화): `onChange(of:perform:)`→2-param, `devices(for:)`→
+  `DiscoverySession`, `requestRecordPermission`→`AVAudioApplication`(iOS17+ availability-gated),
+  `allowBluetooth`→`allowBluetoothHFP`.
+- **생성물** `Generated/tp_core.swift`: UniFFI 0.28 의 `var initializationResult` 는
+  `rust/build-xcframework.sh` 의 post-gen `sed` 가 `nonisolated(unsafe)` 로 패치 (init-once 라
+  레이스 불가; uniffi 0.29 에서 upstream fix — 그때 패치 제거).
+
+> Apple AVFoundation 류 아직-Sendable-아님 타입은 `@preconcurrency import` 로 처리
+> (`QRScannerView.swift`) — Apple 이 upstream 어노테이트하면 제거.
 
 ### ANSI 터미널 에뮬레이터 (Phase 3.x A1)
 

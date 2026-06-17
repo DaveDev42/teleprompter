@@ -17,6 +17,27 @@ struct SessionsTab: View {
     /// can open the session detail view without user interaction.
     @State private var navPath: [String] = []
 
+    /// Keyboard-shortcut nav intents (⌘[/⌘] step, ⌘K quick switch) are owned here
+    /// because they mutate `navPath` (the controlled stack). See `orderedSids`.
+    private let nav = AppNavigationModel.shared
+
+    /// Canonical session ordering for keyboard stepping / quick-switch: running
+    /// first, then by `updatedAt` descending. This deliberately mirrors
+    /// `SessionListView.allSorted` (the *unfiltered* order) rather than its
+    /// `filteredSessions`: stepping and quick-switch are global navigation intents
+    /// over every session, so they must not skip rows hidden by an ephemeral
+    /// in-list search query (which is private view state of `SessionListView`).
+    private var orderedSids: [String] {
+        sessionStore.sessions.values
+            .sorted { a, b in
+                let aRunning = (a.state == "running")
+                let bRunning = (b.state == "running")
+                if aRunning != bRunning { return aRunning }
+                return a.updatedAt > b.updatedAt
+            }
+            .map(\.sid)
+    }
+
     var body: some View {
         NavigationStack(path: $navPath) {
             SessionListView(sessionStore: sessionStore, pairings: pairings)
@@ -35,6 +56,129 @@ struct SessionsTab: View {
             navPath = [sid]
             SessionNavigator.shared.pendingSid = nil
         }
+        // ⌘[ / ⌘] step: SessionDetailView calls nav.step(±1), bumping a monotonic
+        // token. We compute the current sid from navPath.last, find it in the
+        // canonical ordered list, move by the requested delta (clamped to bounds),
+        // and drive the SAME navPath — no parallel nav state.
+        .onChange(of: nav.sessionStep) { _, _ in
+            stepSession(by: nav.stepDirection)
+        }
+        // ⌘K quick switch: present a sheet over the controlled stack. Tapping a row
+        // sets navPath = [sid] (same stack) and dismisses.
+        .sheet(isPresented: Bindable(nav).showQuickSwitcher) {
+            QuickSwitcherSheet(
+                sessionStore: sessionStore,
+                currentSid: navPath.last,
+                onSelect: { sid in
+                    navPath = [sid]
+                    nav.showQuickSwitcher = false
+                },
+                onCancel: { nav.showQuickSwitcher = false }
+            )
+        }
+    }
+
+    /// Move the open session by `delta` (−1 = prev, +1 = next) within `orderedSids`,
+    /// clamped to the ends. No-op if no session is open or the open sid vanished.
+    private func stepSession(by delta: Int) {
+        guard delta != 0 else { return }
+        let order = orderedSids
+        guard !order.isEmpty else { return }
+        // Resolve the currently-open session from the controlled stack.
+        guard let currentSid = navPath.last,
+              let idx = order.firstIndex(of: currentSid)
+        else { return }
+        let next = min(max(idx + delta, 0), order.count - 1)
+        guard next != idx else { return } // already at an end
+        navPath = [order[next]]
+    }
+}
+
+/// ⌘K quick-switcher: a flat searchable list of every session. Tapping one pushes
+/// it onto the shared `navPath`. Ordering matches the Sessions list (running first,
+/// then updatedAt desc); the open session is marked.
+private struct QuickSwitcherSheet: View {
+    @ObservedObject var sessionStore: SessionStore
+    let currentSid: String?
+    let onSelect: (String) -> Void
+    let onCancel: () -> Void
+
+    @State private var query = ""
+
+    private var sessions: [SessionMeta] {
+        let sorted = sessionStore.sessions.values.sorted { a, b in
+            let aRunning = (a.state == "running")
+            let bRunning = (b.state == "running")
+            if aRunning != bRunning { return aRunning }
+            return a.updatedAt > b.updatedAt
+        }
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return sorted }
+        let q = trimmed.lowercased()
+        return sorted.filter {
+            $0.sid.lowercased().contains(q)
+                || $0.cwd.lowercased().contains(q)
+                || $0.state.lowercased().contains(q)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(sessions, id: \.sid) { meta in
+                Button {
+                    onSelect(meta.sid)
+                } label: {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(meta.state == "running" ? Color.green
+                                : (meta.state == "error" ? Color.red
+                                    : Color.secondary.opacity(0.4)))
+                            .frame(width: 8, height: 8)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(quickLabel(meta))
+                                .font(.body)
+                                .lineLimit(1)
+                            Text(meta.sid.prefix(16))
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        if meta.sid == currentSid {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(Color.accentColor)
+                                .font(.caption)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("quick-switch-\(meta.sid)")
+            }
+            .listStyle(.plain)
+            .searchable(text: $query, prompt: "Switch to session")
+            .navigationTitle("Quick Switch")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                        .accessibilityIdentifier("quick-switch-cancel")
+                }
+            }
+        }
+        .accessibilityIdentifier("quick-switch-sheet")
+    }
+
+    private func quickLabel(_ meta: SessionMeta) -> String {
+        if meta.cwd.isEmpty { return String(meta.sid.prefix(16)) }
+        let last = meta.cwd
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .split(separator: "/")
+            .last
+            .map(String.init)
+        return last ?? meta.cwd
     }
 }
 

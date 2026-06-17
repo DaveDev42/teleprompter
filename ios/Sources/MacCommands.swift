@@ -18,9 +18,22 @@ import AppKit
 /// - **Disconnect** (⌘⌫): removes the active pairing (tears down its relay client).
 /// - **Copy daemon id** (⌘⇧C): copies the active daemon id to the pasteboard.
 /// - **Keyboard Shortcuts** (⌘/): opens the shortcut help sheet.
+///
+/// Navigation (ADR-0002 A4 keyboard nav): every keyboard-driven navigation
+/// action mutates the shared `AppNavigationModel` so the menu bar and the
+/// `MacRootView` sidebar/detail stay a single source of truth.
+/// - **Tab nav** (⌘1/⌘2/⌘3): jump to Sessions / Daemons / Settings.
+/// - **Session screen** (⌃⌘C Chat, ⌘T Terminal, ⌘[ Prev, ⌘] Next, ⌘K Quick
+///   Switch): only meaningful while a session detail is on screen, so every one
+///   is `.disabled(nav.composerHasFocus || !nav.hasActiveDetail)` — inert while
+///   typing in a composer (FIX #3) and when no detail is open (FIX #5).
 struct MacCommands: Commands {
     let pairings: PairingViewModel
     @Binding var showShortcutHelp: Bool
+    /// Shared, app-wide navigation state (the single tab/pane/step source of
+    /// truth). The menu bar drives it; `MacRootView` and `SessionDetailView`
+    /// consume it. See `AppNavigationModel`.
+    let nav: AppNavigationModel
 
     var body: some Commands {
         // Replace the default "New Item" (⌘N) slot with pairing-oriented actions
@@ -38,6 +51,49 @@ struct MacCommands: Commands {
             Button("Disconnect") { disconnectActive() }
                 .keyboardShortcut(.delete, modifiers: .command)
                 .disabled(pairings.daemonIds.isEmpty)
+        }
+
+        // Tab navigation (⌘1/⌘2/⌘3). These stay active even while typing — they
+        // switch the top-level tab, not the in-session pane — so they carry no
+        // composer-focus guard. Placed after the sidebar group for a natural
+        // View-menu ordering.
+        CommandGroup(after: .sidebar) {
+            Button("Sessions") { nav.selectedTab = .sessions }
+                .keyboardShortcut("1", modifiers: .command)
+            Button("Daemons") { nav.selectedTab = .daemons }
+                .keyboardShortcut("2", modifiers: .command)
+            Button("Settings") { nav.selectedTab = .settings }
+                .keyboardShortcut("3", modifiers: .command)
+        }
+
+        // Session-screen navigation. Every button is gated on
+        // `composerHasFocus || !hasActiveDetail` (FIX #3 + #5): inert while a
+        // composer is first responder and when no `SessionDetailView` is on
+        // screen. ⌘[/⌘] are advertised as Prev/Next; because these only act
+        // while a detail is open and SwiftUI's NavigationStack back/forward maps
+        // are not bound here on macOS, there is no observed collision.
+        CommandMenu("Session") {
+            Button("Chat") { nav.cyclePane(to: .chat) }
+                .keyboardShortcut("c", modifiers: [.control, .command])
+                .disabled(nav.composerHasFocus || !nav.hasActiveDetail)
+            Button("Terminal") { nav.cyclePane(to: .terminal) }
+                .keyboardShortcut("t", modifiers: .command)
+                .disabled(nav.composerHasFocus || !nav.hasActiveDetail)
+
+            Divider()
+
+            Button("Previous Session") { nav.step(-1) }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(nav.composerHasFocus || !nav.hasActiveDetail)
+            Button("Next Session") { nav.step(1) }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(nav.composerHasFocus || !nav.hasActiveDetail)
+
+            Divider()
+
+            Button("Quick Switch Session…") { nav.showQuickSwitcher = true }
+                .keyboardShortcut("k", modifiers: .command)
+                .disabled(nav.composerHasFocus || !nav.hasActiveDetail)
         }
 
         // Help menu: Keyboard Shortcuts (⌘/).

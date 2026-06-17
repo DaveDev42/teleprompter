@@ -231,6 +231,16 @@ struct TerminalComposer: View {
             )
         }
         .background(.bar)
+        // Publish first-responder state so macOS/hardware-keyboard session
+        // shortcuts (⌃⌘C/⌘T/⌘[/⌘]/⌘K) stay inert while the user is typing.
+        .onChange(of: focused) { _, isFocused in
+            AppNavigationModel.shared.composerHasFocus = isFocused
+        }
+        // FIX #4: a torn-down composer must not leave focus stuck `true`
+        // (which would permanently disable the session shortcuts).
+        .onDisappear {
+            AppNavigationModel.shared.composerHasFocus = false
+        }
     }
 
     /// Forward the draft to the PTY as raw bytes followed by a carriage return.

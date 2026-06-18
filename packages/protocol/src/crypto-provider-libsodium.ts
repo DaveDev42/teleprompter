@@ -62,7 +62,10 @@ export async function createLibsodiumProvider(): Promise<CryptoProvider> {
     },
 
     genericHash32(input) {
-      return s.crypto_generichash(32, input);
+      // Pass an explicit null key: @types/libsodium-wrappers@0.8 made the `key`
+      // parameter required. A null key is the unkeyed BLAKE2b hash — byte-identical
+      // to the prior 2-arg call (cross-validated by the TS↔Rust golden vectors).
+      return s.crypto_generichash(32, input, null);
     },
 
     NPUBBYTES: s.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES,

@@ -113,19 +113,45 @@ TP_PLATFORM=visionos scripts/ios.sh run    # visionOS Simulator 에 설치 + 실
 # watchOS Simulator (TP_PLATFORM=watchos, Phase B3)
 TP_PLATFORM=watchos scripts/ios.sh build  # watchOS Simulator 빌드 (Debug-watchsimulator, TeleprompterWatch 타깃)
 TP_PLATFORM=watchos scripts/ios.sh smoke  # watchOS 7 마커 smoke (TP_INPUT_OK 제외 — 글런스 전용 앱)
+
+# iPadOS Simulator (TP_PLATFORM=ipad — iOS 경로 alias, 별도 xcframework 슬라이스 없음)
+TP_PLATFORM=ipad scripts/ios.sh smoke    # iPad Pro 13-inch (M5) 부팅 + 8 마커 (split-view/sidebar 레이아웃)
+
+# UI E2E (XCUITest — 실제 SwiftUI 렌더/탭/페인 전환을 검증; 마커 E2E 와 별개 레이어)
+scripts/ios.sh uitest                    # iOS: 세션 row 탭 → 페인 picker → 'Claude:' 버블 단언 (loopback)
+TP_PLATFORM=macos scripts/ios.sh uitest  # macOS: 동일 플로우 (호스트 TCC 게이트 미충족 시 SKIP, exit 0)
+# watchOS 는 XCUIApplication 부재 — uitest 거부. visionOS 는 부분(쿼리+flat tap, 공간 제스처 sim 불가).
+
+# 5-플랫폼 매트릭스 (각 플랫폼 TP_JSON 으로 순차 실행 후 pass/elapsed/markers 표 출력)
+scripts/ios.sh all                       # ios/ipad/macos/visionos(8/8) + watchos(7/7); exit = 최악 플랫폼
+
+# 구조화 출력 / 산출물
+TP_JSON=1 scripts/ios.sh smoke           # 마지막 줄에 {"platform":…,"markers":{…},"passed":…,"elapsed_s":…}
+TP_E2E_REAL=1 scripts/ios.sh smoke       # FAKE loopback 대신 격리된 실 tp daemon+relay 로 M0-M2 페어링 E2E
 ```
 
 환경 변수:
-- `TP_PLATFORM` — 빌드/smoke 대상 플랫폼. `ios` (기본), `macos`, `visionos`, 또는 `watchos`.
-  `ios` 는 기존 동작과 바이트 동일. `macos` 는 native macOS 빌드 + `open` 기반 실행.
-  `visionos` 는 visionOS Simulator 빌드 + `xcrun simctl` 기반 실행.
-  `watchos` 는 `TeleprompterWatch` 타깃을 watchOS Simulator 에 빌드/설치/실행, 7 마커 검증.
-- `TP_SIM` — iOS 시뮬레이터 디바이스 이름 (기본 `iPhone 17 Pro`, iOS 경로에서만 사용)
+- `TP_PLATFORM` — 빌드/smoke 대상 플랫폼. `ios` (기본), `ipad`, `macos`, `visionos`, 또는 `watchos`.
+  `ios` 는 기존 동작과 바이트 동일. `ipad` 는 iOS 경로 alias (iPad 시뮬레이터를 부팅; 별도
+  xcframework 슬라이스 없이 `ios-arm64_x86_64-simulator` 재사용, 8 마커 동일). `macos` 는
+  native macOS 빌드 + `open` 기반 실행. `visionos` 는 visionOS Simulator 빌드 + `xcrun simctl`
+  기반 실행. `watchos` 는 `TeleprompterWatch` 타깃을 watchOS Simulator 에 빌드/설치/실행, 7 마커.
+- `TP_SIM` — iOS/iPadOS 시뮬레이터 디바이스 이름 (iOS 기본 `iPhone 17 Pro`, ipad 기본
+  `iPad Pro 13-inch (M5)`). 동명 시뮬레이터가 여러 OS 버전으로 존재하면 (예: M5 iPad 2개)
+  하니스가 고유 UDID 를 해석해 `-destination id=<udid>` 로 타깃 — 이름 기반 ambiguity 회피.
 - `TP_VISION_SIM` — visionOS 시뮬레이터 디바이스 이름 (기본 `Apple Vision Pro`)
 - `TP_WATCH_SIM` — watchOS 시뮬레이터 디바이스 이름 (기본 `Apple Watch Series 11 (46mm)`)
 - `TP_SCHEME` — Xcode scheme (기본 `Teleprompter`; watchOS 는 `TeleprompterWatch` 타깃 직접 빌드)
 - `TP_FORCE_RUST=1` — xcframework 가 이미 있어도 매 빌드마다 재빌드 (Rust 소스 수정 후)
 - `TP_SKIP_RUST=1` — xcframework 재빌드 스킵 (기존 산출물 필수; Rust 미변경 빠른 반복)
+- `TP_JSON=1` — `smoke` 가 마지막 줄에 한 줄짜리 JSON 요약을 emit
+  (`{"platform":…,"markers":{…},"passed":bool,"elapsed_s":N}`). 텍스트 출력은 미설정 시 불변.
+  `cmd_all` 이 5-플랫폼 매트릭스를 집계하는 데 사용.
+- `TP_E2E_REAL=1` — `smoke` 가 FAKE loopback 대신 격리된 **실** `tp` daemon+relay 를 띄워
+  M0-M2(boot/core/pair/relay-auth) 페어링 E2E. daemon 은 임시 `XDG_*` 디렉터리로 격리되어
+  dogfood daemon 과 충돌하지 않는다. M3(kx)+ 는 실 daemon kx 레이스로 범위 밖 (loopback 이 M3-M5 커버).
+- `TP_ARTIFACT_DIR` — smoke 가 마커 폴링 후 스크린샷(+선택 비디오)을 떨구는 디렉터리
+  (기본 `/tmp/tp-artifacts`). UI 자동화가 불가한 watchOS/visionOS 에서도 스크린샷은 동작.
 
 ### macOS smoke 메모
 

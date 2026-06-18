@@ -72,3 +72,9 @@ updates:
       actions-all:
         patterns:
           - "*"
+    ignore:
+      # dtolnay/rust-toolchain's git tag IS the Rust toolchain version, not an
+      # action release — bumping it changes the COMPILER (and proposed nonexistent
+      # 1.100.0). The toolchain is pinned by rust/rust-toolchain.toml; keep this
+      # action tag in lockstep with that file MANUALLY, never via dependabot.
+      - dependency-name: "dtolnay/rust-toolchain"

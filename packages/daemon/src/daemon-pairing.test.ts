@@ -104,8 +104,9 @@ describe("Daemon.beginPairing", () => {
     await daemon.beginPairing({ relayUrl: "wss://r", daemonId: "daemon-d1" });
     const p = daemon.awaitPendingPairing();
     expect(p).not.toBeNull();
+    if (p === null) throw new Error("expected pending pairing");
     daemon.cancelPendingPairing();
-    const result = await p!;
+    const result = await p;
     expect(result.kind).toBe("cancelled");
     daemon.stop();
   });
@@ -127,7 +128,8 @@ describe("Daemon.beginPairing", () => {
       }
     ).pendingPairing.__markCompleted("frontend-1");
     const p = daemon.awaitPendingPairing();
-    const result = await p!;
+    if (p === null) throw new Error("expected pending pairing");
+    const result = await p;
     expect(result.kind).toBe("completed");
     if (result.kind !== "completed") throw new Error("unreachable");
     daemon.promoteCompletedPairing(result);
@@ -209,7 +211,9 @@ describe("Daemon.beginPairing", () => {
       }
     ).pendingPairing;
     pp.__markCompleted("f1");
-    const result = await daemon.awaitPendingPairing()!;
+    const _p = daemon.awaitPendingPairing();
+    if (_p === null) throw new Error("expected pending pairing");
+    const result = await _p;
     expect(result.kind).toBe("completed");
 
     // Race: cancel after completion

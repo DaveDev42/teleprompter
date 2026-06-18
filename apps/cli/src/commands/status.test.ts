@@ -31,7 +31,8 @@ describe("tp status (store-backed)", () => {
     const store = new Store(storeDir);
     const sessions = store.listSessions();
     expect(sessions.length).toBe(1);
-    const s = sessions[0]!;
+    const s = sessions[0];
+    if (s === undefined) throw new Error("expected sessions[0]");
     expect(s.sid).toBe("test-sid");
     expect(s.cwd).toBe("/tmp/some-cwd");
     expect(typeof s.last_seq).toBe("number");

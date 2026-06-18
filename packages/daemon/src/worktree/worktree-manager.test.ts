@@ -84,8 +84,10 @@ describe("WorktreeManager", () => {
   test("list returns main worktree", async () => {
     const worktrees = await manager.list();
     expect(worktrees.length).toBe(1);
-    expect(worktrees[0]!.path).toBe(repoDir);
-    expect(worktrees[0]!.isMain).toBe(true);
+    const first = worktrees[0];
+    if (first === undefined) throw new Error("expected worktrees[0]");
+    expect(first.path).toBe(repoDir);
+    expect(first.isMain).toBe(true);
   });
 
   test("add creates a new worktree with new branch", async () => {
@@ -243,9 +245,10 @@ describe("WorktreeManager", () => {
     const worktrees = await manager.list();
     const detached = worktrees.find((w) => w.path === wtPath);
     expect(detached).toBeDefined();
-    expect(detached!.branch).toBeNull();
-    expect(typeof detached!.head).toBe("string");
-    expect(detached!.head.length).toBeGreaterThan(0);
+    if (detached === undefined) throw new Error("expected detached worktree");
+    expect(detached.branch).toBeNull();
+    expect(typeof detached.head).toBe("string");
+    expect(detached.head.length).toBeGreaterThan(0);
 
     // Cleanup — must force because the worktree is in use
     await manager.remove(wtPath, true);

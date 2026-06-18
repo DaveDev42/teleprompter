@@ -141,8 +141,10 @@ export function derToP1363(der: Buffer): Buffer {
   offset++;
 
   // DER length (may be 1- or 2-byte long-form)
-  if (der[offset]! >= 0x80) {
-    const lenBytes = der[offset]! - 0x80;
+  const lenByte = der[offset];
+  if (lenByte === undefined) throw new Error("DER: truncated at length byte");
+  if (lenByte >= 0x80) {
+    const lenBytes = lenByte - 0x80;
     offset += 1 + lenBytes;
   } else {
     offset++;
@@ -151,7 +153,8 @@ export function derToP1363(der: Buffer): Buffer {
   // First INTEGER (r)
   if (der[offset] !== 0x02) throw new Error("DER: expected INTEGER for r");
   offset++;
-  const rLen = der[offset]!;
+  const rLen = der[offset];
+  if (rLen === undefined) throw new Error("DER: truncated at r length");
   offset++;
   let r = der.slice(offset, offset + rLen);
   offset += rLen;
@@ -159,7 +162,8 @@ export function derToP1363(der: Buffer): Buffer {
   // Second INTEGER (s)
   if (der[offset] !== 0x02) throw new Error("DER: expected INTEGER for s");
   offset++;
-  const sLen = der[offset]!;
+  const sLen = der[offset];
+  if (sLen === undefined) throw new Error("DER: truncated at s length");
   offset++;
   let s = der.slice(offset, offset + sLen);
 

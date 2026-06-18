@@ -290,7 +290,11 @@ function decodeBinaryPairing(b64: string): PairingData {
 
 function bytesToBase64(bytes: Uint8Array): string {
   let bin = "";
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    if (b === undefined) throw new Error("bytesToBase64: index out of bounds");
+    bin += String.fromCharCode(b);
+  }
   return btoa(bin);
 }
 

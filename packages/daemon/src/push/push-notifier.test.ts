@@ -119,7 +119,9 @@ describe("PushNotifier", () => {
     });
 
     const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
-    expect(calls[0]![3]).toBe("Approve Bash to continue");
+    const call0 = calls[0];
+    if (call0 === undefined) throw new Error("expected call 0");
+    expect(call0[3]).toBe("Approve Bash to continue");
   });
 
   it("triggers push for Notification event", () => {
@@ -136,8 +138,10 @@ describe("PushNotifier", () => {
 
     expect(deps.sendPush).toHaveBeenCalledTimes(1);
     const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
-    expect(calls[0]![2]).toBe("Permission needed");
-    expect(calls[0]![3]).toBe("Claude needs your permission to use Bash");
+    const call0 = calls[0];
+    if (call0 === undefined) throw new Error("expected call 0");
+    expect(call0[2]).toBe("Permission needed");
+    expect(call0[3]).toBe("Claude needs your permission to use Bash");
   });
 
   it("falls back to generic Notification copy when message is missing", () => {
@@ -148,8 +152,10 @@ describe("PushNotifier", () => {
     notifier.onRecord({ sid: "s1", kind: "event", name: "Notification" });
 
     const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
-    expect(calls[0]![2]).toBe("Claude needs attention");
-    expect(calls[0]![3]).toBe("Tap to open the session");
+    const call0 = calls[0];
+    if (call0 === undefined) throw new Error("expected call 0");
+    expect(call0[2]).toBe("Claude needs attention");
+    expect(call0[3]).toBe("Tap to open the session");
   });
 
   it("does NOT trigger for Stop event", () => {
@@ -219,8 +225,10 @@ describe("PushNotifier", () => {
 
     expect(deps.sendPush).toHaveBeenCalledTimes(1);
     const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
-    expect(calls[0]![1]).toBe(SEALED_B);
-    expect(calls[0]![0]).toBe("fe-1");
+    const call0 = calls[0];
+    if (call0 === undefined) throw new Error("expected call 0");
+    expect(call0[1]).toBe(SEALED_B);
+    expect(call0[0]).toBe("fe-1");
   });
 
   it("unregisterToken removes frontend from receiving pushes", () => {
@@ -234,7 +242,9 @@ describe("PushNotifier", () => {
 
     expect(deps.sendPush).toHaveBeenCalledTimes(1);
     const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
-    expect(calls[0]![0]).toBe("fe-2");
+    const call0 = calls[0];
+    if (call0 === undefined) throw new Error("expected call 0");
+    expect(call0[0]).toBe("fe-2");
   });
 
   it.each([
@@ -251,7 +261,9 @@ describe("PushNotifier", () => {
     expect(deps.sendPush).toHaveBeenCalledTimes(1);
     // interruptionLevel is the 5th positional arg (index 4)
     const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
-    expect(calls[0]![4]).toBe("time-sensitive");
+    const call0 = calls[0];
+    if (call0 === undefined) throw new Error("expected call 0");
+    expect(call0[4]).toBe("time-sensitive");
   });
 
   it("registerSealedToken writes Map AND calls persistToken", () => {
@@ -289,8 +301,10 @@ describe("PushNotifier", () => {
     notifier.onRecord({ sid: "s1", kind: "event", name: "Elicitation" });
     expect(deps.sendPush).toHaveBeenCalledTimes(1);
     const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
-    expect(calls[0]![0]).toBe("fe-seeded");
-    expect(calls[0]![1]).toBe(SEALED);
+    const call0 = calls[0];
+    if (call0 === undefined) throw new Error("expected call 0");
+    expect(call0[0]).toBe("fe-seeded");
+    expect(call0[1]).toBe(SEALED);
   });
 
   it("onRecord passes entry.sealed (not plaintext) to sendPush", () => {
@@ -302,7 +316,9 @@ describe("PushNotifier", () => {
     notifier.onRecord({ sid: "s1", kind: "event", name: "Notification" });
 
     const calls = (deps.sendPush as ReturnType<typeof makeSendPush>).mock.calls;
-    expect(calls[0]![1]).toBe(mySealed);
+    const call0 = calls[0];
+    if (call0 === undefined) throw new Error("expected call 0");
+    expect(call0[1]).toBe(mySealed);
   });
 
   it("handleUnsealFailed removes from Map AND calls deleteToken", () => {

@@ -83,7 +83,12 @@ describe("pairing", () => {
     buf[o++] = 3; // PAIRING_BINARY_VERSION
     buf[o++] = 65; // didLen: 4 + 65 === 69 === buf.length → relayLen reads off the end
     let bin = "";
-    for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]!);
+    for (let i = 0; i < buf.length; i++) {
+      const byte = buf[i];
+      if (byte === undefined)
+        throw new Error("unreachable: index out of bounds");
+      bin += String.fromCharCode(byte);
+    }
     const b64url = btoa(bin)
       .replace(/\+/g, "-")
       .replace(/\//g, "_")

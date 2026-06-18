@@ -10,7 +10,9 @@ describe("resolveTpBinary", () => {
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "tp-paths-"));
-    originalArgv0 = process.argv[0]!;
+    const argv0 = process.argv[0];
+    if (argv0 === undefined) throw new Error("process.argv[0] is undefined");
+    originalArgv0 = argv0;
   });
 
   afterEach(() => {

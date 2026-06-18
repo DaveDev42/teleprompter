@@ -318,7 +318,11 @@ describe("sealWithAad / openWithAad", () => {
 
     const encoded = await sealWithAad(plaintext, key, aad);
     const bytes = await fromBase64(encoded);
-    bytes[bytes.length - 1]! ^= 0xff; // flip last byte
+    const lastIdx = bytes.length - 1;
+    const lastByte = bytes[lastIdx];
+    if (lastByte === undefined)
+      throw new Error("expected non-empty ciphertext");
+    bytes[lastIdx] = lastByte ^ 0xff; // flip last byte
     const tampered = await toBase64(bytes);
 
     await expect(openWithAad(tampered, key, aad)).rejects.toThrow();

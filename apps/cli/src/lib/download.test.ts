@@ -63,7 +63,9 @@ describe("formatProgressLine", () => {
     const m = line.match(/\[(.{20})\]/);
     if (!m) throw new Error(`bar not found in: ${line}`);
     // ~45% filled → roughly 9/20 '=' chars; allow ±1 for rounding
-    const filled = m[1]!.replace(/[^=]/g, "").length;
+    const barContent = m[1];
+    if (barContent === undefined) throw new Error("capture group 1 missing");
+    const filled = barContent.replace(/[^=]/g, "").length;
     expect(filled).toBeGreaterThanOrEqual(8);
     expect(filled).toBeLessThanOrEqual(10);
   });

@@ -51,13 +51,17 @@ describe("matchPairings", () => {
   test("matches by prefix", () => {
     const out = matchPairings(pairings, "daemon-mncx");
     expect(out).toHaveLength(1);
-    expect(out[0]!.daemonId).toBe("daemon-mncx9824");
+    const first = out[0];
+    if (first === undefined) throw new Error("expected element 0");
+    expect(first.daemonId).toBe("daemon-mncx9824");
   });
 
   test("matches via daemon-<fragment> shorthand when prefix does not", () => {
     const out = matchPairings(pairings, "mncx9824");
     expect(out).toHaveLength(1);
-    expect(out[0]!.daemonId).toBe("daemon-mncx9824");
+    const first = out[0];
+    if (first === undefined) throw new Error("expected element 0");
+    expect(first.daemonId).toBe("daemon-mncx9824");
   });
 
   test("returns multiple on ambiguous prefix", () => {
@@ -69,7 +73,9 @@ describe("matchPairings", () => {
     const exact = [{ daemonId: "abc" }, { daemonId: "xabcy" }];
     const out = matchPairings(exact, "abc");
     expect(out).toHaveLength(1);
-    expect(out[0]!.daemonId).toBe("abc");
+    const first = out[0];
+    if (first === undefined) throw new Error("expected element 0");
+    expect(first.daemonId).toBe("abc");
   });
 
   test("does not match arbitrary mid-id substrings", () => {
@@ -82,7 +88,9 @@ describe("matchPairings", () => {
   test("daemon-<fragment> shorthand matches exactly one", () => {
     const out = matchPairings(pairings, "aaaa1111");
     expect(out).toHaveLength(1);
-    expect(out[0]!.daemonId).toBe("daemon-aaaa1111");
+    const first = out[0];
+    if (first === undefined) throw new Error("expected element 0");
+    expect(first.daemonId).toBe("daemon-aaaa1111");
   });
 
   test("prefix match beats daemon-<fragment> shorthand", () => {
@@ -91,7 +99,9 @@ describe("matchPairings", () => {
     const both = [{ daemonId: "abc" }, { daemonId: "daemon-abc" }];
     const out = matchPairings(both, "abc");
     expect(out).toHaveLength(1);
-    expect(out[0]!.daemonId).toBe("abc");
+    const first = out[0];
+    if (first === undefined) throw new Error("expected element 0");
+    expect(first.daemonId).toBe("abc");
   });
 
   test("matches by exact label (case-insensitive) when daemon-id rules miss", () => {
@@ -101,7 +111,9 @@ describe("matchPairings", () => {
     ];
     const out = matchPairings(labelled, "office mac");
     expect(out).toHaveLength(1);
-    expect(out[0]!.daemonId).toBe("daemon-aaaa1111");
+    const first = out[0];
+    if (first === undefined) throw new Error("expected element 0");
+    expect(first.daemonId).toBe("daemon-aaaa1111");
   });
 
   test("falls back to label substring match (case-insensitive)", () => {
@@ -111,7 +123,9 @@ describe("matchPairings", () => {
     ];
     const out = matchPairings(labelled, "office");
     expect(out).toHaveLength(1);
-    expect(out[0]!.daemonId).toBe("daemon-aaaa1111");
+    const first = out[0];
+    if (first === undefined) throw new Error("expected element 0");
+    expect(first.daemonId).toBe("daemon-aaaa1111");
   });
 
   test("returns multiple on ambiguous label substring", () => {
@@ -132,7 +146,9 @@ describe("matchPairings", () => {
     ];
     const out = matchPairings(labelled, "daemon-office");
     expect(out).toHaveLength(1);
-    expect(out[0]!.daemonId).toBe("daemon-officepc");
+    const first = out[0];
+    if (first === undefined) throw new Error("expected element 0");
+    expect(first.daemonId).toBe("daemon-officepc");
   });
 
   test("ignores rows with null/empty label when matching by label", () => {
@@ -143,7 +159,9 @@ describe("matchPairings", () => {
     ];
     const out = matchPairings(mixed, "office");
     expect(out).toHaveLength(1);
-    expect(out[0]!.daemonId).toBe("daemon-cccc3333");
+    const first = out[0];
+    if (first === undefined) throw new Error("expected element 0");
+    expect(first.daemonId).toBe("daemon-cccc3333");
   });
 });
 
@@ -174,8 +192,10 @@ describe("pair.ts onClose race guard (static)", () => {
       new URL("./pair.ts", import.meta.url).pathname,
     ).text();
     // The guard must short-circuit before printing the disconnect line.
+    // Matches the onClose wiring regardless of the receiver identifier
+    // (`ipc!`, `currentIpcConn`, …) — what matters is the `settled` short-circuit.
     expect(src).toMatch(/let settled = false;/);
-    expect(src).toMatch(/ipc!\.onClose\(\(\) => \{\s*if \(settled\) return;/);
+    expect(src).toMatch(/\.onClose\(\(\) => \{\s*if \(settled\) return;/);
   });
 });
 
@@ -292,10 +312,11 @@ describe("tp pair list/delete", () => {
       .split("\n")
       .find((l) => l.includes("DAEMON ID") && l.includes("RELAY"));
     expect(headerLine).toBeDefined();
-    const labelIdx = headerLine!.indexOf("LABEL");
-    const idIdx = headerLine!.indexOf("DAEMON ID");
-    const relayIdx = headerLine!.indexOf("RELAY");
-    const createdIdx = headerLine!.indexOf("CREATED");
+    if (headerLine === undefined) throw new Error("expected header line");
+    const labelIdx = headerLine.indexOf("LABEL");
+    const idIdx = headerLine.indexOf("DAEMON ID");
+    const relayIdx = headerLine.indexOf("RELAY");
+    const createdIdx = headerLine.indexOf("CREATED");
     expect(labelIdx).toBeGreaterThanOrEqual(0);
     expect(labelIdx).toBeLessThan(idIdx);
     expect(idIdx).toBeLessThan(relayIdx);

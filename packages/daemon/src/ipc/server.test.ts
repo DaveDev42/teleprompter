@@ -79,8 +79,10 @@ describe("IpcServer", () => {
     client.write(Buffer.from(encodeFrame(hello)));
     await Bun.sleep(50);
     expect(receivedMessages.length).toBe(1);
-    expect(receivedMessages[0]!.t).toBe("hello");
-    expect((receivedMessages[0]! as IpcHello).sid).toBe("test-session");
+    const msg0 = receivedMessages[0];
+    if (msg0 === undefined) throw new Error("expected message 0");
+    expect(msg0.t).toBe("hello");
+    expect((msg0 as IpcHello).sid).toBe("test-session");
     client.end();
   });
 
@@ -112,9 +114,15 @@ describe("IpcServer", () => {
 
     await Bun.sleep(100);
     expect(receivedMessages.length).toBe(3);
-    expect(receivedMessages[0]!.t).toBe("hello");
-    expect(receivedMessages[1]!.t).toBe("rec");
-    expect(receivedMessages[2]!.t).toBe("bye");
+    const m0 = receivedMessages[0];
+    const m1 = receivedMessages[1];
+    const m2 = receivedMessages[2];
+    if (m0 === undefined) throw new Error("expected message 0");
+    if (m1 === undefined) throw new Error("expected message 1");
+    if (m2 === undefined) throw new Error("expected message 2");
+    expect(m0.t).toBe("hello");
+    expect(m1.t).toBe("rec");
+    expect(m2.t).toBe("bye");
     client.end();
   });
 

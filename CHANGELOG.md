@@ -1,5 +1,70 @@
 # Changelog
 
+## [0.1.49](https://github.com/DaveDev42/teleprompter/compare/v0.1.48...v0.1.49) (2026-06-18)
+
+
+### Features
+
+* ANSI terminal + Apple multiplatform iOS/iPadOS/macOS (Phase 3.x A) ([#650](https://github.com/DaveDev42/teleprompter/issues/650)) ([dda5b19](https://github.com/DaveDev42/teleprompter/commit/dda5b19e7e2112cff5bf44b15432bac343965c8c))
+* **app:** 3-tab nav (Sessions/Daemons/Settings) + per-session Chat⇄Terminal, theme, AppIcon ([#656](https://github.com/DaveDev42/teleprompter/issues/656)) ([1e201e3](https://github.com/DaveDev42/teleprompter/commit/1e201e3a1e29d0c412046605d1a29e254668a211))
+* **app:** add new-session UI to start sessions from the app ([#642](https://github.com/DaveDev42/teleprompter/issues/642)) ([93ee41d](https://github.com/DaveDev42/teleprompter/commit/93ee41d13b2a82605c8383878cb6f693b89c892c))
+* **app:** add visionOS destination + spatial UX + smoke harness (B2) ([#668](https://github.com/DaveDev42/teleprompter/issues/668)) ([5f8b7b4](https://github.com/DaveDev42/teleprompter/commit/5f8b7b4d6c3c8a2b6c95f5bcc137d8d279801c7d))
+* **app:** add visionOS slices to TpCore.xcframework (B1) ([#654](https://github.com/DaveDev42/teleprompter/issues/654)) ([bcd4cd5](https://github.com/DaveDev42/teleprompter/commit/bcd4cd5976bf5d166dc5980c1e355c18cb5c7cbc))
+* **app:** add watchOS limited experience (B3) — TeleprompterWatch target, 7-slice xcframework, 7/7 smoke ([#669](https://github.com/DaveDev42/teleprompter/issues/669)) ([49f2528](https://github.com/DaveDev42/teleprompter/commit/49f252810d0ebbdef8acee213e6c1806c415c0c6))
+* **app:** bundle ghostty-web UMD as local asset for native WebView terminal ([#627](https://github.com/DaveDev42/teleprompter/issues/627)) ([beb2889](https://github.com/DaveDev42/teleprompter/commit/beb28897054c736421b853af27540dbba04d954a))
+* **app:** cross-cutting UX — toasts, live regions, keyboard shortcuts, notifications scaffold ([#661](https://github.com/DaveDev42/teleprompter/issues/661)) ([6ed36d4](https://github.com/DaveDev42/teleprompter/commit/6ed36d4df644eb1804515b63168bfc8352dc71d0))
+* **app:** full Settings (font pickers, font size, API key Keychain, diagnostics) ([#660](https://github.com/DaveDev42/teleprompter/issues/660)) ([d95bd13](https://github.com/DaveDev42/teleprompter/commit/d95bd13a44490d0f2bbdc8dd19cbcf5b90f172dc))
+* **app:** gamepad navigation (web) ([#624](https://github.com/DaveDev42/teleprompter/issues/624)) ([ba32f84](https://github.com/DaveDev42/teleprompter/commit/ba32f84cfbf633566343badf5d27669663393775))
+* **app:** global single-key keyboard shortcuts (web) ([#623](https://github.com/DaveDev42/teleprompter/issues/623)) ([2ba7ef1](https://github.com/DaveDev42/teleprompter/commit/2ba7ef1d1138757d976434603cb30fa5a950063b))
+* **app:** in-app QR pairing scan + daemon list/rename/unpair ([#659](https://github.com/DaveDev42/teleprompter/issues/659)) ([20aef10](https://github.com/DaveDev42/teleprompter/commit/20aef109c5ba9cfddc2c373426e020b20c2610e3))
+* **app:** interactive Terminal — keyboard input, resize negotiation, scrollback backfill ([#663](https://github.com/DaveDev42/teleprompter/issues/663)) ([9be6416](https://github.com/DaveDev42/teleprompter/commit/9be641635097edc156b6b39d88dcbb7951407ad3))
+* **app:** native gamepad (MFi/Xbox/PlayStation) navigation ([#687](https://github.com/DaveDev42/teleprompter/issues/687)) ([7861366](https://github.com/DaveDev42/teleprompter/commit/7861366db9019632be778dbac891521261898b03))
+* **app:** native iOS Phase 3 M4 — live session render (Chat hooks + history backfill) ([#647](https://github.com/DaveDev42/teleprompter/issues/647)) ([95005e9](https://github.com/DaveDev42/teleprompter/commit/95005e9dad8a42710c43ab3e544809a5a6f23420))
+* **app:** native iOS Phase 3 M5 — send input + terminal io tab ([#648](https://github.com/DaveDev42/teleprompter/issues/648)) ([152b1b7](https://github.com/DaveDev42/teleprompter/commit/152b1b7164c05d6cb18f2a6e471fbe3c4c950032))
+* **app:** native macOS UX polish — sidebar, Commands menu, window sizing (A4) ([#652](https://github.com/DaveDev42/teleprompter/issues/652)) ([27f4f70](https://github.com/DaveDev42/teleprompter/commit/27f4f7007a2790a8627cfb06ae1151b6c124786f))
+* **app:** native voice audio capture/playback via react-native-audio-api ([#622](https://github.com/DaveDev42/teleprompter/issues/622)) ([7c3dc08](https://github.com/DaveDev42/teleprompter/commit/7c3dc08c5f3be1901b7cde1284072e488efb3111))
+* **app:** on-device voice backend + selectable backend toggle ([#683](https://github.com/DaveDev42/teleprompter/issues/683)) ([6e3decb](https://github.com/DaveDev42/teleprompter/commit/6e3decb1c812fd1bed594fbbd7f0e3480f95a5a6))
+* **app:** Phase 3 native relay client — pairing, auth, in-band kx, first frame ([#645](https://github.com/DaveDev42/teleprompter/issues/645)) ([fed1af8](https://github.com/DaveDev42/teleprompter/commit/fed1af8447906a12774fe027fc8c55c39f24c90a))
+* **app:** rework Chat/Terminal panes + relay-grouped Diagnostics ([#682](https://github.com/DaveDev42/teleprompter/issues/682)) ([465d907](https://github.com/DaveDev42/teleprompter/commit/465d90727f6160c8c3e02f7b562d7cc4a698ccc6))
+* **app:** rich Chat cards (markdown/code, timestamps, copy, streaming) + composer ([#658](https://github.com/DaveDev42/teleprompter/issues/658)) ([3850cdd](https://github.com/DaveDev42/teleprompter/commit/3850cdd68ddff4a9a81f5b4ae3089649ee22f9ff))
+* **app:** sessions CRUD (list/new/delete/multi-select/search/persistence) ([#662](https://github.com/DaveDev42/teleprompter/issues/662)) ([d50fc10](https://github.com/DaveDev42/teleprompter/commit/d50fc101a54ceba7d1ed4f3c354d72795f4d6b18))
+* **app:** Voice tranche G — OpenAI Realtime mic→PCM→WS→playback + terminal context ([#665](https://github.com/DaveDev42/teleprompter/issues/665)) ([9e1fe9c](https://github.com/DaveDev42/teleprompter/commit/9e1fe9c3e2d930a8dfa1d895396d03b686e9c1c7))
+* **app:** wire keyboard shortcuts so the help sheet is truthful ([#684](https://github.com/DaveDev42/teleprompter/issues/684)) ([bd5c9b0](https://github.com/DaveDev42/teleprompter/commit/bd5c9b098964b00a85f67e7efbe946f6591b80c4))
+* **app:** wire relay control sends (session.create, control.rename/unpair) + daemon status dots ([#664](https://github.com/DaveDev42/teleprompter/issues/664)) ([7535b09](https://github.com/DaveDev42/teleprompter/commit/7535b09b0d9aef0cf455da6e056e9b74a7fa3b52))
+* **app:** wire terminalReadText producer for voice terminal context ([#666](https://github.com/DaveDev42/teleprompter/issues/666)) ([f032cff](https://github.com/DaveDev42/teleprompter/commit/f032cff148f766665425658aa6ad5867816b5245))
+* native rewrite foundation — Swift app + Rust tp-core (ADR-0001 Phase 1-2) ([#644](https://github.com/DaveDev42/teleprompter/issues/644)) ([d2e9865](https://github.com/DaveDev42/teleprompter/commit/d2e98654d8ba3a05390b18b006001541e5977bed))
+* **rust:** tp-proto Stage 0 — message-type parity crate + golden vectors (ADR-0003) ([#688](https://github.com/DaveDev42/teleprompter/issues/688)) ([e9e09ba](https://github.com/DaveDev42/teleprompter/commit/e9e09bab796859e520f2022a14503dd4222959df))
+
+
+### Bug Fixes
+
+* **app:** add common/cpp header search path for RNAudioAPI worklets sources ([#632](https://github.com/DaveDev42/teleprompter/issues/632)) ([237782a](https://github.com/DaveDev42/teleprompter/commit/237782aab4d2cf3090849eaeab28bd7d02bd0797))
+* **app:** add ReactCodegen header search paths for RNAudioAPI pod ([#630](https://github.com/DaveDev42/teleprompter/issues/630)) ([5f772a4](https://github.com/DaveDev42/teleprompter/commit/5f772a46f2fbb5cb8ed3714eef6c361334b74b77))
+* **app:** bump expo-asset to satisfy Expo SDK 56 version check ([#631](https://github.com/DaveDev42/teleprompter/issues/631)) ([83709e5](https://github.com/DaveDev42/teleprompter/commit/83709e5c066e92a0890275a5efd52f15c8018d5c))
+* **app:** chat auto-scroll near-bottom detection, user-bubble font, dead env read, voice chunk gap ([#680](https://github.com/DaveDev42/teleprompter/issues/680)) ([779e6b3](https://github.com/DaveDev42/teleprompter/commit/779e6b39899cbb7644dec6d75a62b63691ca606d))
+* **app:** disable precompiled Expo modules to fix dyld launch crash ([#636](https://github.com/DaveDev42/teleprompter/issues/636)) ([4fa44a6](https://github.com/DaveDev42/teleprompter/commit/4fa44a6dcb9a0a944f75ad00f22801a0b9a5cd19))
+* **app:** force Expo modules build-from-source at autolinking level (EAS bypasses Podfile knob) ([#637](https://github.com/DaveDev42/teleprompter/issues/637)) ([b27e745](https://github.com/DaveDev42/teleprompter/commit/b27e745ec39618c6611c4a7ebb579a0a1851e85f))
+* **app:** macOS smoke kills its launched instance on exit (no orphan windows) ([#651](https://github.com/DaveDev42/teleprompter/issues/651)) ([cb1e0bf](https://github.com/DaveDev42/teleprompter/commit/cb1e0bf48db2fec07e81ca1586a0c0a5ab99e98b))
+* **app:** native chat rendering parity — composer, user bubbles, links, permission/elicitation cards (Batch A) ([#675](https://github.com/DaveDev42/teleprompter/issues/675)) ([6e76925](https://github.com/DaveDev42/teleprompter/commit/6e7692504b829b0345c991e8d8424506b122c6e0))
+* **app:** native diagnostics wiring + connection banners + reactive labels + notif nav ([#674](https://github.com/DaveDev42/teleprompter/issues/674)) ([73f537a](https://github.com/DaveDev42/teleprompter/commit/73f537a45b326cdf939d3bdcfef526d6b61305f9))
+* **app:** native relay resilience — kx re-exchange, auto-reconnect, inbound control, presence ([#672](https://github.com/DaveDev42/teleprompter/issues/672)) ([e36ed4c](https://github.com/DaveDev42/teleprompter/commit/e36ed4c367db3c1b5bc1b70f46f5353143b44c8c))
+* **app:** native sessions CRUD parity — ghost-row removal, pull-to-refresh, create/delete feedback ([#673](https://github.com/DaveDev42/teleprompter/issues/673)) ([a575653](https://github.com/DaveDev42/teleprompter/commit/a575653e6ea118a3823d11808cf6c516269cb489))
+* **app:** native terminal search + clipboard + voice playback/transcript fixes ([#671](https://github.com/DaveDev42/teleprompter/issues/671)) ([81d58a3](https://github.com/DaveDev42/teleprompter/commit/81d58a3d39343f8afb389d674b4fbeadb584801e))
+* **app:** notification-tap opens session detail + local daemon rename refreshes label ([#679](https://github.com/DaveDev42/teleprompter/issues/679)) ([fe258c8](https://github.com/DaveDev42/teleprompter/commit/fe258c80e8d679dfe712feea3a1bad04d3a1d34c))
+* **app:** patch react-native-audio-api to drop WorkletsModule.h import (upstream [#1102](https://github.com/DaveDev42/teleprompter/issues/1102)) ([#634](https://github.com/DaveDev42/teleprompter/issues/634)) ([03a96f9](https://github.com/DaveDev42/teleprompter/commit/03a96f9a4644eff124120101fcd7a9b0e3861bfa))
+* **app:** post-merge correctness fixes — voice generation guards, audio-thread race, nav lifecycle counter, reachable shortcut help, terminal focus gate ([#685](https://github.com/DaveDev42/teleprompter/issues/685)) ([fb77421](https://github.com/DaveDev42/teleprompter/commit/fb77421246e82aedddfef1f631976844f3ec370c))
+* **app:** re-send key exchange when a daemon rejoins so late-connecting daemons can reach the phone ([#641](https://github.com/DaveDev42/teleprompter/issues/641)) ([2957f9f](https://github.com/DaveDev42/teleprompter/commit/2957f9f35a11824b8b11d080ff8b5873aa98e681))
+* **app:** remove RNAudioAPI header-search-path plugin (it corrupted $(inherited)) ([#633](https://github.com/DaveDev42/teleprompter/issues/633)) ([00fd5a6](https://github.com/DaveDev42/teleprompter/commit/00fd5a6d23388ef9ff2754d3ca2bbf7a6ba8893d))
+* **app:** sessions store correctness — deleted sessions no longer ghost on hello, accurate create-failure toast ([#678](https://github.com/DaveDev42/teleprompter/issues/678)) ([a2b3ef8](https://github.com/DaveDev42/teleprompter/commit/a2b3ef8a38fc46024ee94867638763107a789ab3))
+* **cli:** route passthrough sessions through the running service daemon so paired phones receive frames ([#640](https://github.com/DaveDev42/teleprompter/issues/640)) ([06a5b9e](https://github.com/DaveDev42/teleprompter/commit/06a5b9ebc33e833aff3301211ef1440478638b1e))
+* **daemon:** throttle reconnect for dead pairings to prevent relay storm ([#639](https://github.com/DaveDev42/teleprompter/issues/639)) ([15d318d](https://github.com/DaveDev42/teleprompter/commit/15d318daa4bd8908ed4dc0875e0915d4efc46e0a))
+* **relay:** 4 correctness bugs in RelayClient — kx key mismatch, double reconnect timer, stale hello guard, RTT data race ([#677](https://github.com/DaveDev42/teleprompter/issues/677)) ([b509046](https://github.com/DaveDev42/teleprompter/commit/b5090463d5120ad3374fe4e32529f8cf299aec39))
+
+
+### Refactor
+
+* **relay:** replace Expo Push API with direct APNs (token-based HTTP/2) ([#646](https://github.com/DaveDev42/teleprompter/issues/646)) ([d18e108](https://github.com/DaveDev42/teleprompter/commit/d18e10819904f95fed44431d5aaec9da935f10d0))
+
 ## [0.1.48](https://github.com/DaveDev42/teleprompter/compare/v0.1.47...v0.1.48) (2026-06-11)
 
 

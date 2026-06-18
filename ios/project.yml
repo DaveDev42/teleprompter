@@ -75,8 +75,9 @@ targets:
     dependencies:
       # tp-core static library (byte-exact wire primitives). Not embedded — a
       # static archive links into the binary directly. The xcframework contains
-      # 5 slices: ios-arm64 (device), ios-arm64_x86_64-simulator, macos-arm64_x86_64,
-      # xros-arm64 (visionOS device, B2), xros-arm64-simulator (visionOS sim, B2).
+      # 7 slices: ios-arm64 (device), ios-arm64_x86_64-simulator, macos-arm64_x86_64,
+      # xros-arm64 (visionOS device, B2), xros-arm64-simulator (visionOS sim, B2),
+      # watchos-arm64 (watch device, B3), watchos-arm64-simulator (watch sim, B3).
       - framework: ../rust/target/TpCore.xcframework
         embed: false
       # SwiftTerm: VT100/xterm emulator for the Terminal tab (A1 ANSI milestone).
@@ -153,7 +154,13 @@ targets:
 
   TeleprompterTests:
     type: bundle.unit-test
-    platform: iOS
+    # Multiplatform so the scheme's test action builds on a macOS destination too
+    # (when cmd_uitest runs UI tests for platform=macOS, xcodebuild still BUILDS
+    # every test-action target; a platform:iOS unit-test target would pin its
+    # TEST_HOST to an iOS .app and break the macOS build). The tests are pure
+    # logic + a direct SwiftTerm.Terminal drive, so they compile on macOS.
+    platform: auto
+    supportedDestinations: [iOS, macOS]
     sources:
       - path: Tests
     dependencies:
@@ -168,6 +175,37 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.teleprompter.tests
         GENERATE_INFOPLIST_FILE: "YES"
+
+  # UI-level E2E (T3, #66). A bundle.ui-testing target drives the REAL app through
+  # the Accessibility tree with XCUIApplication: it launches with --tp-smoke-url
+  # (reusing the same golden loopback path as the marker smoke), then taps the
+  # session row → pane picker and asserts the rendered chat bubble. This is the
+  # only layer that proves SwiftUI actually RENDERS the decrypted wire data, not
+  # just that the bytes round-tripped (which the markers already cover).
+  #
+  # Multiplatform UI-test target: XCUITest runs on the iOS/iPadOS Simulator AND
+  # native macOS (via the platform=macOS destination). It must match the app's
+  # supportedDestinations so the scheme's test action resolves a macOS test host
+  # when built for macOS (a platform:iOS test target pins TEST_HOST to an iOS
+  # .app and the macOS build fails to find it). visionOS rides the iOS UI runner
+  # (partial reach — element queries + flat-window taps). watchOS has NO
+  # XCUIApplication (Apple hard limit), so it is never listed and never UI-tested
+  # (markers + screenshot only there).
+  TeleprompterUITests:
+    type: bundle.ui-testing
+    platform: auto
+    supportedDestinations: [iOS, macOS]
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Teleprompter
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.teleprompter.uitests
+        GENERATE_INFOPLIST_FILE: "YES"
+        # The target app the runner automates (XCUIApplication() with no bundle id
+        # resolves to this).
+        TEST_TARGET_NAME: Teleprompter
 
   # B3 (ADR-0002): standalone watchOS app — glance UI with session list +
   # last assistant message + approve/deny. Reuses relay/pairing/session layers
@@ -229,10 +267,31 @@ schemes:
         TeleprompterTests: [test]
     run:
       config: Debug
+    # Test action = UNIT tests only. The UI tests live in their own
+    # TeleprompterUITests scheme (driven by cmd_uitest) so `cmd_test` (XCTest) never
+    # tries to run them without the loopback relay + injected TP_SMOKE_URL (which
+    # would fail the unrelated unit run). Keeps the two layers cleanly separated.
     test:
       config: Debug
       targets:
         - TeleprompterTests
+
+  # Dedicated UI-test scheme (cmd_uitest). Its test action contains ONLY
+  # TeleprompterUITests, so building/running it on a macOS destination never drags
+  # in the iOS-hosted unit-test target (whose TEST_HOST is wired for the iOS .app
+  # bundle layout and breaks the macOS build). The main `Teleprompter` scheme keeps
+  # both test targets for cmd_test/cmd_smoke on iOS.
+  TeleprompterUITests:
+    build:
+      targets:
+        Teleprompter: all
+        TeleprompterUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - TeleprompterUITests
 
   TeleprompterWatch:
     build:

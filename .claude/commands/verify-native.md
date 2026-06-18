@@ -44,7 +44,7 @@ scripts/ios.sh all      # 5플랫폼 매트릭스 (ios/ipad/macos/visionos/watch
 ```
 
 플랫폼은 `TP_PLATFORM=ios|ipad|macos|visionos|watchos` (기본 `ios`). 시뮬레이터 기기는
-`TP_SIM` (iOS 기본 `iPhone 17 Pro`, iPad 기본 `iPad Pro 13-inch (M4)`) / `TP_VISION_SIM` /
+`TP_SIM` (iOS 기본 `iPhone 17 Pro`, iPad 기본 `iPad Pro 13-inch (M5)`) / `TP_VISION_SIM` /
 `TP_WATCH_SIM`. 마커는 unified log 의 `subsystem == "dev.tpmt.teleprompter"` predicate 로
 검증된다 (iOS/iPad/macOS/visionOS 8마커, watchOS 7마커 — 상세 `.claude/rules/native-testing.md`).
 

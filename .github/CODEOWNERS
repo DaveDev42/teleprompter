@@ -1,0 +1,15 @@
+# CODEOWNERS — https://docs.github.com/en/repositories/managing-your-repositories-permissions-and-collaborations/customizing-your-repository/about-code-owners
+# Single-maintainer repo: @DaveDev42 owns everything. This makes the maintainer
+# the default reviewer on every PR and documents ownership for future
+# contributors. Path-specific stanzas below can grow as the team does.
+
+# Global default owner.
+*                       @DaveDev42
+
+# Architecture-critical surfaces (called out explicitly so future contributors
+# see they touch protocol/crypto/relay invariants — same owner today).
+/packages/protocol/     @DaveDev42
+/packages/relay/        @DaveDev42
+/rust/                  @DaveDev42
+/docs/adr/              @DaveDev42
+/.github/               @DaveDev42

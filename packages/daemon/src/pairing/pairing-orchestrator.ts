@@ -67,8 +67,8 @@ export class PairingOrchestrator {
    */
   async begin(args: {
     relayUrl: string;
-    daemonId?: string;
-    label?: Label;
+    daemonId?: string | undefined;
+    label?: Label | undefined;
   }): Promise<{ pairingId: string; qrString: string; daemonId: string }> {
     if (this.pending) {
       throw new BeginPairingError("already-pending");

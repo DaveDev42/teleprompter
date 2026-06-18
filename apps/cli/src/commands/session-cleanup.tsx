@@ -130,7 +130,7 @@ function MultiSelectApp({
         return (
           <Box key={session.sid} flexDirection="row" gap={1}>
             {/* Cursor indicator */}
-            <Text color={isCursor ? "cyan" : undefined}>
+            <Text {...(isCursor && { color: "cyan" as const })}>
               {isCursor ? ">" : " "}
             </Text>
 
@@ -140,7 +140,7 @@ function MultiSelectApp({
             </Text>
 
             {/* SID (short: first 12 chars) */}
-            <Text color={isCursor ? "cyan" : undefined} bold={isCursor}>
+            <Text {...(isCursor && { color: "cyan" as const })} bold={isCursor}>
               {session.sid.slice(0, 20).padEnd(20)}
             </Text>
 

@@ -95,7 +95,7 @@ export interface PairingBundle {
 export async function createPairingBundle(
   relayUrl: string,
   daemonId: string,
-  _opts?: { label?: string },
+  _opts?: { label?: string | undefined },
 ): Promise<PairingBundle> {
   const keyPair = await generateKeyPair();
   const pairingSecret = await generatePairingSecret();

@@ -5,8 +5,8 @@ export interface IpcHello {
   t: "hello";
   sid: string;
   cwd: string;
-  worktreePath?: string;
-  claudeVersion?: string;
+  worktreePath?: string | undefined;
+  claudeVersion?: string | undefined;
   pid: number;
 }
 
@@ -15,8 +15,8 @@ export interface IpcRec {
   sid: string;
   kind: RecordKind;
   ts: number;
-  ns?: Namespace;
-  name?: string;
+  ns?: Namespace | undefined;
+  name?: string | undefined;
   payload: string; // base64
 }
 
@@ -48,9 +48,9 @@ export interface IpcResize {
 export interface IpcPairBegin {
   t: "pair.begin";
   relayUrl: string;
-  daemonId?: string;
+  daemonId?: string | undefined;
   /** Pairing label as a tagged union; `{ set: false }` = use the default. */
-  label?: Label;
+  label?: Label | undefined;
 }
 
 export interface IpcPairBeginOk {
@@ -69,7 +69,7 @@ export type IpcPairBeginErrReason =
 export interface IpcPairBeginErr {
   t: "pair.begin.err";
   reason: IpcPairBeginErrReason;
-  message?: string;
+  message?: string | undefined;
 }
 
 export interface IpcPairCancel {
@@ -100,7 +100,7 @@ export interface IpcPairError {
   t: "pair.error";
   pairingId: string;
   reason: IpcPairErrorReason;
-  message?: string;
+  message?: string | undefined;
 }
 
 /**
@@ -126,7 +126,7 @@ export interface IpcPairRemoveErr {
   t: "pair.remove.err";
   daemonId: string;
   reason: IpcPairRemoveErrReason;
-  message?: string;
+  message?: string | undefined;
 }
 
 /**
@@ -155,7 +155,7 @@ export interface IpcPairRenameErr {
   t: "pair.rename.err";
   daemonId: string;
   reason: IpcPairRenameErrReason;
-  message?: string;
+  message?: string | undefined;
 }
 
 /**
@@ -182,7 +182,7 @@ export interface IpcSessionDeleteErr {
   t: "session.delete.err";
   sid: string;
   reason: IpcSessionDeleteErrReason;
-  message?: string;
+  message?: string | undefined;
 }
 
 /**
@@ -228,7 +228,7 @@ export type IpcSessionPruneErrReason = "internal";
 export interface IpcSessionPruneErr {
   t: "session.prune.err";
   reason: IpcSessionPruneErrReason;
-  message?: string;
+  message?: string | undefined;
   /**
    * Sids already deleted before the throw occurred, so the CLI can report
    * "deleted 2/5, then error" instead of suggesting nothing happened.

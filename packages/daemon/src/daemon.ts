@@ -263,8 +263,8 @@ export class Daemon {
    */
   async beginPairing(args: {
     relayUrl: string;
-    daemonId?: string;
-    label?: Label;
+    daemonId?: string | undefined;
+    label?: Label | undefined;
   }): Promise<{ pairingId: string; qrString: string; daemonId: string }> {
     return this.pairingOrchestrator.begin(args);
   }

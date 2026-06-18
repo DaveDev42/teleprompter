@@ -52,9 +52,9 @@ export interface ApnsPayload {
   /** Push body. */
   body: string;
   /** Optional iOS interruption level. Absent → APNs default ("active"). */
-  interruptionLevel?: PushInterruptionLevel;
+  interruptionLevel?: PushInterruptionLevel | undefined;
   /** Optional navigation payload forwarded to the app. */
-  data?: { sid: string; daemonId: string; event: string };
+  data?: { sid: string; daemonId: string; event: string } | undefined;
 }
 
 export interface ApnsClientOptions {

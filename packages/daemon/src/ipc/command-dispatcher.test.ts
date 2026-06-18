@@ -31,14 +31,18 @@ import type { ConnectedRunner, IpcServer } from "./server";
  */
 interface Calls {
   ipcSends: unknown[];
-  storeCreateSession: Array<[string, string, string?, string?]>;
+  storeCreateSession: Array<
+    [string, string, string | undefined, string | undefined]
+  >;
   storeUpdateState: Array<[string, string]>;
   storeUpdateLastSeq: Array<[string, number]>;
   storeDeleteSession: string[];
-  sessionRegister: Array<[string, number, string, string?, string?]>;
+  sessionRegister: Array<
+    [string, number, string, string | undefined, string | undefined]
+  >;
   sessionUnregister: string[];
   killRunner: string[];
-  createSession: Array<[string, string, SpawnRunnerOptions?]>;
+  createSession: Array<[string, string, SpawnRunnerOptions | undefined]>;
   pairBegin: IpcPairBegin[];
   pairCancel: IpcPairCancel[];
   cliDisconnect: number;
@@ -77,7 +81,7 @@ function makeHarness(
     getWorktreeManager?: () => WorktreeManager | null;
     sessionMeta?: SessionMeta;
     sessions?: SessionMeta[];
-    sessionDb?: SessionDb;
+    sessionDb?: SessionDb | undefined;
     relayClients?: RelayClient[];
     pairings?: Array<{ daemonId: string }>;
     removePairingResult?: (daemonId: string) => Promise<number>;

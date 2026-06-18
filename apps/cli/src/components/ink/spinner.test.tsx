@@ -14,20 +14,20 @@ afterEach(() => {
 
 describe("Spinner — rendering", () => {
   test("renders the message text", () => {
-    const origIsTTY = (process.stdout as { isTTY?: boolean }).isTTY;
-    (process.stdout as { isTTY?: boolean }).isTTY = true;
+    const origIsTTY = (process.stdout as { isTTY?: boolean | undefined }).isTTY;
+    (process.stdout as { isTTY?: boolean | undefined }).isTTY = true;
 
     try {
       const { lastFrame } = render(<Spinner message="Loading..." />);
       expect(lastFrame()).toContain("Loading...");
     } finally {
-      (process.stdout as { isTTY?: boolean }).isTTY = origIsTTY;
+      (process.stdout as { isTTY?: boolean | undefined }).isTTY = origIsTTY;
     }
   });
 
   test("produces multiple frames over time (animation)", async () => {
-    const origIsTTY = (process.stdout as { isTTY?: boolean }).isTTY;
-    (process.stdout as { isTTY?: boolean }).isTTY = true;
+    const origIsTTY = (process.stdout as { isTTY?: boolean | undefined }).isTTY;
+    (process.stdout as { isTTY?: boolean | undefined }).isTTY = true;
 
     try {
       const { frames } = render(<Spinner message="Working" />);
@@ -39,13 +39,13 @@ describe("Spinner — rendering", () => {
       // multiple as the spinner cycles through its animation frames.
       expect(frames.length).toBeGreaterThan(1);
     } finally {
-      (process.stdout as { isTTY?: boolean }).isTTY = origIsTTY;
+      (process.stdout as { isTTY?: boolean | undefined }).isTTY = origIsTTY;
     }
   });
 
   test("renders nothing (null) when stdout is not a TTY", () => {
-    const origIsTTY = (process.stdout as { isTTY?: boolean }).isTTY;
-    (process.stdout as { isTTY?: boolean }).isTTY = false;
+    const origIsTTY = (process.stdout as { isTTY?: boolean | undefined }).isTTY;
+    (process.stdout as { isTTY?: boolean | undefined }).isTTY = false;
 
     try {
       const { lastFrame } = render(<Spinner message="Loading..." />);
@@ -53,31 +53,31 @@ describe("Spinner — rendering", () => {
       const frame = lastFrame() ?? "";
       expect(frame.trim()).toBe("");
     } finally {
-      (process.stdout as { isTTY?: boolean }).isTTY = origIsTTY;
+      (process.stdout as { isTTY?: boolean | undefined }).isTTY = origIsTTY;
     }
   });
 
   test("accepts 'line' frame type without error", () => {
-    const origIsTTY = (process.stdout as { isTTY?: boolean }).isTTY;
-    (process.stdout as { isTTY?: boolean }).isTTY = true;
+    const origIsTTY = (process.stdout as { isTTY?: boolean | undefined }).isTTY;
+    (process.stdout as { isTTY?: boolean | undefined }).isTTY = true;
 
     try {
       const { lastFrame } = render(<Spinner message="Testing" frame="line" />);
       expect(lastFrame()).toContain("Testing");
     } finally {
-      (process.stdout as { isTTY?: boolean }).isTTY = origIsTTY;
+      (process.stdout as { isTTY?: boolean | undefined }).isTTY = origIsTTY;
     }
   });
 
   test("accepts 'arc' frame type without error", () => {
-    const origIsTTY = (process.stdout as { isTTY?: boolean }).isTTY;
-    (process.stdout as { isTTY?: boolean }).isTTY = true;
+    const origIsTTY = (process.stdout as { isTTY?: boolean | undefined }).isTTY;
+    (process.stdout as { isTTY?: boolean | undefined }).isTTY = true;
 
     try {
       const { lastFrame } = render(<Spinner message="Testing" frame="arc" />);
       expect(lastFrame()).toContain("Testing");
     } finally {
-      (process.stdout as { isTTY?: boolean }).isTTY = origIsTTY;
+      (process.stdout as { isTTY?: boolean | undefined }).isTTY = origIsTTY;
     }
   });
 });

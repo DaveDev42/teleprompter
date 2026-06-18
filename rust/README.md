@@ -102,12 +102,14 @@ scripts/ios.sh rust
 ```
 
 산출물:
-- `rust/target/TpCore.xcframework` — **5 슬라이스**:
+- `rust/target/TpCore.xcframework` — **7 슬라이스**:
   - `ios-arm64` — iOS 실기기 (arm64)
   - `ios-arm64_x86_64-simulator` — iOS/iPadOS Simulator (arm64 + x86_64 lipo fat)
   - `macos-arm64_x86_64` — native macOS (arm64 + x86_64 lipo fat, Catalyst 아님)
   - `xros-arm64` — Apple Vision Pro 실기기 (arm64, B1/ADR-0002)
   - `xros-arm64-simulator` — visionOS Simulator (arm64-only, lipo 불필요)
+  - `watchos-arm64` — Apple Watch 실기기 (arm64, B3/ADR-0002)
+  - `watchos-arm64-simulator` — watchOS Simulator (arm64-only, lipo 불필요)
   gitignored 바이너리.
 - `ios/Generated/{tp_core.swift, tp_coreFFI.h, tp_coreFFI.modulemap}` — UniFFI Swift
   바인딩. gitignored, 재현 가능.
@@ -116,7 +118,8 @@ scripts/ios.sh rust
 ```bash
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios \
                   aarch64-apple-darwin x86_64-apple-darwin \
-                  aarch64-apple-visionos aarch64-apple-visionos-sim
+                  aarch64-apple-visionos aarch64-apple-visionos-sim \
+                  aarch64-apple-watchos aarch64-apple-watchos-sim
 ```
 
 > visionOS 타깃은 Rust ≥1.96 에서 prebuilt std 와 함께 **stable** 이다 (B0 게이트로 확인 —
@@ -129,7 +132,7 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios \
 > 모두 arm64 단일 아키 (Intel Vision Pro / x86_64 xrOS sim 이 없음) 라 lipo 가 필요없다.
 >
 > `xcodebuild -create-xcframework` 결과를 `plutil -p Info.plist | grep LibraryIdentifier`
-> 로 확인하면 5개의 LibraryIdentifier 가 나와야 한다.
+> 로 확인하면 7개의 LibraryIdentifier 가 나와야 한다.
 
 ## Swift 에서 쓰기
 

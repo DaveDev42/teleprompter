@@ -102,8 +102,11 @@ jobs:
       - uses: actions/checkout@v6
       # Pin to the same channel as rust/rust-toolchain.toml so the action's
       # pre-install matches what rustup would auto-fetch (no double toolchain).
+      # NOTE: this action's tag IS the Rust version — do NOT let dependabot bump
+      # it (it proposed nonexistent 1.100.0). dependabot.yml ignores it; bump
+      # this in lockstep with rust-toolchain.toml only.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@1.100.0
+        uses: dtolnay/rust-toolchain@1.96.0
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2

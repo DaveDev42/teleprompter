@@ -19,10 +19,12 @@
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "doctor": "bun run apps/cli/src/index.ts doctor",
-    "status": "bun run apps/cli/src/index.ts status"
+    "status": "bun run apps/cli/src/index.ts status",
+    "prepare": "lefthook install"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.10",
+    "lefthook": "^2.1.9",
     "turbo": "^2.5.4",
     "typescript": "~6.0.3"
   },

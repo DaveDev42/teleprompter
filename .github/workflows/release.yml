@@ -38,13 +38,13 @@ jobs:
       matrix:
         target: [bun-darwin-arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.tag || github.ref }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - run: pnpm install --frozen-lockfile
       - run: bun run scripts/build.ts --target ${{ matrix.target }}
       # Preserve Bun's native Developer ID signature on the compiled output.
@@ -53,7 +53,7 @@ jobs:
       # with our own ad-hoc identity actively worsened UX on quarantined
       # downloads (turned an "unidentified developer" warning into a hard
       # "app is damaged" block).
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.target }}
           path: dist/tp-*
@@ -65,13 +65,13 @@ jobs:
       matrix:
         target: [bun-linux-x64, bun-linux-arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.tag || github.ref }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - run: pnpm install --frozen-lockfile
       - run: bun run scripts/build.ts --target ${{ matrix.target }}
       # UPX compression for Linux: ~55% size reduction at the cost of a
@@ -90,7 +90,7 @@ jobs:
               upx -1 "$f"
             fi
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.target }}
           path: dist/tp-*
@@ -99,7 +99,7 @@ jobs:
     needs: [build-darwin, build-cross]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -126,10 +126,10 @@ jobs:
             checksums.txt
           ls -la checksums.txt*
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: "artifacts/tp-*"
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           generate_release_notes: true

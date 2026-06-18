@@ -5,10 +5,11 @@ argument-hint: '<auto | app | backend>'
 
 ## QA 테스트: $ARGUMENTS
 
-> **전면 재작성 진행 중 (ADR-0001).** Expo/RN Web 프런트엔드는 제거됐다. 앱 QA 는 이제
-> 로컬 Swift Simulator 하니스(`ios/scripts/ios.sh`)로 한다. RN Web/Playwright/expo-mcp/Maestro
-> 기반 QA(`app-web-qa`, `expo-mcp:qa`)는 더 이상 존재하지 않는다. Swift 앱은 현재 Phase 0
-> 부트마커 셸 단계 — UI parity 는 Phase 3.
+> **전면 재작성 진행 중 (ADR-0001/0002).** Expo/RN Web 프런트엔드는 제거됐다. 앱 QA 는 이제
+> 로컬 Swift 하니스(`scripts/ios.sh`, `TP_PLATFORM=ios|ipad|macos|visionos|watchos`)로 한다.
+> RN Web/Playwright/expo-mcp/Maestro 기반 QA(`app-web-qa`, `expo-mcp:qa`)는 더 이상 존재하지 않는다.
+> 마커 E2E(`smoke`) + XCUITest UI E2E(`uitest`) + 5플랫폼 매트릭스(`all`) 가 검증 레이어다
+> (상세 `.claude/rules/native-testing.md`).
 
 ### 실행 순서
 
@@ -38,12 +39,14 @@ daemon이 필요하지 않은 테스트(순수 앱 부팅/UI)면 이 단계 skip
 
 **Step 3: 실행**
 
-- **앱(Swift) 변경** → 로컬 Simulator 하니스로 검증:
+- **앱(Swift) 변경** → 로컬 하니스로 검증:
   ```bash
-  ios/scripts/ios.sh smoke   # 빌드 + 설치 + 부팅 + 부트마커(TP_BOOT_OK) 검증
-  ios/scripts/ios.sh test    # XCTest on Simulator
+  scripts/ios.sh smoke    # 빌드 + 설치 + 부팅 + 마커 검증 (TP_PLATFORM 으로 플랫폼 선택)
+  scripts/ios.sh uitest   # XCUITest UI-level E2E (시나리오 인터랙션 어서션)
+  scripts/ios.sh test     # XCTest on Simulator
   ```
-  Phase 3 이후 UI parity 가 생기면 시나리오 기반 인터랙션 검증을 여기에 추가한다.
+  시나리오 기반 인터랙션 검증은 `uitest` (XCUITest) 로 한다 — a11y 식별자 쿼리로 세션 row tap →
+  pane picker → chat bubble 어서션.
 - **백엔드(daemon/relay/runner/cli) 변경** → 단위/통합 테스트:
   ```bash
   bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay
@@ -64,6 +67,6 @@ daemon이 필요하지 않은 테스트(순수 앱 부팅/UI)면 이 단계 skip
 
 1. `git diff --name-only main`으로 변경된 파일 확인
 2. 변경 영역 감지:
-   - `ios/**` 변경 → Simulator 하니스(`ios/scripts/ios.sh smoke|test`)
+   - `ios/**` 변경 → Swift 하니스(`scripts/ios.sh smoke|uitest|test`, `TP_PLATFORM` 선택)
    - `packages/**` / `apps/cli/**` 변경 → 백엔드 `bun test` + `pnpm type-check:all`
    - 둘 다 변경 → 둘 다 실행

@@ -1,0 +1,9 @@
+{
+  "$comment": "Apple's OFFICIAL Xcode MCP server (mcpbridge), shipped in Xcode 26.3+. It is a STDIO <-> JSON-RPC 2.0 bridge to a *running* Xcode.app instance (auto-detects the Xcode PID; errors if no Xcode is open). Tools are IDE-mediated via XPC: File System, Build & Test, and Intelligence (Swift REPL, RenderPreview = actual SwiftUI screenshots, on-device documentation search). Enable in Xcode: Settings (cmd+,) -> Intelligence -> 'Enable Model Context Protocol'. This is an INTERACTIVE developer-loop aid ONLY -- it is NOT the CI/E2E gate. The reproducible source of truth for 'does it actually work' is scripts/ios.sh (marker E2E) + the TeleprompterUITests XCUITest target. See .claude/rules/native-testing.md.",
+  "mcpServers": {
+    "xcode": {
+      "command": "xcrun",
+      "args": ["mcpbridge"]
+    }
+  }
+}

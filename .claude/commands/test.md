@@ -16,7 +16,7 @@ argument-hint: '<auto | protocol | daemon | runner | relay | cli | app | unit | 
 | `packages/runner/` | runner | `bun test ./packages/runner` |
 | `packages/relay/` | relay | `bun test ./packages/relay` |
 | `apps/cli/` | cli | `bun test ./apps/cli` |
-| `ios/` | app (Swift) | `ios/scripts/ios.sh test` |
+| `ios/` | app (Swift) | `scripts/ios.sh test` |
 
 **의존성 전파 규칙:**
 - `packages/protocol/` 변경 → protocol + 이를 의존하는 daemon, runner, relay, cli도 함께 테스트
@@ -40,7 +40,7 @@ argument-hint: '<auto | protocol | daemon | runner | relay | cli | app | unit | 
 | `runner` | `bun test ./packages/runner` |
 | `relay` | `bun test ./packages/relay` |
 | `cli` | `bun test ./apps/cli` |
-| `app` | `ios/scripts/ios.sh test` (Swift XCTest on Simulator) |
+| `app` | `scripts/ios.sh test` (Swift XCTest on Simulator) |
 | `unit` | `bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay` |
 | `all` | type-check → unit → app(Swift) 순차 실행 |
 

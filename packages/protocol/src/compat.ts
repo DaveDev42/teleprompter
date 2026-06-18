@@ -50,10 +50,12 @@ export function parseVersion(
 ): { major: number; minor: number; patch: number } | null {
   const match = v.match(/(\d+)\.(\d+)\.(\d+)/);
   if (!match) return null;
+  const [, maj, min, pat] = match;
+  if (maj === undefined || min === undefined || pat === undefined) return null;
   return {
-    major: parseInt(match[1]!, 10),
-    minor: parseInt(match[2]!, 10),
-    patch: parseInt(match[3]!, 10),
+    major: parseInt(maj, 10),
+    minor: parseInt(min, 10),
+    patch: parseInt(pat, 10),
   };
 }
 

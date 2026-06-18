@@ -40,7 +40,11 @@ export async function detectHomebrewInstall(
     // readlink missing (rare on macOS) — fall through to a substring match
   }
   const cellarMatch = resolved.match(/^(.*)\/Cellar\/tp\//);
-  if (cellarMatch) return cellarMatch[1]!;
+  if (cellarMatch) {
+    const prefix = cellarMatch[1];
+    if (prefix === undefined) return null;
+    return prefix;
+  }
   return null;
 }
 
@@ -334,7 +338,7 @@ export async function resolveCurrentBinaryPath(): Promise<string> {
     return process.execPath;
   }
   const found = (await $`which tp`.text().catch(() => "")).trim();
-  return found ? found.split(/\r?\n/)[0]! : "";
+  return found ? (found.split(/\r?\n/)[0] ?? "") : "";
 }
 
 /**
@@ -365,7 +369,11 @@ export function parseChecksums(text: string): Map<string, string> {
     // sha256sum format: "<hash>  <filename>" (two spaces)
     const match = line.match(/^([a-f0-9]{64})\s+(.+)$/);
     if (match) {
-      map.set(match[2]!, match[1]!);
+      const hash = match[1];
+      const filename = match[2];
+      if (hash !== undefined && filename !== undefined) {
+        map.set(filename, hash);
+      }
     }
   }
   return map;

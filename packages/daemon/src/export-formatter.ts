@@ -119,12 +119,15 @@ export function formatMarkdown(
 
   let i = 0;
   while (i < records.length) {
-    const rec = records[i]!;
+    const rec = records[i];
+    if (rec === undefined) break;
 
     if (rec.kind === "io") {
       const ioGroup: StoredRecord[] = [];
-      while (i < records.length && records[i]!.kind === "io") {
-        ioGroup.push(records[i]!);
+      while (i < records.length) {
+        const cur = records[i];
+        if (cur === undefined || cur.kind !== "io") break;
+        ioGroup.push(cur);
         i++;
       }
       const formatted = formatIoRecords(ioGroup);

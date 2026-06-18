@@ -171,7 +171,8 @@ describe("PairingOrchestrator", () => {
     const p = orch.awaitPending();
     expect(p).not.toBeNull();
     orch.cancel();
-    const result = await p!;
+    if (p === null) throw new Error("expected pending promise");
+    const result = await p;
     expect(result.kind).toBe("cancelled");
     expect(orch.hasPending).toBe(false);
   });
@@ -200,8 +201,12 @@ describe("PairingOrchestrator", () => {
       label: makeLabel("my-host"),
     });
     // Simulate completion
-    orch.current!.__markCompleted("frontend-1");
-    const result = await orch.awaitPending()!;
+    const pending1 = orch.current;
+    if (!pending1) throw new Error("expected pending pairing");
+    pending1.__markCompleted("frontend-1");
+    const awaitResult1 = orch.awaitPending();
+    if (awaitResult1 === null) throw new Error("expected pending promise");
+    const result = await awaitResult1;
     expect(result.kind).toBe("completed");
     if (result.kind !== "completed") throw new Error("unreachable");
 
@@ -224,8 +229,12 @@ describe("PairingOrchestrator", () => {
       daemonId: "daemon-d-race",
       label: makeLabel("x"),
     });
-    orch.current!.__markCompleted("f1");
-    const result = await orch.awaitPending()!;
+    const pendingRace = orch.current;
+    if (!pendingRace) throw new Error("expected pending pairing");
+    pendingRace.__markCompleted("f1");
+    const awaitResultRace = orch.awaitPending();
+    if (awaitResultRace === null) throw new Error("expected pending promise");
+    const result = await awaitResultRace;
     expect(result.kind).toBe("completed");
 
     // Race: cancel after completion
@@ -284,7 +293,8 @@ describe("PairingOrchestrator", () => {
 
     orch.stop();
 
-    const result = await p!;
+    if (p === null) throw new Error("expected pending promise");
+    const result = await p;
     expect(result.kind).toBe("cancelled");
     expect(orch.hasPending).toBe(false);
   });
@@ -308,9 +318,13 @@ describe("PairingOrchestrator", () => {
     const orch = makeOrchestrator(manager, store);
 
     await orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d1" });
-    orch.current!.__markCompleted("frontend-x");
+    const pendingStop = orch.current;
+    if (!pendingStop) throw new Error("expected pending pairing");
+    pendingStop.__markCompleted("frontend-x");
     // Drain the completion promise so the pairing is fully settled.
-    const result = await orch.awaitPending()!;
+    const awaitResultStop = orch.awaitPending();
+    if (awaitResultStop === null) throw new Error("expected pending promise");
+    const result = await awaitResultStop;
     expect(result.kind).toBe("completed");
 
     // At this point the pairing is completed but promote() has not run —
@@ -425,11 +439,15 @@ describe("PairingOrchestrator", () => {
     });
 
     await orch.begin({ relayUrl: "wss://r", daemonId: "daemon-d1" });
-    const firstRelay = relays[0]!;
+    const firstRelay = relays[0];
+    if (firstRelay === undefined)
+      throw new Error("expected first relay client");
     const pending = orch.current;
     if (!pending) throw new Error("expected pending pairing");
     pending.__markCompleted("frontend-x");
-    const result = await orch.awaitPending()!;
+    const awaitResultC1 = orch.awaitPending();
+    if (awaitResultC1 === null) throw new Error("expected pending promise");
+    const result = await awaitResultC1;
     if (result.kind !== "completed") throw new Error("expected completed");
 
     expect(() => orch.promote(result)).toThrow("disk full");

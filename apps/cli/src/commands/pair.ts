@@ -152,8 +152,9 @@ async function pairNew(argv: string[]): Promise<void> {
       teardownInkApp();
       resolve(code);
     };
+    const currentIpcConn = ipc;
     const done = new Promise<number>((resolve) => {
-      ipc!.onMessage((m) => {
+      currentIpcConn.onMessage((m) => {
         switch (m.t) {
           case "pair.begin.ok": {
             pairingId = m.pairingId;
@@ -221,7 +222,7 @@ async function pairNew(argv: string[]): Promise<void> {
             return;
         }
       });
-      ipc!.onClose(() => {
+      currentIpcConn.onClose(() => {
         if (settled) return;
         console.error(fail("Daemon disconnected — pairing aborted."));
         settle(resolve, 1);
@@ -498,7 +499,12 @@ async function pairDelete(argv: string[]): Promise<void> {
       for (const c of matches) console.error(`  ${c.daemonId}  ${c.relayUrl}`);
       process.exit(1);
     }
-    target = matches[0]!;
+    const match = matches[0];
+    if (match === undefined)
+      throw new Error(
+        "invariant: matches.length === 1 but element 0 is undefined",
+      );
+    target = match;
   } finally {
     store.close();
   }
@@ -605,7 +611,12 @@ async function pairRename(argv: string[]): Promise<void> {
       for (const m of matches) console.error(`  ${m.daemonId}  ${m.relayUrl}`);
       process.exit(1);
     }
-    target = matches[0]!;
+    const match = matches[0];
+    if (match === undefined)
+      throw new Error(
+        "invariant: matches.length === 1 but element 0 is undefined",
+      );
+    target = match;
   } finally {
     store.close();
   }

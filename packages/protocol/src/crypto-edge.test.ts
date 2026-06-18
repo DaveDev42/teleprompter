@@ -51,7 +51,11 @@ describe("crypto edge cases", () => {
 
     // Tamper with the base64 ciphertext
     const bytes = await fromBase64(ct);
-    bytes[bytes.length - 1]! ^= 0xff; // flip last byte
+    const lastIdx = bytes.length - 1;
+    const lastByte = bytes[lastIdx];
+    if (lastByte === undefined)
+      throw new Error("expected non-empty ciphertext");
+    bytes[lastIdx] = lastByte ^ 0xff; // flip last byte
     const tampered = await toBase64(bytes);
 
     await expect(decrypt(tampered, keys.tx)).rejects.toThrow();

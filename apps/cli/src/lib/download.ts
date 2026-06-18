@@ -244,13 +244,19 @@ export async function downloadWithProgress(
     const now = performance.now();
     samples.push({ t: now, bytes });
     const cutoff = now - windowMs;
-    while (samples.length > 1 && samples[0]!.t < cutoff) samples.shift();
+    while (samples.length > 1 && (samples[0]?.t ?? 0) < cutoff) samples.shift();
     if (samples.length < 2) {
       state.bytesPerSec = 0;
       return;
     }
-    const span = samples[samples.length - 1]!.t - samples[0]!.t;
-    const delta = samples[samples.length - 1]!.bytes - samples[0]!.bytes;
+    const first = samples[0];
+    const last = samples[samples.length - 1];
+    if (first === undefined || last === undefined) {
+      state.bytesPerSec = 0;
+      return;
+    }
+    const span = last.t - first.t;
+    const delta = last.bytes - first.bytes;
     state.bytesPerSec = span > 0 ? (delta / span) * 1000 : 0;
   };
 

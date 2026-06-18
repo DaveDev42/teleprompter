@@ -22,13 +22,13 @@ export interface TextPromptProps {
    * Optional validator. Return an error message string (non-null) to reject the
    * current input, or null/undefined to accept it.
    */
-  validate?: (input: string) => string | null | undefined;
+  validate?: ((input: string) => string | null | undefined) | undefined;
   /** Fired when the user submits a valid value (Enter with passing validation). */
   onSubmit: (value: string) => void;
   /** Fired on Esc/Ctrl+C. */
   onCancel?: () => void;
   /** Dim placeholder text shown before the user has typed anything. */
-  placeholder?: string;
+  placeholder?: string | undefined;
 }
 
 /**

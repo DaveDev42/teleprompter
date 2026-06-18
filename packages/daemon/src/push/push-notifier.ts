@@ -70,14 +70,14 @@ interface PushMessage {
 interface RecordInfo {
   sid: string;
   kind: RecordKind;
-  name?: string;
-  ns?: string;
+  name?: string | undefined;
+  ns?: string | undefined;
   /**
    * Decoded JSON payload of the hook event (the raw object claude wrote to
    * stdin). Optional because callers that don't need message-derived
    * titles/bodies can omit it; we'll fall back to generic copy.
    */
-  payload?: Record<string, unknown>;
+  payload?: Record<string, unknown> | undefined;
 }
 
 export interface PushNotifierDeps {

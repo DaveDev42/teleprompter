@@ -70,7 +70,10 @@ async function startRelay(argv: string[]): Promise<void> {
     }
   }
 
-  const relay = new RelayServer({ cacheSize, maxFrameSize });
+  const relay = new RelayServer({
+    ...(cacheSize !== undefined && { cacheSize }),
+    ...(maxFrameSize !== undefined && { maxFrameSize }),
+  });
   relay.start(port);
 
   console.log("[Relay] press Ctrl+C to stop");

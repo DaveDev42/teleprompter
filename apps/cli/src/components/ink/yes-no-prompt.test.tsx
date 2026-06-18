@@ -152,8 +152,8 @@ describe("YesNoPrompt — key handling", () => {
 
 describe("promptYesNo — non-TTY short-circuit", () => {
   test("returns defaultValue immediately when stdin is not a TTY", async () => {
-    const origIsTTY = (process.stdin as { isTTY?: boolean }).isTTY;
-    (process.stdin as { isTTY?: boolean }).isTTY = false;
+    const origIsTTY = (process.stdin as { isTTY?: boolean | undefined }).isTTY;
+    (process.stdin as { isTTY?: boolean | undefined }).isTTY = false;
 
     try {
       const { promptYesNo } = await import("./yes-no-prompt");
@@ -169,13 +169,13 @@ describe("promptYesNo — non-TTY short-circuit", () => {
       });
       expect(result2).toBe(false);
     } finally {
-      (process.stdin as { isTTY?: boolean }).isTTY = origIsTTY;
+      (process.stdin as { isTTY?: boolean | undefined }).isTTY = origIsTTY;
     }
   });
 
   test("returns defaultValue immediately when signal is already aborted", async () => {
-    const origIsTTY = (process.stdin as { isTTY?: boolean }).isTTY;
-    (process.stdin as { isTTY?: boolean }).isTTY = true;
+    const origIsTTY = (process.stdin as { isTTY?: boolean | undefined }).isTTY;
+    (process.stdin as { isTTY?: boolean | undefined }).isTTY = true;
 
     try {
       const controller = new AbortController();
@@ -188,7 +188,7 @@ describe("promptYesNo — non-TTY short-circuit", () => {
       });
       expect(result).toBe(false);
     } finally {
-      (process.stdin as { isTTY?: boolean }).isTTY = origIsTTY;
+      (process.stdin as { isTTY?: boolean | undefined }).isTTY = origIsTTY;
     }
   });
 });

@@ -13,7 +13,7 @@ export interface ConnectedRunner {
   socket: unknown;
   writer: QueuedWriter;
   decoder: FrameDecoder;
-  sid?: string;
+  sid?: string | undefined;
 }
 
 export interface IpcServerEvents {

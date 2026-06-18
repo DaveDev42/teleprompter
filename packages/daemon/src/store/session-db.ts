@@ -57,10 +57,10 @@ export class SessionDb {
   }
 
   getRecordsFiltered(opts: {
-    kinds?: RecordKind[];
-    from?: number;
-    to?: number;
-    limit?: number;
+    kinds?: RecordKind[] | undefined;
+    from?: number | undefined;
+    to?: number | undefined;
+    limit?: number | undefined;
   }): StoredRecord[] {
     const conditions: string[] = [];
     const params: (string | number)[] = [];

@@ -10,6 +10,10 @@ import type { SessionMeta as StoreSessionMeta } from "./store";
  * crossing the wire as an unvalidated string.
  */
 export function toSessionMeta(meta: StoreSessionMeta): SessionMeta {
+  // Keep worktreePath/claudeVersion ALWAYS present on the wire (null/undefined
+  // when absent) — the frontend relies on a stable key set. SessionMeta widens
+  // these to `string | undefined` so the always-present form type-checks under
+  // exactOptionalPropertyTypes (no conditional key omission).
   return {
     sid: meta.sid,
     state: toSessionState(meta.state),

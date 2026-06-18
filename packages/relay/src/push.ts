@@ -32,8 +32,8 @@ export interface PushRequest {
    * since a low-priority push can be deferred and would defeat the point of
    * time-sensitive.
    */
-  interruptionLevel?: PushInterruptionLevel;
-  data?: { sid: string; daemonId: string; event: string };
+  interruptionLevel?: PushInterruptionLevel | undefined;
+  data?: { sid: string; daemonId: string; event: string } | undefined;
 }
 
 export interface PushServiceOptions {

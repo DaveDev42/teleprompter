@@ -61,7 +61,10 @@ export class ResumeTokenSigner {
   /** True when the secret was randomly generated (not from env). */
   readonly ephemeral: boolean;
 
-  constructor(options?: { secret?: string; ttlMs?: number }) {
+  constructor(options?: {
+    secret?: string | undefined;
+    ttlMs?: number | undefined;
+  }) {
     const envSecret = process.env["TP_RELAY_RESUME_SECRET"] ?? "";
     const provided = options?.secret ?? envSecret;
     if (provided && provided.length >= SECRET_MIN_BYTES) {

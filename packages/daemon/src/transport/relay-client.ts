@@ -130,7 +130,7 @@ export interface RelayClientConfig {
   /** Raw pairing secret (for kx envelope encryption) */
   pairingSecret: Uint8Array;
   /** Human-readable label for this pairing as a tagged union. */
-  label?: Label;
+  label?: Label | undefined;
 }
 
 export interface RelayClientEvents {

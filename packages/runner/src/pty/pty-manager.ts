@@ -1,8 +1,8 @@
 export interface PtyOptions {
   command: string[];
   cwd: string;
-  cols?: number;
-  rows?: number;
+  cols?: number | undefined;
+  rows?: number | undefined;
   onData: (data: Uint8Array) => void;
   onExit: (exitCode: number) => void;
 }

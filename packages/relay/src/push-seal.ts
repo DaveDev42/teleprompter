@@ -27,11 +27,11 @@ export type UnsealResult =
 
 export interface PushSealerOptions {
   /** Override TP_RELAY_PUSH_SEAL_SECRET */
-  secret?: string;
+  secret?: string | undefined;
   /** Override TP_RELAY_PUSH_SEAL_SECRET_PREV */
-  secretPrev?: string;
+  secretPrev?: string | undefined;
   /** Override TP_RELAY_PUSH_SEAL_VERSION (decimal integer, default 1) */
-  version?: number;
+  version?: number | undefined;
 }
 
 /**

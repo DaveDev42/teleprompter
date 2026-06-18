@@ -18,11 +18,13 @@ export async function runCommand(argv: string[]): Promise<void> {
   const sid = values.sid ?? `session-${Date.now()}`;
   const cwd = values.cwd ?? process.cwd();
 
+  const worktreePath = values["worktree-path"];
+  const socketPath = values["socket-path"];
   const runner = new Runner({
     sid,
     cwd,
-    worktreePath: values["worktree-path"],
-    socketPath: values["socket-path"],
+    ...(worktreePath !== undefined && { worktreePath }),
+    ...(socketPath !== undefined && { socketPath }),
     cols: Math.max(1, parseInt(values.cols ?? "120", 10) || 120),
     rows: Math.max(1, parseInt(values.rows ?? "40", 10) || 40),
     claudeArgs: positionals,

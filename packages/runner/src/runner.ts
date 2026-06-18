@@ -23,11 +23,11 @@ type RunnerState =
 export interface RunnerOptions {
   sid: string;
   cwd: string;
-  worktreePath?: string;
-  socketPath?: string;
-  cols?: number;
-  rows?: number;
-  claudeArgs?: string[];
+  worktreePath?: string | undefined;
+  socketPath?: string | undefined;
+  cols?: number | undefined;
+  rows?: number | undefined;
+  claudeArgs?: string[] | undefined;
 }
 
 export class Runner {

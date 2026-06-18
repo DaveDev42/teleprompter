@@ -144,21 +144,21 @@ describe("TextPrompt — validation", () => {
 
 describe("promptText — non-TTY short-circuit", () => {
   test("returns null immediately when stdin is not a TTY", async () => {
-    const origIsTTY = (process.stdin as { isTTY?: boolean }).isTTY;
-    (process.stdin as { isTTY?: boolean }).isTTY = false;
+    const origIsTTY = (process.stdin as { isTTY?: boolean | undefined }).isTTY;
+    (process.stdin as { isTTY?: boolean | undefined }).isTTY = false;
 
     try {
       const { promptText } = await import("./text-prompt");
       const result = await promptText({ question: "Enter name:" });
       expect(result).toBe(null);
     } finally {
-      (process.stdin as { isTTY?: boolean }).isTTY = origIsTTY;
+      (process.stdin as { isTTY?: boolean | undefined }).isTTY = origIsTTY;
     }
   });
 
   test("returns null immediately when signal is already aborted", async () => {
-    const origIsTTY = (process.stdin as { isTTY?: boolean }).isTTY;
-    (process.stdin as { isTTY?: boolean }).isTTY = true;
+    const origIsTTY = (process.stdin as { isTTY?: boolean | undefined }).isTTY;
+    (process.stdin as { isTTY?: boolean | undefined }).isTTY = true;
 
     try {
       const controller = new AbortController();
@@ -170,7 +170,7 @@ describe("promptText — non-TTY short-circuit", () => {
       });
       expect(result).toBe(null);
     } finally {
-      (process.stdin as { isTTY?: boolean }).isTTY = origIsTTY;
+      (process.stdin as { isTTY?: boolean | undefined }).isTTY = origIsTTY;
     }
   });
 });

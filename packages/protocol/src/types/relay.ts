@@ -31,7 +31,7 @@ export interface RelayAuth {
   /** Protocol version */
   v: number;
   /** Unique frontend identifier (role=frontend only). Enables N:N multiplexing. */
-  frontendId?: string;
+  frontendId?: string | undefined;
 }
 
 /**
@@ -83,7 +83,7 @@ export interface RelaySubscribe {
   /** Session ID to subscribe to */
   sid: string;
   /** Optional: resume from this seq (get missed frames) */
-  after?: number;
+  after?: number | undefined;
 }
 
 export interface RelayUnsubscribe {
@@ -94,7 +94,7 @@ export interface RelayUnsubscribe {
 export interface RelayPing {
   t: "relay.ping";
   /** Client timestamp for RTT measurement */
-  ts?: number;
+  ts?: number | undefined;
 }
 
 /**
@@ -130,13 +130,15 @@ export interface RelayPush {
    * omits it and the relay falls back to default ("active") delivery; an older
    * relay ignores the field. Absent → treated as "active".
    */
-  interruptionLevel?: PushInterruptionLevel;
+  interruptionLevel?: PushInterruptionLevel | undefined;
   /** Navigation payload */
-  data?: {
-    sid: string;
-    daemonId: string;
-    event: string;
-  };
+  data?:
+    | {
+        sid: string;
+        daemonId: string;
+        event: string;
+      }
+    | undefined;
 }
 
 /**
@@ -176,19 +178,19 @@ export interface RelayAuthOk {
    * connect to skip re-validation. HMAC-signed by the relay; clients treat
    * it as a black box. May be omitted if the relay has resume disabled.
    */
-  resumeToken?: string;
+  resumeToken?: string | undefined;
   /**
    * Suggested expiry hint (epoch ms) so clients know when to fall back to
    * full auth without waiting for an error round-trip. The relay still
    * enforces expiry on its side regardless of this hint.
    */
-  resumeExpiresAt?: number;
+  resumeExpiresAt?: number | undefined;
   /**
    * Whether this auth.ok was the result of a fast-path resume (true) or
    * full re-authentication (false/undefined). Lets the daemon skip a
    * `relay.kx` round-trip when the cached session keys are still valid.
    */
-  resumed?: boolean;
+  resumed?: boolean | undefined;
 }
 
 export interface RelayAuthErr {
@@ -213,7 +215,7 @@ export interface RelayFrame {
   seq: number;
   from: "daemon" | "frontend";
   /** Frontend identifier (present when from=frontend) */
-  frontendId?: string;
+  frontendId?: string | undefined;
 }
 
 export interface RelayKeyExchangeFrame {
@@ -238,24 +240,26 @@ export interface RelayPresence {
 export interface RelayPong {
   t: "relay.pong";
   /** Echoed client timestamp */
-  ts?: number;
+  ts?: number | undefined;
 }
 
 export interface RelayError {
   t: "relay.err";
   e: string;
-  m?: string;
+  m?: string | undefined;
 }
 
 export interface RelayNotification {
   t: "relay.notification";
   title: string;
   body: string;
-  data?: {
-    sid: string;
-    daemonId: string;
-    event: string;
-  };
+  data?:
+    | {
+        sid: string;
+        daemonId: string;
+        event: string;
+      }
+    | undefined;
 }
 
 /**

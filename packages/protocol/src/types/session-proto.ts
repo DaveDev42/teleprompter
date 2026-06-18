@@ -12,8 +12,8 @@ export interface SessionMeta {
   sid: string;
   state: SessionState;
   cwd: string;
-  worktreePath?: string;
-  claudeVersion?: string;
+  worktreePath?: string | undefined;
+  claudeVersion?: string | undefined;
   createdAt: number;
   updatedAt: number;
   lastSeq: number;
@@ -70,15 +70,15 @@ export interface SessionWorktreeCreate {
   t: "worktree.create";
   branch: string;
   /** Optional base branch */
-  baseBranch?: string;
+  baseBranch?: string | undefined;
   /** Optional custom path (relative to repo root) */
-  path?: string;
+  path?: string | undefined;
 }
 
 export interface SessionWorktreeRemove {
   t: "worktree.remove";
   path: string;
-  force?: boolean;
+  force?: boolean | undefined;
 }
 
 export interface SessionWorktreeList {
@@ -90,15 +90,15 @@ export interface SessionCreate {
   /** Worktree path to run in */
   cwd: string;
   /** Optional session ID (auto-generated if omitted) */
-  sid?: string;
+  sid?: string | undefined;
   /**
    * Optional initial PTY dimensions. When supplied, the runner spawns
    * claude at this winsize so the TUI splash anchors correctly and a
    * later SIGWINCH isn't needed to rectify the layout. Frontends sending
    * `session.create` should pass their current terminal canvas size.
    */
-  cols?: number;
-  rows?: number;
+  cols?: number | undefined;
+  rows?: number | undefined;
 }
 
 export interface SessionStop {
@@ -114,10 +114,10 @@ export interface SessionRestart {
 export interface SessionExport {
   t: "session.export";
   sid: string;
-  format?: "json" | "markdown";
-  recordTypes?: RecordKind[];
-  timeRange?: { from?: number; to?: number };
-  limit?: number;
+  format?: "json" | "markdown" | undefined;
+  recordTypes?: RecordKind[] | undefined;
+  timeRange?: { from?: number; to?: number } | undefined;
+  limit?: number | undefined;
 }
 
 export type SessionClientMessage =
@@ -166,8 +166,8 @@ export interface SessionRec {
   sid: string;
   seq: number;
   k: RecordKind;
-  ns?: Namespace;
-  n?: string;
+  ns?: Namespace | undefined;
+  n?: string | undefined;
   d: string; // base64 payload
   ts: number;
 }

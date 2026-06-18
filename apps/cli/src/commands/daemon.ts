@@ -188,8 +188,9 @@ export async function daemonCommand(argv: string[]): Promise<void> {
   if (values.spawn) {
     const sid = (values.sid as string) ?? `session-${Date.now()}`;
     const cwd = (values.cwd as string) ?? process.cwd();
+    const wt = values["worktree-path"] as string | undefined;
     daemon.createSession(sid, cwd, {
-      worktreePath: values["worktree-path"] as string | undefined,
+      ...(wt !== undefined && { worktreePath: wt }),
     });
   }
 

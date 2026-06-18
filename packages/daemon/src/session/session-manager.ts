@@ -8,19 +8,19 @@ export interface RunnerInfo {
   sid: string;
   pid: number;
   cwd: string;
-  worktreePath?: string;
-  claudeVersion?: string;
+  worktreePath?: string | undefined;
+  claudeVersion?: string | undefined;
   connectedAt: number;
-  process?: Subprocess;
+  process?: Subprocess | undefined;
 }
 
 export interface SpawnRunnerOptions {
-  socketPath?: string;
-  worktreePath?: string;
-  cols?: number;
-  rows?: number;
-  claudeArgs?: string[];
-  env?: Record<string, string>;
+  socketPath?: string | undefined;
+  worktreePath?: string | undefined;
+  cols?: number | undefined;
+  rows?: number | undefined;
+  claudeArgs?: string[] | undefined;
+  env?: Record<string, string> | undefined;
 }
 
 /**
@@ -122,7 +122,7 @@ export class SessionManager {
     const proc = Bun.spawn(args, {
       cwd,
       stdio: ["inherit", "inherit", "inherit"],
-      env: opts?.env ? { ...process.env, ...opts.env } : undefined,
+      ...(opts?.env ? { env: { ...process.env, ...opts.env } } : {}),
     });
 
     // Track the spawned process

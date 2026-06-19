@@ -25,6 +25,9 @@
         "noArrayIndexKey": "warn",
         "noImplicitAnyLet": "warn"
       },
+      "complexity": {
+        "useLiteralKeys": "off"
+      },
       "style": {
         "noNonNullAssertion": "error",
         "useNodejsImportProtocol": "off"

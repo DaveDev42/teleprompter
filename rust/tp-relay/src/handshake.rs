@@ -10,7 +10,8 @@
 //! * `handle_register`    — `relay.register` (daemon self-register, proof-based)
 //! * `handle_auth`        — `relay.auth` (full auth, issues a resume token)
 //! * `handle_auth_resume` — `relay.auth.resume` (HMAC fast-path reconnect)
-//! * `handle_hello`       — `relay.hello` (new merged register+auth, ADR A1.3 #4)
+//! * `handle_hello`       — `relay.hello` (proposed merged register+auth, ADR
+//!   A1.3 #4) — **NOT wired into the Step-4 hot path** (see below)
 //!
 //! ## Version gating
 //!
@@ -19,10 +20,19 @@
 //! field" section).  This port follows the same behaviour for `handle_register`,
 //! `handle_auth`, and `handle_auth_resume`.
 //!
-//! `handle_hello` is a new message type introduced by this redesign: it **does**
-//! gate on `v >= 2` because it is a v2-only feature that has no v1 equivalent.
-//! Clients sending `relay.hello` with `v < 2` receive `relay.auth.err` and the
-//! version-mismatch counter is incremented.
+//! ## `handle_hello` is not yet wired (out of Step-4 scope)
+//!
+//! `handle_hello` (+ its `v >= 2` gate and [`VERSION_MISMATCH_COUNT`]) is a
+//! proposed v2-only message that **has no `RelayClientMessage::Hello` variant**
+//! in `tp_proto::relay_client` and **no `dispatch_locked` arm** in `conn.rs`.
+//! The wire parser (`parse_relay_client_message`) therefore can never produce a
+//! `relay.hello` message — a client sending one is rejected one layer earlier as
+//! `UNKNOWN_TYPE`.  As a consequence **`VERSION_MISMATCH_COUNT` is never
+//! incremented by a live socket** and [`version_mismatch_count`] returns 0 in
+//! production.  This matches the TS reference, which also has no `relay.hello`
+//! handler.  The handler + counter are kept (with unit-test coverage) for the
+//! future ADR A1.3 #4 wiring, but **Step-6 `/metrics` MUST NOT treat this
+//! counter as populated** until a `Hello` variant + dispatch arm land.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -32,8 +42,11 @@ use crate::resume_token::{ResumePayload, ResumeTokenSigner};
 
 /// Global counter for `relay.hello` messages rejected due to `v < 2`.
 ///
-/// Exported so a metrics layer can read it without owning a handle.  The relay
-/// server Step 4+ can increment this via `v2_version_mismatch_count()`.
+/// **Not populated in production.** `relay.hello` has no wire parser / dispatch
+/// arm in Step 4 (no `RelayClientMessage::Hello` variant), so [`handle_hello`]
+/// is only reachable from unit tests — a live socket can never increment this.
+/// See the module-level "`handle_hello` is not yet wired" note. Step-6
+/// `/metrics` must not assume this is non-zero until `relay.hello` is wired.
 pub static VERSION_MISMATCH_COUNT: AtomicU64 = AtomicU64::new(0);
 
 /// Return the current version-mismatch counter value.

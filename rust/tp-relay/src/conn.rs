@@ -1,0 +1,882 @@
+//! Per-connection actor + axum WebSocket upgrade + the stale-check task.
+//!
+//! The [`RelayServer`] builds an axum `Router` with a single GET `/` WebSocket
+//! upgrade route (NO `/health`/`/metrics`/`/admin` — those are Step 6). Each
+//! upgraded socket is driven by [`connection_loop`]:
+//!
+//! * a **write task** owns the ws write half and drains the per-conn bounded
+//!   `mpsc::Receiver` into `Message::Text(json)`;
+//! * the **read loop** parses inbound text, resets the idle `Interval`, runs the
+//!   2-layer GCRA rate limit (ping-exempt for authed clients), dispatches the
+//!   handshake/routing **synchronously under the lock**, then delivers the
+//!   resulting `Vec<Action>` outside the lock via `try_send`.
+//!
+//! Timeouts: an auth deadline (1008 close if not authed within 10 s) and an idle
+//! `Interval` (close if no inbound frame for 90 s — daemon pings every 30 s keep
+//! it alive).
+//!
+//! ## No-lock-across-await audit
+//!
+//! The conn loop acquires `state.core.lock()` only inside `dispatch_locked`,
+//! which is a **synchronous** function: it takes `&mut RelayCore`, returns an
+//! owned `Vec<Action>`, and contains no `.await`. The caller drops the guard at
+//! the end of that call and only then awaits `deliver_actions`. The handshake
+//! path is the same shape. See the `// LOCK:` comments at each `lock()` site.
+
+use std::time::Duration;
+
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::State;
+use axum::response::Response;
+use axum::routing::get;
+use axum::Router;
+use futures_util::stream::StreamExt;
+use futures_util::SinkExt;
+use serde_json::Value;
+use tokio::net::TcpListener;
+use tokio::sync::mpsc;
+
+use crate::handshake;
+use crate::messages::{RelayErr, RelayServerMessage};
+use crate::resume_token::ResumePayload;
+use crate::server::{
+    handle_close, now_ms, presence_actions, register_authed_conn, route_key_exchange, route_ping,
+    route_publish, route_subscribe, route_unsubscribe, Action, AuthState, ConnHandle, ConnId,
+    RelayCore, SharedState, STALE_CHECK_INTERVAL_MS, WS_IDLE_TIMEOUT_S,
+};
+use tp_proto::relay_client::{parse_relay_client_message, RelayClientMessage, Role};
+
+/// Auth handshake timeout. A socket that never authenticates within this window
+/// is closed with 1008. Mirrors `AUTH_TIMEOUT_MS = 10_000` (`relay-server.ts:90`).
+pub const AUTH_TIMEOUT_MS: u64 = 10_000;
+
+/// Default max inbound frame size (bytes). Mirrors `DEFAULT_MAX_FRAME_SIZE`
+/// (`relay-server.ts:70`, 1 MiB) and the `maxFrameSize` single-node knob in
+/// `.claude/rules/relay-capacity.md`. Override via `TP_RELAY_MAX_FRAME_SIZE`.
+pub const DEFAULT_MAX_FRAME_SIZE: usize = 1024 * 1024;
+
+/// Count of inbound frames dropped for exceeding `max_frame_size`. Exported for
+/// the Step-6 `/metrics` endpoint (`oversizedDrops`). Mirrors
+/// `metrics.oversizedDrops` (`relay-server.ts:180/636`).
+pub static OVERSIZED_DROPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Read the current `oversizedDrops` counter (since process start).
+#[must_use]
+pub fn oversized_drops() -> u64 {
+    OVERSIZED_DROPS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Resolve the max inbound frame size from `TP_RELAY_MAX_FRAME_SIZE`, falling
+/// back to [`DEFAULT_MAX_FRAME_SIZE`]. Mirrors `relay-server.ts:312-315`.
+#[must_use]
+pub fn max_frame_size_from_env() -> usize {
+    std::env::var("TP_RELAY_MAX_FRAME_SIZE")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(DEFAULT_MAX_FRAME_SIZE)
+}
+
+/// The relay server. Holds the shared state and binds an axum router.
+pub struct RelayServer {
+    state: SharedState,
+}
+
+impl RelayServer {
+    /// Construct from environment configuration.
+    #[must_use]
+    pub fn from_env() -> Self {
+        Self {
+            state: SharedState::from_env(),
+        }
+    }
+
+    /// Construct from an explicit [`SharedState`] (tests).
+    #[must_use]
+    pub fn with_state(state: SharedState) -> Self {
+        Self { state }
+    }
+
+    /// Borrow the shared state (tests / external stale-task wiring).
+    #[must_use]
+    pub fn state(&self) -> &SharedState {
+        &self.state
+    }
+
+    /// Build the axum router: a single GET `/` WebSocket upgrade route.
+    pub fn router(&self) -> Router {
+        Router::new()
+            .route("/", get(ws_upgrade))
+            .with_state(self.state.clone())
+    }
+
+    /// Spawn the periodic stale-check sweep (30 s). Returns the join handle.
+    /// On each tick it runs `check_stale_daemons` under the lock, collects
+    /// presence actions for newly-offline daemons and `recentFrames` purges for
+    /// evicted daemons, then delivers presence outside the lock.
+    #[must_use]
+    pub fn spawn_stale_check(&self) -> tokio::task::JoinHandle<()> {
+        let state = self.state.clone();
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(Duration::from_millis(STALE_CHECK_INTERVAL_MS));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                let actions = stale_sweep(&state);
+                deliver_actions(&state, actions).await;
+            }
+        })
+    }
+
+    /// Bind a TCP listener and serve until the process exits. Convenience entry
+    /// point for a `tp relay` binary (not used by the integration tests, which
+    /// drive `router()` over a loopback listener directly).
+    ///
+    /// # Errors
+    ///
+    /// Returns any bind or serve I/O error.
+    pub async fn serve(self, addr: std::net::SocketAddr) -> std::io::Result<()> {
+        let listener = TcpListener::bind(addr).await?;
+        // Detach the stale-check task: it runs for the lifetime of `serve`, which
+        // never returns until the process exits, so its handle is intentionally
+        // dropped here (the task is cancelled when the runtime shuts down).
+        let _stale = self.spawn_stale_check();
+        axum::serve(listener, self.router()).await
+    }
+}
+
+/// Run one stale-check sweep synchronously under the lock, returning presence
+/// actions for newly-offline daemons. Evicted daemons have their recent-frame
+/// cache purged inside the same critical section. No `.await` inside.
+fn stale_sweep(state: &SharedState) -> Vec<Action> {
+    // LOCK: synchronous critical section — no `.await` between lock() and drop.
+    let mut core = state.core.lock().expect("relay core mutex poisoned");
+    let now = now_ms();
+    let result =
+        core.registry
+            .check_stale_daemons(now, state.stale_timeout_ms, state.offline_evict_ms);
+    let mut actions = Vec::new();
+    for daemon_id in &result.newly_offline {
+        actions.extend(presence_actions(&core, daemon_id));
+    }
+    for daemon_id in &result.evicted {
+        core.recent.purge_daemon(daemon_id);
+    }
+    actions
+    // guard dropped here
+}
+
+/// axum WebSocket upgrade handler. Hands the upgraded socket to
+/// [`connection_loop`].
+async fn ws_upgrade(ws: WebSocketUpgrade, State(state): State<SharedState>) -> Response {
+    // Bound the transport too: tungstenite rejects giant (possibly fragmented)
+    // frames before they fully buffer, so the application-level guard in
+    // `handle_inbound` is a defence-in-depth backstop rather than the only line.
+    // We size the transport ceiling slightly above the app limit so the app
+    // guard (with its `relay.err FRAME_TOO_LARGE` + 1009 close) is what fires for
+    // a normal oversize, while the transport only kills the pathological case.
+    let max = state.max_frame_size;
+    let ws = ws
+        .max_message_size(max.saturating_mul(2))
+        .max_frame_size(max.saturating_mul(2));
+    ws.on_upgrade(move |socket| connection_loop(socket, state))
+}
+
+/// Drive one upgraded WebSocket: register the outbox, spawn the write task, run
+/// the read loop with auth + idle timers, and tear down on exit.
+async fn connection_loop(socket: WebSocket, state: SharedState) {
+    let conn_id = state.alloc_conn_id();
+    let (mut ws_tx, mut ws_rx) = socket.split();
+    let (out_tx, mut out_rx) = mpsc::channel::<RelayServerMessage>(state.outbox_cap);
+    // Out-of-band close channel: the backpressure path (and our own teardown)
+    // pushes `(code, reason)` here; the write task emits the WS Close frame. A
+    // clone lives in the ConnHandle so `close_conn` can force-close a slow
+    // consumer whose read loop is idle.
+    let (close_tx, mut close_rx) = mpsc::channel::<(u16, String)>(4);
+
+    // Register the conn handle + outbox sender.
+    {
+        // LOCK: synchronous — insert the conn handle. No `.await` inside.
+        let mut core = state.core.lock().expect("relay core mutex poisoned");
+        let rate = core.rate_per_client;
+        core.conns
+            .insert(conn_id, ConnHandle::new(out_tx, close_tx.clone(), rate));
+        // guard dropped here
+    }
+
+    // Write task: drain the outbox into the socket as plain-text JSON. A control
+    // `Close` directive arrives on `close_rx` and is emitted before teardown.
+    let write_task = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                // `biased`: a pending close directive ALWAYS wins over an
+                // out_rx-closed break. Teardown drops the ConnHandle (closing
+                // out_rx) and THEN sends the close on close_rx; without bias the
+                // select! would pseudo-randomly take the out_rx==None arm and
+                // silently drop the intended close code (1008/1009/1013). Bias +
+                // close-first makes close-code delivery deterministic, matching
+                // the TS `ws.close(code, reason)` guarantee.
+                biased;
+                maybe_close = close_rx.recv() => {
+                    if let Some((code, reason)) = maybe_close {
+                        let _ = ws_tx
+                            .send(Message::Close(Some(axum::extract::ws::CloseFrame {
+                                code,
+                                reason: reason.into(),
+                            })))
+                            .await;
+                    }
+                    break;
+                }
+                maybe_msg = out_rx.recv() => {
+                    match maybe_msg {
+                        Some(msg) => {
+                            let json = serde_json::to_string(&msg)
+                                .unwrap_or_else(|_| "{\"t\":\"relay.err\",\"e\":\"ENCODE\"}".into());
+                            if ws_tx.send(Message::Text(json)).await.is_err() {
+                                break;
+                            }
+                        }
+                        None => break,
+                    }
+                }
+            }
+        }
+    });
+
+    // Auth deadline + idle interval.
+    let auth_deadline = tokio::time::sleep(Duration::from_millis(AUTH_TIMEOUT_MS));
+    tokio::pin!(auth_deadline);
+    let mut idle = tokio::time::interval(Duration::from_secs(WS_IDLE_TIMEOUT_S));
+    idle.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    idle.tick().await; // consume the immediate first tick
+
+    let mut closed_reason: Option<(u16, &'static str)> = None;
+
+    loop {
+        let authed = is_authed(&state, conn_id);
+        tokio::select! {
+            // `biased`: process a ready inbound frame BEFORE the auth-deadline
+            // arm. A client that sends `relay.auth` exactly at the 10 s boundary
+            // would otherwise be pseudo-randomly closed with 1008 even though
+            // its auth frame was deliverable in the same wake — this mirrors the
+            // TS clear-on-auth ordering (the auth message processes and clears
+            // the deadline synchronously). Idle/auth timers only win when no
+            // inbound frame is pending.
+            biased;
+            // Inbound frame.
+            maybe_frame = ws_rx.next() => {
+                let Some(frame) = maybe_frame else { break };
+                let Ok(frame) = frame else { break };
+                match frame {
+                    Message::Text(text) => {
+                        // Reset the idle deadline only on a genuine relay
+                        // protocol message — NOT on transport-level Ping/Pong or
+                        // junk Binary frames. A peer emitting only WS keepalive
+                        // pings must still hit the 90 s idle close (TS ties the
+                        // liveness reset to real relay.* traffic, daemon pings at
+                        // ~30 s). Reset before dispatch so a slow handler doesn't
+                        // shrink the window.
+                        idle.reset();
+                        if let Some((code, reason)) = handle_inbound(&state, conn_id, &text).await {
+                            closed_reason = Some((code, reason));
+                            break;
+                        }
+                    }
+                    Message::Close(_) => break,
+                    // Binary frames are ignored (the relay WS is plain-text JSON
+                    // only); WS-level Ping/Pong keepalive is handled by the
+                    // transport and does NOT reset the idle deadline.
+                    Message::Binary(_) | Message::Ping(_) | Message::Pong(_) => {}
+                }
+            }
+            // Auth timeout — only fires while still unauthenticated.
+            () = &mut auth_deadline, if !authed => {
+                closed_reason = Some((1008, "Auth timeout"));
+                break;
+            }
+            // Idle timeout — no inbound relay frame within the window.
+            _ = idle.tick() => {
+                closed_reason = Some((1008, "Idle timeout"));
+                break;
+            }
+        }
+    }
+
+    // Issue the close frame FIRST, while this conn's outbox is still registered
+    // (handle_close below drops the ConnHandle → out_tx → out_rx, which would
+    // otherwise race the close in the write task). With the close enqueued
+    // before teardown and the write task's `biased; close_rx`-first select!,
+    // the close code (1008/1009/1013) is delivered deterministically.
+    if let Some((code, reason)) = closed_reason {
+        let _ = close_tx.send((code, reason.to_string())).await;
+    }
+    drop(close_tx);
+
+    // Tear down: mark offline / release attached, then broadcast presence.
+    let presence = {
+        // LOCK: synchronous teardown. No `.await` inside.
+        let mut core = state.core.lock().expect("relay core mutex poisoned");
+        let daemon = handle_close(&mut core, conn_id, now_ms());
+        daemon.map(|d| presence_actions(&core, &d))
+        // guard dropped here
+    };
+    if let Some(actions) = presence {
+        deliver_actions(&state, actions).await;
+    }
+
+    let _ = write_task.await;
+}
+
+/// Cheap authed-check (separate short lock). Synchronous; no `.await`.
+fn is_authed(state: &SharedState, conn_id: ConnId) -> bool {
+    // LOCK: synchronous read. No `.await` inside.
+    let core = state.core.lock().expect("relay core mutex poisoned");
+    core.conns.get(&conn_id).is_some_and(|h| h.auth.is_some())
+    // guard dropped here
+}
+
+/// Handle one inbound text frame. Returns `Some((code, reason))` when the
+/// connection must be closed (backpressure 1013), else `None`.
+///
+/// The flow mirrors `relay-server.ts:660-757`: parse → (authed) 2-layer rate
+/// limit (ping-exempt) → dispatch under the lock → deliver outside the lock.
+async fn handle_inbound(
+    state: &SharedState,
+    conn_id: ConnId,
+    text: &str,
+) -> Option<(u16, &'static str)> {
+    // Max-frame-size guard — checked BEFORE any parse/rate/auth work so an
+    // oversized frame can never amplify CPU/memory (10k-conn capacity bar). The
+    // String is already materialized by the transport, but we reject it before
+    // the far costlier `serde_json::Value` allocation. Mirrors the TS reference
+    // (`relay-server.ts:633-647`): count `oversizedDrops`, send `relay.err
+    // FRAME_TOO_LARGE`, close 1009. `text.len()` is the UTF-8 byte length, which
+    // matches `Buffer.byteLength(raw)` for a JSON text frame.
+    let size = text.len();
+    if size > state.max_frame_size {
+        OVERSIZED_DROPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        deliver_actions(
+            state,
+            vec![Action::Send(
+                conn_id,
+                RelayServerMessage::Err(RelayErr {
+                    e: "FRAME_TOO_LARGE".to_string(),
+                    m: Some(format!(
+                        "Frame size {size} exceeds limit of {} bytes",
+                        state.max_frame_size
+                    )),
+                }),
+            )],
+        )
+        .await;
+        return Some((1009, "Frame too large"));
+    }
+
+    // Parse JSON; malformed → relay.err PARSE_ERROR (relay-server.ts:656).
+    let Ok(value) = serde_json::from_str::<Value>(text) else {
+        deliver_actions(
+            state,
+            vec![Action::Send(
+                conn_id,
+                RelayServerMessage::Err(RelayErr {
+                    e: "PARSE_ERROR".to_string(),
+                    m: Some("Invalid JSON".to_string()),
+                }),
+            )],
+        )
+        .await;
+        return None;
+    };
+
+    // Zero-trust validation: unknown/malformed → UNKNOWN_TYPE (relay-server.ts:676).
+    let Some(msg) = parse_relay_client_message(&value) else {
+        let t = value
+            .get("t")
+            .and_then(Value::as_str)
+            .unwrap_or("(none)")
+            .to_string();
+        deliver_actions(
+            state,
+            vec![Action::Send(
+                conn_id,
+                RelayServerMessage::Err(RelayErr {
+                    e: "UNKNOWN_TYPE".to_string(),
+                    m: Some(format!("Unknown or malformed message type: {t}")),
+                }),
+            )],
+        )
+        .await;
+        return None;
+    };
+
+    // Dispatch synchronously under the lock; collect actions; release lock.
+    let outcome = {
+        // LOCK: synchronous dispatch — no `.await` between lock() and drop.
+        let mut core = state.core.lock().expect("relay core mutex poisoned");
+        dispatch_locked(&mut core, &state.signer, conn_id, &msg)
+        // guard dropped here
+    };
+
+    // Deliver the produced actions outside the lock.
+    deliver_actions(state, outcome.actions).await;
+    outcome.close
+}
+
+/// Output of a single synchronous dispatch: the actions to deliver and an
+/// optional close directive (backpressure is signalled later, in delivery).
+struct DispatchOutcome {
+    actions: Vec<Action>,
+    close: Option<(u16, &'static str)>,
+}
+
+impl DispatchOutcome {
+    fn actions(actions: Vec<Action>) -> Self {
+        Self {
+            actions,
+            close: None,
+        }
+    }
+
+    fn empty() -> Self {
+        Self {
+            actions: Vec::new(),
+            close: None,
+        }
+    }
+}
+
+/// The synchronous routing core. Runs entirely under the `RelayCore` lock and
+/// contains **no `.await`** — it produces a `DispatchOutcome` of owned actions.
+///
+/// 2-layer rate limit: applied to every authed message **except** `relay.ping`.
+/// On exceed the frame is dropped with `relay.err RATE_LIMITED` (the socket is
+/// NOT closed — that is backpressure, a different path).
+fn dispatch_locked(
+    core: &mut RelayCore,
+    signer: &crate::resume_token::ResumeTokenSigner,
+    conn_id: ConnId,
+    msg: &RelayClientMessage,
+) -> DispatchOutcome {
+    let now = now_ms();
+    let authed = core.conns.get(&conn_id).is_some_and(|h| h.auth.is_some());
+
+    // 2-layer GCRA rate limit (authed clients, non-ping). Mirrors
+    // relay-server.ts:684-705.
+    if authed && !matches!(msg, RelayClientMessage::Ping { .. }) {
+        if let Some(handle) = core.conns.get(&conn_id) {
+            let client_ok = handle.client_limiter.check();
+            let group_ok = handle.group_limiter.as_ref().is_none_or(|g| g.check());
+            if !client_ok || !group_ok {
+                return DispatchOutcome::actions(vec![Action::Send(
+                    conn_id,
+                    RelayServerMessage::Err(RelayErr {
+                        e: "RATE_LIMITED".to_string(),
+                        m: Some("Too many messages. Slow down.".to_string()),
+                    }),
+                )]);
+            }
+        }
+    }
+
+    match msg {
+        // ── Handshake ────────────────────────────────────────────────────────
+        RelayClientMessage::Auth {
+            role,
+            daemon_id,
+            token,
+            frontend_id,
+            ..
+        } => {
+            let is_daemon = *role == Role::Daemon;
+            let reply = handshake::handle_auth(
+                daemon_id,
+                token,
+                is_daemon,
+                frontend_id.as_deref(),
+                now,
+                &mut core.registry,
+                signer,
+            );
+            finish_auth(core, conn_id, reply, *role, daemon_id, frontend_id.clone())
+        }
+        RelayClientMessage::AuthResume { token, .. } => {
+            // Verify the token to recover role/daemon_id/frontend_id, then run
+            // the handshake handler (which re-verifies + mutates the registry).
+            let payload = signer.verify(token, now);
+            let reply = handshake::handle_auth_resume(token, now, &mut core.registry, signer);
+            match (payload, &reply) {
+                (Some(p), RelayServerMessage::AuthOk(_)) => {
+                    let (role, daemon_id, fid) = resume_identity(&p);
+                    finish_auth(core, conn_id, reply, role, &daemon_id, fid)
+                }
+                _ => DispatchOutcome::actions(vec![Action::Send(conn_id, reply)]),
+            }
+        }
+        RelayClientMessage::Register {
+            daemon_id,
+            proof,
+            token,
+            ..
+        } => {
+            let reply =
+                handshake::handle_register(daemon_id, token, proof, now, &mut core.registry);
+            DispatchOutcome::actions(vec![Action::Send(conn_id, reply)])
+        }
+
+        // ── Routing (requires auth) ──────────────────────────────────────────
+        RelayClientMessage::Publish { sid, ct, seq } => {
+            let Some(client) = authed_state(core, conn_id) else {
+                return not_authenticated(conn_id, Some("Send relay.auth first"));
+            };
+            DispatchOutcome::actions(route_publish(core, conn_id, &client, sid, ct, *seq, now))
+        }
+        RelayClientMessage::KeyExchange { ct, .. } => {
+            let Some(client) = authed_state(core, conn_id) else {
+                return not_authenticated(conn_id, Some("Send relay.auth first"));
+            };
+            DispatchOutcome::actions(route_key_exchange(core, conn_id, &client, ct))
+        }
+        RelayClientMessage::Subscribe { sid, after } => {
+            if authed_state(core, conn_id).is_none() {
+                return not_authenticated(conn_id, None);
+            }
+            DispatchOutcome::actions(route_subscribe(core, conn_id, sid, *after))
+        }
+        RelayClientMessage::Unsubscribe { sid } => {
+            if authed_state(core, conn_id).is_some() {
+                route_unsubscribe(core, conn_id, sid);
+            }
+            DispatchOutcome::empty()
+        }
+        RelayClientMessage::Ping { ts } => {
+            // Unauthenticated ping: no pong, no rate check (relay-server.ts:1331).
+            match authed_state(core, conn_id) {
+                Some(client) => {
+                    DispatchOutcome::actions(route_ping(core, conn_id, &client, *ts, now))
+                }
+                None => DispatchOutcome::empty(),
+            }
+        }
+
+        // ── Push (Step 5 — not in the WS hot path) ───────────────────────────
+        RelayClientMessage::Push { .. } | RelayClientMessage::PushRegister { .. } => {
+            DispatchOutcome::empty()
+        }
+    }
+}
+
+/// Finalize a successful auth: on `AuthOk`, register the conn into its group and
+/// emit the reply + a presence broadcast. On `AuthErr`, just emit the reply.
+fn finish_auth(
+    core: &mut RelayCore,
+    conn_id: ConnId,
+    reply: RelayServerMessage,
+    role: Role,
+    daemon_id: &str,
+    frontend_id: Option<String>,
+) -> DispatchOutcome {
+    if !matches!(reply, RelayServerMessage::AuthOk(_)) {
+        return DispatchOutcome::actions(vec![Action::Send(conn_id, reply)]);
+    }
+    let auth = AuthState {
+        role,
+        daemon_id: daemon_id.to_string(),
+        frontend_id,
+        subscriptions: std::collections::HashSet::new(),
+    };
+    register_authed_conn(core, conn_id, auth);
+    let mut actions = vec![Action::Send(conn_id, reply)];
+    actions.extend(presence_actions(core, daemon_id));
+    DispatchOutcome::actions(actions)
+}
+
+/// Extract `(role, daemon_id, frontend_id)` from a verified resume payload.
+fn resume_identity(payload: &ResumePayload) -> (Role, String, Option<String>) {
+    match payload {
+        ResumePayload::Daemon { daemon_id, .. } => (Role::Daemon, daemon_id.clone(), None),
+        ResumePayload::Frontend {
+            daemon_id,
+            frontend_id,
+            ..
+        } => (Role::Frontend, daemon_id.clone(), Some(frontend_id.clone())),
+    }
+}
+
+/// Clone the auth state for a conn, if authenticated.
+fn authed_state(core: &RelayCore, conn_id: ConnId) -> Option<AuthState> {
+    core.conns.get(&conn_id).and_then(|h| h.auth.clone())
+}
+
+/// `NOT_AUTHENTICATED` reply for a routing message before auth.
+///
+/// Mirrors the TS reference: handlePublish (`relay-server.ts:1099-1103`) and
+/// handleKeyExchange (`1044-1048`) reply with `relay.err { e:"NOT_AUTHENTICATED",
+/// m:"Send relay.auth first" }`; handleSubscribe (`1173-1176`) replies with
+/// `relay.err { e:"NOT_AUTHENTICATED" }` (no `m`). All three are `t:"relay.err"`
+/// — the generic error channel — NOT `relay.auth.err` (the handshake-failure
+/// channel). `msg` is `Some("Send relay.auth first")` for pub/kx and `None` for
+/// sub to stay byte-exact with each arm.
+fn not_authenticated(conn_id: ConnId, msg: Option<&'static str>) -> DispatchOutcome {
+    DispatchOutcome::actions(vec![Action::Send(
+        conn_id,
+        RelayServerMessage::Err(RelayErr {
+            e: "NOT_AUTHENTICATED".to_string(),
+            m: msg.map(str::to_string),
+        }),
+    )])
+}
+
+/// Deliver routing actions to their target outboxes. `Send` uses `try_send`;
+/// on `Full` the target is marked for a 1013 backpressure close (a `Close`
+/// directive is delivered to its write task). `Close` directives forward to the
+/// target's close channel. This function is `async` ONLY because closing a conn
+/// awaits the write-task close channel — it never holds the `RelayCore` lock.
+async fn deliver_actions(state: &SharedState, actions: Vec<Action>) {
+    // First pass (synchronous): try_send each message; collect conns needing a
+    // backpressure close. We grab+release the lock per action — never across an
+    // await.
+    let mut backpressured: Vec<ConnId> = Vec::new();
+    for action in actions {
+        match action {
+            Action::Send(target, msg) => {
+                // LOCK: synchronous — clone the sender, then drop the guard
+                // BEFORE try_send (try_send itself is non-blocking + lock-free).
+                let sender = {
+                    let core = state.core.lock().expect("relay core mutex poisoned");
+                    core.conns.get(&target).map(|h| h.outbox.clone())
+                    // guard dropped here
+                };
+                if let Some(sender) = sender {
+                    if let Err(err) = sender.try_send(msg) {
+                        if matches!(err, mpsc::error::TrySendError::Full(_)) {
+                            backpressured.push(target);
+                        }
+                        // Closed → conn already gone; drop silently.
+                    }
+                }
+            }
+            Action::Close(target, code, reason) => {
+                close_conn(state, target, code, reason).await;
+            }
+        }
+    }
+    // Second pass: close every backpressured slow consumer with 1013.
+    for target in backpressured {
+        close_conn(state, target, 1013, "Backpressure").await;
+    }
+}
+
+/// Tear a connection down out-of-band (backpressure / forced close). Grabs the
+/// conn's `close_tx` BEFORE removing the handle, runs `handle_close` for
+/// presence/attached bookkeeping, then signals the write task to emit the WS
+/// Close frame `(code, reason)`. Removing the handle also drops the outbox
+/// sender, which the write task observes via `out_rx.recv() == None`.
+async fn close_conn(state: &SharedState, conn_id: ConnId, close_code: u16, reason: &'static str) {
+    let (close_tx, presence) = {
+        // LOCK: synchronous teardown — grab close_tx, run handle_close, compute
+        // presence. No `.await` inside.
+        let mut core = state.core.lock().expect("relay core mutex poisoned");
+        let close_tx = core.conns.get(&conn_id).map(|h| h.close_tx.clone());
+        let daemon = handle_close(&mut core, conn_id, now_ms());
+        let presence = daemon.map(|d| presence_actions(&core, &d));
+        (close_tx, presence)
+        // guard dropped here
+    };
+    // Signal the write task to emit a Close frame, then terminate.
+    if let Some(close_tx) = close_tx {
+        let _ = close_tx.try_send((close_code, reason.to_string()));
+    }
+    if let Some(actions) = presence {
+        // Recurse once: presence sends never themselves backpressure-close the
+        // same conn (it is already removed), so this terminates.
+        Box::pin(deliver_actions(state, actions)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::messages::RelayServerMessage;
+    use crate::resume_token::ResumeTokenSigner;
+    use crate::ring::RecentFrames;
+    use crate::server::{ConnHandle, RelayCore};
+
+    #[test]
+    fn auth_timeout_constant_matches_ts() {
+        assert_eq!(AUTH_TIMEOUT_MS, 10_000);
+    }
+
+    #[test]
+    fn parse_rejects_unknown_type() {
+        // Sanity: the zero-trust boundary the conn loop relies on.
+        let v: Value = serde_json::from_str(r#"{"t":"relay.bogus"}"#).unwrap();
+        assert!(parse_relay_client_message(&v).is_none());
+    }
+
+    // ── Test helpers ─────────────────────────────────────────────────────────
+
+    fn test_core() -> RelayCore {
+        RelayCore::new(RecentFrames::with_cache_size(10), 500, 5000)
+    }
+
+    fn insert_unauthed(core: &mut RelayCore, id: ConnId) {
+        let (tx, rx) = mpsc::channel(64);
+        let (close_tx, close_rx) = mpsc::channel(4);
+        core.conns.insert(id, ConnHandle::new(tx, close_tx, 500));
+        std::mem::forget(rx);
+        std::mem::forget(close_rx);
+    }
+
+    fn test_signer() -> ResumeTokenSigner {
+        ResumeTokenSigner::new(
+            Some(b"test-secret-test-secret-test-secret!"),
+            Some(3_600_000),
+        )
+    }
+
+    /// Serialize the single `Send` action a dispatch produced.
+    fn sole_send_json(outcome: &DispatchOutcome) -> serde_json::Value {
+        assert_eq!(outcome.actions.len(), 1, "expected exactly one action");
+        match &outcome.actions[0] {
+            Action::Send(_, msg) => serde_json::to_value(msg).unwrap(),
+            other => panic!("expected Send, got {other:?}"),
+        }
+    }
+
+    // ── Finding 1: NOT_AUTHENTICATED uses relay.err (not relay.auth.err) ──────
+    //
+    // pub/kx carry m:"Send relay.auth first"; sub carries no m. Mirrors
+    // relay-server.ts:1099-1103 (pub), 1044-1048 (kx), 1173-1176 (sub).
+
+    #[test]
+    fn unauthed_publish_replies_relay_err_with_message() {
+        let mut core = test_core();
+        insert_unauthed(&mut core, 7);
+        let msg = RelayClientMessage::Publish {
+            sid: "s".into(),
+            ct: "c".into(),
+            seq: 1,
+        };
+        let out = dispatch_locked(&mut core, &test_signer(), 7, &msg);
+        let json = sole_send_json(&out);
+        assert_eq!(json["t"], "relay.err");
+        assert_eq!(json["e"], "NOT_AUTHENTICATED");
+        assert_eq!(json["m"], "Send relay.auth first");
+    }
+
+    #[test]
+    fn unauthed_key_exchange_replies_relay_err_with_message() {
+        let mut core = test_core();
+        insert_unauthed(&mut core, 8);
+        let msg = RelayClientMessage::KeyExchange {
+            ct: "c".into(),
+            role: Role::Frontend,
+        };
+        let out = dispatch_locked(&mut core, &test_signer(), 8, &msg);
+        let json = sole_send_json(&out);
+        assert_eq!(json["t"], "relay.err");
+        assert_eq!(json["e"], "NOT_AUTHENTICATED");
+        assert_eq!(json["m"], "Send relay.auth first");
+    }
+
+    #[test]
+    fn unauthed_subscribe_replies_relay_err_without_message() {
+        let mut core = test_core();
+        insert_unauthed(&mut core, 9);
+        let msg = RelayClientMessage::Subscribe {
+            sid: "s".into(),
+            after: None,
+        };
+        let out = dispatch_locked(&mut core, &test_signer(), 9, &msg);
+        let json = sole_send_json(&out);
+        assert_eq!(json["t"], "relay.err");
+        assert_eq!(json["e"], "NOT_AUTHENTICATED");
+        // TS handleSubscribe omits `m`; RelayErr skips serializing None.
+        assert!(json.get("m").is_none(), "sub arm must not carry m: {json}");
+    }
+
+    #[test]
+    fn not_authenticated_helper_frame_type_is_relay_err() {
+        // Direct check of the wire frame type: must NOT be relay.auth.err.
+        let with = not_authenticated(1, Some("Send relay.auth first"));
+        assert_eq!(sole_send_json(&with)["t"], "relay.err");
+        let without = not_authenticated(1, None);
+        let j = sole_send_json(&without);
+        assert_eq!(j["t"], "relay.err");
+        assert!(j.get("m").is_none());
+    }
+
+    // ── Finding 2: max-frame-size guard config ───────────────────────────────
+
+    #[test]
+    fn default_max_frame_size_matches_ts() {
+        // DEFAULT_MAX_FRAME_SIZE = 1 MiB (relay-server.ts:70).
+        assert_eq!(DEFAULT_MAX_FRAME_SIZE, 1024 * 1024);
+    }
+
+    #[test]
+    fn frame_too_large_error_frame_matches_ts_shape() {
+        // The exact frame handle_inbound emits on oversize. Mirrors
+        // relay-server.ts:640-644 { t:"relay.err", e:"FRAME_TOO_LARGE", m:... }.
+        let msg = RelayServerMessage::Err(crate::messages::RelayErr {
+            e: "FRAME_TOO_LARGE".to_string(),
+            m: Some("Frame size 2 exceeds limit of 1 bytes".to_string()),
+        });
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["t"], "relay.err");
+        assert_eq!(json["e"], "FRAME_TOO_LARGE");
+        assert_eq!(json["m"], "Frame size 2 exceeds limit of 1 bytes");
+    }
+
+    #[tokio::test]
+    async fn oversized_frame_increments_counter_and_closes_1009() {
+        // End-to-end through handle_inbound with a tiny cap: an oversized text
+        // frame is dropped (counter++), and a 1009 close directive is returned.
+        let state = SharedState::from_env_with_max_frame_size(1);
+        // Register a conn so deliver_actions has an outbox.
+        {
+            let mut core = state.core.lock().unwrap();
+            insert_unauthed(&mut core, 1);
+        }
+        let before = oversized_drops();
+        let close = handle_inbound(&state, 1, "{\"t\":\"relay.ping\"}").await;
+        assert_eq!(close, Some((1009, "Frame too large")));
+        assert_eq!(oversized_drops(), before + 1);
+    }
+
+    #[tokio::test]
+    async fn within_limit_frame_is_not_dropped() {
+        let state = SharedState::from_env_with_max_frame_size(1024);
+        {
+            let mut core = state.core.lock().unwrap();
+            insert_unauthed(&mut core, 2);
+        }
+        // A valid (unauthenticated) ping is well under the cap, so the size
+        // guard does not fire — no close directive is returned. (We assert on
+        // the close directive only: `oversized_drops()` is a process-global
+        // counter shared with the parallel oversize test, so a delta check on it
+        // would race.)
+        let close = handle_inbound(&state, 2, "{\"t\":\"relay.ping\"}").await;
+        assert_eq!(close, None);
+    }
+
+    // ── Finding 3: relay.hello / version-mismatch counter is not on hot path ──
+
+    #[test]
+    fn relay_hello_is_not_parseable_so_counter_stays_zero() {
+        // The wire parser cannot produce a relay.hello message — it is rejected
+        // as UNKNOWN_TYPE one layer earlier, so VERSION_MISMATCH_COUNT can never
+        // be incremented by a live socket. Guards the doc claim in handshake.rs.
+        let v: Value = serde_json::from_str(
+            r#"{"t":"relay.hello","role":"daemon","daemonId":"d","token":"t","v":1}"#,
+        )
+        .unwrap();
+        assert!(
+            parse_relay_client_message(&v).is_none(),
+            "relay.hello must not parse into a RelayClientMessage"
+        );
+        // And there is no Hello variant to dispatch on. (Compile-time: the match
+        // in dispatch_locked is exhaustive without a Hello arm.)
+    }
+}

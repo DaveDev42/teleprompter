@@ -1,10 +1,13 @@
 //! `tp-relay` — Stage 1 relay server crate (ADR-0003, Phase 4 backend Rust
 //! migration).
 //!
+//! **Step 4 scope:** the async WebSocket hot path — axum upgrade route, the
+//! per-connection actor (`conn`), and the central no-lock-across-await routing
+//! core (`server`). Built on the Step 3 pure logic below.
+//!
 //! **Step 3 scope:** pure relay logic — resume-token issue/verify, connection
 //! registry (DaemonState + registrations), and handshake handlers
-//! (register/auth/auth.resume/hello).  NO axum / tokio / tungstenite yet
-//! (those arrive at Step 4).
+//! (register/auth/auth.resume/hello).
 //!
 //! **Step 2 scope (this file + `messages`):** pure Relay → Client serde core —
 //! `RelayServerMessage` discriminated union, manual parse boundary, and
@@ -18,7 +21,11 @@
 //! ├── messages.rs     — RelayServerMessage enum + parse_relay_server_message
 //! ├── resume_token.rs — ResumeTokenSigner (BLAKE2b keyed-hash, binary 5-part payload)
 //! ├── registry.rs     — DaemonState + Registration + Registry mutation helpers
-//! └── handshake.rs    — handle_register/handle_auth/handle_auth_resume/handle_hello
+//! ├── handshake.rs    — handle_register/handle_auth/handle_auth_resume/handle_hello
+//! ├── rate.rs         — GCRA per-client + per-daemon-group limiters
+//! ├── ring.rs         — RecentFrames (VecDeque + Arc<Frame> replay cache)
+//! ├── server.rs       — RelayCore shared state + synchronous routing decisions
+//! └── conn.rs         — axum WS upgrade + per-conn actor + stale-check task
 //! ```
 //!
 //! ## Framing
@@ -69,12 +76,17 @@
 use serde_json::{Map, Value};
 use tp_core::codec::{self, DecodedFrame};
 
+pub mod conn;
 pub mod handshake;
 pub mod messages;
 pub mod rate;
 pub mod registry;
 pub mod resume_token;
 pub mod ring;
+pub mod server;
+
+pub use conn::RelayServer;
+pub use server::{SharedState, STALE_CHECK_INTERVAL_MS};
 
 pub use messages::{
     parse_relay_server_message, AuthErr, AuthOk, Frame, KeyExchangeFrame, Notification, Pong,

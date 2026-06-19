@@ -24,6 +24,9 @@ base64 = "0.22"
 rand_core = { version = "0.6", features = ["getrandom"] }
 # IndexMap for insertion-ordered session set (BTreeSet loses insertion order).
 indexmap = "2"
+# GCRA rate limiter (replaces the TS fixed-window — no 2x burst at the window
+# boundary). Per-client + per-daemon-group direct limiters.
+governor = "0.10"
 # Atomic version-mismatch counter in handshake.rs.
 # (std::sync::atomic suffices; no extra dep needed)
 

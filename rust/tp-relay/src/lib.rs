@@ -71,8 +71,10 @@ use tp_core::codec::{self, DecodedFrame};
 
 pub mod handshake;
 pub mod messages;
+pub mod rate;
 pub mod registry;
 pub mod resume_token;
+pub mod ring;
 
 pub use messages::{
     parse_relay_server_message, AuthErr, AuthOk, Frame, KeyExchangeFrame, Notification, Pong,

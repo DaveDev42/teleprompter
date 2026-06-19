@@ -576,9 +576,12 @@ mod tests {
     fn hello_v1_9_rejected() {
         let mut r = seeded_registry("d1", "tok");
         let s = test_signer();
-        let before = version_mismatch_count();
+        // Only assert the response type here; the counter increment is already
+        // verified by hello_v1_rejected_increments_counter.  Checking
+        // version_mismatch_count() == before+1 here would be a race when both
+        // tests run in parallel (the shared AtomicU64 can be incremented by
+        // the other test between load and assert).
         let msg = handle_hello("d1", "tok", None, true, None, 1.9, 0, &mut r, &s);
         assert!(matches!(msg, RelayServerMessage::AuthErr(_)));
-        assert_eq!(version_mismatch_count(), before + 1);
     }
 }

@@ -55,17 +55,6 @@ pub const AUTH_TIMEOUT_MS: u64 = 10_000;
 /// `.claude/rules/relay-capacity.md`. Override via `TP_RELAY_MAX_FRAME_SIZE`.
 pub const DEFAULT_MAX_FRAME_SIZE: usize = 1024 * 1024;
 
-/// Count of inbound frames dropped for exceeding `max_frame_size`. Exported for
-/// the Step-6 `/metrics` endpoint (`oversizedDrops`). Mirrors
-/// `metrics.oversizedDrops` (`relay-server.ts:180/636`).
-pub static OVERSIZED_DROPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-/// Read the current `oversizedDrops` counter (since process start).
-#[must_use]
-pub fn oversized_drops() -> u64 {
-    OVERSIZED_DROPS.load(std::sync::atomic::Ordering::Relaxed)
-}
-
 /// Resolve the max inbound frame size from `TP_RELAY_MAX_FRAME_SIZE`, falling
 /// back to [`DEFAULT_MAX_FRAME_SIZE`]. Mirrors `relay-server.ts:312-315`.
 #[must_use]
@@ -102,10 +91,15 @@ impl RelayServer {
         &self.state
     }
 
-    /// Build the axum router: a single GET `/` WebSocket upgrade route.
+    /// Build the axum router: the GET `/` WebSocket upgrade route plus the
+    /// Step-6 HTTP surface (`/health`, `/metrics`, `/admin`). All four routes
+    /// share the SAME `Router` + `SharedState` + listener — no new `TcpListener`.
     pub fn router(&self) -> Router {
         Router::new()
             .route("/", get(ws_upgrade))
+            .route("/health", get(crate::http::health))
+            .route("/metrics", get(crate::http::metrics))
+            .route("/admin", get(crate::http::admin))
             .with_state(self.state.clone())
     }
 
@@ -161,6 +155,8 @@ fn stale_sweep(state: &SharedState) -> Vec<Action> {
     }
     for daemon_id in &result.evicted {
         core.recent.purge_daemon(daemon_id);
+        // evictions++ per evicted daemon (relay-server.ts evictDaemon).
+        state.metrics.inc_evictions();
     }
     actions
     // guard dropped here
@@ -292,6 +288,8 @@ async fn connection_loop(socket: WebSocket, state: SharedState) {
             }
             // Auth timeout — only fires while still unauthenticated.
             () = &mut auth_deadline, if !authed => {
+                // authTimeouts++ (relay-server.ts:522).
+                state.metrics.inc_auth_timeouts();
                 closed_reason = Some((1008, "Auth timeout"));
                 break;
             }
@@ -355,7 +353,8 @@ async fn handle_inbound(
     // matches `Buffer.byteLength(raw)` for a JSON text frame.
     let size = text.len();
     if size > state.max_frame_size {
-        OVERSIZED_DROPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // oversizedDrops++ (relay-server.ts:636).
+        state.metrics.inc_oversized_drops();
         deliver_actions(
             state,
             vec![Action::Send(
@@ -372,6 +371,11 @@ async fn handle_inbound(
         .await;
         return Some((1009, "Frame too large"));
     }
+
+    // framesIn++ — count every frame past the oversize guard, BEFORE the JSON
+    // parse (relay-server.ts:648). A subsequent PARSE_ERROR / UNKNOWN_TYPE does
+    // NOT decrement, preserving the `framesIn ≈ framesOut + drops` accounting.
+    state.metrics.inc_frames_in();
 
     // Parse JSON; malformed → relay.err PARSE_ERROR (relay-server.ts:656).
     let Ok(value) = serde_json::from_str::<Value>(text) else {
@@ -396,6 +400,8 @@ async fn handle_inbound(
             .and_then(Value::as_str)
             .unwrap_or("(none)")
             .to_string();
+        // unknownTypeDrops++ (relay-server.ts:675).
+        state.metrics.inc_unknown_type_drops();
         deliver_actions(
             state,
             vec![Action::Send(
@@ -411,10 +417,12 @@ async fn handle_inbound(
     };
 
     // Dispatch synchronously under the lock; collect actions; release lock.
+    // Metrics are an Arc shared outside the RelayCore lock; the rate-limit +
+    // resume counters increment from inside dispatch (no extra lock taken).
     let outcome = {
         // LOCK: synchronous dispatch — no `.await` between lock() and drop.
         let mut core = state.core.lock().expect("relay core mutex poisoned");
-        dispatch_locked(&mut core, &state.signer, conn_id, &msg)
+        dispatch_locked(&mut core, &state.signer, &state.metrics, conn_id, &msg)
         // guard dropped here
     };
 
@@ -455,6 +463,7 @@ impl DispatchOutcome {
 fn dispatch_locked(
     core: &mut RelayCore,
     signer: &crate::resume_token::ResumeTokenSigner,
+    metrics: &crate::metrics::Metrics,
     conn_id: ConnId,
     msg: &RelayClientMessage,
 ) -> DispatchOutcome {
@@ -462,17 +471,34 @@ fn dispatch_locked(
     let authed = core.conns.get(&conn_id).is_some_and(|h| h.auth.is_some());
 
     // 2-layer GCRA rate limit (authed clients, non-ping). Mirrors
-    // relay-server.ts:684-705.
+    // relay-server.ts:684-705. The two layers are SEPARATE counters with
+    // distinct error messages: per-client (`rateLimitedDrops`, "Too many
+    // messages. Slow down.") is checked first, then per-daemon-group
+    // (`daemonRateLimitedDrops`, "Daemon group budget exceeded. Slow down.").
     if authed && !matches!(msg, RelayClientMessage::Ping { .. }) {
         if let Some(handle) = core.conns.get(&conn_id) {
             let client_ok = handle.client_limiter.check();
-            let group_ok = handle.group_limiter.as_ref().is_none_or(|g| g.check());
-            if !client_ok || !group_ok {
+            // Only evaluate the group limiter when the client check passed, so a
+            // single inbound frame consumes at most one GCRA cell per layer (the
+            // TS short-circuits: `if (!checkRateLimit) ... return`).
+            if !client_ok {
+                metrics.inc_rate_limited_drops();
                 return DispatchOutcome::actions(vec![Action::Send(
                     conn_id,
                     RelayServerMessage::Err(RelayErr {
                         e: "RATE_LIMITED".to_string(),
                         m: Some("Too many messages. Slow down.".to_string()),
+                    }),
+                )]);
+            }
+            let group_ok = handle.group_limiter.as_ref().is_none_or(|g| g.check());
+            if !group_ok {
+                metrics.inc_daemon_rate_limited_drops();
+                return DispatchOutcome::actions(vec![Action::Send(
+                    conn_id,
+                    RelayServerMessage::Err(RelayErr {
+                        e: "RATE_LIMITED".to_string(),
+                        m: Some("Daemon group budget exceeded. Slow down.".to_string()),
                     }),
                 )]);
             }
@@ -501,16 +527,26 @@ fn dispatch_locked(
             finish_auth(core, conn_id, reply, *role, daemon_id, frontend_id.clone())
         }
         RelayClientMessage::AuthResume { token, .. } => {
+            // resumesAttempted++ at entry (relay-server.ts:889).
+            metrics.inc_resumes_attempted();
             // Verify the token to recover role/daemon_id/frontend_id, then run
             // the handshake handler (which re-verifies + mutates the registry).
             let payload = signer.verify(token, now);
             let reply = handshake::handle_auth_resume(token, now, &mut core.registry, signer);
             match (payload, &reply) {
                 (Some(p), RelayServerMessage::AuthOk(_)) => {
+                    // resumesAccepted++ on success (relay-server.ts:947).
+                    metrics.inc_resumes_accepted();
                     let (role, daemon_id, fid) = resume_identity(&p);
                     finish_auth(core, conn_id, reply, role, &daemon_id, fid)
                 }
-                _ => DispatchOutcome::actions(vec![Action::Send(conn_id, reply)]),
+                _ => {
+                    // resumesRejected++ — bad token (relay-server.ts:892) OR
+                    // daemon no longer registered (relay-server.ts:911); both TS
+                    // sites collapse to this single fallthrough.
+                    metrics.inc_resumes_rejected();
+                    DispatchOutcome::actions(vec![Action::Send(conn_id, reply)])
+                }
             }
         }
         RelayClientMessage::Register {
@@ -648,11 +684,16 @@ async fn deliver_actions(state: &SharedState, actions: Vec<Action>) {
                     // guard dropped here
                 };
                 if let Some(sender) = sender {
-                    if let Err(err) = sender.try_send(msg) {
-                        if matches!(err, mpsc::error::TrySendError::Full(_)) {
-                            backpressured.push(target);
+                    match sender.try_send(msg) {
+                        Ok(()) => {
+                            // framesOut++ per delivered Send (relay-server.ts:619,
+                            // inside send() after ws.send()).
+                            state.metrics.inc_frames_out();
                         }
-                        // Closed → conn already gone; drop silently.
+                        Err(mpsc::error::TrySendError::Full(_)) => backpressured.push(target),
+                        // Closed → conn already gone; drop silently (NOT counted —
+                        // matches TS, which only counts a successful ws.send()).
+                        Err(mpsc::error::TrySendError::Closed(_)) => {}
                     }
                 }
             }
@@ -663,6 +704,8 @@ async fn deliver_actions(state: &SharedState, actions: Vec<Action>) {
     }
     // Second pass: close every backpressured slow consumer with 1013.
     for target in backpressured {
+        // backpressureDisconnects++ per 1013 close (relay-server.ts:606).
+        state.metrics.inc_backpressure_disconnects();
         close_conn(state, target, 1013, "Backpressure").await;
     }
 }
@@ -735,6 +778,10 @@ mod tests {
         )
     }
 
+    fn test_metrics() -> crate::metrics::Metrics {
+        crate::metrics::Metrics::new()
+    }
+
     /// Serialize the single `Send` action a dispatch produced.
     fn sole_send_json(outcome: &DispatchOutcome) -> serde_json::Value {
         assert_eq!(outcome.actions.len(), 1, "expected exactly one action");
@@ -758,7 +805,7 @@ mod tests {
             ct: "c".into(),
             seq: 1,
         };
-        let out = dispatch_locked(&mut core, &test_signer(), 7, &msg);
+        let out = dispatch_locked(&mut core, &test_signer(), &test_metrics(), 7, &msg);
         let json = sole_send_json(&out);
         assert_eq!(json["t"], "relay.err");
         assert_eq!(json["e"], "NOT_AUTHENTICATED");
@@ -773,7 +820,7 @@ mod tests {
             ct: "c".into(),
             role: Role::Frontend,
         };
-        let out = dispatch_locked(&mut core, &test_signer(), 8, &msg);
+        let out = dispatch_locked(&mut core, &test_signer(), &test_metrics(), 8, &msg);
         let json = sole_send_json(&out);
         assert_eq!(json["t"], "relay.err");
         assert_eq!(json["e"], "NOT_AUTHENTICATED");
@@ -788,7 +835,7 @@ mod tests {
             sid: "s".into(),
             after: None,
         };
-        let out = dispatch_locked(&mut core, &test_signer(), 9, &msg);
+        let out = dispatch_locked(&mut core, &test_signer(), &test_metrics(), 9, &msg);
         let json = sole_send_json(&out);
         assert_eq!(json["t"], "relay.err");
         assert_eq!(json["e"], "NOT_AUTHENTICATED");
@@ -839,10 +886,12 @@ mod tests {
             let mut core = state.core.lock().unwrap();
             insert_unauthed(&mut core, 1);
         }
-        let before = oversized_drops();
+        // The oversize counter now lives on this state's Arc<Metrics> (no longer
+        // a process-global static), so a delta check is deterministic.
+        let before = state.metrics.snapshot().oversized_drops;
         let close = handle_inbound(&state, 1, "{\"t\":\"relay.ping\"}").await;
         assert_eq!(close, Some((1009, "Frame too large")));
-        assert_eq!(oversized_drops(), before + 1);
+        assert_eq!(state.metrics.snapshot().oversized_drops, before + 1);
     }
 
     #[tokio::test]
@@ -853,12 +902,11 @@ mod tests {
             insert_unauthed(&mut core, 2);
         }
         // A valid (unauthenticated) ping is well under the cap, so the size
-        // guard does not fire — no close directive is returned. (We assert on
-        // the close directive only: `oversized_drops()` is a process-global
-        // counter shared with the parallel oversize test, so a delta check on it
-        // would race.)
+        // guard does not fire — no close directive, and the oversize counter on
+        // this state's own Arc<Metrics> stays at zero.
         let close = handle_inbound(&state, 2, "{\"t\":\"relay.ping\"}").await;
         assert_eq!(close, None);
+        assert_eq!(state.metrics.snapshot().oversized_drops, 0);
     }
 
     // ── Finding 3: relay.hello / version-mismatch counter is not on hot path ──

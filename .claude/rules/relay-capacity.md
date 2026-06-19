@@ -7,6 +7,18 @@ paths:
 
 **Always design and tune for ~10k concurrent connections (daemon + app combined) on a single relay node.** This is the standing capacity bar — every relay change must preserve it.
 
+## Rust relay binary (`tp-relay`, ADR-0003 Stage 1 Step 8a)
+
+`rust/tp-relay` 는 `[[bin]] tp-relay`(`src/main.rs`) 를 갖는다 — THIN 바이너리로 listen 포트와 SIGINT/SIGTERM graceful drain 만 결정하고, 아래 모든 knob 은 `SharedState::from_env()`(+ lazy push-sealer) 가 env 에서 읽는다.
+
+```bash
+export PATH="$(dirname "$(rustup which cargo)"):$PATH"   # rustup shim 우회 (machine-portable)
+cargo build --release --bin tp-relay        # rust/ 에서
+./target/release/tp-relay --port 7090       # 또는 RELAY_PORT=7090 (flag wins)
+```
+
+포트 우선순위: `--port` > `RELAY_PORT` env > 기본 `7090`. 시작 로그 `tp-relay listening on 0.0.0.0:<port> (buildSha=<sha>)`. 로컬 검증 게이트 = `bun run scripts/rust-relay-e2e.ts` (격리 tp daemon → Rust relay register + frontend-auth ok, production 무변경; 상세는 `rust/README.md`). 8b deploy 는 `x86_64-unknown-linux-gnu` cross-compile + systemd `ExecStart=/usr/local/bin/tp-relay`(별도 바이너리, `tp relay start` 아님). 아래 env 표가 두 구현(TS·Rust) 공통 SoT.
+
 ## Single-node knobs (already wired in `packages/relay/src/relay-server.ts`)
 
 | Knob | Default | Env | 의미 |

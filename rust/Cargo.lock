@@ -821,6 +821,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tp-relay"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tp-core",
+ "tp-proto",
+]
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

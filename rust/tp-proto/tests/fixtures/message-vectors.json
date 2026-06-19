@@ -381,6 +381,510 @@
       "accept": false
     }
   ],
+  "relayServer": [
+    {
+      "name": "auth-ok-minimal",
+      "raw": {
+        "t": "relay.auth.ok",
+        "daemonId": "d1"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.auth.ok",
+        "daemonId": "d1"
+      }
+    },
+    {
+      "name": "auth-ok-resumed-false",
+      "raw": {
+        "t": "relay.auth.ok",
+        "daemonId": "d1",
+        "resumed": false
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.auth.ok",
+        "daemonId": "d1",
+        "resumed": false
+      }
+    },
+    {
+      "name": "auth-ok-resumed-full",
+      "raw": {
+        "t": "relay.auth.ok",
+        "daemonId": "d1",
+        "resumed": true,
+        "resumeToken": "tok.signed",
+        "resumeExpiresAt": 9999000
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.auth.ok",
+        "daemonId": "d1",
+        "resumeToken": "tok.signed",
+        "resumeExpiresAt": 9999000,
+        "resumed": true
+      }
+    },
+    {
+      "name": "auth-ok-extra-field-dropped",
+      "raw": {
+        "t": "relay.auth.ok",
+        "daemonId": "d1",
+        "evil": "x"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.auth.ok",
+        "daemonId": "d1"
+      }
+    },
+    {
+      "name": "auth-ok-resumed-missing-token",
+      "raw": {
+        "t": "relay.auth.ok",
+        "daemonId": "d1",
+        "resumed": true,
+        "resumeExpiresAt": 9999
+      },
+      "accept": false
+    },
+    {
+      "name": "auth-ok-resumed-missing-expires",
+      "raw": {
+        "t": "relay.auth.ok",
+        "daemonId": "d1",
+        "resumed": true,
+        "resumeToken": "tok"
+      },
+      "accept": false
+    },
+    {
+      "name": "auth-ok-null-resume-token",
+      "raw": {
+        "t": "relay.auth.ok",
+        "daemonId": "d1",
+        "resumeToken": null
+      },
+      "accept": false
+    },
+    {
+      "name": "auth-ok-null-resumed",
+      "raw": {
+        "t": "relay.auth.ok",
+        "daemonId": "d1",
+        "resumed": null
+      },
+      "accept": false
+    },
+    {
+      "name": "auth-err",
+      "raw": {
+        "t": "relay.auth.err",
+        "e": "UNAUTHORIZED"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.auth.err",
+        "e": "UNAUTHORIZED"
+      }
+    },
+    {
+      "name": "auth-err-missing-e",
+      "raw": {
+        "t": "relay.auth.err"
+      },
+      "accept": false
+    },
+    {
+      "name": "register-ok",
+      "raw": {
+        "t": "relay.register.ok",
+        "daemonId": "d2"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.register.ok",
+        "daemonId": "d2"
+      }
+    },
+    {
+      "name": "register-err",
+      "raw": {
+        "t": "relay.register.err",
+        "e": "BAD_PROOF"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.register.err",
+        "e": "BAD_PROOF"
+      }
+    },
+    {
+      "name": "frame-with-frontend-id",
+      "raw": {
+        "t": "relay.frame",
+        "sid": "s1",
+        "ct": "AAAA==",
+        "seq": 3,
+        "from": "daemon",
+        "frontendId": "f1"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.frame",
+        "sid": "s1",
+        "ct": "AAAA==",
+        "seq": 3,
+        "from": "daemon",
+        "frontendId": "f1"
+      }
+    },
+    {
+      "name": "frame-no-frontend-id",
+      "raw": {
+        "t": "relay.frame",
+        "sid": "s1",
+        "ct": "AAAA==",
+        "seq": 0,
+        "from": "frontend"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.frame",
+        "sid": "s1",
+        "ct": "AAAA==",
+        "seq": 0,
+        "from": "frontend"
+      }
+    },
+    {
+      "name": "frame-seq-integer-float",
+      "raw": {
+        "t": "relay.frame",
+        "sid": "s",
+        "ct": "c",
+        "seq": 2,
+        "from": "daemon"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.frame",
+        "sid": "s",
+        "ct": "c",
+        "seq": 2,
+        "from": "daemon"
+      }
+    },
+    {
+      "name": "frame-seq-noninteger",
+      "raw": {
+        "t": "relay.frame",
+        "sid": "s",
+        "ct": "c",
+        "seq": 1.5,
+        "from": "daemon"
+      },
+      "accept": false
+    },
+    {
+      "name": "frame-bad-from",
+      "raw": {
+        "t": "relay.frame",
+        "sid": "s",
+        "ct": "c",
+        "seq": 0,
+        "from": "relay"
+      },
+      "accept": false
+    },
+    {
+      "name": "kx-frame-daemon",
+      "raw": {
+        "t": "relay.kx.frame",
+        "ct": "kxblob==",
+        "from": "daemon"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.kx.frame",
+        "ct": "kxblob==",
+        "from": "daemon"
+      }
+    },
+    {
+      "name": "kx-frame-frontend",
+      "raw": {
+        "t": "relay.kx.frame",
+        "ct": "kxblob==",
+        "from": "frontend"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.kx.frame",
+        "ct": "kxblob==",
+        "from": "frontend"
+      }
+    },
+    {
+      "name": "kx-frame-missing-ct",
+      "raw": {
+        "t": "relay.kx.frame",
+        "from": "daemon"
+      },
+      "accept": false
+    },
+    {
+      "name": "presence-online",
+      "raw": {
+        "t": "relay.presence",
+        "daemonId": "d1",
+        "online": true,
+        "sessions": ["s1", "s2"],
+        "lastSeen": 1700000000.5
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.presence",
+        "daemonId": "d1",
+        "online": true,
+        "sessions": ["s1", "s2"],
+        "lastSeen": 1700000000.5
+      }
+    },
+    {
+      "name": "presence-offline-empty-sessions",
+      "raw": {
+        "t": "relay.presence",
+        "daemonId": "d1",
+        "online": false,
+        "sessions": [],
+        "lastSeen": 0
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.presence",
+        "daemonId": "d1",
+        "online": false,
+        "sessions": [],
+        "lastSeen": 0
+      }
+    },
+    {
+      "name": "presence-missing-sessions",
+      "raw": {
+        "t": "relay.presence",
+        "daemonId": "d1",
+        "online": true,
+        "lastSeen": 0
+      },
+      "accept": false
+    },
+    {
+      "name": "pong-with-ts",
+      "raw": {
+        "t": "relay.pong",
+        "ts": 1234.5
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.pong",
+        "ts": 1234.5
+      }
+    },
+    {
+      "name": "pong-no-ts",
+      "raw": {
+        "t": "relay.pong"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.pong"
+      }
+    },
+    {
+      "name": "pong-null-ts",
+      "raw": {
+        "t": "relay.pong",
+        "ts": null
+      },
+      "accept": false
+    },
+    {
+      "name": "pong-extra-field-dropped",
+      "raw": {
+        "t": "relay.pong",
+        "ts": 1,
+        "evil": "x"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.pong",
+        "ts": 1
+      }
+    },
+    {
+      "name": "err-with-message",
+      "raw": {
+        "t": "relay.err",
+        "e": "PUSH_UNSEAL_FAILED",
+        "m": "bad key"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.err",
+        "e": "PUSH_UNSEAL_FAILED",
+        "m": "bad key"
+      }
+    },
+    {
+      "name": "err-no-message",
+      "raw": {
+        "t": "relay.err",
+        "e": "UNKNOWN_TYPE"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.err",
+        "e": "UNKNOWN_TYPE"
+      }
+    },
+    {
+      "name": "err-null-m",
+      "raw": {
+        "t": "relay.err",
+        "e": "SOME_ERR",
+        "m": null
+      },
+      "accept": false
+    },
+    {
+      "name": "notification-with-data",
+      "raw": {
+        "t": "relay.notification",
+        "title": "Claude finished",
+        "body": "Session done",
+        "data": {
+          "sid": "s1",
+          "daemonId": "d1",
+          "event": "Stop"
+        }
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.notification",
+        "title": "Claude finished",
+        "body": "Session done",
+        "data": {
+          "sid": "s1",
+          "daemonId": "d1",
+          "event": "Stop"
+        }
+      }
+    },
+    {
+      "name": "notification-no-data",
+      "raw": {
+        "t": "relay.notification",
+        "title": "T",
+        "body": "B"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.notification",
+        "title": "T",
+        "body": "B"
+      }
+    },
+    {
+      "name": "notification-null-data",
+      "raw": {
+        "t": "relay.notification",
+        "title": "T",
+        "body": "B",
+        "data": null
+      },
+      "accept": false
+    },
+    {
+      "name": "notification-data-missing-event",
+      "raw": {
+        "t": "relay.notification",
+        "title": "T",
+        "body": "B",
+        "data": {
+          "sid": "s1",
+          "daemonId": "d1"
+        }
+      },
+      "accept": false
+    },
+    {
+      "name": "push-token-ios",
+      "raw": {
+        "t": "relay.push.token",
+        "frontendId": "f1",
+        "sealed": "tpps1.1.AAAA",
+        "platform": "ios"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.push.token",
+        "frontendId": "f1",
+        "sealed": "tpps1.1.AAAA",
+        "platform": "ios"
+      }
+    },
+    {
+      "name": "push-token-android",
+      "raw": {
+        "t": "relay.push.token",
+        "frontendId": "f1",
+        "sealed": "tpps1.1.BBBB",
+        "platform": "android"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.push.token",
+        "frontendId": "f1",
+        "sealed": "tpps1.1.BBBB",
+        "platform": "android"
+      }
+    },
+    {
+      "name": "push-token-bad-platform",
+      "raw": {
+        "t": "relay.push.token",
+        "frontendId": "f1",
+        "sealed": "s",
+        "platform": "web"
+      },
+      "accept": false
+    },
+    {
+      "name": "push-token-missing-sealed",
+      "raw": {
+        "t": "relay.push.token",
+        "frontendId": "f1",
+        "platform": "ios"
+      },
+      "accept": false
+    },
+    {
+      "name": "unknown-type",
+      "raw": {
+        "t": "relay.bogus"
+      },
+      "accept": false
+    },
+    {
+      "name": "unknown-type-v3",
+      "raw": {
+        "t": "relay.frame.v3"
+      },
+      "accept": false
+    }
+  ],
   "ipc": [
     {
       "name": "hello-min",

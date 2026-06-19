@@ -1,6 +1,6 @@
 # ADR-0003 — Phase 4 백엔드 Rust 이관 (staged, dual-run cutover)
 
-- 상태: **Accepted** (2026-06-17, Dave) — **Stage 0 ✅ 완료** (2026-06-18, `tp-proto` 크레이트 + 106-케이스 골든벡터 green). **Stage 1 진행 중** (2026-06-19, [Amendment 1](#amendment-1-stage-1-downtime-ok-protocol-redesign-2026-06-19) 으로 dual-run-second-port → downtime-OK cutover 로 전환, 시크릿 공유 폐기, 21 redesign-now 채택). Stage 2–5 는 각 직전 gate 통과 조건부.
+- 상태: **Accepted** (2026-06-17, Dave) — **Stage 0 ✅ 완료** (2026-06-18, `tp-proto` 크레이트 + 106-케이스 골든벡터 green). **Stage 1 진행 중** (2026-06-19, [Amendment 1](#amendment-1-stage-1-downtime-ok-protocol-redesign-2026-06-19) 으로 dual-run-second-port → downtime-OK cutover 로 전환, 시크릿 공유 폐기, 21 redesign-now 채택). **A1.5 Step 1 ✅ (#707, LabelUpdate union)** + **Step 2 ✅ (`tp-relay` serde core, `RelayServerMessage` 11-variant + 40-케이스 골든)** 완료; Step 3 (handshake+resume+`relay.hello` 병합) 진행 예정. Stage 2–5 는 각 직전 gate 통과 조건부.
 - 결정자: Dave (제안: Claude Code 세션)
 - 관련: [ADR-0001 §2.3](./0001-full-native-rewrite-swift-rust.md) (백엔드 최종 Rust 이관 = 후순위 Phase 로 이미 합의됨) 을 **구체화**한다. 이 ADR 은 그 "어떻게"를 staged plan 으로 박제한다.
 - 근거 자료: 5-subsystem 적대적 서베이 워크플로 (`relay/daemon/runner/protocol/cli` 라이브 HEAD 리딩 + opus 합성, 2026-06-17). file:line 인용은 그 서베이 산출물에 grounding.
@@ -164,8 +164,8 @@ Rust 로 올바르게 쓰면 자동으로 따라오는 것들. 와이어/앱 무
 | # | 단계 | gate |
 |---|---|---|
 | 0 | 이 amendment (downtime-OK, 시크릿 reissue, 재설계 shortlist, governor/p256 확정) | Dave 승인 ✅ |
-| 1 | 재설계 shape 의 message-vector 골든 확장 (serde-동일 `relay.kx`/`relay.auth`, 새 `LabelUpdate`; resume-token binary 는 relay-internal 자체 골든) | 골든 green; TS 인코더가 새 Label shape emit |
-| 2 | Rust relay core: framing + serde 구조체/enum (guard 레이어 없음), `tp-core` codec/E2EE 재사용; dead `Envelope` drop | `cargo test` 라운드트립 vs 골든; `deny_unknown_fields` parity |
+| 1 | 재설계 shape 의 message-vector 골든 확장 (serde-동일 `relay.kx`/`relay.auth`, 새 `LabelUpdate`; resume-token binary 는 relay-internal 자체 골든) | 골든 green; TS 인코더가 새 Label shape emit — **✅ #707** (`LabelUpdate` Set/Clear union, v1 label-gate 삭제, `labelUpdate` 8-케이스 골든; lefthook rust-hook PATH 픽스 동봉) |
+| 2 | Rust relay core: framing + serde 구조체/enum (guard 레이어 없음), `tp-core` codec/E2EE 재사용; dead `Envelope` drop | `cargo test` 라운드트립 vs 골든; `deny_unknown_fields` parity — **✅** (새 `tp-relay` 크레이트: `RelayServerMessage` serde-derive tagged enum 11 variant, tp-proto `Role`/`Platform`/`InterruptionLevel`/`PushData` 재사용, `relayServer` 40-케이스 골든 + 라운드트립 테스트. `deny_unknown_fields` 는 **의도적으로 미적용** — TS `relay-server-guard.ts` 가 unknown-field 를 silently drop 하므로 parity 상 추가하면 발산; 미래에 reject 하는 메시지 도입 시 해당 struct 에만 추가. axum/tokio 는 Step 3+) |
 | 3 | handshake + resume + registry: 2-struct `DaemonState`, binary versioned resume-token, `v<2` 거부 + version metric, **`relay.hello` 병합** | parity: hello→kx→pub/sub→**resume accept/reject**; nested-map eviction; timing-safe HMAC |
 | 4 | hot path: `VecDeque`+`Arc` 링버퍼, GCRA governor (per-client 500 + per-daemon-group 5000), slow-consumer 1013, idle-timeout `Interval`, presence `[]` | 2-layer rate-limit; slow-consumer disconnect; 10-frame cache replay parity |
 | 5 | push: `p256` JWT, `reqwest` H2 `Arc` client, APNs retry, `OsRng` seal, tagged `ApnsKey`, lazy dedup eviction | seal 라운드트립+rotation; APNs retry(429/5xx); dead-token `PUSH_TOKEN_DEAD` parity |

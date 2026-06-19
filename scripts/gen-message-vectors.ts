@@ -30,6 +30,7 @@ import {
   parseControlMessage,
   parseIpcMessage,
   parseRelayClientMessage,
+  parseRelayServerMessage,
 } from "@teleprompter/protocol";
 
 type Guard = (raw: unknown) => unknown;
@@ -239,6 +240,255 @@ const relayClient: ParseCase[] = [
     frontendId: "f",
     token: "t",
     platform: "web",
+  }),
+];
+
+// ── relay.* server→client (parseRelayServerMessage) ───────────────────────
+const relayServer: ParseCase[] = [
+  // ── relay.auth.ok ─────────────────────────────────────────────────────────
+  // Minimal: only required daemonId.
+  parseCase(parseRelayServerMessage, "auth-ok-minimal", {
+    t: "relay.auth.ok",
+    daemonId: "d1",
+  }),
+  // With resumed=false (tokens optional).
+  parseCase(parseRelayServerMessage, "auth-ok-resumed-false", {
+    t: "relay.auth.ok",
+    daemonId: "d1",
+    resumed: false,
+  }),
+  // Resumed=true with both token fields present — accepted.
+  parseCase(parseRelayServerMessage, "auth-ok-resumed-full", {
+    t: "relay.auth.ok",
+    daemonId: "d1",
+    resumed: true,
+    resumeToken: "tok.signed",
+    resumeExpiresAt: 9999000,
+  }),
+  // Extra unknown field silently dropped.
+  parseCase(parseRelayServerMessage, "auth-ok-extra-field-dropped", {
+    t: "relay.auth.ok",
+    daemonId: "d1",
+    evil: "x",
+  }),
+  // resumed=true without resumeToken → reject (guard lines 90-93).
+  parseCase(parseRelayServerMessage, "auth-ok-resumed-missing-token", {
+    t: "relay.auth.ok",
+    daemonId: "d1",
+    resumed: true,
+    resumeExpiresAt: 9999,
+  }),
+  // resumed=true without resumeExpiresAt → reject.
+  parseCase(parseRelayServerMessage, "auth-ok-resumed-missing-expires", {
+    t: "relay.auth.ok",
+    daemonId: "d1",
+    resumed: true,
+    resumeToken: "tok",
+  }),
+  // resumeToken: null → isOptionalString rejects.
+  parseCase(parseRelayServerMessage, "auth-ok-null-resume-token", {
+    t: "relay.auth.ok",
+    daemonId: "d1",
+    resumeToken: null,
+  }),
+  // resumed: null → isOptionalBoolean rejects.
+  parseCase(parseRelayServerMessage, "auth-ok-null-resumed", {
+    t: "relay.auth.ok",
+    daemonId: "d1",
+    resumed: null,
+  }),
+  // ── relay.auth.err ────────────────────────────────────────────────────────
+  parseCase(parseRelayServerMessage, "auth-err", {
+    t: "relay.auth.err",
+    e: "UNAUTHORIZED",
+  }),
+  // Missing e → reject.
+  parseCase(parseRelayServerMessage, "auth-err-missing-e", {
+    t: "relay.auth.err",
+  }),
+  // ── relay.register.ok ─────────────────────────────────────────────────────
+  parseCase(parseRelayServerMessage, "register-ok", {
+    t: "relay.register.ok",
+    daemonId: "d2",
+  }),
+  // ── relay.register.err ────────────────────────────────────────────────────
+  parseCase(parseRelayServerMessage, "register-err", {
+    t: "relay.register.err",
+    e: "BAD_PROOF",
+  }),
+  // ── relay.frame ───────────────────────────────────────────────────────────
+  // Full with optional frontendId.
+  parseCase(parseRelayServerMessage, "frame-with-frontend-id", {
+    t: "relay.frame",
+    sid: "s1",
+    ct: "AAAA==",
+    seq: 3,
+    from: "daemon",
+    frontendId: "f1",
+  }),
+  // Without optional frontendId.
+  parseCase(parseRelayServerMessage, "frame-no-frontend-id", {
+    t: "relay.frame",
+    sid: "s1",
+    ct: "AAAA==",
+    seq: 0,
+    from: "frontend",
+  }),
+  // seq as integer-valued float (isNonNegativeInt accepts).
+  parseCase(parseRelayServerMessage, "frame-seq-integer-float", {
+    t: "relay.frame",
+    sid: "s",
+    ct: "c",
+    seq: 2.0,
+    from: "daemon",
+  }),
+  // Non-integer seq → reject.
+  parseCase(parseRelayServerMessage, "frame-seq-noninteger", {
+    t: "relay.frame",
+    sid: "s",
+    ct: "c",
+    seq: 1.5,
+    from: "daemon",
+  }),
+  // Bad from value → reject.
+  parseCase(parseRelayServerMessage, "frame-bad-from", {
+    t: "relay.frame",
+    sid: "s",
+    ct: "c",
+    seq: 0,
+    from: "relay",
+  }),
+  // ── relay.kx.frame ────────────────────────────────────────────────────────
+  parseCase(parseRelayServerMessage, "kx-frame-daemon", {
+    t: "relay.kx.frame",
+    ct: "kxblob==",
+    from: "daemon",
+  }),
+  parseCase(parseRelayServerMessage, "kx-frame-frontend", {
+    t: "relay.kx.frame",
+    ct: "kxblob==",
+    from: "frontend",
+  }),
+  // Missing ct → reject.
+  parseCase(parseRelayServerMessage, "kx-frame-missing-ct", {
+    t: "relay.kx.frame",
+    from: "daemon",
+  }),
+  // ── relay.presence ────────────────────────────────────────────────────────
+  // Online with sessions.
+  parseCase(parseRelayServerMessage, "presence-online", {
+    t: "relay.presence",
+    daemonId: "d1",
+    online: true,
+    sessions: ["s1", "s2"],
+    lastSeen: 1700000000.5,
+  }),
+  // Offline with empty sessions array.
+  parseCase(parseRelayServerMessage, "presence-offline-empty-sessions", {
+    t: "relay.presence",
+    daemonId: "d1",
+    online: false,
+    sessions: [],
+    lastSeen: 0,
+  }),
+  // Missing sessions → reject.
+  parseCase(parseRelayServerMessage, "presence-missing-sessions", {
+    t: "relay.presence",
+    daemonId: "d1",
+    online: true,
+    lastSeen: 0,
+  }),
+  // ── relay.pong ────────────────────────────────────────────────────────────
+  parseCase(parseRelayServerMessage, "pong-with-ts", {
+    t: "relay.pong",
+    ts: 1234.5,
+  }),
+  parseCase(parseRelayServerMessage, "pong-no-ts", { t: "relay.pong" }),
+  // ts: null → isOptionalNumber rejects.
+  parseCase(parseRelayServerMessage, "pong-null-ts", {
+    t: "relay.pong",
+    ts: null,
+  }),
+  // Extra field dropped (guard is lenient).
+  parseCase(parseRelayServerMessage, "pong-extra-field-dropped", {
+    t: "relay.pong",
+    ts: 1,
+    evil: "x",
+  }),
+  // ── relay.err ─────────────────────────────────────────────────────────────
+  parseCase(parseRelayServerMessage, "err-with-message", {
+    t: "relay.err",
+    e: "PUSH_UNSEAL_FAILED",
+    m: "bad key",
+  }),
+  parseCase(parseRelayServerMessage, "err-no-message", {
+    t: "relay.err",
+    e: "UNKNOWN_TYPE",
+  }),
+  // m: null → isOptionalString rejects.
+  parseCase(parseRelayServerMessage, "err-null-m", {
+    t: "relay.err",
+    e: "SOME_ERR",
+    m: null,
+  }),
+  // ── relay.notification ────────────────────────────────────────────────────
+  // With full data sub-object.
+  parseCase(parseRelayServerMessage, "notification-with-data", {
+    t: "relay.notification",
+    title: "Claude finished",
+    body: "Session done",
+    data: { sid: "s1", daemonId: "d1", event: "Stop" },
+  }),
+  // Without optional data.
+  parseCase(parseRelayServerMessage, "notification-no-data", {
+    t: "relay.notification",
+    title: "T",
+    body: "B",
+  }),
+  // data: null → isOptionalNotifData rejects (null is not an object).
+  parseCase(parseRelayServerMessage, "notification-null-data", {
+    t: "relay.notification",
+    title: "T",
+    body: "B",
+    data: null,
+  }),
+  // data missing a required field (event) → reject.
+  parseCase(parseRelayServerMessage, "notification-data-missing-event", {
+    t: "relay.notification",
+    title: "T",
+    body: "B",
+    data: { sid: "s1", daemonId: "d1" },
+  }),
+  // ── relay.push.token ──────────────────────────────────────────────────────
+  parseCase(parseRelayServerMessage, "push-token-ios", {
+    t: "relay.push.token",
+    frontendId: "f1",
+    sealed: "tpps1.1.AAAA",
+    platform: "ios",
+  }),
+  parseCase(parseRelayServerMessage, "push-token-android", {
+    t: "relay.push.token",
+    frontendId: "f1",
+    sealed: "tpps1.1.BBBB",
+    platform: "android",
+  }),
+  // Bad platform → reject.
+  parseCase(parseRelayServerMessage, "push-token-bad-platform", {
+    t: "relay.push.token",
+    frontendId: "f1",
+    sealed: "s",
+    platform: "web",
+  }),
+  // Missing sealed → reject.
+  parseCase(parseRelayServerMessage, "push-token-missing-sealed", {
+    t: "relay.push.token",
+    frontendId: "f1",
+    platform: "ios",
+  }),
+  // ── unknown type ──────────────────────────────────────────────────────────
+  parseCase(parseRelayServerMessage, "unknown-type", { t: "relay.bogus" }),
+  parseCase(parseRelayServerMessage, "unknown-type-v3", {
+    t: "relay.frame.v3",
   }),
 ];
 
@@ -684,7 +934,7 @@ const labelUpdate: LabelCase[] = [
   labelCase("legacy-null", null),
 ];
 
-const fixture = { relayClient, ipc, control, label, labelUpdate };
+const fixture = { relayClient, relayServer, ipc, control, label, labelUpdate };
 
 const outPath = new URL(
   "../rust/tp-proto/tests/fixtures/message-vectors.json",
@@ -708,11 +958,12 @@ if (fmt.exitCode !== 0) {
 
 const counts = {
   relayClient: relayClient.length,
+  relayServer: relayServer.length,
   ipc: ipc.length,
   control: control.length,
   label: label.length,
   labelUpdate: labelUpdate.length,
 };
 console.error(
-  `wrote ${outPath.pathname} (relayClient=${counts.relayClient}, ipc=${counts.ipc}, control=${counts.control}, label=${counts.label}, labelUpdate=${counts.labelUpdate})`,
+  `wrote ${outPath.pathname} (relayClient=${counts.relayClient}, relayServer=${counts.relayServer}, ipc=${counts.ipc}, control=${counts.control}, label=${counts.label}, labelUpdate=${counts.labelUpdate})`,
 );

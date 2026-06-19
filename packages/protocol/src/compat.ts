@@ -35,10 +35,10 @@ export const IPC_PROTOCOL_VERSION = 2;
  *
  * v2: pairing `label` on the ControlRename / kx-hello / meta-hello wire
  * surfaces migrated from `string | null` (with `""` clear sentinel) to the
- * `Label` tagged union. Daemons advertise this version in the relay.kx
- * payload (`v`) and gate ControlRename emission: a peer that has not
- * advertised v2 still receives the legacy `string` shape, so an un-updated
- * app never coerces a union object to `""` and silently clears the label.
+ * `Label` tagged union. Daemons and apps advertise this version in the
+ * relay.kx payload (`v`). As of ADR-0003 Amendment 1 (A1.3#1) the per-peer
+ * label version-gate has been removed: ControlRename always emits the union
+ * object. The `v` field is retained for future gating of new message types.
  */
 export const WS_PROTOCOL_VERSION = 2;
 

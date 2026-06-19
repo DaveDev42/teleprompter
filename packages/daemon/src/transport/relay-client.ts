@@ -30,7 +30,6 @@ import {
   deriveSessionKeys,
   encrypt,
   fromBase64,
-  labelToNullable,
   parseControlMessage,
   parseRelayControlMessage,
   parseRelayServerMessage,
@@ -109,9 +108,9 @@ interface FrontendPeer {
   /**
    * The frontend's advertised WS protocol version, parsed from its `relay.kx`
    * payload (`data.v`). Defaults to 1 when the field is absent (a frontend
-   * built before the Label-union bump). Used to gate ControlRename emission:
-   * peers at v1 receive the legacy `string` shape so they never coerce a
-   * union object to `""` and silently clear the label.
+   * built before the Label-union bump). Retained for future version-gating
+   * (e.g. new message types); no longer used to gate ControlRename emission —
+   * the Label union is always sent unconditionally (ADR-0003 A1).
    */
   protocolVersion: number;
 }
@@ -485,8 +484,9 @@ export class RelayClient {
         "daemon",
       );
 
-      // Frontends built before the Label-union bump omit `v` — default to 1
-      // so we keep emitting the legacy string-shaped ControlRename to them.
+      // Frontends that omit `v` default to 1. ControlRename no longer gates on
+      // this (the daemon always emits the Label union now — ADR-0003 A1.3#1);
+      // the version is retained only for future gating of new message types.
       const protocolVersion =
         typeof data.v === "number" && Number.isFinite(data.v) ? data.v : 1;
 
@@ -709,25 +709,18 @@ export class RelayClient {
    * Encrypted control.rename notice to `frontendId`; see sendUnpairNotice for
    * mechanics.
    *
-   * The wire shape is version-gated per peer. A peer that advertised WS
-   * protocol v2 in its kx payload receives the `Label` union directly. A peer
-   * at v1 (or one whose version we never learned) receives the legacy
-   * `string` form — `value` when set, `""` to clear — because an un-updated
-   * app coerces a union object to `""` and would silently clear the user's
-   * label. We cast through `unknown` so the legacy bytes can travel on a
-   * field that is typed `Label` for the v2 contract.
+   * Always emits the `Label` union object (`{ set, value? }`) — the per-peer
+   * version-gate that previously downgraded to a legacy string for v1 peers
+   * has been removed (ADR-0003 Amendment 1, A1.3#1). The `label` field is
+   * always present and is either `{ set: true, value }` (set) or
+   * `{ set: false }` (authoritative clear).
    */
   async sendRenameNotice(frontendId: string, label: Label): Promise<boolean> {
-    const peer = this.peers.get(frontendId);
-    const wireLabel: Label | string =
-      peer && peer.protocolVersion >= 2
-        ? label
-        : (labelToNullable(label) ?? "");
     const msg: ControlRename = {
       t: CONTROL_RENAME,
       daemonId: this.config.daemonId,
       frontendId,
-      label: wireLabel as Label,
+      label,
       ts: Date.now(),
     };
     return this.sendControl("sendRenameNotice", frontendId, msg);

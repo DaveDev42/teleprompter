@@ -452,12 +452,11 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     client.dispose();
   });
 
-  test("sendRenameNotice to a v1 peer sends a string-shaped label (version gate)", async () => {
-    // This frontend's kx payload omits `v`, so the daemon reads its
-    // protocolVersion as 1 (legacy). The version gate must downgrade the
-    // Label union to a bare string on the wire — an un-updated app coerces an
-    // object to "" and would silently clear the user's label, so the gate is
-    // what prevents that data corruption.
+  test("sendRenameNotice always sends the Label union object (no version gate)", async () => {
+    // ADR-0003 Amendment 1 (A1.3#1): the per-peer version-gate is removed.
+    // The union object is always emitted regardless of whether the frontend
+    // advertised v2 in its kx payload. This test uses a v1-style kx payload
+    // (no `v` field) to confirm the union is still sent unconditionally.
     const daemonKp = await generateKeyPair();
     const frontendKp = await generateKeyPair();
     const frontendId = "test-frontend-rename";
@@ -492,6 +491,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     );
     await Bun.sleep(100);
 
+    // kx payload omits `v` — daemon stores protocolVersion=1 for this peer.
+    // Despite that, ControlRename must still carry the Label union (not a string).
     const kxPayload = JSON.stringify({
       pk: await toBase64(frontendKp.publicKey),
       frontendId,
@@ -533,20 +534,19 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     expect(decoded.t).toBe(CONTROL_RENAME);
     expect(decoded.daemonId).toBe(DAEMON_ID);
     expect(decoded.frontendId).toBe(frontendId);
-    // v1 peer → bare string label on the wire (NOT the union object).
-    expect(decoded.label).toBe("MacBook Pro 14");
+    // Always the Label union — never a bare string.
+    expect(decoded.label).toEqual({ set: true, value: "MacBook Pro 14" });
     expect(typeof decoded.ts).toBe("number");
 
     frontendWs.close();
     client.dispose();
   });
 
-  test("sendRenameNotice to a v2 peer sends the Label union object", async () => {
-    // This frontend advertises `v: 2` in its kx payload, so the daemon keeps
-    // the Label union on the wire (no downgrade).
+  test("sendRenameNotice sends Label union for clear (set:false) unconditionally", async () => {
+    // Clear (authoritative) must also travel as the union object, not "".
     const daemonKp = await generateKeyPair();
     const frontendKp = await generateKeyPair();
-    const frontendId = "test-frontend-rename-v2";
+    const frontendId = "test-frontend-rename-clear";
     const kxKey = await deriveKxKey(pairingSecret);
 
     const client = new RelayClient(
@@ -578,7 +578,6 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     );
     await Bun.sleep(100);
 
-    // kx payload advertises protocol v2 → daemon keeps the union on the wire.
     const kxPayload = JSON.stringify({
       pk: await toBase64(frontendKp.publicKey),
       frontendId,
@@ -612,7 +611,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
       },
     );
 
-    await client.sendRenameNotice(frontendId, makeLabel("MacBook Pro 14"));
+    // Send a clear label (set:false) — must arrive as the union object.
+    await client.sendRenameNotice(frontendId, { set: false });
     const frame = await framePromise;
 
     expect(frame.sid).toBe(RELAY_CHANNEL_CONTROL);
@@ -620,8 +620,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     const decoded = JSON.parse(new TextDecoder().decode(plaintext));
     expect(decoded.t).toBe(CONTROL_RENAME);
     expect(decoded.frontendId).toBe(frontendId);
-    // v2 peer → Label union object on the wire.
-    expect(decoded.label).toEqual({ set: true, value: "MacBook Pro 14" });
+    // Clear must be the union object, NOT the legacy "" string.
+    expect(decoded.label).toEqual({ set: false });
 
     frontendWs.close();
     client.dispose();

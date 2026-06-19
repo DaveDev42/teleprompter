@@ -16,20 +16,21 @@
  * `@teleprompter/protocol` (server/daemon/CLI) and `@teleprompter/protocol/client`
  * (frontend/app) via `types/index.ts`.
  *
- * ## Wire compatibility (option B — wire-level union)
+ * ## Wire contract (ADR-0003 Amendment 1, A1.3#1)
  *
  * `Label` travels on three E2EE wire surfaces (ControlRename, the relay.kx
- * daemon-hello, and the meta `hello` daemonLabel). Because the app ships via
- * the App Store / TestFlight with an update delay (and OTA fingerprint
- * isolation), a newer daemon can talk to an older app that only understands
- * the legacy `string | null` / `""` shape. The decoders below accept BOTH the
- * legacy and the new union shapes on read, so any version can read any peer.
- * Producers always write the new union shape AFTER the protocol bump — except
- * the daemon's ControlRename emission, which is version-gated at the call site
- * (an un-updated app coerces the union object to `""` and would *silently
- * clear* the user's label, so the daemon keeps emitting the legacy string to
- * peers that have not advertised protocol v2). See `decodeWireLabel` /
- * `decodeKxLabelOrKeep` for the read side.
+ * daemon-hello, and the meta `hello` daemonLabel). There is ONE union type and
+ * ONE meaning per value:
+ *
+ *  - `{ set: true, value: "X" }` — Set (X trimmed, non-empty)
+ *  - `{ set: false }` — Clear (authoritative; ControlRename surface)
+ *  - field ABSENT (kx/meta surfaces only) — keep-current (field-level None)
+ *
+ * The daemon's ControlRename emission always uses the union object — the
+ * previous per-peer version-gate that downgraded to a legacy string for v1
+ * peers has been removed. The decoders below accept BOTH the legacy and the
+ * new union shapes on read so that any SQLite rows or old daemon frames can
+ * still be decoded. See `decodeWireLabel` / `decodeKxLabelOrKeep`.
  */
 
 export type Label = { set: true; value: string } | { set: false };
@@ -101,14 +102,19 @@ export function decodeWireLabel(raw: unknown): Label {
  * Decoder for the relay.kx daemon-hello and meta `hello` `daemonLabel` fields,
  * where "not set" means **keep the current app-side label**, NOT "clear it".
  * Returns `null` for every keep-current signal (legacy `null` / `undefined` /
- * missing, the new `{ set: false }`, and a legacy `""`) and a concrete
+ * missing, `{ set: false }`, and a legacy `""`) and a concrete
  * `{ set: true, value }` only when the daemon advertises a real label.
  *
  * Keeping this distinct from `decodeWireLabel` is what preserves the two
- * different meanings of "absent": ControlRename's `{ set: false }` is an
+ * different meanings of "absent/clear": ControlRename's `{ set: false }` is an
  * authoritative clear, while the daemon-hello's absence is "I have nothing to
  * say about the label; leave whatever the user/QR seeded." The consumer
  * (`handleDaemonHello`) short-circuits on `null`.
+ *
+ * Per ADR-0003 Amendment 1 (A1.3#1), the preferred keep-current signal on
+ * kx/meta surfaces is FIELD ABSENCE (omitting the field entirely), not
+ * `{ set: false }`. Both are still accepted here for back-compat with older
+ * daemon frames stored in SQLite or in-flight when the daemon restarts.
  */
 export function decodeKxLabelOrKeep(raw: unknown): Label | null {
   const decoded = decodeWireLabel(raw);

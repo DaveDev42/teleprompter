@@ -22,6 +22,8 @@
 //! ├── resume_token.rs — ResumeTokenSigner (BLAKE2b keyed-hash, binary 5-part payload)
 //! ├── registry.rs     — DaemonState + Registration + Registry mutation helpers
 //! ├── handshake.rs    — handle_register/handle_auth/handle_auth_resume/handle_hello
+//! ├── metrics.rs      — Metrics (12 AtomicU64 capacity counters) + snapshot
+//! ├── http.rs         — /health + /metrics + /admin (bearer-gated) route handlers
 //! ├── rate.rs         — GCRA per-client + per-daemon-group limiters
 //! ├── ring.rs         — RecentFrames (VecDeque + Arc<Frame> replay cache)
 //! ├── server.rs       — RelayCore shared state + synchronous routing decisions
@@ -80,7 +82,9 @@ pub mod apns;
 pub mod apns_jwt;
 pub mod conn;
 pub mod handshake;
+pub mod http;
 pub mod messages;
+pub mod metrics;
 pub mod push;
 pub mod push_seal;
 pub mod rate;

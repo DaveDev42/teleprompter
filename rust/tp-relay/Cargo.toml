@@ -16,11 +16,14 @@ tp-proto = { path = "../tp-proto" }
 tp-core = { path = "../tp-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# BLAKE2b keyed-hash for resume tokens — same version tp-core already pins.
+# BLAKE2b keyed-hash for resume tokens AND the /admin bearer compare (folds a
+# variable-length token into a fixed 32-byte digest so the compare is
+# length-independent) — same version tp-core already pins.
 blake2 = "0.10"
 # base64url encoding for resume token wire format.
 base64 = "0.22"
-# Random secret generation (ephemeral fallback when env secret absent/short).
+# Random secret generation (ephemeral resume-secret fallback when env secret
+# absent/short, plus the per-process /admin bearer-hash key in http.rs).
 rand_core = { version = "0.6", features = ["getrandom"] }
 # IndexMap for insertion-ordered session set (BTreeSet loses insertion order).
 indexmap = "2"
@@ -38,6 +41,10 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time",
 axum = { version = "0.7", features = ["ws"] }
 # StreamExt/SinkExt for splitting the axum ws into read/write halves.
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+# Constant-time byte compare for the /admin bearer token (no timing side-channel
+# leaking the token). Already in the tree transitively (p256/elliptic-curve);
+# declared explicitly here for the `ConstantTimeEq` import in http.rs.
+subtle = { version = "2", default-features = false }
 
 # ── Step 5: push path ─────────────────────────────────────────────────────────
 # P-256 ECDSA for APNs JWT (ES256). We need:
@@ -65,6 +72,11 @@ serde_json = "1"
 tokio-tungstenite = "0.24"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
 futures-util = "0.3"
+# Drive the axum Router directly (oneshot) for the /health + /metrics + /admin
+# HTTP surface tests without binding a TCP listener. `tower` is already an axum
+# dependency; `http-body-util` collects the response body to bytes.
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
 
 [lints]
 workspace = true

@@ -26,11 +26,12 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::mpsc;
 
 use crate::messages::{Frame, KeyExchangeFrame, Pong, Presence, RelayErr, RelayServerMessage};
+use crate::metrics::Metrics;
 use crate::rate::{rate_per_client_from_env, rate_per_daemon_from_env, Limiter};
 use crate::registry::Registry;
 use crate::resume_token::ResumeTokenSigner;
@@ -217,6 +218,13 @@ pub struct SharedState {
     /// Max inbound frame size (bytes). Inbound text frames larger than this are
     /// dropped + counted + the socket closed with 1009 ("Frame too large").
     pub max_frame_size: usize,
+    /// Relay capacity counters (`/health` + `/metrics`). Held **outside** the
+    /// `RelayCore` mutex (its own `Arc`) so HTTP handlers and emit sites read /
+    /// write lock-free atomics without taking the routing lock.
+    pub metrics: Arc<Metrics>,
+    /// Process-start instant — `/health.uptime` + `relay_uptime_seconds` are
+    /// `started_at.elapsed().as_secs()` (`Math.floor(process.uptime())` parity).
+    pub started_at: Instant,
 }
 
 /// Default stale-detection timeout (ms). Mirrors `STALE_TIMEOUT_MS` (90 s).
@@ -248,6 +256,8 @@ impl SharedState {
             next_conn_id: Arc::new(AtomicU64::new(1)),
             outbox_cap: DEFAULT_OUTBOX_CAP,
             max_frame_size: crate::conn::max_frame_size_from_env(),
+            metrics: Arc::new(Metrics::new()),
+            started_at: Instant::now(),
         }
     }
 

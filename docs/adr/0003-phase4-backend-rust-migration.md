@@ -1,6 +1,6 @@
 # ADR-0003 — Phase 4 백엔드 Rust 이관 (staged, dual-run cutover)
 
-- 상태: **Accepted** (2026-06-17, Dave) — **Stage 0 ✅ 완료** (2026-06-18, `tp-proto` 크레이트 + 106-케이스 골든벡터 green). Stage 1–5 는 각 직전 gate 통과 조건부.
+- 상태: **Accepted** (2026-06-17, Dave) — **Stage 0 ✅ 완료** (2026-06-18, `tp-proto` 크레이트 + 106-케이스 골든벡터 green). **Stage 1 진행 중** (2026-06-19, [Amendment 1](#amendment-1-stage-1-downtime-ok-protocol-redesign-2026-06-19) 으로 dual-run-second-port → downtime-OK cutover 로 전환, 시크릿 공유 폐기, 21 redesign-now 채택). Stage 2–5 는 각 직전 gate 통과 조건부.
 - 결정자: Dave (제안: Claude Code 세션)
 - 관련: [ADR-0001 §2.3](./0001-full-native-rewrite-swift-rust.md) (백엔드 최종 Rust 이관 = 후순위 Phase 로 이미 합의됨) 을 **구체화**한다. 이 ADR 은 그 "어떻게"를 staged plan 으로 박제한다.
 - 근거 자료: 5-subsystem 적대적 서베이 워크플로 (`relay/daemon/runner/protocol/cli` 라이브 HEAD 리딩 + opus 합성, 2026-06-17). file:line 인용은 그 서베이 산출물에 grounding.
@@ -122,4 +122,60 @@ ADR-0001 §3 및 `.claude/rules/{protocol,relay-capacity}.md` SoT 와 일치 —
 
 ---
 
-**다음 행동:** Stage 0 (메시지 타입 골든벡터 크레이트) ✅ 완료. 다음은 **Stage 1 (Rust relay, dual-run second-port)** — `tp-core` codec/E2EE 를 재사용하는 axum+tokio-tungstenite relay protocol v2 포팅. Stage 1 착수 전 §6.7~6.9 크레이트/시크릿공유/soak 하니스 결정 필요.
+**다음 행동:** Stage 0 (메시지 타입 골든벡터 크레이트) ✅ 완료. 다음은 **Stage 1 (Rust relay)** — `tp-core` codec/E2EE 를 재사용하는 axum+tokio-tungstenite relay protocol v2 포팅. **§6.7~6.9 + 와이어 재설계 결정은 [Amendment 1](#amendment-1-stage-1-downtime-ok-protocol-redesign-2026-06-19) 에서 확정됨.**
+
+---
+
+## Amendment 1 — Stage 1 downtime-OK protocol redesign (2026-06-19)
+
+- 상태: **Accepted** (2026-06-19, Dave). 이 amendment 는 본 ADR 의 §2.2/§3/§6.5/§6.8 을 **Stage 1 에 한해** 갱신한다. Stage 2–5 는 영향 없음.
+- 근거 자료: 47-에이전트 적대적 서베이 워크플로 (relay-server / wire-envelope / push-apns / resume-token / pairing-e2ee 5개 영역 라이브 HEAD 리딩 → 41 후보 wart 적대적 심사 → opus 합성, 2026-06-19). file:line 인용은 그 산출물에 grounding.
+
+### A1.1 무엇이 바뀌었나 (Dave 지시)
+
+> **"다운타임을 용인하더라도 프로토콜을 더 올바르게 재설계해도 좋아."** (2026-06-19, Dave 원문)
+
+이 latitude 가 Stage 1 의 전제를 바꾼다. **핵심은 "와이어를 마음껏 깨도 된다"가 아니라 — §6.8 의 dual-run-second-port 무중단 cutover 요구가 사라진다는 것이다.** 그 요구가 시크릿 공유(§6.5/§6.8)의 유일한 근거였으므로, downtime 을 허용하면 **clean reissue 가 더 단순하고 안전**하며, 그것이 resume-token 의 binary+versioned 재설계까지 풀어준다.
+
+### A1.2 §6.7–6.9 결정 (확정)
+
+- **§6.7 크레이트 스택 (확정):** `axum` (WS upgrade + `/health`·`/metrics`·`/admin` 단일 라우터) + `tokio-tungstenite` (per-conn read/write split) + `reqwest` (http2, APNs) + `governor` (GCRA rate limit, fixed-window 대체) + `rustls` (no-openssl TLS) + `p256`/`ecdsa` (APNs ES256, P1363 직접 출력) + `serde`/`serde_json` (수제 guard 레이어 대체). `governor` 는 "후보"에서 "채택"으로 — fixed-window 재설계가 곧 governor 도입이다.
+- **§6.8 시크릿 공유 (역전 — 폐기):** downtime-OK 가 dual-run-second-port 를 불필요하게 만들므로 **`TP_RELAY_RESUME_SECRET` / `TP_RELAY_PUSH_SEAL_SECRET[_PREV]` 공유 안 함.** cutover 시 둘 다 **새로 발급(reissue)**. 미결제 4-part TS resume 토큰은 verify 실패 → 기존 full-auth fallback 경로로 흡수. SQLite 의 sealed push 토큰은 무효화 → frontend 가 앱 재오픈 시 1회 재등록 (`push_tokens` force-expire; downtime 창에 정렬된 1회·경계 있는 누락).
+- **§6.9 10k soak 하니스 (소유자 확정):** **Claude (이 세션) 가 Stage 1 PR scope 로 구축, PR merge gate.** soak 은 capacity gate 이지 parity gate 가 아니다 — 어떤 재설계도 10k bar 를 낮추지 않는다 (governor 는 더 보수적; VecDeque+`Arc` fan-out 은 개선; atomic gauge 는 per-scrape O(n) 스캔 제거). soak 은 재설계 후의 resume + push 경로도 부하에서 검증해야 한다.
+
+### A1.3 채택한 와이어 재설계 (downtime-OK 가 정당화)
+
+본 ADR §3 의 "byte-for-byte 유지"는 **Stage 1 에 한해 아래 항목에서 완화**된다. 나머지 모든 와이어/E2EE 불변식은 유지 (relay ciphertext-only/stateless, daemon=relay 유일 클라이언트, framed JSON, io binary-sidecar, 10k bar, `tp-core` crypto/codec 골든벡터).
+
+1. **Label 구조적 재설계 (app-facing 와이어 깸).** `decodeWireLabel` vs `decodeKxLabelOrKeep` 가 `{set:false}` 를 반대로 해석 → **재접속 kx-hello 가 사용자 label 을 조용히 지우던 실제 버그.** `LabelUpdate { Set(String), Clear }` enum 으로 두 표면(`control.rename`, kx-hello) 통일 + `wireLabel as Label` unsound cast 제거 + **v1 version-gate 통째 삭제(코드 순감소).** blast = relay+daemon+app.
+2. **resume-token binary+versioned (relay-internal, 와이어 opaque).** HMAC-SHA256 + dot-delimited text → `tp-core` BLAKE2b + binary 5-part (`v.role.did.fid.exp`). dot-delimiter collision footgun 제거 + 누락된 payload-version discriminant 추가. 토큰은 `{token: string}` 으로 daemon/app 에 opaque → 실질 blast = relay-only. reissue 와 짝.
+3. **`relay.kx` outer `role` drop.** 검증 후 버려지는 dead field (`relay-server.ts:1058` 은 인증된 `client.role` 사용, `msg.role` 무시). serde role-dispatch 로 JSON 동일하나 send-side footgun + guard branch 제거.
+4. **`relay.hello` (register+auth 2-RTT 병합).** cold-connect 1-RTT 절감. proof-sentinel(`null` vs `""`) 로직을 신중 포팅 — different-credentials-guard 회귀 위험을 parity 테스트로 가드.
+5. **`v<2` 거부 enforcement.** 와이어 깸 아님 — 존재하지 않는 클라이언트에 대한 거부만 *추가*. `relay_auth_version` 메트릭과 짝.
+
+### A1.4 채택한 relay-내부 수정 (와이어 무변경, 전부 채택 — "처음부터 제대로")
+
+Rust 로 올바르게 쓰면 자동으로 따라오는 것들. 와이어/앱 무변경, blast = relay-only:
+
+- **GCRA `governor`** (fixed-window 경계 2x burst 제거) · **`VecDeque`+`Arc<CachedFrame>` 링버퍼** (`shift()` O(n) → pop_front O(1), fan-out 시 ciphertext clone 회피) · **`p256` 네이티브 P1363** (`apns-jwt.ts` 수제 DER 변환 42줄 삭제) · **seal 임시키 `OsRng`** (`push-seal.ts:65` `Math.random()` 버그 수정) · **APNs 429/5xx retry** (backoff+jitter+Retry-After) · **per-op metrics** (kx/pub/sub/push/presence counters + `AtomicU64`/`AtomicI64` gauge) · **`/admin` bearer 게이트** (현재 토폴로지 무인증 노출 — 보안 wart) · **3-struct dual-map → 2-struct** (`proof` 를 `DaemonState` 로, `registrations` 제거) · **수제 guard 6모듈 → serde derive** (~1,425줄 소멸, JSON 동일) · **dead `Envelope` catch-all 미포팅** (per-variant enum) · **`RelayAuth.frontendId` role-tagged enum** (typed-optional → 구조적 required, JSON 동일) · **nested `recentFrames` map** (per-daemon 제거 O(1)) · **presence `sessions` → `[]`** (앱이 이미 discard).
+
+### A1.5 Stage 1 실행 계획 (gate 포함)
+
+| # | 단계 | gate |
+|---|---|---|
+| 0 | 이 amendment (downtime-OK, 시크릿 reissue, 재설계 shortlist, governor/p256 확정) | Dave 승인 ✅ |
+| 1 | 재설계 shape 의 message-vector 골든 확장 (serde-동일 `relay.kx`/`relay.auth`, 새 `LabelUpdate`; resume-token binary 는 relay-internal 자체 골든) | 골든 green; TS 인코더가 새 Label shape emit |
+| 2 | Rust relay core: framing + serde 구조체/enum (guard 레이어 없음), `tp-core` codec/E2EE 재사용; dead `Envelope` drop | `cargo test` 라운드트립 vs 골든; `deny_unknown_fields` parity |
+| 3 | handshake + resume + registry: 2-struct `DaemonState`, binary versioned resume-token, `v<2` 거부 + version metric, **`relay.hello` 병합** | parity: hello→kx→pub/sub→**resume accept/reject**; nested-map eviction; timing-safe HMAC |
+| 4 | hot path: `VecDeque`+`Arc` 링버퍼, GCRA governor (per-client 500 + per-daemon-group 5000), slow-consumer 1013, idle-timeout `Interval`, presence `[]` | 2-layer rate-limit; slow-consumer disconnect; 10-frame cache replay parity |
+| 5 | push: `p256` JWT, `reqwest` H2 `Arc` client, APNs retry, `OsRng` seal, tagged `ApnsKey`, lazy dedup eviction | seal 라운드트립+rotation; APNs retry(429/5xx); dead-token `PUSH_TOKEN_DEAD` parity |
+| 6 | HTTP surface: `/health`+`/metrics` (per-op counter, atomic gauge, `build.rs` `buildSha==github.sha`), `/admin` bearer | `/health`+`/metrics` 필드 비교 vs TS; `TP_BUILD_SHA` assert |
+| 7 | 10k soak 하니스 (pub fan-out + resume + push 부하) | **10k soak green — PR gate** |
+| 8 | downtime cutover: TS relay 정지, `TP_RELAY_RESUME_SECRET`+push-seal reissue, dogfood daemon 을 Rust relay 로, `push_tokens` 재등록 | dogfood: pair→chat→terminal→kill/reconnect(full-auth fallback)→push 재등록 |
+
+### A1.6 Label 재설계가 건드리는 app/daemon 사이트 (Stage 1 의 유일한 cross-component 변경)
+
+- TS: `packages/protocol/src/types/label.ts`, `compat.ts` (decodeWireLabel/decodeKxLabelOrKeep + v1 gate), `control-guard.ts`, daemon 의 control.rename 송수신, kx-hello label 송수신.
+- Rust: `tp-proto` 의 `label.rs` (이미 관대한 디코더 보유 — `LabelUpdate` enum 으로 수렴), 새 `tp-relay`.
+- Swift app: kx-hello label 을 이미 optional 로 모델링 — `control.rename` Label tagged-union 수신부만 새 shape 에 맞춤.
+- gate: `tp-proto` message-vector 에 `LabelUpdate` 4-shape(Set 빈문자열/Set 값/Clear/absent) 골든 + Swift 디코드 회귀.

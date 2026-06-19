@@ -377,8 +377,8 @@ export class RelayConnectionManager {
     const peers = client.listPeerFrontendIds();
     for (const frontendId of peers) {
       try {
-        // RelayClient version-gates the wire shape per peer (legacy string
-        // for v1 peers, union for v2). We pass the `Label` directly.
+        // RelayClient emits the `Label` union unconditionally to every peer
+        // (the per-peer version-gate was removed — ADR-0003 A1.3#1).
         if (await client.sendRenameNotice(frontendId, label)) {
           notified++;
         }

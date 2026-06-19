@@ -39,6 +39,25 @@ axum = { version = "0.7", features = ["ws"] }
 # StreamExt/SinkExt for splitting the axum ws into read/write halves.
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 
+# ── Step 5: push path ─────────────────────────────────────────────────────────
+# P-256 ECDSA for APNs JWT (ES256). We need:
+#   - `ecdsa`  → signing + verifying
+#   - `pkcs8`  → parse PKCS#8 PEM (.p8 key from Apple) via
+#                `p256::ecdsa::SigningKey::from_pkcs8_pem`
+#   - `pem`    → enables PEM reading (re-exports elliptic-curve/pem + ecdsa-core/pem)
+# sha256 is a transitive feature of `ecdsa` — p256 0.13.2 includes the sha2
+# backend when `ecdsa` is requested.
+# Signature::to_bytes() / Signature::to_vec() yields the fixed 64-byte IEEE P1363
+# (r‖s) representation used directly as the JWT signature bytes.
+p256 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
+# HTTP/2 + rustls-TLS client for APNs push POSTs. reqwest 0.13 uses hyper 1.x
+# + h2 0.4; all have MSRV 1.63 — safely below our 1.96.
+# We set default-features=false and opt-in to exactly what we need:
+#   http2       — h2 feature gate (HTTP/2 framing via hyper)
+#   rustls-tls  — TLS via rustls (no openssl/native-tls dependency)
+#   json        — serde_json request/response body helpers
+reqwest = { version = "0.13", default-features = false, features = ["http2", "rustls", "json"] }
+
 [dev-dependencies]
 serde_json = "1"
 # Integration-test WebSocket CLIENT only (the server uses axum's ws). Drives a

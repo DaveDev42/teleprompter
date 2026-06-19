@@ -65,7 +65,32 @@ rust/
 cd rust
 cargo test -p tp-core      # 12 단위 테스트 + 8 골든벡터 (TS 교차검증)
 cargo test -p tp-proto     # 22 단위 + 4 골든벡터 (메시지 타입 parity, ADR-0003 Stage 0)
+cargo test -p tp-relay     # 핫패스 lib + http surface + 10 loopback integration
 ```
+
+### Soak — 10k capacity gate (ADR-0003 §6.9)
+
+`tp-relay/tests/soak_10k.rs` 는 **capacity gate** 다 (Stage-1 재설계가 ~10k concurrent
+bar 를 낮추지 않음을 증명). `#[ignore]` 이라 일반 `cargo test --workspace` 는 수천 소켓을
+열지 않는다. ONE 파라미터화 하니스가 세 부하 차원(pub fan-out + resume storm + push-
+under-load)을 env 로 스케일한다 — **heavy=local, light=CI**.
+
+```bash
+# heavy = local (full 10k, on-demand). loopback 소켓이 많으니 ulimit 먼저 올린다.
+ulimit -n 65535
+TP_SOAK_CONNS=10000 TP_SOAK_SECS=60 \
+  cargo test -p tp-relay --test soak_10k -- --ignored --nocapture
+
+# light = CI tier (.github/workflows/ci.yml rust job 이 normal test 뒤에 실행):
+ulimit -n 65535
+TP_SOAK_CONNS=1500 TP_SOAK_SECS=20 \
+  cargo test -p tp-relay --test soak_10k -- --ignored --nocapture
+
+# TP_SOAK_JSON=1 을 붙이면 마지막 줄에 single-line JSON 요약을 emit.
+```
+
+env 기본값: `TP_SOAK_CONNS=10000`, `TP_SOAK_SECS=60`. 차원·rate-knob caveat·불변식
+프로브 상세는 `.claude/rules/relay-capacity.md` "Soak harness" 섹션 (capacity SoT).
 
 골든벡터(`tests/fixtures/wire-vectors.json`)는 **라이브 TS 프로덕션 경로**(libsodium
 + 프로젝트 codec)에서 생성한 것이라, Rust 출력이 이와 일치하면 TS↔Rust 바이트 동일이

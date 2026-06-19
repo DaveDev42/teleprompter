@@ -35,10 +35,16 @@ pre-push:
     test:
       run: bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay
     # 4. Rust fmt + clippy + test — only when rust/ files changed.
+    #    `cargo` on this machine is the Homebrew rustup shim, which mis-parses
+    #    `cargo fmt --all` (the shim swallows `--all` instead of dispatching to
+    #    cargo-fmt). Prepend the active toolchain's real bin dir — derived
+    #    portably via `rustup which cargo` (honors rust-toolchain.toml on any
+    #    host/CI) — so cargo-fmt/rustfmt resolve and the subcommands work.
     rust:
       glob: "rust/**/*.rs"
       run: |
         cd rust &&
+        export PATH="$(dirname "$(rustup which cargo)"):$PATH" &&
         cargo fmt --all -- --check &&
         cargo clippy --workspace --all-targets &&
         cargo test --workspace

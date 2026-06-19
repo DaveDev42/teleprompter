@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Stage 1 relay server — RelayServerMessage serde core + framing helpers + handshake/registry/resume-token logic (Step 3). No axum/tokio yet (Step 4+)."
+description = "Stage 1 relay server — RelayServerMessage serde core + framing helpers + handshake/registry/resume-token logic + async axum/tokio WebSocket hot path (Step 4)."
 
 [lib]
 name = "tp_relay"
@@ -24,11 +24,28 @@ base64 = "0.22"
 rand_core = { version = "0.6", features = ["getrandom"] }
 # IndexMap for insertion-ordered session set (BTreeSet loses insertion order).
 indexmap = "2"
+# GCRA rate limiter (replaces the TS fixed-window — no 2x burst at the window
+# boundary). Per-client + per-daemon-group direct limiters.
+governor = "0.10"
 # Atomic version-mismatch counter in handshake.rs.
 # (std::sync::atomic suffices; no extra dep needed)
+# ── Step 4: async WebSocket hot path ──────────────────────────────────────────
+# Tokio multi-thread runtime + timers (idle/auth Interval) + bounded mpsc
+# (per-conn outbox backpressure) + net (loopback TcpListener for integration).
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
+# axum WebSocket server — the single GET "/" upgrade route. 0.7 resolves cleanly
+# on Rust 1.96 (0.8 pulls a newer matchit/hyper that bumps MSRV above 1.96).
+axum = { version = "0.7", features = ["ws"] }
+# StreamExt/SinkExt for splitting the axum ws into read/write halves.
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 
 [dev-dependencies]
 serde_json = "1"
+# Integration-test WebSocket CLIENT only (the server uses axum's ws). Drives a
+# real loopback handshake/pub-sub/kx round-trip against the live RelayServer.
+tokio-tungstenite = "0.24"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
+futures-util = "0.3"
 
 [lints]
 workspace = true

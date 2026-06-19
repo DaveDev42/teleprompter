@@ -9,8 +9,7 @@ const SERVICE_NAME = "teleprompter-daemon";
 
 function getUnitDir(): string {
   return join(
-    process.env["XDG_CONFIG_HOME"] ??
-      join(process.env["HOME"] ?? "/tmp", ".config"),
+    process.env.XDG_CONFIG_HOME ?? join(process.env.HOME ?? "/tmp", ".config"),
     "systemd",
     "user",
   );
@@ -37,8 +36,8 @@ After=network.target
 ExecStart=${tpBinary} daemon start
 Restart=on-failure
 RestartSec=5
-Environment=HOME=${process.env["HOME"]}
-Environment=PATH=/usr/local/bin:/usr/bin:/bin:${process.env["HOME"]}/.local/bin
+Environment=HOME=${process.env.HOME}
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:${process.env.HOME}/.local/bin
 
 [Install]
 WantedBy=default.target

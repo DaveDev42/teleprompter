@@ -192,14 +192,14 @@ export class Daemon {
     // full wipe of session history at the store layer.
     let days =
       ttlDays ??
-      (process.env["TP_PRUNE_TTL_DAYS"]
-        ? Number(process.env["TP_PRUNE_TTL_DAYS"])
+      (process.env.TP_PRUNE_TTL_DAYS
+        ? Number(process.env.TP_PRUNE_TTL_DAYS)
         : DEFAULT_PRUNE_TTL_DAYS);
     if (!Number.isFinite(days) || days <= 0) {
       const raw =
         ttlDays !== undefined
           ? String(ttlDays)
-          : (process.env["TP_PRUNE_TTL_DAYS"] ?? "");
+          : (process.env.TP_PRUNE_TTL_DAYS ?? "");
       log.warn(
         `invalid prune TTL '${raw}', falling back to ${DEFAULT_PRUNE_TTL_DAYS}d`,
       );

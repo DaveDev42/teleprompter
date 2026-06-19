@@ -65,7 +65,7 @@ export class ResumeTokenSigner {
     secret?: string | undefined;
     ttlMs?: number | undefined;
   }) {
-    const envSecret = process.env["TP_RELAY_RESUME_SECRET"] ?? "";
+    const envSecret = process.env.TP_RELAY_RESUME_SECRET ?? "";
     const provided = options?.secret ?? envSecret;
     if (provided && provided.length >= SECRET_MIN_BYTES) {
       this.secret = Buffer.from(provided, "utf8");

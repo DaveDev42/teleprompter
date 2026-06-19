@@ -104,7 +104,7 @@ describe("parseHookEvent", () => {
       };
       const parsed = parseHookEvent(event);
       expect(parsed).toEqual(event as unknown as NonNullable<typeof parsed>);
-      expect(parsed?.["tool_name"]).toBe("Bash");
+      expect(parsed?.tool_name).toBe("Bash");
     });
 
     test("returns the same object reference (no reconstruction)", () => {

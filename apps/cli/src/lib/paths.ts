@@ -7,8 +7,7 @@ import { join } from "path";
  */
 export function getConfigDir(): string {
   const base =
-    process.env["XDG_CONFIG_HOME"] ??
-    join(process.env["HOME"] ?? "/tmp", ".config");
+    process.env.XDG_CONFIG_HOME ?? join(process.env.HOME ?? "/tmp", ".config");
   return join(base, "teleprompter");
 }
 
@@ -46,7 +45,7 @@ export function resolveTpBinary(): string {
   //   (`bun`'s execSync uses /bin/sh, but the shell's rc may reset PATH).
   // A direct $PATH walk honors process.env.PATH faithfully and has no
   // external dependency.
-  for (const entry of (process.env["PATH"] ?? "").split(":")) {
+  for (const entry of (process.env.PATH ?? "").split(":")) {
     if (!entry) continue;
     const candidate = join(entry, "tp");
     if (existsSync(candidate)) return candidate;
@@ -55,7 +54,7 @@ export function resolveTpBinary(): string {
   const candidates = [
     "/usr/local/bin/tp",
     "/opt/homebrew/bin/tp",
-    join(process.env["HOME"] ?? "", ".local", "bin", "tp"),
+    join(process.env.HOME ?? "", ".local", "bin", "tp"),
   ];
   for (const c of candidates) {
     if (existsSync(c)) return c;

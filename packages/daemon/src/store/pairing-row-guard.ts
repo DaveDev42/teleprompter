@@ -82,31 +82,31 @@ export function parseStoredPairing(raw: unknown): StoredPairing | null {
   }
   const r = raw as Record<string, unknown>;
 
-  if (!isNonEmptyString(r["daemon_id"])) return null;
-  if (!isNonEmptyString(r["relay_url"])) return null;
-  if (!isNonEmptyString(r["relay_token"])) return null;
-  if (!isNonEmptyString(r["registration_proof"])) return null;
-  if (!isFiniteNumber(r["created_at"])) return null;
+  if (!isNonEmptyString(r.daemon_id)) return null;
+  if (!isNonEmptyString(r.relay_url)) return null;
+  if (!isNonEmptyString(r.relay_token)) return null;
+  if (!isNonEmptyString(r.registration_proof)) return null;
+  if (!isFiniteNumber(r.created_at)) return null;
 
-  const publicKey = toKeyBytes(r["public_key"], PAIRING_KEY_BYTES);
+  const publicKey = toKeyBytes(r.public_key, PAIRING_KEY_BYTES);
   if (!publicKey) return null;
-  const secretKey = toKeyBytes(r["secret_key"], PAIRING_KEY_BYTES);
+  const secretKey = toKeyBytes(r.secret_key, PAIRING_KEY_BYTES);
   if (!secretKey) return null;
-  const pairingSecret = toKeyBytes(r["pairing_secret"], PAIRING_KEY_BYTES);
+  const pairingSecret = toKeyBytes(r.pairing_secret, PAIRING_KEY_BYTES);
   if (!pairingSecret) return null;
 
   // `label` is the only nullable column; `decodeWireLabel` normalizes NULL and
   // a legacy "" both to `{ set: false }`, and accepts any string otherwise.
-  const labelRaw = r["label"];
+  const labelRaw = r.label;
   const label: Label = decodeWireLabel(
     typeof labelRaw === "string" ? labelRaw : null,
   );
 
   return {
-    daemonId: r["daemon_id"],
-    relayUrl: r["relay_url"],
-    relayToken: r["relay_token"],
-    registrationProof: r["registration_proof"],
+    daemonId: r.daemon_id,
+    relayUrl: r.relay_url,
+    relayToken: r.relay_token,
+    registrationProof: r.registration_proof,
     publicKey,
     secretKey,
     pairingSecret,

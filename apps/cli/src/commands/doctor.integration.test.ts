@@ -81,10 +81,10 @@ beforeEach(() => {
   tmpRuntimeDir = mkdtempSync(join(tmpdir(), "tp-doctor-runtime-"));
   tmpDataDir = mkdtempSync(join(tmpdir(), "tp-doctor-data-"));
 
-  origRuntime = process.env["XDG_RUNTIME_DIR"];
-  origDataHome = process.env["XDG_DATA_HOME"];
-  process.env["XDG_RUNTIME_DIR"] = tmpRuntimeDir;
-  process.env["XDG_DATA_HOME"] = tmpDataDir;
+  origRuntime = process.env.XDG_RUNTIME_DIR;
+  origDataHome = process.env.XDG_DATA_HOME;
+  process.env.XDG_RUNTIME_DIR = tmpRuntimeDir;
+  process.env.XDG_DATA_HOME = tmpDataDir;
 
   logLines = [];
   consoleSpy = spyOn(console, "log").mockImplementation(
@@ -99,11 +99,11 @@ afterEach(() => {
   spawnSyncSpy?.mockRestore();
   spawnSpy?.mockRestore();
 
-  if (origRuntime === undefined) delete process.env["XDG_RUNTIME_DIR"];
-  else process.env["XDG_RUNTIME_DIR"] = origRuntime;
+  if (origRuntime === undefined) delete process.env.XDG_RUNTIME_DIR;
+  else process.env.XDG_RUNTIME_DIR = origRuntime;
 
-  if (origDataHome === undefined) delete process.env["XDG_DATA_HOME"];
-  else process.env["XDG_DATA_HOME"] = origDataHome;
+  if (origDataHome === undefined) delete process.env.XDG_DATA_HOME;
+  else process.env.XDG_DATA_HOME = origDataHome;
 
   rmSync(tmpRuntimeDir, { recursive: true, force: true });
   rmSync(tmpDataDir, { recursive: true, force: true });

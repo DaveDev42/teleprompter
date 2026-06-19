@@ -3,7 +3,7 @@
  * Respects NO_COLOR (https://no-color.org/).
  */
 
-const enabled = !process.env["NO_COLOR"];
+const enabled = !process.env.NO_COLOR;
 
 const wrap = (code: string, text: string) =>
   enabled ? `\x1b[${code}m${text}\x1b[0m` : text;

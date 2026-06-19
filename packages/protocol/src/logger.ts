@@ -19,7 +19,7 @@ const LEVELS: Record<LogLevel, number> = {
 
 function getLevel(): number {
   const env =
-    (typeof process !== "undefined" ? process.env?.["LOG_LEVEL"] : undefined) ??
+    (typeof process !== "undefined" ? process.env?.LOG_LEVEL : undefined) ??
     "info";
   return LEVELS[env as LogLevel] ?? LEVELS.info;
 }

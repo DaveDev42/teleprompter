@@ -155,8 +155,8 @@ function runInstall(argv: string[]): void {
     requested ?? detectShell(process.env, process.platform);
 
   if (!shell) {
-    const hint = process.env["SHELL"]
-      ? `Detected $SHELL=${process.env["SHELL"]} (unsupported).`
+    const hint = process.env.SHELL
+      ? `Detected $SHELL=${process.env.SHELL} (unsupported).`
       : "$SHELL is not set and no $ZSH_VERSION / $BASH_VERSION / $FISH_VERSION detected.";
     console.error(
       `Could not detect shell. ${hint} Run 'tp completions install <bash|zsh|fish>'.`,

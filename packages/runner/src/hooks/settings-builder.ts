@@ -51,7 +51,7 @@ function readExistingSettings(cwd: string): SettingsJson | null {
     // Sanitise hooks: if present, it must be a non-array object. Individual
     // event arrays that are not actually arrays are coerced to [] so that
     // `[...existingEntries, tpHookEntry]` never spreads a string char-by-char.
-    const rawHooks = obj["hooks"];
+    const rawHooks = obj.hooks;
     // Widened to also accept unknown string keys so future/custom hook events
     // can be stored without a type error (see pass-through loop below).
     const hooks: Partial<Record<ClaudeHookEvent, HookEntry[]>> &

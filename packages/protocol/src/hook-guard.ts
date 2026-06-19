@@ -56,9 +56,9 @@ function isHookEventName(v: unknown): v is ClaudeHookEvent {
  */
 export function parseHookEvent(raw: unknown): HookEventBase | null {
   if (!isObject(raw)) return null;
-  if (!isHookEventName(raw["hook_event_name"])) return null;
-  if (typeof raw["session_id"] !== "string") return null;
-  if (typeof raw["cwd"] !== "string") return null;
+  if (!isHookEventName(raw.hook_event_name)) return null;
+  if (typeof raw.session_id !== "string") return null;
+  if (typeof raw.cwd !== "string") return null;
   // The envelope is valid; `HookEventBase`'s index signature carries the rest
   // of the payload (tool_name, tool_input, …) through unchanged. We return the
   // original object — not a reconstruction — precisely because those extra

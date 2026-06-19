@@ -52,7 +52,7 @@ describe("HookReceiver", () => {
     await Bun.sleep(100);
     expect(receivedEvents.length).toBe(1);
     expect(receivedEvents[0]?.hook_event_name).toBe("Stop");
-    expect(receivedEvents[0]?.["last_assistant_message"]).toBe("Done!");
+    expect(receivedEvents[0]?.last_assistant_message).toBe("Done!");
   });
 
   test("receives multiple events from different connections", async () => {
@@ -142,14 +142,14 @@ describe("HookReceiver", () => {
       systemdDir,
     );
     try {
-      const savedXdg = process.env["XDG_RUNTIME_DIR"];
-      delete process.env["XDG_RUNTIME_DIR"];
+      const savedXdg = process.env.XDG_RUNTIME_DIR;
+      delete process.env.XDG_RUNTIME_DIR;
       try {
         const path = HookReceiver.defaultSocketPath("sid-123");
         expect(spy).toHaveBeenCalled();
         expect(path).toBe(`${systemdDir}/hook-sid-123.sock`);
       } finally {
-        if (savedXdg !== undefined) process.env["XDG_RUNTIME_DIR"] = savedXdg;
+        if (savedXdg !== undefined) process.env.XDG_RUNTIME_DIR = savedXdg;
       }
     } finally {
       spy.mockRestore();

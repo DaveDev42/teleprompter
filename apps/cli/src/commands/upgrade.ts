@@ -113,7 +113,7 @@ const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const CACHE_SCHEMA_VERSION = 1;
 
 function getCachePath(): string {
-  const xdg = process.env["XDG_CACHE_HOME"];
+  const xdg = process.env.XDG_CACHE_HOME;
   const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".cache");
   return join(base, "teleprompter", "upgrade-check.json");
 }
@@ -181,7 +181,7 @@ export async function checkForUpdates(
     fetchLatest?: () => Promise<{ tag: string; url: string } | null>;
   } = {},
 ): Promise<string | null> {
-  if (process.env["TP_NO_UPDATE_CHECK"] === "1") return null;
+  if (process.env.TP_NO_UPDATE_CHECK === "1") return null;
 
   const cachePath = opts.cachePath ?? getCachePath();
   const now = opts.now ?? Date.now();
@@ -256,12 +256,12 @@ export function parseGhReleaseJson(
     if (
       data !== null &&
       typeof data === "object" &&
-      typeof (data as Record<string, unknown>)["tagName"] === "string" &&
-      typeof (data as Record<string, unknown>)["url"] === "string"
+      typeof (data as Record<string, unknown>).tagName === "string" &&
+      typeof (data as Record<string, unknown>).url === "string"
     ) {
       return {
-        tag: (data as Record<string, unknown>)["tagName"] as string,
-        url: (data as Record<string, unknown>)["url"] as string,
+        tag: (data as Record<string, unknown>).tagName as string,
+        url: (data as Record<string, unknown>).url as string,
       };
     }
     return null;
@@ -284,12 +284,12 @@ export function parseGithubApiReleaseJson(
   if (
     raw !== null &&
     typeof raw === "object" &&
-    typeof (raw as Record<string, unknown>)["tag_name"] === "string" &&
-    typeof (raw as Record<string, unknown>)["html_url"] === "string"
+    typeof (raw as Record<string, unknown>).tag_name === "string" &&
+    typeof (raw as Record<string, unknown>).html_url === "string"
   ) {
     return {
-      tag: (raw as Record<string, unknown>)["tag_name"] as string,
-      url: (raw as Record<string, unknown>)["html_url"] as string,
+      tag: (raw as Record<string, unknown>).tag_name as string,
+      url: (raw as Record<string, unknown>).html_url as string,
     };
   }
   return null;

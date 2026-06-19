@@ -156,10 +156,10 @@ describe("RelayServer capacity hardening", () => {
     const res = await fetch(`http://localhost:${port}/health`);
     const body = (await res.json()) as { metrics: Record<string, number> };
     expect(body.metrics).toBeDefined();
-    expect(typeof body.metrics["framesIn"]).toBe("number");
-    expect(typeof body.metrics["rateLimitedDrops"]).toBe("number");
-    expect(typeof body.metrics["backpressureDisconnects"]).toBe("number");
-    expect(typeof body.metrics["authTimeouts"]).toBe("number");
+    expect(typeof body.metrics.framesIn).toBe("number");
+    expect(typeof body.metrics.rateLimitedDrops).toBe("number");
+    expect(typeof body.metrics.backpressureDisconnects).toBe("number");
+    expect(typeof body.metrics.authTimeouts).toBe("number");
   });
 
   test("/metrics returns Prometheus-style text", async () => {

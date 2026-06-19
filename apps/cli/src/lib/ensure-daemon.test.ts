@@ -15,11 +15,11 @@ import {
 describe("isDaemonRunning", () => {
   let runtime: string;
   let sockPath: string;
-  const origRuntime = process.env["XDG_RUNTIME_DIR"];
+  const origRuntime = process.env.XDG_RUNTIME_DIR;
 
   beforeEach(() => {
     runtime = mkdtempSync(join(tmpdir(), "tp-ensure-daemon-"));
-    process.env["XDG_RUNTIME_DIR"] = runtime;
+    process.env.XDG_RUNTIME_DIR = runtime;
     sockPath = join(runtime, "daemon.sock");
     // Guard against platform-specific socket-path resolution (e.g. macOS
     // falling back to TMPDIR). If this fails the other assertions would
@@ -32,8 +32,8 @@ describe("isDaemonRunning", () => {
   });
 
   afterEach(() => {
-    if (origRuntime === undefined) delete process.env["XDG_RUNTIME_DIR"];
-    else process.env["XDG_RUNTIME_DIR"] = origRuntime;
+    if (origRuntime === undefined) delete process.env.XDG_RUNTIME_DIR;
+    else process.env.XDG_RUNTIME_DIR = origRuntime;
     rmSync(runtime, { recursive: true, force: true });
   });
 
@@ -281,13 +281,13 @@ describe("waitForDaemonReady check-then-sleep ordering (idx 65)", () => {
   test("isDaemonRunning immediately true resolves without a sleep", async () => {
     // Spin up a real socket and confirm isDaemonRunning returns true instantly.
     const runtime = mkdtempSync(join(tmpdir(), "tp-fast-daemon-"));
-    const origRuntime = process.env["XDG_RUNTIME_DIR"];
-    process.env["XDG_RUNTIME_DIR"] = runtime;
+    const origRuntime = process.env.XDG_RUNTIME_DIR;
+    process.env.XDG_RUNTIME_DIR = runtime;
     const sockPath = join(runtime, "daemon.sock");
 
     if (getSocketPath() !== sockPath) {
-      if (origRuntime === undefined) delete process.env["XDG_RUNTIME_DIR"];
-      else process.env["XDG_RUNTIME_DIR"] = origRuntime;
+      if (origRuntime === undefined) delete process.env.XDG_RUNTIME_DIR;
+      else process.env.XDG_RUNTIME_DIR = origRuntime;
       rmSync(runtime, { recursive: true, force: true });
       return; // skip on platforms where path resolution differs
     }
@@ -303,8 +303,8 @@ describe("waitForDaemonReady check-then-sleep ordering (idx 65)", () => {
       expect(elapsed).toBeLessThan(450);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      if (origRuntime === undefined) delete process.env["XDG_RUNTIME_DIR"];
-      else process.env["XDG_RUNTIME_DIR"] = origRuntime;
+      if (origRuntime === undefined) delete process.env.XDG_RUNTIME_DIR;
+      else process.env.XDG_RUNTIME_DIR = origRuntime;
       rmSync(runtime, { recursive: true, force: true });
     }
   });

@@ -44,38 +44,38 @@ function isUnpairReason(v: unknown): v is ControlUnpair["reason"] {
  */
 export function parseControlMessage(raw: unknown): ControlMessage | null {
   if (!isObject(raw)) return null;
-  const t = raw["t"];
+  const t = raw.t;
   if (!isString(t)) return null;
 
   switch (t) {
     case CONTROL_UNPAIR: {
-      if (!isString(raw["daemonId"])) return null;
-      if (!isString(raw["frontendId"])) return null;
-      if (!isUnpairReason(raw["reason"])) return null;
-      if (!isNumber(raw["ts"])) return null;
+      if (!isString(raw.daemonId)) return null;
+      if (!isString(raw.frontendId)) return null;
+      if (!isUnpairReason(raw.reason)) return null;
+      if (!isNumber(raw.ts)) return null;
       return {
         t: CONTROL_UNPAIR,
-        daemonId: raw["daemonId"],
-        frontendId: raw["frontendId"],
-        reason: raw["reason"],
-        ts: raw["ts"],
+        daemonId: raw.daemonId,
+        frontendId: raw.frontendId,
+        reason: raw.reason,
+        ts: raw.ts,
       } satisfies ControlUnpair;
     }
 
     case CONTROL_RENAME: {
-      if (!isString(raw["daemonId"])) return null;
-      if (!isString(raw["frontendId"])) return null;
-      if (!isNumber(raw["ts"])) return null;
+      if (!isString(raw.daemonId)) return null;
+      if (!isString(raw.frontendId)) return null;
+      if (!isNumber(raw.ts)) return null;
       // `label` may arrive as a legacy `string` (`""` = clear) or the new
       // `Label` union — `decodeWireLabel` normalizes both. The field is never
       // strictly type-asserted here precisely so an old peer's string still
       // parses; only the structural fields above gate validity.
       return {
         t: CONTROL_RENAME,
-        daemonId: raw["daemonId"],
-        frontendId: raw["frontendId"],
-        label: decodeWireLabel(raw["label"]),
-        ts: raw["ts"],
+        daemonId: raw.daemonId,
+        frontendId: raw.frontendId,
+        label: decodeWireLabel(raw.label),
+        ts: raw.ts,
       } satisfies ControlRename;
     }
 

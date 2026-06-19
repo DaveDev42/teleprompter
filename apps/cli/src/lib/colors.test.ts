@@ -5,7 +5,7 @@ import { dim, fail, green, ok, red, warn, yellow } from "./colors";
 // verify behavior in the current environment rather than asserting
 // exact ANSI codes that would break under NO_COLOR=1.
 
-const colored = !process.env["NO_COLOR"];
+const colored = !process.env.NO_COLOR;
 
 describe("colors", () => {
   test("green wraps text", () => {

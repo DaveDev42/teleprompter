@@ -299,8 +299,6 @@ describe("parseRelayClientMessage", () => {
     };
     const parsed = parseRelayClientMessage(m);
     expect(parsed).toEqual({ t: "relay.unsub", sid: "s" });
-    expect(
-      (parsed as unknown as Record<string, unknown>)["evil"],
-    ).toBeUndefined();
+    expect((parsed as unknown as Record<string, unknown>).evil).toBeUndefined();
   });
 });

@@ -74,8 +74,8 @@ describe("ApnsJwtSigner", () => {
       });
       const token = await signer.getToken();
       const { header } = parseJwt(token);
-      expect(header["alg"]).toBe("ES256");
-      expect(header["kid"]).toBe("TESTKEY1234");
+      expect(header.alg).toBe("ES256");
+      expect(header.kid).toBe("TESTKEY1234");
     });
 
     test("claims have iss=teamId and iat near current time", async () => {
@@ -89,8 +89,8 @@ describe("ApnsJwtSigner", () => {
       const token = await signer.getToken();
       const after = Math.floor(Date.now() / 1000);
       const { claims } = parseJwt(token);
-      expect(claims["iss"]).toBe("TEAM123456");
-      const iat = claims["iat"] as number;
+      expect(claims.iss).toBe("TEAM123456");
+      const iat = claims.iat as number;
       expect(iat).toBeGreaterThanOrEqual(before);
       expect(iat).toBeLessThanOrEqual(after);
     });
@@ -150,7 +150,7 @@ describe("ApnsJwtSigner", () => {
       expect(t1).not.toBe(t2);
       const { claims: c1 } = parseJwt(t1);
       const { claims: c2 } = parseJwt(t2);
-      expect(c2["iat"] as number).toBeGreaterThan(c1["iat"] as number);
+      expect(c2.iat as number).toBeGreaterThan(c1.iat as number);
     });
 
     test("cachedAgeMs() returns 0 when not cached", () => {

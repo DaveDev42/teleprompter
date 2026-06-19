@@ -1345,7 +1345,7 @@ ${daemons
     msg: RelayClientMessage & { t: "relay.push" },
   ) {
     const client = this.clients.get(ws);
-    if (!client || client.role !== "daemon") {
+    if (client?.role !== "daemon") {
       this.send(ws, {
         t: "relay.err",
         e: "UNAUTHORIZED",
@@ -1487,7 +1487,7 @@ ${daemons
     msg: RelayClientMessage & { t: "relay.push.register" },
   ): Promise<void> {
     const client = this.clients.get(ws);
-    if (!client || client.role !== "frontend") {
+    if (client?.role !== "frontend") {
       this.send(ws, {
         t: "relay.err",
         e: "UNAUTHORIZED",

@@ -34,27 +34,27 @@ export function formatEventRecord(rec: StoredRecord): string {
 
   switch (rec.name) {
     case "Stop":
-      if (data["last_assistant_message"]) {
-        return `### Assistant Response\n\n${data["last_assistant_message"]}`;
+      if (data.last_assistant_message) {
+        return `### Assistant Response\n\n${data.last_assistant_message}`;
       }
       return jsonBlock("Assistant Response", data);
 
     case "UserPromptSubmit":
-      if (data["prompt"]) {
-        return `### User\n\n> ${String(data["prompt"]).replace(/\n/g, "\n> ")}`;
+      if (data.prompt) {
+        return `### User\n\n> ${String(data.prompt).replace(/\n/g, "\n> ")}`;
       }
       return jsonBlock("User", data);
 
     case "PreToolUse":
       return jsonBlock(
-        `Tool Use: ${data["tool_name"] ?? "unknown"}`,
-        data["tool_input"],
+        `Tool Use: ${data.tool_name ?? "unknown"}`,
+        data.tool_input,
       );
 
     case "PostToolUse":
       return jsonBlock(
-        `Tool Result: ${data["tool_name"] ?? "unknown"}`,
-        data["tool_result"] ?? data["tool_input"],
+        `Tool Result: ${data.tool_name ?? "unknown"}`,
+        data.tool_result ?? data.tool_input,
       );
 
     default: {

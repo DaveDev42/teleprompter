@@ -35,8 +35,8 @@ export async function daemonStatusCommand(_argv: string[]): Promise<void> {
     binaryPath = svc.resolveTpBinary();
     configPath = svc.getPlistPath();
     logPath = join(
-      process.env["XDG_DATA_HOME"] ??
-        join(process.env["HOME"] ?? "/tmp", ".local", "share"),
+      process.env.XDG_DATA_HOME ??
+        join(process.env.HOME ?? "/tmp", ".local", "share"),
       "teleprompter",
       "logs",
       "daemon.log",
@@ -47,8 +47,8 @@ export async function daemonStatusCommand(_argv: string[]): Promise<void> {
     managerHint = `systemd --user (${svc.getServiceName()})`;
     binaryPath = svc.resolveTpBinary();
     configPath = join(
-      process.env["XDG_CONFIG_HOME"] ??
-        join(process.env["HOME"] ?? "/tmp", ".config"),
+      process.env.XDG_CONFIG_HOME ??
+        join(process.env.HOME ?? "/tmp", ".config"),
       "systemd",
       "user",
       `${svc.getServiceName()}.service`,

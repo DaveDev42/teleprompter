@@ -81,8 +81,8 @@ function isTimeRange(
 ): v is { from?: number; to?: number } | undefined {
   if (v === undefined) return true;
   if (!isObject(v)) return false;
-  if (!isOptionalNumber(v["from"])) return false;
-  if (!isOptionalNumber(v["to"])) return false;
+  if (!isOptionalNumber(v.from)) return false;
+  if (!isOptionalNumber(v.to)) return false;
   return true;
 }
 
@@ -98,44 +98,44 @@ export function parseRelayControlMessage(
   raw: unknown,
 ): RelayControlMessage | null {
   if (!isObject(raw)) return null;
-  const t = raw["t"];
+  const t = raw.t;
   if (!isString(t)) return null;
 
   switch (t) {
     case "hello": {
-      if (!isNumber(raw["v"])) return null;
-      return { t: "hello", v: raw["v"] } satisfies SessionHello;
+      if (!isNumber(raw.v)) return null;
+      return { t: "hello", v: raw.v } satisfies SessionHello;
     }
 
     case "attach": {
-      if (!isString(raw["sid"])) return null;
-      return { t: "attach", sid: raw["sid"] } satisfies SessionAttach;
+      if (!isString(raw.sid)) return null;
+      return { t: "attach", sid: raw.sid } satisfies SessionAttach;
     }
 
     case "detach": {
-      if (!isString(raw["sid"])) return null;
-      return { t: "detach", sid: raw["sid"] } satisfies SessionDetach;
+      if (!isString(raw.sid)) return null;
+      return { t: "detach", sid: raw.sid } satisfies SessionDetach;
     }
 
     case "resume": {
-      if (!isString(raw["sid"])) return null;
-      if (!isNonNegativeInt(raw["c"])) return null;
+      if (!isString(raw.sid)) return null;
+      if (!isNonNegativeInt(raw.c)) return null;
       return {
         t: "resume",
-        sid: raw["sid"],
-        c: raw["c"],
+        sid: raw.sid,
+        c: raw.c,
       } satisfies SessionResume;
     }
 
     case "resize": {
-      if (!isString(raw["sid"])) return null;
-      if (!isPositiveInt(raw["cols"])) return null;
-      if (!isPositiveInt(raw["rows"])) return null;
+      if (!isString(raw.sid)) return null;
+      if (!isPositiveInt(raw.cols)) return null;
+      if (!isPositiveInt(raw.rows)) return null;
       return {
         t: "resize",
-        sid: raw["sid"],
-        cols: raw["cols"],
-        rows: raw["rows"],
+        sid: raw.sid,
+        cols: raw.cols,
+        rows: raw.rows,
       } satisfies SessionResize;
     }
 
@@ -143,42 +143,42 @@ export function parseRelayControlMessage(
       return { t: "ping" } satisfies SessionPing;
 
     case "session.create": {
-      if (!isString(raw["cwd"])) return null;
-      if (!isOptionalString(raw["sid"])) return null;
-      if (!isOptionalPositiveInt(raw["cols"])) return null;
-      if (!isOptionalPositiveInt(raw["rows"])) return null;
+      if (!isString(raw.cwd)) return null;
+      if (!isOptionalString(raw.sid)) return null;
+      if (!isOptionalPositiveInt(raw.cols)) return null;
+      if (!isOptionalPositiveInt(raw.rows)) return null;
       return {
         t: "session.create",
-        cwd: raw["cwd"],
-        sid: raw["sid"],
-        cols: raw["cols"],
-        rows: raw["rows"],
+        cwd: raw.cwd,
+        sid: raw.sid,
+        cols: raw.cols,
+        rows: raw.rows,
       } satisfies SessionCreate;
     }
 
     case "session.stop": {
-      if (!isString(raw["sid"])) return null;
-      return { t: "session.stop", sid: raw["sid"] } satisfies SessionStop;
+      if (!isString(raw.sid)) return null;
+      return { t: "session.stop", sid: raw.sid } satisfies SessionStop;
     }
 
     case "session.restart": {
-      if (!isString(raw["sid"])) return null;
-      return { t: "session.restart", sid: raw["sid"] } satisfies SessionRestart;
+      if (!isString(raw.sid)) return null;
+      return { t: "session.restart", sid: raw.sid } satisfies SessionRestart;
     }
 
     case "session.export": {
-      if (!isString(raw["sid"])) return null;
-      if (!isExportFormat(raw["format"])) return null;
-      if (!isRecordKindArray(raw["recordTypes"])) return null;
-      if (!isTimeRange(raw["timeRange"])) return null;
-      if (!isOptionalNumber(raw["limit"])) return null;
+      if (!isString(raw.sid)) return null;
+      if (!isExportFormat(raw.format)) return null;
+      if (!isRecordKindArray(raw.recordTypes)) return null;
+      if (!isTimeRange(raw.timeRange)) return null;
+      if (!isOptionalNumber(raw.limit)) return null;
       return {
         t: "session.export",
-        sid: raw["sid"],
-        format: raw["format"],
-        recordTypes: raw["recordTypes"],
-        timeRange: raw["timeRange"],
-        limit: raw["limit"],
+        sid: raw.sid,
+        format: raw.format,
+        recordTypes: raw.recordTypes,
+        timeRange: raw.timeRange,
+        limit: raw.limit,
       } satisfies SessionExport;
     }
 
@@ -186,24 +186,24 @@ export function parseRelayControlMessage(
       return { t: "worktree.list" } satisfies SessionWorktreeList;
 
     case "worktree.create": {
-      if (!isString(raw["branch"])) return null;
-      if (!isOptionalString(raw["baseBranch"])) return null;
-      if (!isOptionalString(raw["path"])) return null;
+      if (!isString(raw.branch)) return null;
+      if (!isOptionalString(raw.baseBranch)) return null;
+      if (!isOptionalString(raw.path)) return null;
       return {
         t: "worktree.create",
-        branch: raw["branch"],
-        baseBranch: raw["baseBranch"],
-        path: raw["path"],
+        branch: raw.branch,
+        baseBranch: raw.baseBranch,
+        path: raw.path,
       } satisfies SessionWorktreeCreate;
     }
 
     case "worktree.remove": {
-      if (!isString(raw["path"])) return null;
-      if (!isOptionalBoolean(raw["force"])) return null;
+      if (!isString(raw.path)) return null;
+      if (!isOptionalBoolean(raw.force)) return null;
       return {
         t: "worktree.remove",
-        path: raw["path"],
-        force: raw["force"],
+        path: raw.path,
+        force: raw.force,
       } satisfies SessionWorktreeRemove;
     }
 

@@ -68,6 +68,59 @@ cargo test -p tp-proto     # 22 단위 + 4 골든벡터 (메시지 타입 parity
 cargo test -p tp-relay     # 핫패스 lib + http surface + 10 loopback integration
 ```
 
+## `tp-relay` 바이너리 (ADR-0003 Stage 1 Step 8a)
+
+`tp-relay` 는 `[lib]`(`tp_relay`) 외에 **runnable `[[bin]] tp-relay`** 를 갖는다 (`src/main.rs`).
+바이너리는 THIN 하다 — 모든 relay 설정(resume-secret / rate / push-seal / cache / max-frame)은
+`SharedState::from_env()` 가 env 에서 읽고, 바이너리는 **listen 포트와 graceful shutdown 만** 결정한다.
+
+```bash
+export PATH="$(dirname "$(rustup which cargo)"):$PATH"   # rustup shim 우회 (machine-portable)
+cargo build --release --bin tp-relay
+./target/release/tp-relay --port 7090      # 또는 RELAY_PORT=7090 env
+./target/release/tp-relay --help           # usage + env knob 목록
+```
+
+포트 우선순위: `--port <N>` flag > `RELAY_PORT` env > 기본 `7090`. SIGINT/SIGTERM 수신 시
+새 연결 수락을 멈추고 in-flight 를 drain 한 뒤 종료한다 (`systemctl stop` 안전). 시작 시
+`tp-relay listening on 0.0.0.0:<port> (buildSha=<sha>)` 한 줄을 찍는데, 그 `buildSha` 는
+`/health.buildSha`(컴파일타임 `build.rs` `TP_BUILD_SHA` 주입)와 동일하다.
+
+| env | 의미 |
+|-----|------|
+| `RELAY_PORT` | listen 포트 (`--port` 보다 낮은 우선순위) |
+| `TP_RELAY_RESUME_SECRET` | resume 토큰 HMAC 키 (미설정 시 ephemeral — 재시작마다 full-auth fallback) |
+| `TP_RELAY_RATE_PER_CLIENT` / `_PER_DAEMON` | per-client / per-daemon-group GCRA budget |
+| `TP_RELAY_CACHE_SIZE` | sid 당 recent-frame 링 깊이 |
+| `TP_RELAY_MAX_FRAME_SIZE` | 최대 inbound frame 바이트 (기본 1 MiB) |
+| `TP_RELAY_PUSH_SEAL_SECRET[_PREV]` | APNs push-token seal 키 |
+| `TP_RELAY_ADMIN_TOKEN` | `/admin` bearer (미설정 → `/admin` 404 closed-by-default) |
+
+env knob SoT 는 `.claude/rules/relay-capacity.md` "Single-node knobs" 표.
+
+### 로컬 Rust-relay E2E (Step 8a 게이트)
+
+`scripts/rust-relay-e2e.ts` 는 **실 `tp` daemon 이 LOCALLY-RUN Rust relay 바이너리에 페어링 +
+frontend-auth 완료**를 증명하는 fully-local 게이트다. production(relay.tpmt.dev / deploy /
+실 시크릿 / dogfood daemon)은 일절 건드리지 않는다.
+
+```bash
+bun run scripts/rust-relay-e2e.ts
+```
+
+순서: (1) `cargo build --release --bin tp-relay`, (2) free loopback 포트에 ephemeral
+`TP_RELAY_RESUME_SECRET` 로 바이너리 실행, (3) `/health` status=ok 대기, (4)
+`scripts/real-daemon-pair.ts --relay-url ws://127.0.0.1:PORT` 로 **격리 daemon**(자체 mktemp
+`XDG_RUNTIME_DIR`/`XDG_DATA_HOME`/`XDG_CONFIG_HOME`/`HOME` — dogfood store 와 절대 충돌 안 함)
+페어링, (5) `/health daemons>=1` + `/metrics relay_daemons_online>=1` 어서션(daemon register),
+(6) 페어링 deep link 에서 relayToken 을 유도해 frontend-role `relay.auth` → `relay.auth.ok`
+프로브, (7) teardown(orphan 0, 격리 tree 삭제).
+
+> **정직한 범위 — M0–M2 만.** register(M0) + frontend `relay.auth`→`relay.auth.ok`(M2) 를
+> 증명한다. 전체 kx(M3)/session frame(M4)/input(M5) 은 spawn 된 claude 세션이 필요해 8a 범위
+> 밖 — 8마커 loopback smoke(`scripts/ios.sh smoke`)가 담당. `real-daemon-pair.ts` 의 `--relay-url`
+> 플래그(이 작업에서 추가)가 in-process TS relay 를 띄우는 대신 외부(Rust) relay 로 페어링한다.
+
 ### Soak — 10k capacity gate (ADR-0003 §6.9)
 
 `tp-relay/tests/soak_10k.rs` 는 **capacity gate** 다 (Stage-1 재설계가 ~10k concurrent

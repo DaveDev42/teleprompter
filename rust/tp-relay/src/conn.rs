@@ -137,6 +137,31 @@ impl RelayServer {
         let _stale = self.spawn_stale_check();
         axum::serve(listener, self.router()).await
     }
+
+    /// Like [`serve`](Self::serve) but stops accepting new connections and drains
+    /// in-flight ones once `shutdown` resolves. The `tp-relay` binary wires
+    /// `shutdown` to SIGINT/SIGTERM so a `systemctl stop` / Ctrl-C exits cleanly
+    /// instead of being killed mid-frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns any bind or serve I/O error.
+    pub async fn serve_with_shutdown<F>(
+        self,
+        addr: std::net::SocketAddr,
+        shutdown: F,
+    ) -> std::io::Result<()>
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let listener = TcpListener::bind(addr).await?;
+        // The stale-check task is cancelled when the runtime shuts down after
+        // `serve` returns, so its handle is intentionally dropped here.
+        let _stale = self.spawn_stale_check();
+        axum::serve(listener, self.router())
+            .with_graceful_shutdown(shutdown)
+            .await
+    }
 }
 
 /// Run one stale-check sweep synchronously under the lock, returning presence

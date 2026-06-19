@@ -79,15 +79,40 @@ async function waitForSocket(
   die(`daemon socket never appeared at ${socketPath} within ${timeoutMs}ms`);
 }
 
+// Optional `--relay-url <ws://…>`: when supplied we pair against an EXTERNAL,
+// already-running relay (e.g. the Rust `tp-relay` binary in the Step 8a E2E)
+// instead of starting our own in-process TS RelayServer. All isolation, the real
+// daemon subprocess, and the genuine daemon→relay register + frontend pairing are
+// otherwise identical — only the relay endpoint changes.
+function parseRelayUrlArg(): string | undefined {
+  const argv = process.argv.slice(2);
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--relay-url") return argv[i + 1];
+    const eq = argv[i]?.startsWith("--relay-url=");
+    if (eq) return argv[i]?.slice("--relay-url=".length);
+  }
+  return undefined;
+}
+
 async function main(): Promise<void> {
   ensureIsolationDirs();
 
-  // 1. Real relay on a free port (OS-assigned). The daemon's proof-carrying
-  //    relay.register is accepted by a fresh relay with no pre-seeded token.
-  const relay = new RelayServer();
-  const relayPort = relay.start(0);
-  const relayUrl = `ws://localhost:${relayPort}`;
-  log(`relay up on ${relayUrl}`);
+  // 1. Relay endpoint. By default, a real in-process TS relay on a free port
+  //    (OS-assigned). With `--relay-url`, point at an external relay (the Rust
+  //    binary) instead — the daemon's proof-carrying relay.register is accepted
+  //    by either, since neither pre-seeds the token.
+  const externalRelayUrl = parseRelayUrlArg();
+  let relay: RelayServer | undefined;
+  let relayUrl: string;
+  if (externalRelayUrl) {
+    relayUrl = externalRelayUrl;
+    log(`using EXTERNAL relay at ${relayUrl} (no in-process relay started)`);
+  } else {
+    relay = new RelayServer();
+    const relayPort = relay.start(0);
+    relayUrl = `ws://localhost:${relayPort}`;
+    log(`relay up on ${relayUrl}`);
+  }
 
   // 2. Real daemon subprocess, isolated via the inherited XDG_* env.
   const daemon = spawn({
@@ -105,7 +130,7 @@ async function main(): Promise<void> {
     } catch {
       /* already gone */
     }
-    relay.stop();
+    relay?.stop();
     process.exit(0);
   };
   process.on("SIGINT", shutdown);

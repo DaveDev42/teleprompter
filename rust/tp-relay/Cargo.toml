@@ -11,6 +11,14 @@ description = "Stage 1 relay server — RelayServerMessage serde core + framing 
 name = "tp_relay"
 # Plain rlib only. NOT staticlib/cdylib — host-only, no UniFFI.
 
+# The runnable relay server entry point (ADR-0003 Stage 1 Step 8a). THIN: parses
+# --port (default 7090) / RELAY_PORT env, builds SharedState::from_env (which
+# already reads resume-secret / rate / push-seal / cache / max-frame), then
+# serves. The deploy unit (8b) runs this as /usr/local/bin/tp-relay.
+[[bin]]
+name = "tp-relay"
+path = "src/main.rs"
+
 [dependencies]
 tp-proto = { path = "../tp-proto" }
 tp-core = { path = "../tp-core" }
@@ -35,7 +43,7 @@ governor = "0.10"
 # ── Step 4: async WebSocket hot path ──────────────────────────────────────────
 # Tokio multi-thread runtime + timers (idle/auth Interval) + bounded mpsc
 # (per-conn outbox backpressure) + net (loopback TcpListener for integration).
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
 # axum WebSocket server — the single GET "/" upgrade route. 0.7 resolves cleanly
 # on Rust 1.96 (0.8 pulls a newer matchit/hyper that bumps MSRV above 1.96).
 axum = { version = "0.7", features = ["ws"] }

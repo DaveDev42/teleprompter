@@ -824,6 +824,10 @@ dependencies = [
 name = "tp-relay"
 version = "0.0.1"
 dependencies = [
+ "base64",
+ "blake2",
+ "indexmap",
+ "rand_core",
  "serde",
  "serde_json",
  "tp-core",

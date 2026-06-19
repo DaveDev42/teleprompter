@@ -44,6 +44,37 @@ paths:
 - **`/admin` 은 bearer 게이트 필수 (Rust 포트 재설계).** TS 레퍼런스 relay 의 `/admin` 대시보드는 현재 무인증 노출 (보안 wart). **Rust 포트(`tp-relay`)는 이를 닫았다**: `TP_RELAY_ADMIN_TOKEN` 미설정이면 `/admin` 은 **404 (closed by default — 무인증 대시보드를 절대 서빙하지 않음)**, 설정 시 `Authorization: Bearer <token>` 일치를 요구 (부재/불일치 → 401, `subtle::ConstantTimeEq` constant-time 비교). daemon id + 각 session id 는 stored-XSS 방어로 HTML-escape. TS 무인증 `/admin` 경로에 의존하는 운영 자동화 금지 — Rust cutover 전에 토큰을 발급/배포할 것.
 - **OS-level**: `LimitNOFILE` 200000 권장 (systemd unit). `relay-harden.sh`의 hashlimit 규칙은 그대로 유효 (per-IP `connlimit` 없음 — CGNAT 사용자 보호).
 
+## Soak harness — the 10k capacity gate (ADR-0003 §6.9)
+
+`rust/tp-relay/tests/soak_10k.rs` 가 **capacity gate** 의 SoT 다. Stage-1 Rust 재설계가 standing ~10k concurrent bar 를 낮추지 않음을 증명한다 (parity gate 아님 — 골든벡터가 byte-parity 담당). **ONE 파라미터화 하니스**: connection 수 + duration 을 env 로 받아 같은 코드 경로를 heavy(local)/light(CI) 두 tier 로 굴린다. `#[ignore]` 이라 일반 `cargo test --workspace` 는 절대 수천 소켓을 열지 않는다.
+
+| Env | 기본 | 의미 |
+|-----|------|------|
+| `TP_SOAK_CONNS` | `10_000` | dimension 당 frontend conn 수 (heavy=10k, CI light=1500) |
+| `TP_SOAK_SECS` | `60` | dimension 당 soft wall-clock 예산 (CI light=20) |
+| `TP_SOAK_JSON` | (off) | `=1` 이면 마지막 줄에 single-line JSON 요약 emit (`scripts/soak.ts` 정직성 미러) |
+
+**세 부하 차원 (각각 명확한 sub-phase):**
+1. **PUB FAN-OUT** — daemon 1 + frontend N 이 모두 같은 sid 구독, daemon 이 M frame publish → 모든 frontend 가 M 전부 수신(0 drop) 어서션. 잘 drain 하는 well-behaved consumer 는 1013 backpressure close 당하면 안 됨. `/metrics framesOut` 이 fan-out 반영. **rate-knob 주의 (ADR caveat (b)):** daemon-publish fan-out 은 per-daemon-group GCRA(`rate_per_daemon`, 기본 5000/s)로 체크되므로 10k-wide publish burst 가 group limiter 를 trip 할 수 있다 — 이 phase 는 `SharedState` tweak 으로 `rate_per_client`/`rate_per_daemon` 을 effectively-unbounded 로 올려 *fan-out delivery* 만 격리 측정한다(rate-limit 자체는 `rate_limit_drops_frame_without_closing` 통합테스트가 담당). `outbox_cap` 도 frame 수에 맞춰 키워 well-behaved consumer 의 일시적 scheduling hiccup 을 slow-consumer 로 오인하지 않게 한다.
+2. **RESUME STORM** — N conn auth → 각 `auth.ok` 의 resumeToken 캡처 → 소켓 drop → 재연결 → `relay.auth.resume {token}` → ~100% `resumed:true` 어서션 (daemon 은 storm 내내 online 유지). `relay_resumes_rejected == 0`.
+3. **PUSH UNDER LOAD** — WS Push 는 no-op(conn.rs)이라 `PushService` API 레벨에서 구동. fake `TransportDyn`(HTTP 200) + 실 `ApnsSigner`(런타임 생성 p256 PKCS#8)로 Step 6(dedup+rate-limit commit-on-success)까지 도달 → 동시성 하 dedup/rate-limit guard mutex 가 leak/deadlock 없이 직렬화됨을 증명. **honest scope**: 네트워크/APNs 테스트 아님; concurrency 하 guard 정확성 검증.
+
+**불변식 프로브:** fan-out 후 `/health.status == "ok"`, `relay_backpressure_disconnects == 0`(well-behaved consumer), `framesOut >= conns×frames`. HARD failure(프레임 못 받음 / resume reject / push leak)에서만 non-zero exit.
+
+```bash
+# heavy = local (full 10k, on-demand). 먼저 ulimit 올린다.
+ulimit -n 65535
+export PATH="$(dirname "$(rustup which cargo)"):$PATH"   # rustup shim 우회
+cd rust && TP_SOAK_CONNS=10000 TP_SOAK_SECS=60 \
+  cargo test -p tp-relay --test soak_10k -- --ignored --nocapture
+
+# light = CI gate (.github/workflows/ci.yml rust job, normal test 뒤 step):
+#   ulimit -n 65535; TP_SOAK_CONNS=1500 TP_SOAK_SECS=20 cargo test -p tp-relay \
+#     --test soak_10k -- --ignored --nocapture
+```
+
+`rust` job 은 required check 아님 — flaky soak 이 무관한 PR 을 막지 않지만, relay capacity 경로를 건드리는 PR 에선 반드시 green.
+
 ## Scale-out (10k → 100k+)
 
 10k는 단일 노드 상한 근처. 그 이상 가야 할 때:

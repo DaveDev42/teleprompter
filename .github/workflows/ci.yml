@@ -94,7 +94,10 @@ jobs:
   # rust/rust-toolchain.toml.
   rust:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 15 → 20: the normal fmt/clippy/test still finish well under 15m; the extra
+    # headroom covers the light soak tier (≈1.5k loopback conns × 3 dimensions,
+    # < ~1m) added as the last step below.
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: rust
@@ -118,3 +121,25 @@ jobs:
         run: cargo clippy --workspace --all-targets
       - name: Test (incl. golden vectors)
         run: cargo test --workspace
+      # ── 10k capacity gate (light tier) ──────────────────────────────────────
+      # ADR-0003 §6.9: the Stage-1 relay redesign must not lower the ~10k
+      # concurrent-connection capacity bar. The soak (tests/soak_10k.rs) is ONE
+      # parameterized harness driving all 3 load dimensions (pub fan-out + resume
+      # storm + push-under-load). It is `#[ignore]`d so the `cargo test
+      # --workspace` step above never opens thousands of sockets.
+      #
+      # heavy = local, light = CI: the FULL 10k run is heavy and runs locally on
+      # demand (TP_SOAK_CONNS=10000 — see rust/README.md / relay-capacity.md).
+      # CI runs a LIGHT scaled-down tier (same code path, smaller N) as the gate:
+      # deterministic + fast (< ~1m) yet genuinely exercises every dimension.
+      #
+      # ubuntu-latest's default `ulimit -n` soft cap is 1024 — far too low for
+      # ~1500 loopback sockets (daemon + N frontends, each a real TCP pair). We
+      # raise it to 65535 for this step. The `rust` job is NOT a required check
+      # (ci-workflows.md) so a flaky soak never blocks unrelated PRs — but it
+      # MUST pass on the PR that introduces/changes the relay capacity path.
+      - name: Soak — 10k capacity gate (light tier)
+        run: |
+          ulimit -n 65535
+          TP_SOAK_CONNS=1500 TP_SOAK_SECS=20 \
+            cargo test -p tp-relay --test soak_10k -- --ignored --nocapture

@@ -17,7 +17,7 @@
 use serde_json::Value;
 use tp_proto::control::parse_control_message;
 use tp_proto::ipc::parse_ipc_message;
-use tp_proto::label::{decode_kx_label_or_keep, decode_wire_label};
+use tp_proto::label::{decode_kx_label_or_keep, decode_label_opt_field, decode_wire_label};
 use tp_proto::relay_client::parse_relay_client_message;
 
 fn fixture() -> Value {
@@ -145,4 +145,85 @@ fn label_decoders_match_ts() {
         }
     }
     eprintln!("label: {} cases OK", cases.len());
+}
+
+/// `labelUpdate` golden vectors (ADR-0003 Amendment 1 A1.3#1).
+///
+/// These vectors cover the unified new contract:
+///   - `{set:true,value}` → Set / Unset (trimmed / empty)
+///   - `{set:false}`      → Unset (authoritative Clear)
+///   - absent field       → `None` (keep-current) via `decode_label_opt_field(None)`
+///   - legacy shapes      → lenient back-compat read
+///
+/// The `absent-keep` case has no `raw` key in the fixture (JSON key is absent,
+/// not `null`) — detected by `case.get("raw").is_none()`. For that case we drive
+/// `decode_label_opt_field(None)` and assert the result is `None`.
+///
+/// For all other cases we run both `decode_wire_label` (compare `wire`) and
+/// `decode_label_opt_field(Some(raw))` (compare `kxOrKeep` as Some/None).
+#[test]
+fn label_update_vectors_match_contract() {
+    let f = fixture();
+    let cases = f["labelUpdate"].as_array().expect("labelUpdate array");
+    assert!(!cases.is_empty(), "labelUpdate fixture must not be empty");
+
+    for case in cases {
+        let name = case["name"].as_str().expect("name");
+        let is_absent = case.get("raw").is_none();
+
+        if is_absent {
+            // absent-keep: field was not present in the JSON object at all.
+            // decode_label_opt_field(None) MUST return None (keep-current).
+            let result = decode_label_opt_field(None);
+            assert_eq!(
+                result, None,
+                "labelUpdate/{name}: expected None (keep-current) for absent field",
+            );
+            // kxOrKeep fixture entry must also be null.
+            assert!(
+                case["kxOrKeep"].is_null(),
+                "labelUpdate/{name}: fixture kxOrKeep should be null for absent case",
+            );
+        } else {
+            let raw = &case["raw"];
+
+            // decode_wire_label: total function, check against "wire".
+            let wire = serde_json::to_value(decode_wire_label(raw)).unwrap();
+            assert!(
+                json_eq(&case["wire"], &wire),
+                "labelUpdate/{name}: wire mismatch\n  fixture: {}\n  Rust:    {wire}",
+                case["wire"],
+            );
+
+            // Also verify decode_label_opt_field(Some(raw)) agrees with wire.
+            // Some(Unset) when wire is {set:false}, Some(Set) when wire is {set:true,value}.
+            let opt_result = decode_label_opt_field(Some(raw));
+            let opt_as_wire = opt_result.map(|l| serde_json::to_value(l).unwrap());
+            assert!(
+                opt_as_wire.as_ref().map(|v| json_eq(&case["wire"], v)).unwrap_or(false),
+                "labelUpdate/{name}: decode_label_opt_field wire mismatch\n  expected: {}\n  Rust: {:?}",
+                case["wire"],
+                opt_as_wire,
+            );
+
+            // kxOrKeep column maps to decode_kx_label_or_keep (same as label group).
+            // Unset collapses to None; Set maps to Some.
+            let kx = decode_kx_label_or_keep(raw).map(|l| serde_json::to_value(l).unwrap());
+            let expected_kx = &case["kxOrKeep"];
+            match (expected_kx.is_null(), &kx) {
+                (true, None) => {}
+                (false, Some(got)) => assert!(
+                    json_eq(expected_kx, got),
+                    "labelUpdate/{name}: kxOrKeep mismatch\n  fixture: {expected_kx}\n  Rust:    {got}",
+                ),
+                (true, Some(got)) => {
+                    panic!("labelUpdate/{name}: fixture kxOrKeep=null but Rust returned {got}")
+                }
+                (false, None) => {
+                    panic!("labelUpdate/{name}: fixture kxOrKeep={expected_kx} but Rust returned null")
+                }
+            }
+        }
+    }
+    eprintln!("labelUpdate: {} cases OK", cases.len());
 }

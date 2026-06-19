@@ -135,11 +135,11 @@ describe("Rename Notification E2E", () => {
     if (client === undefined)
       throw new Error("expected relay client for daemonId");
     const newLabel = "MacBook Pro 14";
-    // This frontend's kx payload omits `v`, so the daemon treats it as a v1
-    // peer and the version-gate sends a bare string on the wire (not the
-    // Label union). Asserting `msg.label === newLabel` (a string) is the
-    // cross-version compat guard: an un-updated app must keep receiving a
-    // string, never a `{ set, value }` object it would coerce to "" and clear.
+    // ADR-0003 A1.3#1: the per-peer version-gate was removed — the daemon now
+    // always emits the `Label` union on the wire, never the legacy bare string,
+    // regardless of whether the frontend's kx payload advertised `v`. This
+    // frontend still omits `v`, and the daemon emits `{ set: true, value }` all
+    // the same. Readers normalize either shape via `decodeWireLabel`.
     const sent = await client.sendRenameNotice(frontendId, makeLabel(newLabel));
     expect(sent).toBe(true);
 
@@ -150,7 +150,7 @@ describe("Rename Notification E2E", () => {
     expect(msg.t).toBe(CONTROL_RENAME);
     expect(msg.daemonId).toBe(daemonId);
     expect(msg.frontendId).toBe(frontendId);
-    expect(msg.label).toBe(newLabel);
+    expect(msg.label).toEqual({ set: true, value: newLabel });
     expect(typeof msg.ts).toBe("number");
 
     ws.close();

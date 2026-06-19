@@ -656,7 +656,35 @@ const label: LabelCase[] = [
   labelCase("bool", true),
 ];
 
-const fixture = { relayClient, ipc, control, label };
+// ── LabelUpdate contract (ADR-0003 Amendment 1, A1.3#1) ───────────────────
+// Exactly the golden cases from the new unified contract.
+//
+//   wire     — decodeWireLabel(raw)          (total; authoritative surfaces)
+//   kxOrKeep — decodeKxLabelOrKeep(raw) | null
+//              null signals keep-current: Unset (including empty/null) AND absent
+//              both map to null here, because decodeKxLabelOrKeep collapses Unset→null.
+//              The "absent = keep-current" distinction is captured by the absent-keep
+//              case whose `raw` field is absent from the JSON object entirely — the
+//              Rust test drives decode_label_opt_field(None) for that case only.
+const labelUpdate: LabelCase[] = [
+  // Set — non-empty value
+  labelCase("set-nonempty", { set: true, value: "Office Mac" }),
+  // Set — trimmed (leading/trailing whitespace stripped)
+  labelCase("set-trimmed", { set: true, value: "  x  " }),
+  // Set with empty value → collapses to Unset via makeLabel("" after trim)
+  labelCase("set-empty-unset", { set: true, value: "" }),
+  // Clear — {set:false} authoritative Unset on ControlRename/IPC surfaces
+  labelCase("clear", { set: false }),
+  // Absent field — undefined serialises to absent JSON key; Rust drives
+  // decode_label_opt_field(None) and asserts None (keep-current).
+  labelCase("absent-keep", undefined),
+  // Legacy back-compat (lenient read — SQLite / old daemon)
+  labelCase("legacy-string", "x"),
+  labelCase("legacy-empty", ""),
+  labelCase("legacy-null", null),
+];
+
+const fixture = { relayClient, ipc, control, label, labelUpdate };
 
 const outPath = new URL(
   "../rust/tp-proto/tests/fixtures/message-vectors.json",
@@ -665,12 +693,26 @@ const outPath = new URL(
 const json = `${JSON.stringify(fixture, null, 2)}\n`;
 await Bun.write(outPath, json);
 
+// `JSON.stringify(..., 2)` puts short arrays on multiple lines, but the
+// committed fixture is Biome-formatted (collapsed short arrays). Re-format the
+// written file so regeneration stays byte-identical to what `biome ci` expects
+// — otherwise the next regen silently re-breaks the CI format gate. The bytes
+// are JSON-whitespace only, so the Rust golden-vector parser is unaffected.
+const fmt = Bun.spawnSync(
+  ["pnpm", "exec", "biome", "format", "--write", outPath.pathname],
+  { cwd: new URL("..", import.meta.url).pathname, stderr: "inherit" },
+);
+if (fmt.exitCode !== 0) {
+  throw new Error(`biome format failed on ${outPath.pathname}`);
+}
+
 const counts = {
   relayClient: relayClient.length,
   ipc: ipc.length,
   control: control.length,
   label: label.length,
+  labelUpdate: labelUpdate.length,
 };
 console.error(
-  `wrote ${outPath.pathname} (relayClient=${counts.relayClient}, ipc=${counts.ipc}, control=${counts.control}, label=${counts.label})`,
+  `wrote ${outPath.pathname} (relayClient=${counts.relayClient}, ipc=${counts.ipc}, control=${counts.control}, label=${counts.label}, labelUpdate=${counts.labelUpdate})`,
 );

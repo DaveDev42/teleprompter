@@ -71,15 +71,15 @@ struct RelayKeyExchange: Encodable, Equatable {
 
 /// The sealed plaintext inside a frontend `relay.kx`'s `ct`. `pk` is standard
 /// base64 (libsodium original `+/` with padding) of the 32-byte X25519 pubkey.
-/// `v` advertises the frontend's WS protocol version so the daemon can gate the
-/// `Label` tagged-union it sends in `control.rename` — daemons built before this
-/// field default absent `v` to 1 and send the legacy string form.
+/// `v` advertises the frontend's WS protocol version (ADR-0003 A1.3#1: used for
+/// resume/kx-skip version gating; the per-label v1/v2 gate in `sendRenameNotice`
+/// was removed — daemon always emits the `{set,value}` union now).
 /// (`relay-client.ts:488-491`).
 struct KxPayload: Encodable, Equatable {
     let pk: String
     let frontendId: String
     let role = "frontend"
-    /// M11: advertise protocol version 2 so the daemon sends Label union (not legacy string).
+    /// Advertise protocol version 2 (resume + kx-skip support).
     let v = RelayProtocol.version
 }
 
@@ -343,8 +343,10 @@ struct ControlUnpairInbound: Decodable {
 /// was changed (e.g. `tp pair rename`). The `label` field is a tagged union:
 /// `{ set: true, value: "…" }` sets a name; `{ set: false }` clears it.
 /// Wire: `{ t, daemonId, frontendId, label: { set, value? }, ts }`.
-/// Daemons at v1 (peer `protocolVersion` < 2 in the kx payload) may send a bare
-/// `String` for `label` — those are rejected at decode and logged (no crash).
+/// Under ADR-0003 A1.3#1 the `label` field is REQUIRED+present on every
+/// `control.rename` — the daemon's per-label v1/v2 version gate was removed
+/// and the union is always emitted. A bare-`String` payload (pre-removal legacy)
+/// would fail decode and be logged/dropped as a safety net.
 struct ControlRenameInbound: Decodable {
     let t: String
     let daemonId: String

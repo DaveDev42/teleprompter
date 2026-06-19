@@ -7,9 +7,34 @@
 //!
 //! `Label` has a **manual `Serialize`** that emits the union shape
 //! (`{set:true,value}` / `{set:false}`) and **deliberately no `Deserialize`** —
-//! every read must go through `decode_wire_label` / `decode_kx_label_or_keep`
-//! (or `parse_label_field` in `ipc.rs`) so a caller can never bypass the lenient
-//! legacy-string acceptance by deriving a strict deserialize.
+//! every read must go through `decode_wire_label` / `decode_kx_label_or_keep` /
+//! `decode_label_opt_field` (or `parse_label_field` in `ipc.rs`) so a caller can
+//! never bypass the lenient legacy-string acceptance by deriving a strict
+//! deserialize.
+//!
+//! ## New unified contract (ADR-0003 Amendment 1, A1.3#1)
+//!
+//! | Wire shape               | `decode_wire_label` | `decode_label_opt_field` |
+//! |--------------------------|---------------------|--------------------------|
+//! | `{ set:true, value:"X"}` | `Set("X")`          | `Some(Set("X"))`         |
+//! | `{ set:true, value:"" }` | `Unset`             | `Some(Unset)`            |
+//! | `{ set:false }`          | `Unset` (Clear)     | `Some(Unset)`            |
+//! | `null`                   | `Unset`             | `Some(Unset)`            |
+//! | **field absent**         | N/A (caller passes `Value::Null`) | `None` (**keep-current**) |
+//! | `"legacy string"`        | `Set("…")` (trimmed) | `Some(Set("…"))`        |
+//! | `""` (legacy empty)      | `Unset`             | `Some(Unset)`            |
+//!
+//! **Keep-current = field absence, not a value.** On kx-hello / meta-hello surfaces
+//! the daemon SHOULD prefer omitting the label field entirely (rather than emitting
+//! `{set:false}`) when it has no label to advertise, but consumers accept both
+//! present-Clear and absent as keep-current via `decode_kx_label_or_keep`.
+//!
+//! `decode_kx_label_or_keep` is a thin convenience wrapper over
+//! `decode_label_opt_field`: it maps the **value** of a parsed `Label` to
+//! `None`/`Some`, suitable for callers that already have the raw field value
+//! (and treat `null`/absent identically). For callers that distinguish absent from
+//! present-null at the object level, use `decode_label_opt_field(obj.get("label"))`
+//! directly — `None` unambiguously means keep-current.
 
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
@@ -103,12 +128,40 @@ pub fn decode_wire_label(raw: &Value) -> Label {
     }
 }
 
+/// Read a label field that **may be absent at the JSON object level**.
+///
+/// This is the canonical "field-level optional" decoder:
+/// - `None` (key absent) → `None` — **keep-current** (no change to app-side label).
+/// - `Some(v)` (key present, any value including `null`) →
+///   `Some(decode_wire_label(v))` — the caller receives `Some(Set(…))` or
+///   `Some(Unset)` and must act on it.
+///
+/// Usage:
+/// ```rust,ignore
+/// let label = decode_label_opt_field(obj.get("label"));
+/// // None     → keep current label unchanged
+/// // Some(Set)  → overwrite with the new label
+/// // Some(Unset) → clear (authoritative)
+/// ```
+///
+/// This is the right decoder for `relay.kx` / meta-hello `daemonLabel` where the
+/// field being absent carries the distinct meaning "daemon has no update for you".
+pub fn decode_label_opt_field(v: Option<&Value>) -> Option<Label> {
+    v.map(decode_wire_label)
+}
+
 /// Decoder for the `relay.kx` daemon-hello / meta `hello` `daemonLabel` fields,
 /// where "not set" means **keep the current app-side label**, not "clear".
-/// Returns `None` for every keep-current signal and `Some(Set { .. })` only when
-/// a concrete label is present. There is no `Some(Unset)` outcome.
 ///
-/// Mirror of `decodeKxLabelOrKeep` (label.ts:113-116).
+/// Returns `None` for every keep-current signal (`Unset` or absent field treated
+/// uniformly) and `Some(Set { .. })` only when a concrete label is present.
+/// There is **no** `Some(Unset)` outcome from this decoder — if you need to
+/// distinguish authoritative Clear from keep-current, use `decode_label_opt_field`
+/// directly (absent → `None`, present-Clear → `Some(Unset)`).
+///
+/// Mirror of `decodeKxLabelOrKeep` (label.ts). For field-level optional callers
+/// that have already resolved absent→`Value::Null`: pass `raw` directly and this
+/// decoder handles both present-null and absent equivalently.
 pub fn decode_kx_label_or_keep(raw: &Value) -> Option<Label> {
     match decode_wire_label(raw) {
         Label::Set { value } => Some(Label::Set { value }),
@@ -120,6 +173,95 @@ pub fn decode_kx_label_or_keep(raw: &Value) -> Option<Label> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // ── Golden-vector cases (ADR-0003 A1.3#1 labelUpdate gate) ──────────────
+
+    /// `{set:true,value:"Office Mac"}` → `Set("Office Mac")`
+    #[test]
+    fn golden_set_non_empty() {
+        let raw = json!({"set": true, "value": "Office Mac"});
+        assert_eq!(
+            decode_wire_label(&raw),
+            Label::Set {
+                value: "Office Mac".into()
+            }
+        );
+        assert_eq!(
+            decode_label_opt_field(Some(&raw)),
+            Some(Label::Set {
+                value: "Office Mac".into()
+            })
+        );
+    }
+
+    /// `{set:true,value:"  x  "}` → `Set("x")` (trimmed)
+    #[test]
+    fn golden_set_trimmed() {
+        let raw = json!({"set": true, "value": "  x  "});
+        assert_eq!(decode_wire_label(&raw), Label::Set { value: "x".into() });
+        assert_eq!(
+            decode_label_opt_field(Some(&raw)),
+            Some(Label::Set { value: "x".into() })
+        );
+    }
+
+    /// `{set:true,value:""}` → `Unset` (makeLabel trims empty → unset)
+    #[test]
+    fn golden_set_empty_value_becomes_unset() {
+        let raw = json!({"set": true, "value": ""});
+        assert_eq!(decode_wire_label(&raw), Label::Unset);
+        assert_eq!(decode_label_opt_field(Some(&raw)), Some(Label::Unset));
+    }
+
+    /// `{set:false}` → `Unset` (authoritative Clear)
+    #[test]
+    fn golden_clear_becomes_unset() {
+        let raw = json!({"set": false});
+        assert_eq!(decode_wire_label(&raw), Label::Unset);
+        assert_eq!(decode_label_opt_field(Some(&raw)), Some(Label::Unset));
+    }
+
+    /// Absent field → `None` (keep-current; field-level, kx surface).
+    /// `decode_label_opt_field(None)` — the ONLY path that produces `None`.
+    #[test]
+    fn golden_absent_field_is_keep_current() {
+        assert_eq!(decode_label_opt_field(None), None);
+    }
+
+    /// Legacy string `"x"` → `Set("x")` (lenient SQLite/back-compat read)
+    #[test]
+    fn golden_legacy_string_becomes_set() {
+        let raw = json!("x");
+        assert_eq!(decode_wire_label(&raw), Label::Set { value: "x".into() });
+        assert_eq!(
+            decode_label_opt_field(Some(&raw)),
+            Some(Label::Set { value: "x".into() })
+        );
+    }
+
+    /// Legacy `""` → `Unset`
+    #[test]
+    fn golden_legacy_empty_string_becomes_unset() {
+        let raw = json!("");
+        assert_eq!(decode_wire_label(&raw), Label::Unset);
+        assert_eq!(decode_label_opt_field(Some(&raw)), Some(Label::Unset));
+    }
+
+    /// Legacy `null` → `Unset` (NOT keep-current — `null` is a present value)
+    #[test]
+    fn golden_legacy_null_is_unset_not_keep() {
+        // null is a PRESENT value (Some(&Value::Null)), so decode_label_opt_field
+        // returns Some(Unset), not None. Keep-current = field ABSENCE only.
+        assert_eq!(decode_wire_label(&Value::Null), Label::Unset);
+        assert_eq!(
+            decode_label_opt_field(Some(&Value::Null)),
+            Some(Label::Unset)
+        );
+        // kx helper: null → Unset → None (same as absent in kx context)
+        assert_eq!(decode_kx_label_or_keep(&Value::Null), None);
+    }
+
+    // ── Full decoder coverage ────────────────────────────────────────────────
 
     #[test]
     fn decode_wire_label_covers_every_shape() {
@@ -173,6 +315,32 @@ mod tests {
     }
 
     #[test]
+    fn decode_label_opt_field_distinguishes_absent_from_null() {
+        // present null → Some(Unset) — not keep-current
+        assert_eq!(
+            decode_label_opt_field(Some(&Value::Null)),
+            Some(Label::Unset)
+        );
+        // absent → None (keep-current)
+        assert_eq!(decode_label_opt_field(None), None);
+        // present Set → Some(Set)
+        assert_eq!(
+            decode_label_opt_field(Some(&json!({"set": true, "value": "hi"}))),
+            Some(Label::Set { value: "hi".into() })
+        );
+        // present Clear → Some(Unset)
+        assert_eq!(
+            decode_label_opt_field(Some(&json!({"set": false}))),
+            Some(Label::Unset)
+        );
+        // present legacy string → Some(Set)
+        assert_eq!(
+            decode_label_opt_field(Some(&json!("hi"))),
+            Some(Label::Set { value: "hi".into() })
+        );
+    }
+
+    #[test]
     fn decode_kx_label_or_keep_collapses_unset_to_none() {
         assert_eq!(decode_kx_label_or_keep(&Value::Null), None);
         assert_eq!(decode_kx_label_or_keep(&json!("")), None);
@@ -202,6 +370,24 @@ mod tests {
         assert_eq!(
             serde_json::to_value(Label::Unset).unwrap(),
             json!({"set": false})
+        );
+    }
+
+    /// Serialize round-trip byte-equality: same bytes as the canonical wire shape.
+    #[test]
+    fn serialize_round_trip_byte_exact() {
+        // Set: must produce exactly `{"set":true,"value":"Office Mac"}`
+        let set_label = Label::Set {
+            value: "Office Mac".into(),
+        };
+        assert_eq!(
+            serde_json::to_string(&set_label).unwrap(),
+            r#"{"set":true,"value":"Office Mac"}"#
+        );
+        // Unset: must produce exactly `{"set":false}`
+        assert_eq!(
+            serde_json::to_string(&Label::Unset).unwrap(),
+            r#"{"set":false}"#
         );
     }
 

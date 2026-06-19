@@ -1594,5 +1594,93 @@
       },
       "kxOrKeep": null
     }
+  ],
+  "labelUpdate": [
+    {
+      "name": "set-nonempty",
+      "raw": {
+        "set": true,
+        "value": "Office Mac"
+      },
+      "wire": {
+        "set": true,
+        "value": "Office Mac"
+      },
+      "kxOrKeep": {
+        "set": true,
+        "value": "Office Mac"
+      }
+    },
+    {
+      "name": "set-trimmed",
+      "raw": {
+        "set": true,
+        "value": "  x  "
+      },
+      "wire": {
+        "set": true,
+        "value": "x"
+      },
+      "kxOrKeep": {
+        "set": true,
+        "value": "x"
+      }
+    },
+    {
+      "name": "set-empty-unset",
+      "raw": {
+        "set": true,
+        "value": ""
+      },
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "clear",
+      "raw": {
+        "set": false
+      },
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "absent-keep",
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "legacy-string",
+      "raw": "x",
+      "wire": {
+        "set": true,
+        "value": "x"
+      },
+      "kxOrKeep": {
+        "set": true,
+        "value": "x"
+      }
+    },
+    {
+      "name": "legacy-empty",
+      "raw": "",
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    },
+    {
+      "name": "legacy-null",
+      "raw": null,
+      "wire": {
+        "set": false
+      },
+      "kxOrKeep": null
+    }
   ]
 }

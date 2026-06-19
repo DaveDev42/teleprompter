@@ -25,7 +25,7 @@
 import { createSign } from "crypto";
 
 /** How long an APNs JWT token is valid (Apple limit: 60 min). */
-const _TOKEN_VALID_MS = 60 * 60 * 1000;
+const TOKEN_VALID_MS = 60 * 60 * 1000;
 /** How long before expiry we proactively re-sign (50 min). */
 const TOKEN_REFRESH_AFTER_MS = 50 * 60 * 1000;
 

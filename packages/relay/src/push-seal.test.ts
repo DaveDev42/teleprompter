@@ -12,24 +12,24 @@ describe("PushSealer", () => {
   let origVersion: string | undefined;
 
   beforeEach(() => {
-    origSecret = process.env.TP_RELAY_PUSH_SEAL_SECRET;
-    origSecretPrev = process.env.TP_RELAY_PUSH_SEAL_SECRET_PREV;
-    origVersion = process.env.TP_RELAY_PUSH_SEAL_VERSION;
-    delete process.env.TP_RELAY_PUSH_SEAL_SECRET;
-    delete process.env.TP_RELAY_PUSH_SEAL_SECRET_PREV;
-    delete process.env.TP_RELAY_PUSH_SEAL_VERSION;
+    origSecret = process.env["TP_RELAY_PUSH_SEAL_SECRET"];
+    origSecretPrev = process.env["TP_RELAY_PUSH_SEAL_SECRET_PREV"];
+    origVersion = process.env["TP_RELAY_PUSH_SEAL_VERSION"];
+    delete process.env["TP_RELAY_PUSH_SEAL_SECRET"];
+    delete process.env["TP_RELAY_PUSH_SEAL_SECRET_PREV"];
+    delete process.env["TP_RELAY_PUSH_SEAL_VERSION"];
   });
 
   afterEach(() => {
     if (origSecret !== undefined)
-      process.env.TP_RELAY_PUSH_SEAL_SECRET = origSecret;
-    else delete process.env.TP_RELAY_PUSH_SEAL_SECRET;
+      process.env["TP_RELAY_PUSH_SEAL_SECRET"] = origSecret;
+    else delete process.env["TP_RELAY_PUSH_SEAL_SECRET"];
     if (origSecretPrev !== undefined)
-      process.env.TP_RELAY_PUSH_SEAL_SECRET_PREV = origSecretPrev;
-    else delete process.env.TP_RELAY_PUSH_SEAL_SECRET_PREV;
+      process.env["TP_RELAY_PUSH_SEAL_SECRET_PREV"] = origSecretPrev;
+    else delete process.env["TP_RELAY_PUSH_SEAL_SECRET_PREV"];
     if (origVersion !== undefined)
-      process.env.TP_RELAY_PUSH_SEAL_VERSION = origVersion;
-    else delete process.env.TP_RELAY_PUSH_SEAL_VERSION;
+      process.env["TP_RELAY_PUSH_SEAL_VERSION"] = origVersion;
+    else delete process.env["TP_RELAY_PUSH_SEAL_VERSION"];
   });
 
   test("seal → unseal round-trip", async () => {
@@ -173,8 +173,8 @@ describe("PushSealer", () => {
   });
 
   test("reads TP_RELAY_PUSH_SEAL_VERSION from env", () => {
-    process.env.TP_RELAY_PUSH_SEAL_SECRET = SECRET;
-    process.env.TP_RELAY_PUSH_SEAL_VERSION = "5";
+    process.env["TP_RELAY_PUSH_SEAL_SECRET"] = SECRET;
+    process.env["TP_RELAY_PUSH_SEAL_VERSION"] = "5";
     const sealer = new PushSealer();
     expect(sealer.version).toBe(5);
     expect(sealer.ephemeral).toBe(false);

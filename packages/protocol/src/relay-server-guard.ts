@@ -57,7 +57,7 @@ function isOptionalNotifData(
 ): v is { sid: string; daemonId: string; event: string } | undefined {
   if (v === undefined) return true;
   if (!isObject(v)) return false;
-  return isString(v.sid) && isString(v.daemonId) && isString(v.event);
+  return isString(v["sid"]) && isString(v["daemonId"]) && isString(v["event"]);
 }
 
 /**
@@ -70,15 +70,15 @@ export function parseRelayServerMessage(
   raw: unknown,
 ): RelayServerMessage | null {
   if (!isObject(raw)) return null;
-  const t = raw.t;
+  const t = raw["t"];
   if (!isString(t)) return null;
 
   switch (t) {
     case "relay.auth.ok": {
-      if (!isString(raw.daemonId)) return null;
-      if (!isOptionalString(raw.resumeToken)) return null;
-      if (!isOptionalNumber(raw.resumeExpiresAt)) return null;
-      if (!isOptionalBoolean(raw.resumed)) return null;
+      if (!isString(raw["daemonId"])) return null;
+      if (!isOptionalString(raw["resumeToken"])) return null;
+      if (!isOptionalNumber(raw["resumeExpiresAt"])) return null;
+      if (!isOptionalBoolean(raw["resumed"])) return null;
       // H2: when resumed===true the client skips kx rebroadcast (trusting that
       // the prior sessionKeys are still valid). That optimization is only safe
       // when the relay also issues a fresh token for the *next* reconnect.
@@ -87,112 +87,112 @@ export function parseRelayServerMessage(
       // resume on the following disconnect. Treat the missing-token case as a
       // protocol violation and reject the message so the caller falls back to a
       // full register+auth cycle rather than silently operating degraded.
-      if (raw.resumed === true) {
-        if (!isString(raw.resumeToken)) return null;
-        if (!isNumber(raw.resumeExpiresAt)) return null;
+      if (raw["resumed"] === true) {
+        if (!isString(raw["resumeToken"])) return null;
+        if (!isNumber(raw["resumeExpiresAt"])) return null;
       }
       return {
         t: "relay.auth.ok",
-        daemonId: raw.daemonId,
-        resumeToken: raw.resumeToken,
-        resumeExpiresAt: raw.resumeExpiresAt,
-        resumed: raw.resumed,
+        daemonId: raw["daemonId"],
+        resumeToken: raw["resumeToken"],
+        resumeExpiresAt: raw["resumeExpiresAt"],
+        resumed: raw["resumed"],
       } satisfies RelayAuthOk;
     }
 
     case "relay.auth.err": {
-      if (!isString(raw.e)) return null;
-      return { t: "relay.auth.err", e: raw.e } satisfies RelayAuthErr;
+      if (!isString(raw["e"])) return null;
+      return { t: "relay.auth.err", e: raw["e"] } satisfies RelayAuthErr;
     }
 
     case "relay.register.ok": {
-      if (!isString(raw.daemonId)) return null;
+      if (!isString(raw["daemonId"])) return null;
       return {
         t: "relay.register.ok",
-        daemonId: raw.daemonId,
+        daemonId: raw["daemonId"],
       } satisfies RelayRegisterOk;
     }
 
     case "relay.register.err": {
-      if (!isString(raw.e)) return null;
+      if (!isString(raw["e"])) return null;
       return {
         t: "relay.register.err",
-        e: raw.e,
+        e: raw["e"],
       } satisfies RelayRegisterErr;
     }
 
     case "relay.frame": {
-      if (!isString(raw.sid)) return null;
-      if (!isString(raw.ct)) return null;
-      if (!isNonNegativeInt(raw.seq)) return null;
-      if (!isRole(raw.from)) return null;
-      if (!isOptionalString(raw.frontendId)) return null;
+      if (!isString(raw["sid"])) return null;
+      if (!isString(raw["ct"])) return null;
+      if (!isNonNegativeInt(raw["seq"])) return null;
+      if (!isRole(raw["from"])) return null;
+      if (!isOptionalString(raw["frontendId"])) return null;
       return {
         t: "relay.frame",
-        sid: raw.sid,
-        ct: raw.ct,
-        seq: raw.seq,
-        from: raw.from,
-        frontendId: raw.frontendId,
+        sid: raw["sid"],
+        ct: raw["ct"],
+        seq: raw["seq"],
+        from: raw["from"],
+        frontendId: raw["frontendId"],
       } satisfies RelayFrame;
     }
 
     case "relay.kx.frame": {
-      if (!isString(raw.ct)) return null;
-      if (!isRole(raw.from)) return null;
+      if (!isString(raw["ct"])) return null;
+      if (!isRole(raw["from"])) return null;
       return {
         t: "relay.kx.frame",
-        ct: raw.ct,
-        from: raw.from,
+        ct: raw["ct"],
+        from: raw["from"],
       } satisfies RelayKeyExchangeFrame;
     }
 
     case "relay.presence": {
-      if (!isString(raw.daemonId)) return null;
-      if (typeof raw.online !== "boolean") return null;
-      if (!isStringArray(raw.sessions)) return null;
-      if (!isNumber(raw.lastSeen)) return null;
+      if (!isString(raw["daemonId"])) return null;
+      if (typeof raw["online"] !== "boolean") return null;
+      if (!isStringArray(raw["sessions"])) return null;
+      if (!isNumber(raw["lastSeen"])) return null;
       return {
         t: "relay.presence",
-        daemonId: raw.daemonId,
-        online: raw.online,
-        sessions: raw.sessions,
-        lastSeen: raw.lastSeen,
+        daemonId: raw["daemonId"],
+        online: raw["online"],
+        sessions: raw["sessions"],
+        lastSeen: raw["lastSeen"],
       } satisfies RelayPresence;
     }
 
     case "relay.pong": {
-      if (!isOptionalNumber(raw.ts)) return null;
-      return { t: "relay.pong", ts: raw.ts } satisfies RelayPong;
+      if (!isOptionalNumber(raw["ts"])) return null;
+      return { t: "relay.pong", ts: raw["ts"] } satisfies RelayPong;
     }
 
     case "relay.err": {
-      if (!isString(raw.e)) return null;
-      if (!isOptionalString(raw.m)) return null;
-      return { t: "relay.err", e: raw.e, m: raw.m } satisfies RelayError;
+      if (!isString(raw["e"])) return null;
+      if (!isOptionalString(raw["m"])) return null;
+      return { t: "relay.err", e: raw["e"], m: raw["m"] } satisfies RelayError;
     }
 
     case "relay.notification": {
-      if (!isString(raw.title)) return null;
-      if (!isString(raw.body)) return null;
-      if (!isOptionalNotifData(raw.data)) return null;
+      if (!isString(raw["title"])) return null;
+      if (!isString(raw["body"])) return null;
+      if (!isOptionalNotifData(raw["data"])) return null;
       return {
         t: "relay.notification",
-        title: raw.title,
-        body: raw.body,
-        data: raw.data,
+        title: raw["title"],
+        body: raw["body"],
+        data: raw["data"],
       } satisfies RelayNotification;
     }
 
     case "relay.push.token": {
-      if (!isString(raw.frontendId)) return null;
-      if (!isString(raw.sealed)) return null;
-      if (!isPlatform(raw.platform)) return null;
+      if (!isString(raw["frontendId"])) return null;
+      if (!isString(raw["sealed"])) return null;
+      if (!isPlatform(raw["platform"])) return null;
       return {
         t: "relay.push.token",
-        frontendId: raw.frontendId,
-        sealed: raw.sealed,
-        platform: raw.platform,
+        frontendId: raw["frontendId"],
+        sealed: raw["sealed"],
+        platform: raw["platform"],
       } satisfies RelayPushTokenSealed;
     }
 

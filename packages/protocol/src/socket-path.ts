@@ -24,7 +24,7 @@ import { join } from "path";
  *          and tightens the fallback dir before returning.
  */
 export function resolveRuntimeDir(): string {
-  const xdgRuntimeDir = process.env.XDG_RUNTIME_DIR;
+  const xdgRuntimeDir = process.env["XDG_RUNTIME_DIR"];
   if (xdgRuntimeDir) {
     // XDG_RUNTIME_DIR is owned and mode-0700'd by the login manager (systemd
     // et al.); we only ensure it exists (the daemon binds its IPC socket here,

@@ -50,7 +50,7 @@ function die(msg: string): never {
 // Ensure the isolated XDG dirs exist (the daemon mkdir's the store itself, but the
 // runtime dir for the socket must be present + 0700 before the daemon binds).
 function ensureIsolationDirs(): void {
-  const runtime = process.env.XDG_RUNTIME_DIR;
+  const runtime = process.env["XDG_RUNTIME_DIR"];
   if (!runtime) die("XDG_RUNTIME_DIR must be set (isolated socket dir)");
   mkdirSync(runtime, { recursive: true, mode: 0o700 });
   for (const v of ["XDG_DATA_HOME", "XDG_CONFIG_HOME"]) {

@@ -117,11 +117,11 @@ describe("checkDaemonLockAlive", () => {
 });
 
 describe("getDaemonLockPath", () => {
-  const origRuntime = process.env.XDG_RUNTIME_DIR;
+  const origRuntime = process.env["XDG_RUNTIME_DIR"];
 
   afterEach(() => {
-    if (origRuntime === undefined) delete process.env.XDG_RUNTIME_DIR;
-    else process.env.XDG_RUNTIME_DIR = origRuntime;
+    if (origRuntime === undefined) delete process.env["XDG_RUNTIME_DIR"];
+    else process.env["XDG_RUNTIME_DIR"] = origRuntime;
   });
 
   test("honors XDG_RUNTIME_DIR", () => {
@@ -129,7 +129,7 @@ describe("getDaemonLockPath", () => {
     // there), so use a writable temp dir rather than an unwritable literal.
     const xdg = mkdtempSync(join(tmpdir(), "tp-lock-xdg-"));
     try {
-      process.env.XDG_RUNTIME_DIR = xdg;
+      process.env["XDG_RUNTIME_DIR"] = xdg;
       expect(getDaemonLockPath()).toBe(`${xdg}/daemon.pid`);
     } finally {
       rmSync(xdg, { recursive: true, force: true });
@@ -138,7 +138,7 @@ describe("getDaemonLockPath", () => {
 
   test("resolves to a runtime dir + daemon.pid when XDG_RUNTIME_DIR is unset", () => {
     if (typeof process.getuid !== "function") return; // POSIX-only (no Windows)
-    delete process.env.XDG_RUNTIME_DIR;
+    delete process.env["XDG_RUNTIME_DIR"];
     const uid = process.getuid();
     const path = getDaemonLockPath();
     // Either the systemd runtime dir (/run/user/<uid>, preferred when present)
@@ -154,19 +154,19 @@ describe("getDaemonLockPath", () => {
   // /tmp), a daemon would bind its socket in one place while the CLI looked for
   // the lock in another — exactly the WSL/systemd duplicate-daemon failure.
   test("lock path co-locates with the IPC socket path", () => {
-    const savedXdg = process.env.XDG_RUNTIME_DIR;
+    const savedXdg = process.env["XDG_RUNTIME_DIR"];
     // Writable temp dir — both resolvers mkdir the XDG dir before returning.
     const xdg = mkdtempSync(join(tmpdir(), "tp-lock-colocate-"));
     try {
       // Assert under both an explicit XDG dir and the unset/inferred case.
-      process.env.XDG_RUNTIME_DIR = xdg;
+      process.env["XDG_RUNTIME_DIR"] = xdg;
       expect(dirname(getDaemonLockPath())).toBe(dirname(getSocketPath()));
 
-      delete process.env.XDG_RUNTIME_DIR;
+      delete process.env["XDG_RUNTIME_DIR"];
       expect(dirname(getDaemonLockPath())).toBe(dirname(getSocketPath()));
     } finally {
-      if (savedXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
-      else process.env.XDG_RUNTIME_DIR = savedXdg;
+      if (savedXdg === undefined) delete process.env["XDG_RUNTIME_DIR"];
+      else process.env["XDG_RUNTIME_DIR"] = savedXdg;
       rmSync(xdg, { recursive: true, force: true });
     }
   });

@@ -43,7 +43,7 @@ import { RelayServer } from "../packages/relay/src/relay-server";
 const TOKEN =
   "a16760de00195ffd72a318d567eca9c2ee0fa7003e7e87cfec03538c4e7aa5c9";
 const DAEMON_ID = "daemon-smoketest";
-const PORT = parseInt(process.env.RELAY_PORT ?? "7090", 10);
+const PORT = parseInt(process.env["RELAY_PORT"] ?? "7090", 10);
 // The golden pairing secret (0x00..0x1f) — the kx-envelope key is derived from
 // it, byte-exact with the Swift app's deriveKxKey(pairing.pairingSecret).
 const GOLDEN_SECRET = new Uint8Array(Array.from({ length: 32 }, (_, i) => i));
@@ -161,9 +161,9 @@ async function startFakeDaemon(): Promise<void> {
       }
       case "relay.kx.frame": {
         // The frontend's pubkey exchange. Derive server session keys.
-        if (msg.from !== "frontend") return;
+        if (msg["from"] !== "frontend") return;
         try {
-          const plain = await decrypt(String(msg.ct), kxKey);
+          const plain = await decrypt(String(msg["ct"]), kxKey);
           const data = JSON.parse(new TextDecoder().decode(plain)) as {
             pk: string;
             frontendId: string;
@@ -197,9 +197,9 @@ async function startFakeDaemon(): Promise<void> {
         //   {t:'resume'}   → reply with a `batch` of records seq > c (M4)
         //   {t:'in.chat'}  → echo the line back as an `io` rec (M5)
         //   {t:'in.term'}  → echo the (base64) bytes back as an `io` rec (M5)
-        if (!sessionKeys || msg.from !== "frontend") return;
+        if (!sessionKeys || msg["from"] !== "frontend") return;
         try {
-          const plain = await decrypt(String(msg.ct), sessionKeys.rx);
+          const plain = await decrypt(String(msg["ct"]), sessionKeys.rx);
           const inner = JSON.parse(new TextDecoder().decode(plain)) as {
             t?: string;
             sid?: string;

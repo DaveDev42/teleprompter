@@ -1,6 +1,6 @@
 import { RelayServer } from "./relay-server";
 
-const port = parseInt(process.env.RELAY_PORT ?? "7090", 10);
+const port = parseInt(process.env["RELAY_PORT"] ?? "7090", 10);
 
 const relay = new RelayServer();
 relay.start(port);

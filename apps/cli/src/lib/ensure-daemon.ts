@@ -158,7 +158,7 @@ async function showInstallHint(): Promise<void> {
     serviceInstalled: await isServiceInstalled(),
     stdinIsTTY: process.stdin.isTTY === true,
     stderrIsTTY: process.stderr.isTTY === true,
-    noAutoInstallEnv: process.env.TP_NO_AUTO_INSTALL === "1",
+    noAutoInstallEnv: process.env["TP_NO_AUTO_INSTALL"] === "1",
   });
 
   if (mode === "skip") return;

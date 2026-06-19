@@ -63,7 +63,7 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
   const cwd = tpArgs.cwd ?? process.cwd();
 
   // Silence all teleprompter logs — PTY owns the terminal.
-  process.env.LOG_LEVEL = "silent";
+  process.env["LOG_LEVEL"] = "silent";
   setLogLevel("silent");
 
   SessionManager.setRunnerCommand(resolveRunnerCommand());
@@ -213,7 +213,7 @@ async function passthroughViaEphemeralDaemon(
 ): Promise<void> {
   // Temp IPC socket to avoid colliding with a background daemon service.
   const tmpSocket = join(
-    process.env.TMPDIR ?? "/tmp",
+    process.env["TMPDIR"] ?? "/tmp",
     `tp-passthrough-${process.pid}.sock`,
   );
 

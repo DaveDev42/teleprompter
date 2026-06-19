@@ -52,64 +52,64 @@ describe("isClipboardSupportLikely", () => {
 
   test("returns false when stdout is not a TTY", () => {
     setTTY(false);
-    process.env.TERM = "xterm-256color";
+    process.env["TERM"] = "xterm-256color";
     expect(isClipboardSupportLikely()).toBe(false);
   });
 
   test("returns false when $TERM is dumb", () => {
     setTTY(true);
-    process.env.TERM = "dumb";
-    delete process.env.TMUX;
-    delete process.env.STY;
+    process.env["TERM"] = "dumb";
+    delete process.env["TMUX"];
+    delete process.env["STY"];
     expect(isClipboardSupportLikely()).toBe(false);
   });
 
   test("returns false when $TERM is empty", () => {
     setTTY(true);
-    process.env.TERM = "";
-    delete process.env.TMUX;
-    delete process.env.STY;
+    process.env["TERM"] = "";
+    delete process.env["TMUX"];
+    delete process.env["STY"];
     expect(isClipboardSupportLikely()).toBe(false);
   });
 
   test("returns true for xterm-256color on a TTY", () => {
     setTTY(true);
-    process.env.TERM = "xterm-256color";
-    delete process.env.TMUX;
-    delete process.env.STY;
-    delete process.env.TERM_PROGRAM;
+    process.env["TERM"] = "xterm-256color";
+    delete process.env["TMUX"];
+    delete process.env["STY"];
+    delete process.env["TERM_PROGRAM"];
     expect(isClipboardSupportLikely()).toBe(true);
   });
 
   test("returns true when $TMUX is set (multiplexer passthrough)", () => {
     setTTY(true);
-    process.env.TERM = "screen-256color";
-    process.env.TMUX = "/tmp/tmux-1000/default,1234,0";
+    process.env["TERM"] = "screen-256color";
+    process.env["TMUX"] = "/tmp/tmux-1000/default,1234,0";
     expect(isClipboardSupportLikely()).toBe(true);
   });
 
   test("returns true when $STY is set (screen multiplexer)", () => {
     setTTY(true);
-    process.env.TERM = "screen";
-    process.env.STY = "12345.pts-0.host";
+    process.env["TERM"] = "screen";
+    process.env["STY"] = "12345.pts-0.host";
     expect(isClipboardSupportLikely()).toBe(true);
   });
 
   test("returns true for iTerm.app TERM_PROGRAM", () => {
     setTTY(true);
-    process.env.TERM = "xterm-256color";
-    process.env.TERM_PROGRAM = "iTerm.app";
-    delete process.env.TMUX;
-    delete process.env.STY;
+    process.env["TERM"] = "xterm-256color";
+    process.env["TERM_PROGRAM"] = "iTerm.app";
+    delete process.env["TMUX"];
+    delete process.env["STY"];
     expect(isClipboardSupportLikely()).toBe(true);
   });
 
   test("returns true for ghostty TERM_PROGRAM", () => {
     setTTY(true);
-    process.env.TERM = "xterm-ghostty";
-    process.env.TERM_PROGRAM = "ghostty";
-    delete process.env.TMUX;
-    delete process.env.STY;
+    process.env["TERM"] = "xterm-ghostty";
+    process.env["TERM_PROGRAM"] = "ghostty";
+    delete process.env["TMUX"];
+    delete process.env["STY"];
     expect(isClipboardSupportLikely()).toBe(true);
   });
 });
@@ -142,7 +142,7 @@ describe("copyToClipboard", () => {
 
   test("returns ok:false when stdout is not a TTY", () => {
     setTTY(false);
-    process.env.TERM = "xterm-256color";
+    process.env["TERM"] = "xterm-256color";
     const result = copyToClipboard("hello");
     expect(result.ok).toBe(false);
     expect(result.reason).toContain("TTY");
@@ -150,9 +150,9 @@ describe("copyToClipboard", () => {
 
   test("returns ok:false when $TERM is dumb", () => {
     setTTY(true);
-    process.env.TERM = "dumb";
-    delete process.env.TMUX;
-    delete process.env.STY;
+    process.env["TERM"] = "dumb";
+    delete process.env["TMUX"];
+    delete process.env["STY"];
     const result = copyToClipboard("hello");
     expect(result.ok).toBe(false);
     expect(result.reason).toContain("dumb");
@@ -160,9 +160,9 @@ describe("copyToClipboard", () => {
 
   test("writes OSC 52 sequence with correct base64 on a TTY", () => {
     setTTY(true);
-    process.env.TERM = "xterm-256color";
-    delete process.env.TMUX;
-    delete process.env.STY;
+    process.env["TERM"] = "xterm-256color";
+    delete process.env["TMUX"];
+    delete process.env["STY"];
 
     const text = "tp://p?d=hello";
     const expected = Buffer.from(text, "utf8").toString("base64");
@@ -177,9 +177,9 @@ describe("copyToClipboard", () => {
 
   test("wraps with tmux passthrough when $TMUX is set", () => {
     setTTY(true);
-    process.env.TERM = "screen-256color";
-    process.env.TMUX = "/tmp/tmux-1000/default,1234,0";
-    delete process.env.STY;
+    process.env["TERM"] = "screen-256color";
+    process.env["TMUX"] = "/tmp/tmux-1000/default,1234,0";
+    delete process.env["STY"];
 
     const text = "hello-tmux";
     let written = "";
@@ -199,9 +199,9 @@ describe("copyToClipboard", () => {
 
   test("wraps with screen DCS passthrough when $STY is set", () => {
     setTTY(true);
-    process.env.TERM = "screen";
-    process.env.STY = "12345.pts-0.host";
-    delete process.env.TMUX;
+    process.env["TERM"] = "screen";
+    process.env["STY"] = "12345.pts-0.host";
+    delete process.env["TMUX"];
 
     const text = "hello-screen";
     let written = "";
@@ -219,7 +219,7 @@ describe("copyToClipboard", () => {
 
   test("does not write anything to stdout on failure", () => {
     setTTY(false);
-    process.env.TERM = "xterm-256color";
+    process.env["TERM"] = "xterm-256color";
 
     const written = captureStdout(() => {
       copyToClipboard("should not write");

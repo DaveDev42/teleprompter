@@ -267,22 +267,22 @@ describe("resolveCurrentBinaryPath", () => {
 describe("checkForUpdates", () => {
   let cacheDir: string;
   let cachePath: string;
-  const origNoCheck = process.env.TP_NO_UPDATE_CHECK;
+  const origNoCheck = process.env["TP_NO_UPDATE_CHECK"];
 
   beforeEach(() => {
     cacheDir = mkdtempSync(join(tmpdir(), "tp-upgrade-cache-"));
     cachePath = join(cacheDir, "upgrade-check.json");
-    delete process.env.TP_NO_UPDATE_CHECK;
+    delete process.env["TP_NO_UPDATE_CHECK"];
   });
 
   afterEach(() => {
     rmSync(cacheDir, { recursive: true, force: true });
-    if (origNoCheck === undefined) delete process.env.TP_NO_UPDATE_CHECK;
-    else process.env.TP_NO_UPDATE_CHECK = origNoCheck;
+    if (origNoCheck === undefined) delete process.env["TP_NO_UPDATE_CHECK"];
+    else process.env["TP_NO_UPDATE_CHECK"] = origNoCheck;
   });
 
   test("returns null when env var suppresses check", async () => {
-    process.env.TP_NO_UPDATE_CHECK = "1";
+    process.env["TP_NO_UPDATE_CHECK"] = "1";
     const result = await checkForUpdates({ cachePath });
     expect(result).toBeNull();
     expect(existsSync(cachePath)).toBe(false);

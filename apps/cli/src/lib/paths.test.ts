@@ -101,12 +101,12 @@ describe("resolveTpBinary", () => {
     const synthetic = "/$bunfs/root/tp";
     process.argv[0] = synthetic;
 
-    const originalPath = process.env.PATH;
-    process.env.PATH = fakeBin;
+    const originalPath = process.env["PATH"];
+    process.env["PATH"] = fakeBin;
     try {
       expect(resolveTpBinary()).toBe(fakeTp);
     } finally {
-      process.env.PATH = originalPath;
+      process.env["PATH"] = originalPath;
     }
   });
 });

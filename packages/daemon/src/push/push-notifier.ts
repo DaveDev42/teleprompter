@@ -251,7 +251,7 @@ export function buildPushMessage(
 ): PushMessage {
   if (eventName === "Notification") {
     const message =
-      typeof payload?.message === "string" ? payload.message.trim() : "";
+      typeof payload?.["message"] === "string" ? payload["message"].trim() : "";
     if (message.length > 0) {
       // Claude's Notification "message" field already reads like a sentence
       // ("Claude needs your permission to use Bash"). Use it verbatim as
@@ -271,7 +271,7 @@ export function buildPushMessage(
 
   if (eventName === "PermissionRequest") {
     const tool =
-      typeof payload?.tool_name === "string" ? payload.tool_name : null;
+      typeof payload?.["tool_name"] === "string" ? payload["tool_name"] : null;
     return {
       title: "Permission needed",
       body: tool
@@ -282,10 +282,10 @@ export function buildPushMessage(
 
   if (eventName === "Elicitation") {
     const question =
-      typeof payload?.message === "string"
-        ? payload.message
-        : typeof payload?.question === "string"
-          ? payload.question
+      typeof payload?.["message"] === "string"
+        ? payload["message"]
+        : typeof payload?.["question"] === "string"
+          ? payload["question"]
           : "";
     return {
       title: "Response needed",

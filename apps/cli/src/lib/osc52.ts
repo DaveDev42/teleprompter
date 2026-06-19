@@ -41,14 +41,14 @@ const KNOWN_GOOD_TERMS = ["xterm", "screen", "tmux", "alacritty", "kitty"];
  */
 export function isClipboardSupportLikely(): boolean {
   if (!process.stdout.isTTY) return false;
-  const term = process.env.TERM ?? "";
+  const term = process.env["TERM"] ?? "";
   if (term === "dumb" || term === "") return false;
 
   // Multiplexer detected → attempt passthrough
-  if (process.env.TMUX || process.env.STY) return true;
+  if (process.env["TMUX"] || process.env["STY"]) return true;
 
   // Known-good terminal program
-  const prog = process.env.TERM_PROGRAM ?? "";
+  const prog = process.env["TERM_PROGRAM"] ?? "";
   if (KNOWN_GOOD_PROGRAMS.has(prog)) return true;
 
   // Known-good $TERM prefix
@@ -75,7 +75,7 @@ export function copyToClipboard(text: string): ClipboardResult {
   if (!process.stdout.isTTY) {
     return { ok: false, reason: "stdout is not a TTY" };
   }
-  const term = process.env.TERM ?? "";
+  const term = process.env["TERM"] ?? "";
   if (term === "dumb" || term === "") {
     return { ok: false, reason: "$TERM is dumb or unset" };
   }
@@ -84,11 +84,11 @@ export function copyToClipboard(text: string): ClipboardResult {
   const inner = `\x1b]52;c;${b64}\x07`;
 
   let seq: string;
-  if (process.env.TMUX) {
+  if (process.env["TMUX"]) {
     // tmux DCS passthrough: each ESC inside the payload must be doubled
     const escaped = inner.replace(/\x1b/g, "\x1b\x1b");
     seq = `\x1bPtmux;${escaped}\x1b\\`;
-  } else if (process.env.STY) {
+  } else if (process.env["STY"]) {
     // GNU screen DCS passthrough
     seq = `\x1bP${inner}\x1b\\`;
   } else {

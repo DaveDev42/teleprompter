@@ -9,7 +9,7 @@ const LABEL = "dev.tpmt.daemon";
 
 export function getPlistPath(): string {
   return join(
-    process.env.HOME ?? "/tmp",
+    process.env["HOME"] ?? "/tmp",
     "Library",
     "LaunchAgents",
     `${LABEL}.plist`,
@@ -26,8 +26,8 @@ export function getServiceLabel(): string {
 
 function getLogDir(): string {
   return join(
-    process.env.XDG_DATA_HOME ??
-      join(process.env.HOME ?? "/tmp", ".local", "share"),
+    process.env["XDG_DATA_HOME"] ??
+      join(process.env["HOME"] ?? "/tmp", ".local", "share"),
     "teleprompter",
     "logs",
   );
@@ -57,9 +57,9 @@ export function generatePlist(tpBinary: string, logDir: string): string {
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
-    <string>${process.env.HOME}</string>
+    <string>${process.env["HOME"]}</string>
     <key>PATH</key>
-    <string>/usr/local/bin:/usr/bin:/bin:${process.env.HOME}/.local/bin</string>
+    <string>/usr/local/bin:/usr/bin:/bin:${process.env["HOME"]}/.local/bin</string>
   </dict>
 </dict>
 </plist>`;
@@ -100,7 +100,7 @@ export async function installDarwin(): Promise<void> {
   await mkdir(logDir, { recursive: true });
 
   // Create LaunchAgents directory
-  await mkdir(join(process.env.HOME ?? "/tmp", "Library", "LaunchAgents"), {
+  await mkdir(join(process.env["HOME"] ?? "/tmp", "Library", "LaunchAgents"), {
     recursive: true,
   });
 

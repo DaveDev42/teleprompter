@@ -64,7 +64,7 @@ describe("Runner start() error cleanup — M7 regression", () => {
     // this reliable we patch the internal pty manager via Object.assign on the
     // private field after construction (TypeScript private doesn't prevent JS access).
     const fakeError = new Error("fake-pty-spawn-error");
-    (runner as unknown as Record<string, unknown>).pty = {
+    (runner as unknown as Record<string, unknown>)["pty"] = {
       spawn: () => {
         throw fakeError;
       },

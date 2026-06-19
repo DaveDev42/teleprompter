@@ -316,6 +316,8 @@ describe("parseRelayServerMessage", () => {
     };
     const parsed = parseRelayServerMessage(m);
     expect(parsed).toEqual({ t: "relay.pong", ts: 5 });
-    expect((parsed as unknown as Record<string, unknown>).evil).toBeUndefined();
+    expect(
+      (parsed as unknown as Record<string, unknown>)["evil"],
+    ).toBeUndefined();
   });
 });

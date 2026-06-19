@@ -53,9 +53,9 @@ export class PushSealer {
   private readonly keyCache = new Map<number, Uint8Array>();
 
   constructor(options?: PushSealerOptions) {
-    const envSecret = process.env.TP_RELAY_PUSH_SEAL_SECRET ?? "";
-    const envPrev = process.env.TP_RELAY_PUSH_SEAL_SECRET_PREV ?? "";
-    const envVersion = process.env.TP_RELAY_PUSH_SEAL_VERSION;
+    const envSecret = process.env["TP_RELAY_PUSH_SEAL_SECRET"] ?? "";
+    const envPrev = process.env["TP_RELAY_PUSH_SEAL_SECRET_PREV"] ?? "";
+    const envVersion = process.env["TP_RELAY_PUSH_SEAL_VERSION"];
 
     const provided = options?.secret ?? envSecret;
     if (provided && provided.length >= SECRET_MIN_CHARS) {

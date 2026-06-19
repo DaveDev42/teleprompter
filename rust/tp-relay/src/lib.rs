@@ -1,17 +1,24 @@
 //! `tp-relay` — Stage 1 relay server crate (ADR-0003, Phase 4 backend Rust
 //! migration).
 //!
+//! **Step 3 scope:** pure relay logic — resume-token issue/verify, connection
+//! registry (DaemonState + registrations), and handshake handlers
+//! (register/auth/auth.resume/hello).  NO axum / tokio / tungstenite yet
+//! (those arrive at Step 4).
+//!
 //! **Step 2 scope (this file + `messages`):** pure Relay → Client serde core —
 //! `RelayServerMessage` discriminated union, manual parse boundary, and
-//! framing re-exports. NO axum / tokio / tungstenite yet (those arrive at
-//! Step 3+).
+//! framing re-exports.
 //!
 //! ## Crate layout
 //!
 //! ```text
 //! tp_relay
-//! ├── lib.rs        — shared guard primitives + framing helpers (this file)
-//! └── messages.rs   — RelayServerMessage enum + parse_relay_server_message
+//! ├── lib.rs          — shared guard primitives + framing helpers (this file)
+//! ├── messages.rs     — RelayServerMessage enum + parse_relay_server_message
+//! ├── resume_token.rs — ResumeTokenSigner (BLAKE2b keyed-hash, binary 5-part payload)
+//! ├── registry.rs     — DaemonState + Registration + Registry mutation helpers
+//! └── handshake.rs    — handle_register/handle_auth/handle_auth_resume/handle_hello
 //! ```
 //!
 //! ## Framing
@@ -62,7 +69,10 @@
 use serde_json::{Map, Value};
 use tp_core::codec::{self, DecodedFrame};
 
+pub mod handshake;
 pub mod messages;
+pub mod registry;
+pub mod resume_token;
 
 pub use messages::{
     parse_relay_server_message, AuthErr, AuthOk, Frame, KeyExchangeFrame, Notification, Pong,

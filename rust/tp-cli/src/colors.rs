@@ -25,8 +25,22 @@ pub fn red(text: &str) -> String {
     wrap("31", text)
 }
 
+pub fn yellow(text: &str) -> String {
+    wrap("33", text)
+}
+
 pub fn dim(text: &str) -> String {
     wrap("90", text)
+}
+
+/// `ok(msg)` — green ✓ prefix. Mirrors `ok` in `apps/cli/src/lib/colors.ts`.
+pub fn ok(msg: &str) -> String {
+    format!("{} {msg}", green("✓"))
+}
+
+/// `fail(msg)` — red ✕ prefix. Mirrors `fail` in `apps/cli/src/lib/colors.ts`.
+pub fn fail(msg: &str) -> String {
+    format!("{} {msg}", red("✕"))
 }
 
 #[cfg(test)]

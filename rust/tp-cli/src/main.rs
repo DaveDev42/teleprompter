@@ -20,7 +20,12 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
+mod colors;
 mod commands;
+mod format;
+mod socket;
+mod store;
+mod util;
 
 // Top-level `tp` CLI.
 //
@@ -55,16 +60,35 @@ struct Cli {
 enum Command {
     /// Print tp + claude versions.
     Version,
-    /// Daemon status & session list (not yet ported).
+    /// Daemon & session status.
     Status,
-    /// Tail a session's live output (not yet ported).
-    Logs,
-    /// Pairing management (not yet ported).
-    Pair,
-    /// Session management (not yet ported).
-    Session,
-    /// Shell completion scripts (not yet ported).
-    Completions,
+    /// Tail a session's live record stream.
+    Logs {
+        /// Session ID to tail. Omit to list available sessions.
+        sid: Option<String>,
+    },
+    /// Pairing management.
+    Pair {
+        #[command(subcommand)]
+        action: Option<PairAction>,
+    },
+    /// Session management.
+    Session {
+        #[command(subcommand)]
+        action: Option<SessionAction>,
+    },
+    /// Shell completion scripts.
+    ///
+    /// Emit a ready-to-eval completion script for bash, zsh, or fish.
+    /// Usage: `tp completions [bash|zsh|fish]`
+    ///
+    /// The `install` / `uninstall` sub-actions (write rc files) are not yet
+    /// ported; they are routed to the loud-fail path.
+    Completions {
+        /// Shell to generate completions for, or "install"/"uninstall".
+        /// Defaults to "bash" when omitted.
+        shell: Option<String>,
+    },
     /// Environment diagnostics (not yet ported).
     Doctor,
     /// Upgrade the tp binary (not yet ported).
@@ -75,6 +99,33 @@ enum Command {
     Run,
     /// Relay server (not yet ported).
     Relay,
+}
+
+/// `tp pair <action>`. Only `list` is ported in tranche 1; write actions
+/// (new/delete/rename) stay loud-fail until their tranches land.
+#[derive(Subcommand)]
+enum PairAction {
+    /// List registered pairings.
+    List,
+    /// Create a new pairing (not yet ported).
+    New,
+    /// Delete a pairing (not yet ported).
+    Delete,
+    /// Rename a pairing (not yet ported).
+    Rename,
+}
+
+/// `tp session <action>`. Only `list` is ported in tranche 1.
+#[derive(Subcommand)]
+enum SessionAction {
+    /// List saved sessions.
+    List,
+    /// Delete a session (not yet ported).
+    Delete,
+    /// Prune stopped sessions (not yet ported).
+    Prune,
+    /// Interactive cleanup (not yet ported).
+    Cleanup,
 }
 
 fn main() -> ExitCode {
@@ -88,10 +139,48 @@ fn main() -> ExitCode {
 
     match cli.command {
         Some(Command::Version) => commands::version::run(),
-        Some(other) => not_yet_ported(&other),
-        // Bare `tp` with no subcommand: print help and exit non-zero (clap's
-        // convention for "no command given"). The claude-REPL passthrough that
-        // bare `tp` triggers in the Bun CLI is a later tranche.
+        Some(Command::Status) => commands::status::run(),
+        Some(Command::Session {
+            action: Some(SessionAction::List),
+        }) => commands::session::list(),
+        Some(Command::Pair {
+            action: Some(PairAction::List),
+        }) => commands::pair::list(),
+
+        // completions — script-emit path is ported; install/uninstall is not.
+        Some(Command::Completions { shell }) => {
+            let shell_str = shell.as_deref();
+            match shell_str {
+                Some("install") => not_yet_ported("completions install"),
+                Some("uninstall") => not_yet_ported("completions uninstall"),
+                other => commands::completions::run(other),
+            }
+        }
+
+        // Ported subcommands.
+        Some(Command::Logs { sid }) => commands::logs::run(sid.as_deref()),
+        Some(Command::Doctor) => not_yet_ported("doctor"),
+        Some(Command::Upgrade) => not_yet_ported("upgrade"),
+        Some(Command::Daemon) => not_yet_ported("daemon"),
+        Some(Command::Run) => not_yet_ported("run"),
+        Some(Command::Relay) => not_yet_ported("relay"),
+        Some(Command::Pair { action }) => not_yet_ported(match action {
+            Some(PairAction::New) => "pair new",
+            Some(PairAction::Delete) => "pair delete",
+            Some(PairAction::Rename) => "pair rename",
+            // Bare `tp pair` (no action) is `pair new` in the Bun CLI — a write
+            // path, not yet ported.
+            None | Some(PairAction::List) => "pair",
+        }),
+        Some(Command::Session { action }) => not_yet_ported(match action {
+            Some(SessionAction::Delete) => "session delete",
+            Some(SessionAction::Prune) => "session prune",
+            Some(SessionAction::Cleanup) => "session cleanup",
+            None | Some(SessionAction::List) => "session",
+        }),
+
+        // Bare `tp` with no subcommand: print help and exit. The claude-REPL
+        // passthrough that bare `tp` triggers in the Bun CLI is a later tranche.
         None => {
             use clap::CommandFactory;
             let mut cmd = Cli::command();
@@ -105,20 +194,7 @@ fn main() -> ExitCode {
 /// Report a not-yet-ported subcommand. Until the coexistence decision lands
 /// (exec-forward to the Bun binary vs hard error), fail loudly so a user never
 /// thinks a write command silently succeeded.
-fn not_yet_ported(command: &Command) -> ExitCode {
-    let name = match command {
-        Command::Version => "version",
-        Command::Status => "status",
-        Command::Logs => "logs",
-        Command::Pair => "pair",
-        Command::Session => "session",
-        Command::Completions => "completions",
-        Command::Doctor => "doctor",
-        Command::Upgrade => "upgrade",
-        Command::Daemon => "daemon",
-        Command::Run => "run",
-        Command::Relay => "relay",
-    };
+fn not_yet_ported(name: &str) -> ExitCode {
     eprintln!(
         "tp: `{name}` is not yet ported to the native CLI. Use the Bun `tp` for this command."
     );

@@ -13,6 +13,8 @@
 
 use std::process::{Command, ExitCode};
 
+use crate::colors::dim;
+
 /// Canonical tp version, injected by `build.rs` (`TP_CLI_VERSION`). Falls back
 /// to the crate version if the build script could not resolve one.
 const TP_VERSION: &str = env!("TP_CLI_VERSION");
@@ -34,16 +36,6 @@ fn claude_version_line() -> String {
         }
         // Spawn failed (claude not on PATH) OR claude exited non-zero.
         _ => dim("claude: not found on PATH"),
-    }
-}
-
-/// Wrap `text` in the dim ANSI escape, unless `NO_COLOR` is set. Mirrors
-/// `apps/cli/src/lib/colors.ts` `dim` (code "90") + the `NO_COLOR` gate.
-fn dim(text: &str) -> String {
-    if std::env::var_os("NO_COLOR").is_some() {
-        text.to_string()
-    } else {
-        format!("\x1b[90m{text}\x1b[0m")
     }
 }
 

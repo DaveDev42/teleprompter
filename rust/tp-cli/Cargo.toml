@@ -47,6 +47,33 @@ tp-proto = { path = "../tp-proto" }
 # for blocking key-event reads; the full-featured `crossterm::execute!` macros
 # are used for cursor hiding via the `style` feature (transitively pulled in).
 crossterm = { version = "0.28", default-features = false, features = ["events"] }
+# OSC 52 clipboard payload — STANDARD alphabet base64 (matches Bun
+# `Buffer.from(text,"utf8").toString("base64")`, osc52.ts:83). No URL-safe, no
+# line wrapping. Used only by `pair new`'s `c`-to-copy path.
+base64 = "0.22"
+# Half-block terminal QR render for `pair new`. Glyph layout differs from the
+# Bun `qrcode-terminal` renderer (accepted — the scanned/copied URL printed
+# below is byte-identical; the iOS scanner reads the URL, not the glyphs).
+# `default-features = false` drops the `image`/`svg`/`pic` renderers (and the
+# heavy `image` crate) — we only use the `render::unicode::Dense1x2` half-block
+# string renderer, which is in the core module.
+qrcode = { version = "0.14", default-features = false }
+# SIGINT handler for the long-lived `pair new` flow: on Ctrl+C we send a framed
+# `pair.cancel` (or close the IPC socket pre-begin). No tokio — the rest of the
+# CLI is blocking std I/O, so `ctrlc` + a reader thread keeps the runtime surface
+# minimal.
+ctrlc = "3"
+# Host name for `pair new`'s default label (normalizeHostLabel(hostname())).
+# A single mature dep is cleaner than rustix's uncertain `system` feature surface
+# under `unsafe_code = "forbid"`.
+hostname = "0.4"
+
+# NOTE: the pair.lock advisory file lock (`pair_lock.rs`) uses the std
+# `File::try_lock` API (stabilized in Rust 1.89, available on our pinned 1.96
+# toolchain) — NO external crate. It diverges from the Bun CLI's proper-lockfile
+# mkdir-directory lock (the two do NOT mutually exclude cross-implementation);
+# accepted because the Bun CLI is being retired and both are not run concurrently
+# post-port (see pair_lock.rs module doc).
 
 [lints]
 workspace = true

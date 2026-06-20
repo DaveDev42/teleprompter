@@ -5,10 +5,11 @@
 //! mirrors the Bun CLI's `TP_SUBCOMMANDS` (`apps/cli/src/router.ts`) so the two
 //! binaries are drop-in compatible during the port.
 //!
-//! Port status (tranche 2): `version`, `status`, `session list`, `session
-//! delete`, `session prune`, `pair list`, `pair delete`, and `pair rename` are
-//! implemented. Every other subcommand is declared (so `--help` is complete and
-//! the dispatch seam exists) but returns a clear "not yet ported" message.
+//! Port status (tranche 3b): `version`, `status`, `session list`, `session
+//! delete`, `session prune`, `session cleanup`, `logs`, `completions` (emit),
+//! `pair list`, `pair delete`, `pair rename`, and `pair new` are implemented.
+//! Every other subcommand is declared (so `--help` is complete and the dispatch
+//! seam exists) but returns a clear "not yet ported" message.
 //!
 //! Architecture invariant (unchanged): this CLI talks ONLY to the daemon over
 //! its IPC unix socket. It never opens a relay WebSocket — pairing/relay flow is
@@ -21,8 +22,13 @@ use clap::{Parser, Subcommand};
 mod codec;
 mod colors;
 mod commands;
+mod config_dir;
 mod format;
 mod ipc_client;
+mod ipc_session;
+mod osc52;
+mod pair_lock;
+mod qr;
 mod socket;
 mod store;
 mod tui;
@@ -102,14 +108,21 @@ enum Command {
     Relay,
 }
 
-/// `tp pair <action>`. `list`, `delete`, and `rename` are ported; `new` stays
-/// loud-fail until its tranche lands.
+/// `tp pair <action>`. `list`, `delete`, `rename`, and `new` are ported.
 #[derive(Subcommand)]
 enum PairAction {
     /// List registered pairings.
     List,
-    /// Create a new pairing (not yet ported).
-    New,
+    /// Create a new pairing — generate a QR and BLOCK until the app scans it.
+    ///
+    /// Usage: tp pair new [--relay URL] [--daemon-id ID] [--label <name>]
+    New {
+        /// Arguments forwarded to the new-pairing handler.
+        /// Accepts: --relay/--daemon-id/--label (+ values) and -h/--help.
+        /// Passed through as raw strings so the handler owns argument ordering.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Delete a pairing (prefix match; requires daemon running).
     ///
     /// Usage: tp pair delete <daemon-id> [--yes|-y]
@@ -218,6 +231,9 @@ fn main() -> ExitCode {
             action: Some(PairAction::List),
         }) => commands::pair::list(),
         Some(Command::Pair {
+            action: Some(PairAction::New { args }),
+        }) => commands::pair::new(&args),
+        Some(Command::Pair {
             action: Some(PairAction::Delete { args }),
         }) => commands::pair::delete(&args),
         Some(Command::Pair {
@@ -241,15 +257,9 @@ fn main() -> ExitCode {
         Some(Command::Daemon) => not_yet_ported("daemon"),
         Some(Command::Run) => not_yet_ported("run"),
         Some(Command::Relay) => not_yet_ported("relay"),
-        Some(Command::Pair { action }) => not_yet_ported(match action {
-            Some(PairAction::New) => "pair new",
-            // Bare `tp pair` / List / Delete / Rename are either dispatched above or
-            // `pair new` in the Bun CLI — all not yet fully ported here.
-            None
-            | Some(PairAction::List)
-            | Some(PairAction::Delete { .. })
-            | Some(PairAction::Rename { .. }) => "pair",
-        }),
+        // Bare `tp pair` (no action) is an alias for `tp pair new` in the Bun
+        // CLI (pair.ts:59-62). List/New/Delete/Rename are all dispatched above.
+        Some(Command::Pair { action: None }) => commands::pair::new(&[]),
         Some(Command::Session {
             action: Some(SessionAction::Cleanup { yes, all }),
         }) => commands::session::cleanup(yes, all),

@@ -2644,10 +2644,12 @@ dependencies = [
  "ctrlc",
  "hostname",
  "qrcode",
+ "rand 0.8.6",
  "rusqlite",
  "rustix 0.38.44",
  "serde_json",
  "tempfile",
+ "tp-core",
  "tp-proto",
 ]
 

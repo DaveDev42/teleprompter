@@ -1,0 +1,23 @@
+[package]
+name = "tp-cli"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Native Rust `tp` CLI (ADR-0003 full-CLI port). Subcommand router + read-only commands first; retires the Bun CLI as commands land. Talks ONLY to the daemon IPC socket (never a relay WS — CLI-has-no-RelayClient invariant)."
+
+# The single user-facing binary. Installed at ~/.local/bin/tp (dogfood) and,
+# once the port is complete, shipped as the release `tp` (brew/curl).
+[[bin]]
+name = "tp"
+path = "src/main.rs"
+
+[dependencies]
+# Subcommand router + flag parsing. derive keeps the command tree declarative and
+# the --help output close to the Bun CLI's hand-rolled help. clap 4 resolves on
+# Rust 1.96 (MSRV pinned in rust-toolchain.toml).
+clap = { version = "4", features = ["derive"] }
+
+[lints]
+workspace = true

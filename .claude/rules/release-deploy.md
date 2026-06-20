@@ -12,8 +12,8 @@ paths:
 ## main push
 | Target | Workflow | Condition |
 |--------|----------|-----------|
-| CI | GitHub Actions `ci.yml` | 항상 (parallel jobs: lint, type-check, test, build-cli) |
-| Relay | GitHub Actions `deploy-relay.yml` | packages/relay,protocol,daemon 변경 시 |
+| CI | GitHub Actions `ci.yml` | 항상 (parallel jobs: lint, type-check, test, build-cli, rust) |
+| Relay | GitHub Actions `deploy-relay.yml` | **Rust `tp-relay` 변경 시** (`rust/tp-relay,tp-proto,tp-core`, `rust/Cargo.lock`, 자기자신; ADR-0003 Step 8b 이후 — 구 `packages/relay,protocol,daemon` 트리거는 TS relay 퇴역과 함께 제거). **flip-live-on-merge** = 머지가 곧 `relay.tpmt.dev` 자동 cutover(downtime-OK). |
 
 ## v* 태그 release
 | Target | Workflow | 설명 |
@@ -63,7 +63,7 @@ brew update && brew upgrade davedev42/tap/tp && tp version
 ```
 
 ## Infrastructure
-- **Relay**: Vultr Seoul `relay.tpmt.dev` (wss://, Caddy TLS + systemd: `tp-relay`)
+- **Relay**: Vultr Seoul `relay.tpmt.dev` (wss://, Caddy TLS + systemd: `tp-relay`). **Rust 바이너리** `/usr/local/bin/tp-relay`(ADR-0003 Stage 1 Step 8b 이후; base unit `ExecStart=/usr/local/bin/tp-relay`, 시크릿은 drop-in `/etc/systemd/system/tp-relay.service.d/secrets.conf` — `TP_RELAY_RESUME_SECRET`/`TP_RELAY_PUSH_SEAL_SECRET[_PREV]`/APNs, deploy 가 안 건드림). 구 TS `tp relay start` 경로는 퇴역.
 - **CLI**: GitHub Releases → `bun build --compile` (darwin/linux × arm64/x64; Windows users run the linux build under WSL)
 - **Native App (iOS/iPadOS/macOS)**: 로컬 하네스 (`scripts/ios.sh`, `TP_PLATFORM=ios|macos` / `ios/`) — EAS 클라우드 빌드 제거됨. 단일 멀티플랫폼 SwiftUI 타깃; visionOS/watchOS 는 toolchain 게이트 뒤 Phase B (ADR-0001 재작성 + ADR-0002 플랫폼 범위 참조).
 

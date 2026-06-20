@@ -1,13 +1,26 @@
 name: Deploy Relay
 
+# ADR-0003 Stage 1 Step 8b: this pipeline now ships the RUST `tp-relay` binary
+# (rust/tp-relay) — NOT the TS `tp relay start`. The deployed service runs a
+# standalone `/usr/local/bin/tp-relay`. Merging a `rust/tp-relay/**` change to
+# main FLIPS PRODUCTION LIVE (downtime-OK per Amendment 1) — secrets must be
+# reissued on the host first (see docs/adr/0003 §A1.7 cutover runbook).
+#
+# Secrets (`TP_RELAY_RESUME_SECRET`, `TP_RELAY_PUSH_SEAL_SECRET[_PREV]`, APNs)
+# are injected on the host via a systemd DROP-IN
+# (`/etc/systemd/system/tp-relay.service.d/secrets.conf`) that this workflow
+# NEVER reads or overwrites — so a deploy can rewrite the base unit without
+# wiping operator-managed secrets.
+
 on:
   push:
     branches: [main]
     paths:
-      - "packages/relay/**"
-      - "packages/protocol/**"
-      - "packages/daemon/**"
-      - "pnpm-lock.yaml"
+      - "rust/tp-relay/**"
+      - "rust/tp-proto/**"
+      - "rust/tp-core/**"
+      - "rust/Cargo.lock"
+      - ".github/workflows/deploy-relay.yml"
   workflow_dispatch:
 
 env:
@@ -17,6 +30,10 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # A cold Rust build (reqwest/rustls + the relay graph) can run several
+    # minutes; cap it well under the 360m default so a stuck build doesn't pin a
+    # runner. Mirrors the CI rust job's 20m, +headroom for the cold-cache deploy.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
 
@@ -32,37 +49,55 @@ jobs:
         run: |
           ARCH=$(ssh -o StrictHostKeyChecking=no ${{ secrets.RELAY_USER }}@${RELAY_HOST} "uname -m")
           case "$ARCH" in
-            aarch64|arm64) echo "target=bun-linux-arm64" >> $GITHUB_OUTPUT ;;
-            x86_64|amd64)  echo "target=bun-linux-x64" >> $GITHUB_OUTPUT ;;
+            x86_64|amd64)  echo "target=x86_64-unknown-linux-gnu" >> $GITHUB_OUTPUT ;;
+            aarch64|arm64) echo "target=aarch64-unknown-linux-gnu" >> $GITHUB_OUTPUT ;;
+            *) echo "::error::unsupported relay host arch: $ARCH"; exit 1 ;;
           esac
           echo "Server arch: $ARCH"
 
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - name: Compile tp binary
+      - uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          targets: ${{ steps.arch.outputs.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Build tp-relay binary (Rust)
+        working-directory: rust
+        env:
+          # build.rs reads TP_BUILD_SHA from env FIRST → /health.buildSha reports
+          # this verbatim, so the post-deploy assert (/health.buildSha==github.sha)
+          # holds. Pass the FULL sha (not --short) to match github.sha exactly.
+          TP_BUILD_SHA: ${{ github.sha }}
+          TP_BUILD_TIME: ${{ github.event.repository.updated_at }}
         run: |
-          bun build apps/cli/src/index.ts --compile --target=${{ steps.arch.outputs.target }} \
-            --define "process.env.TP_BUILD_SHA=\"${{ github.sha }}\"" \
-            --define "process.env.TP_BUILD_TIME=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"" \
-            --outfile /tmp/tp
+          # ubuntu-latest is x86_64; for the x86_64 host this is a native build.
+          # For an arm64 host the target is cross — cargo pulls the std target via
+          # the toolchain `targets:` above (gnu linker may need `cross`, but the
+          # current Vultr host is x86_64 so the native path is exercised).
+          cargo build --release --target ${{ steps.arch.outputs.target }} --bin tp-relay
+          cp "target/${{ steps.arch.outputs.target }}/release/tp-relay" /tmp/tp-relay
 
       - name: Deploy to server
         run: |
           SSH="ssh -o StrictHostKeyChecking=no ${{ secrets.RELAY_USER }}@${RELAY_HOST}"
           SCP_DEST="${{ secrets.RELAY_USER }}@${RELAY_HOST}"
-          LOCAL_SHA=$(sha256sum /tmp/tp | cut -d' ' -f1)
-          echo "built tp sha256=$LOCAL_SHA"
+          LOCAL_SHA=$(sha256sum /tmp/tp-relay | cut -d' ' -f1)
+          echo "built tp-relay sha256=$LOCAL_SHA"
 
-          # Build the canonical systemd unit locally (no nested heredoc/indent
-          # hazards) and ship it as a file. Mirrors scripts/deploy-relay.sh.
+          # Build the canonical BASE systemd unit locally and ship it as a file.
+          # IMPORTANT: this unit carries NO secrets — operator secrets live in a
+          # drop-in (/etc/systemd/system/tp-relay.service.d/secrets.conf) that this
+          # deploy never touches, so rewriting the base unit cannot wipe them.
+          # ExecStart points at the standalone Rust binary (NOT `tp relay start`).
           cat > /tmp/tp-relay.service <<UNIT
           [Unit]
-          Description=Teleprompter Relay Server
+          Description=Teleprompter Relay Server (Rust)
           After=network.target
 
           [Service]
           Type=simple
-          ExecStart=/usr/local/bin/tp relay start
+          ExecStart=/usr/local/bin/tp-relay
           Environment=RELAY_PORT=${RELAY_PORT}
           Restart=always
           RestartSec=5
@@ -72,19 +107,20 @@ jobs:
           [Install]
           WantedBy=multi-user.target
           UNIT
-          echo "===== unit to be installed ====="
+          echo "===== base unit to be installed (secrets come from a drop-in) ====="
           cat /tmp/tp-relay.service
 
-          scp -o StrictHostKeyChecking=no /tmp/tp "$SCP_DEST:/tmp/tp"
+          scp -o StrictHostKeyChecking=no /tmp/tp-relay "$SCP_DEST:/tmp/tp-relay"
           scp -o StrictHostKeyChecking=no /tmp/tp-relay.service "$SCP_DEST:/tmp/tp-relay.service"
 
-          # Install binary, converge the unit (the host had drifted: its ExecStart
-          # ran a SEPARATE /usr/local/bin/tp-relay that deploy never updated, so 25
-          # "successful" deploys kept refreshing /usr/local/bin/tp while the service
-          # ran a 3-day-stale binary), reload + restart.
+          # Install the binary at /usr/local/bin/tp-relay and converge the unit.
+          # NOTE: the legacy TS path ran `/usr/local/bin/tp relay start`; the Rust
+          # cutover ships a SEPARATE `/usr/local/bin/tp-relay` and points ExecStart
+          # at it. The on-disk sha verify below checks THAT exact path so a drifted
+          # ExecStart (running a stale binary) is caught.
           $SSH 'set -e
-            sudo mv /tmp/tp /usr/local/bin/tp
-            sudo chmod +x /usr/local/bin/tp
+            sudo mv /tmp/tp-relay /usr/local/bin/tp-relay
+            sudo chmod +x /usr/local/bin/tp-relay
             sudo mv /tmp/tp-relay.service /etc/systemd/system/tp-relay.service
             sudo systemctl daemon-reload
             sudo systemctl enable tp-relay
@@ -92,27 +128,32 @@ jobs:
 
           # On-disk verification: the binary the (now-canonical) unit runs must be
           # the one we just built.
-          REMOTE_SHA=$($SSH 'sha256sum /usr/local/bin/tp | cut -d" " -f1')
-          echo "on-disk /usr/local/bin/tp sha256=$REMOTE_SHA"
+          REMOTE_SHA=$($SSH 'sha256sum /usr/local/bin/tp-relay | cut -d" " -f1')
+          echo "on-disk /usr/local/bin/tp-relay sha256=$REMOTE_SHA"
           if [ "$REMOTE_SHA" != "$LOCAL_SHA" ]; then
-            echo "::error::on-disk /usr/local/bin/tp sha=$REMOTE_SHA != built sha=$LOCAL_SHA — sudo mv did not take."
+            echo "::error::on-disk /usr/local/bin/tp-relay sha=$REMOTE_SHA != built sha=$LOCAL_SHA — sudo mv did not take."
             exit 1
           fi
           echo "service now executes: $($SSH 'systemctl show tp-relay -p MainPID --value | xargs -I{} readlink -f /proc/{}/exe')"
 
       - name: Verify deployed build is live
         run: |
-          sleep 3
-          HEALTH=$(curl -sf "https://relay.tpmt.dev/health")
+          # Restart + bind can lag a few seconds (esp. if the binary panics once
+          # and `Restart=always`/`RestartSec=5` re-spawns it), so retry rather
+          # than a single fixed sleep — a transient not-yet-listening must not
+          # fail the deploy, but a persistently-down relay still does.
+          sleep 2
+          HEALTH=$(curl -sf --retry 6 --retry-delay 2 --retry-connrefused "https://relay.tpmt.dev/health")
           echo "$HEALTH" | jq .
           STATUS=$(echo "$HEALTH" | jq -r '.status')
           LIVE_SHA=$(echo "$HEALTH" | jq -r '.buildSha')
+          PROTO=$(echo "$HEALTH" | jq -r '.protocolVersion')
           if [ "$STATUS" != "ok" ]; then
             echo "::error::relay /health status=$STATUS (expected ok)"
             exit 1
           fi
           if [ "$LIVE_SHA" != "${{ github.sha }}" ]; then
-            echo "::error::relay is running a STALE binary: /health buildSha=$LIVE_SHA but deployed ${{ github.sha }}. The systemd service (tp-relay) did not pick up the new /usr/local/bin/tp — check ExecStart path and that the restart succeeded."
+            echo "::error::relay is running a STALE binary: /health buildSha=$LIVE_SHA but deployed ${{ github.sha }}. The systemd service (tp-relay) did not pick up the new /usr/local/bin/tp-relay — check ExecStart path and that the restart succeeded."
             exit 1
           fi
-          echo "Verified: relay is running the freshly-deployed build ${LIVE_SHA}"
+          echo "Verified: Rust relay running freshly-deployed build ${LIVE_SHA} (protocolVersion=${PROTO})"

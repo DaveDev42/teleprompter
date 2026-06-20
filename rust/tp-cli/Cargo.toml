@@ -35,6 +35,12 @@ serde_json = { version = "1", default-features = false, features = ["std"] }
 # `/tmp/teleprompter-<uid>` in the socket-path derivation — a heuristic (e.g.
 # HOME's owner) could drift. `process` is the only feature we need.
 rustix = { version = "0.38", features = ["process"] }
+# IPC message types + parse_ipc_message — byte-exact port of parseIpcMessage
+# (packages/protocol/src/ipc-guard.ts). The CLI uses the typed IpcMessage enum
+# for serialising requests and deserialising daemon replies without re-defining
+# the wire shapes here. serde_json is already in tp-proto's dep tree; the
+# feature flags above (std, no alloc) are inherited transparently.
+tp-proto = { path = "../tp-proto" }
 
 [lints]
 workspace = true

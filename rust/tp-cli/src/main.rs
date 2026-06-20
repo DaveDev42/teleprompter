@@ -5,12 +5,10 @@
 //! mirrors the Bun CLI's `TP_SUBCOMMANDS` (`apps/cli/src/router.ts`) so the two
 //! binaries are drop-in compatible during the port.
 //!
-//! Port status (this is Step 0 + Step 1): only `version` is implemented. Every
-//! other subcommand is declared (so `--help` is complete and the dispatch seam
-//! exists) but returns a clear "not yet ported" message. The coexistence model
-//! for unported commands (exec-forward to the Bun binary vs hard error) is a
-//! pending decision — until it lands, unported commands fail loudly rather than
-//! silently doing nothing.
+//! Port status (tranche 2): `version`, `status`, `session list`, `session
+//! delete`, `session prune`, `pair list`, `pair delete`, and `pair rename` are
+//! implemented. Every other subcommand is declared (so `--help` is complete and
+//! the dispatch seam exists) but returns a clear "not yet ported" message.
 //!
 //! Architecture invariant (unchanged): this CLI talks ONLY to the daemon over
 //! its IPC unix socket. It never opens a relay WebSocket — pairing/relay flow is
@@ -20,9 +18,11 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
+mod codec;
 mod colors;
 mod commands;
 mod format;
+mod ipc_client;
 mod socket;
 mod store;
 mod util;
@@ -101,29 +101,71 @@ enum Command {
     Relay,
 }
 
-/// `tp pair <action>`. Only `list` is ported in tranche 1; write actions
-/// (new/delete/rename) stay loud-fail until their tranches land.
+/// `tp pair <action>`. `list`, `delete`, and `rename` are ported; `new` stays
+/// loud-fail until its tranche lands.
 #[derive(Subcommand)]
 enum PairAction {
     /// List registered pairings.
     List,
     /// Create a new pairing (not yet ported).
     New,
-    /// Delete a pairing (not yet ported).
-    Delete,
-    /// Rename a pairing (not yet ported).
-    Rename,
+    /// Delete a pairing (prefix match; requires daemon running).
+    ///
+    /// Usage: tp pair delete <daemon-id> [--yes|-y]
+    Delete {
+        /// Arguments forwarded to the delete handler.
+        /// Accepts: the daemon-id/label prefix, and optionally --yes/-y.
+        /// Passed through as raw strings so the handler owns argument ordering.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Rename a pairing (prefix match; requires daemon running).
+    ///
+    /// Usage: tp pair rename <daemon-id-prefix> <label...>
+    Rename {
+        /// Arguments forwarded to the rename handler.
+        /// First positional = the daemon-id/label prefix; rest = the new label
+        /// words (joined with spaces). Passed through as raw strings so the
+        /// handler owns argument ordering and label assembly.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
-/// `tp session <action>`. Only `list` is ported in tranche 1.
+/// `tp session <action>`. `list`, `delete`, and `prune` are ported in tranche 2.
 #[derive(Subcommand)]
 enum SessionAction {
     /// List saved sessions.
     List,
-    /// Delete a session (not yet ported).
-    Delete,
-    /// Prune stopped sessions (not yet ported).
-    Prune,
+    /// Delete a session (prefix match allowed).
+    Delete {
+        /// Session ID or prefix to delete.
+        sid: String,
+        /// Skip confirmation prompt.
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
+    /// Non-interactive bulk-delete stopped sessions.
+    ///
+    /// Usage: tp session prune [--older-than <Nd|Nh|Nm|Ns>] [--all] [--running] [--dry-run] [-y]
+    Prune {
+        /// Age cutoff; sessions older than this are selected (default: 7d).
+        /// Format: <N><s|m|h|d>, e.g. 7d / 24h / 30m / 45s.
+        #[arg(long = "older-than", default_value = "7d")]
+        older_than: String,
+        /// Select ALL stopped sessions (overrides --older-than).
+        #[arg(long = "all")]
+        all: bool,
+        /// Also kill & delete running sessions (dangerous).
+        #[arg(long = "running")]
+        running: bool,
+        /// Print selection without deleting (read-only; never prompts).
+        #[arg(long = "dry-run")]
+        dry_run: bool,
+        /// Skip confirmation prompt.
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+    },
     /// Interactive cleanup (not yet ported).
     Cleanup,
 }
@@ -143,9 +185,34 @@ fn main() -> ExitCode {
         Some(Command::Session {
             action: Some(SessionAction::List),
         }) => commands::session::list(),
+        Some(Command::Session {
+            action: Some(SessionAction::Delete { sid, yes }),
+        }) => commands::session::delete(&sid, yes),
+        Some(Command::Session {
+            action:
+                Some(SessionAction::Prune {
+                    older_than,
+                    all,
+                    running,
+                    dry_run,
+                    yes,
+                }),
+        }) => commands::session::prune(commands::session::PruneOpts {
+            older_than_raw: older_than,
+            all,
+            running,
+            dry_run,
+            yes,
+        }),
         Some(Command::Pair {
             action: Some(PairAction::List),
         }) => commands::pair::list(),
+        Some(Command::Pair {
+            action: Some(PairAction::Delete { args }),
+        }) => commands::pair::delete(&args),
+        Some(Command::Pair {
+            action: Some(PairAction::Rename { args }),
+        }) => commands::pair::rename(&args),
 
         // completions — script-emit path is ported; install/uninstall is not.
         Some(Command::Completions { shell }) => {
@@ -166,17 +233,21 @@ fn main() -> ExitCode {
         Some(Command::Relay) => not_yet_ported("relay"),
         Some(Command::Pair { action }) => not_yet_ported(match action {
             Some(PairAction::New) => "pair new",
-            Some(PairAction::Delete) => "pair delete",
-            Some(PairAction::Rename) => "pair rename",
-            // Bare `tp pair` (no action) is `pair new` in the Bun CLI — a write
-            // path, not yet ported.
-            None | Some(PairAction::List) => "pair",
+            // Bare `tp pair` / List / Delete / Rename are either dispatched above or
+            // `pair new` in the Bun CLI — all not yet fully ported here.
+            None
+            | Some(PairAction::List)
+            | Some(PairAction::Delete { .. })
+            | Some(PairAction::Rename { .. }) => "pair",
         }),
         Some(Command::Session { action }) => not_yet_ported(match action {
-            Some(SessionAction::Delete) => "session delete",
-            Some(SessionAction::Prune) => "session prune",
             Some(SessionAction::Cleanup) => "session cleanup",
-            None | Some(SessionAction::List) => "session",
+            // List, Delete, and Prune are dispatched above; bare `session` with
+            // no action is also not-ported.
+            None
+            | Some(SessionAction::List)
+            | Some(SessionAction::Delete { .. })
+            | Some(SessionAction::Prune { .. }) => "session",
         }),
 
         // Bare `tp` with no subcommand: print help and exit. The claude-REPL

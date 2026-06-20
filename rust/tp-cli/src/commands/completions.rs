@@ -244,6 +244,13 @@ compdef _tp tp"#
 ///
 /// Builds a `Vec<String>` of `complete` lines then joins with `"\n"`
 /// (completions.ts:312). `println!` appends the final `\n`.
+///
+/// Also exposed as `pub(crate) generate_fish_pub` for use by
+/// `completions_install` (fish managed-file body).
+pub(crate) fn generate_fish_pub() -> String {
+    generate_fish()
+}
+
 fn generate_fish() -> String {
     let mut lines: Vec<String> = Vec::new();
 

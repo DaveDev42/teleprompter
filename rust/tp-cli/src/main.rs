@@ -87,14 +87,20 @@ enum Command {
     /// Shell completion scripts.
     ///
     /// Emit a ready-to-eval completion script for bash, zsh, or fish.
-    /// Usage: `tp completions [bash|zsh|fish]`
     ///
-    /// The `install` / `uninstall` sub-actions (write rc files) are not yet
-    /// ported; they are routed to the loud-fail path.
+    /// Usage:
+    ///   `tp completions [bash|zsh|fish]`           — emit script to stdout
+    ///   `tp completions install [shell] [flags]`   — write rc / fish file
+    ///   `tp completions uninstall [shell] [flags]` — remove rc block / fish file
     Completions {
-        /// Shell to generate completions for, or "install"/"uninstall".
+        /// Shell or sub-action. One of: bash, zsh, fish, install, uninstall.
         /// Defaults to "bash" when omitted.
         shell: Option<String>,
+
+        /// Remaining args forwarded verbatim to the install/uninstall handler
+        /// (shell positional + --force / --dry-run / --help).
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
     /// Environment diagnostics (not yet ported).
     Doctor,
@@ -240,12 +246,15 @@ fn main() -> ExitCode {
             action: Some(PairAction::Rename { args }),
         }) => commands::pair::rename(&args),
 
-        // completions — script-emit path is ported; install/uninstall is not.
-        Some(Command::Completions { shell }) => {
+        // completions — script-emit + install/uninstall all ported.
+        Some(Command::Completions { shell, args }) => {
             let shell_str = shell.as_deref();
             match shell_str {
-                Some("install") => not_yet_ported("completions install"),
-                Some("uninstall") => not_yet_ported("completions uninstall"),
+                // `tp completions install [shell] [flags]`
+                Some("install") => commands::completions_install::run(false, &args),
+                // `tp completions uninstall [shell] [flags]`
+                Some("uninstall") => commands::completions_install::run(true, &args),
+                // `tp completions [bash|zsh|fish]` — emit script to stdout.
                 other => commands::completions::run(other),
             }
         }

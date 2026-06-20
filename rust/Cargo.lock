@@ -2530,6 +2530,7 @@ dependencies = [
  "rusqlite",
  "rustix 0.38.44",
  "serde_json",
+ "tp-proto",
 ]
 
 [[package]]

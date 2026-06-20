@@ -41,6 +41,12 @@ rustix = { version = "0.38", features = ["process"] }
 # the wire shapes here. serde_json is already in tp-proto's dep tree; the
 # feature flags above (std, no alloc) are inherited transparently.
 tp-proto = { path = "../tp-proto" }
+# Terminal UI helpers for interactive subcommands (`session cleanup`, and later
+# `pair new`). We use: raw mode enable/disable, event reading (key events),
+# and a handful of ANSI formatting helpers. `events` is the only feature needed
+# for blocking key-event reads; the full-featured `crossterm::execute!` macros
+# are used for cursor hiding via the `style` feature (transitively pulled in).
+crossterm = { version = "0.28", default-features = false, features = ["events"] }
 
 [lints]
 workspace = true

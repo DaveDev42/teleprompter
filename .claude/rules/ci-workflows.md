@@ -27,10 +27,13 @@ paths:
 - `build-cross` job runs on `ubuntu-latest`, then `apt-get install upx-ucl` + `upx -1 dist/tp-*` to shrink linux binaries (-55% typical). macOS is deliberately **not** UPX-compressed — Gatekeeper/Hardened Runtime SIGKILLs packed Mach-O even with `--force-macos`.
 - `release` job signs `checksums.txt` via cosign keyless OIDC + attest-build-provenance, then publishes via `softprops/action-gh-release@v2`.
 
-## Relay Deploy
-- SSH 기반: SCP + systemctl restart (tp-relay)
-- Health check: `https://relay.tpmt.dev/health`
-- Port: 7090
+## Relay Deploy (`deploy-relay.yml`, ADR-0003 Step 8b — Rust 바이너리)
+- **빌드**: `ubuntu-latest` 에서 `dtolnay/rust-toolchain@1.96.0`+`Swatinem/rust-cache` 로 `cargo build --release --target x86_64-unknown-linux-gnu --bin tp-relay`(x86_64 Vultr = native build). `TP_BUILD_SHA=${{ github.sha }}` 를 **build env** 로 주입 → `build.rs` 가 읽어 `/health.buildSha` 로 verbatim 노출(full 40-char).
+- **배포**: SCP `/tmp/tp-relay` → 호스트, base unit `ExecStart=/usr/local/bin/tp-relay`+`RELAY_PORT=7090` 설치, `systemctl restart tp-relay`. **on-disk `sha256(/usr/local/bin/tp-relay)` 검증** + `/health.buildSha==github.sha` assert(`curl --retry`).
+- **시크릿은 base unit 이 아니라 drop-in `/etc/systemd/system/tp-relay.service.d/secrets.conf`**(`TP_RELAY_RESUME_SECRET`/`TP_RELAY_PUSH_SEAL_SECRET[_PREV]`/APNs) — deploy 가 base unit 을 rewrite 해도 systemd 가 drop-in 을 merge 하므로 시크릿 안 지워짐. deploy 워크플로우는 시크릿을 읽지/쓰지 않는다.
+- **트리거**: `rust/tp-relay,tp-proto,tp-core`, `rust/Cargo.lock`, `deploy-relay.yml` 자기자신 (구 `packages/relay,protocol,daemon` 제거 — TS relay 퇴역). **flip-live-on-merge** = 머지가 곧 `relay.tpmt.dev` 자동 cutover(downtime-OK, Amendment 1). 시크릿 reissue 는 머지 *전에* 호스트에서.
+- Health check: `https://relay.tpmt.dev/health` · Port: 7090 · `timeout-minutes: 30`
+- **arm64 호스트 전환 시 주의**: `ubuntu-latest`(x86_64)에서 `aarch64-unknown-linux-gnu` 링크는 `gcc-aarch64-linux-gnu` 크로스 링커가 필요(현 워크플로우 미설치) — 현 Vultr 가 x86_64 라 dead path 지만 전환 시 `cross`/링커 추가 필요.
 
 ## Scripts
 - `scripts/build.ts`: multi-platform `bun build --compile --minify` (darwin/linux × arm64/x64). Always passes `--minify`; `--bytecode` is deliberately off (+9 MB for -20 ms warm start is a bad trade; download size dominates install UX). Native Windows is unsupported — Windows users run the Linux build under WSL.

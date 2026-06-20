@@ -5,11 +5,11 @@
 //! mirrors the Bun CLI's `TP_SUBCOMMANDS` (`apps/cli/src/router.ts`) so the two
 //! binaries are drop-in compatible during the port.
 //!
-//! Port status (tranche 3b): `version`, `status`, `session list`, `session
+//! Port status (tranche 4b): `version`, `status`, `session list`, `session
 //! delete`, `session prune`, `session cleanup`, `logs`, `completions` (emit),
-//! `pair list`, `pair delete`, `pair rename`, and `pair new` are implemented.
-//! Every other subcommand is declared (so `--help` is complete and the dispatch
-//! seam exists) but returns a clear "not yet ported" message.
+//! `pair list`, `pair delete`, `pair rename`, `pair new`, and `doctor` are
+//! implemented.  Every other subcommand is declared (so `--help` is complete
+//! and the dispatch seam exists) but returns a clear "not yet ported" message.
 //!
 //! Architecture invariant (unchanged): this CLI talks ONLY to the daemon over
 //! its IPC unix socket. It never opens a relay WebSocket — pairing/relay flow is
@@ -261,7 +261,7 @@ fn main() -> ExitCode {
 
         // Ported subcommands.
         Some(Command::Logs { sid }) => commands::logs::run(sid.as_deref()),
-        Some(Command::Doctor) => not_yet_ported("doctor"),
+        Some(Command::Doctor) => commands::doctor::run(),
         Some(Command::Upgrade) => not_yet_ported("upgrade"),
         Some(Command::Daemon) => not_yet_ported("daemon"),
         Some(Command::Run) => not_yet_ported("run"),

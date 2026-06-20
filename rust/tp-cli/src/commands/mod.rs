@@ -4,6 +4,7 @@
 
 pub mod completions;
 pub mod completions_install;
+pub mod doctor;
 pub mod logs;
 pub mod pair;
 pub mod session;

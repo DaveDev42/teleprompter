@@ -23,17 +23,33 @@
 //! (Label tagged union) and renders the ok/err response byte-identically to Bun.
 
 use std::io::{self, IsTerminal as _, Write as _};
+use std::net::Shutdown;
 use std::process::ExitCode;
+use std::sync::{Arc, Mutex};
 
 use tp_proto::ipc::IpcMessage;
-use tp_proto::label::{label_to_nullable, make_label};
+use tp_proto::label::{label_to_nullable, make_label, Label};
 
 use crate::colors::{dim, green, red};
 use crate::commands::session::pad_end;
+use crate::config_dir::config_dir;
 use crate::format::format_age;
 use crate::ipc_client::{match_pairings, request, IpcError, MatchResult};
+use crate::ipc_session::IpcSession;
+use crate::osc52::{copy_to_clipboard, is_clipboard_support_likely};
+use crate::pair_lock::acquire_pair_lock;
+use crate::qr::render_qr_small;
+use crate::socket::{is_daemon_running, socket_path};
 use crate::store::list_pairings;
 use crate::util::now_ms;
+
+/// Production relay URL — byte-exact port of `DEFAULT_PAIRING_RELAY_URL`
+/// (`packages/protocol/src/pairing.ts:50`). Used as the `--relay` default.
+const DEFAULT_PAIRING_RELAY_URL: &str = "wss://relay.tpmt.dev";
+
+/// Host suffixes trimmed from the default label. Byte-exact port of
+/// `TRIMMABLE_HOST_SUFFIXES` (pair.ts:383).
+const TRIMMABLE_HOST_SUFFIXES: &[&str] = &[".local", ".lan", ".localdomain", ".home"];
 
 // ---------------------------------------------------------------------------
 // Color helpers mirroring colors.ts
@@ -501,4 +517,384 @@ pub fn rename(args: &[String]) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Default label derivation (pair.ts:378-404)
+// ---------------------------------------------------------------------------
+
+/// Strip a single trailing zeroconf/LAN suffix from a host name. Byte-exact
+/// port of `normalizeHostLabel` (pair.ts:385-395): trim, then drop ONE leaf
+/// suffix from `TRIMMABLE_HOST_SUFFIXES` (case-insensitive match, only if the
+/// remaining length is strictly greater than the suffix length).
+pub fn normalize_host_label(raw: &str) -> String {
+    let h = raw.trim();
+    let lower = h.to_lowercase();
+    for suffix in TRIMMABLE_HOST_SUFFIXES {
+        // `h.length > suffix.length` in Bun — a host that IS exactly the suffix
+        // keeps everything (no strip).
+        if lower.ends_with(suffix) && h.len() > suffix.len() {
+            return h[..h.len() - suffix.len()].to_string();
+        }
+    }
+    h.to_string()
+}
+
+/// Resolve the host-derived default label. Byte-exact port of `defaultLabel`
+/// (pair.ts:397-404): `normalizeHostLabel(hostname())`, falling back to
+/// `"daemon"` on an empty result or any error reading the host name.
+pub fn default_label() -> String {
+    match hostname::get() {
+        Ok(os) => {
+            let h = normalize_host_label(&os.to_string_lossy());
+            if h.is_empty() {
+                "daemon".to_string()
+            } else {
+                h
+            }
+        }
+        Err(_) => "daemon".to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `tp pair new [--relay URL] [--daemon-id ID] [--label NAME]`
+// ---------------------------------------------------------------------------
+
+/// Byte-exact port of `pairNew` (`apps/cli/src/commands/pair.ts:73-323`).
+///
+/// Flow:
+/// 1. Parse `--relay` / `--daemon-id` / `--label` / `-h` (lenient, `strict:false`).
+/// 2. Acquire the pair lock (`config_dir()/pair.lock`) — contention → exit 1.
+/// 3. Daemon-up gate via `is_daemon_running()` (ADR-0003 A2.4 consistency with
+///    `pair delete`/`rename`; we do NOT auto-start — that is a later tranche).
+/// 4. Open a streaming `IpcSession`, install a Ctrl+C handler, send `pair.begin`.
+/// 5. Drain frames: on `pair.begin.ok` print the QR block; on a terminal frame
+///    print the result and map to an exit code.
+///
+/// Exit codes mirror Bun: begin.err/error → 1, completed → 0, cancelled → 130.
+pub fn new(args: &[String]) -> ExitCode {
+    // ---- arg parsing (mirrors parseArgs strict:false, pair.ts:74-83) ----
+    let mut relay_url: Option<String> = None;
+    let mut daemon_id: Option<String> = None;
+    let mut raw_label: Option<String> = None;
+    let mut help = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i].as_str();
+        match arg {
+            "--help" | "-h" => help = true,
+            "--relay" => {
+                i += 1;
+                relay_url = args.get(i).cloned();
+            }
+            "--daemon-id" => {
+                i += 1;
+                daemon_id = args.get(i).cloned();
+            }
+            "--label" => {
+                i += 1;
+                raw_label = args.get(i).cloned();
+            }
+            // `--relay=URL` / `--label=NAME` long-form (parseArgs accepts both).
+            _ if arg.starts_with("--relay=") => {
+                relay_url = Some(arg["--relay=".len()..].to_string());
+            }
+            _ if arg.starts_with("--daemon-id=") => {
+                daemon_id = Some(arg["--daemon-id=".len()..].to_string());
+            }
+            _ if arg.starts_with("--label=") => {
+                raw_label = Some(arg["--label=".len()..].to_string());
+            }
+            // strict:false — unknown args are tolerated (and ignored) by Bun.
+            _ => {}
+        }
+        i += 1;
+    }
+
+    if help {
+        print_pair_usage();
+        return ExitCode::SUCCESS;
+    }
+
+    // relay default = DEFAULT_PAIRING_RELAY_URL (pair.ts:77,90).
+    let relay = relay_url.unwrap_or_else(|| DEFAULT_PAIRING_RELAY_URL.to_string());
+
+    // label: CLI flag (trimmed) or host-derived default. The Bun union is always
+    // `{ set: true }` here because pair new always resolves a concrete label
+    // (pair.ts:92-97).
+    let raw_label_trimmed = raw_label.map(|s| s.trim().to_string()).unwrap_or_default();
+    let label_value = if raw_label_trimmed.is_empty() {
+        default_label()
+    } else {
+        raw_label_trimmed
+    };
+    let label: Label = make_label(Some(&label_value));
+    // labelText = label.set ? label.value : defaultLabel(). Since make_label of a
+    // non-empty string is always set, label_text == label_value.
+    let label_text = label_value.clone();
+
+    // ---- pair lock (config_dir()/pair.lock, pair.ts:99-106) ----
+    let lock_path = config_dir().join("pair.lock");
+    let Some(_lock) = acquire_pair_lock(&lock_path) else {
+        eprintln!(
+            "{}",
+            fail_prefix("Another `tp pair new` is already running. Cancel it first.")
+        );
+        return ExitCode::FAILURE;
+    };
+
+    // ---- daemon-up gate (RESOLVED DECISION #1: gate, not auto-start) ----
+    // The Bun reference calls ensureDaemon() (auto-start). The native CLI does
+    // not yet port daemon lifecycle, so — consistent with pair delete/rename
+    // (A2.4) — we require the daemon to be running and emit the same friendly
+    // daemon-down error if it is not.
+    if !is_daemon_running() {
+        eprintln!("{}", fail_prefix(&IpcError::DaemonDown.to_string()));
+        return ExitCode::FAILURE;
+    }
+
+    let mut session = match IpcSession::connect(&socket_path()) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("{}", fail_prefix(&format!("Pairing failed: {e}")));
+            return ExitCode::FAILURE;
+        }
+    };
+
+    // Shared pairing_id cell: None until pair.begin.ok. The Ctrl+C handler reads
+    // it to decide between framing pair.cancel (post-ok) and shutting the socket
+    // (pre-ok) — mirrors pair.ts:236-247.
+    let pairing_id: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let writer = session.writer_handle();
+
+    // ---- Ctrl+C handler (pair.ts:234-249 onSigint) ----
+    {
+        let pid_cell = Arc::clone(&pairing_id);
+        let writer_for_sig = Arc::clone(&writer);
+        // ctrlc::set_handler may fail only if a handler is already installed;
+        // in that case Ctrl+C falls back to default SIGINT (process dies) — the
+        // pair lock still releases via Drop on exit, so this is safe to ignore.
+        let _ = ctrlc::set_handler(move || {
+            let pid = pid_cell.lock().ok().and_then(|g| g.clone());
+            if let Some(pid) = pid {
+                // Post-ok: frame a pair.cancel through the shared writer.
+                let cancel = IpcMessage::PairCancel { pairing_id: pid };
+                if let Ok(json) = serde_json::to_vec(&cancel) {
+                    let frame = crate::codec::encode_frame(&json);
+                    if let Ok(mut guard) = writer_for_sig.lock() {
+                        let _ = guard.write_all(&frame);
+                        let _ = guard.flush();
+                    }
+                }
+            } else {
+                // Pre-ok: no pairingId yet — shut the socket so the daemon's
+                // onDisconnect cancels any half-begun PendingPairing.
+                if let Ok(guard) = writer_for_sig.lock() {
+                    let _ = guard.shutdown(Shutdown::Both);
+                }
+            }
+        });
+    }
+
+    // ---- send pair.begin (pair.ts:251-257) ----
+    let begin = IpcMessage::PairBegin {
+        relay_url: relay.clone(),
+        daemon_id,
+        label: Some(label),
+    };
+    if let Err(e) = session.send(&begin) {
+        eprintln!("{}", fail_prefix(&format!("Pairing failed: {e}")));
+        return ExitCode::FAILURE;
+    }
+
+    // ---- drain frames (pair.ts:157-229) ----
+    // Every terminal frame (begin.err / completed / cancelled / error) `break`s
+    // the loop immediately, so the `Err(Closed)` arm is only reached when the
+    // daemon closes the socket BEFORE any terminal frame — i.e. the `settled`
+    // guard the Bun reference needs (pair.ts:148-153, because its onMessage and
+    // onClose callbacks race on the same event loop) is structurally guaranteed
+    // here by the single-threaded match-then-break loop. No flag required.
+    let exit = loop {
+        match session.recv() {
+            Ok(IpcMessage::PairBeginOk {
+                pairing_id: pid,
+                qr_string,
+                daemon_id: did,
+            }) => {
+                // Store the pairing id for the Ctrl+C handler.
+                if let Ok(mut guard) = pairing_id.lock() {
+                    *guard = Some(pid);
+                }
+                // Render the QR image (glyphs may differ; the URL below is exact).
+                let qr = render_qr_small(&qr_string);
+                if !qr.is_empty() {
+                    println!("{qr}");
+                }
+                // Byte-exact contract lines (pair.ts:164-170).
+                println!("\nDaemon ID:    {did}");
+                println!("Label:        {label_text}");
+                println!("Relay:        {relay}");
+                println!(
+                    "\n{}",
+                    dim("Scan with the iPhone Camera app, or paste this URL in Teleprompter:")
+                );
+                println!("{qr_string}");
+
+                // canCopy gate (pair.ts:173). The native CLI does not mount an
+                // ink keypress app; instead it reads a single byte from stdin on
+                // a side thread when copy is supported (see below). Either way
+                // the hint line is byte-exact.
+                let can_copy = is_clipboard_support_likely() && io::stdin().is_terminal();
+                if can_copy {
+                    // pair.ts:178-180 — the entire string is inside dim().
+                    println!("\n{}", dim("Press c to copy URL  ·  Ctrl+C to cancel"));
+                    spawn_copy_listener(qr_string.clone());
+                } else {
+                    // pair.ts:183-185 — only "Waiting..." is dimmed; the
+                    // " (Ctrl+C to cancel)" suffix is plain, on the SAME line.
+                    println!(
+                        "\n{} (Ctrl+C to cancel)",
+                        dim("Waiting for your app to scan the QR...")
+                    );
+                }
+            }
+            Ok(IpcMessage::PairBeginErr { reason, message }) => {
+                let suffix = message
+                    .as_deref()
+                    .map(|m| format!(" — {m}"))
+                    .unwrap_or_default();
+                // Serialize the reason enum to its bare wire string (e.g.
+                // "already-pending"), stripping serde_json's quotes — same
+                // pattern as delete/rename.
+                let reason_str = serde_json::to_string(&reason)
+                    .unwrap_or_else(|_| format!("{reason:?}"))
+                    .trim_matches('"')
+                    .to_string();
+                eprintln!(
+                    "{}",
+                    fail_prefix(&format!("Pairing failed: {reason_str}{suffix}"))
+                );
+                break ExitCode::FAILURE;
+            }
+            Ok(IpcMessage::PairCompleted {
+                daemon_id: did,
+                label: completed_label,
+                ..
+            }) => {
+                let name = label_to_nullable(&completed_label)
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| did.clone());
+                println!("{}", ok_prefix(&format!("Paired {name} ({did})")));
+                break ExitCode::SUCCESS;
+            }
+            Ok(IpcMessage::PairCancelled { .. }) => {
+                eprintln!("{}", dim("Pairing cancelled."));
+                break exit_code(130);
+            }
+            Ok(IpcMessage::PairError {
+                reason, message, ..
+            }) => {
+                let suffix = message
+                    .as_deref()
+                    .map(|m| format!(" — {m}"))
+                    .unwrap_or_default();
+                let reason_str = serde_json::to_string(&reason)
+                    .unwrap_or_else(|_| format!("{reason:?}"))
+                    .trim_matches('"')
+                    .to_string();
+                eprintln!(
+                    "{}",
+                    fail_prefix(&format!("Pairing error: {reason_str}{suffix}"))
+                );
+                break ExitCode::FAILURE;
+            }
+            // Any other validated message is not part of the handshake — ignore
+            // (mirrors Bun's `default:` arm, pair.ts:217-222).
+            Ok(_) => {}
+            Err(IpcError::Closed) => {
+                // Clean EOF reached BEFORE any terminal frame (a terminal frame
+                // would have broken the loop already), so this is always the
+                // genuine "daemon disconnected mid-pairing" case — print the
+                // line unconditionally (pair.ts:225-229 onClose, with `settled`
+                // structurally false here).
+                eprintln!("{}", fail_prefix("Daemon disconnected — pairing aborted."));
+                break ExitCode::FAILURE;
+            }
+            Err(e) => {
+                eprintln!("{}", fail_prefix(&format!("Pairing failed: {e}")));
+                break ExitCode::FAILURE;
+            }
+        }
+    };
+
+    // Tear down the session (joins the reader thread) and release the lock via
+    // Drop. `_lock` is held until here.
+    session.shutdown();
+    exit
+}
+
+/// Map an exit code integer to an `ExitCode`. `ExitCode::from` takes a `u8`,
+/// which covers the 130 (128+SIGINT) we emit for the cancelled path.
+fn exit_code(code: u8) -> ExitCode {
+    ExitCode::from(code)
+}
+
+/// Spawn a detached side thread that reads stdin one byte at a time and, on a
+/// `c`, copies the URL to the clipboard via OSC 52 and prints the result line.
+///
+/// This is the native analogue of the Bun ink keypress app (pair.ts:272-322)
+/// for the `c`-to-copy affordance. Ctrl+C is handled by the `ctrlc` signal
+/// handler (not here), so this thread only watches for `c`. It is detached: the
+/// process exits when a terminal frame arrives, dropping this thread.
+fn spawn_copy_listener(url: String) {
+    let _ = std::thread::Builder::new()
+        .name("tp-pair-copy".to_string())
+        .spawn(move || {
+            use std::io::Read as _;
+            let mut byte = [0u8; 1];
+            let mut stdin = io::stdin();
+            loop {
+                match stdin.read(&mut byte) {
+                    Ok(0) => return, // EOF
+                    Ok(_) => {
+                        if byte[0] == b'c' || byte[0] == b'C' {
+                            let result = copy_to_clipboard(&url);
+                            if result.ok {
+                                println!("\n{}", green("Copied to clipboard"));
+                            } else {
+                                println!(
+                                    "\n{}",
+                                    dim("Clipboard copy not supported by this terminal — copy the URL above manually")
+                                );
+                            }
+                            return;
+                        }
+                    }
+                    Err(_) => return,
+                }
+            }
+        });
+}
+
+/// Print the `tp pair` usage block. Byte-exact port of `printPairUsage`
+/// (pair.ts:696-709), shared with the `-h` path of `new`/`rename`.
+fn print_pair_usage() {
+    println!();
+    println!("tp pair — manage mobile app pairings");
+    println!();
+    println!("Usage:");
+    println!("  tp pair [--relay URL]                        Alias for 'tp pair new'");
+    println!("  tp pair new [--relay URL] [--label <name>]   Generate a QR and BLOCK until the");
+    println!(
+        "                                               mobile app scans it (Ctrl+C to cancel)."
+    );
+    println!("                                               Auto-starts the daemon if needed.");
+    println!("  tp pair list                                 List registered (completed) pairings");
+    println!("  tp pair rename <daemon-id> <label...>        Rename a pairing (prefix match)");
+    println!(
+        "  tp pair delete <daemon-id> [-y]              Delete a pairing (prefix match allowed)"
+    );
+    println!();
 }

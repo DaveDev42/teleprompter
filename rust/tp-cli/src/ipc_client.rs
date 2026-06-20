@@ -41,6 +41,11 @@ pub enum IpcError {
     Io(io::Error),
     /// The response bytes were not valid JSON or not a recognised `IpcMessage`.
     Decode(String),
+    /// The daemon closed the connection cleanly (EOF). Used by the streaming
+    /// `IpcSession` (`pair new`) to distinguish an orderly socket close from a
+    /// mid-frame I/O failure: the reader thread sends this once on EOF and then
+    /// exits. The single-shot `request()` path never produces it.
+    Closed,
 }
 
 impl fmt::Display for IpcError {
@@ -56,6 +61,7 @@ impl fmt::Display for IpcError {
             ),
             Self::Io(e) => write!(f, "IPC I/O error: {e}"),
             Self::Decode(s) => write!(f, "IPC decode error: {s}"),
+            Self::Closed => write!(f, "Daemon closed the IPC connection"),
         }
     }
 }

@@ -18,6 +18,23 @@ path = "src/main.rs"
 # the --help output close to the Bun CLI's hand-rolled help. clap 4 resolves on
 # Rust 1.96 (MSRV pinned in rust-toolchain.toml).
 clap = { version = "4", features = ["derive"] }
+# Read the daemon's SQLite store directly for the daemon-less read-only commands
+# (status / session list / pair list / logs). `bundled` compiles a known-good
+# SQLite (no system libsqlite dependency, reproducible across CI/dogfood). The
+# CLI opens these DBs READ-ONLY with PRAGMA busy_timeout to coexist with the live
+# daemon writer (WAL). WRITES go through daemon IPC, never direct SQLite — the
+# daemon is the single writer (ADR-0003 Amendment 2 A2.4 decision).
+rusqlite = { version = "0.32", features = ["bundled"] }
+# Minimal JSON parsing for `tp logs` event records (event.hook_event_name,
+# event.last_assistant_message, event.tool_name). No derive needed — we access
+# fields via Value indexing, keeping the dep surface small.
+serde_json = { version = "1", default-features = false, features = ["std"] }
+# Safe (no `unsafe` in our code — `unsafe_code = "forbid"` at the workspace
+# level) wrapper for `getuid()`. The uid must byte-match the daemon's
+# `process.getuid()` because it indexes `/run/user/<uid>` and
+# `/tmp/teleprompter-<uid>` in the socket-path derivation — a heuristic (e.g.
+# HOME's owner) could drift. `process` is the only feature we need.
+rustix = { version = "0.38", features = ["process"] }
 
 [lints]
 workspace = true

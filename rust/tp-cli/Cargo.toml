@@ -75,5 +75,11 @@ hostname = "0.4"
 # accepted because the Bun CLI is being retired and both are not run concurrently
 # post-port (see pair_lock.rs module doc).
 
+[dev-dependencies]
+# Hermetic temp directories for completions_install tests. Only used in
+# `#[cfg(test)]` — zero production footprint. The `tempfile` crate is the
+# Rust-ecosystem standard and is already widely used in Rust tooling.
+tempfile = "3"
+
 [lints]
 workspace = true

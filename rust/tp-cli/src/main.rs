@@ -25,6 +25,7 @@ mod format;
 mod ipc_client;
 mod socket;
 mod store;
+mod tui;
 mod util;
 
 // Top-level `tp` CLI.
@@ -166,8 +167,17 @@ enum SessionAction {
         #[arg(short = 'y', long = "yes")]
         yes: bool,
     },
-    /// Interactive cleanup (not yet ported).
-    Cleanup,
+    /// Interactive multi-select bulk delete of stopped sessions.
+    ///
+    /// Usage: tp session cleanup [-y] [--all]
+    Cleanup {
+        /// Skip the confirmation prompt (delete immediately after selection).
+        #[arg(short = 'y', long = "yes")]
+        yes: bool,
+        /// Pre-select all stopped sessions (start with all checked).
+        #[arg(long = "all")]
+        all: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -240,14 +250,17 @@ fn main() -> ExitCode {
             | Some(PairAction::Delete { .. })
             | Some(PairAction::Rename { .. }) => "pair",
         }),
+        Some(Command::Session {
+            action: Some(SessionAction::Cleanup { yes, all }),
+        }) => commands::session::cleanup(yes, all),
         Some(Command::Session { action }) => not_yet_ported(match action {
-            Some(SessionAction::Cleanup) => "session cleanup",
-            // List, Delete, and Prune are dispatched above; bare `session` with
-            // no action is also not-ported.
+            // List, Delete, Prune, and Cleanup are dispatched above; bare
+            // `session` with no action is not yet ported.
             None
             | Some(SessionAction::List)
             | Some(SessionAction::Delete { .. })
-            | Some(SessionAction::Prune { .. }) => "session",
+            | Some(SessionAction::Prune { .. })
+            | Some(SessionAction::Cleanup { .. }) => "session",
         }),
 
         // Bare `tp` with no subcommand: print help and exit. The claude-REPL

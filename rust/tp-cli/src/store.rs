@@ -52,7 +52,7 @@ pub struct PairingRow {
 /// resolution as `store/config.ts:getStoreDir` — deliberately NOT the `dirs`
 /// crate default (on macOS that is `~/Library/Application Support`, which would
 /// miss the daemon's `~/.local/share` DB).
-fn store_dir() -> Option<PathBuf> {
+pub fn store_dir() -> Option<PathBuf> {
     let data_home = match std::env::var("XDG_DATA_HOME") {
         Ok(v) if !v.is_empty() => PathBuf::from(v),
         _ => {

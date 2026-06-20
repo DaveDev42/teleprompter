@@ -41,6 +41,16 @@ rustix = { version = "0.38", features = ["process"] }
 # the wire shapes here. serde_json is already in tp-proto's dep tree; the
 # feature flags above (std, no alloc) are inherited transparently.
 tp-proto = { path = "../tp-proto" }
+# E2EE crypto primitives for the Rust-native doctor self-test: kx_seed_keypair,
+# kx_server_session_keys, kx_client_session_keys, seal, open.  tp-core exposes
+# `crate-type = ["lib", ...]` so it is usable as a plain Rust dep (no FFI needed
+# here — UniFFI is an additional export layer on top of the same public fns).
+tp-core = { path = "../tp-core" }
+# Random nonce generation for the doctor E2EE self-test.  tp-core's `seal()`
+# requires the caller to supply the 24-byte nonce (the TS `encrypt()` generates
+# it internally via libsodium randomBytes).  We use OsRng here — the `getrandom`
+# feature ensures it works without std-only feature flags on the rand 0.8 line.
+rand = { version = "0.8", features = ["getrandom"] }
 # Terminal UI helpers for interactive subcommands (`session cleanup`, and later
 # `pair new`). We use: raw mode enable/disable, event reading (key events),
 # and a handful of ANSI formatting helpers. `events` is the only feature needed

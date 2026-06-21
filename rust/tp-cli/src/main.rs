@@ -5,14 +5,14 @@
 //! mirrors the Bun CLI's `TP_SUBCOMMANDS` (`apps/cli/src/router.ts`) so the two
 //! binaries are drop-in compatible during the port.
 //!
-//! Port status (tranche 4d): `version`, `status`, `session list`, `session
+//! Port status (tranche 4e): `version`, `status`, `session list`, `session
 //! delete`, `session prune`, `session cleanup`, `logs`, `completions` (emit),
 //! `pair list`, `pair delete`, `pair rename`, `pair new`, `doctor`,
-//! `daemon stop`, `daemon status`, `daemon install`, `daemon uninstall`, and
-//! `daemon start` (Bun trampoline) are implemented.  `upgrade` remains
-//! not-yet-ported (tranche 4e).  Every other subcommand is declared (so
-//! `--help` is complete and the dispatch seam exists) but returns a clear
-//! "not yet ported" message.
+//! `daemon stop`, `daemon status`, `daemon install`, `daemon uninstall`,
+//! `daemon start` (Bun trampoline), and `upgrade` are implemented.
+//! Remaining: `run` / passthrough (tranche 5).  Every other subcommand is
+//! declared (so `--help` is complete and the dispatch seam exists) but returns
+//! a clear "not yet ported" message.
 //!
 //! Architecture invariant (unchanged): this CLI talks ONLY to the daemon over
 //! its IPC unix socket. It never opens a relay WebSocket — pairing/relay flow is
@@ -110,7 +110,12 @@ enum Command {
     },
     /// Environment diagnostics (not yet ported).
     Doctor,
-    /// Upgrade the tp binary (not yet ported).
+    /// Upgrade the tp binary and run `claude update`.
+    ///
+    /// Downloads the latest release from GitHub, verifies the SHA-256 checksum,
+    /// replaces the running binary, and restarts the daemon service if managed
+    /// by launchd (macOS) or systemd (Linux). Always exits 0 — errors are
+    /// printed, not propagated.
     Upgrade,
     /// Daemon lifecycle management.
     ///
@@ -295,7 +300,7 @@ fn main() -> ExitCode {
         // Ported subcommands.
         Some(Command::Logs { sid }) => commands::logs::run(sid.as_deref()),
         Some(Command::Doctor) => commands::doctor::run(),
-        Some(Command::Upgrade) => not_yet_ported("upgrade"),
+        Some(Command::Upgrade) => commands::upgrade::run(),
 
         // daemon subcommand dispatch (tranche 4d: stop/status/install/uninstall/start all ported).
         Some(Command::Daemon {

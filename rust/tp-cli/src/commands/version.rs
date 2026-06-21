@@ -17,7 +17,10 @@ use crate::colors::dim;
 
 /// Canonical tp version, injected by `build.rs` (`TP_CLI_VERSION`). Falls back
 /// to the crate version if the build script could not resolve one.
-const TP_VERSION: &str = env!("TP_CLI_VERSION");
+///
+/// `pub(crate)` so `commands::upgrade::current_version()` can re-export it
+/// without duplicating the `env!` call (single source of truth).
+pub(crate) const TP_VERSION: &str = env!("TP_CLI_VERSION");
 
 pub fn run() -> ExitCode {
     println!("tp v{TP_VERSION}");

@@ -1,22 +1,31 @@
 //! `tp` — native Rust CLI (ADR-0003 full-CLI port).
 //!
-//! THIN entry point: parse the subcommand tree with clap, dispatch to a handler
-//! module, map the handler's result to a process exit code. The command tree
-//! mirrors the Bun CLI's `TP_SUBCOMMANDS` (`apps/cli/src/router.ts`) so the two
-//! binaries are drop-in compatible during the port.
+//! THIN entry point: classify the first arg via `decide_route` BEFORE clap
+//! parses, exec the Bun blob for forward routes, or fall through to the clap
+//! dispatch for native subcommands. The command tree mirrors the Bun CLI's
+//! `TP_SUBCOMMANDS` (`apps/cli/src/router.ts`) so the two binaries are
+//! drop-in compatible during the port.
 //!
-//! Port status (tranche 4e): `version`, `status`, `session list`, `session
+//! Port status (tranche 5): `version`, `status`, `session list`, `session
 //! delete`, `session prune`, `session cleanup`, `logs`, `completions` (emit),
 //! `pair list`, `pair delete`, `pair rename`, `pair new`, `doctor`,
 //! `daemon stop`, `daemon status`, `daemon install`, `daemon uninstall`,
-//! `daemon start` (Bun trampoline), and `upgrade` are implemented.
-//! Remaining: `run` / passthrough (tranche 5).  Every other subcommand is
-//! declared (so `--help` is complete and the dispatch seam exists) but returns
-//! a clear "not yet ported" message.
+//! `daemon start`, and `upgrade` are implemented natively. `run`, `relay`,
+//! passthrough, claude-utility forwards, and `--` are forwarded to the Bun
+//! blob (`tpd`) via pre-clap dispatch + `exec()`. Bare `tp` now forwards to
+//! the blob (claude REPL passthrough); `tp --help`/`tp -h` is still native.
+//!
+//! # Pre-clap dispatch (tranche 5 key change)
+//!
+//! clap rejects unrecognised subcommands and flags, so passthrough args like
+//! `tp -p hello` or `tp foobar` would crash before reaching any handler.
+//! Solution: `decide_route(first_arg)` runs on raw `std::env::args()` FIRST.
+//! If the route is Forward, we `exec_blob` and never return. Only if the route
+//! is Native do we call `Cli::parse()`.
 //!
 //! Architecture invariant (unchanged): this CLI talks ONLY to the daemon over
-//! its IPC unix socket. It never opens a relay WebSocket — pairing/relay flow is
-//! daemon-only (CLI -> daemon IPC -> relay).
+//! its IPC unix socket. It never opens a relay WebSocket — pairing/relay flow
+//! is daemon-only (CLI -> daemon IPC -> relay).
 
 use std::process::ExitCode;
 
@@ -44,8 +53,9 @@ mod util;
 //
 // `disable_version_flag` because we render `--version` / `-v` ourselves: the
 // Bun CLI prints BOTH the tp version and claude's version, but clap's built-in
-// `--version` would only print tp's. Bare `tp` with no args is the claude REPL
-// passthrough in the Bun CLI (a later tranche); for now it prints help.
+// `--version` would only print tp's. `--help`/`-h` are handled by the
+// pre-clap dispatch (decide_route returns Native) so clap's built-in help
+// still fires correctly.
 //
 // NOTE: the doc comment is deliberately a plain `//` block, not `///` — clap
 // surfaces a struct's doc comment as the user-facing `about` text, so an
@@ -67,8 +77,11 @@ struct Cli {
 }
 
 /// The subcommand tree. Order/names mirror `TP_SUBCOMMANDS` in
-/// `apps/cli/src/router.ts`. Only `Version` is wired to a real handler at this
-/// step; the rest are placeholders that report "not yet ported".
+/// `apps/cli/src/router.ts`. All subcommands are wired to real handlers.
+/// `Run` and `Relay` are declared here so `tp --help` lists them, but they
+/// are intercepted by the pre-clap dispatch and never reach these match arms
+/// in normal operation (the match arms below forward to exec_blob as a
+/// belt-and-suspenders measure).
 #[derive(Subcommand)]
 enum Command {
     /// Print tp + claude versions.
@@ -108,7 +121,7 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// Environment diagnostics (not yet ported).
+    /// Environment diagnostics.
     Doctor,
     /// Upgrade the tp binary and run `claude update`.
     ///
@@ -124,9 +137,19 @@ enum Command {
         #[command(subcommand)]
         action: Option<DaemonAction>,
     },
-    /// Run claude through the tp pipeline (not yet ported).
+    /// Run claude through the tp pipeline (forwarded to tpd blob).
+    ///
+    /// Note: `tp run` is intercepted by the pre-clap dispatch and forwarded to
+    /// the Bun blob before clap parses. This declaration exists so `tp --help`
+    /// lists the subcommand. The match arm below is a belt-and-suspenders
+    /// fallback (it would fire only if a future refactor bypasses decide_route).
     Run,
-    /// Relay server (not yet ported).
+    /// Relay server (forwarded to tpd blob).
+    ///
+    /// Note: `tp relay` is intercepted by the pre-clap dispatch and forwarded to
+    /// the Bun blob before clap parses. This declaration exists so `tp --help`
+    /// lists the subcommand. The match arm below is a belt-and-suspenders
+    /// fallback.
     Relay,
 }
 
@@ -238,6 +261,29 @@ enum DaemonAction {
 }
 
 fn main() -> ExitCode {
+    // ── Pre-clap dispatch (tranche 5) ─────────────────────────────────────
+    //
+    // clap rejects unrecognised subcommands and flags with a hard error.
+    // Passthrough args (`tp -p hello`, `tp foobar`, `tp -- echo hi`) and
+    // claude-utility forwards (`tp auth login`) would all crash before
+    // reaching a handler. We classify the first arg BEFORE clap parses.
+    //
+    // The full original argv after the binary name is passed verbatim to the
+    // blob: `tp auth login` → exec `tpd auth login`; `tp -p x` → `tpd -p x`.
+    let args: Vec<String> = std::env::args().collect();
+    let first = args.get(1).map(String::as_str);
+
+    match commands::forward::decide_route(first) {
+        commands::forward::Route::Forward => {
+            // exec_blob never returns on success — the blob takes over.
+            return commands::forward::exec_blob(&args[1..]);
+        }
+        commands::forward::Route::Native => {
+            // Fall through to Cli::parse() below.
+        }
+    }
+
+    // ── Native clap dispatch ───────────────────────────────────────────────
     let cli = Cli::parse();
 
     // The bare `--version` / `-v` flag and the `version` subcommand both route
@@ -332,26 +378,47 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
 
-        Some(Command::Run) => not_yet_ported("run"),
-        Some(Command::Relay) => not_yet_ported("relay"),
+        // Run and Relay: intercepted by decide_route pre-clap; these arms are
+        // belt-and-suspenders (they fire only if a future refactor bypasses
+        // decide_route). Reconstruct the original argv from the parsed command
+        // name and forward to the blob.
+        Some(Command::Run) => {
+            // `tp run [...]` — args after `run` are captured by clap's
+            // trailing_var_arg. Since Run has no fields we can only forward
+            // the reconstructed argv. decide_route should have caught this.
+            let mut fwd: Vec<String> = vec!["run".to_string()];
+            fwd.extend(args.iter().skip(2).cloned());
+            commands::forward::exec_blob(&fwd)
+        }
+        Some(Command::Relay) => {
+            let mut fwd: Vec<String> = vec!["relay".to_string()];
+            fwd.extend(args.iter().skip(2).cloned());
+            commands::forward::exec_blob(&fwd)
+        }
+
         // Bare `tp pair` (no action) is an alias for `tp pair new` in the Bun
         // CLI (pair.ts:59-62). List/New/Delete/Rename are all dispatched above.
         Some(Command::Pair { action: None }) => commands::pair::new(&[]),
         Some(Command::Session {
             action: Some(SessionAction::Cleanup { yes, all }),
         }) => commands::session::cleanup(yes, all),
-        Some(Command::Session { action }) => not_yet_ported(match action {
-            // List, Delete, Prune, and Cleanup are dispatched above; bare
-            // `session` with no action is not yet ported.
-            None
-            | Some(SessionAction::List)
-            | Some(SessionAction::Delete { .. })
-            | Some(SessionAction::Prune { .. })
-            | Some(SessionAction::Cleanup { .. }) => "session",
-        }),
+        Some(Command::Session { action }) => {
+            // Bare `tp session` with no action: print usage.
+            let _ = action; // suppress unused warning
+            eprintln!(
+                "Usage: tp session <list|delete|prune|cleanup> [options]\n\
+                 \x20 list      List saved sessions\n\
+                 \x20 delete    Delete a session\n\
+                 \x20 prune     Non-interactive bulk delete\n\
+                 \x20 cleanup   Interactive multi-select bulk delete"
+            );
+            ExitCode::FAILURE
+        }
 
-        // Bare `tp` with no subcommand: print help and exit. The claude-REPL
-        // passthrough that bare `tp` triggers in the Bun CLI is a later tranche.
+        // Bare `tp` with no subcommand: this path is only reached when
+        // decide_route returned Native (which requires a recognized first arg).
+        // Bare tp (no args) is handled above as Forward. The None arm here is
+        // a safety net for edge cases (e.g. clap bug or future refactor).
         None => {
             use clap::CommandFactory;
             let mut cmd = Cli::command();
@@ -360,14 +427,4 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
     }
-}
-
-/// Report a not-yet-ported subcommand. Until the coexistence decision lands
-/// (exec-forward to the Bun binary vs hard error), fail loudly so a user never
-/// thinks a write command silently succeeded.
-fn not_yet_ported(name: &str) -> ExitCode {
-    eprintln!(
-        "tp: `{name}` is not yet ported to the native CLI. Use the Bun `tp` for this command."
-    );
-    ExitCode::FAILURE
 }

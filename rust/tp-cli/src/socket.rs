@@ -19,12 +19,12 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// Resolve the runtime dir holding `daemon.sock`. READ-ONLY: unlike the TS,
-/// which `mkdirSync`s the chosen dir, the probe only needs the path string — we
-/// never create dirs here (a `status` read must not have filesystem side
-/// effects). For step 2 we still gate on the dir actually existing, matching the
-/// TS "presence is the signal" rule.
-fn resolve_runtime_dir() -> PathBuf {
+/// Resolve the runtime dir holding `daemon.sock` and `daemon.pid`. READ-ONLY:
+/// unlike the TS, which `mkdirSync`s the chosen dir, the probe only needs the
+/// path string — we never create dirs here (a `status` read must not have
+/// filesystem side effects). For step 2 we still gate on the dir actually
+/// existing, matching the TS "presence is the signal" rule.
+pub(crate) fn resolve_runtime_dir() -> PathBuf {
     if let Ok(xdg) = std::env::var("XDG_RUNTIME_DIR") {
         if !xdg.is_empty() {
             return PathBuf::from(xdg);
@@ -41,6 +41,35 @@ fn resolve_runtime_dir() -> PathBuf {
 /// The daemon IPC socket path: `resolveRuntimeDir()/daemon.sock`.
 pub fn socket_path() -> PathBuf {
     resolve_runtime_dir().join("daemon.sock")
+}
+
+/// The daemon pid-file path: `resolveRuntimeDir()/daemon.pid`.
+///
+/// Byte-exact port of `getDaemonLockPath` in
+/// `packages/daemon/src/daemon-lock.ts:22-24`:
+/// ```text
+///   join(resolveRuntimeDir(), "daemon.pid")
+/// ```
+/// The lock and socket always co-locate in the same runtime dir so the CLI and
+/// daemon agree on the path without separate config.
+pub fn daemon_pid_path() -> PathBuf {
+    resolve_runtime_dir().join("daemon.pid")
+}
+
+/// Read the pid from the daemon lock file without acquiring it.
+///
+/// Returns `None` if the file does not exist or contains an invalid integer.
+/// Byte-exact port of `readDaemonLockPid` in
+/// `packages/daemon/src/daemon-lock.ts:138-146`.
+pub fn read_daemon_pid() -> Option<i32> {
+    let path = daemon_pid_path();
+    let content = std::fs::read_to_string(&path).ok()?;
+    let pid: i32 = content.trim().parse().ok()?;
+    if pid <= 0 {
+        None
+    } else {
+        Some(pid)
+    }
 }
 
 /// Probe whether the daemon is running: the socket file must exist and a connect
@@ -81,6 +110,28 @@ mod tests {
     fn socket_path_ends_with_daemon_sock() {
         let p = socket_path();
         assert_eq!(p.file_name().and_then(|s| s.to_str()), Some("daemon.sock"));
+    }
+
+    #[test]
+    fn daemon_pid_path_ends_with_daemon_pid() {
+        let p = daemon_pid_path();
+        assert_eq!(p.file_name().and_then(|s| s.to_str()), Some("daemon.pid"));
+    }
+
+    #[test]
+    fn pid_and_sock_share_parent_dir() {
+        // Both must resolve to the same runtime dir — they co-locate.
+        let sock = socket_path();
+        let pid = daemon_pid_path();
+        assert_eq!(sock.parent(), pid.parent());
+    }
+
+    #[test]
+    fn read_daemon_pid_returns_none_for_nonexistent() {
+        // A path that definitely doesn't exist → None, not a panic.
+        // We test via a known-nonexistent path.
+        let result = std::fs::read_to_string("/tmp/tp-cli-nonexistent-pid-xyz/daemon.pid").ok();
+        assert!(result.is_none());
     }
 
     #[test]

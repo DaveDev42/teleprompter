@@ -5,12 +5,14 @@
 //! mirrors the Bun CLI's `TP_SUBCOMMANDS` (`apps/cli/src/router.ts`) so the two
 //! binaries are drop-in compatible during the port.
 //!
-//! Port status (tranche 4c): `version`, `status`, `session list`, `session
+//! Port status (tranche 4d): `version`, `status`, `session list`, `session
 //! delete`, `session prune`, `session cleanup`, `logs`, `completions` (emit),
 //! `pair list`, `pair delete`, `pair rename`, `pair new`, `doctor`,
-//! `daemon stop`, and `daemon status` are implemented.  Every other subcommand
-//! is declared (so `--help` is complete and the dispatch seam exists) but
-//! returns a clear "not yet ported" message.
+//! `daemon stop`, `daemon status`, `daemon install`, `daemon uninstall`, and
+//! `daemon start` (Bun trampoline) are implemented.  `upgrade` remains
+//! not-yet-ported (tranche 4e).  Every other subcommand is declared (so
+//! `--help` is complete and the dispatch seam exists) but returns a clear
+//! "not yet ported" message.
 //!
 //! Architecture invariant (unchanged): this CLI talks ONLY to the daemon over
 //! its IPC unix socket. It never opens a relay WebSocket — pairing/relay flow is
@@ -27,9 +29,12 @@ mod config_dir;
 mod format;
 mod ipc_client;
 mod ipc_session;
+mod locate;
 mod osc52;
 mod pair_lock;
 mod qr;
+mod service_darwin;
+mod service_linux;
 mod socket;
 mod store;
 mod tui;
@@ -205,19 +210,25 @@ enum SessionAction {
     },
 }
 
-/// `tp daemon <action>`. `stop` and `status` are ported (tranche 4c).
-/// `start`, `install`, and `uninstall` remain not-yet-ported (tranche 4d).
+/// `tp daemon <action>`. `stop`, `status`, `install`, `uninstall`, and `start`
+/// are ported (tranche 4d).
 #[derive(Subcommand)]
 enum DaemonAction {
-    /// Start the daemon in the foreground (not yet ported).
-    Start,
+    /// Start the daemon in the foreground (Bun trampoline).
+    Start {
+        /// All arguments forwarded verbatim to `tpd daemon start`.
+        /// Accepts: --watch, --repo-root, --prune-ttl, --no-prune, --verbose,
+        /// --quiet, --spawn, --sid, --cwd, --worktree-path, and any future flags.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Stop the running daemon.
     Stop,
     /// Show OS service registration + daemon running state.
     Status,
-    /// Register as an OS service (launchd/systemd) (not yet ported).
+    /// Register as an OS service (launchd/systemd).
     Install,
-    /// Remove the OS service registration (not yet ported).
+    /// Remove the OS service registration.
     Uninstall,
 }
 
@@ -286,7 +297,7 @@ fn main() -> ExitCode {
         Some(Command::Doctor) => commands::doctor::run(),
         Some(Command::Upgrade) => not_yet_ported("upgrade"),
 
-        // daemon subcommand dispatch (tranche 4c: stop + status ported).
+        // daemon subcommand dispatch (tranche 4d: stop/status/install/uninstall/start all ported).
         Some(Command::Daemon {
             action: Some(DaemonAction::Stop),
         }) => commands::daemon::stop(),
@@ -294,8 +305,14 @@ fn main() -> ExitCode {
             action: Some(DaemonAction::Status),
         }) => commands::daemon::status(),
         Some(Command::Daemon {
-            action: Some(DaemonAction::Start | DaemonAction::Install | DaemonAction::Uninstall),
-        }) => not_yet_ported("daemon start/install/uninstall"),
+            action: Some(DaemonAction::Install),
+        }) => commands::daemon::install(),
+        Some(Command::Daemon {
+            action: Some(DaemonAction::Uninstall),
+        }) => commands::daemon::uninstall(),
+        Some(Command::Daemon {
+            action: Some(DaemonAction::Start { args }),
+        }) => commands::daemon::start(&args),
         // Bare `tp daemon` with no subcommand, or unrecognised subcommand:
         // mirror daemon.ts:102-111 — usage to stderr + exit 1.
         Some(Command::Daemon { action: None }) => {

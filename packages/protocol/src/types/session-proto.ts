@@ -223,6 +223,20 @@ export interface SessionExported {
   d: string;
 }
 
+/**
+ * Synchronous acknowledgement that a `session.create` was accepted by the
+ * daemon. Emitted on the originating frontend's peer channel immediately after
+ * the runner is spawned and the relay is subscribed to the new sid — before the
+ * runner's IPC `hello` round-trips. The mirror of `SessionErr` on the failure
+ * path. The canonical session-metadata signal remains the `state` broadcast
+ * (from `handleHello`); this ack only confirms acceptance so the frontend can
+ * optimistically attach without waiting for the hello.
+ */
+export interface SessionCreateOk {
+  t: "session.create.ok";
+  sid: string;
+}
+
 export type SessionServerMessage =
   | SessionHelloReply
   | SessionStateMsg
@@ -233,4 +247,5 @@ export type SessionServerMessage =
   | SessionWorktreeListReply
   | SessionWorktreeCreated
   | SessionWorktreeRemoved
-  | SessionExported;
+  | SessionExported
+  | SessionCreateOk;

@@ -86,6 +86,7 @@ export type {
   SessionBatch,
   SessionClientMessage,
   SessionCreate,
+  SessionCreateOk,
   SessionDetach,
   SessionErr,
   SessionExport,

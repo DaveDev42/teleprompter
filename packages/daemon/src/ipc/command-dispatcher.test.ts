@@ -88,6 +88,7 @@ function makeHarness(
     renamePairingResult?: (daemonId: string, label: Label) => Promise<number>;
     runningSids?: string[];
     deleteSessionThrows?: (sid: string) => Error | null;
+    createSessionThrows?: (sid: string) => Error | null;
   } = {},
 ) {
   const calls: Calls = {
@@ -207,6 +208,8 @@ function makeHarness(
     pushNotifier: pushNotifier as PushNotifier,
     getWorktreeManager: opts.getWorktreeManager ?? (() => null),
     createSession: (sid, cwd, options) => {
+      const err = opts.createSessionThrows?.(sid) ?? null;
+      if (err) throw err;
       calls.createSession.push([sid, cwd, options]);
     },
     onPairBegin: (_runner, msg) => {
@@ -1047,6 +1050,73 @@ describe("IpcCommandDispatcher.dispatchRelayControl", () => {
     expect(calls.createSession).toEqual([
       ["new", "/cwd", { cols: 150, rows: 50 }],
     ]);
+  });
+
+  test("session.create subscribes relay clients to the new sid immediately (no hello race)", async () => {
+    // M5: the relay must be subscribed to the new sid the moment the create is
+    // accepted — NOT only after the runner's IPC hello round-trips. Otherwise
+    // early app→daemon frames for the new sid are dropped by the relay.
+    const seenSubscribes: string[] = [];
+    const relayClient = {
+      subscribe: (sid: string) => seenSubscribes.push(sid),
+    } as unknown as RelayClient;
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const { dispatcher } = makeHarness({ relayClients: [relayClient] });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "session.create", cwd: "/cwd", sid: "new" },
+      "f1",
+    );
+    await Promise.resolve();
+    // Subscribed before any runner hello (no IPC roundtrip in this test).
+    expect(seenSubscribes).toEqual(["new"]);
+  });
+
+  test("session.create replies session.create.ok to the originating frontend on success", async () => {
+    // M6: a synchronous success ack mirrors the existing error reply, so the
+    // app can optimistically attach without waiting for the state broadcast.
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const { dispatcher } = makeHarness();
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "session.create", cwd: "/cwd", sid: "new" },
+      "f1",
+    );
+    await Promise.resolve();
+    const ack = out.find(
+      (o) => (o.msg as { t?: string }).t === "session.create.ok",
+    );
+    expect(ack).toBeDefined();
+    expect(ack?.frontendId).toBe("f1");
+    expect(ack?.sid).toBe("new");
+    expect((ack?.msg as { sid?: string }).sid).toBe("new");
+  });
+
+  test("session.create replies err SESSION_ERROR and does not subscribe when createSession throws", async () => {
+    const seenSubscribes: string[] = [];
+    const relayClient = {
+      subscribe: (sid: string) => seenSubscribes.push(sid),
+    } as unknown as RelayClient;
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const { dispatcher } = makeHarness({
+      relayClients: [relayClient],
+      createSessionThrows: () => new Error("boom"),
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "session.create", cwd: "/cwd", sid: "bad" },
+      "f1",
+    );
+    await Promise.resolve();
+    const m = out[0]?.msg as { t: string; e?: string; m?: string };
+    expect(m.t).toBe("err");
+    expect(m.e).toBe("SESSION_ERROR");
+    expect(m.m).toBe("boom");
+    // On failure we must NOT subscribe and must NOT send a success ack.
+    expect(seenSubscribes).toEqual([]);
+    expect(
+      out.some((o) => (o.msg as { t?: string }).t === "session.create.ok"),
+    ).toBe(false);
   });
 
   test("session.stop returns NO_RUNNER when killRunner reports false", async () => {

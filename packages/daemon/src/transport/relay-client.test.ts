@@ -180,6 +180,89 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     client.dispose();
   });
 
+  test("late-joining frontend gets a kx re-broadcast; second kx is suppressed", async () => {
+    // Regression guard for the kx delivery race: the daemon broadcasts its pubkey
+    // once at auth time, but the relay does NOT cache kx frames — a frontend that
+    // connects AFTER that broadcast never receives the daemon pubkey and cannot
+    // derive its session keys. The fix re-broadcasts the daemon pubkey on a
+    // frontend's FIRST kx.frame (handleKxFrame), and suppresses the re-broadcast on
+    // subsequent kx.frames from the same frontendId (so it can't ping-pong).
+    const daemonKp = await generateKeyPair();
+    const frontendKp = await generateKeyPair();
+    const frontendId = "test-frontend-latejoin";
+    const kxKey = await deriveKxKey(pairingSecret);
+
+    const client = new RelayClient(
+      {
+        relayUrl: `ws://localhost:${relayPort}`,
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        registrationProof,
+        keyPair: daemonKp,
+        pairingSecret,
+      },
+      {},
+    );
+
+    // Daemon connects + auths FIRST. Its auth-time pubkey broadcast fans out to
+    // peers connected at that moment — i.e. nobody — so the frontend below joins
+    // strictly AFTER and would miss the pubkey without the re-broadcast fix.
+    await client.connect();
+    await Bun.sleep(300);
+
+    const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
+    await waitOpen(frontendWs);
+
+    // Count daemon→frontend kx frames (the re-broadcasts we want to observe).
+    let daemonKxFrames = 0;
+    frontendWs.onmessage = (e) => {
+      const msg = JSON.parse(e.data as string);
+      // A daemon kx re-broadcast arrives as a relay.kx.frame with from === "daemon".
+      if (msg.t === "relay.kx.frame" && msg.from === "daemon") daemonKxFrames++;
+    };
+
+    frontendWs.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 2,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        frontendId,
+      }),
+    );
+    await Bun.sleep(100);
+
+    // Frontend's FIRST kx.frame → daemon should re-broadcast its pubkey.
+    const kxPayload = JSON.stringify({
+      pk: await toBase64(frontendKp.publicKey),
+      frontendId,
+      role: "frontend",
+    });
+    const kxCt = await encrypt(new TextEncoder().encode(kxPayload), kxKey);
+    frontendWs.send(
+      JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }),
+    );
+    await Bun.sleep(300);
+
+    // The late-joining frontend must have received the daemon pubkey (>= 1 frame),
+    // and the daemon must now know the peer.
+    expect(daemonKxFrames).toBeGreaterThanOrEqual(1);
+    expect(client.getPeerCount()).toBe(1);
+    const afterFirst = daemonKxFrames;
+
+    // SECOND kx.frame from the SAME frontendId → must be suppressed (peer known),
+    // so no additional daemon kx.frame arrives. This is the anti-ping-pong guard.
+    frontendWs.send(
+      JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }),
+    );
+    await Bun.sleep(300);
+    expect(daemonKxFrames).toBe(afterFirst);
+
+    frontendWs.close();
+    client.dispose();
+  });
+
   test("frontend sends encrypted input, daemon receives via relay", async () => {
     const daemonKp = await generateKeyPair();
     const frontendKp = await generateKeyPair();
@@ -886,17 +969,11 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     );
     await Bun.sleep(100);
 
-    let kxFramesReceived = 0;
-    frontendWs.addEventListener("message", (e) => {
-      const m = JSON.parse(e.data as string);
-      if (m.t === "relay.kx.frame" && m.from === "daemon") {
-        kxFramesReceived++;
-      }
-    });
-
-    // First exchange: daemon → frontend (via daemon's auth.ok broadcast that
-    // happened before the listener was attached). Send frontend → daemon kx
-    // so the daemon registers this peer.
+    // First exchange: send frontend → daemon kx so the daemon registers this
+    // peer. The daemon's FIRST-join re-broadcast (handleKxFrame) fires here —
+    // that's the late-join kx-delivery fix, covered by its own test above. We
+    // deliberately attach the kx counter AFTER this round-trip so it observes
+    // only the resume path, which must add no further daemon-origin kx.frame.
     const kxPayload = JSON.stringify({
       pk: await toBase64(frontendKp.publicKey),
       frontendId,
@@ -908,6 +985,14 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     );
     await Bun.sleep(200);
     expect(client.getPeerCount()).toBe(1);
+
+    let kxFramesReceived = 0;
+    frontendWs.addEventListener("message", (e) => {
+      const m = JSON.parse(e.data as string);
+      if (m.t === "relay.kx.frame" && m.from === "daemon") {
+        kxFramesReceived++;
+      }
+    });
 
     // Now reconnect daemon — should resume, peers Map non-empty → skip kx.
     await client.connect();

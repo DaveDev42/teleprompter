@@ -490,6 +490,9 @@ export class RelayClient {
       const protocolVersion =
         typeof data.v === "number" && Number.isFinite(data.v) ? data.v : 1;
 
+      // Capture first-join BEFORE the set below — drives the kx re-broadcast guard.
+      const isNewPeer = !this.peers.has(data.frontendId);
+
       this.peers.set(data.frontendId, {
         frontendId: data.frontendId,
         publicKey: frontendPubKey,
@@ -502,6 +505,25 @@ export class RelayClient {
       this.peerlessReconnects = 0;
 
       log.info(`key exchange completed with frontend ${data.frontendId}`);
+
+      // kx delivery race fix: the daemon broadcasts its pubkey once at auth time
+      // (`relay.auth.ok` handler), but the relay does NOT cache kx frames — it only
+      // fans out to peers connected AT THAT MOMENT. A frontend that connects AFTER
+      // the auth-time broadcast therefore never receives the daemon pubkey and can
+      // never derive its session keys (no `TP_KX_OK` on the app). The frontend's own
+      // kx.frame reaches us (this handler) regardless of timing, so re-broadcast our
+      // pubkey on a frontend's FIRST join — that guarantees the late-connecting app
+      // gets it. The loopback fake daemon already did this (local-relay-loopback.ts);
+      // the real daemon was missing it, masking a genuine pairing race in tests.
+      //
+      // Guard on `isNewPeer` (captured before the set) to avoid a re-broadcast loop:
+      // the re-broadcast lands on an already-keyed frontend's `alreadyKeyed` path,
+      // which re-sends its kx — that second kx.frame finds the frontend already in
+      // `peers`, so we suppress and the exchange terminates after one round-trip.
+      if (isNewPeer) {
+        await this.broadcastDaemonPublicKey();
+      }
+
       this.events.onFrontendJoined?.(data.frontendId);
     } catch (err) {
       log.error("kx frame decrypt/parse failed:", err);

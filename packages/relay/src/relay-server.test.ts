@@ -161,6 +161,60 @@ describe("RelayServer", () => {
     frontend.close();
   });
 
+  test("duplicate relay.sub for the same sid does not double-count attached", async () => {
+    // Regression: `subscriptions` is a Set (idempotent) but the `attached`
+    // metric was incremented unconditionally on every relay.sub. The app
+    // legitimately re-subscribes to a sid (attach, then again in onState when it
+    // processes the daemon's `state` reply), so a second sub for an already-known
+    // sid must NOT bump `attached` — otherwise handleClose (which decrements once
+    // per sid) leaves the counter permanently leaked.
+    const daemon = await connectWs(port);
+    const frontend = await connectWs(port);
+
+    daemon.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "daemon",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+      }),
+    );
+    await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
+
+    frontend.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 1,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+        frontendId: "fe-dup-sub",
+      }),
+    );
+    await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
+
+    // Subscribe to the SAME sid three times (mirrors attach + onState re-sub).
+    frontend.send(JSON.stringify({ t: "relay.sub", sid: "session-dup" }));
+    await Bun.sleep(30);
+    frontend.send(JSON.stringify({ t: "relay.sub", sid: "session-dup" }));
+    await Bun.sleep(30);
+    frontend.send(JSON.stringify({ t: "relay.sub", sid: "session-dup" }));
+    await Bun.sleep(50);
+
+    // attached counts distinct (frontend, sid) subscriptions — must be exactly 1.
+    const health = await fetchHealth(port);
+    expect(health.attached).toBe(1);
+
+    // And on close it decrements back to 0 (no permanent leak).
+    frontend.close();
+    await Bun.sleep(100);
+    const afterClose = await fetchHealth(port);
+    expect(afterClose.attached).toBe(0);
+
+    daemon.close();
+  });
+
   test("forwards frames from frontend to subscribed daemon", async () => {
     const daemon = await connectWs(port);
     const frontend = await connectWs(port);

@@ -52,34 +52,52 @@ jobs:
 
   build-cli:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Rust release build (~1-3 min) + Bun SEA (~30s) + smoke. 15m is comfortable.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
-      - name: Build CLI
-        run: bun run scripts/build.ts
-      - name: Smoke test
+      # Rust toolchain needed to build the Rust `tp` binary inside the bundle.
+      # Pin matches rust/rust-toolchain.toml (1.96.0) — no double-toolchain fetch.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.96.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      # Build the bundle for the CI host (linux-x64 — ubuntu-latest is x86_64).
+      # This is now THE release/CI path: bin/tp (Rust) + libexec/tp/tpd (Bun SEA)
+      # packed into dist/bundles/tp-linux_x64.tar.gz.
+      - name: Build bundle (Rust tp + Bun tpd tarball)
+        run: bun run scripts/build.ts --bundle --target bun-linux-x64
+      # Bundle-aware smoke: extract the tarball, mirror what install.sh does,
+      # then verify the Rust→Bun blob seam without spawning a real daemon.
+      - name: Bundle smoke — extract and verify layout
         run: |
-          ./dist/tp version
-          ./dist/tp --help
-
-      - name: Compiled binary runner spawn test
+          mkdir -p /tmp/tp-prefix
+          tar -xzf dist/bundles/tp-linux_x64.tar.gz -C /tmp/tp-prefix --strip-components=1
+          # Assert the prefix-tree layout exists before continuing.
+          ls -la /tmp/tp-prefix/bin/tp
+          ls -la /tmp/tp-prefix/libexec/tp/tpd
+          echo "Layout OK: bin/tp + libexec/tp/tpd present"
+      - name: Bundle smoke — version + help (native Rust paths)
         run: |
-          # Verify the compiled binary can spawn a runner process.
-          # This catches $bunfs path resolution bugs (e.g. isCompiled() false positive).
-          # Use timeout to prevent hanging — runner will fail (no claude) but must not crash
-          # with "Module not found" before reaching that point.
-          timeout 10 ./dist/tp --dangerously-skip-permissions -p "test" 2>&1 | tee /tmp/tp-smoke.log || true
-          if grep -q 'Module not found' /tmp/tp-smoke.log; then
-            echo "FATAL: Compiled binary failed to resolve runner module"
-            cat /tmp/tp-smoke.log
-            exit 1
-          fi
-          if grep -q '\[Runner\] started\|\[SessionManager\] spawned runner\|Claude Code CLI not found' /tmp/tp-smoke.log; then
-            echo "Runner spawn OK (or claude not installed — expected in CI)"
+          timeout 10 /tmp/tp-prefix/bin/tp version
+          timeout 10 /tmp/tp-prefix/bin/tp --help
+      - name: Bundle smoke — Rust→blob forward seam (TP_BUN_BLOB echo script)
+        run: |
+          # Prove the Rust→Bun blob forward seam without spawning a real daemon.
+          # TP_BUN_BLOB overrides locate_bun_blob() to use a tiny echo script that
+          # prints its arguments — no daemon, no claude, deterministic + non-hanging.
+          printf '#!/bin/sh\necho "BLOB_GOT:" "$@"\n' > /tmp/fake-tpd
+          chmod +x /tmp/fake-tpd
+          # tp -p x → pre-clap decide_route → Forward → exec_blob → fake-tpd
+          GOT=$(timeout 10 env TP_BUN_BLOB=/tmp/fake-tpd /tmp/tp-prefix/bin/tp -p x 2>&1 || true)
+          echo "Forward smoke output: ${GOT}"
+          if echo "${GOT}" | grep -q 'BLOB_GOT: -p x'; then
+            echo "Forward smoke PASS: Rust→blob seam works"
           else
-            echo "WARNING: Unexpected output — runner may not have spawned"
-            cat /tmp/tp-smoke.log
+            echo "FATAL: Forward smoke FAIL — expected 'BLOB_GOT: -p x'"
+            exit 1
           fi
 
   # Rust core (tp-core FFI + tp-proto message-type parity). Lint severity is the

@@ -161,3 +161,50 @@ jobs:
           ulimit -n 65535
           TP_SOAK_CONNS=1500 TP_SOAK_SECS=20 \
             cargo test -p tp-relay --test soak_10k -- --ignored --nocapture
+
+  # Swift app compile gate (B4, ADR-0002). Proves the Apple multiplatform SwiftUI
+  # target builds — the xcframework (9 Rust Apple slices + UniFFI bindings) links
+  # and the app compiles under Swift 6 strict concurrency — WITHOUT a developer's
+  # machine. Compile-only on the native macOS destination (no Simulator boot, no
+  # XCTest, no real-claude E2E — those stay local per native-testing.md). This is
+  # the deterministic CI counterpart to the local `scripts/ios.sh smoke`.
+  #
+  # NOT a required check (ci-workflows.md): added non-required first so a flaky
+  # macOS runner / SDK drift never wedges unrelated PRs. Promote to required only
+  # after it is reliably green on main. The required gate stays lint/type-check/
+  # test/build-cli.
+  #
+  # Runner is PINNED to macos-26 (NOT bare macos-latest, which is mid-migration
+  # macos-15→macos-26). The app references the iOS/macOS 26 SDK + Swift 6.0 mode,
+  # and local dev is Xcode 26.5 — macos-26 ships the matching Xcode 26 toolchain.
+  swift-build:
+    runs-on: macos-26
+    # Cold xcframework = 9 Rust Apple slices (cross-compiled) + UniFFI bindgen +
+    # the SwiftUI app compile. First run with a cold rust-cache can approach
+    # ~20-25m; warm runs are far faster. 40m is comfortable headroom.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      # Rust toolchain pinned to rust/rust-toolchain.toml (1.96.0). All 9 Apple
+      # targets are Tier 2 on stable 1.96 (visionOS/watchOS promoted in 1.95.0),
+      # so `rustup target add` works with no nightly / -Z build-std.
+      - name: Install Rust toolchain + Apple targets
+        uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          # build-xcframework.sh `ensure_targets` HARD-dies on any missing target
+          # (it does not run `rustup target add` itself), so add all 9 here.
+          targets: >-
+            aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-visionos,aarch64-apple-visionos-sim,aarch64-apple-watchos,aarch64-apple-watchos-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      # xcodegen is NOT preinstalled on the runner; scripts/ios.sh `cmd_gen` hard-
+      # dies (`require xcodegen`) without it. xcbeautify is optional (falls back to
+      # cat), so we skip it to keep the job lean.
+      - name: Install xcodegen
+        run: brew install xcodegen
+      # Compile only. ensure_xcframework (builds the 9-slice xcframework + UniFFI
+      # bindings from scratch — neither TP_SKIP_RUST nor TP_FORCE_RUST set) →
+      # ensure_project (xcodegen generate) → xcodebuild -destination platform=macOS.
+      - name: Build Swift app (native macOS, compile only)
+        run: TP_PLATFORM=macos scripts/ios.sh build

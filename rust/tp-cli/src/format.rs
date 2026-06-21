@@ -1,10 +1,34 @@
-//! Byte-exact port of `apps/cli/src/lib/format.ts` `formatAge`.
+//! Byte-exact port of `apps/cli/src/lib/format.ts` helpers.
+//!
+//! - `format_age` — `formatAge(ms)` time-since humanizer.
+//! - `error_with_hints` — `errorWithHints(msg, hints[])` error formatter
+//!   (upgrade.ts consumer; `apps/cli/src/lib/format.ts:14`).
 //!
 //! Renders an age in milliseconds as "N unit ago", rolling up
 //! seconds → minutes → hours → days, and falling back to an ISO date
 //! (`YYYY-MM-DD`) for ages ≥ 7 days. The ≥7d branch is computed as
 //! `(now_ms - age_ms)` rendered as a UTC calendar date — so the Rust port must
 //! reproduce the same UTC date arithmetic, NOT local time, to stay byte-exact.
+
+/// Byte-exact port of `errorWithHints(message, hints)` from
+/// `apps/cli/src/lib/format.ts:14`.
+///
+/// Returns:
+/// ```text
+/// <message>
+///   → <hint0>
+///   → <hint1>
+/// ```
+/// Each hint is prefixed with exactly two spaces + U+2192 (→) + one space.
+/// The result joins with `\n`, message first. Byte-exact:
+/// `error_with_hints("X", &["a","b"]) == "X\n  → a\n  → b"`.
+pub fn error_with_hints(message: &str, hints: &[&str]) -> String {
+    let mut parts = vec![message.to_string()];
+    for h in hints {
+        parts.push(format!("  \u{2192} {h}"));
+    }
+    parts.join("\n")
+}
 
 /// Render an age in milliseconds, given the current wall-clock `now_ms`
 /// (passed in so the function is pure and testable — the caller reads the clock
@@ -65,6 +89,42 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── error_with_hints ─────────────────────────────────────────────────────
+
+    #[test]
+    fn error_with_hints_byte_exact_no_hints() {
+        assert_eq!(error_with_hints("X", &[]), "X");
+    }
+
+    #[test]
+    fn error_with_hints_byte_exact_two_hints() {
+        // Byte-exact assertion from the brief: "X\n  → a\n  → b"
+        // U+2192 = → (RIGHT ARROW, 3 UTF-8 bytes: 0xE2 0x86 0x92)
+        let got = error_with_hints("X", &["a", "b"]);
+        assert_eq!(got, "X\n  \u{2192} a\n  \u{2192} b");
+    }
+
+    #[test]
+    fn error_with_hints_arrow_is_u2192() {
+        let got = error_with_hints("msg", &["hint"]);
+        // Confirm the arrow character is exactly U+2192, not an ASCII replacement.
+        assert!(got.contains('\u{2192}'), "must use U+2192 arrow: {got:?}");
+    }
+
+    #[test]
+    fn error_with_hints_format_ts_parity() {
+        // mirrors apps/cli/src/lib/format.ts:14 — same join/map shape
+        let got = error_with_hints(
+            "Connection timed out.",
+            &[
+                "Check if daemon is running: tp status",
+                "Diagnose: tp doctor",
+            ],
+        );
+        let expected = "Connection timed out.\n  \u{2192} Check if daemon is running: tp status\n  \u{2192} Diagnose: tp doctor";
+        assert_eq!(got, expected);
+    }
 
     // Fixed clock for determinism: 2026-06-20T00:00:00Z = 1_781_000_000_000 ms
     // is close enough; we just need a stable reference.

@@ -37,6 +37,21 @@ const socketPath = daemon.start();
 // Auto-cleanup old sessions on startup + every 24h
 daemon.startAutoCleanup();
 
+// Reconnect all saved pairings so paired frontends receive frames after a
+// daemon (re)start. The OS service / `tp daemon start` path reconnects via
+// `daemonCommand()`; this bare entrypoint (e.g. `bun packages/daemon/src/index.ts`)
+// must do the same or a daemon launched directly through it goes dark — saved
+// pairings never get a RelayClient until something else triggers a reconnect.
+// Store DB is the sole source of truth for saved pairings.
+daemon
+  .reconnectSavedRelays()
+  .then((count) => {
+    if (count > 0) log.info(`reconnected to ${count} saved relay(s)`);
+  })
+  .catch((err) => {
+    log.error(`failed to reconnect saved relays: ${err}`);
+  });
+
 log.info(`listening on ${socketPath}`);
 log.info("press Ctrl+C to stop");
 

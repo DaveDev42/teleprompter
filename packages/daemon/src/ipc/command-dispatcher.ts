@@ -512,6 +512,23 @@ export class IpcCommandDispatcher {
             cols: msg.cols,
             rows: msg.rows,
           });
+          // Subscribe every relay client to the new sid IMMEDIATELY, before
+          // the runner's IPC `hello` round-trips. `handleHello` also subscribes
+          // (idempotent — `subscribedSessions` is a Set), but waiting for it
+          // opens a race window of tens-to-hundreds of ms during which the
+          // relay would not forward this sid's frames to/from this daemon —
+          // so early app→daemon input frames for a freshly created session
+          // would be silently dropped by the relay. Subscribing here closes
+          // that window the moment the create is accepted.
+          for (const relay of this.deps.getRelayClients()) {
+            relay.subscribe(sid);
+          }
+          // Synchronous success ack so the app can optimistically attach
+          // without waiting for the runner hello → `state` broadcast. The
+          // `state` broadcast (from `handleHello`) remains the canonical
+          // session-metadata signal; this ack only confirms the create was
+          // accepted (mirrors the existing error reply for failures).
+          reply(sid, { t: "session.create.ok", sid });
         } catch (err) {
           replyError(
             sid,

@@ -40,6 +40,7 @@ import {
 import { isSessionState } from "./types/session";
 import type {
   SessionBatch,
+  SessionCreateOk,
   SessionErr,
   SessionExported,
   SessionHelloReply,
@@ -241,6 +242,14 @@ export function parseSessionServerMessage(
         format: raw["format"],
         d: raw["d"],
       } satisfies SessionExported;
+    }
+
+    case "session.create.ok": {
+      if (!isString(raw["sid"])) return null;
+      return {
+        t: "session.create.ok",
+        sid: raw["sid"],
+      } satisfies SessionCreateOk;
     }
 
     default:

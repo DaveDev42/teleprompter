@@ -47,20 +47,40 @@ pub struct PairingRow {
     pub label: Option<String>,
 }
 
+/// Resolve the XDG data home base: `$XDG_DATA_HOME` or `~/.local/share`.
+/// Used by both `store_dir()` and `log_dir()` — shared resolution avoids drift.
+fn data_home() -> Option<PathBuf> {
+    match std::env::var("XDG_DATA_HOME") {
+        Ok(v) if !v.is_empty() => Some(PathBuf::from(v)),
+        _ => {
+            let home = std::env::var_os("HOME")?;
+            Some(PathBuf::from(home).join(".local").join("share"))
+        }
+    }
+}
+
 /// Resolve the vault store directory: `$XDG_DATA_HOME/teleprompter/vault`, with
 /// `$XDG_DATA_HOME` falling back to `~/.local/share`. Byte-for-byte the same
 /// resolution as `store/config.ts:getStoreDir` — deliberately NOT the `dirs`
 /// crate default (on macOS that is `~/Library/Application Support`, which would
 /// miss the daemon's `~/.local/share` DB).
 pub fn store_dir() -> Option<PathBuf> {
-    let data_home = match std::env::var("XDG_DATA_HOME") {
-        Ok(v) if !v.is_empty() => PathBuf::from(v),
-        _ => {
-            let home = std::env::var_os("HOME")?;
-            PathBuf::from(home).join(".local").join("share")
-        }
-    };
-    Some(data_home.join("teleprompter").join("vault"))
+    Some(data_home()?.join("teleprompter").join("vault"))
+}
+
+/// Resolve the daemon log directory:
+/// `$XDG_DATA_HOME/teleprompter/logs` (or `~/.local/share/teleprompter/logs`).
+///
+/// Byte-exact port of `getLogDir` in `apps/cli/src/lib/service-darwin.ts:27-34`:
+/// ```text
+///   join($XDG_DATA_HOME ?? ($HOME ?? "/tmp") + "/.local/share", "teleprompter", "logs")
+/// ```
+///
+/// Returns `None` only if `$HOME` is also absent (effectively `/tmp` fallback in
+/// the TS; here we return `None` and callers display an empty path or skip the
+/// annotation — only a misconfigured env ever hits this).
+pub fn log_dir() -> Option<PathBuf> {
+    Some(data_home()?.join("teleprompter").join("logs"))
 }
 
 /// Path to the meta DB (`sessions.sqlite`), which holds BOTH the `sessions` and

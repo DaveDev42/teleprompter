@@ -1,11 +1,14 @@
-//! `tp daemon stop` and `tp daemon status` — byte-exact ports of
-//! `apps/cli/src/commands/daemon.ts:daemonStop()` and
-//! `apps/cli/src/commands/daemon-status.ts:daemonStatusCommand()`.
+//! `tp daemon stop`, `tp daemon status`, `tp daemon install`, `tp daemon
+//! uninstall`, and `tp daemon start` — byte-exact ports of the Bun CLI
+//! counterparts.
 //!
 //! Architecture invariants (see CLAUDE.md):
-//!   - `stop`   = SIGTERM + optional service unload ONLY. No IPC, no socket open.
-//!   - `status` = pure socket-presence probe + fs::metadata for the service file.
+//!   - `stop`      = SIGTERM + optional service unload ONLY. No IPC, no socket open.
+//!   - `status`    = pure socket-presence probe + fs::metadata for the service file.
 //!     No IPC, no SQLite write, no relay/WS.
+//!   - `install`   = file write + launchctl/systemctl ONLY. No IPC, no relay/WS.
+//!   - `uninstall` = file delete + launchctl/systemctl ONLY. No IPC, no relay/WS.
+//!   - `start`     = locate Bun blob + exec (foreground trampoline). Rust opens nothing.
 //!
 //! Signal delivery uses `rustix::process::kill_process` (safe, `process` feature
 //! already in Cargo.toml) — avoids `libc` and satisfies `unsafe_code = "forbid"`.
@@ -19,6 +22,7 @@
 //! | `launchctl bootout gui/<uid>/<label>` | `systemctl --user stop <name>` |
 //!
 //! References (verified against HEAD):
+//!   - `apps/cli/src/commands/daemon.ts:82-214`    (daemonCommand / start logic)
 //!   - `apps/cli/src/commands/daemon.ts:228-277`   (daemonStop)
 //!   - `apps/cli/src/commands/daemon-status.ts:82-117` (render)
 //!   - `apps/cli/src/lib/service-darwin.ts:8,10-25` (LABEL, getPlistPath, isServiceInstalled)
@@ -202,6 +206,13 @@ fn resolve_tp_binary() -> String {
     String::new()
 }
 
+/// Public re-export of `resolve_tp_binary()` for use by `service_darwin` and
+/// `service_linux` — they call this to populate `ProgramArguments`/`ExecStart`.
+/// The actual implementation lives here to avoid duplication.
+pub fn resolve_tp_binary_pub() -> String {
+    resolve_tp_binary()
+}
+
 /// Probe all status fields for the current platform.
 /// Pure function — no I/O side effects beyond fs probes.
 pub fn probe_status() -> StatusState {
@@ -383,6 +394,99 @@ pub fn status() -> ExitCode {
     // render_status returns a single string; print it (it already ends with '\n').
     print!("{}", render_status(&state));
     ExitCode::SUCCESS
+}
+
+// ---------------------------------------------------------------------------
+// `tp daemon install` / `tp daemon uninstall`
+// ---------------------------------------------------------------------------
+
+/// `tp daemon install` — register as an OS service (launchd/systemd).
+///
+/// Dispatches to `service_darwin::install_darwin` (macOS) or
+/// `service_linux::install_linux` (Linux). Architecture invariant: file
+/// write + launchctl/systemctl ONLY — no IPC, no socket open, no relay/WS.
+pub fn install() -> ExitCode {
+    let os = std::env::consts::OS;
+    if os == "macos" {
+        crate::service_darwin::install_darwin(&mut crate::service_darwin::RealLaunchctl)
+    } else if os == "linux" {
+        crate::service_linux::install_linux()
+    } else {
+        eprintln!("tp: `daemon install` is not supported on {os}");
+        ExitCode::FAILURE
+    }
+}
+
+/// `tp daemon uninstall` — remove the OS service registration.
+///
+/// Architecture invariant: file delete + launchctl/systemctl ONLY — no IPC.
+pub fn uninstall() -> ExitCode {
+    let os = std::env::consts::OS;
+    if os == "macos" {
+        crate::service_darwin::uninstall_darwin(&mut crate::service_darwin::RealLaunchctl)
+    } else if os == "linux" {
+        crate::service_linux::uninstall_linux()
+    } else {
+        eprintln!("tp: `daemon uninstall` is not supported on {os}");
+        ExitCode::FAILURE
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `tp daemon start` — Bun trampoline
+// ---------------------------------------------------------------------------
+
+/// `tp daemon start` — locate the bundled Bun SEA and exec it in the foreground.
+///
+/// This is a TRAMPOLINE: the Rust binary locates the Bun blob via
+/// `locate_bun_blob()`, then runs:
+///   `Command::new(blob).arg("daemon").arg("start").args(forwarded)
+///     .stdin/out/err(inherit).status()`
+///
+/// The Bun blob handles all in-process daemon logic (Daemon constructor,
+/// signal handlers, --watch restart, `[Daemon] listening on …` / `press
+/// Ctrl+C to stop` / `[Daemon] shutting down…`). Rust only forwards stdio
+/// and propagates the exit code.
+///
+/// `extra_args` = all argv after `daemon start` (forwarded verbatim).
+///
+/// Architecture invariant: Rust opens nothing. No IPC, no relay/WS, no SQLite
+/// write. The Bun blob is exec'd DIRECTLY so `process.execPath` inside Bun
+/// equals the blob (not the Rust binary) — Bun-internal re-spawns stay Bun→Bun.
+pub fn start(extra_args: &[String]) -> ExitCode {
+    let blob = match crate::locate::locate_bun_blob() {
+        Ok(p) => p,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    use std::process::Stdio;
+    let status = std::process::Command::new(&blob)
+        .arg("daemon")
+        .arg("start")
+        .args(extra_args)
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status();
+
+    match status {
+        Ok(s) => {
+            if s.success() {
+                ExitCode::SUCCESS
+            } else {
+                // Propagate the child's exit code (0–255).
+                let code = s.code().unwrap_or(1) as u8;
+                ExitCode::from(code)
+            }
+        }
+        Err(e) => {
+            eprintln!("tp: failed to exec {}: {e}", blob.display());
+            ExitCode::FAILURE
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.1.50](https://github.com/DaveDev42/teleprompter/compare/v0.1.49...v0.1.50) (2026-06-21)
+
+
+### Features
+
+* **cli:** native rust run/passthrough thin forwarder to bundled tpd blob (ADR-0003 Amendment 2 tranche 5) ([#730](https://github.com/DaveDev42/teleprompter/issues/730)) ([213a9b0](https://github.com/DaveDev42/teleprompter/commit/213a9b0f8f49596f84b47065a2c3c5b73e93b11d))
+* **cli:** port `completions install/uninstall` to native rust CLI (ADR-0003 Amendment 2 tranche 4a) ([#723](https://github.com/DaveDev42/teleprompter/issues/723)) ([caa7057](https://github.com/DaveDev42/teleprompter/commit/caa70573544ae485faf688c2f6c2f362dfe42e74))
+* **cli:** port `pair new` blocking pairing flow to native rust CLI + synthetic-kx E2E (ADR-0003 Amendment 2 tranche 3b) ([#722](https://github.com/DaveDev42/teleprompter/issues/722)) ([816b8ec](https://github.com/DaveDev42/teleprompter/commit/816b8ec890be1d8f8b8465318c6816b872884c68))
+* **cli:** port `session cleanup` interactive TUI to native rust CLI (ADR-0003 Amendment 2 tranche 3a) ([#721](https://github.com/DaveDev42/teleprompter/issues/721)) ([c4371d7](https://github.com/DaveDev42/teleprompter/commit/c4371d746c662bb789fbe462a65d25bb487c3724))
+* **cli:** port `tp daemon stop` + `tp daemon status` to native rust CLI (ADR-0003 Amendment 2 tranche 4c) ([#727](https://github.com/DaveDev42/teleprompter/issues/727)) ([6ae2b88](https://github.com/DaveDev42/teleprompter/commit/6ae2b888c8a67be7ea87697aee70fc9f6258dc4e))
+* **cli:** port `tp doctor` to native rust CLI — env diagnostic + relay IPC probe + tp-core E2EE self-test (ADR-0003 Amendment 2 tranche 4b) ([#725](https://github.com/DaveDev42/teleprompter/issues/725)) ([8172b04](https://github.com/DaveDev42/teleprompter/commit/8172b04ab9d76ca00a82d1189f7ba1e3ff72e95a))
+* **cli:** port `tp upgrade` to native rust CLI (ADR-0003 Amendment 2 tranche 4e) ([#729](https://github.com/DaveDev42/teleprompter/issues/729)) ([abf407a](https://github.com/DaveDev42/teleprompter/commit/abf407aa8d968a4a4fffc5a9182ac12cbdb2c031))
+* **cli:** port read-only ladder to native rust CLI — status/session list/pair list/completions/logs (ADR-0003 Amendment 2 tranche 1) ([#719](https://github.com/DaveDev42/teleprompter/issues/719)) ([640fdbc](https://github.com/DaveDev42/teleprompter/commit/640fdbc45a071ac425d703835547250f89a357e9))
+* **cli:** port write/control commands to native rust CLI via daemon IPC — pair delete/rename, session delete/prune (ADR-0003 Amendment 2 tranche 2) ([#720](https://github.com/DaveDev42/teleprompter/issues/720)) ([86ac20e](https://github.com/DaveDev42/teleprompter/commit/86ac20e7306a17e43c7c7310ae968cdd2916aa66))
+* **cli:** Rust CLI daemon install/uninstall + start trampoline + bundle locate + packaging (tranche 4d) ([#728](https://github.com/DaveDev42/teleprompter/issues/728)) ([8626ccf](https://github.com/DaveDev42/teleprompter/commit/8626ccf014a637ea93ce8d54047f57ed164103e2))
+* **cli:** scaffold rust tp-cli crate + port `version` (ADR-0003 Amendment 2 tranche 0) ([#718](https://github.com/DaveDev42/teleprompter/issues/718)) ([d9406c4](https://github.com/DaveDev42/teleprompter/commit/d9406c4c4baddc695537af4546ddf033035cafbc))
+* **relay:** async WS hot path — central-state actor + axum upgrade (Stage 1 Step 4) ([#711](https://github.com/DaveDev42/teleprompter/issues/711)) ([12fa7ac](https://github.com/DaveDev42/teleprompter/commit/12fa7acbf45cbaeac61575668d282dc21750c380))
+* **relay:** deploy-relay.yml ships Rust tp-relay binary (ADR-0003 Stage 1 Step 8b) ([#716](https://github.com/DaveDev42/teleprompter/issues/716)) ([7fee22a](https://github.com/DaveDev42/teleprompter/commit/7fee22a2b23c6d9214a860df27a1fd6604a38a2b))
+* **relay:** push path — p256 ES256 JWT, reqwest H2 + retry, OsRng seal (Stage 1 Step 5) ([#712](https://github.com/DaveDev42/teleprompter/issues/712)) ([3acf792](https://github.com/DaveDev42/teleprompter/commit/3acf7926ad8a284ba4594d7bd01dcde982062479))
+* **relay:** tp-relay handshake + resume-token + registry (Stage 1 Step 3) ([#709](https://github.com/DaveDev42/teleprompter/issues/709)) ([ed8eed3](https://github.com/DaveDev42/teleprompter/commit/ed8eed3998eb5e425f806d51e40d5817873096f4))
+* **relay:** tp-relay HTTP surface (/health + /metrics + /admin bearer) + build.rs buildSha ([#713](https://github.com/DaveDev42/teleprompter/issues/713)) ([8daca45](https://github.com/DaveDev42/teleprompter/commit/8daca4553f23911ac90ecd7f8cbb785dd029d5d3))
+* **relay:** tp-relay runnable binary (main.rs) + local Rust-relay E2E gate (ADR-0003 Stage 1 Step 8a) ([138b7cb](https://github.com/DaveDev42/teleprompter/commit/138b7cb2cd135a77d4c43da0d8a95e454159ad80))
+* **relay:** tp-relay serde core — RelayServerMessage enum + golden vectors ([#708](https://github.com/DaveDev42/teleprompter/issues/708)) ([f125a71](https://github.com/DaveDev42/teleprompter/commit/f125a71f1b2c83f331e304aa1cded73f6d3dbb5b))
+
+
+### Bug Fixes
+
+* **relay:** remove counter race in hello_v1_9_rejected test ([#710](https://github.com/DaveDev42/teleprompter/issues/710)) ([935da04](https://github.com/DaveDev42/teleprompter/commit/935da044cf118715b49ad2c0080d303cc8fc9fc2))
+
+
+### Refactor
+
+* **protocol:** LabelUpdate wire contract — explicit Set/Clear, drop v1 label gate ([#707](https://github.com/DaveDev42/teleprompter/issues/707)) ([10fa67c](https://github.com/DaveDev42/teleprompter/commit/10fa67c59ca380dd2dabbc50a6ecc90cad85d718))
+
 ## [0.1.49](https://github.com/DaveDev42/teleprompter/compare/v0.1.48...v0.1.49) (2026-06-18)
 
 

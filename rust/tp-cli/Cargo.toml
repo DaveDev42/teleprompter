@@ -85,6 +85,18 @@ hostname = "0.4"
 # accepted because the Bun CLI is being retired and both are not run concurrently
 # post-port (see pair_lock.rs module doc).
 
+# HTTPS client for `tp upgrade`: fetches checksums.txt + the release binary from
+# GitHub. `blocking` is used because the CLI is a short-lived process with no
+# async runtime; `rustls-tls` (NOT `native-tls`) avoids an OpenSSL system
+# dependency and keeps the build reproducible across CI, dogfood, and release
+# targets. `json` is omitted — we parse with serde_json (already a dep).
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
+# SHA-256 file-hash for checksum verification in `tp upgrade`. The `sha2` crate
+# is the canonical RustCrypto implementation (same ecosystem as the crypto crates
+# already in tp-core/tp-relay). No `sha3` or `blake2` alternatives — the
+# release checksums.txt uses sha256sum format, matching this digest.
+sha2 = "0.10"
+
 [dev-dependencies]
 # Hermetic temp directories for completions_install tests. Only used in
 # `#[cfg(test)]` — zero production footprint. The `tempfile` crate is the

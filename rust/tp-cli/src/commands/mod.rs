@@ -10,4 +10,5 @@ pub mod logs;
 pub mod pair;
 pub mod session;
 pub mod status;
+pub mod upgrade;
 pub mod version;

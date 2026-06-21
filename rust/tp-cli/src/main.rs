@@ -5,11 +5,12 @@
 //! mirrors the Bun CLI's `TP_SUBCOMMANDS` (`apps/cli/src/router.ts`) so the two
 //! binaries are drop-in compatible during the port.
 //!
-//! Port status (tranche 4b): `version`, `status`, `session list`, `session
+//! Port status (tranche 4c): `version`, `status`, `session list`, `session
 //! delete`, `session prune`, `session cleanup`, `logs`, `completions` (emit),
-//! `pair list`, `pair delete`, `pair rename`, `pair new`, and `doctor` are
-//! implemented.  Every other subcommand is declared (so `--help` is complete
-//! and the dispatch seam exists) but returns a clear "not yet ported" message.
+//! `pair list`, `pair delete`, `pair rename`, `pair new`, `doctor`,
+//! `daemon stop`, and `daemon status` are implemented.  Every other subcommand
+//! is declared (so `--help` is complete and the dispatch seam exists) but
+//! returns a clear "not yet ported" message.
 //!
 //! Architecture invariant (unchanged): this CLI talks ONLY to the daemon over
 //! its IPC unix socket. It never opens a relay WebSocket — pairing/relay flow is
@@ -106,8 +107,13 @@ enum Command {
     Doctor,
     /// Upgrade the tp binary (not yet ported).
     Upgrade,
-    /// Daemon lifecycle management (not yet ported).
-    Daemon,
+    /// Daemon lifecycle management.
+    ///
+    /// Subcommands: start | stop | status | install | uninstall
+    Daemon {
+        #[command(subcommand)]
+        action: Option<DaemonAction>,
+    },
     /// Run claude through the tp pipeline (not yet ported).
     Run,
     /// Relay server (not yet ported).
@@ -199,6 +205,22 @@ enum SessionAction {
     },
 }
 
+/// `tp daemon <action>`. `stop` and `status` are ported (tranche 4c).
+/// `start`, `install`, and `uninstall` remain not-yet-ported (tranche 4d).
+#[derive(Subcommand)]
+enum DaemonAction {
+    /// Start the daemon in the foreground (not yet ported).
+    Start,
+    /// Stop the running daemon.
+    Stop,
+    /// Show OS service registration + daemon running state.
+    Status,
+    /// Register as an OS service (launchd/systemd) (not yet ported).
+    Install,
+    /// Remove the OS service registration (not yet ported).
+    Uninstall,
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
@@ -263,7 +285,31 @@ fn main() -> ExitCode {
         Some(Command::Logs { sid }) => commands::logs::run(sid.as_deref()),
         Some(Command::Doctor) => commands::doctor::run(),
         Some(Command::Upgrade) => not_yet_ported("upgrade"),
-        Some(Command::Daemon) => not_yet_ported("daemon"),
+
+        // daemon subcommand dispatch (tranche 4c: stop + status ported).
+        Some(Command::Daemon {
+            action: Some(DaemonAction::Stop),
+        }) => commands::daemon::stop(),
+        Some(Command::Daemon {
+            action: Some(DaemonAction::Status),
+        }) => commands::daemon::status(),
+        Some(Command::Daemon {
+            action: Some(DaemonAction::Start | DaemonAction::Install | DaemonAction::Uninstall),
+        }) => not_yet_ported("daemon start/install/uninstall"),
+        // Bare `tp daemon` with no subcommand, or unrecognised subcommand:
+        // mirror daemon.ts:102-111 — usage to stderr + exit 1.
+        Some(Command::Daemon { action: None }) => {
+            eprintln!(
+                "Usage: tp daemon <start|stop|status|install|uninstall> [options]\n\
+                 \x20 start      Start daemon in foreground\n\
+                 \x20 stop       Stop the running daemon\n\
+                 \x20 status     Show service registration + running state\n\
+                 \x20 install    Register as OS service (launchd/systemd/Task Scheduler)\n\
+                 \x20 uninstall  Remove OS service registration"
+            );
+            ExitCode::FAILURE
+        }
+
         Some(Command::Run) => not_yet_ported("run"),
         Some(Command::Relay) => not_yet_ported("relay"),
         // Bare `tp pair` (no action) is an alias for `tp pair new` in the Bun

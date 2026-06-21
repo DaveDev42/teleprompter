@@ -73,12 +73,20 @@ jobs:
       # (Gatekeeper/Hardened Runtime SIGKILLs packed Mach-O). The single
       # binary legacy asset also ships uncompressed here. Size tradeoff:
       # ~26 MB tarball vs a future UPX-compressed inner binary; deferred.
+      #
+      # Flatten the tarball next to the single binary so BOTH live at the dist/
+      # top level. upload-artifact roots at the least-common-ancestor of all
+      # matched paths; if the tarball stayed under dist/bundles/ it would land
+      # in artifacts/bundles/ after download (NOT artifacts/), so the release
+      # job's `tp-*` checksum/upload globs and bump-tap's tarball URL would miss
+      # it. Single flat `dist/tp-*` glob then matches both tp-<suffix> and
+      # tp-<suffix>.tar.gz.
+      - name: Flatten bundle tarball into dist/
+        run: mv dist/bundles/tp-*.tar.gz dist/
       - uses: actions/upload-artifact@v7
         with:
           name: binary-bun-darwin-arm64
-          path: |
-            dist/tp-*
-            dist/bundles/tp-*.tar.gz
+          path: dist/tp-*
 
   build-linux:
     runs-on: ${{ matrix.runner }}
@@ -120,12 +128,15 @@ jobs:
       # asset. The legacy single-binary asset ships uncompressed here for simplicity.
       # Previously linux binaries were UPX-compressed (~55% size reduction); that
       # optimization is deferred until the single binary is dropped post-#5 follow-up.
+      #
+      # Flatten the tarball next to the single binary (see build-darwin comment) so
+      # both land at artifacts/ top level after download — single `dist/tp-*` glob.
+      - name: Flatten bundle tarball into dist/
+        run: mv dist/bundles/tp-*.tar.gz dist/
       - uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.target }}
-          path: |
-            dist/tp-*
-            dist/bundles/tp-*.tar.gz
+          path: dist/tp-*
 
   release:
     needs: [build-darwin, build-linux]

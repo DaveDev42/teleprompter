@@ -615,16 +615,48 @@ cmd_smoke_ios() {
   # daemon E2E. kx/frame/session/input depend on a pre-seeded session + careful
   # daemon-side sequencing the fake loopback provides but a real daemon does not
   # (see start_real_daemon_relay / native-testing.md).
-  local real_e2e=""
+  # Three modes, in increasing reach:
+  #   loopback  (default)   — fake scripted daemon, all 8 markers (M0–M5).
+  #   real_e2e  (TP_E2E_REAL)— real tp daemon+relay, no session: M0–M2 (4 markers).
+  #   claude_e2e(TP_E2E_CLAUDE)— real daemon + a REAL `claude -p` session spawned
+  #                            post-pairing: M0–M4 (7 markers; M5/input needs an
+  #                            interactive session — a separate follow-up). Implies
+  #                            real_e2e (it is a strict superset of the real path).
+  local real_e2e="" claude_e2e=""
   [ "${TP_E2E_REAL:-}" = "1" ] && real_e2e="yes"
+  [ "${TP_E2E_CLAUDE:-}" = "1" ] && { real_e2e="yes"; claude_e2e="yes"; }
 
-  if [ -n "$real_e2e" ]; then
+  if [ -n "$claude_e2e" ]; then
+    # M0–M4: boot+core, pairing, relay-auth, kx, first-frame, session-render.
+    # No M5 (input round-trip) — that needs an interactive claude (follow-up PR).
+    tp_smoke_begin "$TP_PLATFORM" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER"
+  elif [ -n "$real_e2e" ]; then
     tp_smoke_begin "$TP_PLATFORM" \
       "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER"
   else
     tp_smoke_begin "$TP_PLATFORM" \
       "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
       "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER" "$INPUT_OK_MARKER"
+  fi
+
+  # In claude mode, extract the real Claude Code OAuth token from the macOS keychain
+  # and export it: the isolated daemon runs under a temp HOME with no credentials of
+  # its own, so this env is the ONLY auth vector for the spawned claude. The keychain
+  # service is `Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>`.
+  if [ -n "$claude_e2e" ]; then
+    require claude
+    local real_cfg svc
+    real_cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+    svc="Claude Code-credentials-$(printf %s "$real_cfg" | shasum -a 256 | cut -c1-8)"
+    local tok
+    tok="$(security find-generic-password -s "$svc" -w 2>/dev/null \
+      | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["claudeAiOauth"]["accessToken"])' 2>/dev/null || true)"
+    [ -n "$tok" ] \
+      || die "E2E_CLAUDE FAIL — could not extract OAuth token from keychain service '$svc' (is Claude Code logged in for CLAUDE_CONFIG_DIR=$real_cfg?)"
+    export CLAUDE_CODE_OAUTH_TOKEN="$tok"
+    log "extracted Claude OAuth token from keychain (service '$svc') — injecting into isolated daemon"
   fi
   local udid; udid="$(cmd_boot)"
   local app; app="$(ios_app_path)"
@@ -661,9 +693,18 @@ cmd_smoke_ios() {
   # real id so the did= / daemon= marker assertions below match.
   local link
   if [ -n "$real_e2e" ]; then
+    # Pass the claude flag through a global the function reads (it spawns a real
+    # claude session post-pairing and reports its sid back via $REAL_SESSION_SID).
+    REAL_SPAWN_CLAUDE="$claude_e2e"
     start_real_daemon_relay
     link="$REAL_PAIR_LINK"
     SMOKE_DAEMON_ID="$REAL_DAEMON_ID"
+    # In claude mode the spawned session has a fixed sid; the M4 (TP_SESSION_OK)
+    # assertion keys on $SMOKE_SESSION_ID, so re-point it at the real session sid.
+    if [ -n "$claude_e2e" ] && [ -n "${REAL_SESSION_SID:-}" ]; then
+      SMOKE_SESSION_ID="$REAL_SESSION_SID"
+      log "claude session sid=$SMOKE_SESSION_ID (M4 assertion re-pointed)"
+    fi
   else
     start_loopback
     link="$(smoke_pair_link "$SMOKE_DAEMON_ID" "ws://localhost:$RELAY_LOOPBACK_PORT" "golden")"
@@ -685,6 +726,9 @@ cmd_smoke_ios() {
   # OK in the same window — see TP_RELAY_AUTH_FAIL from a dead prior relay).
   local snap_secs=60 poll_iters=60
   if [ -n "$real_e2e" ]; then snap_secs=240; poll_iters=120; fi
+  # Real claude cold-start + first Stop hook can take 10s+ on top of the daemon
+  # connect latency; give the claude path a wider window than M0–M2-only real mode.
+  if [ -n "$claude_e2e" ]; then snap_secs=300; poll_iters=150; fi
   # Prefer an OK line; fall back to the last OK|FAIL only if no OK is present.
   prefer_ok() { # <text> <ok-marker> <fail-marker>
     local ok; ok="$(printf '%s\n' "$1" | grep -Eo "$2[^\"]*" | tail -n1 || true)"
@@ -704,7 +748,14 @@ cmd_smoke_ios() {
     frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
     session_line="$(printf '%s\n' "$out" | grep -Eo "${SESSION_OK_MARKER}[^\"]*|${SESSION_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
     input_line="$(printf '%s\n' "$out" | grep -Eo "${INPUT_OK_MARKER}[^\"]*|${INPUT_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    if [ -n "$real_e2e" ]; then
+    if [ -n "$claude_e2e" ]; then
+      # Real daemon + a real claude print-mode session: reach M4 (boot + core +
+      # pairing + relay-auth + kx + first-frame + session-render). The spawned
+      # session gives the daemon a non-empty hello to push, so kx/frame/session
+      # now flow (unlike M0–M2-only real mode). No M5 here — input round-trip
+      # needs an interactive session (follow-up PR).
+      if [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ]; then break; fi
+    elif [ -n "$real_e2e" ]; then
       # Real daemon: deterministically reaches M2 (boot + core + pairing +
       # relay-auth against a genuine tp daemon that self-registered with a real
       # relay). M3 (kx) is best-effort here — with no pre-seeded session the daemon
@@ -743,15 +794,17 @@ cmd_smoke_ios() {
     *) die "SMOKE FAIL — relay auth failed on-device: $auth_line" ;;
   esac
 
-  # ── REAL daemon E2E stops here (M0–M2). The genuine daemon→relay→app AUTH pipeline
-  # is proven end to end: boot + tp-core FFI + pairing ingest + relay frontend-auth
-  # all succeeded against a real `tp` daemon that self-registered with a REAL relay
-  # (the daemon is the relay's only outbound client; the app reaches it only through
-  # the relay; the relay forwards ciphertext only — all invariants intact). kx /
-  # frame / session / input are out of scope here: the real daemon has no pre-seeded
-  # session to push and a real daemon's kx-pubkey broadcast can race the frontend's
-  # own kx completion. Full M3–M5 → loopback mode, or a spawned session + `claude`.
-  if [ -n "$real_e2e" ]; then
+  # ── REAL daemon E2E (NO spawned session) stops here (M0–M2). The genuine
+  # daemon→relay→app AUTH pipeline is proven end to end: boot + tp-core FFI +
+  # pairing ingest + relay frontend-auth all succeeded against a real `tp` daemon
+  # that self-registered with a REAL relay (the daemon is the relay's only outbound
+  # client; the app reaches it only through the relay; the relay forwards ciphertext
+  # only — all invariants intact). kx / frame / session are out of scope WITHOUT a
+  # session: the real daemon has no pre-seeded session to push and its kx-pubkey
+  # broadcast can race the frontend's own kx completion. Full M3–M4 → claude mode
+  # (TP_E2E_CLAUDE, which spawns a real session and falls through below); full M5 →
+  # loopback mode or an interactive claude session.
+  if [ -n "$real_e2e" ] && [ -z "$claude_e2e" ]; then
     capture_sim_screenshot "$udid" "$TP_PLATFORM"
     tp_smoke_pass
     log "✅ REAL-DAEMON E2E PASS — boot + core + pairing + relay-auth against a real tp daemon (id=$SMOKE_DAEMON_ID) + real relay (M3–M5 out of scope headless)"
@@ -795,6 +848,21 @@ cmd_smoke_ios() {
     "$SESSION_OK_MARKER"*) die "SMOKE FAIL — session render wrong sid: $session_line (want sid=$SMOKE_SESSION_ID)" ;;
     *) die "SMOKE FAIL — session attach/backfill failed on-device: $session_line" ;;
   esac
+
+  # ── REAL claude E2E (TP_E2E_CLAUDE) stops here (M0–M4). A real `claude -p` session
+  # was spawned against the isolated daemon post-pairing; the app auto-attached and
+  # rendered the real Stop hook's last_assistant_message (events>=1 above — a genuine
+  # non-empty assistant response flowed daemon→relay→app and rendered as a ChatItem).
+  # That is the headline dogfood proof. M5 (input round-trip) needs an INTERACTIVE
+  # claude (print mode exits before the probe arrives) — a separate follow-up. The
+  # loopback /health clients>=2 check below is loopback-only ($RELAY_LOOPBACK_PORT is
+  # not bound in real mode), so skip it too.
+  if [ -n "$claude_e2e" ]; then
+    capture_sim_screenshot "$udid" "$TP_PLATFORM"
+    tp_smoke_pass
+    log "✅ REAL-CLAUDE E2E PASS — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 input round-trip out of scope for print mode)"
+    return 0
+  fi
 
   # M5 assertion — input round-trip: the app auto-sent an in.chat probe, the
   # loopback daemon echoed it back as an io record, and the app saw the probe
@@ -1341,6 +1409,10 @@ start_loopback() {
 REAL_PAIR_LINK=""
 REAL_DAEMON_ID=""
 REAL_E2E_DIR=""
+REAL_SESSION_SID=""
+# Set by cmd_smoke_ios before calling us: "yes" → spawn a real claude session
+# (TP_E2E_CLAUDE). Empty → M0–M2-only real-daemon mode (unchanged behavior).
+REAL_SPAWN_CLAUDE=""
 start_real_daemon_relay() {
   require bun
   local script="$REPO_ROOT/scripts/real-daemon-pair.ts"
@@ -1351,16 +1423,29 @@ start_real_daemon_relay() {
   REAL_E2E_DIR="$(mktemp -d -t tp-e2e.XXXXXX)"
   tp_cleanup_add "rm -rf '$REAL_E2E_DIR' 2>/dev/null || true"
 
+  # In claude mode, pass --spawn-claude so the holder spawns a real `claude -p`
+  # session after pairing. The fixed sid lets the M4 assertion key on it; the cwd is
+  # a scratch dir under the isolated HOME. CLAUDE_CODE_OAUTH_TOKEN was exported by
+  # cmd_smoke_ios (from the keychain) and is inherited here.
+  local spawn_args=() claude_sid=""
+  if [ -n "$REAL_SPAWN_CLAUDE" ]; then
+    spawn_args+=("--spawn-claude")
+    claude_sid="real-smoke-sess"
+  fi
+
   local rp_out; rp_out="$(mktemp -t tp-realpair.XXXXXX)"
-  log "starting REAL daemon+relay (isolated under $REAL_E2E_DIR)"
+  log "starting REAL daemon+relay (isolated under $REAL_E2E_DIR)${REAL_SPAWN_CLAUDE:+ + real claude session}"
   # Isolate via XDG_* (socket/store/config) + HOME so nothing leaks to ~/.
+  # TP_E2E_CLAUDE_* configure the spawned session (sid/cwd); inherited by the script.
   XDG_RUNTIME_DIR="$REAL_E2E_DIR/run" \
   XDG_DATA_HOME="$REAL_E2E_DIR/data" \
   XDG_CONFIG_HOME="$REAL_E2E_DIR/cfg" \
   HOME="$REAL_E2E_DIR/home" \
-  bun run "$script" >"$rp_out" 2>>"$rp_out" &
+  TP_E2E_CLAUDE_SID="$claude_sid" \
+  TP_E2E_CLAUDE_CWD="$REAL_E2E_DIR/home/work" \
+  bun run "$script" "${spawn_args[@]}" >"$rp_out" 2>>"$rp_out" &
   local rp_pid=$!
-  # SIGTERM the holder on cleanup (it tears down the daemon + relay it spawned).
+  # SIGTERM the holder on cleanup (it tears down the daemon + relay + claude runner).
   tp_cleanup_add "kill '$rp_pid' 2>/dev/null || true; rm -f '$rp_out' 2>/dev/null || true"
 
   # Wait for the REAL_PAIR_URL line (the daemon authed to the relay and pair.begin
@@ -1378,7 +1463,21 @@ start_real_daemon_relay() {
   # The daemon logs its id as "daemon daemon-<base36>"; capture it for did= asserts.
   REAL_DAEMON_ID="$(grep -Eo 'daemon daemon-[a-z0-9]+' "$rp_out" 2>/dev/null | tail -n1 | awk '{print $2}' || true)"
   [ -n "$REAL_DAEMON_ID" ] || die "E2E_REAL FAIL — could not determine real daemon id from: $(cat "$rp_out")"
-  log "REAL daemon paired — id=$REAL_DAEMON_ID, link acquired"
+
+  # In claude mode, the spawned session uses a FIXED sid ($claude_sid, passed to the
+  # holder via TP_E2E_CLAUDE_SID) so the M4 assertion can key on it. We do NOT poll
+  # for REAL_SESSION_SID= here: the holder spawns claude only AFTER pair.completed,
+  # which fires after the APP finishes kx — and the app is launched by cmd_smoke_ios
+  # *after* this function returns. Blocking on the sid here would deadlock (session
+  # can't exist until the app pairs, app can't pair until we return). The sid is
+  # deterministic, so just record it; the runner spawn + REAL_SESSION_SID= emission
+  # happen later in the holder, and the marker poll observes the resulting session.
+  if [ -n "$REAL_SPAWN_CLAUDE" ]; then
+    REAL_SESSION_SID="$claude_sid"
+    log "REAL daemon paired — id=$REAL_DAEMON_ID, session sid=$REAL_SESSION_SID (fixed; spawn deferred to post-pairing), link acquired"
+  else
+    log "REAL daemon paired — id=$REAL_DAEMON_ID, link acquired"
+  fi
 }
 
 # ── cmd_all — 5-platform smoke matrix ───────────────────────────────────────────

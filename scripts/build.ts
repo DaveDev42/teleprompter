@@ -2,29 +2,35 @@
  * Multi-platform build script for the `tp` CLI binary.
  *
  * Usage:
- *   bun run scripts/build.ts              # Build Bun tp for current platform
- *   bun run scripts/build.ts --all        # Build for all platforms
- *   bun run scripts/build.ts --target X   # Build for specific target
- *   bun run scripts/build.ts --bundle     # (tranche 4d) Build bin/tp (Rust) +
+ *   bun run scripts/build.ts              # Build Bun tpd for current platform (dev fallback)
+ *   bun run scripts/build.ts --all        # Build Bun tpd for all platforms
+ *   bun run scripts/build.ts --target X   # Build Bun tpd for specific target
+ *   bun run scripts/build.ts --bundle     # THE release/CI path: build bin/tp (Rust) +
  *                                         # libexec/tp/tpd (Bun SEA) + assemble
  *                                         # per-platform tarballs in dist/bundles/
  *
  * Targets: darwin-arm64, darwin-x64, linux-x64, linux-arm64
  *
- * # Packaging layout (tranche 4d — local build only, NOT yet the CI default)
+ * # Packaging layout (--bundle — the release and CI path as of #5 hard-swap)
  *
  * When `--bundle` is passed, build.ts emits per-platform tarballs with the tree:
  *   bin/tp              ← Rust CLI binary (cargo build --release for each target)
  *   libexec/tp/tpd      ← Bun SEA (bun build --compile apps/cli/src/index.ts)
  *
- * These tarballs are the target for the #5 release-path flip (cargo build in CI,
- * Homebrew formula update, install.sh tarball detection). Until #5, the live
- * release pipeline (release.yml) still uses the Bun single-binary path produced
- * by the unguarded `--all` / `--target` / bare-local builds below.
+ * These tarballs are the release assets consumed by Homebrew and install.sh.
+ * The live release pipeline (release.yml) uses `--bundle` for every target.
+ * CI (`build-cli` job) also uses `--bundle --target bun-linux-x64`.
  *
- * The dev fallback for `locate_bun_blob()` (ADR-0003 tranche 4d) continues to
- * resolve `dist/tp` (the plain Bun build) so local dev (no --bundle) keeps
- * working without a tarball install.
+ * Each target builds on its native runner in CI:
+ *   darwin-arm64  → macos-latest (arm64)
+ *   linux-x64     → ubuntu-latest (x86_64)
+ *   linux-arm64   → ubuntu-24.04-arm (native ARM)
+ * `rustup target add <rust-target>` is run in CI before the build.
+ *
+ * The bare-local Bun `dist/tp` path (no --bundle) is preserved as the
+ * `locate_bun_blob()` dev fallback (ADR-0003 tranche 4d) so local dev without
+ * a full tarball install keeps working. The `--all` / `--target` bare paths
+ * are kept for compatibility but are no longer used by release.yml.
  */
 
 import { $ } from "bun";
@@ -71,8 +77,9 @@ mkdirSync(OUT_DIR, { recursive: true });
 //                     dominant bottleneck (e.g. for `tp status` polling).
 const COMMON_FLAGS = ["--compile", "--minify"] as const;
 
-// ─── Tarball bundle assembly (tranche 4d, --bundle flag) ─────────────────────
-// This is LOCAL only — the CI release path stays Bun single-binary until #5.
+// ─── Tarball bundle assembly (--bundle flag) ──────────────────────────────────
+// This is THE release/CI path as of #5 hard-swap (ADR-0003 Amendment 2).
+// Each target builds on its native runner; no cross-linker is needed.
 //
 // Rust cross-compilation targets (matching bun target names):
 const RUST_TARGETS: Record<string, string> = {
@@ -106,10 +113,11 @@ async function buildBundle(target: Target): Promise<void> {
   console.log(
     `  [bundle] Building Rust tp (${rustTarget}) → ${join(binDir, "tp")}`,
   );
-  // NOTE: cross-compilation requires the target to be installed:
-  //   rustup target add <rustTarget>
-  // On Linux CI the x86_64 native build doesn't need a cross-linker.
-  // darwin targets from macOS don't need cross-compilers either.
+  // Each target builds on its native runner in CI (no cross-linker):
+  //   darwin-arm64  → macos-latest (arm64):      rustup target add aarch64-apple-darwin
+  //   linux-x64     → ubuntu-latest (x86_64):    rustup target add x86_64-unknown-linux-gnu
+  //   linux-arm64   → ubuntu-24.04-arm (native): rustup target add aarch64-unknown-linux-gnu
+  // rustup target add <rustTarget> is run in CI before this step.
   await $`cargo build --release --manifest-path rust/Cargo.toml --bin tp --target ${rustTarget}`;
 
   // Copy to bundle
@@ -129,21 +137,18 @@ async function buildBundle(target: Target): Promise<void> {
 
 if (values.bundle) {
   // --bundle: build Rust+Bun tarball for all platforms or a specific target.
-  // LOCAL ONLY — not the live release path until #5.
+  // This is the release/CI path as of #5 hard-swap.
   const bundleTargets = values.target
     ? ([values.target as Target] as Target[])
     : [...TARGETS];
   console.log(
-    `Building tarball bundles for: ${bundleTargets.join(", ")} (--bundle, local only)\n`,
+    `Building tarball bundles for: ${bundleTargets.join(", ")} (--bundle)\n`,
   );
   mkdirSync(join(OUT_DIR, "bundles"), { recursive: true });
   for (const t of bundleTargets) {
     await buildBundle(t);
   }
-  console.log(
-    "\nDone. Tarballs in dist/bundles/\n" +
-      "NOTE: --bundle is local-only; CI still uses Bun single-binary until #5.",
-  );
+  console.log("\nDone. Tarballs in dist/bundles/");
 } else if (values.all) {
   console.log("Building for all platforms...\n");
   for (const target of TARGETS) {

@@ -155,11 +155,20 @@ final class SessionStore: ObservableObject {
         persistSessions()
     }
 
+    /// Which daemon owns `sid`, if any. Used to route a `session.stop` /
+    /// `session.delete` control message to the correct relay client in a
+    /// multi-daemon setup. Returns the first daemon bucket containing the sid
+    /// (a sid is unique to one daemon).
+    func daemonId(for sid: String) -> String? {
+        for (did, bucket) in sessionsByDaemon where bucket[sid] != nil {
+            return did
+        }
+        return nil
+    }
+
     /// Remove one session from local state. Also clears its chat/terminal data
     /// and removes the sid from every daemon bucket so that the next
     /// `replaceSessionsForDaemon` call (for any daemon) does not re-insert it.
-    /// NOTE: This is local-only — there is no `session.delete` relay message.
-    /// The daemon-side delete must be triggered separately (CLI or future relay op).
     func removeSession(_ sid: String) {
         sessions.removeValue(forKey: sid)
         chatItems.removeValue(forKey: sid)

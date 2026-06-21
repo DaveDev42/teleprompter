@@ -92,6 +92,23 @@ struct SessionDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        // M1: Stop control — kills the Claude process for a running session.
+        // Shown only when the session is running and a PairingViewModel is
+        // available to route the `session.stop` relay control message. The new
+        // state ("stopped") arrives via the daemon's `state` broadcast.
+        .toolbar {
+            if let pairings, sessionStore.sessions[sid]?.state == "running" {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(role: .destructive) {
+                        pairings.stopSession(sid, from: sessionStore)
+                    } label: {
+                        Label("Stop", systemImage: "stop.circle")
+                    }
+                    .disabled(!daemonOnline)
+                    .accessibilityIdentifier("session-stop")
+                }
+            }
+        }
         // FIX #5: gate macOS session commands — a detail screen is on-screen.
         // Depth-counted (detailAppeared/Disappeared) so the appear-before-
         // disappear order during a ⌘[/⌘] session swap can't strand the gate.

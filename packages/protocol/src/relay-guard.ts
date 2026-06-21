@@ -29,6 +29,7 @@ import { RECORD_KIND_SET, type RecordKind } from "./types/record";
 import type {
   SessionAttach,
   SessionCreate,
+  SessionDelete,
   SessionDetach,
   SessionExport,
   SessionHello,
@@ -56,6 +57,7 @@ export type RelayControlMessage =
   | SessionCreate
   | SessionStop
   | SessionRestart
+  | SessionDelete
   | SessionExport
   | SessionWorktreeList
   | SessionWorktreeCreate
@@ -164,6 +166,11 @@ export function parseRelayControlMessage(
     case "session.restart": {
       if (!isString(raw["sid"])) return null;
       return { t: "session.restart", sid: raw["sid"] } satisfies SessionRestart;
+    }
+
+    case "session.delete": {
+      if (!isString(raw["sid"])) return null;
+      return { t: "session.delete", sid: raw["sid"] } satisfies SessionDelete;
     }
 
     case "session.export": {

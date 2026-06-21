@@ -204,6 +204,16 @@ describe("parseRelayControlMessage", () => {
       expect(parseRelayControlMessage({ t: "session.stop" })).toBeNull();
     });
 
+    test("session.delete requires sid", () => {
+      expect(
+        parseRelayControlMessage({ t: "session.delete", sid: "s" }),
+      ).toEqual({ t: "session.delete", sid: "s" });
+      expect(parseRelayControlMessage({ t: "session.delete" })).toBeNull();
+      expect(
+        parseRelayControlMessage({ t: "session.delete", sid: 7 }),
+      ).toBeNull();
+    });
+
     test("session.export validates nested fields", () => {
       expect(
         parseRelayControlMessage({

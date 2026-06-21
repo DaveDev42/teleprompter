@@ -66,6 +66,8 @@ macOS 는 `log stream` 라이브 캡처, visionOS/watchOS 는 `simctl spawn … 
 | `TP_JSON=1` | smoke 가 마지막 줄에 single-line JSON 결과 emit (`{platform,markers,passed,elapsed_s}`) — 텍스트 출력 불변 |
 | `TP_ARTIFACT_DIR` | 스크린샷/비디오 출력 디렉터리 (기본 `/tmp/tp-artifacts`) |
 | `TP_E2E_REAL=1` | 가짜 loopback 대신 **실 `tp` daemon+relay** 로 E2E (격리 XDG 디렉터리, 헤드리스 페어링, iOS 전용, M0–M2 범위) |
+| `TP_E2E_CLAUDE=1` | `TP_E2E_REAL` 의 strict superset — 페어링 후 **실 `claude -p` 세션**을 격리 daemon 에 spawn (M0–M4 범위, 실 Stop `last_assistant_message` 렌더). `claude` PATH 필수, OAuth 토큰을 keychain 에서 추출해 주입. **로컬 전용 (절대 CI 아님)** |
+| `TP_E2E_CLAUDE_SID` / `TP_E2E_CLAUDE_CWD` / `TP_E2E_CLAUDE_PROMPT` | claude 세션 sid(기본 `real-smoke-sess`)/cwd(기본 격리 HOME 아래 `work`)/프롬프트(기본 `Reply with exactly: PONG`) 오버라이드 |
 
 ## 서브커맨드
 
@@ -133,6 +135,50 @@ daemonId 로 재설정한다(did=/daemon= 어서션 매칭).
 >
 > **아키텍처 불변식 전부 유지**: app→relay 전용, daemon outbound-WS only(실 daemon 이 `relay.register` 로
 > self-register → relay 의 유일 클라이언트), relay ciphertext-only.
+
+## 실 claude E2E (`TP_E2E_CLAUDE=1`, iOS Simulator) — 헤드라인 dogfood 증명
+
+`TP_E2E_REAL` 의 **strict superset**. `real-daemon-pair.ts` 가 `--spawn-claude` 로 **실 `claude -p`
+세션**을 같은 격리 daemon 에 **페어링 *전*** spawn 한다 → 앱이 hello 에서 그 세션을 받아 auto-attach →
+**실 Stop 훅의 `last_assistant_message` 를 Chat 에 렌더**한다. 이게 M3'(`TP_FRAME_OK sessions=1`) +
+M4(`TP_SESSION_OK events>=1`)를 만족시키며, "실 페어링 → 실 격리 daemon → 실 claude → 실 Stop → 복호 →
+ChatItem 렌더" 전 체인을 증명한다 (loopback 의 합성 Stop 이 아니라 진짜 모델 응답).
+
+- **세션 생성 경로 = `tp run --socket-path <격리 socket>`** (NOT `session.create`). `session.create`
+  는 relay control 메시지라 `claudeArgs`/`env` 필드가 없어서 claude 인자를 못 넘긴다. `real-daemon-pair.ts`
+  의 `spawnClaudeSession()` 이 `getSocketPath()` 로 격리 daemon socket 을 잡아 직접 `tp run` 한다 — 그
+  Runner 가 hello → daemon 이 세션 등록(+ store 영속) + relay 로 `state` 브로드캐스트.
+- **세션 spawn 은 페어링 *전* (race-free 시퀀싱)**: print 모드 `claude -p` 는 ~3s 안에 Stop 후 **종료**한다.
+  세션을 `pair.completed` *뒤*에 spawn 하면 앱의 첫 hello 가 빈 store 를 봐서 `sessions=0` 이 되고(M3' fail),
+  print 세션은 live `state` 브로드캐스트가 닿기 전에 이미 죽어버린다. 그래서 `real-daemon-pair.ts` 는 daemon
+  IPC 소켓이 준비되는 즉시(`waitForSocket` 직후, step 3b) claude 를 spawn 해 페어링과 **동시 진행**시킨다 —
+  세션이 store 에 등록된 뒤 앱이 페어링(~30s)하므로 hello 가 `sessions=1`(stopped 세션도 `listSessions()` 에
+  포함, store.ts:231 무필터)을 반환한다. 페어링은 세션에 의존하지 않고 `tp run` 은 relay 없이 daemon IPC 로
+  직접 붙으므로 둘은 독립이다.
+- **요구된 production fix 2 건 (이 E2E 가 처음 노출)**: (1) **daemon kx 재브로드캐스트** —
+  `relay-client.ts handleKxFrame` 이 frontend 의 first-join 시 daemon pubkey 를 재브로드캐스트(릴레이는 kx
+  프레임을 캐시하지 않아 auth-time 브로드캐스트를 놓친 late-join 앱이 영영 키를 못 받던 레이스; M3 unblock).
+  (2) **app subscribe-on-broadcast** — `RelayClient.swift onState` 가 resume 전에 `relay.sub` 를 보냄
+  (브로드캐스트로 발견한 세션에 sub 없이 resume 하면 릴레이가 batch/rec 를 drop → chat item 0 → M4 영영 fail).
+- **Auth = keychain 토큰 추출**: 격리 HOME 엔 자격증명이 없으므로, `cmd_smoke_ios` 가
+  `security find-generic-password -s "Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>" -w` 로
+  실 OAuth 토큰을 뽑아 `CLAUDE_CODE_OAUTH_TOKEN` env 로 격리 daemon 의 runner 에 주입한다(`PtyBun.spawn`
+  은 자체 `env:` 가 없어 그대로 상속). **`CLAUDE_CODE_SIMPLE=1` 절대 금지** — simple 모드는 훅을 건너뛰어
+  Stop 이 안 떠서 M4 불가. (대안: `CLAUDE_CONFIG_DIR` 를 실 config 로 가리키면 keychain 을 native 로 찾지만
+  격리가 약해진다 — 토큰 추출 경로 권장.)
+- **결정론 정직성**: M4 어서션은 `events>=1` (실 Stop, 비어있지 않은 `last_assistant_message` 가 E2E 로
+  흘렀음)만 보고 **정확한 텍스트(`PONG`)는 안 본다** — 모델이 재포맷할 수 있어 brittle. load-bearing
+  증명은 "실 Stop 이 흘러 ChatItem 으로 렌더됐다".
+
+> **정직한 범위 — M0–M4 (7마커, M5 제외)**: print 모드 `claude -p` 는 한 응답 후 **종료**하므로 Stop
+> (M4)은 결정론적이지만 입력 echo(M5)는 불가 — print 모드는 입력이 도착하기 전에 죽는다. **M5(입력 왕복)는
+> 별도 follow-up PR** 에서 **인터랙티브** claude 세션(라이브 PTY 가 stdin 을 echo)으로 검증한다. M4/M5 는
+> 단일 세션에서 상호배타적이라 두 세션으로 나눈다.
+>
+> **절대 GitHub CI 에서 안 돈다**: claude 인증이 ci.yml 에 안 엮여 있고(토큰은 `claude.yml` 봇 전용),
+> 비결정론적(행 가능)이며, API 크레딧을 쓰고, 토큰 추출이 **개발자 macOS Keychain** 을 읽는다 — hosted
+> runner 에 없다. **로컬 pre-merge 게이트 전용** (`TP_E2E_CLAUDE=1 scripts/ios.sh smoke`, `claude` PATH 필수).
+> CI 는 결정론 검증만: `swift-build`(컴파일) + 선택적 `swift-smoke-ios`(loopback 가짜 daemon).
 
 ## 공식 Apple Xcode MCP (`mcpbridge`) — 인터랙티브 전용
 

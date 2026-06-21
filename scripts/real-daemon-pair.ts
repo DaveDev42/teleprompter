@@ -21,10 +21,18 @@
 //   XDG_RUNTIME_DIR  → daemon.sock dir         (socket-path.ts)
 //   XDG_DATA_HOME    → sessions/vault store     (store/config.ts)
 //   XDG_CONFIG_HOME  → pair.lock / hint file    (cli/lib/paths.ts)
+//
+// --spawn-claude (TP_E2E_CLAUDE=1): after pairing completes, spawn a REAL claude
+// session against the SAME isolated daemon via `tp run --socket-path <isolated>`
+// (NOT session.create — that relay control message carries no claudeArgs/env). The
+// runner connects to the isolated daemon's IPC socket, sends hello → the daemon
+// registers the session and broadcasts `state` over the relay → the app auto-
+// attaches and renders the Stop hook's last_assistant_message. Drives M3/M3'/M4.
+// Auth rides in via CLAUDE_CODE_OAUTH_TOKEN, inherited from the harness env.
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { spawn } from "bun";
+import { type Subprocess, spawn } from "bun";
 
 import { connectIpcAsClient } from "../apps/cli/src/lib/ipc-client";
 import { getSocketPath } from "../packages/protocol/src/socket-path";
@@ -94,6 +102,55 @@ function parseRelayUrlArg(): string | undefined {
   return undefined;
 }
 
+// Spawn a real claude session against the ALREADY-PAIRED isolated daemon by
+// running `tp run --socket-path <isolated>`. The Runner connects to that exact
+// socket (the isolated daemon, never the user's dogfood daemon), sends `hello`,
+// and the daemon spawns claude in a PTY. We use print mode (`-p <prompt>`) so the
+// Stop hook fires deterministically with a populated last_assistant_message → M4.
+//   sid    fixed via TP_E2E_CLAUDE_SID so the harness can assert TP_SESSION_OK
+//          sid=<that> without knowing a dynamically generated id.
+//   cwd    a writable scratch dir under the isolated HOME.
+//   auth   CLAUDE_CODE_OAUTH_TOKEN is inherited from our env (the harness extracts
+//          it from the macOS keychain and exports it before invoking us). The
+//          isolated HOME has no credentials of its own, so this env is the only
+//          auth vector. Never set CLAUDE_CODE_SIMPLE=1 — simple mode skips hooks,
+//          so the Stop event never fires and M4 is impossible.
+function spawnClaudeSession(socketPath: string): Subprocess {
+  const sid = process.env["TP_E2E_CLAUDE_SID"] ?? "real-smoke-sess";
+  const cwd =
+    process.env["TP_E2E_CLAUDE_CWD"] ?? process.env["HOME"] ?? REPO_ROOT;
+  const prompt =
+    process.env["TP_E2E_CLAUDE_PROMPT"] ?? "Reply with exactly: PONG";
+  mkdirSync(cwd, { recursive: true });
+  log(`spawning real claude session sid=${sid} cwd=${cwd} (print mode)`);
+  const runner = spawn({
+    cmd: [
+      ...CLI,
+      "run",
+      "--sid",
+      sid,
+      "--cwd",
+      cwd,
+      "--socket-path",
+      socketPath,
+      "--",
+      "-p",
+      prompt,
+      "--dangerously-skip-permissions",
+    ],
+    // Inherit the full env (XDG_*, HOME, CLAUDE_CODE_OAUTH_TOKEN). The Runner's
+    // PtyBun.spawn passes no `env:` of its own, so claude sees exactly this env.
+    env: { ...process.env },
+    stdout: "ignore",
+    stderr: "ignore",
+    stdin: "ignore",
+  });
+  // Emit the sid so the harness can override SMOKE_SESSION_ID for the M4 assertion.
+  process.stdout.write(`REAL_SESSION_SID=${sid}\n`);
+  log(`real claude runner spawned (pid ${runner.pid})`);
+  return runner;
+}
+
 async function main(): Promise<void> {
   ensureIsolationDirs();
 
@@ -124,7 +181,16 @@ async function main(): Promise<void> {
   });
   log(`daemon spawned (pid ${daemon.pid})`);
 
+  // Holds the optional real-claude runner (--spawn-claude). Declared before
+  // shutdown() so the signal handlers can tear it down too — otherwise the runner
+  // (and its claude PTY) would outlive the daemon+relay on SIGTERM.
+  let claudeRunner: Subprocess | undefined;
   const shutdown = (): never => {
+    try {
+      claudeRunner?.kill();
+    } catch {
+      /* already gone */
+    }
     try {
       daemon.kill();
     } catch {
@@ -141,6 +207,23 @@ async function main(): Promise<void> {
   await waitForSocket(socketPath);
   const ipc = await connectIpcAsClient(socketPath);
   log(`IPC connected at ${socketPath}`);
+
+  // 3b. Spawn the real claude session NOW — before pairing — so the daemon has
+  //     registered (and stored) the session by the time the app sends its `hello`.
+  //     A `claude -p` print session ends within a few seconds, but a stopped
+  //     session still appears in `store.listSessions()` (no state filter), so the
+  //     app's hello returns sessions>=1 (drives TP_FRAME_OK) and auto-attach →
+  //     resume → batch replays the persisted Stop record (drives TP_SESSION_OK).
+  //     Spawning post-`pair.completed` (the old order) raced the app's hello: the
+  //     store was still empty at pairing time, so the first hello carried
+  //     sessions=0 and the print session had already ended before any live `state`
+  //     broadcast could backfill it. Pairing does NOT depend on the session, and
+  //     `tp run` connects to the daemon IPC directly (no relay), so the two are
+  //     independent — we kick claude off here and let it run concurrently with the
+  //     pairing handshake below.
+  if (process.argv.includes("--spawn-claude")) {
+    claudeRunner = spawnClaudeSession(socketPath);
+  }
 
   // 4. pair.begin → print URL on pair.begin.ok → resolve on pair.completed.
   await new Promise<void>((resolve, reject) => {
@@ -182,7 +265,10 @@ async function main(): Promise<void> {
     die(err instanceof Error ? err.message : String(err));
   });
 
-  // 5. Stay alive — the relay + daemon must keep serving the app until the harness
+  // 5. (claude session already spawned at step 3b — before pairing — so the app's
+  //    hello already lists it. Nothing to do here.)
+
+  // 6. Stay alive — the relay + daemon must keep serving the app until the harness
   //    kills us. (The smoke run injects REAL_PAIR_URL and polls the app's markers.)
   log("paired; holding relay + daemon open until SIGTERM");
   await new Promise<never>(() => {

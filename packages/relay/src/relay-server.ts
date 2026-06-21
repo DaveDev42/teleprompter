@@ -1187,10 +1187,18 @@ ${daemons
       return;
     }
 
+    // `subscriptions` is a Set (idempotent), but the `attached` counter below is
+    // NOT — so a duplicate `relay.sub` for an already-subscribed sid must not
+    // double-count. Capture novelty BEFORE the add. (Frontends legitimately
+    // re-subscribe to the same sid: e.g. the app subscribes on attach AND again
+    // in onState when it processes the daemon's `state` reply.) handleClose /
+    // handleUnsubscribe decrement once per sid, so an over-count here would leak
+    // the metric permanently.
+    const isNewSub = !client.subscriptions.has(msg.sid);
     client.subscriptions.add(msg.sid);
 
-    // Track attached frontends per session
-    if (client.role === "frontend") {
+    // Track attached frontends per session (once per distinct subscription).
+    if (isNewSub && client.role === "frontend") {
       const state = this.daemonStates.get(client.daemonId);
       if (state) {
         state.attached.set(msg.sid, (state.attached.get(msg.sid) ?? 0) + 1);

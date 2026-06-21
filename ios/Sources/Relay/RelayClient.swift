@@ -753,15 +753,28 @@ final class RelayClient: NSObject, @unchecked Sendable {
         }
     }
 
-    /// Daemon's reply to `attach`: refresh metadata, then request the full history
-    /// backfill (`resume { c }`) using the store's cursor so we never re-fetch
-    /// records already applied (idempotent on overlap).
+    /// A `state` frame arrives in two cases: (A) the daemon's reply to our own
+    /// `attach` (we already sent `relay.sub` inside `attach`), and (B) the daemon
+    /// *broadcasting* a newly-registered session on `__meta__` to all frontends —
+    /// a session that appeared AFTER we paired (e.g. `tp run` spawned post-pairing).
+    /// In case B we have never subscribed to this sid, so the daemon's `batch`
+    /// reply (and any live `rec` frames) would be dropped by the relay
+    /// (relay routes by `peer.subscriptions.has(sid)`), leaving the session forever
+    /// empty and `TP_SESSION_OK` (which needs ≥1 chat item) never firing.
+    ///
+    /// Fix: always `relay.sub` on this sid before requesting the backfill. The
+    /// subscribe is idempotent on the relay, so this is a no-op in case A and the
+    /// missing piece in case B. Then refresh metadata and request the full history
+    /// backfill (`resume { c }`) from the store's cursor (idempotent on overlap).
     private func onState(_ msg: SessionStateMsg) {
         let store = sessionStore
         let sid = msg.sid
         Task { @MainActor in
             store?.appendState(msg.d)
             let cursor = store?.cursor(for: sid) ?? 0
+            // Ensure the relay routes this session's batch/rec frames back to us
+            // (case B: broadcast for a session we never attached to).
+            self.subscribe(sid, after: cursor)
             self.sendResume(sid: sid, cursor: cursor)
         }
     }

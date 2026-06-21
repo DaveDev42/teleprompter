@@ -42,21 +42,40 @@ extension PairingViewModel {
         }
     }
 
-    // MARK: Delete (local-only)
+    // MARK: Stop
 
-    /// Remove sessions from the local `SessionStore`.
+    /// Ask the daemon to stop (kill the Claude process for) `sid`. The session
+    /// row is kept and transitions to `stopped`; the new state arrives via the
+    /// daemon's `state` broadcast (`onState` → `SessionStore`). Routes to the
+    /// owning daemon's relay client.
+    @MainActor
+    @discardableResult
+    func stopSession(_ sid: String, from sessionStore: SessionStore) -> Bool {
+        let did = sessionStore.daemonId(for: sid)
+        let relayClient = did.flatMap { client(for: $0) } ?? firstClient()
+        return relayClient?.stopSession(sid: sid) ?? false
+    }
+
+    // MARK: Delete
+
+    /// Request daemon-side deletion of `sids`, then remove them from the local
+    /// `SessionStore`.
     ///
-    /// **This is a local-only operation.** The relay protocol does not expose
-    /// a `session.delete` control message (`relay-guard.ts` case list has
-    /// `session.create` / `session.stop` / `session.restart` but NOT
-    /// `session.delete`). To delete on the daemon use the CLI:
-    /// `tp session delete <sid>`.
-    ///
-    /// TODO(sessions-crud): add `session.delete` to the relay control protocol
-    /// (relay-guard.ts + parseRelayControlMessage + command-dispatcher handling)
-    /// so the app can request daemon-side deletion.
+    /// Each sid is routed to its owning daemon's relay client as a
+    /// `session.delete` control message (the relay-plane sibling of the CLI's
+    /// `tp session delete <sid>`). The daemon kills the runner if running, drops
+    /// the store row, and replies `session.delete.ok`/`err` on this frontend's
+    /// peer channel. We optimistically remove the local row immediately (matching
+    /// the snappy `createSession` pattern that relies on the daemon's async push);
+    /// the next `hello` is authoritative, and the deleted row stays gone because
+    /// the daemon no longer reports it.
     @MainActor
     func deleteSessions(_ sids: [String], from sessionStore: SessionStore) {
+        for sid in sids {
+            let did = sessionStore.daemonId(for: sid)
+            let relayClient = did.flatMap { client(for: $0) } ?? firstClient()
+            relayClient?.deleteSession(sid: sid)
+        }
         sessionStore.removeSessions(sids)
     }
 }

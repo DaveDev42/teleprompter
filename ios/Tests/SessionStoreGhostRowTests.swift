@@ -171,6 +171,20 @@ final class SessionStoreGhostRowTests: XCTestCase {
         XCTAssertEqual(store.sessions.count, 2)
     }
 
+    // MARK: - daemonId(for:) routing lookup (Task #93 M1/M2)
+
+    /// `daemonId(for:)` returns the owning daemon for a sid, used to route
+    /// `session.stop` / `session.delete` to the correct relay client.
+    func testDaemonIdForSidResolvesOwningDaemon() {
+        let store = SessionStore()
+        store.replaceSessionsForDaemon(daemonId: daemonA, sessions: [meta(sid: "s1")])
+        store.replaceSessionsForDaemon(daemonId: daemonB, sessions: [meta(sid: "s2")])
+
+        XCTAssertEqual(store.daemonId(for: "s1"), daemonA)
+        XCTAssertEqual(store.daemonId(for: "s2"), daemonB)
+        XCTAssertNil(store.daemonId(for: "missing"), "unknown sid has no owner")
+    }
+
     // MARK: - Backward compatibility: upsertSessions / appendState still work
 
     /// `upsertSessions` still merges (for `state` frame updates) without breaking

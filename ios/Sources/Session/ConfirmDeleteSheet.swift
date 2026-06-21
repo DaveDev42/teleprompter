@@ -3,9 +3,10 @@ import SwiftUI
 /// Confirmation sheet shown before deleting one or more sessions.
 ///
 /// Lists up to 5 affected sessions by their last cwd path component.
-/// The delete is **local-only** today (relay has no `session.delete`; see
-/// `PairingViewModel.deleteSessions` for the TODO). A footer note informs
-/// the user that the daemon still has the data until `tp session delete` is run.
+/// The delete now requests **daemon-side deletion** over the relay
+/// (`session.delete`; see `PairingViewModel.deleteSessions`) and removes the
+/// local row. A running session's Claude process is killed as part of the
+/// delete, so the footer warns about that.
 struct ConfirmDeleteSheet: View {
     let sessions: [SessionMeta]
     let onCancel: () -> Void
@@ -34,7 +35,7 @@ struct ConfirmDeleteSheet: View {
                     Text("Sessions to remove")
                 } footer: {
                     Text(
-                        "Removes from this app's list only. To delete daemon data, run: tp session delete <sid>"
+                        "Deletes the session on the daemon and removes it here. A running session's Claude process is stopped. This can't be undone."
                     )
                     .foregroundStyle(.secondary)
                 }

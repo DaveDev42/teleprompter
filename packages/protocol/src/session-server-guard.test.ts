@@ -312,6 +312,42 @@ describe("parseSessionServerMessage", () => {
     });
   });
 
+  describe("session.delete.ok / session.delete.err", () => {
+    test("accepts delete.ok with wasRunning", () => {
+      expectAccepted({ t: "session.delete.ok", sid: "s", wasRunning: true });
+      expectAccepted({ t: "session.delete.ok", sid: "s", wasRunning: false });
+    });
+    test("accepts delete.err with and without message", () => {
+      expectAccepted({
+        t: "session.delete.err",
+        sid: "s",
+        reason: "not-found",
+      });
+      expectAccepted({
+        t: "session.delete.err",
+        sid: "s",
+        reason: "internal",
+        message: "boom",
+      });
+    });
+    test.each<[string, unknown]>([
+      ["ok missing wasRunning", { t: "session.delete.ok", sid: "s" }],
+      [
+        "ok non-bool wasRunning",
+        { t: "session.delete.ok", sid: "s", wasRunning: 1 },
+      ],
+      ["ok missing sid", { t: "session.delete.ok", wasRunning: true }],
+      ["err missing sid", { t: "session.delete.err", reason: "not-found" }],
+      ["err bad reason", { t: "session.delete.err", sid: "s", reason: "nope" }],
+      [
+        "err non-string message",
+        { t: "session.delete.err", sid: "s", reason: "internal", message: 7 },
+      ],
+    ])("rejects %s", (_l, m) => {
+      expectRejected(m);
+    });
+  });
+
   test("does not carry over extra fields onto the result", () => {
     // The guard reconstructs each object field-by-field, so attacker-supplied
     // extra keys (a spoofed flag, a __proto__ payload) are dropped rather than

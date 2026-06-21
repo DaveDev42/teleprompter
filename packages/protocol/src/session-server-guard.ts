@@ -41,6 +41,8 @@ import { isSessionState } from "./types/session";
 import type {
   SessionBatch,
   SessionCreateOk,
+  SessionDeleteErr,
+  SessionDeleteOk,
   SessionErr,
   SessionExported,
   SessionHelloReply,
@@ -250,6 +252,29 @@ export function parseSessionServerMessage(
         t: "session.create.ok",
         sid: raw["sid"],
       } satisfies SessionCreateOk;
+    }
+
+    case "session.delete.ok": {
+      if (!isString(raw["sid"])) return null;
+      if (typeof raw["wasRunning"] !== "boolean") return null;
+      return {
+        t: "session.delete.ok",
+        sid: raw["sid"],
+        wasRunning: raw["wasRunning"],
+      } satisfies SessionDeleteOk;
+    }
+
+    case "session.delete.err": {
+      if (!isString(raw["sid"])) return null;
+      if (raw["reason"] !== "not-found" && raw["reason"] !== "internal")
+        return null;
+      if (!isOptionalString(raw["message"])) return null;
+      return {
+        t: "session.delete.err",
+        sid: raw["sid"],
+        reason: raw["reason"],
+        ...(raw["message"] !== undefined ? { message: raw["message"] } : {}),
+      } satisfies SessionDeleteErr;
     }
 
     default:

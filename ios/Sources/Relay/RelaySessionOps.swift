@@ -39,6 +39,24 @@ struct SessionCreate: Encodable, Equatable {
     }
 }
 
+/// `session.stop` — ask the daemon to kill the running Claude process for `sid`
+/// (the session row is kept; it transitions to `stopped`). Wire shape `{ t, sid }`,
+/// matches `parseRelayControlMessage` case "session.stop" in `relay-guard.ts`.
+struct SessionStop: Encodable, Equatable {
+    let t = "session.stop"
+    let sid: String
+}
+
+/// `session.delete` — ask the daemon to permanently delete `sid` (kills the
+/// runner if running, then drops the store row). Wire shape `{ t, sid }`, matches
+/// `parseRelayControlMessage` case "session.delete" in `relay-guard.ts`. The
+/// daemon replies `session.delete.ok`/`err` to this frontend; other frontends
+/// drop the ghost row on their next `hello`.
+struct SessionDelete: Encodable, Equatable {
+    let t = "session.delete"
+    let sid: String
+}
+
 // MARK: - RelayClient extension
 
 extension RelayClient {
@@ -69,6 +87,33 @@ extension RelayClient {
         let sent = publishControl(msg, on: RelayChannel.meta)
         log.notice(
             "createSession cwd=\(cwd, privacy: .public) cols=\(cols.map(String.init) ?? "nil", privacy: .public) rows=\(rows.map(String.init) ?? "nil", privacy: .public) sent=\(sent, privacy: .public)"
+        )
+        return sent
+    }
+
+    /// Ask the daemon to stop (kill the Claude process for) `sid`. The session
+    /// row is kept and transitions to `stopped`; the daemon broadcasts the new
+    /// state via `relay.state`. Returns `true` if the control frame was published.
+    @discardableResult
+    func stopSession(sid: String) -> Bool {
+        let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "relay.session")
+        let sent = publishControl(SessionStop(sid: sid), on: RelayChannel.meta)
+        log.notice(
+            "stopSession sid=\(sid, privacy: .public) sent=\(sent, privacy: .public)"
+        )
+        return sent
+    }
+
+    /// Ask the daemon to permanently delete `sid` (kills the runner if running,
+    /// then drops the store row). Returns `true` if the control frame was
+    /// published. The daemon replies `session.delete.ok`/`err` on this frontend's
+    /// peer channel.
+    @discardableResult
+    func deleteSession(sid: String) -> Bool {
+        let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "relay.session")
+        let sent = publishControl(SessionDelete(sid: sid), on: RelayChannel.meta)
+        log.notice(
+            "deleteSession sid=\(sid, privacy: .public) sent=\(sent, privacy: .public)"
         )
         return sent
     }

@@ -22,6 +22,8 @@ import type {
   Namespace,
   RecordKind,
   RelayControlMessage,
+  SessionDeleteErr,
+  SessionDeleteOk,
   SessionExport,
   SessionRec,
   SessionStateMsg,
@@ -565,6 +567,50 @@ export class IpcCommandDispatcher {
             err instanceof Error ? err.message : "Failed to restart session",
           );
         }
+        break;
+      }
+
+      case "session.delete": {
+        // Relay-plane sibling of the CLI's IPC `session.delete`. Mirrors the
+        // same kill→unregister→deleteSession semantics, then unsubscribes the
+        // relay clients from the sid (symmetry with `session.create`'s
+        // immediate subscribe) and replies ok/err to the originating frontend.
+        // Other connected frontends drop the (now-ghost) row on their next
+        // `hello` snapshot (Store is the SoT — a deleted row is absent from the
+        // next session list), so no extra broadcast is required.
+        const meta = this.deps.store.getSession(msg.sid);
+        if (!meta) {
+          reply(msg.sid, {
+            t: "session.delete.err",
+            sid: msg.sid,
+            reason: "not-found",
+          } satisfies SessionDeleteErr);
+          break;
+        }
+        const wasRunning = meta.state === "running";
+        try {
+          if (wasRunning) {
+            this.deps.sessionManager.killRunner(msg.sid);
+            this.deps.sessionManager.unregisterRunner(msg.sid);
+          }
+          this.deps.store.deleteSession(msg.sid);
+        } catch (err) {
+          reply(msg.sid, {
+            t: "session.delete.err",
+            sid: msg.sid,
+            reason: "internal",
+            message: err instanceof Error ? err.message : "Failed to delete",
+          } satisfies SessionDeleteErr);
+          break;
+        }
+        for (const client of this.deps.getRelayClients()) {
+          client.unsubscribe(msg.sid);
+        }
+        reply(msg.sid, {
+          t: "session.delete.ok",
+          sid: msg.sid,
+          wasRunning,
+        } satisfies SessionDeleteOk);
         break;
       }
 

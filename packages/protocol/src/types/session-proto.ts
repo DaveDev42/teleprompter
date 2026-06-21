@@ -111,6 +111,36 @@ export interface SessionRestart {
   sid: string;
 }
 
+/**
+ * Frontend → daemon (over relay): permanently delete a session. Kills the
+ * runner if it is running, then drops the store row. The relay-plane sibling
+ * of the CLI's IPC `session.delete` — the app previously could only remove a
+ * session from its local list (`tp session delete <sid>` was the only way to
+ * delete daemon data). The daemon replies `session.delete.ok`/`err` to the
+ * originating frontend and broadcasts a `state` (state="deleted") to all
+ * frontends so every connected app drops the row.
+ */
+export interface SessionDelete {
+  t: "session.delete";
+  sid: string;
+}
+
+/** Daemon → frontend: a `session.delete` succeeded. */
+export interface SessionDeleteOk {
+  t: "session.delete.ok";
+  sid: string;
+  /** True if a live runner was killed as part of the delete. */
+  wasRunning: boolean;
+}
+
+/** Daemon → frontend: a `session.delete` failed. */
+export interface SessionDeleteErr {
+  t: "session.delete.err";
+  sid: string;
+  reason: "not-found" | "internal";
+  message?: string | undefined;
+}
+
 export interface SessionExport {
   t: "session.export";
   sid: string;
@@ -135,6 +165,7 @@ export type SessionClientMessage =
   | SessionCreate
   | SessionStop
   | SessionRestart
+  | SessionDelete
   | SessionExport;
 
 // ── Daemon → Frontend ──
@@ -248,4 +279,6 @@ export type SessionServerMessage =
   | SessionWorktreeCreated
   | SessionWorktreeRemoved
   | SessionExported
-  | SessionCreateOk;
+  | SessionCreateOk
+  | SessionDeleteOk
+  | SessionDeleteErr;

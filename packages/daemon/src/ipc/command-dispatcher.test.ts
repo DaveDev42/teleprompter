@@ -1146,6 +1146,88 @@ describe("IpcCommandDispatcher.dispatchRelayControl", () => {
     expect((out[0]?.msg as { e?: string }).e).toBe("NOT_FOUND");
   });
 
+  test("session.delete on unknown sid replies session.delete.err not-found", async () => {
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const { dispatcher, calls } = makeHarness();
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "session.delete", sid: "missing" },
+      "f1",
+    );
+    await Promise.resolve();
+    const m = out[0]?.msg as { t: string; reason?: string };
+    expect(m.t).toBe("session.delete.err");
+    expect(m.reason).toBe("not-found");
+    expect(calls.killRunner).toEqual([]);
+    expect(calls.storeDeleteSession).toEqual([]);
+  });
+
+  test("session.delete on a running session kills, unregisters, deletes, unsubscribes, and acks wasRunning=true", async () => {
+    const seenUnsub: string[] = [];
+    const relayClient = {
+      unsubscribe: (sid: string) => seenUnsub.push(sid),
+    } as unknown as RelayClient;
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const { dispatcher, calls } = makeHarness({
+      sessions: [mkMeta("s1", "running", 1)],
+      runningSids: ["s1"],
+      relayClients: [relayClient],
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "session.delete", sid: "s1" },
+      "f1",
+    );
+    await Promise.resolve();
+    expect(calls.killRunner).toEqual(["s1"]);
+    expect(calls.sessionUnregister).toEqual(["s1"]);
+    expect(calls.storeDeleteSession).toEqual(["s1"]);
+    expect(seenUnsub).toEqual(["s1"]);
+    const ok = out.find(
+      (o) => (o.msg as { t?: string }).t === "session.delete.ok",
+    );
+    expect(ok?.sid).toBe("s1");
+    expect((ok?.msg as { wasRunning?: boolean }).wasRunning).toBe(true);
+  });
+
+  test("session.delete on a stopped session deletes without killing, acks wasRunning=false", async () => {
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const { dispatcher, calls } = makeHarness({
+      sessions: [mkMeta("s2", "stopped", 1)],
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "session.delete", sid: "s2" },
+      "f1",
+    );
+    await Promise.resolve();
+    expect(calls.killRunner).toEqual([]);
+    expect(calls.sessionUnregister).toEqual([]);
+    expect(calls.storeDeleteSession).toEqual(["s2"]);
+    const ok = out.find(
+      (o) => (o.msg as { t?: string }).t === "session.delete.ok",
+    );
+    expect((ok?.msg as { wasRunning?: boolean }).wasRunning).toBe(false);
+  });
+
+  test("session.delete replies session.delete.err internal when deleteSession throws", async () => {
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const { dispatcher } = makeHarness({
+      sessions: [mkMeta("s3", "stopped", 1)],
+      deleteSessionThrows: () => new Error("disk full"),
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "session.delete", sid: "s3" },
+      "f1",
+    );
+    await Promise.resolve();
+    const m = out[0]?.msg as { t: string; reason?: string; message?: string };
+    expect(m.t).toBe("session.delete.err");
+    expect(m.reason).toBe("internal");
+    expect(m.message).toBe("disk full");
+  });
+
   const NO_REPO_MESSAGE = "No repository configured for worktree management";
 
   test("worktree.list without repo configured returns NO_REPO", async () => {

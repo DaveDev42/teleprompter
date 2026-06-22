@@ -43,25 +43,30 @@ final class SessionNavigator {
 ///    `ToastCenter` as in-app toasts (suppresses the OS banner while the app is
 ///    in the foreground, mirroring the Expo `setNotificationHandler` pattern).
 ///
-/// # Device-gated TODOs (APNs — requires real device + provisioning)
+/// # APNs status — software path WIRED; only the entitlement is device-gated
 ///
-/// The `aps-environment` entitlement is intentionally **NOT** added to
-/// `ios/Teleprompter.entitlements` or `ios/project.yml`. Adding it without
-/// a matching Apple Developer provisioning profile breaks ad-hoc and Simulator
-/// signing. These steps must be done when targeting a real device:
+/// The full *software* path is implemented and Simulator-safe:
+/// `TeleprompterAppDelegate` (a `@UIApplicationDelegateAdaptor`,
+/// `PushRegistration.swift`) receives the device token, hands it to
+/// `PushTokenStore.shared`, and every `RelayClient` sends `relay.push.register`
+/// over the relay → the relay seals it (PR #741) → the daemon's `PushNotifier`
+/// stores it (`packages/daemon`). Inbound `relay.notification` (the live-socket
+/// delivery path) is handled in `RelayClient` and surfaced via `scheduleLocal`.
+///
+/// The ONE remaining device-gated step is the `aps-environment` entitlement,
+/// intentionally **NOT** added to `ios/Teleprompter.entitlements` or
+/// `ios/project.yml`: adding it without a matching Apple Developer provisioning
+/// profile breaks ad-hoc and Simulator signing. When targeting a real device:
 ///
 /// 1. Add `aps-environment = "development"` (or `"production"`) to the
 ///    Teleprompter entitlements file.
-/// 2. Create an APN certificate + provisioning profile in the Apple Developer
+/// 2. Create an APN key/cert + provisioning profile in the Apple Developer
 ///    portal and wire it into `ios/project.yml` → `signing`.
-/// 3. Implement `application(_:didRegisterForRemoteNotificationsWithDeviceToken:)`
-///    in `AppDelegate` (or the `@UIApplicationDelegateAdaptor`) to extract the
-///    raw device token and send it to the daemon via the relay
-///    (`relay.push.register`).
-/// 4. Implement `application(_:didFailToRegisterForRemoteNotificationsWithError:)`
-///    to log and surface the failure gracefully.
-/// 5. The daemon side that seals + stores push tokens is already present in the
-///    TypeScript daemon (`packages/daemon`).
+///
+/// Until then, `didRegisterForRemoteNotifications…` does not fire on device
+/// (and returns a non-deliverable sandbox token on the Simulator), but the
+/// adaptor is inert-safe and the rest of the chain is exercised end-to-end by
+/// the in-band `relay.notification` path whenever the app is foregrounded.
 ///
 /// # Simulator / macOS safety
 ///
@@ -119,9 +124,11 @@ final class NotificationService: NSObject {
     /// This call is a no-op on macOS and on the Simulator (the Simulator
     /// nominally accepts the call but the returned token cannot deliver pushes).
     ///
-    /// TODO(device-gated): implement `AppDelegate.application(_:didRegisterForRemoteNotificationsWithDeviceToken:)`
-    /// to receive and forward the device token to the relay/daemon when targeting
-    /// a real device.
+    /// The device-token callback IS implemented: `TeleprompterAppDelegate`
+    /// (`PushRegistration.swift`) receives it and forwards it to every
+    /// `RelayClient` via `PushTokenStore` → `relay.push.register`. The only
+    /// remaining device-gated piece is the `aps-environment` entitlement (see the
+    /// type doc above), without which this call never produces a token on device.
     private func registerForRemoteNotificationsIfSupported() {
         #if os(iOS)
         // UIApplication.shared must be accessed on the main actor (already here).

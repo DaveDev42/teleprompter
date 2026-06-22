@@ -335,15 +335,29 @@ cmd_rust() {
 
 # The app/test targets link the xcframework; build it first if missing. Pass
 # --force to always rebuild (e.g. after editing Rust sources).
+# A built xcframework is VALID only if it carries its top-level Info.plist.
+# A bare directory is not enough: CI caches can restore a half-written/corrupted
+# xcframework dir (e.g. the slices but no Info.plist), and xcodebuild then hard-fails
+# with "There is no Info.plist found at .../TpCore.xcframework/Info.plist". Validate
+# the plist, not just the directory, so a corrupted cache triggers a rebuild instead
+# of a confusing downstream build failure.
+xcframework_valid() {
+  [ -d "$XCFRAMEWORK" ] && [ -f "$XCFRAMEWORK/Info.plist" ]
+}
+
 ensure_xcframework() {
   if [ "${TP_SKIP_RUST:-}" = "1" ]; then
     log "TP_SKIP_RUST=1 — skipping xcframework build"
-    [ -d "$XCFRAMEWORK" ] || die "TP_SKIP_RUST set but xcframework absent: $XCFRAMEWORK"
+    xcframework_valid \
+      || die "TP_SKIP_RUST set but xcframework absent/corrupt (missing Info.plist): $XCFRAMEWORK"
     return
   fi
-  if [ -d "$XCFRAMEWORK" ] && [ "${1:-}" != "--force" ] && [ "${TP_FORCE_RUST:-}" != "1" ]; then
+  if xcframework_valid && [ "${1:-}" != "--force" ] && [ "${TP_FORCE_RUST:-}" != "1" ]; then
     log "xcframework present ($XCFRAMEWORK) — skipping rebuild (set TP_FORCE_RUST=1 to force)"
   else
+    if [ -d "$XCFRAMEWORK" ] && ! xcframework_valid; then
+      log "xcframework dir present but missing Info.plist (corrupt cache) — rebuilding"
+    fi
     cmd_rust
   fi
 }

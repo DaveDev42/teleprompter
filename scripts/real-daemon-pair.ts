@@ -30,13 +30,15 @@
 // attaches and renders the Stop hook's last_assistant_message. Drives M3/M3'/M4.
 // Auth rides in via CLAUDE_CODE_OAUTH_TOKEN, inherited from the harness env.
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Subprocess, spawn } from "bun";
 
+import type { IpcClient } from "../apps/cli/src/lib/ipc-client";
 import { connectIpcAsClient } from "../apps/cli/src/lib/ipc-client";
 import { getSocketPath } from "../packages/protocol/src/socket-path";
 import type {
+  IpcInput,
   IpcMessage,
   IpcPairBegin,
 } from "../packages/protocol/src/types/ipc";
@@ -151,6 +153,112 @@ function spawnClaudeSession(socketPath: string): Subprocess {
   return runner;
 }
 
+// --spawn-claude-interactive (TP_E2E_CLAUDE_M5=1): spawn a REAL *interactive* claude
+// session (no `-p` — a live REPL with a persistent PTY) so the input round-trip (M5)
+// can be exercised. Print mode (`-p`) ends after one Stop, before any input arrives;
+// only an interactive session keeps the PTY open for the app's relayed probe.
+//
+// Two things differ from the print-mode spawn, both empirically required:
+//   1. `--permission-mode bypassPermissions` — the dogfood permission mode (the app
+//      sends only one prompt; we don't want per-tool approval prompts to stall it).
+//   2. The trust-folder prompt. Interactive claude renders "Do you trust this folder?
+//      1. Yes / 2. No" at startup over the PTY (print mode skips it). Pre-seeding
+//      `~/.claude.json` `hasTrustDialogAccepted: true` is NOT sufficient at the current
+//      claude version, so the holder sends a single Enter (`\r`) over IPC a few seconds
+//      after spawn to accept option 1 ("Yes, I trust"), leaving claude idle at the REPL.
+//      We also seed `hasCompletedOnboarding` so claude doesn't run first-run onboarding.
+//
+// After this returns claude is at the REPL: the APP then drives the genuine M5 input
+// (its auto-probe `in.chat` over the relay → daemon appends `\n` → PTY → claude submits
+// → responds → a NEW assistant Stop chat item → the app emits TP_INPUT_OK proof=response).
+function spawnClaudeSessionInteractive(
+  socketPath: string,
+  ipc: IpcClient,
+): Subprocess {
+  const sid = process.env["TP_E2E_CLAUDE_SID"] ?? "real-smoke-sess";
+  const cwd =
+    process.env["TP_E2E_CLAUDE_CWD"] ?? process.env["HOME"] ?? REPO_ROOT;
+  mkdirSync(cwd, { recursive: true });
+
+  // Pre-seed trust + onboarding in the isolated HOME's ~/.claude.json so claude skips
+  // onboarding (the trust dialog is still answered live via the `\r` below).
+  const home = process.env["HOME"];
+  if (home) {
+    try {
+      const seed = {
+        hasCompletedOnboarding: true,
+        projects: { [cwd]: { hasTrustDialogAccepted: true } },
+      };
+      writeFileSync(join(home, ".claude.json"), JSON.stringify(seed));
+    } catch (err) {
+      log(`WARN — could not seed ~/.claude.json: ${String(err)}`);
+    }
+  }
+
+  log(`spawning real claude session sid=${sid} cwd=${cwd} (INTERACTIVE)`);
+  const runner = spawn({
+    cmd: [
+      ...CLI,
+      "run",
+      "--sid",
+      sid,
+      "--cwd",
+      cwd,
+      "--socket-path",
+      socketPath,
+      "--",
+      "--permission-mode",
+      "bypassPermissions",
+    ],
+    env: { ...process.env },
+    stdout: "ignore",
+    stderr: "ignore",
+    stdin: "ignore",
+  });
+  process.stdout.write(`REAL_SESSION_SID=${sid}\n`);
+  log(`real interactive claude runner spawned (pid ${runner.pid})`);
+
+  // Accept the trust-folder prompt: wait for the TUI to render it, then send Enter
+  // (`\r`) over IPC. The daemon routes `input` to the runner by sid → PtyBun.write →
+  // claude advances past the trust dialog to the idle REPL. A single `\r` selects the
+  // default highlighted option 1 ("Yes, I trust this folder").
+  const sendEnter = (label: string): void => {
+    const msg: IpcInput = {
+      t: "input",
+      sid,
+      data: Buffer.from("\r").toString("base64"),
+    };
+    try {
+      ipc.send(msg);
+      log(`sent trust-accept Enter to interactive claude (${label})`);
+    } catch (err) {
+      log(`WARN — failed to send trust-accept (${label}): ${String(err)}`);
+    }
+  };
+  // Send Enter REPEATEDLY (every 2s, ~25s window) rather than at two fixed offsets.
+  // The trust prompt's render time varies with cold-start (warm vs cold caches, the
+  // isolated HOME, daemon connect latency), and claude's raw-mode stdin handler must
+  // be attached when the `\r` lands or it is swallowed as pre-prompt noise. A single
+  // mistimed Enter leaves claude stuck at the trust dialog, so the app's later probe
+  // is consumed as a trust-menu keystroke (no UserPromptSubmit → no Stop → M5 fails).
+  // Sending Enter on an interval guarantees one lands once the prompt is interactive;
+  // any extra Enter at the already-idle REPL just submits an empty line (no prompt →
+  // claude ignores it), and stops well before the app pairs+probes (~30s+), so there
+  // is no risk of an empty Enter racing the probe text. 13 sends × 2s ≈ 26s.
+  let trustTicks = 0;
+  const trustTimer = setInterval(() => {
+    trustTicks += 1;
+    sendEnter(`tick ${trustTicks}`);
+    if (trustTicks >= 13) clearInterval(trustTimer);
+  }, 2_000);
+  // Don't let the interval keep the event loop alive past the holder's lifetime.
+  if (typeof trustTimer === "object" && "unref" in trustTimer) {
+    (trustTimer as { unref: () => void }).unref();
+  }
+
+  return runner;
+}
+
 async function main(): Promise<void> {
   ensureIsolationDirs();
 
@@ -221,7 +329,11 @@ async function main(): Promise<void> {
   //     `tp run` connects to the daemon IPC directly (no relay), so the two are
   //     independent — we kick claude off here and let it run concurrently with the
   //     pairing handshake below.
-  if (process.argv.includes("--spawn-claude")) {
+  if (process.argv.includes("--spawn-claude-interactive")) {
+    // M5: interactive claude (live PTY) + trust-accept over IPC. Reuses `ipc` (the
+    // same daemon IPC connection used for pairing) to send the trust-accept Enter.
+    claudeRunner = spawnClaudeSessionInteractive(socketPath, ipc);
+  } else if (process.argv.includes("--spawn-claude")) {
     claudeRunner = spawnClaudeSession(socketPath);
   }
 

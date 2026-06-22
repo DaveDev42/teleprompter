@@ -159,11 +159,37 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// the loopback) echoes input back as an `io` record; when that record's bytes
     /// contain this token, the app emits `TP_INPUT_OK`. Per sid: nil until sent.
     private var inputProbe: [String: String] = [:]
+    /// Number of assistant `Stop` chat items present for a sid AT the moment the probe
+    /// was sent. The interactive-claude M5 path can't byte-echo the probe (claude's
+    /// raw-mode TUI re-renders rather than line-echoing stdin), so instead we prove the
+    /// round-trip by observing that the probe drove a NEW assistant response: a `Stop`
+    /// chat item appearing after this baseline. Loopback still satisfies M5 via the
+    /// byte-echo path below; this is the additive real-claude path. Per sid: nil until
+    /// the probe is sent.
+    private var inputProbeStopBaseline: [String: Int] = [:]
     /// Sessions for which `TP_INPUT_OK` has fired, so a repeated echo (or a later
     /// io record still containing the token) does not double-emit.
     private var inputOkEmitted: Set<String> = []
     /// A fixed probe token — deterministic so the smoke harness can correlate it.
     private static let probeToken = "tp-input-probe"
+    /// Number of probe re-sends attempted per sid. The interactive-claude REPL has a
+    /// warmup window (trust-prompt dismissal + REPL init) during which early
+    /// keystrokes are dropped, so a single one-shot probe is unreliable. We re-send
+    /// the probe on a timer until `TP_INPUT_OK` fires or this cap is reached.
+    private var inputProbeAttempts: [String: Int] = [:]
+    private static let probeMaxAttempts = 12
+    private static let probeRetryInterval: TimeInterval = 4
+    /// True only when the app was launched by the smoke harness. The auto-probe is
+    /// a TEST affordance — it must NEVER fire in a real session (it would inject
+    /// `tp-input-probe` as a chat message to the user's claude). Two launch styles
+    /// flag smoke mode: iOS/visionOS/watchOS pass `--tp-smoke-url <link>` via
+    /// `simctl launch --`; macOS passes a bare `--tp-smoke` marker via
+    /// `open -gn "$app" --args` (it injects the pairing link as a `tp://` deep link
+    /// instead of the launch arg). Either argument means "harness-launched".
+    private static let isSmokeMode: Bool = {
+        let args = ProcessInfo.processInfo.arguments
+        return args.contains("--tp-smoke-url") || args.contains("--tp-smoke")
+    }()
 
     // MARK: H6 reconnect state
 
@@ -834,9 +860,10 @@ final class RelayClient: NSObject, @unchecked Sendable {
     // MARK: send input (M5)
 
     /// Send input into a session. `kind == .chat` sends `in.chat` with plain text
-    /// (the daemon appends the newline); `kind == .term` sends `in.term` with the
-    /// text's UTF-8 bytes base64-encoded (raw PTY bytes). Sealed with tx, published
-    /// via `relay.pub` on the session sid — the same path as attach/resume.
+    /// (the daemon appends a carriage return `\r` so the interactive claude TUI
+    /// submits the prompt); `kind == .term` sends `in.term` with the text's UTF-8
+    /// bytes base64-encoded (raw PTY bytes). Sealed with tx, published via
+    /// `relay.pub` on the session sid — the same path as attach/resume.
     enum InputKind { case chat, term }
 
     func sendInput(sid: String, kind: InputKind, text: String) {
@@ -989,22 +1016,75 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// Auto-send the input probe once per session (after attach+backfill), so the
     /// smoke harness exercises the input→io round-trip without a UI gesture. The
     /// probe token is fixed so the loopback daemon can echo it back as an io rec.
+    ///
+    /// SMOKE-ONLY: gated on `--tp-smoke-url`. A real session must never auto-inject
+    /// `tp-input-probe` into the user's claude. The first call snapshots the
+    /// assistant-`Stop` baseline and schedules retries; interactive claude's REPL
+    /// drops keystrokes during its warmup window, so a one-shot probe is unreliable.
     @MainActor
     private func maybeSendProbe(sid: String) {
+        guard Self.isSmokeMode else { return }
         guard inputProbe[sid] == nil else { return }
         inputProbe[sid] = Self.probeToken
-        sendInput(sid: sid, kind: .chat, text: Self.probeToken)
+        // Snapshot the assistant-response count NOW so the real-claude M5 path can
+        // detect a NEW Stop driven by this probe (see inputProbeStopBaseline).
+        let baseline = Self.assistantStopCount(sessionStore?.chatItems[sid])
+        inputProbeStopBaseline[sid] = baseline
+        log.notice(
+            "TP_INPUT_PROBE_SENT sid=\(sid, privacy: .public) stopBaseline=\(baseline, privacy: .public)"
+        )
+        sendProbeAttempt(sid: sid)
     }
 
-    /// After any io record applies, check whether the session's terminal output
-    /// now contains the probe token (the daemon echoed our input back). If so,
-    /// emit `TP_INPUT_OK` once — the on-device proof the input round-trip works.
+    /// Send one probe attempt and, if `TP_INPUT_OK` has not yet fired, schedule the
+    /// next retry. Bounded by `probeMaxAttempts`. Cancels itself once the round-trip
+    /// is proven (`inputOkEmitted`) or the session is gone.
+    @MainActor
+    private func sendProbeAttempt(sid: String) {
+        guard Self.isSmokeMode, !inputOkEmitted.contains(sid) else { return }
+        let attempt = (inputProbeAttempts[sid] ?? 0) + 1
+        inputProbeAttempts[sid] = attempt
+        log.notice(
+            "TP_INPUT_PROBE_ATTEMPT sid=\(sid, privacy: .public) n=\(attempt, privacy: .public)"
+        )
+        sendInput(sid: sid, kind: .chat, text: Self.probeToken)
+        guard attempt < Self.probeMaxAttempts else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.probeRetryInterval) {
+            [weak self] in
+            guard let self else { return }
+            Task { @MainActor in self.sendProbeAttempt(sid: sid) }
+        }
+    }
+
+    /// Count of assistant responses (`Stop` hook chat items) in a sid's chat list.
+    /// `ChatItem` has no role field — assistant output is identified by its
+    /// `hookEventName == "Stop"` (SessionStore.chatItem mapping).
+    @MainActor
+    private static func assistantStopCount(_ items: [ChatItem]?) -> Int {
+        items?.lazy.filter { $0.hookEventName == "Stop" }.count ?? 0
+    }
+
+    /// After any record applies, decide whether the input round-trip is proven and
+    /// emit `TP_INPUT_OK` once. Two independent proofs, either suffices:
+    ///   1. Loopback path — the daemon echoed our probe bytes back, so the session's
+    ///      terminal output now contains the probe token (CI / 8-marker smoke).
+    ///   2. Real-claude path — the probe drove a NEW assistant response: a `Stop`
+    ///      chat item count beyond the baseline captured at probe-send. Interactive
+    ///      claude's raw-mode TUI never line-echoes stdin, so byte-echo can't fire;
+    ///      a fresh Stop is the genuine "input reached claude and it replied" signal.
     @MainActor
     private func checkInputEcho(sid: String) {
         guard let probe = inputProbe[sid], !inputOkEmitted.contains(sid) else { return }
-        guard let out = sessionStore?.terminalOutput[sid], out.contains(probe) else { return }
+        let echoed = sessionStore?.terminalOutput[sid]?.contains(probe) ?? false
+        let baseline = inputProbeStopBaseline[sid] ?? 0
+        let responded =
+            Self.assistantStopCount(sessionStore?.chatItems[sid]) > baseline
+        guard echoed || responded else { return }
         inputOkEmitted.insert(sid)
-        log.notice("\(Self.inputOkMarker, privacy: .public) sid=\(sid, privacy: .public)")
+        let proof = echoed ? "echo" : "response"
+        log.notice(
+            "\(Self.inputOkMarker, privacy: .public) sid=\(sid, privacy: .public) proof=\(proof, privacy: .public)"
+        )
     }
 
     /// Belt-and-suspenders against the kx→auto-hello timing race: if no `hello`

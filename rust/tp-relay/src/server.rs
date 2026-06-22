@@ -225,6 +225,12 @@ pub struct SharedState {
     /// Process-start instant — `/health.uptime` + `relay_uptime_seconds` are
     /// `started_at.elapsed().as_secs()` (`Math.floor(process.uptime())` parity).
     pub started_at: Instant,
+    /// APNs push orchestrator. `None` when APNs creds are absent from the env —
+    /// the `relay.push` send path then becomes a clean no-op (the daemon's push
+    /// is fire-and-forget, so silence is the correct unconfigured behaviour).
+    /// Wrapped in `Arc` (not `PushService` directly) so `#[derive(Clone)]` on
+    /// `SharedState` holds — `PushService` is not `Clone`, but `Arc` is.
+    pub push_service: Option<Arc<crate::push::PushService>>,
 }
 
 /// Default stale-detection timeout (ms). Mirrors `STALE_TIMEOUT_MS` (90 s).
@@ -258,6 +264,7 @@ impl SharedState {
             max_frame_size: crate::conn::max_frame_size_from_env(),
             metrics: Arc::new(Metrics::new()),
             started_at: Instant::now(),
+            push_service: build_push_service_from_env(),
         }
     }
 
@@ -283,6 +290,62 @@ impl SharedState {
     pub fn alloc_conn_id(&self) -> ConnId {
         self.next_conn_id.fetch_add(1, Ordering::Relaxed)
     }
+}
+
+/// Assemble the APNs-backed [`PushService`] from the environment, or return
+/// `None` when the relay has not been given APNs credentials.
+///
+/// Returns `None` (→ `relay.push` becomes a clean no-op) whenever ANY of the
+/// four required vars is unset or empty: `APNS_KEY` (P-256 `.p8` path OR inline
+/// PEM), `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID`. `APNS_ENV`
+/// (`sandbox`|`prod`) selects the host; `APNS_MAX_RETRIES` / `APNS_RETRY_BASE_MS`
+/// are read inside [`ApnsClientConfig::from_env`].
+///
+/// Built via [`PushService::new`] (NOT `start`) — `new` skips the 30 s eviction
+/// task, so there is no `PushServiceHandle` whose `Drop` would cancel cleanup.
+/// The dedup/rate maps stay correct; they simply do not time-evict, an
+/// acceptable memory-bound tradeoff for a relay that already bounds connections.
+fn build_push_service_from_env() -> Option<Arc<crate::push::PushService>> {
+    use crate::apns::{
+        resolve_apns_host, ApnsClient, ApnsClientConfig, ReqwestTransport, TokioSleeper,
+    };
+    use crate::apns_jwt::{ApnsKey, ApnsSigner};
+    use crate::push::{PushService, PushServiceConfig};
+    use std::env::var;
+    use std::path::{Path, PathBuf};
+
+    let nonempty = |k: &str| var(k).ok().filter(|s| !s.is_empty());
+    let (Some(key), Some(key_id), Some(team_id), Some(bundle_id)) = (
+        nonempty("APNS_KEY"),
+        nonempty("APNS_KEY_ID"),
+        nonempty("APNS_TEAM_ID"),
+        nonempty("APNS_BUNDLE_ID"),
+    ) else {
+        return None;
+    };
+
+    // `.p8` file path vs inline PEM — pick by whether APNS_KEY names a file.
+    let apns_key = if Path::new(&key).is_file() {
+        ApnsKey::Path(PathBuf::from(&key))
+    } else {
+        ApnsKey::Pem(key)
+    };
+    let signer = ApnsSigner::new(apns_key, key_id, team_id);
+
+    let host = resolve_apns_host(var("APNS_ENV").ok().as_deref()).to_string();
+    let client_config = ApnsClientConfig::from_env(host, bundle_id);
+    let apns_client = ApnsClient::new(
+        client_config,
+        signer,
+        Box::new(ReqwestTransport::new()),
+        Box::new(TokioSleeper),
+    );
+
+    let cfg = PushServiceConfig {
+        apns_client: Some(Arc::new(apns_client)),
+        ..PushServiceConfig::default()
+    };
+    Some(Arc::new(PushService::new(cfg)))
 }
 
 // ── Synchronous routing (the no-lock-across-await core) ────────────────────────

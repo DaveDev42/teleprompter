@@ -52,6 +52,9 @@
 #   TP_JSON         Set to 1 to emit a single-line JSON result as the last stdout
 #                   line of a smoke run ({"platform","markers","passed","elapsed_s"})
 #   TP_ARTIFACT_DIR Screenshot output directory (default: /tmp/tp-artifacts)
+#   TP_UITEST_STRICT Set to 1 to make the macOS XCUITest TCC host-gate a hard
+#                   failure instead of a non-fatal SKIP (use on authorized GUI/CI
+#                   runners; default SKIP emits a `TP_UITEST_SKIP` marker)
 
 set -euo pipefail
 
@@ -1707,18 +1710,29 @@ cmd_uitest() {
   # TCC (Accessibility + Automation) challenge. In a non-interactive or unauthorized
   # session that challenge can't complete ("Failed to initialize for UI testing …
   # System authentication is running" / LocalAuthentication Code=-4), so the run
-  # can't even reach the assertions. Treat this as a SKIP — the build+sign path is
-  # proven, and the SAME XCUITest code already passes on the iOS Simulator (no TCC
-  # gate there). This mirrors how visionOS UI reach is documented as partial.
+  # can't even reach the assertions. The build+sign path is proven and the SAME
+  # XCUITest code already passes on the iOS Simulator (no TCC gate there).
+  #
+  # By DEFAULT this is a non-fatal SKIP so a legitimately headless local run isn't
+  # punished for an environment limitation. But the SKIP must NEVER be silently
+  # conflated with a real PASS (a test that can't fail isn't a test). So:
+  #   - emit a distinct, greppable `TP_UITEST_SKIP` marker (callers/CI assert on it),
+  #   - and honor TP_UITEST_STRICT=1 to turn the host-gate SKIP into a hard failure —
+  #     set it on any authorized GUI/CI runner where a SKIP would mask real breakage.
   if [ "$TP_PLATFORM" = "macos" ] \
      && grep -q "Failed to initialize for UI testing" "$uit_log" 2>/dev/null; then
+    if [ "${TP_UITEST_STRICT:-}" = "1" ]; then
+      die "UITEST FAIL (macOS, TP_UITEST_STRICT=1) — XCUITest runner could not initialize (LocalAuthentication/TCC). Grant Accessibility + Automation to the test runner and run in an unlocked, logged-in GUI session, or unset TP_UITEST_STRICT for a non-fatal SKIP."
+    fi
+    log "TP_UITEST_SKIP platform=macos reason=tcc-host-gate"
     log "⏭️  UITEST SKIP (macOS host gate) — XCUITest runner could not initialize:"
     log "    LocalAuthentication/TCC blocked the automation session (needs an"
     log "    interactively-authorized, unlocked session with Accessibility +"
     log "    Automation granted to the test runner). Build+sign succeeded; the"
     log "    identical UI assertions pass on the iOS Simulator. Grant access in"
     log "    System Settings → Privacy & Security → Accessibility/Automation and"
-    log "    re-run in a logged-in GUI session for full macOS UI E2E."
+    log "    re-run in a logged-in GUI session (or set TP_UITEST_STRICT=1 to fail"
+    log "    instead of skip) for full macOS UI E2E."
     return 0
   fi
 

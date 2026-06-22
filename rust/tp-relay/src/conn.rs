@@ -37,15 +37,20 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
 use crate::handshake;
-use crate::messages::{PushToken, RelayErr, RelayServerMessage};
-use crate::push_seal::global_push_sealer;
+use crate::messages::{Notification, PushToken, RelayErr, RelayServerMessage};
+use crate::push::{DeliveryResult, PushRequest, PushService};
+use crate::push_seal::{global_push_sealer, UnsealResult};
 use crate::resume_token::ResumePayload;
 use crate::server::{
     handle_close, now_ms, presence_actions, register_authed_conn, route_key_exchange, route_ping,
     route_publish, route_subscribe, route_unsubscribe, Action, AuthState, ConnHandle, ConnId,
     RelayCore, SharedState, STALE_CHECK_INTERVAL_MS, WS_IDLE_TIMEOUT_S,
 };
-use tp_proto::relay_client::{parse_relay_client_message, RelayClientMessage, Role};
+use std::sync::Arc;
+use tp_proto::relay_client::{
+    parse_relay_client_message, InterruptionLevel, PushData as WirePushData, RelayClientMessage,
+    Role,
+};
 
 /// Auth handshake timeout. A socket that never authenticates within this window
 /// is closed with 1008. Mirrors `AUTH_TIMEOUT_MS = 10_000` (`relay-server.ts:90`).
@@ -442,6 +447,37 @@ async fn handle_inbound(
         return None;
     };
 
+    // ── relay.push intercept (daemon → relay → APNs) ─────────────────────────
+    //
+    // `relay.push` is the ONLY arm whose work is async (the APNs HTTP/2 send),
+    // so it cannot be handled inside the synchronous, lock-held `dispatch_locked`
+    // (no `.await` may run under the RelayCore mutex). Intercept it here BEFORE
+    // the dispatch lock block: take ONE short synchronous lock to run the role
+    // gate + target-frontend lookup + token unseal (all sync), drop the lock,
+    // then `tokio::spawn` the async `send_or_deliver` and deliver its mapped
+    // reply. Mirrors `relay-server.ts handlePush:1351-1483`.
+    if let RelayClientMessage::Push {
+        frontend_id,
+        sealed,
+        title,
+        body,
+        interruption_level,
+        data,
+    } = &msg
+    {
+        return handle_push(
+            state,
+            conn_id,
+            frontend_id,
+            sealed,
+            title,
+            body,
+            interruption_level.as_ref(),
+            data.as_ref(),
+        )
+        .await;
+    }
+
     // Dispatch synchronously under the lock; collect actions; release lock.
     // Metrics are an Arc shared outside the RelayCore lock; the rate-limit +
     // resume counters increment from inside dispatch (no extra lock taken).
@@ -632,7 +668,9 @@ fn dispatch_locked(
 
         // ── Push send (daemon → relay → APNs): async HTTP/2 delivery, which
         // cannot run under the RelayCore lock (no .await in dispatch_locked).
-        // Wiring PushService in here is the follow-up; for now it is a no-op.
+        // Handled earlier in `handle_inbound` (the `handle_push` intercept) so
+        // the async `send_or_deliver` runs AFTER the lock drops. This arm is
+        // unreachable in practice — kept only for match exhaustiveness.
         RelayClientMessage::Push { .. } => DispatchOutcome::empty(),
     }
 }
@@ -693,6 +731,267 @@ fn route_push_register(
             platform,
         }),
     )])
+}
+
+/// Handle one `relay.push` (daemon → relay → APNs). Port of `relay-server.ts`
+/// `handlePush` (1351-1483).
+///
+/// Structure preserves the no-await-under-lock invariant absolutely:
+/// 1. ONE short synchronous lock runs the role gate + target-frontend lookup +
+///    token unseal — all sync — and returns owned values (token, `ConnId`s,
+///    `daemon_id`, `is_frontend_connected`). Terminal replies (`UNAUTHORIZED` /
+///    `PUSH_UNSEAL_FAILED`) are delivered and the fn returns before any spawn.
+/// 2. The lock drops, then (if a `PushService` is configured) the async
+///    `send_or_deliver` is `tokio::spawn`ed on a clone of `SharedState`; its
+///    `DeliveryResult` is mapped to a `Vec<Action>` and delivered via
+///    `deliver_actions` — which re-resolves each outbox under its own brief
+///    per-action lock AFTER the await. No guard ever crosses the await.
+///
+/// Returns `None` always — `relay.push` never closes the connection.
+/// Outcome of the synchronous `relay.push` gate/lookup/unseal section
+/// ([`resolve_push_locked`]): either a terminal reply to deliver immediately, or
+/// the owned values needed to build the async push request after the lock drops.
+enum PushResolution {
+    /// Terminal: deliver these actions and stop (no spawn). `UNAUTHORIZED`,
+    /// `NOT_AUTHENTICATED`, or `PUSH_UNSEAL_FAILED`.
+    Reply(Vec<Action>),
+    /// Happy path: spawn the async send with these owned values.
+    Push {
+        daemon_id: String,
+        token: String,
+        frontend_conn: Option<ConnId>,
+        is_frontend_connected: bool,
+    },
+}
+
+/// The synchronous part of `relay.push` handling: role gate + target-frontend
+/// lookup + token unseal, all under ONE short `RelayCore` lock (no `.await`).
+/// Returns owned values so the guard drops before the caller spawns the async
+/// send. Mirrors `relay-server.ts handlePush` 1355-1409.
+fn resolve_push_locked(
+    core: &RelayCore,
+    conn_id: ConnId,
+    frontend_id: &str,
+    sealed: &str,
+) -> PushResolution {
+    // Role gate: only authed DAEMONS may send relay.push (opposite of
+    // push.register's frontend gate). An unauthenticated sender gets
+    // NOT_AUTHENTICATED (parity with the other routing arms); a non-daemon gets
+    // UNAUTHORIZED.
+    let client = match authed_state(core, conn_id) {
+        None => {
+            return PushResolution::Reply(
+                not_authenticated(conn_id, Some("Send relay.auth first")).actions,
+            );
+        }
+        Some(client) if client.role != Role::Daemon => {
+            return PushResolution::Reply(vec![Action::Send(
+                conn_id,
+                RelayServerMessage::Err(RelayErr {
+                    e: "UNAUTHORIZED".to_string(),
+                    m: Some("Only daemons can send push requests".to_string()),
+                }),
+            )]);
+        }
+        Some(client) => client,
+    };
+
+    // Target-frontend lookup: within this daemon's group, find the frontend conn
+    // whose frontend_id matches (mirrors TS 1365-1382). is_frontend_connected
+    // drives the Ws-vs-push precedence; the conn is the notification target.
+    let frontend_conn = core.groups.get(&client.daemon_id).and_then(|group| {
+        group.iter().copied().find(|cid| {
+            core.conns
+                .get(cid)
+                .and_then(|h| h.auth.as_ref())
+                .is_some_and(|a| {
+                    a.role == Role::Frontend && a.frontend_id.as_deref() == Some(frontend_id)
+                })
+        })
+    });
+    let is_frontend_connected = frontend_conn.is_some();
+
+    // Unseal the device token (sync AEAD). Mirrors TS 1384-1409.
+    match global_push_sealer().unseal(sealed) {
+        UnsealResult::Ok(token) => PushResolution::Push {
+            daemon_id: client.daemon_id,
+            token,
+            frontend_conn,
+            is_frontend_connected,
+        },
+        // Blob without the tpps1 prefix → legacy plaintext token (verbatim).
+        UnsealResult::Legacy => PushResolution::Push {
+            daemon_id: client.daemon_id,
+            token: sealed.to_string(),
+            frontend_conn,
+            is_frontend_connected,
+        },
+        // Both unseal_failed AND parse_error → relay.err to the daemon.
+        UnsealResult::ParseError | UnsealResult::UnsealFailed => {
+            PushResolution::Reply(vec![Action::Send(
+                conn_id,
+                RelayServerMessage::Err(RelayErr {
+                    e: "PUSH_UNSEAL_FAILED".to_string(),
+                    m: Some(format!(
+                        "Push token unseal failed for frontendId {frontend_id}"
+                    )),
+                }),
+            )])
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn handle_push(
+    state: &SharedState,
+    conn_id: ConnId,
+    frontend_id: &str,
+    sealed: &str,
+    title: &str,
+    body: &str,
+    interruption_level: Option<&InterruptionLevel>,
+    data: Option<&WirePushData>,
+) -> Option<(u16, &'static str)> {
+    // Sync section under ONE short lock — returns owned values, drops the guard.
+    let resolved = {
+        // LOCK: synchronous gate + lookup + unseal — no `.await` to drop.
+        let core = state.core.lock().expect("relay core mutex poisoned");
+        resolve_push_locked(&core, conn_id, frontend_id, sealed)
+        // guard dropped here
+    };
+
+    let (daemon_id, token, frontend_conn, is_frontend_connected) = match resolved {
+        PushResolution::Reply(actions) => {
+            deliver_actions(state, actions).await;
+            return None;
+        }
+        PushResolution::Push {
+            daemon_id,
+            token,
+            frontend_conn,
+            is_frontend_connected,
+        } => (daemon_id, token, frontend_conn, is_frontend_connected),
+    };
+
+    // Graceful no-op when APNs creds are absent: the daemon's relay.push is
+    // fire-and-forget, so silence (no spawn, no error reply) is correct. The
+    // role gate + unseal parity replies above still fire regardless. The `?`
+    // returns `None` (the function's no-close result) when push_service is None.
+    let push_service: Arc<PushService> = state.push_service.clone()?;
+
+    // ── Async section (spawned, lock-free) ───────────────────────────────────
+    let req = PushRequest {
+        frontend_id: frontend_id.to_string(),
+        daemon_id,
+        token,
+        title: title.to_string(),
+        body: body.to_string(),
+        is_frontend_connected,
+        interruption_level: interruption_level.copied().map(level_to_string),
+        data: data.map(wire_to_push_data),
+    };
+
+    // Owned reply context for the spawned task (SharedState is Arc-backed Clone).
+    let state2 = state.clone();
+    let fid = frontend_id.to_string();
+    let notif_title = title.to_string();
+    let notif_body = body.to_string();
+    let notif_data = data.cloned();
+    let daemon_conn = conn_id;
+    let target_frontend = frontend_conn;
+
+    tokio::spawn(async move {
+        let result = push_service.send_or_deliver(&req).await;
+        let actions = map_delivery_result(
+            &result,
+            target_frontend,
+            daemon_conn,
+            notif_title,
+            notif_body,
+            notif_data,
+            &fid,
+        );
+        deliver_actions(&state2, actions).await;
+    });
+
+    None
+}
+
+/// Convert the wire [`InterruptionLevel`] to the `Option<String>` form
+/// `PushRequest` carries. `Active` → `"active"`, `TimeSensitive` →
+/// `"time-sensitive"` (apns.rs matches `"time-sensitive"` case-insensitively
+/// for `apns-priority: 10`).
+fn level_to_string(level: InterruptionLevel) -> String {
+    match level {
+        InterruptionLevel::Active => "active".to_string(),
+        InterruptionLevel::TimeSensitive => "time-sensitive".to_string(),
+    }
+}
+
+/// Convert the wire [`WirePushData`] (`tp_proto::relay_client::PushData`) to the
+/// internal [`crate::push::PushData`] used to build a [`PushRequest`]. (The wire
+/// type is reused byte-exactly by `relay.notification`'s `data`, but the push
+/// orchestrator carries its own struct — hence this field-wise conversion only
+/// here, not on the notification path.)
+fn wire_to_push_data(d: &WirePushData) -> crate::push::PushData {
+    crate::push::PushData {
+        sid: d.sid.clone(),
+        daemon_id: d.daemon_id.clone(),
+        event: d.event.clone(),
+    }
+}
+
+/// Map a [`DeliveryResult`] to its reply actions. Mirrors the exhaustive switch
+/// in `relay-server.ts handlePush` (1425-1482).
+///
+/// - `Ws` → notify the target frontend conn with `relay.notification` (reusing
+///   the wire `data` byte-exactly); no frontend conn → no reply (Ws implies
+///   connected so it is normally `Some`).
+/// - `Push` / `Deduped` → no reply (fire-and-forget / suppressed).
+/// - `RateLimited` / `Error` / `DeadToken` → `relay.err` to the DAEMON conn.
+fn map_delivery_result(
+    result: &DeliveryResult,
+    target_frontend: Option<ConnId>,
+    daemon_conn: ConnId,
+    notif_title: String,
+    notif_body: String,
+    notif_data: Option<WirePushData>,
+    fid: &str,
+) -> Vec<Action> {
+    match result {
+        DeliveryResult::Ws => target_frontend.map_or_else(Vec::new, |fc| {
+            vec![Action::Send(
+                fc,
+                RelayServerMessage::Notification(Notification {
+                    title: notif_title,
+                    body: notif_body,
+                    data: notif_data,
+                }),
+            )]
+        }),
+        DeliveryResult::Push | DeliveryResult::Deduped => Vec::new(),
+        DeliveryResult::RateLimited => vec![Action::Send(
+            daemon_conn,
+            RelayServerMessage::Err(RelayErr {
+                e: "PUSH_RATE_LIMITED".to_string(),
+                m: Some(format!("Push rate limit exceeded for frontendId {fid}")),
+            }),
+        )],
+        DeliveryResult::Error => vec![Action::Send(
+            daemon_conn,
+            RelayServerMessage::Err(RelayErr {
+                e: "PUSH_DELIVERY_ERROR".to_string(),
+                m: Some(format!("Push delivery failed for frontendId {fid}")),
+            }),
+        )],
+        DeliveryResult::DeadToken => vec![Action::Send(
+            daemon_conn,
+            RelayServerMessage::Err(RelayErr {
+                e: "PUSH_TOKEN_DEAD".to_string(),
+                m: Some(format!("APNs device token is dead for frontendId {fid}")),
+            }),
+        )],
+    }
 }
 
 /// Finalize a successful auth: on `AuthOk`, register the conn into its group and
@@ -1141,6 +1440,253 @@ mod tests {
         assert!(
             out.actions.is_empty(),
             "no daemon → silent drop (frontend re-registers on reconnect)"
+        );
+    }
+
+    // ── relay.push (daemon → relay → APNs) dispatch ──────────────────────────
+    //
+    // Port-parity guard for handlePush (relay-server.ts:1351-1483): the role
+    // gate (daemon-only), the token-unseal failure reply, and the graceful
+    // no-op when the relay has no APNs creds. These exercise the synchronous
+    // intercept in handle_inbound INDEPENDENTLY of any live APNs connection —
+    // SharedState::from_env() leaves push_service == None because APNS_* are
+    // unset in the test environment.
+
+    /// Register an authed conn into a `SharedState`'s core, returning its outbox
+    /// receiver so a test can assert what (if anything) was delivered to it. The
+    /// outbox capacity is generous so nothing backpressures.
+    fn insert_authed_state(
+        state: &SharedState,
+        id: ConnId,
+        role: Role,
+        daemon_id: &str,
+        frontend_id: Option<String>,
+    ) -> mpsc::Receiver<RelayServerMessage> {
+        let (tx, rx) = mpsc::channel(64);
+        let (close_tx, close_rx) = mpsc::channel(4);
+        std::mem::forget(close_rx);
+        let mut core = state.core.lock().unwrap();
+        core.conns.insert(id, ConnHandle::new(tx, close_tx, 500));
+        let auth = AuthState {
+            role,
+            daemon_id: daemon_id.to_string(),
+            frontend_id,
+            subscriptions: std::collections::HashSet::new(),
+        };
+        register_authed_conn(&mut core, id, auth);
+        rx
+    }
+
+    /// A `relay.push` wire frame from a daemon for `frontendId` "fe-1".
+    fn push_frame(sealed: &str) -> String {
+        format!(
+            r#"{{"t":"relay.push","frontendId":"fe-1","sealed":"{sealed}","title":"hi","body":"there"}}"#
+        )
+    }
+
+    #[tokio::test]
+    async fn push_send_from_frontend_is_unauthorized() {
+        // The role gate fires regardless of push_service config: a FRONTEND
+        // sender gets relay.err UNAUTHORIZED to its own conn, no spawn.
+        let state = SharedState::from_env();
+        // Frontend conn 2 sends relay.push (only daemons may).
+        let mut fe_rx = insert_authed_state(&state, 2, Role::Frontend, "d", Some("fe-1".into()));
+
+        let close = handle_inbound(&state, 2, &push_frame("tpps1.whatever")).await;
+        assert_eq!(close, None, "relay.push never closes the conn");
+
+        let msg = fe_rx
+            .try_recv()
+            .expect("frontend sender must receive the UNAUTHORIZED reply");
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["t"], "relay.err");
+        assert_eq!(json["e"], "UNAUTHORIZED");
+        assert_eq!(json["m"], "Only daemons can send push requests");
+    }
+
+    #[tokio::test]
+    async fn push_send_unseal_failure_replies_push_unseal_failed() {
+        // A daemon-sent relay.push whose sealed blob has the tpps1 prefix but is
+        // malformed → relay.err PUSH_UNSEAL_FAILED to the DAEMON conn, no spawn.
+        let state = SharedState::from_env();
+        let mut daemon_rx = insert_authed_state(&state, 1, Role::Daemon, "d", None);
+
+        // "tpps1." prefix present but the rest is not a valid sealed envelope.
+        let close = handle_inbound(&state, 1, &push_frame("tpps1.not-a-real-envelope")).await;
+        assert_eq!(close, None);
+
+        let msg = daemon_rx
+            .try_recv()
+            .expect("daemon must receive the PUSH_UNSEAL_FAILED reply");
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["t"], "relay.err");
+        assert_eq!(json["e"], "PUSH_UNSEAL_FAILED");
+        assert_eq!(json["m"], "Push token unseal failed for frontendId fe-1");
+    }
+
+    #[tokio::test]
+    async fn push_send_is_noop_when_push_service_unconfigured() {
+        // With APNS_* unset, SharedState::from_env() builds push_service == None.
+        // A valid (legacy-token) relay.push from a daemon with a connected
+        // frontend in its group must produce NO frame on either outbox — the
+        // happy-path intercept short-circuits to a clean no-op (no spawn, no
+        // panic, no error reply). This locks the flip-live-merge-safe behaviour:
+        // before creds, relay.push is silently dropped.
+        let state = SharedState::from_env();
+        assert!(
+            state.push_service.is_none(),
+            "test env must leave push_service unconfigured (no APNS_* set)"
+        );
+
+        let mut daemon_rx = insert_authed_state(&state, 1, Role::Daemon, "d", None);
+        let mut frontend_rx =
+            insert_authed_state(&state, 2, Role::Frontend, "d", Some("fe-1".into()));
+
+        // A legacy (no tpps1 prefix) token unseals to itself → reaches the
+        // push_service==None short-circuit (NOT the unseal-failure branch).
+        let close = handle_inbound(&state, 1, &push_frame("legacy-plain-token")).await;
+        assert_eq!(close, None);
+
+        // Give any (erroneously) spawned task a chance to run.
+        tokio::task::yield_now().await;
+
+        assert!(
+            daemon_rx.try_recv().is_err(),
+            "no reply should reach the daemon when push_service is None"
+        );
+        assert!(
+            frontend_rx.try_recv().is_err(),
+            "no notification should reach the frontend when push_service is None"
+        );
+    }
+
+    #[tokio::test]
+    async fn push_send_unauthed_replies_not_authenticated() {
+        // An unauthenticated sender gets NOT_AUTHENTICATED (parity with the
+        // other routing arms), before any push work.
+        let state = SharedState::from_env();
+        // Register the conn but do NOT authenticate it.
+        let mut rx = {
+            let (tx, rx) = mpsc::channel(64);
+            let (close_tx, close_rx) = mpsc::channel(4);
+            std::mem::forget(close_rx);
+            state
+                .core
+                .lock()
+                .unwrap()
+                .conns
+                .insert(9, ConnHandle::new(tx, close_tx, 500));
+            rx
+        };
+
+        let close = handle_inbound(&state, 9, &push_frame("tpps1.x")).await;
+        assert_eq!(close, None);
+
+        let msg = rx.try_recv().expect("unauthed sender gets a reply");
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["t"], "relay.err");
+        assert_eq!(json["e"], "NOT_AUTHENTICATED");
+    }
+
+    // ── map_delivery_result reply-mapping parity (relay-server.ts:1425-1482) ──
+
+    #[test]
+    fn map_delivery_result_ws_notifies_frontend() {
+        let data = Some(WirePushData {
+            sid: "s1".into(),
+            daemon_id: "d".into(),
+            event: "Stop".into(),
+        });
+        let actions = map_delivery_result(
+            &DeliveryResult::Ws,
+            Some(42),
+            7,
+            "hi".into(),
+            "there".into(),
+            data,
+            "fe-1",
+        );
+        assert_eq!(actions.len(), 1);
+        let Action::Send(target, msg) = &actions[0] else {
+            panic!("expected Send");
+        };
+        assert_eq!(*target, 42, "notification targets the frontend conn");
+        let json = serde_json::to_value(msg).unwrap();
+        assert_eq!(json["t"], "relay.notification");
+        assert_eq!(json["title"], "hi");
+        assert_eq!(json["body"], "there");
+        assert_eq!(json["data"]["sid"], "s1");
+        assert_eq!(json["data"]["daemonId"], "d");
+        assert_eq!(json["data"]["event"], "Stop");
+    }
+
+    #[test]
+    fn map_delivery_result_ws_without_frontend_is_empty() {
+        let actions = map_delivery_result(
+            &DeliveryResult::Ws,
+            None,
+            7,
+            "hi".into(),
+            "there".into(),
+            None,
+            "fe-1",
+        );
+        assert!(actions.is_empty(), "no frontend conn → no notification");
+    }
+
+    #[test]
+    fn map_delivery_result_push_and_deduped_are_silent() {
+        for result in [DeliveryResult::Push, DeliveryResult::Deduped] {
+            let actions = map_delivery_result(
+                &result,
+                Some(42),
+                7,
+                "hi".into(),
+                "there".into(),
+                None,
+                "fe-1",
+            );
+            assert!(
+                actions.is_empty(),
+                "{result:?} → no reply (fire-and-forget)"
+            );
+        }
+    }
+
+    #[test]
+    fn map_delivery_result_errors_reply_to_daemon() {
+        let cases = [
+            (DeliveryResult::RateLimited, "PUSH_RATE_LIMITED"),
+            (DeliveryResult::Error, "PUSH_DELIVERY_ERROR"),
+            (DeliveryResult::DeadToken, "PUSH_TOKEN_DEAD"),
+        ];
+        for (result, expected_e) in cases {
+            let actions = map_delivery_result(
+                &result,
+                Some(42),
+                7,
+                "hi".into(),
+                "there".into(),
+                None,
+                "fe-1",
+            );
+            assert_eq!(actions.len(), 1, "{result:?} → one relay.err");
+            let Action::Send(target, msg) = &actions[0] else {
+                panic!("expected Send");
+            };
+            assert_eq!(*target, 7, "{result:?} relay.err targets the DAEMON conn");
+            let json = serde_json::to_value(msg).unwrap();
+            assert_eq!(json["t"], "relay.err");
+            assert_eq!(json["e"], expected_e);
+        }
+    }
+
+    #[test]
+    fn interruption_level_maps_to_apns_strings() {
+        assert_eq!(level_to_string(InterruptionLevel::Active), "active");
+        assert_eq!(
+            level_to_string(InterruptionLevel::TimeSensitive),
+            "time-sensitive"
         );
     }
 }

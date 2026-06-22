@@ -191,6 +191,19 @@ final class RelayClient: NSObject, @unchecked Sendable {
         return args.contains("--tp-smoke-url") || args.contains("--tp-smoke")
     }()
 
+    // MARK: push registration (APNs token)
+
+    /// The most recent APNs device token (lowercase hex), pushed in from
+    /// `PushTokenStore` via `pushTokenDidChange`. Held so `onAuthOk` can send
+    /// `relay.push.register` on a (re)connect after the token first arrived. Nil
+    /// until APNs delivers a token (Simulator: never, in practice). Written only on
+    /// the main actor (the `PushTokenObserver` callback hops there); read in
+    /// `onAuthOk` on the URLSession delegate queue — a benign stale read at worst
+    /// re-sends the same token, and a token that arrives between auth and this read
+    /// triggers its own `pushTokenDidChange` send. `nonisolated(unsafe)` documents
+    /// that this cross-queue access is intentional and idempotent.
+    private nonisolated(unsafe) var pushTokenHex: String?
+
     // MARK: H6 reconnect state
 
     /// Number of consecutive reconnect attempts. Reset to 0 on successful auth.
@@ -281,6 +294,11 @@ final class RelayClient: NSObject, @unchecked Sendable {
         t.resume()
         receiveLoop()
         sendAuth()
+        // Push: register for the device APNs token. If one is already available
+        // it is delivered synchronously (cached into `pushTokenHex`) so the
+        // `relay.push.register` send in `onAuthOk` picks it up; otherwise
+        // `pushTokenDidChange` fires later and sends it on the live socket.
+        Task { @MainActor in PushTokenStore.shared.addObserver(self) }
     }
 
     /// Tear down the socket and timers. Safe to call repeatedly.
@@ -404,8 +422,31 @@ final class RelayClient: NSObject, @unchecked Sendable {
             if let frame = try? JSONDecoder().decode(RelayFrame.self, from: data) {
                 onRelayFrame(frame)
             }
+        case "relay.notification":
+            if let note = try? JSONDecoder().decode(RelayNotification.self, from: data) {
+                onNotification(note)
+            }
         default:
             log.notice("relay: ignoring t=\(envelope.t, privacy: .public)")
+        }
+    }
+
+    /// Inbound `relay.notification` — the relay's in-band delivery path, used while
+    /// this frontend is live on the socket (the relay sends this INSTEAD of routing
+    /// to APNs when the target frontend is connected; the two are mutually
+    /// exclusive per message). Surface it as a local notification so it flows
+    /// through the same `UNUserNotificationCenter` path as a background APNs push —
+    /// `NotificationService` then turns it into an in-app toast (foreground) or an
+    /// OS banner, and a tap deep-links to `data.sid` via `SessionNavigator`.
+    private func onNotification(_ note: RelayNotification) {
+        log.notice(
+            "relay.notification title=\(note.title, privacy: .public) sid=\(note.data?.sid ?? "(none)", privacy: .public)"
+        )
+        let title = note.title
+        let body = note.body
+        let sid = note.data?.sid
+        Task { @MainActor in
+            NotificationService.shared.scheduleLocal(title: title, body: body, sid: sid)
         }
     }
 
@@ -428,6 +469,14 @@ final class RelayClient: NSObject, @unchecked Sendable {
         subscribe(RelayChannel.meta, after: 0)
         subscribe(RelayChannel.control, after: 0)
         startKeyExchange()
+        // Push: (re)register the device token now that the socket is authed.
+        // `relay.push.register` is a relay-LEVEL message (the relay seals the
+        // token itself) — it needs auth but NOT the E2EE kx, so it is safe to send
+        // here alongside the subscriptions. No-op if no token has arrived yet; in
+        // that case `pushTokenDidChange` sends it when APNs delivers one.
+        if let token = pushTokenHex {
+            sendPushRegister(token: token)
+        }
     }
 
     private func onAuthErr(detail: String) {
@@ -942,6 +991,34 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// This frontend's stable identity on the relay (for `control.*` messages).
     var frontendId: String { pairing.frontendId }
 
+    // MARK: - Push registration
+
+    /// Send `relay.push.register` to register this device's APNs token with the
+    /// daemon (via the relay's seal+route, PR #741). This is a relay-LEVEL message
+    /// — plaintext over the (TLS) socket, sealed by the relay with its push-seal
+    /// key — so it uses the raw `send` path like `relay.auth`/`relay.sub`, NOT the
+    /// E2EE `publishControl`. The relay rejects it pre-auth, so only call this from
+    /// `onAuthOk` (or `pushTokenDidChange` while already authed).
+    ///
+    /// `platform` is always `"ios"`: APNs is the only push target wired today, and
+    /// only the iOS adaptor feeds `PushTokenStore`. macOS/visionOS push is a
+    /// separate device-gated follow-up.
+    private func sendPushRegister(token: String) {
+        let msg = RelayPushRegister(
+            frontendId: pairing.frontendId, token: token, platform: "ios")
+        send(msg) { [weak self] error in
+            if let error {
+                self?.log.notice(
+                    "relay.push.register send failed: \(error.localizedDescription, privacy: .public)"
+                )
+            } else {
+                self?.log.notice(
+                    "relay.push.register sent (frontendId=\(self?.pairing.frontendId ?? "?", privacy: .public))"
+                )
+            }
+        }
+    }
+
     /// Whether the E2EE session keys have been derived — i.e. it is safe to seal
     /// and publish. `publishControl` checks this too; exposed so callers can give
     /// UI feedback ("not connected yet") before attempting a send.
@@ -1250,6 +1327,30 @@ final class RelayClient: NSObject, @unchecked Sendable {
         } else {
             defaults.removeObject(forKey: resumeTokenDefaultsKey)
             defaults.removeObject(forKey: resumeExpiresAtDefaultsKey)
+        }
+    }
+}
+
+// MARK: - PushTokenObserver
+
+extension RelayClient: PushTokenObserver {
+    /// The device's APNs token became available (cold-launch delivery) or changed
+    /// (token refresh). Cache it for the next `onAuthOk`, and — if we are already
+    /// authenticated — send `relay.push.register` right away on the live socket.
+    /// If we are not yet authed, caching is enough: `onAuthOk` sends it on auth.
+    ///
+    /// Called on the main actor (the `PushTokenStore` fan-out is `@MainActor`, as
+    /// is this witness — matching the protocol requirement exactly). Reads `state`
+    /// (written off-main on the URLSession queue) and writes `pushTokenHex`
+    /// (`nonisolated(unsafe)`); both cross-queue accesses are benign per their
+    /// documented invariants.
+    @MainActor func pushTokenDidChange(_ tokenHex: String) {
+        pushTokenHex = tokenHex
+        // Best-effort live re-register: only when already authed. A stale `state`
+        // read is benign (a missed send is recovered by the next `onAuthOk`; a
+        // wrongly-authed send fails the `guard task` in `send` harmlessly).
+        if case .authenticated = state {
+            sendPushRegister(token: tokenHex)
         }
     }
 }

@@ -66,8 +66,9 @@ macOS 는 `log stream` 라이브 캡처, visionOS/watchOS 는 `simctl spawn … 
 | `TP_JSON=1` | smoke 가 마지막 줄에 single-line JSON 결과 emit (`{platform,markers,passed,elapsed_s}`) — 텍스트 출력 불변 |
 | `TP_ARTIFACT_DIR` | 스크린샷/비디오 출력 디렉터리 (기본 `/tmp/tp-artifacts`) |
 | `TP_E2E_REAL=1` | 가짜 loopback 대신 **실 `tp` daemon+relay** 로 E2E (격리 XDG 디렉터리, 헤드리스 페어링, iOS 전용, M0–M2 범위) |
-| `TP_E2E_CLAUDE=1` | `TP_E2E_REAL` 의 strict superset — 페어링 후 **실 `claude -p` 세션**을 격리 daemon 에 spawn (M0–M4 범위, 실 Stop `last_assistant_message` 렌더). `claude` PATH 필수, OAuth 토큰을 keychain 에서 추출해 주입. **로컬 전용 (절대 CI 아님)** |
-| `TP_E2E_CLAUDE_SID` / `TP_E2E_CLAUDE_CWD` / `TP_E2E_CLAUDE_PROMPT` | claude 세션 sid(기본 `real-smoke-sess`)/cwd(기본 격리 HOME 아래 `work`)/프롬프트(기본 `Reply with exactly: PONG`) 오버라이드 |
+| `TP_E2E_CLAUDE=1` | `TP_E2E_REAL` 의 strict superset — 페어링 *전* **실 `claude -p` PRINT 세션**을 격리 daemon 에 spawn (M0–M4 범위, 실 Stop `last_assistant_message` 렌더). `claude` PATH 필수, OAuth 토큰을 keychain 에서 (먼저 refresh 후) 추출해 주입. **로컬 전용 (절대 CI 아님)** |
+| `TP_E2E_CLAUDE_M5=1` | `TP_E2E_CLAUDE` 의 strict superset — 페어링 *전* **실 INTERACTIVE claude 세션**(`--permission-mode bypassPermissions`, no `-p`)을 spawn (M0–M5 **전 8마커**). holder 가 trust 프롬프트를 `\r` 로 수락 → claude REPL idle → 앱의 스모크 auto-probe `in.chat` → daemon 이 `\r` 붙여 제출 → claude `UserPromptSubmit` → `TP_INPUT_OK` emit (proof=echo: claude 가 입력을 io 로 렌더; 결정적 제출 증명은 세션 DB `UserPromptSubmit≥1`). 진짜 app→relay→daemon→PTY→claude 입력 경로를 E2E 증명. **로컬 전용** |
+| `TP_E2E_CLAUDE_SID` / `TP_E2E_CLAUDE_CWD` / `TP_E2E_CLAUDE_PROMPT` | claude 세션 sid(기본 `real-smoke-sess`)/cwd(기본 격리 HOME 아래 `work`)/프롬프트(print 모드만; 기본 `Reply with exactly: PONG`) 오버라이드 |
 
 ## 서브커맨드
 
@@ -136,9 +137,10 @@ daemonId 로 재설정한다(did=/daemon= 어서션 매칭).
 > **아키텍처 불변식 전부 유지**: app→relay 전용, daemon outbound-WS only(실 daemon 이 `relay.register` 로
 > self-register → relay 의 유일 클라이언트), relay ciphertext-only.
 
-## 실 claude E2E (`TP_E2E_CLAUDE=1`, iOS Simulator) — 헤드라인 dogfood 증명
+## 실 claude PRINT E2E (`TP_E2E_CLAUDE=1`, iOS Simulator) — 헤드라인 dogfood 증명 (M0–M4)
 
-`TP_E2E_REAL` 의 **strict superset**. `real-daemon-pair.ts` 가 `--spawn-claude` 로 **실 `claude -p`
+`TP_E2E_REAL` 의 **strict superset** (입력 왕복 M5 까지는 아래 `TP_E2E_CLAUDE_M5` 섹션 참조).
+`real-daemon-pair.ts` 가 `--spawn-claude` 로 **실 `claude -p`
 세션**을 같은 격리 daemon 에 **페어링 *전*** spawn 한다 → 앱이 hello 에서 그 세션을 받아 auto-attach →
 **실 Stop 훅의 `last_assistant_message` 를 Chat 에 렌더**한다. 이게 M3'(`TP_FRAME_OK sessions=1`) +
 M4(`TP_SESSION_OK events>=1`)를 만족시키며, "실 페어링 → 실 격리 daemon → 실 claude → 실 Stop → 복호 →
@@ -160,25 +162,63 @@ ChatItem 렌더" 전 체인을 증명한다 (loopback 의 합성 Stop 이 아니
   프레임을 캐시하지 않아 auth-time 브로드캐스트를 놓친 late-join 앱이 영영 키를 못 받던 레이스; M3 unblock).
   (2) **app subscribe-on-broadcast** — `RelayClient.swift onState` 가 resume 전에 `relay.sub` 를 보냄
   (브로드캐스트로 발견한 세션에 sub 없이 resume 하면 릴레이가 batch/rec 를 drop → chat item 0 → M4 영영 fail).
-- **Auth = keychain 토큰 추출**: 격리 HOME 엔 자격증명이 없으므로, `cmd_smoke_ios` 가
-  `security find-generic-password -s "Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>" -w` 로
-  실 OAuth 토큰을 뽑아 `CLAUDE_CODE_OAUTH_TOKEN` env 로 격리 daemon 의 runner 에 주입한다(`PtyBun.spawn`
-  은 자체 `env:` 가 없어 그대로 상속). **`CLAUDE_CODE_SIMPLE=1` 절대 금지** — simple 모드는 훅을 건너뛰어
-  Stop 이 안 떠서 M4 불가. (대안: `CLAUDE_CONFIG_DIR` 를 실 config 로 가리키면 keychain 을 native 로 찾지만
-  격리가 약해진다 — 토큰 추출 경로 권장.)
+- **Auth = keychain 토큰 (refresh 후) 추출**: 격리 HOME 엔 자격증명이 없으므로, `cmd_smoke_ios` 가 실
+  OAuth 토큰을 뽑아 `CLAUDE_CODE_OAUTH_TOKEN` env 로 격리 daemon 의 runner 에 주입한다(`PtyBun.spawn`
+  은 자체 `env:` 가 없어 그대로 상속). **추출 *전* 토큰을 refresh** 한다 — keychain access token 은 ~8h 만에
+  만료되고, stale 토큰이면 세션이 REPL 까지 가서 프롬프트 제출까지 되지만 API 호출이 401 → `StopFailure`(Stop
+  아님) → M4/M5 fail 한다. refresh = 실 config(`CLAUDE_CONFIG_DIR`)로 `claude -p "Reply with exactly: OK"`
+  를 한 번 돌리면 (저장된 refresh token 으로) access token 을 갱신 + keychain 에 다시 영속 → 그 다음
+  `security find-generic-password -s "Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>" -w` 로 fresh
+  토큰을 추출. **`CLAUDE_CODE_SIMPLE=1` 절대 금지** — simple 모드는 훅을 건너뛰어 Stop 이 안 떠서 M4 불가.
 - **결정론 정직성**: M4 어서션은 `events>=1` (실 Stop, 비어있지 않은 `last_assistant_message` 가 E2E 로
   흘렀음)만 보고 **정확한 텍스트(`PONG`)는 안 본다** — 모델이 재포맷할 수 있어 brittle. load-bearing
   증명은 "실 Stop 이 흘러 ChatItem 으로 렌더됐다".
 
-> **정직한 범위 — M0–M4 (7마커, M5 제외)**: print 모드 `claude -p` 는 한 응답 후 **종료**하므로 Stop
-> (M4)은 결정론적이지만 입력 echo(M5)는 불가 — print 모드는 입력이 도착하기 전에 죽는다. **M5(입력 왕복)는
-> 별도 follow-up PR** 에서 **인터랙티브** claude 세션(라이브 PTY 가 stdin 을 echo)으로 검증한다. M4/M5 는
-> 단일 세션에서 상호배타적이라 두 세션으로 나눈다.
+## 실 claude M5 E2E (`TP_E2E_CLAUDE_M5=1`, iOS Simulator) — 입력 왕복 증명
+
+`TP_E2E_CLAUDE` 의 **strict superset**. print 모드(`-p`)는 한 응답 후 **종료**하므로 입력이 도착하기 전에
+죽어 M5(입력 왕복)가 불가능하다. M5 는 대신 **인터랙티브** claude 세션(라이브 PTY, REPL 유지)을 띄워
+**앱의 입력 경로**(app→relay→daemon→PTY→claude)를 진짜로 굴린다 — 전 8마커(M0–M5).
+
+- **세션 = INTERACTIVE** (`real-daemon-pair.ts --spawn-claude-interactive`): `tp run --sid … --
+  --permission-mode bypassPermissions` (no `-p`). dogfood permission 모드라 per-tool 승인 프롬프트가 앱의
+  단일 프롬프트를 막지 않는다.
+- **trust 프롬프트 우회 = `\r` (Enter) over IPC**: 인터랙티브 claude 는 시작 시 PTY 에 "Do you trust this
+  folder? 1. Yes / 2. No" 를 렌더한다(print 모드는 스킵). `~/.claude.json` 에 `hasTrustDialogAccepted:true`
+  를 pre-seed 해도 현 claude 버전에선 **부족** — holder 가 spawn 후 (t+9s, t+15s 두 번, cold-start 보강용)
+  IPC `input {sid, data:base64("\r")}` 를 보내 default 강조 옵션 1("Yes, I trust")을 수락한다. daemon 의
+  command-dispatcher(`input` case, `findRunnerBySid`)가 runner PTY 로 라우팅 → 세션이 REPL idle 로 진입.
+- **입력 = 앱의 auto-probe** (the genuine app path, SMOKE-ONLY): holder 가 REPL 을 idle 로 만든 *뒤*, 앱이
+  attach + backfill 후 `maybeSendProbe` 로 `in.chat "tp-input-probe"` 를 relay 로 보낸다. **이 auto-probe 는
+  스모크 전용** (`RelayClient.isSmokeMode` — iOS/visionOS/watchOS 는 `--tp-smoke-url`, macOS 는 bare
+  `--tp-smoke` 런치 인자로 감지) — 실 세션엔 절대 안 쏜다 (안 그러면 유저 claude 에 `tp-input-probe` 가 chat
+  으로 주입됨). daemon relay-manager 가 chat 입력에 **`\r`(carriage return)** 을 붙여(`relay-manager.ts`
+  `onInput`, `kind==="chat"`) PTY 로 제출한다 — **인터랙티브 claude TUI 는 `\r` 에만 프롬프트를 submit하고
+  `\n` 으로는 입력 박스에만 남고 제출되지 않는다** (daemon→runner→PTY 전 경로로 경험적 검증: `text+\r` →
+  `UserPromptSubmit`+`Stop`; `\n`(glued/separate) → 둘 다 0). 이게 **프로덕션 dogfood-chat 버그 수정**이다 —
+  앱이 보낸 chat 메시지가 실제로 claude 에 제출되게 한다. 회귀 가드: `relay-manager.test.ts` "onInput → runner".
+- **probe 는 재시도한다**: 인터랙티브 claude REPL 은 warmup window(trust 프롬프트 dismiss + REPL init) 동안
+  키스트로크를 흘리므로 one-shot probe 는 불안정하다. `sendProbeAttempt` 가 probe 를 타이머로 재전송한다
+  (최대 `probeMaxAttempts`=12 회, `probeRetryInterval`=4s) — `TP_INPUT_OK` 가 fire 하면 self-cancel. loopback
+  은 첫 echo 가 즉시 이기므로 재시도는 한 틱 뒤 취소된다.
+- **M5 어서션 = 이중 증명 (echo OR 새 Stop)**: `RelayClient.checkInputEcho` 는 **둘 중 하나**면 `TP_INPUT_OK`
+  를 emit: (1) terminalOutput 에 probe 가 echo 됨(`proof=echo`) — loopback 의 byte-echo 뿐 아니라 **인터랙티브
+  claude 가 타이핑된 입력을 자기 입력 박스에 렌더하면 그 io 스트림에도 probe 텍스트가 나타나므로** 실 claude
+  도 보통 이 경로로 통과한다, 또는 (2) probe 전송 시점 baseline 을 **넘는 새 assistant `Stop`**(`proof=response`).
+  실 claude M5 의 결정적 증명은 마커가 아니라 **세션 DB 의 `UserPromptSubmit≥1`** (=`\r` 가 실제로 프롬프트를
+  제출했다는 직접 증거) — `TP_E2E_KEEP_DIR=1` 로 dir 보존 후
+  `sqlite3 …/real-smoke-sess.sqlite "SELECT name,COUNT(*) FROM records WHERE kind='event' GROUP BY name"`
+  로 확인. (`Stop` 은 claude 응답 완료 타이밍에 따라 마커 캡처 시점엔 아직 안 왔을 수 있다 — `UserPromptSubmit`
+  이 제출 증명의 SoT.)
+
+> **정직한 범위 — print 모드(`TP_E2E_CLAUDE`)는 M0–M4 (7마커)**, **인터랙티브 모드(`TP_E2E_CLAUDE_M5`)는
+> M0–M5 (전 8마커)**. M4/M5 는 단일 세션에서 상호배타적(print 는 입력 전에 종료, interactive 는 입력을 받음)
+> 이라 두 모드로 나눈다. M5 모드가 M4 도 포함하므로 dogfood 전 증명은 `TP_E2E_CLAUDE_M5=1` 한 번으로 충분.
 >
 > **절대 GitHub CI 에서 안 돈다**: claude 인증이 ci.yml 에 안 엮여 있고(토큰은 `claude.yml` 봇 전용),
 > 비결정론적(행 가능)이며, API 크레딧을 쓰고, 토큰 추출이 **개발자 macOS Keychain** 을 읽는다 — hosted
-> runner 에 없다. **로컬 pre-merge 게이트 전용** (`TP_E2E_CLAUDE=1 scripts/ios.sh smoke`, `claude` PATH 필수).
-> CI 는 결정론 검증만: `swift-build`(컴파일) + 선택적 `swift-smoke-ios`(loopback 가짜 daemon).
+> runner 에 없다. **로컬 pre-merge 게이트 전용** (`TP_E2E_CLAUDE_M5=1 scripts/ios.sh smoke`, `claude` PATH
+> 필수). CI 는 결정론 검증만: `swift-build`(컴파일) + 선택적 `swift-smoke-ios`(loopback 가짜 daemon).
 
 ## 공식 Apple Xcode MCP (`mcpbridge`) — 인터랙티브 전용
 

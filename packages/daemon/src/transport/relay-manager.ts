@@ -102,9 +102,16 @@ export class RelayConnectionManager {
       onInput: (kind, sid, data) => {
         const runner = this.deps.ipcServer.findRunnerBySid(sid);
         if (runner) {
+          // Chat input targets the interactive claude TUI, which submits a
+          // prompt only on a carriage return (`\r`, Enter) — a newline (`\n`)
+          // lands the text in the input box but never sends it. Append `\r`,
+          // not `\n`. Empirically verified end-to-end (daemon→runner→PTY):
+          // text+`\r` glued in one write yields UserPromptSubmit+Stop; `\n`
+          // (glued or separate) yields neither. Terminal input passes through
+          // verbatim (raw keystrokes already carry their own terminators).
           const payload =
             kind === "chat"
-              ? Buffer.from(`${data}\n`).toString("base64")
+              ? Buffer.from(`${data}\r`).toString("base64")
               : data;
           this.deps.ipcServer.send(runner, { t: "input", sid, data: payload });
         }

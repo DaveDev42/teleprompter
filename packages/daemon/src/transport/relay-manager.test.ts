@@ -64,12 +64,14 @@ interface DepsOverrides {
   loadPairings?: () => unknown[];
   savePairing?: (data: unknown) => void;
   updatePairingLabel?: (daemonId: string, label: Label) => void;
+  findRunnerBySid?: (sid: string) => unknown;
+  send?: (runner: unknown, msg: unknown) => void;
 }
 
 function makeDeps(overrides: DepsOverrides = {}): RelayConnectionManagerDeps {
   const fakeIpcServer = {
-    findRunnerBySid: () => undefined,
-    send: () => {},
+    findRunnerBySid: overrides.findRunnerBySid ?? (() => undefined),
+    send: overrides.send ?? (() => {}),
   };
   const fakeStore = {
     listSessions: overrides.listSessions ?? (() => []),
@@ -529,5 +531,53 @@ describe("RelayConnectionManager", () => {
     expect(stub1.__disposed).toBe(true);
     expect(stub2.__disposed).toBe(true);
     expect(mgr.listClients()).toHaveLength(0);
+  });
+
+  describe("buildEvents.onInput → runner", () => {
+    // Captures the IPC `input` frame's raw `data` field forwarded to the runner.
+    function captureRawInput(kind: "chat" | "term", data: string) {
+      const sends: Array<{ runner: unknown; msg: { data: string } }> = [];
+      const deps = makeDeps({
+        findRunnerBySid: () => ({ __runner: true }),
+        send: (runner, msg) =>
+          sends.push({ runner, msg: msg as { data: string } }),
+      });
+      const mgr = new RelayConnectionManager(deps);
+      const events = mgr.buildEvents(() => makeStubClient("d1"));
+      events.onInput?.(kind, "sess-1", data);
+      return sends[0]?.msg.data ?? "";
+    }
+
+    test("chat input is base64-encoded with a trailing carriage return (\\r), not a newline", () => {
+      // The interactive claude TUI submits a prompt only on `\r` (Enter); a
+      // trailing `\n` leaves the text un-submitted in the input box. The chat
+      // branch base64-encodes `${data}\r`. Regression guard for the real-claude
+      // M5 round-trip (TP_INPUT_OK).
+      const frame = captureRawInput("chat", "hello world");
+      const decoded = Buffer.from(frame, "base64").toString("utf8");
+      expect(decoded).toBe("hello world\r");
+      expect(decoded.endsWith("\n")).toBe(false);
+    });
+
+    test("terminal input passes the (already-base64) data through verbatim", () => {
+      // Terminal keystrokes arrive already base64-encoded on the wire; the
+      // `term` branch forwards the string unchanged (no re-encode, no
+      // appended terminator).
+      const wireData = Buffer.from("ls -la\r").toString("base64");
+      const frame = captureRawInput("term", wireData);
+      expect(frame).toBe(wireData);
+    });
+
+    test("onInput is a no-op when no runner owns the sid", () => {
+      const sends: unknown[] = [];
+      const deps = makeDeps({
+        findRunnerBySid: () => undefined,
+        send: (...args) => sends.push(args),
+      });
+      const mgr = new RelayConnectionManager(deps);
+      const events = mgr.buildEvents(() => makeStubClient("d1"));
+      events.onInput?.("chat", "ghost-sid", "hi");
+      expect(sends).toHaveLength(0);
+    });
   });
 });

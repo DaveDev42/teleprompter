@@ -128,7 +128,8 @@ scripts/ios.sh all                       # ios/ipad/macos/visionos(8/8) + watcho
 # 구조화 출력 / 산출물
 TP_JSON=1 scripts/ios.sh smoke           # 마지막 줄에 {"platform":…,"markers":{…},"passed":…,"elapsed_s":…}
 TP_E2E_REAL=1 scripts/ios.sh smoke       # FAKE loopback 대신 격리된 실 tp daemon+relay 로 M0-M2 페어링 E2E
-TP_E2E_CLAUDE=1 scripts/ios.sh smoke     # 위 + 실 claude -p 세션 spawn → M0-M4 (실 Stop 렌더). claude PATH 필수, 로컬 전용
+TP_E2E_CLAUDE=1 scripts/ios.sh smoke     # 위 + 실 claude -p PRINT 세션 spawn → M0-M4 (실 Stop 렌더). claude PATH 필수, 로컬 전용
+TP_E2E_CLAUDE_M5=1 scripts/ios.sh smoke  # 위 + 실 INTERACTIVE claude 세션 → 전 8마커 (M0-M5: 앱→relay→daemon→PTY→claude 입력 왕복). 로컬 전용
 ```
 
 환경 변수:
@@ -152,13 +153,19 @@ TP_E2E_CLAUDE=1 scripts/ios.sh smoke     # 위 + 실 claude -p 세션 spawn → 
   M0-M2(boot/core/pair/relay-auth) 페어링 E2E. daemon 은 임시 `XDG_*` 디렉터리로 격리되어
   dogfood daemon 과 충돌하지 않는다. M3(kx)+ 는 실 daemon kx 레이스로 범위 밖 (loopback 이 M3-M5 커버).
 - `TP_E2E_CLAUDE=1` — `TP_E2E_REAL` 의 superset. 페어링과 **동시에**(세션을 먼저 등록하도록 페어링 *전*에)
-  격리 daemon 에 **실 `claude -p` 세션**을 `tp run --socket-path <격리 socket>` 로 spawn → 앱 hello 가
+  격리 daemon 에 **실 `claude -p` PRINT 세션**을 `tp run --socket-path <격리 socket>` 로 spawn → 앱 hello 가
   `sessions=1` 을 받아 auto-attach 해 **실 Stop 의 `last_assistant_message` 를 Chat 에 렌더** →
-  M0-M4(7마커, M5 제외). `claude` PATH 필수. OAuth 토큰을
-  keychain(`Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>`)에서 추출해
-  `CLAUDE_CODE_OAUTH_TOKEN` 으로 주입. **로컬 전용 — 절대 CI 에서 안 돈다** (인증·비용·비결정론·keychain
-  의존). M5(입력 왕복)는 인터랙티브 claude 가 필요해 별도 follow-up. 세션 sid/cwd/prompt 는
+  M0-M4(7마커, M5 제외 — print 모드는 입력 도착 전에 종료). `claude` PATH 필수. OAuth 토큰은 추출 *전*
+  refresh(실 config 로 `claude -p` 한 번 — stale 토큰 401 회피) 후 keychain
+  (`Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>`)에서 추출해 `CLAUDE_CODE_OAUTH_TOKEN` 으로
+  주입. **로컬 전용 — 절대 CI 에서 안 돈다** (인증·비용·비결정론·keychain 의존). 세션 sid/cwd/prompt 는
   `TP_E2E_CLAUDE_SID`/`_CWD`/`_PROMPT` 로 오버라이드.
+- `TP_E2E_CLAUDE_M5=1` — `TP_E2E_CLAUDE` 의 superset, **전 8마커(M0-M5)**. 격리 daemon 에 **실 INTERACTIVE
+  claude 세션**(`--permission-mode bypassPermissions`, no `-p`)을 spawn → holder 가 trust 프롬프트를 IPC
+  `\r` 로 수락(claude REPL idle) → 앱이 attach 후 `in.chat "tp-input-probe"` 를 relay 로 전송 → daemon 이
+  `\n` 붙여 PTY 제출 → claude 응답 → **새 assistant Stop** chat item 이 `TP_INPUT_OK proof=response` 를
+  emit. 진짜 app→relay→daemon→PTY→claude 입력 경로의 E2E 증명. M4 도 포함하므로 dogfood 전엔 이 한 번이면
+  충분. `claude` PATH 필수, **로컬 전용**.
 - `TP_ARTIFACT_DIR` — smoke 가 마커 폴링 후 스크린샷(+선택 비디오)을 떨구는 디렉터리
   (기본 `/tmp/tp-artifacts`). UI 자동화가 불가한 watchOS/visionOS 에서도 스크린샷은 동작.
 

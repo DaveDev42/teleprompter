@@ -56,7 +56,7 @@ rand = { version = "0.8", features = ["getrandom"] }
 # and a handful of ANSI formatting helpers. `events` is the only feature needed
 # for blocking key-event reads; the full-featured `crossterm::execute!` macros
 # are used for cursor hiding via the `style` feature (transitively pulled in).
-crossterm = { version = "0.28", default-features = false, features = ["events"] }
+crossterm = { version = "0.29", default-features = false, features = ["events"] }
 # OSC 52 clipboard payload — STANDARD alphabet base64 (matches Bun
 # `Buffer.from(text,"utf8").toString("base64")`, osc52.ts:83). No URL-safe, no
 # line wrapping. Used only by `pair new`'s `c`-to-copy path.

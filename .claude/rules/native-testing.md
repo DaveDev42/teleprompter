@@ -31,7 +31,7 @@ golden 토큰 pre-seed, 합성 `sess-smoketest`)이 기본. **실 `tp` daemon+re
 |---|---|---|---|---|---|
 | iOS | `ios` (기본) | `platform=iOS Simulator,name=$TP_SIM` (`iPhone 17 Pro`) | **8** | 풀 | |
 | iPadOS | `ipad` | iOS Simulator, `$TP_SIM`=`iPad Pro 13-inch (M5)` | **8** | 풀 | iOS 경로 alias — 새 슬라이스 불필요 (`ios-arm64_x86_64-simulator` 공유). split-view/sidebar 실행. (M5 = iOS 26.5 런타임; M4 는 18.5 뿐이라 name 해석 모호) |
-| macOS | `macos` | `platform=macOS` (native, `open`) | **8** | **호스트 게이트** — 빌드+서명 O, XCUITest 런타임은 TCC/LocalAuthentication 인증 세션 필요. 비대화형/미인가 세션에선 runner init 실패 → `cmd_uitest` 가 **SKIP**(exit 0) | sim 없음. `screencapture -x` 아티팩트. `log stream` 폴링 |
+| macOS | `macos` | `platform=macOS` (native, `open`) | **8** | **호스트 게이트** — 빌드+서명 O, XCUITest 런타임은 TCC/LocalAuthentication 인증 세션 필요. 비대화형/미인가 세션에선 runner init 실패 → `cmd_uitest` 가 **SKIP**(exit 0, `TP_UITEST_SKIP` 마커 emit — PASS 와 혼동 금지). `TP_UITEST_STRICT=1` 이면 이 게이트를 **hard-fail** | sim 없음. `screencapture -x` 아티팩트. `log stream` 폴링 |
 | visionOS | `visionos` | `id=$visionUDID` (xrOS sim) | **8** | **부분** — element 쿼리+flat-window tap O, 공간 제스처/eye-gaze sim **불가** | `TP_VISION_SIM`=`Apple Vision Pro` |
 | watchOS | `watchos` | `-target TeleprompterWatch -sdk watchsimulator` | **7** (no `TP_INPUT_OK`) | **없음** — watchOS 에 `XCUIApplication` 부재 (Apple hard limit) | `TP_WATCH_SIM`=`Apple Watch Series 11 (46mm)`. 마커+스크린샷만 |
 
@@ -65,6 +65,7 @@ macOS 는 `log stream` 라이브 캡처, visionOS/watchOS 는 `simctl spawn … 
 | `TP_FORCE_RUST=1` | xcframework 매번 재빌드 (Rust 수정 후) |
 | `TP_JSON=1` | smoke 가 마지막 줄에 single-line JSON 결과 emit (`{platform,markers,passed,elapsed_s}`) — 텍스트 출력 불변 |
 | `TP_ARTIFACT_DIR` | 스크린샷/비디오 출력 디렉터리 (기본 `/tmp/tp-artifacts`) |
+| `TP_UITEST_STRICT=1` | macOS XCUITest TCC 호스트 게이트를 non-fatal SKIP 대신 **hard-fail** 로 (인가된 GUI/CI 러너용; 기본 SKIP 은 `TP_UITEST_SKIP` 마커 emit) |
 | `TP_E2E_REAL=1` | 가짜 loopback 대신 **실 `tp` daemon+relay** 로 E2E (격리 XDG 디렉터리, 헤드리스 페어링, iOS 전용, M0–M2 범위) |
 | `TP_E2E_CLAUDE=1` | `TP_E2E_REAL` 의 strict superset — 페어링 *전* **실 `claude -p` PRINT 세션**을 격리 daemon 에 spawn (M0–M4 범위, 실 Stop `last_assistant_message` 렌더). `claude` PATH 필수, OAuth 토큰을 keychain 에서 (먼저 refresh 후) 추출해 주입. **로컬 전용 (절대 CI 아님)** |
 | `TP_E2E_CLAUDE_M5=1` | `TP_E2E_CLAUDE` 의 strict superset — 페어링 *전* **실 INTERACTIVE claude 세션**(`--permission-mode bypassPermissions`, no `-p`)을 spawn (M0–M5 **전 8마커**). holder 가 trust 프롬프트를 `\r` 로 수락 → claude REPL idle → 앱의 스모크 auto-probe `in.chat` → daemon 이 `\r` 붙여 제출 → claude `UserPromptSubmit` → `TP_INPUT_OK` emit (proof=echo: claude 가 입력을 io 로 렌더; 결정적 제출 증명은 세션 DB `UserPromptSubmit≥1`). 진짜 app→relay→daemon→PTY→claude 입력 경로를 E2E 증명. **로컬 전용** |

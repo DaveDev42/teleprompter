@@ -37,7 +37,8 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
 use crate::handshake;
-use crate::messages::{RelayErr, RelayServerMessage};
+use crate::messages::{PushToken, RelayErr, RelayServerMessage};
+use crate::push_seal::global_push_sealer;
 use crate::resume_token::ResumePayload;
 use crate::server::{
     handle_close, now_ms, presence_actions, register_authed_conn, route_key_exchange, route_ping,
@@ -620,11 +621,78 @@ fn dispatch_locked(
             }
         }
 
-        // ── Push (Step 5 — not in the WS hot path) ───────────────────────────
-        RelayClientMessage::Push { .. } | RelayClientMessage::PushRegister { .. } => {
-            DispatchOutcome::empty()
-        }
+        // ── Push register (frontend → relay): seal the device token + route it
+        // to the daemon as relay.push.token. Synchronous (seal is in-memory; no
+        // APNs I/O here). Mirrors relay-server.ts handlePushRegister:1493-1542.
+        RelayClientMessage::PushRegister {
+            frontend_id,
+            token,
+            platform,
+        } => route_push_register(core, conn_id, frontend_id, token, *platform),
+
+        // ── Push send (daemon → relay → APNs): async HTTP/2 delivery, which
+        // cannot run under the RelayCore lock (no .await in dispatch_locked).
+        // Wiring PushService in here is the follow-up; for now it is a no-op.
+        RelayClientMessage::Push { .. } => DispatchOutcome::empty(),
     }
+}
+
+/// Seal a frontend's plaintext APNs/FCM device token and route it to the daemon
+/// in the same group as `relay.push.token { frontendId, sealed, platform }`. The
+/// relay holds the plaintext only transiently inside this call; the daemon stores
+/// the opaque sealed blob. Port of `relay-server.ts` `handlePushRegister`
+/// (1493-1542): UNAUTHORIZED for non-frontends; silent drop when no daemon is
+/// connected (the frontend re-registers on reconnect).
+fn route_push_register(
+    core: &RelayCore,
+    conn_id: ConnId,
+    frontend_id: &str,
+    token: &str,
+    platform: tp_proto::relay_client::Platform,
+) -> DispatchOutcome {
+    let Some(client) = authed_state(core, conn_id) else {
+        return not_authenticated(conn_id, Some("Send relay.auth first"));
+    };
+    if client.role != Role::Frontend {
+        return DispatchOutcome::actions(vec![Action::Send(
+            conn_id,
+            RelayServerMessage::Err(RelayErr {
+                e: "UNAUTHORIZED".to_string(),
+                m: Some("Only frontends can send relay.push.register".to_string()),
+            }),
+        )]);
+    }
+
+    // Find the daemon conn in this client's group (role == Daemon).
+    let daemon_conn = core.groups.get(&client.daemon_id).and_then(|group| {
+        group.iter().copied().find(|cid| {
+            core.conns
+                .get(cid)
+                .and_then(|h| h.auth.as_ref())
+                .is_some_and(|a| a.role == Role::Daemon)
+        })
+    });
+
+    // Seal the plaintext token (in-memory AEAD; never logged). Sealing should not
+    // fail with a healthy key; if it does, drop rather than leak the plaintext or
+    // crash the dispatch — the frontend re-registers on its next reconnect.
+    let Ok(sealed) = global_push_sealer().seal(token) else {
+        return DispatchOutcome::empty();
+    };
+
+    // No daemon online for this group → drop silently (re-register on reconnect).
+    let Some(daemon_conn) = daemon_conn else {
+        return DispatchOutcome::empty();
+    };
+
+    DispatchOutcome::actions(vec![Action::Send(
+        daemon_conn,
+        RelayServerMessage::PushToken(PushToken {
+            frontend_id: frontend_id.to_string(),
+            sealed,
+            platform,
+        }),
+    )])
 }
 
 /// Finalize a successful auth: on `AuthOk`, register the conn into its group and
@@ -951,5 +1019,128 @@ mod tests {
         );
         // And there is no Hello variant to dispatch on. (Compile-time: the match
         // in dispatch_locked is exhaustive without a Hello arm.)
+    }
+
+    // ── relay.push.register → relay.push.token routing ───────────────────────
+    //
+    // Port-parity guard for handlePushRegister (relay-server.ts:1493-1542):
+    // an authed frontend's plaintext token is sealed and routed to the daemon
+    // in the same group as relay.push.token; non-frontends get UNAUTHORIZED;
+    // a group with no daemon drops silently.
+
+    fn insert_authed(
+        core: &mut RelayCore,
+        id: ConnId,
+        role: Role,
+        daemon_id: &str,
+        frontend_id: Option<String>,
+    ) {
+        insert_unauthed(core, id);
+        let auth = AuthState {
+            role,
+            daemon_id: daemon_id.to_string(),
+            frontend_id,
+            subscriptions: std::collections::HashSet::new(),
+        };
+        register_authed_conn(core, id, auth);
+    }
+
+    fn push_register_msg() -> RelayClientMessage {
+        RelayClientMessage::PushRegister {
+            frontend_id: "fe-1".into(),
+            token: "apns-device-token-abc".into(),
+            platform: tp_proto::relay_client::Platform::Ios,
+        }
+    }
+
+    #[test]
+    fn push_register_seals_and_routes_token_to_daemon() {
+        let mut core = test_core();
+        // Daemon conn 1 + frontend conn 2, same group "d".
+        insert_authed(&mut core, 1, Role::Daemon, "d", None);
+        insert_authed(&mut core, 2, Role::Frontend, "d", Some("fe-1".into()));
+
+        let out = dispatch_locked(
+            &mut core,
+            &test_signer(),
+            &test_metrics(),
+            2,
+            &push_register_msg(),
+        );
+
+        // Exactly one Send, targeting the DAEMON conn (id 1).
+        assert_eq!(out.actions.len(), 1, "expected one Send to the daemon");
+        let Action::Send(target, msg) = &out.actions[0] else {
+            panic!("expected Send");
+        };
+        assert_eq!(
+            *target, 1,
+            "token must route to the daemon conn, not the frontend"
+        );
+        let json = serde_json::to_value(msg).unwrap();
+        assert_eq!(json["t"], "relay.push.token");
+        assert_eq!(json["frontendId"], "fe-1");
+        assert_eq!(json["platform"], "ios");
+        // The sealed blob must NOT be the plaintext token, and must carry the
+        // PushSealer envelope prefix.
+        let sealed = json["sealed"].as_str().unwrap();
+        assert_ne!(
+            sealed, "apns-device-token-abc",
+            "token must be sealed, not plaintext"
+        );
+        assert!(
+            sealed.starts_with("tpps1."),
+            "sealed blob must carry the tpps1 prefix: {sealed}"
+        );
+    }
+
+    #[test]
+    fn push_register_from_daemon_is_unauthorized() {
+        let mut core = test_core();
+        insert_authed(&mut core, 1, Role::Daemon, "d", None);
+        let out = dispatch_locked(
+            &mut core,
+            &test_signer(),
+            &test_metrics(),
+            1,
+            &push_register_msg(),
+        );
+        let json = sole_send_json(&out);
+        assert_eq!(json["t"], "relay.err");
+        assert_eq!(json["e"], "UNAUTHORIZED");
+    }
+
+    #[test]
+    fn push_register_unauthed_replies_not_authenticated() {
+        let mut core = test_core();
+        insert_unauthed(&mut core, 9);
+        let out = dispatch_locked(
+            &mut core,
+            &test_signer(),
+            &test_metrics(),
+            9,
+            &push_register_msg(),
+        );
+        let json = sole_send_json(&out);
+        assert_eq!(json["t"], "relay.err");
+        assert_eq!(json["e"], "NOT_AUTHENTICATED");
+    }
+
+    #[test]
+    fn push_register_drops_silently_when_no_daemon_in_group() {
+        let mut core = test_core();
+        // Only a frontend in the group — no daemon connected.
+        insert_authed(&mut core, 2, Role::Frontend, "d", Some("fe-1".into()));
+        let out = dispatch_locked(
+            &mut core,
+            &test_signer(),
+            &test_metrics(),
+            2,
+            &push_register_msg(),
+        );
+        assert!(
+            out.actions.is_empty(),
+            "no daemon → silent drop (frontend re-registers on reconnect)"
+        );
     }
 }

@@ -103,6 +103,26 @@ struct RelayPublish: Encodable, Equatable {
     let seq: Int
 }
 
+/// `relay.push.register` — register this device's APNs token with the daemon for
+/// background push. The relay seals the (plaintext hex) `token` with its push-seal
+/// key the instant it arrives — the token is never stored or forwarded in the
+/// clear — then routes the sealed blob to the owning daemon as `relay.push.token`
+/// (`rust/tp-relay/src/conn.rs route_push_register`, PR #741). The daemon's
+/// `PushNotifier` stores the sealed token and uses it for APNs delivery.
+///
+/// Wire shape is exactly `{ t, frontendId, token, platform }` — camelCase keys,
+/// verbatim from `packages/protocol/src/types/relay.ts` `RelayPushRegister` and
+/// the Rust `RelayClientMessage::PushRegister` (`rust/tp-proto/src/relay_client.rs`).
+/// `platform` is the lowercase string the `Platform` enum serializes to
+/// (`"ios"` / `"android"`); the app always sends `"ios"` (the only APNs target —
+/// macOS/visionOS APNs is a separate device-gated follow-up).
+struct RelayPushRegister: Encodable, Equatable {
+    let t = "relay.push.register"
+    let frontendId: String
+    let token: String
+    let platform: String
+}
+
 // MARK: - Relay → Frontend
 
 /// `relay.auth.ok` — auth succeeded. `resumeToken`/`resumeExpiresAt` are cached
@@ -168,6 +188,33 @@ struct DaemonKxPayload: Decodable, Equatable {
     struct LabelWire: Decodable, Equatable {
         let set: Bool
         let value: String?
+    }
+}
+
+/// `relay.notification` — the relay's IN-BAND notification delivery path. When the
+/// daemon emits a `relay.push` AND this frontend is currently live on the relay
+/// WebSocket, the relay delivers the notification directly here instead of routing
+/// it to APNs (the two paths are mutually exclusive per message — WS when
+/// connected, APNs when offline; `packages/relay/src/relay-server.ts handlePush`).
+/// So this is the path used while the app is foregrounded + connected; without
+/// handling it, in-session notifications that fire while the app is open are lost.
+///
+/// Wire: `{ t, title, body, data? }` where `data` is absent OR
+/// `{ sid, daemonId, event }` (the relay guard rejects a `null` data — it is
+/// either absent or a full object). Verbatim from
+/// `packages/protocol/src/types/relay.ts` `RelayNotification`.
+struct RelayNotification: Decodable, Equatable {
+    let t: String
+    let title: String
+    let body: String
+    let data: NotificationData?
+
+    /// Optional routing payload. `sid` lets a notification tap deep-link to the
+    /// originating session (mirrors `userInfo["sid"]` on local notifications).
+    struct NotificationData: Decodable, Equatable {
+        let sid: String
+        let daemonId: String
+        let event: String
     }
 }
 
@@ -254,9 +301,11 @@ struct SessionResume: Encodable, Equatable {
 // MARK: - M5 Input messages (Frontend → Daemon)
 
 /// `in.chat` — send a chat line into a session. `d` is **plain text**; the daemon
-/// appends a trailing `\n` before writing to the PTY (`relay-manager.ts:107`), so
-/// the app sends the line WITHOUT its own newline. Sealed with tx, published via
-/// `relay.pub` on the session sid. Wire: `{ t, sid, d }`
+/// appends a trailing carriage return (`\r`, NOT `\n`) before writing to the PTY
+/// (`relay-manager.ts onInput`, PR #738), so the app sends the line WITHOUT its own
+/// terminator. (`\r` is what claude's interactive TUI treats as submit — a glued
+/// `text\r` in one PTY write submits the prompt; `\n` does not.) Sealed with tx,
+/// published via `relay.pub` on the session sid. Wire: `{ t, sid, d }`
 /// (`packages/protocol/src/types/session-proto.ts:46-50`).
 struct SessionInChat: Encodable, Equatable {
     let t = "in.chat"

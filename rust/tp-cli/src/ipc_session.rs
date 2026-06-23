@@ -12,9 +12,9 @@
 //! ```text
 //!   UnixStream::connect(socket_path)
 //!     ├─ reader fd = stream.try_clone()  → reader thread
-//!     │     loop { read_frame → parse_ipc_message → mpsc::Sender }
-//!     │           EOF        → send Err(IpcError::Closed); break
-//!     │           I/O error  → send Err(...); break
+//!     │     loop { read_frame_eof_aware → parse_ipc_message → mpsc::Sender }
+//!     │           Ok(None)   → send Err(IpcError::Closed); break  (clean EOF)
+//!     │           Err(e)     → send Err(IpcError::Io(e)); break   (mid-frame EOF or I/O)
 //!     │           unknown discriminant → drop (mirrors Bun `if(!msg) continue`)
 //!     └─ writer = Arc<Mutex<UnixStream>>  (main thread + Ctrl+C handler share)
 //! ```
@@ -34,7 +34,9 @@ use std::thread::JoinHandle;
 
 use tp_proto::ipc::{parse_ipc_message, IpcMessage};
 
-use crate::codec::{encode_frame, read_frame};
+#[cfg(test)]
+use crate::codec::read_frame;
+use crate::codec::{encode_frame, read_frame_eof_aware};
 use crate::ipc_client::IpcError;
 
 /// A live duplex IPC session: a background reader thread feeds an mpsc channel
@@ -133,10 +135,21 @@ impl Drop for IpcSession {
 /// Mirrors the Bun `onMessage` transport boundary: a frame that parses to an
 /// unknown discriminant (`parse_ipc_message` → `None`) is dropped silently
 /// (Bun's `if (!msg) continue`), never surfaced as an error.
+///
+/// Uses `read_frame_eof_aware` to distinguish a clean connection close (daemon
+/// shut down gracefully at a frame boundary → `IpcError::Closed`) from a
+/// truncated frame where the daemon crashed mid-transfer (`IpcError::Io` with
+/// `UnexpectedEof`).  The old `read_frame` + `UnexpectedEof` guard could not
+/// make this distinction.
 fn reader_loop(mut reader: UnixStream, tx: &mpsc::Sender<Result<IpcMessage, IpcError>>) {
     loop {
-        match read_frame(&mut reader) {
-            Ok(bytes) => {
+        match read_frame_eof_aware(&mut reader) {
+            Ok(None) => {
+                // Clean EOF — daemon closed the socket at a frame boundary.
+                let _ = tx.send(Err(IpcError::Closed));
+                return;
+            }
+            Ok(Some(bytes)) => {
                 let raw: serde_json::Value = match serde_json::from_slice(&bytes) {
                     Ok(v) => v,
                     Err(e) => {
@@ -154,12 +167,9 @@ fn reader_loop(mut reader: UnixStream, tx: &mpsc::Sender<Result<IpcMessage, IpcE
                 }
                 // Unknown discriminant → drop and keep reading (Bun parity).
             }
-            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                // Clean EOF — daemon closed the socket.
-                let _ = tx.send(Err(IpcError::Closed));
-                return;
-            }
             Err(e) => {
+                // Includes UnexpectedEof from a mid-frame truncation — not a
+                // clean close, so map to IpcError::Io (not Closed).
                 let _ = tx.send(Err(IpcError::Io(e)));
                 return;
             }

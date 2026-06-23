@@ -15,7 +15,7 @@
 //! `MAX_FRAME_SIZE` mirrors the TS 64 MiB ceiling so a poison header is
 //! rejected before we attempt to buffer anything.
 
-use std::io::{self, Read};
+use std::io::{self, Cursor, Read};
 
 /// Maximum allowed JSON payload size. Mirrors `MAX_FRAME_SIZE` in
 /// `packages/protocol/src/codec.ts:15` (64 MiB), which is also the combined
@@ -89,6 +89,49 @@ pub fn read_frame<R: Read>(reader: &mut R) -> io::Result<Vec<u8>> {
     Ok(json)
 }
 
+/// Read one complete frame, distinguishing a clean connection close from a
+/// truncated frame mid-transfer.
+///
+/// Returns:
+/// - `Ok(Some(bytes))` — a complete frame was decoded.
+/// - `Ok(None)` — clean EOF: the remote side closed the connection exactly on a
+///   frame boundary (zero bytes read from the start of the 8-byte header).
+///   This is the normal daemon-shutdown path.
+/// - `Err(e)` — either an I/O error or a truncated frame (EOF arrived after at
+///   least one header byte was consumed, meaning the sender crashed mid-frame).
+///   The error kind is `UnexpectedEof` for the truncated-frame case, which the
+///   caller should treat as a protocol error rather than a clean close.
+///
+/// Used by the `IpcSession` reader loop so it can map the two EOF cases to the
+/// correct `IpcError` variant (`Closed` vs `Io`).
+///
+/// # Implementation note — delegates to `read_frame`
+///
+/// This function peeks the very first byte with a plain `read` (not
+/// `read_exact`) to detect a clean zero-byte EOF.  Once a byte is confirmed
+/// available it reconstructs a full reader by chaining `Cursor::new([first_byte])`
+/// in front of the remaining `reader` and delegates to `read_frame`.  This
+/// eliminates all duplicated header/size/sidecar logic so neither function can
+/// diverge from the other.  The chain correctly reassembles the original byte
+/// stream: the first byte is the high byte of the `u32_be` JSON-length prefix,
+/// so the delegated `read_frame` sees a logically complete stream starting at
+/// offset 0.
+pub fn read_frame_eof_aware<R: Read>(reader: &mut R) -> io::Result<Option<Vec<u8>>> {
+    // Read the very first byte with `read` (not `read_exact`) so that a
+    // zero-byte return (clean EOF at a frame boundary) comes back as `Ok(0)`
+    // rather than `Err(UnexpectedEof)`.
+    let mut first = [0u8; 1];
+    if reader.read(&mut first)? == 0 {
+        return Ok(None); // clean EOF — normal daemon-shutdown path
+    }
+
+    // Chain the first byte back in front of the reader and delegate all further
+    // decoding (MAX_FRAME_SIZE guard, sidecar discard, etc.) to `read_frame`.
+    // Any EOF from here is a truncated frame → `Err(UnexpectedEof)`.
+    let mut chained = Cursor::new(first).chain(reader);
+    read_frame(&mut chained).map(Some)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,5 +202,79 @@ mod tests {
         frame.extend_from_slice(bin);
         let result = read_frame(&mut frame.as_slice()).unwrap();
         assert_eq!(result, json);
+    }
+
+    // ── read_frame_eof_aware ────────────────────────────────────────────────
+
+    /// Empty reader (zero bytes) → clean EOF (`Ok(None)`).
+    #[test]
+    fn eof_aware_clean_eof_returns_none() {
+        let mut data: &[u8] = &[];
+        let result = read_frame_eof_aware(&mut data);
+        assert!(
+            matches!(result, Ok(None)),
+            "expected Ok(None) for clean close, got {result:?}"
+        );
+    }
+
+    /// A complete frame is decoded normally (`Ok(Some(bytes))`).
+    #[test]
+    fn eof_aware_complete_frame_returns_some() {
+        let payload = b"hello";
+        let frame = encode_frame(payload);
+        let result = read_frame_eof_aware(&mut frame.as_slice()).unwrap();
+        assert_eq!(result, Some(payload.to_vec()));
+    }
+
+    /// EOF after the first header byte (truncated) → `Err(UnexpectedEof)`.
+    #[test]
+    fn eof_aware_truncated_header_is_err() {
+        // Only one byte of the 8-byte header.
+        let mut truncated: &[u8] = &[0x00];
+        let result = read_frame_eof_aware(&mut truncated);
+        assert!(result.is_err(), "truncated header must be an error");
+        assert_eq!(
+            result.unwrap_err().kind(),
+            std::io::ErrorKind::UnexpectedEof,
+            "truncated header must have UnexpectedEof kind"
+        );
+    }
+
+    /// Complete header but truncated payload → `Err(UnexpectedEof)`.
+    #[test]
+    fn eof_aware_truncated_payload_is_err() {
+        let payload = b"hello world - this is truncated";
+        let frame = encode_frame(payload);
+        // Feed only the header + first 3 bytes of payload.
+        let mut partial: &[u8] = &frame[..HEADER_SIZE + 3];
+        let result = read_frame_eof_aware(&mut partial);
+        assert!(result.is_err(), "truncated payload must be an error");
+        assert_eq!(
+            result.unwrap_err().kind(),
+            std::io::ErrorKind::UnexpectedEof,
+        );
+    }
+
+    /// Oversized frame is rejected by `read_frame_eof_aware` (H1 guard).
+    ///
+    /// Mirrors the `oversized_frame_rejected` test for `read_frame` — both
+    /// functions share the same MAX_FRAME_SIZE guard via delegation, so neither
+    /// can silently diverge.
+    #[test]
+    fn eof_aware_oversized_frame_rejected() {
+        // Craft a header claiming jsonLen = MAX + 1 bytes.
+        let mut poison = Vec::with_capacity(HEADER_SIZE);
+        poison.extend_from_slice(&((MAX_FRAME_SIZE + 1) as u32).to_be_bytes());
+        poison.extend_from_slice(&0u32.to_be_bytes());
+        let result = read_frame_eof_aware(&mut poison.as_slice());
+        assert!(
+            result.is_err(),
+            "read_frame_eof_aware must reject oversized jsonLen"
+        );
+        assert_eq!(
+            result.unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData,
+            "oversized frame must yield InvalidData"
+        );
     }
 }

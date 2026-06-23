@@ -67,12 +67,13 @@ fn fail_prefix(msg: &str) -> String {
 // Confirmation prompt (TTY path only)
 // ---------------------------------------------------------------------------
 
-/// Ask `question [y/N]:` on stdout, read one line from stdin.
+/// Ask `question [y/N] ` on stdout, read one line from stdin.
 /// Returns `true` if the user typed `y` or `Y`; anything else (including
 /// empty / Enter) → false (default No).
 /// Mirrors `promptYesNo({ defaultValue: false })` in the Bun reference.
+/// Format matches yes-no-prompt.tsx: `{question} {hint}{" "}` (trailing space, no colon).
 fn prompt_yes_no(question: &str) -> bool {
-    print!("{question} [y/N]: ");
+    print!("{question} [y/N] ");
     let _ = io::stdout().flush();
     let mut buf = String::new();
     if io::stdin().read_line(&mut buf).is_err() {

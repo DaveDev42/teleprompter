@@ -71,6 +71,17 @@ impl From<io::Error> for IpcError {
         // Map timeout-flavoured OS errors to the friendlier Timeout variant.
         if e.kind() == io::ErrorKind::TimedOut || e.kind() == io::ErrorKind::WouldBlock {
             Self::Timeout
+        } else if matches!(
+            e.kind(),
+            io::ErrorKind::ConnectionRefused
+                | io::ErrorKind::NotFound
+                | io::ErrorKind::NotConnected
+        ) {
+            // Daemon died between the is_daemon_running() probe and the actual
+            // UnixStream::connect() call (TOCTOU).  Map to DaemonDown so callers
+            // produce the friendly "Daemon is not running. Start it with…" message
+            // instead of a raw "IPC I/O error: Connection refused".
+            Self::DaemonDown
         } else {
             Self::Io(e)
         }
@@ -322,7 +333,9 @@ pub fn parse_duration(raw: &str) -> Result<u64, String> {
 
     // SAFETY: unit_char is one of s/m/h/d — duration_ms_for_unit cannot fail.
     let multiplier = duration_ms_for_unit(unit_char).unwrap();
-    Ok(n * multiplier)
+    n.checked_mul(multiplier).ok_or_else(|| {
+        format!("Duration '{raw}' is too large — the resulting millisecond value overflows u64.")
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -361,6 +374,30 @@ mod tests {
                 "bad={bad}, got: {err}"
             );
         }
+    }
+
+    /// Huge --older-than value that would overflow u64 when multiplied must be
+    /// rejected with a clear error rather than wrapping silently (finding #9).
+    /// u64::MAX / 86_400_000 (ms/day) == 213_503_982_334, so
+    /// 213_503_982_335d overflows.
+    #[test]
+    fn duration_overflow_rejected() {
+        let err = parse_duration("213503982335d").unwrap_err();
+        assert!(
+            err.contains("too large") || err.contains("overflow"),
+            "expected overflow error, got: {err}"
+        );
+    }
+
+    /// Largest non-overflowing day value is accepted.
+    #[test]
+    fn duration_max_non_overflow_accepted() {
+        // 213_503_982_334d * 86_400_000 fits in u64.
+        let result = parse_duration("213503982334d");
+        assert!(
+            result.is_ok(),
+            "expected Ok for max non-overflowing day value, got: {result:?}"
+        );
     }
 
     // ---- match_sessions ----

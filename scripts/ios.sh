@@ -415,6 +415,22 @@ for devs in d["devices"].values():
   if [ "$state" != "Booted" ]; then
     log "booting $SIM_NAME ($udid)"
     xcrun simctl boot "$udid"
+    # CRITICAL: `simctl boot` is ASYNC — it returns immediately while the runtime
+    # is still coming up. Locally the sim is usually already Booted so this never
+    # bites, but on a COLD CI runner the sim starts Shutdown and the very next
+    # `simctl install`/`launch` hits a not-yet-ready runtime: the app launch
+    # silently no-ops and TP_BOOT_OK never fires (exactly the headless
+    # swift-smoke-ios failure mode). `bootstatus -b` blocks until the boot
+    # completes (it also kicks a boot if somehow still shutdown). Bounded by an
+    # outer timeout so a wedged runtime fails loud instead of hanging the job.
+    log "waiting for boot to complete (simctl bootstatus)…"
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 180 xcrun simctl bootstatus "$udid" -b \
+        || die "simulator never finished booting within 180s: $SIM_NAME ($udid)"
+    else
+      xcrun simctl bootstatus "$udid" -b \
+        || die "simulator bootstatus failed: $SIM_NAME ($udid)"
+    fi
   else
     log "$SIM_NAME already booted ($udid)"
   fi
@@ -854,7 +870,21 @@ cmd_smoke_ios() {
   done
 
   # M0 assertions.
-  [ -n "$boot_seen" ] || die "SMOKE FAIL — boot marker '$BOOT_MARKER' not seen in Simulator log"
+  if [ -z "$boot_seen" ]; then
+    # Boot marker miss is the classic headless-CI failure. Before dying, dump
+    # diagnostics so a CI run is debuggable without a local repro: the app's
+    # install/launch state and a raw (predicate-less) tail of the sim log. The
+    # boot marker fires in TeleprompterApp.init() before any view, so a miss means
+    # either the app process never really ran (cold-boot race — see cmd_boot
+    # bootstatus) or it crashed before the os.Logger flushed.
+    log "── boot-marker miss diagnostics ──────────────────────────────"
+    log "app container: $(xcrun simctl get_app_container "$udid" "$BUNDLE_ID" 2>&1 || echo '(not installed)')"
+    log "last 30s of ALL sim log lines mentioning teleprompter/Teleprompter:"
+    xcrun simctl spawn "$udid" log show --last 30s --style compact 2>/dev/null \
+      | grep -iE "teleprompter|TP_BOOT|TP_CORE|crash|fault|signal" | tail -40 >&2 || true
+    log "──────────────────────────────────────────────────────────────"
+    die "SMOKE FAIL — boot marker '$BOOT_MARKER' not seen in Simulator log"
+  fi
   tp_mark "$BOOT_MARKER"
   [ -n "$core_line" ] || die "SMOKE FAIL — boot OK but no '$CORE_MARKER'/TP_CORE_FAIL line (tp-core FFI never ran?)"
   case "$core_line" in

@@ -146,18 +146,30 @@ TP_PLATFORM=watchos scripts/ios.sh smoke  # watchOS Simulator 7마커 스모크 
 
 **main 에 머지된 내 변경은 즉시 사용자의 로컬 `tp`/daemon 에 반영되어 있어야 한다.** 다음 시점마다 **묻지 말고** 재빌드/재설치:
 
-1. **PR squash merge 직후** — `apps/cli/**`, `packages/{daemon,runner,protocol,relay}/**` 중 하나라도 건드린 PR:
+> **#5 hard-swap 이후 (ADR-0003 Amendment 2): dogfood `tp` 는 Rust 바이너리 + `tpd` 트램폴린 번들이다.** 출하 아티팩트 = `bin/tp`(Rust CLI, ~3MB) + `libexec/tp/tpd`(Bun SEA daemon/passthrough blob, ~66MB). `bun run scripts/build.ts` (no `--bundle`) 가 만드는 `dist/tp` 는 **Bun SEA = `tpd` 블롭**이지 entrypoint 가 **아니다** — 그걸 `~/.local/bin/tp` 로 깔면 퇴역한 레거시 Bun CLI 를 dogfood 하게 된다. 반드시 아래 prefix-tree 로 깐다 (`scripts/install.sh` 릴리즈 레이아웃과 동일).
+
+1. **PR squash merge 직후** — `apps/cli/**`, `packages/{daemon,runner,protocol,relay}/**`, `rust/tp-cli/**` 중 하나라도 건드린 PR:
    ```bash
-   pnpm build:cli:local                      # 현재 OS/arch 만 (--all 금지)
-   install -m 0755 dist/tp ~/.local/bin/tp   # dogfood 경로 (sudo 불필요)
-   ~/.local/bin/tp daemon install            # 서비스 재등록 (idempotent, launchd/systemd 자동 재기동)
+   # Rust tp (release) — rustup shim 이 cargo 인자를 mis-parse 하므로 real toolchain bin 을 PATH 앞에.
+   TC_BIN="$(dirname "$(cd rust && rustup which cargo)")"
+   ( cd rust && PATH="$TC_BIN:$PATH" cargo build --release --bin tp )   # → rust/target/release/tp
+   bun run scripts/build.ts                                            # Bun tpd SEA → dist/tp
+   # prefix-tree 조립 (install.sh 레이아웃)
+   TP_PREFIX="$HOME/.local/share/tp"
+   mkdir -p "$TP_PREFIX/bin" "$TP_PREFIX/libexec/tp"
+   cp rust/target/release/tp "$TP_PREFIX/bin/tp"
+   cp dist/tp                "$TP_PREFIX/libexec/tp/tpd"
+   chmod +x "$TP_PREFIX/bin/tp" "$TP_PREFIX/libexec/tp/tpd"
+   ln -sf "$TP_PREFIX/bin/tp" ~/.local/bin/tp                          # dogfood symlink → Rust tp
+   ~/.local/bin/tp daemon install                                      # 재등록 (Rust tp → tpd 트램폴린)
    ```
 2. **로컬 dev 세션 시작 시** — 위 시퀀스 한 번 돌려 PATH `tp` + daemon 을 `origin/main` 최신에 맞춤.
 3. **"최신으로 깔아줘" 명시 요청 시** — 확인 없이 실행.
 
 세부:
-- **dogfood = `~/.local/bin/tp`, brew(릴리즈) = `/opt/homebrew/bin/tp` 로 분리.** `~/.zprofile` 이 `~/.local/bin` 을 앞에 둬 `tp` 는 dogfood 를 가리킴. **brew symlink 를 `install` 로 절대 덮지 않는다** (덮으면 `brew upgrade` 무력화 — 복구는 `brew link --overwrite tp`). dogfood 끄려면 `rm ~/.local/bin/tp`.
-- `daemon install` 은 plist 바이너리 경로를 `which tp` 로 고르므로 **`~/.local/bin/tp` 로 직접 실행**. 새 로그인 셸 전이면 `PATH="$HOME/.local/bin:$PATH" ~/.local/bin/tp daemon install`.
+- **dogfood = `~/.local/bin/tp`(→ `~/.local/share/tp/bin/tp` Rust), brew(릴리즈) = `/opt/homebrew/bin/tp` 로 분리.** `~/.zprofile` 이 `~/.local/bin` 을 앞에 둬 `tp` 는 dogfood 를 가리킴. **brew symlink 를 절대 덮지 않는다** (덮으면 `brew upgrade` 무력화 — 복구는 `brew link --overwrite tp`). dogfood 끄려면 `rm ~/.local/bin/tp`.
+- **Rust `tp` 는 `locate_bun_blob()` 로 `canonicalize(current_exe())/../../libexec/tp/tpd` 를 찾는다** — 그래서 `bin/tp` + `libexec/tp/tpd` prefix-tree 레이아웃이 필수다 (symlink 만 깔고 `tpd` 가 없으면 daemon/passthrough 가 blob-not-found 로 실패). `dist/tp` 를 직접 `~/.local/bin/tp` 로 깔지 말 것 (그건 `tpd` 블롭이지 Rust entrypoint 가 아님).
+- `daemon install` 은 plist 바이너리 경로를 `which tp` 로 고르므로 **`~/.local/bin/tp` 로 직접 실행**. 새 로그인 셸 전이면 `PATH="$HOME/.local/bin:$PATH" ~/.local/bin/tp daemon install`. daemon 프로세스는 `tpd` 로 뜬다 (트램폴린 — `pgrep -fl tpd` 로 확인).
 - **재기동은 `tp daemon install` 한 번** (`pkill` 후 수동 재시작 금지 — 서비스 미등록 프로세스로 살아남아 OTA 안 됨). 재기동 후 `tp version` 으로 새 commit hash 확인.
 - **Subagent worktree 가 active 인 동안 install 금지** — 모든 subagent 완료 알림 도착 + 메인 worktree `git status` clean 후 한꺼번에. 옛 `/usr/local/bin/tp` 잔재 발견 시 `rm`.
 

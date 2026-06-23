@@ -4,17 +4,21 @@
 //!
 //! ## Key design decisions
 //!
-//! ### Asset shape (single binary, NOT tarball)
+//! ### Asset shape — dual-mode: tarball bundle OR single binary
 //!
-//! GitHub releases ship the **legacy single-binary asset** `tp-<os>_<arch>` (e.g.
-//! `tp-darwin_arm64`). The 4d tarball packaging (`tp-<suffix>.tar.gz`) exists in
-//! the build pipeline but is NOT yet wired into `release.yml` — that rides with
-//! the #5 hard-swap. Therefore this command downloads the single-binary asset,
-//! byte-for-byte identical to what the Bun upgrade does.
+//! GitHub releases ship BOTH asset shapes per platform:
 //!
-//! TODO(#5): When the tarball-based release ships, update `download_asset` to
-//! fetch `tp-<suffix>.tar.gz`, extract the binary, and verify the tarball
-//! checksum. The current single-binary path should then be removed or gated.
+//! * **Bundle (tarball)** `tp-<os>_<arch>.tar.gz` — the #5 hard-swap format
+//!   (ADR-0003 Amendment 2).  Contains a prefix tree:
+//!   `tp-<suffix>/bin/tp` (Rust CLI) + `tp-<suffix>/libexec/tp/tpd` (Bun SEA).
+//!   Installed to `$TP_PREFIX` (`$HOME/.local/share/tp`) with a symlink
+//!   `$INSTALL_DIR/tp → $TP_PREFIX/bin/tp`.
+//!
+//! * **Single binary (legacy)** `tp-<os>_<arch>` — Bun SEA monolith, pre-#5.
+//!
+//! `upgrade_tp` detects which shape the *running* binary was installed as by
+//! calling `detect_install_shape()` and dispatches to the correct upgrade path.
+//! Homebrew is already special-cased — `run()` handles it before calling here.
 //!
 //! ### `checkForUpdates` (24h startup check) — NOT ported here
 //!
@@ -53,6 +57,7 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+use flate2::read::GzDecoder;
 use sha2::{Digest, Sha256};
 
 use crate::colors::{ok, warn};
@@ -161,14 +166,18 @@ pub fn is_older_version(a: &str, b: &str) -> bool {
 // Asset name
 // ---------------------------------------------------------------------------
 
-/// Build the asset name for the current platform.
+/// Build the asset name suffix for the current platform.
 ///
 /// Port of `getAssetName()` (upgrade.ts:329-333).
 /// OS: `std::env::consts::OS` — `"macos"` → `"darwin"`, `"linux"` → `"linux"`.
 /// Arch: `std::env::consts::ARCH` — `"aarch64"` → `"arm64"`, `"x86_64"` → `"x64"`.
 ///
-/// Download URL template:
-/// `https://github.com/DaveDev42/teleprompter/releases/download/<tag>/tp-<os>_<arch>`
+/// Returns e.g. `"tp-darwin_arm64"` — used both as the bare binary name and
+/// as the base for `.tar.gz` (just append `.tar.gz`).
+///
+/// Download URL templates:
+/// * Single-binary: `https://github.com/.../releases/download/<tag>/tp-<os>_<arch>`
+/// * Tarball bundle: `https://github.com/.../releases/download/<tag>/tp-<os>_<arch>.tar.gz`
 pub fn get_asset_name() -> String {
     let os = match std::env::consts::OS {
         "macos" => "darwin",
@@ -556,6 +565,160 @@ pub fn resolve_current_binary_path() -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Install-shape detection
+// ---------------------------------------------------------------------------
+
+/// Which install shape is currently active.
+#[derive(Debug, PartialEq, Eq)]
+pub enum InstallShape {
+    /// Tarball bundle: `bin/tp` (Rust CLI) + `libexec/tp/tpd` (Bun SEA).
+    /// `prefix` is the `$TP_PREFIX` directory (parent of `bin/`).
+    Bundle { prefix: PathBuf },
+    /// Legacy single-binary / Bun SEA monolith, or unknown.
+    SingleBinary,
+}
+
+/// Detect whether the running `tp` is a tarball-bundle install or a
+/// single-binary (legacy/brew) install.
+///
+/// **Heuristic**: a bundle install means `current_exe()` resolved to a path
+/// whose final two components are `bin/tp` AND whose sibling
+/// `../libexec/tp/tpd` exists on disk.  The layout is:
+///
+/// ```text
+/// $TP_PREFIX/
+///   bin/tp          ← current_exe() after symlink resolution
+///   libexec/tp/tpd  ← sibling blob
+/// ```
+///
+/// This is robust because:
+/// * The `tpd` presence is a physical file check — it cannot be faked by a
+///   stray symlink name.
+/// * Brew installs resolve through `/Cellar/tp/<ver>/bin/tp` — they never
+///   have `../libexec/tp/tpd` alongside, so they fall through to SingleBinary.
+/// * A manual/dogfood single-binary install at `~/.local/bin/tp` also has no
+///   `tpd` sibling → SingleBinary.
+///
+/// `exe_path` should be the already-resolved path from `current_exe()` (or the
+/// fallback). Pass the *canonical* (symlink-resolved) path so the `../` parent
+/// traversal lands at `$TP_PREFIX` and not at the symlink's parent.
+pub fn detect_install_shape(exe_path: &str) -> InstallShape {
+    if exe_path.is_empty() {
+        return InstallShape::SingleBinary;
+    }
+
+    // Canonicalize so `../` is computed against the real path, not a symlink.
+    let canonical = fs::canonicalize(exe_path)
+        .ok()
+        .unwrap_or_else(|| PathBuf::from(exe_path));
+
+    // The last two path components must be `bin/tp`.
+    let file_name = canonical.file_name().and_then(|n| n.to_str());
+    let parent = canonical.parent(); // …/bin
+    let bin_dir_name = parent.and_then(|p| p.file_name()).and_then(|n| n.to_str());
+
+    if file_name != Some("tp") || bin_dir_name != Some("bin") {
+        return InstallShape::SingleBinary;
+    }
+
+    // prefix = parent of `bin/` directory.
+    let prefix = match parent.and_then(|p| p.parent()) {
+        Some(p) => p.to_path_buf(),
+        None => return InstallShape::SingleBinary,
+    };
+
+    // Confirm `libexec/tp/tpd` exists.
+    let tpd = prefix.join("libexec").join("tp").join("tpd");
+    if tpd.exists() {
+        InstallShape::Bundle { prefix }
+    } else {
+        InstallShape::SingleBinary
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tarball extraction (safe)
+// ---------------------------------------------------------------------------
+
+/// Extract a `.tar.gz` archive to `dest_dir`, returning the paths of
+/// `bin/tp` and `libexec/tp/tpd` inside `dest_dir`.
+///
+/// **Security**: rejects any entry whose path contains `..` or is absolute.
+/// The tarball layout is `tp-<suffix>/<...>` — entries outside the archive
+/// root are rejected with an error (path traversal protection).
+///
+/// Returns `(bin_tp_path, tpd_path)`.
+pub fn extract_bundle_tarball(
+    tarball_path: &Path,
+    dest_dir: &Path,
+) -> Result<(PathBuf, PathBuf), String> {
+    let file = fs::File::open(tarball_path)
+        .map_err(|e| format!("open tarball {}: {e}", tarball_path.display()))?;
+    let gz = GzDecoder::new(file);
+    let mut archive = tar::Archive::new(gz);
+
+    let mut found_bin_tp: Option<PathBuf> = None;
+    let mut found_tpd: Option<PathBuf> = None;
+
+    for entry in archive
+        .entries()
+        .map_err(|e| format!("read tar entries: {e}"))?
+    {
+        let mut entry = entry.map_err(|e| format!("tar entry error: {e}"))?;
+        let entry_path = entry
+            .path()
+            .map_err(|e| format!("tar entry path: {e}"))?
+            .into_owned();
+
+        // Security: reject absolute paths and any component that is `..`.
+        if entry_path.is_absolute() {
+            return Err(format!(
+                "tar entry has absolute path: {} — aborting (possible path traversal)",
+                entry_path.display()
+            ));
+        }
+        for component in entry_path.components() {
+            use std::path::Component;
+            if matches!(component, Component::ParentDir) {
+                return Err(format!(
+                    "tar entry contains '..': {} — aborting (possible path traversal)",
+                    entry_path.display()
+                ));
+            }
+        }
+
+        // Strip the outer `tp-<suffix>/` directory component so we get a
+        // clean relative path: `bin/tp`, `libexec/tp/tpd`, etc.
+        // (The tarball always has exactly one leading component.)
+        let stripped: PathBuf = entry_path.components().skip(1).collect();
+        if stripped.as_os_str().is_empty() {
+            continue; // the outer dir entry itself
+        }
+
+        let dest = dest_dir.join(&stripped);
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("create dir {}: {e}", parent.display()))?;
+        }
+
+        entry
+            .unpack(&dest)
+            .map_err(|e| format!("unpack {} to {}: {e}", stripped.display(), dest.display()))?;
+
+        // Track the two files we care about.
+        if stripped == Path::new("bin/tp") {
+            found_bin_tp = Some(dest);
+        } else if stripped == Path::new("libexec/tp/tpd") {
+            found_tpd = Some(dest);
+        }
+    }
+
+    let bin_tp = found_bin_tp.ok_or("tarball did not contain bin/tp")?;
+    let tpd = found_tpd.ok_or("tarball did not contain libexec/tp/tpd")?;
+    Ok((bin_tp, tpd))
+}
+
+// ---------------------------------------------------------------------------
 // Daemon restart
 // ---------------------------------------------------------------------------
 
@@ -696,13 +859,251 @@ fn download_to_file(url: &str, dest: &Path) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
-// Full upgrade orchestration
+// Atomic file replacement helper
+// ---------------------------------------------------------------------------
+
+/// Atomically replace `target` with the file at `src`.
+///
+/// Tries `rename` first (atomic on same filesystem). Falls back to copy+unlink
+/// on EXDEV (cross-device). The caller is responsible for backing up `target`
+/// before calling this.
+fn atomic_replace(src: &Path, target: &Path) -> Result<(), String> {
+    match fs::rename(src, target) {
+        Ok(()) => Ok(()),
+        Err(e) if e.raw_os_error() == Some(18) => {
+            // EXDEV — cross-device: copy+unlink.
+            fs::copy(src, target).map_err(|e2| {
+                format!(
+                    "cross-device copy {} → {}: {e2}",
+                    src.display(),
+                    target.display()
+                )
+            })?;
+            fs::remove_file(src)
+                .map_err(|e2| format!("unlink tmp {} after copy: {e2}", src.display()))?;
+            Ok(())
+        }
+        Err(e) => Err(format!(
+            "rename {} → {}: {e}",
+            src.display(),
+            target.display()
+        )),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tarball-bundle upgrade path
+// ---------------------------------------------------------------------------
+
+/// Upgrade the tarball-bundle install.
+///
+/// Downloads `tp-<suffix>.tar.gz`, verifies SHA-256, extracts to a temp dir,
+/// then atomically replaces BOTH `$PREFIX/bin/tp` AND `$PREFIX/libexec/tp/tpd`.
+/// Both files are backed up before the swap; ANY failure restores BOTH.
+fn upgrade_tp_bundle(tag: &str, prefix: &Path) {
+    let asset = get_asset_name();
+    let tarball_asset = format!("{asset}.tar.gz");
+    let url = format!("https://github.com/{REPO}/releases/download/{tag}/{tarball_asset}");
+
+    let bin_tp_target = prefix.join("bin").join("tp");
+    let tpd_target = prefix.join("libexec").join("tp").join("tpd");
+
+    // Temp file for the downloaded tarball.
+    let tmp_tarball =
+        std::env::temp_dir().join(format!("tp-upgrade-tarball-{}", std::process::id()));
+    // Temp dir for extraction.
+    let tmp_extract =
+        std::env::temp_dir().join(format!("tp-upgrade-extract-{}", std::process::id()));
+
+    let mut tmp_tarball_opt: Option<PathBuf> = Some(tmp_tarball.clone());
+    let mut tmp_extract_opt: Option<PathBuf> = Some(tmp_extract.clone());
+    let mut bin_tp_bak_opt: Option<PathBuf> = None;
+    let mut tpd_bak_opt: Option<PathBuf> = None;
+
+    let result = (|| -> Result<(), String> {
+        // 1. Download tarball.
+        download_to_file(&url, &tmp_tarball)?;
+
+        // 2. Verify checksum of the tarball (same flow as single-binary).
+        println!("Verifying checksum...");
+        let checksums = download_checksums(tag);
+        if let Some(ref map) = checksums {
+            let expected = map
+                .get(&tarball_asset)
+                .ok_or_else(|| format!("Asset {tarball_asset} not found in checksums.txt"))?;
+            let actual = compute_file_hash(&tmp_tarball)
+                .map_err(|e| format!("hash {}: {e}", tmp_tarball.display()))?;
+            if &actual != expected {
+                let _ = fs::remove_file(&tmp_tarball);
+                tmp_tarball_opt = None;
+                return Err(format!(
+                    "Checksum mismatch for {tarball_asset}!\n  Expected: {expected}\n  Got:      {actual}"
+                ));
+            }
+            println!("{}", ok("Checksum verified (SHA-256)."));
+        } else {
+            println!(
+                "{}",
+                warn("Checksum verification skipped (checksums.txt not available).")
+            );
+        }
+        println!("{}", ok(&format!("Downloaded tp bundle {tag}")));
+
+        // 3. Extract to temp dir.
+        fs::create_dir_all(&tmp_extract)
+            .map_err(|e| format!("create extract dir {}: {e}", tmp_extract.display()))?;
+
+        let (new_bin_tp, new_tpd) = extract_bundle_tarball(&tmp_tarball, &tmp_extract)
+            .map_err(|e| format!("extract tarball: {e}"))?;
+
+        // 4. chmod +x on the extracted binaries.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for p in [&new_bin_tp, &new_tpd] {
+                let mut perms = fs::metadata(p)
+                    .map_err(|e| format!("stat {}: {e}", p.display()))?
+                    .permissions();
+                perms.set_mode(0o755);
+                fs::set_permissions(p, perms)
+                    .map_err(|e| format!("chmod +x {}: {e}", p.display()))?;
+            }
+        }
+
+        // 5. Back up BOTH existing files before any swap.
+        if bin_tp_target.exists() {
+            let bak = backup_binary(&bin_tp_target).map_err(|e| format!("backup bin/tp: {e}"))?;
+            bin_tp_bak_opt = Some(bak);
+        }
+        if tpd_target.exists() {
+            let bak =
+                backup_binary(&tpd_target).map_err(|e| format!("backup libexec/tp/tpd: {e}"))?;
+            tpd_bak_opt = Some(bak);
+        }
+
+        // 6. Ensure target directories exist (in case of a fresh install).
+        if let Some(parent) = bin_tp_target.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
+        }
+        if let Some(parent) = tpd_target.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
+        }
+
+        // 7. Atomically replace bin/tp first, then tpd.
+        //    If tpd swap fails, we restore bin/tp before returning the error.
+        atomic_replace(&new_bin_tp, &bin_tp_target).map_err(|e| format!("replace bin/tp: {e}"))?;
+
+        if let Err(e) = atomic_replace(&new_tpd, &tpd_target) {
+            // bin/tp was already swapped. Roll it back now so we restore
+            // consistently (the outer error handler will restore both, but
+            // bin/tp was already replaced — restore it explicitly here).
+            if let Some(ref bak) = bin_tp_bak_opt {
+                if bak.exists() {
+                    let _ = restore_binary(&bin_tp_target, bak);
+                    bin_tp_bak_opt = None; // already restored, don't double-restore
+                }
+            }
+            return Err(format!("replace libexec/tp/tpd: {e}"));
+        }
+
+        println!("Updated tp bundle at prefix {}", prefix.display());
+
+        // 8. Verify new bin/tp binary.
+        match verify_new_binary(&bin_tp_target) {
+            VerificationResult::Ok { version } => {
+                println!("{}", ok(&format!("Verified: {version}")));
+            }
+            VerificationResult::Err { reason } => {
+                return Err(format!("New binary verification failed — {reason}"));
+            }
+        }
+
+        // 9. Clean up backups.
+        if let Some(ref bak) = bin_tp_bak_opt {
+            cleanup_backup(bak);
+            bin_tp_bak_opt = None;
+        }
+        if let Some(ref bak) = tpd_bak_opt {
+            cleanup_backup(bak);
+            tpd_bak_opt = None;
+        }
+
+        // 10. Restart daemon.
+        restart_daemon();
+
+        Ok(())
+    })();
+
+    // Cleanup temp files and rollback on failure.
+    if let Some(ref p) = tmp_tarball_opt {
+        if p.exists() {
+            let _ = fs::remove_file(p);
+        }
+    }
+    if let Some(ref d) = tmp_extract_opt {
+        if d.exists() {
+            let _ = fs::remove_dir_all(d);
+        }
+    }
+    // Mark these as consumed to avoid double-drop warnings.
+    let _ = tmp_extract_opt.take();
+
+    if let Err(ref err) = result {
+        // Rollback: restore BOTH files from backup if available.
+        let mut restored_any = false;
+        if let Some(ref bak) = bin_tp_bak_opt {
+            if bak.exists() {
+                match restore_binary(&bin_tp_target, bak) {
+                    Ok(()) => {
+                        println!(
+                            "{}",
+                            ok(&format!(
+                                "Rolled back bin/tp at {}",
+                                bin_tp_target.display()
+                            ))
+                        );
+                        restored_any = true;
+                    }
+                    Err(_) => {
+                        // restore_binary already printed the failure.
+                    }
+                }
+            }
+        }
+        if let Some(ref bak) = tpd_bak_opt {
+            if bak.exists() {
+                if let Ok(()) = restore_binary(&tpd_target, bak) {
+                    println!(
+                        "{}",
+                        ok(&format!(
+                            "Rolled back libexec/tp/tpd at {}",
+                            tpd_target.display()
+                        ))
+                    );
+                    restored_any = true;
+                }
+            }
+        }
+        let _ = restored_any; // informational
+
+        let manual_hint = format!(
+            "Manual: curl -fsSL https://raw.githubusercontent.com/{REPO}/main/scripts/install.sh | bash"
+        );
+        eprintln!(
+            "{}",
+            error_with_hints(&format!("Upgrade failed: {err}"), &[&manual_hint])
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Single-binary upgrade path (existing behavior, preserved exactly)
 // ---------------------------------------------------------------------------
 
 /// Download, verify, install, and restart the daemon.
 ///
-/// Port of `upgradeTp` (upgrade.ts:565-687).
-fn upgrade_tp(tag: &str) {
+/// Port of `upgradeTp` (upgrade.ts:565-687). Used for single-binary/legacy installs.
+fn upgrade_tp_single_binary(tag: &str) {
     let asset = get_asset_name();
     let url = format!("https://github.com/{REPO}/releases/download/{tag}/{asset}");
 
@@ -851,6 +1252,32 @@ fn upgrade_tp(tag: &str) {
 }
 
 // ---------------------------------------------------------------------------
+// Dispatch: shape-aware upgrade
+// ---------------------------------------------------------------------------
+
+/// Dispatch to the correct upgrade path based on install shape.
+///
+/// * **Bundle** → `upgrade_tp_bundle` (downloads `.tar.gz`, replaces both files)
+/// * **Single-binary** → `upgrade_tp_single_binary` (existing behavior, unchanged)
+///
+/// Homebrew is already handled in `run()` before this is called.
+fn upgrade_tp(tag: &str) {
+    let current_path = resolve_current_binary_path();
+    match detect_install_shape(&current_path) {
+        InstallShape::Bundle { prefix } => {
+            println!(
+                "Detected tarball-bundle install at prefix {}",
+                prefix.display()
+            );
+            upgrade_tp_bundle(tag, &prefix);
+        }
+        InstallShape::SingleBinary => {
+            upgrade_tp_single_binary(tag);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 
@@ -931,7 +1358,6 @@ pub fn run() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
 
     // ── parse_version ────────────────────────────────────────────────────────
 
@@ -1329,14 +1755,13 @@ mod tests {
     #[test]
     fn detect_homebrew_apple_silicon_cellar() {
         // Apple Silicon Homebrew prefix: /opt/homebrew
-        let prefix =
-            detect_homebrew_install("/opt/homebrew/Cellar/tp/0.1.5/bin/tp").unwrap_or_default();
         // canonicalize may fail since this path doesn't exist on CI; fall back
         // to a string match on the hypothetical resolved path.
         // We test the logic by matching a real-looking Cellar path.
         // On real Apple Silicon the resolved path goes through Cellar.
         // Since canonicalize won't work on a non-existent path, test by
         // constructing a real temp dir that mimics the layout.
+        let _ = detect_homebrew_install("/opt/homebrew/Cellar/tp/0.1.5/bin/tp").unwrap_or_default();
         let dir = tempfile::TempDir::new().unwrap();
         let cellar_bin = dir
             .path()
@@ -1439,5 +1864,262 @@ mod tests {
         // Brief mandates: error_with_hints("X", &["a","b"]) == "X\n  → a\n  → b"
         let got = error_with_hints("X", &["a", "b"]);
         assert_eq!(got, "X\n  \u{2192} a\n  \u{2192} b");
+    }
+
+    // ── detect_install_shape ──────────────────────────────────────────────────
+
+    /// Build a fake bundle prefix tree and return (prefix, bin_tp, tpd, bin_tp_str).
+    fn make_fake_bundle(dir: &tempfile::TempDir) -> (PathBuf, PathBuf, PathBuf, String) {
+        let prefix = dir.path().to_path_buf();
+        let bin_dir = prefix.join("bin");
+        let libexec_dir = prefix.join("libexec").join("tp");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        std::fs::create_dir_all(&libexec_dir).unwrap();
+        let bin_tp = bin_dir.join("tp");
+        let tpd = libexec_dir.join("tpd");
+        std::fs::write(&bin_tp, b"fake-tp-rust").unwrap();
+        std::fs::write(&tpd, b"fake-tpd-bun").unwrap();
+        let bin_tp_str = bin_tp.to_string_lossy().into_owned();
+        (prefix, bin_tp, tpd, bin_tp_str)
+    }
+
+    #[test]
+    fn detect_shape_bundle_when_tpd_exists() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let (prefix, _bin_tp, _tpd, bin_tp_str) = make_fake_bundle(&dir);
+        match detect_install_shape(&bin_tp_str) {
+            InstallShape::Bundle { prefix: p } => {
+                // The prefix should match the temp dir root.
+                assert_eq!(p.canonicalize().unwrap(), prefix.canonicalize().unwrap());
+            }
+            InstallShape::SingleBinary => panic!("expected Bundle, got SingleBinary"),
+        }
+    }
+
+    #[test]
+    fn detect_shape_single_binary_when_no_tpd() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // Layout: bin/tp exists but NO libexec/tp/tpd.
+        let bin_dir = dir.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let bin_tp = bin_dir.join("tp");
+        std::fs::write(&bin_tp, b"fake").unwrap();
+        let path_str = bin_tp.to_string_lossy().into_owned();
+        assert_eq!(detect_install_shape(&path_str), InstallShape::SingleBinary);
+    }
+
+    #[test]
+    fn detect_shape_single_binary_for_non_bin_dir() {
+        // Binary at a flat path (e.g. ~/.local/bin/tp, not inside prefix/bin/).
+        let dir = tempfile::TempDir::new().unwrap();
+        let tp = dir.path().join("tp");
+        std::fs::write(&tp, b"fake").unwrap();
+        let path_str = tp.to_string_lossy().into_owned();
+        assert_eq!(detect_install_shape(&path_str), InstallShape::SingleBinary);
+    }
+
+    #[test]
+    fn detect_shape_single_binary_for_empty_path() {
+        assert_eq!(detect_install_shape(""), InstallShape::SingleBinary);
+    }
+
+    #[test]
+    fn detect_shape_brew_layout_is_single_binary() {
+        // Brew layout: <tmpdir>/Cellar/tp/0.1.5/bin/tp — no libexec/tp/tpd sibling.
+        let dir = tempfile::TempDir::new().unwrap();
+        let cellar_bin = dir
+            .path()
+            .join("Cellar")
+            .join("tp")
+            .join("0.1.5")
+            .join("bin");
+        std::fs::create_dir_all(&cellar_bin).unwrap();
+        let fake_tp = cellar_bin.join("tp");
+        std::fs::write(&fake_tp, b"fake").unwrap();
+        let path_str = fake_tp.to_string_lossy().into_owned();
+        // Brew's parent of bin/ is 0.1.5/ — no libexec/tp/tpd there.
+        assert_eq!(detect_install_shape(&path_str), InstallShape::SingleBinary);
+    }
+
+    // ── extract_bundle_tarball (safety) ───────────────────────────────────────
+
+    /// Build a minimal valid .tar.gz with the bundle layout.
+    fn make_test_tarball(dest: &Path, suffix: &str) -> PathBuf {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+
+        let tarball_path = dest.join("bundle.tar.gz");
+        let file = std::fs::File::create(&tarball_path).unwrap();
+        let enc = GzEncoder::new(file, Compression::fast());
+        let mut builder = tar::Builder::new(enc);
+
+        let outer = format!("tp-{suffix}");
+
+        // Add outer dir, bin/tp, libexec/tp/tpd.
+        let entries: &[(&str, &[u8])] = &[
+            ("bin/tp", b"fake-tp-binary"),
+            ("libexec/tp/tpd", b"fake-tpd-binary"),
+        ];
+        for (rel, content) in entries {
+            let full = format!("{outer}/{rel}");
+            let mut header = tar::Header::new_gnu();
+            header.set_size(content.len() as u64);
+            header.set_mode(0o755);
+            header.set_cksum();
+            builder.append_data(&mut header, &full, *content).unwrap();
+        }
+        builder.into_inner().unwrap().finish().unwrap();
+        tarball_path
+    }
+
+    #[test]
+    fn extract_bundle_tarball_happy_path() {
+        let src_dir = tempfile::TempDir::new().unwrap();
+        let dest_dir = tempfile::TempDir::new().unwrap();
+        let tarball = make_test_tarball(src_dir.path(), "darwin_arm64");
+
+        let (bin_tp, tpd) = extract_bundle_tarball(&tarball, dest_dir.path()).unwrap();
+        assert!(bin_tp.exists(), "bin/tp must be extracted");
+        assert!(tpd.exists(), "libexec/tp/tpd must be extracted");
+        assert_eq!(std::fs::read(&bin_tp).unwrap(), b"fake-tp-binary");
+        assert_eq!(std::fs::read(&tpd).unwrap(), b"fake-tpd-binary");
+    }
+
+    #[test]
+    fn extract_bundle_tarball_rejects_dotdot_path() {
+        // This tarball was produced via Python's tarfile module (which does NOT
+        // sanitize paths on write, unlike the Rust tar crate). It contains a
+        // path traversal entry "tp-darwin_arm64/../../../etc/passwd" alongside
+        // legitimate entries. Our extractor must detect and reject it.
+        //
+        // Generated with:
+        //   import tarfile, io
+        //   buf = io.BytesIO()
+        //   with tarfile.open(fileobj=buf, mode='w:gz') as tar:
+        //       info = tarfile.TarInfo(name='tp-darwin_arm64/../../../etc/passwd')
+        //       info.size = 4; info.mode = 0o644; tar.addfile(info, io.BytesIO(b'evil'))
+        //       info2 = tarfile.TarInfo(name='tp-darwin_arm64/bin/tp')
+        //       info2.size = 4; info2.mode = 0o755; tar.addfile(info2, io.BytesIO(b'fake'))
+        //       info3 = tarfile.TarInfo(name='tp-darwin_arm64/libexec/tp/tpd')
+        //       info3.size = 4; info3.mode = 0o755; tar.addfile(info3, io.BytesIO(b'fake'))
+        #[rustfmt::skip]
+        const EVIL_TARBALL: &[u8] = &[
+            0x1f, 0x8b, 0x08, 0x00, 0x36, 0x3e, 0x3a, 0x6a, 0x02, 0xff, 0xed, 0xd4, 0x4d, 0x0a,
+            0xc2, 0x30, 0x10, 0x40, 0xe1, 0x1c, 0xc5, 0x0b, 0xd8, 0x1f, 0x92, 0xb4, 0xc7, 0x91,
+            0xb4, 0x8d, 0x10, 0xac, 0xa5, 0xb4, 0xd1, 0x7a, 0x7c, 0x47, 0x51, 0x90, 0xae, 0x14,
+            0xa5, 0x2e, 0xfa, 0x3e, 0x06, 0x12, 0xb2, 0x99, 0xd5, 0x4b, 0xec, 0xb7, 0x8d, 0x1b,
+            0xa6, 0xd0, 0xed, 0xdc, 0x70, 0x2c, 0x4c, 0x9a, 0x24, 0x8f, 0xf1, 0xb1, 0x4e, 0x7b,
+            0x37, 0x8e, 0x53, 0xa3, 0xbe, 0x95, 0x89, 0xc2, 0x98, 0xfb, 0x29, 0xe6, 0xa7, 0x30,
+            0x2f, 0x77, 0x79, 0xcf, 0xb5, 0xcd, 0xad, 0xda, 0x64, 0x6a, 0x01, 0xa7, 0x31, 0xba,
+            0x41, 0xd6, 0xab, 0x75, 0xf2, 0xe7, 0xd0, 0x2a, 0xac, 0x56, 0x9c, 0xf5, 0x5f, 0x85,
+            0x2e, 0x8d, 0xfd, 0x6f, 0x77, 0xdc, 0xa2, 0x2e, 0xad, 0xfd, 0xa0, 0xff, 0xbc, 0x2c,
+            0x0b, 0xfa, 0x5f, 0xc2, 0xde, 0x1d, 0x3c, 0x15, 0xd0, 0xff, 0xb3, 0xff, 0x36, 0x54,
+            0xfe, 0xe2, 0x6b, 0xf9, 0x03, 0x64, 0x9a, 0x7f, 0xf5, 0xaf, 0x8d, 0xce, 0xe8, 0x9f,
+            0xfe, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xef, 0xba,
+            0x02, 0xbb, 0xa9, 0xbe, 0x96, 0x00, 0x28, 0x00, 0x00,
+        ];
+
+        let src_dir = tempfile::TempDir::new().unwrap();
+        let dest_dir = tempfile::TempDir::new().unwrap();
+        let tarball_path = src_dir.path().join("evil.tar.gz");
+        std::fs::write(&tarball_path, EVIL_TARBALL).unwrap();
+
+        let result = extract_bundle_tarball(&tarball_path, dest_dir.path());
+        assert!(
+            result.is_err(),
+            "must reject tarball with .. path traversal"
+        );
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("..") || err.contains("path traversal"),
+            "error should mention the traversal: {err}"
+        );
+    }
+
+    #[test]
+    fn extract_bundle_tarball_rejects_missing_bin_tp() {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+
+        let src_dir = tempfile::TempDir::new().unwrap();
+        let dest_dir = tempfile::TempDir::new().unwrap();
+        let tarball_path = src_dir.path().join("no-bin-tp.tar.gz");
+
+        // Tarball with tpd but no bin/tp.
+        let file = std::fs::File::create(&tarball_path).unwrap();
+        let enc = GzEncoder::new(file, Compression::fast());
+        let mut builder = tar::Builder::new(enc);
+        let mut h = tar::Header::new_gnu();
+        h.set_size(4);
+        h.set_mode(0o755);
+        h.set_cksum();
+        builder
+            .append_data(&mut h, "tp-darwin_arm64/libexec/tp/tpd", b"fake".as_ref())
+            .unwrap();
+        builder.into_inner().unwrap().finish().unwrap();
+
+        let result = extract_bundle_tarball(&tarball_path, dest_dir.path());
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("bin/tp"),
+            "error should mention missing bin/tp"
+        );
+    }
+
+    #[test]
+    fn extract_bundle_tarball_rejects_missing_tpd() {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+
+        let src_dir = tempfile::TempDir::new().unwrap();
+        let dest_dir = tempfile::TempDir::new().unwrap();
+        let tarball_path = src_dir.path().join("no-tpd.tar.gz");
+
+        // Tarball with bin/tp but no tpd.
+        let file = std::fs::File::create(&tarball_path).unwrap();
+        let enc = GzEncoder::new(file, Compression::fast());
+        let mut builder = tar::Builder::new(enc);
+        let mut h = tar::Header::new_gnu();
+        h.set_size(4);
+        h.set_mode(0o755);
+        h.set_cksum();
+        builder
+            .append_data(&mut h, "tp-darwin_arm64/bin/tp", b"fake".as_ref())
+            .unwrap();
+        builder.into_inner().unwrap().finish().unwrap();
+
+        let result = extract_bundle_tarball(&tarball_path, dest_dir.path());
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("tpd"),
+            "error should mention missing tpd"
+        );
+    }
+
+    // ── both-file backup / restore on simulated failure ───────────────────────
+
+    #[test]
+    fn both_files_backed_up_individually() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let (_prefix, bin_tp, tpd, _) = make_fake_bundle(&dir);
+
+        let bin_bak = backup_binary(&bin_tp).unwrap();
+        let tpd_bak = backup_binary(&tpd).unwrap();
+
+        assert!(bin_bak.exists());
+        assert!(tpd_bak.exists());
+        assert_eq!(std::fs::read(&bin_bak).unwrap(), b"fake-tp-rust");
+        assert_eq!(std::fs::read(&tpd_bak).unwrap(), b"fake-tpd-bun");
+
+        // Simulate overwrite of both.
+        std::fs::write(&bin_tp, b"new-tp").unwrap();
+        std::fs::write(&tpd, b"new-tpd").unwrap();
+
+        // Restore both.
+        restore_binary(&bin_tp, &bin_bak).unwrap();
+        restore_binary(&tpd, &tpd_bak).unwrap();
+
+        assert_eq!(std::fs::read(&bin_tp).unwrap(), b"fake-tp-rust");
+        assert_eq!(std::fs::read(&tpd).unwrap(), b"fake-tpd-bun");
     }
 }

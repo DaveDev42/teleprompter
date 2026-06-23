@@ -34,7 +34,7 @@ jobs:
   build-darwin:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
       - uses: oven-sh/setup-bun@v2
@@ -101,7 +101,7 @@ jobs:
             runner: ubuntu-24.04-arm
             rust-target: aarch64-unknown-linux-gnu
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
       - uses: oven-sh/setup-bun@v2

@@ -35,7 +35,7 @@ jobs:
     # runner. Mirrors the CI rust job's 20m, +headroom for the cold-cache deploy.
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup SSH
         run: |

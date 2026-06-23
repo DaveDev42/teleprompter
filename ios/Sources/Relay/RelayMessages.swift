@@ -408,6 +408,57 @@ struct ControlRenameInbound: Decodable {
     }
 }
 
+// MARK: - Worktree replies (Daemon → Frontend, on __control__ sid)
+
+/// One git worktree, as reported by the daemon's `worktree.list` /
+/// `worktree.created` replies. Wire shape `{ path, branch, head, isMain }`,
+/// verbatim from `WorktreeInfo` (`packages/protocol/src/types/session-proto.ts`,
+/// validated by `session-server-guard.ts`). `branch` is null for a detached HEAD;
+/// `isMain` marks the repo's primary worktree (not removable).
+struct WorktreeInfo: Decodable, Equatable, Identifiable {
+    let path: String
+    let branch: String?
+    let head: String
+    let isMain: Bool
+
+    /// Stable identity for SwiftUI lists — the path is unique per worktree.
+    var id: String { path }
+}
+
+/// Inbound `worktree.list` reply — the daemon's full worktree enumeration.
+/// Wire: `{ t, d: WorktreeInfo[] }` (`command-dispatcher.ts handleRelayWorktreeList`).
+struct WorktreeListReply: Decodable, Equatable {
+    let t: String
+    let d: [WorktreeInfo]
+}
+
+/// Inbound `worktree.created` reply — a worktree was created (and a session
+/// auto-spawned in it). Wire: `{ t, d: WorktreeInfo, sid }`
+/// (`command-dispatcher.ts handleRelayWorktreeCreate`). The `sid` is the
+/// auto-created session; it also surfaces in the next `hello`/`state` on `__meta__`.
+struct WorktreeCreatedReply: Decodable, Equatable {
+    let t: String
+    let d: WorktreeInfo
+    let sid: String?
+}
+
+/// Inbound `worktree.removed` reply — the worktree at `path` was removed.
+/// Wire: `{ t, path }` (`command-dispatcher.ts handleRelayWorktreeRemove`).
+struct WorktreeRemovedReply: Decodable, Equatable {
+    let t: String
+    let path: String
+}
+
+/// Inbound `err` reply on `__control__` — a worktree op failed. Wire:
+/// `{ t: "err", e, m }` where `e` is `NO_REPO` (daemon not in a git repo) or
+/// `WORKTREE_ERROR` (git failure), and `m` is a human-readable message
+/// (`command-dispatcher.ts withWorktreeManager`).
+struct ControlErrInbound: Decodable, Equatable {
+    let t: String
+    let e: String
+    let m: String?
+}
+
 // MARK: - M4 hook-event payloads (decoded from SessionRec.d when k == "event")
 
 /// The always-present fields of a Claude hook event (`event.ts:19-24`). The TS

@@ -334,17 +334,34 @@ pub fn prune(opts: PruneOpts) -> ExitCode {
         }
 
         // Extra typed "RUNNING" challenge for --running (session.ts:347-357).
+        // Bounded retry loop (max 3 attempts) for parity with the Ink validate
+        // callback which keeps the input field open on wrong input.
         if include_running {
-            let challenge_q = format!(
-                "{} Type 'RUNNING' to confirm:",
-                yellow("This will KILL running Claude sessions.")
-            );
-            match prompt_text(&challenge_q) {
-                Some(s) if s.trim() == "RUNNING" => {}
-                _ => {
-                    println!("Aborted.");
-                    return ExitCode::SUCCESS;
+            const MAX_ATTEMPTS: u8 = 3;
+            let mut confirmed = false;
+            for attempt in 1..=MAX_ATTEMPTS {
+                let challenge_q = format!(
+                    "{} Type 'RUNNING' to confirm (attempt {attempt}/{MAX_ATTEMPTS}):",
+                    yellow("This will KILL running Claude sessions.")
+                );
+                match prompt_text(&challenge_q) {
+                    Some(s) if s.trim() == "RUNNING" => {
+                        confirmed = true;
+                        break;
+                    }
+                    None => {
+                        // EOF on stdin — no point retrying.
+                        println!("Aborted.");
+                        return ExitCode::SUCCESS;
+                    }
+                    _ => {
+                        eprintln!("Type RUNNING exactly to confirm.");
+                    }
                 }
+            }
+            if !confirmed {
+                println!("Aborted.");
+                return ExitCode::SUCCESS;
             }
         }
     }
@@ -971,10 +988,10 @@ pub fn cleanup(yes: bool, preselect_all: bool) -> ExitCode {
 /// Interactive y/N prompt. Returns `true` iff the user entered "y" or "yes"
 /// (case-insensitive). Default = No, matching `promptYesNo { defaultValue: false }`.
 ///
-/// Output mirrors the Bun Ink `YesNoPrompt` component:
-///   `? <question> [y/N] `   then reads one line.
+/// Output mirrors the Bun Ink `YesNoPrompt` component (yes-no-prompt.tsx:105):
+///   `<question> [y/N] `   then reads one line.  No leading `? ` prefix.
 fn prompt_yes_no(question: &str) -> bool {
-    print!("? {question} [y/N] ");
+    print!("{question} [y/N] ");
     let _ = io::stdout().flush();
     let mut line = String::new();
     if io::stdin().read_line(&mut line).is_err() {
@@ -986,7 +1003,7 @@ fn prompt_yes_no(question: &str) -> bool {
 /// Interactive text prompt. Returns the entered string (trailing CR/LF stripped),
 /// or `None` on EOF / read error. Mirrors `promptText` (`text-prompt.tsx`).
 fn prompt_text(question: &str) -> Option<String> {
-    print!("? {question} ");
+    print!("{question} ");
     let _ = io::stdout().flush();
     let mut line = String::new();
     match io::stdin().read_line(&mut line) {

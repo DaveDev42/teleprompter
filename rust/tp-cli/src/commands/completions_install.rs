@@ -9,7 +9,7 @@
 //! Architecture note: this command is **pure local** — no daemon, no IPC, no
 //! relay. It only reads/writes files in `$HOME`.
 
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::io::Write as _;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
@@ -257,17 +257,28 @@ pub fn uninstall_completion(opts: &InstallOpts<'_>) -> Result<UninstallResult, s
             if !file.exists() {
                 return Ok(UninstallResult::NotInstalled);
             }
-            let existing = fs::read_to_string(&file)?;
-            if !contains_marker(&existing) {
-                return Ok(UninstallResult::NotInstalled);
-            }
+
+            // dry_run: check without locking.
             if opts.dry_run {
+                let existing = fs::read_to_string(&file)?;
+                if !contains_marker(&existing) {
+                    return Ok(UninstallResult::NotInstalled);
+                }
                 return Ok(UninstallResult::DryRun {
                     plan: format!("Would remove tp completions block from {}", file.display()),
                 });
             }
+
+            // Take exclusive advisory lock across the read → rename window.
+            let _lock = lock_rc_file(&file)?;
+
+            let existing = fs::read_to_string(&file)?;
+            if !contains_marker(&existing) {
+                return Ok(UninstallResult::NotInstalled);
+            }
             let stripped = strip_marker_block(&existing);
             atomic_write(&file, &stripped, Some(preserved_mode(&file)))?;
+            // _lock released here.
             Ok(UninstallResult::Uninstalled { file })
         }
         "fish" => {
@@ -288,6 +299,61 @@ pub fn uninstall_completion(opts: &InstallOpts<'_>) -> Result<UninstallResult, s
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Advisory lock for rc-file read-modify-write
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// RAII guard holding an exclusive advisory `flock(2)` on a sidecar lock file.
+///
+/// Serialises concurrent `tp completions install` / `uninstall` invocations
+/// against the same rc file.  We lock a *sidecar* file (`<rc>.tp-lock`) rather
+/// than the rc file itself because `atomic_write` replaces the rc file's inode
+/// via `fs::rename` — flock is per-inode, so locking the rc file directly would
+/// let a second process open the freshly-renamed inode and acquire an
+/// independent lock with no conflict.  The sidecar has a stable inode (it is
+/// never renamed) so it correctly serialises all concurrent writers.
+///
+/// **Scope of protection**: advisory flock only — this guards concurrent `tp`
+/// invocations on the same machine, NOT arbitrary text editors (vim, nano, etc.)
+/// which may not acquire an flock before modifying the file.  Users should not
+/// edit their rc file at the same time as running `tp completions install`.
+/// Uses the same `std::fs::File::lock()` API as `pair_lock.rs` — no extra crate.
+struct RcFileLock(File);
+
+impl Drop for RcFileLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+/// Open (or create) the sidecar lock file `<rc_path>.tp-lock` and take a
+/// blocking exclusive advisory lock.
+///
+/// The sidecar file is never renamed, so its inode is stable for the duration
+/// of the lock.  Leaving an empty `.tp-lock` file behind is intentional and
+/// harmless (the same approach `pair_lock.rs` takes with its lock file).
+///
+/// Returns the lock guard or an `io::Error` if the open/lock fails.
+/// The lock is released when the guard is dropped (after `atomic_write` renames
+/// the temp file into place).
+fn lock_rc_file(rc_path: &Path) -> std::io::Result<RcFileLock> {
+    // Build the sidecar path: <rc_path>.tp-lock
+    // e.g. ~/.zshrc  →  ~/.zshrc.tp-lock
+    let sidecar = PathBuf::from(format!("{}.tp-lock", rc_path.display()));
+    // Open/create the sidecar.  We only hold the lock; we never write through
+    // this fd.  The sidecar is never renamed, so its inode is stable.
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&sidecar)?;
+    // Blocking exclusive lock — waits for any concurrent `tp` writer to finish.
+    // File::lock() returns Result<(), io::Error> (stabilized in Rust 1.89).
+    file.lock()?;
+    Ok(RcFileLock(file))
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Install helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -297,14 +363,14 @@ fn install_rc_line(opts: &InstallOpts<'_>) -> Result<InstallResult, std::io::Err
     let line = format!(r#"eval "$(tp completions {})""#, opts.shell);
     let block = marker_block(&line);
 
-    let existing = if file.exists() {
-        fs::read_to_string(&file)?
-    } else {
-        String::new()
-    };
-    let has_marker = contains_marker(&existing);
-
+    // dry_run: read current state without locking (no mutation follows).
     if opts.dry_run {
+        let existing = if file.exists() {
+            fs::read_to_string(&file)?
+        } else {
+            String::new()
+        };
+        let has_marker = contains_marker(&existing);
         let action = if has_marker && !opts.force {
             "Would skip (already installed)"
         } else if has_marker {
@@ -316,6 +382,18 @@ fn install_rc_line(opts: &InstallOpts<'_>) -> Result<InstallResult, std::io::Err
             plan: format!("{action} {}", file.display()),
         });
     }
+
+    // Take an exclusive advisory lock across the read → rename window to prevent
+    // a concurrent writer from being clobbered by our atomic_write rename.
+    // CLAUDE.md: "avoid editing rc/Profile file during installation".
+    let _lock = lock_rc_file(&file)?;
+
+    let existing = if file.exists() {
+        fs::read_to_string(&file)?
+    } else {
+        String::new()
+    };
+    let has_marker = contains_marker(&existing);
 
     if has_marker && !opts.force {
         return Ok(InstallResult::AlreadyInstalled { file });
@@ -335,6 +413,7 @@ fn install_rc_line(opts: &InstallOpts<'_>) -> Result<InstallResult, std::io::Err
     let next = format!("{prefix}{block}");
 
     atomic_write(&file, &next, Some(preserved_mode(&file)))?;
+    // _lock is released here (after rename completed).
     Ok(InstallResult::Installed { file })
 }
 

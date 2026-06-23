@@ -15,6 +15,16 @@
   Keychain API (SecItemAdd etc.) requires this entitlement; without it access is
   restricted to items created without an access group. The group uses the bundle
   id so it is stable across signed and ad-hoc builds.
+
+  APNs (aps-environment) is intentionally OMITTED here, mirroring the iOS
+  entitlements file. The full macOS push *software* path is wired
+  (NSApplication.registerForRemoteNotifications → TeleprompterMacAppDelegate →
+  PushTokenStore → relay.push.register); the ONLY remaining piece is this
+  entitlement, which requires a Developer ID / provisioning profile and cannot be
+  ad-hoc signed ("-"). Adding it here would break the native macOS smoke build
+  (CODE_SIGN_IDENTITY="-"). Add a separate signed-build entitlements file with
+  <key>aps-environment</key><string>development|production</string> when a
+  real-Mac push build ships.
 -->
 <plist version="1.0">
 <dict>

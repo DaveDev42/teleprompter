@@ -2,8 +2,12 @@ import Foundation
 import UserNotifications
 import os
 
-#if os(iOS)
+#if os(iOS) || os(visionOS)
 import UIKit
+#endif
+
+#if os(macOS)
+import AppKit
 #endif
 
 // MARK: - SessionNavigator (M13)
@@ -37,26 +41,28 @@ final class SessionNavigator {
 /// 1. `UNUserNotificationCenter` authorization (always safe — Simulator, macOS,
 ///    and real devices all support UNUserNotificationCenter).
 /// 2. APNs registration scaffold — calls `registerForRemoteNotifications()` on
-///    iOS only, guarded so it is a strict no-op on macOS and never crashes in
-///    the Simulator.
+///    every platform (UIKit on iOS/visionOS, AppKit on macOS), guarded so it is
+///    Simulator-safe and inert without the `aps-environment` entitlement.
 /// 3. Foreground notification handling — routes foreground pushes to
 ///    `ToastCenter` as in-app toasts (suppresses the OS banner while the app is
 ///    in the foreground, mirroring the Expo `setNotificationHandler` pattern).
 ///
 /// # APNs status — software path WIRED; only the entitlement is device-gated
 ///
-/// The full *software* path is implemented and Simulator-safe:
-/// `TeleprompterAppDelegate` (a `@UIApplicationDelegateAdaptor`,
-/// `PushRegistration.swift`) receives the device token, hands it to
-/// `PushTokenStore.shared`, and every `RelayClient` sends `relay.push.register`
+/// The full *software* path is implemented and Simulator-safe on every platform:
+/// `TeleprompterAppDelegate` (UIKit, `@UIApplicationDelegateAdaptor` on iOS +
+/// visionOS) and `TeleprompterMacAppDelegate` (AppKit, `@NSApplicationDelegateAdaptor`
+/// on macOS) — both in `PushRegistration.swift` — receive the device token, hand
+/// it to `PushTokenStore.shared`, and every `RelayClient` sends `relay.push.register`
 /// over the relay → the relay seals it (PR #741) → the daemon's `PushNotifier`
 /// stores it (`packages/daemon`). Inbound `relay.notification` (the live-socket
 /// delivery path) is handled in `RelayClient` and surfaced via `scheduleLocal`.
 ///
 /// The ONE remaining device-gated step is the `aps-environment` entitlement,
-/// intentionally **NOT** added to `ios/Teleprompter.entitlements` or
-/// `ios/project.yml`: adding it without a matching Apple Developer provisioning
-/// profile breaks ad-hoc and Simulator signing. When targeting a real device:
+/// intentionally **NOT** added to `ios/Teleprompter.entitlements`,
+/// `ios/Teleprompter-macOS.entitlements`, or `ios/project.yml`: adding it without
+/// a matching Apple Developer provisioning profile breaks ad-hoc and Simulator
+/// signing on every platform. When targeting a real device:
 ///
 /// 1. Add `aps-environment = "development"` (or `"production"`) to the
 ///    Teleprompter entitlements file.
@@ -71,8 +77,9 @@ final class SessionNavigator {
 /// # Simulator / macOS safety
 ///
 /// - `UNUserNotificationCenter.requestAuthorization` works on all platforms.
-/// - `UIApplication.shared.registerForRemoteNotifications()` is iOS-only and
-///   is compiled out on macOS (`#if os(iOS)`).
+/// - `registerForRemoteNotifications()` is called on every platform —
+///   `UIApplication` on iOS/visionOS, `NSApplication` on macOS — each compiled in
+///   under its own `#if os(...)` branch.
 /// - The Simulator accepts the authorization request but always returns a
 ///   sandbox token that cannot be used to deliver real pushes; the daemon
 ///   ignores zero-length / invalid tokens.
@@ -119,33 +126,29 @@ final class NotificationService: NSObject {
         }
     }
 
-    /// Trigger APNs registration on real iOS devices.
+    /// Trigger APNs registration on every supported platform.
     ///
-    /// This call is a no-op on macOS and on the Simulator (the Simulator
-    /// nominally accepts the call but the returned token cannot deliver pushes).
+    /// iOS + visionOS register via `UIApplication`; macOS via `NSApplication`.
+    /// All three drive the platform's app-delegate device-token callback
+    /// (`TeleprompterAppDelegate` for UIKit, `TeleprompterMacAppDelegate` for
+    /// AppKit — both in `PushRegistration.swift`), which forwards the token to
+    /// every `RelayClient` via `PushTokenStore` → `relay.push.register`.
     ///
-    /// The device-token callback IS implemented: `TeleprompterAppDelegate`
-    /// (`PushRegistration.swift`) receives it and forwards it to every
-    /// `RelayClient` via `PushTokenStore` → `relay.push.register`. The only
-    /// remaining device-gated piece is the `aps-environment` entitlement (see the
-    /// type doc above), without which this call never produces a token on device.
+    /// On the Simulator and on any build missing the `aps-environment`
+    /// entitlement the call still fires but yields no deliverable token (the
+    /// delegate's `didFailToRegister…` runs instead) — inert and logged. The only
+    /// remaining device-gated piece is the entitlement + provisioning profile.
     private func registerForRemoteNotificationsIfSupported() {
-        #if os(iOS)
+        #if os(iOS) || os(visionOS)
         // UIApplication.shared must be accessed on the main actor (already here).
         UIApplication.shared.registerForRemoteNotifications()
-        log.notice("APNs registration requested (Simulator: token unusable for real pushes)")
-        #elseif os(visionOS)
-        // visionOS: APNs registration requires a real provisioning profile with
-        // the APS Environment entitlement. Out of scope for B2 (Simulator path);
-        // local notifications via UNUserNotificationCenter still work.
-        log.notice("APNs registration skipped (visionOS — TODO)")
-        #else
-        // macOS: UNUserNotificationCenter authorization above is sufficient for
-        // local notifications. APNs on macOS requires NSApplication-based
-        // `registerForRemoteNotifications`, a separate entitlement
-        // ("APS Environment" = "development"/"production" in the Mac app
-        // entitlements), and is out of scope for Phase A.
-        log.notice("APNs registration skipped (macOS — TODO)")
+        log.notice("APNs registration requested (UIKit; Simulator token unusable for real pushes)")
+        #elseif os(macOS)
+        // NSApplication.shared APNs registration — drives TeleprompterMacAppDelegate.
+        // Without the macOS `aps-environment` entitlement + provisioning profile
+        // this fires didFailToRegister (inert); the software path is still wired.
+        NSApplication.shared.registerForRemoteNotifications()
+        log.notice("APNs registration requested (AppKit; needs aps-environment entitlement for real pushes)")
         #endif
     }
 

@@ -224,16 +224,51 @@ tp_smoke_emit() {
 tp_cleanup_add 'tp_smoke_emit'
 
 # Resolve the UDID for $SIM_NAME among available iOS Simulator devices.
+#
+# Resolution order:
+#   1. Exact `$SIM_NAME` match, preferring the HIGHEST iOS runtime (so a device
+#      that exists on both iOS 18 and iOS 26 resolves to the 26 one, matching the
+#      installed SDK — same rationale as vision_sim_udid).
+#   2. FALLBACK: if no exact match (e.g. a CI runner whose preinstalled device
+#      lineup differs from the local "iPhone 17 Pro" default), pick ANY available
+#      iPhone on the highest iOS runtime. This keeps the headless CI smoke robust
+#      against GitHub-runner device-name drift without the caller having to know
+#      the exact model the runner ships. Locally the exact match always wins, so
+#      behavior there is unchanged.
 sim_udid() {
   xcrun simctl list devices available -j \
     | /usr/bin/python3 -c '
 import json,sys
 name=sys.argv[1]
 d=json.load(sys.stdin)
+
+def is_ios(runtime):
+    r=runtime.lower()
+    return "ios" in r and "vision" not in r and "watch" not in r and "tv" not in r
+
+# Pass 1: exact name, highest iOS runtime.
+best_udid=""; best_rt=""
 for runtime,devs in d["devices"].items():
+    if not is_ios(runtime):
+        continue
     for dev in devs:
-        if dev.get("isAvailable") and dev["name"]==name:
-            print(dev["udid"]); sys.exit(0)
+        if dev.get("isAvailable") and dev["name"]==name and runtime>best_rt:
+            best_rt=runtime; best_udid=dev["udid"]
+if best_udid:
+    print(best_udid); sys.exit(0)
+
+# Pass 2 (fallback): any available iPhone on the highest iOS runtime.
+best_udid=""; best_rt=""
+for runtime,devs in d["devices"].items():
+    if not is_ios(runtime):
+        continue
+    for dev in devs:
+        if dev.get("isAvailable") and dev["name"].startswith("iPhone") and runtime>best_rt:
+            best_rt=runtime; best_udid=dev["udid"]
+if best_udid:
+    sys.stderr.write("[ios] sim_udid: exact \"%s\" not found; falling back to %s\n" % (name, best_udid))
+    print(best_udid); sys.exit(0)
+
 sys.exit(1)
 ' "$SIM_NAME"
 }

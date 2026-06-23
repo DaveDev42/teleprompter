@@ -96,6 +96,13 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 # already in tp-core/tp-relay). No `sha3` or `blake2` alternatives — the
 # release checksums.txt uses sha256sum format, matching this digest.
 sha2 = "0.11"
+# Pure-Rust tar + gzip for `tp upgrade` tarball bundle extraction (#5 hard-swap).
+# `tar` reads entries from a GzDecoder; `flate2` provides the gzip decompressor.
+# Both are zero-unsafe, no shelling out. `deflate` feature is not needed — we
+# only decompress (inflate), never compress. `flate2` is the canonical
+# RustCrypto-ecosystem choice; `tar` is the standard crate for POSIX tar archives.
+tar = "0.4"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
 [dev-dependencies]
 # Hermetic temp directories for completions_install tests. Only used in

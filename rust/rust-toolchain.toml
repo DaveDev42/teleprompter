@@ -1,9 +1,0 @@
-# Pin the Rust toolchain so CI and local builds resolve the same compiler,
-# clippy, and rustfmt — no implicit "whatever stable is today" drift.
-#
-# 1.96.0 is the stable release in use locally at the time of pinning. Bump
-# deliberately (one-line change) when adopting a newer toolchain; keep it in
-# step with `rust-version` (MSRV) in rust/Cargo.toml.
-[toolchain]
-channel = "1.96.0"
-components = ["rustfmt", "clippy"]

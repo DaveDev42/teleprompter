@@ -1,4 +1,0 @@
-{
-  "extends": "@teleprompter/tsconfig/bun.json",
-  "include": ["src"]
-}

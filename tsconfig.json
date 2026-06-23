@@ -1,8 +1,0 @@
-{
-  "extends": "@teleprompter/tsconfig/base.json",
-  "compilerOptions": {
-    "noFallthroughCasesInSwitch": true,
-    "noImplicitOverride": true,
-    "noImplicitReturns": true
-  }
-}

@@ -160,6 +160,12 @@ TP_PLATFORM=watchos scripts/ios.sh smoke  # watchOS Simulator 7마커 스모크 
    cp rust/target/release/tp "$TP_PREFIX/bin/tp"
    cp dist/tp                "$TP_PREFIX/libexec/tp/tpd"
    chmod +x "$TP_PREFIX/bin/tp" "$TP_PREFIX/libexec/tp/tpd"
+   # cp 가 Bun SEA 의 adhoc,linker-signed 서명을 깨뜨려(`codesign -v` → "code or
+   # signature have been modified") Rust tp→tpd exec 가 AMFI 에 SIGKILL(exit 137)
+   # 당한다. 둘 다 adhoc 재서명해 서명을 일관되게 맞춘다 (libexec 만 재서명하면
+   # parent=linker-signed/child=adhoc 불일치로 여전히 kill — 반드시 둘 다).
+   codesign --force --sign - "$TP_PREFIX/libexec/tp/tpd"
+   codesign --force --sign - "$TP_PREFIX/bin/tp"
    ln -sf "$TP_PREFIX/bin/tp" ~/.local/bin/tp                          # dogfood symlink → Rust tp
    ~/.local/bin/tp daemon install                                      # 재등록 (Rust tp → tpd 트램폴린)
    ```
@@ -170,6 +176,7 @@ TP_PLATFORM=watchos scripts/ios.sh smoke  # watchOS Simulator 7마커 스모크 
 - **dogfood = `~/.local/bin/tp`(→ `~/.local/share/tp/bin/tp` Rust), brew(릴리즈) = `/opt/homebrew/bin/tp` 로 분리.** `~/.zprofile` 이 `~/.local/bin` 을 앞에 둬 `tp` 는 dogfood 를 가리킴. **brew symlink 를 절대 덮지 않는다** (덮으면 `brew upgrade` 무력화 — 복구는 `brew link --overwrite tp`). dogfood 끄려면 `rm ~/.local/bin/tp`.
 - **Rust `tp` 는 `locate_bun_blob()` 로 `canonicalize(current_exe())/../../libexec/tp/tpd` 를 찾는다** — 그래서 `bin/tp` + `libexec/tp/tpd` prefix-tree 레이아웃이 필수다 (symlink 만 깔고 `tpd` 가 없으면 daemon/passthrough 가 blob-not-found 로 실패). `dist/tp` 를 직접 `~/.local/bin/tp` 로 깔지 말 것 (그건 `tpd` 블롭이지 Rust entrypoint 가 아님).
 - `daemon install` 은 plist 바이너리 경로를 `which tp` 로 고르므로 **`~/.local/bin/tp` 로 직접 실행**. 새 로그인 셸 전이면 `PATH="$HOME/.local/bin:$PATH" ~/.local/bin/tp daemon install`. daemon 프로세스는 `tpd` 로 뜬다 (트램폴린 — `pgrep -fl tpd` 로 확인).
+- **adhoc 재서명은 dogfood 조립에서 필수** (macOS 로컬): `bun build --compile` 산출물(`dist/tp`=tpd 블롭)은 `adhoc,linker-signed` 서명을 갖는데, `cp` 가 SEA payload 레이아웃을 바꿔 그 linker-signed 해시를 무효화한다 (`codesign -v` → "code or signature have been modified"). 블롭을 **직접 실행**하면 통과하지만, Rust `tp` 가 trampoline 으로 **exec** 하면 AMFI 가 SIGKILL(exit 137, 간헐적으로 보이지만 실제로는 일관 실패) 한다. 해결 = `bin/tp`+`libexec/tp/tpd` **둘 다** `codesign --force --sign -` 로 plain-adhoc 재서명(서명 일관성 — child 만 재서명하면 parent=linker-signed 와 불일치로 여전히 kill). `install.sh` 릴리즈 경로는 macOS 러너에서 빌드+서명된 tarball 을 `tar` 추출하므로 이 문제가 없다(로컬 `cp` 조립에서만 발생). 재서명 후 `tp version` 으로 검증.
 - **재기동은 `tp daemon install` 한 번** (`pkill` 후 수동 재시작 금지 — 서비스 미등록 프로세스로 살아남아 OTA 안 됨). 재기동 후 `tp version` 으로 새 commit hash 확인.
 - **Subagent worktree 가 active 인 동안 install 금지** — 모든 subagent 완료 알림 도착 + 메인 worktree `git status` clean 후 한꺼번에. 옛 `/usr/local/bin/tp` 잔재 발견 시 `rm`.
 

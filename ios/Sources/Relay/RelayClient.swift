@@ -734,6 +734,40 @@ final class RelayClient: NSObject, @unchecked Sendable {
                             "relay: malformed control.rename (possibly legacy string label from v1 daemon) — dropping"
                         )
                     }
+                case "worktree.list":
+                    if let reply = try? JSONDecoder().decode(
+                        WorktreeListReply.self, from: plaintext)
+                    {
+                        onWorktreeList(reply.d)
+                    } else {
+                        log.notice("relay: malformed worktree.list — dropping")
+                    }
+                case "worktree.created":
+                    if let reply = try? JSONDecoder().decode(
+                        WorktreeCreatedReply.self, from: plaintext)
+                    {
+                        onWorktreeCreated(reply.d)
+                    } else {
+                        log.notice("relay: malformed worktree.created — dropping")
+                    }
+                case "worktree.removed":
+                    if let reply = try? JSONDecoder().decode(
+                        WorktreeRemovedReply.self, from: plaintext)
+                    {
+                        onWorktreeRemoved(reply.path)
+                    } else {
+                        log.notice("relay: malformed worktree.removed — dropping")
+                    }
+                case "err":
+                    // A worktree op (or other control op) failed. Surface the
+                    // message into the worktree store keyed by this daemon.
+                    if let reply = try? JSONDecoder().decode(
+                        ControlErrInbound.self, from: plaintext)
+                    {
+                        onControlErr(code: reply.e, message: reply.m)
+                    } else {
+                        log.notice("relay: malformed control err — dropping")
+                    }
                 default:
                     log.notice("relay: ignoring control t=\(env.t, privacy: .public)")
                 }

@@ -30,6 +30,7 @@ struct DaemonsListView: View {
         case manual
         case rename(daemonId: String)
         case confirmUnpair(daemonId: String)
+        case worktrees(daemonId: String)
 
         var id: String {
             switch self {
@@ -37,6 +38,7 @@ struct DaemonsListView: View {
             case .manual: return "manual"
             case .rename(let did): return "rename-\(did)"
             case .confirmUnpair(let did): return "unpair-\(did)"
+            case .worktrees(let did): return "worktrees-\(did)"
             }
         }
     }
@@ -70,7 +72,8 @@ struct DaemonsListView: View {
                             label: pairings.label(for: did),
                             isConnected: pairings.isConnected(did),
                             onRename: { activeSheet = .rename(daemonId: did) },
-                            onUnpair: { activeSheet = .confirmUnpair(daemonId: did) }
+                            onUnpair: { activeSheet = .confirmUnpair(daemonId: did) },
+                            onWorktrees: { activeSheet = .worktrees(daemonId: did) }
                         )
                         .accessibilityIdentifier("daemon-\(did)")
                     }
@@ -222,6 +225,15 @@ struct DaemonsListView: View {
                     activeSheet = nil
                 }
             )
+
+        case .worktrees(let did):
+            let name = PairingStore.shared.label(for: did) ?? String(did.prefix(8))
+            WorktreesView(
+                daemonId: did,
+                displayName: name,
+                client: { pairings.client(for: did) },
+                onDismiss: { activeSheet = nil }
+            )
         }
     }
 
@@ -271,6 +283,7 @@ private struct DaemonRow: View {
     var isConnected: Bool = false
     var onRename: () -> Void
     var onUnpair: () -> Void
+    var onWorktrees: () -> Void
 
     private var displayName: String { label ?? String(daemonId.prefix(8)) }
     private var hasLabel: Bool { label != nil }
@@ -322,6 +335,17 @@ private struct DaemonRow: View {
                         .lineLimit(1)
                 }
             }
+
+            // Worktrees action — full-width so the header stays uncrowded.
+            Button(action: onWorktrees) {
+                Label("Worktrees", systemImage: "arrow.triangle.branch")
+                    .font(.caption)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(!isConnected)
+            .accessibilityIdentifier("daemon-worktrees-\(daemonId)")
         }
         .padding(.vertical, 6)
     }

@@ -157,7 +157,7 @@ async fn connect_opt(url: &str) -> Option<Ws> {
 }
 
 async fn send_json(ws: &mut Ws, v: Value) {
-    ws.send(Message::Text(serde_json::to_string(&v).unwrap()))
+    ws.send(Message::Text(serde_json::to_string(&v).unwrap().into()))
         .await
         .unwrap();
 }

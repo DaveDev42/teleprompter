@@ -46,7 +46,7 @@ governor = "0.10"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
 # axum WebSocket server — the single GET "/" upgrade route. 0.7 resolves cleanly
 # on Rust 1.96 (0.8 pulls a newer matchit/hyper that bumps MSRV above 1.96).
-axum = { version = "0.7", features = ["ws"] }
+axum = { version = "0.8", features = ["ws"] }
 # StreamExt/SinkExt for splitting the axum ws into read/write halves.
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 # Constant-time byte compare for the /admin bearer token (no timing side-channel
@@ -77,7 +77,7 @@ reqwest = { version = "0.13", default-features = false, features = ["http2", "ru
 serde_json = "1"
 # Integration-test WebSocket CLIENT only (the server uses axum's ws). Drives a
 # real loopback handshake/pub-sub/kx round-trip against the live RelayServer.
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.29"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
 futures-util = "0.3"
 # Drive the axum Router directly (oneshot) for the /health + /metrics + /admin

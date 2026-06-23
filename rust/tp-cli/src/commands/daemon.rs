@@ -128,7 +128,7 @@ pub fn stop() -> ExitCode {
         return ExitCode::SUCCESS;
     };
 
-    match kill_process(pid, Signal::Term) {
+    match kill_process(pid, Signal::TERM) {
         Ok(()) => {
             // daemon.ts:267: console.log(`[Daemon] sent SIGTERM to pid=${pid}`)
             println!("[Daemon] sent SIGTERM to pid={pid_val}");

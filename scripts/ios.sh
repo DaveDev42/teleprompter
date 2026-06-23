@@ -420,17 +420,39 @@ for devs in d["devices"].values():
     # bites, but on a COLD CI runner the sim starts Shutdown and the very next
     # `simctl install`/`launch` hits a not-yet-ready runtime: the app launch
     # silently no-ops and TP_BOOT_OK never fires (exactly the headless
-    # swift-smoke-ios failure mode). `bootstatus -b` blocks until the boot
-    # completes (it also kicks a boot if somehow still shutdown). Bounded by an
-    # outer timeout so a wedged runtime fails loud instead of hanging the job.
-    log "waiting for boot to complete (simctl bootstatus)…"
+    # swift-smoke-ios failure mode).
+    #
+    # `simctl bootstatus -b` is used as a BEST-EFFORT pre-wait, NOT a hard gate:
+    # on a freshly-created CI sim the FIRST boot runs a one-time data migration
+    # (CoreLocation/CloudRecents/… migrators) that can end in a non-clean terminal
+    # status — bootstatus then exits non-zero (observed exit 148 with
+    # Status=4294967295 "Finished") even though the device does reach a usable
+    # Booted state moments later. So we run bootstatus to absorb most of the
+    # migration wait, ignore its exit code, and then make the DEVICE STATE the
+    # source of truth: poll `simctl list` until state==Booted (generous window for
+    # the cold first-boot migration), dying only if it never gets there.
+    log "waiting for boot to complete (bootstatus best-effort + state poll)…"
     if command -v timeout >/dev/null 2>&1; then
-      timeout 180 xcrun simctl bootstatus "$udid" -b \
-        || die "simulator never finished booting within 180s: $SIM_NAME ($udid)"
+      timeout 240 xcrun simctl bootstatus "$udid" -b >/dev/null 2>&1 || true
     else
-      xcrun simctl bootstatus "$udid" -b \
-        || die "simulator bootstatus failed: $SIM_NAME ($udid)"
+      xcrun simctl bootstatus "$udid" -b >/dev/null 2>&1 || true
     fi
+    # Authoritative wait: poll the device state. 0.5s × 360 = up to 180s after the
+    # bootstatus pre-wait — comfortably covers the cold-sim data migration.
+    local booted="" i
+    for i in $(seq 1 360); do
+      state="$(xcrun simctl list devices -j | /usr/bin/python3 -c '
+import json,sys
+u=sys.argv[1]; d=json.load(sys.stdin)
+for devs in d["devices"].values():
+    for dev in devs:
+        if dev["udid"]==u: print(dev["state"]); sys.exit(0)
+' "$udid" 2>/dev/null)"
+      if [ "$state" = "Booted" ]; then booted="yes"; break; fi
+      sleep 0.5
+    done
+    [ -n "$booted" ] || die "simulator never reached Booted state: $SIM_NAME ($udid) (last state: ${state:-unknown})"
+    log "$SIM_NAME reached Booted state"
   else
     log "$SIM_NAME already booted ($udid)"
   fi
@@ -807,7 +829,20 @@ cmd_smoke_ios() {
   # Terminate any prior instance before launching with the URL arg.
   xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
   log "launching with --tp-smoke-url (M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
-  xcrun simctl launch "$udid" "$BUNDLE_ID" -- --tp-smoke-url "$link" >/dev/null
+  # Launch with retry: even after the device reports Booted, a cold CI sim may still
+  # be warming SpringBoard/system apps (bootstatus's final "Waiting on System App"
+  # phase), and the first `simctl launch` can fail (FBSOpenApplicationService error)
+  # or no-op. Retry a few times so a transient warmup miss doesn't fail the whole
+  # smoke. Locally (already-warm sim) the first attempt succeeds immediately.
+  local launch_ok="" attempt
+  for attempt in 1 2 3 4 5; do
+    if xcrun simctl launch "$udid" "$BUNDLE_ID" -- --tp-smoke-url "$link" >/dev/null 2>&1; then
+      launch_ok="yes"; break
+    fi
+    log "launch attempt $attempt failed (sim still warming?) — retrying in 3s"
+    sleep 3
+  done
+  [ -n "$launch_ok" ] || die "SMOKE FAIL — app never launched after 5 attempts: $BUNDLE_ID on $SIM_NAME"
 
   # Poll for ALL markers in one loop: boot+core (M0) + pairing (M1) + relay-auth
   # (M2) + kx + first-frame (M3) + session-render (M4) + input round-trip (M5).

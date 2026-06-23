@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - name: Lint & format check
         run: pnpm exec biome ci .
@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - name: Type check
         run: |
@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - name: Test with coverage
         run: bun test --coverage --timeout 30000 packages/protocol packages/daemon packages/runner apps/cli packages/relay
@@ -55,7 +55,7 @@ jobs:
     # Rust release build (~1-3 min) + Bun SEA (~30s) + smoke. 15m is comfortable.
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       # Rust toolchain needed to build the Rust `tp` binary inside the bundle.
       # Pin matches rust/rust-toolchain.toml (1.96.0) — no double-toolchain fetch.
@@ -120,7 +120,7 @@ jobs:
       run:
         working-directory: rust
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # Pin to the same channel as rust/rust-toolchain.toml so the action's
       # pre-install matches what rustup would auto-fetch (no double toolchain).
       # NOTE: this action's tag IS the Rust version — do NOT let dependabot bump
@@ -184,7 +184,7 @@ jobs:
     # ~20-25m; warm runs are far faster. 40m is comfortable headroom.
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # Rust toolchain pinned to rust/rust-toolchain.toml (1.96.0). All 9 Apple
       # targets are Tier 2 on stable 1.96 (visionOS/watchOS promoted in 1.95.0),
       # so `rustup target add` works with no nightly / -Z build-std.
@@ -235,7 +235,7 @@ jobs:
     # dominates; the Simulator boot + smoke poll add < ~2m). 40m headroom.
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # Backend deps (bun) for the loopback relay script. The setup action installs
       # Node + Bun + pnpm and runs `pnpm install` so @teleprompter/* resolve.
       - uses: ./.github/actions/setup

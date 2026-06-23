@@ -280,11 +280,23 @@ pub fn restore_binary(binary_path: &Path, bak_path: &Path) -> io::Result<()> {
         Ok(()) => Ok(()),
         Err(e) if e.raw_os_error() == Some(18) => {
             // EXDEV — cross-device: fall back to copy+unlink (upgrade.ts:408-410).
+            // Copy first; if that succeeds the binary is restored.
             fs::copy(bak_path, binary_path)?;
-            fs::remove_file(bak_path)?;
+            // Best-effort removal of the .bak.  If this fails (e.g. EPERM) we log
+            // and continue — the binary is already restored, and leaking a .bak is
+            // much less harmful than reporting a failed restore when it succeeded.
+            if let Err(rm_err) = fs::remove_file(bak_path) {
+                eprintln!(
+                    "Warning: restored {} but could not remove backup {}: {rm_err}",
+                    binary_path.display(),
+                    bak_path.display()
+                );
+            }
             Ok(())
         }
         Err(e) => {
+            // rename failed (not EXDEV) — binary NOT restored.  Keep the .bak
+            // so the user can manually recover.
             eprintln!(
                 "Failed to restore backup: {e}. Manual restore: move {} to {}",
                 bak_path.display(),
@@ -998,9 +1010,11 @@ fn upgrade_tp_bundle(tag: &str, prefix: &Path) {
             // consistently (the outer error handler will restore both, but
             // bin/tp was already replaced — restore it explicitly here).
             if let Some(ref bak) = bin_tp_bak_opt {
-                if bak.exists() {
-                    let _ = restore_binary(&bin_tp_target, bak);
-                    bin_tp_bak_opt = None; // already restored, don't double-restore
+                // Collapse: only clear the backup reference when restore succeeds.
+                // If restore_binary FAILED, leave bin_tp_bak_opt as Some so
+                // the outer rollback block can retry on a second attempt.
+                if bak.exists() && restore_binary(&bin_tp_target, bak).is_ok() {
+                    bin_tp_bak_opt = None;
                 }
             }
             return Err(format!("replace libexec/tp/tpd: {e}"));
@@ -1328,6 +1342,8 @@ pub fn run() -> ExitCode {
                 warn("tp was installed via Homebrew — skip self-update.")
             );
             println!("Run: brew upgrade davedev42/tap/tp");
+            // Parity with upgrade.ts:94 — return early; do NOT run `claude update`.
+            return ExitCode::SUCCESS;
         } else {
             println!("\nUpgrading tp {version} \u{2192} {}...", latest.tag);
             upgrade_tp(&latest.tag);

@@ -106,11 +106,25 @@ pub fn stop() -> ExitCode {
             println!("[Daemon] unloaded launchd service {MACOS_LABEL}");
         }
     } else if os == "linux" && is_unit_installed() {
-        let _ = std::process::Command::new("systemctl")
+        let result = std::process::Command::new("systemctl")
             .args(["--user", "stop", LINUX_SERVICE_NAME])
             .status();
-        // daemon.ts:252: console.log(`[Daemon] stopped systemd unit ${name}`)
-        println!("[Daemon] stopped systemd unit {LINUX_SERVICE_NAME}");
+        if result.is_ok_and(|s| s.success()) {
+            // daemon.ts:252: console.log(`[Daemon] stopped systemd unit ${name}`)
+            println!("[Daemon] stopped systemd unit {LINUX_SERVICE_NAME}");
+        } else {
+            // The unit is managed by systemd and `systemctl stop` failed.
+            // Do NOT fall through to SIGTERM: systemd's `Restart=` policy would
+            // immediately respawn the process, so SIGTERM would not actually
+            // stop the daemon.  Report failure honestly so the user knows to
+            // investigate (e.g. `systemctl --user status teleprompter-daemon`).
+            eprintln!(
+                "[Daemon] systemctl stop {LINUX_SERVICE_NAME} failed — \
+                 daemon may still be running (systemd Restart= is active). \
+                 Check: systemctl --user status {LINUX_SERVICE_NAME}"
+            );
+            return ExitCode::FAILURE;
+        }
     }
 
     // Step 2: SIGTERM the daemon pid from the lock file (daemon.ts:256-277)

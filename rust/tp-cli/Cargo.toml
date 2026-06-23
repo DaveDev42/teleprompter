@@ -34,7 +34,7 @@ serde_json = { version = "1", default-features = false, features = ["std"] }
 # `process.getuid()` because it indexes `/run/user/<uid>` and
 # `/tmp/teleprompter-<uid>` in the socket-path derivation — a heuristic (e.g.
 # HOME's owner) could drift. `process` is the only feature we need.
-rustix = { version = "0.38", features = ["process"] }
+rustix = { version = "1.1", features = ["process"] }
 # IPC message types + parse_ipc_message — byte-exact port of parseIpcMessage
 # (packages/protocol/src/ipc-guard.ts). The CLI uses the typed IpcMessage enum
 # for serialising requests and deserialising daemon replies without re-defining

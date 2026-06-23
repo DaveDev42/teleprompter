@@ -79,7 +79,7 @@ async fn connect(url: &str) -> Ws {
 
 /// Send a JSON value as a text frame.
 async fn send_json(ws: &mut Ws, v: Value) {
-    ws.send(Message::Text(serde_json::to_string(&v).unwrap()))
+    ws.send(Message::Text(serde_json::to_string(&v).unwrap().into()))
         .await
         .unwrap();
 }

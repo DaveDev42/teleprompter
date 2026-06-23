@@ -260,7 +260,7 @@ async fn connection_loop(socket: WebSocket, state: SharedState) {
                         Some(msg) => {
                             let json = serde_json::to_string(&msg)
                                 .unwrap_or_else(|_| "{\"t\":\"relay.err\",\"e\":\"ENCODE\"}".into());
-                            if ws_tx.send(Message::Text(json)).await.is_err() {
+                            if ws_tx.send(Message::Text(json.into())).await.is_err() {
                                 break;
                             }
                         }

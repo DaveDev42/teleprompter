@@ -5,6 +5,10 @@ import os
 import UIKit
 #endif
 
+#if canImport(AppKit)
+import AppKit
+#endif
+
 // MARK: - PushTokenObserver
 
 /// A type that wants to be told when the device's APNs token becomes available
@@ -82,9 +86,17 @@ final class PushTokenStore {
     }
 }
 
+// MARK: - Token hex helper
+
+/// Convert a raw APNs device-token `Data` to the lowercase hex string the relay
+/// expects in `relay.push.register`. Shared by the UIKit and AppKit delegates.
+private func apnsTokenHex(_ deviceToken: Data) -> String {
+    deviceToken.map { String(format: "%02x", $0) }.joined()
+}
+
 // MARK: - AppDelegate (APNs registration callbacks)
 
-#if os(iOS)
+#if os(iOS) || os(visionOS)
 /// App delegate adaptor whose sole job is to receive the APNs device-token
 /// callbacks, which SwiftUI's `App` lifecycle does not surface directly.
 ///
@@ -96,6 +108,10 @@ final class PushTokenStore {
 /// the relay seals whatever we send and the daemon simply never gets a
 /// deliverable APNs receipt — harmless. Either way the *software* path
 /// (token → `relay.push.register` → seal → daemon store) is exercised.
+///
+/// iOS and visionOS share this adaptor — both are UIKit-backed, so the
+/// `UIApplicationDelegate` device-token callbacks are identical. macOS uses the
+/// AppKit variant below.
 ///
 /// NOTE: the `aps-environment` entitlement is intentionally NOT added yet (it
 /// breaks Simulator/ad-hoc signing without a provisioning profile — see
@@ -110,7 +126,7 @@ final class TeleprompterAppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
-        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        let hex = apnsTokenHex(deviceToken)
         log.notice("didRegisterForRemoteNotifications: token=\(hex.count, privacy: .public) hex chars")
         Task { @MainActor in
             PushTokenStore.shared.setToken(hex)
@@ -127,6 +143,48 @@ final class TeleprompterAppDelegate: NSObject, UIApplicationDelegate {
         // falls back to its in-band `relay.notification` path when the app is live.
         log.error(
             "didFailToRegisterForRemoteNotifications: \(error.localizedDescription, privacy: .public)"
+        )
+    }
+}
+#endif
+
+#if os(macOS)
+/// macOS counterpart of `TeleprompterAppDelegate`. macOS delivers the APNs
+/// device-token callbacks to an `NSApplicationDelegate` (not `UIApplication`),
+/// so it needs its own adaptor type. The callbacks carry identical payloads —
+/// the raw token `Data` is converted to hex and pushed into the same
+/// `PushTokenStore`, so the downstream path (relay.push.register → seal →
+/// daemon) is platform-agnostic.
+///
+/// Registration is kicked off by `NSApplication.shared.registerForRemoteNotifications()`
+/// in `NotificationService`. On a Mac with the `aps-environment` entitlement +
+/// a provisioning profile, `didRegister…` fires with a usable token; without the
+/// entitlement (ad-hoc/native-smoke builds) `didFailToRegister…` fires instead —
+/// inert and logged, exactly like the Simulator case.
+final class TeleprompterMacAppDelegate: NSObject, NSApplicationDelegate {
+    private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "push")
+
+    func application(
+        _ application: NSApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        let hex = apnsTokenHex(deviceToken)
+        log.notice("didRegisterForRemoteNotifications (macOS): token=\(hex.count, privacy: .public) hex chars")
+        Task { @MainActor in
+            PushTokenStore.shared.setToken(hex)
+        }
+    }
+
+    func application(
+        _ application: NSApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        // Expected on builds without the macOS `aps-environment` entitlement +
+        // provisioning profile (native smoke, ad-hoc signing). Local
+        // notifications still work; the relay's in-band `relay.notification`
+        // path covers the live-app case.
+        log.error(
+            "didFailToRegisterForRemoteNotifications (macOS): \(error.localizedDescription, privacy: .public)"
         )
     }
 }

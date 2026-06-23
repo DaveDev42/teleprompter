@@ -15,14 +15,20 @@ import os
 /// URL contexts. The manifest is set in `project.yml` (`info.properties`).
 @main
 struct TeleprompterApp: App {
-    // APNs device-token callbacks are only delivered to a UIApplicationDelegate,
-    // which SwiftUI's App lifecycle does not expose. Install a minimal adaptor on
-    // iOS so `didRegisterForRemoteNotificationsWithDeviceToken` reaches
-    // `PushTokenStore` → relay clients (`relay.push.register`). iOS-only: macOS/
-    // visionOS APNs is a separate device-gated follow-up, and the adaptor type is
-    // compiled out off-iOS (`#if os(iOS)` in PushRegistration.swift).
-    #if os(iOS)
+    // APNs device-token callbacks are only delivered to the platform's app
+    // delegate, which SwiftUI's App lifecycle does not expose. Install a minimal
+    // adaptor per platform so `didRegisterForRemoteNotificationsWithDeviceToken`
+    // reaches `PushTokenStore` → relay clients (`relay.push.register`).
+    //
+    // iOS + visionOS are UIKit-backed → `UIApplicationDelegate`. macOS is
+    // AppKit-backed → `NSApplicationDelegate` (a separate adaptor type). The
+    // adaptors are inert until APNs calls them, so installing them on every
+    // platform is safe even before the `aps-environment` entitlement ships
+    // (see PushRegistration.swift / NotificationService.swift).
+    #if os(iOS) || os(visionOS)
     @UIApplicationDelegateAdaptor(TeleprompterAppDelegate.self) private var appDelegate
+    #elseif os(macOS)
+    @NSApplicationDelegateAdaptor(TeleprompterMacAppDelegate.self) private var appDelegate
     #endif
 
     /// The single session store, shared by every relay client (each writes the

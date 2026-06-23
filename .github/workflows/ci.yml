@@ -208,3 +208,51 @@ jobs:
       # ensure_project (xcodegen generate) → xcodebuild -destination platform=macOS.
       - name: Build Swift app (native macOS, compile only)
         run: TP_PLATFORM=macos scripts/ios.sh build
+
+  # Deterministic iOS Simulator smoke E2E (B4 follow-up). Where `swift-build`
+  # proves the app COMPILES, this proves it actually RUNS the full wire/E2EE path:
+  # it boots a headless iOS Simulator, starts the in-process loopback relay +
+  # fake scripted daemon (`scripts/local-relay-loopback.ts` — NO real `tp` daemon,
+  # NO `claude`), launches the app with a golden `--tp-smoke-url` pairing link, and
+  # polls the unified log for all 8 boot markers (TP_BOOT_OK → TP_INPUT_OK). The
+  # fake daemon byte-echoes the app's input probe, so the M5 input round-trip is
+  # deterministic without a PTY. This is fully reproducible and credential-free —
+  # the real-claude E2E modes (TP_E2E_CLAUDE*) stay LOCAL-only (native-testing.md).
+  #
+  # NOT a required check (ci-workflows.md): added non-required so a flaky Simulator
+  # boot / runner drift never wedges unrelated PRs. Promote to required only after
+  # it is reliably green on main. simctl is headless-by-design (no GUI session
+  # needed), which is why the iOS Simulator path — not the macOS `open` path — is
+  # the CI-appropriate smoke surface.
+  #
+  # Runner PINNED to macos-26 (same rationale as swift-build): iOS/macOS 26 SDK +
+  # Swift 6.0, matching local Xcode 26.5. `sim_udid` resolves $TP_SIM with a
+  # fallback to any available iPhone on the newest iOS runtime, so this stays green
+  # even if the runner's preinstalled device lineup drifts from "iPhone 17 Pro".
+  swift-smoke-ios:
+    runs-on: macos-26
+    # Same cold-xcframework cost as swift-build (the 7-slice xcframework build
+    # dominates; the Simulator boot + smoke poll add < ~2m). 40m headroom.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      # Backend deps (bun) for the loopback relay script. The setup action installs
+      # Node + Bun + pnpm and runs `pnpm install` so @teleprompter/* resolve.
+      - uses: ./.github/actions/setup
+      - name: Install Rust toolchain + Apple targets
+        uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          # build-xcframework.sh ensure_targets HARD-dies on any missing target,
+          # so add all 9 even though the iOS smoke only links the 2 iOS-sim slices.
+          targets: >-
+            aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-visionos,aarch64-apple-visionos-sim,aarch64-apple-watchos,aarch64-apple-watchos-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Install xcodegen
+        run: brew install xcodegen
+      # Full loopback smoke: rust→gen→build→install→launch→poll 8 markers. No
+      # TP_SKIP_RUST (build the xcframework fresh, warmed by rust-cache across runs).
+      # TP_SIM names a likely-present device; sim_udid falls back if it is absent.
+      - name: iOS Simulator smoke (8-marker loopback E2E)
+        run: TP_PLATFORM=ios TP_SIM="iPhone 17 Pro" scripts/ios.sh smoke

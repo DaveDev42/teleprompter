@@ -224,16 +224,51 @@ tp_smoke_emit() {
 tp_cleanup_add 'tp_smoke_emit'
 
 # Resolve the UDID for $SIM_NAME among available iOS Simulator devices.
+#
+# Resolution order:
+#   1. Exact `$SIM_NAME` match, preferring the HIGHEST iOS runtime (so a device
+#      that exists on both iOS 18 and iOS 26 resolves to the 26 one, matching the
+#      installed SDK — same rationale as vision_sim_udid).
+#   2. FALLBACK: if no exact match (e.g. a CI runner whose preinstalled device
+#      lineup differs from the local "iPhone 17 Pro" default), pick ANY available
+#      iPhone on the highest iOS runtime. This keeps the headless CI smoke robust
+#      against GitHub-runner device-name drift without the caller having to know
+#      the exact model the runner ships. Locally the exact match always wins, so
+#      behavior there is unchanged.
 sim_udid() {
   xcrun simctl list devices available -j \
     | /usr/bin/python3 -c '
 import json,sys
 name=sys.argv[1]
 d=json.load(sys.stdin)
+
+def is_ios(runtime):
+    r=runtime.lower()
+    return "ios" in r and "vision" not in r and "watch" not in r and "tv" not in r
+
+# Pass 1: exact name, highest iOS runtime.
+best_udid=""; best_rt=""
 for runtime,devs in d["devices"].items():
+    if not is_ios(runtime):
+        continue
     for dev in devs:
-        if dev.get("isAvailable") and dev["name"]==name:
-            print(dev["udid"]); sys.exit(0)
+        if dev.get("isAvailable") and dev["name"]==name and runtime>best_rt:
+            best_rt=runtime; best_udid=dev["udid"]
+if best_udid:
+    print(best_udid); sys.exit(0)
+
+# Pass 2 (fallback): any available iPhone on the highest iOS runtime.
+best_udid=""; best_rt=""
+for runtime,devs in d["devices"].items():
+    if not is_ios(runtime):
+        continue
+    for dev in devs:
+        if dev.get("isAvailable") and dev["name"].startswith("iPhone") and runtime>best_rt:
+            best_rt=runtime; best_udid=dev["udid"]
+if best_udid:
+    sys.stderr.write("[ios] sim_udid: exact \"%s\" not found; falling back to %s\n" % (name, best_udid))
+    print(best_udid); sys.exit(0)
+
 sys.exit(1)
 ' "$SIM_NAME"
 }
@@ -380,6 +415,44 @@ for devs in d["devices"].values():
   if [ "$state" != "Booted" ]; then
     log "booting $SIM_NAME ($udid)"
     xcrun simctl boot "$udid"
+    # CRITICAL: `simctl boot` is ASYNC — it returns immediately while the runtime
+    # is still coming up. Locally the sim is usually already Booted so this never
+    # bites, but on a COLD CI runner the sim starts Shutdown and the very next
+    # `simctl install`/`launch` hits a not-yet-ready runtime: the app launch
+    # silently no-ops and TP_BOOT_OK never fires (exactly the headless
+    # swift-smoke-ios failure mode).
+    #
+    # `simctl bootstatus -b` is used as a BEST-EFFORT pre-wait, NOT a hard gate:
+    # on a freshly-created CI sim the FIRST boot runs a one-time data migration
+    # (CoreLocation/CloudRecents/… migrators) that can end in a non-clean terminal
+    # status — bootstatus then exits non-zero (observed exit 148 with
+    # Status=4294967295 "Finished") even though the device does reach a usable
+    # Booted state moments later. So we run bootstatus to absorb most of the
+    # migration wait, ignore its exit code, and then make the DEVICE STATE the
+    # source of truth: poll `simctl list` until state==Booted (generous window for
+    # the cold first-boot migration), dying only if it never gets there.
+    log "waiting for boot to complete (bootstatus best-effort + state poll)…"
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 240 xcrun simctl bootstatus "$udid" -b >/dev/null 2>&1 || true
+    else
+      xcrun simctl bootstatus "$udid" -b >/dev/null 2>&1 || true
+    fi
+    # Authoritative wait: poll the device state. 0.5s × 360 = up to 180s after the
+    # bootstatus pre-wait — comfortably covers the cold-sim data migration.
+    local booted="" i
+    for i in $(seq 1 360); do
+      state="$(xcrun simctl list devices -j | /usr/bin/python3 -c '
+import json,sys
+u=sys.argv[1]; d=json.load(sys.stdin)
+for devs in d["devices"].values():
+    for dev in devs:
+        if dev["udid"]==u: print(dev["state"]); sys.exit(0)
+' "$udid" 2>/dev/null)"
+      if [ "$state" = "Booted" ]; then booted="yes"; break; fi
+      sleep 0.5
+    done
+    [ -n "$booted" ] || die "simulator never reached Booted state: $SIM_NAME ($udid) (last state: ${state:-unknown})"
+    log "$SIM_NAME reached Booted state"
   else
     log "$SIM_NAME already booted ($udid)"
   fi
@@ -756,7 +829,20 @@ cmd_smoke_ios() {
   # Terminate any prior instance before launching with the URL arg.
   xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
   log "launching with --tp-smoke-url (M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
-  xcrun simctl launch "$udid" "$BUNDLE_ID" -- --tp-smoke-url "$link" >/dev/null
+  # Launch with retry: even after the device reports Booted, a cold CI sim may still
+  # be warming SpringBoard/system apps (bootstatus's final "Waiting on System App"
+  # phase), and the first `simctl launch` can fail (FBSOpenApplicationService error)
+  # or no-op. Retry a few times so a transient warmup miss doesn't fail the whole
+  # smoke. Locally (already-warm sim) the first attempt succeeds immediately.
+  local launch_ok="" attempt
+  for attempt in 1 2 3 4 5; do
+    if xcrun simctl launch "$udid" "$BUNDLE_ID" -- --tp-smoke-url "$link" >/dev/null 2>&1; then
+      launch_ok="yes"; break
+    fi
+    log "launch attempt $attempt failed (sim still warming?) — retrying in 3s"
+    sleep 3
+  done
+  [ -n "$launch_ok" ] || die "SMOKE FAIL — app never launched after 5 attempts: $BUNDLE_ID on $SIM_NAME"
 
   # Poll for ALL markers in one loop: boot+core (M0) + pairing (M1) + relay-auth
   # (M2) + kx + first-frame (M3) + session-render (M4) + input round-trip (M5).
@@ -819,7 +905,21 @@ cmd_smoke_ios() {
   done
 
   # M0 assertions.
-  [ -n "$boot_seen" ] || die "SMOKE FAIL — boot marker '$BOOT_MARKER' not seen in Simulator log"
+  if [ -z "$boot_seen" ]; then
+    # Boot marker miss is the classic headless-CI failure. Before dying, dump
+    # diagnostics so a CI run is debuggable without a local repro: the app's
+    # install/launch state and a raw (predicate-less) tail of the sim log. The
+    # boot marker fires in TeleprompterApp.init() before any view, so a miss means
+    # either the app process never really ran (cold-boot race — see cmd_boot
+    # bootstatus) or it crashed before the os.Logger flushed.
+    log "── boot-marker miss diagnostics ──────────────────────────────"
+    log "app container: $(xcrun simctl get_app_container "$udid" "$BUNDLE_ID" 2>&1 || echo '(not installed)')"
+    log "last 30s of ALL sim log lines mentioning teleprompter/Teleprompter:"
+    xcrun simctl spawn "$udid" log show --last 30s --style compact 2>/dev/null \
+      | grep -iE "teleprompter|TP_BOOT|TP_CORE|crash|fault|signal" | tail -40 >&2 || true
+    log "──────────────────────────────────────────────────────────────"
+    die "SMOKE FAIL — boot marker '$BOOT_MARKER' not seen in Simulator log"
+  fi
   tp_mark "$BOOT_MARKER"
   [ -n "$core_line" ] || die "SMOKE FAIL — boot OK but no '$CORE_MARKER'/TP_CORE_FAIL line (tp-core FFI never ran?)"
   case "$core_line" in

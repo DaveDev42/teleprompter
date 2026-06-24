@@ -288,4 +288,22 @@ final class RelayResilienceTests: XCTestCase {
         XCTAssertEqual(label["set"] as? Bool, false)
         XCTAssertNil(label["value"])
     }
+
+    // MARK: - Relay URL scheme guard (transport-downgrade defense)
+
+    func testRelaySchemeGuardAcceptsWebSocketSchemes() {
+        XCTAssertTrue(RelayClient.isAcceptableRelayScheme("wss://relay.tpmt.dev"))
+        XCTAssertTrue(RelayClient.isAcceptableRelayScheme("ws://localhost:7090"))
+        // Scheme comparison is case-insensitive (Foundation lowercases it).
+        XCTAssertTrue(RelayClient.isAcceptableRelayScheme("WSS://relay.tpmt.dev"))
+    }
+
+    func testRelaySchemeGuardRejectsNonWebSocketSchemes() {
+        // A substituted endpoint in the pairing bundle must be rejected up front.
+        XCTAssertFalse(RelayClient.isAcceptableRelayScheme("https://relay.tpmt.dev"))
+        XCTAssertFalse(RelayClient.isAcceptableRelayScheme("http://relay.tpmt.dev"))
+        XCTAssertFalse(RelayClient.isAcceptableRelayScheme("file:///etc/passwd"))
+        XCTAssertFalse(RelayClient.isAcceptableRelayScheme("relay.tpmt.dev"))  // no scheme
+        XCTAssertFalse(RelayClient.isAcceptableRelayScheme(""))
+    }
 }

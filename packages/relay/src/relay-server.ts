@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import type {
   RelayAuthOk,
   RelayClientMessage,
@@ -302,8 +303,14 @@ export class RelayServer {
 
   constructor(options?: RelayServerOptions) {
     const envInt = (key: string) => {
-      const n = parseInt(process.env[key] ?? "", 10);
-      return Number.isFinite(n) ? n : undefined;
+      const raw = process.env[key];
+      if (raw === undefined || raw === "") return undefined;
+      const n = parseInt(raw, 10);
+      if (!Number.isFinite(n)) {
+        log.warn(`invalid ${key}="${raw}" (not an integer), using default`);
+        return undefined;
+      }
+      return n;
     };
     this.maxRecentFrames =
       options?.cacheSize ??
@@ -468,6 +475,19 @@ export class RelayServer {
 
         // Admin dashboard
         if (url.pathname === "/admin") {
+          const adminToken = process.env["TP_RELAY_ADMIN_TOKEN"];
+          if (!adminToken) {
+            return new Response("Not Found", { status: 404 });
+          }
+          const auth = req.headers.get("authorization") ?? "";
+          const presented = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+          const expected = Buffer.from(adminToken);
+          const got = Buffer.from(presented);
+          const okAuth =
+            got.length === expected.length && timingSafeEqual(got, expected);
+          if (!okAuth) {
+            return new Response("Unauthorized", { status: 401 });
+          }
           const daemons = [...self.daemonStates.entries()].map(([id, s]) => ({
             id,
             online: s.online,

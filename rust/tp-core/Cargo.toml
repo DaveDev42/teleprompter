@@ -28,6 +28,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 hex = "0.4"
 thiserror = "2"
+# Secret-material memory hygiene: zero key bytes on drop so derived session keys
+# and pairing secrets don't linger in freed heap/stack (recoverable via core dump
+# / vm_read). Already in the tree transitively via chacha20poly1305/x25519-dalek;
+# pin it directly for the derive macro. Drop-only — no wire/crypto/FFI change.
+zeroize = { version = "1", features = ["zeroize_derive"] }
 
 # FFI binding generator. `cli` feature provides the `uniffi_bindgen_main`
 # entrypoint used by the in-crate binary (src/bin/uniffi-bindgen.rs).

@@ -19,16 +19,31 @@
 
 use rand_core::{OsRng, RngCore};
 use x25519_dalek::{PublicKey, StaticSecret};
+use zeroize::ZeroizeOnDrop;
 
 /// A freshly generated key-exchange keypair. Field byte-shapes match
 /// `tp-core::crypto::KxKeyPair` and the TS `KeyPair` so a future cutover can
 /// pass these straight into the existing KDF.
-#[derive(Clone, PartialEq, Eq, Debug)]
+///
+/// Debug is implemented manually to redact `secret_key` (a derived Debug would
+/// print all 32 secret bytes in any `{:?}`/`dbg!` site). `ZeroizeOnDrop` wipes
+/// the secret on drop — the bytes copied out of `StaticSecret` aren't covered by
+/// dalek's own zeroization. Both are Drop/format-only; no wire or crypto change.
+#[derive(Clone, PartialEq, Eq, ZeroizeOnDrop)]
 pub struct KxKeyPair {
     pub public_key: [u8; 32],
     /// Raw random secret, stored UNCLAMPED (libsodium `crypto_kx_keypair`
     /// semantics — the clamp happens only inside the scalar mult).
     pub secret_key: [u8; 32],
+}
+
+impl std::fmt::Debug for KxKeyPair {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KxKeyPair")
+            .field("public_key", &self.public_key)
+            .field("secret_key", &"[redacted]")
+            .finish()
+    }
 }
 
 /// Generate a random X25519 key-exchange keypair from the OS CSPRNG.

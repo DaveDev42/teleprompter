@@ -85,6 +85,61 @@ describe("PendingPairing", () => {
     expect(relay.dispose).toHaveBeenCalled();
   });
 
+  test("cancel() zeroizes the pairing secret + key material (defense-in-depth)", async () => {
+    // The factory receives the live secret material; capture it so we can assert
+    // cancel() wipes it. A cancelled pairing never hands these off, so leaving
+    // live references on the heap is pure risk.
+    let capturedSecret: Uint8Array | undefined;
+    let capturedSecretKey: Uint8Array | undefined;
+    const relay = makeFakeRelayClient();
+    const pp = new PendingPairing({
+      relayUrl: "wss://relay.test",
+      daemonId: "daemon-zeroize",
+      label: { set: false },
+      createRelayClient: (args) => {
+        capturedSecret = args.pairingSecret;
+        capturedSecretKey = args.keyPair.secretKey;
+        return relay as unknown as RelayClient;
+      },
+    });
+
+    await pp.begin();
+    // Sanity: real key material is non-zero before cancel.
+    expect(capturedSecret?.some((b) => b !== 0)).toBe(true);
+    expect(capturedSecretKey?.some((b) => b !== 0)).toBe(true);
+
+    pp.cancel();
+
+    // After cancel the buffers are wiped.
+    expect(capturedSecret?.every((b) => b === 0)).toBe(true);
+    expect(capturedSecretKey?.every((b) => b === 0)).toBe(true);
+  });
+
+  test("begin() bails (and creates no relay) if cancelled during its async setup", async () => {
+    // REGRESSION: begin() awaits before creating the relay. If cancel() fires in
+    // that window (CLI disconnect) it disposes a still-null relay (no-op), then
+    // the old begin() would unconditionally create+connect a relay nobody owns —
+    // an authenticated WS leaked until daemon restart. begin() must bail when
+    // already settled, so the orchestrator's catch cleans up.
+    let factoryCalls = 0;
+    const relay = makeFakeRelayClient();
+    const pp = new PendingPairing({
+      relayUrl: "wss://relay.test",
+      daemonId: "daemon-cancel-race",
+      label: { set: false },
+      createRelayClient: () => {
+        factoryCalls++;
+        return relay as unknown as RelayClient;
+      },
+    });
+
+    // Simulate cancel() landing during begin()'s awaits by cancelling first.
+    pp.cancel();
+    await expect(pp.begin()).rejects.toThrow("cancelled before relay creation");
+    expect(factoryCalls).toBe(0);
+    expect(relay.connect).not.toHaveBeenCalled();
+  });
+
   test("releaseRelay() returns the client once, then null (idempotent)", async () => {
     const relay = makeFakeRelayClient();
     const pp = new PendingPairing({

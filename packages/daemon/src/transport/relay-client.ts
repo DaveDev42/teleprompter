@@ -101,6 +101,28 @@ export function computeReconnectPlan(
   return { delay, nextAttempt };
 }
 
+/**
+ * Pure accounting for the dead-pairing throttle counter, extracted so its
+ * (previously buggy) gating can be unit-tested without faking WebSocket
+ * lifecycles.
+ *
+ * `hadPeer` means "a frontend completed key exchange during the connection
+ * that just ended". When it did, the pairing is alive and the counter resets
+ * to 0; otherwise the just-ended connection saw no peer and the counter ticks.
+ *
+ * The critical subtlety this guards against: the `peers` Map is PRESERVED
+ * across reconnects (resume fast-path), so gating on `peers.size` would keep
+ * the counter pinned at 0 forever after the first kx and silently defeat the
+ * throttle for any pairing that ever had a live frontend (the 9-pairing →
+ * 3113 re-auth incident). The signal MUST be per-connection, not Map size.
+ */
+export function nextPeerlessReconnects(
+  current: number,
+  hadPeer: boolean,
+): number {
+  return hadPeer ? 0 : current + 1;
+}
+
 interface FrontendPeer {
   frontendId: string;
   publicKey: Uint8Array;
@@ -192,6 +214,18 @@ export class RelayClient {
    * it dead is that no peer ever follows.
    */
   private peerlessReconnects = 0;
+  /**
+   * Whether a frontend peer completed key exchange DURING the current
+   * connection. Reset to `false` in `cleanup()` (start of every connect), set
+   * to `true` in `handleKxFrame`. This is the correct signal for the
+   * dead-pairing throttle: the `peers` Map is deliberately PRESERVED across
+   * reconnects (for the resume session-key fast-path — see the `relay.auth.ok`
+   * handler), so `peers.size` stays non-zero forever after the first kx and
+   * could never re-trigger the throttle. A genuinely-dead pairing (socket
+   * opens, no frontend ever joins THIS connection) leaves this `false` and so
+   * keeps accumulating `peerlessReconnects`.
+   */
+  private hadPeerThisConnection = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private disposed = false;
@@ -308,6 +342,10 @@ export class RelayClient {
 
       case "relay.register.err":
         log.error(`registration failed: ${msg.e}`);
+        // Close immediately to trigger ws.onclose → scheduleReconnect rather
+        // than waiting ~10s for the relay's auth-timeout to drop the socket
+        // (the relay does not close on register.err). Mirrors the resume path.
+        this.ws?.close();
         break;
 
       case "relay.auth.ok":
@@ -350,6 +388,10 @@ export class RelayClient {
           break;
         }
         log.error(`auth failed: ${msg.e}`);
+        // Close immediately so ws.onclose schedules a reconnect, instead of
+        // stalling ~10s for the relay's slowloris auth-timeout to close us.
+        // Mirrors the resume arm above.
+        this.ws?.close();
         break;
 
       case "relay.kx.frame":
@@ -470,9 +512,14 @@ export class RelayClient {
       const data = JSON.parse(new TextDecoder().decode(plaintext));
       // data = { pk: base64, frontendId: string, role: "frontend", v?: number }
 
-      if (!data.pk || typeof data.frontendId !== "string" || !data.frontendId) {
+      if (
+        typeof data.pk !== "string" ||
+        !data.pk ||
+        typeof data.frontendId !== "string" ||
+        !data.frontendId
+      ) {
         log.error(
-          "kx frame missing pk or frontendId (or frontendId is not a string)",
+          "kx frame missing/invalid pk or frontendId (both must be non-empty strings)",
         );
         return;
       }
@@ -501,8 +548,11 @@ export class RelayClient {
       });
 
       // A real frontend just joined: this pairing is alive. Clear the
-      // dead-pairing throttle so any future reconnect happens at full speed.
+      // dead-pairing throttle so any future reconnect happens at full speed,
+      // and mark this connection as having seen a peer so a drop+reconnect
+      // during a live session does not count toward the throttle.
       this.peerlessReconnects = 0;
+      this.hadPeerThisConnection = true;
 
       log.info(`key exchange completed with frontend ${data.frontendId}`);
 
@@ -537,7 +587,18 @@ export class RelayClient {
     if (frame.frontendId) {
       const peer = this.peers.get(frame.frontendId);
       if (peer) {
-        await this.decryptAndDispatch(frame, peer);
+        // The frontendId already pins the exact peer, so its session keys are
+        // the only ones that can decrypt this frame — the all-peers fallback
+        // below would never succeed for it. Contain a decrypt/parse throw to a
+        // warn (instead of escaping to the top-level catch as a silent drop)
+        // and return; do not fall through.
+        try {
+          await this.decryptAndDispatch(frame, peer);
+        } catch (err) {
+          log.warn(
+            `decrypt/dispatch failed for peer ${peer.frontendId}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
         return;
       }
     }
@@ -821,14 +882,19 @@ export class RelayClient {
   private scheduleReconnect(): void {
     if (this.disposed) return;
 
-    // A reconnect with no peer attached counts toward the dead-pairing
-    // throttle. `peers` is cleared on every `cleanup()`/`connect()`, so a
-    // genuinely-dead pairing (socket opens, but no frontend ever completes
-    // kx) accumulates these; a live pairing resets the counter in
-    // `handleKxFrame` the moment its frontend rejoins.
-    if (this.peers.size === 0) {
-      this.peerlessReconnects += 1;
-    }
+    // A reconnect in which no peer completed kx during the just-ended
+    // connection counts toward the dead-pairing throttle. We track this with
+    // `hadPeerThisConnection` (reset in `cleanup()`), NOT `peers.size`: the
+    // `peers` Map is preserved across reconnects for the resume fast-path, so
+    // once any frontend ever joined, `peers.size` would stay non-zero forever
+    // and the throttle could never re-arm — silently defeating it for every
+    // pairing that ever had a live frontend (the 9-pairing → 3113 re-auth
+    // failure mode). A genuinely-dead pairing leaves `hadPeerThisConnection`
+    // false and accumulates these; a live pairing resets it in `handleKxFrame`.
+    this.peerlessReconnects = nextPeerlessReconnects(
+      this.peerlessReconnects,
+      this.hadPeerThisConnection,
+    );
 
     const { delay, nextAttempt } = computeReconnectPlan(
       this.reconnectAttempt,
@@ -839,6 +905,12 @@ export class RelayClient {
   }
 
   private cleanup(): void {
+    // Reset the per-connection peer flag at the start of every (re)connect.
+    // The `peers` Map itself is intentionally NOT cleared here — it carries
+    // session keys reused by the resume fast-path. Only this connection-scoped
+    // signal resets, so the dead-pairing throttle can re-arm for a pairing
+    // whose frontend has gone away even though stale peer entries remain.
+    this.hadPeerThisConnection = false;
     this.stopPing();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);

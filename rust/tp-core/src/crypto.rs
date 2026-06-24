@@ -16,6 +16,7 @@ use blake2::Blake2b;
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use x25519_dalek::{PublicKey, StaticSecret};
+use zeroize::ZeroizeOnDrop;
 
 use crate::error::{Result, TpError};
 
@@ -23,6 +24,9 @@ use crate::error::{Result, TpError};
 pub const NPUB_BYTES: usize = 24;
 /// X25519 / crypto_kx key length.
 pub const KEY_BYTES: usize = 32;
+/// Poly1305 authentication-tag length (libsodium `ABYTES`). Every sealed blob is
+/// `nonce(24) || ciphertext || tag(16)`, so the minimum valid length is 40.
+pub const POLY1305_TAG_BYTES: usize = 16;
 
 type Blake2b256 = Blake2b<U32>;
 type Blake2b512 = Blake2b<U64>;
@@ -147,8 +151,13 @@ pub fn seal(plaintext: &[u8], key: &[u8], nonce: &[u8]) -> Result<String> {
 /// `decrypt(encoded, key)` — inverse of [`seal`].
 pub fn open(encoded: &str, key: &[u8]) -> Result<Vec<u8>> {
     let combined = b64_decode(encoded)?;
-    if combined.len() < NPUB_BYTES {
-        return Err(TpError::Crypto("sealed blob shorter than nonce".into()));
+    // Need at least nonce(24) + Poly1305 tag(16); a shorter blob can never carry
+    // a valid AEAD ciphertext. (The AEAD also rejects it, but reject early with a
+    // precise message.)
+    if combined.len() < NPUB_BYTES + POLY1305_TAG_BYTES {
+        return Err(TpError::Crypto(
+            "sealed blob shorter than nonce + tag".into(),
+        ));
     }
     let (nonce, ct) = combined.split_at(NPUB_BYTES);
     aead_decrypt(ct, None, nonce, key)
@@ -166,8 +175,10 @@ pub fn seal_with_aad(plaintext: &[u8], key: &[u8], aad: &[u8], nonce: &[u8]) -> 
 /// `openWithAad(encoded, key, aad)` — inverse of [`seal_with_aad`].
 pub fn open_with_aad(encoded: &str, key: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
     let combined = b64_decode(encoded)?;
-    if combined.len() < NPUB_BYTES {
-        return Err(TpError::Crypto("sealed blob shorter than nonce".into()));
+    if combined.len() < NPUB_BYTES + POLY1305_TAG_BYTES {
+        return Err(TpError::Crypto(
+            "sealed blob shorter than nonce + tag".into(),
+        ));
     }
     let (nonce, ct) = combined.split_at(NPUB_BYTES);
     aead_decrypt(ct, Some(aad), nonce, key)
@@ -176,19 +187,35 @@ pub fn open_with_aad(encoded: &str, key: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
 // ── X25519 crypto_kx ────────────────────────────────────────────────────────
 
 /// A key-exchange keypair.
-#[derive(Clone)]
+///
+/// `ZeroizeOnDrop` wipes `secret_key` (and `public_key`) when the value is
+/// dropped — the bytes copied OUT of `x25519_dalek::StaticSecret` are not
+/// covered by dalek's own zeroization. Drop-only; no wire/crypto change.
+#[derive(Clone, ZeroizeOnDrop)]
 pub struct KxKeyPair {
     pub public_key: [u8; 32],
     pub secret_key: [u8; 32],
 }
 
 /// Session keys derived from a completed key exchange.
-#[derive(Clone, PartialEq, Debug)]
+///
+/// `ZeroizeOnDrop` wipes `rx`/`tx` on drop. Debug is implemented manually to
+/// redact the key bytes (a derived Debug would print them in any `{:?}` site).
+#[derive(Clone, PartialEq, ZeroizeOnDrop)]
 pub struct SessionKeys {
     /// Key for decrypting data received FROM the peer.
     pub rx: [u8; 32],
     /// Key for encrypting data sent TO the peer.
     pub tx: [u8; 32],
+}
+
+impl std::fmt::Debug for SessionKeys {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionKeys")
+            .field("rx", &"[redacted]")
+            .field("tx", &"[redacted]")
+            .finish()
+    }
 }
 
 /// libsodium `crypto_kx_seed_keypair(seed)`:
@@ -321,6 +348,20 @@ mod tests {
         let nonce = [9u8; 24];
         let enc = seal_with_aad(b"x", &key, b"aad-1", &nonce).unwrap();
         assert!(open_with_aad(&enc, &key, b"aad-2").is_err());
+    }
+
+    #[test]
+    fn open_rejects_blob_shorter_than_nonce_plus_tag() {
+        let key = [7u8; 32];
+        // A 24-byte blob (exactly the nonce, zero ciphertext+tag) must be
+        // rejected by the length guard, not forwarded to the AEAD.
+        let only_nonce = b64_encode(&[0u8; NPUB_BYTES]);
+        let err = open(&only_nonce, &key).unwrap_err();
+        assert!(matches!(err, TpError::Crypto(_)));
+        // Just below the minimum (nonce + tag - 1) is still rejected.
+        let nearly = b64_encode(&[0u8; NPUB_BYTES + POLY1305_TAG_BYTES - 1]);
+        assert!(open(&nearly, &key).is_err());
+        assert!(open_with_aad(&nearly, &key, b"aad").is_err());
     }
 
     #[test]

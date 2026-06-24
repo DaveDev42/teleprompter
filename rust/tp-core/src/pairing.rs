@@ -13,9 +13,15 @@
 //! v2 additionally carried a trailing `label_len(1) | label_bytes` which the
 //! decoder validates and discards (label now arrives via relay.kx).
 
+use zeroize::Zeroizing;
+
 use crate::error::{Result, TpError};
 
 const PAIRING_URL_SCHEME: &str = "tp://p";
+/// Upper bound on the base64url payload of a `tp://p?d=…` link, checked before
+/// any allocation. A legitimate v2/v3 payload is ~772 chars; 2048 is far above
+/// that yet rejects oversized input before the O(N) decode allocates.
+const MAX_PAIRING_B64_LEN: usize = 2048;
 const PAIRING_BINARY_MAGIC: &[u8] = b"tp";
 const PAIRING_BINARY_VERSION: u8 = 3;
 const DAEMON_ID_PREFIX: &str = "daemon-";
@@ -86,8 +92,10 @@ pub fn encode_pairing_data(data: &PairingData) -> Result<String> {
     } else {
         data.relay.as_bytes().to_vec()
     };
-    let ps = b64_std_decode(&data.ps)?;
-    let pk = b64_std_decode(&data.pk)?;
+    // Raw 32-byte secret / pubkey — wipe on drop (Zeroizing) so they don't
+    // linger in freed heap after the encoded link is built.
+    let ps = Zeroizing::new(b64_std_decode(&data.ps)?);
+    let pk = Zeroizing::new(b64_std_decode(&data.pk)?);
 
     if did.is_empty() {
         return Err(TpError::Pairing(
@@ -146,7 +154,13 @@ fn err() -> TpError {
 }
 
 fn decode_binary_pairing(b64: &str) -> Result<PairingData> {
-    let buf = b64url_decode(b64)?;
+    // Bound the input before allocating the decode buffers.
+    if b64.len() > MAX_PAIRING_B64_LEN {
+        return Err(err());
+    }
+    // `buf` holds the raw 32-byte pairing secret (`ps`) and pubkey (`pk`);
+    // Zeroizing wipes it on drop so the secret doesn't linger in freed heap.
+    let buf = Zeroizing::new(b64url_decode(b64)?);
     // minimum: magic(2) + ver(1) + did_len(1) + relay_len(1) + ps(32) + pk(32)
     if buf.len() < 2 + 1 + 1 + 1 + 32 + 32 {
         return Err(err());

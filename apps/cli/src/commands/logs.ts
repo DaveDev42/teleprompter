@@ -1,4 +1,5 @@
 import { Store } from "@teleprompter/daemon";
+import { stripDangerousOsc } from "../lib/sanitize";
 
 /**
  * tp logs [sid]
@@ -53,7 +54,13 @@ export async function logsCommand(argv: string[]): Promise<void> {
     const recs = db.getRecordsFrom(lastSeq, 1000);
     for (const r of recs) {
       if (r.kind === "io") {
-        process.stdout.write(Buffer.from(r.payload).toString("utf-8"));
+        // PTY bytes come from the monitored Claude subprocess. Strip the
+        // high-risk OSC 52 (clipboard-write) / OSC 8 (hyperlink) sequences a
+        // terminal would act on, while preserving benign color/cursor ANSI so
+        // the tailed output stays readable.
+        process.stdout.write(
+          stripDangerousOsc(Buffer.from(r.payload).toString("utf-8")),
+        );
       } else if (r.kind === "event") {
         try {
           const event = JSON.parse(Buffer.from(r.payload).toString("utf-8"));

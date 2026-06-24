@@ -29,16 +29,23 @@ export function getServiceName(): string {
 }
 
 export function generateUnit(tpBinary: string): string {
+  // systemd splits ExecStart on whitespace and does NOT honor shell quoting of
+  // the whole line — but it DOES honor double-quoted words. Quote the binary
+  // path so a HOME-with-spaces (valid on Linux) does not get split into a wrong
+  // argv. Environment= values are quoted with a fallback so an unset HOME
+  // writes "" rather than the literal string "undefined", and a value
+  // containing a newline becomes a parse error instead of an injected directive.
+  const home = process.env["HOME"] ?? "";
   return `[Unit]
 Description=Teleprompter Daemon
 After=network.target
 
 [Service]
-ExecStart=${tpBinary} daemon start
+ExecStart="${tpBinary}" daemon start
 Restart=on-failure
 RestartSec=5
-Environment=HOME=${process.env["HOME"]}
-Environment=PATH=/usr/local/bin:/usr/bin:/bin:${process.env["HOME"]}/.local/bin
+Environment="HOME=${home}"
+Environment="PATH=/usr/local/bin:/usr/bin:/bin:${home}/.local/bin"
 
 [Install]
 WantedBy=default.target

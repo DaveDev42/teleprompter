@@ -92,8 +92,10 @@ impl DaemonState {
         self.sessions.insert(sid);
         // Evict oldest-inserted entries until at or below cap.
         while self.sessions.len() > MAX_SESSIONS_PER_DAEMON {
-            // `shift_remove_index(0)` removes the first (oldest) entry in O(1)
-            // amortised, shifting remaining indices down.
+            // `shift_remove_index(0)` removes the first (oldest) entry in O(n)
+            // (shifts subsequent entries left to preserve insertion order), but
+            // the set is bounded by MAX_SESSIONS_PER_DAEMON (256) so the shift
+            // is at most 255 moves — acceptable for the eviction path.
             self.sessions.shift_remove_index(0);
         }
     }
@@ -102,7 +104,7 @@ impl DaemonState {
     /// frontend subscribes (`relay.sub`).
     pub fn attach(&mut self, sid: &str) {
         let count = self.attached.entry(sid.to_string()).or_insert(0);
-        *count += 1;
+        *count = count.saturating_add(1);
     }
 
     /// Decrement the subscription ref-count for `sid`.  Removes the key when the

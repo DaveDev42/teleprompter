@@ -72,10 +72,19 @@ async fn run(port: u16) -> std::io::Result<()> {
 }
 
 /// Resolve until either SIGINT (Ctrl-C) or SIGTERM (`systemctl stop`) arrives.
+///
+/// If a signal handler fails to install, that arm parks forever via
+/// `std::future::pending` instead of resolving immediately (which would cause a
+/// spurious instant shutdown).
 async fn shutdown_signal() {
     let ctrl_c = async {
-        if let Err(err) = tokio::signal::ctrl_c().await {
-            eprintln!("tp-relay: failed to install SIGINT handler: {err}");
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => {}
+            Err(err) => {
+                eprintln!("tp-relay: failed to install SIGINT handler: {err}");
+                // Park forever so the failed arm doesn't win the select! race.
+                std::future::pending::<()>().await;
+            }
         }
     };
 
@@ -85,7 +94,11 @@ async fn shutdown_signal() {
             Ok(mut sig) => {
                 sig.recv().await;
             }
-            Err(err) => eprintln!("tp-relay: failed to install SIGTERM handler: {err}"),
+            Err(err) => {
+                eprintln!("tp-relay: failed to install SIGTERM handler: {err}");
+                // Park forever so the failed arm doesn't win the select! race.
+                std::future::pending::<()>().await;
+            }
         }
     };
 

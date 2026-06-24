@@ -2768,6 +2768,7 @@ dependencies = [
  "thiserror",
  "uniffi",
  "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -2778,6 +2779,7 @@ dependencies = [
  "serde",
  "serde_json",
  "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]

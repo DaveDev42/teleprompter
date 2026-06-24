@@ -34,7 +34,26 @@ export async function connectIpcAsClient(
     unix: socketPath,
     socket: {
       data(_s, data) {
-        const frames = decoder.decode(new Uint8Array(data));
+        // FrameDecoder.decode() throws on a protocol-fatal frame (length over
+        // MAX_FRAME_SIZE, or a payload that fails JSON.parse) — the codec is
+        // explicit that the caller must tear down the connection on such a
+        // frame. Bun does NOT translate a throw out of this data callback into
+        // a socket error/close, so without this guard the socket stays open on
+        // a wedged stream and the pending daemon-op only escapes via its 30s
+        // timeout. Catch, reset the decoder, end() the socket, and fire the
+        // close handlers so the op rejects immediately (mirrors the error
+        // handler below and the runner's IpcClient).
+        let frames: ReturnType<FrameDecoder["decode"]>;
+        try {
+          frames = decoder.decode(new Uint8Array(data));
+        } catch {
+          decoder.reset();
+          try {
+            _s.end();
+          } catch {}
+          for (const h of closeHandlers) h();
+          return;
+        }
         for (const frame of frames) {
           const msg = parseIpcMessage(frame.data);
           if (!msg) continue;

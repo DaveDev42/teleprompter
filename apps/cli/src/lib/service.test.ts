@@ -28,6 +28,26 @@ describe("service", () => {
         expect(typeof binary).toBe("string");
         expect(binary.length).toBeGreaterThan(0);
       });
+
+      test("generatePlist XML-escapes a path containing & < > so the plist stays well-formed", async () => {
+        const { generatePlist } = await import("./service-darwin");
+        const prevHome = process.env["HOME"];
+        process.env["HOME"] = "/Users/a&b<c>";
+        try {
+          const plist = generatePlist("/opt/a&b/tp", "/tmp/l&d");
+          // Raw metacharacters must not survive into the XML body.
+          expect(plist).not.toContain("a&b/tp");
+          expect(plist).not.toContain("/tmp/l&d/daemon.log");
+          expect(plist).not.toContain("/Users/a&b<c>");
+          // Their escaped forms must be present instead.
+          expect(plist).toContain("<string>/opt/a&amp;b/tp</string>");
+          expect(plist).toContain("/tmp/l&amp;d/daemon.log");
+          expect(plist).toContain("&lt;c&gt;");
+        } finally {
+          if (prevHome === undefined) delete process.env["HOME"];
+          else process.env["HOME"] = prevHome;
+        }
+      });
     });
   }
 
@@ -40,10 +60,25 @@ describe("service", () => {
         expect(unit).toContain("[Unit]");
         expect(unit).toContain("Description=Teleprompter Daemon");
         expect(unit).toContain("[Service]");
-        expect(unit).toContain("ExecStart=/usr/local/bin/tp daemon start");
+        // ExecStart double-quotes the binary path (systemd honors quoted words)
+        // so a HOME/install path with spaces is not split into a wrong argv.
+        expect(unit).toContain('ExecStart="/usr/local/bin/tp" daemon start');
         expect(unit).toContain("Restart=on-failure");
         expect(unit).toContain("[Install]");
         expect(unit).toContain("WantedBy=default.target");
+      });
+
+      test("generateUnit quotes Environment= values so an empty HOME writes '' not 'undefined'", async () => {
+        const { generateUnit } = await import("./service-linux");
+        const prevHome = process.env["HOME"];
+        delete process.env["HOME"];
+        try {
+          const unit = generateUnit("/usr/local/bin/tp");
+          expect(unit).toContain('Environment="HOME="');
+          expect(unit).not.toContain("undefined");
+        } finally {
+          if (prevHome !== undefined) process.env["HOME"] = prevHome;
+        }
       });
 
       test("resolveTpBinary returns a string", async () => {

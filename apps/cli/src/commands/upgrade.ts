@@ -94,7 +94,16 @@ export async function upgradeCommand(_argv: string[] = []): Promise<void> {
       return;
     }
     console.log(`\nUpgrading tp ${currentVersion} → ${latest.tag}...`);
-    await upgradeTp(latest.tag);
+    try {
+      await upgradeTp(latest.tag);
+    } catch {
+      // upgradeTp already printed a friendly errorWithHints message before
+      // re-throwing; exit non-zero here rather than falling through to the
+      // "Checking Claude Code..." step (which would mask the failure with a
+      // clean exit 0). Exiting here also avoids the top-level handler's raw
+      // `console.error(err)` double-printing the already-shown message.
+      process.exit(1);
+    }
   }
 
   // 3. Upgrade claude code
@@ -334,7 +343,16 @@ export function getAssetName(): string {
 
 /** Resolve the path to the currently running tp binary. */
 export async function resolveCurrentBinaryPath(): Promise<string> {
-  if (process.execPath && !process.execPath.includes("bun")) {
+  // Exclude both the dev interpreter (`bun`) and the compiled tpd SEA blob:
+  // when the tpd blob processes an upgrade its execPath is the blob, not the
+  // Rust `tp` entrypoint, so returning it would target the wrong file. (In
+  // normal use the Rust CLI handles `tp upgrade` natively, so this path is
+  // only reached via a direct `tpd upgrade` — but harden the heuristic anyway.)
+  if (
+    process.execPath &&
+    !process.execPath.includes("bun") &&
+    !process.execPath.endsWith("/tpd")
+  ) {
     return process.execPath;
   }
   const found = (await $`which tp`.text().catch(() => "")).trim();
@@ -570,15 +588,22 @@ async function upgradeTp(tag: string): Promise<void> {
   let bakPath = "";
   let targetPath = "";
 
+  // The tag originates from the GitHub releases API (only typeof-checked) and
+  // is echoed to the TTY on every ~100ms progress repaint. Strip C0/C1 control
+  // bytes so a crafted tag_name (GitHub-API compromise / HTTPS MITM) cannot
+  // inject ANSI/VT escapes into the terminal. Display-only — the URL above
+  // already used the raw tag for the actual download path.
+  const safeTag = tag.replace(/[\x00-\x1f\x7f]/g, "");
+
   try {
     // Download binary to temp
     tmpPath = join(tmpdir(), `tp-upgrade-${Date.now()}`);
 
     await downloadWithProgress(url, tmpPath, {
-      label: `Downloading tp ${tag}`,
+      label: `Downloading tp ${safeTag}`,
     });
     await $`chmod +x ${tmpPath}`.quiet();
-    console.log(ok(`Downloaded tp ${tag}`));
+    console.log(ok(`Downloaded tp ${safeTag}`));
 
     // Verify checksum
     const stopCheck = spinner("Verifying checksum...");
@@ -683,5 +708,10 @@ async function upgradeTp(tag: string): Promise<void> {
         [manualHint],
       ),
     );
+    // Re-throw so the caller does not fall through to "Checking Claude
+    // Code..." and exit 0 on a failed upgrade. Without this, a checksum
+    // mismatch / HTTP error / failed rename / rollback reports apparent
+    // success and any script or CI gating on the exit code is misled.
+    throw err;
   }
 }

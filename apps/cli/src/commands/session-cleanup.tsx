@@ -197,6 +197,11 @@ async function readlinePrompt(question: string): Promise<string> {
       input: process.stdin,
       output: process.stdout,
     });
+    // Ctrl+D / stdin EOF fires 'close' WITHOUT invoking the question callback;
+    // without this the Promise never settles and the destructive-delete
+    // confirmation prompt hangs forever. An empty answer fails the y/yes test,
+    // so the caller treats EOF as "abort", which is the safe default.
+    rl.on("close", () => resolve(""));
     rl.question(question, (answer) => {
       rl.close();
       resolve(answer);
@@ -298,6 +303,26 @@ export async function runSessionCleanup(opts: {
   for (const sid of selectedSids) {
     try {
       if (daemonUp) {
+        // TOCTOU guard: the list was filtered to 'stopped' sessions, but a
+        // session can restart (session.restart relay handler flips it back to
+        // 'running') while this interactive UI is open. The daemon's delete
+        // handler would then kill the live runner with no confirmation —
+        // deleting a session the user believed was stopped. Re-read fresh
+        // state and skip any sid that is no longer stopped.
+        const checkStore = new Store();
+        let current: string | undefined;
+        try {
+          current = checkStore.getSession(sid)?.state;
+        } finally {
+          checkStore.close();
+        }
+        if (current && current !== "stopped") {
+          failed.push({
+            sid,
+            error: `restarted while cleanup UI was open (now ${current}) — skipped`,
+          });
+          continue;
+        }
         await deleteSessionViaIpc(sid);
       } else {
         // Daemon-less: open a fresh Store per delete (mirrors session.ts pattern).

@@ -2,6 +2,7 @@ import { existsSync } from "fs";
 import { mkdir, unlink, writeFile } from "fs/promises";
 import { join } from "path";
 import { resolveTpBinary } from "./paths";
+import { escapeXml } from "./sanitize";
 
 export { resolveTpBinary };
 
@@ -34,6 +35,12 @@ function getLogDir(): string {
 }
 
 export function generatePlist(tpBinary: string, logDir: string): string {
+  // Every interpolated value (binary path, log dir, HOME) is user-controlled
+  // via the install path / XDG_DATA_HOME / HOME env. Escape XML so a stray
+  // &/</>/quote cannot produce malformed plist XML that launchctl silently
+  // fails to parse (leaving the daemon unregistered while install "succeeds").
+  const home = process.env["HOME"] ?? "";
+  const logFile = join(logDir, "daemon.log");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -42,7 +49,7 @@ export function generatePlist(tpBinary: string, logDir: string): string {
   <string>${LABEL}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${tpBinary}</string>
+    <string>${escapeXml(tpBinary)}</string>
     <string>daemon</string>
     <string>start</string>
   </array>
@@ -51,15 +58,15 @@ export function generatePlist(tpBinary: string, logDir: string): string {
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>${join(logDir, "daemon.log")}</string>
+  <string>${escapeXml(logFile)}</string>
   <key>StandardErrorPath</key>
-  <string>${join(logDir, "daemon.log")}</string>
+  <string>${escapeXml(logFile)}</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>HOME</key>
-    <string>${process.env["HOME"]}</string>
+    <string>${escapeXml(home)}</string>
     <key>PATH</key>
-    <string>/usr/local/bin:/usr/bin:/bin:${process.env["HOME"]}/.local/bin</string>
+    <string>/usr/local/bin:/usr/bin:/bin:${escapeXml(home)}/.local/bin</string>
   </dict>
 </dict>
 </plist>`;

@@ -21,7 +21,6 @@ import { hostname } from "os";
 import { join } from "path";
 import qrcode from "qrcode-terminal";
 import { createElement } from "react";
-import { parseArgs } from "util";
 import { KeyHandler } from "../components/ink/key-handler";
 import { Spinner } from "../components/ink/spinner";
 import { promptYesNo } from "../components/ink/yes-no-prompt";
@@ -34,6 +33,7 @@ import { copyToClipboard, isClipboardSupportLikely } from "../lib/osc52";
 import { acquirePairLock, releasePairLock } from "../lib/pair-lock";
 import { parseArgsFriendly } from "../lib/parse-args";
 import { getConfigDir } from "../lib/paths";
+import { stripAnsi } from "../lib/sanitize";
 
 const PAIRING_DIR = getConfigDir();
 
@@ -71,16 +71,23 @@ export async function pairCommand(argv: string[]): Promise<void> {
 }
 
 async function pairNew(argv: string[]): Promise<void> {
-  const { values } = parseArgs({
-    args: argv,
-    options: {
-      relay: { type: "string", default: DEFAULT_PAIRING_RELAY_URL },
-      "daemon-id": { type: "string" },
-      label: { type: "string" },
-      help: { type: "boolean", short: "h" },
+  // strict + no positionals (was strict:false): a misspelled flag like --rleay
+  // previously fell through silently to the default relay/label. Reject typos
+  // with a friendly usage message, consistent with the other pair subcommands.
+  const { values } = parseArgsFriendly(
+    {
+      args: argv,
+      options: {
+        relay: { type: "string", default: DEFAULT_PAIRING_RELAY_URL },
+        "daemon-id": { type: "string" },
+        label: { type: "string" },
+        help: { type: "boolean", short: "h" },
+      },
+      strict: true,
+      allowPositionals: false,
     },
-    strict: false,
-  });
+    "Usage: tp pair new [--relay <url>] [--label <name>] [--daemon-id <id>]",
+  );
 
   if (values.help) {
     printPairUsage();
@@ -162,8 +169,12 @@ async function pairNew(argv: string[]): Promise<void> {
               console.log(qr);
             });
             console.log(`\nDaemon ID:    ${m.daemonId}`);
-            console.log(`Label:        ${labelText}`);
-            console.log(`Relay:        ${relayUrl}`);
+            // labelText/relayUrl come from --label/--relay (argv) and are only
+            // .trim()'d before this echo; strip ANSI/control bytes so a crafted
+            // value cannot inject terminal escapes. The verbatim values were
+            // already forwarded to the daemon/QR above — this is display-only.
+            console.log(`Label:        ${stripAnsi(labelText)}`);
+            console.log(`Relay:        ${stripAnsi(relayUrl)}`);
             console.log(
               `\n${dim("Scan with the iPhone Camera app, or paste this URL in Teleprompter:")}`,
             );
@@ -431,8 +442,12 @@ async function pairList(argv: string[]): Promise<void> {
 
   const rows = pairings.map((p) => ({
     daemonId: p.daemonId,
-    label: labelToNullable(p.label) ?? "",
-    relayUrl: p.relayUrl,
+    // Stored label/relayUrl can carry escape sequences (e.g. a label set via a
+    // peer rename over the wire). Sanitize before display so the table cannot
+    // be corrupted by terminal escapes; the column widths also use the
+    // sanitized lengths so alignment stays correct.
+    label: stripAnsi(labelToNullable(p.label) ?? ""),
+    relayUrl: stripAnsi(p.relayUrl),
     created: formatAge(Date.now() - p.createdAt),
   }));
 

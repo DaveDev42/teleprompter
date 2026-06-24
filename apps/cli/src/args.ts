@@ -35,11 +35,18 @@ export function splitArgs(argv: string[]): SplitResult {
 
     if (TP_VALUE_FLAGS.has(arg)) {
       const value = argv[i + 1];
-      // A missing value, or a value that is itself a recognized --tp-* flag,
-      // is a usage error. Without the second guard, `tp --tp-sid --tp-cwd /p`
-      // would silently bind tpArgs.sid = "--tp-cwd", drop /p into claudeArgs
-      // as a stray positional, and never process --tp-cwd at all.
-      if (value === undefined || TP_VALUE_FLAGS.has(value)) {
+      // A missing value, or any flag-like value, is a usage error. Beyond the
+      // recognized --tp-* flags, also reject the bare `--` separator and any
+      // `-`-prefixed token: `tp --tp-sid -- -p hello` would otherwise silently
+      // bind sid = "--" and forward `-p hello` to claude, mis-parsing the
+      // user's intent to use `--` as the claude-args separator. A real sid/cwd
+      // never starts with `-`.
+      if (
+        value === undefined ||
+        TP_VALUE_FLAGS.has(value) ||
+        value === "--" ||
+        value.startsWith("-")
+      ) {
         console.error(`Error: ${arg} requires a value.\n`);
         console.error(`Usage: tp ${arg} <value> [claude args...]`);
         console.error(

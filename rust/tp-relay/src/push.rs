@@ -382,7 +382,13 @@ impl<C: Clock> PushService<C> {
             }
 
             // Step 3: rate-limit check (`push.ts:136-151`). M14 fix: reset
-            // expired window BEFORE the count check. NOT incremented yet.
+            // expired window BEFORE the count check. NOT incremented yet — the
+            // counter is committed only on a successful APNs send (Step 6), to
+            // preserve parity with the single-threaded TS reference and the
+            // dedup-storm invariant (N concurrent same-key pushes must resolve to
+            // Push/Deduped, never RateLimited). Closing the residual check-then-act
+            // race here is decision-gated (see audit finding #4) and intentionally
+            // left to a human design pass.
             if let Some(rl) = inner.rate_limits.get_mut(&rate_limit_key) {
                 if now.saturating_sub(rl.window_start) >= self.rate_limit_window_ms {
                     // Window expired — reset to a fresh window (`push.ts:143-147`).
@@ -444,13 +450,15 @@ impl<C: Clock> PushService<C> {
         }
 
         // ── Step 6: commit dedup + rate-limit ONLY on success (`push.ts:186-198`)
+        // Reuse the guard-phase `now` (a Copy u64 already in scope) instead of a
+        // second clock read (#13) — a second read after the APNs round-trip would
+        // set window_start/seen_at slightly in the future and stretch the window.
         {
             let mut inner = self.inner.lock().expect("PushService inner mutex poisoned");
-            let now2 = self.clock.now_ms();
 
             if let Some(data) = &req.data {
                 let dedup_key = format!("{}:{}:{}", req.frontend_id, data.sid, data.event);
-                inner.dedup_seen.insert(dedup_key, now2);
+                inner.dedup_seen.insert(dedup_key, now);
             }
 
             let rl = inner
@@ -458,7 +466,7 @@ impl<C: Clock> PushService<C> {
                 .entry(rate_limit_key)
                 .or_insert(RateLimitEntry {
                     count: 0,
-                    window_start: now2,
+                    window_start: now,
                 });
             rl.count += 1;
         }
@@ -641,7 +649,8 @@ mod tests {
         PushRequest {
             frontend_id: "fe-1".into(),
             daemon_id: "daemon-1".into(),
-            token: "deadbeef".into(),
+            // 64 lowercase hex chars (valid APNs device token — #8 fix requires this).
+            token: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef".into(),
             title: "Hello".into(),
             body: "World".into(),
             is_frontend_connected: false,
@@ -729,7 +738,8 @@ mod tests {
         let make_req = |event: &str| PushRequest {
             frontend_id: "fe-rl".into(),
             daemon_id: "daemon-rl".into(),
-            token: "tok".into(),
+            // 64 lowercase hex chars (valid APNs device token — #8 fix requires this).
+            token: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
             title: "T".into(),
             body: "B".into(),
             is_frontend_connected: false,
@@ -767,7 +777,8 @@ mod tests {
         let make_req = |event: &str| PushRequest {
             frontend_id: "fe-reset".into(),
             daemon_id: "daemon-reset".into(),
-            token: "tok".into(),
+            // 64 lowercase hex chars (valid APNs device token — #8 fix requires this).
+            token: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".into(),
             title: "T".into(),
             body: "B".into(),
             is_frontend_connected: false,
@@ -844,7 +855,8 @@ mod tests {
         let make_req = |event: &str| PushRequest {
             frontend_id: "fe-leak".into(),
             daemon_id: "daemon-leak".into(),
-            token: "tok".into(),
+            // 64 lowercase hex chars (valid APNs device token — #8 fix requires this).
+            token: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc".into(),
             title: "T".into(),
             body: "B".into(),
             is_frontend_connected: false,

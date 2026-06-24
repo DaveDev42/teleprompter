@@ -382,7 +382,7 @@ impl ApnsClient {
     ///
     /// Returns the last error after all retry attempts are exhausted.
     pub async fn send(&self, payload: &ApnsPayload) -> ApnsDeliveryResult {
-        let max_attempts = self.config.max_retries + 1; // first attempt + N retries
+        let max_attempts = self.config.max_retries.saturating_add(1); // first attempt + N retries
 
         let mut last_err: ApnsDeliveryResult = ApnsDeliveryResult::Err {
             dead_token: false,
@@ -468,6 +468,19 @@ impl ApnsClient {
 
         let body_str = serde_json::to_string(&body_obj)
             .unwrap_or_else(|e| format!(r#"{{"aps":{{"alert":"serialization error: {e}"}}}}"#));
+
+        // ── Validate device token (path injection guard) ──────────────────────
+        // APNs device tokens must be exactly 64 lowercase hex characters.
+        // Reject anything else to prevent URL path injection.
+        if !is_valid_device_token(&payload.device_token) {
+            return ApnsDeliveryResult::Err {
+                dead_token: false,
+                reason: format!(
+                    "invalid-device-token: expected 64 lowercase hex chars, got {:?}",
+                    payload.device_token
+                ),
+            };
+        }
 
         // ── Build request ─────────────────────────────────────────────────────
         // Mirrors apns.ts:109-126.
@@ -646,6 +659,13 @@ fn is_non_retryable_reason(reason: &str) -> bool {
     (400..500).contains(&status)
 }
 
+/// Validate an APNs device token: must be exactly 64 lowercase ASCII hex digits.
+/// Any other value (path components, slashes, wrong length) is rejected to
+/// prevent URL path injection into the APNs endpoint.
+fn is_valid_device_token(token: &str) -> bool {
+    token.len() == 64 && token.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'))
+}
+
 /// Current epoch-milliseconds from the system clock.
 #[must_use]
 #[allow(clippy::cast_possible_truncation)]
@@ -693,7 +713,13 @@ pub mod tests {
                 if queue.len() > 1 {
                     queue.remove(0)
                 } else {
-                    queue[0].clone()
+                    // Use first().cloned() to avoid an index-out-of-bounds panic
+                    // on an empty queue (#22 fix). The expect surfaces the
+                    // misconfigured test clearly rather than crashing silently.
+                    queue
+                        .first()
+                        .cloned()
+                        .expect("FakeTransport response queue is empty")
                 }
             };
             self.captured.lock().unwrap().push(req);
@@ -783,7 +809,9 @@ pub mod tests {
 
     fn make_payload() -> ApnsPayload {
         ApnsPayload {
-            device_token: "abc123def456".into(),
+            // 64 lowercase hex chars (valid APNs device token format — #8 fix
+            // requires exactly this format; the old 12-char token was invalid).
+            device_token: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2".into(),
             title: "Hello".into(),
             body: "World".into(),
             interruption_level: None,
@@ -939,7 +967,8 @@ pub mod tests {
             Box::new(NoopSleeper::new()),
         );
         let payload = ApnsPayload {
-            device_token: "tok".into(),
+            // 64 lowercase hex chars (valid APNs device token — #8 fix requires this).
+            device_token: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2".into(),
             title: "t".into(),
             body: "b".into(),
             interruption_level: Some("time-sensitive".into()),
@@ -1001,8 +1030,10 @@ pub mod tests {
             }),
             Box::new(NoopSleeper::new()),
         );
+        // 64 lowercase hex chars (valid APNs device token — #8 fix requires this).
+        let token = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
         let payload = ApnsPayload {
-            device_token: "deadbeef1234".into(),
+            device_token: token.into(),
             title: "Test Title".into(),
             body: "Test Body".into(),
             interruption_level: None,
@@ -1022,7 +1053,8 @@ pub mod tests {
 
         // URL shape.
         assert_eq!(
-            req.url, "https://api.sandbox.push.apple.com/3/device/deadbeef1234",
+            req.url,
+            format!("https://api.sandbox.push.apple.com/3/device/{token}"),
             "URL must be POST /3/device/<token>"
         );
 
@@ -1195,6 +1227,79 @@ pub mod tests {
             sleeper.call_count.load(Ordering::SeqCst),
             0,
             "sleeper must not be called for non-retryable 4xx"
+        );
+    }
+
+    // ── #8: device-token path injection guard ─────────────────────────────────
+
+    #[test]
+    fn is_valid_device_token_rejects_bad_tokens() {
+        use super::is_valid_device_token;
+        // Valid: exactly 64 lowercase hex chars.
+        assert!(is_valid_device_token(
+            "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+        ));
+        // Too short.
+        assert!(!is_valid_device_token("a1b2c3"));
+        // Too long.
+        assert!(!is_valid_device_token(
+            "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2xx"
+        ));
+        // Uppercase hex — rejected (APNs tokens are lowercase).
+        assert!(!is_valid_device_token(
+            "A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3D4E5F6A1B2"
+        ));
+        // Path traversal attempt.
+        assert!(!is_valid_device_token(
+            "../../etc/passwd/00000000000000000000000000000000000000000000000000"
+        ));
+        // Slash injection.
+        assert!(!is_valid_device_token(
+            "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1/x"
+        ));
+        // Empty string.
+        assert!(!is_valid_device_token(""));
+    }
+
+    #[tokio::test]
+    async fn send_rejects_invalid_device_token() {
+        let fake = Arc::new(FakeTransport::new(vec![TransportResponse {
+            status: 200,
+            retry_after: None,
+            body: vec![],
+        }]));
+        // Wrap in a newtype that implements TransportDyn by forwarding to the Arc.
+        struct SharedFake(Arc<FakeTransport>);
+        impl TransportDyn for SharedFake {
+            fn post_dyn(&self, req: TransportRequest) -> PostFuture {
+                self.0.post_dyn(req)
+            }
+        }
+        let captured = Arc::clone(&fake);
+        let sleeper = NoopSleeper::new();
+        let client = make_client(
+            Box::new(SharedFake(fake)),
+            Box::new(Arc::clone(&sleeper)),
+            0,
+        );
+
+        let bad_payload = ApnsPayload {
+            device_token: "../../bad".to_string(),
+            title: "T".to_string(),
+            body: "B".to_string(),
+            interruption_level: None,
+            data: None,
+        };
+        let result = client.send(&bad_payload).await;
+        assert!(
+            matches!(result, ApnsDeliveryResult::Err { dead_token: false, ref reason }
+                if reason.starts_with("invalid-device-token")),
+            "expected invalid-device-token error, got: {result:?}"
+        );
+        // No transport call should have been made.
+        assert!(
+            captured.captured.lock().unwrap().is_empty(),
+            "transport must not be called for invalid device token"
         );
     }
 }

@@ -186,6 +186,8 @@ fn stale_sweep(state: &SharedState) -> Vec<Action> {
     }
     for daemon_id in &result.evicted {
         core.recent.purge_daemon(daemon_id);
+        // Evict the per-daemon group-rate limiter so it doesn't leak (#17).
+        core.group_limiters.remove(daemon_id);
         // evictions++ per evicted daemon (relay-server.ts evictDaemon).
         state.metrics.inc_evictions();
     }
@@ -280,8 +282,13 @@ async fn connection_loop(socket: WebSocket, state: SharedState) {
 
     let mut closed_reason: Option<(u16, &'static str)> = None;
 
+    // Cache the authed flag: once a connection authenticates it stays authed
+    // for the rest of its lifetime, so we avoid re-locking the core mutex on
+    // every loop iteration. The flag is updated after handling an inbound frame
+    // (which may have been a relay.auth / relay.auth.resume message).
+    let mut authed = is_authed(&state, conn_id);
+
     loop {
-        let authed = is_authed(&state, conn_id);
         tokio::select! {
             // `biased`: process a ready inbound frame BEFORE the auth-deadline
             // arm. A client that sends `relay.auth` exactly at the 10 s boundary
@@ -308,6 +315,11 @@ async fn connection_loop(socket: WebSocket, state: SharedState) {
                         if let Some((code, reason)) = handle_inbound(&state, conn_id, &text).await {
                             closed_reason = Some((code, reason));
                             break;
+                        }
+                        // Re-check authed only while not yet authenticated
+                        // (auth transitions once: unauthenticated → authenticated).
+                        if !authed {
+                            authed = is_authed(&state, conn_id);
                         }
                     }
                     Message::Close(_) => break,
@@ -591,12 +603,12 @@ fn dispatch_locked(
         RelayClientMessage::AuthResume { token, .. } => {
             // resumesAttempted++ at entry (relay-server.ts:889).
             metrics.inc_resumes_attempted();
-            // Verify the token to recover role/daemon_id/frontend_id, then run
-            // the handshake handler (which re-verifies + mutates the registry).
-            let payload = signer.verify(token, now);
-            let reply = handshake::handle_auth_resume(token, now, &mut core.registry, signer);
-            match (payload, &reply) {
-                (Some(p), RelayServerMessage::AuthOk(_)) => {
+            // handle_auth_resume verifies once and returns (reply, Option<payload>)
+            // so we never call signer.verify twice for the same token (#15 fix).
+            let (reply, payload) =
+                handshake::handle_auth_resume(token, now, &mut core.registry, signer);
+            match payload {
+                Some(p) if matches!(reply, RelayServerMessage::AuthOk(_)) => {
                     // resumesAccepted++ on success (relay-server.ts:947).
                     metrics.inc_resumes_accepted();
                     let (role, daemon_id, fid) = resume_identity(&p);

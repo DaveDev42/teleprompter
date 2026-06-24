@@ -79,11 +79,13 @@ struct CoreAggregate {
 /// no auth yet (`h.auth.is_none()`), the Rust mirror of the TS `pendingAuth` Map
 /// (`relay-server.ts:268`, surfaced at `:428`/`:444`). Every conn is in exactly
 /// one bucket, so `clients + pendingAuth == conns.len()`.
-fn aggregate(state: &SharedState) -> CoreAggregate {
+fn aggregate(state: &SharedState, include_attached: bool) -> CoreAggregate {
     // LOCK: synchronous read — no `.await` inside.
     let core = state.core.lock().expect("relay core mutex poisoned");
     let clients = core.conns.values().filter(|h| h.auth.is_some()).count();
-    let pending_auth = core.conns.values().filter(|h| h.auth.is_none()).count();
+    // Invariant: clients + pending_auth == conns.len() (every conn is in exactly
+    // one bucket). Use subtraction instead of a second filter pass (#19 fix).
+    let pending_auth = core.conns.len() - clients;
     let mut daemons_online = 0;
     let mut sessions_total = 0;
     let mut attached_total = 0;
@@ -92,7 +94,11 @@ fn aggregate(state: &SharedState) -> CoreAggregate {
             daemons_online += 1;
         }
         sessions_total += s.sessions.len();
-        attached_total += s.attached.len();
+        // Only accumulate attached_total when the caller needs it (/health).
+        // The /metrics path does not emit attached_total (#20 fix).
+        if include_attached {
+            attached_total += s.attached.len();
+        }
     }
     CoreAggregate {
         clients,
@@ -117,7 +123,7 @@ fn uptime_secs(state: &SharedState) -> u64 {
 /// object literal: `status, buildSha, buildTime, protocolVersion, clients,
 /// pendingAuth, daemons, sessions, attached, uptime, metrics`.
 pub async fn health(State(state): State<SharedState>) -> Response {
-    let agg = aggregate(&state);
+    let agg = aggregate(&state, true); // include_attached=true: /health emits attached
     let m = state.metrics.snapshot();
     let uptime = uptime_secs(&state);
     let body = render_health_json(&agg, &m, uptime);
@@ -187,7 +193,7 @@ fn render_health_json(agg: &CoreAggregate, m: &MetricsSnapshot, uptime: u64) -> 
 /// `GET /metrics` — Prometheus text v0.0.4, the exact 17 TS lines + trailing
 /// newline. Mirrors `relay-server.ts:438-466`.
 pub async fn metrics(State(state): State<SharedState>) -> Response {
-    let agg = aggregate(&state);
+    let agg = aggregate(&state, false); // include_attached=false: /metrics does not emit attached
     let m = state.metrics.snapshot();
     let uptime = uptime_secs(&state);
     let body = render_metrics_text(&agg, &m, uptime);
@@ -255,13 +261,25 @@ pub async fn admin(State(state): State<SharedState>, headers: HeaderMap) -> Resp
         return StatusCode::UNAUTHORIZED.into_response();
     }
 
-    let rows = collect_admin_rows(&state);
-    let clients = {
-        // LOCK: synchronous read — no `.await` inside. AUTHENTICATED conns only
-        // (`h.auth.is_some()`), byte-parity with the TS `/admin` "Clients" count
-        // which reads `self.clients.size` (authenticated Map, `relay-server.ts:488`).
+    // Take the core lock ONCE to get both the daemon rows and the clients count
+    // (consistent snapshot — #18 fix eliminates the double-lock inconsistency
+    // where `collect_admin_rows` and the `clients` read came from different
+    // instants and could disagree under concurrent writes).
+    let (rows, clients) = {
         let core = state.core.lock().expect("relay core mutex poisoned");
-        core.conns.values().filter(|h| h.auth.is_some()).count()
+        let clients = core.conns.values().filter(|h| h.auth.is_some()).count();
+        let rows = core
+            .registry
+            .daemon_states
+            .iter()
+            .map(|(id, s)| AdminDaemonRow {
+                id: id.clone(),
+                online: s.online,
+                sessions: s.sessions.iter().cloned().collect(),
+                last_seen_iso: iso8601_millis(s.last_seen),
+            })
+            .collect::<Vec<_>>();
+        (rows, clients)
         // guard dropped here
     };
     let html = render_admin_html(clients, uptime_secs(&state), &rows);
@@ -313,24 +331,6 @@ fn keyed_digest(key: &[u8; 32], data: &[u8]) -> [u8; 32] {
         Blake2bMac::<U32>::new_from_slice(key).expect("32-byte key is always valid for Blake2bMac");
     mac.update(data);
     mac.finalize_fixed().into()
-}
-
-/// Snapshot the daemon states into render-ready rows (escaping deferred to
-/// render so the snapshot holds the lock for the minimum time).
-fn collect_admin_rows(state: &SharedState) -> Vec<AdminDaemonRow> {
-    // LOCK: synchronous read — no `.await` inside.
-    let core = state.core.lock().expect("relay core mutex poisoned");
-    core.registry
-        .daemon_states
-        .iter()
-        .map(|(id, s)| AdminDaemonRow {
-            id: id.clone(),
-            online: s.online,
-            sessions: s.sessions.iter().cloned().collect(),
-            last_seen_iso: iso8601_millis(s.last_seen),
-        })
-        .collect()
-    // guard dropped here
 }
 
 /// Render the `/admin` HTML, mirroring the TS markup (`relay-server.ts:477-508`).
@@ -726,7 +726,7 @@ mod tests {
                 std::mem::forget(crx);
             }
         }
-        let agg = aggregate(&state);
+        let agg = aggregate(&state, true);
         assert_eq!(agg.clients, 2, "clients = authenticated conns only");
         assert_eq!(agg.pending_auth, 3, "pendingAuth = unauthenticated conns");
         // Partition invariant: clients + pendingAuth == total conns.

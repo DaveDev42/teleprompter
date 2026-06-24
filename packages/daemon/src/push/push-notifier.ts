@@ -192,13 +192,15 @@ export class PushNotifier {
 
   /**
    * Called when the relay replies with PUSH_TOKEN_DEAD — APNs returned 400
-   * (BadDeviceToken) or 410 (Unregistered). Drops the stale entry from the
-   * Map and from the store so future notification events don't keep sending to
-   * a permanently-dead APNs token. The app will re-register on next connect.
+   * (BadDeviceToken) or 410 (Unregistered). Drops the single stale entry for
+   * `frontendId` from the Map and from the store so future notification events
+   * don't keep sending to a permanently-dead APNs token. The app re-registers
+   * on next connect.
    *
-   * The relay.err wire type does not carry a frontendId, so we drop ALL tokens
-   * for this daemon and let them re-register. This is the same behaviour as
-   * handleUnsealFailed — a known v1 limitation noted in the relay-client.
+   * NOTE: this evicts exactly one frontend's token. The `relay.err`
+   * PUSH_TOKEN_DEAD signal carries no frontendId (a known v1 limitation), so
+   * relay-manager cannot route a dead-token event to this method today — the
+   * self-heal is the app re-registering on its next relay reconnect.
    */
   handleTokenDead(frontendId: string): void {
     if (!this.tokens.has(frontendId)) {
@@ -305,6 +307,11 @@ export function buildPushMessage(
 }
 
 function truncate(s: string, max: number): string {
-  if (s.length <= max) return s;
-  return `${s.slice(0, Math.max(0, max - 1))}…`;
+  // Iterate by code point, not UTF-16 code unit: `s.length`/`s.slice` can cut
+  // a supplementary character (emoji, flag) in half, leaving a lone surrogate
+  // that serializes to a non-RFC-8259 JSON push body. Spreading a string
+  // yields whole code points.
+  const cps = [...s];
+  if (cps.length <= max) return s;
+  return `${cps.slice(0, Math.max(0, max - 1)).join("")}…`;
 }

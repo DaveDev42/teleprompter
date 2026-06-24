@@ -8,7 +8,7 @@
 import { createLogger } from "@teleprompter/protocol";
 import { spawnSync } from "child_process";
 import { accessSync, constants, realpathSync } from "fs";
-import { dirname } from "path";
+import { basename, dirname, resolve, sep } from "path";
 
 const log = createLogger("WorktreeManager");
 
@@ -26,6 +26,14 @@ function gitOutput(args: string[], cwd?: string): string {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
   });
+  // `result.error` is set when the process could not be spawned at all
+  // (git absent → ENOENT, timeout → ETIMEDOUT). In that case `status` is
+  // `null`, so the `status !== 0` branch fires with a useless "exited null".
+  // Surface the spawn error so operators see "git not found" rather than a
+  // confusing exit message.
+  if (result.error) {
+    throw new Error(`git ${args[0]} could not run: ${result.error.message}`);
+  }
   if (result.status !== 0) {
     const stderr = result.stderr?.trim();
     throw new Error(
@@ -41,6 +49,9 @@ function gitRun(args: string[], cwd?: string): void {
     cwd,
     stdio: ["ignore", "ignore", "pipe"],
   });
+  if (result.error) {
+    throw new Error(`git ${args[0]} could not run: ${result.error.message}`);
+  }
   if (result.status !== 0) {
     throw new Error(
       `git ${args[0]} failed: ${result.stderr?.toString().trim()}`,
@@ -53,12 +64,17 @@ function gitRun(args: string[], cwd?: string): void {
  * Throws with a descriptive message if the name is invalid.
  */
 function validateBranchName(branch: string): void {
-  try {
-    const r = spawnSync("git", ["check-ref-format", "--branch", branch], {
-      stdio: "ignore",
-    });
-    if (r.status !== 0) throw new Error("invalid");
-  } catch {
+  const r = spawnSync("git", ["check-ref-format", "--branch", branch], {
+    stdio: "ignore",
+  });
+  // If git itself could not run, the branch name is not the problem — surface
+  // the spawn error rather than falsely reporting a valid name as invalid.
+  if (r.error) {
+    throw new Error(
+      `cannot validate branch name (git could not run): ${r.error.message}`,
+    );
+  }
+  if (r.status !== 0) {
     throw new Error(
       `Invalid branch name: '${branch}'. ` +
         "Branch names cannot contain spaces, '..', '~', '^', ':', " +
@@ -108,7 +124,15 @@ export class WorktreeManager {
     let result: string;
     try {
       result = gitOutput(["worktree", "list", "--porcelain"], this.repoRoot);
-    } catch {
+    } catch (err) {
+      // Best-effort: an empty list is a reasonable degraded response, but
+      // swallowing silently blinds operators to git-absent / repoRoot-deleted
+      // / corrupt-.git / permission-denied — log so the cause is diagnosable.
+      log.warn(
+        `worktree list failed, returning empty list: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
       return [];
     }
 
@@ -180,6 +204,49 @@ export class WorktreeManager {
   }
 
   /**
+   * Reject worktree paths that escape the repo's containing directory.
+   *
+   * A paired (E2EE-authenticated) frontend supplies this path, so without a
+   * containment check it can drive `git worktree add /etc/evil` and write a
+   * worktree anywhere the daemon user can — a trust-boundary write-escape.
+   *
+   * The boundary is the repo root's PARENT directory, not the repo root
+   * itself: by convention git worktrees are SIBLINGS of the repo
+   * (`<repo>-wt-<name>`), never nested inside it (git discourages nested
+   * working trees). So we allow anything under `dirname(repoRoot)` and reject
+   * true escapes (`/etc`, `$HOME/.ssh`, an unrelated `/tmp` path).
+   *
+   * The parent of the supplied path is resolved through `realpathSync`
+   * (collapsing `..` AND following symlinks) before the prefix test, so
+   * neither `../../escape` nor a symlinked parent can slip past. That parent
+   * is guaranteed to exist by the prior `validatePathPermissions` call.
+   */
+  private validatePathContainment(path: string): void {
+    const base = dirname(this.repoRoot);
+    const absolute = resolve(this.repoRoot, path);
+    let resolved: string;
+    try {
+      // Use realpathSync on the parent to collapse `..` and follow symlinks so
+      // neither `../../escape` nor a symlinked parent can slip past the check.
+      // The parent must exist for realpath to succeed; if it doesn't, fall back
+      // to lexical resolution (symlink attacks are moot when the dir is absent).
+      const realParent = realpathSync(dirname(absolute));
+      resolved = resolve(realParent, basename(absolute));
+    } catch {
+      // Parent directory does not exist yet — lexical resolution is sufficient
+      // (no symlinks to follow) and still catches clear escapes like /etc/evil.
+      resolved = absolute;
+    }
+    if (resolved !== base && !resolved.startsWith(base + sep)) {
+      throw new Error(
+        `Refusing to create worktree at '${path}': ` +
+          `resolved path '${resolved}' is outside the worktree base ` +
+          `directory '${base}'.`,
+      );
+    }
+  }
+
+  /**
    * Add a new worktree.
    *
    * @param path - Directory path for the new worktree
@@ -193,6 +260,7 @@ export class WorktreeManager {
   ): Promise<WorktreeInfo> {
     validateBranchName(branch);
     if (baseBranch) validateBranchName(baseBranch);
+    this.validatePathContainment(path);
     validatePathPermissions(path);
 
     // Check if branch exists

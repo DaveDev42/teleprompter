@@ -63,7 +63,17 @@ export class IpcServer {
         data(socket, data) {
           const runner = (socket as unknown as { _runner: ConnectedRunner })
             ._runner;
-          const frames = runner.decoder.decode(new Uint8Array(data));
+          let frames: ReturnType<FrameDecoder["decode"]>;
+          try {
+            frames = runner.decoder.decode(new Uint8Array(data));
+          } catch (err) {
+            log.error(
+              "frame decode error — closing socket:",
+              err instanceof Error ? err.message : String(err),
+            );
+            (socket as unknown as { end(): void }).end();
+            return;
+          }
           for (const frame of frames) {
             const msg = parseIpcMessage(frame.data);
             if (!msg) {
@@ -88,8 +98,20 @@ export class IpcServer {
           self.runners.delete(runner);
           self.events.onDisconnect(runner);
         },
-        error(_socket, err) {
+        error(socket, err) {
           log.error("socket error:", err.message);
+          // Bun unix sockets can fire `error` WITHOUT a following `close`
+          // (the same pattern the client side already guards against). If we
+          // only logged here, the ConnectedRunner would leak in `runners`:
+          // findRunnerBySid would return a stale runner and onDisconnect
+          // (which cancels pending pairings owned by this runner) would never
+          // fire. Mirror close()'s cleanup. Set.delete()'s boolean return
+          // makes onDisconnect fire at most once even if `close` also runs.
+          const runner = (socket as unknown as { _runner?: ConnectedRunner })
+            ._runner;
+          if (runner && self.runners.delete(runner)) {
+            self.events.onDisconnect(runner);
+          }
         },
       },
     });

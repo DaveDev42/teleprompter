@@ -167,6 +167,50 @@ describe("Store (shared fixture)", () => {
     expect(row.label).toEqual({ set: true, value: "My MacBook" });
   });
 
+  test("pairings: re-saving (reconnect) preserves created_at, updates mutable fields", () => {
+    // REGRESSION: savePairing previously used INSERT OR REPLACE with an
+    // unconditional Date.now() created_at. reconnectSaved → addClient →
+    // savePairing runs for every pairing on every daemon startup, so each
+    // restart silently overwrote the original creation time and shifted the
+    // loadPairings() ORDER BY created_at ASC reconnect priority. The upsert
+    // must refresh mutable fields while keeping created_at intact.
+    vault.savePairing({
+      daemonId: "daemon-upsert",
+      relayUrl: "wss://first",
+      relayToken: "t1",
+      registrationProof: "p1",
+      publicKey: Buffer.from([1]),
+      secretKey: Buffer.from([2]),
+      pairingSecret: Buffer.from([3]),
+      label: { set: true, value: "first" },
+    });
+    const before = vault
+      .listPairings()
+      .find((r) => r.daemonId === "daemon-upsert");
+    if (!before) throw new Error("expected row");
+    const originalCreatedAt = before.createdAt;
+
+    // Re-save (as a reconnect would) with changed mutable fields.
+    vault.savePairing({
+      daemonId: "daemon-upsert",
+      relayUrl: "wss://second",
+      relayToken: "t2",
+      registrationProof: "p2",
+      publicKey: Buffer.from([4]),
+      secretKey: Buffer.from([5]),
+      pairingSecret: Buffer.from([6]),
+      label: { set: true, value: "second" },
+    });
+    const after = vault
+      .listPairings()
+      .find((r) => r.daemonId === "daemon-upsert");
+    if (!after) throw new Error("expected row");
+
+    expect(after.createdAt).toBe(originalCreatedAt); // preserved
+    expect(after.relayUrl).toBe("wss://second"); // mutable field refreshed
+    expect(after.label).toEqual({ set: true, value: "second" });
+  });
+
   test("pairings: updatePairingLabel changes label", () => {
     vault.savePairing({
       daemonId: "daemon-label-2",

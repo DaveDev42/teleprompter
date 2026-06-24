@@ -378,6 +378,29 @@ describe("buildPushMessage", () => {
     expect(m.body.length).toBeLessThanOrEqual(178);
   });
 
+  it("truncates on code-point boundaries — no lone surrogate (RFC-8259)", () => {
+    // REGRESSION: truncate previously used s.length / s.slice (UTF-16 code
+    // units), so an emoji straddling the 178-cap could be split, leaving a lone
+    // surrogate → invalid JSON push body. Build a string whose 178th boundary
+    // lands inside a surrogate pair (each 😀 is 2 UTF-16 units but 1 code point).
+    const long = "😀".repeat(200);
+    const m = buildPushMessage("Notification", { message: long });
+    expect(m.body.endsWith("…")).toBe(true);
+    // No unpaired surrogate anywhere in the body.
+    for (let i = 0; i < m.body.length; i++) {
+      const code = m.body.charCodeAt(i);
+      if (code >= 0xd800 && code <= 0xdbff) {
+        // high surrogate must be followed by a low surrogate
+        const next = m.body.charCodeAt(i + 1);
+        expect(next >= 0xdc00 && next <= 0xdfff).toBe(true);
+        i++; // skip the paired low surrogate
+      } else {
+        // must not be a lone low surrogate
+        expect(code >= 0xdc00 && code <= 0xdfff).toBe(false);
+      }
+    }
+  });
+
   it("Elicitation prefers `message` field, falls back to `question`", () => {
     expect(buildPushMessage("Elicitation", { message: "What now?" }).body).toBe(
       "What now?",

@@ -19,7 +19,11 @@ import {
   toBase64,
 } from "@teleprompter/protocol";
 import { RelayServer } from "../../../relay/src/relay-server";
-import { computeReconnectPlan, RelayClient } from "./relay-client";
+import {
+  computeReconnectPlan,
+  nextPeerlessReconnects,
+  RelayClient,
+} from "./relay-client";
 
 // Bound the WebSocket open handshake so a frontend socket that never opens
 // (e.g. a relay frame delayed or dropped under a constrained CI runner) fails
@@ -1164,5 +1168,43 @@ describe("computeReconnectPlan (dead-pairing throttle)", () => {
     const deadPairings = 10;
     const reconnectsPerHourEach = 60 / (PEERLESS_RECONNECT_MS / 60_000);
     expect(deadPairings * reconnectsPerHourEach).toBeLessThanOrEqual(20);
+  });
+});
+
+describe("nextPeerlessReconnects (per-connection throttle signal)", () => {
+  // Mirrored from relay-client.ts (matches the value asserted above).
+  const PEERLESS_RECONNECT_MS = 30 * 60_000;
+
+  test("a connection that saw a peer resets the counter to 0", () => {
+    expect(nextPeerlessReconnects(0, true)).toBe(0);
+    expect(nextPeerlessReconnects(5, true)).toBe(0);
+  });
+
+  test("a connection with no peer increments the counter", () => {
+    expect(nextPeerlessReconnects(0, false)).toBe(1);
+    expect(nextPeerlessReconnects(2, false)).toBe(3);
+  });
+
+  /**
+   * REGRESSION: the throttle must re-arm for a pairing whose frontend has gone
+   * away even though stale `peers` entries remain (the Map is preserved across
+   * reconnects for the resume fast-path). The OLD code gated on `peers.size`,
+   * so once any frontend ever joined the counter stayed pinned at 0 forever and
+   * the dead-pairing throttle never fired again — the exact failure behind the
+   * 9-pairing → 3113 re-auth storm. `hadPeer` is per-connection, so a later
+   * peerless connection still ticks the counter despite a non-empty Map.
+   */
+  test("re-arms after a live connection drops and the next sees no peer", () => {
+    // Connection 1: peer joined → counter reset.
+    let counter = nextPeerlessReconnects(0, true);
+    expect(counter).toBe(0);
+    // Connections 2,3,4: frontend gone, no peer joins (peers Map still
+    // non-empty, but that no longer matters) → counter climbs to threshold.
+    counter = nextPeerlessReconnects(counter, false); // 1
+    counter = nextPeerlessReconnects(counter, false); // 2
+    counter = nextPeerlessReconnects(counter, false); // 3
+    expect(counter).toBe(3);
+    // At threshold the pairing is now correctly throttled.
+    expect(computeReconnectPlan(3, counter).delay).toBe(PEERLESS_RECONNECT_MS);
   });
 });

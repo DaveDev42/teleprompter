@@ -317,11 +317,25 @@ export class Store {
     pairingSecret: Uint8Array;
     label?: Label;
   }): void {
+    // `reconnectSaved → addClient → savePairing` runs for every stored pairing
+    // on every daemon startup. A plain INSERT OR REPLACE would delete+reinsert
+    // the row, stamping a fresh `created_at` each restart — which shifts the
+    // `loadPairings() ORDER BY created_at ASC` reconnect priority and loses the
+    // original pairing time. Use an upsert that, on conflict, refreshes only the
+    // mutable fields and leaves `created_at` intact (mirrors the sessions fix).
     this.metaDb
       .prepare(
-        `INSERT OR REPLACE INTO pairings
+        `INSERT INTO pairings
          (daemon_id, relay_url, relay_token, registration_proof, public_key, secret_key, pairing_secret, created_at, label)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(daemon_id) DO UPDATE SET
+           relay_url = excluded.relay_url,
+           relay_token = excluded.relay_token,
+           registration_proof = excluded.registration_proof,
+           public_key = excluded.public_key,
+           secret_key = excluded.secret_key,
+           pairing_secret = excluded.pairing_secret,
+           label = excluded.label`,
       )
       .run(
         data.daemonId,
@@ -372,8 +386,14 @@ export class Store {
   }
 
   deletePairing(daemonId: string): void {
-    this.deletePushTokensForDaemon(daemonId);
-    this.metaDb.run("DELETE FROM pairings WHERE daemon_id = ?", [daemonId]);
+    // Both deletes must commit atomically. As two autocommit statements, a
+    // crash/SIGKILL/power-loss in the window between them would delete the
+    // push tokens but leave the pairing — on next start the pairing reconnects
+    // but push delivery is permanently broken for it. Wrap in a transaction.
+    this.metaDb.transaction(() => {
+      this.deletePushTokensForDaemon(daemonId);
+      this.metaDb.run("DELETE FROM pairings WHERE daemon_id = ?", [daemonId]);
+    })();
   }
 
   // ── Push Token Persistence (Path X) ──

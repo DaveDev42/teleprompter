@@ -224,15 +224,19 @@ export class WorktreeManager {
   private validatePathContainment(path: string): void {
     const base = dirname(this.repoRoot);
     const absolute = resolve(this.repoRoot, path);
-    let realParent: string;
+    let resolved: string;
     try {
-      realParent = realpathSync(dirname(absolute));
+      // Use realpathSync on the parent to collapse `..` and follow symlinks so
+      // neither `../../escape` nor a symlinked parent can slip past the check.
+      // The parent must exist for realpath to succeed; if it doesn't, fall back
+      // to lexical resolution (symlink attacks are moot when the dir is absent).
+      const realParent = realpathSync(dirname(absolute));
+      resolved = resolve(realParent, basename(absolute));
     } catch {
-      // Parent unresolved — validatePathPermissions already rejected this,
-      // but guard defensively so a race can't bypass containment.
-      throw new Error(`Cannot create worktree at '${path}': invalid path.`);
+      // Parent directory does not exist yet — lexical resolution is sufficient
+      // (no symlinks to follow) and still catches clear escapes like /etc/evil.
+      resolved = absolute;
     }
-    const resolved = resolve(realParent, basename(absolute));
     if (resolved !== base && !resolved.startsWith(base + sep)) {
       throw new Error(
         `Refusing to create worktree at '${path}': ` +
@@ -256,8 +260,8 @@ export class WorktreeManager {
   ): Promise<WorktreeInfo> {
     validateBranchName(branch);
     if (baseBranch) validateBranchName(baseBranch);
-    validatePathPermissions(path);
     this.validatePathContainment(path);
+    validatePathPermissions(path);
 
     // Check if branch exists
     let branchExists = false;

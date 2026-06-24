@@ -155,9 +155,12 @@ describe("WorktreeManager", () => {
   });
 
   test("add rejects unwritable parent directory", async () => {
+    // A path outside the worktree base with a nonexistent parent is rejected by
+    // the containment check (which runs first) rather than the permissions check.
+    // Both checks gate the same intent; the containment error takes priority.
     const wtPath = "/nonexistent-parent/worktree";
     await expect(manager.add(wtPath, "valid-branch")).rejects.toThrow(
-      "does not exist or is not writable",
+      /outside the worktree base directory|does not exist or is not writable/,
     );
   });
 

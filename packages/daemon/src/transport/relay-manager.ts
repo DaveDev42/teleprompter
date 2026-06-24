@@ -162,25 +162,22 @@ export class RelayConnectionManager {
       },
       onPushUnsealFailed: () => {
         // The relay could not decrypt the sealed token (key rotated, tampered).
-        // relay.err does not carry frontendId, so we broadcast handleUnsealFailed
-        // to all tokens for this pairing. The app re-registers on next reconnect.
-        // For now this calls into PushNotifier per-frontend entries — in practice
-        // the operator correlates the warn log with the seal-key rotation.
+        // `relay.err` carries NO frontendId, and PushNotifier.handleUnsealFailed
+        // evicts a single frontend's entry — so we cannot surgically evict here.
+        // No eviction is performed at this point; the self-heal is the app
+        // re-registering via relay.push.register on its next relay reconnect,
+        // which re-seals under the current key. Logged at warn so operators can
+        // correlate the event with a seal-key rotation.
         log.warn(
-          `PUSH_UNSEAL_FAILED from relay (daemonId=${daemonId}) — evicting push tokens; app re-registers on next reconnect`,
+          `PUSH_UNSEAL_FAILED from relay (daemonId=${daemonId}) — sealed push token rejected; no eviction here, app re-registers on next reconnect`,
         );
-        // We don't have a frontendId from relay.err, so call handleUnsealFailed
-        // with a sentinel that logs the event. The actual eviction path in
-        // PushNotifier.handleUnsealFailed operates on the in-memory Map; since
-        // we have no frontendId here, we skip it and rely on the app's
-        // re-registration self-heal.
       },
       onPushTokenDead: () => {
         // APNs returned 400/410 — the device token is permanently dead.
-        // relay.err does not carry frontendId. Log the event and let the app
-        // re-register via relay.push.register on next relay reconnect.
+        // `relay.err` carries no frontendId, so (as above) no eviction is done
+        // here; the app re-registers via relay.push.register on next reconnect.
         log.warn(
-          `PUSH_TOKEN_DEAD from relay (daemonId=${daemonId}) — APNs dead token; app re-registers on next reconnect`,
+          `PUSH_TOKEN_DEAD from relay (daemonId=${daemonId}) — APNs dead token; no eviction here, app re-registers on next reconnect`,
         );
       },
     };
@@ -244,34 +241,49 @@ export class RelayConnectionManager {
 
     await client.connect();
 
-    // Subscribe to meta, control, and all existing sessions (running OR
-    // stopped). A stopped session still needs a subscription so that the
-    // frontend's `relay.pub <sid>` resume request reaches us — relay forwards
-    // a frame only to peers subscribed to that sid. New frames for stopped
-    // sessions never arrive (Runner is gone) so this is purely a registry
-    // entry on the relay.
-    client.subscribe(RELAY_CHANNEL_META);
-    client.subscribe(RELAY_CHANNEL_CONTROL);
-    for (const meta of this.deps.store.listSessions()) {
-      client.subscribe(meta.sid);
-    }
+    // `connect()` has attached a live WebSocket with an onclose→scheduleReconnect
+    // loop that only stops on dispose(). The subscribe/store block below runs
+    // synchronous SQLite calls (listSessions/listPairings/savePairing) that can
+    // throw (DB locked/corrupt, disk full). If one throws before we push the
+    // client into the pool, the client would be orphaned — invisible to stop()
+    // and removePairing(), reconnecting forever, an untracked authenticated relay
+    // slot that violates the "daemon is relay's only client" invariant. Dispose
+    // on any failure, then re-throw so the caller (reconnectSaved/pairing flow)
+    // sees the error.
+    try {
+      // Subscribe to meta, control, and all existing sessions (running OR
+      // stopped). A stopped session still needs a subscription so that the
+      // frontend's `relay.pub <sid>` resume request reaches us — relay forwards
+      // a frame only to peers subscribed to that sid. New frames for stopped
+      // sessions never arrive (Runner is gone) so this is purely a registry
+      // entry on the relay.
+      client.subscribe(RELAY_CHANNEL_META);
+      client.subscribe(RELAY_CHANNEL_CONTROL);
+      for (const meta of this.deps.store.listSessions()) {
+        client.subscribe(meta.sid);
+      }
 
-    // Persist pairing data for auto-reconnect on daemon restart.
-    // Preserve any existing label if the caller didn't supply one, so
-    // reconnecting saved relays doesn't overwrite a user-set label.
-    const existingLabel =
-      this.deps.store.listPairings().find((p) => p.daemonId === config.daemonId)
-        ?.label ?? LABEL_UNSET;
-    this.deps.store.savePairing({
-      daemonId: config.daemonId,
-      relayUrl: config.relayUrl,
-      relayToken: config.token,
-      registrationProof: config.registrationProof,
-      publicKey: config.keyPair.publicKey,
-      secretKey: config.keyPair.secretKey,
-      pairingSecret: config.pairingSecret,
-      label: config.label ?? existingLabel,
-    });
+      // Persist pairing data for auto-reconnect on daemon restart.
+      // Preserve any existing label if the caller didn't supply one, so
+      // reconnecting saved relays doesn't overwrite a user-set label.
+      const existingLabel =
+        this.deps.store
+          .listPairings()
+          .find((p) => p.daemonId === config.daemonId)?.label ?? LABEL_UNSET;
+      this.deps.store.savePairing({
+        daemonId: config.daemonId,
+        relayUrl: config.relayUrl,
+        relayToken: config.token,
+        registrationProof: config.registrationProof,
+        publicKey: config.keyPair.publicKey,
+        secretKey: config.keyPair.secretKey,
+        pairingSecret: config.pairingSecret,
+        label: config.label ?? existingLabel,
+      });
+    } catch (err) {
+      client.dispose();
+      throw err;
+    }
 
     this.clients.push(client);
     return client;

@@ -161,6 +161,41 @@ describe("WorktreeManager", () => {
     );
   });
 
+  /**
+   * SECURITY REGRESSION: worktree path containment (trust-boundary write-escape)
+   *
+   * A paired (E2EE-authenticated) frontend supplies the worktree path. Without
+   * a containment check it could write a worktree anywhere the daemon user can
+   * (e.g. an absolute path into a writable system dir). The fix bounds the
+   * resolved path to the repo root's PARENT directory — the conventional
+   * sibling-worktree location (`<repo>-wt-<name>`) — and rejects true escapes.
+   */
+  test("add rejects a worktree path that escapes the repo's parent dir", async () => {
+    // `../escape-<id>` from the repo's PARENT resolves to a grandparent sibling,
+    // i.e. above the worktree base directory (dirname(repoRoot)). This is a true
+    // escape regardless of where the repo lives, so it must be rejected. (Note:
+    // a path that merely shares the temp-root parent would NOT escape — the test
+    // env's shared /tmp is the repo's parent, which is exactly the allowed base.)
+    const escapePath = join(
+      dirname(repoDir),
+      "..",
+      `tp-wt-escape-${Date.now().toString(36)}`,
+    );
+    await expect(manager.add(escapePath, "escape-branch")).rejects.toThrow(
+      "outside the worktree base directory",
+    );
+    // No worktree dir was created at the escape path.
+    expect(existsSync(escapePath)).toBe(false);
+  });
+
+  test("add allows a sibling worktree under the repo's parent dir", async () => {
+    // The conventional layout — a sibling of the repo — must still succeed.
+    const siblingPath = `${repoDir}-wt-sibling`;
+    const wt = await manager.add(siblingPath, "sibling-branch");
+    expect(wt.path).toBe(siblingPath);
+    expect(existsSync(siblingPath)).toBe(true);
+  });
+
   test("list shows multiple worktrees with correct branches", async () => {
     const wt1Path = `${repoDir}-wt-a`;
     const wt2Path = `${repoDir}-wt-b`;

@@ -103,6 +103,16 @@ export class PendingPairing {
     );
     this.qrString = encodePairingData(bundle.qrData);
 
+    // cancel() (reachable via CLI disconnect) may have fired during the awaits
+    // above, while `this.relay` was still null — so its dispose() was a no-op.
+    // Without this guard we would create+connect a relay that nobody owns: the
+    // orchestrator has already cleared `pending`, so awaitCompletion returns
+    // cancelled and the authenticated WS leaks until daemon restart. Bail before
+    // creating the relay so the orchestrator's catch runs cancel() (idempotent).
+    if (this.settled) {
+      throw new Error("pairing cancelled before relay creation");
+    }
+
     this.relay = this.opts.createRelayClient({
       relayUrl: this.opts.relayUrl,
       daemonId: this.opts.daemonId,
@@ -171,6 +181,15 @@ export class PendingPairing {
     this.settled = true;
     this.relay?.dispose();
     this.relay = null;
+    // Defense-in-depth: a cancelled pairing's secret material is never handed
+    // off (the resolved result is `{ kind: "cancelled" }`), so zero it out
+    // rather than leaving live references on the heap. NOTE: only safe on the
+    // cancel path — __markCompleted shares these references with the resolved
+    // `completed` result, so it must NOT zeroize.
+    this.pairingSecret?.fill(0);
+    this.pairingSecret = null;
+    this.keyPair?.secretKey.fill(0);
+    this.keyPair = null;
     log.info(`pairing ${this.pairingId} cancelled`);
     this.resolved = { kind: "cancelled" };
     this.settle?.(this.resolved);

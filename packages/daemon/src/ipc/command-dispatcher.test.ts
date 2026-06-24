@@ -1267,6 +1267,45 @@ describe("IpcCommandDispatcher.dispatchRelayControl", () => {
     expect(reply.m).toBe(NO_REPO_MESSAGE);
   });
 
+  test("worktree.create flattens '/' in the derived session id and path", async () => {
+    // REGRESSION: a branch name can legally contain '/' (e.g. `feat/x`). The
+    // derived sid was `${branch}-${ts}` → `feat/x-<ts>`, which createSession
+    // joins into `storeDir/sessions/feat/x-<ts>.sqlite` — a non-existent
+    // subdir, so `new Database()` throws and the session silently breaks. The
+    // '/' must be flattened to '-' in both the worktree path and the sid.
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const addCalls: Array<{ path: string; branch: string }> = [];
+    const fakeWm = {
+      add: async (path: string, branch: string) => {
+        addCalls.push({ path, branch });
+        return { path, branch, head: "abc123", isMain: false };
+      },
+    } as unknown as WorktreeManager;
+    const { dispatcher, calls } = makeHarness({
+      getWorktreeManager: () => fakeWm,
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "worktree.create", branch: "feat/x" },
+      "f1",
+    );
+    // worktree.create is async — let the worktree-manager promise settle.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The derived sid must not contain a path separator.
+    const created = calls.createSession[0];
+    if (!created) throw new Error("expected createSession to be called");
+    const [sid] = created;
+    expect(sid).not.toContain("/");
+    expect(sid.startsWith("feat-x-")).toBe(true);
+    // The default worktree path (no explicit path supplied) is likewise flattened.
+    expect(addCalls[0]?.path.startsWith("feat-x-")).toBe(true);
+    // The branch passed to git is unchanged — git accepts `feat/x`.
+    expect(addCalls[0]?.branch).toBe("feat/x");
+  });
+
   test("worktree.remove without repo configured returns NO_REPO", async () => {
     const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
     const { dispatcher } = makeHarness({ getWorktreeManager: () => null });

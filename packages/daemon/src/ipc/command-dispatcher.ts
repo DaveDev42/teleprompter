@@ -889,9 +889,16 @@ export class IpcCommandDispatcher {
       "Failed to create worktree",
       async (wm) => {
         const ts = Date.now().toString(36);
-        const wtPath = path ?? `${branch}-${ts}`;
+        // A branch name can legally contain '/' (e.g. `feat/x`), which would
+        // turn the derived path/sid into a nested directory (`feat/x-<ts>`).
+        // The sid is joined into `storeDir/sessions/<sid>.sqlite`, so a '/' in
+        // it points `new Database()` at a non-existent subdir and the session
+        // silently breaks. Flatten '/' to '-' for both the default worktree
+        // path and the sid (both are locally derived — no wire/schema impact).
+        const safeBranch = branch.replace(/\//g, "-");
+        const wtPath = path ?? `${safeBranch}-${ts}`;
         const wt = await wm.add(wtPath, branch, baseBranch);
-        const sid = `${branch}-${ts}`;
+        const sid = `${safeBranch}-${ts}`;
         this.deps.createSession(sid, wt.path, { worktreePath: wt.path });
 
         relay

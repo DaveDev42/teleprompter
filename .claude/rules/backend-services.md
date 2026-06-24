@@ -28,6 +28,10 @@ paths:
 - PTY: `Bun.spawn({ terminal })` — ANSI 출력 수집
 - Hooks: Claude Code hooks events 수집 → Record 생성 → IPC 전송
 - Settings: 기존 Claude Code settings와 merge (`settings-builder`)
+- **IPC decode-throw teardown 불변식**: `IpcClient` 의 `data` 콜백은 `FrameDecoder.decode()` 를 **반드시 try/catch** 로 감싼다. decode 는 protocol-fatal 프레임(oversized H1 / malformed-JSON M1, `codec.ts`)에서 throw 하는데, Bun 은 `data` 콜백 밖으로 나간 throw 를 socket `error`/`close` 로 변환하지 **않는다** → guard 없으면 socket 이 죽은 stream 위에서 `{connected:true}` 로 남아 `send()` 가 모든 PTY io/hook 이벤트를 조용히 drop 한다. catch 에서 `decoder.reset()` + (connected 면) `socket.end()` 로 close 핸들러를 깨워 Runner teardown 을 유발. 회귀 가드: `ipc/client.test.ts` "IpcClient decode-throw teardown".
+- **hook socket sid traversal 가드**: `HookReceiver.defaultSocketPath(sid)` 는 `sid` 가 `/`·`\`·`..` 를 포함하면 join 전에 throw. `sid` 는 `--tp-sid` passthrough 플래그에서 오므로(자동생성 `session-<ts>` 외에 crafted 값 가능) per-user runtime dir 밖으로 socket 을 bind/unlink 하는 self-DoS 를 막는다. `Runner` 생성자가 이 헬퍼를 호출 → 잘못된 sid 는 생성 시점에 throw 하며, `index.ts`/`run.ts` 는 생성자 호출을 try/catch 로 감싸 clean fatal 출력.
+- **hook buffer cap 은 UTF-8 바이트 기준**: `MAX_HOOK_BUF_BYTES`(1 MiB) 체크는 `Buffer.byteLength(buf, "utf-8")` 로 — JS string `.length` 는 UTF-16 code unit 이라 4-byte 코드포인트 flood 시 실제 footprint 가 cap 의 2-4배까지 자란다. (close 핸들러의 `_buf.length > 0` 비어있음 체크는 인코딩 무관하므로 `.length` 유지가 정상.)
+- **graceful shutdown 은 bye flush tick 후 exit**: `index.ts`/`run.ts` 의 `gracefulShutdown` 은 `runner.stop()`(bye 프레임을 QueuedWriter 에 enqueue + `socket.end()`) 직후 `process.exit(0)` 하면 event loop 가 pending write 를 flush 하기 전에 죽어 bye 를 잃는다. `await new Promise(r => setImmediate(r))` 한 macrotask 양보 후 exit. daemon `proc.exited` 모니터가 bye 유실을 보상(세션은 결국 'stopped')하므로 cosmetic latency 만 제거하지만 clean-exit 경로를 실제로 clean 하게 만든다. 더블 시그널 force-exit(`exit(1)`) 가드는 `stopping` 불리언으로 유지.
 
 ## Relay
 - Stateless: ciphertext 전달만 — 복호화 불가 (zero-trust)

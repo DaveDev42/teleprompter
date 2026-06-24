@@ -64,7 +64,27 @@ export class IpcClient {
       unix: path,
       socket: {
         data(_socket, data) {
-          const frames = self.decoder.decode(new Uint8Array(data));
+          // FrameDecoder.decode() throws on a protocol-fatal frame (length
+          // exceeding MAX_FRAME_SIZE, or a payload that fails JSON.parse) — the
+          // codec is explicit that the caller must tear down the connection on
+          // such a frame. Bun does NOT translate a throw out of this callback
+          // into a socket `error`/`close`, so without this guard the socket
+          // stays in `{ connected: true }` on a wedged stream: send() keeps
+          // returning early-success while every PTY io and hook event is
+          // silently dropped. Catch, reset the decoder, and end() the socket so
+          // the close handler runs and the owning Runner tears down cleanly.
+          let frames: ReturnType<FrameDecoder["decode"]>;
+          try {
+            frames = self.decoder.decode(new Uint8Array(data));
+          } catch (err) {
+            log.error(
+              "IPC frame decode failed — tearing down socket:",
+              err instanceof Error ? err.message : String(err),
+            );
+            self.decoder.reset();
+            if (self.state.connected) self.state.socket.end();
+            return;
+          }
           for (const frame of frames) {
             const msg = parseIpcMessage(frame.data);
             if (!msg) {

@@ -174,3 +174,34 @@ describe("Runner.stop() idempotency — M8 regression", () => {
     await rm(tmpDir, { recursive: true, force: true });
   });
 });
+
+// ---------------------------------------------------------------------------
+// sid path-traversal guard — the Runner constructor computes its hook socket
+// path via HookReceiver.defaultSocketPath(sid), which rejects a sid containing
+// a path separator or '..'. A crafted --tp-sid must fail fast at construction,
+// not silently bind a socket outside the per-user runtime dir.
+// ---------------------------------------------------------------------------
+
+describe("Runner constructor — sid path-traversal guard", () => {
+  test("rejects a sid with a path separator or '..'", async () => {
+    const { Runner } = await import("./runner");
+    for (const sid of ["../escape", "a/b", "a\\b", "..", "foo/../bar"]) {
+      expect(() => new Runner({ sid, cwd: "/tmp", claudeArgs: [] })).toThrow(
+        /invalid sid/,
+      );
+    }
+  });
+
+  test("accepts an ordinary auto-generated sid", async () => {
+    // A `session-<ts>` sid (the index.ts/run.ts default shape) must construct.
+    const { Runner } = await import("./runner");
+    expect(
+      () =>
+        new Runner({
+          sid: "session-1700000000000",
+          cwd: "/tmp",
+          claudeArgs: [],
+        }),
+    ).not.toThrow();
+  });
+});

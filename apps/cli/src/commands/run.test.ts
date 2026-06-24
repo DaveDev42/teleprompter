@@ -53,32 +53,45 @@ describe("run.ts NaN guard for cols/rows (idx-run-2)", () => {
 // idx-run-1: gracefulShutdown helper logic
 //
 // The helper closes over a `stopping` boolean to prevent double-stop, calls
-// runner.stop() with the correct exit code, then calls process.exit(0).
-// We test the observable side-effects (stop called once, correct code, double-
-// signal forces exit(1)) without actually calling process.exit.
+// runner.stop() with the correct exit code, yields one macrotask
+// (`setImmediate`) so the queued 'bye' IPC frame flushes, then calls
+// process.exit(0). We mirror that exact shape (async + setImmediate) and test
+// the observable side-effects (stop called once, correct code, the flush tick
+// runs between stop() and exit(0), double-signal forces exit(1)) without
+// actually calling process.exit.
+//
+// The async flush tick (run-1b) is the fix for the lost-bye-on-backpressure
+// bug: a synchronous process.exit(0) right after runner.stop() tears the
+// process down before the event loop flushes the queued bye frame.
 // ---------------------------------------------------------------------------
 
 describe("run.ts gracefulShutdown logic (idx-run-1)", () => {
   function makeGracefulShutdown(runner: { stop: (code: number) => void }) {
     let stopping = false;
     const exits: number[] = [];
+    const order: string[] = [];
     function fakeExit(code: number): never {
       exits.push(code);
+      order.push(`exit(${code})`);
       // Don't actually exit; throw so the caller can observe the call.
       throw new Error(`exit(${code})`);
     }
-    function gracefulShutdown(signal: string): void {
+    async function gracefulShutdown(signal: string): Promise<void> {
       if (stopping) {
         fakeExit(1);
       }
       stopping = true;
       runner.stop(signal === "SIGINT" ? 130 : 143);
+      // Mirror of run.ts: yield a macrotask so the queued bye frame flushes
+      // before exit. Record the tick so tests can assert the ordering.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      order.push("flush-tick");
       fakeExit(0);
     }
-    return { gracefulShutdown, exits };
+    return { gracefulShutdown, exits, order };
   }
 
-  test("SIGINT calls runner.stop(130) then exit(0)", () => {
+  test("SIGINT calls runner.stop(130) then exit(0)", async () => {
     const stopCalls: number[] = [];
     const runner = {
       stop: (code: number) => {
@@ -87,12 +100,12 @@ describe("run.ts gracefulShutdown logic (idx-run-1)", () => {
     };
     const { gracefulShutdown, exits } = makeGracefulShutdown(runner);
 
-    expect(() => gracefulShutdown("SIGINT")).toThrow("exit(0)");
+    await expect(gracefulShutdown("SIGINT")).rejects.toThrow("exit(0)");
     expect(stopCalls).toEqual([130]);
     expect(exits).toEqual([0]);
   });
 
-  test("SIGTERM calls runner.stop(143) then exit(0)", () => {
+  test("SIGTERM calls runner.stop(143) then exit(0)", async () => {
     const stopCalls: number[] = [];
     const runner = {
       stop: (code: number) => {
@@ -101,12 +114,12 @@ describe("run.ts gracefulShutdown logic (idx-run-1)", () => {
     };
     const { gracefulShutdown, exits } = makeGracefulShutdown(runner);
 
-    expect(() => gracefulShutdown("SIGTERM")).toThrow("exit(0)");
+    await expect(gracefulShutdown("SIGTERM")).rejects.toThrow("exit(0)");
     expect(stopCalls).toEqual([143]);
     expect(exits).toEqual([0]);
   });
 
-  test("second signal forces exit(1) without calling stop() again", () => {
+  test("second signal forces exit(1) without calling stop() again", async () => {
     const stopCalls: number[] = [];
     const runner = {
       stop: (code: number) => {
@@ -115,31 +128,36 @@ describe("run.ts gracefulShutdown logic (idx-run-1)", () => {
     };
     const { gracefulShutdown, exits } = makeGracefulShutdown(runner);
 
-    // First signal
-    expect(() => gracefulShutdown("SIGINT")).toThrow("exit(0)");
-    // Second signal while stopping
-    expect(() => gracefulShutdown("SIGINT")).toThrow("exit(1)");
+    // First signal — completes its async flush + exit(0).
+    await expect(gracefulShutdown("SIGINT")).rejects.toThrow("exit(0)");
+    // Second signal while stopping — forces exit(1) synchronously, before any
+    // await, so stop() is not called again.
+    await expect(gracefulShutdown("SIGINT")).rejects.toThrow("exit(1)");
 
     // stop() was only called once
     expect(stopCalls).toEqual([130]);
     expect(exits).toEqual([0, 1]);
   });
 
-  test("stop() is called before exit, not skipped", () => {
+  test("stop() runs, then the flush tick, then exit (run-1b ordering)", async () => {
     const order: string[] = [];
     const runner = {
       stop: (_code: number) => {
         order.push("stop");
       },
     };
-    const { gracefulShutdown } = makeGracefulShutdown(runner);
+    const { gracefulShutdown, order: shutdownOrder } = makeGracefulShutdown({
+      stop: (code) => runner.stop(code),
+    });
 
     try {
-      gracefulShutdown("SIGTERM");
+      await gracefulShutdown("SIGTERM");
     } catch {
       /* expected exit throw */
     }
-    // stop must appear before exit in call order
+    // The flush tick must sit between stop() and exit(0): the queued bye frame
+    // gets an event-loop tick to drain before the process tears down.
     expect(order[0]).toBe("stop");
+    expect(shutdownOrder).toEqual(["flush-tick", "exit(0)"]);
   });
 });

@@ -192,6 +192,113 @@ describe("IpcClient inbound guard", () => {
 });
 
 /**
+ * Decode-throw teardown regression.
+ *
+ * FrameDecoder.decode() throws on a protocol-fatal frame — an oversized header
+ * (jsonLen+binLen > MAX_FRAME_SIZE, the H1 path) or a malformed JSON payload
+ * (the M1 path). The throw escapes the Bun `data` callback but Bun does NOT
+ * translate it into a socket `error`/`close`. Before the guard, the IpcClient
+ * stayed in `{ connected: true }` on a wedged stream, so every subsequent
+ * send() returned early-success while silently dropping all PTY io + hook
+ * events. The guard must catch the throw, reset the decoder, and end() the
+ * socket so the close handler runs (onClose fires) and the owning Runner tears
+ * down. After teardown, send() must be a no-op (the connected guard rejects).
+ */
+describe("IpcClient decode-throw teardown", () => {
+  let socketPath: string;
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), "tp-ipc-decode-"));
+    socketPath = join(tmpDir, "decode.sock");
+  });
+
+  afterEach(async () => {
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  test("oversized frame header tears down socket and fires onClose", async () => {
+    // Bare server that, on connect, writes an 8-byte frame header declaring a
+    // 4 GiB binary payload (binLen=0xFFFFFFFF) — far over the 64 MiB cap, so
+    // FrameDecoder.decode() throws on the very first decode without buffering.
+    const server = Bun.listen({
+      unix: socketPath,
+      socket: {
+        open(sock) {
+          const header = new Uint8Array(8);
+          const view = new DataView(header.buffer);
+          view.setUint32(0, 0); // jsonLen = 0
+          view.setUint32(4, 0xffffffff); // binLen = 4 GiB → over MAX_FRAME_SIZE
+          sock.write(header);
+        },
+        data() {},
+        close() {},
+        error() {},
+      },
+    });
+
+    let closeFired = false;
+    const received: IpcMessage[] = [];
+    const client = new IpcClient(
+      (msg) => received.push(msg),
+      () => {
+        closeFired = true;
+      },
+    );
+    await client.connect(socketPath);
+    await Bun.sleep(80);
+
+    // The decode throw must have torn the socket down via the close handler.
+    expect(closeFired).toBe(true);
+    expect(received).toEqual([]);
+
+    // send() after teardown must be a silent no-op, never throw.
+    expect(() => {
+      client.send({ t: "hello", sid: "decode-test", cwd: "/tmp", pid: 1 });
+    }).not.toThrow();
+
+    server.stop();
+  });
+
+  test("malformed JSON frame tears down socket and fires onClose", async () => {
+    // A well-formed header whose JSON payload is not parseable triggers the M1
+    // decode throw. encodeFrame always produces valid JSON, so we hand-build a
+    // frame: jsonLen = len("{bad"), binLen = 0, then the raw bytes "{bad".
+    const server = Bun.listen({
+      unix: socketPath,
+      socket: {
+        open(sock) {
+          const payload = new TextEncoder().encode("{bad");
+          const frame = new Uint8Array(8 + payload.length);
+          const view = new DataView(frame.buffer);
+          view.setUint32(0, payload.length); // jsonLen
+          view.setUint32(4, 0); // binLen
+          frame.set(payload, 8);
+          sock.write(frame);
+        },
+        data() {},
+        close() {},
+        error() {},
+      },
+    });
+
+    let closeFired = false;
+    const client = new IpcClient(
+      () => {},
+      () => {
+        closeFired = true;
+      },
+    );
+    await client.connect(socketPath);
+    await Bun.sleep(80);
+
+    expect(closeFired).toBe(true);
+
+    server.stop();
+  });
+});
+
+/**
  * H4 regression — IPC send queue overflow must be a hard error.
  *
  * We inject a QueuedWriter pre-set to a 1-byte cap and force it into the

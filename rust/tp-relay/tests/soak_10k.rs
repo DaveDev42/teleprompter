@@ -624,7 +624,10 @@ fn push_req(frontend_id: &str, sid: &str, event: &str, connected: bool) -> PushR
     PushRequest {
         frontend_id: frontend_id.to_string(),
         daemon_id: DAEMON_ID.to_string(),
-        token: "00aabbccddeeff00".to_string(),
+        // 64 lowercase hex chars — a valid APNs device token (#8 validation
+        // rejects anything else before the URL is built, so a short fake token
+        // would make every delivery Err and fail the dedup/rate-limit asserts).
+        token: "00aabbccddeeff0000aabbccddeeff0000aabbccddeeff0000aabbccddeeff00".to_string(),
         title: "soak".to_string(),
         body: "soak".to_string(),
         is_frontend_connected: connected,

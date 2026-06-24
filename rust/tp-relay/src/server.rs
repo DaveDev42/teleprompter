@@ -509,15 +509,21 @@ pub fn route_subscribe(
         )];
     }
 
-    // Add to the sender's subscription set.
-    if let Some(handle) = core.conns.get_mut(&sender_id) {
+    // Add to the sender's subscription set. Only call attach() on a FRESH insert
+    // (bool return of HashSet::insert) to keep attach/detach ref-counts 1:1.
+    let freshly_inserted = if let Some(handle) = core.conns.get_mut(&sender_id) {
         if let Some(auth) = handle.auth.as_mut() {
-            auth.subscriptions.insert(sid.to_string());
+            auth.subscriptions.insert(sid.to_string())
+        } else {
+            false
         }
-    }
+    } else {
+        false
+    };
 
-    // Frontend role: bump the attached ref-count (registry attach).
-    if role == Role::Frontend {
+    // Frontend role: bump the attached ref-count (registry attach) — only when
+    // the subscription was newly added (not a duplicate relay.sub).
+    if role == Role::Frontend && freshly_inserted {
         if let Some(state) = core.registry.daemon_states.get_mut(&daemon_id) {
             state.attach(sid);
         }

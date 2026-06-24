@@ -46,6 +46,7 @@ use blake2::digest::generic_array::typenum::U32;
 use blake2::digest::{FixedOutput, Mac};
 use blake2::Blake2bMac;
 use rand_core::{OsRng, RngCore};
+use subtle::ConstantTimeEq;
 
 /// Current payload version tag.
 const VERSION: u8 = 2;
@@ -205,8 +206,10 @@ impl ResumeTokenSigner {
             return None;
         }
 
-        // 4. Constant-time MAC comparison.
-        if !ct_eq(&sig, &expected) {
+        // 4. Constant-time MAC comparison (subtle::ConstantTimeEq — LLVM-safe).
+        // Length guard above ensures equal lengths; ct_eq requires equal-length slices.
+        let mac_ok: bool = sig.ct_eq(&expected).into();
+        if !mac_ok {
             return None;
         }
 
@@ -349,20 +352,6 @@ fn blake2b_keyed_32(key: &[u8; 32], data: &[u8]) -> Vec<u8> {
     let mut mac = Blake2bMac32::new_from_slice(key).expect("32-byte key is always valid");
     blake2::digest::Update::update(&mut mac, data);
     mac.finalize_fixed().to_vec()
-}
-
-/// Constant-time byte-slice equality.  Both slices must be the same length
-/// (the caller checks this first with the length guard).  Uses XOR accumulation
-/// to avoid short-circuit evaluation — equivalent to Node.js `timingSafeEqual`.
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff: u8 = 0;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
 }
 
 // ── Base64url helpers ─────────────────────────────────────────────────────────
@@ -693,14 +682,24 @@ mod tests {
         );
     }
 
-    // ── Timing-safe: constant-time helper returns correct results ─────────────
+    // ── Timing-safe: subtle::ConstantTimeEq is used for MAC comparison ──────
+    //    (the old hand-rolled ct_eq helper was replaced by subtle in #1)
 
     #[test]
-    fn ct_eq_correctness() {
-        assert!(ct_eq(b"hello", b"hello"));
-        assert!(!ct_eq(b"hello", b"world"));
-        assert!(!ct_eq(b"a", b"ab")); // different lengths
-        assert!(ct_eq(b"", b"")); // both empty
+    fn subtle_ct_eq_correctness() {
+        // Verify subtle::ConstantTimeEq behaves correctly for equal/unequal slices.
+        let a: &[u8] = b"hello";
+        let b: &[u8] = b"hello";
+        let c: &[u8] = b"world";
+        let mac_ok: bool = a.ct_eq(b).into();
+        assert!(mac_ok, "equal slices must match");
+        let mac_ok: bool = a.ct_eq(c).into();
+        assert!(!mac_ok, "different slices must not match");
+        // Different lengths — subtle returns 0 (choice=0 → false)
+        let mac_ok: bool = b"a".ct_eq(b"ab" as &[u8]).into();
+        assert!(!mac_ok, "different-length slices must not match");
+        let mac_ok: bool = b"".ct_eq(b"" as &[u8]).into();
+        assert!(mac_ok, "both-empty must match");
     }
 
     // ── Wire compat: daemon token double-dot structure ────────────────────────

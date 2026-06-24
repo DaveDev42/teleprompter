@@ -162,7 +162,11 @@ pub(crate) fn is_non_negative_int(v: &Value) -> Option<u64> {
         return Some(u);
     }
     if let Some(f) = v.as_f64() {
-        if f.is_finite() && f.fract() == 0.0 && f >= 0.0 && f <= (u64::MAX as f64) {
+        // Use strict `<` (not `<=`) because u64::MAX rounds UP to 2^64 in f64,
+        // so `f <= (u64::MAX as f64)` admits f=2^64, which then saturates to
+        // u64::MAX when cast — silently accepting a value that is not representable.
+        // The fast path (as_u64) handles true u64::MAX without going through f64.
+        if f.is_finite() && f.fract() == 0.0 && f >= 0.0 && f < (u64::MAX as f64) {
             return Some(f as u64);
         }
     }
@@ -275,5 +279,37 @@ mod tests {
         assert_eq!(is_non_negative_int(&json!(1.5_f64)), None); // fractional → reject
         assert_eq!(is_non_negative_int(&json!(-1_i64)), None); // negative → reject
         assert_eq!(is_non_negative_int(&json!("1")), None); // string → reject
+    }
+
+    // #9/#10: 2^64 boundary — the float representation of u64::MAX rounds UP,
+    // so `f <= (u64::MAX as f64)` would accept 2^64 and then `as u64` would
+    // saturate to u64::MAX, silently misidentifying the value.  We use strict `<`.
+    #[test]
+    fn is_non_negative_int_rejects_2_pow_64() {
+        // 2^64 as a JSON float literal. serde_json parses this as f64.
+        let two_pow_64 = serde_json::Value::Number(
+            serde_json::Number::from_f64(18_446_744_073_709_551_616.0_f64).unwrap(),
+        );
+        assert_eq!(
+            is_non_negative_int(&two_pow_64),
+            None,
+            "2^64 must be rejected by the float path"
+        );
+
+        // True u64::MAX must still pass via the as_u64() fast path.
+        assert_eq!(
+            is_non_negative_int(&json!(u64::MAX)),
+            Some(u64::MAX),
+            "u64::MAX must be accepted via the as_u64 fast path"
+        );
+
+        // A large but valid integer-valued float (well below 2^64) must still pass.
+        let large_valid = serde_json::Value::Number(
+            serde_json::Number::from_f64(9_007_199_254_740_992.0_f64).unwrap(), // 2^53
+        );
+        assert!(
+            is_non_negative_int(&large_valid).is_some(),
+            "2^53 (integer-valued float) must be accepted"
+        );
     }
 }

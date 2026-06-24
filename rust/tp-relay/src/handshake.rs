@@ -138,7 +138,13 @@ pub fn handle_auth(
 /// Process `relay.auth.resume` fast-path reconnect.
 ///
 /// Verifies the HMAC token, checks daemon still registered, upserts state.
-/// Returns `relay.auth.ok { resumed: true }` or `relay.auth.err`.
+/// Returns `(reply, Some(payload))` on success (`relay.auth.ok { resumed: true }`)
+/// or `(relay.auth.err, None)` on any failure.
+///
+/// The `Option<ResumePayload>` is returned alongside the message so that callers
+/// (conn.rs) can consume the verified payload **once** without calling
+/// `signer.verify` a second time (avoiding the double-verify footgun where
+/// a future non-pure verify could produce a different identity on the second call).
 ///
 /// Mirrors `relay-server.ts:885–956`.
 pub fn handle_auth_resume(
@@ -146,14 +152,17 @@ pub fn handle_auth_resume(
     now_ms: u64,
     registry: &mut Registry,
     signer: &ResumeTokenSigner,
-) -> RelayServerMessage {
+) -> (RelayServerMessage, Option<ResumePayload>) {
     // 1. HMAC verification + TTL.
     let payload = match signer.verify(token, now_ms) {
         Some(p) => p,
         None => {
-            return RelayServerMessage::AuthErr(AuthErr {
-                e: "Resume token invalid or expired".to_string(),
-            });
+            return (
+                RelayServerMessage::AuthErr(AuthErr {
+                    e: "Resume token invalid or expired".to_string(),
+                }),
+                None,
+            );
         }
     };
 
@@ -168,9 +177,12 @@ pub fn handle_auth_resume(
     match registry.handle_auth_resume(&daemon_id, is_daemon, now_ms) {
         Ok(()) => {}
         Err(reason) => {
-            return RelayServerMessage::AuthErr(AuthErr {
-                e: reason.to_string(),
-            });
+            return (
+                RelayServerMessage::AuthErr(AuthErr {
+                    e: reason.to_string(),
+                }),
+                None,
+            );
         }
     }
 
@@ -179,12 +191,15 @@ pub fn handle_auth_resume(
         build_resume_payload_from_strings(&daemon_id, is_daemon, frontend_id.as_deref());
     let (new_token, new_expires) = signer.issue(&effective_payload, now_ms, None);
 
-    RelayServerMessage::AuthOk(AuthOk {
-        daemon_id,
-        resume_token: Some(new_token),
-        resume_expires_at: Some(new_expires as f64),
-        resumed: Some(true),
-    })
+    (
+        RelayServerMessage::AuthOk(AuthOk {
+            daemon_id,
+            resume_token: Some(new_token),
+            resume_expires_at: Some(new_expires as f64),
+            resumed: Some(true),
+        }),
+        Some(payload),
+    )
 }
 
 // ── handle_hello (ADR A1.3 #4 — register+auth merged) ────────────────────────
@@ -427,8 +442,8 @@ mod tests {
             panic!("expected auth.ok")
         };
 
-        // Resume with the token.
-        let msg = handle_auth_resume(&resume_token, 1, &mut r, &s);
+        // Resume with the token — now returns (msg, Option<payload>).
+        let (msg, payload) = handle_auth_resume(&resume_token, 1, &mut r, &s);
         match msg {
             RelayServerMessage::AuthOk(ok) => {
                 assert_eq!(ok.daemon_id, "d1");
@@ -440,14 +455,19 @@ mod tests {
             }
             _ => panic!("expected relay.auth.ok with resumed=true"),
         }
+        assert!(
+            payload.is_some(),
+            "success must return the verified payload"
+        );
     }
 
     #[test]
     fn auth_resume_invalid_token_returns_err() {
         let mut r = Registry::new();
         let s = test_signer();
-        let msg = handle_auth_resume("bad.token", 0, &mut r, &s);
+        let (msg, payload) = handle_auth_resume("bad.token", 0, &mut r, &s);
         assert!(matches!(msg, RelayServerMessage::AuthErr(_)));
+        assert!(payload.is_none(), "failure must return None payload");
     }
 
     #[test]
@@ -467,8 +487,9 @@ mod tests {
         r.evict_daemon("d1");
 
         // Resume should fail: daemon no longer registered.
-        let msg = handle_auth_resume(&resume_token, 1, &mut r, &s);
+        let (msg, payload) = handle_auth_resume(&resume_token, 1, &mut r, &s);
         assert!(matches!(msg, RelayServerMessage::AuthErr(_)));
+        assert!(payload.is_none(), "failure must return None payload");
         if let RelayServerMessage::AuthErr(e) = msg {
             assert!(
                 e.e.contains("no longer registered"),

@@ -148,7 +148,11 @@ impl ApnsSigner {
     /// either returns `Ok` (key is `Some`) or propagates an `Err`.
     pub fn get_token(&mut self, now_ms: u64) -> Result<&str, ApnsJwtError> {
         // Cache check — mirrors apns-jwt.ts:67-71.
+        // Guard `now_ms >= self.cached_at` prevents a backward clock step from
+        // returning 0 via saturating_sub and treating a stale cache as fresh
+        // (0 < TOKEN_REFRESH_AFTER_MS is always true → stale token returned).
         if self.cached_token.is_some()
+            && now_ms >= self.cached_at
             && now_ms.saturating_sub(self.cached_at) < TOKEN_REFRESH_AFTER_MS
         {
             // Safety: guarded by `is_some()` above.
@@ -211,12 +215,16 @@ impl ApnsSigner {
     }
 
     /// How old the cached token is in milliseconds, measured from `now_ms`.
-    /// Returns `0` if no token is cached.
+    /// Returns `0` if no token is cached OR if `now_ms` is before `cached_at`
+    /// (backward clock step — treat as age 0 / unknown, not as negative).
     ///
     /// Mirrors `cachedAgeMs()` (`apns-jwt.ts:102-104`).
     #[must_use]
     pub fn cached_age_ms(&self, now_ms: u64) -> u64 {
         if self.cached_token.is_some() {
+            // saturating_sub returns 0 on backward clock step (same as checked_sub
+            // + unwrap_or(0) but satisfies clippy::manual_saturating_arithmetic).
+            // The critical backward-clock guard is in get_token / is_cache_valid.
             now_ms.saturating_sub(self.cached_at)
         } else {
             0
@@ -224,9 +232,12 @@ impl ApnsSigner {
     }
 
     /// Whether a cached token exists and is still within the 50-min refresh window.
+    /// Returns `false` on backward clock step (`now_ms < cached_at`) so that a
+    /// stale token is never silently reused after CLOCK_REALTIME jumps backward.
     #[must_use]
     pub fn is_cache_valid(&self, now_ms: u64) -> bool {
         self.cached_token.is_some()
+            && now_ms >= self.cached_at
             && now_ms.saturating_sub(self.cached_at) < TOKEN_REFRESH_AFTER_MS
     }
 

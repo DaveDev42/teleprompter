@@ -87,7 +87,29 @@ pub fn rate_per_daemon_from_env() -> u32 {
 }
 
 fn env_u32(key: &str) -> Option<u32> {
-    std::env::var(key).ok().and_then(|s| s.parse::<u32>().ok())
+    let raw = match std::env::var(key) {
+        Ok(s) if !s.is_empty() => s,
+        _ => return None,
+    };
+    match raw.parse::<u32>() {
+        Ok(0) => {
+            // 0 would disable rate limiting entirely — warn and ignore.
+            eprintln!(
+                "tp-relay: env {key}={raw:?} parsed to 0 — ignoring \
+                 (would disable rate limiting); set to a positive integer or unset to use default"
+            );
+            None
+        }
+        Ok(v) => Some(v),
+        Err(e) => {
+            // Non-numeric value — warn and fall back to the default.
+            eprintln!(
+                "tp-relay: env {key}={raw:?} failed to parse as u32 ({e}) — \
+                 ignoring, using default"
+            );
+            None
+        }
+    }
 }
 
 #[cfg(test)]

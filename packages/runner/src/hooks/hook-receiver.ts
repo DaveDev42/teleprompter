@@ -55,8 +55,11 @@ export class HookReceiver {
           conn._buf = (conn._buf ?? "") + text;
           // Guard against unbounded-memory DoS: if the accumulated buffer
           // exceeds MAX_HOOK_BUF_BYTES the data can never form a valid hook
-          // event within budget, so drop it and reset the buffer.
-          if (conn._buf.length > MAX_HOOK_BUF_BYTES) {
+          // event within budget, so drop it and reset the buffer. Measure the
+          // actual UTF-8 byte length — `_buf` is a JS string whose `.length` is
+          // UTF-16 code units, so a flood of multi-byte codepoints could grow
+          // the real footprint to ~2-4x the cap before `.length` tripped it.
+          if (Buffer.byteLength(conn._buf, "utf-8") > MAX_HOOK_BUF_BYTES) {
             log.warn(
               `hook buffer exceeded ${MAX_HOOK_BUF_BYTES} bytes, dropping oversized payload`,
             );
@@ -104,6 +107,17 @@ export class HookReceiver {
   }
 
   static defaultSocketPath(sid: string): string {
+    // `sid` originates from the `--tp-sid` passthrough flag and is interpolated
+    // directly into the socket filename. Reject any path-traversal sequence
+    // before joining so a crafted sid (e.g. `../../etc/x` or `a/b`) cannot
+    // escape the per-user runtime dir and bind/unlink a socket elsewhere. There
+    // is no privilege boundary here (same-user), but an unguarded join still
+    // lets a confused/crafted sid self-DoS by writing outside the runtime dir.
+    if (sid.includes("/") || sid.includes("\\") || sid.includes("..")) {
+      throw new Error(
+        `invalid sid '${sid}': must not contain a path separator or '..'`,
+      );
+    }
     return join(resolveRuntimeDir(), `hook-${sid}.sock`);
   }
 }

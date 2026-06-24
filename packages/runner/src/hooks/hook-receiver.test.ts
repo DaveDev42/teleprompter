@@ -156,6 +156,83 @@ describe("HookReceiver", () => {
     }
   });
 
+  test("defaultSocketPath rejects a sid with a path separator or '..'", () => {
+    // `sid` comes from the --tp-sid passthrough flag and is interpolated into
+    // the socket filename. A traversal sequence must throw before join() so a
+    // crafted sid cannot escape the per-user runtime dir.
+    const traversals = [
+      "../escape",
+      "a/b",
+      "a\\b",
+      "..",
+      "foo/../bar",
+      "nested/../../x",
+    ];
+    for (const sid of traversals) {
+      expect(() => HookReceiver.defaultSocketPath(sid)).toThrow(/invalid sid/);
+    }
+  });
+
+  test("defaultSocketPath accepts ordinary sids (no separators)", () => {
+    // Auto-generated sids (`session-<ts>`) and worktree-derived sids
+    // (`feat-foo-<ts>`) contain only `-`/word chars — must pass unchanged.
+    for (const sid of ["session-1700000000000", "feat-foo-123", "abc.def"]) {
+      expect(() => HookReceiver.defaultSocketPath(sid)).not.toThrow();
+      expect(HookReceiver.defaultSocketPath(sid)).toContain(`hook-${sid}.sock`);
+    }
+  });
+
+  test("buffer cap counts UTF-8 bytes, not UTF-16 code units", async () => {
+    // The cap is MAX_HOOK_BUF_BYTES (1 MiB) measured in real UTF-8 bytes.
+    // A flood of 4-byte codepoints whose UTF-16 .length is under the cap but
+    // whose UTF-8 byte length is over it must still be rejected — proving the
+    // guard measures Buffer.byteLength, not string .length. "𝟘" (U+1D7D8) is
+    // 4 UTF-8 bytes and 2 UTF-16 code units; repeating it 300_000 times yields
+    // ~1.2 MiB of UTF-8 but only 600_000 code units (~0.57 MiB by .length),
+    // so a .length check would NOT trip while a byte check does.
+    const fourByte = "𝟘"; // U+1D7D8: 4 UTF-8 bytes, 2 UTF-16 units
+    const flood = fourByte.repeat(300_000);
+    expect(flood.length).toBeLessThan(1024 * 1024); // would slip a .length cap
+    expect(Buffer.byteLength(flood, "utf-8")).toBeGreaterThan(1024 * 1024);
+
+    await Bun.connect({
+      unix: socketPath,
+      socket: {
+        open(socket) {
+          socket.write(flood);
+          socket.end();
+        },
+        data() {},
+        error() {},
+      },
+    });
+
+    await Bun.sleep(150);
+    // Oversized-by-bytes flood must be dropped — no event emitted.
+    expect(receivedEvents.length).toBe(0);
+
+    // And the receiver must still accept a well-formed event afterwards.
+    const goodEvent = {
+      session_id: "after-utf8-overflow",
+      hook_event_name: "Stop",
+      cwd: tmpdir(),
+    };
+    await Bun.connect({
+      unix: socketPath,
+      socket: {
+        open(socket) {
+          socket.write(JSON.stringify(goodEvent));
+          socket.end();
+        },
+        data() {},
+        error() {},
+      },
+    });
+    await Bun.sleep(100);
+    expect(receivedEvents.length).toBe(1);
+    expect(receivedEvents[0]?.hook_event_name).toBe("Stop");
+  });
+
   test("accumulates fragmented payload across data chunks (idx 5)", async () => {
     // Simulate a large payload that arrives split across two Bun.write() calls.
     // The receiver must buffer both chunks before attempting JSON.parse.

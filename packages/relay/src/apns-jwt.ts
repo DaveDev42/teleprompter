@@ -66,6 +66,7 @@ export class ApnsJwtSigner {
     const now = Date.now();
     if (
       this.cachedToken !== null &&
+      now >= this.cachedAt &&
       now - this.cachedAt < TOKEN_REFRESH_AFTER_MS
     ) {
       return this.cachedToken;
@@ -107,10 +108,10 @@ export class ApnsJwtSigner {
     if (this.resolvedPem !== null) return this.resolvedPem;
 
     const raw = this.opts.keyPemOrPath.trim();
-    // If it looks like a PEM block or a base64 blob, use it directly.
-    // Otherwise treat as a file path.
-    if (raw.startsWith("-----") || !raw.includes("/")) {
-      // Inline PEM or key content — use verbatim
+    // If it looks like a PEM block, use it directly.
+    // Otherwise treat as a file path (absolute or relative).
+    if (raw.startsWith("-----")) {
+      // Inline PEM — use verbatim
       this.resolvedPem = raw;
     } else {
       // File path — Bun.file or Node fs
@@ -171,6 +172,9 @@ export function derToP1363(der: Buffer): Buffer {
   // Strip it and left-pad both to 32 bytes.
   if (r[0] === 0x00) r = r.slice(1);
   if (s[0] === 0x00) s = s.slice(1);
+
+  if (r.length > 32) throw new Error("DER: r component too large for P-256");
+  if (s.length > 32) throw new Error("DER: s component too large for P-256");
 
   const p1363 = Buffer.alloc(64);
   r.copy(p1363, 32 - r.length);

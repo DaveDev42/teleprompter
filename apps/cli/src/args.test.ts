@@ -107,6 +107,47 @@ describe("splitArgs", () => {
     }
   });
 
+  test("exits when a --tp-* value is the bare -- separator", () => {
+    // `tp --tp-sid -- -p hello` must NOT silently bind sid="--" and forward
+    // `-p hello` to claude — the user meant `--` as the claude-args separator.
+    const originalExit = process.exit;
+    const originalError = console.error;
+    let exitCode: number | undefined;
+    process.exit = ((code: number) => {
+      exitCode = code;
+      throw new Error("__EXIT__");
+    }) as never;
+    console.error = () => {};
+    try {
+      expect(() => splitArgs(["--tp-sid", "--", "-p", "hello"])).toThrow(
+        "__EXIT__",
+      );
+      expect(exitCode).toBe(1);
+    } finally {
+      process.exit = originalExit;
+      console.error = originalError;
+    }
+  });
+
+  test("exits when a --tp-* value is any flag-like (-prefixed) token", () => {
+    const originalExit = process.exit;
+    const originalError = console.error;
+    let exitCode: number | undefined;
+    process.exit = ((code: number) => {
+      exitCode = code;
+      throw new Error("__EXIT__");
+    }) as never;
+    console.error = () => {};
+    try {
+      // A real sid/cwd never starts with '-'; reject as a likely mis-parse.
+      expect(() => splitArgs(["--tp-cwd", "-p"])).toThrow("__EXIT__");
+      expect(exitCode).toBe(1);
+    } finally {
+      process.exit = originalExit;
+      console.error = originalError;
+    }
+  });
+
   test("unknown --tp-like flags are passed to claude", () => {
     // --tp-unknown is NOT a recognized tp flag, so it goes to claude
     const result = splitArgs(["--tp-unknown", "value", "-p", "hello"]);

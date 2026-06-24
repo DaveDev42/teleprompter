@@ -98,14 +98,30 @@ async function passthroughViaServiceDaemon(
   const cols = process.stdout.columns || 120;
   const rows = process.stdout.rows || 40;
 
-  // Spawn the runner pointed at the service daemon socket.
+  // Spawn the runner pointed at the service daemon socket. Bun.spawn throws
+  // synchronously (e.g. ENOENT when --tp-cwd does not exist), so wrap it to
+  // print a friendly hint instead of dumping a raw stack — mirroring the
+  // ephemeral-daemon path's error handling below.
   const sessionManager = new SessionManager();
-  const proc = sessionManager.spawnRunner(sid, cwd, {
-    socketPath: serviceSockPath,
-    claudeArgs,
-    cols,
-    rows,
-  });
+  let proc: ReturnType<SessionManager["spawnRunner"]>;
+  try {
+    proc = sessionManager.spawnRunner(sid, cwd, {
+      socketPath: serviceSockPath,
+      claudeArgs,
+      cols,
+      rows,
+    });
+  } catch (err) {
+    console.error(
+      errorWithHints(
+        `Failed to start passthrough session: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        ["Check that --tp-cwd exists and is accessible", "Try: tp doctor"],
+      ),
+    );
+    process.exit(1);
+  }
 
   // Open the shared Store for reading io records (WAL mode — safe concurrent read).
   const store = new Store();

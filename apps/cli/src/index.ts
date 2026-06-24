@@ -18,18 +18,24 @@ const route = decideRoute(command);
 
 async function main(): Promise<void> {
   if (shouldCheckForUpdates(route)) {
-    // Fire and forget; errors inside are already swallowed.
-    void import("./commands/upgrade").then(({ checkForUpdates }) =>
-      checkForUpdates().then(async (newVersion) => {
-        if (!newVersion) return;
-        const { yellow } = await import("./lib/colors");
-        console.error(
-          yellow(
-            `[tp] New version available: ${newVersion}. Run 'tp upgrade' to update.`,
-          ),
-        );
-      }),
-    );
+    // Fire and forget; errors inside checkForUpdates are already swallowed,
+    // but the dynamic import()s themselves can still reject (e.g. a corrupt
+    // SEA blob). Terminate the chain with .catch() so a background
+    // update-check failure never surfaces as an unhandled rejection after the
+    // real command has already succeeded.
+    void import("./commands/upgrade")
+      .then(({ checkForUpdates }) =>
+        checkForUpdates().then(async (newVersion) => {
+          if (!newVersion) return;
+          const { yellow } = await import("./lib/colors");
+          console.error(
+            yellow(
+              `[tp] New version available: ${newVersion}. Run 'tp upgrade' to update.`,
+            ),
+          );
+        }),
+      )
+      .catch(() => {});
   }
 
   switch (route.kind) {

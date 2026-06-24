@@ -10,6 +10,9 @@ describe("verifyE2EECrypto", () => {
     expect(lines.some((l) => l.includes("daemon → frontend: OK"))).toBe(true);
     expect(lines.some((l) => l.includes("frontend → daemon: OK"))).toBe(true);
     expect(lines.some((l) => l.includes("relay isolation:   OK"))).toBe(true);
+    // The symmetric frontend→daemon wrong-key rejection must also be exercised
+    // — a one-direction isolation check would miss a regression on the other.
+    expect(lines.some((l) => l.includes("relay isolation2:  OK"))).toBe(true);
   });
 
   test("uses default logger without error", async () => {

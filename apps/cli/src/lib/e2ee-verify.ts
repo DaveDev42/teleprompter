@@ -61,7 +61,7 @@ export async function verifyE2EECrypto(
       passed = false;
     }
 
-    // Verify wrong key is rejected
+    // Verify a wrong key is rejected in the daemon → frontend direction.
     const wrongKp = await generateKeyPair();
     const wrongKeys = await deriveSessionKeys(
       wrongKp,
@@ -74,6 +74,23 @@ export async function verifyE2EECrypto(
       passed = false;
     } catch {
       log("  relay isolation:   OK (wrong key rejected)");
+    }
+
+    // Verify a wrong key is also rejected in the frontend → daemon direction.
+    // Without this, a regression breaking isolation only on the frontend→daemon
+    // path would slip past this self-test (the symmetric case above passes).
+    const wrongKp2 = await generateKeyPair();
+    const wrongKeys2 = await deriveSessionKeys(
+      wrongKp2,
+      daemonKp.publicKey,
+      "frontend",
+    );
+    try {
+      await decrypt(ciphertext2, wrongKeys2.rx);
+      log("  relay isolation2:  FAIL (wrong key decrypted!)");
+      passed = false;
+    } catch {
+      log("  relay isolation2:  OK (wrong key rejected)");
     }
   } catch (err) {
     log(`  E2EE verification: FAILED (${err})`);

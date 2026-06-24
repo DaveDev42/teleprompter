@@ -131,7 +131,11 @@ export async function ensureDaemon(): Promise<boolean> {
   proc.unref();
 
   if (await waitForDaemonReady()) {
-    stop(ok(`Daemon started (pid=${proc.pid})`));
+    // Don't print proc.pid: in compiled dogfood mode this spawns the Rust `tp`
+    // wrapper which execs `tpd` as a child, so proc.pid is the wrapper, not the
+    // actual daemon — a misleading number to anyone trying to signal it.
+    // `tp daemon stop` uses the lock-file PID, not this value.
+    stop(ok("Daemon started"));
     await showInstallHint();
     return true;
   }

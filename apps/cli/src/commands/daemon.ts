@@ -253,12 +253,14 @@ async function daemonStop(): Promise<void> {
     }
   }
 
-  // Step 2: SIGTERM the daemon pid from the lock file
+  // Step 2: SIGTERM the daemon pid from the lock file. Use checkDaemonLockAlive
+  // (readDaemonLockPid + isPidAlive) rather than the raw pid so we never signal
+  // a recycled PID: if the daemon crashed and the OS reused its PID for an
+  // unrelated process, the stale lock pid would otherwise get an errant SIGTERM.
   const lockPath = getDaemonLockPath();
-  const { readDaemonLockPid } = await import("@teleprompter/daemon");
-  const pid = readDaemonLockPid(lockPath);
+  const pid = checkDaemonLockAlive(lockPath);
   if (pid === null) {
-    console.log("[Daemon] no running daemon found (no pid file)");
+    console.log("[Daemon] no running daemon found (no live pid file)");
     return;
   }
 

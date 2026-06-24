@@ -89,6 +89,9 @@ export class ApnsClient {
   }
 
   async send(payload: ApnsPayload): Promise<ApnsDeliveryResult> {
+    if (!/^[0-9a-f]{64}$/.test(payload.deviceToken)) {
+      return { ok: false, deadToken: false, reason: "invalid-device-token" };
+    }
     const jwt = await this.opts.signer.getToken();
     const isTimeSensitive = payload.interruptionLevel === "time-sensitive";
 

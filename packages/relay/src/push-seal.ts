@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import {
   derivePushSealKey,
   ensureSodium,
@@ -62,10 +63,8 @@ export class PushSealer {
       this.currentSecret = provided;
       this.ephemeral = false;
     } else {
-      // Ephemeral: generate a random 32-char hex secret at startup.
-      this.currentSecret = [...Array(32)]
-        .map(() => Math.floor(Math.random() * 16).toString(16))
-        .join("");
+      // Ephemeral: generate a cryptographically-random 32-byte hex secret at startup.
+      this.currentSecret = randomBytes(32).toString("hex");
       this.ephemeral = true;
     }
 
@@ -82,7 +81,14 @@ export class PushSealer {
       this.version = Math.floor(options.version);
     } else if (envVersion) {
       const v = parseInt(envVersion, 10);
-      this.version = Number.isFinite(v) && v > 0 ? v : 1;
+      if (Number.isFinite(v) && v > 0 && String(v) === envVersion.trim()) {
+        this.version = v;
+      } else {
+        console.warn(
+          `[PushSealer] invalid TP_RELAY_PUSH_SEAL_VERSION="${envVersion}", defaulting to 1`,
+        );
+        this.version = 1;
+      }
     } else {
       this.version = 1;
     }

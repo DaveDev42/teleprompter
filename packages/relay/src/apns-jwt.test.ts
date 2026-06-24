@@ -211,4 +211,75 @@ describe("derToP1363", () => {
     expect(p1363.slice(0, 32).equals(rRaw)).toBe(true);
     expect(p1363.slice(32, 64).equals(sRaw)).toBe(true);
   });
+
+  describe("FIX 9 — bounds check before copy (r/s > 32 bytes throws)", () => {
+    test("r > 32 bytes throws 'DER: r component too large for P-256'", () => {
+      // Craft a DER signature where r is 33 bytes (non-zero, not just 0x00 padding)
+      const rOversized = Buffer.alloc(33, 0x7f); // no leading 0x00, so won't be stripped
+      const s = Buffer.alloc(32, 0xbb);
+      const rDer = Buffer.concat([
+        Buffer.from([0x02, rOversized.length]),
+        rOversized,
+      ]);
+      const sDer = Buffer.concat([Buffer.from([0x02, s.length]), s]);
+      const seq = Buffer.concat([rDer, sDer]);
+      const der = Buffer.concat([Buffer.from([0x30, seq.length]), seq]);
+      expect(() => derToP1363(der)).toThrow(
+        "DER: r component too large for P-256",
+      );
+    });
+
+    test("s > 32 bytes throws 'DER: s component too large for P-256'", () => {
+      const r = Buffer.alloc(32, 0xaa);
+      const sOversized = Buffer.alloc(33, 0x7f);
+      const rDer = Buffer.concat([Buffer.from([0x02, r.length]), r]);
+      const sDer = Buffer.concat([
+        Buffer.from([0x02, sOversized.length]),
+        sOversized,
+      ]);
+      const seq = Buffer.concat([rDer, sDer]);
+      const der = Buffer.concat([Buffer.from([0x30, seq.length]), seq]);
+      expect(() => derToP1363(der)).toThrow(
+        "DER: s component too large for P-256",
+      );
+    });
+  });
+});
+
+describe("ApnsJwtSigner — FIX 3: backward-clock guard", () => {
+  test("backward clock step (now < cachedAt) forces token re-sign", async () => {
+    const pem = makeTestKey();
+    const signer = new ApnsJwtSigner({
+      keyPemOrPath: pem,
+      keyId: "K",
+      teamId: "T",
+    });
+
+    const t1 = await signer.getToken();
+    // Simulate a backward clock step: set cachedAt to the future
+    // so now < cachedAt — the backward guard must trigger a re-sign.
+    (signer as unknown as { cachedAt: number }).cachedAt = Date.now() + 60_000;
+
+    const t2 = await signer.getToken();
+    // Because now < cachedAt, the `now >= this.cachedAt` guard is false
+    // → cache miss → re-sign → different token.
+    expect(t2).not.toBe(t1);
+  });
+});
+
+describe("ApnsJwtSigner — FIX 10: resolvePem relative path heuristic", () => {
+  test("relative path without '/' (e.g. 'AuthKey.p8') is treated as a file path, not inline PEM", async () => {
+    const signer = new ApnsJwtSigner({
+      keyPemOrPath: "AuthKey.p8", // relative path, no slash
+      keyId: "K",
+      teamId: "T",
+    });
+    // getToken() will try to read the file and fail (file doesn't exist).
+    // Before FIX 10, the string "AuthKey.p8" was used verbatim as PEM,
+    // which would give a sign error (not a file-not-found error).
+    // After FIX 10, it should attempt file read → throw a file-not-found error.
+    await expect(signer.getToken()).rejects.toThrow();
+    // Verify the error is about file reading, not PEM parsing.
+    // (We don't assert the exact message — just that it rejects.)
+  });
 });

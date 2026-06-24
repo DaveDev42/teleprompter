@@ -1218,10 +1218,45 @@ describe("RelayServer", () => {
       return ws;
     }
 
+    test("/admin returns 404 when TP_RELAY_ADMIN_TOKEN is not set", async () => {
+      const prevToken = process.env["TP_RELAY_ADMIN_TOKEN"];
+      delete process.env["TP_RELAY_ADMIN_TOKEN"];
+      try {
+        const res = await fetch(`http://localhost:${port}/admin`);
+        expect(res.status).toBe(404);
+      } finally {
+        if (prevToken !== undefined)
+          process.env["TP_RELAY_ADMIN_TOKEN"] = prevToken;
+      }
+    });
+
+    test("/admin returns 401 when bearer token is missing or wrong", async () => {
+      const prevToken = process.env["TP_RELAY_ADMIN_TOKEN"];
+      process.env["TP_RELAY_ADMIN_TOKEN"] = "correct-secret";
+      try {
+        // No auth header
+        const r1 = await fetch(`http://localhost:${port}/admin`);
+        expect(r1.status).toBe(401);
+        // Wrong token
+        const r2 = await fetch(`http://localhost:${port}/admin`, {
+          headers: { authorization: "Bearer wrong-secret" },
+        });
+        expect(r2.status).toBe(401);
+      } finally {
+        if (prevToken !== undefined)
+          process.env["TP_RELAY_ADMIN_TOKEN"] = prevToken;
+        else delete process.env["TP_RELAY_ADMIN_TOKEN"];
+      }
+    });
+
     test("/admin escapes daemonId and session IDs (no stored XSS)", async () => {
       const XSS_DAEMON = "<img src=x onerror=alert(1)>";
       const XSS_SID = '"><script>alert(2)</script>';
       relay.registerToken("xss-token", XSS_DAEMON);
+
+      const prevToken = process.env["TP_RELAY_ADMIN_TOKEN"];
+      const adminSecret = "test-admin-secret-for-xss-check";
+      process.env["TP_RELAY_ADMIN_TOKEN"] = adminSecret;
 
       const daemon = await connectWs(port);
       daemon.send(
@@ -1239,12 +1274,20 @@ describe("RelayServer", () => {
       );
       await Bun.sleep(50);
 
-      const html = await (await fetch(`http://localhost:${port}/admin`)).text();
+      const html = await (
+        await fetch(`http://localhost:${port}/admin`, {
+          headers: { authorization: `Bearer ${adminSecret}` },
+        })
+      ).text();
       // Raw payloads must NOT appear; escaped forms must.
       expect(html).not.toContain("<img src=x onerror=alert(1)>");
       expect(html).not.toContain("<script>alert(2)</script>");
       expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
       daemon.close();
+
+      if (prevToken !== undefined)
+        process.env["TP_RELAY_ADMIN_TOKEN"] = prevToken;
+      else delete process.env["TP_RELAY_ADMIN_TOKEN"];
     });
 
     test("unauthenticated relay.ping gets no pong (rate-limit bypass closed)", async () => {

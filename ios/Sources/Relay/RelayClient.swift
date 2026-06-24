@@ -288,6 +288,15 @@ final class RelayClient: NSObject, @unchecked Sendable {
             fail("invalid relay URL")
             return
         }
+        // Defense-in-depth: the relay URL comes from the pairing bundle (QR/JSON,
+        // decoded by tp-core without scheme validation). Reject any non-WebSocket
+        // scheme up front so a substituted `http(s)://`/`file://`/etc. endpoint
+        // can't trigger a transport downgrade or a wasted connect→reconnect storm.
+        // Frames are E2EE regardless, so this is hardening, not a trust boundary.
+        guard Self.isAcceptableRelayScheme(pairing.relayURL) else {
+            fail("relay URL must use ws:// or wss:// (got \(url.scheme ?? "no scheme"))")
+            return
+        }
         state = .connecting
         let t = session.webSocketTask(with: url)
         task = t
@@ -1293,6 +1302,16 @@ final class RelayClient: NSObject, @unchecked Sendable {
         let base = 1.0
         let cap = reconnectMaxDelay
         return min(base * pow(2.0, Double(attempt)), cap)
+    }
+
+    /// True iff `urlString` parses to a URL whose scheme is a WebSocket scheme
+    /// (`ws`/`wss`). Used to reject a relay URL from the pairing bundle that
+    /// would otherwise trigger a transport downgrade or a doomed connect attempt.
+    /// Foundation preserves the scheme's original case, so compare case-folded
+    /// (URI schemes are case-insensitive per RFC 3986).
+    static func isAcceptableRelayScheme(_ urlString: String) -> Bool {
+        guard let scheme = URL(string: urlString)?.scheme?.lowercased() else { return false }
+        return scheme == "wss" || scheme == "ws"
     }
 
     // MARK: keep-alive + L5 missed-pong

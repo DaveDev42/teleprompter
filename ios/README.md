@@ -130,6 +130,12 @@ TP_JSON=1 scripts/ios.sh smoke           # 마지막 줄에 {"platform":…,"mar
 TP_E2E_REAL=1 scripts/ios.sh smoke       # FAKE loopback 대신 격리된 실 tp daemon+relay 로 M0-M2 페어링 E2E
 TP_E2E_CLAUDE=1 scripts/ios.sh smoke     # 위 + 실 claude -p PRINT 세션 spawn → M0-M4 (실 Stop 렌더). claude PATH 필수, 로컬 전용
 TP_E2E_CLAUDE_M5=1 scripts/ios.sh smoke  # 위 + 실 INTERACTIVE claude 세션 → 전 8마커 (M0-M5: 앱→relay→daemon→PTY→claude 입력 왕복). 로컬 전용
+
+# TestFlight 배포 (ADR-0004 — iOS device 슬라이스 Release archive → 서명 → App Store .ipa export)
+TP_DEVELOPMENT_TEAM=ABCDE12345 TP_PLATFORM=ios scripts/ios.sh archive   # 실 Distribution 인증서+프로필 필요 (login keychain 또는 CI 일회용 keychain)
+# CI(.github/workflows/testflight.yml)가 v* 태그 push 시 이 archive + xcrun altool 업로드를 자동화한다.
+# 로컬 직접 실행 시: Xcode-관리 Distribution cert + dev.tpmt.teleprompter App Store 프로필이 keychain 에 있어야 함.
+# 빌드번호는 TP_BUILD_NUMBER 로 오버라이드(미설정 시 project.yml "1"). 산출 .ipa 경로를 stdout 으로 emit.
 ```
 
 환경 변수:

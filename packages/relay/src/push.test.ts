@@ -386,6 +386,109 @@ describe("PushService", () => {
     });
   });
 
+  // ── concurrency (reserve-before-await) ───────────────────────────────────────
+
+  describe("concurrency", () => {
+    /**
+     * Build a fetchFn whose response is delayed so that all overlapping
+     * sendOrDeliver calls are awaiting APNs simultaneously — the exact window
+     * where a check-then-commit-after-await design would let every concurrent
+     * caller pass the dedup/rate gate. With reserve-before-await, the gate is
+     * decided synchronously, so only the first reservation reaches APNs.
+     */
+    function makeSlowFetchFn(delayMs: number): {
+      fn: typeof fetch;
+      calls: Request[];
+    } {
+      const calls: Request[] = [];
+      const fn = async (input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push(new Request(input as string, init));
+        await Bun.sleep(delayMs);
+        return new Response(null, { status: 200 });
+      };
+      return { fn: fn as typeof fetch, calls };
+    }
+
+    test("concurrent identical pushes dedup to a single APNs call", async () => {
+      const { fn, calls } = makeSlowFetchFn(50);
+      service = new PushService({ dedupWindowMs: 60_000, fetchFn: fn });
+
+      const req = makeRequest();
+      // Fire 5 identical requests concurrently — they all enter sendOrDeliver
+      // before any of them commits.
+      const results = await Promise.all(
+        Array.from({ length: 5 }, () => service.sendOrDeliver(req)),
+      );
+
+      // Exactly one push reaches APNs; the other four are deduped synchronously.
+      expect(calls.length).toBe(1);
+      expect(results.filter((r) => r === "push").length).toBe(1);
+      expect(results.filter((r) => r === "deduped").length).toBe(4);
+    });
+
+    test("concurrent distinct-event pushes respect the per-minute rate cap", async () => {
+      const { fn, calls } = makeSlowFetchFn(50);
+      // Cap = 3; fire 6 concurrent requests with DISTINCT events (so dedup
+      // never fires) — only 3 may reach APNs, the rest rate_limited.
+      service = new PushService({ rateLimitPerMinute: 3, fetchFn: fn });
+
+      const results = await Promise.all(
+        Array.from({ length: 6 }, (_unused, i) =>
+          service.sendOrDeliver(
+            makeRequest({
+              data: { sid: "session-1", daemonId: "daemon-1", event: `e${i}` },
+            }),
+          ),
+        ),
+      );
+
+      expect(calls.length).toBe(3);
+      expect(results.filter((r) => r === "push").length).toBe(3);
+      expect(results.filter((r) => r === "rate_limited").length).toBe(3);
+    });
+
+    test("concurrent duplicate where the in-flight call fails — its rollback frees the dedup slot for a sequential retry", async () => {
+      // This discriminates the fix from the old design. Two IDENTICAL requests
+      // are fired concurrently against a slow fetch; the FIRST (and only) APNs
+      // call fails. With reserve-before-await: call A reserves the dedup slot
+      // synchronously, so concurrent call B is deduped immediately (1 APNs call,
+      // not 2 — old code would make 2). When A's APNs call then fails, A rolls
+      // back the dedup reservation, so a later sequential retry C is NOT blocked.
+      let apnsCalls = 0;
+      const fn = (async () => {
+        apnsCalls++;
+        await Bun.sleep(40);
+        // The single in-flight APNs call fails (transient network error).
+        throw new Error("Network error");
+      }) as unknown as typeof fetch;
+      service = new PushService({
+        dedupWindowMs: 60_000,
+        rateLimitPerMinute: 10,
+        fetchFn: fn,
+      });
+
+      const req = makeRequest();
+      // A and B race; B must be deduped synchronously by A's reservation.
+      const [rA, rB] = await Promise.all([
+        service.sendOrDeliver(req),
+        service.sendOrDeliver(req),
+      ]);
+
+      // Exactly ONE APNs call (the dedup reservation suppressed the duplicate);
+      // old check-then-commit-after-await code would have issued TWO.
+      expect(apnsCalls).toBe(1);
+      // The in-flight one errored; the deduped one returned "deduped".
+      const results = [rA, rB].sort();
+      expect(results).toEqual(["deduped", "error"]);
+
+      // A's failure rolled back the dedup slot, so a sequential retry succeeds
+      // in reaching APNs again (it is not permanently suppressed).
+      const rC = await service.sendOrDeliver(req).catch(() => "threw");
+      expect(apnsCalls).toBe(2);
+      expect(rC).toBe("error"); // fn always throws, but it DID reach APNs again
+    });
+  });
+
   // ── order of checks ────────────────────────────────────────────────────────
 
   describe("order of checks", () => {

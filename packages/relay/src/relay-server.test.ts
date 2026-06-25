@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type {
+  RelayAuthErr,
   RelayAuthOk,
   RelayError,
   RelayFrame,
@@ -105,6 +106,37 @@ describe("RelayServer", () => {
     const msg = await waitForMessage(ws);
     expect(msg.t).toBe("relay.auth.err");
     ws.close();
+  });
+
+  test("frontend auth with valid token but missing frontendId is rejected AND closed (no neither-map socket leak)", async () => {
+    const ws = await connectWs(port);
+    // Track whether the RELAY closed the socket (vs. us / idle timeout).
+    let closed = false;
+    ws.addEventListener("close", () => {
+      closed = true;
+    });
+    ws.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 2,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: TOKEN, // VALID token — passes the token guard
+        // frontendId deliberately omitted → rejected by the frontendId guard
+      }),
+    );
+    const msg = await waitForMessage(ws);
+    expect(msg.t).toBe("relay.auth.err");
+    expect((msg as RelayAuthErr).e).toContain("frontendId");
+
+    // The socket must be closed by the relay, not left dangling in neither
+    // pendingAuth (cleared) nor clients (never registered) until the 90s idle
+    // timeout. Give the close frame a moment to arrive.
+    await Bun.sleep(100);
+    expect(closed).toBe(true);
+    expect(
+      ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING,
+    ).toBe(true);
   });
 
   test("forwards frames from daemon to subscribed frontend", async () => {
@@ -1790,5 +1822,36 @@ describe("Path X: relay.push.register → relay.push.token sealing", () => {
 
     daemonF.close();
     relayF.stop();
+  });
+
+  test("relay.push.register routes under AUTHENTICATED frontendId, ignoring a spoofed wire frontendId (no cross-frontend hijack)", async () => {
+    // An authenticated frontend (identity = PUSH_X_FRONTEND_ID) sends a
+    // relay.push.register whose wire frontendId claims to be a DIFFERENT,
+    // victim frontend. The relay must route relay.push.token under the
+    // authenticated client.frontendId, NOT the spoofed wire value — otherwise
+    // the attacker hijacks the victim's push delivery.
+    const daemon = await authDaemon(port);
+    const attacker = await authFrontend(port, PUSH_X_FRONTEND_ID);
+
+    const daemonMsgP = waitForMsg(daemon, (m) => m.t === "relay.push.token");
+
+    attacker.send(
+      JSON.stringify({
+        t: "relay.push.register",
+        // Spoofed: the attacker claims to be the victim.
+        frontendId: "victim-frontend-2",
+        token: "ExponentPushToken[attacker-token]",
+        platform: "ios",
+      }),
+    );
+
+    const msg = (await daemonMsgP) as RelayPushTokenSealed;
+    expect(msg.t).toBe("relay.push.token");
+    // Routed under the AUTHENTICATED identity, not the spoofed wire value.
+    expect(msg.frontendId).toBe(PUSH_X_FRONTEND_ID);
+    expect(msg.frontendId).not.toBe("victim-frontend-2");
+
+    attacker.close();
+    daemon.close();
   });
 });

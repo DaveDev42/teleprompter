@@ -39,6 +39,14 @@ export const APNS_DEAD_TOKEN_REASONS = new Set([
   "BadDeviceToken",
 ]);
 
+/**
+ * Per-request deadline for an APNs HTTP/2 call. Bounds a hung request under an
+ * APNs partition so it cannot hold an open stream + Promise chain indefinitely
+ * (fd / async-task leak at 10k scale). 10s is generous for APNs, which
+ * normally responds in tens of milliseconds.
+ */
+const REQUEST_TIMEOUT_MS = 10_000;
+
 export type ApnsDeliveryResult =
   | { ok: true }
   | { ok: false; deadToken: true; reason: string }
@@ -66,6 +74,12 @@ export interface ApnsClientOptions {
   signer: ApnsJwtSigner;
   /** HTTP fetch implementation (injectable for testing). */
   fetchFn?: typeof fetch;
+  /**
+   * Per-request deadline in ms. Defaults to {@link REQUEST_TIMEOUT_MS}.
+   * Overridable so tests can drive the real abort path with a tiny deadline
+   * instead of waiting the full production timeout.
+   */
+  requestTimeoutMs?: number;
 }
 
 /**
@@ -82,10 +96,12 @@ export function resolveApnsHost(env?: string): string {
 export class ApnsClient {
   private readonly opts: ApnsClientOptions;
   private readonly fetchFn: typeof fetch;
+  private readonly requestTimeoutMs: number;
 
   constructor(opts: ApnsClientOptions) {
     this.opts = opts;
     this.fetchFn = opts.fetchFn ?? fetch;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
   }
 
   async send(payload: ApnsPayload): Promise<ApnsDeliveryResult> {
@@ -127,15 +143,26 @@ export class ApnsClient {
       headers["apns-priority"] = "10";
     }
 
+    // Bound the request with a deadline. APNs delivery is fire-and-forget at
+    // the relay (handlePush .catch()), so without a timeout a network
+    // partition would hold each HTTP/2 stream + Promise chain open until OS
+    // TCP keepalive fires (minutes-to-hours) — at 10k scale a single external
+    // failure mode becomes an fd / async-task leak. The existing catch below
+    // already converts the thrown AbortError into a clean {ok:false} result.
     let response: Response;
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), this.requestTimeoutMs);
     try {
       response = await this.fetchFn(url, {
         method: "POST",
         headers,
         body: JSON.stringify(body),
+        signal: ac.signal,
       });
     } catch (err) {
       return { ok: false, deadToken: false, reason: String(err) };
+    } finally {
+      clearTimeout(timer);
     }
 
     if (response.ok) {

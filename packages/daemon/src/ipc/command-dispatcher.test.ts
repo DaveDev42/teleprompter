@@ -1180,6 +1180,91 @@ describe("IpcCommandDispatcher.dispatchRelayControl", () => {
     ).toBe(false);
   });
 
+  test("session.create with a path-traversal sid is rejected BEFORE createSession/subscribe (rank 3)", async () => {
+    // Frontend-supplied sid reaches Store's join(storeDir,'sessions',sid+'.sqlite').
+    // A crafted `../../evil` must be rejected by assertSafeSid at the dispatch arm
+    // with ZERO side-effects: createSession is never invoked (no arbitrary-path
+    // file create/unlink), no relay subscription leaks, and an err is returned.
+    // This is stronger than the createSession-throws case above — here the
+    // createSession injector must never even be CALLED.
+    const seenSubscribes: string[] = [];
+    const relayClient = {
+      subscribe: (sid: string) => seenSubscribes.push(sid),
+    } as unknown as RelayClient;
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const { dispatcher, calls } = makeHarness({ relayClients: [relayClient] });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "session.create", cwd: "/cwd", sid: "../../evil" },
+      "f1",
+    );
+    await Promise.resolve();
+    // Guard fired before the injector — no path-join ever happened.
+    expect(calls.createSession).toEqual([]);
+    // No subscription leaked, no success ack, and an err was sent.
+    expect(seenSubscribes).toEqual([]);
+    expect(
+      out.some((o) => (o.msg as { t?: string }).t === "session.create.ok"),
+    ).toBe(false);
+    const m = out[0]?.msg as { t: string; e?: string; m?: string };
+    expect(m.t).toBe("err");
+    expect(m.e).toBe("SESSION_ERROR");
+    expect(m.m).toMatch(/invalid sid/);
+  });
+
+  // Rank-4 regression (daemon-audit): the export handler fetches
+  // `effectiveLimit + 1` rows and flags truncated only when MORE than
+  // effectiveLimit came back. The pre-fix `records.length >= effectiveLimit`
+  // was a false-positive AT exactly the limit — it reported truncated:true even
+  // when the entire history fit, showing the user a bogus warning.
+  function exportHarness(rowCount: number, limit?: number) {
+    let askedLimit = -1;
+    const sessionDb = {
+      getRecordsFiltered: (o: { limit?: number }) => {
+        askedLimit = o.limit ?? -1;
+        // Honor the requested limit (the handler asks for effectiveLimit+1).
+        const n = Math.min(rowCount, o.limit ?? rowCount);
+        return Array.from({ length: n }, (_, i) => ({
+          seq: i + 1,
+          kind: "io",
+          ts: i,
+          ns: null,
+          name: null,
+          payload: new Uint8Array([i & 0xff]),
+        }));
+      },
+    } as unknown as SessionDb;
+    const meta = mkMeta("sx", "stopped", 1);
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const { dispatcher } = makeHarness({ sessionMeta: meta, sessionDb });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "session.export", sid: "sx", format: "json", limit },
+      "f1",
+    );
+    const reply = out[0]?.msg as { t: string; format?: string; d?: string };
+    const parsed = reply?.d ? JSON.parse(reply.d) : null;
+    return { reply, parsed, getAskedLimit: () => askedLimit };
+  }
+
+  test("session.export reports truncated:false when EXACTLY the limit rows exist (rank 4)", () => {
+    // limit=10, exactly 10 rows. Handler asks for 11, gets 10 → not truncated.
+    const { reply, parsed, getAskedLimit } = exportHarness(10, 10);
+    expect(reply.t).toBe("session.exported");
+    expect(getAskedLimit()).toBe(11); // effectiveLimit + 1
+    expect(parsed.truncated).toBe(false);
+    expect(parsed.records.length).toBe(10);
+  });
+
+  test("session.export reports truncated:true when MORE than the limit rows exist (rank 4)", () => {
+    // limit=10, 50 rows available. Handler asks for 11, gets 11 → truncated,
+    // and the returned records are sliced back to exactly 10.
+    const { reply, parsed } = exportHarness(50, 10);
+    expect(reply.t).toBe("session.exported");
+    expect(parsed.truncated).toBe(true);
+    expect(parsed.records.length).toBe(10);
+  });
+
   test("session.stop returns NO_RUNNER when killRunner reports false", async () => {
     const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
     const { dispatcher, calls } = makeHarness();

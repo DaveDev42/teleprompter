@@ -67,3 +67,28 @@ export function resolveRuntimeDir(): string {
 export function getSocketPath(): string {
   return join(resolveRuntimeDir(), "daemon.sock");
 }
+
+/**
+ * Reject a session id that is unsafe to interpolate into a filesystem path.
+ *
+ * A `sid` flows from several untrusted-ish sources — the `--tp-sid` passthrough
+ * flag, and (critically) frontend-supplied `session.create` over the relay — and
+ * is joined into per-session paths like `<store>/sessions/<sid>.sqlite` and the
+ * `hook-<sid>.sock` socket name. Without a guard, `sid = "../../evil"` escapes the
+ * intended directory and lets a confused/crafted sid create or unlink files at any
+ * path the daemon user can write.
+ *
+ * The check is deliberately strict — an allowlist, not a denylist: a valid sid is
+ * one or more of `[A-Za-z0-9_-]`. Every sid the codebase generates satisfies it
+ * (`session-<base36ts>`, worktree `<safeBranch>-<ts>`, the smoke `sess-smoketest`),
+ * so no legitimate path breaks. Throws a plain Error on violation (callers convert
+ * to a wire error / socket teardown as appropriate).
+ */
+const SAFE_SID = /^[A-Za-z0-9_-]+$/;
+export function assertSafeSid(sid: string): void {
+  if (!SAFE_SID.test(sid)) {
+    throw new Error(
+      `invalid sid '${sid}': must match [A-Za-z0-9_-]+ (no path separator, '..', or empty)`,
+    );
+  }
+}

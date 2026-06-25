@@ -102,10 +102,16 @@ function tryAcquire(lockPath: string, allowRetry: boolean): number | null {
     return tryAcquire(lockPath, /* allowRetry */ false);
   }
 
-  // Successfully opened exclusively — write current pid and close
+  // Successfully opened exclusively — write current pid and close. The write CAN
+  // throw (e.g. ENOSPC on a near-full filesystem) AFTER openSync already gave us a
+  // live fd; without try/finally the closeSync would be skipped and the fd would
+  // leak for the process lifetime. Guarantee the close on every path.
   const buf = Buffer.from(`${process.pid}\n`);
-  writeSync(fd, buf);
-  closeSync(fd);
+  try {
+    writeSync(fd, buf);
+  } finally {
+    closeSync(fd);
+  }
   log.info(`acquired daemon lock (pid=${process.pid}) at ${lockPath}`);
   return process.pid;
 }

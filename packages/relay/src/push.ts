@@ -123,21 +123,34 @@ export class PushService {
 
     const now = Date.now();
 
-    // Step 2: Dedup check (don't record yet — only record on success)
-    if (data) {
-      const dedupKey = `${frontendId}:${data.sid}:${data.event}`;
+    // Step 2: Dedup check + RESERVE. Check and write atomically within this
+    // synchronous turn (before the await below), then roll back on failure.
+    // If we only recorded on success — after the `await apnsClient.send` —
+    // then N concurrent sendOrDeliver calls for the same key would all read
+    // the same pre-commit snapshot, all pass the check, and all send,
+    // breaking the one-notification-per-(sid,event) guarantee. Reserving here
+    // makes the check-and-set atomic relative to other event-loop turns.
+    const dedupKey = data
+      ? `${frontendId}:${data.sid}:${data.event}`
+      : undefined;
+    if (dedupKey !== undefined) {
       const seenAt = this.dedupSeen.get(dedupKey);
       if (seenAt !== undefined && now - seenAt < this.dedupWindowMs) {
         log.debug(`deduped push for key ${dedupKey}`);
         return "deduped";
       }
+      this.dedupSeen.set(dedupKey, now);
     }
 
-    // Step 3: Rate limit check (don't increment yet — only increment on success).
+    // Step 3: Rate limit check + RESERVE (increment now, roll back on failure).
     // M14 fix: if an existing window has expired, reset it now so that expired
     // state does not permanently bypass the limit on subsequent calls (whether
     // the push succeeds or fails). This ensures the count+windowStart are always
     // in a consistent "current window" state before the check runs.
+    //
+    // Same atomicity concern as dedup: incrementing only after the await would
+    // let concurrent calls all observe a stale count and all pass the cap.
+    // Reserve the slot synchronously here; roll back in the failure paths.
     let rl = this.rateLimits.get(rateLimitKey);
     if (rl && now - rl.windowStart >= this.rateLimitWindowMs) {
       // Window has expired — reset to a fresh window so the limit applies
@@ -147,14 +160,31 @@ export class PushService {
     }
     if (rl && rl.count >= this.rateLimitPerMinute) {
       log.warn(`rate limited push for frontendId ${frontendId}`);
+      // Roll back the dedup reservation: this call did not consume a push.
+      if (dedupKey !== undefined) this.dedupSeen.delete(dedupKey);
       return "rate_limited";
     }
+    if (rl) {
+      rl.count++;
+    } else {
+      rl = { count: 1, windowStart: now };
+      this.rateLimits.set(rateLimitKey, rl);
+    }
+
+    // Helper: undo the dedup + rate-limit reservations on any failure path so a
+    // failed attempt does not permanently suppress a later legitimate push.
+    const rollbackReservation = (): void => {
+      if (dedupKey !== undefined) this.dedupSeen.delete(dedupKey);
+      // rl is guaranteed defined here (created/incremented just above).
+      if (rl) rl.count = Math.max(0, rl.count - 1);
+    };
 
     // Step 4: Call APNs
     if (!this.apnsClient) {
       log.warn(
         `APNs client not configured — cannot deliver push for frontendId ${frontendId}`,
       );
+      rollbackReservation();
       return "error";
     }
 
@@ -168,6 +198,7 @@ export class PushService {
       });
 
       if (!result.ok) {
+        rollbackReservation();
         if (result.deadToken) {
           // APNs returned 400 (BadDeviceToken) or 410 (Unregistered): the token
           // is permanently dead. Signal the caller to evict it from the store.
@@ -182,24 +213,12 @@ export class PushService {
         return "error";
       }
 
-      // Step 5: Record dedup + increment rate counter only after successful push
-      if (data) {
-        const dedupKey = `${frontendId}:${data.sid}:${data.event}`;
-        this.dedupSeen.set(dedupKey, now);
-      }
-
-      if (rl) {
-        // Window is already current (reset if expired above, or still fresh).
-        rl.count++;
-      } else {
-        rl = { count: 1, windowStart: now };
-        this.rateLimits.set(rateLimitKey, rl);
-      }
-
+      // Success: reservations made above stand (dedup recorded, rate counted).
       log.info(`push sent to frontendId ${frontendId}`);
       return "push";
     } catch (err) {
       log.warn(`push failed for frontendId ${frontendId}: ${err}`);
+      rollbackReservation();
       return "error";
     }
   }

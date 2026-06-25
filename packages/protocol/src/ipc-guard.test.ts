@@ -226,6 +226,23 @@ describe("parseIpcMessage", () => {
         ).toBeNull();
       }
     });
+
+    test("resize rejects cols/rows above the uint16 ceiling", () => {
+      // The daemon forwards a relay-plane resize into an IPC resize frame, so
+      // this is the second trust boundary that must also cap at uint16 (65535)
+      // to prevent TIOCSWINSZ truncation at pty-bun.ts terminal.resize.
+      for (const bad of [65536, 1_000_000]) {
+        expect(
+          parseIpcMessage({ t: "resize", sid: "s", cols: bad, rows: 24 }),
+        ).toBeNull();
+        expect(
+          parseIpcMessage({ t: "resize", sid: "s", cols: 80, rows: bad }),
+        ).toBeNull();
+      }
+      expect(
+        parseIpcMessage({ t: "resize", sid: "s", cols: 65535, rows: 65535 }),
+      ).toEqual({ t: "resize", sid: "s", cols: 65535, rows: 65535 });
+    });
   });
 
   describe("pairing messages", () => {

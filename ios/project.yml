@@ -232,10 +232,19 @@ targets:
       - path: Sources/Relay/RelayClient.swift
       - path: Sources/Relay/RelayMessages.swift
       - path: Sources/Relay/RelaySessionOps.swift
+      # RelayClient calls onWorktree*/onControlErr, defined in this RelayClient
+      # extension. Platform-neutral (Foundation + os only — no UIKit/iOS deps),
+      # so it builds on watchOS. Omitting it broke the watch build with
+      # "cannot find 'onWorktreeList' in scope".
+      - path: Sources/Relay/RelayWorktreeOps.swift
       - path: Sources/Pairing/PairingStore.swift
       - path: Sources/Pairing/DeepLinkHandler.swift
       - path: Sources/Pairing/PairingRelayOps.swift
       - path: Sources/Session/SessionStore.swift
+      # WorktreeStore backs onWorktree*/onControlErr (RelayWorktreeOps). Mirrors
+      # SessionStore (@MainActor + ObservableObject, Foundation + os only — no
+      # UIKit/SwiftUI-iOS), so it builds on watchOS.
+      - path: Sources/Session/WorktreeStore.swift
       - path: Sources/TpCoreCheck.swift
       # TerminalOps provides SessionStore+terminal callback properties used by
       # RelayClient. Safe on watchOS (Foundation + ObjectiveC only; no UIKit).

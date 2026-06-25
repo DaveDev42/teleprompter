@@ -57,6 +57,19 @@ xros-sim / watchos-device / watchos-sim, `embed: false`) 를 링크한다.
 | visionOS Simulator | `xrsimulator` | `TP_PLATFORM=visionos scripts/ios.sh smoke` |
 | watchOS Simulator (B3 ✅) | `watchsimulator` | `TP_PLATFORM=watchos scripts/ios.sh smoke` |
 
+> **watchOS 타깃은 명시적 source allow-list 다 — 새 공유 소스를 추가하면 watch 빌드가 깨진다.**
+> iOS/iPadOS/macOS/visionOS 는 `platform: auto` 멀티플랫폼 타깃이라 `Sources/**` 전체를 자동으로
+> 컴파일하지만, `TeleprompterWatch` 타깃은 `project.yml` 에서 **개별 파일을 하나씩 나열**한다
+> (UIKit/APNs/AVFoundation 의존 파일을 빼기 위함). 그래서 watch 가 컴파일하는 파일
+> (`RelayClient.swift` 등) 이 **새 공유 심볼**을 참조하면 — 그 심볼이 watch source list 에 없는
+> 파일에 정의돼 있을 경우 — watchOS 빌드만 `cannot find type … in scope` 로 깨진다 (다른 4 플랫폼은
+> 통과). 두 가지 수정 패턴: (1) 새 심볼이 **플랫폼 중립**(Foundation/os/Combine 만)이면 그 파일을
+> watch source list 에 추가(예: `RelayWorktreeOps.swift`, `WorktreeStore.swift`); (2) **iOS 전용**
+> (APNs/UserNotifications/UIKit)이면 호출부를 `#if !os(watchOS)` 로 가드(예: `PushTokenObserver`/
+> `PushTokenStore`/`NotificationService`). **공유 파일에 새 타입/콜백을 추가하면 반드시
+> `TP_PLATFORM=watchos scripts/ios.sh build` 로 watch 빌드를 확인**하라 — `scripts/ios.sh all` 의
+> watchOS 행이 이 회귀를 잡는 최종 게이트다.
+
 macOS 는 **Mac Catalyst 아님** (`SUPPORTS_MACCATALYST=NO`). macOS 대상은
 `[sdk=macosx*]` 조건부 빌드 설정으로 `Teleprompter-macOS.entitlements` 를 선택한다.
 

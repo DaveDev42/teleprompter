@@ -268,6 +268,14 @@ export class RelayClient {
       this.kxKey = await deriveKxKey(this.config.pairingSecret);
     }
 
+    // Re-check disposed after the await: a cancel()/dispose() during the
+    // deriveKxKey derivation (common on Ctrl+C mid-pairing) sets disposed=true
+    // and runs cleanup(). The guard at the top only covers pre-await disposal,
+    // so without this re-check we would open a brand-new WebSocket that nobody
+    // owns (not in the manager pool, never reconnected) — a phantom socket that
+    // holds a relay slot until the server's idle/auth timeout.
+    if (this.disposed) return;
+
     this.cleanup();
 
     const ws = new WebSocket(this.config.relayUrl);
@@ -860,6 +868,13 @@ export class RelayClient {
   }
 
   private startPing(): void {
+    // Guard against a dispose() that raced an in-flight relay.auth.ok handler:
+    // handleMessage awaits broadcastDaemonPublicKey() before calling startPing,
+    // and a concurrent dispose()→cleanup()→stopPing() can complete during that
+    // await (disposed=true, pingTimer already null). Without this re-check the
+    // stale continuation would install a fresh interval that dispose() will
+    // never clear, leaking a live 30s timer for the process lifetime.
+    if (this.disposed) return;
     this.stopPing();
     this.pingTimer = setInterval(() => {
       this.send({ t: "relay.ping", ts: Date.now() });
@@ -901,7 +916,18 @@ export class RelayClient {
       this.peerlessReconnects,
     );
     this.reconnectAttempt = nextAttempt;
-    this.reconnectTimer = setTimeout(() => this.connect(), delay);
+    // connect() can reject (corrupt stored relayUrl → WebSocket ctor throws,
+    // or deriveKxKey rejects on a sodium-init failure). An uncaught rejection
+    // from this timer would permanently kill the reconnect loop and escape to
+    // the process unhandledRejection handler instead of our logger — the
+    // pairing then shows in `tp pair list` but never reconnects. Catch, log,
+    // and reschedule so exponential backoff continues.
+    this.reconnectTimer = setTimeout(() => {
+      this.connect().catch((err) => {
+        log.error("reconnect attempt failed, will retry:", err);
+        this.scheduleReconnect();
+      });
+    }, delay);
   }
 
   private cleanup(): void {

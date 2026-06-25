@@ -329,6 +329,12 @@ export class IpcCommandDispatcher {
       this.deps.ipcServer.send(runner, err);
       return;
     }
+    // Drop the relay subscription for the deleted sid, mirroring the relay-plane
+    // session.delete path (see :606). Without this, each RelayClient's
+    // subscribedSessions Set keeps a stale entry for every CLI-deleted sid.
+    for (const client of this.deps.getRelayClients()) {
+      client.unsubscribe(msg.sid);
+    }
     const ok: IpcSessionDeleteOk = {
       t: "session.delete.ok",
       sid: msg.sid,
@@ -380,6 +386,11 @@ export class IpcCommandDispatcher {
           runningKilled++;
         }
         this.deps.store.deleteSession(s.sid);
+        // Drop the relay subscription for each pruned sid (mirrors the
+        // relay-plane unsubscribe at :606 and handleSessionDelete above).
+        for (const client of this.deps.getRelayClients()) {
+          client.unsubscribe(s.sid);
+        }
         deleted.push(s.sid);
       }
     } catch (e) {
@@ -900,6 +911,16 @@ export class IpcCommandDispatcher {
         const wt = await wm.add(wtPath, branch, baseBranch);
         const sid = `${safeBranch}-${ts}`;
         this.deps.createSession(sid, wt.path, { worktreePath: wt.path });
+
+        // Subscribe every relay client to the new sid IMMEDIATELY, before the
+        // runner's IPC `hello` round-trips — mirroring session.create. Without
+        // this, the relay forwards no frames for this sid until handleHello
+        // subscribes (tens-to-hundreds of ms later), so the user's first
+        // app→daemon input frames for a freshly created worktree session would
+        // be silently dropped. Subscribing here closes that race window.
+        for (const r of this.deps.getRelayClients()) {
+          r.subscribe(sid);
+        }
 
         relay
           .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {

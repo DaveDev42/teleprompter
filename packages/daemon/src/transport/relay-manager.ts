@@ -72,6 +72,15 @@ export interface RelayConnectionManagerDeps {
 export class RelayConnectionManager {
   private readonly deps: RelayConnectionManagerDeps;
   private readonly clients: RelayClient[] = [];
+  /**
+   * daemonIds whose removePairing is currently in flight. A second concurrent
+   * removePairing for the same daemonId (e.g. an inbound control.unpair racing
+   * a `tp pair delete`) must NOT re-dispose the client the first call already
+   * owns — doing so makes the second call's sendUnpairNotice run on a closed
+   * socket and report a misleading notified:0. The second call instead only
+   * performs the idempotent store delete.
+   */
+  private readonly removingDaemonIds = new Set<string>();
   /** Test-only factory injection for PendingPairing fake clients. */
   private factory: ((cfg: RelayClientConfig) => RelayClient) | null = null;
 
@@ -346,36 +355,54 @@ export class RelayConnectionManager {
     daemonId: string,
     opts: { notifyPeer: boolean } = { notifyPeer: true },
   ): Promise<number> {
-    const client = this.clients.find((c) => c.daemonId === daemonId);
-    let notified = 0;
-    if (client && opts.notifyPeer) {
-      const peers = client.listPeerFrontendIds();
-      for (const frontendId of peers) {
-        try {
-          if (await client.sendUnpairNotice(frontendId, "user-initiated")) {
-            notified++;
+    // If a removal for this daemonId is already in flight, that call owns the
+    // client teardown. Do only the idempotent store delete here and bail —
+    // re-disposing would close the socket out from under the in-flight notify
+    // and corrupt its notified count (rank 11).
+    if (this.removingDaemonIds.has(daemonId)) {
+      this.deps.store.deletePairing(daemonId);
+      return 0;
+    }
+    this.removingDaemonIds.add(daemonId);
+    try {
+      const client = this.clients.find((c) => c.daemonId === daemonId);
+      let notified = 0;
+      if (client && opts.notifyPeer) {
+        const peers = client.listPeerFrontendIds();
+        for (const frontendId of peers) {
+          try {
+            if (await client.sendUnpairNotice(frontendId, "user-initiated")) {
+              notified++;
+            }
+          } catch (err) {
+            // Best-effort — continue teardown on failure
+            log.warn(
+              `sendUnpairNotice failed for frontend ${frontendId}: ${String(err)}`,
+            );
           }
-        } catch (err) {
-          // Best-effort — continue teardown on failure
-          log.warn(
-            `sendUnpairNotice failed for frontend ${frontendId}: ${String(err)}`,
-          );
         }
+        const logFn = peers.length === 0 ? log.debug : log.info;
+        logFn(
+          `removePairing(${daemonId}): notified ${notified}/${peers.length} peers`,
+        );
       }
-      const logFn = peers.length === 0 ? log.debug : log.info;
-      logFn(
-        `removePairing(${daemonId}): notified ${notified}/${peers.length} peers`,
-      );
+      // Delete the persisted row BEFORE tearing down the in-memory client. If
+      // the store throws (SQLite locked/disk full), the client stays in the
+      // pool and the exception propagates cleanly — rather than leaving a
+      // disposed client AND a surviving pairings row that reconnectSaved()
+      // resurrects on the next daemon restart (rank 3).
+      this.deps.store.deletePairing(daemonId);
+      if (client) {
+        client.dispose();
+        // Re-resolve the index after any awaits — a concurrent removePairing
+        // may have mutated `clients` while sendUnpairNotice was in flight.
+        const i = this.clients.indexOf(client);
+        if (i >= 0) this.clients.splice(i, 1);
+      }
+      return notified;
+    } finally {
+      this.removingDaemonIds.delete(daemonId);
     }
-    if (client) {
-      client.dispose();
-      // Re-resolve the index after any awaits — a concurrent removePairing
-      // may have mutated `clients` while sendUnpairNotice was in flight.
-      const i = this.clients.indexOf(client);
-      if (i >= 0) this.clients.splice(i, 1);
-    }
-    this.deps.store.deletePairing(daemonId);
-    return notified;
   }
 
   /**

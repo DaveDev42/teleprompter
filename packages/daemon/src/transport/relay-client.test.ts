@@ -1055,6 +1055,37 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
 
     client.dispose();
   });
+
+  test("dispose() during connect() opens no phantom WebSocket (rank 9)", async () => {
+    // connect() yields at `await deriveKxKey(pairingSecret)`. A dispose() in
+    // that window must abort BEFORE the WebSocket is created — otherwise a
+    // phantom socket nobody owns registers with the relay and lingers until the
+    // server idle/auth timeout. We fire connect() without awaiting, then
+    // dispose() synchronously so it lands during the kxKey derivation.
+    const daemonKp = await generateKeyPair();
+    const client = new RelayClient(
+      {
+        relayUrl: `ws://localhost:${relayPort}`,
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        registrationProof,
+        keyPair: daemonKp,
+        pairingSecret,
+      },
+      {},
+    );
+
+    const connectPromise = client.connect();
+    client.dispose(); // lands during the deriveKxKey await inside connect()
+    await connectPromise;
+    // Give any (erroneously-opened) socket ample time to register + auth.
+    await Bun.sleep(400);
+
+    expect(client.isConnected()).toBe(false);
+    // The relay must never have seen this daemon come online — no phantom WS.
+    const state = relay.getDaemonState(DAEMON_ID);
+    expect(state?.online ?? false).toBe(false);
+  });
 });
 
 describe("RelayClient.sendPush — wire field selection", () => {

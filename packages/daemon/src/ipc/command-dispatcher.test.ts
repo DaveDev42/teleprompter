@@ -416,6 +416,67 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     ]);
   });
 
+  test("session.delete unsubscribes the deleted sid from every relay client (rank 8)", async () => {
+    // The IPC (CLI) session.delete path must mirror the relay-plane path and
+    // unsubscribe relay clients for the deleted sid — otherwise each client's
+    // subscribedSessions Set keeps a stale entry.
+    const meta: SessionMeta = {
+      sid: "s-stopped",
+      state: "stopped",
+      cwd: "/cwd",
+      worktree_path: null,
+      claude_version: null,
+      created_at: 1,
+      updated_at: 2,
+      last_seq: 0,
+    };
+    const unsubscribed: string[] = [];
+    const relay = {
+      unsubscribe: (sid: string) => unsubscribed.push(sid),
+    } as unknown as RelayClient;
+    const { dispatcher } = makeHarness({
+      sessionMeta: meta,
+      relayClients: [relay],
+    });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "session.delete",
+      sid: "s-stopped",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(unsubscribed).toEqual(["s-stopped"]);
+  });
+
+  test("session.prune unsubscribes each pruned sid from every relay client (rank 8)", async () => {
+    const old: SessionMeta = {
+      sid: "s-old",
+      state: "stopped",
+      cwd: "/cwd",
+      worktree_path: null,
+      claude_version: null,
+      created_at: 1,
+      updated_at: 1,
+      last_seq: 0,
+    };
+    const unsubscribed: string[] = [];
+    const relay = {
+      unsubscribe: (sid: string) => unsubscribed.push(sid),
+    } as unknown as RelayClient;
+    const { dispatcher } = makeHarness({
+      sessions: [old],
+      relayClients: [relay],
+    });
+    dispatcher.dispatchIpc(makeRunner(), {
+      t: "session.prune",
+      age: { kind: "all" },
+      includeRunning: false,
+      dryRun: false,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(unsubscribed).toEqual(["s-old"]);
+  });
+
   test("session.delete on a running session kills the runner then deletes", async () => {
     const meta: SessionMeta = {
       sid: "s-running",

@@ -199,6 +199,29 @@ describe("WorktreeManager", () => {
     expect(existsSync(siblingPath)).toBe(true);
   });
 
+  test("remove rejects a path outside the worktree base directory (containment symmetry with add)", async () => {
+    // remove() must enforce the SAME containment boundary as add(), so an
+    // authenticated frontend cannot remove a worktree registered anywhere on
+    // disk. A true escape above dirname(repoRoot) is rejected before git runs.
+    const escapePath = join(
+      dirname(repoDir),
+      "..",
+      `tp-wt-escape-rm-${Date.now().toString(36)}`,
+    );
+    await expect(manager.remove(escapePath)).rejects.toThrow(
+      "outside the worktree base directory",
+    );
+  });
+
+  test("remove succeeds for a worktree inside the base directory", async () => {
+    // The normal case — a sibling worktree — must still be removable.
+    const wtPath = `${repoDir}-wt-removable`;
+    await manager.add(wtPath, "removable-branch");
+    expect(existsSync(wtPath)).toBe(true);
+    await manager.remove(wtPath, true);
+    expect(existsSync(wtPath)).toBe(false);
+  });
+
   test("list shows multiple worktrees with correct branches", async () => {
     const wt1Path = `${repoDir}-wt-a`;
     const wt2Path = `${repoDir}-wt-b`;

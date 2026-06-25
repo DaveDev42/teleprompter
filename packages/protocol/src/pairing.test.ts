@@ -98,6 +98,90 @@ describe("pairing", () => {
     );
   });
 
+  test("decodePairingData rejects an over-length payload that would otherwise decode", () => {
+    // Build a STRUCTURALLY VALID v3 payload, then append trailing junk so the
+    // base64url string exceeds the 2048-char cap. The v3 decoder reads fixed
+    // offsets and ignores trailing bytes, so WITHOUT the pre-cap this payload
+    // decodes successfully — which makes this a genuine guard (it rejects an
+    // input that would otherwise be accepted), not merely a malformed-input
+    // case. Mirrors MAX_PAIRING_B64_LEN in rust/tp-core/src/pairing.rs.
+    const did = new TextEncoder().encode("padtest"); // 7 bytes, valid utf-8
+    const ps = new Uint8Array(32).fill(1);
+    const pk = new Uint8Array(32).fill(2);
+    // Trailing junk large enough that base64url(total) > 2048 chars.
+    // base64 expands by 4/3, so >1536 bytes total → pad with ~1600 bytes.
+    const junk = new Uint8Array(1600);
+    const buf = new Uint8Array(
+      2 + 1 + 1 + did.length + 1 + 32 + 32 + junk.length,
+    );
+    let o = 0;
+    buf[o++] = "t".charCodeAt(0);
+    buf[o++] = "p".charCodeAt(0);
+    buf[o++] = 3; // version
+    buf[o++] = did.length;
+    buf.set(did, o);
+    o += did.length;
+    buf[o++] = 0; // relayLen = 0 → default relay
+    buf.set(ps, o);
+    o += 32;
+    buf.set(pk, o);
+    o += 32;
+    buf.set(junk, o); // ignored by the v3 decoder
+    let bin = "";
+    for (let i = 0; i < buf.length; i++) {
+      const byte = buf[i];
+      if (byte === undefined)
+        throw new Error("unreachable: index out of bounds");
+      bin += String.fromCharCode(byte);
+    }
+    const b64url = btoa(bin)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    expect(b64url.length).toBeGreaterThan(2048); // precondition: over the cap
+    expect(() => decodePairingData(`tp://p?d=${b64url}`)).toThrow(
+      "Invalid pairing data format",
+    );
+  });
+
+  test("decodePairingData rejects invalid UTF-8 in the daemon-id field", () => {
+    // Build a structurally-valid v3 payload whose did field is a single 0xFF
+    // byte (not valid UTF-8). The lenient default TextDecoder would substitute
+    // U+FFFD and decode successfully; the strict `fatal: true` decoder must
+    // reject — matching the native decoder's `str::from_utf8` rejection.
+    const did = new Uint8Array([0xff]); // invalid UTF-8 lead byte, standalone
+    const ps = new Uint8Array(32).fill(1);
+    const pk = new Uint8Array(32).fill(2);
+    // layout: t p version didLen did relayLen(0) ps(32) pk(32)
+    const buf = new Uint8Array(2 + 1 + 1 + did.length + 1 + 32 + 32);
+    let o = 0;
+    buf[o++] = "t".charCodeAt(0);
+    buf[o++] = "p".charCodeAt(0);
+    buf[o++] = 3; // PAIRING_BINARY_VERSION
+    buf[o++] = did.length; // didLen
+    buf.set(did, o);
+    o += did.length;
+    buf[o++] = 0; // relayLen = 0 → default relay
+    buf.set(ps, o);
+    o += 32;
+    buf.set(pk, o);
+    o += 32;
+    let bin = "";
+    for (let i = 0; i < buf.length; i++) {
+      const byte = buf[i];
+      if (byte === undefined)
+        throw new Error("unreachable: index out of bounds");
+      bin += String.fromCharCode(byte);
+    }
+    const b64url = btoa(bin)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    expect(() => decodePairingData(`tp://p?d=${b64url}`)).toThrow(
+      "Invalid pairing data format",
+    );
+  });
+
   test("encoded form is a tp:// deep link", async () => {
     const bundle = await createPairingBundle(
       "wss://relay.tpmt.dev",

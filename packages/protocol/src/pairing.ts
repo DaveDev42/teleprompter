@@ -42,6 +42,14 @@ const PAIRING_BINARY_MAGIC = "tp"; // 2 bytes
  */
 const PAIRING_BINARY_VERSION = 3;
 /**
+ * Upper bound on the base64url pairing payload accepted by the decoder. A
+ * legitimate v2/v3 bundle is ~772 chars; 2048 is far above any real payload
+ * and bounds attacker-controlled allocation before `base64UrlToBytes` runs.
+ * Mirrors `MAX_PAIRING_B64_LEN` in the live native decoder
+ * (`rust/tp-core/src/pairing.rs`).
+ */
+const MAX_PAIRING_B64_LEN = 2048;
+/**
  * Production relay URL. When the QR encodes this exact URL, the binary form
  * stores `relay_len = 0` to save ~22 bytes (`wss://relay.tpmt.dev`). Decoder
  * treats `relay_len = 0` as "use the default relay". Self-hosted relays still
@@ -213,6 +221,12 @@ export function decodePairingData(raw: string): PairingData {
 }
 
 function decodeBinaryPairing(b64: string): PairingData {
+  // Reject oversized input before allocating the decoded buffer. Mirrors the
+  // native decoder's pre-cap (rust/tp-core/src/pairing.rs) so both decoders
+  // bound attacker-controlled allocation identically.
+  if (b64.length > MAX_PAIRING_B64_LEN) {
+    throw new Error("Invalid pairing data format");
+  }
   let buf: Uint8Array;
   try {
     buf = base64UrlToBytes(b64);
@@ -223,9 +237,20 @@ function decodeBinaryPairing(b64: string): PairingData {
     throw new Error("Invalid pairing data format");
   }
 
-  const dec = new TextDecoder();
+  // `fatal: true` rejects invalid UTF-8 (vs. the default lenient decoder, which
+  // substitutes U+FFFD). Matches the native decoder's strict `str::from_utf8`
+  // (rust/tp-core/src/pairing.rs) so both reject the same malformed payloads.
+  // `decodeUtf8` normalizes the resulting TypeError into the standard error.
+  const dec = new TextDecoder("utf-8", { fatal: true });
+  const decodeUtf8 = (bytes: Uint8Array): string => {
+    try {
+      return dec.decode(bytes);
+    } catch {
+      throw new Error("Invalid pairing data format");
+    }
+  };
   let o = 0;
-  const magic = dec.decode(buf.subarray(o, o + 2));
+  const magic = decodeUtf8(buf.subarray(o, o + 2));
   o += 2;
   if (magic !== PAIRING_BINARY_MAGIC) {
     throw new Error("Invalid pairing data format");
@@ -240,7 +265,7 @@ function decodeBinaryPairing(b64: string): PairingData {
   if (didLen === undefined) throw new Error("Invalid pairing data format");
   if (didLen === 0) throw new Error("Invalid pairing data format");
   if (o + didLen > buf.length) throw new Error("Invalid pairing data format");
-  const wireDid = dec.decode(buf.subarray(o, o + didLen));
+  const wireDid = decodeUtf8(buf.subarray(o, o + didLen));
   o += didLen;
   // v2 stored the did verbatim; v3 strips the canonical `daemon-` prefix.
   const did = version === 2 ? wireDid : `${DAEMON_ID_PREFIX}${wireDid}`;
@@ -252,7 +277,7 @@ function decodeBinaryPairing(b64: string): PairingData {
   const relay =
     relayLen === 0
       ? DEFAULT_PAIRING_RELAY_URL
-      : dec.decode(buf.subarray(o, o + relayLen));
+      : decodeUtf8(buf.subarray(o, o + relayLen));
   o += relayLen;
 
   if (o + 32 + 32 > buf.length) {

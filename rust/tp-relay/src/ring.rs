@@ -26,6 +26,11 @@ use crate::messages::Frame;
 /// `DEFAULT_MAX_RECENT_FRAMES = 10` (`relay-server.ts:69`).
 pub const DEFAULT_CACHE_SIZE: usize = 10;
 
+/// Default cap on the number of distinct `"daemonId:sid"` keys per daemon.
+/// When a daemon exceeds this, the oldest key (by insertion order) is evicted.
+/// Prevents unbounded key growth when a single daemon opens many sessions.
+pub const DEFAULT_MAX_RECENT_FRAME_KEYS_PER_DAEMON: usize = 256;
+
 /// Per-`"daemonId:sid"` ring buffer of recent ciphertext frames.
 ///
 /// The relay never decrypts `ct`; the cache exists purely so a reconnecting
@@ -37,21 +42,43 @@ pub struct RecentFrames {
     /// Maximum frames retained per key.  Excess oldest frames are dropped on
     /// push.
     cache_size: usize,
+    /// Maximum distinct `"daemonId:sid"` keys per daemon.  When a new key
+    /// would exceed this, the oldest key (by insertion order) for that daemon
+    /// is evicted before the new key is created.  `0` disables the cap.
+    max_keys_per_daemon: usize,
+    /// Insertion-ordered log of all keys, oldest first.  Used to find the
+    /// oldest eviction candidate for a given daemon prefix in O(n) time.
+    /// Bounded by (number of live daemons × `max_keys_per_daemon`).
+    key_insertion_order: VecDeque<String>,
 }
 
 impl RecentFrames {
-    /// Construct with an explicit cache depth.  A `cache_size` of 0 disables
-    /// caching (every push is immediately at/over cap and trimmed to empty).
+    /// Construct with an explicit cache depth and the default per-daemon key
+    /// cap ([`DEFAULT_MAX_RECENT_FRAME_KEYS_PER_DAEMON`]).  A `cache_size` of
+    /// 0 disables frame caching (every push is immediately trimmed to empty).
     #[must_use]
     pub fn with_cache_size(cache_size: usize) -> Self {
+        Self::with_cache_and_key_cap(cache_size, DEFAULT_MAX_RECENT_FRAME_KEYS_PER_DAEMON)
+    }
+
+    /// Construct with an explicit cache depth AND an explicit per-daemon key
+    /// cap.  `max_keys_per_daemon = 0` disables the per-daemon key cap.
+    #[must_use]
+    pub fn with_cache_and_key_cap(cache_size: usize, max_keys_per_daemon: usize) -> Self {
         Self {
             buffers: HashMap::new(),
             cache_size,
+            max_keys_per_daemon,
+            key_insertion_order: VecDeque::new(),
         }
     }
 
-    /// Construct from the `TP_RELAY_CACHE_SIZE` env var, falling back to
-    /// [`DEFAULT_CACHE_SIZE`].  A non-numeric or absent value uses the default.
+    /// Construct from environment variables, falling back to defaults.
+    ///
+    /// `TP_RELAY_CACHE_SIZE` → per-key frame depth (default [`DEFAULT_CACHE_SIZE`]).
+    /// `TP_RELAY_MAX_RECENT_FRAME_KEYS` → per-daemon key cap
+    /// (default [`DEFAULT_MAX_RECENT_FRAME_KEYS_PER_DAEMON`]).
+    ///
     /// Mirrors `options?.cacheSize ?? envInt(...) ?? DEFAULT` at
     /// `relay-server.ts:308-311`.
     #[must_use]
@@ -60,7 +87,11 @@ impl RecentFrames {
             .ok()
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(DEFAULT_CACHE_SIZE);
-        Self::with_cache_size(cache_size)
+        let max_keys_per_daemon = std::env::var("TP_RELAY_MAX_RECENT_FRAME_KEYS")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(DEFAULT_MAX_RECENT_FRAME_KEYS_PER_DAEMON);
+        Self::with_cache_and_key_cap(cache_size, max_keys_per_daemon)
     }
 
     /// The configured cache depth.
@@ -78,10 +109,48 @@ impl RecentFrames {
     /// oldest entries past the cap.  Mirrors `relay-server.ts:1130-1146`
     /// (`frames.push(...)` then `if (frames.length > max) frames.shift()`).
     ///
+    /// When `max_keys_per_daemon > 0` and this push would create a NEW key
+    /// that exceeds the per-daemon cap, the oldest key (insertion order) for
+    /// this daemon is evicted first.
+    ///
     /// The frame's `sid` is taken from `frame.sid` (the TS code keys on
     /// `msg.sid`, which is the same field).
     pub fn push(&mut self, daemon_id: &str, frame: Arc<Frame>) {
         let key = Self::key(daemon_id, &frame.sid);
+        let is_new = !self.buffers.contains_key(&key);
+
+        if is_new && self.max_keys_per_daemon > 0 {
+            // Count existing keys for this daemon.
+            let prefix = format!("{daemon_id}:");
+            let daemon_key_count = self
+                .buffers
+                .keys()
+                .filter(|k| k.starts_with(&prefix))
+                .count();
+
+            // Evict oldest keys for this daemon until we have room for the new one.
+            if daemon_key_count >= self.max_keys_per_daemon {
+                let mut evict_count = daemon_key_count + 1 - self.max_keys_per_daemon;
+                let mut i = 0;
+                while evict_count > 0 && i < self.key_insertion_order.len() {
+                    // `remove(i)` returns `Some` because `i < len` is the loop
+                    // guard; `map` over it keeps this branch panic-free.
+                    if self.key_insertion_order[i].starts_with(&prefix) {
+                        if let Some(old_key) = self.key_insertion_order.remove(i) {
+                            self.buffers.remove(&old_key);
+                            evict_count -= 1;
+                        }
+                        // Do NOT increment i: the next element shifted into position i.
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+
+            // Record this new key's insertion order.
+            self.key_insertion_order.push_back(key.clone());
+        }
+
         let ring = self.buffers.entry(key).or_default();
         ring.push_back(frame);
         // Trim oldest-first until at or below the cap.  `while`, not `if`, so a
@@ -119,6 +188,7 @@ impl RecentFrames {
     pub fn purge_daemon(&mut self, daemon_id: &str) {
         let prefix = format!("{daemon_id}:");
         self.buffers.retain(|k, _| !k.starts_with(&prefix));
+        self.key_insertion_order.retain(|k| !k.starts_with(&prefix));
     }
 
     /// Number of distinct `"daemonId:sid"` keys currently cached (test/metric
@@ -246,5 +316,88 @@ mod tests {
         let mut rf = RecentFrames::with_cache_size(0);
         rf.push("d", frame("s", 1, Role::Daemon, None));
         assert!(rf.replay_after("d", "s", 0).is_empty());
+    }
+
+    // ── Per-daemon key cap ────────────────────────────────────────────────────
+
+    #[test]
+    fn key_cap_evicts_oldest_daemon_keys() {
+        let mut rf = RecentFrames::with_cache_and_key_cap(10, 3);
+        // Push to 4 distinct sids for daemon "d".
+        rf.push("d", frame("s1", 1, Role::Daemon, None));
+        rf.push("d", frame("s2", 1, Role::Daemon, None));
+        rf.push("d", frame("s3", 1, Role::Daemon, None));
+        // Now at cap (3 keys). Adding s4 should evict s1 (oldest).
+        rf.push("d", frame("s4", 1, Role::Daemon, None));
+        assert_eq!(rf.key_count(), 3, "still at cap after eviction");
+        // s1 (oldest) must be gone.
+        assert!(
+            rf.replay_after("d", "s1", 0).is_empty(),
+            "s1 must be evicted"
+        );
+        // s4 (newest) must be present.
+        assert!(
+            !rf.replay_after("d", "s4", 0).is_empty(),
+            "s4 must be retained"
+        );
+        // s2, s3 still present.
+        assert!(!rf.replay_after("d", "s2", 0).is_empty());
+        assert!(!rf.replay_after("d", "s3", 0).is_empty());
+    }
+
+    #[test]
+    fn key_cap_is_per_daemon_not_global() {
+        // Daemon "a" and daemon "b" have independent key caps.
+        let mut rf = RecentFrames::with_cache_and_key_cap(10, 2);
+        rf.push("a", frame("s1", 1, Role::Daemon, None));
+        rf.push("a", frame("s2", 1, Role::Daemon, None));
+        rf.push("b", frame("s1", 1, Role::Daemon, None));
+        rf.push("b", frame("s2", 1, Role::Daemon, None));
+        // 4 keys total, 2 per daemon — no eviction yet.
+        assert_eq!(rf.key_count(), 4);
+        // Adding a 3rd key for "a" evicts a's oldest.
+        rf.push("a", frame("s3", 1, Role::Daemon, None));
+        assert_eq!(
+            rf.key_count(),
+            4,
+            "total stays 4 (a evicted s1, b unchanged)"
+        );
+        assert!(rf.replay_after("a", "s1", 0).is_empty(), "a:s1 evicted");
+        assert!(!rf.replay_after("b", "s1", 0).is_empty(), "b:s1 intact");
+    }
+
+    #[test]
+    fn key_cap_zero_disables_cap() {
+        // max_keys_per_daemon=0 → no eviction, keys grow unbounded.
+        let mut rf = RecentFrames::with_cache_and_key_cap(10, 0);
+        for i in 0..10u64 {
+            rf.push("d", frame(&format!("s{i}"), 1, Role::Daemon, None));
+        }
+        assert_eq!(rf.key_count(), 10, "all keys retained when cap is 0");
+    }
+
+    #[test]
+    fn purge_daemon_also_cleans_key_insertion_order() {
+        let mut rf = RecentFrames::with_cache_and_key_cap(10, 3);
+        rf.push("d1", frame("s1", 1, Role::Daemon, None));
+        rf.push("d1", frame("s2", 1, Role::Daemon, None));
+        rf.push("d2", frame("s1", 1, Role::Daemon, None));
+        assert_eq!(rf.key_insertion_order.len(), 3);
+        rf.purge_daemon("d1");
+        assert_eq!(rf.key_count(), 1, "d2:s1 remains");
+        assert_eq!(
+            rf.key_insertion_order.len(),
+            1,
+            "insertion order cleaned for d1"
+        );
+        // Verify d2 can still fill its cap without hitting stale d1 entries.
+        rf.push("d2", frame("s2", 1, Role::Daemon, None));
+        rf.push("d2", frame("s3", 1, Role::Daemon, None));
+        rf.push("d2", frame("s4", 1, Role::Daemon, None));
+        assert_eq!(rf.key_count(), 3, "d2 at cap after adding 3 new keys");
+        assert!(
+            rf.replay_after("d2", "s1", 0).is_empty(),
+            "d2:s1 evicted as oldest"
+        );
     }
 }

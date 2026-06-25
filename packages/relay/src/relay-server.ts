@@ -126,6 +126,43 @@ const OFFLINE_EVICT_AFTER_MS = 60 * 60_000;
  * live subscriptions, not this Set).
  */
 const MAX_SESSIONS_PER_DAEMON = 256;
+/**
+ * Upper bound on the number of distinct daemon registrations the relay will
+ * hold (the `registrations` + `validTokens` maps). `relay.register` writes both
+ * maps for ANY socket — the proof is only used for the different-credentials
+ * guard, never cryptographically verified — and a register-without-auth socket
+ * never creates a `daemonStates` entry, so neither `handleClose` (early-returns
+ * for sockets absent from `clients`) nor `checkStaleDaemons` (iterates
+ * `daemonStates`) ever reclaims it. Without a cap, an unauthenticated peer can
+ * flood distinct daemonIds within the auth-timeout window and grow both maps
+ * until OOM. At the ~10k-connection bar, ~10k daemons is the realistic ceiling;
+ * 50k gives 5× headroom while still bounding the flood. New daemonIds past the
+ * cap are rejected; already-registered daemonIds keep updating (rotate/restart
+ * still works). Env: TP_RELAY_MAX_REGISTRATIONS.
+ */
+const MAX_REGISTRATIONS = 50_000;
+/**
+ * Max messages an UNAUTHENTICATED socket may send before the relay closes it.
+ * The per-client + per-daemon-group rate limiters are gated on an authenticated
+ * `client`, so every pre-auth message (relay.register / relay.auth /
+ * relay.auth.resume / relay.kx) bypasses both layers — each one does real work
+ * (map writes, an HMAC verify) at raw wire speed within the auth-timeout window.
+ * A legitimate handshake is a handful of frames (register + auth + kx, plus a
+ * retry or two), so 30 is generous while capping the pre-auth amplifier. Env:
+ * TP_RELAY_MAX_PREAUTH_MSGS.
+ */
+const MAX_PREAUTH_MSGS = 30;
+/**
+ * Upper bound on the number of distinct `daemonId:sid` keys in `recentFrames`
+ * attributable to a single daemon. Mirrors {@link MAX_SESSIONS_PER_DAEMON}:
+ * recentFrames is seeded on every relay.pub (by daemon OR frontend) and only
+ * reclaimed by evictDaemon (~1h after the daemon goes offline), so a caller
+ * publishing fresh synthetic sids grows the map with no per-daemon bound. When a
+ * daemon exceeds the cap we drop its oldest sid-key (insertion-ordered); routing
+ * uses live subscriptions and the remaining cache, so replay for current
+ * sessions is unaffected.
+ */
+const MAX_RECENT_FRAME_KEYS_PER_DAEMON = 256;
 
 export interface RelayServerOptions {
   /** Max cached frames per session (default: 10, env: TP_RELAY_CACHE_SIZE) */
@@ -140,6 +177,12 @@ export interface RelayServerOptions {
   backpressureBytes?: number;
   /** Auth handshake timeout in ms (default: 10000, env: TP_RELAY_AUTH_TIMEOUT_MS) */
   authTimeoutMs?: number;
+  /** Max distinct daemon registrations held (default: 50000, env: TP_RELAY_MAX_REGISTRATIONS) */
+  maxRegistrations?: number;
+  /** Max messages an unauthenticated socket may send before close (default: 30, env: TP_RELAY_MAX_PREAUTH_MSGS) */
+  maxPreauthMsgs?: number;
+  /** Max recentFrames sid-keys per daemon (default: 256, env: TP_RELAY_MAX_RECENT_FRAME_KEYS) */
+  maxRecentFrameKeysPerDaemon?: number;
   /**
    * HMAC secret for issuing resume tokens. Defaults to env
    * TP_RELAY_RESUME_SECRET; if neither is set, an ephemeral secret is
@@ -265,10 +308,15 @@ export class RelayServer {
     { token: string; proof: string | null }
   >();
 
-  /** Sockets that are open but not yet authenticated (for slowloris timeout) */
+  /**
+   * Sockets that are open but not yet authenticated. Holds the slowloris
+   * timeout timer plus a pre-auth message counter — the rate limiters are gated
+   * on an authenticated client, so the counter is the only throttle on a
+   * pre-auth socket (see MAX_PREAUTH_MSGS).
+   */
   private pendingAuth = new Map<
     ServerWebSocket,
-    ReturnType<typeof setTimeout>
+    { timer: ReturnType<typeof setTimeout>; count: number }
   >();
 
   /** Port the server is listening on */
@@ -282,6 +330,9 @@ export class RelayServer {
   private readonly ratePerDaemon: number;
   private readonly backpressureBytes: number;
   private readonly authTimeoutMs: number;
+  private readonly maxRegistrations: number;
+  private readonly maxPreauthMsgs: number;
+  private readonly maxRecentFrameKeysPerDaemon: number;
 
   private readonly metrics: RelayMetrics = {
     framesIn: 0,
@@ -336,6 +387,18 @@ export class RelayServer {
       options?.authTimeoutMs ??
       envInt("TP_RELAY_AUTH_TIMEOUT_MS") ??
       AUTH_TIMEOUT_MS;
+    this.maxRegistrations =
+      options?.maxRegistrations ??
+      envInt("TP_RELAY_MAX_REGISTRATIONS") ??
+      MAX_REGISTRATIONS;
+    this.maxPreauthMsgs =
+      options?.maxPreauthMsgs ??
+      envInt("TP_RELAY_MAX_PREAUTH_MSGS") ??
+      MAX_PREAUTH_MSGS;
+    this.maxRecentFrameKeysPerDaemon =
+      options?.maxRecentFrameKeysPerDaemon ??
+      envInt("TP_RELAY_MAX_RECENT_FRAME_KEYS") ??
+      MAX_RECENT_FRAME_KEYS_PER_DAEMON;
     this.pushService = options?.pushService ?? new PushService();
     this.resumeSigner = new ResumeTokenSigner({
       secret: options?.resumeSecret,
@@ -548,7 +611,7 @@ ${daemons
               }
             }
           }, self.authTimeoutMs);
-          self.pendingAuth.set(ws, timer);
+          self.pendingAuth.set(ws, { timer, count: 0 });
         },
         message(ws, message) {
           self.handleMessage(ws, message);
@@ -568,7 +631,7 @@ ${daemons
   stop() {
     this.stopStaleCheck();
     this.pushService.dispose();
-    for (const timer of this.pendingAuth.values()) {
+    for (const { timer } of this.pendingAuth.values()) {
       clearTimeout(timer);
     }
     this.pendingAuth.clear();
@@ -666,6 +729,29 @@ ${daemons
       return;
     }
     this.metrics.framesIn++;
+
+    // Pre-auth throttle — runs BEFORE parse so EVERY frame from a not-yet-
+    // authenticated socket counts (malformed/parse-error frames are CPU
+    // amplifiers too: each one costs a decode + JSON.parse + guard). The
+    // per-client + per-daemon-group rate limiters below are gated on an
+    // authenticated client, so this counter is the only throttle on a pre-auth
+    // socket — every relay.register / relay.auth / relay.auth.resume / relay.kx
+    // it sends does real work (map writes, an HMAC verify) at raw wire speed.
+    // Bound the count and close past the threshold so a single socket can't
+    // amplify CPU/memory inside the auth-timeout window.
+    const pending = this.pendingAuth.get(ws);
+    if (pending) {
+      pending.count++;
+      if (pending.count > this.maxPreauthMsgs) {
+        log.warn("closing socket: too many pre-auth messages");
+        try {
+          ws.close(1008, "Too many pre-auth messages");
+        } catch {
+          // already closing
+        }
+        return;
+      }
+    }
 
     let parsed: unknown;
     try {
@@ -790,6 +876,21 @@ ${daemons
       this.send(ws, {
         t: "relay.register.err",
         e: "Daemon ID already registered with different credentials",
+      });
+      return;
+    }
+
+    // Cap the registrations map. `relay.register` writes validTokens +
+    // registrations for ANY socket (the proof is not cryptographically
+    // verified), and a register-without-auth socket never creates a
+    // daemonStates entry — so neither handleClose nor checkStaleDaemons ever
+    // reclaims it. Without a cap an unauthenticated peer floods distinct
+    // daemonIds until OOM. Reject only a NEW daemonId past the cap; an
+    // already-known daemonId (rotate/restart) keeps updating its existing entry.
+    if (!existing && this.registrations.size >= this.maxRegistrations) {
+      this.send(ws, {
+        t: "relay.register.err",
+        e: "Relay registration capacity reached",
       });
       return;
     }
@@ -1154,6 +1255,34 @@ ${daemons
     // Store in recent frames ring buffer. CachedFrame is a discriminated union
     // so the frontend arm requires a frontendId (never undefined).
     if (!this.recentFrames.has(key)) {
+      // Bound recentFrames per daemon (mirrors the MAX_SESSIONS_PER_DAEMON cap
+      // on state.sessions). Keys are `daemonId:sid` and the map is reclaimed
+      // only by evictDaemon (~1h offline), so without this a caller publishing
+      // fresh synthetic sids grows it unboundedly while the daemon stays online.
+      // Map iteration is insertion-ordered, so the first key with this daemon's
+      // prefix is its oldest — drop it. The `:` delimiter can't appear in a
+      // daemonId (proof-derived id), so the prefix test is unambiguous.
+      // Collect this daemon's existing sid-keys in insertion order in ONE pass.
+      // This runs only when a NEW sid-key is created (not on every publish), so
+      // the O(keys) scan is amortized over a daemon's whole session lifetime,
+      // not per frame. `recentFrames.keys()` is insertion-ordered, so the array
+      // is oldest-first — evict from the front until under the cap, mirroring
+      // evictDaemon's prefix-match cleanup. The `:` delimiter can't appear in a
+      // daemonId (proof-derived id), so the prefix test is unambiguous.
+      const prefix = `${client.daemonId}:`;
+      const daemonKeys: string[] = [];
+      for (const existingKey of this.recentFrames.keys()) {
+        if (existingKey.startsWith(prefix)) daemonKeys.push(existingKey);
+      }
+      let evictIdx = 0;
+      while (
+        daemonKeys.length - evictIdx >= this.maxRecentFrameKeysPerDaemon &&
+        evictIdx < daemonKeys.length
+      ) {
+        const oldest = daemonKeys[evictIdx];
+        if (oldest !== undefined) this.recentFrames.delete(oldest);
+        evictIdx++;
+      }
       this.recentFrames.set(key, []);
     }
     const frames = this.recentFrames.get(key) ?? [];
@@ -1345,9 +1474,9 @@ ${daemons
   }
 
   private clearPendingAuth(ws: ServerWebSocket) {
-    const timer = this.pendingAuth.get(ws);
-    if (timer) {
-      clearTimeout(timer);
+    const entry = this.pendingAuth.get(ws);
+    if (entry) {
+      clearTimeout(entry.timer);
       this.pendingAuth.delete(ws);
     }
   }

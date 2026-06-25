@@ -22,6 +22,7 @@ import {
   isPositiveInt,
   isString,
   isStringArray,
+  isTerminalDimension,
   type PlainObject,
 } from "./guard-primitives";
 import type {
@@ -224,8 +225,10 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
 
     case "resize": {
       if (!isString(raw["sid"])) return null;
-      if (!isPositiveInt(raw["cols"])) return null;
-      if (!isPositiveInt(raw["rows"])) return null;
+      // cols/rows are uint16 at the kernel (TIOCSWINSZ ws_col/ws_row); cap at
+      // 65535 so a relay-plane value the daemon forwards here cannot truncate.
+      if (!isTerminalDimension(raw["cols"])) return null;
+      if (!isTerminalDimension(raw["rows"])) return null;
       return {
         t: "resize",
         sid: raw["sid"],

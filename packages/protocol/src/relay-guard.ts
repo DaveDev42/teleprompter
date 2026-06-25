@@ -22,8 +22,9 @@ import {
   isOptionalBoolean,
   isOptionalNumber,
   isOptionalString,
-  isPositiveInt,
+  isOptionalTerminalDimension,
   isString,
+  isTerminalDimension,
 } from "./guard-primitives";
 import { RECORD_KIND_SET, type RecordKind } from "./types/record";
 import type {
@@ -131,8 +132,8 @@ export function parseRelayControlMessage(
 
     case "resize": {
       if (!isString(raw["sid"])) return null;
-      if (!isPositiveInt(raw["cols"])) return null;
-      if (!isPositiveInt(raw["rows"])) return null;
+      if (!isTerminalDimension(raw["cols"])) return null;
+      if (!isTerminalDimension(raw["rows"])) return null;
       return {
         t: "resize",
         sid: raw["sid"],
@@ -147,8 +148,8 @@ export function parseRelayControlMessage(
     case "session.create": {
       if (!isString(raw["cwd"])) return null;
       if (!isOptionalString(raw["sid"])) return null;
-      if (!isOptionalPositiveInt(raw["cols"])) return null;
-      if (!isOptionalPositiveInt(raw["rows"])) return null;
+      if (!isOptionalTerminalDimension(raw["cols"])) return null;
+      if (!isOptionalTerminalDimension(raw["rows"])) return null;
       return {
         t: "session.create",
         cwd: raw["cwd"],
@@ -178,7 +179,10 @@ export function parseRelayControlMessage(
       if (!isExportFormat(raw["format"])) return null;
       if (!isRecordKindArray(raw["recordTypes"])) return null;
       if (!isTimeRange(raw["timeRange"])) return null;
-      if (!isOptionalNumber(raw["limit"])) return null;
+      // `limit` must be a positive integer (or absent). isOptionalNumber would
+      // accept -1, which becomes SQLite `LIMIT -1` (= no limit) after the
+      // Math.min(limit, 50000) downstream, bypassing the 50000-row export cap.
+      if (!isOptionalPositiveInt(raw["limit"])) return null;
       return {
         t: "session.export",
         sid: raw["sid"],

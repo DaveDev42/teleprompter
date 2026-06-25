@@ -142,6 +142,39 @@ describe("parseRelayControlMessage", () => {
         ).toBeNull();
       }
     });
+
+    test("rejects cols/rows above the uint16 ceiling (TIOCSWINSZ truncation)", () => {
+      // Regression: cols/rows had no upper bound. ws_col/ws_row are uint16 at
+      // the kernel, so cols=65536 truncates to 0 (degenerate PTY) once the
+      // daemon forwards the value to terminal.resize. Reject anything > 65535.
+      for (const bad of [65536, 70000, 1_000_000]) {
+        expect(
+          parseRelayControlMessage({
+            t: "resize",
+            sid: "s",
+            cols: bad,
+            rows: 24,
+          }),
+        ).toBeNull();
+        expect(
+          parseRelayControlMessage({
+            t: "resize",
+            sid: "s",
+            cols: 80,
+            rows: bad,
+          }),
+        ).toBeNull();
+      }
+      // The boundary value 65535 is still accepted.
+      expect(
+        parseRelayControlMessage({
+          t: "resize",
+          sid: "s",
+          cols: 65535,
+          rows: 65535,
+        }),
+      ).toEqual({ t: "resize", sid: "s", cols: 65535, rows: 65535 });
+    });
   });
 
   describe("session.* messages", () => {
@@ -174,9 +207,9 @@ describe("parseRelayControlMessage", () => {
         cols: 120,
         rows: 40,
       });
-      // Optional dimensions, when present, must be positive integers — same
-      // PTY-resize hazard as the resize message.
-      for (const bad of [0, -1, 80.5, Number.NaN]) {
+      // Optional dimensions, when present, must be positive integers within
+      // the uint16 ceiling — same PTY-resize hazard as the resize message.
+      for (const bad of [0, -1, 80.5, Number.NaN, 65536, 1_000_000]) {
         expect(
           parseRelayControlMessage({
             t: "session.create",
@@ -192,6 +225,21 @@ describe("parseRelayControlMessage", () => {
           }),
         ).toBeNull();
       }
+      // 65535 (the uint16 boundary) is accepted.
+      expect(
+        parseRelayControlMessage({
+          t: "session.create",
+          cwd: "/tmp",
+          cols: 65535,
+          rows: 65535,
+        }),
+      ).toEqual({
+        t: "session.create",
+        cwd: "/tmp",
+        sid: undefined,
+        cols: 65535,
+        rows: 65535,
+      });
     });
 
     test("session.stop / session.restart require sid", () => {
@@ -231,6 +279,45 @@ describe("parseRelayControlMessage", () => {
         recordTypes: ["io", "event"],
         timeRange: { from: 0, to: 100 },
         limit: 500,
+      });
+    });
+
+    test("session.export rejects a non-positive-integer limit (SQLite LIMIT -1 bypass)", () => {
+      // Regression: `limit` used isOptionalNumber, so -1 survived the guard.
+      // Downstream Math.min(-1, 50000) = -1, and SQLite treats `LIMIT -1` as
+      // no limit — bypassing the 50000-row export cap and serializing every
+      // record of a large session into one encrypted response. Reject -1, 0,
+      // and non-integer floats at the boundary.
+      for (const bad of [
+        -1,
+        0,
+        -500,
+        500.5,
+        Number.NaN,
+        Number.POSITIVE_INFINITY,
+      ]) {
+        expect(
+          parseRelayControlMessage({
+            t: "session.export",
+            sid: "s",
+            limit: bad,
+          }),
+        ).toBeNull();
+      }
+      // A positive integer (and absence) is still accepted.
+      expect(
+        parseRelayControlMessage({
+          t: "session.export",
+          sid: "s",
+          limit: 1,
+        }),
+      ).toEqual({
+        t: "session.export",
+        sid: "s",
+        format: undefined,
+        recordTypes: undefined,
+        timeRange: undefined,
+        limit: 1,
       });
     });
 

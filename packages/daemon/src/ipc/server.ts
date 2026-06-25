@@ -84,7 +84,25 @@ export class IpcServer {
             if (msg.t === "hello") {
               runner.sid = msg.sid;
             }
-            self.events.onMessage(runner, msg, frame.binary);
+            // onMessage → dispatchIpc → handleRec/handleHello/handleBye, which run
+            // synchronous SQLite writes (insertStmt.run() etc.). Those CAN throw on
+            // a transient I/O error (disk full, SQLITE_BUSY, a corrupt page). Bun
+            // does NOT wrap socket `data` callbacks in an implicit try/catch, so an
+            // unguarded throw here escapes the event-loop callback and terminates
+            // the ENTIRE daemon — killing every other running session, its IPC, and
+            // the relay client. Contain it to the offending socket: log + end() it
+            // (mirrors the decode-error path above), so one runner's transient DB
+            // error never crashes the mux.
+            try {
+              self.events.onMessage(runner, msg, frame.binary);
+            } catch (err) {
+              log.error(
+                `onMessage handler threw (sid=${runner.sid ?? "?"}, t=${msg.t}) — closing socket:`,
+                err instanceof Error ? err.message : String(err),
+              );
+              (socket as unknown as { end(): void }).end();
+              return;
+            }
           }
         },
         drain(socket) {

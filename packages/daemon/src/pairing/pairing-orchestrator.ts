@@ -102,7 +102,23 @@ export class PairingOrchestrator {
         const wrappedEvents = {
           ...events,
           onFrontendJoined: (frontendId: string) => {
-            events.onFrontendJoined?.(frontendId);
+            // The delegate runs RelayConnectionManager.buildEvents side-effects
+            // (e.g. store.listSessions() — a live SQLite query) that CAN throw on
+            // a transient DB/FS error. If it does, `pp.__markCompleted` MUST still
+            // run: otherwise the single-slot PendingPairing never resolves, every
+            // later begin() throws 'already-pending', and `tp pair new` is wedged
+            // for the daemon's lifetime (no pairing timeout exists). The frontend
+            // has already completed kx at this point, so the pairing IS complete —
+            // a hello/subscribe hiccup must not strand the slot.
+            try {
+              events.onFrontendJoined?.(frontendId);
+            } catch (err) {
+              log.warn(
+                `onFrontendJoined side-effects failed (pairingId=${pp.pairingId}): ${
+                  err instanceof Error ? err.message : String(err)
+                }`,
+              );
+            }
             pp.__markCompleted(frontendId);
           },
         };

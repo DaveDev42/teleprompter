@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import {
+  assertSafeSid,
   createLogger,
   decodeWireLabel,
   type Label,
@@ -158,6 +159,11 @@ export class Store {
     worktreePath?: string,
     claudeVersion?: string,
   ): SessionDb {
+    // Defense in depth: `sid` is path-joined into `sessions/<sid>.sqlite` below,
+    // so reject path-traversal at the lowest layer too (the IPC dispatcher also
+    // guards frontend-supplied sids, but Store is the actual path-join site —
+    // guarding here covers any other caller). Every generated sid passes.
+    assertSafeSid(sid);
     const now = Date.now();
     this.createStmt.run(
       sid,

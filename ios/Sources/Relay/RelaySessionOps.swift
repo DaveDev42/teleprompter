@@ -82,7 +82,7 @@ extension RelayClient {
     /// `replaceSessionsForDaemon`).
     @discardableResult
     func createSession(cwd: String, cols: Int? = nil, rows: Int? = nil) -> Bool {
-        let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "relay.session")
+        let log = Logger(subsystem: "dev.tpmt.app", category: "relay.session")
         let msg = SessionCreate(cwd: cwd, sid: nil, cols: cols, rows: rows)
         let sent = publishControl(msg, on: RelayChannel.meta)
         log.notice(
@@ -96,7 +96,7 @@ extension RelayClient {
     /// state via `relay.state`. Returns `true` if the control frame was published.
     @discardableResult
     func stopSession(sid: String) -> Bool {
-        let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "relay.session")
+        let log = Logger(subsystem: "dev.tpmt.app", category: "relay.session")
         let sent = publishControl(SessionStop(sid: sid), on: RelayChannel.meta)
         log.notice(
             "stopSession sid=\(sid, privacy: .public) sent=\(sent, privacy: .public)"
@@ -110,7 +110,7 @@ extension RelayClient {
     /// peer channel.
     @discardableResult
     func deleteSession(sid: String) -> Bool {
-        let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "relay.session")
+        let log = Logger(subsystem: "dev.tpmt.app", category: "relay.session")
         let sent = publishControl(SessionDelete(sid: sid), on: RelayChannel.meta)
         log.notice(
             "deleteSession sid=\(sid, privacy: .public) sent=\(sent, privacy: .public)"

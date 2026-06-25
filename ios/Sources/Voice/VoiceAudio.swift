@@ -51,7 +51,7 @@ func hasMicrophoneDevice() -> Bool {
 
 // MARK: - AudioCapture (AVAudioEngine-based)
 
-private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "voice.audio")
+private let log = Logger(subsystem: "dev.tpmt.app", category: "voice.audio")
 private let targetSampleRate: Double = 24000
 
 /// Microphone capture using AVAudioEngine.

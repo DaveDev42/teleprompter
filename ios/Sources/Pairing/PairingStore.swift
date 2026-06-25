@@ -63,7 +63,7 @@ final class PairingStore: @unchecked Sendable {
 
     private let defaults: UserDefaults
     private let keychainService: String
-    private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "pairing")
+    private let log = Logger(subsystem: "dev.tpmt.app", category: "pairing")
 
     private enum Key {
         static let frontendId = "tp.frontendId"
@@ -73,7 +73,7 @@ final class PairingStore: @unchecked Sendable {
 
     init(
         defaults: UserDefaults = .standard,
-        keychainService: String = "dev.tpmt.teleprompter.pairing"
+        keychainService: String = "dev.tpmt.app.pairing"
     ) {
         self.defaults = defaults
         self.keychainService = keychainService

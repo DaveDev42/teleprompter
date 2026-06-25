@@ -8,7 +8,7 @@ import GameController
 import QuartzCore
 #endif
 
-private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "gamepad")
+private let log = Logger(subsystem: "dev.tpmt.app", category: "gamepad")
 
 // MARK: - GamepadCoordinator
 //

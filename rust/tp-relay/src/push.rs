@@ -623,7 +623,7 @@ mod tests {
         Arc::new(ApnsClient::new(
             ApnsClientConfig {
                 host: "api.push.apple.com".into(),
-                bundle_id: "dev.tpmt.teleprompter".into(),
+                bundle_id: "dev.tpmt.app".into(),
                 max_retries: 0, // no retries in tests — faster
                 retry_base_ms: 1,
             },

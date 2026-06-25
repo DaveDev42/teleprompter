@@ -34,7 +34,7 @@ import FoundationModels
 // caller's VoiceStore fork handles that branch (see notes). sendAudio() here is
 // a deliberate no-op.
 
-private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "voice.ondevice")
+private let log = Logger(subsystem: "dev.tpmt.app", category: "voice.ondevice")
 
 /// End-of-utterance silence window. SFSpeechRecognizer has no VAD, so we treat
 /// "no new partial result for this long" as the user having finished speaking.

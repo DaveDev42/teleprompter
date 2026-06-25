@@ -152,7 +152,7 @@ suffices (open question — recommend: shared layout for A2, iPad polish later i
 **Goal:** `scripts/ios.sh` gains `TP_PLATFORM` (`ios`|`macos`, default `ios` →
 **byte-for-byte current behavior when unset**). macOS bypasses simctl: launch via
 `open` / exec the binary, inject deep link via LaunchServices, scrape markers from
-the **host** unified log (`log show --predicate 'subsystem == "dev.tpmt.teleprompter"'`,
+the **host** unified log (`log show --predicate 'subsystem == "dev.tpmt.app"'`,
 likely with `--debug --info` since host OSLog drops Debug/Info by default).
 
 **Critique guardrail:** the shared simctl marker-polling loop (`ios.sh:247-296`) is

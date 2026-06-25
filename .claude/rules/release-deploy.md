@@ -77,7 +77,7 @@ brew update && brew upgrade davedev42/tap/tp && tp version
 | `APNS_KEY` | APNs HTTP/2 ES256 P-256 private key. `.p8` 파일 경로 또는 PEM 문자열 (인라인). Relay 서버 env에 주입. |
 | `APNS_KEY_ID` | APNs Key ID (10자 대문자). Apple Developer Console에서 발급. |
 | `APNS_TEAM_ID` | Apple Team ID (10자 대문자). |
-| `APNS_BUNDLE_ID` | APNs topic (app bundle ID, e.g. `dev.tpmt.teleprompter`). |
+| `APNS_BUNDLE_ID` | APNs topic (app bundle ID, e.g. `dev.tpmt.app`). |
 | `APNS_ENV` | APNs 환경: `"sandbox"` (개발 relay) 또는 `"prod"` (배포 relay). Per-deployment — not on wire. |
 
 # Version Management

@@ -87,7 +87,7 @@ final class SessionNavigator {
 final class NotificationService: NSObject {
     static let shared = NotificationService()
 
-    private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "notifications")
+    private let log = Logger(subsystem: "dev.tpmt.app", category: "notifications")
     private let center = UNUserNotificationCenter.current()
 
     private override init() {
@@ -225,7 +225,7 @@ extension NotificationService: UNUserNotificationCenterDelegate {
     ) async {
         let userInfo = response.notification.request.content.userInfo
         guard let sid = userInfo["sid"] as? String else { return }
-        let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "notifications")
+        let log = Logger(subsystem: "dev.tpmt.app", category: "notifications")
         log.notice("Notification tap: navigate to session \(sid, privacy: .public)")
         // M13: post the sid to the shared navigator so the root view switches tabs.
         await MainActor.run {

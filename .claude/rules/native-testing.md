@@ -38,7 +38,7 @@ golden 토큰 pre-seed, 합성 `sess-smoketest`)이 기본. **실 `tp` daemon+re
 > **`TP_INPUT_OK` 가 watchOS 에서 빠지는 이유**: ADR-0002 §4 — watchOS 는 제한 경험(입력 송신 미구현).
 > 그래서 watchOS smoke 는 M0–M4 (7마커) 만 어서션한다.
 
-## 마커 (8마커, os.Logger `subsystem == "dev.tpmt.teleprompter"`)
+## 마커 (8마커, os.Logger `subsystem == "dev.tpmt.app"`)
 
 | # | 마커 | 의미 |
 |---|---|---|
@@ -51,7 +51,7 @@ golden 토큰 pre-seed, 합성 `sess-smoketest`)이 기본. **실 `tp` daemon+re
 | M4 | `TP_SESSION_OK` | 세션 렌더 (hello/history) |
 | M5 | `TP_INPUT_OK` | 입력 송신 왕복 (watchOS 제외) |
 
-폴링 predicate: `--predicate "subsystem == \"dev.tpmt.teleprompter\""`. iOS 는 `simctl spawn … log show`,
+폴링 predicate: `--predicate "subsystem == \"dev.tpmt.app\""`. iOS 는 `simctl spawn … log show`,
 macOS 는 `log stream` 라이브 캡처, visionOS/watchOS 는 `simctl spawn … log show --last Ns` (지연 큼).
 
 ## 환경 변수

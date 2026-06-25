@@ -43,7 +43,7 @@ enum VoiceConnectionStatus: Equatable {
 
 // MARK: - VoiceStore
 
-private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "voice.store")
+private let log = Logger(subsystem: "dev.tpmt.app", category: "voice.store")
 
 /// Observable state machine for voice input/output.
 ///

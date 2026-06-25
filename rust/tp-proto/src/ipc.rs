@@ -10,8 +10,8 @@ use serde_json::Value;
 
 use crate::label::{decode_wire_label, Label};
 use crate::{
-    as_string_array, is_non_negative_int, is_number, is_positive_int, opt_string, req_bool,
-    req_string,
+    as_string_array, is_non_negative_int, is_number, is_positive_int, is_terminal_dimension,
+    opt_string, req_bool, req_string,
 };
 
 // ---------------------------------------------------------------------------
@@ -396,8 +396,11 @@ pub fn parse_ipc_message(raw: &Value) -> Option<IpcMessage> {
         }
         "resize" => {
             let sid = req_string(obj, "sid")?;
-            let cols = is_positive_int(obj.get("cols")?)?;
-            let rows = is_positive_int(obj.get("rows")?)?;
+            // cols/rows are uint16 at the kernel (TIOCSWINSZ ws_col/ws_row); cap at
+            // 65535 (MAX_TERMINAL_DIMENSION) so a relay-plane value the daemon forwards
+            // here cannot truncate. Mirrors `isTerminalDimension` (guard-primitives.ts).
+            let cols = is_terminal_dimension(obj.get("cols")?)?;
+            let rows = is_terminal_dimension(obj.get("rows")?)?;
             Some(IpcMessage::Resize { sid, cols, rows })
         }
         "pair.begin" => {
@@ -808,6 +811,33 @@ mod tests {
         assert!(parse_ipc_message(&json!({
             "t": "doctor.probe.ok",
             "relays": [{"daemonId": "d", "relayUrl": "r", "connected": false}]
+        }))
+        .is_none());
+    }
+
+    #[test]
+    fn resize_terminal_dimension_cap() {
+        // cols=65535 (MAX_TERMINAL_DIMENSION) → accepted.
+        assert!(parse_ipc_message(&json!({
+            "t": "resize", "sid": "s", "cols": 65535, "rows": 24
+        }))
+        .is_some());
+
+        // cols=65536 → rejected (truncates to 0 in kernel uint16 ws_col).
+        assert!(parse_ipc_message(&json!({
+            "t": "resize", "sid": "s", "cols": 65536, "rows": 24
+        }))
+        .is_none());
+
+        // rows=65536 → rejected.
+        assert!(parse_ipc_message(&json!({
+            "t": "resize", "sid": "s", "cols": 80, "rows": 65536
+        }))
+        .is_none());
+
+        // cols=0 → rejected (is_positive_int: must be > 0; existing behavior preserved).
+        assert!(parse_ipc_message(&json!({
+            "t": "resize", "sid": "s", "cols": 0, "rows": 24
         }))
         .is_none());
     }

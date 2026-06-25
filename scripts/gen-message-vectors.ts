@@ -241,6 +241,22 @@ const relayClient: ParseCase[] = [
     token: "t",
     platform: "web",
   }),
+  // Wire-boundary guard: platform-aware token length cap (PR #769 / Fix 1).
+  // iOS token length 129 → TS rejects (MAX_PUSH_TOKEN_LEN.ios = 128).
+  parseCase(parseRelayClientMessage, "push-register-token-too-long-ios", {
+    t: "relay.push.register",
+    frontendId: "f",
+    token: "a".repeat(129),
+    platform: "ios",
+  }),
+  // Android token length ~200 → TS ACCEPTS (MAX_PUSH_TOKEN_LEN.android = 1024).
+  // This case proves platform-awareness: a flat 128-byte cap would wrongly reject.
+  parseCase(parseRelayClientMessage, "push-register-token-ok-android", {
+    t: "relay.push.register",
+    frontendId: "f",
+    token: "a".repeat(200),
+    platform: "android",
+  }),
 ];
 
 // ── relay.* server→client (parseRelayServerMessage) ───────────────────────
@@ -729,6 +745,21 @@ const ipc: ParseCase[] = [
     t: "resize",
     sid: "s",
     cols: 0,
+    rows: 24,
+  }),
+  // Wire-boundary guard: terminal dimension uint16 cap (PR #769 / Fix 2).
+  // cols=65535 (MAX_TERMINAL_DIMENSION) → TS accepts.
+  parseCase(parseIpcMessage, "resize-cols-max", {
+    t: "resize",
+    sid: "s",
+    cols: 65535,
+    rows: 24,
+  }),
+  // cols=65536 → TS rejects (truncates to 0 in kernel uint16 ws_col).
+  parseCase(parseIpcMessage, "resize-cols-too-big", {
+    t: "resize",
+    sid: "s",
+    cols: 65536,
     rows: 24,
   }),
   parseCase(parseIpcMessage, "pair-rename-number-label", {

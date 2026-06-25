@@ -304,4 +304,86 @@ describe("IpcServer", () => {
       errSpy.mockRestore();
     }
   });
+
+  // Socket-dirent-heal regression: the in-kernel listening socket survives a
+  // dirent unlink, but the path becomes unreachable by connect() (macOS
+  // AF_UNIX = VFS, no abstract namespace), so a live daemon goes silently
+  // unreachable — every new `tp` client sees ENOENT, reports "not running",
+  // and risks spawning a duplicate. The heal timer re-binds when it notices the
+  // dirent vanished. This drives that path synchronously via __healNow().
+  //
+  // GENUINE-GUARD PROOF (source-only revert): revert just the heal logic
+  // (make __healNow a no-op / drop the re-listen) and this test FAILS at the
+  // post-heal connect, because the unlinked path stays ENOENT forever.
+  test("re-binds the socket after its dirent is unlinked out from under a live daemon", async () => {
+    const { unlinkSync, existsSync } = await import("fs");
+
+    // An EXISTING runner connection (tracked by sid) must SURVIVE the re-bind:
+    // re-binding drops only the listening socket, not already-accepted sockets.
+    const survivor = await connectClient();
+    survivor.write(
+      Buffer.from(
+        encodeFrame({ t: "hello", sid: "survivor", cwd: "/s", pid: 7 }),
+      ),
+    );
+    await Bun.sleep(50);
+    expect(server.findRunnerBySid("survivor")).toBeDefined();
+    expect(existsSync(socketPath)).toBe(true);
+
+    // Simulate the in-the-wild unlink (restart race / stray pre-unlink / OS
+    // churn): the dirent is removed while the listening socket stays alive
+    // in-kernel.
+    unlinkSync(socketPath);
+    expect(existsSync(socketPath)).toBe(false);
+
+    // The split-brain symptom: the daemon is alive but unreachable by path.
+    await expect(connectClient()).rejects.toThrow();
+
+    // Heal (the heal timer's body, run synchronously). It must re-create a
+    // usable dirent.
+    const healed = server.__healNow();
+    expect(healed).toBe(true);
+    expect(existsSync(socketPath)).toBe(true);
+
+    // The pre-existing runner is still registered after the re-bind, and the
+    // daemon can still send to it (its accepted socket was untouched).
+    const survivorRunner = server.findRunnerBySid("survivor");
+    expect(survivorRunner).toBeDefined();
+    if (survivorRunner) {
+      server.send(survivorRunner, { t: "ack", sid: "survivor", seq: 1 });
+    }
+
+    // Reachable again: a brand-new client connects and its hello flows through.
+    const after = await connectClient();
+    after.write(
+      Buffer.from(
+        encodeFrame({ t: "hello", sid: "healed", cwd: "/h", pid: 9 }),
+      ),
+    );
+    await Bun.sleep(50);
+    expect(server.findRunnerBySid("healed")).toBeDefined();
+    after.end();
+    survivor.end();
+  });
+
+  // A healthy dirent must NOT trigger a needless re-bind (no churn, no dropped
+  // listener) — __healNow returns false when the socket file is present.
+  test("does not re-bind when the socket dirent is healthy", async () => {
+    expect(server.__healNow()).toBe(false);
+    // Still reachable (the original listener was untouched).
+    const client = await connectClient();
+    client.end();
+  });
+
+  // After stop(), the heal path is inert — a relisten must never resurrect a
+  // socket the daemon deliberately tore down.
+  test("does not heal after stop()", async () => {
+    const { unlinkSync, existsSync } = await import("fs");
+    server.stop();
+    if (existsSync(socketPath)) unlinkSync(socketPath);
+    expect(server.__healNow()).toBe(false);
+    expect(existsSync(socketPath)).toBe(false);
+    // re-start so afterEach's stop() is a clean no-op pairing.
+    server.start(socketPath);
+  });
 });

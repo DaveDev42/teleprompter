@@ -104,11 +104,12 @@ export async function doctorCommand(
     issues++;
   }
 
-  // Daemon socket
-  const socketPath = join(
-    process.env["XDG_RUNTIME_DIR"] ?? `/tmp/teleprompter-${process.getuid?.()}`,
-    "daemon.sock",
-  );
+  // Daemon socket — must use the canonical resolver, not an inline rebuild.
+  // The old inline path only honored XDG_RUNTIME_DIR and the /tmp fallback,
+  // skipping resolveRuntimeDir()'s /run/user/<uid> branch, so on a
+  // systemd-managed daemon with XDG_RUNTIME_DIR unset (WSL login shell) it
+  // printed a stale "/tmp/..." path that never matched the real socket.
+  const socketPath = getSocketPath();
   if (existsSync(socketPath)) {
     check("Daemon socket", socketPath, true);
   } else {

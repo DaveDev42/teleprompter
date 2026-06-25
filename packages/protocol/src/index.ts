@@ -48,5 +48,9 @@ export type { RelayControlMessage } from "./relay-guard";
 export { parseRelayControlMessage } from "./relay-guard";
 export { parseRelayServerMessage } from "./relay-server-guard";
 export { parseSessionServerMessage } from "./session-server-guard";
-export { getSocketPath, resolveRuntimeDir } from "./socket-path";
+export {
+  assertSafeSid,
+  getSocketPath,
+  resolveRuntimeDir,
+} from "./socket-path";
 export * from "./types";

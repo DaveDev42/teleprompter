@@ -29,6 +29,7 @@ import type {
   SessionStateMsg,
 } from "@teleprompter/protocol";
 import {
+  assertSafeSid,
   createLogger,
   NAMESPACE_SET,
   RELAY_CHANNEL_CONTROL,
@@ -521,6 +522,15 @@ export class IpcCommandDispatcher {
       case "session.create": {
         const sid = msg.sid ?? `session-${Date.now().toString(36)}`;
         try {
+          // `msg.sid` is frontend-supplied over the relay and reaches Store's
+          // `join(storeDir, 'sessions', sid + '.sqlite')` path-join, so a crafted
+          // `../../evil` could create/unlink a SQLite file at any daemon-writable
+          // path (and leak relay subscriptions that the later runner-crash never
+          // cleans up). Validate BEFORE createSession/subscribe so a bad sid is a
+          // clean SESSION_ERROR with zero side-effects. Auto-generated sids
+          // (`session-<base36ts>`) and worktree `<safeBranch>-<ts>` sids always
+          // pass the allowlist, so no legitimate create path breaks.
+          assertSafeSid(sid);
           this.deps.createSession(sid, msg.cwd, {
             cols: msg.cols,
             rows: msg.rows,
@@ -991,15 +1001,21 @@ export class IpcCommandDispatcher {
     }
 
     const effectiveLimit = Math.min(limit ?? 50000, 50000);
-    const records = db.getRecordsFiltered({
+    // Fetch one MORE than the limit so we can distinguish "exactly effectiveLimit
+    // records" (complete export) from "more than effectiveLimit" (genuinely
+    // truncated). `records.length >= effectiveLimit` was a false-positive at
+    // exactly the limit — it flagged truncated:true even when the whole history
+    // was returned, showing the user a bogus "results truncated" warning.
+    const fetched = db.getRecordsFiltered({
       kinds: recordTypes,
       from: timeRange?.from,
       to: timeRange?.to,
-      limit: effectiveLimit,
+      limit: effectiveLimit + 1,
     });
+    const truncated = fetched.length > effectiveLimit;
+    const records = truncated ? fetched.slice(0, effectiveLimit) : fetched;
 
     const meta = toSessionMeta(session);
-    const truncated = records.length >= effectiveLimit;
 
     if (format === "json") {
       relay

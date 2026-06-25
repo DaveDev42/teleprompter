@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, rmSync, statSync } from "fs";
 import { dirname } from "path";
-import { getSocketPath, resolveRuntimeDir } from "./socket-path";
+import { assertSafeSid, getSocketPath, resolveRuntimeDir } from "./socket-path";
 
 describe("getSocketPath", () => {
   test("returns a path ending with daemon.sock", () => {
@@ -126,6 +126,41 @@ describe("resolveRuntimeDir — systemd /run/user preference", () => {
     } finally {
       if (savedXdg === undefined) delete process.env["XDG_RUNTIME_DIR"];
       else process.env["XDG_RUNTIME_DIR"] = savedXdg;
+    }
+  });
+});
+
+describe("assertSafeSid", () => {
+  test("accepts the sids the codebase actually generates", () => {
+    // Auto-generated, worktree, and smoke sids must all pass — otherwise a
+    // legitimate session.create / hook path would break.
+    for (const sid of [
+      "session-abc123",
+      `session-${Date.now().toString(36)}`,
+      "my-branch-1700000000000",
+      "sess-smoketest",
+      "ABC_def-123",
+      "a",
+    ]) {
+      expect(() => assertSafeSid(sid)).not.toThrow();
+    }
+  });
+
+  test("rejects path-traversal and separator sids (the attack the guard exists for)", () => {
+    // Each of these would, unguarded, escape `sessions/<sid>.sqlite` and let the
+    // daemon create/unlink a file at an arbitrary writable path.
+    for (const sid of [
+      "../../evil",
+      "..",
+      "a/b",
+      "a\\b",
+      "/abs/path",
+      "with space",
+      "dot.sep",
+      "", // empty: SAFE_SID requires at least one char
+      "tab\tchar",
+    ]) {
+      expect(() => assertSafeSid(sid)).toThrow(/invalid sid/);
     }
   });
 });

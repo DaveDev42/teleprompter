@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import {
   acquireDaemonLock,
   checkDaemonLockAlive,
@@ -7,6 +7,7 @@ import {
   releaseDaemonLock,
 } from "@teleprompter/daemon";
 import { getSocketPath } from "@teleprompter/protocol";
+import * as fs from "fs";
 import {
   existsSync,
   mkdtempSync,
@@ -59,6 +60,29 @@ describe("acquireDaemonLock", () => {
     writeFileSync(lockPath, "not-a-pid\n");
     const result = acquireDaemonLock(lockPath);
     expect(result).toBe(process.pid);
+  });
+
+  test("closes the pid-file fd even when writeSync throws (no fd leak)", () => {
+    // Regression guard: openSync('wx') hands back a live fd; if writeSync then
+    // throws (e.g. ENOSPC on a near-full disk), the close MUST still run or the
+    // fd leaks for the process lifetime. The try/finally in acquireDaemonLock
+    // guarantees it. Pre-fix (sequential write→close), closeSync was skipped on a
+    // write throw and this assertion failed.
+    const closeSpy = spyOn(fs, "closeSync");
+    const writeSpy = spyOn(fs, "writeSync").mockImplementation(() => {
+      throw new Error("ENOSPC: simulated disk full");
+    });
+    let threw = false;
+    try {
+      acquireDaemonLock(lockPath);
+    } catch {
+      threw = true;
+    }
+    const closeCalled = closeSpy.mock.calls.length > 0;
+    writeSpy.mockRestore();
+    closeSpy.mockRestore();
+    expect(threw).toBe(true);
+    expect(closeCalled).toBe(true);
   });
 });
 

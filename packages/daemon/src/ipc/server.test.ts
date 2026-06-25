@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import {
   encodeFrame,
   FrameDecoder,
@@ -23,16 +23,24 @@ describe("IpcServer", () => {
   let receivedMessages: IpcMessage[] = [];
   let connectedCount = 0;
   let disconnectedCount = 0;
+  // When set, onMessage throws for the matching frame type once (then clears).
+  // Drives the rank-2 "onMessage throw is contained to the socket" test.
+  let throwOnMessageType: string | null = null;
 
   beforeEach(async () => {
     receivedMessages = [];
     connectedCount = 0;
     disconnectedCount = 0;
+    throwOnMessageType = null;
     tmpDir = await mkdtemp(join(tmpdir(), "tp-ipc-test-"));
     socketPath = join(tmpDir, "test.sock");
 
     server = new IpcServer({
       onMessage: (_runner, msg) => {
+        if (throwOnMessageType !== null && msg.t === throwOnMessageType) {
+          throwOnMessageType = null;
+          throw new Error("simulated transient SQLite write failure");
+        }
         receivedMessages.push(msg);
       },
       onConnect: () => {
@@ -228,5 +236,72 @@ describe("IpcServer", () => {
     expect(receivedMessages[1]).toEqual(prune);
 
     client.end();
+  });
+
+  // Rank-2 regression (daemon-audit): onMessage → dispatchIpc runs synchronous
+  // SQLite writes that CAN throw (disk full, SQLITE_BUSY, corrupt page). Bun
+  // does NOT wrap socket `data` callbacks in a try/catch, so an unguarded throw
+  // escapes the event-loop callback. The guard contains it deterministically:
+  // it catches the throw INSIDE the data callback, logs an attributable
+  // "onMessage handler threw" line, and end()s only the offending socket.
+  //
+  // We assert on the LOG ATTRIBUTION because that is what genuinely distinguishes
+  // the fix from its absence: pre-fix, the escaped throw is routed to Bun's
+  // socket `error` handler (server.ts:119), which logs "socket error:" instead —
+  // an undocumented, version-dependent fallback we must not rely on. The guard
+  // makes containment our own deterministic code path. Both paths happen to keep
+  // the daemon alive on this Bun build, so survival alone would NOT be
+  // fix-sensitive; the log path is.
+  test("an onMessage throw is contained by OUR guard, not Bun's error fallback; mux survives (rank 2)", async () => {
+    const errSpy = spyOn(console, "error");
+    try {
+      // First runner: its hello triggers a throw inside onMessage.
+      throwOnMessageType = "hello";
+      const bad = await connectClient();
+      bad.write(
+        Buffer.from(encodeFrame({ t: "hello", sid: "bad", cwd: "/a", pid: 1 })),
+      );
+      await Bun.sleep(80);
+
+      // The throwing message was NOT recorded (it threw before push).
+      expect(receivedMessages.some((m) => (m as IpcHello).sid === "bad")).toBe(
+        false,
+      );
+
+      // The guard ran: an attributable "onMessage handler threw" line was
+      // logged via OUR catch (with the simulated cause)...
+      const logged = errSpy.mock.calls.map((c) => c.map(String).join(" "));
+      expect(
+        logged.some(
+          (line) =>
+            line.includes("onMessage handler threw") &&
+            line.includes("simulated transient SQLite write failure"),
+        ),
+      ).toBe(true);
+      // ...and the throw did NOT escape to Bun's socket `error` fallback
+      // (pre-fix this is the ONLY line that appears — its absence proves the
+      // guard caught it first).
+      expect(logged.some((line) => line.includes("socket error:"))).toBe(false);
+
+      // The daemon is still alive: a brand-new runner connects and its messages
+      // flow through normally (throwOnMessageType auto-cleared after firing).
+      const good = await connectClient();
+      good.write(
+        Buffer.from(
+          encodeFrame({ t: "hello", sid: "good", cwd: "/b", pid: 2 }),
+        ),
+      );
+      await Bun.sleep(80);
+
+      expect(server.findRunnerBySid("good")).toBeDefined();
+      expect(receivedMessages.some((m) => (m as IpcHello).sid === "good")).toBe(
+        true,
+      );
+
+      good.end();
+      bad.end();
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 });

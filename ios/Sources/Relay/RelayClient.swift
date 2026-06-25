@@ -307,7 +307,15 @@ final class RelayClient: NSObject, @unchecked Sendable {
         // it is delivered synchronously (cached into `pushTokenHex`) so the
         // `relay.push.register` send in `onAuthOk` picks it up; otherwise
         // `pushTokenDidChange` fires later and sends it on the live socket.
+        //
+        // watchOS excluded: `PushTokenStore`/`PushTokenObserver` live in
+        // `App/PushRegistration.swift`, which is not part of the watch target
+        // (push registration is iOS/main-app-only — the watch is a limited
+        // experience per ADR-0002). Without this guard the watch build fails
+        // with "cannot find type 'PushTokenObserver' in scope".
+        #if !os(watchOS)
         Task { @MainActor in PushTokenStore.shared.addObserver(self) }
+        #endif
     }
 
     /// Tear down the socket and timers. Safe to call repeatedly.
@@ -454,9 +462,15 @@ final class RelayClient: NSObject, @unchecked Sendable {
         let title = note.title
         let body = note.body
         let sid = note.data?.sid
+        // watchOS excluded: `NotificationService` (UserNotifications local-banner
+        // delivery) lives in `App/NotificationService.swift`, not in the watch
+        // target. The watch ships the limited experience (no local push banners)
+        // per ADR-0002, so an inbound `relay.notification` is simply logged.
+        #if !os(watchOS)
         Task { @MainActor in
             NotificationService.shared.scheduleLocal(title: title, body: body, sid: sid)
         }
+        #endif
     }
 
     private func onAuthOk(_ ok: RelayAuthOk) {
@@ -1386,6 +1400,12 @@ final class RelayClient: NSObject, @unchecked Sendable {
 
 // MARK: - PushTokenObserver
 
+// watchOS excluded: `PushTokenObserver` is declared in
+// `App/PushRegistration.swift`, which is not part of the `TeleprompterWatch`
+// target (APNs push registration is iOS/main-app-only — the watch ships the
+// limited experience per ADR-0002). Compiling this conformance into the watch
+// build fails with "cannot find type 'PushTokenObserver' in scope".
+#if !os(watchOS)
 extension RelayClient: PushTokenObserver {
     /// The device's APNs token became available (cold-launch delivery) or changed
     /// (token refresh). Cache it for the next `onAuthOk`, and — if we are already
@@ -1407,3 +1427,4 @@ extension RelayClient: PushTokenObserver {
         }
     }
 }
+#endif

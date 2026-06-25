@@ -112,6 +112,19 @@ XCFRAMEWORK="$REPO_ROOT/rust/target/TpCore.xcframework"
 # No developer identity needed; "-" is accepted by both Simulator and macOS local.
 SIGN_FLAGS="CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES"
 
+# ── TestFlight archive/export (cmd_archive) ─────────────────────────────────────
+#
+# Distribution build outputs. Unlike the Simulator/macOS smoke paths (ad-hoc "-"),
+# the TestFlight archive needs a REAL Apple Distribution identity + provisioning
+# profile (injected into a temporary keychain by .github/workflows/testflight.yml
+# in CI, or present in the developer's login keychain locally). cmd_archive builds
+# for the iOS *device* destination ("generic/platform=iOS"), archives, then exports
+# an App-Store-Connect-ready .ipa using ios/ExportOptions.plist.
+ARCHIVE_DIR="${TP_ARCHIVE_DIR:-$IOS_DIR/build/archive}"
+ARCHIVE_PATH="$ARCHIVE_DIR/Teleprompter.xcarchive"
+EXPORT_DIR="${TP_EXPORT_DIR:-$IOS_DIR/build/export}"
+EXPORT_OPTIONS="$IOS_DIR/ExportOptions.plist"
+
 # Resolve the target platform (ios default = unchanged behaviour).
 TP_PLATFORM="${TP_PLATFORM:-ios}"
 
@@ -1857,6 +1870,79 @@ cmd_test() {
     test | xcbeautify_or_cat
 }
 
+# ── TestFlight archive + export (cmd_archive) ───────────────────────────────────
+#
+# Produce an App-Store-Connect-ready signed .ipa from the iOS *device* slice.
+# This is the build half of the TestFlight pipeline; the upload half lives in
+# .github/workflows/testflight.yml (xcrun altool with an ASC API key), kept out
+# of the harness because it needs Apple-issued secrets and makes a network call.
+#
+# Signing: this does NOT use $SIGN_FLAGS (ad-hoc "-"). A real Apple Distribution
+# certificate + an App-Store provisioning profile for dev.tpmt.teleprompter must be
+# in the keychain. In CI the workflow imports them into a throwaway keychain from
+# base64 secrets; locally they come from your login keychain (Xcode-managed). The
+# team is taken from $TP_DEVELOPMENT_TEAM (the Apple Developer Team ID) — required,
+# since there is no hardcoded team in project.yml (Simulator builds need none).
+#
+# Version/build number: MARKETING_VERSION + CURRENT_PROJECT_VERSION come from
+# project.yml, but TestFlight rejects a re-used build number, so CI overrides
+# CURRENT_PROJECT_VERSION with a monotonic value (the workflow passes
+# TP_BUILD_NUMBER=${{ github.run_number }}). Locally it defaults to project.yml's "1".
+cmd_archive() {
+  require xcodebuild
+  [ "$IOS_FAMILY" = "yes" ] || die "cmd_archive is iOS-only (the App Store TestFlight target is iOS). Use TP_PLATFORM=ios."
+  [ -n "${TP_DEVELOPMENT_TEAM:-}" ] || die "TP_DEVELOPMENT_TEAM (Apple Developer Team ID) is required for a signed archive."
+  [ -f "$EXPORT_OPTIONS" ] || die "missing $EXPORT_OPTIONS (App Store export options)."
+  ensure_xcframework
+  ensure_project
+
+  local build_number="${TP_BUILD_NUMBER:-}"
+  local version_flags=()
+  if [ -n "$build_number" ]; then
+    version_flags+=("CURRENT_PROJECT_VERSION=$build_number")
+    log "overriding build number → $build_number"
+  fi
+
+  rm -rf "$ARCHIVE_PATH" "$EXPORT_DIR"
+  mkdir -p "$ARCHIVE_DIR" "$EXPORT_DIR"
+
+  # The build/export logs MUST go to stderr, not stdout. When xcbeautify is absent
+  # (the CI runner only installs xcodegen) xcbeautify_or_cat falls back to `cat`,
+  # which would otherwise dump the multi-MB xcodebuild log to stdout — and CI
+  # captures this function's stdout (`IPA="$(scripts/ios.sh archive)"`) expecting
+  # ONLY the final .ipa path. So redirect each pipeline to stderr (>&2); the lone
+  # `printf` at the end is the only thing left on stdout. `set -o pipefail` (top of
+  # file) keeps xcodebuild's exit status authoritative through the pipe.
+  log "archiving $SCHEME for iOS device (team $TP_DEVELOPMENT_TEAM)"
+  xcodebuild \
+    -project "$PROJECT" \
+    -scheme "$SCHEME" \
+    -configuration Release \
+    -destination "generic/platform=iOS" \
+    -archivePath "$ARCHIVE_PATH" \
+    -derivedDataPath "$DERIVED" \
+    DEVELOPMENT_TEAM="$TP_DEVELOPMENT_TEAM" \
+    CODE_SIGN_STYLE=Manual \
+    "${version_flags[@]}" \
+    archive | xcbeautify_or_cat >&2
+
+  [ -d "$ARCHIVE_PATH" ] || die "archive failed — $ARCHIVE_PATH not produced"
+
+  log "exporting App Store .ipa → $EXPORT_DIR"
+  xcodebuild \
+    -exportArchive \
+    -archivePath "$ARCHIVE_PATH" \
+    -exportPath "$EXPORT_DIR" \
+    -exportOptionsPlist "$EXPORT_OPTIONS" | xcbeautify_or_cat >&2
+
+  local ipa
+  ipa="$(find "$EXPORT_DIR" -name '*.ipa' -maxdepth 1 | head -1)"
+  [ -n "$ipa" ] || die "export failed — no .ipa in $EXPORT_DIR"
+  log "✅ archived + exported: $ipa"
+  # Emit the path on stdout so CI can capture it (everything else is on stderr).
+  printf '%s\n' "$ipa"
+}
+
 # Swift source roots that swift-format formats/lints (app + tests + watch target).
 SWIFT_FMT_PATHS=("$IOS_DIR/Sources" "$IOS_DIR/Tests" "$IOS_DIR/UITests" "$IOS_DIR/Watch")
 SWIFT_FMT_CONFIG="$REPO_ROOT/.swift-format"
@@ -1902,9 +1988,10 @@ main() {
     all)   cmd_all ;;
     uitest) cmd_uitest ;;
     test)  cmd_test ;;
+    archive) cmd_archive ;;
     fmt)   cmd_fmt ;;
     lint)  cmd_lint ;;
-    *) die "unknown subcommand: $sub (use: gen|rust|boot|build|run|smoke|all|uitest|test|fmt|lint)" ;;
+    *) die "unknown subcommand: $sub (use: gen|rust|boot|build|run|smoke|all|uitest|test|archive|fmt|lint)" ;;
   esac
 }
 

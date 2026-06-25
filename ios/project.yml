@@ -106,6 +106,14 @@ targets:
         CFBundleDisplayName: Teleprompter
         UILaunchScreen: {}
         UIApplicationSupportsIndirectInputEvents: true
+        # Export-compliance declaration so TestFlight/App Store uploads do not
+        # stall in "Missing Compliance". The app's only cryptography is the
+        # standard XChaCha20-Poly1305/X25519 used to secure its OWN traffic to the
+        # relay (libsodium primitives), which qualifies for the export exemption
+        # under U.S. EAR 740.17(b)(1) — so we declare non-exempt = false. If a
+        # non-standard/proprietary cipher is ever added, revisit this and the
+        # annual self-classification report obligation.
+        ITSAppUsesNonExemptEncryption: false
         # Usage descriptions for runtime-permission features (feature-parity with
         # the old Expo app). Declared up front so the parallel feature tranches
         # (Daemons/Pairing QR scan, Voice) never have to edit this shared file.

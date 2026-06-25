@@ -457,6 +457,15 @@ export class Store {
       platform: "ios" | "android";
     }> = [];
 
+    // Corrupt rows are not just skipped in memory — they are PURGED from the
+    // table. A row that fails this guard (e.g. an empty daemon_id written by an
+    // older buggy code path) is permanently unusable, so leaving it in place
+    // means every subsequent daemon startup re-reads and re-warns about the
+    // same dead rows forever (observed in the wild: 4 stale rows → 140+ repeated
+    // "dropped corrupt push_token row" log lines). Collect their primary keys
+    // and delete them after the read so the table self-heals on first load.
+    const corruptFrontendIds: string[] = [];
+
     for (const row of rows) {
       if (
         typeof row.frontend_id !== "string" ||
@@ -470,6 +479,12 @@ export class Store {
         log.warn(
           `dropped corrupt push_token row (frontend_id=${typeof row.frontend_id === "string" ? row.frontend_id : "?"})`,
         );
+        // Only a string frontend_id can be targeted by the DELETE; a row with a
+        // non-string PK can't exist under the TEXT PRIMARY KEY schema, but guard
+        // anyway so we never pass a non-string into the delete.
+        if (typeof row.frontend_id === "string" && row.frontend_id) {
+          corruptFrontendIds.push(row.frontend_id);
+        }
         continue;
       }
       result.push({
@@ -479,6 +494,11 @@ export class Store {
         platform: row.platform as "ios" | "android",
       });
     }
+
+    for (const fid of corruptFrontendIds) {
+      this.metaDb.run("DELETE FROM push_tokens WHERE frontend_id = ?", [fid]);
+    }
+
     return result;
   }
 

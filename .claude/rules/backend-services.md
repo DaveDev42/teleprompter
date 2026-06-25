@@ -17,6 +17,7 @@ paths:
 
 ## Daemon
 - Store: append-only Record 저장 (`sessions.sqlite`)
+- **`loadPushTokens()` 는 corrupt row 를 drop 만 하지 않고 PURGE 한다**: 가드(`frontend_id`/`daemon_id`/`sealed` 비어있음 또는 `platform` 이 ios/android 아님)를 통과 못한 row 는 in-memory skip + `DELETE FROM push_tokens WHERE frontend_id=?` 로 테이블에서 제거. 안 그러면 영구 unusable row 가 매 daemon 시작마다 재-read + 재-warn 돼 무한 누적된다 (실측: 옛 코드 경로가 `buildEvents` 의 `daemonId=""` 기본값을 `savePushToken` 으로 흘려 빈 `daemon_id` row 4개 생성 → 140+ "dropped corrupt push_token row" 로그). 가드 통과 row 는 그대로 유지(valid row preservation). write-side 원인(빈 daemonId)은 이미 call-site 에서 daemonId 명시로 수정됨 (`pairing-orchestrator.test.ts` "push-token regression" 가드 존재) — 이 purge 는 이미 디스크에 쌓인 stale row 의 self-heal. 회귀 가드: `store.test.ts` ("empty daemon_id row is dropped AND purged, valid rows preserved" + platform/sealed corrupt purge, raw `COUNT(*)` 로 purge 검증, source-only revert 로 genuine 입증).
 - Session: SessionManager가 Runner spawn/kill 관리 (= mux: 세션당 1 Runner)
 - IPC: Unix domain socket, framed JSON. Runner↔Daemon io/event/meta + CLI↔Daemon 명령 (`pair.begin`, `pair.remove`, `pair.rename`, 등). 네이티브 Windows는 미지원 — Windows 사용자는 WSL 안에서 Linux 빌드를 실행한다.
 - Vault key storage: plaintext BLOBs in SQLite — filesystem 권한으로 보호

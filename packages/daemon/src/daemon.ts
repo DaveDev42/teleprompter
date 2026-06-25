@@ -207,18 +207,33 @@ export class Daemon {
     }
     const maxAgeMs = days * 24 * 60 * 60 * 1000;
 
-    // Prune immediately on startup
-    const pruned = this.store.pruneOldSessions(maxAgeMs);
-    if (pruned > 0) {
-      log.info(`pruned ${pruned} old session(s) (>${days}d)`);
+    // Prune immediately on startup. pruneOldSessions → deleteSession →
+    // unlinkRetry re-throws on any errno other than ENOENT/EBUSY/EPERM (e.g.
+    // EACCES, EROFS on a read-only remount) and the underlying metaDb.run() can
+    // throw on a SQLite error. An unguarded throw here would abort startup
+    // before the daemon accepts any IPC, so log and continue.
+    try {
+      const pruned = this.store.pruneOldSessions(maxAgeMs);
+      if (pruned > 0) {
+        log.info(`pruned ${pruned} old session(s) (>${days}d)`);
+      }
+    } catch (err) {
+      log.error(`startup auto-cleanup failed (continuing): ${String(err)}`);
     }
 
     // Schedule periodic cleanup
     this.stopAutoCleanup();
     this.pruneTimer = setInterval(() => {
-      const n = this.store.pruneOldSessions(maxAgeMs);
-      if (n > 0) {
-        log.info(`periodic prune: removed ${n} session(s) (>${days}d)`);
+      // A throw out of a timer callback terminates the Bun process — so a
+      // transient FS/SQLite error during cleanup would crash the long-running
+      // daemon. Swallow-and-log so the timer survives to the next run.
+      try {
+        const n = this.store.pruneOldSessions(maxAgeMs);
+        if (n > 0) {
+          log.info(`periodic prune: removed ${n} session(s) (>${days}d)`);
+        }
+      } catch (err) {
+        log.error(`periodic auto-cleanup failed (continuing): ${String(err)}`);
       }
     }, PRUNE_INTERVAL_MS);
 

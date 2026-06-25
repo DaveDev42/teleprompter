@@ -63,6 +63,7 @@ interface DepsOverrides {
   listPairings?: () => unknown[];
   loadPairings?: () => unknown[];
   savePairing?: (data: unknown) => void;
+  deletePairing?: (daemonId: string) => void;
   updatePairingLabel?: (daemonId: string, label: Label) => void;
   findRunnerBySid?: (sid: string) => unknown;
   send?: (runner: unknown, msg: unknown) => void;
@@ -78,7 +79,7 @@ function makeDeps(overrides: DepsOverrides = {}): RelayConnectionManagerDeps {
     listPairings: overrides.listPairings ?? (() => []),
     loadPairings: overrides.loadPairings ?? (() => []),
     savePairing: overrides.savePairing ?? (() => {}),
-    deletePairing: () => {},
+    deletePairing: overrides.deletePairing ?? (() => {}),
     updatePairingLabel: overrides.updatePairingLabel ?? (() => {}),
     savePushToken: () => {},
     loadPushTokens: () => [],
@@ -267,6 +268,89 @@ describe("RelayConnectionManager", () => {
     expect(stubA.__disposed).toBe(true);
     // Without the indexOf recheck, A would remain as a zombie (splice with
     // a stale idx=2 out of bounds), and listDaemonIds() would still show A.
+    expect(mgr.listDaemonIds()).toEqual([]);
+  });
+
+  test("removePairing deletes the store row BEFORE disposing the client", async () => {
+    // Regression for the resurrection bug: if deletePairing ran AFTER
+    // dispose()+splice and threw, the client was gone but the pairings row
+    // survived → reconnectSaved() resurrects it on the next daemon restart.
+    // Assert ordering by recording the sequence of side effects.
+    const order: string[] = [];
+    const deps = makeDeps({
+      deletePairing: () => order.push("deletePairing"),
+    });
+    const mgr = new RelayConnectionManager(deps);
+    const stub = makeStubClient("d1", []);
+    stub.dispose = mock(() => {
+      stub.__disposed = true;
+      order.push("dispose");
+    });
+    mgr.__setFactory(() => stub);
+
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: undefined });
+    await mgr.removePairing("d1", { notifyPeer: false });
+
+    expect(order).toEqual(["deletePairing", "dispose"]);
+  });
+
+  test("removePairing leaves the client in the pool when the store delete throws", async () => {
+    // The store-first ordering means a transient deletePairing throw propagates
+    // cleanly WITHOUT disposing the client — so in-memory state still matches
+    // the (un-deleted) store row, rather than a disposed client + live row.
+    const deps = makeDeps({
+      deletePairing: () => {
+        throw new Error("SQLITE_BUSY");
+      },
+    });
+    const mgr = new RelayConnectionManager(deps);
+    const stub = makeStubClient("d1", []);
+    mgr.__setFactory(() => stub);
+
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: undefined });
+
+    await expect(
+      mgr.removePairing("d1", { notifyPeer: false }),
+    ).rejects.toThrow("SQLITE_BUSY");
+    // Client NOT disposed and still in the pool — recoverable on retry.
+    expect(stub.__disposed).toBe(false);
+    expect(mgr.listDaemonIds()).toEqual(["d1"]);
+  });
+
+  test("concurrent removePairing for the SAME daemonId disposes the client once and preserves the notify count", async () => {
+    // Regression for rank 11: an inbound control.unpair (notifyPeer:false)
+    // racing a `tp pair delete` (notifyPeer:true) must not let the second call
+    // re-dispose the client the first owns — which would make the notifyPeer
+    // call's sendUnpairNotice run on a closed socket and report notified:0.
+    const deps = makeDeps();
+    const mgr = new RelayConnectionManager(deps);
+    const stub = makeStubClient("d1", ["f1", "f2"]);
+    let disposeCount = 0;
+    stub.dispose = mock(() => {
+      stub.__disposed = true;
+      disposeCount++;
+    });
+    // Make the notify path yield so the second concurrent call interleaves
+    // while the first is mid-notify.
+    stub.sendUnpairNotice = mock(async (frontendId: string) => {
+      await Promise.resolve();
+      stub.__unpairSent.push(frontendId);
+      return true;
+    });
+    mgr.__setFactory(() => stub);
+
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: undefined });
+
+    // Start the notifying remove first (it yields at sendUnpairNotice), then
+    // fire the inbound-unpair remove for the SAME daemonId concurrently.
+    const pNotify = mgr.removePairing("d1", { notifyPeer: true });
+    const pInbound = mgr.removePairing("d1", { notifyPeer: false });
+    const [notified] = await Promise.all([pNotify, pInbound]);
+
+    // The notifying call still reports both peers (its client was not disposed
+    // out from under it), and the client is disposed exactly once.
+    expect(notified).toBe(2);
+    expect(disposeCount).toBe(1);
     expect(mgr.listDaemonIds()).toEqual([]);
   });
 

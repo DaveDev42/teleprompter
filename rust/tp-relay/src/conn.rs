@@ -673,10 +673,13 @@ fn dispatch_locked(
         // to the daemon as relay.push.token. Synchronous (seal is in-memory; no
         // APNs I/O here). Mirrors relay-server.ts handlePushRegister:1493-1542.
         RelayClientMessage::PushRegister {
-            frontend_id,
+            // The wire frontend_id is intentionally ignored — routing uses the
+            // authenticated identity (see route_push_register). Binding it as `_`
+            // documents that the relay does not trust the wire-supplied value.
+            frontend_id: _,
             token,
             platform,
-        } => route_push_register(core, conn_id, frontend_id, token, *platform),
+        } => route_push_register(core, conn_id, token, *platform),
 
         // ── Push send (daemon → relay → APNs): async HTTP/2 delivery, which
         // cannot run under the RelayCore lock (no .await in dispatch_locked).
@@ -696,7 +699,6 @@ fn dispatch_locked(
 fn route_push_register(
     core: &RelayCore,
     conn_id: ConnId,
-    frontend_id: &str,
     token: &str,
     platform: tp_proto::relay_client::Platform,
 ) -> DispatchOutcome {
@@ -735,10 +737,19 @@ fn route_push_register(
         return DispatchOutcome::empty();
     };
 
+    // Route under the AUTHENTICATED identity (client.frontend_id), never the
+    // wire-supplied frontend_id. The relay is the identity authority here: if it
+    // trusted the wire frontend_id, any authenticated frontend in the daemon
+    // group could register its own APNs token under a victim's frontendId and
+    // hijack the victim's push delivery. For an honest client the wire value
+    // already equals client.frontend_id, so this is a no-op for them and a hard
+    // boundary for a hostile one. Mirrors relay-server.ts handlePushRegister.
+    let authed_frontend_id = client.frontend_id.clone().unwrap_or_default();
+
     DispatchOutcome::actions(vec![Action::Send(
         daemon_conn,
         RelayServerMessage::PushToken(PushToken {
-            frontend_id: frontend_id.to_string(),
+            frontend_id: authed_frontend_id,
             sealed,
             platform,
         }),
@@ -1402,6 +1413,44 @@ mod tests {
         assert!(
             sealed.starts_with("tpps1."),
             "sealed blob must carry the tpps1 prefix: {sealed}"
+        );
+    }
+
+    #[test]
+    fn push_register_routes_under_authed_identity_not_wire_frontend_id() {
+        // Cross-frontend push-hijack guard: a hostile authed frontend sends a
+        // push.register whose WIRE frontendId names a *victim*. The relay is the
+        // identity authority and must route the sealed token under the attacker's
+        // OWN authenticated identity, never the wire-supplied victim id — else the
+        // attacker hijacks the victim's push delivery. Mirrors relay-server.ts.
+        let mut core = test_core();
+        insert_authed(&mut core, 1, Role::Daemon, "d", None);
+        // The attacker is authed as "fe-attacker" but claims to be "fe-victim".
+        insert_authed(
+            &mut core,
+            2,
+            Role::Frontend,
+            "d",
+            Some("fe-attacker".into()),
+        );
+
+        let hostile = RelayClientMessage::PushRegister {
+            frontend_id: "fe-victim".into(), // spoofed wire identity
+            token: "apns-device-token-abc".into(),
+            platform: tp_proto::relay_client::Platform::Ios,
+        };
+        let out = dispatch_locked(&mut core, &test_signer(), &test_metrics(), 2, &hostile);
+
+        assert_eq!(out.actions.len(), 1, "expected one Send to the daemon");
+        let Action::Send(target, msg) = &out.actions[0] else {
+            panic!("expected Send");
+        };
+        assert_eq!(*target, 1, "token must route to the daemon conn");
+        let json = serde_json::to_value(msg).unwrap();
+        assert_eq!(json["t"], "relay.push.token");
+        assert_eq!(
+            json["frontendId"], "fe-attacker",
+            "must route under the AUTHENTICATED identity, not the wire frontendId"
         );
     }
 

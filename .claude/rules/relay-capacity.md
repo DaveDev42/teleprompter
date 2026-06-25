@@ -29,6 +29,9 @@ cargo build --release --bin tp-relay        # rust/ 에서
 | `ratePerDaemon` | 5000/sec | `TP_RELAY_RATE_PER_DAEMON` | daemon group 전체 budget (daemon + 모든 frontend 합) |
 | `backpressureBytes` | 4 MB | `TP_RELAY_BACKPRESSURE_BYTES` | `ws.bufferedAmount` 임계 — 초과 시 disconnect (1013) |
 | `authTimeoutMs` | 10 s | `TP_RELAY_AUTH_TIMEOUT_MS` | 인증 안 한 socket close (slowloris 방어) |
+| `maxRegistrations` | 50000 | `TP_RELAY_MAX_REGISTRATIONS` | 보유 가능한 distinct daemon 등록 수 상한. 초과 시 *신규* daemonId 의 `relay.register` 는 `relay.register.err` (기존 daemonId rotate 는 허용). proof 가 암호학적으로 검증되지 않고 register-without-auth 항목은 어떤 reclaim 경로도 안 거치므로 cap 없이는 무한 증가. |
+| `maxPreauthMsgs` | 30 | `TP_RELAY_MAX_PREAUTH_MSGS` | 미인증 socket 이 close 전 보낼 수 있는 최대 메시지 수. rate-limiter 가 인증 client 에만 적용되므로 pre-auth socket 의 유일한 throttle. 정상 핸드셰이크는 ≤2 프레임이라 여유. |
+| `maxRecentFrameKeysPerDaemon` | 256 | `TP_RELAY_MAX_RECENT_FRAME_KEYS` | daemon 당 `recentFrames` sid-key 상한 (`MAX_SESSIONS_PER_DAEMON` 미러). 초과 시 oldest sid-key evict. recentFrames 는 daemon/frontend publish 둘 다로 seed 되고 evictDaemon(~1h offline)에서만 reclaim 되므로 cap 없이는 online 동안 무한 증가. |
 | `idleTimeout` | 90 s | (코드 상수) | Bun WS idleTimeout. daemon ping 30s → 3 missed = close |
 | `resumeSecret` | random/ephemeral | `TP_RELAY_RESUME_SECRET` | HMAC key for `relay.auth.resume` tokens. ≥32 chars. 미설정 시 프로세스 시작마다 새로 생성 — 재시작 시 모든 client는 full auth로 폴백. Production은 반드시 고정값 설정. |
 | `resumeTtlMs` | 1 h | `TP_RELAY_RESUME_TTL_MS` | resume token 유효기간. 만료 시 client는 full auth로 폴백. |

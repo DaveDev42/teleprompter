@@ -140,6 +140,39 @@ describe("PendingPairing", () => {
     expect(relay.connect).not.toHaveBeenCalled();
   });
 
+  test("begin() throws a clean cancellation error (not a null-deref) when cancelled during connect()", async () => {
+    // REGRESSION (rank 10): cancel() during the `await relay.connect()` window
+    // nulls this.relay, so the subscribe() calls right after the await would
+    // null-deref and surface to the operator as "relay unreachable: Cannot read
+    // properties of null (reading 'subscribe')". begin() must re-check settled
+    // after connect() and throw the descriptive cancellation error instead.
+    const relay = makeFakeRelayClient();
+    const pp = new PendingPairing({
+      relayUrl: "wss://relay.test",
+      daemonId: "daemon-connect-cancel",
+      label: { set: false },
+      createRelayClient: () => relay as unknown as RelayClient,
+    });
+    // cancel() fires synchronously DURING connect(), so when begin() resumes
+    // after the await, this.settled is true and this.relay is null.
+    relay.connect = mock(async () => {
+      pp.cancel();
+    });
+
+    let caught: unknown;
+    await pp.begin().catch((e) => {
+      caught = e;
+    });
+    expect(caught).toBeInstanceOf(Error);
+    expect((caught as Error).message).toBe(
+      "pairing cancelled during relay connect",
+    );
+    // Crucially NOT the null-deref message.
+    expect((caught as Error).message).not.toContain("null");
+    // No subscribe was attempted on the nulled relay.
+    expect(relay.subscribe).not.toHaveBeenCalled();
+  });
+
   test("releaseRelay() returns the client once, then null (idempotent)", async () => {
     const relay = makeFakeRelayClient();
     const pp = new PendingPairing({

@@ -124,6 +124,15 @@ export class PendingPairing {
     });
 
     await this.relay.connect();
+    // cancel() can fire during the connect() await above — it sets
+    // `this.relay = null`, so the subscribe() calls below would null-deref and
+    // surface to the operator as a confusing "relay unreachable: Cannot read
+    // properties of null (reading 'subscribe')". Re-check `settled` (mirroring
+    // the pre-creation guard at :112) and throw the SAME descriptive
+    // cancellation error so the orchestrator reports a clean cause.
+    if (this.settled) {
+      throw new Error("pairing cancelled during relay connect");
+    }
     this.relay.subscribe(RELAY_CHANNEL_META);
     this.relay.subscribe(RELAY_CHANNEL_CONTROL);
 

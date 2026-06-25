@@ -263,6 +263,16 @@ export class WorktreeManager {
     this.validatePathContainment(path);
     validatePathPermissions(path);
 
+    // Resolve the path to an absolute one against the repo root. `git worktree
+    // add` runs with cwd=repoRoot, so a relative `path` creates the dir under
+    // the repo — but the later `rev-parse HEAD` query uses the path AS A CWD,
+    // which spawnSync resolves against the DAEMON process CWD, not repoRoot.
+    // Under launchd/systemd (CWD=/ or ~, the common shipped mode) the relative
+    // dir does not exist there → ENOENT → the query throws AFTER the worktree
+    // was already created, leaving a ghost dir. Use the absolute path for the
+    // HEAD query and the returned WorktreeInfo so callers get a stable path.
+    const absolutePath = resolve(this.repoRoot, path);
+
     // Check if branch exists
     let branchExists = false;
     try {
@@ -272,31 +282,42 @@ export class WorktreeManager {
       branchExists = false;
     }
 
+    // `--` separates options from the path positional so a path beginning with
+    // `-` is never parsed by git as a flag.
     if (branchExists) {
-      gitRun(["worktree", "add", path, branch], this.repoRoot);
+      gitRun(["worktree", "add", "--", path, branch], this.repoRoot);
     } else if (baseBranch) {
       gitRun(
-        ["worktree", "add", "-b", branch, path, baseBranch],
+        ["worktree", "add", "-b", branch, "--", path, baseBranch],
         this.repoRoot,
       );
     } else {
-      gitRun(["worktree", "add", "-b", branch, path], this.repoRoot);
+      gitRun(["worktree", "add", "-b", branch, "--", path], this.repoRoot);
     }
 
     log.info(`added worktree at ${path} (${branch})`);
 
-    // Get HEAD of the new worktree
-    const head = gitOutput(["rev-parse", "HEAD"], path).trim();
+    // Get HEAD of the new worktree (absolute cwd — see above).
+    const head = gitOutput(["rev-parse", "HEAD"], absolutePath).trim();
 
-    return { path, branch, head, isMain: false };
+    return { path: absolutePath, branch, head, isMain: false };
   }
 
   /**
    * Remove a worktree.
    */
   async remove(path: string, force = false): Promise<void> {
-    const args = ["worktree", "remove", path];
+    // Enforce the SAME containment boundary as add(): a path is only removable
+    // if it resolves under the worktree base dir. Without this, an
+    // authenticated-but-misbehaving frontend could remove a git worktree
+    // registered anywhere on disk (destroying work outside the sibling-dir
+    // trust boundary add() enforces) — an asymmetry in the trust model.
+    this.validatePathContainment(path);
+    // `--` separates options from the path positional so a path beginning with
+    // `-` is parsed as a positional, not a git flag.
+    const args = ["worktree", "remove"];
     if (force) args.push("--force");
+    args.push("--", path);
     gitRun(args, this.repoRoot);
     log.info(`removed worktree at ${path}`);
   }

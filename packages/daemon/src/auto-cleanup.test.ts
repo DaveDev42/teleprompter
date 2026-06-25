@@ -41,6 +41,26 @@ describe("Daemon auto-cleanup", () => {
     expect(store.getSession("new-session")).toBeDefined();
   });
 
+  test("startAutoCleanup does not throw when the startup prune fails", () => {
+    // A throw from pruneOldSessions (e.g. EACCES/EROFS during unlink, or a
+    // SQLite error) must be swallowed-and-logged, not abort startup before the
+    // daemon accepts IPC. Stub the store method to throw and assert no throw
+    // escapes startAutoCleanup.
+    const store = getStore(daemon);
+    const original = store.pruneOldSessions.bind(store);
+    (store as unknown as { pruneOldSessions: () => number }).pruneOldSessions =
+      () => {
+        throw new Error("EROFS: read-only file system");
+      };
+    try {
+      expect(() => daemon.startAutoCleanup(7)).not.toThrow();
+    } finally {
+      (
+        store as unknown as { pruneOldSessions: typeof original }
+      ).pruneOldSessions = original;
+    }
+  });
+
   test("startAutoCleanup uses default 7-day TTL", () => {
     const store = getStore(daemon);
 

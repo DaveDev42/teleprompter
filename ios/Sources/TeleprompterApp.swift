@@ -37,8 +37,8 @@ struct TeleprompterApp: App {
     @State private var pairings: PairingViewModel
     /// Rust-core self-check result, computed once at launch and surfaced in the UI.
     private let coreStatus: String
-    private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "deeplink")
-    private static let bootLog = Logger(subsystem: "dev.tpmt.teleprompter", category: "boot")
+    private let log = Logger(subsystem: "dev.tpmt.app", category: "deeplink")
+    private static let bootLog = Logger(subsystem: "dev.tpmt.app", category: "boot")
 
     init() {
         let store = SessionStore()
@@ -74,7 +74,7 @@ struct TeleprompterApp: App {
             idx + 1 < args.count
         else { return }
         let raw = args[idx + 1]
-        let smokeLog = Logger(subsystem: "dev.tpmt.teleprompter", category: "deeplink")
+        let smokeLog = Logger(subsystem: "dev.tpmt.app", category: "deeplink")
         smokeLog.notice("smoke url injection: \(raw, privacy: .public)")
         guard let url = URL(string: raw) else {
             smokeLog.error("smoke url invalid: \(raw, privacy: .public)")
@@ -196,7 +196,7 @@ final class PairingViewModel {
     /// Observable (NOT @ObservationIgnored) so status dots update reactively.
     private(set) var daemonOnline: [String: Bool] = [:]
 
-    private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "pairing-vm")
+    private let log = Logger(subsystem: "dev.tpmt.app", category: "pairing-vm")
 
     init(store: PairingStore = .shared, sessionStore: SessionStore) {
         self.store = store

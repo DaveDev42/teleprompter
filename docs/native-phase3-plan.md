@@ -127,7 +127,7 @@ shaping, token derivation, and `frontendId` with zero crypto-direction risk.
 ## Milestones
 
 Each is independently buildable and verified via `scripts/ios.sh smoke`/`test`, mirroring
-Phase 2's `TP_CORE_OK`: an on-device marker to subsystem `dev.tpmt.teleprompter` (greppable
+Phase 2's `TP_CORE_OK`: an on-device marker to subsystem `dev.tpmt.app` (greppable
 exactly like `TP_BOOT_OK`/`TP_CORE_OK`, `scripts/ios.sh:156-173`) + an XCTest. Proposed
 markers: `TP_PAIR_OK`, `TP_RELAY_AUTH_OK`, `TP_KX_OK`, `TP_FRAME_OK`, `TP_SESSION_OK`,
 `TP_INPUT_OK`.
@@ -172,14 +172,14 @@ markers: `TP_PAIR_OK`, `TP_RELAY_AUTH_OK`, `TP_KX_OK`, `TP_FRAME_OK`, `TP_SESSIO
   2. **Keychain needs an entitlement + ad-hoc signing.** Unsigned Simulator builds
      (`CODE_SIGNING_ALLOWED=NO`) have no entitlements, so `SecItemAdd` fails with
      `errSecMissingEntitlement` (-34018). Fix = `ios/Teleprompter.entitlements`
-     (`keychain-access-groups = $(AppIdentifierPrefix)dev.tpmt.teleprompter`) + ad-hoc sign
+     (`keychain-access-groups = $(AppIdentifierPrefix)dev.tpmt.app`) + ad-hoc sign
      (`CODE_SIGN_IDENTITY=-`, `CODE_SIGNING_ALLOWED=YES`, `CODE_SIGNING_REQUIRED=NO`).
      The harness passes these as `$SIGN_FLAGS` (replaced the old `CODE_SIGNING_ALLOWED=NO`).
   3. **Adding a new URL scheme needs a LaunchServices refresh.** The first build that adds
      `tp://` won't route until the Simulator's LaunchServices re-registers — a
      `simctl shutdown && boot` (or device erase) clears the stale cache. Subsequent
      installs route fine. (Symptom: `CoreSimulatorBridge` logs "Opening URL … with
-     dev.tpmt.teleprompter" + `lsd` "No override", but the app process gets nothing.)
+     dev.tpmt.app" + `lsd` "No override", but the app process gets nothing.)
 - **Note:** `ps`/`pk` are **standard** base64 (`pairing.ts:291-295`) → Swift
   `Data(base64Encoded:)` is correct (url-safe is only the outer `?d=` blob, handled inside
   `decode_pairing_data`). Confirmed on-device.
@@ -390,7 +390,7 @@ golden-vector guarantee (`rust/tp-core/tests/wire_vectors.rs`).
   greps).
 
 ## Verification doctrine (from Phase 2)
-Every milestone emits a single-line marker to `Logger(subsystem:"dev.tpmt.teleprompter")`,
+Every milestone emits a single-line marker to `Logger(subsystem:"dev.tpmt.app")`,
 greppable by `scripts/ios.sh` exactly as `TP_BOOT_OK`/`TP_CORE_OK` today
 (`ContentView.swift:34-42`, `ios.sh:156-173`). Prefer the live-loopback assertion (relay
 `/health clients>=1`, daemon "key exchange completed", `tp pair new` unblocking) as the

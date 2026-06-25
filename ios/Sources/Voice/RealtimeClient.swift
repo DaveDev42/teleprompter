@@ -7,7 +7,7 @@ import os
 // wss://api.openai.com/v1/realtime with the API key passed in a subprotocol
 // header (openai-insecure-api-key.<KEY>), matching the TypeScript original.
 
-private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "voice.realtime")
+private let log = Logger(subsystem: "dev.tpmt.app", category: "voice.realtime")
 
 private let realtimeURL = "wss://api.openai.com/v1/realtime"
 private let realtimeModel = "gpt-4o-realtime-preview"

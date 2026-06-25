@@ -62,7 +62,7 @@ final class SessionStore: ObservableObject {
     private var cursors: [String: Int] = [:]
 
     private let log = Logger(
-        subsystem: "dev.tpmt.teleprompter",
+        subsystem: "dev.tpmt.app",
         category: "session",
     )
 

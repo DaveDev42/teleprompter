@@ -39,7 +39,7 @@ cargo build --release --bin tp-relay        # rust/ 에서
 | `apnsKey` | (none) | `APNS_KEY` | APNs HTTP/2 인증용 ES256 P-256 private key. `.p8` 파일 경로 또는 PEM 문자열. |
 | `apnsKeyId` | (none) | `APNS_KEY_ID` | APNs Key ID (10자 대문자). Apple Developer Console에서 발급. |
 | `apnsTeamId` | (none) | `APNS_TEAM_ID` | Apple Team ID (10자 대문자). |
-| `apnsBundleId` | (none) | `APNS_BUNDLE_ID` | APNs topic (app bundle ID, e.g. `dev.tpmt.teleprompter`). |
+| `apnsBundleId` | (none) | `APNS_BUNDLE_ID` | APNs topic (app bundle ID, e.g. `dev.tpmt.app`). |
 | `apnsEnv` | `"sandbox"` | `APNS_ENV` | APNs 환경: `"sandbox"` (개발) 또는 `"prod"` (배포). **per-deployment, not on wire.** |
 | `pushSealSecretPrev` | (none) | `TP_RELAY_PUSH_SEAL_SECRET_PREV` | 이전 push seal key (회전 오버랩용). 설정 시 unseal 시도 순서: 현재 키 → 이전 키. 회전 완료 후 제거. |
 | `pushSealVersion` | 1 | `TP_RELAY_PUSH_SEAL_VERSION` | sealed blob에 삽입되는 version 숫자 (positive integer). Key rotation 추적용. |

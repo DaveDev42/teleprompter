@@ -181,7 +181,7 @@ enum VoiceBackendKind: String, CaseIterable {
 /// The key is NEVER logged or printed.
 enum OpenAIKeychain {
 
-    private static let service = "dev.tpmt.teleprompter"
+    private static let service = "dev.tpmt.app"
     private static let account = "openai.api.key"
 
     // MARK: Get

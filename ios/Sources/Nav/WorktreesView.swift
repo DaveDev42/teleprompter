@@ -22,7 +22,7 @@ struct WorktreesView: View {
     @ObservedObject private var store = WorktreeStore.shared
     @State private var showCreate = false
 
-    private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "worktrees-view")
+    private let log = Logger(subsystem: "dev.tpmt.app", category: "worktrees-view")
 
     private var worktrees: [WorktreeInfo] { store.worktrees(for: daemonId) }
     private var lastError: String? { store.error(for: daemonId) }

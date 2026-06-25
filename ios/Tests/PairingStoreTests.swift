@@ -11,7 +11,7 @@ import XCTest
 /// decode→persist→load survives the full UniFFI boundary on the Simulator.
 final class PairingStoreTests: XCTestCase {
     private let suiteName = "tp.tests.pairing"
-    private let keychainService = "dev.tpmt.teleprompter.pairing.tests"
+    private let keychainService = "dev.tpmt.app.pairing.tests"
     private var defaults: UserDefaults!
     private var store: PairingStore!
 

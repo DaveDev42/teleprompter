@@ -16,7 +16,7 @@ import os
 final class WorktreeStore: ObservableObject {
     static let shared = WorktreeStore()
 
-    private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "worktree-store")
+    private let log = Logger(subsystem: "dev.tpmt.app", category: "worktree-store")
 
     /// Worktrees per daemon id. Replaced wholesale on a `worktree.list` reply and
     /// patched on `worktree.created` / `worktree.removed`.

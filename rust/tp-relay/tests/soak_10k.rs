@@ -603,7 +603,7 @@ fn build_push_service() -> Arc<PushService> {
     let apns = Arc::new(ApnsClient::new(
         ApnsClientConfig::from_env(
             "api.push.apple.com".to_string(),
-            "dev.tpmt.teleprompter".to_string(),
+            "dev.tpmt.app".to_string(),
         ),
         signer,
         transport,

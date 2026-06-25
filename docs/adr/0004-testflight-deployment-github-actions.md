@@ -43,22 +43,30 @@ EAS Submit 이 하던 "태그 push → 클라우드 빌드 → TestFlight" 를 *
 `IOS_PROVISIONING_PROFILE_BASE64`, `ASC_API_KEY_P8_BASE64`, `ASC_API_KEY_ID`,
 `ASC_API_ISSUER_ID`, `APPLE_TEAM_ID`.
 
-## 3. 번들 ID 연속성 — "기존 EAS 채널 그대로" 의 현실
+## 3. 번들 ID 연속성 — "기존 EAS 채널 그대로" (결정: 구 레코드 재사용)
 
 구 Expo 앱의 번들 ID 는 **`dev.tpmt.app`** 였다 (제거된 `apps/app/app.json`, git 히스토리
-`d2e9865^` 에서 확인). 네이티브 앱은 **`dev.tpmt.teleprompter`** 다 (`ios/project.yml`).
+`d2e9865^` 에서 확인). 네이티브 재작성은 일시적으로 `dev.tpmt.teleprompter` 를 썼었다.
 
-> **App Store Connect 앱 레코드는 번들 ID 1개에 묶인다.** 번들 ID 가 달라졌으므로 네이티브 앱은
-> 구 Expo 앱이 쓰던 **동일한 ASC 레코드/TestFlight 채널로 그대로 올라가지 않는다.** 두 선택지:
+> **App Store Connect 앱 레코드는 번들 ID 1개에 묶인다.** "기존 EAS 채널 그대로 배포" 요구를
+> 만족시키려면 네이티브 앱이 구 Expo 와 **동일한 번들 ID** 여야 동일 ASC 레코드/TestFlight 채널에
+> 올라간다.
 >
-> 1. **새 ASC 앱 레코드** (현행 `dev.tpmt.teleprompter` 유지) — 깨끗한 출발, 단 기존 테스터/리뷰
->    이력과 단절. **기본값.**
-> 2. **구 레코드 재사용** — 네이티브 앱의 `PRODUCT_BUNDLE_IDENTIFIER` 를 `dev.tpmt.app` 으로
->    되돌리면 기존 ASC 레코드/채널에 새 빌드로 올라간다. `tp://` URL 스킴·entitlements·keychain
->    access group 은 번들 ID 와 독립이라 영향 없음.
+> **결정 (2026-06-26): 구 레코드 재사용 — 번들 ID 를 `dev.tpmt.app` 으로 통일.** 네이티브 앱의
+> `PRODUCT_BUNDLE_IDENTIFIER`(+ watch companion `dev.tpmt.app.watch`, test 타깃들, `tp://` URL
+> 스킴 name, **entitlements keychain-access-group**)를 `dev.tpmt.app` 으로 되돌렸다. 일관성을 위해
+> os.Logger subsystem 문자열(~40곳)·keychain service 이름·하니스/docs 폴링 predicate 도 전부
+> `dev.tpmt.app` 으로 통일했다 (subsystem 과 predicate 는 **반드시 동시에** 바꿔야 smoke 마커가
+> 계속 매칭된다).
 >
-> 파이프라인은 번들 ID 에 **무관**하게 동작한다 (`project.yml` 의 `PRODUCT_BUNDLE_IDENTIFIER` 가
-> SoT, archive/export 가 그대로 따라감). 어느 쪽을 택할지는 ASC 측 결정 — 파이프라인 변경 불필요.
+> **주의 — bundle id 에 묶이는 것들** (단순 "독립" 이 아님): keychain-access-group 은
+> `$(AppIdentifierPrefix)<bundle-id>` 형태라 bundle id 를 따라가야 앱이 자기 그룹에 접근 가능하고,
+> APNs 토픽(`APNS_BUNDLE_ID`)도 bundle id 와 일치해야 푸시가 도달한다 — 그래서 둘 다 함께 바꿨다.
+> keychain *service* 이름(generic-password service attr)은 기능상 bundle id 와 무관한 불투명
+> 문자열이지만, 일관성을 위해 같이 통일했다.
+>
+> 파이프라인 자체는 번들 ID 에 **무관**하다 (`project.yml` 의 `PRODUCT_BUNDLE_IDENTIFIER` 가 SoT,
+> archive/export 가 그대로 따라감) — 다른 ID 로 가려면 그 한 줄만 바꾸면 된다.
 
 ## 4. 대안 (기각)
 

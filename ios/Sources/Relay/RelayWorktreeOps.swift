@@ -72,7 +72,7 @@ extension RelayClient {
     /// Returns `true` if the control frame was published (kx complete).
     @discardableResult
     func listWorktrees() -> Bool {
-        let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "relay.worktree")
+        let log = Logger(subsystem: "dev.tpmt.app", category: "relay.worktree")
         let sent = publishControl(WorktreeList(), on: RelayChannel.meta)
         log.notice("listWorktrees sent=\(sent, privacy: .public)")
         return sent
@@ -83,7 +83,7 @@ extension RelayClient {
     /// session in the worktree. Returns `true` if the control frame was published.
     @discardableResult
     func createWorktree(branch: String, baseBranch: String? = nil, path: String? = nil) -> Bool {
-        let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "relay.worktree")
+        let log = Logger(subsystem: "dev.tpmt.app", category: "relay.worktree")
         let msg = WorktreeCreate(branch: branch, baseBranch: baseBranch, path: path)
         let sent = publishControl(msg, on: RelayChannel.meta)
         log.notice(
@@ -96,7 +96,7 @@ extension RelayClient {
     /// uncommitted changes). Returns `true` if the control frame was published.
     @discardableResult
     func removeWorktree(path: String, force: Bool = false) -> Bool {
-        let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "relay.worktree")
+        let log = Logger(subsystem: "dev.tpmt.app", category: "relay.worktree")
         let sent = publishControl(WorktreeRemove(path: path, force: force), on: RelayChannel.meta)
         log.notice(
             "removeWorktree path=\(path, privacy: .public) force=\(force, privacy: .public) sent=\(sent, privacy: .public)"

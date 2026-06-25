@@ -847,6 +847,12 @@ ${daemons
         t: "relay.auth.err",
         e: "frontendId is required for role=frontend",
       });
+      // clearPendingAuth() above already cancelled the slowloris timer and
+      // removed this socket from pendingAuth, and we never registered it in
+      // this.clients — so it now lives in NEITHER map. Without an explicit
+      // close it drifts to the 90s idle timeout, leaking an fd and staying
+      // invisible to relay_pending_auth / relay_clients. Close it now.
+      ws.close(1008, "frontendId required");
       return;
     }
 
@@ -1544,20 +1550,26 @@ ${daemons
       // Daemon not connected — drop silently; the frontend will re-register
       // on reconnect.
       log.debug(
-        `relay.push.register: no daemon connected for group ${client.daemonId}, dropping sealed token for frontend ${msg.frontendId}`,
+        `relay.push.register: no daemon connected for group ${client.daemonId}, dropping sealed token for frontend ${client.frontendId}`,
       );
       return;
     }
 
-    // Route relay.push.token to the daemon
+    // Route relay.push.token to the daemon under the AUTHENTICATED identity
+    // (client.frontendId), never the wire-supplied msg.frontendId. The relay
+    // is the identity authority here: if it trusted msg.frontendId, any
+    // authenticated frontend in the daemon group could register its own APNs
+    // token under a victim's frontendId and hijack the victim's push delivery.
+    // For an honest client msg.frontendId already equals client.frontendId, so
+    // this is a no-op for them and a hard boundary for a hostile one.
     this.send(daemonWs, {
       t: "relay.push.token",
-      frontendId: msg.frontendId,
+      frontendId: client.frontendId,
       sealed,
       platform: msg.platform,
     });
     log.debug(
-      `relay.push.register: sealed token routed to daemon for frontend ${msg.frontendId} (platform=${msg.platform})`,
+      `relay.push.register: sealed token routed to daemon for frontend ${client.frontendId} (platform=${msg.platform})`,
     );
   }
 

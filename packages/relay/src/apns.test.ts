@@ -132,4 +132,78 @@ describe("ApnsClient.send", () => {
       }
     });
   });
+
+  describe("request timeout (no unbounded hung requests)", () => {
+    test("passes an AbortSignal to fetch", async () => {
+      let capturedSignal: AbortSignal | null | undefined;
+      const capturingFetch = (async (
+        _input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        capturedSignal = init?.signal;
+        return new Response(null, { status: 200 });
+      }) as unknown as typeof fetch;
+
+      const client = new ApnsClient({
+        host: "api.sandbox.push.apple.com",
+        bundleId: "dev.test.app",
+        signer: makeTestSigner(),
+        fetchFn: capturingFetch,
+      });
+      await client.send({ deviceToken: VALID_TOKEN, title: "T", body: "B" });
+      // The request must be cancellable — a signal is wired so a hung APNs call
+      // is aborted at the deadline rather than leaking an open stream forever.
+      expect(capturedSignal).toBeInstanceOf(AbortSignal);
+    });
+
+    test("a hung request is aborted at the deadline and settles to a clean {ok:false, deadToken:false} error", async () => {
+      // End-to-end timeout guard: this fetch NEVER resolves on its own — it
+      // settles ONLY when the request signal aborts. With the fix, the client's
+      // own AbortController fires at requestTimeoutMs and rejects the fetch with
+      // an AbortError, which the catch converts to a clean transient error.
+      // WITHOUT the fix (no AbortController, no signal passed), this fetch would
+      // hang forever and the test would time out — so it is a real regression
+      // guard, not a tautology. A tiny 50ms deadline keeps it fast.
+      let sawSignal = false;
+      const hangingFetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+        const signal = init?.signal;
+        return new Promise<Response>((_resolve, reject) => {
+          if (signal) {
+            sawSignal = true;
+            signal.addEventListener("abort", () =>
+              reject(
+                new DOMException("The operation was aborted.", "AbortError"),
+              ),
+            );
+          }
+          // No resolve path: only the abort above can settle this Promise.
+        });
+      }) as unknown as typeof fetch;
+
+      const client = new ApnsClient({
+        host: "api.sandbox.push.apple.com",
+        bundleId: "dev.test.app",
+        signer: makeTestSigner(),
+        fetchFn: hangingFetch,
+        requestTimeoutMs: 50,
+      });
+
+      const start = Date.now();
+      const result = await client.send({
+        deviceToken: VALID_TOKEN,
+        title: "T",
+        body: "B",
+      });
+      const elapsed = Date.now() - start;
+
+      // The internal deadline must have fired (signal wired + abort observed).
+      expect(sawSignal).toBe(true);
+      expect(elapsed).toBeGreaterThanOrEqual(45);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        // An aborted/timed-out request is transient, NOT a dead token.
+        expect(result.deadToken).toBe(false);
+      }
+    });
+  });
 });

@@ -700,10 +700,10 @@ export class RelayClient {
     sid: string,
     seq: number,
     payload: unknown,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const plaintext = new TextEncoder().encode(JSON.stringify(payload));
     const ct = await encrypt(plaintext, peer.sessionKeys.tx);
-    this.send({ t: "relay.pub", sid, ct, seq });
+    return this.send({ t: "relay.pub", sid, ct, seq });
   }
 
   /** Broadcast `payload` to every connected peer under `sid`/`seq`. */
@@ -713,8 +713,21 @@ export class RelayClient {
     payload: unknown,
   ): Promise<void> {
     if (!this.authenticated || this.peers.size === 0) return;
+    // Best-effort per peer: an encrypt()/send() throw for ONE peer (e.g. a
+    // peer with corrupt or rotated session keys) must NOT abort the loop and
+    // silently deny the frame to every *subsequent* peer. The daemon is N:N
+    // (multiple frontends per pairing), so a single bad peer would otherwise
+    // drop a record/state broadcast for all the healthy ones. Contain the
+    // failure to a warn — mirrors the per-peer containment in the handleFrame
+    // fallback loop above.
     for (const peer of this.peers.values()) {
-      await this.sendEncrypted(peer, sid, seq, payload);
+      try {
+        await this.sendEncrypted(peer, sid, seq, payload);
+      } catch (err) {
+        log.warn(
+          `broadcast send failed for peer ${peer.frontendId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
   }
 
@@ -769,8 +782,12 @@ export class RelayClient {
       return false;
     }
     try {
-      await this.sendEncrypted(peer, RELAY_CHANNEL_CONTROL, 0, msg);
-      return true;
+      // Honour the actual transmit result: `send()` silently no-ops when the
+      // socket is null/closing, which happens if a concurrent dispose()
+      // (e.g. a racing removePairing) ran cleanup() mid-iteration. Returning
+      // the real boolean stops the caller's notified count from being inflated
+      // by frames that never left the daemon.
+      return await this.sendEncrypted(peer, RELAY_CHANNEL_CONTROL, 0, msg);
     } catch (err) {
       log.warn(`${method}: send failed for ${frontendId}: ${err}`);
       return false;
@@ -888,10 +905,19 @@ export class RelayClient {
     }
   }
 
-  private send(msg: RelayClientMessage): void {
+  /**
+   * Write `msg` to the relay socket. Returns `true` only if the frame was
+   * actually handed to an OPEN socket; `false` when the socket is null/closing
+   * (e.g. a concurrent `dispose()` already ran `cleanup()` and nulled `ws`).
+   * Callers that report delivery to the user (e.g. `sendControl`'s notified
+   * count) MUST honour the return so they never count a silently-dropped frame.
+   */
+  private send(msg: RelayClientMessage): boolean {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg));
+      return true;
     }
+    return false;
   }
 
   private scheduleReconnect(): void {

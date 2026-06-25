@@ -714,6 +714,193 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     client.dispose();
   });
 
+  test("sendRenameNotice returns false (not inflated true) when the socket was disposed mid-flight", async () => {
+    // Regression: a concurrent removePairing()→dispose() runs cleanup() which
+    // nulls `this.ws` (but intentionally keeps `peers` and `authenticated`).
+    // A rename notice sent after that point still finds the peer and encrypts
+    // fine, but `send()` silently no-ops on the null socket. sendControl MUST
+    // honour the real transmit result and return false, so renamePairing's
+    // notified count never claims delivery for a frame that never left the
+    // daemon. Before the fix, this returned true (inflated count).
+    const daemonKp = await generateKeyPair();
+    const frontendKp = await generateKeyPair();
+    const frontendId = "test-frontend-rename-disposed";
+    const kxKey = await deriveKxKey(pairingSecret);
+
+    const client = new RelayClient(
+      {
+        relayUrl: `ws://localhost:${relayPort}`,
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        registrationProof,
+        keyPair: daemonKp,
+        pairingSecret,
+      },
+      {},
+    );
+
+    await client.connect();
+    await Bun.sleep(300);
+
+    const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
+    await waitOpen(frontendWs);
+    frontendWs.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 2,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        frontendId,
+      }),
+    );
+    await Bun.sleep(100);
+
+    const kxPayload = JSON.stringify({
+      pk: await toBase64(frontendKp.publicKey),
+      frontendId,
+      role: "frontend",
+      v: 2,
+    });
+    const kxCt = await encrypt(new TextEncoder().encode(kxPayload), kxKey);
+    frontendWs.send(
+      JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }),
+    );
+    await Bun.sleep(300);
+
+    // Sanity: with a live socket the notice is genuinely delivered (returns true).
+    const liveResult = await client.sendRenameNotice(
+      frontendId,
+      makeLabel("Live"),
+    );
+    expect(liveResult).toBe(true);
+    expect(client.getPeerCount()).toBe(1);
+
+    // Now simulate the racing dispose(): cleanup() nulls `ws` but keeps the
+    // peer + authenticated flag, exactly the mid-flight window the bug needs.
+    client.dispose();
+
+    const afterDispose = await client.sendRenameNotice(
+      frontendId,
+      makeLabel("After"),
+    );
+    // The peer is still in the map and encryption still succeeds, but the
+    // frame cannot leave the (now-null) socket — so this MUST be false.
+    expect(afterDispose).toBe(false);
+
+    frontendWs.close();
+  });
+
+  test("broadcastEncrypted keeps fanning out after one peer's encrypt() throws", async () => {
+    // Regression: broadcastEncrypted awaited sendEncrypted in a bare loop, so a
+    // single peer with a corrupt/rotated session key would throw and abort the
+    // loop — every *subsequent* peer silently missed that record/state frame.
+    // The daemon is N:N, so one bad peer must not deny the broadcast to the
+    // healthy ones. Set up two peers, corrupt the FIRST peer's tx key so its
+    // encrypt() throws, then assert the SECOND peer still receives the record.
+    const daemonKp = await generateKeyPair();
+    const kxKey = await deriveKxKey(pairingSecret);
+
+    const client = new RelayClient(
+      {
+        relayUrl: `ws://localhost:${relayPort}`,
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        registrationProof,
+        keyPair: daemonKp,
+        pairingSecret,
+      },
+      {},
+    );
+    await client.connect();
+    await Bun.sleep(300);
+
+    // Bring up two real frontend peers via kx.
+    async function joinPeer(frontendId: string) {
+      const fkp = await generateKeyPair();
+      const ws = new WebSocket(`ws://localhost:${relayPort}`);
+      await waitOpen(ws);
+      ws.send(
+        JSON.stringify({
+          t: "relay.auth",
+          v: 2,
+          role: "frontend",
+          daemonId: DAEMON_ID,
+          token: relayToken,
+          frontendId,
+        }),
+      );
+      await Bun.sleep(100);
+      const kxPayload = JSON.stringify({
+        pk: await toBase64(fkp.publicKey),
+        frontendId,
+        role: "frontend",
+        v: 2,
+      });
+      const kxCt = await encrypt(new TextEncoder().encode(kxPayload), kxKey);
+      ws.send(JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }));
+      await Bun.sleep(200);
+      ws.send(JSON.stringify({ t: "relay.sub", sid: "session-bcast" }));
+      await Bun.sleep(50);
+      const keys = await deriveSessionKeys(fkp, daemonKp.publicKey, "frontend");
+      return { ws, keys };
+    }
+
+    const peerA = await joinPeer("fe-bad");
+    const peerB = await joinPeer("fe-good");
+    expect(client.getPeerCount()).toBe(2);
+
+    // Corrupt the FIRST peer's tx key so encrypt() throws for it. Reaching into
+    // the private peers map is acceptable in a same-package test — it
+    // deterministically reproduces the "one bad peer" condition without relying
+    // on real key rotation timing.
+    const peers = (
+      client as unknown as {
+        peers: Map<string, { sessionKeys: { tx: Uint8Array } }>;
+      }
+    ).peers;
+    const badPeer = peers.get("fe-bad");
+    expect(badPeer).toBeDefined();
+    // A 1-byte key is the wrong length for XChaCha20-Poly1305 → encrypt throws.
+    if (badPeer) badPeer.sessionKeys.tx = new Uint8Array([0]);
+
+    const recvB = new Promise<RelayServerMessage>((resolve, reject) => {
+      peerB.ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data as string);
+        if (msg.t === "relay.frame") resolve(msg);
+      };
+      setTimeout(
+        () => reject(new Error("peerB never received the record")),
+        3000,
+      );
+    });
+
+    const rec: SessionRec = {
+      t: "rec",
+      sid: "session-bcast",
+      seq: 1,
+      k: "io",
+      d: Buffer.from("fan-out survives a bad peer").toString("base64"),
+      ts: Date.now(),
+    };
+    client.subscribe("session-bcast");
+    // Must NOT throw despite the bad peer, and must reach peerB.
+    await client.publishRecord(rec);
+
+    const frame = await recvB;
+    const ct = (frame as unknown as { ct: string }).ct;
+    const plaintext = await decrypt(ct, peerB.keys.rx);
+    const decrypted = JSON.parse(new TextDecoder().decode(plaintext));
+    expect(decrypted.sid).toBe("session-bcast");
+    expect(Buffer.from(decrypted.d, "base64").toString()).toBe(
+      "fan-out survives a bad peer",
+    );
+
+    peerA.ws.close();
+    peerB.ws.close();
+    client.dispose();
+  });
+
   test("inbound control.rename fires onRename callback", async () => {
     const daemonKp = await generateKeyPair();
     const frontendKp = await generateKeyPair();

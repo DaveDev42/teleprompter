@@ -420,6 +420,30 @@ async fn handle_inbound(
     // NOT decrement, preserving the `framesIn ≈ framesOut + drops` accounting.
     state.metrics.inc_frames_in();
 
+    // Pre-auth throttle: count every frame from unauthenticated sockets BEFORE
+    // parse (mirrors relay-server.ts:742-754). The counter lives in ConnHandle
+    // behind the RelayCore mutex. LOCK: synchronous — read/increment
+    // preauth_count, check auth. No .await inside the block.
+    {
+        let close_preauth = {
+            let mut core = state.core.lock().expect("relay core mutex poisoned");
+            if let Some(handle) = core.conns.get_mut(&conn_id) {
+                if handle.auth.is_none() {
+                    handle.preauth_count += 1;
+                    handle.preauth_count > state.max_preauth_msgs
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+            // guard dropped here
+        };
+        if close_preauth {
+            return Some((1008, "Too many pre-auth messages"));
+        }
+    }
+
     // Parse JSON; malformed → relay.err PARSE_ERROR (relay-server.ts:656).
     let Ok(value) = serde_json::from_str::<Value>(text) else {
         deliver_actions(
@@ -1175,7 +1199,13 @@ mod tests {
     // ── Test helpers ─────────────────────────────────────────────────────────
 
     fn test_core() -> RelayCore {
-        RelayCore::new(RecentFrames::with_cache_size(10), 500, 5000)
+        use crate::registry::DEFAULT_MAX_REGISTRATIONS;
+        RelayCore::new(
+            RecentFrames::with_cache_size(10),
+            500,
+            5000,
+            DEFAULT_MAX_REGISTRATIONS,
+        )
     }
 
     fn insert_unauthed(core: &mut RelayCore, id: ConnId) {
@@ -1749,5 +1779,61 @@ mod tests {
             level_to_string(InterruptionLevel::TimeSensitive),
             "time-sensitive"
         );
+    }
+
+    // ── Pre-auth throttle ────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn preauth_throttle_closes_after_too_many_frames() {
+        let mut state = SharedState::from_env();
+        state.max_preauth_msgs = 3; // tiny cap for testing
+                                    // Register an unauthenticated conn.
+        {
+            let mut core = state.core.lock().unwrap();
+            insert_unauthed(&mut core, 50);
+        }
+        // First 3 frames should NOT close (count=1,2,3; threshold is >3).
+        for _ in 0..3 {
+            let result = handle_inbound(&state, 50, r#"{"t":"relay.ping"}"#).await;
+            assert_eq!(result, None, "frames at or under cap must not close");
+        }
+        // 4th frame exceeds cap → 1008 close.
+        let result = handle_inbound(&state, 50, r#"{"t":"relay.ping"}"#).await;
+        assert_eq!(result, Some((1008, "Too many pre-auth messages")));
+    }
+
+    #[tokio::test]
+    async fn preauth_throttle_does_not_apply_after_auth() {
+        // Authenticated conns are not subject to the pre-auth cap.
+        // Use a very small cap (1) but authed conn.
+        let mut state = SharedState::from_env();
+        state.max_preauth_msgs = 1;
+        {
+            let mut core = state.core.lock().unwrap();
+            // Insert an authed conn directly.
+            let (tx, rx) = mpsc::channel(64);
+            let (close_tx, close_rx) = mpsc::channel(4);
+            std::mem::forget(rx);
+            std::mem::forget(close_rx);
+            let mut handle = ConnHandle::new(tx, close_tx, 500);
+            handle.auth = Some(crate::server::AuthState {
+                role: Role::Daemon,
+                daemon_id: "d".into(),
+                frontend_id: None,
+                subscriptions: std::collections::HashSet::new(),
+            });
+            core.conns.insert(51, handle);
+        }
+        // Sending many frames should NOT trigger the preauth close.
+        for _ in 0..5 {
+            let result = handle_inbound(&state, 51, r#"{"t":"relay.ping"}"#).await;
+            // It may return None (no close) or an auth-related close from
+            // dispatch, but must NEVER be the preauth close code.
+            assert_ne!(
+                result,
+                Some((1008, "Too many pre-auth messages")),
+                "authed conn must not be subject to preauth throttle"
+            );
+        }
     }
 }

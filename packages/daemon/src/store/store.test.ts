@@ -530,7 +530,17 @@ describe("Store push_tokens — isolated tests", () => {
     expect(store.loadPushTokens()).toHaveLength(0);
   });
 
-  test("corrupt platform value is dropped by loadPushTokens", () => {
+  // Count rows directly so we can assert the corrupt row is PURGED from the
+  // table, not merely skipped in the returned array.
+  const rawPushTokenCount = (s: Store): number => {
+    const db = (s as unknown as { metaDb: import("bun:sqlite").Database })
+      .metaDb;
+    return (
+      db.query("SELECT COUNT(*) AS n FROM push_tokens").get() as { n: number }
+    ).n;
+  };
+
+  test("corrupt platform value is dropped AND purged by loadPushTokens", () => {
     // Insert a row with an invalid platform directly to bypass the type guard
     store.savePushToken({
       frontendId: "fe-corrupt",
@@ -546,9 +556,11 @@ describe("Store push_tokens — isolated tests", () => {
     );
     const tokens = store.loadPushTokens();
     expect(tokens).toHaveLength(0);
+    // Purged: the dead row is gone, so a second load does not re-warn forever.
+    expect(rawPushTokenCount(store)).toBe(0);
   });
 
-  test("empty sealed string is dropped by loadPushTokens", () => {
+  test("empty sealed string is dropped AND purged by loadPushTokens", () => {
     store.savePushToken({
       frontendId: "fe-empty",
       daemonId: "d-1",
@@ -560,5 +572,45 @@ describe("Store push_tokens — isolated tests", () => {
     db.run("UPDATE push_tokens SET sealed = '' WHERE frontend_id = 'fe-empty'");
     const tokens = store.loadPushTokens();
     expect(tokens).toHaveLength(0);
+    expect(rawPushTokenCount(store)).toBe(0);
+  });
+
+  // The actual in-the-wild corruption: an older code path persisted rows with
+  // an empty daemon_id (buildEvents' `daemonId = ""` default forwarded into
+  // savePushToken). Those rows fail the `!row.daemon_id` guard and, before the
+  // purge fix, were re-read and re-warned on EVERY daemon startup (4 rows →
+  // 140+ repeated log lines). loadPushTokens must drop them from the result AND
+  // delete them so the table self-heals on first load — while leaving valid
+  // rows untouched.
+  test("empty daemon_id row is dropped AND purged, valid rows preserved", () => {
+    store.savePushToken({
+      frontendId: "fe-good",
+      daemonId: "d-good",
+      sealed: SEALED_A,
+      platform: "ios",
+    });
+    store.savePushToken({
+      frontendId: "fe-empty-daemon",
+      daemonId: "d-temp",
+      sealed: SEALED_A,
+      platform: "ios",
+    });
+    const db = (store as unknown as { metaDb: import("bun:sqlite").Database })
+      .metaDb;
+    db.run(
+      "UPDATE push_tokens SET daemon_id = '' WHERE frontend_id = 'fe-empty-daemon'",
+    );
+
+    const tokens = store.loadPushTokens();
+    // Only the valid row survives in the result...
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]?.frontendId).toBe("fe-good");
+    // ...and the corrupt row is purged while the valid row is preserved.
+    expect(rawPushTokenCount(store)).toBe(1);
+
+    // A second load is clean: no corrupt rows remain to re-warn about.
+    const second = store.loadPushTokens();
+    expect(second).toHaveLength(1);
+    expect(rawPushTokenCount(store)).toBe(1);
   });
 });

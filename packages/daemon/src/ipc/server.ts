@@ -7,7 +7,16 @@ import {
   parseIpcMessage,
   QueuedWriter,
 } from "@teleprompter/protocol";
-import { existsSync, unlinkSync } from "fs";
+import { existsSync, lstatSync, unlinkSync } from "fs";
+
+// How often the daemon re-checks that its IPC socket dirent still exists at the
+// bound path. The in-kernel listening socket survives a dirent unlink, but the
+// path becomes unreachable by `connect()` (macOS AF_UNIX = VFS, no abstract
+// namespace), so every new client (`tp status`, `tp` passthrough → ensureDaemon)
+// sees ENOENT, reports the live daemon as "not running", and risks spawning a
+// duplicate. 30s is a tunable heartbeat — cheap (one lstat) and far below the
+// human-noticeable window for a stale "not running".
+const SOCKET_HEAL_INTERVAL_MS = 30_000;
 
 export interface ConnectedRunner {
   socket: unknown;
@@ -32,6 +41,9 @@ export class IpcServer {
   private server: ReturnType<typeof Bun.listen> | null = null;
   private runners = new Set<ConnectedRunner>();
   private events: IpcServerEvents;
+  private boundPath: string | null = null;
+  private healTimer: ReturnType<typeof setInterval> | null = null;
+  private stopped = false;
 
   constructor(events: IpcServerEvents) {
     this.events = events;
@@ -39,7 +51,22 @@ export class IpcServer {
 
   start(socketPath?: string): string {
     const path = socketPath ?? getSocketPath();
+    this.stopped = false;
+    this.listen(path);
+    this.boundPath = path;
+    this.startHealTimer();
+    return path;
+  }
 
+  /**
+   * Bind (or re-bind) the Unix listening socket at `path`. Extracted from
+   * `start()` so the heal timer can recreate the dirent after it is unlinked
+   * out from under a live daemon (restart races, a stray `tp daemon start` that
+   * pre-unlinks then early-exits on the lock, OS tmp churn). Re-binding creates
+   * a fresh listening socket + dirent; already-accepted runner connections live
+   * in the OS independent of the listener and are unaffected.
+   */
+  private listen(path: string): void {
     // Clean up stale socket file
     if (existsSync(path)) {
       unlinkSync(path);
@@ -135,7 +162,53 @@ export class IpcServer {
     });
 
     log.info(`listening on ${path}`);
-    return path;
+  }
+
+  /**
+   * Returns true if the dirent at `path` exists and is a Unix socket. A missing
+   * dirent (ENOENT) or a path that has been replaced by a regular file/dir both
+   * mean the bound path can no longer accept `connect()` and must be re-bound.
+   */
+  private socketDirentHealthy(path: string): boolean {
+    try {
+      return lstatSync(path).isSocket();
+    } catch {
+      // ENOENT (unlinked) or any stat error → not healthy.
+      return false;
+    }
+  }
+
+  /**
+   * Periodically re-assert that the bound socket dirent still exists. If it has
+   * been unlinked while the daemon is alive, re-bind so new clients can reach
+   * the daemon again instead of seeing ENOENT and spawning a duplicate. The
+   * callback is fully guarded: a throw escaping a timer callback terminates the
+   * Bun process (same hazard the auto-cleanup / data-callback guards address),
+   * which would be a far worse outcome than a missed heal.
+   */
+  private startHealTimer(): void {
+    if (this.healTimer) return;
+    this.healTimer = setInterval(() => {
+      try {
+        if (this.stopped || !this.boundPath) return;
+        if (this.socketDirentHealthy(this.boundPath)) return;
+        log.warn(
+          `IPC socket dirent missing at ${this.boundPath} — re-binding so the daemon stays reachable`,
+        );
+        // Drop the old listening socket (default keeps already-accepted runner
+        // connections alive) before binding a fresh listener at the same path.
+        this.server?.stop();
+        this.server = null;
+        this.listen(this.boundPath);
+      } catch (err) {
+        log.error(
+          "IPC socket heal failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }, SOCKET_HEAL_INTERVAL_MS);
+    // Don't keep the event loop alive solely for the heal heartbeat.
+    (this.healTimer as unknown as { unref?: () => void }).unref?.();
   }
 
   send(
@@ -158,8 +231,28 @@ export class IpcServer {
   }
 
   stop(): void {
+    this.stopped = true;
+    if (this.healTimer) {
+      clearInterval(this.healTimer);
+      this.healTimer = null;
+    }
     this.server?.stop();
     this.server = null;
+    this.boundPath = null;
     this.runners.clear();
+  }
+
+  /**
+   * Test-only: force a heal check synchronously (the heal timer's body),
+   * letting a regression test drive the unlink→rebind path without waiting
+   * for the 30s interval. Returns true if a re-bind occurred.
+   */
+  __healNow(): boolean {
+    if (this.stopped || !this.boundPath) return false;
+    if (this.socketDirentHealthy(this.boundPath)) return false;
+    this.server?.stop();
+    this.server = null;
+    this.listen(this.boundPath);
+    return true;
   }
 }

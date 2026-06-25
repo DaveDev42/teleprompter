@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  App Store Connect export options for `scripts/ios.sh archive` (TestFlight).
+
+  Consumed by `xcodebuild -exportArchive -exportOptionsPlist`. This turns the
+  signed .xcarchive into an App-Store-uploadable .ipa.
+
+  - method app-store-connect: the Xcode 15.4+ spelling of the old "app-store"
+    method (TestFlight + App Store distribution).
+  - signingStyle manual: CI imports a specific Apple Distribution cert +
+    provisioning profile into a throwaway keychain; manual keeps xcodebuild from
+    trying to talk to the developer portal (which it cannot do headlessly).
+  - uploadSymbols true: ship dSYMs so App Store Connect symbolicates crash logs.
+  - uploadBitcode is intentionally absent — bitcode was removed in Xcode 14; the
+    key is a no-op on modern toolchains.
+
+  teamID and the bundleId→profile mapping are NOT hardcoded here. The team comes
+  from the archive's embedded signing (driven by DEVELOPMENT_TEAM in cmd_archive),
+  and Xcode resolves the profile from the keychain by bundle id. Keeping them out
+  of this checked-in file means no Team ID / profile name leaks into git, and the
+  same plist works whoever runs it.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>app-store-connect</string>
+    <key>signingStyle</key>
+    <string>manual</string>
+    <key>uploadSymbols</key>
+    <true/>
+    <key>destination</key>
+    <string>export</string>
+</dict>
+</plist>

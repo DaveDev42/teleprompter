@@ -24,3 +24,4 @@
 | [0001](./0001-full-native-rewrite-swift-rust.md) | 전면 네이티브 재작성 (Swift 앱 + Rust 코어) | Accepted (2026-06-15) · 플랫폼 범위 Superseded by 0002 |
 | [0002](./0002-multiplatform-apple-expansion.md) | Apple 멀티플랫폼 확장 (iOS/iPadOS/macOS/visionOS 완전 + watchOS 제한) | Accepted (2026-06-15) |
 | [0003](./0003-phase4-backend-rust-migration.md) | Phase 4 백엔드 Rust 이관 (staged, dual-run cutover) | **Accepted** (2026-06-17) · **Stage 0 ✅ 완료** (2026-06-18) · Stage 1 (relay) 대기 |
+| [0004](./0004-testflight-deployment-github-actions.md) | TestFlight 배포 파이프라인 복원 (GitHub Actions, EAS Submit 대체) | **Accepted** (2026-06-26) · ADR-0001 §5 배포 공백 보완 |

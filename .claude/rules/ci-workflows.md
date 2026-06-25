@@ -29,6 +29,16 @@ paths:
 - `build-cross` job runs on `ubuntu-latest`, then `apt-get install upx-ucl` + `upx -1 dist/tp-*` to shrink linux binaries (-55% typical). macOS is deliberately **not** UPX-compressed — Gatekeeper/Hardened Runtime SIGKILLs packed Mach-O even with `--force-macos`.
 - `release` job signs `checksums.txt` via cosign keyless OIDC + attest-build-provenance, then publishes via `softprops/action-gh-release@v2`.
 
+## TestFlight (`testflight.yml`, ADR-0004 — iOS 앱 배포, EAS Submit 대체)
+- **무엇**: `v*` 태그 push 또는 수동 dispatch → `macos-26` 러너에서 iOS 앱을 archive+서명+export 후 **App Store Connect(→ TestFlight)** 업로드. ADR-0001 이 제거한 EAS Submit 의 배포 경로를 **Apple 공식 도구만으로**(fastlane/EAS 없이) 복원.
+- **빌드 절반 = 하니스**: `scripts/ios.sh archive` (iOS device 슬라이스 Release archive → `-exportArchive` via `ios/ExportOptions.plist` → `.ipa`). 빌드 로직은 워크플로에 흩지 않고 하니스에 둠(build/smoke/uitest 와 동일 규율). iOS-only 가드(`cmd_archive` 가 `macos`/`visionos`/`watchos` 거부). **업로드 절반 = 워크플로**: `xcrun altool --upload-app` + ASC API 키(.p8).
+- **서명**: Apple Distribution 인증서(.p12) + provisioning profile 을 **일회용 keychain**(`$RUNNER_TEMP/tp-signing.keychain-db`)에 base64 시크릿에서 import — 러너 login keychain 절대 안 건드림, `always()` step 으로 keychain+프로필+키 정리. `CODE_SIGN_STYLE=Manual`(헤드리스에서 portal 통신 불가). Simulator/로컬 ad-hoc 서명(`SIGN_FLAGS="-"`)과 완전 분리.
+- **빌드 번호**: `TP_BUILD_NUMBER=${{ github.run_number }}` → `cmd_archive` 가 `CURRENT_PROJECT_VERSION` 오버라이드(ASC 는 재사용 빌드번호 거부, 단조 증가 필수). 버전 문자열은 `project.yml MARKETING_VERSION`.
+- **export-compliance**: `project.yml` Info.plist 에 `ITSAppUsesNonExemptEncryption: false`(표준 XChaCha20/X25519 = EAR 740.17(b)(1) 면제) — 없으면 TestFlight 가 "Missing Compliance" 로 빌드를 테스터에게 안 풀어줌.
+- **시크릿 게이트**: `guard` job(ubuntu)이 필수 시크릿 4개 존재를 output 으로 노출, `archive-and-upload` 가 `needs.guard.outputs.ready=='true'` 일 때만 실행 — **포크/시크릿-없는 환경에서 skip(`::notice::`), PR wedge 안 함**. 필요 시크릿: `IOS_DIST_CERT_P12_BASE64`, `IOS_DIST_CERT_PASSWORD`, `IOS_PROVISIONING_PROFILE_BASE64`, `ASC_API_KEY_P8_BASE64`, `ASC_API_KEY_ID`, `ASC_API_ISSUER_ID`, `APPLE_TEAM_ID`.
+- **번들 ID 연속성 주의**: 구 Expo 앱 = `dev.tpmt.app`, 네이티브 = `dev.tpmt.teleprompter` (ADR-0004 §3). ASC 레코드는 번들 ID 1개에 묶이므로 **구 EAS 채널로 그대로 안 올라간다** — 기본값은 새 ASC 레코드(네이티브 ID 유지). 구 레코드 재사용하려면 `project.yml` 의 `PRODUCT_BUNDLE_IDENTIFIER` 를 `dev.tpmt.app` 으로 되돌림(파이프라인은 번들 ID 무관, 변경 불필요).
+- **non-required** (신규 job 규율 — 안정 green 후 승격). **watchOS 는 자동 동반 안 됨** — `TeleprompterWatch` 는 `WKRunsIndependentlyOfCompanionApp: YES` 독립 타깃이라 iOS 타깃에 임베드 안 되고 `Teleprompter` 스킴에도 없어 archive 산출물은 iOS-only `.ipa`. watchOS 배포는 별도 파이프라인 필요(ADR-0004 §6).
+
 ## Relay Deploy (`deploy-relay.yml`, ADR-0003 Step 8b — Rust 바이너리)
 - **빌드**: `ubuntu-latest` 에서 `dtolnay/rust-toolchain@1.96.0`+`Swatinem/rust-cache` 로 `cargo build --release --target x86_64-unknown-linux-gnu --bin tp-relay`(x86_64 Vultr = native build). `TP_BUILD_SHA=${{ github.sha }}` 를 **build env** 로 주입 → `build.rs` 가 읽어 `/health.buildSha` 로 verbatim 노출(full 40-char).
 - **배포**: SCP `/tmp/tp-relay` → 호스트, base unit `ExecStart=/usr/local/bin/tp-relay`+`RELAY_PORT=7090` 설치, `systemctl restart tp-relay`. **on-disk `sha256(/usr/local/bin/tp-relay)` 검증** + `/health.buildSha==github.sha` assert(`curl --retry`).

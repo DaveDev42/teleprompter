@@ -98,6 +98,11 @@ pub struct ConnHandle {
     pub group_limiter: Option<Arc<Limiter>>,
     /// `None` until authenticated.
     pub auth: Option<AuthState>,
+    /// Number of frames received while unauthenticated. Incremented on every
+    /// inbound frame before parse while `auth.is_none()`. The connection is
+    /// closed with 1008 once this exceeds `SharedState::max_preauth_msgs`.
+    /// Mirrors `relay-server.ts:742-754` pre-auth frame throttle.
+    pub preauth_count: u32,
 }
 
 impl ConnHandle {
@@ -112,6 +117,7 @@ impl ConnHandle {
             client_limiter: Arc::new(Limiter::per_second(per_client_rate)),
             group_limiter: None,
             auth: None,
+            preauth_count: 0,
         }
     }
 }
@@ -141,9 +147,14 @@ pub struct RelayCore {
 }
 
 impl RelayCore {
-    pub(crate) fn new(recent: RecentFrames, rate_per_client: u32, rate_per_daemon: u32) -> Self {
+    pub(crate) fn new(
+        recent: RecentFrames,
+        rate_per_client: u32,
+        rate_per_daemon: u32,
+        max_registrations: usize,
+    ) -> Self {
         Self {
-            registry: Registry::new(),
+            registry: Registry::with_max_registrations(max_registrations),
             recent,
             groups: HashMap::new(),
             conns: HashMap::new(),
@@ -231,6 +242,10 @@ pub struct SharedState {
     /// Wrapped in `Arc` (not `PushService` directly) so `#[derive(Clone)]` on
     /// `SharedState` holds — `PushService` is not `Clone`, but `Arc` is.
     pub push_service: Option<Arc<crate::push::PushService>>,
+    /// Max number of frames allowed from an unauthenticated connection before it
+    /// is closed with 1008. Mirrors `relay-server.ts:742-754`.
+    /// Override via `TP_RELAY_MAX_PREAUTH_MSGS` (default 30).
+    pub max_preauth_msgs: u32,
 }
 
 /// Default stale-detection timeout (ms). Mirrors `STALE_TIMEOUT_MS` (90 s).
@@ -242,6 +257,18 @@ pub const STALE_CHECK_INTERVAL_MS: u64 = 30_000;
 /// Idle-timeout (s). Mirrors `WS_IDLE_TIMEOUT_S` (90 s). The conn read loop
 /// resets an `Interval` on every inbound frame; firing closes the socket.
 pub const WS_IDLE_TIMEOUT_S: u64 = 90;
+/// Default maximum pre-auth frames per connection. Mirrors
+/// `relay-server.ts:742-754` (`unauthFrameCount > MAX_UNAUTH_FRAMES`).
+pub const DEFAULT_MAX_PREAUTH_MSGS: u32 = 30;
+
+/// Read `TP_RELAY_MAX_PREAUTH_MSGS`, falling back to [`DEFAULT_MAX_PREAUTH_MSGS`].
+#[must_use]
+pub fn max_preauth_msgs_from_env() -> u32 {
+    std::env::var("TP_RELAY_MAX_PREAUTH_MSGS")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(DEFAULT_MAX_PREAUTH_MSGS)
+}
 
 impl SharedState {
     /// Construct from the environment (rate limits, cache size, resume secret).
@@ -250,11 +277,13 @@ impl SharedState {
         let recent = RecentFrames::from_env();
         let rate_per_client = rate_per_client_from_env();
         let rate_per_daemon = rate_per_daemon_from_env();
+        let max_registrations = Registry::max_registrations_from_env();
         Self {
             core: Arc::new(Mutex::new(RelayCore::new(
                 recent,
                 rate_per_client,
                 rate_per_daemon,
+                max_registrations,
             ))),
             signer: Arc::new(ResumeTokenSigner::from_env()),
             stale_timeout_ms: DEFAULT_STALE_TIMEOUT_MS,
@@ -265,6 +294,7 @@ impl SharedState {
             metrics: Arc::new(Metrics::new()),
             started_at: Instant::now(),
             push_service: build_push_service_from_env(),
+            max_preauth_msgs: max_preauth_msgs_from_env(),
         }
     }
 
@@ -664,7 +694,13 @@ mod tests {
     use crate::ring::RecentFrames;
 
     fn test_core() -> RelayCore {
-        RelayCore::new(RecentFrames::with_cache_size(10), 500, 5000)
+        use crate::registry::DEFAULT_MAX_REGISTRATIONS;
+        RelayCore::new(
+            RecentFrames::with_cache_size(10),
+            500,
+            5000,
+            DEFAULT_MAX_REGISTRATIONS,
+        )
     }
 
     /// Insert a conn with a dummy outbox (capacity large enough not to fill in

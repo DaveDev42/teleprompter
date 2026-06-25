@@ -22,6 +22,10 @@ use indexmap::IndexSet;
 /// `MAX_SESSIONS_PER_DAEMON = 256` at `relay-server.ts:127`.
 pub const MAX_SESSIONS_PER_DAEMON: usize = 256;
 
+/// Default maximum number of distinct daemon registrations the relay will hold.
+/// Prevents memory exhaustion from unbounded `relay.register` floods.
+pub const DEFAULT_MAX_REGISTRATIONS: usize = 50_000;
+
 // ── Registration ─────────────────────────────────────────────────────────────
 
 /// One entry in the `registrations` map (`daemonId → Registration`).
@@ -127,7 +131,7 @@ impl DaemonState {
 
 /// Central relay connection registry — holds all per-daemon state and the
 /// token validity maps.  Pure data structure with no I/O.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Registry {
     /// `daemonId → DaemonState`
     pub daemon_states: HashMap<String, DaemonState>,
@@ -135,12 +139,42 @@ pub struct Registry {
     pub registrations: HashMap<String, Registration>,
     /// `token → daemonId` — fast O(1) token validity lookup.
     pub valid_tokens: HashMap<String, String>,
+    /// Cap on the number of distinct daemon IDs that may be registered.
+    /// Prevents memory exhaustion from unbounded `relay.register` floods.
+    max_registrations: usize,
+}
+
+impl Default for Registry {
+    fn default() -> Self {
+        Self::with_max_registrations(DEFAULT_MAX_REGISTRATIONS)
+    }
 }
 
 impl Registry {
-    /// Create a new empty registry.
+    /// Create a new empty registry with the default registration cap.
     pub fn new() -> Self {
-        Self::default()
+        Self::with_max_registrations(DEFAULT_MAX_REGISTRATIONS)
+    }
+
+    /// Create a new empty registry with an explicit registration cap.
+    /// Use `0` to disable the cap entirely (useful only in tests).
+    pub fn with_max_registrations(max_registrations: usize) -> Self {
+        Self {
+            daemon_states: HashMap::new(),
+            registrations: HashMap::new(),
+            valid_tokens: HashMap::new(),
+            max_registrations,
+        }
+    }
+
+    /// Read the registration cap from the `TP_RELAY_MAX_REGISTRATIONS` env var,
+    /// falling back to [`DEFAULT_MAX_REGISTRATIONS`].
+    #[must_use]
+    pub fn max_registrations_from_env() -> usize {
+        std::env::var("TP_RELAY_MAX_REGISTRATIONS")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(DEFAULT_MAX_REGISTRATIONS)
     }
 
     // ── upsert_daemon_state ───────────────────────────────────────────────────
@@ -203,6 +237,16 @@ impl Registry {
         proof: &str,
         now_ms: u64,
     ) -> Result<(), &'static str> {
+        // 0. Registration cap: only reject NEW daemon IDs. An existing daemon
+        //    rotating its token (re-registering with the same daemonId) is always
+        //    allowed through, because its slot is already occupied.
+        if !self.registrations.contains_key(daemon_id)
+            && self.max_registrations > 0
+            && self.registrations.len() >= self.max_registrations
+        {
+            return Err("Relay registration capacity reached");
+        }
+
         // 1. Different-credentials guard (relay-server.ts:768–775).
         //    `existing.proof !== null && existing.proof !== msg.proof`
         //    → `None` stored proof never blocks a subsequent register.
@@ -860,6 +904,28 @@ mod tests {
             "registration must be gone"
         );
         assert!(!r.valid_tokens.contains_key("tok"), "token must be gone");
+    }
+
+    // ── Invariant 14: registrations cap ──────────────────────────────────────
+
+    #[test]
+    fn registrations_cap_blocks_new_daemon_ids() {
+        let mut r = Registry::with_max_registrations(2);
+        // Register 2 daemons — fills the cap.
+        r.valid_tokens.insert("t1".into(), "d1".into());
+        r.handle_register("d1", "t1", "proof", 0).unwrap();
+        r.valid_tokens.insert("t2".into(), "d2".into());
+        r.handle_register("d2", "t2", "proof", 0).unwrap();
+        // 3rd NEW daemonId is rejected.
+        r.valid_tokens.insert("t3".into(), "d3".into());
+        let result = r.handle_register("d3", "t3", "proof", 0);
+        assert_eq!(result, Err("Relay registration capacity reached"));
+        // EXISTING daemonId (d1) can still re-register past the cap.
+        r.valid_tokens.insert("t4".into(), "d1".into());
+        assert!(
+            r.handle_register("d1", "t4", "proof", 0).is_ok(),
+            "existing daemon must bypass the cap when re-registering"
+        );
     }
 
     // ── Invariant 15: sessions only mutated by daemon-role pub ────────────────

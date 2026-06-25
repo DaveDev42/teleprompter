@@ -420,6 +420,30 @@ async fn handle_inbound(
     // NOT decrement, preserving the `framesIn ≈ framesOut + drops` accounting.
     state.metrics.inc_frames_in();
 
+    // Pre-auth throttle: count every frame from unauthenticated sockets BEFORE
+    // parse (mirrors relay-server.ts:742-754). The counter lives in ConnHandle
+    // behind the RelayCore mutex. LOCK: synchronous — read/increment
+    // preauth_count, check auth. No .await inside the block.
+    {
+        let close_preauth = {
+            let mut core = state.core.lock().expect("relay core mutex poisoned");
+            if let Some(handle) = core.conns.get_mut(&conn_id) {
+                if handle.auth.is_none() {
+                    handle.preauth_count += 1;
+                    handle.preauth_count > state.max_preauth_msgs
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+            // guard dropped here
+        };
+        if close_preauth {
+            return Some((1008, "Too many pre-auth messages"));
+        }
+    }
+
     // Parse JSON; malformed → relay.err PARSE_ERROR (relay-server.ts:656).
     let Ok(value) = serde_json::from_str::<Value>(text) else {
         deliver_actions(
@@ -673,10 +697,13 @@ fn dispatch_locked(
         // to the daemon as relay.push.token. Synchronous (seal is in-memory; no
         // APNs I/O here). Mirrors relay-server.ts handlePushRegister:1493-1542.
         RelayClientMessage::PushRegister {
-            frontend_id,
+            // The wire frontend_id is intentionally ignored — routing uses the
+            // authenticated identity (see route_push_register). Binding it as `_`
+            // documents that the relay does not trust the wire-supplied value.
+            frontend_id: _,
             token,
             platform,
-        } => route_push_register(core, conn_id, frontend_id, token, *platform),
+        } => route_push_register(core, conn_id, token, *platform),
 
         // ── Push send (daemon → relay → APNs): async HTTP/2 delivery, which
         // cannot run under the RelayCore lock (no .await in dispatch_locked).
@@ -696,7 +723,6 @@ fn dispatch_locked(
 fn route_push_register(
     core: &RelayCore,
     conn_id: ConnId,
-    frontend_id: &str,
     token: &str,
     platform: tp_proto::relay_client::Platform,
 ) -> DispatchOutcome {
@@ -735,10 +761,19 @@ fn route_push_register(
         return DispatchOutcome::empty();
     };
 
+    // Route under the AUTHENTICATED identity (client.frontend_id), never the
+    // wire-supplied frontend_id. The relay is the identity authority here: if it
+    // trusted the wire frontend_id, any authenticated frontend in the daemon
+    // group could register its own APNs token under a victim's frontendId and
+    // hijack the victim's push delivery. For an honest client the wire value
+    // already equals client.frontend_id, so this is a no-op for them and a hard
+    // boundary for a hostile one. Mirrors relay-server.ts handlePushRegister.
+    let authed_frontend_id = client.frontend_id.clone().unwrap_or_default();
+
     DispatchOutcome::actions(vec![Action::Send(
         daemon_conn,
         RelayServerMessage::PushToken(PushToken {
-            frontend_id: frontend_id.to_string(),
+            frontend_id: authed_frontend_id,
             sealed,
             platform,
         }),
@@ -1164,7 +1199,13 @@ mod tests {
     // ── Test helpers ─────────────────────────────────────────────────────────
 
     fn test_core() -> RelayCore {
-        RelayCore::new(RecentFrames::with_cache_size(10), 500, 5000)
+        use crate::registry::DEFAULT_MAX_REGISTRATIONS;
+        RelayCore::new(
+            RecentFrames::with_cache_size(10),
+            500,
+            5000,
+            DEFAULT_MAX_REGISTRATIONS,
+        )
     }
 
     fn insert_unauthed(core: &mut RelayCore, id: ConnId) {
@@ -1402,6 +1443,44 @@ mod tests {
         assert!(
             sealed.starts_with("tpps1."),
             "sealed blob must carry the tpps1 prefix: {sealed}"
+        );
+    }
+
+    #[test]
+    fn push_register_routes_under_authed_identity_not_wire_frontend_id() {
+        // Cross-frontend push-hijack guard: a hostile authed frontend sends a
+        // push.register whose WIRE frontendId names a *victim*. The relay is the
+        // identity authority and must route the sealed token under the attacker's
+        // OWN authenticated identity, never the wire-supplied victim id — else the
+        // attacker hijacks the victim's push delivery. Mirrors relay-server.ts.
+        let mut core = test_core();
+        insert_authed(&mut core, 1, Role::Daemon, "d", None);
+        // The attacker is authed as "fe-attacker" but claims to be "fe-victim".
+        insert_authed(
+            &mut core,
+            2,
+            Role::Frontend,
+            "d",
+            Some("fe-attacker".into()),
+        );
+
+        let hostile = RelayClientMessage::PushRegister {
+            frontend_id: "fe-victim".into(), // spoofed wire identity
+            token: "apns-device-token-abc".into(),
+            platform: tp_proto::relay_client::Platform::Ios,
+        };
+        let out = dispatch_locked(&mut core, &test_signer(), &test_metrics(), 2, &hostile);
+
+        assert_eq!(out.actions.len(), 1, "expected one Send to the daemon");
+        let Action::Send(target, msg) = &out.actions[0] else {
+            panic!("expected Send");
+        };
+        assert_eq!(*target, 1, "token must route to the daemon conn");
+        let json = serde_json::to_value(msg).unwrap();
+        assert_eq!(json["t"], "relay.push.token");
+        assert_eq!(
+            json["frontendId"], "fe-attacker",
+            "must route under the AUTHENTICATED identity, not the wire frontendId"
         );
     }
 
@@ -1700,5 +1779,61 @@ mod tests {
             level_to_string(InterruptionLevel::TimeSensitive),
             "time-sensitive"
         );
+    }
+
+    // ── Pre-auth throttle ────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn preauth_throttle_closes_after_too_many_frames() {
+        let mut state = SharedState::from_env();
+        state.max_preauth_msgs = 3; // tiny cap for testing
+                                    // Register an unauthenticated conn.
+        {
+            let mut core = state.core.lock().unwrap();
+            insert_unauthed(&mut core, 50);
+        }
+        // First 3 frames should NOT close (count=1,2,3; threshold is >3).
+        for _ in 0..3 {
+            let result = handle_inbound(&state, 50, r#"{"t":"relay.ping"}"#).await;
+            assert_eq!(result, None, "frames at or under cap must not close");
+        }
+        // 4th frame exceeds cap → 1008 close.
+        let result = handle_inbound(&state, 50, r#"{"t":"relay.ping"}"#).await;
+        assert_eq!(result, Some((1008, "Too many pre-auth messages")));
+    }
+
+    #[tokio::test]
+    async fn preauth_throttle_does_not_apply_after_auth() {
+        // Authenticated conns are not subject to the pre-auth cap.
+        // Use a very small cap (1) but authed conn.
+        let mut state = SharedState::from_env();
+        state.max_preauth_msgs = 1;
+        {
+            let mut core = state.core.lock().unwrap();
+            // Insert an authed conn directly.
+            let (tx, rx) = mpsc::channel(64);
+            let (close_tx, close_rx) = mpsc::channel(4);
+            std::mem::forget(rx);
+            std::mem::forget(close_rx);
+            let mut handle = ConnHandle::new(tx, close_tx, 500);
+            handle.auth = Some(crate::server::AuthState {
+                role: Role::Daemon,
+                daemon_id: "d".into(),
+                frontend_id: None,
+                subscriptions: std::collections::HashSet::new(),
+            });
+            core.conns.insert(51, handle);
+        }
+        // Sending many frames should NOT trigger the preauth close.
+        for _ in 0..5 {
+            let result = handle_inbound(&state, 51, r#"{"t":"relay.ping"}"#).await;
+            // It may return None (no close) or an auth-related close from
+            // dispatch, but must NEVER be the preauth close code.
+            assert_ne!(
+                result,
+                Some((1008, "Too many pre-auth messages")),
+                "authed conn must not be subject to preauth throttle"
+            );
+        }
     }
 }

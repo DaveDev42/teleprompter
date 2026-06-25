@@ -114,6 +114,11 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASS" "$KEYCHAIN" >/dev/null
           # Put our keychain first in the search list so signing resolves to it,
           # but keep the system keychain so Apple WWDR roots still validate.
+          # The inner substitution intentionally word-splits: `-s` takes one
+          # argument per keychain path, so the existing paths must expand into
+          # separate argv entries (quoting would pass them as a single arg and
+          # break the search list).
+          # shellcheck disable=SC2046
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed s/\"//g)
 
           # Install the provisioning profile where Xcode looks for it.
@@ -135,9 +140,15 @@ jobs:
         id: archive
         env:
           TP_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
-          TP_BUILD_NUMBER: ${{ github.run_number * 100 + github.run_attempt }}
+          # GitHub Actions expressions have NO arithmetic operators (* and + are
+          # not in the operator table), so the run_number*100+run_attempt math is
+          # done in the shell. run_number and run_attempt are plain integer
+          # context lookups, safe to inject into a $(( )) arithmetic expansion.
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
+          export TP_BUILD_NUMBER=$(( RUN_NUMBER * 100 + RUN_ATTEMPT ))
           IPA="$(TP_PLATFORM=ios scripts/ios.sh archive)"
           echo "ipa=$IPA" >> "$GITHUB_OUTPUT"
 

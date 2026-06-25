@@ -93,7 +93,7 @@ final class RelayClient: NSObject, @unchecked Sendable {
 
     private let pairing: Pairing
     private let session: URLSession
-    private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "relay")
+    private let log = Logger(subsystem: "dev.tpmt.app", category: "relay")
     private let pingInterval: TimeInterval
 
     private var task: URLSessionWebSocketTask?

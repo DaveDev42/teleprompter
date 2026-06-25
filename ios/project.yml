@@ -84,7 +84,7 @@ targets:
       - package: SwiftTerm
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.teleprompter
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.app
         # iOS entitlements (keychain-access-groups for Simulator Keychain).
         # macOS overrides this with the sandbox + network.client entitlements file.
         CODE_SIGN_ENTITLEMENTS: Teleprompter.entitlements
@@ -155,7 +155,7 @@ targets:
             UIWindowSceneSessionRoleApplication:
               - UISceneConfigurationName: Default Configuration
         CFBundleURLTypes:
-          - CFBundleURLName: dev.tpmt.teleprompter.pairing
+          - CFBundleURLName: dev.tpmt.app.pairing
             CFBundleTypeRole: Editor
             CFBundleURLSchemes:
               - tp
@@ -181,7 +181,7 @@ targets:
       - package: SwiftTerm
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.teleprompter.tests
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.app.tests
         GENERATE_INFOPLIST_FILE: "YES"
 
   # UI-level E2E (T3, #66). A bundle.ui-testing target drives the REAL app through
@@ -209,7 +209,7 @@ targets:
       - target: Teleprompter
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.teleprompter.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.app.uitests
         GENERATE_INFOPLIST_FILE: "YES"
         # The target app the runner automates (XCUIApplication() with no bundle id
         # resolves to this).
@@ -248,17 +248,17 @@ targets:
         embed: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.teleprompter.watch
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.app.watch
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_KEY_CFBundleDisplayName: Teleprompter
         # Standalone watch app (not a watchOS extension of the iOS companion).
         INFOPLIST_KEY_WKApplication_IsIndependentApp: "YES"
         # simctl install validates bundle ID prefix against companion app's bundle ID.
         # Use the main app's bundle ID as the companion so the prefix check passes
-        # (dev.tpmt.teleprompter → dev.tpmt.teleprompter.watch is a valid prefix).
+        # (dev.tpmt.app → dev.tpmt.app.watch is a valid prefix).
         # WKRunsIndependentlyOfCompanionApp = YES makes it a truly standalone app
         # that works without the iOS companion installed.
-        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: "dev.tpmt.teleprompter"
+        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: "dev.tpmt.app"
         INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp: "YES"
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGNING_REQUIRED: "NO"

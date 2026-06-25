@@ -335,7 +335,7 @@ pub fn resolve_apns_host(env: Option<&str>) -> &'static str {
 /// let transport = Box::new(ReqwestTransport::new());
 /// let sleeper   = Box::new(TokioSleeper);
 /// let client = ApnsClient::new(
-///     ApnsClientConfig::from_env("api.push.apple.com".into(), "dev.tpmt.teleprompter".into()),
+///     ApnsClientConfig::from_env("api.push.apple.com".into(), "dev.tpmt.app".into()),
 ///     signer,          // ApnsSigner
 ///     transport,
 ///     sleeper,
@@ -843,7 +843,7 @@ pub mod tests {
         ApnsClient::new(
             ApnsClientConfig {
                 host: "api.push.apple.com".into(),
-                bundle_id: "dev.tpmt.teleprompter".into(),
+                bundle_id: "dev.tpmt.app".into(),
                 max_retries,
                 retry_base_ms: 10, // tiny for tests
             },
@@ -956,7 +956,7 @@ pub mod tests {
         let client = ApnsClient::new(
             ApnsClientConfig {
                 host: "api.push.apple.com".into(),
-                bundle_id: "dev.tpmt.teleprompter".into(),
+                bundle_id: "dev.tpmt.app".into(),
                 max_retries: 0,
                 retry_base_ms: 10,
             },
@@ -993,7 +993,7 @@ pub mod tests {
         let client = ApnsClient::new(
             ApnsClientConfig {
                 host: "api.push.apple.com".into(),
-                bundle_id: "dev.tpmt.teleprompter".into(),
+                bundle_id: "dev.tpmt.app".into(),
                 max_retries: 0,
                 retry_base_ms: 10,
             },
@@ -1020,7 +1020,7 @@ pub mod tests {
         let client = ApnsClient::new(
             ApnsClientConfig {
                 host: "api.sandbox.push.apple.com".into(),
-                bundle_id: "dev.tpmt.teleprompter".into(),
+                bundle_id: "dev.tpmt.app".into(),
                 max_retries: 0,
                 retry_base_ms: 10,
             },
@@ -1067,7 +1067,7 @@ pub mod tests {
         );
         assert_eq!(
             req.headers.get("apns-topic").map(String::as_str),
-            Some("dev.tpmt.teleprompter")
+            Some("dev.tpmt.app")
         );
         assert_eq!(
             req.headers.get("apns-push-type").map(String::as_str),

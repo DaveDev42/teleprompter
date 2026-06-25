@@ -30,7 +30,7 @@
 <dict>
     <key>keychain-access-groups</key>
     <array>
-        <string>$(AppIdentifierPrefix)dev.tpmt.teleprompter</string>
+        <string>$(AppIdentifierPrefix)dev.tpmt.app</string>
     </array>
 </dict>
 </plist>

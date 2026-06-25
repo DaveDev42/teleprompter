@@ -601,10 +601,7 @@ fn build_push_service() -> Arc<PushService> {
         posts: AtomicU64::new(0),
     });
     let apns = Arc::new(ApnsClient::new(
-        ApnsClientConfig::from_env(
-            "api.push.apple.com".to_string(),
-            "dev.tpmt.teleprompter".to_string(),
-        ),
+        ApnsClientConfig::from_env("api.push.apple.com".to_string(), "dev.tpmt.app".to_string()),
         signer,
         transport,
         Box::new(TokioSleeper),

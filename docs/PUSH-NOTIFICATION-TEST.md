@@ -15,7 +15,7 @@ The relay now delivers pushes **directly to APNs** (Apple Push Notification serv
 | `APNS_KEY` | `/etc/tp/AuthKey_XXXXXXXXXX.p8` or inline PEM | ES256 P-256 private key from Apple Developer Portal |
 | `APNS_KEY_ID` | `XXXXXXXXXX` | 10-char Key ID from Apple Developer Portal |
 | `APNS_TEAM_ID` | `YYYYYYYYYY` | 10-char Apple Team ID |
-| `APNS_BUNDLE_ID` | `dev.tpmt.teleprompter` | App bundle ID (= APNs topic) |
+| `APNS_BUNDLE_ID` | `dev.tpmt.app` | App bundle ID (= APNs topic) |
 | `APNS_ENV` | `sandbox` or `prod` | `sandbox` for development; `prod` for distribution builds |
 
 JWT tokens are cached for 50 minutes and automatically refreshed. The relay signs with ES256 (P-256 curve) and converts the DER signature to P1363 (RFC 7518 §3.4) before encoding.

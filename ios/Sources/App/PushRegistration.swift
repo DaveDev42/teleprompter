@@ -49,7 +49,7 @@ final class PushTokenStore {
     static let shared = PushTokenStore()
     private init() {}
 
-    private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "push")
+    private let log = Logger(subsystem: "dev.tpmt.app", category: "push")
 
     /// The most recent APNs device token (lowercase hex), or nil if APNs has not
     /// yet delivered one (Simulator, or before registration completes).
@@ -120,7 +120,7 @@ private func apnsTokenHex(_ deviceToken: Data) -> String {
 /// (it is inert until APNs calls it) and keeps the whole path wired so the only
 /// remaining step is the provisioning artifact.
 final class TeleprompterAppDelegate: NSObject, UIApplicationDelegate {
-    private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "push")
+    private let log = Logger(subsystem: "dev.tpmt.app", category: "push")
 
     func application(
         _ application: UIApplication,
@@ -162,7 +162,7 @@ final class TeleprompterAppDelegate: NSObject, UIApplicationDelegate {
 /// entitlement (ad-hoc/native-smoke builds) `didFailToRegister…` fires instead —
 /// inert and logged, exactly like the Simulator case.
 final class TeleprompterMacAppDelegate: NSObject, NSApplicationDelegate {
-    private let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "push")
+    private let log = Logger(subsystem: "dev.tpmt.app", category: "push")
 
     func application(
         _ application: NSApplication,

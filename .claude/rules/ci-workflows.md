@@ -36,7 +36,7 @@ paths:
 - **빌드 번호**: `TP_BUILD_NUMBER=${{ github.run_number }}` → `cmd_archive` 가 `CURRENT_PROJECT_VERSION` 오버라이드(ASC 는 재사용 빌드번호 거부, 단조 증가 필수). 버전 문자열은 `project.yml MARKETING_VERSION`.
 - **export-compliance**: `project.yml` Info.plist 에 `ITSAppUsesNonExemptEncryption: false`(표준 XChaCha20/X25519 = EAR 740.17(b)(1) 면제) — 없으면 TestFlight 가 "Missing Compliance" 로 빌드를 테스터에게 안 풀어줌.
 - **시크릿 게이트**: `guard` job(ubuntu)이 필수 시크릿 4개 존재를 output 으로 노출, `archive-and-upload` 가 `needs.guard.outputs.ready=='true'` 일 때만 실행 — **포크/시크릿-없는 환경에서 skip(`::notice::`), PR wedge 안 함**. 필요 시크릿: `IOS_DIST_CERT_P12_BASE64`, `IOS_DIST_CERT_PASSWORD`, `IOS_PROVISIONING_PROFILE_BASE64`, `ASC_API_KEY_P8_BASE64`, `ASC_API_KEY_ID`, `ASC_API_ISSUER_ID`, `APPLE_TEAM_ID`.
-- **번들 ID 연속성 주의**: 구 Expo 앱 = `dev.tpmt.app`, 네이티브 = `dev.tpmt.teleprompter` (ADR-0004 §3). ASC 레코드는 번들 ID 1개에 묶이므로 **구 EAS 채널로 그대로 안 올라간다** — 기본값은 새 ASC 레코드(네이티브 ID 유지). 구 레코드 재사용하려면 `project.yml` 의 `PRODUCT_BUNDLE_IDENTIFIER` 를 `dev.tpmt.app` 으로 되돌림(파이프라인은 번들 ID 무관, 변경 불필요).
+- **번들 ID = `dev.tpmt.app`** (구 Expo 앱과 동일 — ADR-0004 §3 의 "구 레코드 재사용" 선택). 이 ID 를 유지하면 구 Expo 앱이 쓰던 동일 ASC 레코드/TestFlight 채널에 새 빌드로 올라간다(채널 연속성). 파이프라인은 번들 ID 무관(`PRODUCT_BUNDLE_IDENTIFIER` 가 SoT) — 새 레코드로 가려면 `project.yml` 의 ID 를 바꾸면 됨. APNs 토픽(`APNS_BUNDLE_ID`)은 번들 ID 와 일치해야 하므로 `dev.tpmt.app` 이어야 함.
 - **non-required** (신규 job 규율 — 안정 green 후 승격). **watchOS 는 자동 동반 안 됨** — `TeleprompterWatch` 는 `WKRunsIndependentlyOfCompanionApp: YES` 독립 타깃이라 iOS 타깃에 임베드 안 되고 `Teleprompter` 스킴에도 없어 archive 산출물은 iOS-only `.ipa`. watchOS 배포는 별도 파이프라인 필요(ADR-0004 §6).
 
 ## Relay Deploy (`deploy-relay.yml`, ADR-0003 Step 8b — Rust 바이너리)

@@ -16,8 +16,8 @@ struct TeleprompterWatchApp: App {
     @State private var sessionStore: SessionStore
     @State private var pairings: WatchPairingViewModel
 
-    private static let bootLog = Logger(subsystem: "dev.tpmt.teleprompter", category: "boot")
-    private static let smokeLog = Logger(subsystem: "dev.tpmt.teleprompter", category: "deeplink")
+    private static let bootLog = Logger(subsystem: "dev.tpmt.app", category: "boot")
+    private static let smokeLog = Logger(subsystem: "dev.tpmt.app", category: "deeplink")
 
     init() {
         let store = SessionStore()

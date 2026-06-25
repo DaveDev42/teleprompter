@@ -66,8 +66,8 @@ SCHEME="${TP_SCHEME:-Teleprompter}"
 SIM_NAME="${TP_SIM:-iPhone 17 Pro}"
 VISION_SIM_NAME="${TP_VISION_SIM:-Apple Vision Pro}"
 WATCH_SIM_NAME="${TP_WATCH_SIM:-Apple Watch Series 11 (46mm)}"
-BUNDLE_ID="dev.tpmt.teleprompter"
-WATCH_BUNDLE_ID="dev.tpmt.teleprompter.watch"
+BUNDLE_ID="dev.tpmt.app"
+WATCH_BUNDLE_ID="dev.tpmt.app.watch"
 BOOT_MARKER="TP_BOOT_OK"
 CORE_MARKER="TP_CORE_OK"
 PAIR_MARKER="TP_PAIR_OK"
@@ -1089,14 +1089,14 @@ cmd_smoke_macos() {
   # before onAppear can fire. Delete the item to ensure a clean start.
   # (Analogous to `xcrun simctl uninstall` clearing UserDefaults/Keychain on iOS.)
   log "cleaning macOS Keychain entries from prior smoke runs"
-  security delete-generic-password -s "dev.tpmt.teleprompter.pairing" 2>/dev/null || true
+  security delete-generic-password -s "dev.tpmt.app.pairing" 2>/dev/null || true
   # Also clear the UserDefaults tp.pairings.index and tp.pairing.*.meta keys so the
   # app doesn't try to reconnect to a stale pairing on boot (which would block kx).
-  defaults delete dev.tpmt.teleprompter tp.pairings.index 2>/dev/null || true
-  defaults delete dev.tpmt.teleprompter tp.frontendId 2>/dev/null || true
+  defaults delete dev.tpmt.app tp.pairings.index 2>/dev/null || true
+  defaults delete dev.tpmt.app tp.frontendId 2>/dev/null || true
   # Delete all tp.pairing.* keys (the pairing meta stored by PairingStore).
-  for key in $(defaults read dev.tpmt.teleprompter 2>/dev/null | grep '"tp\.pairing\.' | awk -F'"' '{print $2}'); do
-    defaults delete dev.tpmt.teleprompter "$key" 2>/dev/null || true
+  for key in $(defaults read dev.tpmt.app 2>/dev/null | grep '"tp\.pairing\.' | awk -F'"' '{print $2}'); do
+    defaults delete dev.tpmt.app "$key" 2>/dev/null || true
   done
 
   # Start streaming the host unified log BEFORE launching the app. macOS `log show
@@ -1878,7 +1878,7 @@ cmd_test() {
 # of the harness because it needs Apple-issued secrets and makes a network call.
 #
 # Signing: this does NOT use $SIGN_FLAGS (ad-hoc "-"). A real Apple Distribution
-# certificate + an App-Store provisioning profile for dev.tpmt.teleprompter must be
+# certificate + an App-Store provisioning profile for dev.tpmt.app must be
 # in the keychain. In CI the workflow imports them into a throwaway keychain from
 # base64 secrets; locally they come from your login keychain (Xcode-managed). The
 # team is taken from $TP_DEVELOPMENT_TEAM (the Apple Developer Team ID) — required,

@@ -15,7 +15,7 @@ enum DeepLinkHandler {
     static let pairMarker = "TP_PAIR_OK"
     static let pairFailMarker = "TP_PAIR_FAIL"
 
-    private static let log = Logger(subsystem: "dev.tpmt.teleprompter", category: "deeplink")
+    private static let log = Logger(subsystem: "dev.tpmt.app", category: "deeplink")
 
     /// Outcome of handling a single URL — surfaced to the UI and the log.
     enum Outcome: Equatable {

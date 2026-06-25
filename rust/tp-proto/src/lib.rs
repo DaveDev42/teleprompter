@@ -80,6 +80,29 @@ pub(crate) fn is_positive_int(v: &Value) -> Option<u64> {
     is_non_negative_int(v).filter(|&n| n > 0)
 }
 
+/// Maximum valid terminal dimension (cols or rows).
+///
+/// `struct winsize` (passed to the kernel via `TIOCSWINSZ`) stores `ws_col` /
+/// `ws_row` as `unsigned short` (uint16). 65535 is the structural ceiling —
+/// a value of 65536 truncates to 0, degenerating or crashing the PTY. This
+/// is NOT a tunable constant; it is fixed by the kernel ABI.
+///
+/// Mirrors `MAX_TERMINAL_DIMENSION = 65535` in `guard-primitives.ts` (line 70).
+pub(crate) const MAX_TERMINAL_DIMENSION: u64 = 65535;
+
+/// `isTerminalDimension` — integer in [1, 65535].
+///
+/// Use for `cols`/`rows` wire fields. Unlike `is_positive_int` this enforces
+/// the uint16 upper bound so an attacker-controlled value cannot truncate when
+/// it reaches the kernel's `ws_col` / `ws_row` (TIOCSWINSZ).
+///
+/// Mirrors `isTerminalDimension` in `guard-primitives.ts` (lines 79-86).
+/// Both the frontend→daemon (`relay-guard.ts`) and daemon→runner (`ipc-guard.ts`)
+/// trust boundaries use this guard, matching TS parity.
+pub(crate) fn is_terminal_dimension(v: &Value) -> Option<u64> {
+    is_positive_int(v).filter(|&n| n <= MAX_TERMINAL_DIMENSION)
+}
+
 /// `isStringArray` — every element must be a string.
 pub(crate) fn as_string_array(v: &Value) -> Option<Vec<String>> {
     v.as_array()?

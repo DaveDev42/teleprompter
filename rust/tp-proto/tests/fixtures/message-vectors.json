@@ -379,6 +379,32 @@
         "platform": "web"
       },
       "accept": false
+    },
+    {
+      "name": "push-register-token-too-long-ios",
+      "raw": {
+        "t": "relay.push.register",
+        "frontendId": "f",
+        "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "ios"
+      },
+      "accept": false
+    },
+    {
+      "name": "push-register-token-ok-android",
+      "raw": {
+        "t": "relay.push.register",
+        "frontendId": "f",
+        "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "android"
+      },
+      "accept": true,
+      "json": {
+        "t": "relay.push.register",
+        "frontendId": "f",
+        "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "platform": "android"
+      }
     }
   ],
   "relayServer": [
@@ -1571,6 +1597,32 @@
         "t": "resize",
         "sid": "s",
         "cols": 0,
+        "rows": 24
+      },
+      "accept": false
+    },
+    {
+      "name": "resize-cols-max",
+      "raw": {
+        "t": "resize",
+        "sid": "s",
+        "cols": 65535,
+        "rows": 24
+      },
+      "accept": true,
+      "json": {
+        "t": "resize",
+        "sid": "s",
+        "cols": 65535,
+        "rows": 24
+      }
+    },
+    {
+      "name": "resize-cols-too-big",
+      "raw": {
+        "t": "resize",
+        "sid": "s",
+        "cols": 65536,
         "rows": 24
       },
       "accept": false

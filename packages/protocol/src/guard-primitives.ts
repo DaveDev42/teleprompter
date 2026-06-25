@@ -55,11 +55,44 @@ export function isNonNegativeInt(v: unknown): v is number {
 
 /**
  * Narrow `v` to a positive integer (1, 2, 3, …).
- * Use for wire fields that must be strictly positive: PIDs, terminal
- * dimensions (cols/rows), etc.
+ * Use for wire fields that must be strictly positive: PIDs, etc.
  */
 export function isPositiveInt(v: unknown): v is number {
   return typeof v === "number" && Number.isInteger(v) && v > 0;
+}
+
+/**
+ * Maximum terminal dimension. `struct winsize` (ws_col / ws_row, passed to
+ * the kernel via TIOCSWINSZ) stores each dimension in a `unsigned short`
+ * (uint16). 65535 is the structural ceiling of that field — it is NOT a
+ * tunable: a value of 65536 truncates to 0, degenerating or crashing the PTY.
+ */
+export const MAX_TERMINAL_DIMENSION = 65535;
+
+/**
+ * Narrow `v` to a valid terminal dimension: an integer in [1, 65535].
+ * Use for cols/rows wire fields. Unlike `isPositiveInt`, this enforces the
+ * uint16 upper bound so an attacker-controlled value cannot truncate when it
+ * reaches the kernel's `ws_col` / `ws_row` (TIOCSWINSZ). Shared by the
+ * frontend→daemon (relay-guard) and daemon→runner (ipc-guard) trust boundaries.
+ */
+export function isTerminalDimension(v: unknown): v is number {
+  return (
+    typeof v === "number" &&
+    Number.isInteger(v) &&
+    v >= 1 &&
+    v <= MAX_TERMINAL_DIMENSION
+  );
+}
+
+/**
+ * Narrow `v` to a valid terminal dimension or `undefined` (for optional
+ * cols/rows on `session.create`). See `isTerminalDimension`.
+ */
+export function isOptionalTerminalDimension(
+  v: unknown,
+): v is number | undefined {
+  return v === undefined || isTerminalDimension(v);
 }
 
 /**

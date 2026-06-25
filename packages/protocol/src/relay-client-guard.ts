@@ -41,6 +41,22 @@ import type {
 } from "./types/relay";
 
 /**
+ * Maximum accepted length of a `relay.push.register` device token, per platform.
+ * Bounds the value at the zero-trust boundary so an oversized token can't drive
+ * a large `pushSealer.seal()` allocation before the relay even checks for a
+ * connected daemon. Both bounds are generous headroom over the real wire shapes:
+ *  - iOS (APNs): device tokens are a fixed 64 hex chars → 128 is 2× headroom.
+ *  - Android (FCM): registration tokens are opaque and typically ~140–200 chars
+ *    (and can be longer) → 1024 covers current and future FCM tokens with margin.
+ * The `platform` field is validated before this is applied, so the bound is
+ * chosen by the (trusted-shape) platform discriminant.
+ */
+const MAX_PUSH_TOKEN_LEN: Record<"ios" | "android", number> = {
+  ios: 128,
+  android: 1024,
+};
+
+/**
  * Validate the optional `data` navigation payload on a relay.push. When
  * present it must be an object with three string fields — push-notifier reads
  * `data.sid` / `data.daemonId` / `data.event` unconditionally.
@@ -187,8 +203,17 @@ export function parseRelayClientMessage(
 
     case "relay.push.register": {
       if (!isString(raw["frontendId"])) return null;
-      if (!isString(raw["token"])) return null;
       if (!isPlatform(raw["platform"])) return null;
+      // Cap the token length at the zero-trust boundary so an oversized value
+      // can't force a large pushSealer.seal()/alloc before any daemon-presence
+      // check. The bound is platform-aware: APNs (ios) tokens are 64 hex chars,
+      // but FCM (android) tokens are opaque and far longer (~140–200+ chars).
+      if (
+        !isString(raw["token"]) ||
+        raw["token"].length > MAX_PUSH_TOKEN_LEN[raw["platform"]]
+      ) {
+        return null;
+      }
       return {
         t: "relay.push.register",
         frontendId: raw["frontendId"],

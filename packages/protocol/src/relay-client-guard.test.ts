@@ -286,6 +286,28 @@ describe("parseRelayClientMessage", () => {
     ])("rejects %s", (_l, m) => {
       expectRejected(m);
     });
+
+    test("caps token length per platform before any seal/alloc", () => {
+      // Regression: token had no length cap, so the relay would call
+      // pushSealer.seal() on an arbitrarily large value at the zero-trust
+      // boundary (and before even checking a daemon is connected). The cap is
+      // platform-aware: APNs (ios) tokens are 64 hex chars → 128; FCM (android)
+      // tokens are opaque and far longer (~140–200+ chars) → 1024.
+      const ios = { ...valid, platform: "ios" as const };
+      const android = { ...valid, platform: "android" as const };
+
+      // iOS: 128 accepted, 129 rejected.
+      expectAccepted({ ...ios, token: "a".repeat(128) });
+      expectRejected({ ...ios, token: "a".repeat(129) });
+      expectRejected({ ...ios, token: "a".repeat(10_000) });
+
+      // Android: a realistic ~180-char FCM token is accepted (it would have
+      // been wrongly rejected by a flat 128 cap); 1024 accepted, 1025 rejected.
+      expectAccepted({ ...android, token: "a".repeat(180) });
+      expectAccepted({ ...android, token: "a".repeat(1024) });
+      expectRejected({ ...android, token: "a".repeat(1025) });
+      expectRejected({ ...android, token: "a".repeat(10_000) });
+    });
   });
 
   test("does not mutate or carry over extra fields onto the result", () => {

@@ -7,6 +7,8 @@ import type {
   RelayNotification,
   RelayPresence,
   RelayPushTokenSealed,
+  RelayRegisterErr,
+  RelayRegisterOk,
   RelayServerMessage,
 } from "@teleprompter/protocol";
 import { PushService } from "./push";
@@ -1435,6 +1437,222 @@ describe("RelayServer", () => {
       expect(size).toBeLessThanOrEqual(256);
       daemon.close();
     });
+  });
+});
+
+// ── Decision-gated hardening: registration cap, pre-auth throttle, recentFrames cap ──
+
+describe("RelayServer — DoS / unbounded-growth caps", () => {
+  function send(ws: WebSocket, obj: unknown): void {
+    ws.send(JSON.stringify(obj));
+  }
+
+  function waitFor(
+    ws: WebSocket,
+    predicate: (m: RelayServerMessage) => boolean,
+  ): Promise<RelayServerMessage> {
+    return new Promise((resolve, reject) => {
+      const h = (e: MessageEvent) => {
+        const m = JSON.parse(e.data as string) as RelayServerMessage;
+        if (predicate(m)) {
+          ws.removeEventListener("message", h);
+          resolve(m);
+        }
+      };
+      ws.addEventListener("message", h);
+      setTimeout(() => {
+        ws.removeEventListener("message", h);
+        reject(new Error("waitFor timeout"));
+      }, 3000);
+    });
+  }
+
+  test("relay.register rejects a NEW daemonId past maxRegistrations, but lets an existing one update", async () => {
+    const relay = new RelayServer({ maxRegistrations: 2 });
+    const port = relay.start(0);
+    try {
+      const ws = await connectWs(port);
+
+      // Two distinct daemonIds fill the cap.
+      send(ws, {
+        t: "relay.register",
+        daemonId: "d1",
+        proof: "p1",
+        token: "t1",
+        v: 2,
+      });
+      await waitFor(ws, (m) => m.t === "relay.register.ok");
+      send(ws, {
+        t: "relay.register",
+        daemonId: "d2",
+        proof: "p2",
+        token: "t2",
+        v: 2,
+      });
+      await waitFor(ws, (m) => m.t === "relay.register.ok");
+
+      // A THIRD distinct daemonId is rejected (cap reached).
+      send(ws, {
+        t: "relay.register",
+        daemonId: "d3",
+        proof: "p3",
+        token: "t3",
+        v: 2,
+      });
+      const err = await waitFor(ws, (m) => m.t === "relay.register.err");
+      expect((err as RelayRegisterErr).e).toContain("capacity");
+
+      // An ALREADY-registered daemonId can still update (rotate token) — not blocked.
+      send(ws, {
+        t: "relay.register",
+        daemonId: "d1",
+        proof: "p1",
+        token: "t1b",
+        v: 2,
+      });
+      const ok = await waitFor(ws, (m) => m.t === "relay.register.ok");
+      expect((ok as RelayRegisterOk).daemonId).toBe("d1");
+
+      ws.close();
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test("an unauthenticated socket is closed after exceeding maxPreauthMsgs", async () => {
+    const relay = new RelayServer({ maxPreauthMsgs: 5 });
+    const port = relay.start(0);
+    try {
+      const ws = await connectWs(port);
+      let closed = false;
+      let closeCode = 0;
+      ws.addEventListener("close", (e) => {
+        closed = true;
+        closeCode = e.code;
+      });
+
+      // Send well over the threshold of malformed/pre-auth frames. Each one is
+      // a pre-auth message; past 5 the relay must close the socket. Using an
+      // unknown type keeps each frame cheap but still counted.
+      for (let i = 0; i < 20; i++) {
+        if (ws.readyState !== WebSocket.OPEN) break;
+        send(ws, { t: "relay.kx", to: `x${i}`, ct: "deadbeef" });
+        await Bun.sleep(5);
+      }
+
+      await Bun.sleep(100);
+      expect(closed).toBe(true);
+      expect(closeCode).toBe(1008);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test("authenticated frontend is NOT subject to the pre-auth message cap", async () => {
+    // The cap must only apply to pre-auth sockets — an authenticated client is
+    // governed by the per-client rate limiter, not this counter.
+    const relay = new RelayServer({ maxPreauthMsgs: 3 });
+    const port = relay.start(0);
+    const TOKEN = "auth-token";
+    const DAEMON_ID = "cap-daemon";
+    relay.registerToken(TOKEN, DAEMON_ID);
+    try {
+      const ws = await connectWs(port);
+      let closed = false;
+      ws.addEventListener("close", () => {
+        closed = true;
+      });
+
+      send(ws, {
+        t: "relay.auth",
+        v: 2,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+        frontendId: "fe-cap",
+      });
+      await waitFor(ws, (m) => m.t === "relay.auth.ok");
+
+      // Now send many post-auth frames — far more than maxPreauthMsgs=3. These
+      // must NOT close the socket (the pre-auth counter is gone after auth).
+      for (let i = 0; i < 10; i++) {
+        send(ws, { t: "relay.sub", sid: `s${i}` });
+        await Bun.sleep(5);
+      }
+      await Bun.sleep(100);
+      expect(closed).toBe(false);
+      expect(ws.readyState).toBe(WebSocket.OPEN);
+
+      ws.close();
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test("recentFrames is bounded per daemon — the oldest sid-key is evicted past the cap (no replay), recent ones survive", async () => {
+    // With cap=3, publishing 5 distinct sids must keep only the 3 most-recent
+    // sid-keys cached. The oldest (sid-0) is evicted → a replay (relay.sub
+    // after=0) for it yields NO cached frame, while a recent sid (sid-4) still
+    // replays. On pre-fix code (no cap), ALL 5 keys persist and sid-0 replays.
+    const relay = new RelayServer({ maxRecentFrameKeysPerDaemon: 3 });
+    const port = relay.start(0);
+    const TOKEN = "rf-token";
+    const DAEMON_ID = "rf-daemon";
+    relay.registerToken(TOKEN, DAEMON_ID);
+    try {
+      const daemon = await connectWs(port);
+      send(daemon, {
+        t: "relay.auth",
+        v: 2,
+        role: "daemon",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+      });
+      await waitFor(daemon, (m) => m.t === "relay.auth.ok");
+
+      // Publish to 5 distinct sids in order (sid-0 oldest, sid-4 newest).
+      for (let i = 0; i < 5; i++) {
+        send(daemon, { t: "relay.pub", sid: `sid-${i}`, ct: `c${i}`, seq: 1 });
+        await Bun.sleep(15);
+      }
+
+      const fe = await connectWs(port);
+      send(fe, {
+        t: "relay.auth",
+        v: 2,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: TOKEN,
+        frontendId: "fe-rf",
+      });
+      await waitFor(fe, (m) => m.t === "relay.auth.ok");
+
+      // A recent sid (within the cap) must still replay.
+      send(fe, { t: "relay.sub", sid: "sid-4", after: 0 });
+      const recent = await waitFor(
+        fe,
+        (m) => m.t === "relay.frame" && (m as RelayFrame).sid === "sid-4",
+      );
+      expect((recent as RelayFrame).sid).toBe("sid-4");
+
+      // The OLDEST sid (sid-0) was evicted → its replay yields nothing. We can't
+      // wait forever for a non-event, so race the replay against a short timer:
+      // if a frame for sid-0 arrives, the eviction failed.
+      send(fe, { t: "relay.sub", sid: "sid-0", after: 0 });
+      const sid0Replayed = await Promise.race([
+        waitFor(
+          fe,
+          (m) => m.t === "relay.frame" && (m as RelayFrame).sid === "sid-0",
+        ).then(() => true),
+        Bun.sleep(250).then(() => false),
+      ]);
+      expect(sid0Replayed).toBe(false);
+
+      daemon.close();
+      fe.close();
+    } finally {
+      relay.stop();
+    }
   });
 });
 

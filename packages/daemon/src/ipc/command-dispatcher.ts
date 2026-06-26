@@ -1010,6 +1010,99 @@ export class IpcCommandDispatcher {
       frontendId,
       "Failed to remove worktree",
       async (wm) => {
+        // ------------------------------------------------------------------
+        // Live-session guard (refuse-non-force, kill-on-force).
+        //
+        // `git worktree remove` does NOT protect a *running* session whose
+        // cwd is inside the worktree: a non-force remove succeeds against a
+        // CLEAN worktree even with a live process inside it, and on POSIX
+        // that process keeps running with a now-unlinked cwd (the kernel
+        // holds the inode) — a live session silently loses its directory.
+        // So we guard here, in the dispatcher, where the session<->worktree
+        // mapping lives.
+        //
+        // Truth source = the LIVE runner map (`listRunners()`), not the
+        // store's `state` column: a row can read "running" while its runner
+        // has already exited (the reconcile is async), and blocking on such a
+        // stale row would wrongly refuse a legitimate remove. Each live
+        // runner's worktree path is `runner.worktreePath`, falling back to the
+        // stored `worktree_path` for runners registered (via the hello IPC
+        // path) without that field.
+        const target = wm.canonicalize(path);
+        const blockers = this.deps.sessionManager
+          .listRunners()
+          .map((runner) => {
+            const wtPath =
+              runner.worktreePath ??
+              this.deps.store.getSession(runner.sid)?.worktree_path ??
+              null;
+            return { sid: runner.sid, wtPath, hasProcess: !!runner.process };
+          })
+          .filter(
+            (r): r is { sid: string; wtPath: string; hasProcess: boolean } =>
+              r.wtPath !== null && wm.canonicalize(r.wtPath) === target,
+          );
+
+        if (blockers.length > 0) {
+          if (!force) {
+            // Refuse: surface the blocking sids so the app can offer a
+            // force-remove. `return` (not `throw`) so `withWorktreeManager`
+            // does not also publish a second WORKTREE_ERROR frame.
+            const sids = blockers.map((b) => b.sid).join(", ");
+            relay
+              .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
+                t: "err",
+                e: "WORKTREE_ERROR",
+                m:
+                  `Cannot remove worktree: ${blockers.length} running ` +
+                  `session(s) (${sids}). Use force to kill and remove.`,
+              })
+              .catch(() => {});
+            return;
+          }
+
+          // Force path. A blocker WITHOUT a tracked process is a runner this
+          // daemon did not spawn (passthrough / registered-only) — we cannot
+          // SIGTERM it, so `killRunner` would no-op and we'd remove the dir
+          // out from under a live process. Refuse rather than orphan it.
+          const unkillable = blockers.filter((b) => !b.hasProcess);
+          if (unkillable.length > 0) {
+            const sids = unkillable.map((b) => b.sid).join(", ");
+            relay
+              .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {
+                t: "err",
+                e: "WORKTREE_ERROR",
+                m:
+                  `Cannot force-remove worktree: session(s) (${sids}) are ` +
+                  `not managed by this daemon and cannot be killed.`,
+              })
+              .catch(() => {});
+            return;
+          }
+
+          // Kill each blocking session and reconcile its store row BEFORE
+          // touching the worktree on disk. Mirror `handleSessionDelete`:
+          // kill -> (await exit) -> unregister -> stopped. We additionally
+          // AWAIT process exit (waitForExit) because `killRunner` only sends
+          // SIGTERM — without the await, `git worktree remove` would race the
+          // dying PTY which still holds the worktree dir as its cwd. If any
+          // step throws, the re-throw lets `withWorktreeManager` surface a
+          // WORKTREE_ERROR and `wm.remove` is never reached (the safe
+          // direction: worktree intact, no orphaned-cwd remove).
+          for (const b of blockers) {
+            this.deps.sessionManager.killRunner(b.sid);
+            await this.deps.sessionManager.waitForExit(b.sid);
+            this.deps.sessionManager.unregisterRunner(b.sid);
+            this.deps.store.updateSessionState(b.sid, "stopped");
+          }
+          // Unsubscribe OUTSIDE the kill loop's failure path (matching
+          // handleSessionDelete) so a partial-kill failure does not strand
+          // relay subscriptions. Reached only after all kills succeeded.
+          for (const client of this.deps.getRelayClients()) {
+            for (const b of blockers) client.unsubscribe(b.sid);
+          }
+        }
+
         await wm.remove(path, force);
         relay
           .publishToPeer(frontendId, RELAY_CHANNEL_CONTROL, {

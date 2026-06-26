@@ -176,4 +176,26 @@ export class SessionManager {
     log.info(`killed runner sid=${sid} pid=${info.pid}`);
     return true;
   }
+
+  /**
+   * Resolve when the Subprocess tracked for `sid` has exited.
+   *
+   * `killRunner` only *signals* the process (`Subprocess.kill()` sends SIGTERM
+   * and returns immediately) — the child is not dead when it returns. A caller
+   * that needs the process to have released its resources (e.g. an open `cwd`
+   * inside a git worktree about to be `git worktree remove`d) must await the
+   * actual exit, otherwise it races the OS teardown: on POSIX an unlinked-cwd
+   * process keeps running and may still hold the directory's inode open while
+   * git tears the entry down, silently losing the child's pending output.
+   *
+   * Resolves immediately when no Subprocess is tracked (an unknown sid, or a
+   * registered-only/passthrough runner whose process this daemon never
+   * spawned and therefore cannot await — the caller is responsible for not
+   * destroying resources out from under such a runner).
+   */
+  async waitForExit(sid: string): Promise<void> {
+    const proc = this.runners.get(sid)?.process;
+    if (!proc) return;
+    await proc.exited;
+  }
 }

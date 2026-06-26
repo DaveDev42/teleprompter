@@ -81,6 +81,39 @@ describe("SessionManager", () => {
     expect(sm.killRunner("s1")).toBe(false);
   });
 
+  test("waitForExit resolves immediately for an unknown sid", async () => {
+    // No tracked process — must not hang.
+    await sm.waitForExit("nonexistent");
+    expect(true).toBe(true);
+  });
+
+  test("waitForExit resolves immediately for a registered-only runner", async () => {
+    // A runner registered via the IPC hello path carries no Subprocess, so
+    // there is nothing to await — resolve rather than hang.
+    sm.registerRunner("s1", 99999, "/tmp");
+    await sm.waitForExit("s1");
+    expect(true).toBe(true);
+  });
+
+  test("waitForExit resolves only after a killed process actually exits", async () => {
+    // The kill-on-force worktree.remove path relies on this: killRunner only
+    // SIGTERMs, so the caller must await the real exit before git removes the
+    // worktree dir. waitForExit must not resolve until proc.exited settles.
+    SessionManager.setRunnerCommand(LONG_RUNNING_CMD);
+    const proc = sm.spawnRunner("s1", process.cwd());
+    let exited = false;
+    const wait = sm.waitForExit("s1").then(() => {
+      exited = true;
+    });
+    // Not yet — the process is still alive.
+    await Promise.resolve();
+    expect(exited).toBe(false);
+    sm.killRunner("s1");
+    await wait;
+    expect(exited).toBe(true);
+    expect(await proc.exited).toBeDefined();
+  });
+
   test("spawnRunner forwards env option to subprocess", () => {
     const mgr = new SessionManager();
     SessionManager.setRunnerCommand(NOOP_CMD);

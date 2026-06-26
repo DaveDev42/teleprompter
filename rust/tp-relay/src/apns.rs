@@ -258,6 +258,18 @@ const DEFAULT_MAX_RETRIES: u32 = 3;
 /// Configurable via `APNS_RETRY_BASE_MS` env (default 500 ms).
 const DEFAULT_RETRY_BASE_MS: u64 = 500;
 
+/// Per-request deadline in milliseconds for a single APNs HTTP/2 send.
+///
+/// Configurable via `APNS_REQUEST_TIMEOUT_MS` env (default 10 000 ms). Push
+/// delivery is fire-and-forget — `conn.rs` `tokio::spawn`s `send_or_deliver`
+/// and never joins the task. Without a deadline, a single in-flight `send`
+/// during an APNs network partition blocks until OS TCP keepalive (minutes),
+/// holding an HTTP/2 stream + the detached task. At the ~10k-connection bar a
+/// partition would leak thousands of such tasks/streams. The deadline bounds
+/// each attempt; an elapsed timeout is a transient error (NOT a dead token),
+/// so the retry loop re-attempts and the device token is never wrongly purged.
+const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 10_000;
+
 fn env_u64(key: &str, default: u64) -> u64 {
     std::env::var(key)
         .ok()
@@ -291,6 +303,10 @@ pub struct ApnsClientConfig {
     /// Base backoff in milliseconds (doubles each retry, plus jitter).
     /// Default: `APNS_RETRY_BASE_MS` env or [`DEFAULT_RETRY_BASE_MS`].
     pub retry_base_ms: u64,
+    /// Per-request deadline in milliseconds for a single HTTP/2 send.
+    /// Default: `APNS_REQUEST_TIMEOUT_MS` env or [`DEFAULT_REQUEST_TIMEOUT_MS`].
+    /// A value of 0 disables the deadline (no per-request timeout).
+    pub request_timeout_ms: u64,
 }
 
 impl ApnsClientConfig {
@@ -302,6 +318,7 @@ impl ApnsClientConfig {
             bundle_id,
             max_retries: env_u32("APNS_MAX_RETRIES", DEFAULT_MAX_RETRIES),
             retry_base_ms: env_u64("APNS_RETRY_BASE_MS", DEFAULT_RETRY_BASE_MS),
+            request_timeout_ms: env_u64("APNS_REQUEST_TIMEOUT_MS", DEFAULT_REQUEST_TIMEOUT_MS),
         }
     }
 }
@@ -507,10 +524,30 @@ impl ApnsClient {
             body: body_str,
         };
 
-        let resp = match self.transport.post_dyn(req).await {
+        // Bound the single HTTP/2 send by a per-request deadline so a partition
+        // cannot hang the (detached, fire-and-forget) push task indefinitely. A
+        // `request_timeout_ms` of 0 disables the deadline. An elapsed timeout is
+        // a transient error (dead_token: false) — identical handling to a
+        // network error — so the retry loop re-attempts and the device token is
+        // never misclassified as dead.
+        let send_fut = self.transport.post_dyn(req);
+        let send_result = if self.config.request_timeout_ms == 0 {
+            send_fut.await
+        } else {
+            let deadline = Duration::from_millis(self.config.request_timeout_ms);
+            match tokio::time::timeout(deadline, send_fut).await {
+                Ok(r) => r,
+                Err(_elapsed) => Err(format!(
+                    "request-timeout after {}ms",
+                    self.config.request_timeout_ms
+                )),
+            }
+        };
+        let resp = match send_result {
             Ok(r) => r,
             Err(e) => {
-                // Network error — mirrors `catch (err)` (`apns.ts:134-136`).
+                // Network error or timeout — mirrors `catch (err)`
+                // (`apns.ts:134-136`); both are transient (NOT dead-token).
                 return ApnsDeliveryResult::Err {
                     dead_token: false,
                     reason: e,
@@ -786,6 +823,21 @@ pub mod tests {
         }
     }
 
+    // ── HangingTransport — a send that never resolves (simulates a partition) ──
+
+    /// A transport whose `post_dyn` future never completes — models an APNs
+    /// network partition where the HTTP/2 send blocks until OS TCP keepalive.
+    /// Used to prove the per-request deadline cancels the in-flight send.
+    pub struct HangingTransport;
+
+    impl TransportDyn for HangingTransport {
+        fn post_dyn(&self, _req: TransportRequest) -> PostFuture {
+            // `pending` is a future that is never `Ready` — the only way out is
+            // for the surrounding `tokio::time::timeout` to fire.
+            Box::pin(std::future::pending())
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     use p256::ecdsa::SigningKey;
@@ -846,6 +898,7 @@ pub mod tests {
                 bundle_id: "dev.tpmt.app".into(),
                 max_retries,
                 retry_base_ms: 10, // tiny for tests
+                request_timeout_ms: 10_000,
             },
             make_signer(),
             transport,
@@ -948,6 +1001,69 @@ pub mod tests {
         assert_eq!(sleeper.call_count.load(Ordering::SeqCst), max_retries);
     }
 
+    // ── Test: per-request deadline cancels a hung send ───────────────────────
+    //
+    // A transport whose future never resolves (APNs partition) must NOT hang
+    // the (detached, fire-and-forget) push task. The `request_timeout_ms`
+    // deadline fires, the send is cancelled, and the result is a TRANSIENT
+    // error (dead_token: false) — never a dead-token, so the device token is
+    // not wrongly purged from the store. With max_retries: 0 the call returns
+    // after a single deadline.
+    #[tokio::test]
+    async fn request_timeout_cancels_hung_send() {
+        let client = ApnsClient::new(
+            ApnsClientConfig {
+                host: "api.push.apple.com".into(),
+                bundle_id: "dev.tpmt.app".into(),
+                max_retries: 0,
+                retry_base_ms: 1,
+                request_timeout_ms: 50, // short, real deadline
+            },
+            make_signer(),
+            Box::new(HangingTransport),
+            Box::new(NoopSleeper::new()),
+        );
+
+        let start = std::time::Instant::now();
+        let result = client.send(&make_payload()).await;
+        let elapsed = start.elapsed();
+
+        // The deadline must have fired (NOT hung): transient error, dead_token=false.
+        assert!(
+            matches!(
+                result,
+                ApnsDeliveryResult::Err { dead_token: false, ref reason }
+                    if reason.starts_with("request-timeout")
+            ),
+            "expected transient request-timeout Err, got: {result:?}"
+        );
+        // Returned promptly — well under a second (proves cancellation, not hang).
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "send did not return promptly: {elapsed:?}"
+        );
+    }
+
+    // ── Test: request_timeout_ms == 0 disables the deadline (send still works) ─
+    #[tokio::test]
+    async fn request_timeout_zero_disables_deadline() {
+        // A normal (fast) transport with the deadline disabled must still
+        // succeed — the 0 path bypasses tokio::time::timeout entirely.
+        let client = ApnsClient::new(
+            ApnsClientConfig {
+                host: "api.push.apple.com".into(),
+                bundle_id: "dev.tpmt.app".into(),
+                max_retries: 0,
+                retry_base_ms: 1,
+                request_timeout_ms: 0, // disabled
+            },
+            make_signer(),
+            Box::new(FakeTransport::new(vec![ok_resp()])),
+            Box::new(NoopSleeper::new()),
+        );
+        assert_eq!(client.send(&make_payload()).await, ApnsDeliveryResult::Ok);
+    }
+
     // ── Test: time-sensitive sets apns-priority 10 ───────────────────────────
 
     #[tokio::test]
@@ -959,6 +1075,7 @@ pub mod tests {
                 bundle_id: "dev.tpmt.app".into(),
                 max_retries: 0,
                 retry_base_ms: 10,
+                request_timeout_ms: 10_000,
             },
             make_signer(),
             Box::new(CapturingTransport {
@@ -996,6 +1113,7 @@ pub mod tests {
                 bundle_id: "dev.tpmt.app".into(),
                 max_retries: 0,
                 retry_base_ms: 10,
+                request_timeout_ms: 10_000,
             },
             make_signer(),
             Box::new(CapturingTransport {
@@ -1023,6 +1141,7 @@ pub mod tests {
                 bundle_id: "dev.tpmt.app".into(),
                 max_retries: 0,
                 retry_base_ms: 10,
+                request_timeout_ms: 10_000,
             },
             make_signer(),
             Box::new(CapturingTransport {

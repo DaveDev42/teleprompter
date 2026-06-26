@@ -796,6 +796,26 @@ export class IpcCommandDispatcher {
   }
 
   private handleBye(msg: IpcBye): void {
+    // Generation guard. `session.restart` synchronously kills the old Runner
+    // (SIGTERM → stop() sends bye) then spawns a fresh Runner for the same sid.
+    // If the old Runner's bye arrives AFTER the new generation's hello has
+    // registered, processing it would mark the live session "error" and
+    // unregister the freshly-registered Runner — orphaning a running PTY as a
+    // phantom-stopped session. When the bye carries a pid (a back-compat-old
+    // Runner omits it) that does not match the currently-registered Runner, the
+    // bye is from a stale generation and must be ignored. Mirrors the
+    // `proc.exited` generation guard in SessionManager (which uses the
+    // Subprocess reference; the IPC layer has no handle, so it uses the pid).
+    if (msg.pid !== undefined) {
+      const current = this.deps.sessionManager.getRunner(msg.sid);
+      if (current && current.pid !== msg.pid) {
+        log.info(
+          `ignoring stale bye sid=${msg.sid} from old runner pid=${msg.pid} (current pid=${current.pid})`,
+        );
+        return;
+      }
+    }
+
     const state = msg.exitCode === 0 ? "stopped" : "error";
     this.deps.store.updateSessionState(msg.sid, state);
     this.deps.sessionManager.unregisterRunner(msg.sid);

@@ -24,6 +24,15 @@ export interface IpcBye {
   t: "bye";
   sid: string;
   exitCode: number;
+  /**
+   * `process.pid` of the Runner that sent this bye. Optional for wire
+   * back-compat (an older Runner omits it). The daemon uses it as a
+   * generation guard: after `session.restart` kills the old Runner and spawns
+   * a new one for the same sid, the old Runner's bye (sent on SIGTERM) must
+   * not tear down the freshly-registered new generation. When present and it
+   * does not match the currently-registered Runner's pid, the bye is ignored.
+   */
+  pid?: number | undefined;
 }
 
 export interface IpcAck {

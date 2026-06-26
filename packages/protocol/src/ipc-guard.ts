@@ -208,7 +208,17 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
     case "bye": {
       if (!isString(raw["sid"])) return null;
       if (!isNumber(raw["exitCode"])) return null;
-      return { t: "bye", sid: raw["sid"], exitCode: raw["exitCode"] };
+      // `pid` is optional for wire back-compat (an older Runner omits it).
+      // When present it must be a valid positive int; the daemon uses it as a
+      // generation guard so a restarted session's old Runner bye cannot tear
+      // down the freshly-registered new generation.
+      if (raw["pid"] !== undefined && !isPositiveInt(raw["pid"])) return null;
+      return {
+        t: "bye",
+        sid: raw["sid"],
+        exitCode: raw["exitCode"],
+        pid: raw["pid"] as number | undefined,
+      };
     }
 
     case "ack": {

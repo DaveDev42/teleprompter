@@ -186,8 +186,19 @@ fn stale_sweep(state: &SharedState) -> Vec<Action> {
     }
     for daemon_id in &result.evicted {
         core.recent.purge_daemon(daemon_id);
-        // Evict the per-daemon group-rate limiter so it doesn't leak (#17).
-        core.group_limiters.remove(daemon_id);
+        // Evict the per-daemon group-rate limiter so it doesn't leak (#17) —
+        // but ONLY when no group members remain. A frontend can outlive its
+        // daemon's eviction (eviction broadcasts presence, never closes group
+        // conns), still holding an `Arc` clone of this limiter. If we removed it
+        // here while the daemon later re-registers, `group_limiter_for` would
+        // mint a SECOND limiter via `or_insert_with`, leaving the surviving
+        // frontends on the old one and the re-registered daemon on the new one —
+        // doubling the effective per-daemon group budget. Retaining it while the
+        // group is non-empty makes the re-register reuse the same `Arc`; the
+        // last frontend to leave drops it in `remove_from_group`.
+        if !core.groups.contains_key(daemon_id.as_str()) {
+            core.group_limiters.remove(daemon_id);
+        }
         // evictions++ per evicted daemon (relay-server.ts evictDaemon).
         state.metrics.inc_evictions();
     }
@@ -2038,5 +2049,73 @@ mod tests {
                 "authed conn must not be subject to preauth throttle"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn eviction_retains_group_limiter_while_a_frontend_remains() {
+        // Budget-doubling guard, exercised end-to-end through the REAL
+        // `stale_sweep` eviction path (so the test is sensitive to the conn.rs
+        // source, not a hand-simulated copy of it). A frontend can outlive its
+        // daemon's eviction (eviction broadcasts presence, it never closes group
+        // conns). If `stale_sweep` dropped the shared group limiter while that
+        // frontend kept its `Arc` clone, a re-registering daemon would mint a
+        // SECOND limiter via `group_limiter_for`'s `or_insert_with` — survivors
+        // on the old one, the daemon on the new one, DOUBLING the per-daemon
+        // group budget. The fix retains the limiter while the group is non-empty.
+        let state = SharedState::from_env();
+
+        // Daemon (conn 1) + frontend (conn 2) authed into group "d" — they share
+        // one group limiter (attached by `register_authed_conn`).
+        let _d_rx = insert_authed_state(&state, 1, Role::Daemon, "d", None);
+        let _f_rx = insert_authed_state(&state, 2, Role::Frontend, "d", Some("fe-1".into()));
+
+        // Seed the registry with the daemon online but `last_seen = 0`, then
+        // close its conn. `last_seen = 0` is ~epoch, so the wall-clock
+        // `stale_sweep` reads sees it as far past both the stale and the
+        // offline-evict TTLs → "d" is evicted on the very next sweep.
+        let frontend_limiter;
+        {
+            let mut core = state.core.lock().unwrap();
+            core.registry.valid_tokens.insert("tk".into(), "d".into());
+            core.registry.handle_auth("d", "tk", true, 0).unwrap();
+            frontend_limiter = Arc::clone(core.group_limiters.get("d").unwrap());
+            // Daemon conn closes; frontend (conn 2) remains in the group.
+            let _ = handle_close(&mut core, 1, 0);
+            assert!(
+                core.groups.contains_key("d"),
+                "frontend keeps the group alive after the daemon closes"
+            );
+        }
+
+        // Run the REAL eviction sweep (reads the wall clock; last_seen=0 is far
+        // enough in the past to evict "d"). This is the code under test.
+        let _ = stale_sweep(&state);
+
+        {
+            let core = state.core.lock().unwrap();
+            assert!(
+                !core.registry.daemon_states.contains_key("d"),
+                "daemon d is evicted from the registry by the real sweep"
+            );
+            assert!(
+                core.group_limiters.contains_key("d"),
+                "limiter retained because a frontend is still attached (no doubling)"
+            );
+        }
+
+        // A re-registering daemon (conn 3, through the real `register_authed_conn`
+        // attach path) must reuse the SAME limiter the surviving frontend already
+        // holds — not a freshly minted second one.
+        let _d2_rx = insert_authed_state(&state, 3, Role::Daemon, "d", None);
+        let core = state.core.lock().unwrap();
+        let reattached = core
+            .conns
+            .get(&3)
+            .and_then(|h| h.group_limiter.clone())
+            .expect("re-registered daemon has a group limiter");
+        assert!(
+            Arc::ptr_eq(&reattached, &frontend_limiter),
+            "re-registered daemon shares the surviving frontend's limiter"
+        );
     }
 }

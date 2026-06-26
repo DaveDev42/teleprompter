@@ -184,11 +184,21 @@ impl RelayCore {
 
     /// Remove a connection from its daemon group; drop the empty group.
     /// Mirrors `relay-server.ts:1266-1272`.
+    ///
+    /// When the group empties, also drop the shared `group_limiters` entry so it
+    /// cannot orphan. This is the last-leaver cleanup that pairs with the
+    /// frontends-still-attached retention in `stale_sweep` (conn.rs): if a daemon
+    /// is evicted while frontends remain, its `daemon_states` entry is gone
+    /// (`evict_daemon`), so the periodic sweep can never see that `daemon_id`
+    /// again to remove the limiter — the last frontend to leave must do it here,
+    /// or the limiter leaks permanently. Live `ConnHandle`s keep their own `Arc`
+    /// clone, so dropping the map's strong ref is safe (no use-after-free).
     fn remove_from_group(&mut self, daemon_id: &str, conn_id: ConnId) {
         if let Some(group) = self.groups.get_mut(daemon_id) {
             group.remove(&conn_id);
             if group.is_empty() {
                 self.groups.remove(daemon_id);
+                self.group_limiters.remove(daemon_id);
             }
         }
     }
@@ -985,6 +995,43 @@ mod tests {
         assert!(!core.conns.contains_key(&1), "conn removed");
         assert!(!core.groups.contains_key("d"), "empty group removed");
     }
+
+    #[test]
+    fn last_group_member_close_drops_the_group_limiter() {
+        // Last-leaver cleanup: once a daemon group has no connections left, the
+        // shared `group_limiters` entry must be dropped too — otherwise it can
+        // orphan permanently when the daemon was already evicted from the
+        // registry (the periodic sweep can never see that daemon_id again).
+        let mut core = test_core();
+        insert_conn(&mut core, 1, Some(daemon_auth("d")));
+        insert_conn(&mut core, 2, Some(frontend_auth("d", "f")));
+        register_into_group(&mut core, &[1, 2], "d");
+        assert!(core.group_limiters.contains_key("d"), "limiter created");
+
+        // First member leaves — group still non-empty, limiter retained.
+        let _ = handle_close(&mut core, 1, 1000);
+        assert!(
+            core.group_limiters.contains_key("d"),
+            "limiter retained while a frontend remains"
+        );
+
+        // Last member leaves — group empties, limiter must be dropped.
+        let _ = handle_close(&mut core, 2, 1001);
+        assert!(!core.groups.contains_key("d"), "empty group removed");
+        assert!(
+            !core.group_limiters.contains_key("d"),
+            "limiter dropped with the last group member (no permanent leak)"
+        );
+    }
+
+    // The budget-doubling guard (eviction must RETAIN the group limiter while
+    // frontends remain, so a re-registering daemon reuses the same `Arc` rather
+    // than minting a second one) is exercised end-to-end through the real
+    // `stale_sweep` eviction path in `conn.rs`'s test module
+    // (`eviction_retains_group_limiter_while_a_frontend_remains`), where
+    // `stale_sweep` is callable against a `SharedState`. A server.rs-level
+    // version that hand-simulates the eviction step is not fix-sensitive (the
+    // simulated conditional passes regardless of the real conn.rs source).
 
     #[test]
     fn handle_close_frontend_releases_attached() {

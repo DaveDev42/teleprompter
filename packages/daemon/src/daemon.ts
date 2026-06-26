@@ -217,6 +217,13 @@ export class Daemon {
       if (pruned > 0) {
         log.info(`pruned ${pruned} old session(s) (>${days}d)`);
       }
+      // Self-heal WAL/SHM sidecars orphaned by older daemon builds whose
+      // deleteSession unlinked only the main `.sqlite`. A long-lived store can
+      // hold hundreds of these; sweep once on startup so they don't linger.
+      const swept = this.store.sweepOrphanedSidecars();
+      if (swept > 0) {
+        log.info(`swept ${swept} orphaned WAL/SHM sidecar file(s)`);
+      }
     } catch (err) {
       log.error(`startup auto-cleanup failed (continuing): ${String(err)}`);
     }

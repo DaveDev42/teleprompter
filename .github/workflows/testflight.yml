@@ -1,5 +1,5 @@
-# TestFlight deployment — Apple multiplatform SwiftUI app (iOS + macOS; visionOS
-# and watchOS land in follow-up PRs per ADR-0004 §7 Amendment 1).
+# TestFlight deployment — Apple multiplatform SwiftUI app (iOS + macOS + visionOS;
+# watchOS lands in a follow-up PR per ADR-0004 §7 Amendment 1).
 #
 # Replaces the EAS Submit pipeline removed in the native rewrite (ADR-0001,
 # amended by ADR-0004). EAS used to do "push a tag → cloud build → TestFlight";
@@ -355,3 +355,139 @@ jobs:
           rm -rf "$RUNNER_TEMP/private_keys" "$HOME/.appstoreconnect/private_keys" || true
           rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/"*.provisionprofile \
                 "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.provisionprofile || true
+
+  # ── visionOS (Apple Vision Pro App Store TestFlight) ───────────────────────
+  # ADR-0004 §7 Amendment 1. Closest to the iOS job: visionOS REUSES the iOS
+  # "Apple Distribution" certificate (no visionOS-specific cert type exists) and
+  # uses .mobileprovision profiles (like iOS, NOT macOS's .provisionprofile). The
+  # only platform-specific input is the visionOS App Store provisioning profile.
+  # Export yields an .ipa (visionOS shares the iOS app-container model), uploaded
+  # with `altool --type visionos`. Gated on the SHARED iOS cert + the visionOS
+  # profile + shared ASC/team secrets.
+  guard-visionos:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          # visionOS reuses the iOS Apple Distribution cert — same secret.
+          CERT: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          PROFILE: ${{ secrets.VISIONOS_PROVISIONING_PROFILE_BASE64 }}
+          ASC_KEY: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_ISSUER: ${{ secrets.ASC_API_ISSUER_ID }}
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$CERT" ] && [ -n "$PROFILE" ] && [ -n "$ASC_KEY" ] \
+             && [ -n "$ASC_KEY_ID" ] && [ -n "$ASC_ISSUER" ] && [ -n "$TEAM" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::visionOS TestFlight secrets not fully configured — skipping. Required: IOS_DIST_CERT_P12_BASE64 (shared with iOS), VISIONOS_PROVISIONING_PROFILE_BASE64, ASC_API_KEY_P8_BASE64, ASC_API_KEY_ID, ASC_API_ISSUER_ID, APPLE_TEAM_ID. See docs/testflight-setup.md §3."
+          fi
+
+  archive-and-upload-visionos:
+    needs: guard-visionos
+    if: needs.guard-visionos.outputs.ready == 'true'
+    runs-on: macos-26
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Install Rust toolchain + Apple targets
+        uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          targets: >-
+            aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-visionos,aarch64-apple-visionos-sim,aarch64-apple-watchos,aarch64-apple-watchos-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      # Import the (iOS-shared) Apple Distribution identity + the visionOS App Store
+      # provisioning profile into a throwaway keychain. visionOS profiles use the
+      # .mobileprovision extension and the legacy Provisioning Profiles dir (same as
+      # iOS); install into both the legacy and Xcode 16+ dirs to be version-proof.
+      - name: Set up signing keychain
+        env:
+          CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.VISIONOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/tp-signing.keychain-db"
+          KEYCHAIN_PASS="$(openssl rand -base64 24)"
+          CERT_PATH="$RUNNER_TEMP/dist-cert.p12"
+          PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
+
+          echo "$CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+          echo "$PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
+          security import "$CERT_PATH" -P "$CERT_PASSWORD" -A -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASS" "$KEYCHAIN" >/dev/null
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed s/\"//g)
+
+          UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")"
+          for DIR in \
+            "$HOME/Library/MobileDevice/Provisioning Profiles" \
+            "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$DIR"
+            cp "$PROFILE_PATH" "$DIR/$UUID.mobileprovision"
+          done
+
+          echo "TP_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          echo "✅ visionOS signing keychain + profile ready (profile UUID $UUID)"
+
+      - name: Archive + export App Store .ipa
+        id: archive
+        env:
+          TP_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          export TP_BUILD_NUMBER=$(( RUN_NUMBER * 100 + RUN_ATTEMPT ))
+          IPA="$(TP_PLATFORM=visionos scripts/ios.sh archive)"
+          echo "ipa=$IPA" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to TestFlight
+        env:
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          IPA_PATH: ${{ steps.archive.outputs.ipa }}
+        run: |
+          set -euo pipefail
+          KEYS_DIR="$RUNNER_TEMP/private_keys"
+          mkdir -p "$KEYS_DIR"
+          echo "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$KEYS_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          cp "$KEYS_DIR/AuthKey_${ASC_API_KEY_ID}.p8" "$HOME/.appstoreconnect/private_keys/"
+
+          # visionOS uploads an .ipa (iOS container model). `--type visionos` is a
+          # valid altool type (requires Xcode 15.2+; the macos-26 runner satisfies it).
+          xcrun altool --upload-app \
+            --type visionos \
+            --file "$IPA_PATH" \
+            --apiKey "$ASC_API_KEY_ID" \
+            --apiIssuer "$ASC_API_ISSUER_ID"
+          echo "✅ uploaded $IPA_PATH to App Store Connect (TestFlight processing)"
+
+      - name: Clean up signing keychain
+        if: always()
+        run: |
+          if [ -n "${TP_KEYCHAIN:-}" ] && [ -f "$TP_KEYCHAIN" ]; then
+            security delete-keychain "$TP_KEYCHAIN" || true
+          fi
+          rm -f "$RUNNER_TEMP/dist-cert.p12" "$RUNNER_TEMP/profile.mobileprovision" || true
+          rm -rf "$RUNNER_TEMP/private_keys" "$HOME/.appstoreconnect/private_keys" || true
+          rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision \
+                "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.mobileprovision || true

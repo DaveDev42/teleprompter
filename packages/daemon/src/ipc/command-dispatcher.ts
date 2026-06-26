@@ -946,7 +946,37 @@ export class IpcCommandDispatcher {
         const wtPath = path ?? `${safeBranch}-${ts}`;
         const wt = await wm.add(wtPath, branch, baseBranch);
         const sid = `${safeBranch}-${ts}`;
-        this.deps.createSession(sid, wt.path, { worktreePath: wt.path });
+
+        // `wm.add` has now created the worktree on disk. Everything below can
+        // still fail — `createSession` runs a synchronous SQLite write +
+        // per-session DB open (disk-full / SQLITE_BUSY / corrupt page / a
+        // base36-ts sid collision all throw). If it throws here, the catch in
+        // `withWorktreeManager` would surface a `WORKTREE_ERROR` but leave the
+        // freshly-created, session-less worktree orphaned on disk (the analog of
+        // the documented deleteSession non-atomicity). Roll the worktree back so
+        // a transient store failure does not accumulate orphan worktrees +
+        // dangling branches. The rollback is best-effort and MUST NOT mask the
+        // original failure: `wm.remove` can itself throw (git error), so it is
+        // independently try/caught and we always re-throw the *original* error
+        // for the user-facing frame. `force: true` because this is our own
+        // just-created worktree with no committed work to protect.
+        try {
+          this.deps.createSession(sid, wt.path, { worktreePath: wt.path });
+        } catch (createErr) {
+          try {
+            await wm.remove(wt.path, true);
+            log.warn(
+              `rolled back orphaned worktree at ${wt.path} after createSession failed`,
+            );
+          } catch (rollbackErr) {
+            // Surface the cleanup failure for operator visibility, but keep the
+            // original createSession error as the thrown/reported one.
+            log.warn(
+              `failed to roll back worktree at ${wt.path} after createSession failed: ${rollbackErr}`,
+            );
+          }
+          throw createErr;
+        }
 
         // Subscribe every relay client to the new sid IMMEDIATELY, before the
         // runner's IPC `hello` round-trips — mirroring session.create. Without

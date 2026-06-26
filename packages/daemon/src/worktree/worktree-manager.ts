@@ -247,6 +247,36 @@ export class WorktreeManager {
   }
 
   /**
+   * Canonicalize a worktree path into the SAME absolute form this manager
+   * stores and compares against, so two paths that name the same directory
+   * compare equal regardless of how the caller spelled them.
+   *
+   * This mirrors `validatePathContainment`'s resolve logic exactly: resolve
+   * against `repoRoot` (collapsing a trailing slash, `.`/`..` segments, and
+   * making a relative path absolute), then `realpathSync(dirname(...))` +
+   * `basename(...)` to follow symlinks on the parent — with a lexical fallback
+   * when the parent no longer exists (the worktree dir may already be deleted).
+   *
+   * Applying this to BOTH a stored `worktree_path` and a frontend-supplied
+   * path makes the comparison robust to trailing slashes, `..` components, and
+   * symlinked parent directories — without it, a string-equality match could
+   * miss a live session and let its worktree be removed out from under it.
+   * The match is intentionally NOT `realpathSync` on the final component: the
+   * stored value came from `add()`'s `resolve(repoRoot, path)` which never
+   * realpath'd the leaf, so resolving the leaf here would make the two sides
+   * diverge when the worktree dir itself is a symlink.
+   */
+  canonicalize(path: string): string {
+    const absolute = resolve(this.repoRoot, path);
+    try {
+      const realParent = realpathSync(dirname(absolute));
+      return resolve(realParent, basename(absolute));
+    } catch {
+      return absolute;
+    }
+  }
+
+  /**
    * Add a new worktree.
    *
    * @param path - Directory path for the new worktree

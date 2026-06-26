@@ -11,6 +11,7 @@ import type {
   RelayControlMessage,
 } from "@teleprompter/protocol";
 import { FrameDecoder, makeLabel, QueuedWriter } from "@teleprompter/protocol";
+import { resolve as nodeResolve } from "path";
 import type { PushNotifier } from "../push/push-notifier";
 import type {
   RunnerInfo,
@@ -43,6 +44,7 @@ interface Calls {
   >;
   sessionUnregister: string[];
   killRunner: string[];
+  waitForExit: string[];
   createSession: Array<[string, string, SpawnRunnerOptions | undefined]>;
   pairBegin: IpcPairBegin[];
   pairCancel: IpcPairCancel[];
@@ -90,6 +92,16 @@ function makeHarness(
     runningSids?: string[];
     deleteSessionThrows?: (sid: string) => Error | null;
     createSessionThrows?: (sid: string) => Error | null;
+    /** Seed the live runner registry (drives listRunners() for the
+     * worktree.remove live-session guard). `hasProcess` controls whether the
+     * RunnerInfo carries a tracked Subprocess — false models a passthrough /
+     * registered-only runner this daemon did not spawn. */
+    runners?: Array<{
+      sid: string;
+      worktreePath?: string | undefined;
+      hasProcess?: boolean;
+    }>;
+    killRunnerThrows?: (sid: string) => Error | null;
   } = {},
 ) {
   const calls: Calls = {
@@ -101,6 +113,7 @@ function makeHarness(
     sessionRegister: [],
     sessionUnregister: [],
     killRunner: [],
+    waitForExit: [],
     createSession: [],
     pairBegin: [],
     pairCancel: [],
@@ -171,9 +184,34 @@ function makeHarness(
   // Mirror the real SessionManager's runner registry so the generation guard
   // in handleBye (getRunner → pid compare) is exercised against live state.
   const runnerRegistry = new Map<string, RunnerInfo>();
+  // Seed the registry for the worktree.remove live-session guard, which scans
+  // listRunners(). `hasProcess` (default true) controls whether the RunnerInfo
+  // carries a tracked Subprocess: a sentinel object is enough since the guard
+  // only checks truthiness of `runner.process`, never drives it.
+  for (const r of opts.runners ?? []) {
+    runnerRegistry.set(r.sid, {
+      sid: r.sid,
+      pid: 0,
+      cwd: "/cwd",
+      worktreePath: r.worktreePath,
+      connectedAt: 0,
+      process:
+        r.hasProcess === false
+          ? undefined
+          : ({
+              kill() {},
+              exited: Promise.resolve(0),
+            } as unknown as RunnerInfo["process"]),
+    });
+  }
   const sessionManager: Pick<
     SessionManager,
-    "registerRunner" | "unregisterRunner" | "killRunner" | "getRunner"
+    | "registerRunner"
+    | "unregisterRunner"
+    | "killRunner"
+    | "getRunner"
+    | "listRunners"
+    | "waitForExit"
   > = {
     registerRunner: (sid, pid, cwd, worktreePath, claudeVersion) => {
       calls.sessionRegister.push([sid, pid, cwd, worktreePath, claudeVersion]);
@@ -191,13 +229,19 @@ function makeHarness(
       runnerRegistry.delete(sid);
     },
     getRunner: (sid) => runnerRegistry.get(sid),
+    listRunners: () => Array.from(runnerRegistry.values()),
+    waitForExit: async (sid) => {
+      calls.waitForExit.push(sid);
+    },
     killRunner: (sid) => {
       calls.killRunner.push(sid);
+      const err = opts.killRunnerThrows?.(sid) ?? null;
+      if (err) throw err;
       if (runningSet.has(sid)) {
         runningSet.delete(sid);
         return true;
       }
-      return sid === "present";
+      return sid === "present" || runnerRegistry.has(sid);
     },
   };
 
@@ -1666,6 +1710,295 @@ describe("IpcCommandDispatcher.dispatchRelayControl", () => {
     expect(reply.t).toBe("err");
     expect(reply.e).toBe("NO_REPO");
     expect(reply.m).toBe(NO_REPO_MESSAGE);
+  });
+
+  // --------------------------------------------------------------------
+  // worktree.remove live-session guard (refuse-non-force, kill-on-force).
+  //
+  // git worktree remove does NOT protect a running session whose cwd is the
+  // worktree (a non-force remove succeeds against a clean worktree even with a
+  // live process inside, leaving that session with an unlinked cwd). The guard
+  // refuses on non-force when a LIVE runner references the worktree, and on
+  // force kills those runners (awaiting exit before git touches the dir) then
+  // removes. Truth source = listRunners() (live), not the store `state` column.
+  // --------------------------------------------------------------------
+
+  /** A WorktreeManager fake exposing the two methods the guard + handler use:
+   *  - canonicalize: lexical normalization (resolve strips trailing '/', '..')
+   *    — matches the real method's behavior for already-absolute paths.
+   *  - remove: records (path, force) and lets the caller force a throw. */
+  function fakeRemoveWm(
+    removeCalls: Array<{ path: string; force: boolean }>,
+    removeThrows?: () => Error,
+  ): WorktreeManager {
+    return {
+      canonicalize: (p: string) => nodeResolve(p),
+      remove: async (p: string, force = false) => {
+        removeCalls.push({ path: p, force });
+        if (removeThrows) throw removeThrows();
+      },
+    } as unknown as WorktreeManager;
+  }
+
+  test("worktree.remove (non-force) refuses when a live runner is on the worktree", async () => {
+    // REGRESSION (#24): the old handler called wm.remove unconditionally, so a
+    // non-force remove yanked the cwd out from under a running session. The
+    // guard must refuse with WORKTREE_ERROR and NOT call wm.remove.
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const removeCalls: Array<{ path: string; force: boolean }> = [];
+    const { dispatcher } = makeHarness({
+      getWorktreeManager: () => fakeRemoveWm(removeCalls),
+      runners: [{ sid: "s-live", worktreePath: "/repo-wt-feat" }],
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "worktree.remove", path: "/repo-wt-feat", force: false },
+      "f1",
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(removeCalls.length).toBe(0);
+    const errFrame = out.find((o) => (o.msg as { t?: string }).t === "err");
+    expect(errFrame).toBeDefined();
+    const reply = errFrame?.msg as { e?: string; m?: string };
+    expect(reply.e).toBe("WORKTREE_ERROR");
+    // The blocking sid is surfaced so the app can offer a force-remove.
+    expect(reply.m).toContain("s-live");
+    // Exactly ONE error frame — the guard returns (not throws), so
+    // withWorktreeManager does not also publish a second WORKTREE_ERROR.
+    expect(
+      out.filter((o) => (o.msg as { t?: string }).t === "err").length,
+    ).toBe(1);
+  });
+
+  test("worktree.remove (non-force) proceeds when no live runner is on the worktree", async () => {
+    // A runner on a DIFFERENT worktree must not block the remove.
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const removeCalls: Array<{ path: string; force: boolean }> = [];
+    const { dispatcher, calls } = makeHarness({
+      getWorktreeManager: () => fakeRemoveWm(removeCalls),
+      runners: [{ sid: "s-other", worktreePath: "/repo-wt-OTHER" }],
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "worktree.remove", path: "/repo-wt-feat", force: false },
+      "f1",
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(removeCalls).toEqual([
+      { path: nodeResolve("/repo-wt-feat"), force: false },
+    ]);
+    expect(calls.killRunner).toEqual([]);
+    expect(
+      out.some((o) => (o.msg as { t?: string }).t === "worktree.removed"),
+    ).toBe(true);
+  });
+
+  test("worktree.remove (non-force) ignores a stale 'running' store row with no live runner", async () => {
+    // The store row says 'running' but the runner already exited (listRunners
+    // is empty). Truth = the live runner map, so the remove must proceed —
+    // blocking on the stale row would wrongly refuse a legitimate remove.
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const removeCalls: Array<{ path: string; force: boolean }> = [];
+    const staleRow = mkMeta("s-stale", "running", 1);
+    staleRow.worktree_path = "/repo-wt-feat";
+    const { dispatcher } = makeHarness({
+      getWorktreeManager: () => fakeRemoveWm(removeCalls),
+      sessions: [staleRow],
+      runners: [], // no live runner despite the 'running' row
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "worktree.remove", path: "/repo-wt-feat", force: false },
+      "f1",
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(removeCalls.length).toBe(1);
+    expect(out.some((o) => (o.msg as { t?: string }).t === "err")).toBe(false);
+  });
+
+  test("worktree.remove (force) kills the live runner, then removes — in order", async () => {
+    // The kill→awaitExit→unregister→stopped→unsubscribe→remove ordering must
+    // hold: waitForExit MUST run before wm.remove (git races a live PTY cwd).
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const removeCalls: Array<{ path: string; force: boolean }> = [];
+    const unsubscribed: string[] = [];
+    const relayClient = {
+      unsubscribe: (sid: string) => unsubscribed.push(sid),
+    } as unknown as RelayClient;
+    const { dispatcher, calls } = makeHarness({
+      getWorktreeManager: () => fakeRemoveWm(removeCalls),
+      runners: [{ sid: "s-live", worktreePath: "/repo-wt-feat" }],
+      relayClients: [relayClient],
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "worktree.remove", path: "/repo-wt-feat", force: true },
+      "f1",
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(calls.killRunner).toEqual(["s-live"]);
+    // Regression guard: the killed runner's exit MUST be awaited before remove.
+    expect(calls.waitForExit).toEqual(["s-live"]);
+    expect(calls.sessionUnregister).toEqual(["s-live"]);
+    expect(calls.storeUpdateState).toEqual([["s-live", "stopped"]]);
+    expect(unsubscribed).toEqual(["s-live"]);
+    expect(removeCalls).toEqual([
+      { path: nodeResolve("/repo-wt-feat"), force: true },
+    ]);
+    expect(
+      out.some((o) => (o.msg as { t?: string }).t === "worktree.removed"),
+    ).toBe(true);
+  });
+
+  test("worktree.remove (force) refuses a passthrough runner it cannot kill", async () => {
+    // A runner WITHOUT a tracked Subprocess (registered-only / passthrough) is
+    // not killable by this daemon — killRunner would no-op and we'd remove the
+    // dir out from under a live process. The guard must refuse instead.
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const removeCalls: Array<{ path: string; force: boolean }> = [];
+    const { dispatcher, calls } = makeHarness({
+      getWorktreeManager: () => fakeRemoveWm(removeCalls),
+      runners: [
+        {
+          sid: "s-passthrough",
+          worktreePath: "/repo-wt-feat",
+          hasProcess: false,
+        },
+      ],
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "worktree.remove", path: "/repo-wt-feat", force: true },
+      "f1",
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(removeCalls.length).toBe(0);
+    expect(calls.killRunner).toEqual([]);
+    const errFrame = out.find((o) => (o.msg as { t?: string }).t === "err");
+    expect(errFrame).toBeDefined();
+    const reply = errFrame?.msg as { e?: string; m?: string };
+    expect(reply.e).toBe("WORKTREE_ERROR");
+    expect(reply.m).toContain("s-passthrough");
+  });
+
+  test("worktree.remove matches a runner via the stored worktree_path fallback", async () => {
+    // An old-protocol runner registered without worktreePath: the guard falls
+    // back to the store row's worktree_path to still detect the blocker.
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const removeCalls: Array<{ path: string; force: boolean }> = [];
+    const row = mkMeta("s-noWtField", "running", 1);
+    row.worktree_path = "/repo-wt-feat";
+    const { dispatcher } = makeHarness({
+      getWorktreeManager: () => fakeRemoveWm(removeCalls),
+      sessions: [row],
+      // runner present in the live map but with NO worktreePath field
+      runners: [{ sid: "s-noWtField", worktreePath: undefined }],
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "worktree.remove", path: "/repo-wt-feat", force: false },
+      "f1",
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(removeCalls.length).toBe(0);
+    const reply = out.find((o) => (o.msg as { t?: string }).t === "err")
+      ?.msg as { e?: string };
+    expect(reply?.e).toBe("WORKTREE_ERROR");
+  });
+
+  test("worktree.remove canonicalizes a trailing slash before matching", async () => {
+    // msg.path with a trailing slash must still match the stored path — resolve
+    // strips it. Without canonicalization the guard would miss the live runner.
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const removeCalls: Array<{ path: string; force: boolean }> = [];
+    const { dispatcher } = makeHarness({
+      getWorktreeManager: () => fakeRemoveWm(removeCalls),
+      runners: [{ sid: "s-live", worktreePath: "/repo-wt-feat" }],
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "worktree.remove", path: "/repo-wt-feat/", force: false },
+      "f1",
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(removeCalls.length).toBe(0);
+    const reply = out.find((o) => (o.msg as { t?: string }).t === "err")
+      ?.msg as { e?: string };
+    expect(reply?.e).toBe("WORKTREE_ERROR");
+  });
+
+  test("worktree.remove (force) surfaces a kill failure and does NOT remove", async () => {
+    // If killRunner throws, the re-throw lets withWorktreeManager publish a
+    // WORKTREE_ERROR and wm.remove is never reached (safe direction: the
+    // worktree stays on disk rather than being removed under a half-killed
+    // session).
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const removeCalls: Array<{ path: string; force: boolean }> = [];
+    const { dispatcher, calls } = makeHarness({
+      getWorktreeManager: () => fakeRemoveWm(removeCalls),
+      runners: [{ sid: "s-live", worktreePath: "/repo-wt-feat" }],
+      killRunnerThrows: () => new Error("kill failed"),
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "worktree.remove", path: "/repo-wt-feat", force: true },
+      "f1",
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(calls.killRunner).toEqual(["s-live"]);
+    expect(removeCalls.length).toBe(0);
+    const reply = out.find((o) => (o.msg as { t?: string }).t === "err")
+      ?.msg as { e?: string; m?: string };
+    expect(reply?.e).toBe("WORKTREE_ERROR");
+    expect(reply?.m).toBe("kill failed");
+  });
+
+  test("worktree.remove with no sessions at all proceeds cleanly", async () => {
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const removeCalls: Array<{ path: string; force: boolean }> = [];
+    const { dispatcher, calls } = makeHarness({
+      getWorktreeManager: () => fakeRemoveWm(removeCalls),
+      runners: [],
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "worktree.remove", path: "/repo-wt-feat", force: false },
+      "f1",
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(removeCalls.length).toBe(1);
+    expect(calls.killRunner).toEqual([]);
+    expect(
+      out.some((o) => (o.msg as { t?: string }).t === "worktree.removed"),
+    ).toBe(true);
   });
 
   test("resize forwards to the runner IPC when found", () => {

@@ -164,11 +164,16 @@ export class Runner {
 
     log.info(`stopping sid=${this.opts.sid} exitCode=${exitCode}`);
 
-    // Send bye to daemon
+    // Send bye to daemon. Include this Runner's pid as a generation guard:
+    // after `session.restart` kills this Runner (SIGTERM → stop()) and the
+    // daemon spawns a fresh Runner for the same sid, this bye must not tear
+    // down the new generation. The daemon ignores it when the pid does not
+    // match the currently-registered Runner. (Mirrors the hello pid at :88.)
     this.ipc.send({
       t: "bye",
       sid: this.opts.sid,
       exitCode,
+      pid: process.pid,
     });
 
     // Cleanup. Kill the PTY child: stop() is reached not only from the PTY's

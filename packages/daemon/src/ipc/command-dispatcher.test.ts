@@ -13,6 +13,7 @@ import type {
 import { FrameDecoder, makeLabel, QueuedWriter } from "@teleprompter/protocol";
 import type { PushNotifier } from "../push/push-notifier";
 import type {
+  RunnerInfo,
   SessionManager,
   SpawnRunnerOptions,
 } from "../session/session-manager";
@@ -167,16 +168,29 @@ function makeHarness(
     },
   };
 
+  // Mirror the real SessionManager's runner registry so the generation guard
+  // in handleBye (getRunner → pid compare) is exercised against live state.
+  const runnerRegistry = new Map<string, RunnerInfo>();
   const sessionManager: Pick<
     SessionManager,
-    "registerRunner" | "unregisterRunner" | "killRunner"
+    "registerRunner" | "unregisterRunner" | "killRunner" | "getRunner"
   > = {
     registerRunner: (sid, pid, cwd, worktreePath, claudeVersion) => {
       calls.sessionRegister.push([sid, pid, cwd, worktreePath, claudeVersion]);
+      runnerRegistry.set(sid, {
+        sid,
+        pid,
+        cwd,
+        worktreePath,
+        claudeVersion,
+        connectedAt: 0,
+      });
     },
     unregisterRunner: (sid) => {
       calls.sessionUnregister.push(sid);
+      runnerRegistry.delete(sid);
     },
+    getRunner: (sid) => runnerRegistry.get(sid),
     killRunner: (sid) => {
       calls.killRunner.push(sid);
       if (runningSet.has(sid)) {
@@ -913,6 +927,50 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     const bye: IpcBye = { t: "bye", sid: "s1", exitCode: 1 };
     dispatcher.dispatchIpc(makeRunner(), bye);
     expect(calls.storeUpdateState).toEqual([["s1", "error"]]);
+  });
+
+  test("stale bye from the old runner does not corrupt a restarted session", () => {
+    // session.restart kills the old Runner (pid=100) and spawns a new one
+    // (pid=200) for the same sid. If the old Runner's SIGTERM bye (pid=100,
+    // exitCode!=0) arrives AFTER the new generation's hello has registered,
+    // processing it would mark the live session "error" and unregister the
+    // freshly-registered new Runner — orphaning a running PTY. The generation
+    // guard must drop the stale bye.
+    const { dispatcher, calls } = makeHarness();
+
+    // New generation registers (the daemon processed the new Runner's hello).
+    const hello: IpcHello = { t: "hello", sid: "s1", cwd: "/cwd", pid: 200 };
+    dispatcher.dispatchIpc(makeRunner(), hello);
+    expect(calls.sessionRegister).toEqual([
+      ["s1", 200, "/cwd", undefined, undefined],
+    ]);
+
+    // Old generation's stale bye lands afterwards.
+    const staleBye: IpcBye = { t: "bye", sid: "s1", exitCode: 143, pid: 100 };
+    dispatcher.dispatchIpc(makeRunner(), staleBye);
+
+    // The stale bye is ignored: the live session is NOT flipped to "error" and
+    // the new Runner is NOT unregistered. (hello drives state via createSession,
+    // not updateSessionState, so the guard's job here is to not append
+    // ["s1","error"] and not unregister the freshly-registered new Runner.)
+    expect(calls.storeUpdateState).toEqual([]);
+    expect(calls.sessionUnregister).toEqual([]);
+  });
+
+  test("matching bye from the current runner is processed normally", () => {
+    // The companion to the stale-bye guard: a bye whose pid matches the
+    // currently-registered Runner is the legitimate end-of-session signal and
+    // must still tear the session down.
+    const { dispatcher, calls } = makeHarness();
+
+    const hello: IpcHello = { t: "hello", sid: "s1", cwd: "/cwd", pid: 200 };
+    dispatcher.dispatchIpc(makeRunner(), hello);
+
+    const bye: IpcBye = { t: "bye", sid: "s1", exitCode: 0, pid: 200 };
+    dispatcher.dispatchIpc(makeRunner(), bye);
+
+    expect(calls.storeUpdateState).toEqual([["s1", "stopped"]]);
+    expect(calls.sessionUnregister).toEqual(["s1"]);
   });
 
   test("daemon→runner message types (ack/input/etc.) are ignored silently", () => {

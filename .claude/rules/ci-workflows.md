@@ -32,15 +32,19 @@ paths:
 ## TestFlight (`testflight.yml`, ADR-0004 + Amendment 1 — 5-플랫폼 앱 배포, EAS Submit 대체)
 
 > **Amendment 1 (ADR-0004 §7, 2026-06-27): TestFlight 가 5개 Apple 플랫폼 전부로 확장된다** — iOS·
-> iPadOS·macOS·watchOS·visionOS. 아래 항목은 원안(iOS) 기술을 담되, 후속 PR 에서 macOS/visionOS/
-> watchOS 의 플랫폼별 archive 분기(`cmd_archive` 가 `TP_PLATFORM` 으로 분기 — iOS-only `die` 가드
-> 제거)·플랫폼별 ExportOptions(`ios/ExportOptions.{macos,visionos,watchos}.plist`)·플랫폼별
-> `archive-and-upload` job(자기 profile 시크릿으로 게이트, `altool --type {ios|macos|watchos|visionos}`)
-> 이 추가된다. 셋업(시크릿·ASC 레코드) 체크리스트 = `docs/testflight-setup.md`. **자동화 경계**: 시크릿
-> 주입·ASC 레코드/프로파일 생성은 Apple 계정 필요 → 사용자만 가능, 스캐폴딩은 시크릿이 채워지면 라이브.
+> iPadOS·macOS·watchOS·visionOS. `cmd_archive` 가 iOS-only `die` 가드를 버리고 `resolve_archive_params()`
+> 로 `TP_PLATFORM` 분기(ios/ipad→`generic/platform=iOS` `.ipa`, macos→`generic/platform=macOS` MAS
+> `.pkg`, visionos→`generic/platform=visionOS` `.ipa`, watchos→ 아직 `die` — 아래 watchOS 노트)하고,
+> 플랫폼별 ExportOptions(`ios/ExportOptions.{plist,macos.plist,visionos.plist}`)+플랫폼별
+> `archive-and-upload-<plat>` job(자기 profile 시크릿으로 게이트, `altool --type {ios|macos|visionos}`)
+> 이 추가된다. **현재 라이브: iOS + macOS.** visionOS 는 후속 PR(ExportOptions.visionos.plist + job),
+> watchOS 는 별도 결정 게이트(아래). 셋업(시크릿·ASC 레코드) 체크리스트 = `docs/testflight-setup.md`.
+> **자동화 경계**: 시크릿 주입·ASC 레코드/프로파일 생성은 Apple 계정 필요 → 사용자만 가능, 스캐폴딩은
+> 시크릿이 채워지면 라이브.
 
-- **무엇**: `v*` 태그 push 또는 수동 dispatch → `macos-26` 러너에서 앱을 archive+서명+export 후 **App Store Connect(→ TestFlight)** 업로드. ADR-0001 이 제거한 EAS Submit 의 배포 경로를 **Apple 공식 도구만으로**(fastlane/EAS 없이) 복원.
-- **빌드 절반 = 하니스**: `scripts/ios.sh archive` (iOS device 슬라이스 Release archive → `-exportArchive` via `ios/ExportOptions.plist` → `.ipa`). 빌드 로직은 워크플로에 흩지 않고 하니스에 둠(build/smoke/uitest 와 동일 규율). iOS-only 가드(`cmd_archive` 가 `macos`/`visionos`/`watchos` 거부). **업로드 절반 = 워크플로**: `xcrun altool --upload-app` + ASC API 키(.p8).
+- **무엇**: `v*` 태그 push 또는 수동 dispatch → `macos-26` 러너에서 앱을 archive+서명+export 후 **App Store Connect(→ TestFlight)** 업로드. ADR-0001 이 제거한 EAS Submit 의 배포 경로를 **Apple 공식 도구만으로**(fastlane/EAS 없이) 복원. 플랫폼별 `archive-and-upload-<plat>` job 이 각자 시크릿 게이트(`guard`/`guard-macos`/…) 로 분리.
+- **빌드 절반 = 하니스**: `TP_PLATFORM=<plat> scripts/ios.sh archive` (Release archive → `-exportArchive` via 플랫폼별 ExportOptions → `.ipa`/`.pkg`). 빌드 로직은 워크플로에 흩지 않고 하니스에 둠(build/smoke/uitest 와 동일 규율). `cmd_archive` 는 `resolve_archive_params()` 로 ios/ipad/macos/visionos 분기, watchos 만 `die`. **업로드 절반 = 워크플로**: `xcrun altool --upload-app --type <plat>` + ASC API 키(.p8).
+- **macOS job (`guard-macos` + `archive-and-upload-macos`)**: iOS job 과 동일 패턴이되 **Mac App Distribution 인증서 + Mac App Store provisioning profile**(`.provisionprofile` 확장자 — `.mobileprovision` 아님)을 일회용 keychain 에 import, `TP_PLATFORM=macos scripts/ios.sh archive`(→ `generic/platform=macOS` → 서명된 **installer `.pkg`**, `.ipa` 아님), `xcrun altool --upload-app --type macos --file <pkg>`(`--type macos` 유효; `--upload-app` 은 deprecated 지만 작동 — App Store *업로드* altool 은 미폐지, notarization 만 폐지). **macOS 는 서명 identity 가 2개**: app(.app) 서명용 Apple Distribution + **별개 인증서**인 "3rd Party Mac Developer Installer"(.pkg productbuild 서명용). 후자가 keychain 에 없으면 `.pkg` 서명이 조용히 실패 → 워크플로가 둘 다 keychain 에 들어가게 함: 단일 결합 `.p12`(Keychain 두 인증서 multi-select export) 면 `MAC_DIST_CERT_P12_BASE64` 하나, 분리면 `MAC_INSTALLER_CERT_P12_BASE64`(optional, 비어있으면 import skip) 추가. **provisioning profile 은 두 경로에 설치** — `~/Library/MobileDevice/Provisioning Profiles`(Xcode ≤15) + `~/Library/Developer/Xcode/UserData/Provisioning Profiles`(Xcode 16+, `macos-26` 러너) UUID 로 양쪽 cp(러너 Xcode 버전 무관). 게이트 시크릿: `MAC_DIST_CERT_P12_BASE64`, `MAC_DIST_CERT_PASSWORD`(빈 값 허용 — guard non-empty 체크 제외), `MAC_PROVISIONING_PROFILE_BASE64` + 공유 ASC 4종 (installer 시크릿은 optional 이라 guard 가 require 안 함). ASC 레코드는 iOS 와 **별개**(플랫폼별 레코드, 동일 번들 ID `dev.tpmt.app`/macOS). **non-required.**
 - **서명**: Apple Distribution 인증서(.p12) + provisioning profile 을 **일회용 keychain**(`$RUNNER_TEMP/tp-signing.keychain-db`)에 base64 시크릿에서 import — 러너 login keychain 절대 안 건드림, `always()` step 으로 keychain+프로필+키 정리. `CODE_SIGN_STYLE=Manual`(헤드리스에서 portal 통신 불가). Simulator/로컬 ad-hoc 서명(`SIGN_FLAGS="-"`)과 완전 분리.
 - **빌드 번호**: `TP_BUILD_NUMBER=$(( RUN_NUMBER * 100 + RUN_ATTEMPT ))` → `cmd_archive` 가 `CURRENT_PROJECT_VERSION` 오버라이드(ASC 는 재사용 빌드번호 거부, 단조 증가 필수). `run_number*100+run_attempt` 는 run 마다 단조 증가 + "Re-run failed jobs" attempt 마다 유니크 → 업로드 성공 후 재실행이 ASC 의 이미-사용된 CFBundleVersion 과 충돌 안 함. **산술은 반드시 셸 `$(( ))` 에서** — GitHub Actions expression 에는 산술 연산자(`* + - /`)가 없어 `${{ github.run_number * 100 + github.run_attempt }}` 는 워크플로 **파싱 에러**(`*` unparseable)를 내 모든 브랜치 push 가 0-job red run 을 찍는다. `run_number`/`run_attempt` 는 정수 컨텍스트 조회라 env 로 주입 후 `$(( ))` 에 안전히 전개. 버전 문자열은 `project.yml MARKETING_VERSION`.
 - **export-compliance**: `project.yml` Info.plist 에 `ITSAppUsesNonExemptEncryption: false`(표준 XChaCha20/X25519 = EAR 740.17(b)(1) 면제) — 없으면 TestFlight 가 "Missing Compliance" 로 빌드를 테스터에게 안 풀어줌.

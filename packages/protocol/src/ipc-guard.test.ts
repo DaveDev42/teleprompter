@@ -176,17 +176,40 @@ describe("parseIpcMessage", () => {
   });
 
   describe("bye", () => {
-    test("accepts valid bye", () => {
+    test("accepts valid bye (no pid — wire back-compat)", () => {
       expect(parseIpcMessage({ t: "bye", sid: "s", exitCode: 0 })).toEqual({
         t: "bye",
         sid: "s",
         exitCode: 0,
+        pid: undefined,
+      });
+    });
+
+    test("accepts bye with a valid pid (generation guard)", () => {
+      expect(
+        parseIpcMessage({ t: "bye", sid: "s", exitCode: 143, pid: 4242 }),
+      ).toEqual({
+        t: "bye",
+        sid: "s",
+        exitCode: 143,
+        pid: 4242,
       });
     });
 
     test("rejects bye missing fields", () => {
       expect(parseIpcMessage({ t: "bye", sid: "s" })).toBeNull();
       expect(parseIpcMessage({ t: "bye", exitCode: 0 })).toBeNull();
+    });
+
+    // pid is optional, but when present it must be a positive integer (process
+    // IDs are always ≥ 1) — mirrors the hello pid tightening.
+    test.each([
+      ["pid=0", { t: "bye", sid: "s", exitCode: 0, pid: 0 }],
+      ["pid=-3", { t: "bye", sid: "s", exitCode: 0, pid: -3 }],
+      ["pid=1.5", { t: "bye", sid: "s", exitCode: 0, pid: 1.5 }],
+      ["pid='1'", { t: "bye", sid: "s", exitCode: 0, pid: "1" }],
+    ])("rejects bye with invalid %s", (_l, m) => {
+      expect(parseIpcMessage(m)).toBeNull();
     });
   });
 

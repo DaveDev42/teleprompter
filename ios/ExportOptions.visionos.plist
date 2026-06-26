@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  visionOS (Apple Vision Pro) App Store (TestFlight) export options for
+  `TP_PLATFORM=visionos scripts/ios.sh archive` (ADR-0004 §7 Amendment 1).
+
+  Consumed by `xcodebuild -exportArchive -exportOptionsPlist`. visionOS shares the
+  iOS app-container model, so a visionOS App Store export produces an `.ipa` (NOT a
+  `.pkg` like macOS). The SDK is internally "xrOS" but the public destination/type
+  string is "visionOS"/"visionos".
+
+  - method app-store-connect: the Xcode 15.4+ spelling of "app-store"
+    (TestFlight + App Store). visionOS uses the same method as iOS.
+  - signingStyle manual: CI imports the (shared) Apple Distribution cert + the
+    visionOS-specific App Store provisioning profile into a throwaway keychain;
+    manual keeps xcodebuild from talking to the developer portal (impossible
+    headlessly).
+  - uploadSymbols true: ship dSYMs so App Store Connect symbolicates crash logs.
+
+  teamID and the bundleId→profile mapping are NOT hardcoded — team comes from the
+  archive's embedded signing (DEVELOPMENT_TEAM in cmd_archive), and Xcode resolves
+  the profile from the keychain by bundle id (dev.tpmt.app, visionOS). There is NO
+  visionOS-specific distribution certificate — the same iOS "Apple Distribution"
+  identity signs visionOS; only the provisioning profile is visionOS-specific.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>app-store-connect</string>
+    <key>signingStyle</key>
+    <string>manual</string>
+    <key>uploadSymbols</key>
+    <true/>
+    <key>destination</key>
+    <string>export</string>
+</dict>
+</plist>

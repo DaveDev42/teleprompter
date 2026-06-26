@@ -899,6 +899,52 @@ async fn handle_push(
     interruption_level: Option<&InterruptionLevel>,
     data: Option<&WirePushData>,
 ) -> Option<(u16, &'static str)> {
+    // 2-layer GCRA rate limit FIRST — BEFORE the spawn. `relay.push` is
+    // intercepted in `handle_inbound` ahead of `dispatch_locked`, so it would
+    // otherwise skip the rate limit that every other authed arm passes through
+    // (relay-server.ts gates push via `checkRateLimit` before its switch:
+    // `relay-server.ts:793` precedes `case "relay.push"` at :838). Without this,
+    // an authed daemon can fire `relay.push` at unbounded rate and each one
+    // `tokio::spawn`s an APNs HTTP/2 request with NO concurrency cap — a memory /
+    // fd / HTTP-2-stream exhaustion vector at the ~10k bar (push.rs's per-frontend
+    // dedup/rate-limit runs only AFTER the spawn, and caps per frontend, not the
+    // daemon's aggregate spawn rate). Mirrors the per-client → per-daemon order +
+    // metrics + RATE_LIMITED messages of `dispatch_locked` exactly.
+    // Resolve the rate-limit decision under ONE short lock, drop the guard, THEN
+    // (only on a reject) deliver the reply outside the lock — the MutexGuard must
+    // never be held across an `.await` (the no-await-under-lock invariant).
+    let rate_reject: Option<RelayServerMessage> = {
+        // LOCK: synchronous rate check — no `.await` inside.
+        let core = state.core.lock().expect("relay core mutex poisoned");
+        match core.conns.get(&conn_id) {
+            // Only gate authed senders (an unauthed push falls through to the
+            // NOT_AUTHENTICATED reply in resolve_push_locked below).
+            Some(handle) if handle.auth.is_some() => {
+                if !handle.client_limiter.check() {
+                    state.metrics.inc_rate_limited_drops();
+                    Some(RelayServerMessage::Err(RelayErr {
+                        e: "RATE_LIMITED".to_string(),
+                        m: Some("Too many messages. Slow down.".to_string()),
+                    }))
+                } else if !handle.group_limiter.as_ref().is_none_or(|g| g.check()) {
+                    state.metrics.inc_daemon_rate_limited_drops();
+                    Some(RelayServerMessage::Err(RelayErr {
+                        e: "RATE_LIMITED".to_string(),
+                        m: Some("Daemon group budget exceeded. Slow down.".to_string()),
+                    }))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+        // guard dropped here
+    };
+    if let Some(reply) = rate_reject {
+        deliver_actions(state, vec![Action::Send(conn_id, reply)]).await;
+        return None;
+    }
+
     // Sync section under ONE short lock — returns owned values, drops the guard.
     let resolved = {
         // LOCK: synchronous gate + lookup + unseal — no `.await` to drop.
@@ -1178,9 +1224,17 @@ async fn close_conn(state: &SharedState, conn_id: ConnId, close_code: u16, reaso
         (close_tx, presence)
         // guard dropped here
     };
-    // Signal the write task to emit a Close frame, then terminate.
+    // Signal the write task to emit a Close frame, then terminate. Use the async
+    // `send` (not `try_send`) for symmetry with the self-close path
+    // (`connection_loop` line ~353): `try_send` swallows a `Full` on the cap-4
+    // `close_rx`, silently dropping the close code (the slow consumer would then
+    // linger until the 90s idle timeout, and be miscounted as an idle close
+    // rather than a 1013 backpressure close). The handle is already removed from
+    // `core.conns` above (handle_close), so this is at most a one-slot send and
+    // resolves immediately — or returns `Closed` harmlessly if the write task has
+    // already exited. `close_conn` is async, so awaiting here costs nothing.
     if let Some(close_tx) = close_tx {
-        let _ = close_tx.try_send((close_code, reason.to_string()));
+        let _ = close_tx.send((close_code, reason.to_string())).await;
     }
     if let Some(actions) = presence {
         // Recurse once: presence sends never themselves backpressure-close the
@@ -1766,6 +1820,66 @@ mod tests {
         let json = serde_json::to_value(&msg).unwrap();
         assert_eq!(json["t"], "relay.err");
         assert_eq!(json["e"], "NOT_AUTHENTICATED");
+    }
+
+    #[tokio::test]
+    async fn push_over_per_client_rate_limit_is_dropped_before_spawn() {
+        // GENUINE GUARD: `relay.push` is intercepted in handle_inbound ahead of
+        // dispatch_locked, so without an explicit gate it skips the 2-layer GCRA
+        // rate limit every other authed arm passes through — letting an authed
+        // daemon spawn unbounded APNs tasks (memory/fd/HTTP-2-stream exhaustion at
+        // the ~10k bar). This locks the gate: a daemon over its per-client budget
+        // gets relay.err RATE_LIMITED and NO push work happens.
+        //
+        // Register a daemon conn with rate_per_client = 1 so the GCRA burst is a
+        // single cell: the first push consumes it, the second is throttled.
+        let state = SharedState::from_env();
+        let mut daemon_rx = {
+            let (tx, rx) = mpsc::channel(64);
+            let (close_tx, close_rx) = mpsc::channel(4);
+            std::mem::forget(close_rx);
+            let mut core = state.core.lock().unwrap();
+            // rate_per_client = 1 → Limiter::per_second(1), burst capacity 1.
+            core.conns.insert(1, ConnHandle::new(tx, close_tx, 1));
+            let auth = AuthState {
+                role: Role::Daemon,
+                daemon_id: "d".to_string(),
+                frontend_id: None,
+                subscriptions: std::collections::HashSet::new(),
+            };
+            register_authed_conn(&mut core, 1, auth);
+            rx
+        };
+
+        let drops_before = state.metrics.snapshot().rate_limited_drops;
+
+        // First push: consumes the single GCRA cell. push_service is None in the
+        // test env, so this is a clean no-op (no reply on the outbox).
+        let close = handle_inbound(&state, 1, &push_frame("legacy-plain-token")).await;
+        assert_eq!(close, None);
+        assert!(
+            daemon_rx.try_recv().is_err(),
+            "first (in-budget) push must not produce an error reply"
+        );
+
+        // Second push: over budget → RATE_LIMITED reply to the daemon, no spawn.
+        let close = handle_inbound(&state, 1, &push_frame("legacy-plain-token")).await;
+        assert_eq!(close, None, "relay.push never closes the conn");
+
+        let msg = daemon_rx
+            .try_recv()
+            .expect("over-budget push must receive a RATE_LIMITED reply");
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["t"], "relay.err");
+        assert_eq!(json["e"], "RATE_LIMITED");
+        assert_eq!(json["m"], "Too many messages. Slow down.");
+
+        // The per-client drop counter advanced exactly once (mirrors dispatch_locked).
+        assert_eq!(
+            state.metrics.snapshot().rate_limited_drops,
+            drops_before + 1,
+            "rate_limited_drops must increment on the throttled push"
+        );
     }
 
     // ── map_delivery_result reply-mapping parity (relay-server.ts:1425-1482) ──

@@ -1888,11 +1888,62 @@ cmd_test() {
 # project.yml, but TestFlight rejects a re-used build number, so CI overrides
 # CURRENT_PROJECT_VERSION with a monotonic value (the workflow passes
 # TP_BUILD_NUMBER=${{ github.run_number }}). Locally it defaults to project.yml's "1".
+# Resolve the per-platform archive parameters into the named globals below.
+# ADR-0004 Amendment 1 extends the iOS-only archive to the Apple platforms that
+# distribute to App Store Connect → TestFlight. The DESTINATION, SCHEME, the
+# ExportOptions plist, and the exported-artifact extension vary by platform; the
+# keychain/team/build-number/export plumbing is shared.
+#
+#   ios / ipad → generic/platform=iOS, Teleprompter scheme, .ipa (iPadOS rides
+#                the same binary via TARGETED_DEVICE_FAMILY "1,2")
+#   macos      → generic/platform=macOS, Teleprompter scheme, .pkg (Mac App
+#                Store export emits a signed installer package, not an .ipa)
+#   visionos   → generic/platform=visionOS, Teleprompter scheme, .ipa
+#
+# watchOS is intentionally NOT handled here yet: `altool` has no `--type watchos`
+# (valid: macos|ios|appletvos|visionos) and Xcode 15.1+ requires a watchOS-only
+# app to ship inside an iOS stub container to produce a distributable archive —
+# `-scheme TeleprompterWatch` with `generic/platform=watchOS` yields a
+# non-distributable "Generic Xcode Archive". That path needs a project topology
+# decision (ADR-0004 §7 / tracked separately), so it dies with a clear pointer.
+ARCHIVE_DEST=""
+ARCHIVE_SCHEME=""
+ARCHIVE_EXPORT_OPTIONS=""
+ARCHIVE_ARTIFACT_EXT=""
+resolve_archive_params() {
+  case "$TP_PLATFORM" in
+    ios|ipad)
+      ARCHIVE_DEST="generic/platform=iOS"
+      ARCHIVE_SCHEME="$SCHEME"
+      ARCHIVE_EXPORT_OPTIONS="$IOS_DIR/ExportOptions.plist"
+      ARCHIVE_ARTIFACT_EXT="ipa"
+      ;;
+    macos)
+      ARCHIVE_DEST="generic/platform=macOS"
+      ARCHIVE_SCHEME="$SCHEME"
+      ARCHIVE_EXPORT_OPTIONS="$IOS_DIR/ExportOptions.macos.plist"
+      ARCHIVE_ARTIFACT_EXT="pkg"
+      ;;
+    visionos)
+      ARCHIVE_DEST="generic/platform=visionOS"
+      ARCHIVE_SCHEME="$SCHEME"
+      ARCHIVE_EXPORT_OPTIONS="$IOS_DIR/ExportOptions.visionos.plist"
+      ARCHIVE_ARTIFACT_EXT="ipa"
+      ;;
+    watchos)
+      die "cmd_archive: watchOS distribution is not yet wired (no altool --type watchos; Xcode requires an iOS stub container for a distributable watch archive). See ADR-0004 §7 / docs/testflight-setup.md."
+      ;;
+    *)
+      die "cmd_archive: unsupported TP_PLATFORM='$TP_PLATFORM' (expected ios|ipad|macos|visionos)."
+      ;;
+  esac
+}
+
 cmd_archive() {
   require xcodebuild
-  [ "$IOS_FAMILY" = "yes" ] || die "cmd_archive is iOS-only (the App Store TestFlight target is iOS). Use TP_PLATFORM=ios."
   [ -n "${TP_DEVELOPMENT_TEAM:-}" ] || die "TP_DEVELOPMENT_TEAM (Apple Developer Team ID) is required for a signed archive."
-  [ -f "$EXPORT_OPTIONS" ] || die "missing $EXPORT_OPTIONS (App Store export options)."
+  resolve_archive_params
+  [ -f "$ARCHIVE_EXPORT_OPTIONS" ] || die "missing $ARCHIVE_EXPORT_OPTIONS (App Store export options for $TP_PLATFORM)."
   ensure_xcframework
   ensure_project
 
@@ -1910,15 +1961,15 @@ cmd_archive() {
   # (the CI runner only installs xcodegen) xcbeautify_or_cat falls back to `cat`,
   # which would otherwise dump the multi-MB xcodebuild log to stdout — and CI
   # captures this function's stdout (`IPA="$(scripts/ios.sh archive)"`) expecting
-  # ONLY the final .ipa path. So redirect each pipeline to stderr (>&2); the lone
-  # `printf` at the end is the only thing left on stdout. `set -o pipefail` (top of
-  # file) keeps xcodebuild's exit status authoritative through the pipe.
-  log "archiving $SCHEME for iOS device (team $TP_DEVELOPMENT_TEAM)"
+  # ONLY the final artifact path. So redirect each pipeline to stderr (>&2); the
+  # lone `printf` at the end is the only thing left on stdout. `set -o pipefail`
+  # (top of file) keeps xcodebuild's exit status authoritative through the pipe.
+  log "archiving $ARCHIVE_SCHEME for $TP_PLATFORM ($ARCHIVE_DEST, team $TP_DEVELOPMENT_TEAM)"
   xcodebuild \
     -project "$PROJECT" \
-    -scheme "$SCHEME" \
+    -scheme "$ARCHIVE_SCHEME" \
     -configuration Release \
-    -destination "generic/platform=iOS" \
+    -destination "$ARCHIVE_DEST" \
     -archivePath "$ARCHIVE_PATH" \
     -derivedDataPath "$DERIVED" \
     DEVELOPMENT_TEAM="$TP_DEVELOPMENT_TEAM" \
@@ -1928,19 +1979,19 @@ cmd_archive() {
 
   [ -d "$ARCHIVE_PATH" ] || die "archive failed — $ARCHIVE_PATH not produced"
 
-  log "exporting App Store .ipa → $EXPORT_DIR"
+  log "exporting App Store .$ARCHIVE_ARTIFACT_EXT → $EXPORT_DIR"
   xcodebuild \
     -exportArchive \
     -archivePath "$ARCHIVE_PATH" \
     -exportPath "$EXPORT_DIR" \
-    -exportOptionsPlist "$EXPORT_OPTIONS" | xcbeautify_or_cat >&2
+    -exportOptionsPlist "$ARCHIVE_EXPORT_OPTIONS" | xcbeautify_or_cat >&2
 
-  local ipa
-  ipa="$(find "$EXPORT_DIR" -name '*.ipa' -maxdepth 1 | head -1)"
-  [ -n "$ipa" ] || die "export failed — no .ipa in $EXPORT_DIR"
-  log "✅ archived + exported: $ipa"
+  local artifact
+  artifact="$(find "$EXPORT_DIR" -name "*.$ARCHIVE_ARTIFACT_EXT" -maxdepth 1 | head -1)"
+  [ -n "$artifact" ] || die "export failed — no .$ARCHIVE_ARTIFACT_EXT in $EXPORT_DIR"
+  log "✅ archived + exported: $artifact"
   # Emit the path on stdout so CI can capture it (everything else is on stderr).
-  printf '%s\n' "$ipa"
+  printf '%s\n' "$artifact"
 }
 
 # Swift source roots that swift-format formats/lints (app + tests + watch target).

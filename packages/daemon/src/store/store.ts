@@ -8,7 +8,7 @@ import {
   type SessionState,
   type SID,
 } from "@teleprompter/protocol";
-import { mkdirSync, rmSync, unlinkSync } from "fs";
+import { mkdirSync, readdirSync, rmSync, unlinkSync } from "fs";
 import { join } from "path";
 import { getStoreDir } from "./config";
 import { parseStoredPairing, type StoredPairing } from "./pairing-row-guard";
@@ -252,9 +252,18 @@ export class Store {
     // Delete metadata
     this.metaDb.run("DELETE FROM sessions WHERE sid = ?", [sid]);
 
-    // Delete session database file
+    // Delete session database file AND its WAL/SHM sidecars. Session DBs run in
+    // WAL mode (schema.ts PRAGMAS), so SQLite maintains `${sid}.sqlite-wal` and
+    // `${sid}.sqlite-shm` alongside the main file. `db.close()` only removes the
+    // sidecars when it can take an exclusive lock and checkpoint cleanly — in
+    // practice they frequently survive, and unlinking just the main file then
+    // orphans them on disk, accumulating one -wal + one -shm per deleted/pruned
+    // session forever. unlinkRetry treats ENOENT as success, so it is safe when
+    // SQLite did already remove a sidecar.
     const dbPath = join(this.storeDir, "sessions", `${sid}.sqlite`);
     this.unlinkRetry(dbPath);
+    this.unlinkRetry(`${dbPath}-wal`);
+    this.unlinkRetry(`${dbPath}-shm`);
   }
 
   private unlinkRetry(path: string): void {
@@ -283,6 +292,55 @@ export class Store {
     log.warn(
       `failed to delete ${path} after ${maxAttempts} retries (${lastCode ?? "locked"})`,
     );
+  }
+
+  /**
+   * Self-heal orphaned WAL/SHM sidecar files left behind by older daemon
+   * builds whose deleteSession unlinked only the main `${sid}.sqlite`. Such a
+   * build leaks one `${sid}.sqlite-wal` + one `${sid}.sqlite-shm` per deleted
+   * or pruned session forever; a long-lived dogfood store accumulated hundreds.
+   *
+   * A sidecar is an orphan iff its base `.sqlite` does not exist on disk AND it
+   * is not backing a currently-open session (a live WAL must never be removed —
+   * SQLite would lose un-checkpointed writes). We scan the sessions dir, group
+   * by base name, and only unlink `-wal`/`-shm` whose base file is absent and
+   * whose sid is not in `this.sessionDbs`.
+   *
+   * Returns the number of sidecar files removed. Best-effort: a readdir failure
+   * (missing dir on a fresh store) is treated as zero orphans, and individual
+   * unlink failures are swallowed by unlinkRetry (logged, not thrown), so this
+   * is safe to call unguarded from the startup path.
+   */
+  sweepOrphanedSidecars(): number {
+    const sessionsDir = join(this.storeDir, "sessions");
+    let entries: string[];
+    try {
+      entries = readdirSync(sessionsDir);
+    } catch {
+      // Fresh store with no sessions dir yet, or an unreadable dir — nothing
+      // to sweep. Never let a readdir error abort daemon startup.
+      return 0;
+    }
+
+    const present = new Set(entries);
+    let removed = 0;
+    for (const name of entries) {
+      const isWal = name.endsWith(".sqlite-wal");
+      const isShm = name.endsWith(".sqlite-shm");
+      if (!isWal && !isShm) continue;
+
+      // Strip the "-wal"/"-shm" suffix to recover the base "${sid}.sqlite".
+      const base = name.slice(0, -4);
+      // A live session's sidecar must be left alone — removing an open WAL
+      // discards un-checkpointed writes. base = "${sid}.sqlite", so the sid is
+      // base without the ".sqlite" extension.
+      const sid = base.slice(0, -".sqlite".length);
+      if (present.has(base) || this.sessionDbs.has(sid)) continue;
+
+      this.unlinkRetry(join(sessionsDir, name));
+      removed++;
+    }
+    return removed;
   }
 
   /**

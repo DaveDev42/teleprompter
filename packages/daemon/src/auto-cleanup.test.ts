@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rmRetry } from "@teleprompter/protocol/test-utils";
+import { existsSync, writeFileSync } from "fs";
 import { mkdtemp } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -39,6 +40,26 @@ describe("Daemon auto-cleanup", () => {
 
     expect(store.getSession("old-session")).toBeUndefined();
     expect(store.getSession("new-session")).toBeDefined();
+  });
+
+  test("startAutoCleanup sweeps orphaned WAL/SHM sidecars on startup", () => {
+    // Older daemon builds unlinked only the main `.sqlite` on delete, leaking a
+    // -wal + -shm per session. Plant such orphans (no base file) and assert the
+    // startup path removes them — guards the daemon.ts wiring, not just the
+    // Store method in isolation.
+    const store = getStore(daemon);
+    const sessionsDir = join(storeDir, "sessions");
+    const orphanBase = join(sessionsDir, "ghost-session.sqlite");
+    writeFileSync(`${orphanBase}-wal`, "stale");
+    writeFileSync(`${orphanBase}-shm`, "stale");
+
+    daemon.startAutoCleanup(7);
+
+    expect(existsSync(`${orphanBase}-wal`)).toBe(false);
+    expect(existsSync(`${orphanBase}-shm`)).toBe(false);
+    // The Store constructor already created the sessions dir, so this also
+    // confirms the sweep ran against a real directory (not a no-op early-out).
+    void store;
   });
 
   test("startAutoCleanup does not throw when the startup prune fails", () => {

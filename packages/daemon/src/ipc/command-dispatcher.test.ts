@@ -1554,6 +1554,103 @@ describe("IpcCommandDispatcher.dispatchRelayControl", () => {
     expect(addCalls[0]?.branch).toBe("release-1.2");
   });
 
+  test("worktree.create rolls back the worktree when createSession throws", async () => {
+    // REGRESSION (orphan worktree on store failure): `wm.add` creates the
+    // worktree on disk, THEN `createSession` runs a synchronous SQLite write +
+    // per-session DB open. If that throws (disk-full / SQLITE_BUSY / corrupt
+    // page / sid collision), the old code surfaced WORKTREE_ERROR but left the
+    // freshly-created, session-less worktree orphaned. The handler must roll the
+    // worktree back (best-effort `wm.remove(..., force)`) while still reporting
+    // the ORIGINAL createSession error to the frontend.
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const addCalls: Array<{ path: string; branch: string }> = [];
+    const removeCalls: Array<{ path: string; force: boolean }> = [];
+    const fakeWm = {
+      add: async (path: string, branch: string) => {
+        addCalls.push({ path, branch });
+        return { path, branch, head: "abc123", isMain: false };
+      },
+      remove: async (path: string, force = false) => {
+        removeCalls.push({ path, force });
+      },
+    } as unknown as WorktreeManager;
+    const { dispatcher, calls } = makeHarness({
+      getWorktreeManager: () => fakeWm,
+      createSessionThrows: () => new Error("disk full"),
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "worktree.create", branch: "feat/x" },
+      "f1",
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // createSession was attempted (and threw) — so the success-path push never
+    // ran (createSessionThrows throws before recording the call).
+    expect(calls.createSession.length).toBe(0);
+    // The just-created worktree was rolled back, with force=true, at the path
+    // wm.add returned.
+    expect(removeCalls.length).toBe(1);
+    expect(removeCalls[0]?.path).toBe(addCalls[0]?.path);
+    expect(removeCalls[0]?.force).toBe(true);
+    // The frontend still gets the ORIGINAL createSession failure, not a rollback
+    // artifact — and never a spurious worktree.created success.
+    const errFrame = out.find((o) => (o.msg as { t?: string }).t === "err");
+    expect(errFrame).toBeDefined();
+    const reply = errFrame?.msg as { e?: string; m?: string };
+    expect(reply.e).toBe("WORKTREE_ERROR");
+    expect(reply.m).toBe("disk full");
+    expect(
+      out.some((o) => (o.msg as { t?: string }).t === "worktree.created"),
+    ).toBe(false);
+  });
+
+  test("worktree.create surfaces the original error even if rollback also fails", async () => {
+    // The rollback is best-effort: if `wm.remove` itself throws (e.g. git
+    // refuses), the handler must NOT let that mask the original createSession
+    // error — the user-facing frame still reports the store failure.
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    let removeAttempted = false;
+    const fakeWm = {
+      add: async (path: string, branch: string) => ({
+        path,
+        branch,
+        head: "abc123",
+        isMain: false,
+      }),
+      remove: async () => {
+        removeAttempted = true;
+        throw new Error("git worktree remove failed");
+      },
+    } as unknown as WorktreeManager;
+    const { dispatcher } = makeHarness({
+      getWorktreeManager: () => fakeWm,
+      createSessionThrows: () => new Error("SQLITE_BUSY"),
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "worktree.create", branch: "feat/x" },
+      "f1",
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The rollback must have been ATTEMPTED (fix-sensitive: bare code never
+    // calls remove). It threw, but that must not mask the original error.
+    expect(removeAttempted).toBe(true);
+    const errFrame = out.find((o) => (o.msg as { t?: string }).t === "err");
+    expect(errFrame).toBeDefined();
+    const reply = errFrame?.msg as { e?: string; m?: string };
+    expect(reply.e).toBe("WORKTREE_ERROR");
+    // The ORIGINAL error wins — not the rollback's "git worktree remove failed".
+    expect(reply.m).toBe("SQLITE_BUSY");
+  });
+
   test("worktree.remove without repo configured returns NO_REPO", async () => {
     const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
     const { dispatcher } = makeHarness({ getWorktreeManager: () => null });

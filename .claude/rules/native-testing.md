@@ -82,13 +82,15 @@ scripts/ios.sh smoke    # 빌드+설치+런치+마커 검증 (TP_PLATFORM 분기
 scripts/ios.sh uitest   # XCUITest UI-level E2E (iOS/iPad/macOS 풀, visionOS 부분, watchOS 미지원)
 scripts/ios.sh test     # XCTest (iOS Simulator)
 scripts/ios.sh all      # 5플랫폼 smoke 매트릭스 (행=플랫폼, 종료코드=worst)
-scripts/ios.sh archive  # TestFlight: iOS device Release archive → 서명 → App Store .ipa export (ADR-0004; 실 Distribution cert 필요)
+scripts/ios.sh archive  # TestFlight: TP_PLATFORM 별 Release archive → 서명 → App Store .ipa export (ADR-0004 §7; 실 Distribution cert 필요)
 ```
 
-> **`archive` 는 검증이 아니라 *배포* 경로** — 마커/UI E2E 와 다른 레이어다. iOS-only(실기기 슬라이스),
-> 실 Apple Distribution 인증서 + provisioning profile + `TP_DEVELOPMENT_TEAM` 필수. CI 자동화는
-> `.github/workflows/testflight.yml`(`v*` 태그 push). 시크릿/번들ID 연속성 상세는
-> `.claude/rules/ci-workflows.md` → TestFlight + `docs/adr/0004-*`.
+> **`archive` 는 검증이 아니라 *배포* 경로** — 마커/UI E2E 와 다른 레이어다. **ADR-0004 Amendment 1
+> 이후 `TP_PLATFORM` 으로 분기**(ios/ipad→iOS `.ipa`, macos→MAS `.pkg`/`.app`, visionos, watchos→
+> `-scheme TeleprompterWatch`) — 5개 Apple 플랫폼 전부 TestFlight. 실 Apple Distribution 인증서 +
+> 플랫폼별 provisioning profile + `TP_DEVELOPMENT_TEAM` 필수. CI 자동화는
+> `.github/workflows/testflight.yml`(`v*` 태그 push, 플랫폼별 job). 시크릿/ASC 레코드 셋업 체크리스트 =
+> `docs/testflight-setup.md`; 상세는 `.claude/rules/ci-workflows.md` → TestFlight + `docs/adr/0004-*`.
 
 xcframework 는 **7 슬라이스** (`ios-arm64`, `ios-arm64_x86_64-simulator`, `macos-arm64_x86_64`,
 `xros-arm64`, `xros-arm64-simulator`, `watchos-arm64`, `watchos-arm64-simulator`). `plutil -p

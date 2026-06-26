@@ -176,6 +176,68 @@ describe("Runner.stop() idempotency — M8 regression", () => {
 });
 
 // ---------------------------------------------------------------------------
+// stop() kills the PTY child — stop() is reached from the graceful-shutdown
+// SIGTERM/SIGINT path (run.ts) and the IPC onClose path (queue overflow /
+// socket teardown), where claude is still alive. Without kill() the runner
+// process exits and orphans claude to init, leaking the process. The PTY's
+// own onExit path also routes through stop(), where kill() is a harmless
+// no-op (proc already dead).
+// ---------------------------------------------------------------------------
+
+describe("Runner.stop() kills the PTY child", () => {
+  test("stop() calls pty.kill() so a live claude child is not orphaned", async () => {
+    const { Runner } = await import("./runner");
+
+    const tmpDir = await mkdtemp(join(tmpdir(), "tp-runner-ptykill-"));
+    const socketPath = join(tmpDir, "ipc-ptykill.sock");
+
+    // Minimal IPC server so IpcClient.connect()/send() succeed.
+    const server = Bun.listen({
+      unix: socketPath,
+      socket: { open() {}, data() {}, close() {}, error() {} },
+    });
+
+    const runner = new Runner({
+      sid: "ptykill-test",
+      cwd: tmpDir,
+      socketPath,
+    });
+
+    // Inject a fake PTY that records kill() invocations, and drive the runner
+    // to "running" without spawning real claude. We patch BEFORE start() so the
+    // fake's spawn() is what start() invokes; spawn() is a no-op (the real one
+    // wires onExit, which we don't want firing here).
+    let killCount = 0;
+    (runner as unknown as Record<string, unknown>)["pty"] = {
+      spawn: () => {},
+      write: () => {},
+      resize: () => {},
+      kill: () => {
+        killCount += 1;
+      },
+      pid: 4242,
+    };
+
+    await runner.start();
+    // start() reached "running" (fake spawn did not throw); claude is "alive".
+    expect(killCount).toBe(0);
+
+    // Simulate the IPC onClose / SIGTERM teardown: stop() with a non-exit code.
+    runner.stop(143);
+
+    // The fix: stop() must have killed the PTY child exactly once.
+    expect(killCount).toBe(1);
+
+    // Idempotency: a second stop() is a no-op (state guard), no extra kill.
+    runner.stop(143);
+    expect(killCount).toBe(1);
+
+    server.stop();
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // sid path-traversal guard — the Runner constructor computes its hook socket
 // path via HookReceiver.defaultSocketPath(sid), which rejects a sid containing
 // a path separator or '..'. A crafted --tp-sid must fail fast at construction,

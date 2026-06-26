@@ -171,7 +171,16 @@ export class Runner {
       exitCode,
     });
 
-    // Cleanup
+    // Cleanup. Kill the PTY child: stop() is reached not only from the PTY's
+    // own onExit (where the child is already dead and kill() is a harmless
+    // no-op) but also from the graceful-shutdown SIGTERM/SIGINT path
+    // (run.ts → daemon killRunner) and the IPC onClose path (queue overflow /
+    // socket teardown). In those two cases claude is still alive; without this
+    // kill the runner process exits and orphans the claude child to init,
+    // leaking the process (and its hold on the cwd/worktree). PtyBun.kill is
+    // idempotent — `this.proc?.kill()` no-ops on an exited or unspawned proc —
+    // so this is safe on every call path, matching start()'s error cleanup.
+    this.pty.kill();
     this.hookReceiver.stop();
     this.ipc.close();
     this.state = "stopped";

@@ -34,6 +34,7 @@ import {
   NAMESPACE_SET,
   RELAY_CHANNEL_CONTROL,
   RELAY_CHANNEL_META,
+  sanitizeForSid,
 } from "@teleprompter/protocol";
 import { formatMarkdown } from "../export-formatter";
 import type { PushNotifier } from "../push/push-notifier";
@@ -930,13 +931,18 @@ export class IpcCommandDispatcher {
       "Failed to create worktree",
       async (wm) => {
         const ts = Date.now().toString(36);
-        // A branch name can legally contain '/' (e.g. `feat/x`), which would
-        // turn the derived path/sid into a nested directory (`feat/x-<ts>`).
-        // The sid is joined into `storeDir/sessions/<sid>.sqlite`, so a '/' in
-        // it points `new Database()` at a non-existent subdir and the session
-        // silently breaks. Flatten '/' to '-' for both the default worktree
-        // path and the sid (both are locally derived — no wire/schema impact).
-        const safeBranch = branch.replace(/\//g, "-");
+        // A branch name can legally contain characters outside the sid allowlist
+        // (`[A-Za-z0-9_-]`): '/' (`feat/x`) turns the sid into a nested subdir,
+        // and — just as breaking — `git check-ref-format` accepts '.', '+', and
+        // non-ASCII letters (`release-1.2`, `feat.x`, `café`). The sid is joined
+        // into `storeDir/sessions/<sid>.sqlite` and validated by
+        // `store.createSession`'s `assertSafeSid`, so ANY such character made the
+        // create throw AFTER `wm.add` had already built the on-disk worktree —
+        // orphaning it. `sanitizeForSid` collapses every non-allowlist char to
+        // '-' so the derived sid (and default worktree path) is always
+        // allowlist-clean; the original `branch` is still passed to git verbatim.
+        // Both derived values are local-only (no wire/schema impact).
+        const safeBranch = sanitizeForSid(branch);
         const wtPath = path ?? `${safeBranch}-${ts}`;
         const wt = await wm.add(wtPath, branch, baseBranch);
         const sid = `${safeBranch}-${ts}`;

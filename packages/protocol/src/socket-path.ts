@@ -80,9 +80,11 @@ export function getSocketPath(): string {
  *
  * The check is deliberately strict — an allowlist, not a denylist: a valid sid is
  * one or more of `[A-Za-z0-9_-]`. Every sid the codebase generates satisfies it
- * (`session-<base36ts>`, worktree `<safeBranch>-<ts>`, the smoke `sess-smoketest`),
- * so no legitimate path breaks. Throws a plain Error on violation (callers convert
- * to a wire error / socket teardown as appropriate).
+ * (`session-<base36ts>`, worktree `<sanitizeForSid(branch)>-<ts>`, the smoke
+ * `sess-smoketest`), so no legitimate path breaks. Worktree sids run the branch
+ * through {@link sanitizeForSid} precisely so a legal-but-non-allowlist branch
+ * (`release-1.2`) cannot produce a sid this rejects. Throws a plain Error on
+ * violation (callers convert to a wire error / socket teardown as appropriate).
  */
 const SAFE_SID = /^[A-Za-z0-9_-]+$/;
 export function assertSafeSid(sid: string): void {
@@ -91,4 +93,31 @@ export function assertSafeSid(sid: string): void {
       `invalid sid '${sid}': must match [A-Za-z0-9_-]+ (no path separator, '..', or empty)`,
     );
   }
+}
+
+/**
+ * Collapse an arbitrary label (typically a git branch name) into a fragment that
+ * is guaranteed to satisfy {@link assertSafeSid}'s `[A-Za-z0-9_-]+` allowlist.
+ *
+ * `git check-ref-format` accepts far more than the sid allowlist — a `.` is the
+ * common case (`release-1.2`, `feat.x`, `v2.0`), but also non-ASCII letters,
+ * `+`, etc. A worktree session id was derived as `<branch with '/'→'-'>-<ts>`,
+ * so any of those legal-branch characters produced a sid that
+ * `store.createSession`'s `assertSafeSid` then rejected — AFTER `git worktree
+ * add` had already created the on-disk worktree, orphaning it. This maps every
+ * non-allowlist character to `-`, collapses runs, and trims leading/trailing
+ * `-` so the result is always allowlist-clean. When the input reduces to empty
+ * (e.g. an all-`.` branch), returns `"wt"` so the caller still has a non-empty
+ * fragment to suffix with a timestamp.
+ *
+ * The mapping is lossy and one-way — it is ONLY for deriving a local sid /
+ * default worktree directory name (no wire/schema/peer impact). The original
+ * branch name is always passed to git verbatim.
+ */
+export function sanitizeForSid(label: string): string {
+  const cleaned = label
+    .replace(/[^A-Za-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return cleaned.length > 0 ? cleaned : "wt";
 }

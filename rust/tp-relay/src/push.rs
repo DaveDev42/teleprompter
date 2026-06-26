@@ -626,6 +626,7 @@ mod tests {
                 bundle_id: "dev.tpmt.app".into(),
                 max_retries: 0, // no retries in tests — faster
                 retry_base_ms: 1,
+                request_timeout_ms: 10_000,
             },
             make_signer(),
             transport,

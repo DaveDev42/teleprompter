@@ -1,16 +1,19 @@
-# TestFlight deployment — Apple multiplatform SwiftUI app (iOS).
+# TestFlight deployment — Apple multiplatform SwiftUI app (iOS + macOS; visionOS
+# and watchOS land in follow-up PRs per ADR-0004 §7 Amendment 1).
 #
 # Replaces the EAS Submit pipeline removed in the native rewrite (ADR-0001,
 # amended by ADR-0004). EAS used to do "push a tag → cloud build → TestFlight";
 # this restores that on GitHub-hosted macOS runners using only Apple's own tools
 # (xcodebuild archive/export + xcrun altool), no third-party service.
 #
-# What it does: import the Apple Distribution cert + App Store provisioning
-# profile into a throwaway keychain, build+sign a Release archive for the iOS
-# device slice (scripts/ios.sh archive), export an App-Store .ipa, and upload it
-# to App Store Connect (→ TestFlight) with an ASC API key. The build number is
-# the workflow run number so every upload is monotonic (App Store Connect rejects
-# a re-used build number).
+# What it does: per platform, import the platform's Apple Distribution cert + App
+# Store provisioning profile into a throwaway keychain, build+sign a Release
+# archive (scripts/ios.sh archive, branched on TP_PLATFORM), export an App-Store
+# artifact (iOS → .ipa, macOS → installer .pkg), and upload it to App Store
+# Connect (→ TestFlight) with an ASC API key. The build number is the workflow
+# run number so every upload is monotonic (App Store Connect rejects a re-used
+# build number). Each platform has its own secret-gated guard job so an absent
+# platform skips cleanly without wedging the others.
 #
 # Triggers: a `v*` tag push (rides the same tags release.yml uses) OR manual
 # dispatch. Gated on secrets being present — see the `guard` job — so a fork or a
@@ -189,3 +192,166 @@ jobs:
           # (whole VM is discarded), but remove it so a reused/self-hosted runner
           # never accumulates stale signing material.
           rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision || true
+
+  # ── macOS (Mac App Store TestFlight) ───────────────────────────────────────
+  # ADR-0004 §7 Amendment 1. Same Apple-official pattern as the iOS job, but with
+  # the Mac App Distribution identity + Mac App Store provisioning profile, a
+  # macOS archive (TP_PLATFORM=macos → generic/platform=macOS → a signed .pkg),
+  # and `altool --type macos`. Gated on macOS-specific cert/profile secrets plus
+  # the shared ASC + team secrets, so it clean-skips when not configured.
+  guard-macos:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - id: check
+        env:
+          CERT: ${{ secrets.MAC_DIST_CERT_P12_BASE64 }}
+          PROFILE: ${{ secrets.MAC_PROVISIONING_PROFILE_BASE64 }}
+          ASC_KEY: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_ISSUER: ${{ secrets.ASC_API_ISSUER_ID }}
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$CERT" ] && [ -n "$PROFILE" ] && [ -n "$ASC_KEY" ] \
+             && [ -n "$ASC_KEY_ID" ] && [ -n "$ASC_ISSUER" ] && [ -n "$TEAM" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::macOS TestFlight secrets not fully configured — skipping. Required: MAC_DIST_CERT_P12_BASE64, MAC_DIST_CERT_PASSWORD (may be empty), MAC_PROVISIONING_PROFILE_BASE64, ASC_API_KEY_P8_BASE64, ASC_API_KEY_ID, ASC_API_ISSUER_ID, APPLE_TEAM_ID. Optional: MAC_INSTALLER_CERT_P12_BASE64/PASSWORD (only if the installer identity is NOT bundled into MAC_DIST_CERT_P12_BASE64). See docs/testflight-setup.md §2."
+          fi
+
+  archive-and-upload-macos:
+    needs: guard-macos
+    if: needs.guard-macos.outputs.ready == 'true'
+    runs-on: macos-26
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Install Rust toolchain + Apple targets
+        uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          targets: >-
+            aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios,aarch64-apple-darwin,x86_64-apple-darwin,aarch64-apple-visionos,aarch64-apple-visionos-sim,aarch64-apple-watchos,aarch64-apple-watchos-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      # Import the Mac App Distribution identity (+ the separate Mac Installer
+      # Distribution identity that signs the .pkg) + the Mac App Store provisioning
+      # profile into a throwaway keychain.
+      #
+      # IMPORTANT — TWO distinct identities are needed for a Mac App Store upload:
+      #   • "Apple Distribution" / "3rd Party Mac Developer Application" — signs the .app
+      #   • "3rd Party Mac Developer Installer" — signs the .pkg productbuild output
+      # On the Apple portal these are SEPARATE certificate types, so a normal
+      # single-cert .p12 export does NOT contain the installer identity. We support
+      # both layouts: either export BOTH certs into one combined .p12 (set only
+      # MAC_DIST_CERT_P12_BASE64 — Keychain Access can multi-select and export both),
+      # or keep them separate (also set MAC_INSTALLER_CERT_P12_BASE64). The optional
+      # second import is a no-op when that secret is empty.
+      #
+      # macOS profiles use the .provisionprofile extension (not .mobileprovision).
+      # Xcode 16+ reads profiles from ~/Library/Developer/Xcode/UserData/Provisioning
+      # Profiles; older Xcode used ~/Library/MobileDevice/Provisioning Profiles — we
+      # install into BOTH by UUID so the runner's Xcode version doesn't matter.
+      - name: Set up signing keychain
+        env:
+          CERT_P12_BASE64: ${{ secrets.MAC_DIST_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.MAC_DIST_CERT_PASSWORD }}
+          INSTALLER_CERT_P12_BASE64: ${{ secrets.MAC_INSTALLER_CERT_P12_BASE64 }}
+          INSTALLER_CERT_PASSWORD: ${{ secrets.MAC_INSTALLER_CERT_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.MAC_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/tp-signing.keychain-db"
+          KEYCHAIN_PASS="$(openssl rand -base64 24)"
+          CERT_PATH="$RUNNER_TEMP/dist-cert.p12"
+          PROFILE_PATH="$RUNNER_TEMP/profile.provisionprofile"
+
+          echo "$CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+          echo "$PROFILE_BASE64" | base64 --decode > "$PROFILE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
+          # Import the application-signing .p12 (full aggregate — cert + private key;
+          # no `-t cert`, which would drop the key). If the user exported both certs
+          # into this one .p12, the installer identity comes in here too.
+          security import "$CERT_PATH" -P "$CERT_PASSWORD" -A -f pkcs12 -k "$KEYCHAIN"
+          # Optionally import a SEPARATE installer-distribution .p12 (no-op if unset).
+          if [ -n "${INSTALLER_CERT_P12_BASE64:-}" ]; then
+            INSTALLER_PATH="$RUNNER_TEMP/installer-cert.p12"
+            echo "$INSTALLER_CERT_P12_BASE64" | base64 --decode > "$INSTALLER_PATH"
+            security import "$INSTALLER_PATH" -P "${INSTALLER_CERT_PASSWORD:-}" -A -f pkcs12 -k "$KEYCHAIN"
+            echo "imported separate Mac Installer Distribution identity"
+          fi
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASS" "$KEYCHAIN" >/dev/null
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | sed s/\"//g)
+
+          UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")"
+          for DIR in \
+            "$HOME/Library/MobileDevice/Provisioning Profiles" \
+            "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$DIR"
+            cp "$PROFILE_PATH" "$DIR/$UUID.provisionprofile"
+          done
+
+          echo "TP_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          echo "✅ macOS signing keychain + profile ready (profile UUID $UUID)"
+
+      - name: Archive + export Mac App Store .pkg
+        id: archive
+        env:
+          TP_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          export TP_BUILD_NUMBER=$(( RUN_NUMBER * 100 + RUN_ATTEMPT ))
+          PKG="$(TP_PLATFORM=macos scripts/ios.sh archive)"
+          echo "pkg=$PKG" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to TestFlight
+        env:
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          PKG_PATH: ${{ steps.archive.outputs.pkg }}
+        run: |
+          set -euo pipefail
+          KEYS_DIR="$RUNNER_TEMP/private_keys"
+          mkdir -p "$KEYS_DIR"
+          echo "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$KEYS_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          cp "$KEYS_DIR/AuthKey_${ASC_API_KEY_ID}.p8" "$HOME/.appstoreconnect/private_keys/"
+
+          # macOS uploads a signed installer .pkg (not an .ipa). `--type macos` is a
+          # valid altool type (man altool: macos|ios|appletvos|visionos). --upload-app
+          # is documented as deprecated in favor of --upload-package, but still works
+          # and is what the proven iOS job above uses — kept identical for consistency
+          # (App Store *upload* altool was NOT removed; only its notarization role was).
+          xcrun altool --upload-app \
+            --type macos \
+            --file "$PKG_PATH" \
+            --apiKey "$ASC_API_KEY_ID" \
+            --apiIssuer "$ASC_API_ISSUER_ID"
+          echo "✅ uploaded $PKG_PATH to App Store Connect (TestFlight processing)"
+
+      - name: Clean up signing keychain
+        if: always()
+        run: |
+          if [ -n "${TP_KEYCHAIN:-}" ] && [ -f "$TP_KEYCHAIN" ]; then
+            security delete-keychain "$TP_KEYCHAIN" || true
+          fi
+          rm -f "$RUNNER_TEMP/dist-cert.p12" "$RUNNER_TEMP/installer-cert.p12" \
+                "$RUNNER_TEMP/profile.provisionprofile" || true
+          rm -rf "$RUNNER_TEMP/private_keys" "$HOME/.appstoreconnect/private_keys" || true
+          rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/"*.provisionprofile \
+                "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.provisionprofile || true

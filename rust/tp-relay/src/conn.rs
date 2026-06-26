@@ -1052,7 +1052,20 @@ fn finish_auth(
     frontend_id: Option<String>,
 ) -> DispatchOutcome {
     if !matches!(reply, RelayServerMessage::AuthOk(_)) {
-        return DispatchOutcome::actions(vec![Action::Send(conn_id, reply)]);
+        let mut actions = vec![Action::Send(conn_id, reply)];
+        // Mirror the TS reference (relay-server.ts:946-957): a `role=frontend`
+        // auth with a missing `frontendId` is rejected AND the socket is closed.
+        // The conn was never registered into a group (auth stays None), so
+        // without this close it would linger in `core.conns` — invisible to
+        // `relay_clients`/`relay_pending_auth` — until the 10 s auth deadline
+        // fires. Closing on reject frees the fd immediately and upholds the
+        // "auth 거부 path closes the socket" invariant in
+        // `.claude/rules/relay-capacity.md`. The invalid-token reject is left to
+        // the auth deadline (matching TS), since an honest client may retry.
+        if role == Role::Frontend && frontend_id.is_none() {
+            actions.push(Action::Close(conn_id, 1008, "frontendId required"));
+        }
+        return DispatchOutcome::actions(actions);
     }
     let auth = AuthState {
         role,
@@ -1297,6 +1310,82 @@ mod tests {
         let j = sole_send_json(&without);
         assert_eq!(j["t"], "relay.err");
         assert!(j.get("m").is_none());
+    }
+
+    // ── Auth-reject closes the socket on `role=frontend && !frontendId` ───────
+    //
+    // A frontend auth with a missing frontendId must be rejected AND closed
+    // (1008) — not left in core.conns until the 10 s auth deadline. Mirrors the
+    // TS reference (relay-server.ts:946-957) and the "auth 거부 path closes the
+    // socket (neither-map 누수 금지)" invariant in relay-capacity.md.
+    #[test]
+    fn frontend_auth_without_frontend_id_is_rejected_and_closed() {
+        let mut core = test_core();
+        insert_unauthed(&mut core, 11);
+        // A valid token so we pass the token check and reach the frontendId
+        // guard inside handshake::handle_auth.
+        core.registry
+            .valid_tokens
+            .insert("tok".to_string(), "d1".to_string());
+
+        let msg = RelayClientMessage::Auth {
+            role: Role::Frontend,
+            daemon_id: "d1".into(),
+            token: "tok".into(),
+            v: 2.0,
+            frontend_id: None, // the rejected condition
+        };
+        let out = dispatch_locked(&mut core, &test_signer(), &test_metrics(), 11, &msg);
+
+        // Exactly two actions, in order: Send(auth.err) then Close(1008).
+        assert_eq!(
+            out.actions.len(),
+            2,
+            "expected Send + Close: {:?}",
+            out.actions
+        );
+        match &out.actions[0] {
+            Action::Send(target, m) => {
+                assert_eq!(*target, 11);
+                let json = serde_json::to_value(m).unwrap();
+                assert_eq!(json["t"], "relay.auth.err");
+            }
+            other => panic!("expected Send first, got {other:?}"),
+        }
+        match &out.actions[1] {
+            Action::Close(target, code, reason) => {
+                assert_eq!(*target, 11);
+                assert_eq!(*code, 1008);
+                assert_eq!(*reason, "frontendId required");
+            }
+            other => panic!("expected Close second, got {other:?}"),
+        }
+    }
+
+    // A DAEMON auth that fails (invalid token) is NOT force-closed here — it
+    // falls through to the 10 s auth deadline, mirroring TS (relay-server.ts:937
+    // returns without close). Only the frontendId-required reject closes.
+    #[test]
+    fn invalid_token_auth_does_not_force_close() {
+        let mut core = test_core();
+        insert_unauthed(&mut core, 12);
+        // No valid_tokens entry → handshake::handle_auth rejects with
+        // "Invalid token or daemon ID".
+        let msg = RelayClientMessage::Auth {
+            role: Role::Daemon,
+            daemon_id: "d1".into(),
+            token: "bad".into(),
+            v: 2.0,
+            frontend_id: None,
+        };
+        let out = dispatch_locked(&mut core, &test_signer(), &test_metrics(), 12, &msg);
+        // Only the auth.err Send — no Close action.
+        let json = sole_send_json(&out);
+        assert_eq!(json["t"], "relay.auth.err");
+        assert!(
+            !out.actions.iter().any(|a| matches!(a, Action::Close(..))),
+            "invalid-token reject must not force-close (auth deadline handles it)"
+        );
     }
 
     // ── Finding 2: max-frame-size guard config ───────────────────────────────

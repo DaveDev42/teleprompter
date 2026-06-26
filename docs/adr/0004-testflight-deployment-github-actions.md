@@ -1,12 +1,19 @@
 # ADR-0004 — TestFlight 배포 파이프라인 복원 (GitHub Actions, EAS Submit 대체)
 
-- 상태: **Accepted** (2026-06-26)
+- 상태: **Accepted** (2026-06-26) · **Amendment 1: 5-플랫폼 TestFlight 확장 (2026-06-27)**
 - 결정자: Dave
 - 관계: **ADR-0001 §5 "EAS 클라우드 빌드/배포 제거"를 부분적으로 보완(amend)한다.** ADR-0001 은
   Expo *빌드* 회귀 표면을 없애려고 EAS 전체를 걷어냈다. 그 결정(로컬 Simulator 하니스가 빌드/검증의
   SoT)은 유효하다. 다만 EAS 가 함께 제공하던 **배포(앱을 테스터에게 전달하는 경로)** 가 같이 사라져
   공백이 됐다 — 이 ADR 이 그 배포 경로만 표준 Apple 도구로 복원한다. 빌드/검증 SoT 는 여전히
   `scripts/ios.sh` (ADR-0001/0002).
+
+> **Amendment 1 (2026-06-27): TestFlight 를 5개 Apple 플랫폼 전부로 확장.** 본 ADR 의 원안(§2–§6)은
+> iOS(+ iPadOS 동반) TestFlight 만 다루고 macOS/watchOS/visionOS 는 §6 에서 "후속/별도 결정" 으로
+> 미뤘다. Amendment 1 은 그 미룬 결정을 내려, **iOS·iPadOS·macOS·watchOS·visionOS 5개 전부를 동일한
+> GitHub Actions + Apple 공식 도구 패턴으로 TestFlight(App Store Connect)에 올린다.** 도구·시크릿
+> 게이트·일회용 keychain·빌드번호 공식·non-required 진입 같은 원안의 모든 불변식은 그대로 보존된다.
+> 상세는 아래 **§7 Amendment 1** 참조. 원안 §6 의 "후속" 항목들은 §7 이 대체한다 (superseded).
 
 ## 1. 맥락
 
@@ -98,3 +105,66 @@ EAS Submit 이 하던 "태그 push → 클라우드 빌드 → TestFlight" 를 *
   **iOS-only `.ipa`** 다. watchOS 배포가 필요하면 별도 archive + TestFlight 업로드 파이프라인이 필요
   (또는 companion 임베드를 원하면 `project.yml` 에서 watch 타깃을 iOS 타깃의 임베드 의존성으로 추가 +
   `WKRunsIndependentlyOfCompanionApp: NO` — 별도 결정).
+
+  > 위 §6 의 macOS / watchOS / visionOS "후속·별도 결정" 3개 항목은 **Amendment 1(§7)이 결정하여
+  > 대체한다.** iOS 실기기 ad-hoc/development 분산(첫 항목)만 여전히 후속으로 남는다.
+
+## 7. Amendment 1 — 5-플랫폼 TestFlight 확장 (2026-06-27)
+
+목표: **iOS·iPadOS·macOS·watchOS·visionOS 5개 전부를 TestFlight(App Store Connect)에 올린다.** 원안의
+iOS-전용 파이프라인을, 플랫폼별 archive 분기 + 플랫폼별 ExportOptions + 플랫폼별 업로드 job 으로
+확장한다. 도구·구조·불변식은 원안 그대로 — 플랫폼 축만 늘린다.
+
+### 7.1 플랫폼별 결정 (요청자 확정)
+
+- **macOS → TestFlight (Mac App Store), Developer ID 공증 아님.** 원안 §6 은 macOS 를 Developer ID
+  notarization 으로 미뤘으나, Amendment 는 **`method: app-store-connect` 로 MAS TestFlight** 에 올린다
+  (iOS 와 동일한 ASC TestFlight 흐름). Mac App Distribution 인증서 + Mac App Store provisioning
+  profile + **별도 ASC macOS 앱 레코드**(번들 ID `dev.tpmt.app`, macOS 플랫폼) 필요. Developer ID
+  직접배포(.dmg/notarytool)는 채택하지 않는다 (요청자: "일단은 TestFlight만").
+- **watchOS → standalone 독립 업로드.** `TeleprompterWatch` 는 `WKRunsIndependentlyOfCompanionApp:
+  YES` 를 **유지**한다 (project.yml 토폴로지 변경 없음, ADR-0002 B3 보존). iOS `.ipa` 임베드 대신
+  **자체 archive(`-scheme TeleprompterWatch`, `generic/platform=watchOS`) → `.ipa` →
+  `altool --type watchos` 독립 업로드**. 번들 ID `dev.tpmt.app.watch`, **별도 ASC watchOS 앱 레코드**
+  필요. (companion 임베드 전환은 채택하지 않는다.)
+- **visionOS → TestFlight.** 원안에 stance 가 없던 visionOS 를 추가: `generic/platform=visionOS`
+  archive → `altool --type visionos`(Xcode 15.2+). 번들 ID `dev.tpmt.app`, **별도 ASC visionOS 앱
+  레코드** 필요.
+- **iPadOS → iOS 와 동일 `.ipa`.** 별도 작업 없음 — `TARGETED_DEVICE_FAMILY "1,2"` 로 iOS 업로드에
+  자동 포함. (변경 없음, 명시만.)
+
+### 7.2 구조 (원안 패턴 보존)
+
+- **하니스**: `cmd_archive` 가 `TP_PLATFORM` 으로 분기한다 — destination(`generic/platform=…`),
+  scheme(`Teleprompter` | `TeleprompterWatch`), ExportOptions(플랫폼별), archive 이름. keychain/team/
+  빌드번호/`-exportArchive` 로직은 공유. 더는 iOS-only `die` 가드가 아니다 (4개 플랫폼 허용; ipad 는
+  ios 로 접힘).
+- **ExportOptions**: 플랫폼별 파일 — `ios/ExportOptions.plist`(기존, iOS),
+  `ios/ExportOptions.macos.plist`, `ios/ExportOptions.visionos.plist`,
+  `ios/ExportOptions.watchos.plist`. 전부 `method: app-store-connect`, `signingStyle: manual`.
+- **워크플로**: `testflight.yml` 에 플랫폼별 `guard`/`archive-and-upload` job 추가. 각 job 은
+  자기 플랫폼 provisioning profile 시크릿 + 공유 ASC/팀 시크릿으로 게이트되고, 없으면 clean skip
+  (PR wedge 없음). 업로드는 `xcrun altool --upload-app --type {ios|macos|watchos|visionos}`.
+  **신규 job 은 전부 non-required 로 진입** (ci-workflows.md 규율).
+
+### 7.3 시크릿 모델 확장
+
+원안 7개(iOS) 위에 플랫폼별 인증서/프로파일을 추가한다. ASC API 키(`ASC_API_KEY_*`)와 `APPLE_TEAM_ID`
+는 **전 플랫폼 공유**. 추가 시크릿(요청자가 Apple 계정으로 생성 — 자동화 불가):
+
+| 플랫폼 | 추가 시크릿 | 비고 |
+|--------|-------------|------|
+| macOS  | `MAC_DIST_CERT_P12_BASE64`, `MAC_DIST_CERT_PASSWORD`, `MAC_PROVISIONING_PROFILE_BASE64` | Mac App Distribution 인증서 + MAS profile (`.provisionprofile`). 별도 ASC macOS 레코드. |
+| visionOS | `VISIONOS_PROVISIONING_PROFILE_BASE64` | iOS Distribution 인증서 재사용 가능(같은 팀); profile 만 별도. 별도 ASC visionOS 레코드. |
+| watchOS | `WATCHOS_PROVISIONING_PROFILE_BASE64` | iOS Distribution 인증서 재사용; `dev.tpmt.app.watch` profile. 별도 ASC watchOS 레코드. |
+
+> **자동화 경계.** GitHub Secrets 주입과 ASC 앱 레코드/프로비저닝 프로파일 생성은 Apple 계정 접근이
+> 필요해 **에이전트가 못 한다 — 요청자만 가능**. Amendment 의 CI/CD 스캐폴딩(워크플로·하니스 분기·
+> ExportOptions·가드)은 시크릿이 채워지는 즉시 라이브가 되도록 작성하고, 없으면 전부 clean skip 한다.
+> 각 시크릿 생성 절차는 `docs/testflight-setup.md`(체크리스트) 참조.
+
+### 7.4 보존 불변식 (원안 §5 그대로)
+
+빌드/검증 SoT = `scripts/ios.sh`; Simulator/로컬 ad-hoc 서명 불변; 시크릿은 읽기-전용·일회용 keychain·
+`always()` 정리; 신규 job non-required 진입; 빌드번호 = `run_number*100+run_attempt`(shell 산술).
+번들 ID SoT = `project.yml` `PRODUCT_BUNDLE_IDENTIFIER`.

@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, rmSync, statSync } from "fs";
 import { dirname } from "path";
-import { assertSafeSid, getSocketPath, resolveRuntimeDir } from "./socket-path";
+import {
+  assertSafeSid,
+  getSocketPath,
+  resolveRuntimeDir,
+  sanitizeForSid,
+} from "./socket-path";
 
 describe("getSocketPath", () => {
   test("returns a path ending with daemon.sock", () => {
@@ -161,6 +166,66 @@ describe("assertSafeSid", () => {
       "tab\tchar",
     ]) {
       expect(() => assertSafeSid(sid)).toThrow(/invalid sid/);
+    }
+  });
+});
+
+describe("sanitizeForSid", () => {
+  test("flattens '/' the way the worktree sid derivation needs", () => {
+    // The original derivation was `branch.replace(/\//g, "-")`; the new
+    // sanitizer must remain a strict superset for the '/' case so existing
+    // worktree sids are byte-for-byte unchanged.
+    expect(sanitizeForSid("feat/x")).toBe("feat-x");
+    expect(sanitizeForSid("a/b/c")).toBe("a-b-c");
+  });
+
+  test("collapses non-allowlist characters legal in a git branch", () => {
+    // `git check-ref-format --branch` accepts all of these, but each contains a
+    // character outside the sid allowlist [A-Za-z0-9_-]. Before the sanitizer,
+    // such a branch produced a sid that assertSafeSid rejected — AFTER the
+    // worktree was already created on disk (the orphan bug).
+    expect(sanitizeForSid("release-1.2")).toBe("release-1-2");
+    expect(sanitizeForSid("v2.0")).toBe("v2-0");
+    expect(sanitizeForSid("foo+bar")).toBe("foo-bar");
+    expect(sanitizeForSid("café-x")).toBe("caf-x");
+  });
+
+  test("collapses runs and trims leading/trailing separators", () => {
+    expect(sanitizeForSid("a..b")).toBe("a-b");
+    expect(sanitizeForSid("--lead")).toBe("lead");
+    expect(sanitizeForSid("trail--")).toBe("trail");
+    expect(sanitizeForSid("/slashed/")).toBe("slashed");
+  });
+
+  test("falls back to 'wt' when the label reduces to empty", () => {
+    // An all-non-allowlist label (e.g. a dotted/unicode-only fragment) would
+    // otherwise yield "" — which assertSafeSid rejects. The sanitizer must hand
+    // the caller a non-empty fragment to suffix with a timestamp.
+    expect(sanitizeForSid("...")).toBe("wt");
+    expect(sanitizeForSid("///")).toBe("wt");
+    expect(sanitizeForSid("")).toBe("wt");
+  });
+
+  // The load-bearing invariant: whatever the branch, the derived sid
+  // `<sanitizeForSid(branch)>-<ts>` must always survive assertSafeSid, so the
+  // worktree-create path can never throw post-`wm.add` and orphan a worktree.
+  test("output always passes assertSafeSid for branch-shaped inputs", () => {
+    const branches = [
+      "main",
+      "feat/x",
+      "release-1.2",
+      "v2.0",
+      "foo+bar",
+      "café-x",
+      "a.b.c",
+      "feature/JIRA-123_some.thing",
+      "...",
+      "",
+    ];
+    for (const branch of branches) {
+      const ts = Date.now().toString(36);
+      const sid = `${sanitizeForSid(branch)}-${ts}`;
+      expect(() => assertSafeSid(sid)).not.toThrow();
     }
   });
 });

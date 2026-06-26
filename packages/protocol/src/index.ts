@@ -52,5 +52,6 @@ export {
   assertSafeSid,
   getSocketPath,
   resolveRuntimeDir,
+  sanitizeForSid,
 } from "./socket-path";
 export * from "./types";

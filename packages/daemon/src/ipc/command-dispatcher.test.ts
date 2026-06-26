@@ -1510,6 +1510,50 @@ describe("IpcCommandDispatcher.dispatchRelayControl", () => {
     expect(addCalls[0]?.branch).toBe("feat/x");
   });
 
+  test("worktree.create sanitizes a '.'-containing branch into an allowlist-safe sid", async () => {
+    // REGRESSION (orphan worktree): a branch like `release-1.2` is legal to git
+    // (`git check-ref-format --branch` accepts the '.'), but the old derivation
+    // only flattened '/', so the sid became `release-1.2-<ts>`. That sid then
+    // failed `store.createSession`'s `assertSafeSid` allowlist ([A-Za-z0-9_-]+)
+    // — but only AFTER `wm.add` had already created the worktree on disk,
+    // orphaning it and surfacing a confusing "invalid sid" error. The branch is
+    // now run through `sanitizeForSid`, so the sid is always allowlist-clean and
+    // createSession is reached without throwing.
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const addCalls: Array<{ path: string; branch: string }> = [];
+    const fakeWm = {
+      add: async (path: string, branch: string) => {
+        addCalls.push({ path, branch });
+        return { path, branch, head: "abc123", isMain: false };
+      },
+    } as unknown as WorktreeManager;
+    const { dispatcher, calls } = makeHarness({
+      getWorktreeManager: () => fakeWm,
+    });
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "worktree.create", branch: "release-1.2" },
+      "f1",
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // createSession MUST be reached (proving the sid passed assertSafeSid and
+    // nothing threw post-`wm.add` to orphan the worktree).
+    const created = calls.createSession[0];
+    if (!created) throw new Error("expected createSession to be called");
+    const [sid] = created;
+    // The '.' is gone — the sid is allowlist-clean and assertSafeSid-safe.
+    expect(sid).not.toContain(".");
+    expect(/^[A-Za-z0-9_-]+$/.test(sid)).toBe(true);
+    expect(sid.startsWith("release-1-2-")).toBe(true);
+    // The default worktree dir name is likewise sanitized.
+    expect(addCalls[0]?.path.startsWith("release-1-2-")).toBe(true);
+    // The branch handed to git is the verbatim original — git accepts the '.'.
+    expect(addCalls[0]?.branch).toBe("release-1.2");
+  });
+
   test("worktree.remove without repo configured returns NO_REPO", async () => {
     const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
     const { dispatcher } = makeHarness({ getWorktreeManager: () => null });

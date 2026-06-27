@@ -105,8 +105,16 @@ rustup target add aarch64-apple-visionos aarch64-apple-visionos-sim
 
 B0 게이트 통과 결과 (2026-06-15 검증):
 - visionOS 가 rustup stable tier 2 에 포함 — nightly / build-std 불필요.
-- watchOS(`aarch64-apple-watchos`, `arm64_32-apple-watchos`) 역시 prebuilt 제공 — B3 도 게이트 없음.
-- **결론:** B1/B2/B3 는 단순 recompile 경로로 진행 가능.
+- watchOS `aarch64-apple-watchos` (device, Series 9+) + `aarch64-apple-watchos-sim` 은
+  tier-2 prebuilt std — 단순 recompile.
+- **정정 (B3 TestFlight, 2026-06):** B0 의 "`arm64_32-apple-watchos` 도 prebuilt 제공" 은
+  오기였다. 실측상 `arm64_32-apple-watchos` 는 stable 1.96.0 에서 prebuilt std 가 없는
+  **tier-3** 이다 (`E0463 can't find crate for core`). 그런데 watchOS 10.0 배포 타깃은 Series
+  4–8/SE (전부 arm64_32) 를 포함하므로 실기기 archive 가 arm64_32 를 **필수**로 요구한다 —
+  없으면 링크 실패. 따라서 B3 의 watchOS device 슬라이스는 `aarch64-apple-watchos`(stable) +
+  `arm64_32-apple-watchos`(nightly `-Z build-std`) 를 lipo 한 fat 라이브러리다.
+- **결론:** B1/B2 는 단순 recompile. B3 는 sim/`aarch64` 는 recompile, `arm64_32` 한 슬라이스만
+  nightly build-std (`build_watchos_arm64_32()`).
 
 ## 5a. Phase B 구현 완료 기록
 

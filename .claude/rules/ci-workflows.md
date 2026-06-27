@@ -34,11 +34,11 @@ paths:
 > **Amendment 1 (ADR-0004 §7, 2026-06-27): TestFlight 가 5개 Apple 플랫폼 전부로 확장된다** — iOS·
 > iPadOS·macOS·watchOS·visionOS. `cmd_archive` 가 iOS-only `die` 가드를 버리고 `resolve_archive_params()`
 > 로 `TP_PLATFORM` 분기(ios/ipad→`generic/platform=iOS` `.ipa`, macos→`generic/platform=macOS` MAS
-> `.pkg`, visionos→`generic/platform=visionOS` `.ipa`, watchos→ 아직 `die` — 아래 watchOS 노트)하고,
-> 플랫폼별 ExportOptions(`ios/ExportOptions.{plist,macos.plist,visionos.plist}`)+플랫폼별
-> `archive-and-upload-<plat>` job(자기 profile 시크릿으로 게이트, `altool --type {ios|macos|visionos}`)
-> 이 추가된다. **현재 라이브: iOS + macOS + visionOS.** watchOS 만 별도 결정 게이트(아래) 로 미구현.
-> 셋업(시크릿·ASC 레코드) 체크리스트 = `docs/testflight-setup.md`.
+> `.pkg`, visionos→`generic/platform=visionOS` `.ipa`, watchos→iOS 컨테이너 임베드 후
+> `generic/platform=iOS` `.ipa`)하고, 플랫폼별 ExportOptions(`ios/ExportOptions.{plist,macos.plist,
+> visionos.plist,watchos.plist}`)+플랫폼별 `archive-and-upload-<plat>` job(자기 profile 시크릿으로
+> 게이트, `altool --type {ios|macos|visionos}`; watch 는 `--type ios`)이 추가된다. **5플랫폼 전부 라이브
+> (iOS/iPadOS/macOS/visionOS/watchOS).** 셋업(시크릿·ASC 레코드) 체크리스트 = `docs/testflight-setup.md`.
 > **자동화 경계**: 시크릿 주입·ASC 레코드/프로파일 생성은 Apple 계정 필요 → 사용자만 가능, 스캐폴딩은
 > 시크릿이 채워지면 라이브.
 
@@ -51,7 +51,8 @@ paths:
 - **export-compliance**: `project.yml` Info.plist 에 `ITSAppUsesNonExemptEncryption: false`(표준 XChaCha20/X25519 = EAR 740.17(b)(1) 면제) — 없으면 TestFlight 가 "Missing Compliance" 로 빌드를 테스터에게 안 풀어줌.
 - **시크릿 게이트**: `guard` job(ubuntu)이 필수 시크릿 4개 존재를 output 으로 노출, `archive-and-upload` 가 `needs.guard.outputs.ready=='true'` 일 때만 실행 — **포크/시크릿-없는 환경에서 skip(`::notice::`), PR wedge 안 함**. 필요 시크릿: `IOS_DIST_CERT_P12_BASE64`, `IOS_DIST_CERT_PASSWORD`, `IOS_PROVISIONING_PROFILE_BASE64`, `ASC_API_KEY_P8_BASE64`, `ASC_API_KEY_ID`, `ASC_API_ISSUER_ID`, `APPLE_TEAM_ID`.
 - **번들 ID = `dev.tpmt.app`** (구 Expo 앱과 동일 — ADR-0004 §3 의 "구 레코드 재사용" 선택). 이 ID 를 유지하면 구 Expo 앱이 쓰던 동일 ASC 레코드/TestFlight 채널에 새 빌드로 올라간다(채널 연속성). 파이프라인은 번들 ID 무관(`PRODUCT_BUNDLE_IDENTIFIER` 가 SoT) — 새 레코드로 가려면 `project.yml` 의 ID 를 바꾸면 됨. APNs 토픽(`APNS_BUNDLE_ID`)은 번들 ID 와 일치해야 하므로 `dev.tpmt.app` 이어야 함.
-- **non-required** (신규 job 규율 — 안정 green 후 승격). 플랫폼별 job 도 전부 non-required 로 진입. **watchOS 는 아직 미구현 (별도 결정 게이트)** — `TeleprompterWatch` 는 `WKRunsIndependentlyOfCompanionApp: YES` 독립 타깃이라 iOS 타깃에 임베드 안 되고 `Teleprompter` 스킴에도 없어 `-scheme Teleprompter` archive 는 iOS-only `.ipa`. **블로커**: altool 의 `--type` enum 에 `watchos` 값이 **없다**(`macos|ios|appletvos|visionos` 뿐) — standalone watch 는 `--type ios` 로 올린다. 게다가 Xcode 15.1+ 는 watchOS-only 앱을 배포 시 **iOS 스텁 컨테이너**에 임베드하므로 `-scheme TeleprompterWatch` + `generic/platform=watchOS` 단독 archive 는 "Generic Xcode Archive"(Validate/Distribute 비활성)로 나와 배포 불가. 그래서 `cmd_archive` 의 watchos 분기는 현재 `die` — iOS 스텁 타깃 추가가 필요한지 사용자 결정 대기(ADR-0004 §7.1). 자체 ASC `dev.tpmt.app.watch` 레코드.
+- **watchOS job (`guard-watchos` + `archive-and-upload-watchos`)**: App Store Connect 에 watchOS 플랫폼이 없어 독립형 watch 앱도 **iOS 앱 레코드**로만 배포됨(Apple 유일 정식 경로, WWDC19 §208). `TeleprompterWatch`(독립 앱)를 **iOS 컨테이너 타깃 `TeleprompterWatchContainer`**(`type: application.watchapp2-container`, platform iOS)에 임베드 — XcodeGen v2.45.4 가 이 타입을 정상 수락 + "Embed Watch Content" phase 자동 배선(이전 우려 #595 무효, 경험적 확인). `cmd_archive` watchos 분기 = `-scheme TeleprompterWatchContainer -destination generic/platform=iOS` → `.ipa` → `altool --upload-app --type ios`(**`--type watchos` 없음** — `macos|ios|appletvos|visionos` 뿐; watch 는 iOS 패키지로 업로드, 서버가 watch 슬라이스를 watchOS App Store 로 라우팅). **컨테이너는 배포 포장지일 뿐** — watch 앱은 `WKRunsIndependentlyOfCompanionApp=YES` 유지로 Apple Watch 에 독립 설치/실행(iPhone 에 iOS 앱 불필요). **번들 ID 2개**: 컨테이너(레코드 id)=`dev.tpmt.app.watch`, 임베드 watch=`dev.tpmt.app.watch.watchkitapp`(공유 불가) → **profile 2개**(`WATCHOS_CONTAINER_PROVISIONING_PROFILE_BASE64` + `WATCHOS_APP_PROVISIONING_PROFILE_BASE64`), 인증서는 iOS Distribution 재사용. `cmd_archive` 가 archive 의 `Info.plist ApplicationProperties` 부재("Generic Xcode Archive")를 단언으로 조기 차단. **알려진 리스크**: Xcode 26.x watch exportArchive 거부 버그(FB23341311) — iOS 컨테이너 archive 가 표준 우회책이며, 그래도 막히면 `.app`→`.ipa` 수동 패키징 fallback. **non-required.** ADR-0004 §7.1.
+- **non-required** (신규 job 규율 — 안정 green 후 승격). 플랫폼별 job(iOS/macOS/visionOS/watchOS) 전부 non-required 로 진입. **5플랫폼 TestFlight 스캐폴딩 완성** — 시크릿/ASC 레코드가 채워지면 `v*` 태그 push 한 번으로 전 플랫폼 자동 업로드.
 
 ## Relay Deploy (`deploy-relay.yml`, ADR-0003 Step 8b — Rust 바이너리)
 - **빌드**: `ubuntu-latest` 에서 `dtolnay/rust-toolchain@1.96.0`+`Swatinem/rust-cache` 로 `cargo build --release --target x86_64-unknown-linux-gnu --bin tp-relay`(x86_64 Vultr = native build). `TP_BUILD_SHA=${{ github.sha }}` 를 **build env** 로 주입 → `build.rs` 가 읽어 `/health.buildSha` 로 verbatim 노출(full 40-char).

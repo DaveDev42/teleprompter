@@ -9,20 +9,36 @@
 #   - x86_64-apple-darwin          (Intel macOS)        [lipo'd with arm64 → macOS fat]
 #   - aarch64-apple-visionos       (Apple Vision Pro device)              [B1, ADR-0002]
 #   - aarch64-apple-visionos-sim   (visionOS Simulator, arm64-only — no lipo) [B1]
-#   - aarch64-apple-watchos        (watchOS device, arm64-only — no lipo) [B3, ADR-0002]
+#   - watchOS device               (FAT: arm64 + arm64_32) [B3, ADR-0002]
+#       · aarch64-apple-watchos    (Series 9+/Ultra 2, arm64; stable prebuilt std)
+#       · arm64_32-apple-watchos   (Series 4–8/SE, arm64_32; TIER-3 → nightly -Zbuild-std)
 #   - aarch64-apple-watchos-sim    (watchOS Simulator, arm64-only — no lipo) [B3]
 # plus the UniFFI-generated Swift bindings (tp_core.swift) and the C
 # header/modulemap the xcframework needs.
 #
-# visionOS and watchOS targets are stable on Rust ≥1.96 with prebuilt std (B0
-# gate, no build-std). tp-core is pure portable Rust (zero cfg(target_os)) →
-# straight recompiles.
+# visionOS and the arm64 watchOS slices are tier-2 stable on Rust ≥1.96 with
+# prebuilt std (B0 gate, no build-std). The watchOS DEVICE archive additionally
+# requires arm64_32 (older Apple Watches at our watchOS 10.0 deploy target) —
+# arm64_32-apple-watchos is a TIER-3 target with NO prebuilt std, so that one
+# slice is built via the nightly toolchain with -Zbuild-std and lipo'd together
+# with the stable arm64 slice into a fat watchOS-device library. Without
+# arm64_32 the device archive fails: "TpCore.xcframework is missing
+# architecture(s) required by this target (arm64_32)". tp-core is pure portable
+# Rust (zero cfg(target_os)) → straight recompiles on every triple.
 #
 # Output:
 #   rust/target/TpCore.xcframework   (gitignored binary artifact)
 #   ios/Generated/tp_core.swift      (checked in? no — generated, gitignored)
 #
 # Usage: rust/build-xcframework.sh [--debug]
+#
+# TP_SKIP_ARM64_32=1  Skip the nightly arm64_32-apple-watchos slice and build
+#   the watchOS device slice as arm64-only. The resulting xcframework links
+#   cleanly for the iOS/watchOS Simulator smoke and swift-build compile gates,
+#   but will fail a watchOS DEVICE archive (arm64_32 is required at our
+#   watchOS 10.0 deploy target). Set this in CI jobs that do NOT archive for
+#   distribution (swift-build, swift-smoke-ios). The watchOS TestFlight job
+#   must NOT set this flag.
 #
 # IMPORTANT (toolchain shim): this repo's PATH puts a rustup shim ahead of the
 # real rustc, which makes cargo's internal `rustc -vV` read rustup's banner and
@@ -47,7 +63,16 @@ die() { printf '\033[1;31m[rust] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 # Resolve the real toolchain bin and put it FIRST on PATH (see header note).
 ensure_toolchain() {
   command -v rustup >/dev/null 2>&1 || die "rustup not found"
-  local tc; tc="$(rustup which cargo 2>/dev/null)" || die "cannot resolve cargo via rustup"
+  # Resolve cargo FROM INSIDE rust/ so rust-toolchain.toml's pin (1.96.0) applies.
+  # If invoked from the repo root (e.g. `scripts/ios.sh archive` → cmd_rust), the
+  # toml directory-override would NOT apply and `rustup which cargo` would fall back
+  # to the rustup global default. In CI the watchOS job installs a nightly toolchain
+  # (for the arm64_32 build-std slice) via dtolnay/rust-toolchain@nightly, whose
+  # `rustup default nightly` would then win at repo-root cwd — making this resolve
+  # nightly and ensure_targets() die (nightly lacks the 9 tier-2 Apple targets).
+  # cd'ing into RUST_DIR makes the toml pin authoritative regardless of caller cwd.
+  local tc; tc="$(cd "$RUST_DIR" && rustup which cargo 2>/dev/null)" \
+    || die "cannot resolve cargo via rustup"
   TC_BIN="$(dirname "$tc")"
   export PATH="$TC_BIN:$PATH"
   # Sanity: cargo must now see a real host triple. Capture first — piping
@@ -60,7 +85,24 @@ ensure_toolchain() {
   esac
 }
 
+# Resolve the nightly toolchain bin (for the arm64_32 watchOS tier-3 slice that
+# needs -Zbuild-std). We do NOT prepend it to PATH globally — every other build
+# stays on the pinned stable toolchain; only build_watchos_arm64_32() invokes
+# nightly cargo by absolute bin dir. Sets NIGHTLY_BIN.
+ensure_nightly() {
+  local nc; nc="$(rustup which cargo --toolchain nightly 2>/dev/null)" \
+    || die "nightly toolchain not installed — run: rustup toolchain install nightly"
+  NIGHTLY_BIN="$(dirname "$nc")"
+  # build-std needs the rust-src component on nightly.
+  rustup component list --toolchain nightly 2>/dev/null \
+    | grep -q '^rust-src.*(installed)$' \
+    || die "nightly rust-src missing — run: rustup component add rust-src --toolchain nightly"
+}
+
 ensure_targets() {
+  # Tier-2 targets with prebuilt std on the pinned stable toolchain.
+  # NOTE: arm64_32-apple-watchos is NOT here — it is tier-3 (no prebuilt std),
+  # built separately via nightly -Zbuild-std in build_watchos_arm64_32().
   local needed=(
     aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
     aarch64-apple-darwin x86_64-apple-darwin
@@ -77,6 +119,23 @@ build_target() {
   local triple="$1"
   log "building libtp_core.a for $triple ($PROFILE)"
   ( cd "$RUST_DIR" && cargo build -p tp-core $PROFILE_FLAG --target "$triple" )
+}
+
+# arm64_32-apple-watchos is tier-3 (no prebuilt std). Build it with the nightly
+# toolchain + -Zbuild-std=std,panic_abort. Invoked by absolute nightly bin dir so
+# the rest of the build stays on the pinned stable toolchain. The resulting .a is
+# lipo'd with the stable arm64 slice in assemble_xcframework() — the two never
+# interlink (per-arch slices in the device archive), so the cross-toolchain mix is
+# ABI-safe.
+build_watchos_arm64_32() {
+  if [ "${TP_SKIP_ARM64_32:-}" = "1" ]; then
+    log "TP_SKIP_ARM64_32=1 — skipping arm64_32-apple-watchos (device-archive only; fine for smoke/compile CI)"
+    return 0
+  fi
+  ensure_nightly
+  log "building libtp_core.a for arm64_32-apple-watchos ($PROFILE, nightly -Zbuild-std)"
+  ( cd "$RUST_DIR" && PATH="$NIGHTLY_BIN:$PATH" cargo build -p tp-core $PROFILE_FLAG \
+      --target arm64_32-apple-watchos -Z build-std=std,panic_abort )
 }
 
 gen_bindings() {
@@ -133,8 +192,23 @@ assemble_xcframework() {
   local visionos_dev="$TARGET_DIR/aarch64-apple-visionos/$PROFILE/libtp_core.a"
   local visionos_sim="$TARGET_DIR/aarch64-apple-visionos-sim/$PROFILE/libtp_core.a"
 
-  # watchOS device + simulator are both arm64-only — no lipo needed (mirrors visionOS).
-  local watchos_dev="$TARGET_DIR/aarch64-apple-watchos/$PROFILE/libtp_core.a"
+  # watchOS DEVICE is normally a fat lib: arm64 (Series 9+/Ultra 2, stable
+  # prebuilt std) + arm64_32 (Series 4–8/SE, nightly build-std). The device
+  # archive requires arm64_32 at our watchOS 10.0 deploy target, so both must
+  # be present or the archive fails "missing architecture(s) ... (arm64_32)".
+  # When TP_SKIP_ARM64_32=1 (smoke/compile CI — no device archive), we use the
+  # arm64-only slice directly (no lipo). The simulator slice is arm64-only too.
+  local watchos_dev
+  if [ "${TP_SKIP_ARM64_32:-}" = "1" ]; then
+    watchos_dev="$TARGET_DIR/aarch64-apple-watchos/$PROFILE/libtp_core.a"
+    log "TP_SKIP_ARM64_32=1 — watchOS device slice: arm64-only (no arm64_32)"
+  else
+    watchos_dev="$TARGET_DIR/libtp_core-watchos-dev-fat.a"
+    lipo -create \
+      "$TARGET_DIR/aarch64-apple-watchos/$PROFILE/libtp_core.a" \
+      "$TARGET_DIR/arm64_32-apple-watchos/$PROFILE/libtp_core.a" \
+      -output "$watchos_dev" 2>/dev/null || die "lipo failed combining watchOS device slices (arm64 + arm64_32)"
+  fi
   local watchos_sim="$TARGET_DIR/aarch64-apple-watchos-sim/$PROFILE/libtp_core.a"
 
   rm -rf "$XCF"
@@ -160,7 +234,8 @@ main() {
   build_target x86_64-apple-darwin   # Intel macOS
   build_target aarch64-apple-visionos       # Apple Vision Pro device (B1)
   build_target aarch64-apple-visionos-sim   # visionOS Simulator, arm64 (B1)
-  build_target aarch64-apple-watchos        # watchOS device, arm64 (B3)
+  build_target aarch64-apple-watchos        # watchOS device, arm64 — Series 9+ (B3)
+  build_watchos_arm64_32                     # watchOS device, arm64_32 — Series 4–8/SE (B3, nightly build-std)
   build_target aarch64-apple-watchos-sim    # watchOS Simulator, arm64 (B3)
   gen_bindings
   assemble_xcframework

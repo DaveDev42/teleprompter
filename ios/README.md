@@ -48,7 +48,12 @@ xros-sim / watchos-device / watchos-sim, `embed: false`) 를 링크한다.
 ### 멀티플랫폼 빌드 (Phase A2 + B2 + B3)
 
 `project.yml` 이 `platform: auto` + `supportedDestinations: [iOS, macOS, visionOS]` 로 선언돼
-단일 소스트리가 4 대상을 빌드한다. watchOS 는 **별도 `TeleprompterWatch` 타깃** (B3):
+단일 소스트리가 4 대상을 빌드한다. watchOS 는 **별도 `TeleprompterWatch` 타깃** (B3) +
+**TestFlight 배포용 iOS 컨테이너 `TeleprompterWatchContainer`**(`application.watchapp2-container`,
+watch 앱 임베드 — App Store Connect 에 watchOS 플랫폼이 없어 독립형 watch 도 iOS 레코드로만 배포됨;
+ADR-0004 §7.1). 컨테이너 bundle id = `dev.tpmt.app.watch`, watch 앱 = `dev.tpmt.app.watch.watchkitapp`
+(공유 불가). Simulator smoke 는 `TeleprompterWatch` 를 직접 빌드(컨테이너 무관); 컨테이너는 `archive`
+경로에서만 빌드:
 
 | 대상 | SDK | 검증 방법 |
 |------|-----|-----------|

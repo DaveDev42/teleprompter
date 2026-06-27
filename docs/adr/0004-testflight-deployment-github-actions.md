@@ -122,11 +122,21 @@ iOS-전용 파이프라인을, 플랫폼별 archive 분기 + 플랫폼별 Export
   (iOS 와 동일한 ASC TestFlight 흐름). Mac App Distribution 인증서 + Mac App Store provisioning
   profile + **별도 ASC macOS 앱 레코드**(번들 ID `dev.tpmt.app`, macOS 플랫폼) 필요. Developer ID
   직접배포(.dmg/notarytool)는 채택하지 않는다 (요청자: "일단은 TestFlight만").
-- **watchOS → standalone 독립 업로드.** `TeleprompterWatch` 는 `WKRunsIndependentlyOfCompanionApp:
-  YES` 를 **유지**한다 (project.yml 토폴로지 변경 없음, ADR-0002 B3 보존). iOS `.ipa` 임베드 대신
-  **자체 archive(`-scheme TeleprompterWatch`, `generic/platform=watchOS`) → `.ipa` →
-  `altool --type watchos` 독립 업로드**. 번들 ID `dev.tpmt.app.watch`, **별도 ASC watchOS 앱 레코드**
-  필요. (companion 임베드 전환은 채택하지 않는다.)
+- **watchOS → standalone, iOS 컨테이너로 배포.** `TeleprompterWatch` 는
+  `WKRunsIndependentlyOfCompanionApp: YES` 를 **유지**(런타임 독립 보존, ADR-0002 B3). 단 **구현 단계에서
+  드러난 사실로 원안의 "단독 watch archive" 는 불가**: App Store Connect 에 watchOS 플랫폼 선택지가 없고
+  (WWDC19 §208), altool `--type` enum 에 `watchos` 가 없으며(`macos|ios|appletvos|visionos`),
+  `generic/platform=watchOS` 단독 archive 는 "Generic Xcode Archive"(배포 불가)로 나온다. **정정된 결정**:
+  watch 앱을 **iOS 컨테이너 타깃 `TeleprompterWatchContainer`**(`type: application.watchapp2-container`,
+  platform iOS)에 임베드 → `-scheme TeleprompterWatchContainer -destination generic/platform=iOS` archive
+  → `.ipa` → **`altool --type ios`**. 컨테이너는 **배포 포장지일 뿐** (런타임에 watch 는 여전히 독립 설치/
+  실행, iPhone 에 iOS 앱 불필요 — App Store 서버가 watch 슬라이스를 watchOS App Store 로 라우팅). 번들 ID:
+  컨테이너(레코드 id) `dev.tpmt.app.watch` + 임베드 watch `dev.tpmt.app.watch.watchkitapp`(공유 불가).
+  XcodeGen v2.45.4 가 `watchapp2-container` 타입 수락 + "Embed Watch Content" phase 자동 배선(경험적 확인 —
+  pbxproj 수동 패치 불요). companion 임베드(실 iOS 동반앱) 전환은 채택하지 않는다 — 컨테이너는 빈 껍데기.
+  **별도 ASC 레코드**(번들 ID `dev.tpmt.app.watch`, iOS 플랫폼 레코드로 생성). 알려진 리스크: Xcode 26.x
+  watch exportArchive 거부 버그(FB23341311) — 컨테이너 archive 가 표준 우회책, 그래도 막히면 `.app`→`.ipa`
+  수동 패키징 fallback.
 - **visionOS → TestFlight.** 원안에 stance 가 없던 visionOS 를 추가: `generic/platform=visionOS`
   archive → `altool --type visionos`(Xcode 15.2+). 번들 ID `dev.tpmt.app`, **별도 ASC visionOS 앱
   레코드** 필요.
@@ -135,16 +145,19 @@ iOS-전용 파이프라인을, 플랫폼별 archive 분기 + 플랫폼별 Export
 
 ### 7.2 구조 (원안 패턴 보존)
 
-- **하니스**: `cmd_archive` 가 `TP_PLATFORM` 으로 분기한다 — destination(`generic/platform=…`),
-  scheme(`Teleprompter` | `TeleprompterWatch`), ExportOptions(플랫폼별), archive 이름. keychain/team/
-  빌드번호/`-exportArchive` 로직은 공유. 더는 iOS-only `die` 가드가 아니다 (4개 플랫폼 허용; ipad 는
-  ios 로 접힘).
+- **하니스**: `cmd_archive` 가 `resolve_archive_params()` 로 `TP_PLATFORM` 분기한다 —
+  destination(ios/ipad/watchos→`generic/platform=iOS`, macos→macOS, visionos→visionOS),
+  scheme(`Teleprompter` | watchos→`TeleprompterWatchContainer`), ExportOptions(플랫폼별), artifact ext
+  (ipa/pkg). keychain/team/빌드번호/`-exportArchive` 로직은 공유. 더는 iOS-only `die` 가 아니다 (5개
+  플랫폼; ipad→ios 접힘, watchos→iOS 컨테이너). watch 분기는 archive 가 "Generic Xcode Archive" 가
+  아닌지(`Info.plist ApplicationProperties`) 단언으로 조기 차단.
 - **ExportOptions**: 플랫폼별 파일 — `ios/ExportOptions.plist`(기존, iOS),
   `ios/ExportOptions.macos.plist`, `ios/ExportOptions.visionos.plist`,
   `ios/ExportOptions.watchos.plist`. 전부 `method: app-store-connect`, `signingStyle: manual`.
 - **워크플로**: `testflight.yml` 에 플랫폼별 `guard`/`archive-and-upload` job 추가. 각 job 은
   자기 플랫폼 provisioning profile 시크릿 + 공유 ASC/팀 시크릿으로 게이트되고, 없으면 clean skip
-  (PR wedge 없음). 업로드는 `xcrun altool --upload-app --type {ios|macos|watchos|visionos}`.
+  (PR wedge 없음). 업로드는 `xcrun altool --upload-app --type {ios|macos|visionos}` — **watch 는
+  `--type ios`**(altool 에 `watchos` type 없음; standalone watch 는 iOS 패키지로 업로드).
   **신규 job 은 전부 non-required 로 진입** (ci-workflows.md 규율).
 
 ### 7.3 시크릿 모델 확장
@@ -156,7 +169,7 @@ iOS-전용 파이프라인을, 플랫폼별 archive 분기 + 플랫폼별 Export
 |--------|-------------|------|
 | macOS  | `MAC_DIST_CERT_P12_BASE64`, `MAC_DIST_CERT_PASSWORD`, `MAC_PROVISIONING_PROFILE_BASE64` | Mac App Distribution 인증서 + MAS profile (`.provisionprofile`). 별도 ASC macOS 레코드. |
 | visionOS | `VISIONOS_PROVISIONING_PROFILE_BASE64` | iOS Distribution 인증서 재사용 가능(같은 팀); profile 만 별도. 별도 ASC visionOS 레코드. |
-| watchOS | `WATCHOS_PROVISIONING_PROFILE_BASE64` | iOS Distribution 인증서 재사용; `dev.tpmt.app.watch` profile. 별도 ASC watchOS 레코드. |
+| watchOS | `WATCHOS_CONTAINER_PROVISIONING_PROFILE_BASE64`, `WATCHOS_APP_PROVISIONING_PROFILE_BASE64` | iOS Distribution 인증서 재사용. profile **2개** — 컨테이너(`dev.tpmt.app.watch`) + 임베드 watch 앱(`dev.tpmt.app.watch.watchkitapp`). 별도 ASC 레코드(iOS 플랫폼, `dev.tpmt.app.watch`). |
 
 > **자동화 경계.** GitHub Secrets 주입과 ASC 앱 레코드/프로비저닝 프로파일 생성은 Apple 계정 접근이
 > 필요해 **에이전트가 못 한다 — 요청자만 가능**. Amendment 의 CI/CD 스캐폴딩(워크플로·하니스 분기·

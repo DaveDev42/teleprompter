@@ -351,7 +351,7 @@ PRD and internal docs are written in Korean. Code, comments, and commit messages
 **Apple 멀티플랫폼 앱(iOS/iPadOS/macOS/visionOS + watchOS 별도 타깃) 빌드/검증은 로컬 하니스가 담당한다 (EAS 클라우드 제거).** XcodeGen `ios/project.yml` 이 프로젝트 SoT — 멀티플랫폼 타깃 `platform: auto` + `supportedDestinations: [iOS, macOS, visionOS]` + 별도 `TeleprompterWatch` 타깃(`platform: watchOS`, B3 ✅) (`.xcodeproj` 는 생성물, gitignore; 디렉터리명은 `ios/` 유지, ADR-0002). 하니스 = `scripts/ios.sh` (`TP_PLATFORM=ios` 기본 / `macos` / `visionos` / `watchos`):
 
 ```bash
-scripts/ios.sh rust     # TpCore.xcframework (7 슬라이스: ios-arm64/ios-sim-fat/macos-fat/xros-arm64/xros-sim/watchos-arm64/watchos-sim) + UniFFI 바인딩
+scripts/ios.sh rust     # TpCore.xcframework (7 슬라이스: ios-arm64/ios-sim-fat/macos-fat/xros-arm64/xros-sim/watchos-arm64+arm64_32-fat/watchos-sim) + UniFFI 바인딩
 scripts/ios.sh gen      # xcodegen generate (.xcodeproj 재생성)
 scripts/ios.sh boot     # Simulator 부팅 (TP_SIM, default "iPhone 17 Pro"; iOS 전용)
 scripts/ios.sh build    # xcodebuild (iOS: Debug-iphonesimulator / macOS: platform=macOS / visionOS: Debug-xrsimulator / watchOS: Debug-watchsimulator)

@@ -239,11 +239,21 @@ chacha20poly1305, blake2). So the watchOS Rust core — the part feared to need
 build-std for `arm64_32` — is a straight recompile on the *current* triples.
 
 **Implication for B1–B3:** the original "watchOS `arm64_32` is build-std-only" caveat
-is **superseded for the simulator/`aarch64` device path** — Phase B's Rust side is a
-recompile, not a research project. The lone remaining build-std risk is the legacy
-**watchOS `arm64_32`** device triple (older Apple Watch hardware); the modern
-`aarch64-apple-watchos` device slice is stable. Decide at B3 whether to ship
-`arm64_32` at all (it only matters for Series 3-era 32-bit watches).
+is **superseded for the simulator/`aarch64` device path** — those are tier-2 stable
+recompiles, not a research project. But the `arm64_32` caveat itself held: see the
+correction below.
+
+> **CORRECTION (B3 TestFlight, 2026-06):** the "`arm64_32` only matters for Series
+> 3-era 32-bit watches → optional" claim above was WRONG. `arm64_32` is the 64-bit
+> ABI used by **Apple Watch Series 4 through 8 + SE** — all of which run watchOS 10
+> (our deploy target). A watchOS device *archive* therefore REQUIRES `arm64_32`, or
+> it link-fails `TpCore.xcframework' is missing architecture(s) ... (arm64_32)`.
+> (Series 3 was 32-bit **armv7k**, an entirely different triple — not `arm64_32`.)
+> And `arm64_32-apple-watchos` is STILL tier-3 on stable 1.96.0 (empirically: no
+> prebuilt std, `E0463 can't find crate for core`). So B3's device slice is a FAT
+> `arm64 + arm64_32` lib, with the arm64_32 half built via nightly `-Z build-std`
+> and lipo'd in (`build_watchos_arm64_32()` in build-xcframework.sh). The simulator
+> + `aarch64` device halves remain tier-2 stable as stated.
 
 Until this gate passed, visionOS/watchOS were kept entirely out of
 `supportedDestinations` and the xcframework so an absent slice couldn't fail the
@@ -273,10 +283,11 @@ Verify: `TP_PLATFORM=visionos smoke` → 8 markers on Apple Vision Pro sim.
 
 ### B3 — watchOS limited target (SEPARATE target)
 A separate `TeleprompterWatch` target (NOT in `supportedDestinations` — watch app +
-WidgetKit model differs), reusing tp-core (watchOS xcframework slices: device
-`aarch64-apple-watchos` + `aarch64-apple-watchos-sim` — **both stable targets, plain
-recompile, NO build-std**, confirmed at B0; legacy 32-bit `arm64_32` is the ONLY
-build-std-needing triple and is optional, Series 3-era hardware only) + the
+WidgetKit model differs), reusing tp-core (watchOS xcframework slices: device =
+**FAT `aarch64-apple-watchos` (tier-2 stable) + `arm64_32-apple-watchos` (tier-3,
+nightly `-Z build-std`)** lipo'd together, plus `aarch64-apple-watchos-sim`
+(tier-2 stable). arm64_32 is REQUIRED — Series 4–8/SE at watchOS 10 are arm64_32;
+without it the device archive link-fails. See the B0 CORRECTION above) + the
 platform-neutral Swift (RelayClient,
 RelayMessages, SessionStore, PairingStore, TpCoreCheck — all UIKit-free, cross-compile
 free). **Standalone** (own frontendId, own kx, pairing secret via synced iCloud

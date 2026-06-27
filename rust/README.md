@@ -195,7 +195,7 @@ scripts/ios.sh rust
   - `macos-arm64_x86_64` — native macOS (arm64 + x86_64 lipo fat, Catalyst 아님)
   - `xros-arm64` — Apple Vision Pro 실기기 (arm64, B1/ADR-0002)
   - `xros-arm64-simulator` — visionOS Simulator (arm64-only, lipo 불필요)
-  - `watchos-arm64` — Apple Watch 실기기 (arm64, B3/ADR-0002)
+  - `watchos-arm64_arm64_32` — Apple Watch 실기기 (arm64 + arm64_32 lipo fat, B3/ADR-0002)
   - `watchos-arm64-simulator` — watchOS Simulator (arm64-only, lipo 불필요)
   gitignored 바이너리.
 - `ios/Generated/{tp_core.swift, tp_coreFFI.h, tp_coreFFI.modulemap}` — UniFFI Swift
@@ -203,20 +203,34 @@ scripts/ios.sh rust
 
 타깃 필요:
 ```bash
+# tier-2 (prebuilt std, stable 1.96.0)
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios \
                   aarch64-apple-darwin x86_64-apple-darwin \
                   aarch64-apple-visionos aarch64-apple-visionos-sim \
                   aarch64-apple-watchos aarch64-apple-watchos-sim
+# tier-3 watchOS arm64_32 (no prebuilt std → nightly + build-std)
+rustup toolchain install nightly
+rustup component add rust-src --toolchain nightly
 ```
 
-> visionOS 타깃은 Rust ≥1.96 에서 prebuilt std 와 함께 **stable** 이다 (B0 게이트로 확인 —
-> nightly·`-Z build-std` 불필요). tp-core 는 순수 portable Rust (`cfg(target_os)` 0개) 라
-> 그냥 재컴파일된다. watchOS 슬라이스는 B3 (별도 `TeleprompterWatch` 타깃) 에서 추가된다.
+> iOS/macOS/visionOS 와 `aarch64-apple-watchos` 는 Rust ≥1.96 에서 prebuilt std 와 함께
+> **tier-2 stable** 이다 (B0 게이트로 확인 — nightly·`-Z build-std` 불필요). tp-core 는 순수
+> portable Rust (`cfg(target_os)` 0개) 라 그냥 재컴파일된다.
+>
+> **단, watchOS 실기기 슬라이스는 arm64 + arm64_32 fat 이어야 한다.** 우리의 watchOS 10.0
+> 배포 타깃은 Apple Watch Series 4–8/SE (전부 arm64_32 전용) 를 포함하므로, 실기기 archive
+> 가 arm64_32 를 요구한다 — 없으면 `TpCore.xcframework' is missing architecture(s)
+> required by this target (arm64_32)` 로 링크 실패한다. `arm64_32-apple-watchos` 는 Rust
+> **tier-3** (prebuilt std 없음) 라, 그 한 슬라이스만 **nightly + `-Z build-std=std,panic_abort`**
+> (rust-src 필요) 로 빌드해 stable arm64 슬라이스와 `lipo` 로 fat 으로 합친다
+> (`build_watchos_arm64_32()`). 두 아키는 device archive 안에서 절대 interlink 하지 않으므로
+> (per-arch 슬라이스) 이 cross-toolchain mix 는 ABI-safe.
 >
 > xcframework 는 (platform, variant) 당 라이브러리 1개만 허용하므로, arm64-sim 과
 > x86_64-sim 두 정적 아카이브를 `lipo` 로 fat archive 하나로 합쳐 simulator slice 로 넣는다.
-> macOS 도 같은 방식 (arm64-darwin + x86_64-darwin → macos-fat). visionOS 는 device·sim
-> 모두 arm64 단일 아키 (Intel Vision Pro / x86_64 xrOS sim 이 없음) 라 lipo 가 필요없다.
+> macOS 도 같은 방식 (arm64-darwin + x86_64-darwin → macos-fat). watchOS 실기기도 같은 방식
+> (arm64 + arm64_32 → watchos-dev-fat). visionOS 는 device·sim 모두 arm64 단일 아키
+> (Intel Vision Pro / x86_64 xrOS sim 이 없음) 라 lipo 가 필요없다.
 >
 > `xcodebuild -create-xcframework` 결과를 `plutil -p Info.plist | grep LibraryIdentifier`
 > 로 확인하면 7개의 LibraryIdentifier 가 나와야 한다.

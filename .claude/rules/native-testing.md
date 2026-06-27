@@ -86,15 +86,20 @@ scripts/ios.sh archive  # TestFlight: TP_PLATFORM 별 Release archive → 서명
 ```
 
 > **`archive` 는 검증이 아니라 *배포* 경로** — 마커/UI E2E 와 다른 레이어다. **ADR-0004 Amendment 1
-> 이후 `TP_PLATFORM` 으로 분기**(ios/ipad→iOS `.ipa`, macos→MAS `.pkg`/`.app`, visionos, watchos→
-> `-scheme TeleprompterWatch`) — 5개 Apple 플랫폼 전부 TestFlight. 실 Apple Distribution 인증서 +
-> 플랫폼별 provisioning profile + `TP_DEVELOPMENT_TEAM` 필수. CI 자동화는
+> 이후 `TP_PLATFORM` 으로 분기**(ios/ipad→`generic/platform=iOS` `.ipa`, macos→`generic/platform=macOS`
+> MAS `.pkg`, visionos→`generic/platform=visionOS` `.ipa`, **watchos→iOS 컨테이너
+> `TeleprompterWatchContainer`(watch 앱 임베드) archive `generic/platform=iOS` → `.ipa`, `altool
+> --type ios`**) — 5개 Apple 플랫폼 전부 TestFlight. watch 분기는 archive 가 "Generic Xcode Archive"
+> 가 아닌지(`Info.plist ApplicationProperties` 존재) 단언으로 조기 차단. 실 Apple Distribution 인증서 +
+> 플랫폼별 provisioning profile(watch 는 컨테이너+watchapp 2개) + `TP_DEVELOPMENT_TEAM` 필수. CI 자동화는
 > `.github/workflows/testflight.yml`(`v*` 태그 push, 플랫폼별 job). 시크릿/ASC 레코드 셋업 체크리스트 =
 > `docs/testflight-setup.md`; 상세는 `.claude/rules/ci-workflows.md` → TestFlight + `docs/adr/0004-*`.
 
 xcframework 는 **7 슬라이스** (`ios-arm64`, `ios-arm64_x86_64-simulator`, `macos-arm64_x86_64`,
-`xros-arm64`, `xros-arm64-simulator`, `watchos-arm64`, `watchos-arm64-simulator`). `plutil -p
-rust/target/TpCore.xcframework/Info.plist | grep LibraryIdentifier` 로 7개 확인.
+`xros-arm64`, `xros-arm64-simulator`, `watchos-arm64_arm64_32`, `watchos-arm64-simulator`).
+watchOS 실기기 슬라이스는 arm64 + arm64_32 fat (Series 4–8/SE = arm64_32; arm64_32 는 tier-3
+→ nightly `-Z build-std`). `plutil -p rust/target/TpCore.xcframework/Info.plist | grep
+LibraryIdentifier` 로 7개 확인.
 
 ## UI E2E (`cmd_uitest`, XCUITest)
 

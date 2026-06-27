@@ -206,8 +206,12 @@ jobs:
       # Compile only. ensure_xcframework (builds the 9-slice xcframework + UniFFI
       # bindings from scratch — neither TP_SKIP_RUST nor TP_FORCE_RUST set) →
       # ensure_project (xcodegen generate) → xcodebuild -destination platform=macOS.
+      # TP_SKIP_ARM64_32=1: the arm64_32-apple-watchos slice (tier-3, nightly
+      # -Zbuild-std) is only needed for a watchOS DEVICE archive. Smoke/compile
+      # CI links the xcframework against a Simulator destination, so arm64-only
+      # watchOS device is fine here. The watchOS TestFlight job does NOT set this.
       - name: Build Swift app (native macOS, compile only)
-        run: TP_PLATFORM=macos scripts/ios.sh build
+        run: TP_PLATFORM=macos TP_SKIP_ARM64_32=1 scripts/ios.sh build
 
   # Deterministic iOS Simulator smoke E2E (B4 follow-up). Where `swift-build`
   # proves the app COMPILES, this proves it actually RUNS the full wire/E2EE path:
@@ -254,5 +258,8 @@ jobs:
       # Full loopback smoke: rust→gen→build→install→launch→poll 8 markers. No
       # TP_SKIP_RUST (build the xcframework fresh, warmed by rust-cache across runs).
       # TP_SIM names a likely-present device; sim_udid falls back if it is absent.
+      # TP_SKIP_ARM64_32=1: arm64_32-apple-watchos (tier-3, nightly -Zbuild-std) is
+      # only required for a watchOS device archive; the iOS Simulator smoke only
+      # links the ios-sim slices, so arm64-only watchOS device is fine here.
       - name: iOS Simulator smoke (8-marker loopback E2E)
-        run: TP_PLATFORM=ios TP_SIM="iPhone 17 Pro" scripts/ios.sh smoke
+        run: TP_PLATFORM=ios TP_SIM="iPhone 17 Pro" TP_SKIP_ARM64_32=1 scripts/ios.sh smoke

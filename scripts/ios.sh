@@ -67,7 +67,11 @@ SIM_NAME="${TP_SIM:-iPhone 17 Pro}"
 VISION_SIM_NAME="${TP_VISION_SIM:-Apple Vision Pro}"
 WATCH_SIM_NAME="${TP_WATCH_SIM:-Apple Watch Series 11 (46mm)}"
 BUNDLE_ID="dev.tpmt.app"
-WATCH_BUNDLE_ID="dev.tpmt.app.watch"
+# The watch app is embedded under the iOS distribution container (top-level id
+# dev.tpmt.app.watch), so the watch app's own bundle id is <container>.watchkitapp
+# (Apple's watchapp2-container layout — the two can't share an id). The Simulator
+# smoke path builds + launches TeleprompterWatch directly, so it uses this id.
+WATCH_BUNDLE_ID="dev.tpmt.app.watch.watchkitapp"
 BOOT_MARKER="TP_BOOT_OK"
 CORE_MARKER="TP_CORE_OK"
 PAIR_MARKER="TP_PAIR_OK"
@@ -1931,10 +1935,19 @@ resolve_archive_params() {
       ARCHIVE_ARTIFACT_EXT="ipa"
       ;;
     watchos)
-      die "cmd_archive: watchOS distribution is not yet wired (no altool --type watchos; Xcode requires an iOS stub container for a distributable watch archive). See ADR-0004 §7 / docs/testflight-setup.md."
+      # Standalone watch apps have no watchOS App Store platform — they ship inside
+      # an iOS container (TeleprompterWatchContainer embeds TeleprompterWatch). So we
+      # archive the CONTAINER for generic/platform=iOS (NOT watchOS — that yields a
+      # non-distributable "Generic Xcode Archive"); the watch slice rides inside. The
+      # resulting .ipa is uploaded with `altool --type ios` (there is no --type
+      # watchos). See ADR-0004 §7.1 / docs/testflight-setup.md §4.
+      ARCHIVE_DEST="generic/platform=iOS"
+      ARCHIVE_SCHEME="TeleprompterWatchContainer"
+      ARCHIVE_EXPORT_OPTIONS="$IOS_DIR/ExportOptions.watchos.plist"
+      ARCHIVE_ARTIFACT_EXT="ipa"
       ;;
     *)
-      die "cmd_archive: unsupported TP_PLATFORM='$TP_PLATFORM' (expected ios|ipad|macos|visionos)."
+      die "cmd_archive: unsupported TP_PLATFORM='$TP_PLATFORM' (expected ios|ipad|macos|visionos|watchos)."
       ;;
   esac
 }
@@ -1978,6 +1991,16 @@ cmd_archive() {
     archive | xcbeautify_or_cat >&2
 
   [ -d "$ARCHIVE_PATH" ] || die "archive failed — $ARCHIVE_PATH not produced"
+
+  # A distributable .xcarchive has ApplicationProperties (bundle id, version, signing
+  # id) in its Info.plist; a non-distributable "Generic Xcode Archive" / "Other items"
+  # lacks it. The watch-via-container path is exactly where this regresses (XcodeGen
+  # mis-wiring, or an Xcode version that classifies the container as generic), so fail
+  # LOUDLY here rather than producing a silently-unuploadable artifact downstream.
+  if ! /usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:CFBundleIdentifier' \
+        "$ARCHIVE_PATH/Info.plist" >/dev/null 2>&1; then
+    die "archive is a non-distributable 'Generic Xcode Archive' (no ApplicationProperties in $ARCHIVE_PATH/Info.plist). For TP_PLATFORM=watchos this means the iOS container ($ARCHIVE_SCHEME) didn't embed the watch app as a distributable app — see ADR-0004 §7.1."
+  fi
 
   log "exporting App Store .$ARCHIVE_ARTIFACT_EXT → $EXPORT_DIR"
   xcodebuild \

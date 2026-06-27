@@ -32,6 +32,14 @@
 #
 # Usage: rust/build-xcframework.sh [--debug]
 #
+# TP_SKIP_ARM64_32=1  Skip the nightly arm64_32-apple-watchos slice and build
+#   the watchOS device slice as arm64-only. The resulting xcframework links
+#   cleanly for the iOS/watchOS Simulator smoke and swift-build compile gates,
+#   but will fail a watchOS DEVICE archive (arm64_32 is required at our
+#   watchOS 10.0 deploy target). Set this in CI jobs that do NOT archive for
+#   distribution (swift-build, swift-smoke-ios). The watchOS TestFlight job
+#   must NOT set this flag.
+#
 # IMPORTANT (toolchain shim): this repo's PATH puts a rustup shim ahead of the
 # real rustc, which makes cargo's internal `rustc -vV` read rustup's banner and
 # fail with "didn't have a line for `host:`". We prepend the resolved toolchain
@@ -120,6 +128,10 @@ build_target() {
 # interlink (per-arch slices in the device archive), so the cross-toolchain mix is
 # ABI-safe.
 build_watchos_arm64_32() {
+  if [ "${TP_SKIP_ARM64_32:-}" = "1" ]; then
+    log "TP_SKIP_ARM64_32=1 — skipping arm64_32-apple-watchos (device-archive only; fine for smoke/compile CI)"
+    return 0
+  fi
   ensure_nightly
   log "building libtp_core.a for arm64_32-apple-watchos ($PROFILE, nightly -Zbuild-std)"
   ( cd "$RUST_DIR" && PATH="$NIGHTLY_BIN:$PATH" cargo build -p tp-core $PROFILE_FLAG \
@@ -180,16 +192,23 @@ assemble_xcframework() {
   local visionos_dev="$TARGET_DIR/aarch64-apple-visionos/$PROFILE/libtp_core.a"
   local visionos_sim="$TARGET_DIR/aarch64-apple-visionos-sim/$PROFILE/libtp_core.a"
 
-  # watchOS DEVICE is a fat lib: arm64 (Series 9+/Ultra 2, stable prebuilt std) +
-  # arm64_32 (Series 4–8/SE, nightly build-std). The device archive requires
-  # arm64_32 at our watchOS 10.0 deploy target, so both must be present or the
-  # archive fails "missing architecture(s) ... (arm64_32)". The simulator slice
-  # is arm64-only (no arm64_32 watch simulator).
-  local watchos_dev="$TARGET_DIR/libtp_core-watchos-dev-fat.a"
-  lipo -create \
-    "$TARGET_DIR/aarch64-apple-watchos/$PROFILE/libtp_core.a" \
-    "$TARGET_DIR/arm64_32-apple-watchos/$PROFILE/libtp_core.a" \
-    -output "$watchos_dev" 2>/dev/null || die "lipo failed combining watchOS device slices (arm64 + arm64_32)"
+  # watchOS DEVICE is normally a fat lib: arm64 (Series 9+/Ultra 2, stable
+  # prebuilt std) + arm64_32 (Series 4–8/SE, nightly build-std). The device
+  # archive requires arm64_32 at our watchOS 10.0 deploy target, so both must
+  # be present or the archive fails "missing architecture(s) ... (arm64_32)".
+  # When TP_SKIP_ARM64_32=1 (smoke/compile CI — no device archive), we use the
+  # arm64-only slice directly (no lipo). The simulator slice is arm64-only too.
+  local watchos_dev
+  if [ "${TP_SKIP_ARM64_32:-}" = "1" ]; then
+    watchos_dev="$TARGET_DIR/aarch64-apple-watchos/$PROFILE/libtp_core.a"
+    log "TP_SKIP_ARM64_32=1 — watchOS device slice: arm64-only (no arm64_32)"
+  else
+    watchos_dev="$TARGET_DIR/libtp_core-watchos-dev-fat.a"
+    lipo -create \
+      "$TARGET_DIR/aarch64-apple-watchos/$PROFILE/libtp_core.a" \
+      "$TARGET_DIR/arm64_32-apple-watchos/$PROFILE/libtp_core.a" \
+      -output "$watchos_dev" 2>/dev/null || die "lipo failed combining watchOS device slices (arm64 + arm64_32)"
+  fi
   local watchos_sim="$TARGET_DIR/aarch64-apple-watchos-sim/$PROFILE/libtp_core.a"
 
   rm -rf "$XCF"

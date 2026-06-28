@@ -150,8 +150,21 @@ _jwt() {
   ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" python3 "$JWT_HELPER"
 }
 
-# asc <METHOD> <path> [json-body-file] → writes JSON to stdout, http code to fd3.
-# Sets global ASC_HTTP to the status code; returns nonzero only on transport err.
+# asc <METHOD> <path> [json-body-file] → prints "<json-body>\n<http_code>" to
+# stdout, with the HTTP status code ALWAYS as the last line. Returns nonzero
+# only on a curl transport error.
+#
+# Call sites capture the whole thing and split it IN THEIR OWN SCOPE:
+#
+#     local resp; resp="$(asc GET "/foo")"
+#     local http="${resp##*$'\n'}"   # status code  (last line)
+#     local body="${resp%$'\n'*}"    # JSON body     (everything before it)
+#
+# This replaces the old `global ASC_HTTP` set inside asc(): every call site runs
+# asc in a `$(...)` command substitution = a SUBSHELL, so a global assigned there
+# never propagated to the caller, and reading $ASC_HTTP afterwards tripped
+# `set -u` ("ASC_HTTP: unbound variable"). Splitting via parameter expansion in
+# the caller's frame is subshell-safe — no function call, no global.
 asc() {
   local method="$1" path="$2" body="${3:-}" jwt
   jwt="$(_jwt)" || die "failed to mint ASC JWT"
@@ -160,8 +173,7 @@ asc() {
     -w '\n%{http_code}')
   [ -n "$body" ] && args+=(-d "@$body")
   local out; out="$(curl "${args[@]}")" || die "curl transport error on $method $path"
-  ASC_HTTP="${out##*$'\n'}"
-  printf '%s' "${out%$'\n'*}"
+  printf '%s' "$out"
 }
 
 # jq-free JSON field extraction via python (python3 is a hard dep already).
@@ -179,8 +191,9 @@ ensure_cert() {
   local recorded_id; recorded_id="$(json_get "json.load(open('$MANIFEST')).get('cert_${slug}','')" 2>/dev/null || true)"
 
   if [ -f "$key" ] && [ -f "$p12" ] && [ -n "$recorded_id" ]; then
-    local listing; listing="$(asc GET "/certificates?filter%5BcertificateType%5D=$ctype&limit=200")"
-    if [ "$ASC_HTTP" = "200" ] && printf '%s' "$listing" | grep -q "\"$recorded_id\""; then
+    local resp; resp="$(asc GET "/certificates?filter%5BcertificateType%5D=$ctype&limit=200")"
+    local http="${resp##*$'\n'}" listing="${resp%$'\n'*}"
+    if [ "$http" = "200" ] && printf '%s' "$listing" | grep -q "\"$recorded_id\""; then
       ok "cert $ctype: reusing existing (id ${recorded_id:0:8}…, local key present)"
       return 0
     fi
@@ -202,18 +215,19 @@ csr = open(sys.argv[1]).read()
 print(json.dumps({"data": {"type": "certificates",
     "attributes": {"certificateType": sys.argv[2], "csrContent": csr}}}))
 PY
-  local resp; resp="$(asc POST "/certificates" "$bodyfile")"; rm -f "$bodyfile"
+  local raw; raw="$(asc POST "/certificates" "$bodyfile")"; rm -f "$bodyfile"
+  local http="${raw##*$'\n'}" resp="${raw%$'\n'*}"
 
-  if [ "$ASC_HTTP" = "409" ] || [ "$ASC_HTTP" = "403" ]; then
-    warn "cert $ctype: ASC returned $ASC_HTTP — likely the active-cert cap for this type."
-    local existing; existing="$(asc GET "/certificates?filter%5BcertificateType%5D=$ctype&limit=200")"
-    printf '%s\n' "$existing" | python3 -c '
+  if [ "$http" = "409" ] || [ "$http" = "403" ]; then
+    warn "cert $ctype: ASC returned $http — likely the active-cert cap for this type."
+    local lraw; lraw="$(asc GET "/certificates?filter%5BcertificateType%5D=$ctype&limit=200")"
+    printf '%s\n' "${lraw%$'\n'*}" | python3 -c '
 import sys,json
 for c in json.load(sys.stdin).get("data",[]):
     a=c["attributes"]; print(f"   - {c[\"id\"]}  {a.get(\"name\",\"\")}  exp {a.get(\"expirationDate\",\"\")}")' >&2 || true
     die "Revoke an existing $ctype cert in the Developer portal, then re-run. (A cert whose private key you don't hold locally is unusable for a .p12.)"
   fi
-  [ "$ASC_HTTP" = "201" ] || die "cert $ctype: create failed (HTTP $ASC_HTTP): $(printf '%s' "$resp" | head -c 400)"
+  [ "$http" = "201" ] || die "cert $ctype: create failed (HTTP $http): $(printf '%s' "$resp" | head -c 400)"
 
   local cert_id content
   cert_id="$(printf '%s' "$resp" | json_get "d['data']['id']" 2>/dev/null \
@@ -245,9 +259,9 @@ assemble_combined_mac_p12() {
 # ensure_bundle_id <identifier> <IOS|MAC_OS> <name> → echoes the ASC bundleId UUID.
 ensure_bundle_id() {
   local ident="$1" plat="$2" name="$3"
-  local found
-  found="$(asc GET "/bundleIds?filter%5Bidentifier%5D=$ident&filter%5Bplatform%5D=$plat")"
-  if [ "$ASC_HTTP" = "200" ]; then
+  local raw; raw="$(asc GET "/bundleIds?filter%5Bidentifier%5D=$ident&filter%5Bplatform%5D=$plat")"
+  local http="${raw##*$'\n'}" found="${raw%$'\n'*}"
+  if [ "$http" = "200" ]; then
     local id; id="$(printf '%s' "$found" | python3 -c '
 import sys,json
 d=json.load(sys.stdin).get("data",[])
@@ -262,13 +276,14 @@ import json, sys
 print(json.dumps({"data": {"type": "bundleIds",
     "attributes": {"identifier": sys.argv[1], "platform": sys.argv[2], "name": sys.argv[3]}}}))
 PY
-  local resp; resp="$(asc POST "/bundleIds" "$bodyfile")"; rm -f "$bodyfile"
-  if [ "$ASC_HTTP" = "409" ]; then
-    found="$(asc GET "/bundleIds?filter%5Bidentifier%5D=$ident&filter%5Bplatform%5D=$plat")"
-    printf '%s' "$found" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"][0]["id"])'
+  raw="$(asc POST "/bundleIds" "$bodyfile")"; rm -f "$bodyfile"
+  http="${raw##*$'\n'}"; local resp="${raw%$'\n'*}"
+  if [ "$http" = "409" ]; then
+    raw="$(asc GET "/bundleIds?filter%5Bidentifier%5D=$ident&filter%5Bplatform%5D=$plat")"
+    printf '%s' "${raw%$'\n'*}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"][0]["id"])'
     ok "bundleId $ident ($plat): already registered (reused)" >&2; return 0
   fi
-  [ "$ASC_HTTP" = "201" ] || die "bundleId $ident ($plat): create failed (HTTP $ASC_HTTP)"
+  [ "$http" = "201" ] || die "bundleId $ident ($plat): create failed (HTTP $http)"
   printf '%s' "$resp" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["id"])'
   ok "bundleId $ident ($plat): created" >&2
 }
@@ -283,8 +298,8 @@ create_profile() {
   if [ "$DRY_RUN" -eq 1 ]; then warn "profile '$name' ($ptype): DRY RUN — would (re)create" >&2; printf 'DRYRUN'; return 0; fi
 
   # delete any existing profile of this type with our exact name (avoid 409).
-  local existing; existing="$(asc GET "/profiles?filter%5BprofileType%5D=$ptype&limit=200")"
-  printf '%s' "$existing" | python3 -c '
+  local eraw; eraw="$(asc GET "/profiles?filter%5BprofileType%5D=$ptype&limit=200")"
+  printf '%s' "${eraw%$'\n'*}" | python3 -c '
 import sys,json
 for p in json.load(sys.stdin).get("data",[]):
     if p["attributes"].get("name")==sys.argv[1]: print(p["id"])' "$name" | while read -r pid; do
@@ -301,9 +316,10 @@ print(json.dumps({"data": {"type": "profiles",
         "bundleId": {"data": {"type": "bundleIds", "id": bid}},
         "certificates": {"data": [{"type": "certificates", "id": cert}]}}}}))
 PY
-  local resp; resp="$(asc POST "/profiles" "$bodyfile")"; rm -f "$bodyfile"
-  if [ "$ASC_HTTP" != "201" ]; then
-    warn "profile '$name' ($ptype): create FAILED (HTTP $ASC_HTTP): $(printf '%s' "$resp" | head -c 300)" >&2
+  local raw; raw="$(asc POST "/profiles" "$bodyfile")"; rm -f "$bodyfile"
+  local http="${raw##*$'\n'}" resp="${raw%$'\n'*}"
+  if [ "$http" != "201" ]; then
+    warn "profile '$name' ($ptype): create FAILED (HTTP $http): $(printf '%s' "$resp" | head -c 300)" >&2
     printf ''; return 1
   fi
   printf '%s' "$resp" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["attributes"]["profileContent"])'
@@ -416,8 +432,14 @@ main() {
   printf '\n' >&2
   ok "done. Re-run safely any time (certs reused, profiles recreated)."
   warn "Reminder: per-platform ASC APP RECORDS must exist (not API-creatable)."
-  [ "$NO_SECRETS" -eq 0 ] && [ "$DRY_RUN" -eq 0 ] && \
+  # NOTE: a bare `[ a ] && [ b ] && log ...` as the LAST statement makes main()
+  # (and the script, under no `exit`) inherit the &&-chain's exit status — in a
+  # dry-run/no-secrets pass the chain is false → exit 1, falsely signalling
+  # failure to CI / `&&` callers. Use an explicit if so success is success.
+  if [ "$NO_SECRETS" -eq 0 ] && [ "$DRY_RUN" -eq 0 ]; then
     log "Next: gh workflow run testflight.yml   (or push a v* tag)"
+  fi
+  return 0
 }
 
 main "$@"

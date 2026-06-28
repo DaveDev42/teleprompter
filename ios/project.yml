@@ -109,8 +109,13 @@ targets:
         # macOS overrides this with the sandbox + network.client entitlements file.
         CODE_SIGN_ENTITLEMENTS: Teleprompter.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Teleprompter-macOS.entitlements
-        # Wire the AppIcon asset catalog into both iOS and macOS targets.
+        # Wire the AppIcon asset catalog into iOS and macOS targets.
+        # visionOS needs a separate .solidimagestack layered icon (AppIconVision)
+        # because .appiconset is not a valid visionOS primary icon type — ASC
+        # validation rejects the .ipa with error 90970 (missing
+        # CFBundleIcons.CFBundlePrimaryIcon) otherwise.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xros*]": AppIconVision
         # TestFlight archive (Release) manual signing, PER DEVICE SDK. xcodebuild
         # CLI build-setting overrides apply GLOBALLY to all targets in one archive,
         # so per-target/per-platform profile mapping CANNOT live in cmd_archive — it

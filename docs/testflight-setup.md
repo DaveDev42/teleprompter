@@ -10,6 +10,38 @@ fastlane/EAS/Xcode Cloud 미사용.
 
 ---
 
+## 자동화 경로 (`scripts/setup-testflight-secrets.sh`) — 권장
+
+아래 §1–§4 의 **인증서 발급 + bundle ID 등록 + provisioning profile 생성 + `gh secret set` 13개**
+는 `scripts/setup-testflight-secrets.sh` 가 **ASC REST API 를 직접 호출**(fastlane 없이 `openssl` +
+`curl` + `gh` + `python3`)해서 자동화한다. `sigh` 가 못 만드는 visionOS/watchOS profile 도
+`profileType=IOS_APP_STORE` + IOS-platform bundleId 로 직접 발급한다.
+
+**당신이 직접 해야 할 것은 §0 의 `.p8` 발급(아래)과 ASC 앱 레코드 생성뿐이다.** 그 다음:
+
+```bash
+ASC_API_KEY_PATH=~/AuthKey_XXXXXXXXXX.p8 \
+ASC_API_KEY_ID=XXXXXXXXXX \
+ASC_API_ISSUER_ID=<issuer-uuid> \
+APPLE_TEAM_ID=MU784AJZSW \
+  scripts/setup-testflight-secrets.sh            # 5플랫폼 전부 (--dry-run 으로 먼저 점검 가능)
+# 일부만: --platforms "ios macos visionos"
+# Mac installer 분리(기본) vs 결합: --separate-installer (기본) / --combined-installer
+```
+
+- **TEAM 키 필수** — individual 키는 provisioning 엔드포인트(`/v1/certificates`·`/v1/bundleIds`·
+  `/v1/profiles`)를 못 호출한다 (403). §0 에서 키 생성 시 *App Manager* 이상.
+- **민감 자료는 머신 밖으로 안 나간다** — `.p8` 은 `ASC_API_KEY_PATH` 에 그대로 두고 스크립트가 읽기만,
+  생성된 키/cert/.p12/비밀번호/manifest 는 gitignore 된 `~/.config/teleprompter/testflight/` (0700) 에
+  영속. 재실행 시 cert 는 재사용(Apple 의 active 배포 cert ~2-3개 상한 회피), profile 만 재생성.
+- **Apple 의 active 배포 cert 상한**(타입당 ~2-3개)에 걸려 로컬에 개인키 없는 cert 가 상한을 채웠으면,
+  스크립트가 기존 cert 목록 + revoke 안내를 출력하고 멈춘다(자동 revoke 안 함).
+- **여전히 수동**: ASC 앱 레코드(플랫폼별, API 생성 불가) — §1–§4 의 "ASC 앱 레코드" 체크박스 참조.
+
+수동으로 하려면(또는 스크립트가 막히면) 아래 §0–§4 체크리스트가 그대로 fallback 이다.
+
+---
+
 ## 0. 공유 (전 플랫폼 1회)
 
 App Store Connect API 키 + 팀 ID 는 5개 플랫폼이 전부 공유한다.

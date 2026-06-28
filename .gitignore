@@ -54,3 +54,7 @@ docs/superpowers/
 
 # scripts/dev-pair.ts output (local dog-fooding storage state)
 apps/app/.dev-pairing-state.json
+
+# Python bytecode (scripts/asc-jwt.py compiled cache)
+__pycache__/
+*.pyc

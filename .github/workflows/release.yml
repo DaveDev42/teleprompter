@@ -14,6 +14,7 @@ permissions:
   contents: write
   id-token: write        # cosign keyless OIDC
   attestations: write    # actions/attest-build-provenance
+  actions: write         # CD: dispatch testflight.yml after a successful release
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -200,3 +201,43 @@ jobs:
           # once manually in the tap repo and persists across bumps.
           download-url: https://github.com/DaveDev42/teleprompter/releases/download/${{ inputs.tag || github.ref_name }}/tp-darwin_arm64.tar.gz
           tap-token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+  # CD: once the CLI release + tap bump succeed, kick off the 5-platform
+  # TestFlight upload for the SAME tag. This is the continuous-deployment hook
+  # — after the first manual TestFlight, every release auto-deploys to ASC.
+  #
+  # WHY a separate dispatched run (not a job here, not a workflow_run trigger):
+  #   - Isolation: a TestFlight signing/upload failure must never red the CLI
+  #     release that already published binaries + bumped the tap.
+  #   - #172-safe: we pass the tag EXPLICITLY via -f tag and --ref, so the
+  #     dispatched run never relies on a push event that GitHub may drop.
+  #   - workflow_run is unusable here: release.yml is operated via
+  #     workflow_dispatch, and a downstream workflow_run payload cannot recover
+  #     the dispatch `tag` input (head_branch=main, not the tag) — so it could
+  #     not know which ref to build.
+  #
+  # GITHUB_TOKEN CAN trigger this: workflow_dispatch is an explicit exception to
+  # the "GITHUB_TOKEN events don't create runs" recursion guard (official docs:
+  # "workflow_dispatch and repository_dispatch events always create workflow
+  # runs"). Requires only `actions: write` (declared above).
+  #
+  # CONSTRAINT (load-bearing): `gh workflow run --ref <tag>` resolves
+  # testflight.yml from the TAG's tree, not main. testflight.yml is already on
+  # main, so every tag cut from here forward contains it. Re-releasing a tag
+  # created BEFORE testflight.yml existed would fail this dispatch — we never do
+  # that (CD only fires on tags >= current main; the first upload is manual).
+  testflight:
+    needs: [release, bump-tap]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch TestFlight for ${{ inputs.tag || github.ref_name }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh workflow run testflight.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$TAG" \
+            -f tag="$TAG"
+          echo "✅ dispatched testflight.yml for $TAG (separate run; failures isolated from this release)"

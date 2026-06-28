@@ -379,7 +379,13 @@ print(f"tp://p?d={b64url}")
 cmd_gen() {
   require xcodegen
   log "generating project from project.yml"
-  ( cd "$IOS_DIR" && xcodegen generate )
+  # xcodegen prints "⚙️  Generating project..." to STDOUT. cmd_archive captures its
+  # own stdout (the lone artifact path) into $GITHUB_OUTPUT via `IPA="$(… archive)"`,
+  # and ensure_project()→cmd_gen runs inside that capture — so any xcodegen stdout
+  # leaks into the captured value and corrupts the `ipa=<path>` GITHUB_OUTPUT line
+  # ("Invalid format '⚙️  Generating project...'"). Redirect to stderr so only the
+  # artifact path ever reaches stdout (same discipline as cmd_archive's xcodebuild >&2).
+  ( cd "$IOS_DIR" && xcodegen generate ) >&2
 }
 
 ensure_project() { [ -d "$PROJECT" ] || cmd_gen; }

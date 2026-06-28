@@ -34,10 +34,10 @@
 #     cannot call the provisioning endpoints — the script will 403 on everything.
 #   - Create the per-platform ASC APP RECORDS by hand (App records are NOT
 #     API-creatable). Needed: dev.tpmt.app (iOS record — may reuse the old Expo
-#     record), dev.tpmt.app (macOS record), dev.tpmt.app (visionOS record),
-#     dev.tpmt.app.watch (iOS record — standalone watch ships under an iOS app
-#     record). The script provisions bundle IDs + profiles; the app records must
-#     pre-exist or the later TestFlight upload has nowhere to land.
+#     record; the COMPANION watch app ships INSIDE this record's .ipa, #123/ADR-0004
+#     Amdt 2 — NO separate watch record), dev.tpmt.app (macOS record), dev.tpmt.app
+#     (visionOS record). The script provisions bundle IDs + profiles; the app
+#     records must pre-exist or the later TestFlight upload has nowhere to land.
 #
 # Usage:
 #   ASC_API_KEY_PATH=~/AuthKey_ABCDE12345.p8 \
@@ -69,9 +69,11 @@ WORK_DIR="${TP_TESTFLIGHT_DIR:-$HOME/.config/teleprompter/testflight}"
 MANIFEST="$WORK_DIR/manifest.json"
 
 # Canonical bundle IDs (ios/project.yml — verified at HEAD).
+# #123 (ADR-0004 Amdt 2): the watch is a COMPANION embedded in the main iOS app —
+# there is no separate watchapp2-container, so the old dev.tpmt.app.watch container
+# id is gone. The watch app id is dev.tpmt.app.watchkitapp (<companion>.watchkitapp).
 BID_APP="dev.tpmt.app"
-BID_WATCH_CONTAINER="dev.tpmt.app.watch"
-BID_WATCH_APP="dev.tpmt.app.watch.watchkitapp"
+BID_WATCH_APP="dev.tpmt.app.watchkitapp"
 
 # Default installer layout: SEPARATE. The combined-PEM single-.p12 path works but
 # is fragile (the obvious `openssl pkcs12 -export` with multiple -in/-inkey
@@ -412,12 +414,15 @@ main() {
       "$(create_profile 'Teleprompter visionOS App Store' IOS_APP_STORE "$bid" "$ios_cert_id" || true)"
   fi
   if has_platform watchos; then
-    local bidc bida
-    bidc="$(ensure_bundle_id "$BID_WATCH_CONTAINER" IOS 'Teleprompter Watch Container')"
+    # #123 (ADR-0004 Amdt 2): the watch is a COMPANION embedded in the iOS app, so
+    # there is no container bundle id / container profile any more — only the watch
+    # app id (dev.tpmt.app.watchkitapp) needs an App Store profile, and it ships
+    # inside the iOS .ipa. The iOS upload job signs the embedded watch with this
+    # profile, so it is emitted as IOS_WATCH_PROVISIONING_PROFILE_BASE64 (consumed
+    # by the iOS archive-and-upload job, not a separate watchOS job).
+    local bida
     bida="$(ensure_bundle_id "$BID_WATCH_APP" IOS 'Teleprompter Watch App')"
-    set_raw_secret WATCHOS_CONTAINER_PROVISIONING_PROFILE_BASE64 \
-      "$(create_profile 'Teleprompter watch container App Store' IOS_APP_STORE "$bidc" "$ios_cert_id" || true)"
-    set_raw_secret WATCHOS_APP_PROVISIONING_PROFILE_BASE64 \
+    set_raw_secret IOS_WATCH_PROVISIONING_PROFILE_BASE64 \
       "$(create_profile 'Teleprompter watch app App Store' IOS_APP_STORE "$bida" "$ios_cert_id" || true)"
   fi
   if has_platform macos; then

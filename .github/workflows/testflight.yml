@@ -384,6 +384,16 @@ jobs:
         id: archive
         env:
           TP_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          # The macOS archive uses ONLY the xcframework's macos-fat slice — it never
+          # embeds the companion watch (that ships exclusively in the iOS .ipa, #123).
+          # build-xcframework.sh nonetheless builds ALL platform slices, and the
+          # watchOS-DEVICE slice's arm64_32 sub-slice is a Rust tier-3 target needing
+          # the nightly toolchain + rust-src (-Zbuild-std). This job installs only the
+          # stable 1.96.0 toolchain (no nightly/rust-src — unlike the iOS job, which
+          # embeds the watch and therefore must), so without this flag the build dies
+          # "nightly rust-src missing". TP_SKIP_ARM64_32=1 skips that one watch-device
+          # sub-slice, which macOS does not need. (The iOS job keeps it — it needs it.)
+          TP_SKIP_ARM64_32: "1"
           RUN_NUMBER: ${{ github.run_number }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
@@ -524,6 +534,15 @@ jobs:
         id: archive
         env:
           TP_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          # The visionOS archive uses ONLY the xcframework's xros-arm64 slice — it
+          # never embeds the companion watch (that ships exclusively in the iOS .ipa,
+          # #123). build-xcframework.sh nonetheless builds ALL platform slices, and
+          # the watchOS-DEVICE arm64_32 sub-slice is a Rust tier-3 target needing the
+          # nightly toolchain + rust-src (-Zbuild-std). This job installs only the
+          # stable 1.96.0 toolchain, so without this flag the build dies "nightly
+          # rust-src missing". TP_SKIP_ARM64_32=1 skips that watch-device sub-slice,
+          # which visionOS does not need. (The iOS job keeps it — it needs it.)
+          TP_SKIP_ARM64_32: "1"
           RUN_NUMBER: ${{ github.run_number }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |

@@ -224,6 +224,11 @@ targets:
           UISceneConfigurations:
             UIWindowSceneSessionRoleApplication:
               - UISceneConfigurationName: Default Configuration
+        # Required by App Store Connect (ASC error 90242) for Mac App Store /
+        # TestFlight macOS submissions. This key is a valid optional key on all
+        # Apple platforms and is a harmless no-op on iOS and visionOS — no
+        # per-platform plist split is needed.
+        LSApplicationCategoryType: public.app-category.developer-tools
         CFBundleURLTypes:
           - CFBundleURLName: dev.tpmt.app.pairing
             CFBundleTypeRole: Editor

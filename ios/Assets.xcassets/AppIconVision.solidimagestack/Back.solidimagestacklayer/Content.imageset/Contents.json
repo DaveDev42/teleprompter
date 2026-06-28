@@ -4,6 +4,11 @@
       "filename" : "icon-layer-back.png",
       "idiom" : "universal",
       "scale" : "1x"
+    },
+    {
+      "filename" : "icon-layer-back@2x.png",
+      "idiom" : "universal",
+      "scale" : "2x"
     }
   ],
   "info" : {

@@ -43,13 +43,19 @@ settings:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES"
-    # Ad-hoc sign Simulator builds so entitlements (keychain-access-groups) are
-    # embedded. Without an entitlement the Simulator Keychain rejects SecItemAdd
+    # Ad-hoc sign Simulator/Debug builds so entitlements (keychain-access-groups)
+    # are embedded. Without an entitlement the Simulator Keychain rejects SecItemAdd
     # with errSecMissingEntitlement (-34018). Ad-hoc ("-") needs no developer
     # identity and the Simulator accepts it. Same applies to macOS local builds.
-    CODE_SIGN_IDENTITY: "-"
-    CODE_SIGNING_REQUIRED: "NO"
-    CODE_SIGNING_ALLOWED: "YES"
+    # QUALIFIED to Debug: every build/smoke/test path uses -configuration Debug
+    # (scripts/ios.sh cmd_build/cmd_test) while ONLY the TestFlight archive uses
+    # -configuration Release (cmd_archive). A device/MAS Release archive MUST sign
+    # with a real Apple Distribution identity + provisioning profile (ad-hoc is
+    # rejected by device SDKs: "Ad Hoc code signing is not allowed with SDK …"),
+    # so each shipping target carries [config=Release][sdk=…] manual-signing keys.
+    "CODE_SIGN_IDENTITY[config=Debug]": "-"
+    "CODE_SIGNING_REQUIRED[config=Debug]": "NO"
+    "CODE_SIGNING_ALLOWED[config=Debug]": "YES"
     ENABLE_USER_SCRIPT_SANDBOXING: "YES"
 
 targets:
@@ -105,6 +111,31 @@ targets:
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Teleprompter-macOS.entitlements
         # Wire the AppIcon asset catalog into both iOS and macOS targets.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # TestFlight archive (Release) manual signing, PER DEVICE SDK. xcodebuild
+        # CLI build-setting overrides apply GLOBALLY to all targets in one archive,
+        # so per-target/per-platform profile mapping CANNOT live in cmd_archive — it
+        # must be baked here. Manual signing REQUIRES an explicit
+        # PROVISIONING_PROFILE_SPECIFIER per (target, SDK); xcodebuild does NOT
+        # auto-resolve a profile by bundle id in Manual mode. Profile NAMES (stable,
+        # the SoT) are created by scripts/setup-testflight-secrets.sh — iOS :423,
+        # visionOS :429, macOS :446. CODE_SIGN_IDENTITY "Apple Distribution"
+        # resolves the imported dist cert in the throwaway CI keychain.
+        # DEVELOPMENT_TEAM is supplied at archive time (TP_DEVELOPMENT_TEAM, global
+        # CLI override — correct since all targets share one team). Debug/Simulator
+        # stays ad-hoc (project base [config=Debug] keys). iphoneos covers iOS+iPadOS.
+        "CODE_SIGN_STYLE[config=Release]": Manual
+        "CODE_SIGN_IDENTITY[config=Release][sdk=iphoneos*]": "Apple Distribution"
+        "CODE_SIGNING_REQUIRED[config=Release][sdk=iphoneos*]": "YES"
+        "CODE_SIGNING_ALLOWED[config=Release][sdk=iphoneos*]": "YES"
+        "PROVISIONING_PROFILE_SPECIFIER[config=Release][sdk=iphoneos*]": "Teleprompter iOS App Store"
+        "CODE_SIGN_IDENTITY[config=Release][sdk=macosx*]": "Apple Distribution"
+        "CODE_SIGNING_REQUIRED[config=Release][sdk=macosx*]": "YES"
+        "CODE_SIGNING_ALLOWED[config=Release][sdk=macosx*]": "YES"
+        "PROVISIONING_PROFILE_SPECIFIER[config=Release][sdk=macosx*]": "Teleprompter macOS App Store"
+        "CODE_SIGN_IDENTITY[config=Release][sdk=xros*]": "Apple Distribution"
+        "CODE_SIGNING_REQUIRED[config=Release][sdk=xros*]": "YES"
+        "CODE_SIGNING_ALLOWED[config=Release][sdk=xros*]": "YES"
+        "PROVISIONING_PROFILE_SPECIFIER[config=Release][sdk=xros*]": "Teleprompter visionOS App Store"
     # Explicit Info.plist (checked in) so we can register the custom `tp://` URL
     # scheme — CFBundleURLTypes has no INFOPLIST_KEY_* equivalent, so a generated
     # plist won't carry it. XcodeGen writes this file from `properties` and points
@@ -287,9 +318,23 @@ targets:
         # container. This is what makes the embed a true companion install.
         INFOPLIST_KEY_WKCompanionAppBundleIdentifier: "dev.tpmt.app"
         INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp: "YES"
-        CODE_SIGN_IDENTITY: "-"
-        CODE_SIGNING_REQUIRED: "NO"
-        CODE_SIGNING_ALLOWED: "YES"
+        # Debug/Simulator: ad-hoc (the watchOS Simulator smoke build runs Debug;
+        # Simulator Keychain accepts "-"). QUALIFIED to Debug so the Release DEVICE
+        # archive does NOT inherit ad-hoc — a watchOS DEVICE SDK rejects it ("Ad Hoc
+        # code signing is not allowed with SDK watchOS …", the exact archive failure).
+        "CODE_SIGN_IDENTITY[config=Debug]": "-"
+        "CODE_SIGNING_REQUIRED[config=Debug]": "NO"
+        "CODE_SIGNING_ALLOWED[config=Debug]": "YES"
+        # Release/device archive: the embedded companion watch signs with the same
+        # Apple Distribution cert + its OWN App Store profile (name from
+        # scripts/setup-testflight-secrets.sh:441). A per-target specifier is the
+        # ONLY way to map watch→its profile — one xcodebuild archive applies CLI
+        # overrides globally and cannot differ per target.
+        "CODE_SIGN_STYLE[config=Release]": Manual
+        "CODE_SIGN_IDENTITY[config=Release]": "Apple Distribution"
+        "CODE_SIGNING_REQUIRED[config=Release]": "YES"
+        "CODE_SIGNING_ALLOWED[config=Release]": "YES"
+        "PROVISIONING_PROFILE_SPECIFIER[config=Release]": "Teleprompter watch app App Store"
         # Allow Simulator builds alongside real-device watchOS builds.
         # Without this, xcodebuild only exposes real-device destinations (SDKROOT=watchos).
         SUPPORTED_PLATFORMS: "watchos watchsimulator"

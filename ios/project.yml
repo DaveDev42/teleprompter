@@ -109,8 +109,14 @@ targets:
         # macOS overrides this with the sandbox + network.client entitlements file.
         CODE_SIGN_ENTITLEMENTS: Teleprompter.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Teleprompter-macOS.entitlements
-        # Wire the AppIcon asset catalog into both iOS and macOS targets.
+        # Wire the AppIcon asset catalog into iOS and macOS targets.
+        # visionOS uses a separate .solidimagestack asset (AppIconVision) because
+        # visionOS requires a layered icon composed of Back/Middle/Front layers —
+        # a flat .appiconset is not accepted by altool (error 90970: missing
+        # CFBundleIcons.CFBundlePrimaryIcon). The solidimagestack layers are opaque
+        # 1024×1024 PNGs (no alpha) derived from the same flattened AppIcon source.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xros*]": AppIconVision
         # TestFlight archive (Release) manual signing, PER DEVICE SDK. xcodebuild
         # CLI build-setting overrides apply GLOBALLY to all targets in one archive,
         # so per-target/per-platform profile mapping CANNOT live in cmd_archive — it
@@ -315,12 +321,21 @@ targets:
       - path: Sources/Session/Terminal/TerminalOps.swift
       - path: Generated
         optional: true
+      # Watch-specific asset catalog. Contains WatchAppIcon.appiconset with the
+      # marketing icon (1024×1024, opaque, watchos platform). Wired via
+      # ASSETCATALOG_COMPILER_APPICON_NAME so Xcode generates CFBundleIconName in
+      # the watch app's Info.plist — required by App Store Connect (error 90713:
+      # "Missing Info.plist value … CFBundleIconName in dev.tpmt.app.watchkitapp").
+      - path: Watch/Assets.xcassets
     dependencies:
       # tp-core static library — watchOS slices added in B3. Not embedded.
       - framework: ../rust/target/TpCore.xcframework
         embed: false
     settings:
       base:
+        # App icon for the watch target — generates CFBundleIconName in the watch
+        # app's Info.plist (required by ASC, fixes error 90713).
+        ASSETCATALOG_COMPILER_APPICON_NAME: WatchAppIcon
         # Companion watch app embedded in the main iOS app (#123, ADR-0004 Amdt 2).
         # The watch app ships inside dev.tpmt.app's .ipa (one ASC record). Apple's
         # WatchKit layout requires the watch app id to be <companion-id>.watchkitapp,

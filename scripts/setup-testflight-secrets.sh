@@ -289,10 +289,19 @@ ensure_bundle_id() {
   local raw; raw="$(asc GET "/bundleIds?filter%5Bidentifier%5D=$ident&filter%5Bplatform%5D=$plat")"
   local http="${raw##*$'\n'}" found="${raw%$'\n'*}"
   if [ "$http" = "200" ]; then
+    # ASC filter[identifier] is a PREFIX/substring match, not exact — querying
+    # "dev.tpmt.app" also returns "dev.tpmt.app.watchkitapp" (and any other
+    # dev.tpmt.app.* id). filter[platform] does NOT disambiguate either: both ids
+    # are platform=UNIVERSAL, so the platform filter returns the same superset.
+    # Picking data[0] blindly grabbed the watch id, binding every profile to
+    # dev.tpmt.app.watchkitapp → "profile X has app ID …watchkitapp which does not
+    # match bundle ID dev.tpmt.app" archive failure. Select the EXACT identifier.
     local id; id="$(printf '%s' "$found" | python3 -c '
 import sys,json
+want=sys.argv[1]
 d=json.load(sys.stdin).get("data",[])
-print(d[0]["id"] if d else "")')"
+m=[b["id"] for b in d if b["attributes"].get("identifier")==want]
+print(m[0] if m else "")' "$ident")"
     if [ -n "$id" ]; then ok "bundleId $ident ($plat): exists" >&2; printf '%s' "$id"; return 0; fi
   fi
   if [ "$DRY_RUN" -eq 1 ]; then warn "bundleId $ident ($plat): DRY RUN — would create" >&2; printf 'DRYRUN'; return 0; fi
@@ -307,7 +316,14 @@ PY
   http="${raw##*$'\n'}"; local resp="${raw%$'\n'*}"
   if [ "$http" = "409" ]; then
     raw="$(asc GET "/bundleIds?filter%5Bidentifier%5D=$ident&filter%5Bplatform%5D=$plat")"
-    printf '%s' "${raw%$'\n'*}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"][0]["id"])'
+    # Same prefix-match caveat as the 200 path above — select the EXACT identifier,
+    # never data[0] (which may be a dev.tpmt.app.* sibling like the watch id).
+    printf '%s' "${raw%$'\n'*}" | python3 -c '
+import sys,json
+want=sys.argv[1]
+d=json.load(sys.stdin).get("data",[])
+m=[b["id"] for b in d if b["attributes"].get("identifier")==want]
+print(m[0] if m else "")' "$ident"
     ok "bundleId $ident ($plat): already registered (reused)" >&2; return 0
   fi
   [ "$http" = "201" ] || die "bundleId $ident ($plat): create failed (HTTP $http)"

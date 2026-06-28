@@ -1,15 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Entitlements for the native Teleprompter macOS app (local/development builds).
+  Entitlements for the native Teleprompter macOS app — applies to TestFlight /
+  Mac App Store (Release) archive builds.
 
-  NOTE: com.apple.security.app-sandbox is intentionally OMITTED here. The sandbox
-  entitlement requires a Developer ID / Mac App Store certificate to sign. For
-  local ad-hoc builds (CODE_SIGN_IDENTITY="-") the sandbox cannot be requested —
-  Xcode refuses to sign with "-" when sandbox is present. Non-sandboxed macOS apps
-  are fine for local development and direct distribution outside the App Store.
-  When MAS submission is added, a separate MAS entitlements file with
-  com.apple.security.app-sandbox + com.apple.security.network.client will be needed.
+  com.apple.security.app-sandbox: REQUIRED by App Store Connect for Mac App Store
+  and TestFlight distribution (ASC error 90296 if absent). This file is picked up
+  only by the Release archive path (scripts/ios.sh archive). Local ad-hoc macOS
+  smoke builds (TP_PLATFORM=macos scripts/ios.sh build/smoke) pass
+  CODE_SIGN_ENTITLEMENTS="" at xcodebuild time, which CLEARS this file entirely
+  (scripts/ios.sh lines 509 and 1790) — so adding sandbox here does NOT affect the
+  local macOS smoke path.
+
+  com.apple.security.network.client: required inside the sandbox so the app can
+  open outbound network connections (WebSocket to the relay server). Without this,
+  a sandboxed build would be unable to connect to any relay URL and would be
+  completely non-functional.
 
   keychain-access-groups: required for the Keychain to be usable on macOS. The
   Keychain API (SecItemAdd etc.) requires this entitlement; without it access is
@@ -28,6 +34,12 @@
 -->
 <plist version="1.0">
 <dict>
+    <!-- Required by ASC (error 90296) for Mac App Store / TestFlight submission. -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <!-- Required inside the sandbox to open outbound WebSocket connections to the relay. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
     <key>keychain-access-groups</key>
     <array>
         <string>$(AppIdentifierPrefix)dev.tpmt.app</string>

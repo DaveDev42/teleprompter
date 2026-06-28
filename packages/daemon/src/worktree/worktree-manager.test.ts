@@ -1,11 +1,16 @@
 /**
- * NOTE (macOS): run this file with a rooted path — `bun test
- * ./packages/daemon/...` or from inside packages/daemon. Un-rooted args put
- * bun test in filter mode, whose repo-wide scan holds ~11k directory fds;
- * spawnSync pipe fds then exceed Darwin's OPEN_MAX (10240), posix_spawn
- * cannot wire them into the git child, and bun silently returns empty stdout
- * (6 tests fail on empty `git worktree list` output). See
- * `.claude/rules/testing-inventory.md` → "macOS rooted paths".
+ * NOTE (macOS): prefer a rooted path — `bun test ./packages/daemon/...` or run
+ * from inside packages/daemon. Un-rooted args put bun test in filter mode,
+ * whose repo-wide scan holds ~11k directory fds; spawnSync pipe fds then exceed
+ * Darwin's OPEN_MAX (10240) and bun silently returns empty stdout. That is a
+ * general filter-mode footgun (see `.claude/rules/testing-inventory.md` →
+ * "macOS rooted paths").
+ *
+ * The git calls here use `gitRunSync`/`gitCaptureSync`, which strip inherited
+ * GIT_* env vars and pass `-C <cwd>` so they always target the isolated temp
+ * repo — even when this suite runs from a `git push` pre-push hook, where git
+ * exports GIT_DIR pointing at the caller's worktree (which would otherwise
+ * override cwd/-C and pollute the caller's HEAD; see PR #796).
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, realpathSync } from "fs";

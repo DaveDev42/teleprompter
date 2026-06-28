@@ -348,7 +348,7 @@ PRD and internal docs are written in Korean. Code, comments, and commit messages
 
 ## Native App Build (Multiplatform)
 
-**Apple 멀티플랫폼 앱(iOS/iPadOS/macOS/visionOS + watchOS 별도 타깃) 빌드/검증은 로컬 하니스가 담당한다 (EAS 클라우드 제거).** XcodeGen `ios/project.yml` 이 프로젝트 SoT — 멀티플랫폼 타깃 `platform: auto` + `supportedDestinations: [iOS, macOS, visionOS]` + 별도 `TeleprompterWatch` 타깃(`platform: watchOS`, B3 ✅) (`.xcodeproj` 는 생성물, gitignore; 디렉터리명은 `ios/` 유지, ADR-0002). 하니스 = `scripts/ios.sh` (`TP_PLATFORM=ios` 기본 / `macos` / `visionos` / `watchos`):
+**Apple 멀티플랫폼 앱(iOS/iPadOS/macOS/visionOS + watchOS 별도 타깃) 빌드/검증은 로컬 하니스가 담당한다 (EAS 클라우드 제거).** XcodeGen `ios/project.yml` 이 프로젝트 SoT — 멀티플랫폼 타깃 `platform: auto` + `supportedDestinations: [iOS, macOS, visionOS]` + 별도 `TeleprompterWatch` 타깃(`platform: watchOS`, B3 ✅) (`.xcodeproj` 는 생성물, gitignore; 디렉터리명은 `ios/` 유지, ADR-0002). **watch 는 메인 iOS 앱의 companion 으로 임베드 배포**(`Teleprompter` 타깃의 `- target: TeleprompterWatch / embed: true / destinationFilters: [iOS]` 의존성 — iOS 목적지로만 스코프, macOS/visionOS 슬라이스 미임베드)되, `WKRunsIndependentlyOfCompanionApp: YES` 로 standalone 구동 유지 (companion DISTRIBUTION + standalone RUNTIME, #123/ADR-0004 Amdt 2). 번들 ID = `dev.tpmt.app`(메인) + `dev.tpmt.app.watchkitapp`(watch). 하니스 = `scripts/ios.sh` (`TP_PLATFORM=ios` 기본 / `macos` / `visionos` / `watchos`):
 
 ```bash
 scripts/ios.sh rust     # TpCore.xcframework (7 슬라이스: ios-arm64/ios-sim-fat/macos-fat/xros-arm64/xros-sim/watchos-arm64+arm64_32-fat/watchos-sim) + UniFFI 바인딩

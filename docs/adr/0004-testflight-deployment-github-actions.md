@@ -165,11 +165,17 @@ iOS-전용 파이프라인을, 플랫폼별 archive 분기 + 플랫폼별 Export
 원안 7개(iOS) 위에 플랫폼별 인증서/프로파일을 추가한다. ASC API 키(`ASC_API_KEY_*`)와 `APPLE_TEAM_ID`
 는 **전 플랫폼 공유**. 추가 시크릿(요청자가 Apple 계정으로 생성 — 자동화 불가):
 
+> **⚠️ 아래 표의 watchOS 행은 §8.3 (Amendment 2, #123) 으로 SUPERSEDED 됨.** watch 는 더 이상 별도
+> 컨테이너/별도 ASC 레코드/2-profile 모델이 아니다 — iOS 앱에 컴패니언으로 임베드돼 **단일 watch profile
+> `IOS_WATCH_PROVISIONING_PROFILE_BASE64`** (bundle `dev.tpmt.app.watchkitapp`, ASC 레코드는 `dev.tpmt.app`
+> 단일) 만 쓴다. 아래 `WATCHOS_CONTAINER_*`/`WATCHOS_APP_*` 시크릿은 **DEAD** — 설정하지 말 것. 정확한
+> 모델은 §8.3 참조. (macOS/visionOS 행은 유효.)
+
 | 플랫폼 | 추가 시크릿 | 비고 |
 |--------|-------------|------|
 | macOS  | `MAC_DIST_CERT_P12_BASE64`, `MAC_DIST_CERT_PASSWORD`, `MAC_PROVISIONING_PROFILE_BASE64` | Mac App Distribution 인증서 + MAS profile (`.provisionprofile`). 별도 ASC macOS 레코드. |
 | visionOS | `VISIONOS_PROVISIONING_PROFILE_BASE64` | iOS Distribution 인증서 재사용 가능(같은 팀); profile 만 별도. 별도 ASC visionOS 레코드. |
-| watchOS | `WATCHOS_CONTAINER_PROVISIONING_PROFILE_BASE64`, `WATCHOS_APP_PROVISIONING_PROFILE_BASE64` | iOS Distribution 인증서 재사용. profile **2개** — 컨테이너(`dev.tpmt.app.watch`) + 임베드 watch 앱(`dev.tpmt.app.watch.watchkitapp`). 별도 ASC 레코드(iOS 플랫폼, `dev.tpmt.app.watch`). |
+| ~~watchOS~~ (SUPERSEDED → §8.3) | ~~`WATCHOS_CONTAINER_PROVISIONING_PROFILE_BASE64`, `WATCHOS_APP_PROVISIONING_PROFILE_BASE64`~~ | **DEAD (Amendment 2, #123).** watch 는 iOS 앱에 임베드 — `IOS_WATCH_PROVISIONING_PROFILE_BASE64` 단일 profile (bundle `dev.tpmt.app.watchkitapp`), ASC 레코드 `dev.tpmt.app` 단일. §8.3 참조. |
 
 > **자동화 경계.** GitHub Secrets 주입과 ASC 앱 레코드/프로비저닝 프로파일 생성은 Apple 계정 접근이
 > 필요해 **에이전트가 못 한다 — 요청자만 가능**. Amendment 의 CI/CD 스캐폴딩(워크플로·하니스 분기·

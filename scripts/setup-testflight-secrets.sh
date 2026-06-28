@@ -107,6 +107,21 @@ done
 
 has_platform() { case " $PLATFORMS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
+# ios ⟹ watchos coupling (#123, ADR-0004 Amdt 2). The watch app is a COMPANION
+# embedded inside the iOS .ipa, and testflight.yml's iOS guard treats
+# IOS_WATCH_PROVISIONING_PROFILE_BASE64 as HARD-REQUIRED. If someone runs
+# `--platforms ios` (or any subset with ios but not watchos), the watch profile
+# secret never gets written, the iOS guard's `ready` output is false, and the
+# whole iOS upload SILENTLY SKIPS (only a ::notice::) — the first upload never
+# fires. Auto-inject watchos so selecting iOS distribution always emits the watch
+# profile it needs. (Selecting watchos WITHOUT ios is still allowed — it just
+# emits the watch profile; the watch can't ship without its iOS host, but that's
+# the operator's call.)
+if has_platform ios && ! has_platform watchos; then
+  PLATFORMS="$PLATFORMS watchos"
+  printf '\033[1;33m▸ ios selected without watchos — auto-adding watchos (the companion watch ships inside the iOS .ipa and its profile is required by the iOS upload job)\033[0m\n' >&2
+fi
+
 # ── preflight ────────────────────────────────────────────────────────────────
 preflight() {
   [ "$(uname)" = "Darwin" ] || die "must run on macOS (security/codesign tooling)"

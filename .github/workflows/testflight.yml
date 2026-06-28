@@ -28,10 +28,16 @@
 # secrets-less environment never fails; it just skips with a clear message.
 name: TestFlight
 
+# Trigger = workflow_dispatch ONLY. release.yml's `testflight` job dispatches this
+# (gh workflow run testflight.yml --ref <tag> -f tag=<tag>) after a successful CLI
+# release+tap bump (CD), and the first manual upload (Task #122) is also a dispatch.
+# A `push: tags: [v*]` trigger was REMOVED (#125): with release.yml ALSO dispatching
+# on the same tag, every release produced TWO complete runs with different build
+# numbers — ASC accepted a duplicate TestFlight build per release AND it burned 2x
+# the (paid) macos-26 archive jobs. Dispatch-only makes release.yml the single
+# driver. (GitHub API tag-creation often fails to fire push events anyway, #172 —
+# so the push trigger was unreliable on top of being duplicative.)
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       tag:
@@ -195,6 +201,19 @@ jobs:
         id: archive
         env:
           TP_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          # FORCE a fresh xcframework rebuild. Swatinem/rust-cache (workspaces: rust)
+          # caches rust/target/, which is where TpCore.xcframework lives
+          # (scripts/ios.sh:114). ci.yml's swift-build/swift-smoke jobs build with
+          # TP_SKIP_ARM64_32=1 → a 6-slice xcframework whose watchOS-device slice is
+          # arm64-ONLY (no arm64_32). If that stale cache is restored here,
+          # ensure_xcframework() skips the rebuild (it only checks Info.plist
+          # presence, not slice completeness — ios.sh:401/411), and the iOS DEVICE
+          # archive — which embeds the watch and therefore needs the arm64_32 watch
+          # slice — HARD-FAILS "missing architecture(s) required ... arm64_32" AFTER
+          # the macos-26 runner is provisioned and the signing keychain is set up,
+          # wasting paid minutes. TP_FORCE_RUST=1 rebuilds the full 7-slice (incl.
+          # arm64_32 via nightly -Z build-std) xcframework, ignoring the poisoned cache.
+          TP_FORCE_RUST: "1"
           # GitHub Actions expressions have NO arithmetic operators (* and + are
           # not in the operator table), so the run_number*100+run_attempt math is
           # done in the shell. run_number and run_attempt are plain integer

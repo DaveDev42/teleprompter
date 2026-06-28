@@ -305,6 +305,16 @@ targets:
         # present in the xcframework. This holds in BOTH the embedded build and the
         # standalone smoke build (which also passes ARCHS=arm64 on the CLI).
         "EXCLUDED_ARCHS[sdk=watchsimulator*]": x86_64
+        # Export-compliance: the embedded watch app (Payload/Teleprompter.app/Watch/)
+        # carries its OWN Info.plist (GENERATE_INFOPLIST_FILE=YES), so it needs its
+        # own ITSAppUsesNonExemptEncryption — the host iOS app's key (Teleprompter
+        # target, ITSAppUsesNonExemptEncryption: false) does NOT cover the embedded
+        # watch slice. Without this, ASC puts the WHOLE build in "Missing Compliance"
+        # hold and no TestFlight tester can install it. We use only standard
+        # XChaCha20/X25519 (EAR 740.17(b)(1) exempt), same as the host. NOTE: the
+        # GENERATE_INFOPLIST_FILE path takes a *string* "NO" (the host app sets the
+        # raw plist boolean `false`; here it is an INFOPLIST_KEY_* build setting).
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: "NO"
 
   # (TeleprompterWatchContainer removed in #123 / ADR-0004 Amendment 2.) The watch
   # app is now a companion embedded directly in the main iOS app (see the

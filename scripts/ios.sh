@@ -122,13 +122,16 @@ SIGN_FLAGS="CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=Y
 # Distribution build outputs. Unlike the Simulator/macOS smoke paths (ad-hoc "-"),
 # the TestFlight archive needs a REAL Apple Distribution identity + provisioning
 # profile (injected into a temporary keychain by .github/workflows/testflight.yml
-# in CI, or present in the developer's login keychain locally). cmd_archive builds
-# for the iOS *device* destination ("generic/platform=iOS"), archives, then exports
-# an App-Store-Connect-ready .ipa using ios/ExportOptions.plist.
+# in CI, or present in the developer's login keychain locally). cmd_archive branches
+# on TP_PLATFORM via resolve_archive_params() (ADR-0004 Amendment 1): ios/ipad →
+# generic/platform=iOS → .ipa (ExportOptions.plist; embeds the companion watch),
+# macos → generic/platform=macOS → MAS .pkg (ExportOptions.macos.plist), visionos →
+# generic/platform=visionOS → .ipa (ExportOptions.visionos.plist). watchos dies
+# (the watch rides inside the iOS .ipa, #123). The per-platform ExportOptions path
+# is ARCHIVE_EXPORT_OPTIONS, set in resolve_archive_params() — NOT a top-level var.
 ARCHIVE_DIR="${TP_ARCHIVE_DIR:-$IOS_DIR/build/archive}"
 ARCHIVE_PATH="$ARCHIVE_DIR/Teleprompter.xcarchive"
 EXPORT_DIR="${TP_EXPORT_DIR:-$IOS_DIR/build/export}"
-EXPORT_OPTIONS="$IOS_DIR/ExportOptions.plist"
 
 # Resolve the target platform (ios default = unchanged behaviour).
 TP_PLATFORM="${TP_PLATFORM:-ios}"

@@ -194,6 +194,25 @@ targets:
         # `.onOpenURL` needs to receive `tp://` deep links.
         # On macOS (native, not Catalyst) SwiftUI's WindowGroup works without a
         # scene manifest — the key is ignored by AppKit.
+        #
+        # Supported interface orientations. REQUIRED for App Store / TestFlight
+        # upload: altool rejected the .ipa with "Invalid bundle. No orientations
+        # were specified in the dev.tpmt.app bundle … specify the
+        # UISupportedInterfaceOrientations Info.plist key" (90474). iPad apps must
+        # declare all four orientations to support multitasking; the ~ipad
+        # variant supplies that, while iPhone keeps the conventional three (no
+        # upside-down). Both keys are iOS/iPadOS-only — AppKit (macOS) and
+        # visionOS ignore them, so no per-platform plist split is needed (same as
+        # the other UI* keys above).
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
           UISceneConfigurations:

@@ -158,7 +158,13 @@ preflight() {
   fi
 
   ok "preflight ok — work dir $WORK_DIR (gitignored), team $APPLE_TEAM_ID"
-  [ "$DRY_RUN" -eq 1 ] && warn "DRY RUN — no ASC mutations, no secrets written"
+  # MUST be an explicit `if`, NOT `[ cond ] && warn`. As the LAST statement of
+  # this function, a bare `&&`-chain makes preflight() inherit the chain's exit
+  # status — in a REAL run (DRY_RUN=0) the test is false → the chain returns 1 →
+  # under `set -e` the caller (main) aborts right after "preflight ok" with no
+  # error. (Same footgun the author already fixed in main() at the bottom of the
+  # file; it was left unfixed here, silently breaking every non-dry-run.)
+  if [ "$DRY_RUN" -eq 1 ]; then warn "DRY RUN — no ASC mutations, no secrets written"; fi
 }
 
 # ── ASC REST helpers (mint a fresh JWT per call; never crosses the 20m cap) ───
@@ -205,7 +211,11 @@ ensure_cert() {
   local ctype="$1" slug="$2"
   local key="$WORK_DIR/${slug}_key.pem" der="$WORK_DIR/${slug}.cer"
   local pem="$WORK_DIR/${slug}.pem" p12="$WORK_DIR/${slug}.p12" csr="$WORK_DIR/${slug}.csr"
-  local recorded_id; recorded_id="$(json_get "json.load(open('$MANIFEST')).get('cert_${slug}','')" 2>/dev/null || true)"
+  # json_get reads the manifest from STDIN (see the note in main()); a
+  # self-opening expr with no stdin fails → empty recorded_id → reuse path
+  # never taken → cert needlessly re-issued every run (eventually hits the
+  # team active-cert cap, 409).
+  local recorded_id; recorded_id="$(json_get "d.get('cert_${slug}','')" < "$MANIFEST" 2>/dev/null || true)"
 
   if [ -f "$key" ] && [ -f "$p12" ] && [ -n "$recorded_id" ]; then
     local resp; resp="$(asc GET "/certificates?filter%5BcertificateType%5D=$ctype&limit=200")"
@@ -412,9 +422,14 @@ main() {
   fi
 
   # Resolve cert UUIDs from the manifest for profile relationships.
+  # json_get reads JSON from STDIN (json.load(sys.stdin)) and evals the expr
+  # against `d` — so the manifest MUST be piped in. Passing a self-opening
+  # `json.load(open(...))` expr with no stdin makes json.load(sys.stdin) fail
+  # on empty input → `2>/dev/null || true` swallows it → empty cert id →
+  # profile create 409 "'' is not a valid id for the relationship 'certificates'".
   local ios_cert_id mac_app_cert_id
-  ios_cert_id="$(json_get "json.load(open('$MANIFEST')).get('cert_ios_dist','')" 2>/dev/null || true)"
-  mac_app_cert_id="$(json_get "json.load(open('$MANIFEST')).get('cert_mac_app','')" 2>/dev/null || true)"
+  ios_cert_id="$(json_get "d.get('cert_ios_dist','')" < "$MANIFEST" 2>/dev/null || true)"
+  mac_app_cert_id="$(json_get "d.get('cert_mac_app','')" < "$MANIFEST" 2>/dev/null || true)"
 
   # Bundle IDs + profiles.
   if has_platform ios; then

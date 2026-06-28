@@ -1943,6 +1943,7 @@ ARCHIVE_ARTIFACT_EXT=""
 # Parallel-array form (no `declare -A`) keeps this bash-3.2-safe like the rest of
 # the script.
 ARCHIVE_PROFILE_MAP=()
+ARCHIVE_INSTALLER_CERT=""
 resolve_archive_params() {
   case "$TP_PLATFORM" in
     ios|ipad)
@@ -1964,6 +1965,12 @@ resolve_archive_params() {
       ARCHIVE_ARTIFACT_EXT="pkg"
       # macOS slice carries only the main app (watch embed is destinationFilters:[iOS]).
       ARCHIVE_PROFILE_MAP=( "dev.tpmt.app|Teleprompter macOS App Store" )
+      # macOS .pkg export needs a separate installer-signing identity. Setting
+      # installerSigningCertificate tells xcodebuild to resolve the "3rd Party
+      # Mac Developer Installer" identity directly from the keychain instead of
+      # trying to validate it through the provisioning profile (which never lists
+      # installer certs — that caused exit-70 "doesn't include signing certificate").
+      ARCHIVE_INSTALLER_CERT="3rd Party Mac Developer Installer"
       ;;
     visionos)
       ARCHIVE_DEST="generic/platform=visionOS"
@@ -2055,6 +2062,13 @@ cmd_archive() {
     name="${pair#*|}"
     /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$bid string $name" "$export_opts"
   done
+  # macOS .pkg exports need an explicit installerSigningCertificate so xcodebuild
+  # resolves the "3rd Party Mac Developer Installer" identity from the keychain
+  # rather than trying (and failing) to validate it through the provisioning
+  # profile. iOS/visionOS exports leave ARCHIVE_INSTALLER_CERT empty and skip this.
+  if [ -n "${ARCHIVE_INSTALLER_CERT:-}" ]; then
+    /usr/libexec/PlistBuddy -c "Add :installerSigningCertificate string $ARCHIVE_INSTALLER_CERT" "$export_opts"
+  fi
 
   log "exporting App Store .$ARCHIVE_ARTIFACT_EXT → $EXPORT_DIR"
   xcodebuild \

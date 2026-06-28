@@ -229,6 +229,17 @@ targets:
         # Apple platforms and is a harmless no-op on iOS and visionOS — no
         # per-platform plist split is needed.
         LSApplicationCategoryType: public.app-category.developer-tools
+        # CFBundleVersion / CFBundleShortVersionString MUST be variable references,
+        # not literals. Because this target sets an explicit INFOPLIST_FILE
+        # (Teleprompter-Info.plist, for the scene manifest + URL types), XcodeGen
+        # otherwise bakes CURRENT_PROJECT_VERSION's literal value ("1") into the
+        # plist's CFBundleVersion — which then WINS over the archive-time
+        # `CURRENT_PROJECT_VERSION=<TP_BUILD_NUMBER>` build-setting override, so every
+        # TestFlight build shipped CFBundleVersion=1 and ASC rejected re-uploads as
+        # duplicate (run 28333992407: "bundle version must be higher than … '1'").
+        # As variable references the overrides propagate at archive time.
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleURLTypes:
           - CFBundleURLName: dev.tpmt.app.pairing
             CFBundleTypeRole: Editor

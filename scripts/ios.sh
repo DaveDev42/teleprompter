@@ -1930,6 +1930,13 @@ ARCHIVE_DEST=""
 ARCHIVE_SCHEME=""
 ARCHIVE_EXPORT_OPTIONS=""
 ARCHIVE_ARTIFACT_EXT=""
+# bundleId|profileName pairs injected into a temp ExportOptions at export time.
+# Manual -exportArchive needs an explicit provisioningProfiles dict per app in the
+# archive (the iOS .ipa carries TWO: the main app + the embedded companion watch);
+# kept out of the checked-in plist so no profile name / team id lands in git.
+# Parallel-array form (no `declare -A`) keeps this bash-3.2-safe like the rest of
+# the script.
+ARCHIVE_PROFILE_MAP=()
 resolve_archive_params() {
   case "$TP_PLATFORM" in
     ios|ipad)
@@ -1937,18 +1944,28 @@ resolve_archive_params() {
       ARCHIVE_SCHEME="$SCHEME"
       ARCHIVE_EXPORT_OPTIONS="$IOS_DIR/ExportOptions.plist"
       ARCHIVE_ARTIFACT_EXT="ipa"
+      # iOS .ipa carries BOTH the main app and the embedded companion watch — manual
+      # export needs a profile mapping for each (the export failure named both apps).
+      ARCHIVE_PROFILE_MAP=(
+        "dev.tpmt.app|Teleprompter iOS App Store"
+        "dev.tpmt.app.watchkitapp|Teleprompter watch app App Store"
+      )
       ;;
     macos)
       ARCHIVE_DEST="generic/platform=macOS"
       ARCHIVE_SCHEME="$SCHEME"
       ARCHIVE_EXPORT_OPTIONS="$IOS_DIR/ExportOptions.macos.plist"
       ARCHIVE_ARTIFACT_EXT="pkg"
+      # macOS slice carries only the main app (watch embed is destinationFilters:[iOS]).
+      ARCHIVE_PROFILE_MAP=( "dev.tpmt.app|Teleprompter macOS App Store" )
       ;;
     visionos)
       ARCHIVE_DEST="generic/platform=visionOS"
       ARCHIVE_SCHEME="$SCHEME"
       ARCHIVE_EXPORT_OPTIONS="$IOS_DIR/ExportOptions.visionos.plist"
       ARCHIVE_ARTIFACT_EXT="ipa"
+      # visionOS slice carries only the main app (watch embed is destinationFilters:[iOS]).
+      ARCHIVE_PROFILE_MAP=( "dev.tpmt.app|Teleprompter visionOS App Store" )
       ;;
     watchos)
       # #123 (ADR-0004 Amendment 2): the watch is a companion embedded in the iOS
@@ -2012,12 +2029,33 @@ cmd_archive() {
     die "archive is a non-distributable 'Generic Xcode Archive' (no ApplicationProperties in $ARCHIVE_PATH/Info.plist). The $ARCHIVE_SCHEME scheme for $TP_PLATFORM did not produce a distributable app archive — see ADR-0004 §7."
   fi
 
+  # Build a temp ExportOptions with teamID + bundleId→profile mapping injected.
+  # Manual -exportArchive does NOT auto-match keychain profiles by bundle id (that's
+  # Automatic-signing behavior — and assuming it was the bug that made every export
+  # fail with `exportArchive "…app" requires a provisioning profile`). It needs an
+  # explicit provisioningProfiles dict for EVERY app in the archive (the iOS .ipa has
+  # two: the main app + the embedded watch). teamID is required too — the export
+  # invocation, unlike archive (DEVELOPMENT_TEAM=…), passes no team. Both come from
+  # $TP_DEVELOPMENT_TEAM + ARCHIVE_PROFILE_MAP so nothing leaks into the checked-in
+  # plist. The temp file lands in $EXPORT_DIR (rm -rf'd + recreated above — no leak;
+  # the artifact search below matches only *.$ARCHIVE_ARTIFACT_EXT, never *.plist).
+  local export_opts="$EXPORT_DIR/ExportOptions.resolved.plist"
+  cp "$ARCHIVE_EXPORT_OPTIONS" "$export_opts"
+  /usr/libexec/PlistBuddy -c "Add :teamID string $TP_DEVELOPMENT_TEAM" "$export_opts"
+  /usr/libexec/PlistBuddy -c "Add :provisioningProfiles dict" "$export_opts"
+  local pair bid name
+  for pair in "${ARCHIVE_PROFILE_MAP[@]}"; do
+    bid="${pair%%|*}"
+    name="${pair#*|}"
+    /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:$bid string $name" "$export_opts"
+  done
+
   log "exporting App Store .$ARCHIVE_ARTIFACT_EXT → $EXPORT_DIR"
   xcodebuild \
     -exportArchive \
     -archivePath "$ARCHIVE_PATH" \
     -exportPath "$EXPORT_DIR" \
-    -exportOptionsPlist "$ARCHIVE_EXPORT_OPTIONS" | xcbeautify_or_cat >&2
+    -exportOptionsPlist "$export_opts" | xcbeautify_or_cat >&2
 
   local artifact
   artifact="$(find "$EXPORT_DIR" -name "*.$ARCHIVE_ARTIFACT_EXT" -maxdepth 1 | head -1)"

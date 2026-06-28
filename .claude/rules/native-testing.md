@@ -95,6 +95,12 @@ scripts/ios.sh archive  # TestFlight: TP_PLATFORM 별 Release archive → 서명
 > `IOS_WATCH_PROVISIONING_PROFILE_BASE64` 2개) + `TP_DEVELOPMENT_TEAM` 필수. CI 자동화는
 > `.github/workflows/testflight.yml`(`v*` 태그 push, 플랫폼별 job). 시크릿/ASC 레코드 셋업 체크리스트 =
 > `docs/testflight-setup.md`; 상세는 `.claude/rules/ci-workflows.md` → TestFlight + `docs/adr/0004-*`.
+>
+> **서명은 archive·export 두 단계 모두 매핑이 필요하다**: archive 는 `project.yml` 의
+> `[config=Release][sdk=…]` specifier 가, export(`xcodebuild -exportArchive`)는 `cmd_archive` 가
+> `ARCHIVE_PROFILE_MAP`+`$TP_DEVELOPMENT_TEAM` 으로 temp `ExportOptions.resolved.plist` 에 주입하는
+> `provisioningProfiles` dict(+`teamID`)가 담당한다 (manual 서명은 keychain bundle-id 자동매칭을 안 함).
+> iOS export 매핑은 메인+임베드 watch 2개, macOS/visionOS 는 1개. 상세 = `ci-workflows.md` TestFlight.
 
 xcframework 는 **7 슬라이스** (`ios-arm64`, `ios-arm64_x86_64-simulator`, `macos-arm64_x86_64`,
 `xros-arm64`, `xros-arm64-simulator`, `watchos-arm64_arm64_32`, `watchos-arm64-simulator`).

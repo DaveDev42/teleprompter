@@ -16,9 +16,12 @@
     headlessly).
   - uploadSymbols true: ship dSYMs so App Store Connect symbolicates crash logs.
 
-  teamID and the bundleId→profile mapping are NOT hardcoded — team comes from the
-  archive's embedded signing (DEVELOPMENT_TEAM in cmd_archive), and Xcode resolves
-  the profile from the keychain by bundle id (dev.tpmt.app, visionOS). There is NO
+  teamID and the bundleId→profile mapping are NOT hardcoded — `cmd_archive` injects
+  them at EXPORT time into a temp copy (ExportOptions.resolved.plist) from
+  $TP_DEVELOPMENT_TEAM + ARCHIVE_PROFILE_MAP (visionOS = one entry: dev.tpmt.app →
+  "Teleprompter visionOS App Store"). Manual -exportArchive does NOT resolve profiles
+  from the keychain by bundle id — that is Automatic-signing behavior; manual needs
+  an explicit provisioningProfiles dict. There is NO
   visionOS-specific distribution certificate — the same iOS "Apple Distribution"
   identity signs visionOS; only the provisioning profile is visionOS-specific.
 -->

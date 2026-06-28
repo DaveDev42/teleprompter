@@ -16,9 +16,12 @@
     talking to the developer portal (impossible headlessly).
   - uploadSymbols true: ship dSYMs so App Store Connect symbolicates crash logs.
 
-  teamID and the bundleId→profile mapping are NOT hardcoded — team comes from the
-  archive's embedded signing (DEVELOPMENT_TEAM in cmd_archive), and Xcode resolves
-  the profile from the keychain by bundle id (dev.tpmt.app, macOS). The .pkg is
+  teamID and the bundleId→profile mapping are NOT hardcoded — `cmd_archive` injects
+  them at EXPORT time into a temp copy (ExportOptions.resolved.plist) from
+  $TP_DEVELOPMENT_TEAM + ARCHIVE_PROFILE_MAP (macOS = one entry: dev.tpmt.app →
+  "Teleprompter macOS App Store"). Manual -exportArchive does NOT resolve profiles
+  from the keychain by bundle id — that is Automatic-signing behavior; manual needs
+  an explicit provisioningProfiles dict. The .pkg is
   signed with the "3rd Party Mac Developer Installer" identity, which is a SEPARATE
   certificate from the app-signing identity (Apple portal lists them as distinct
   cert types). No installerSigningCertificate key is needed here as long as that

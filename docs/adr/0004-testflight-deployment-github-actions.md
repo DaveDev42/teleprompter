@@ -181,3 +181,69 @@ iOS-전용 파이프라인을, 플랫폼별 archive 분기 + 플랫폼별 Export
 빌드/검증 SoT = `scripts/ios.sh`; Simulator/로컬 ad-hoc 서명 불변; 시크릿은 읽기-전용·일회용 keychain·
 `always()` 정리; 신규 job non-required 진입; 빌드번호 = `run_number*100+run_attempt`(shell 산술).
 번들 ID SoT = `project.yml` `PRODUCT_BUNDLE_IDENTIFIER`.
+
+## 8. Amendment 2 — watchOS: companion 임베드로 전환 (2026-06-28, #123)
+
+목표(요청자 확정): **watch 앱을 컴패니언으로 배포하고(iPhone 에서 설치·설정), 실제 구동은 iPhone 과
+떨어져 있어도 단독으로 할 수 있다.** 즉 **companion DISTRIBUTION + standalone RUNTIME**. 이 둘은 상호
+배타가 아니다 — 배포 모델(임베드 vs 독립 컨테이너)과 런타임 플래그(`WKRunsIndependentlyOfCompanionApp`)
+는 별개 축이다.
+
+### 8.1 Amendment 1 §7.1 watchOS 결정의 정정 (이 부분만 supersede)
+
+Amendment 1 §7.1 은 watch 를 **독립 컨테이너(`TeleprompterWatchContainer`,
+`application.watchapp2-container`)에 임베드해 별도 ASC 레코드(`dev.tpmt.app.watch`)로** 배포하기로 했고,
+"companion 임베드(실 iOS 동반앱) 전환은 채택하지 않는다 — 컨테이너는 빈 껍데기"(§7.1 L136)라고 명시했다.
+**Amendment 2 는 이 결정을 뒤집는다**: watch 를 빈 컨테이너가 아니라 **실제 메인 iOS 앱(`dev.tpmt.app`)의
+임베드 의존성**으로 만든다. (§7.1 의 macOS·visionOS·iPadOS 결정과 §7.2~7.4 의 도구·구조·시크릿·불변식은
+그대로 유효 — 이 Amendment 는 watchOS 축만 정정한다.)
+
+### 8.2 정정 후 토폴로지
+
+- **번들 ID 3 → 2**: `dev.tpmt.app`(메인, iOS 목적지에서만 watch 임베드) + `dev.tpmt.app.watchkitapp`
+  (watch). `TeleprompterWatchContainer` 타깃·스킴과 그 레코드 `dev.tpmt.app.watch` 는 **삭제**. ASC
+  레코드 2개 → **1개**(`dev.tpmt.app` 단일 레코드에 watch 슬라이스 동반).
+- **임베드 배선**: 멀티플랫폼 `Teleprompter` 타깃(`platform: auto`, `supportedDestinations: [iOS, macOS,
+  visionOS]`)의 dependency 에 `- target: TeleprompterWatch / embed: true / destinationFilters: [iOS]`
+  추가. `destinationFilters: [iOS]` 가 "Embed Watch Content" copy phase 를 **iOS 목적지로만** 스코프
+  (pbxproj `platformFilters = (ios,)`) → macOS/visionOS 슬라이스는 watch 를 임베드하지 않아 macOS
+  `swift-build` CI 게이트가 깨지지 않는다. **경험적 검증 완료**(XcodeGen 2.45.4): plain `type: application`
+  호스트에도 copy phase 자동 배선 + macOS `BUILD SUCCEEDED`(임베드 존재 상태). `copy: subpath` fallback
+  불요.
+- **런타임 플래그 보존**: watch 는 `WKApplication_IsIndependentApp: YES` +
+  `WKRunsIndependentlyOfCompanionApp: YES` **유지**. companion(`WKCompanionAppBundleIdentifier`)은 이제
+  빈 컨테이너가 아니라 **실제 메인 앱 `dev.tpmt.app`** 을 가리킨다. → 사용자는 iPhone 에서 한 번 설정,
+  이후 iPhone 이 꺼져 있어도 Apple Watch 에서 단독 구동.
+- **하니스**: `cmd_archive` 의 `resolve_archive_params()` 에서 **watchos 분기 삭제** — watch 는 iOS
+  archive 안에 동반되므로 별도 archive 가 없다. `TP_PLATFORM=watchos archive` 는 iOS 경로를 가리키는
+  `die`. watchOS **Simulator SMOKE** 경로(`TeleprompterWatch` 직접 빌드, 7마커)는 **그대로** — standalone
+  RUNTIME 증명이며 배포와 분리된다.
+- **워크플로**: `testflight.yml` 의 `guard-watchos` + `archive-and-upload-watchos` job **삭제**. iOS job
+  이 watch 디바이스 슬라이스를 빌드+서명한다 — nightly Rust + rust-src(arm64_32 build-std),
+  `xcodebuild -downloadPlatform watchOS`, 임베드 watch 앱 profile 설치. `ios/ExportOptions.watchos.plist`
+  **삭제**(iOS ExportOptions 가 keychain-by-bundle-id 로 임베드 watch profile 을 자동 해소).
+- **`.ipa` 산출물**: `Payload/Teleprompter.app/Watch/TeleprompterWatch.app` 로 watch 동반,
+  `altool --type ios` 단일 업로드 → ASC 가 watch 슬라이스를 watchOS App Store 로 라우팅.
+
+### 8.3 시크릿 모델 정정 (Amendment 1 §7.3 watchOS 행 대체)
+
+watchOS 행의 profile **2개**(`WATCHOS_CONTAINER_PROVISIONING_PROFILE_BASE64` +
+`WATCHOS_APP_PROVISIONING_PROFILE_BASE64`)는 **폐기**. 대신 단일
+`IOS_WATCH_PROVISIONING_PROFILE_BASE64`(임베드 watch 앱 `dev.tpmt.app.watchkitapp`, iOS Distribution
+인증서 재사용)가 **iOS job 의 hard-required 시크릿**이 된다(iOS `.ipa` 가 임베드 watch 를 서명해야 하므로).
+ASC watch 레코드(`dev.tpmt.app.watch`)는 더 이상 필요 없다. `setup-testflight-secrets.sh` 는 watch profile
+발급 2회 → 1회로 축소.
+
+> **드리프트 정정**: ADR-0002 L150 은 이미 `WKCompanionAppBundleIdentifier: dev.tpmt.app` 를 기록하고
+> 있었다 — 임베드 전 live `project.yml` 의 `dev.tpmt.app.watch` 는 드리프트였고, 이 Amendment 는 그
+> 의도(메인 앱이 companion)에 **재정렬**한다.
+
+### 8.4 비용·리스크
+
+기존 3-ID 토폴로지는 "독립 배포"의 본질적 형태였다(ASC 에 watchOS 플랫폼이 없어 독립 watch 는 iOS 컨테이너
+레코드를 따로 가짐 — WWDC19 §208). companion 으로 전환하면 컨테이너 레코드가 사라져 ID 가 2개로 준다. **잃는
+것**: 컨테이너를 통한 "iPhone 앱 없이 watch 단독 *설치*". **유지하는 것**: watch 단독 *구동*
+(`WKRunsIndependentlyOfCompanionApp: YES`). 요청자는 단독 설치는 불필요·단독 구동만 필요하다고 명시했으므로
+이 트레이드는 의도된 것. 리스크: iOS job cold time 증가(nightly + downloadPlatform watchOS) — `timeout-minutes:
+50` 유지로 흡수. Xcode 26.x companion .ipa export 는 컨테이너 우회책보다 표준 경로라 FB23341311 회피 가능성이
+더 높으나 첫 실업로드(#122)에서 확인 필요.

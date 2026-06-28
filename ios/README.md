@@ -49,11 +49,15 @@ xros-sim / watchos-device / watchos-sim, `embed: false`) 를 링크한다.
 
 `project.yml` 이 `platform: auto` + `supportedDestinations: [iOS, macOS, visionOS]` 로 선언돼
 단일 소스트리가 4 대상을 빌드한다. watchOS 는 **별도 `TeleprompterWatch` 타깃** (B3) +
-**TestFlight 배포용 iOS 컨테이너 `TeleprompterWatchContainer`**(`application.watchapp2-container`,
-watch 앱 임베드 — App Store Connect 에 watchOS 플랫폼이 없어 독립형 watch 도 iOS 레코드로만 배포됨;
-ADR-0004 §7.1). 컨테이너 bundle id = `dev.tpmt.app.watch`, watch 앱 = `dev.tpmt.app.watch.watchkitapp`
-(공유 불가). Simulator smoke 는 `TeleprompterWatch` 를 직접 빌드(컨테이너 무관); 컨테이너는 `archive`
-경로에서만 빌드:
+**TestFlight 배포는 메인 iOS 앱 컴패니언 임베드** 방식이다 (ADR-0004 Amendment 2, #123). `Teleprompter`
+멀티플랫폼 타깃이 `- target: TeleprompterWatch / embed: true / destinationFilters: [iOS]` 의존을 가져
+watch 가 iOS 슬라이스에만 임베드된다 (macOS/visionOS 슬라이스는 스킵). 배포 시 watch 는 iOS `.ipa` 안
+`Payload/Teleprompter.app/Watch/TeleprompterWatch.app` 에 동반 출하되며, ASC 레코드는
+`dev.tpmt.app` 단일 레코드 (`altool --type ios`) 만 필요하다. 별도 컨테이너 앱 없음. watch 번들 ID
+= `dev.tpmt.app.watchkitapp` (단일, 구 컨테이너 `dev.tpmt.app.watch` 폐지). watch 는 여전히 독립
+실행된다 (`WKRunsIndependentlyOfCompanionApp=YES`). Simulator smoke 는 `TeleprompterWatch` 를 직접
+빌드(배포 경로와 무관, 독립 런타임 증명); `TP_PLATFORM=watchos archive` 는 `die` (watch 는 iOS `.ipa` 에
+탑승 — 별도 archive 없음):
 
 | 대상 | SDK | 검증 방법 |
 |------|-----|-----------|

@@ -14,11 +14,15 @@
   - uploadBitcode is intentionally absent — bitcode was removed in Xcode 14; the
     key is a no-op on modern toolchains.
 
-  teamID and the bundleId→profile mapping are NOT hardcoded here. The team comes
-  from the archive's embedded signing (driven by DEVELOPMENT_TEAM in cmd_archive),
-  and Xcode resolves the profile from the keychain by bundle id. Keeping them out
-  of this checked-in file means no Team ID / profile name leaks into git, and the
-  same plist works whoever runs it.
+  teamID and the bundleId→profile mapping are NOT hardcoded here — but they ARE
+  required for a manual export. `cmd_archive` injects them at EXPORT time into a temp
+  copy (ExportOptions.resolved.plist) from $TP_DEVELOPMENT_TEAM + ARCHIVE_PROFILE_MAP.
+  Manual -exportArchive does NOT resolve profiles from the keychain by bundle id —
+  that is Automatic-signing behavior; manual needs an explicit provisioningProfiles
+  dict for every app in the archive (the iOS .ipa has TWO: the main app dev.tpmt.app
+  + the embedded companion watch dev.tpmt.app.watchkitapp). Keeping them out of this
+  checked-in file means no Team ID / profile name leaks into git, and the same plist
+  works whoever runs it.
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

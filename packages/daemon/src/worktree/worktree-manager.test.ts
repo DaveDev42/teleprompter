@@ -1,11 +1,16 @@
 /**
- * NOTE (macOS): run this file with a rooted path — `bun test
- * ./packages/daemon/...` or from inside packages/daemon. Un-rooted args put
- * bun test in filter mode, whose repo-wide scan holds ~11k directory fds;
- * spawnSync pipe fds then exceed Darwin's OPEN_MAX (10240), posix_spawn
- * cannot wire them into the git child, and bun silently returns empty stdout
- * (6 tests fail on empty `git worktree list` output). See
- * `.claude/rules/testing-inventory.md` → "macOS rooted paths".
+ * NOTE (macOS): prefer a rooted path — `bun test ./packages/daemon/...` or run
+ * from inside packages/daemon. Un-rooted args put bun test in filter mode,
+ * whose repo-wide scan holds ~11k directory fds; spawnSync pipe fds then exceed
+ * Darwin's OPEN_MAX (10240) and bun silently returns empty stdout. That is a
+ * general filter-mode footgun (see `.claude/rules/testing-inventory.md` →
+ * "macOS rooted paths").
+ *
+ * The git calls here use `gitRunSync`/`gitCaptureSync`, which strip inherited
+ * GIT_* env vars and pass `-C <cwd>` so they always target the isolated temp
+ * repo — even when this suite runs from a `git push` pre-push hook, where git
+ * exports GIT_DIR pointing at the caller's worktree (which would otherwise
+ * override cwd/-C and pollute the caller's HEAD; see PR #796).
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, realpathSync } from "fs";
@@ -22,11 +27,25 @@ function normalizeGitPath(p: string): string {
   return realpathSync(p);
 }
 
-/** Run git synchronously to avoid Bun.spawn cwd issues in bun test runner */
+/**
+ * Run git synchronously against a specific repo directory.
+ *
+ * CRITICAL: this strips inherited GIT_* env vars from the child. When the test
+ * suite runs from a `git push` pre-push hook, git exports GIT_DIR (and friends)
+ * pointing at the *caller's* repo, e.g.
+ *   GIT_DIR=/path/to/repo/.git/worktrees/<name>
+ * An exported GIT_DIR overrides BOTH the `cwd` option and `git -C` — so
+ * `git config user.name Test` and `git commit -m init` would silently target
+ * the caller's worktree, polluting its config (author becomes Test
+ * <test@test.com>) and its HEAD (a stray "init" commit). Deleting the inherited
+ * GIT_* vars lets `cwd` + `-C` actually select the isolated temp repo.
+ * (This is the real cause of the pre-push HEAD pollution — not fd pressure.)
+ */
 function gitRunSync(args: string[], cwd: string): void {
   const { spawnSync } = require("child_process");
-  const result = spawnSync("git", args, {
+  const result = spawnSync("git", ["-C", cwd, ...args], {
     cwd,
+    env: gitTestEnv(),
     stdio: ["ignore", "ignore", "pipe"],
   });
   if (result.status !== 0) {
@@ -34,6 +53,32 @@ function gitRunSync(args: string[], cwd: string): void {
       `git ${args[0]} failed: ${result.stderr?.toString().trim()}`,
     );
   }
+}
+
+/** Like gitRunSync but returns trimmed stdout. Same GIT_* isolation. */
+function gitCaptureSync(args: string[], cwd: string): string {
+  const { spawnSync } = require("child_process");
+  const result = spawnSync("git", ["-C", cwd, ...args], {
+    cwd,
+    env: gitTestEnv(),
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `git ${args[0]} failed: ${result.stderr?.toString().trim()}`,
+    );
+  }
+  return (result.stdout ?? "").trim();
+}
+
+/** Strip inherited GIT_* vars so cwd/`-C` actually select the temp repo. */
+function gitTestEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const k of Object.keys(env)) {
+    if (k.startsWith("GIT_")) delete env[k];
+  }
+  return env;
 }
 
 describe("WorktreeManager", () => {
@@ -292,16 +337,8 @@ describe("WorktreeManager", () => {
     await manager.add(wtPath, "detached-branch");
 
     // Detach the HEAD in the worktree by checking out the commit SHA directly.
-    const { spawnSync } = require("child_process");
-    const headResult = spawnSync("git", ["rev-parse", "HEAD"], {
-      cwd: wtPath,
-      encoding: "utf-8",
-    });
-    const sha = headResult.stdout.trim();
-    spawnSync("git", ["checkout", "--detach", sha], {
-      cwd: wtPath,
-      stdio: "ignore",
-    });
+    const sha = gitCaptureSync(["rev-parse", "HEAD"], wtPath);
+    gitRunSync(["checkout", "--detach", sha], wtPath);
 
     const worktrees = await manager.list();
     const detached = worktrees.find((w) => w.path === wtPath);
@@ -325,16 +362,8 @@ describe("WorktreeManager", () => {
     await manager.add(wt2Path, "detach2-branch");
 
     // Detach the second worktree's HEAD.
-    const { spawnSync } = require("child_process");
-    const headResult = spawnSync("git", ["rev-parse", "HEAD"], {
-      cwd: wt2Path,
-      encoding: "utf-8",
-    });
-    const sha = headResult.stdout.trim();
-    spawnSync("git", ["checkout", "--detach", sha], {
-      cwd: wt2Path,
-      stdio: "ignore",
-    });
+    const sha = gitCaptureSync(["rev-parse", "HEAD"], wt2Path);
+    gitRunSync(["checkout", "--detach", sha], wt2Path);
 
     const worktrees = await manager.list();
     // All three (main + normal + detached) must appear.

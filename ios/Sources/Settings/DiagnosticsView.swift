@@ -212,6 +212,7 @@ struct DiagnosticsView: View {
                                 ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.accentColor))
                 }
             }
+            .buttonStyle(.bordered)
             .disabled(cryptoRunning)
         }
     }
@@ -295,6 +296,10 @@ struct DiagnosticsView: View {
         return "iOS"
         #elseif os(macOS)
         return "macOS"
+        #elseif os(visionOS)
+        return "visionOS"
+        #elseif os(watchOS)
+        return "watchOS"
         #else
         return "unknown"
         #endif

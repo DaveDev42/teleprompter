@@ -20,6 +20,7 @@ paths:
 |--------|----------|------|
 | tp 바이너리 | GitHub Actions `release.yml` | darwin-arm64 + linux × {arm64, x64} 빌드 → GitHub Release. `release.yml`은 `push: tags: [v*]` 와 `workflow_dispatch -f tag=...` 둘 다 받지만, GitHub API tag-creation 의 push event firing 이 누락되는 케이스가 잦아 (#172) **항상 manual dispatch 로 트리거** 한다. |
 | Homebrew tap | GitHub Actions `release.yml` (tap bump step, `DaveDev42/homebrew-tap-release@v1` reusable action — PR #185) | `checksums.txt`에서 darwin sha256 추출 → `Formula/tp.rb` 렌더 → `davedev42/homebrew-tap` repo에 직접 push (PR 없음, commit subject = `tp <VERSION>`). `HOMEBREW_TAP_TOKEN` secret 미설정 또는 push 실패 시 `::warning::`로 swallow되어 release 자체는 성공으로 끝남 — 이 경우 `/release` 명령이 catch함. |
+| TestFlight (5 플랫폼) | GitHub Actions `release.yml` `testflight` job (CD) → `testflight.yml` dispatch | **첫 수동 업로드(Task #122) 이후의 continuous deployment.** `release` + `bump-tap` 둘 다 성공하면 `testflight` job 이 `gh workflow run testflight.yml --ref <tag> -f tag=<tag>` 로 같은 태그의 5플랫폼 TestFlight 업로드를 **별도 run** 으로 깨운다. **별도 run 인 이유**: TestFlight 서명/업로드 실패가 이미 바이너리 publish + tap bump 를 끝낸 CLI release 를 red 로 만들지 않게 격리. `GITHUB_TOKEN` 으로 dispatch 가능 (`workflow_dispatch` 는 recursion 가드의 명시적 예외 — "workflow_dispatch events always create workflow runs", 공식 docs) — `actions: write` permission 만 필요. **#172-safe**: 태그를 push event 가 아니라 `-f tag`/`--ref` 로 **명시 전달**하므로 GitHub 의 push-event 누락에 영향받지 않음. **load-bearing 제약**: `--ref <tag>` 는 `testflight.yml` 을 그 *태그 트리* 에서 찾으므로(main 아님), testflight.yml 이 main 에 있는 한 앞으로 자르는 모든 태그는 이를 포함한다 — testflight.yml 존재 *이전* 의 옛 태그를 재릴리즈하면 이 dispatch 가 실패하지만, CD 는 항상 현재 main ≤ 태그에만 발화하고 첫 업로드는 수동이라 해당 없음. |
 
 ## 수동 dispatch only
 | Workflow | 역할 |
@@ -51,11 +52,21 @@ gh workflow run release-please.yml --ref main
 #   (release-please.yml 은 workflow_dispatch only 이므로 자동 트리거 없음.
 #    한 번의 dispatch 가 PR 생성 또는 tag push 중 하나만 하므로 두 번 필요.)
 
-# 5. release.yml dispatch: 빌드 + GitHub Release + tap bump.
+# 5. release.yml dispatch: 빌드 + GitHub Release + tap bump (+ TestFlight CD dispatch).
 gh workflow run release.yml -f tag=vX.Y.Z
 # → release.yml 은 `push: tags: [v*]` 트리거도 있지만 GitHub API
 #   tag-creation 이 push event 를 항상 firing 하지는 않으므로 (#172)
 #   manual dispatch 가 안전한 default.
+# → release + bump-tap 성공 후 `testflight` job 이 자동으로
+#   `testflight.yml` 을 같은 태그로 dispatch (CD — Task #122 첫 수동
+#   업로드 이후). 별도 run 이라 release run 자체는 TestFlight 결과와
+#   무관하게 green.
+
+# 5b. (선택, read-only) TestFlight CD dispatch 발화 확인:
+gh run list --workflow=testflight.yml --limit=3 \
+  --json databaseId,event,headBranch,status,conclusion,createdAt
+# → 가장 최근 run 의 event=workflow_dispatch + headBranch=vX.Y.Z 확인.
+#   시크릿 미설정이면 guard job 들이 clean-skip (::notice::) — red 아님.
 
 # 6. tap repo + brew 검증 (SLA 보장 step):
 gh api repos/DaveDev42/homebrew-tap/commits/main --jq '.commit.message'

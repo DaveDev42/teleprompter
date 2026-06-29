@@ -258,7 +258,12 @@ struct QRScannerView: View {
                 .ignoresSafeArea()
                 .accessibilityIdentifier("qr-camera-preview")
 
+                // The camera preview above is intentionally full-bleed (.ignoresSafeArea),
+                // which is correct aesthetics. The overlay must NOT inherit that geometry —
+                // it uses .safeAreaPadding() so the reticle and controls stay visible inside
+                // the safe area (above the home indicator and below the notch/Dynamic Island).
                 viewfinderOverlay
+                    .safeAreaPadding()
             }
         }
         .navigationTitle("Scan QR Code")

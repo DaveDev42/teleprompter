@@ -22,20 +22,10 @@ pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner)
 > 디렉토리 fd ~11.6k 개를 쥔 채로 테스트를 실행한다. 이후 테스트가 `spawnSync` 를 부르면 pipe fd 가
 > Darwin `OPEN_MAX`(10240, `sys/syslimits.h` 커널 상수) 이상 번호를 받는데, macOS `posix_spawn` 은
 > 그 fd 를 자식에 연결하지 못한다 — node 는 `EBADF` 를 던지지만 **bun 은 에러를 조용히 삼켜 자식
-> stdout 이 빈 값**이 된다. 이는 un-rooted filter 모드 일반의 함정이다 (어떤 터미널에서든 재현,
-> Claude Code 샌드박스와 무관). Linux 는 이 제한이 없어 CI 는 영향 없다.
+> stdout 이 빈 값**이 된다. `worktree-manager.test.ts` 6 fail 의 실제 원인이며, 어떤 터미널에서든
+> 재현된다 (Claude Code 샌드박스와 무관). Linux 는 이 제한이 없어 CI 는 영향 없다.
 > 회피책 (모두 검증됨): 선행 `./` 경로, 해당 패키지 디렉토리로 `cd` 후 실행, 또는 `--config /dev/null`.
 > rooted/un-rooted 의 테스트 발견 범위는 동일하다 (311/311, 1460/1460, 294/294 parity 확인).
->
-> **정정 (PR #796):** `worktree-manager.test.ts` 의 pre-push/worktree fail 은 위 fd 압박이
-> *아니라* **상속된 `GIT_DIR` 이 원인**이었다. `git push` pre-push 훅 안에서 테스트가 돌면 git 이
-> `GIT_DIR=<repo>/.git/worktrees/<name>` 를 export 하는데, export 된 `GIT_DIR` 은 `spawnSync` 의
-> `cwd` 옵션과 `git -C` 플래그를 **둘 다 override** 한다 — 그래서 테스트의 `git config user.name Test`
-> +`git commit -m init` 이 격리 tmp repo 가 아니라 호출자 worktree 를 건드려 그 HEAD 와 local config 를
-> 오염시켰다 (author 가 `Test <test@test.com>` 로 바뀌고 stray `init` 커밋 발생). `ulimit -n` 은 훅
-> 안팎이 동일하므로 fd 가설은 이 케이스에 맞지 않았다. 수정 = `worktree-manager.{ts,test.ts}` 양쪽에서
-> 자식 env 의 `GIT_*` 제거 (`gitEnv()`/`gitTestEnv()`), `cwd` 를 authoritative 하게 만든다. 검증:
-> `GIT_DIR` export 하에서도 15 pass / 0 fail + HEAD·config clean.
 
 ## Tier 1: Unit Tests
 외부 의존성 없이 빠르게 실행.

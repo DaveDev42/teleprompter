@@ -27,7 +27,6 @@ use std::net::Shutdown;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 
-use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use tp_proto::ipc::IpcMessage;
 use tp_proto::label::{label_to_nullable, make_label, Label};
 
@@ -42,7 +41,6 @@ use crate::pair_lock::acquire_pair_lock;
 use crate::qr::render_qr_small;
 use crate::socket::{is_daemon_running, socket_path};
 use crate::store::list_pairings;
-use crate::tui::raw_mode::RawModeGuard;
 use crate::util::now_ms;
 
 /// Production relay URL — byte-exact port of `DEFAULT_PAIRING_RELAY_URL`
@@ -719,13 +717,6 @@ pub fn new(args: &[String]) -> ExitCode {
     // guard the Bun reference needs (pair.ts:148-153, because its onMessage and
     // onClose callbacks race on the same event loop) is structurally guaranteed
     // here by the single-threaded match-then-break loop. No flag required.
-    //
-    // `raw_guard` holds raw mode for the duration of the wait when `can_copy`
-    // is true (see PairBeginOk arm). It is taken (set to None) before every
-    // break-with-output path so the terminal is restored to cooked mode before
-    // any final message is printed. If the process exits without going through a
-    // terminal arm (bug/panic), Drop restores the terminal automatically.
-    let mut raw_guard: Option<RawModeGuard> = None;
     let exit = loop {
         match session.recv() {
             Ok(IpcMessage::PairBeginOk {
@@ -752,33 +743,15 @@ pub fn new(args: &[String]) -> ExitCode {
                 );
                 println!("{qr_string}");
 
-                // canCopy gate (pair.ts:173). The native CLI mounts a raw-mode
-                // crossterm event loop on a side thread when copy is supported,
-                // mirroring ink's inherently-raw single-keypress detection in the
-                // Bun reference (pair.ts:283-325, `useInput` is raw mode). Either
-                // way the hint line is byte-exact.
+                // canCopy gate (pair.ts:173). The native CLI does not mount an
+                // ink keypress app; instead it reads a single byte from stdin on
+                // a side thread when copy is supported (see below). Either way
+                // the hint line is byte-exact.
                 let can_copy = is_clipboard_support_likely() && io::stdin().is_terminal();
                 if can_copy {
                     // pair.ts:178-180 — the entire string is inside dim().
                     println!("\n{}", dim("Press c to copy URL  ·  Ctrl+C to cancel"));
-                    // Enable raw mode on the main thread so the terminal delivers
-                    // keystrokes immediately (no line-buffer). The guard is held
-                    // until we break out of this loop, at which point we take() it
-                    // (cooked mode restored) before printing the final message.
-                    // If enabling raw mode fails (not a TTY despite is_terminal check,
-                    // or platform restriction), fall back to the cooked-mode branch
-                    // gracefully by skipping the spawn.
-                    if let Ok(guard) = RawModeGuard::enable() {
-                        raw_guard = Some(guard);
-                        spawn_copy_listener(
-                            qr_string.clone(),
-                            Arc::clone(&pairing_id),
-                            Arc::clone(&writer),
-                        );
-                    }
-                    // If raw mode fails we simply wait without a copy affordance —
-                    // the hint line is already printed and Ctrl+C still works via
-                    // the signal handler (canonical mode preserves SIGINT).
+                    spawn_copy_listener(qr_string.clone());
                 } else {
                     // pair.ts:183-185 — only "Waiting..." is dimmed; the
                     // " (Ctrl+C to cancel)" suffix is plain, on the SAME line.
@@ -789,8 +762,6 @@ pub fn new(args: &[String]) -> ExitCode {
                 }
             }
             Ok(IpcMessage::PairBeginErr { reason, message }) => {
-                // Restore cooked mode before printing so the line ends correctly.
-                drop(raw_guard.take());
                 let suffix = message
                     .as_deref()
                     .map(|m| format!(" — {m}"))
@@ -813,8 +784,6 @@ pub fn new(args: &[String]) -> ExitCode {
                 label: completed_label,
                 ..
             }) => {
-                // Restore cooked mode before printing so the line ends correctly.
-                drop(raw_guard.take());
                 let name = label_to_nullable(&completed_label)
                     .map(ToString::to_string)
                     .unwrap_or_else(|| did.clone());
@@ -822,16 +791,12 @@ pub fn new(args: &[String]) -> ExitCode {
                 break ExitCode::SUCCESS;
             }
             Ok(IpcMessage::PairCancelled { .. }) => {
-                // Restore cooked mode before printing so the line ends correctly.
-                drop(raw_guard.take());
                 eprintln!("{}", dim("Pairing cancelled."));
                 break exit_code(130);
             }
             Ok(IpcMessage::PairError {
                 reason, message, ..
             }) => {
-                // Restore cooked mode before printing so the line ends correctly.
-                drop(raw_guard.take());
                 let suffix = message
                     .as_deref()
                     .map(|m| format!(" — {m}"))
@@ -850,8 +815,6 @@ pub fn new(args: &[String]) -> ExitCode {
             // (mirrors Bun's `default:` arm, pair.ts:217-222).
             Ok(_) => {}
             Err(IpcError::Closed) => {
-                // Restore cooked mode before printing so the line ends correctly.
-                drop(raw_guard.take());
                 // Clean EOF reached BEFORE any terminal frame (a terminal frame
                 // would have broken the loop already), so this is always the
                 // genuine "daemon disconnected mid-pairing" case — print the
@@ -861,8 +824,6 @@ pub fn new(args: &[String]) -> ExitCode {
                 break ExitCode::FAILURE;
             }
             Err(e) => {
-                // Restore cooked mode before printing so the line ends correctly.
-                drop(raw_guard.take());
                 eprintln!("{}", fail_prefix(&format!("Pairing failed: {e}")));
                 break ExitCode::FAILURE;
             }
@@ -881,97 +842,39 @@ fn exit_code(code: u8) -> ExitCode {
     ExitCode::from(code)
 }
 
-/// Spawn a detached side thread that reads keyboard events in raw mode and, on
-/// `c` / `C`, copies the URL to the clipboard via OSC 52 and prints the result.
+/// Spawn a detached side thread that reads stdin one byte at a time and, on a
+/// `c`, copies the URL to the clipboard via OSC 52 and prints the result line.
 ///
 /// This is the native analogue of the Bun ink keypress app (pair.ts:272-322)
-/// for the `c`-to-copy affordance. The Bun version uses ink's `useInput` which
-/// is inherently raw-mode (single-keypress, no Enter required). The previous
-/// Rust port used `stdin.read()` in canonical mode, requiring `c`+Enter — this
-/// function fixes that by using `crossterm::event::read()`.
-///
-/// Raw mode is enabled on the **main thread** by the caller (via `RawModeGuard`)
-/// BEFORE this thread is spawned. The main-thread guard is dropped (cooked mode
-/// restored) when the main `recv()` loop breaks — covering all exit paths
-/// including panic. This thread does NOT own a `RawModeGuard`; it reads events
-/// from the already-raw terminal.
-///
-/// Ctrl+C handling in raw mode: the OS no longer auto-translates Ctrl+C into
-/// SIGINT while the terminal is raw, so the `ctrlc` signal handler is dead for
-/// keyboard Ctrl+C. This thread detects `KeyCode::Char('c')` with the `CONTROL`
-/// modifier (crossterm's representation of `0x03`) and performs the same cancel
-/// logic as the signal handler: if a pairingId is known, send `pair.cancel` over
-/// IPC; otherwise shut the socket so the daemon aborts the pending pairing.
-///
-/// The thread is detached: the process exits when a terminal IPC frame arrives
-/// (main loop breaks), which kills this thread implicitly. The main-thread guard
-/// drop happens before the final output, so the shell is never left in raw mode.
-fn spawn_copy_listener(
-    url: String,
-    pid_cell: Arc<Mutex<Option<String>>>,
-    writer: Arc<Mutex<std::os::unix::net::UnixStream>>,
-) {
+/// for the `c`-to-copy affordance. Ctrl+C is handled by the `ctrlc` signal
+/// handler (not here), so this thread only watches for `c`. It is detached: the
+/// process exits when a terminal frame arrives, dropping this thread.
+fn spawn_copy_listener(url: String) {
     let _ = std::thread::Builder::new()
         .name("tp-pair-copy".to_string())
         .spawn(move || {
+            use std::io::Read as _;
+            let mut byte = [0u8; 1];
+            let mut stdin = io::stdin();
             loop {
-                // `event::read()` blocks until a key/mouse/resize event.
-                // It operates on the already-raw stdin (raw mode enabled by
-                // the main thread before this thread was spawned).
-                let Ok(ev) = event::read() else {
-                    return; // read error → exit thread
-                };
-
-                let Event::Key(key) = ev else {
-                    continue; // mouse/resize — ignore
-                };
-
-                // Ctrl+C: raw mode suppresses SIGINT from the kernel, so we
-                // must handle it here — same logic as the ctrlc signal handler.
-                if key.code == KeyCode::Char('c')
-                    && key.modifiers.contains(KeyModifiers::CONTROL)
-                {
-                    let pid = pid_cell.lock().ok().and_then(|g| g.clone());
-                    if let Some(pid) = pid {
-                        // Post-ok: frame a pair.cancel through the IPC writer.
-                        let cancel = IpcMessage::PairCancel { pairing_id: pid };
-                        if let Ok(json) = serde_json::to_vec(&cancel) {
-                            let frame = crate::codec::encode_frame(&json);
-                            if let Ok(mut guard) = writer.lock() {
-                                let _ = guard.write_all(&frame);
-                                let _ = guard.flush();
+                match stdin.read(&mut byte) {
+                    Ok(0) => return, // EOF
+                    Ok(_) => {
+                        if byte[0] == b'c' || byte[0] == b'C' {
+                            let result = copy_to_clipboard(&url);
+                            if result.ok {
+                                println!("\n{}", green("Copied to clipboard"));
+                            } else {
+                                println!(
+                                    "\n{}",
+                                    dim("Clipboard copy not supported by this terminal — copy the URL above manually")
+                                );
                             }
-                        }
-                    } else {
-                        // Pre-ok: shut the socket so the daemon aborts.
-                        if let Ok(guard) = writer.lock() {
-                            let _ = guard.shutdown(Shutdown::Both);
+                            return;
                         }
                     }
-                    return;
+                    Err(_) => return,
                 }
-
-                // `c` / `C` without modifiers → copy URL to clipboard.
-                if (key.code == KeyCode::Char('c') || key.code == KeyCode::Char('C'))
-                    && key.modifiers.is_empty()
-                {
-                    let result = copy_to_clipboard(&url);
-                    // Print using \r\n: raw mode does not translate \n to \r\n,
-                    // so without \r the cursor would stay at the same column.
-                    // This matches how session.rs renders output in raw mode.
-                    if result.ok {
-                        print!("\n\r{}\r\n", green("Copied to clipboard"));
-                    } else {
-                        print!(
-                            "\n\r{}\r\n",
-                            dim("Clipboard copy not supported by this terminal — copy the URL above manually")
-                        );
-                    }
-                    let _ = io::stdout().flush();
-                    return;
-                }
-
-                // Any other key → ignore (keep waiting).
             }
         });
 }

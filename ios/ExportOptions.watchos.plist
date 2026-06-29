@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Standalone watchOS App Store (TestFlight) export options for
+  `TP_PLATFORM=watchos scripts/ios.sh archive` (ADR-0004 §7.1 Amendment 1).
+
+  Consumed by `xcodebuild -exportArchive -exportOptionsPlist`. App Store Connect has
+  NO watchOS platform — an independent watch app ships inside an iOS app record. So
+  the archive is of the iOS CONTAINER (TeleprompterWatchContainer) which embeds the
+  watch app; the export is an iOS `.ipa` (uploaded with `altool --type ios`, since
+  there is no `--type watchos`). The watch app keeps WKRunsIndependentlyOfCompanionApp
+  = YES, so it still installs + runs standalone on Apple Watch with no iOS app on the
+  user's iPhone — the container is a distribution wrapper only.
+
+  - method app-store-connect: the Xcode 15.4+ spelling of "app-store"
+    (TestFlight + App Store). The container is an iOS app, so this is the iOS method.
+  - signingStyle manual: CI imports the (iOS-shared) Apple Distribution cert + the
+    watch-container provisioning profile into a throwaway keychain; manual keeps
+    xcodebuild from talking to the developer portal (impossible headlessly).
+  - uploadSymbols true: ship dSYMs so App Store Connect symbolicates crash logs.
+
+  teamID and the bundleId→profile mapping are NOT hardcoded — team comes from the
+  archive's embedded signing (DEVELOPMENT_TEAM in cmd_archive), and Xcode resolves
+  profiles from the keychain by bundle id (container dev.tpmt.app.watch + embedded
+  watch app dev.tpmt.app.watch.watchkitapp). The same iOS "Apple Distribution"
+  identity signs both — there is no watchOS-specific distribution certificate type.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>app-store-connect</string>
+    <key>signingStyle</key>
+    <string>manual</string>
+    <key>uploadSymbols</key>
+    <true/>
+    <key>destination</key>
+    <string>export</string>
+</dict>
+</plist>

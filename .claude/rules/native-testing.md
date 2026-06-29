@@ -87,20 +87,13 @@ scripts/ios.sh archive  # TestFlight: TP_PLATFORM 별 Release archive → 서명
 
 > **`archive` 는 검증이 아니라 *배포* 경로** — 마커/UI E2E 와 다른 레이어다. **ADR-0004 Amendment 1
 > 이후 `TP_PLATFORM` 으로 분기**(ios/ipad→`generic/platform=iOS` `.ipa`, macos→`generic/platform=macOS`
-> MAS `.pkg`, visionos→`generic/platform=visionOS` `.ipa`) — 3개 플랫폼 job(iOS/macOS/visionOS) + watch
-> 동반. **`TP_PLATFORM=watchos archive` 는 `die`** (ADR-0004 Amendment 2, #123) — watch 는 별도 archive
-> 없이 iOS `.ipa` 에 컴패니언으로 탑승(`Payload/Teleprompter.app/Watch/`). `TP_PLATFORM=watchos` 는
-> **smoke 전용**(watchOS Simulator, 7마커 독립 런타임 증명) — 배포 경로로 쓰지 않는다. 실 Apple
-> Distribution 인증서 + 플랫폼별 provisioning profile(iOS job 은 iOS 앱 profile + 임베드 watch 앱 profile
-> `IOS_WATCH_PROVISIONING_PROFILE_BASE64` 2개) + `TP_DEVELOPMENT_TEAM` 필수. CI 자동화는
+> MAS `.pkg`, visionos→`generic/platform=visionOS` `.ipa`, **watchos→iOS 컨테이너
+> `TeleprompterWatchContainer`(watch 앱 임베드) archive `generic/platform=iOS` → `.ipa`, `altool
+> --type ios`**) — 5개 Apple 플랫폼 전부 TestFlight. watch 분기는 archive 가 "Generic Xcode Archive"
+> 가 아닌지(`Info.plist ApplicationProperties` 존재) 단언으로 조기 차단. 실 Apple Distribution 인증서 +
+> 플랫폼별 provisioning profile(watch 는 컨테이너+watchapp 2개) + `TP_DEVELOPMENT_TEAM` 필수. CI 자동화는
 > `.github/workflows/testflight.yml`(`v*` 태그 push, 플랫폼별 job). 시크릿/ASC 레코드 셋업 체크리스트 =
 > `docs/testflight-setup.md`; 상세는 `.claude/rules/ci-workflows.md` → TestFlight + `docs/adr/0004-*`.
->
-> **서명은 archive·export 두 단계 모두 매핑이 필요하다**: archive 는 `project.yml` 의
-> `[config=Release][sdk=…]` specifier 가, export(`xcodebuild -exportArchive`)는 `cmd_archive` 가
-> `ARCHIVE_PROFILE_MAP`+`$TP_DEVELOPMENT_TEAM` 으로 temp `ExportOptions.resolved.plist` 에 주입하는
-> `provisioningProfiles` dict(+`teamID`)가 담당한다 (manual 서명은 keychain bundle-id 자동매칭을 안 함).
-> iOS export 매핑은 메인+임베드 watch 2개, macOS/visionOS 는 1개. 상세 = `ci-workflows.md` TestFlight.
 
 xcframework 는 **7 슬라이스** (`ios-arm64`, `ios-arm64_x86_64-simulator`, `macos-arm64_x86_64`,
 `xros-arm64`, `xros-arm64-simulator`, `watchos-arm64_arm64_32`, `watchos-arm64-simulator`).

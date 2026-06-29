@@ -34,10 +34,10 @@
 #     cannot call the provisioning endpoints — the script will 403 on everything.
 #   - Create the per-platform ASC APP RECORDS by hand (App records are NOT
 #     API-creatable). Needed: dev.tpmt.app (iOS record — may reuse the old Expo
-#     record), dev.tpmt.app (macOS record), dev.tpmt.app (visionOS record),
-#     dev.tpmt.app.watch (iOS record — standalone watch ships under an iOS app
-#     record). The script provisions bundle IDs + profiles; the app records must
-#     pre-exist or the later TestFlight upload has nowhere to land.
+#     record; the COMPANION watch app ships INSIDE this record's .ipa, #123/ADR-0004
+#     Amdt 2 — NO separate watch record), dev.tpmt.app (macOS record), dev.tpmt.app
+#     (visionOS record). The script provisions bundle IDs + profiles; the app
+#     records must pre-exist or the later TestFlight upload has nowhere to land.
 #
 # Usage:
 #   ASC_API_KEY_PATH=~/AuthKey_ABCDE12345.p8 \
@@ -69,9 +69,11 @@ WORK_DIR="${TP_TESTFLIGHT_DIR:-$HOME/.config/teleprompter/testflight}"
 MANIFEST="$WORK_DIR/manifest.json"
 
 # Canonical bundle IDs (ios/project.yml — verified at HEAD).
+# #123 (ADR-0004 Amdt 2): the watch is a COMPANION embedded in the main iOS app —
+# there is no separate watchapp2-container, so the old dev.tpmt.app.watch container
+# id is gone. The watch app id is dev.tpmt.app.watchkitapp (<companion>.watchkitapp).
 BID_APP="dev.tpmt.app"
-BID_WATCH_CONTAINER="dev.tpmt.app.watch"
-BID_WATCH_APP="dev.tpmt.app.watch.watchkitapp"
+BID_WATCH_APP="dev.tpmt.app.watchkitapp"
 
 # Default installer layout: SEPARATE. The combined-PEM single-.p12 path works but
 # is fragile (the obvious `openssl pkcs12 -export` with multiple -in/-inkey
@@ -104,6 +106,21 @@ while [ $# -gt 0 ]; do
 done
 
 has_platform() { case " $PLATFORMS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+# ios ⟹ watchos coupling (#123, ADR-0004 Amdt 2). The watch app is a COMPANION
+# embedded inside the iOS .ipa, and testflight.yml's iOS guard treats
+# IOS_WATCH_PROVISIONING_PROFILE_BASE64 as HARD-REQUIRED. If someone runs
+# `--platforms ios` (or any subset with ios but not watchos), the watch profile
+# secret never gets written, the iOS guard's `ready` output is false, and the
+# whole iOS upload SILENTLY SKIPS (only a ::notice::) — the first upload never
+# fires. Auto-inject watchos so selecting iOS distribution always emits the watch
+# profile it needs. (Selecting watchos WITHOUT ios is still allowed — it just
+# emits the watch profile; the watch can't ship without its iOS host, but that's
+# the operator's call.)
+if has_platform ios && ! has_platform watchos; then
+  PLATFORMS="$PLATFORMS watchos"
+  printf '\033[1;33m▸ ios selected without watchos — auto-adding watchos (the companion watch ships inside the iOS .ipa and its profile is required by the iOS upload job)\033[0m\n' >&2
+fi
 
 # ── preflight ────────────────────────────────────────────────────────────────
 preflight() {
@@ -141,7 +158,13 @@ preflight() {
   fi
 
   ok "preflight ok — work dir $WORK_DIR (gitignored), team $APPLE_TEAM_ID"
-  [ "$DRY_RUN" -eq 1 ] && warn "DRY RUN — no ASC mutations, no secrets written"
+  # MUST be an explicit `if`, NOT `[ cond ] && warn`. As the LAST statement of
+  # this function, a bare `&&`-chain makes preflight() inherit the chain's exit
+  # status — in a REAL run (DRY_RUN=0) the test is false → the chain returns 1 →
+  # under `set -e` the caller (main) aborts right after "preflight ok" with no
+  # error. (Same footgun the author already fixed in main() at the bottom of the
+  # file; it was left unfixed here, silently breaking every non-dry-run.)
+  if [ "$DRY_RUN" -eq 1 ]; then warn "DRY RUN — no ASC mutations, no secrets written"; fi
 }
 
 # ── ASC REST helpers (mint a fresh JWT per call; never crosses the 20m cap) ───
@@ -150,8 +173,21 @@ _jwt() {
   ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" python3 "$JWT_HELPER"
 }
 
-# asc <METHOD> <path> [json-body-file] → writes JSON to stdout, http code to fd3.
-# Sets global ASC_HTTP to the status code; returns nonzero only on transport err.
+# asc <METHOD> <path> [json-body-file] → prints "<json-body>\n<http_code>" to
+# stdout, with the HTTP status code ALWAYS as the last line. Returns nonzero
+# only on a curl transport error.
+#
+# Call sites capture the whole thing and split it IN THEIR OWN SCOPE:
+#
+#     local resp; resp="$(asc GET "/foo")"
+#     local http="${resp##*$'\n'}"   # status code  (last line)
+#     local body="${resp%$'\n'*}"    # JSON body     (everything before it)
+#
+# This replaces the old `global ASC_HTTP` set inside asc(): every call site runs
+# asc in a `$(...)` command substitution = a SUBSHELL, so a global assigned there
+# never propagated to the caller, and reading $ASC_HTTP afterwards tripped
+# `set -u` ("ASC_HTTP: unbound variable"). Splitting via parameter expansion in
+# the caller's frame is subshell-safe — no function call, no global.
 asc() {
   local method="$1" path="$2" body="${3:-}" jwt
   jwt="$(_jwt)" || die "failed to mint ASC JWT"
@@ -160,8 +196,7 @@ asc() {
     -w '\n%{http_code}')
   [ -n "$body" ] && args+=(-d "@$body")
   local out; out="$(curl "${args[@]}")" || die "curl transport error on $method $path"
-  ASC_HTTP="${out##*$'\n'}"
-  printf '%s' "${out%$'\n'*}"
+  printf '%s' "$out"
 }
 
 # jq-free JSON field extraction via python (python3 is a hard dep already).
@@ -176,11 +211,16 @@ ensure_cert() {
   local ctype="$1" slug="$2"
   local key="$WORK_DIR/${slug}_key.pem" der="$WORK_DIR/${slug}.cer"
   local pem="$WORK_DIR/${slug}.pem" p12="$WORK_DIR/${slug}.p12" csr="$WORK_DIR/${slug}.csr"
-  local recorded_id; recorded_id="$(json_get "json.load(open('$MANIFEST')).get('cert_${slug}','')" 2>/dev/null || true)"
+  # json_get reads the manifest from STDIN (see the note in main()); a
+  # self-opening expr with no stdin fails → empty recorded_id → reuse path
+  # never taken → cert needlessly re-issued every run (eventually hits the
+  # team active-cert cap, 409).
+  local recorded_id; recorded_id="$(json_get "d.get('cert_${slug}','')" < "$MANIFEST" 2>/dev/null || true)"
 
   if [ -f "$key" ] && [ -f "$p12" ] && [ -n "$recorded_id" ]; then
-    local listing; listing="$(asc GET "/certificates?filter%5BcertificateType%5D=$ctype&limit=200")"
-    if [ "$ASC_HTTP" = "200" ] && printf '%s' "$listing" | grep -q "\"$recorded_id\""; then
+    local resp; resp="$(asc GET "/certificates?filter%5BcertificateType%5D=$ctype&limit=200")"
+    local http="${resp##*$'\n'}" listing="${resp%$'\n'*}"
+    if [ "$http" = "200" ] && printf '%s' "$listing" | grep -q "\"$recorded_id\""; then
       ok "cert $ctype: reusing existing (id ${recorded_id:0:8}…, local key present)"
       return 0
     fi
@@ -202,18 +242,19 @@ csr = open(sys.argv[1]).read()
 print(json.dumps({"data": {"type": "certificates",
     "attributes": {"certificateType": sys.argv[2], "csrContent": csr}}}))
 PY
-  local resp; resp="$(asc POST "/certificates" "$bodyfile")"; rm -f "$bodyfile"
+  local raw; raw="$(asc POST "/certificates" "$bodyfile")"; rm -f "$bodyfile"
+  local http="${raw##*$'\n'}" resp="${raw%$'\n'*}"
 
-  if [ "$ASC_HTTP" = "409" ] || [ "$ASC_HTTP" = "403" ]; then
-    warn "cert $ctype: ASC returned $ASC_HTTP — likely the active-cert cap for this type."
-    local existing; existing="$(asc GET "/certificates?filter%5BcertificateType%5D=$ctype&limit=200")"
-    printf '%s\n' "$existing" | python3 -c '
+  if [ "$http" = "409" ] || [ "$http" = "403" ]; then
+    warn "cert $ctype: ASC returned $http — likely the active-cert cap for this type."
+    local lraw; lraw="$(asc GET "/certificates?filter%5BcertificateType%5D=$ctype&limit=200")"
+    printf '%s\n' "${lraw%$'\n'*}" | python3 -c '
 import sys,json
 for c in json.load(sys.stdin).get("data",[]):
     a=c["attributes"]; print(f"   - {c[\"id\"]}  {a.get(\"name\",\"\")}  exp {a.get(\"expirationDate\",\"\")}")' >&2 || true
     die "Revoke an existing $ctype cert in the Developer portal, then re-run. (A cert whose private key you don't hold locally is unusable for a .p12.)"
   fi
-  [ "$ASC_HTTP" = "201" ] || die "cert $ctype: create failed (HTTP $ASC_HTTP): $(printf '%s' "$resp" | head -c 400)"
+  [ "$http" = "201" ] || die "cert $ctype: create failed (HTTP $http): $(printf '%s' "$resp" | head -c 400)"
 
   local cert_id content
   cert_id="$(printf '%s' "$resp" | json_get "d['data']['id']" 2>/dev/null \
@@ -245,13 +286,22 @@ assemble_combined_mac_p12() {
 # ensure_bundle_id <identifier> <IOS|MAC_OS> <name> → echoes the ASC bundleId UUID.
 ensure_bundle_id() {
   local ident="$1" plat="$2" name="$3"
-  local found
-  found="$(asc GET "/bundleIds?filter%5Bidentifier%5D=$ident&filter%5Bplatform%5D=$plat")"
-  if [ "$ASC_HTTP" = "200" ]; then
+  local raw; raw="$(asc GET "/bundleIds?filter%5Bidentifier%5D=$ident&filter%5Bplatform%5D=$plat")"
+  local http="${raw##*$'\n'}" found="${raw%$'\n'*}"
+  if [ "$http" = "200" ]; then
+    # ASC filter[identifier] is a PREFIX/substring match, not exact — querying
+    # "dev.tpmt.app" also returns "dev.tpmt.app.watchkitapp" (and any other
+    # dev.tpmt.app.* id). filter[platform] does NOT disambiguate either: both ids
+    # are platform=UNIVERSAL, so the platform filter returns the same superset.
+    # Picking data[0] blindly grabbed the watch id, binding every profile to
+    # dev.tpmt.app.watchkitapp → "profile X has app ID …watchkitapp which does not
+    # match bundle ID dev.tpmt.app" archive failure. Select the EXACT identifier.
     local id; id="$(printf '%s' "$found" | python3 -c '
 import sys,json
+want=sys.argv[1]
 d=json.load(sys.stdin).get("data",[])
-print(d[0]["id"] if d else "")')"
+m=[b["id"] for b in d if b["attributes"].get("identifier")==want]
+print(m[0] if m else "")' "$ident")"
     if [ -n "$id" ]; then ok "bundleId $ident ($plat): exists" >&2; printf '%s' "$id"; return 0; fi
   fi
   if [ "$DRY_RUN" -eq 1 ]; then warn "bundleId $ident ($plat): DRY RUN — would create" >&2; printf 'DRYRUN'; return 0; fi
@@ -262,13 +312,21 @@ import json, sys
 print(json.dumps({"data": {"type": "bundleIds",
     "attributes": {"identifier": sys.argv[1], "platform": sys.argv[2], "name": sys.argv[3]}}}))
 PY
-  local resp; resp="$(asc POST "/bundleIds" "$bodyfile")"; rm -f "$bodyfile"
-  if [ "$ASC_HTTP" = "409" ]; then
-    found="$(asc GET "/bundleIds?filter%5Bidentifier%5D=$ident&filter%5Bplatform%5D=$plat")"
-    printf '%s' "$found" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"][0]["id"])'
+  raw="$(asc POST "/bundleIds" "$bodyfile")"; rm -f "$bodyfile"
+  http="${raw##*$'\n'}"; local resp="${raw%$'\n'*}"
+  if [ "$http" = "409" ]; then
+    raw="$(asc GET "/bundleIds?filter%5Bidentifier%5D=$ident&filter%5Bplatform%5D=$plat")"
+    # Same prefix-match caveat as the 200 path above — select the EXACT identifier,
+    # never data[0] (which may be a dev.tpmt.app.* sibling like the watch id).
+    printf '%s' "${raw%$'\n'*}" | python3 -c '
+import sys,json
+want=sys.argv[1]
+d=json.load(sys.stdin).get("data",[])
+m=[b["id"] for b in d if b["attributes"].get("identifier")==want]
+print(m[0] if m else "")' "$ident"
     ok "bundleId $ident ($plat): already registered (reused)" >&2; return 0
   fi
-  [ "$ASC_HTTP" = "201" ] || die "bundleId $ident ($plat): create failed (HTTP $ASC_HTTP)"
+  [ "$http" = "201" ] || die "bundleId $ident ($plat): create failed (HTTP $http)"
   printf '%s' "$resp" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["id"])'
   ok "bundleId $ident ($plat): created" >&2
 }
@@ -283,8 +341,8 @@ create_profile() {
   if [ "$DRY_RUN" -eq 1 ]; then warn "profile '$name' ($ptype): DRY RUN — would (re)create" >&2; printf 'DRYRUN'; return 0; fi
 
   # delete any existing profile of this type with our exact name (avoid 409).
-  local existing; existing="$(asc GET "/profiles?filter%5BprofileType%5D=$ptype&limit=200")"
-  printf '%s' "$existing" | python3 -c '
+  local eraw; eraw="$(asc GET "/profiles?filter%5BprofileType%5D=$ptype&limit=200")"
+  printf '%s' "${eraw%$'\n'*}" | python3 -c '
 import sys,json
 for p in json.load(sys.stdin).get("data",[]):
     if p["attributes"].get("name")==sys.argv[1]: print(p["id"])' "$name" | while read -r pid; do
@@ -301,9 +359,10 @@ print(json.dumps({"data": {"type": "profiles",
         "bundleId": {"data": {"type": "bundleIds", "id": bid}},
         "certificates": {"data": [{"type": "certificates", "id": cert}]}}}}))
 PY
-  local resp; resp="$(asc POST "/profiles" "$bodyfile")"; rm -f "$bodyfile"
-  if [ "$ASC_HTTP" != "201" ]; then
-    warn "profile '$name' ($ptype): create FAILED (HTTP $ASC_HTTP): $(printf '%s' "$resp" | head -c 300)" >&2
+  local raw; raw="$(asc POST "/profiles" "$bodyfile")"; rm -f "$bodyfile"
+  local http="${raw##*$'\n'}" resp="${raw%$'\n'*}"
+  if [ "$http" != "201" ]; then
+    warn "profile '$name' ($ptype): create FAILED (HTTP $http): $(printf '%s' "$resp" | head -c 300)" >&2
     printf ''; return 1
   fi
   printf '%s' "$resp" | python3 -c 'import sys,json;print(json.load(sys.stdin)["data"]["attributes"]["profileContent"])'
@@ -379,9 +438,14 @@ main() {
   fi
 
   # Resolve cert UUIDs from the manifest for profile relationships.
+  # json_get reads JSON from STDIN (json.load(sys.stdin)) and evals the expr
+  # against `d` — so the manifest MUST be piped in. Passing a self-opening
+  # `json.load(open(...))` expr with no stdin makes json.load(sys.stdin) fail
+  # on empty input → `2>/dev/null || true` swallows it → empty cert id →
+  # profile create 409 "'' is not a valid id for the relationship 'certificates'".
   local ios_cert_id mac_app_cert_id
-  ios_cert_id="$(json_get "json.load(open('$MANIFEST')).get('cert_ios_dist','')" 2>/dev/null || true)"
-  mac_app_cert_id="$(json_get "json.load(open('$MANIFEST')).get('cert_mac_app','')" 2>/dev/null || true)"
+  ios_cert_id="$(json_get "d.get('cert_ios_dist','')" < "$MANIFEST" 2>/dev/null || true)"
+  mac_app_cert_id="$(json_get "d.get('cert_mac_app','')" < "$MANIFEST" 2>/dev/null || true)"
 
   # Bundle IDs + profiles.
   if has_platform ios; then
@@ -396,12 +460,15 @@ main() {
       "$(create_profile 'Teleprompter visionOS App Store' IOS_APP_STORE "$bid" "$ios_cert_id" || true)"
   fi
   if has_platform watchos; then
-    local bidc bida
-    bidc="$(ensure_bundle_id "$BID_WATCH_CONTAINER" IOS 'Teleprompter Watch Container')"
+    # #123 (ADR-0004 Amdt 2): the watch is a COMPANION embedded in the iOS app, so
+    # there is no container bundle id / container profile any more — only the watch
+    # app id (dev.tpmt.app.watchkitapp) needs an App Store profile, and it ships
+    # inside the iOS .ipa. The iOS upload job signs the embedded watch with this
+    # profile, so it is emitted as IOS_WATCH_PROVISIONING_PROFILE_BASE64 (consumed
+    # by the iOS archive-and-upload job, not a separate watchOS job).
+    local bida
     bida="$(ensure_bundle_id "$BID_WATCH_APP" IOS 'Teleprompter Watch App')"
-    set_raw_secret WATCHOS_CONTAINER_PROVISIONING_PROFILE_BASE64 \
-      "$(create_profile 'Teleprompter watch container App Store' IOS_APP_STORE "$bidc" "$ios_cert_id" || true)"
-    set_raw_secret WATCHOS_APP_PROVISIONING_PROFILE_BASE64 \
+    set_raw_secret IOS_WATCH_PROVISIONING_PROFILE_BASE64 \
       "$(create_profile 'Teleprompter watch app App Store' IOS_APP_STORE "$bida" "$ios_cert_id" || true)"
   fi
   if has_platform macos; then
@@ -416,8 +483,14 @@ main() {
   printf '\n' >&2
   ok "done. Re-run safely any time (certs reused, profiles recreated)."
   warn "Reminder: per-platform ASC APP RECORDS must exist (not API-creatable)."
-  [ "$NO_SECRETS" -eq 0 ] && [ "$DRY_RUN" -eq 0 ] && \
+  # NOTE: a bare `[ a ] && [ b ] && log ...` as the LAST statement makes main()
+  # (and the script, under no `exit`) inherit the &&-chain's exit status — in a
+  # dry-run/no-secrets pass the chain is false → exit 1, falsely signalling
+  # failure to CI / `&&` callers. Use an explicit if so success is success.
+  if [ "$NO_SECRETS" -eq 0 ] && [ "$DRY_RUN" -eq 0 ]; then
     log "Next: gh workflow run testflight.yml   (or push a v* tag)"
+  fi
+  return 0
 }
 
 main "$@"

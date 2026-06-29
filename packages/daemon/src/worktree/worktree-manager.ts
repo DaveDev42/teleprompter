@@ -13,6 +13,25 @@ import { basename, dirname, resolve, sep } from "path";
 const log = createLogger("WorktreeManager");
 
 /**
+ * Build a child-process env with inherited GIT_* vars stripped.
+ *
+ * If the daemon (or a test runner) is itself spawned inside a git operation —
+ * e.g. from a `git push` pre-push hook — git exports GIT_DIR / GIT_WORK_TREE /
+ * GIT_INDEX_FILE pointing at the *outer* repo. Those exported vars override
+ * both the `cwd` option and any `-C` flag, so every WorktreeManager git call
+ * would silently target the outer repo instead of `repoRoot`. Stripping them
+ * makes `cwd` authoritative, which is the contract this manager relies on
+ * (it always names the repo explicitly via `cwd`).
+ */
+function gitEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const k of Object.keys(env)) {
+    if (k.startsWith("GIT_")) delete env[k];
+  }
+  return env;
+}
+
+/**
  * Run a git command and return stdout text.
  *
  * Runs git directly via spawnSync with no shell — args are passed as an
@@ -23,6 +42,7 @@ const log = createLogger("WorktreeManager");
 function gitOutput(args: string[], cwd?: string): string {
   const result = spawnSync("git", args, {
     cwd,
+    env: gitEnv(),
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -47,6 +67,7 @@ function gitOutput(args: string[], cwd?: string): string {
 function gitRun(args: string[], cwd?: string): void {
   const result = spawnSync("git", args, {
     cwd,
+    env: gitEnv(),
     stdio: ["ignore", "ignore", "pipe"],
   });
   if (result.error) {
@@ -65,6 +86,7 @@ function gitRun(args: string[], cwd?: string): void {
  */
 function validateBranchName(branch: string): void {
   const r = spawnSync("git", ["check-ref-format", "--branch", branch], {
+    env: gitEnv(),
     stdio: "ignore",
   });
   // If git itself could not run, the branch name is not the problem — surface

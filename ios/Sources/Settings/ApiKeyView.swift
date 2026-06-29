@@ -47,6 +47,7 @@ struct ApiKeySheet: View {
                     Button("Save") {
                         saveKey()
                     }
+                    .buttonStyle(.borderedProminent)
                     .disabled(!canSave)
                     .frame(maxWidth: .infinity)
                     .fontWeight(.semibold)
@@ -57,6 +58,7 @@ struct ApiKeySheet: View {
                         Button("Remove Key", role: .destructive) {
                             showRemoveConfirm = true
                         }
+                        .buttonStyle(.bordered)
                         .frame(maxWidth: .infinity)
                     }
                 }

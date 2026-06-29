@@ -588,12 +588,15 @@ fn render_tui(state: &TuiState) {
     // the saved number of lines). We always draw `total_lines` so this is
     // stable across renders.
     // \x1b[<N>A = cursor up N lines, \x1b[J = erase from cursor to end of screen.
-    let _ = write!(out, "\x1b[{total_lines}A\x1b[J");
+    // \r returns the cursor to column 0 after the move-up (raw mode does not
+    // translate \n → \r\n, so the previous footer may have left the cursor at
+    // a non-zero column).
+    let _ = write!(out, "\x1b[{total_lines}A\r\x1b[J");
 
-    // Header (bold).
-    let _ = writeln!(
+    // Header (bold). Use \r\n: raw mode does not translate \n → \r\n.
+    let _ = write!(
         out,
-        "\x1b[1mSelect stopped sessions to delete (space toggle, a toggle all, Enter confirm, Esc cancel)\x1b[0m"
+        "\x1b[1mSelect stopped sessions to delete (space toggle, a toggle all, Enter confirm, Esc cancel)\x1b[0m\r\n"
     );
 
     for (i, row) in state.rows.iter().enumerate() {
@@ -629,11 +632,14 @@ fn render_tui(state: &TuiState) {
         // Age: always gray.
         let age_col = format!("\x1b[90m{}\x1b[0m", row.age);
 
-        let _ = writeln!(out, "{cursor_col} {checkbox} {sid_col} {cwd_col} {age_col}");
+        let _ = write!(
+            out,
+            "{cursor_col} {checkbox} {sid_col} {cwd_col} {age_col}\r\n"
+        );
     }
 
     // Blank line + footer (gray).
-    let _ = writeln!(out);
+    let _ = write!(out, "\r\n");
     let _ = write!(
         out,
         "\x1b[90m{} selected / {} total\x1b[0m",
@@ -655,10 +661,10 @@ fn render_tui_initial(state: &TuiState) {
     let total_lines = n_rows + 3;
     let mut out = String::with_capacity(total_lines * 80);
 
-    // Header.
-    let _ = writeln!(
+    // Header. Use \r\n: raw mode does not translate \n → \r\n.
+    let _ = write!(
         out,
-        "\x1b[1mSelect stopped sessions to delete (space toggle, a toggle all, Enter confirm, Esc cancel)\x1b[0m"
+        "\x1b[1mSelect stopped sessions to delete (space toggle, a toggle all, Enter confirm, Esc cancel)\x1b[0m\r\n"
     );
 
     for (i, row) in state.rows.iter().enumerate() {
@@ -685,10 +691,13 @@ fn render_tui_initial(state: &TuiState) {
         };
         let age_col = format!("\x1b[90m{}\x1b[0m", row.age);
 
-        let _ = writeln!(out, "{cursor_col} {checkbox} {sid_col} {cwd_col} {age_col}");
+        let _ = write!(
+            out,
+            "{cursor_col} {checkbox} {sid_col} {cwd_col} {age_col}\r\n"
+        );
     }
 
-    let _ = writeln!(out);
+    let _ = write!(out, "\r\n");
     let _ = write!(
         out,
         "\x1b[90m{} selected / {} total\x1b[0m",
@@ -811,7 +820,9 @@ pub fn cleanup(yes: bool, preselect_all: bool) -> ExitCode {
         render_tui_initial(&state);
 
         // Emit a trailing newline so the footer line is fully visible.
-        println!();
+        // Use \r\n: raw mode does not translate \n → \r\n.
+        print!("\r\n");
+        let _ = io::stdout().flush();
 
         let result = loop {
             // Read one key event (blocking).
@@ -834,7 +845,9 @@ pub fn cleanup(yes: bool, preselect_all: bool) -> ExitCode {
             if key.code == KeyCode::Up || key.code == KeyCode::Char('k') {
                 state.move_up();
                 render_tui(&state);
-                println!();
+                // \r\n: raw mode does not translate \n → \r\n.
+                print!("\r\n");
+                let _ = io::stdout().flush();
                 continue;
             }
 
@@ -842,7 +855,8 @@ pub fn cleanup(yes: bool, preselect_all: bool) -> ExitCode {
             if key.code == KeyCode::Down || key.code == KeyCode::Char('j') {
                 state.move_down();
                 render_tui(&state);
-                println!();
+                print!("\r\n");
+                let _ = io::stdout().flush();
                 continue;
             }
 
@@ -850,7 +864,8 @@ pub fn cleanup(yes: bool, preselect_all: bool) -> ExitCode {
             if key.code == KeyCode::Char(' ') {
                 state.toggle_current();
                 render_tui(&state);
-                println!();
+                print!("\r\n");
+                let _ = io::stdout().flush();
                 continue;
             }
 
@@ -858,7 +873,8 @@ pub fn cleanup(yes: bool, preselect_all: bool) -> ExitCode {
             if key.code == KeyCode::Char('a') {
                 state.toggle_all();
                 render_tui(&state);
-                println!();
+                print!("\r\n");
+                let _ = io::stdout().flush();
                 continue;
             }
 
@@ -873,7 +889,9 @@ pub fn cleanup(yes: bool, preselect_all: bool) -> ExitCode {
         cancelled = result.0;
         selected_sids = result.1;
         // Print a newline to move past the TUI frame (the footer had no \n).
-        println!();
+        // Use \r\n: raw mode does not translate \n → \r\n.
+        print!("\r\n");
+        let _ = io::stdout().flush();
     }
 
     // Cancel path (tsx:272-275).

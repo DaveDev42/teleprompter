@@ -122,64 +122,6 @@ final class RelayResilienceTests: XCTestCase {
         XCTAssertNil(payload.v, "absent v must decode as nil, not throw")
     }
 
-    // MARK: - M10: daemon-label adoption refreshes the observable cache
-
-    /// Build an isolated `PairingStore` over a throwaway UserDefaults suite so the
-    /// test never touches the shared (`.standard`) defaults or the real Keychain
-    /// index. The suite name is unique per call so tests don't bleed into each
-    /// other.
-    @MainActor
-    private func makeIsolatedStore() -> (PairingStore, UserDefaults, String) {
-        let suiteName = "tp.test.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        let store = PairingStore(defaults: defaults, keychainService: suiteName)
-        return (store, defaults, suiteName)
-    }
-
-    /// Regression for the "daemon-m…" display bug.
-    ///
-    /// `PairingViewModel.label(for:)` reads its `@Observable labels` cache, whose
-    /// value type is `String?`. After `refreshLabels()` runs for an unlabeled
-    /// daemon the cache holds a present-but-`nil` entry — a cache HIT that
-    /// shadows the store. A bare `PairingStore.setLabel` (as the kx-adoption
-    /// path did before the fix) is therefore invisible to the view-model: the
-    /// row stays on the `daemonId.prefix(8)` fallback ("daemon-m…").
-    ///
-    /// The fix routes kx adoption through the `onRename` handler, which calls
-    /// `setLabel` AND `reload()` (→ `refreshLabels()`). This test proves the
-    /// stale-cache shadowing (a direct store write does NOT surface) and that a
-    /// `reload()` — the step the fix's `onRename` path performs — does.
-    @MainActor
-    func testViewModelLabelCacheShadowsBareStoreWriteUntilReload() {
-        let (store, defaults, suiteName) = makeIsolatedStore()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let did = "daemon-mqyu8qqz"
-        // Register the daemon in the index (no Keychain secret needed for the
-        // label cache path) and refresh the cache while it is unlabeled.
-        defaults.set([did], forKey: "tp.pairings.index")
-
-        let vm = PairingViewModel(store: store, sessionStore: SessionStore())
-        // Empty-on-construct then registered: reload to pick up the index entry.
-        vm.reload()
-        XCTAssertNil(vm.label(for: did), "precondition: daemon starts unlabeled")
-
-        // Simulate the kx frame's adoption writing straight to the store (the
-        // PRE-FIX behavior). The observable cache is NOT told, so the view-model
-        // still reports nil → DaemonRow would show "daemon-m…".
-        store.setLabel("Dave-MBP16", for: did)
-        XCTAssertNil(
-            vm.label(for: did),
-            "bare store write must remain shadowed by the stale present-but-nil cache entry")
-
-        // The fix's onRename path calls reload() after setLabel — that refreshes
-        // the cache and the hostname label finally surfaces.
-        vm.reload()
-        XCTAssertEqual(
-            vm.label(for: did), "Dave-MBP16",
-            "after reload() the adopted hostname label must surface (no daemon-m fallback)")
-    }
-
     // MARK: - H7: inbound control.unpair decoding
 
     func testControlUnpairInboundDecodes() throws {

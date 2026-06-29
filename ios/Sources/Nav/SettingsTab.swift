@@ -77,7 +77,6 @@ struct SettingsForm: View {
                 } label: {
                     SettingsValueRow(label: "Chat Font", value: settings.chatFont)
                 }
-                .buttonStyle(.plain)
                 .foregroundStyle(.primary)
 
                 // Code Font
@@ -86,7 +85,6 @@ struct SettingsForm: View {
                 } label: {
                     SettingsValueRow(label: "Code Font", value: settings.codeFont)
                 }
-                .buttonStyle(.plain)
                 .foregroundStyle(.primary)
 
                 // Terminal Font
@@ -95,7 +93,6 @@ struct SettingsForm: View {
                 } label: {
                     SettingsValueRow(label: "Terminal Font", value: settings.terminalFont)
                 }
-                .buttonStyle(.plain)
                 .foregroundStyle(.primary)
 
                 // Font Size
@@ -104,7 +101,6 @@ struct SettingsForm: View {
                 } label: {
                     SettingsValueRow(label: "Font Size", value: "\(settings.fontSize)pt")
                 }
-                .buttonStyle(.plain)
                 .foregroundStyle(.primary)
             }
 
@@ -131,7 +127,6 @@ struct SettingsForm: View {
                         value: hasApiKey ? "Configured" : "Not set"
                     )
                 }
-                .buttonStyle(.plain)
                 .foregroundStyle(.primary)
             } header: {
                 Text("Voice")

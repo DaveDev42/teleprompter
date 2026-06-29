@@ -43,19 +43,13 @@ settings:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES"
-    # Ad-hoc sign Simulator/Debug builds so entitlements (keychain-access-groups)
-    # are embedded. Without an entitlement the Simulator Keychain rejects SecItemAdd
+    # Ad-hoc sign Simulator builds so entitlements (keychain-access-groups) are
+    # embedded. Without an entitlement the Simulator Keychain rejects SecItemAdd
     # with errSecMissingEntitlement (-34018). Ad-hoc ("-") needs no developer
     # identity and the Simulator accepts it. Same applies to macOS local builds.
-    # QUALIFIED to Debug: every build/smoke/test path uses -configuration Debug
-    # (scripts/ios.sh cmd_build/cmd_test) while ONLY the TestFlight archive uses
-    # -configuration Release (cmd_archive). A device/MAS Release archive MUST sign
-    # with a real Apple Distribution identity + provisioning profile (ad-hoc is
-    # rejected by device SDKs: "Ad Hoc code signing is not allowed with SDK …"),
-    # so each shipping target carries [config=Release][sdk=…] manual-signing keys.
-    "CODE_SIGN_IDENTITY[config=Debug]": "-"
-    "CODE_SIGNING_REQUIRED[config=Debug]": "NO"
-    "CODE_SIGNING_ALLOWED[config=Debug]": "YES"
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGNING_ALLOWED: "YES"
     ENABLE_USER_SCRIPT_SANDBOXING: "YES"
 
 targets:
@@ -88,20 +82,6 @@ targets:
         embed: false
       # SwiftTerm: VT100/xterm emulator for the Terminal tab (A1 ANSI milestone).
       - package: SwiftTerm
-      # Companion watch embed (#123, ADR-0004 Amendment 2). The watch app ships
-      # INSIDE this iOS app's .ipa under Payload/Teleprompter.app/Watch/, so the
-      # whole bundle has ONE App Store Connect record (dev.tpmt.app) instead of a
-      # separate watchapp2-container record. `destinationFilters: [iOS]` scopes the
-      # "Embed Watch Content" copy phase to the iOS destination ONLY — the macOS and
-      # visionOS slices of this multiplatform target never try to embed a watchOS
-      # app (which would break the macOS swift-build CI gate). XcodeGen 2.45.4
-      # auto-wires the copy phase with `platformFilters = (ios,)` (empirically
-      # verified: macOS BUILD SUCCEEDED with the embed present). The watch app still
-      # keeps WKRunsIndependentlyOfCompanionApp=YES so it runs standalone on Apple
-      # Watch away from the iPhone — companion DISTRIBUTION, standalone RUNTIME.
-      - target: TeleprompterWatch
-        embed: true
-        destinationFilters: [iOS]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.app
@@ -109,39 +89,8 @@ targets:
         # macOS overrides this with the sandbox + network.client entitlements file.
         CODE_SIGN_ENTITLEMENTS: Teleprompter.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Teleprompter-macOS.entitlements
-        # Wire the AppIcon asset catalog into iOS and macOS targets.
-        # visionOS uses a separate .solidimagestack asset (AppIconVision) because
-        # visionOS requires a layered icon composed of Back/Middle/Front layers —
-        # a flat .appiconset is not accepted by altool (error 90970: missing
-        # CFBundleIcons.CFBundlePrimaryIcon). The solidimagestack layers are opaque
-        # 1024×1024 PNGs (no alpha) derived from the same flattened AppIcon source.
+        # Wire the AppIcon asset catalog into both iOS and macOS targets.
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        "ASSETCATALOG_COMPILER_APPICON_NAME[sdk=xros*]": AppIconVision
-        # TestFlight archive (Release) manual signing, PER DEVICE SDK. xcodebuild
-        # CLI build-setting overrides apply GLOBALLY to all targets in one archive,
-        # so per-target/per-platform profile mapping CANNOT live in cmd_archive — it
-        # must be baked here. Manual signing REQUIRES an explicit
-        # PROVISIONING_PROFILE_SPECIFIER per (target, SDK); xcodebuild does NOT
-        # auto-resolve a profile by bundle id in Manual mode. Profile NAMES (stable,
-        # the SoT) are created by scripts/setup-testflight-secrets.sh — iOS :423,
-        # visionOS :429, macOS :446. CODE_SIGN_IDENTITY "Apple Distribution"
-        # resolves the imported dist cert in the throwaway CI keychain.
-        # DEVELOPMENT_TEAM is supplied at archive time (TP_DEVELOPMENT_TEAM, global
-        # CLI override — correct since all targets share one team). Debug/Simulator
-        # stays ad-hoc (project base [config=Debug] keys). iphoneos covers iOS+iPadOS.
-        "CODE_SIGN_STYLE[config=Release]": Manual
-        "CODE_SIGN_IDENTITY[config=Release][sdk=iphoneos*]": "Apple Distribution"
-        "CODE_SIGNING_REQUIRED[config=Release][sdk=iphoneos*]": "YES"
-        "CODE_SIGNING_ALLOWED[config=Release][sdk=iphoneos*]": "YES"
-        "PROVISIONING_PROFILE_SPECIFIER[config=Release][sdk=iphoneos*]": "Teleprompter iOS App Store"
-        "CODE_SIGN_IDENTITY[config=Release][sdk=macosx*]": "Apple Distribution"
-        "CODE_SIGNING_REQUIRED[config=Release][sdk=macosx*]": "YES"
-        "CODE_SIGNING_ALLOWED[config=Release][sdk=macosx*]": "YES"
-        "PROVISIONING_PROFILE_SPECIFIER[config=Release][sdk=macosx*]": "Teleprompter macOS App Store"
-        "CODE_SIGN_IDENTITY[config=Release][sdk=xros*]": "Apple Distribution"
-        "CODE_SIGNING_REQUIRED[config=Release][sdk=xros*]": "YES"
-        "CODE_SIGNING_ALLOWED[config=Release][sdk=xros*]": "YES"
-        "PROVISIONING_PROFILE_SPECIFIER[config=Release][sdk=xros*]": "Teleprompter visionOS App Store"
     # Explicit Info.plist (checked in) so we can register the custom `tp://` URL
     # scheme — CFBundleURLTypes has no INFOPLIST_KEY_* equivalent, so a generated
     # plist won't carry it. XcodeGen writes this file from `properties` and points
@@ -200,46 +149,11 @@ targets:
         # `.onOpenURL` needs to receive `tp://` deep links.
         # On macOS (native, not Catalyst) SwiftUI's WindowGroup works without a
         # scene manifest — the key is ignored by AppKit.
-        #
-        # Supported interface orientations. REQUIRED for App Store / TestFlight
-        # upload: altool rejected the .ipa with "Invalid bundle. No orientations
-        # were specified in the dev.tpmt.app bundle … specify the
-        # UISupportedInterfaceOrientations Info.plist key" (90474). iPad apps must
-        # declare all four orientations to support multitasking; the ~ipad
-        # variant supplies that, while iPhone keeps the conventional three (no
-        # upside-down). Both keys are iOS/iPadOS-only — AppKit (macOS) and
-        # visionOS ignore them, so no per-platform plist split is needed (same as
-        # the other UI* keys above).
-        UISupportedInterfaceOrientations:
-          - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
-        UISupportedInterfaceOrientations~ipad:
-          - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationPortraitUpsideDown
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
           UISceneConfigurations:
             UIWindowSceneSessionRoleApplication:
               - UISceneConfigurationName: Default Configuration
-        # Required by App Store Connect (ASC error 90242) for Mac App Store /
-        # TestFlight macOS submissions. This key is a valid optional key on all
-        # Apple platforms and is a harmless no-op on iOS and visionOS — no
-        # per-platform plist split is needed.
-        LSApplicationCategoryType: public.app-category.developer-tools
-        # CFBundleVersion / CFBundleShortVersionString MUST be variable references,
-        # not literals. Because this target sets an explicit INFOPLIST_FILE
-        # (Teleprompter-Info.plist, for the scene manifest + URL types), XcodeGen
-        # otherwise bakes CURRENT_PROJECT_VERSION's literal value ("1") into the
-        # plist's CFBundleVersion — which then WINS over the archive-time
-        # `CURRENT_PROJECT_VERSION=<TP_BUILD_NUMBER>` build-setting override, so every
-        # TestFlight build shipped CFBundleVersion=1 and ASC rejected re-uploads as
-        # duplicate (run 28333992407: "bundle version must be higher than … '1'").
-        # As variable references the overrides propagate at archive time.
-        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
-        CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleURLTypes:
           - CFBundleURLName: dev.tpmt.app.pairing
             CFBundleTypeRole: Editor
@@ -337,88 +251,63 @@ targets:
       - path: Sources/Session/Terminal/TerminalOps.swift
       - path: Generated
         optional: true
-      # Watch-specific asset catalog. Contains WatchAppIcon.appiconset with the
-      # marketing icon (1024×1024, opaque, watchos platform). Wired via
-      # ASSETCATALOG_COMPILER_APPICON_NAME so Xcode generates CFBundleIconName in
-      # the watch app's Info.plist — required by App Store Connect (error 90713:
-      # "Missing Info.plist value … CFBundleIconName in dev.tpmt.app.watchkitapp").
-      - path: Watch/Assets.xcassets
     dependencies:
       # tp-core static library — watchOS slices added in B3. Not embedded.
       - framework: ../rust/target/TpCore.xcframework
         embed: false
     settings:
       base:
-        # App icon for the watch target — generates CFBundleIconName in the watch
-        # app's Info.plist (required by ASC, fixes error 90713).
-        ASSETCATALOG_COMPILER_APPICON_NAME: WatchAppIcon
-        # Companion watch app embedded in the main iOS app (#123, ADR-0004 Amdt 2).
-        # The watch app ships inside dev.tpmt.app's .ipa (one ASC record). Apple's
-        # WatchKit layout requires the watch app id to be <companion-id>.watchkitapp,
-        # so the id is dev.tpmt.app.watchkitapp (the .watch container record is gone).
-        PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.app.watchkitapp
+        # Embedded under the iOS container (TeleprompterWatchContainer, top-level id
+        # dev.tpmt.app.watch). Apple's watchapp2-container layout requires the watch
+        # app's id to be <container-id>.watchkitapp — the container and watch app
+        # cannot share a bundle id. The App Store *record* id stays dev.tpmt.app.watch
+        # (the container). The watch app still runs standalone (see independence keys).
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.app.watch.watchkitapp
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_KEY_CFBundleDisplayName: Teleprompter
-        # Standalone RUNTIME despite companion DISTRIBUTION. IsIndependentApp +
-        # WKRunsIndependentlyOfCompanionApp=YES keep the watch app runnable on Apple
-        # Watch with the iPhone out of range — the user just configures it once on
-        # the iPhone (where the companion iOS app installs it), then it runs alone.
+        # Standalone watch app (not a watchOS extension of the iOS companion).
         INFOPLIST_KEY_WKApplication_IsIndependentApp: "YES"
-        # The companion is now the real main iOS app (dev.tpmt.app), not an empty
-        # container. This is what makes the embed a true companion install.
-        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: "dev.tpmt.app"
+        # The companion is the iOS container that wraps this watch app for
+        # distribution (dev.tpmt.app.watch). WKRunsIndependentlyOfCompanionApp=YES
+        # makes it a truly standalone app that installs + runs on Apple Watch with
+        # no iOS app on the user's iPhone — the container is a packaging wrapper only.
+        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: "dev.tpmt.app.watch"
         INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp: "YES"
-        # Debug/Simulator: ad-hoc (the watchOS Simulator smoke build runs Debug;
-        # Simulator Keychain accepts "-"). QUALIFIED to Debug so the Release DEVICE
-        # archive does NOT inherit ad-hoc — a watchOS DEVICE SDK rejects it ("Ad Hoc
-        # code signing is not allowed with SDK watchOS …", the exact archive failure).
-        "CODE_SIGN_IDENTITY[config=Debug]": "-"
-        "CODE_SIGNING_REQUIRED[config=Debug]": "NO"
-        "CODE_SIGNING_ALLOWED[config=Debug]": "YES"
-        # Release/device archive: the embedded companion watch signs with the same
-        # Apple Distribution cert + its OWN App Store profile (name from
-        # scripts/setup-testflight-secrets.sh:441). A per-target specifier is the
-        # ONLY way to map watch→its profile — one xcodebuild archive applies CLI
-        # overrides globally and cannot differ per target.
-        "CODE_SIGN_STYLE[config=Release]": Manual
-        "CODE_SIGN_IDENTITY[config=Release]": "Apple Distribution"
-        "CODE_SIGNING_REQUIRED[config=Release]": "YES"
-        "CODE_SIGNING_ALLOWED[config=Release]": "YES"
-        "PROVISIONING_PROFILE_SPECIFIER[config=Release]": "Teleprompter watch app App Store"
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGNING_ALLOWED: "YES"
         # Allow Simulator builds alongside real-device watchOS builds.
         # Without this, xcodebuild only exposes real-device destinations (SDKROOT=watchos).
         SUPPORTED_PLATFORMS: "watchos watchsimulator"
-        # Exclude x86_64 from the watchOS Simulator slice. TpCore.xcframework's
-        # watchos-arm64-simulator slice is arm64-ONLY (no x86_64). When this watch
-        # app is built EMBEDDED in the iOS app (#123) for the iOS Simulator, Xcode
-        # builds the watch for the watchOS Simulator using THIS target's ARCHS — and
-        # ONLY_ACTIVE_ARCH on the iOS app does NOT propagate across the platform
-        # boundary, so the watch would otherwise build the full watchsimulator arch
-        # list (arm64 + x86_64) and fail to link "symbol(s) not found for x86_64".
-        # All dev/CI Macs are arm64, so excluding x86_64 here is safe. The device
-        # archive (SDKROOT=watchos) is unaffected — that uses arm64 + arm64_32, both
-        # present in the xcframework. This holds in BOTH the embedded build and the
-        # standalone smoke build (which also passes ARCHS=arm64 on the CLI).
-        "EXCLUDED_ARCHS[sdk=watchsimulator*]": x86_64
-        # Export-compliance: the embedded watch app (Payload/Teleprompter.app/Watch/)
-        # carries its OWN Info.plist (GENERATE_INFOPLIST_FILE=YES), so it needs its
-        # own ITSAppUsesNonExemptEncryption — the host iOS app's key (Teleprompter
-        # target, ITSAppUsesNonExemptEncryption: false) does NOT cover the embedded
-        # watch slice. Without this, ASC puts the WHOLE build in "Missing Compliance"
-        # hold and no TestFlight tester can install it. We use only standard
-        # XChaCha20/X25519 (EAR 740.17(b)(1) exempt), same as the host. NOTE: the
-        # GENERATE_INFOPLIST_FILE path takes a *string* "NO" (the host app sets the
-        # raw plist boolean `false`; here it is an INFOPLIST_KEY_* build setting).
-        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: "NO"
 
-  # (TeleprompterWatchContainer removed in #123 / ADR-0004 Amendment 2.) The watch
-  # app is now a companion embedded directly in the main iOS app (see the
-  # `- target: TeleprompterWatch` embed on the Teleprompter target above), so the
-  # separate watchapp2-container distribution wrapper — and its second ASC record
-  # (dev.tpmt.app.watch) — are no longer needed. The watch ships inside the main
-  # app's .ipa under Payload/Teleprompter.app/Watch/ and uploads on the single
-  # dev.tpmt.app record. It still runs standalone on Apple Watch
-  # (WKRunsIndependentlyOfCompanionApp=YES).
+  # iOS container for distributing the standalone watch app to TestFlight (ADR-0004
+  # §7.1). App Store Connect has no watchOS platform — an independent watch app must
+  # be uploaded inside an iOS app record. This container is a DISTRIBUTION WRAPPER
+  # ONLY: it has no iOS UI/sources, owns the top-level bundle id, and embeds the
+  # watch app (which keeps WKRunsIndependentlyOfCompanionApp=YES, so it still installs
+  # + runs standalone on Apple Watch with no iOS app on the user's iPhone). Archiving
+  # THIS target (generic/platform=iOS) is what produces an App-Store-distributable
+  # .ipa; archiving the watch scheme directly yields a non-distributable
+  # "Generic Xcode Archive". Built/uploaded only by the TestFlight workflow — NOT in
+  # the Simulator smoke path (which still builds TeleprompterWatch directly).
+  TeleprompterWatchContainer:
+    type: application.watchapp2-container
+    platform: iOS
+    deploymentTarget: "17.0"
+    dependencies:
+      - target: TeleprompterWatch
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.tpmt.app.watch
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: Teleprompter
+        # Must be installable so it isn't dropped from the archive.
+        SKIP_INSTALL: "NO"
+        # Same export-compliance declaration as the main app — standard XChaCha20/
+        # X25519 is EAR 740.17(b)(1) exempt; without it TestFlight withholds the
+        # build from testers with "Missing Compliance".
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: "NO"
 
 schemes:
   Teleprompter:
@@ -454,11 +343,6 @@ schemes:
       targets:
         - TeleprompterUITests
 
-  # Watch RUNTIME smoke scheme (scripts/ios.sh, TP_PLATFORM=watchos). Builds the
-  # watch app directly on the watchOS Simulator to prove it boots + the wire/E2EE
-  # path works (7 markers). This is the standalone-runtime proof and is SEPARATE
-  # from distribution — for TestFlight the watch ships embedded in the main iOS .ipa
-  # (companion), archived via the Teleprompter scheme, NOT this one (#123).
   TeleprompterWatch:
     build:
       targets:
@@ -466,8 +350,16 @@ schemes:
     run:
       config: Debug
 
-  # (TeleprompterWatchContainer scheme removed in #123 / ADR-0004 Amdt 2.) The watch
-  # now ships embedded in the main app, so the TestFlight watch archive rides the
-  # `Teleprompter` scheme's iOS archive (the Embed Watch Content phase pulls in
-  # TeleprompterWatch on the iOS destination) — there is no separate container
-  # scheme to archive.
+  # Archive scheme for TestFlight (ADR-0004 §7.1). Builds the iOS container, which
+  # embeds the watch app — archiving THIS (generic/platform=iOS, Release) yields an
+  # App-Store-distributable .ipa. `scripts/ios.sh archive` (TP_PLATFORM=watchos)
+  # uses this scheme. Building the container all-configs pulls in TeleprompterWatch
+  # via the Embed Watch Content phase XcodeGen wires from the target dependency.
+  TeleprompterWatchContainer:
+    build:
+      targets:
+        TeleprompterWatchContainer: all
+    run:
+      config: Debug
+    archive:
+      config: Release

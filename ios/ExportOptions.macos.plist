@@ -16,21 +16,15 @@
     talking to the developer portal (impossible headlessly).
   - uploadSymbols true: ship dSYMs so App Store Connect symbolicates crash logs.
 
-  teamID and the bundleId→profile mapping are NOT hardcoded — `cmd_archive` injects
-  them at EXPORT time into a temp copy (ExportOptions.resolved.plist) from
-  $TP_DEVELOPMENT_TEAM + ARCHIVE_PROFILE_MAP (macOS = one entry: dev.tpmt.app →
-  "Teleprompter macOS App Store"). Manual -exportArchive does NOT resolve profiles
-  from the keychain by bundle id — that is Automatic-signing behavior; manual needs
-  an explicit provisioningProfiles dict. The .pkg is
+  teamID and the bundleId→profile mapping are NOT hardcoded — team comes from the
+  archive's embedded signing (DEVELOPMENT_TEAM in cmd_archive), and Xcode resolves
+  the profile from the keychain by bundle id (dev.tpmt.app, macOS). The .pkg is
   signed with the "3rd Party Mac Developer Installer" identity, which is a SEPARATE
   certificate from the app-signing identity (Apple portal lists them as distinct
-  cert types). `cmd_archive` injects installerSigningCertificate ("3rd Party Mac
-  Developer Installer") into the temp resolved ExportOptions at export time so
-  xcodebuild resolves that identity from the keychain — NOT through the provisioning
-  profile (profiles never list installer certs; omitting this key caused CI run
-  28328587004 exit 70 "doesn't include signing certificate"). The CI keychain
-  imports the installer cert from a combined .p12 or MAC_INSTALLER_CERT_P12_BASE64
-  (see .github/workflows/testflight.yml + docs/testflight-setup.md §2).
+  cert types). No installerSigningCertificate key is needed here as long as that
+  installer identity is present in the keychain — the CI keychain imports it either
+  from a combined .p12 or a separate MAC_INSTALLER_CERT_P12_BASE64 secret (see
+  .github/workflows/testflight.yml + docs/testflight-setup.md §2).
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

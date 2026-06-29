@@ -61,13 +61,7 @@ enum PairingError: Error, CustomStringConvertible {
 final class PairingStore: @unchecked Sendable {
     static let shared = PairingStore()
 
-    /// Backing `UserDefaults` (injectable for tests). `internal` rather than
-    /// `private` so the label accessors in `PairingRelayOps.swift` (a cross-file
-    /// extension) read/write the SAME store as every other method — otherwise an
-    /// injected test suite is silently bypassed and the label path leaks into
-    /// `.standard` (the machine-global defaults), which both breaks test
-    /// isolation and is inconsistent with how meta/index/frontendId persist.
-    let defaults: UserDefaults
+    private let defaults: UserDefaults
     private let keychainService: String
     private let log = Logger(subsystem: "dev.tpmt.app", category: "pairing")
 

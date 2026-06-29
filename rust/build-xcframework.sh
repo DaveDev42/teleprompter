@@ -147,14 +147,8 @@ gen_bindings() {
   [ -f "$lib" ] || die "host dylib not found: $lib"
   rm -rf "$GEN_DIR" && mkdir -p "$GEN_DIR"
   log "generating Swift bindings → $GEN_DIR"
-  # `cargo run` forwards the child binary's STDOUT to our stdout. uniffi-bindgen's
-  # useful output is the files it writes to --out-dir, never its stdout. This script
-  # runs inside cmd_archive's captured `$(…)` (CI does `IPA="$(scripts/ios.sh archive)"`
-  # expecting ONLY the artifact path), so any stray bindgen/cargo stdout would corrupt
-  # the $GITHUB_OUTPUT capture. Redirect to stderr — same artifact-stdout discipline as
-  # cmd_archive's xcodebuild >&2 and the -create-xcframework redirect below.
   ( cd "$RUST_DIR" && cargo run $PROFILE_FLAG --bin uniffi-bindgen -- generate \
-      --library "$lib" --language swift --out-dir "$GEN_DIR" ) >&2
+      --library "$lib" --language swift --out-dir "$GEN_DIR" )
   # Swift 6 fix: UniFFI 0.28 emits `private var initializationResult` — a mutable
   # global the Swift-6 concurrency checker flags as non-Sendable shared state
   # (error under SWIFT_VERSION=6.0). It's a lazily-evaluated init-once constant

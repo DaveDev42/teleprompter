@@ -689,40 +689,16 @@ final class RelayClient: NSObject, @unchecked Sendable {
             }
 
             // M10: Adopt the daemon's label if local label is unset.
-            //
-            // Route the adoption through `onRename` — the SAME callback the
-            // inbound `control.rename` path (H8) uses — instead of writing to
-            // `PairingStore` directly. A bare store write is INVISIBLE to
-            // `PairingViewModel.labels`, the observable label cache that drives
-            // `DaemonRow`: that cache is populated at `reload()`/`refreshLabels()`
-            // time (init + connect), which runs BEFORE this kx frame arrives, so
-            // for an unlabeled daemon it holds a present-but-`nil` entry.
-            // `PairingViewModel.label(for:)` reads `labels[did]` (a cache HIT, not
-            // a miss — the dict value type is `String?`), gets that stale `nil`,
-            // and so NEVER falls back to the freshly-written store value — leaving
-            // `DaemonRow` stuck on its `String(daemonId.prefix(8))` fallback
-            // ("daemon-m…"). The `onRename` handler (TeleprompterApp.swift) both
-            // persists via `PairingStore.setLabel` AND calls `reload()` (→
-            // `refreshLabels()`), so the observable cache picks up the adopted name
-            // immediately and the row re-renders with the hostname label.
             if let labelWire = payload.label, labelWire.set,
                 let labelValue = labelWire.value, !labelValue.isEmpty
             {
+                let store = PairingStore.shared
                 let did = self.pairing.daemonId
-                // Keep-current: only adopt when no local label exists, so kx
-                // adoption never clobbers a user-set name.
-                if PairingStore.shared.label(for: did) == nil {
+                if store.label(for: did) == nil {
+                    store.setLabel(labelValue, for: did)
                     log.notice(
                         "relay: adopted daemon label '\(labelValue, privacy: .public)' for daemon=\(did, privacy: .public)"
                     )
-                    if let onRename {
-                        onRename(did, labelValue)
-                    } else {
-                        // No view-model observer wired (e.g. a unit harness that
-                        // constructs RelayClient directly) — fall back to a direct
-                        // store write so the label still persists.
-                        PairingStore.shared.setLabel(labelValue, for: did)
-                    }
                 }
             }
 

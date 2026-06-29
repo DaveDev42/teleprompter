@@ -83,22 +83,27 @@ extension PairingStore {
     }
 
     /// Retrieve the stored local label for a daemon (nil = not set / use short id).
+    ///
+    /// Reads the instance `defaults` (NOT `.standard`) so an injected test suite
+    /// and the production `.shared` store both see a consistent view — the
+    /// meta/index/frontendId accessors all use `defaults`, and the label path
+    /// must match or it silently bypasses an injected store.
     func label(for daemonId: String) -> String? {
-        let v = UserDefaults.standard.string(forKey: LabelKey.label(daemonId))
+        let v = defaults.string(forKey: LabelKey.label(daemonId))
         return (v?.isEmpty == false) ? v : nil
     }
 
     /// Persist a local label for a daemon. Pass `nil` or empty string to clear.
     func setLabel(_ label: String?, for daemonId: String) {
         if let label, !label.isEmpty {
-            UserDefaults.standard.set(label, forKey: LabelKey.label(daemonId))
+            defaults.set(label, forKey: LabelKey.label(daemonId))
         } else {
-            UserDefaults.standard.removeObject(forKey: LabelKey.label(daemonId))
+            defaults.removeObject(forKey: LabelKey.label(daemonId))
         }
     }
 
     /// Remove the local label when a pairing is removed (called from `remove`).
     func removeLabel(for daemonId: String) {
-        UserDefaults.standard.removeObject(forKey: LabelKey.label(daemonId))
+        defaults.removeObject(forKey: LabelKey.label(daemonId))
     }
 }

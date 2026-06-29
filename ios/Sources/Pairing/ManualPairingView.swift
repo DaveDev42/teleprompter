@@ -83,22 +83,27 @@ struct ManualPairingView: View {
                 }
 
                 Section {
-                    // "Preview" decodes without persisting.
-                    Button("Preview") {
-                        runPreview()
-                    }
-                    .disabled(rawInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityIdentifier("pairing-preview-btn")
+                    HStack {
+                        Spacer()
+                        // "Preview" decodes without persisting.
+                        Button("Preview") {
+                            runPreview()
+                        }
+                        .disabled(rawInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("pairing-preview-btn")
+                        .buttonStyle(.bordered)
 
-                    // "Pair" runs the full ingest (persists to Keychain + defaults).
-                    Button("Pair") {
-                        runIngest()
+                        // "Pair" runs the full ingest (persists to Keychain + defaults).
+                        Button("Pair") {
+                            runIngest()
+                        }
+                        .disabled(
+                            rawInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                || isProcessing
+                        )
+                        .accessibilityIdentifier("pairing-pair-btn")
+                        .buttonStyle(.borderedProminent)
                     }
-                    .disabled(
-                        rawInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            || isProcessing
-                    )
-                    .accessibilityIdentifier("pairing-pair-btn")
                 }
             }
             .navigationTitle("Enter Pairing Code")

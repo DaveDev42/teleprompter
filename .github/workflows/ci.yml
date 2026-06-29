@@ -209,7 +209,10 @@ jobs:
       # TP_SKIP_ARM64_32=1: the arm64_32-apple-watchos slice (tier-3, nightly
       # -Zbuild-std) is only needed for a watchOS DEVICE archive. Smoke/compile
       # CI links the xcframework against a Simulator destination, so arm64-only
-      # watchOS device is fine here. The watchOS TestFlight job does NOT set this.
+      # watchOS device is fine here. The iOS TestFlight job (which embeds the watch
+      # companion and DOES archive for device, #123) does NOT set this — it needs
+      # the full arm64_32 slice, and it forces a fresh xcframework rebuild
+      # (TP_FORCE_RUST=1) precisely so this 6-slice cache can't poison its archive.
       - name: Build Swift app (native macOS, compile only)
         run: TP_PLATFORM=macos TP_SKIP_ARM64_32=1 scripts/ios.sh build
 

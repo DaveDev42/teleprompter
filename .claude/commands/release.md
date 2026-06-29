@@ -213,6 +213,35 @@ If the tap was not previously installed, `brew upgrade` will fail with
 "No such keg". In that case run `brew install davedev42/tap/tp`
 instead. Re-run `tp version` afterward to confirm.
 
+### Step 7b — TestFlight CD dispatch check (read-only)
+
+After `release.yml` succeeds, its `testflight` job auto-dispatches
+`testflight.yml` for the same tag — the continuous-deployment hook (every
+release after the first manual TestFlight upload auto-deploys to App Store
+Connect). This is a **separate run** so a TestFlight signing/upload failure
+never reds the CLI release. Verify the dispatch fired:
+
+```sh
+gh run list --workflow=testflight.yml --limit=3 \
+  --json databaseId,event,headBranch,status,conclusion,createdAt
+```
+
+Expect the newest run to have `event=workflow_dispatch` and
+`headBranch=v<VERSION>`. This step is **informational, not a gate** — do
+**not** abort the release if TestFlight is red or skipped:
+
+- If the Apple signing secrets are unset, the `guard*` jobs clean-skip
+  (`::notice::`) and the run shows `conclusion=success` with the upload
+  jobs skipped — expected until Task #122 fills the secrets.
+- If TestFlight fails after secrets exist, report it as a **separate
+  follow-up** (the CLI release itself is already complete and verified) —
+  point the user at `gh run view <testflight-run-id> --log-failed`.
+
+If no `workflow_dispatch` run appears for `v<VERSION>` within ~30s of the
+release finishing, note it (the CD dispatch step may have failed — check
+`gh run view "$RUN_ID" --log | grep -A3 "Dispatch TestFlight"`), but still
+treat the CLI release as successful.
+
 ### Step 8 — Final summary
 
 Print:
@@ -224,6 +253,10 @@ Print:
 - Tap commit:
   `https://github.com/DaveDev42/homebrew-tap/commit/<TAP_SHA>`
 - Installed: output of `tp version`
+- TestFlight CD: whether the auto-dispatched `testflight.yml` run for
+  `v<VERSION>` was found (Step 7b), and its status (e.g. "dispatched,
+  guards skipped — secrets pending Task #122", or "dispatched, uploading",
+  or "dispatch not found — investigate"). This is reported, never a gate.
 
 If any step was skipped (e.g. release PR was already merged when this
 ran, so Steps 1-3 were no-ops), say so explicitly.
@@ -240,4 +273,8 @@ Re-running this command after a partial failure is safe and idempotent:
 - Step 5 finds the most recent `release.yml` run regardless of who
   triggered it. If a `push`-event run already succeeded, the manual
   dispatch is harmlessly redundant.
-- Steps 6-8 are read-only verification and always safe.
+- Steps 6-8 are read-only verification and always safe. Step 7b just
+  lists `testflight.yml` runs (read-only); re-running it is harmless and
+  the CD dispatch itself is idempotent at the run level (a duplicate
+  dispatch only creates another TestFlight run, deduped by its own
+  `concurrency: testflight-<ref>` group).

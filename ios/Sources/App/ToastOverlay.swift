@@ -99,11 +99,20 @@ extension View {
     ///     .toastOverlay()
     /// ```
     func toastOverlay(onNavigateToSession: ((String) -> Void)? = nil) -> some View {
+        // `.overlay(alignment: .top)` positions the toast at the top edge of the
+        // host view's layout frame.  The host view (root WindowGroup content) is
+        // already constrained *below* the top safe-area boundary, so this
+        // naturally places the toast below the Dynamic Island / notch on iPhone,
+        // below the status-bar inset on iPad, and below the title-bar area on
+        // macOS — on every platform, safe-area-correct.
+        //
+        // The previous code added `.ignoresSafeArea(edges: .top)` to the
+        // ToastOverlay, which caused it to expand upward past the host view's
+        // top edge into the unsafe notch / Dynamic Island area.  Removing that
+        // modifier is the entire fix; no `#if os(iOS)` gating needed because
+        // safe-area insets are zero where there is no sensor housing.
         overlay(alignment: .top) {
             ToastOverlay(onNavigateToSession: onNavigateToSession)
-                // Ignore safe area so the toast can appear under the status bar,
-                // matching the Expo `top: insets.top + 8` positioning.
-                .ignoresSafeArea(edges: .top)
         }
     }
 }

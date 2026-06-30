@@ -757,10 +757,8 @@ cmd_smoke_ios() {
   #                            Stop chat item drives TP_INPUT_OK. Strict superset of
   #                            claude_e2e (proves the genuine app→relay→daemon→PTY→claude
   #                            input path end to end). See native-testing.md.
-  local real_e2e="" claude_e2e="" claude_m5=""
-  [ "${TP_E2E_REAL:-}" = "1" ] && real_e2e="yes"
-  [ "${TP_E2E_CLAUDE:-}" = "1" ] && { real_e2e="yes"; claude_e2e="yes"; }
-  [ "${TP_E2E_CLAUDE_M5:-}" = "1" ] && { real_e2e="yes"; claude_e2e="yes"; claude_m5="yes"; }
+  parse_e2e_gates
+  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5"
 
   if [ -n "$claude_m5" ]; then
     # M0–M5: full input round-trip against an interactive real claude.
@@ -783,32 +781,9 @@ cmd_smoke_ios() {
   fi
 
   # In claude mode, extract the real Claude Code OAuth token from the macOS keychain
-  # and export it: the isolated daemon runs under a temp HOME with no credentials of
-  # its own, so this env is the ONLY auth vector for the spawned claude. The keychain
-  # service is `Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>`.
-  if [ -n "$claude_e2e" ]; then
-    require claude
-    local real_cfg svc
-    real_cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-    svc="Claude Code-credentials-$(printf %s "$real_cfg" | shasum -a 256 | cut -c1-8)"
-    # Refresh the OAuth token BEFORE extracting it. The keychain access token expires
-    # (~8h); a stale one yields a 401 in the spawned session (claude reaches the REPL,
-    # the prompt submits, but the API call fails → StopFailure, never Stop → M4/M5 fail).
-    # Running real claude once in print mode against the real config dir refreshes the
-    # access token (via the stored refresh token) AND persists it back to the keychain,
-    # so the extraction below picks up a fresh one. Cheap, deterministic, idempotent.
-    log "refreshing Claude OAuth token (one print-mode call against CLAUDE_CONFIG_DIR=$real_cfg)…"
-    CLAUDE_CONFIG_DIR="$real_cfg" timeout 60 claude -p "Reply with exactly: OK" \
-      --dangerously-skip-permissions >/dev/null 2>&1 \
-      || log "WARN — token-refresh print call did not exit clean; proceeding with whatever is in the keychain"
-    local tok
-    tok="$(security find-generic-password -s "$svc" -w 2>/dev/null \
-      | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["claudeAiOauth"]["accessToken"])' 2>/dev/null || true)"
-    [ -n "$tok" ] \
-      || die "E2E_CLAUDE FAIL — could not extract OAuth token from keychain service '$svc' (is Claude Code logged in for CLAUDE_CONFIG_DIR=$real_cfg?)"
-    export CLAUDE_CODE_OAUTH_TOKEN="$tok"
-    log "extracted Claude OAuth token from keychain (service '$svc') — injecting into isolated daemon"
-  fi
+  # and export CLAUDE_CODE_OAUTH_TOKEN (the isolated daemon's only auth vector for the
+  # spawned claude). Shared host-side helper — no-op outside claude mode.
+  extract_claude_oauth_token
   local udid; udid="$(cmd_boot)"
   local app; app="$(ios_app_path)"
   # Uninstall first so each smoke run starts from a clean app container: this
@@ -844,19 +819,11 @@ cmd_smoke_ios() {
   # real id so the did= / daemon= marker assertions below match.
   local link
   if [ -n "$real_e2e" ]; then
-    # Pass the claude flag through a global the function reads (it spawns a real
-    # claude session post-pairing and reports its sid back via $REAL_SESSION_SID).
-    REAL_SPAWN_CLAUDE="$claude_e2e"
-    REAL_SPAWN_CLAUDE_M5="$claude_m5"
-    start_real_daemon_relay
+    # Real daemon+relay: setup_real_link spawns the real claude session (per
+    # $E2E_CLAUDE/$E2E_CLAUDE_M5), re-points $SMOKE_DAEMON_ID/$SMOKE_SESSION_ID at the
+    # real dynamic ids, and leaves the pairing deep link in $REAL_PAIR_LINK.
+    setup_real_link
     link="$REAL_PAIR_LINK"
-    SMOKE_DAEMON_ID="$REAL_DAEMON_ID"
-    # In claude mode the spawned session has a fixed sid; the M4 (TP_SESSION_OK)
-    # assertion keys on $SMOKE_SESSION_ID, so re-point it at the real session sid.
-    if [ -n "$claude_e2e" ] && [ -n "${REAL_SESSION_SID:-}" ]; then
-      SMOKE_SESSION_ID="$REAL_SESSION_SID"
-      log "claude session sid=$SMOKE_SESSION_ID (M4 assertion re-pointed)"
-    fi
   else
     start_loopback
     link="$(smoke_pair_link "$SMOKE_DAEMON_ID" "ws://localhost:$RELAY_LOOPBACK_PORT" "golden")"
@@ -911,8 +878,8 @@ cmd_smoke_ios() {
     auth_line="$(prefer_ok "$out" "$RELAY_AUTH_OK_MARKER" "$RELAY_AUTH_FAIL_MARKER")"
     kx_line="$(prefer_ok "$out" "$KX_OK_MARKER" "$KX_FAIL_MARKER")"
     frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    session_line="$(printf '%s\n' "$out" | grep -Eo "${SESSION_OK_MARKER}[^\"]*|${SESSION_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    input_line="$(printf '%s\n' "$out" | grep -Eo "${INPUT_OK_MARKER}[^\"]*|${INPUT_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    session_line="$(prefer_sid "$out" "$SESSION_OK_MARKER" "$SESSION_FAIL_MARKER")"
+    input_line="$(prefer_sid "$out" "$INPUT_OK_MARKER" "$INPUT_FAIL_MARKER")"
     if [ -n "$claude_m5" ]; then
       # Real daemon + a real INTERACTIVE claude session: reach M5 (all 8 markers).
       # The app's relayed probe submits a prompt to the idle REPL, claude responds,
@@ -1089,9 +1056,36 @@ cmd_smoke_ios() {
 }
 
 cmd_smoke_macos() {
-  tp_smoke_begin "macos" \
-    "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
-    "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER" "$INPUT_OK_MARKER"
+  # Real-claude E2E gating, identical to the iOS path (see cmd_smoke_ios for the
+  # mode taxonomy). Default = loopback (all 8 markers). TP_E2E_REAL/CLAUDE/CLAUDE_M5
+  # swap in a genuine tp daemon+relay (+ real claude session) on the HOST — the macOS
+  # app under test connects to it through the real relay exactly as a phone would.
+  parse_e2e_gates
+  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5"
+
+  # Marker set scales with reach: real_e2e (no session) → M0–M2; claude_e2e (print
+  # session) → M0–M4; claude_m5 / loopback → all M0–M5.
+  if [ -n "$claude_m5" ]; then
+    tp_smoke_begin "macos" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER" "$INPUT_OK_MARKER"
+  elif [ -n "$claude_e2e" ]; then
+    tp_smoke_begin "macos" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER"
+  elif [ -n "$real_e2e" ]; then
+    tp_smoke_begin "macos" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER"
+  else
+    tp_smoke_begin "macos" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER" "$INPUT_OK_MARKER"
+  fi
+
+  # In claude mode, extract the host keychain OAuth token before launching (the
+  # isolated daemon's only auth vector for the spawned claude). No-op otherwise.
+  extract_claude_oauth_token
+
   local app; app="$(macos_app_path)"
 
   # Kill any prior macOS instance so each smoke run starts fresh. Use -KILL to
@@ -1166,11 +1160,18 @@ cmd_smoke_macos() {
     *) die "SMOKE FAIL (macOS) — tp-core round-trip failed: $core_line" ;;
   esac
 
-  # M1+M2: bring up loopback relay, inject the golden deep link via LaunchServices.
-  start_loopback
-
+  # M1+M2: bring up the relay (real or loopback), then inject the deep link via
+  # LaunchServices. Real mode stands up a genuine tp daemon+relay on the host and
+  # re-points $SMOKE_DAEMON_ID/$SMOKE_SESSION_ID at the real dynamic ids; loopback
+  # mode uses the fake scripted daemon + golden ids.
   local link
-  link="$(smoke_pair_link "$SMOKE_DAEMON_ID" "ws://localhost:$RELAY_LOOPBACK_PORT" "golden")"
+  if [ -n "$real_e2e" ]; then
+    setup_real_link
+    link="$REAL_PAIR_LINK"
+  else
+    start_loopback
+    link="$(smoke_pair_link "$SMOKE_DAEMON_ID" "ws://localhost:$RELAY_LOOPBACK_PORT" "golden")"
+  fi
   log "opening pairing deep link via 'open -a' (route to THIS dev build)"
   # Register the URL scheme handler first: macOS LaunchServices caches the
   # handler list and a freshly built app may not be registered yet. Reboot
@@ -1187,17 +1188,38 @@ cmd_smoke_macos() {
   # the freshly launched dev build that actually carries --tp-smoke.
   open -a "$app" "$link"
 
+  # Real-daemon modes add connection latency (stale auth.resume retries) + real
+  # claude cold-start, and a stale-resume *_FAIL can sit alongside the real *_OK in
+  # the same window — so widen the poll and prefer an OK line over a co-present FAIL
+  # (mirrors the iOS path).
+  local poll_iters=60
+  if [ -n "$real_e2e" ]; then poll_iters=240; fi
+  if [ -n "$claude_e2e" ]; then poll_iters=300; fi
+  prefer_ok() { # <text> <ok-marker> <fail-marker>
+    local ok; ok="$(printf '%s\n' "$1" | grep -Eo "$2[^\"]*" | tail -n1 || true)"
+    if [ -n "$ok" ]; then printf '%s' "$ok"; else
+      printf '%s\n' "$1" | grep -Eo "$2[^\"]*|$3[^\"]*" | tail -n1 || true
+    fi
+  }
   local pair_line="" auth_line="" kx_line="" frame_line="" session_line="" input_line=""
-  for _ in $(seq 1 60); do
+  for _ in $(seq 1 "$poll_iters"); do
     local out
     out="$(macos_log_snapshot)"
-    pair_line="$(printf '%s\n' "$out" | grep -Eo 'TP_PAIR_(OK|FAIL)[^"]*' | tail -n1 || true)"
-    auth_line="$(printf '%s\n' "$out" | grep -Eo "${RELAY_AUTH_OK_MARKER}[^\"]*|${RELAY_AUTH_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    kx_line="$(printf '%s\n' "$out" | grep -Eo "${KX_OK_MARKER}[^\"]*|${KX_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    pair_line="$(prefer_ok "$out" 'TP_PAIR_OK' 'TP_PAIR_FAIL')"
+    auth_line="$(prefer_ok "$out" "$RELAY_AUTH_OK_MARKER" "$RELAY_AUTH_FAIL_MARKER")"
+    kx_line="$(prefer_ok "$out" "$KX_OK_MARKER" "$KX_FAIL_MARKER")"
     frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    session_line="$(printf '%s\n' "$out" | grep -Eo "${SESSION_OK_MARKER}[^\"]*|${SESSION_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    input_line="$(printf '%s\n' "$out" | grep -Eo "${INPUT_OK_MARKER}[^\"]*|${INPUT_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    if [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && [ -n "$input_line" ]; then break; fi
+    session_line="$(prefer_sid "$out" "$SESSION_OK_MARKER" "$SESSION_FAIL_MARKER")"
+    input_line="$(prefer_sid "$out" "$INPUT_OK_MARKER" "$INPUT_FAIL_MARKER")"
+    if [ -n "$claude_m5" ]; then
+      [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && [ -n "$input_line" ] && break
+    elif [ -n "$claude_e2e" ]; then
+      [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && break
+    elif [ -n "$real_e2e" ]; then
+      [ -n "$pair_line" ] && [ -n "$auth_line" ] && break
+    else
+      [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && [ -n "$input_line" ] && break
+    fi
     sleep 0.5
   done
 
@@ -1216,6 +1238,16 @@ cmd_smoke_macos() {
     "$RELAY_AUTH_OK_MARKER"*) die "SMOKE FAIL (macOS) — relay auth wrong daemon: $auth_line" ;;
     *) die "SMOKE FAIL (macOS) — relay auth failed: $auth_line" ;;
   esac
+
+  # REAL daemon E2E (no spawned session) stops at M2: the genuine daemon→relay→app
+  # AUTH pipeline is proven, but with no session the real daemon has nothing to push
+  # (kx/frame/session out of scope — see start_real_daemon_relay).
+  if [ -n "$real_e2e" ] && [ -z "$claude_e2e" ]; then
+    capture_macos_screenshot "macos"
+    tp_smoke_pass
+    log "✅ REAL-DAEMON E2E PASS (macOS) — boot + core + pairing + relay-auth against a real tp daemon (id=$SMOKE_DAEMON_ID) + real relay (M3–M5 out of scope headless)"
+    return 0
+  fi
 
   # M3 assertions.
   [ -n "$kx_line" ] || die "SMOKE FAIL (macOS) — relay auth OK but no '$KX_OK_MARKER'/'$KX_FAIL_MARKER'"
@@ -1249,6 +1281,17 @@ cmd_smoke_macos() {
     *) die "SMOKE FAIL (macOS) — session attach/backfill failed: $session_line" ;;
   esac
 
+  # REAL claude PRINT E2E (TP_E2E_CLAUDE, not M5) stops at M4: the app rendered the
+  # real Stop hook's last_assistant_message (events>=1). Input round-trip (M5) needs
+  # an interactive claude (print mode exits before the probe arrives) — that's
+  # claude_m5, which continues below.
+  if [ -n "$claude_e2e" ] && [ -z "$claude_m5" ]; then
+    capture_macos_screenshot "macos"
+    tp_smoke_pass
+    log "✅ REAL-CLAUDE E2E PASS (macOS) — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 out of scope for print mode)"
+    return 0
+  fi
+
   # M5 assertion.
   [ -n "$input_line" ] || die "SMOKE FAIL (macOS) — session OK but no '$INPUT_OK_MARKER'/'$INPUT_FAIL_MARKER'"
   case "$input_line" in
@@ -1256,6 +1299,15 @@ cmd_smoke_macos() {
     "$INPUT_OK_MARKER"*) die "SMOKE FAIL (macOS) — input round-trip wrong sid: $input_line" ;;
     *) die "SMOKE FAIL (macOS) — input send/echo failed: $input_line" ;;
   esac
+
+  # claude_m5 uses a real relay (no loopback /health to poll), so finish here with
+  # the full 8-marker pass once M5 is confirmed.
+  if [ -n "$claude_m5" ]; then
+    capture_macos_screenshot "macos"
+    tp_smoke_pass
+    log "✅ REAL-CLAUDE M5 E2E PASS (macOS) — all 8 markers (M0–M5) against a real tp daemon + real INTERACTIVE claude: input round-trip (app→relay→daemon→PTY→claude→Stop→ChatItem) proven (sid=$SMOKE_SESSION_ID)"
+    return 0
+  fi
 
   local clients
   clients="$(curl -s "http://localhost:$RELAY_LOOPBACK_PORT/health" \
@@ -1269,9 +1321,35 @@ cmd_smoke_macos() {
 }
 
 cmd_smoke_visionos() {
-  tp_smoke_begin "visionos" \
-    "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
-    "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER" "$INPUT_OK_MARKER"
+  # Real-claude E2E gating, identical to the iOS/macOS paths (see cmd_smoke_ios for
+  # the mode taxonomy). The daemon+relay (+ real claude) run on the HOST; only the
+  # app runs in the visionOS Simulator and connects through the real relay.
+  parse_e2e_gates
+  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5"
+
+  # Marker set scales with reach: real_e2e → M0–M2; claude_e2e → M0–M4; claude_m5 /
+  # loopback → all M0–M5.
+  if [ -n "$claude_m5" ]; then
+    tp_smoke_begin "visionos" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER" "$INPUT_OK_MARKER"
+  elif [ -n "$claude_e2e" ]; then
+    tp_smoke_begin "visionos" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER"
+  elif [ -n "$real_e2e" ]; then
+    tp_smoke_begin "visionos" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER"
+  else
+    tp_smoke_begin "visionos" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER" "$INPUT_OK_MARKER"
+  fi
+
+  # In claude mode, extract the host keychain OAuth token before launching (the
+  # isolated daemon's only auth vector for the spawned claude). No-op otherwise.
+  extract_claude_oauth_token
+
   local udid; udid="$(vision_sim_udid)" || die "visionOS simulator not found: $VISION_SIM_NAME (set TP_VISION_SIM)"
   log "visionOS Simulator UDID: $udid"
 
@@ -1316,33 +1394,59 @@ for devs in d["devices"].values():
   log "installing"
   xcrun simctl install "$udid" "$app"
 
-  # M1+M2: bring loopback relay up BEFORE launching, then launch with --tp-smoke-url
-  # to bypass LaunchServices URL-scheme approval (same fix as iOS path — simctl openurl
-  # hits the -10814 bundle-record approval error on visionOS Simulator too).
-  start_loopback
-
+  # M1+M2: bring the relay up BEFORE launching, then launch with --tp-smoke-url to
+  # bypass LaunchServices URL-scheme approval (same fix as iOS path — simctl openurl
+  # hits the -10814 bundle-record approval error on visionOS Simulator too). Real
+  # mode swaps the loopback for a genuine host tp daemon+relay and re-points the
+  # marker ids; loopback mode uses the fake scripted daemon + golden ids.
   local link
-  link="$(smoke_pair_link "$SMOKE_DAEMON_ID" "ws://localhost:$RELAY_LOOPBACK_PORT" "golden")"
+  if [ -n "$real_e2e" ]; then
+    setup_real_link
+    link="$REAL_PAIR_LINK"
+  else
+    start_loopback
+    link="$(smoke_pair_link "$SMOKE_DAEMON_ID" "ws://localhost:$RELAY_LOOPBACK_PORT" "golden")"
+  fi
 
   xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
   log "launching with --tp-smoke-url (visionOS M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
   xcrun simctl launch "$udid" "$BUNDLE_ID" -- --tp-smoke-url "$link" >/dev/null
 
-  # Poll all 8 markers in one loop (boot+core+M1–M5), with longer timeouts for visionOS sim.
+  # Poll all markers in one loop. Real-daemon modes add connection latency + real
+  # claude cold-start, and a stale-resume *_FAIL can sit alongside the real *_OK in
+  # the same window — so widen the poll, widen the log window, and prefer an OK line
+  # over a co-present FAIL (mirrors the iOS path).
+  local poll_iters=90 snap_secs=90
+  if [ -n "$real_e2e" ]; then poll_iters=240; snap_secs=240; fi
+  if [ -n "$claude_e2e" ]; then poll_iters=300; snap_secs=300; fi
+  prefer_ok() { # <text> <ok-marker> <fail-marker>
+    local ok; ok="$(printf '%s\n' "$1" | grep -Eo "$2[^\"]*" | tail -n1 || true)"
+    if [ -n "$ok" ]; then printf '%s' "$ok"; else
+      printf '%s\n' "$1" | grep -Eo "$2[^\"]*|$3[^\"]*" | tail -n1 || true
+    fi
+  }
   local boot_seen="" core_line="" pair_line="" auth_line="" kx_line="" frame_line="" session_line="" input_line=""
-  for _ in $(seq 1 90); do
+  for _ in $(seq 1 "$poll_iters"); do
     local out
-    out="$(xcrun simctl spawn "$udid" log show --last 90s --style compact \
+    out="$(xcrun simctl spawn "$udid" log show --last "${snap_secs}s" --style compact \
       --predicate "subsystem == \"$BUNDLE_ID\"" 2>/dev/null || true)"
     case "$out" in *"$BOOT_MARKER"*) boot_seen="yes" ;; esac
-    core_line="$(printf '%s\n' "$out" | grep -Eo 'TP_CORE_(OK|FAIL)[^"]*' | tail -n1 || true)"
-    pair_line="$(printf '%s\n' "$out" | grep -Eo 'TP_PAIR_(OK|FAIL)[^"]*' | tail -n1 || true)"
-    auth_line="$(printf '%s\n' "$out" | grep -Eo "${RELAY_AUTH_OK_MARKER}[^\"]*|${RELAY_AUTH_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    kx_line="$(printf '%s\n' "$out" | grep -Eo "${KX_OK_MARKER}[^\"]*|${KX_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    core_line="$(prefer_ok "$out" 'TP_CORE_OK' 'TP_CORE_FAIL')"
+    pair_line="$(prefer_ok "$out" 'TP_PAIR_OK' 'TP_PAIR_FAIL')"
+    auth_line="$(prefer_ok "$out" "$RELAY_AUTH_OK_MARKER" "$RELAY_AUTH_FAIL_MARKER")"
+    kx_line="$(prefer_ok "$out" "$KX_OK_MARKER" "$KX_FAIL_MARKER")"
     frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    session_line="$(printf '%s\n' "$out" | grep -Eo "${SESSION_OK_MARKER}[^\"]*|${SESSION_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    input_line="$(printf '%s\n' "$out" | grep -Eo "${INPUT_OK_MARKER}[^\"]*|${INPUT_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    if [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && [ -n "$input_line" ]; then break; fi
+    session_line="$(prefer_sid "$out" "$SESSION_OK_MARKER" "$SESSION_FAIL_MARKER")"
+    input_line="$(prefer_sid "$out" "$INPUT_OK_MARKER" "$INPUT_FAIL_MARKER")"
+    if [ -n "$claude_m5" ]; then
+      [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && [ -n "$input_line" ] && break
+    elif [ -n "$claude_e2e" ]; then
+      [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && break
+    elif [ -n "$real_e2e" ]; then
+      [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && break
+    else
+      [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && [ -n "$input_line" ] && break
+    fi
     sleep 1
   done
 
@@ -1370,6 +1474,15 @@ for devs in d["devices"].values():
     "$RELAY_AUTH_OK_MARKER"*) die "SMOKE FAIL (visionOS) — relay auth wrong daemon: $auth_line" ;;
     *) die "SMOKE FAIL (visionOS) — relay auth failed on-device: $auth_line" ;;
   esac
+
+  # REAL daemon E2E (no spawned session) stops at M2 — the real daemon has no session
+  # to push (kx/frame/session out of scope; see start_real_daemon_relay).
+  if [ -n "$real_e2e" ] && [ -z "$claude_e2e" ]; then
+    capture_sim_screenshot "$udid" "visionos"
+    tp_smoke_pass
+    log "✅ REAL-DAEMON E2E PASS (visionOS) — boot + core + pairing + relay-auth against a real tp daemon (id=$SMOKE_DAEMON_ID) + real relay (M3–M5 out of scope headless)"
+    return 0
+  fi
 
   # M3 assertion — in-band kx.
   [ -n "$kx_line" ] || die "SMOKE FAIL (visionOS) — relay auth OK but no '$KX_OK_MARKER'/'$KX_FAIL_MARKER' (kx never ran?)"
@@ -1404,6 +1517,15 @@ for devs in d["devices"].values():
     *) die "SMOKE FAIL (visionOS) — session attach/backfill failed on-device: $session_line" ;;
   esac
 
+  # REAL claude PRINT E2E (TP_E2E_CLAUDE, not M5) stops at M4 — the app rendered the
+  # real Stop hook's last_assistant_message. M5 needs an interactive claude (claude_m5).
+  if [ -n "$claude_e2e" ] && [ -z "$claude_m5" ]; then
+    capture_sim_screenshot "$udid" "visionos"
+    tp_smoke_pass
+    log "✅ REAL-CLAUDE E2E PASS (visionOS) — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 out of scope for print mode)"
+    return 0
+  fi
+
   # M5 assertion — input round-trip.
   [ -n "$input_line" ] || die "SMOKE FAIL (visionOS) — session OK but no '$INPUT_OK_MARKER'/'$INPUT_FAIL_MARKER' (input never sent/echoed?)"
   case "$input_line" in
@@ -1411,6 +1533,14 @@ for devs in d["devices"].values():
     "$INPUT_OK_MARKER"*) die "SMOKE FAIL (visionOS) — input round-trip wrong sid: $input_line (want sid=$SMOKE_SESSION_ID)" ;;
     *) die "SMOKE FAIL (visionOS) — input send/echo failed on-device: $input_line" ;;
   esac
+
+  # claude_m5 uses a real relay (no loopback /health to poll), so finish here.
+  if [ -n "$claude_m5" ]; then
+    capture_sim_screenshot "$udid" "visionos"
+    tp_smoke_pass
+    log "✅ REAL-CLAUDE M5 E2E PASS (visionOS) — all 8 markers (M0–M5) against a real tp daemon + real INTERACTIVE claude: input round-trip (app→relay→daemon→PTY→claude→Stop→ChatItem) proven on $VISION_SIM_NAME (sid=$SMOKE_SESSION_ID)"
+    return 0
+  fi
 
   local clients
   clients="$(curl -s "http://localhost:$RELAY_LOOPBACK_PORT/health" \
@@ -1495,7 +1625,7 @@ for devs in d["devices"].values():
     auth_line="$(printf '%s\n' "$out" | grep -Eo "${RELAY_AUTH_OK_MARKER}[^\"]*|${RELAY_AUTH_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
     kx_line="$(printf '%s\n' "$out" | grep -Eo "${KX_OK_MARKER}[^\"]*|${KX_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
     frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    session_line="$(printf '%s\n' "$out" | grep -Eo "${SESSION_OK_MARKER}[^\"]*|${SESSION_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    session_line="$(prefer_sid "$out" "$SESSION_OK_MARKER" "$SESSION_FAIL_MARKER")"
     if [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ]; then break; fi
     sleep 1
   done
@@ -1599,6 +1729,104 @@ start_loopback() {
     sleep 0.2
   done
   [ -n "$ready" ] || die "SMOKE FAIL — loopback relay never signalled LOOPBACK_READY: $(cat "$lb_out")"
+}
+
+# ── Shared real-claude E2E helpers (iOS / macOS / visionOS) ─────────────────────
+#
+# Three smoke paths (iOS-family, macOS-native, visionOS) all gate the same way on
+# TP_E2E_REAL / TP_E2E_CLAUDE / TP_E2E_CLAUDE_M5 and, in claude mode, all need the
+# same OAuth-token extraction + the same real-daemon link setup. These helpers
+# factor that shared logic so the three platform smoke functions stay byte-identical
+# in their real-claude prelude (the only platform-specific part is how the app is
+# launched + how markers are scraped from that platform's log surface).
+#
+# Modes (increasing reach), identical across platforms:
+#   loopback  (default)        — fake scripted daemon, all markers (M0–M5).
+#   real_e2e  (TP_E2E_REAL)    — real tp daemon+relay, no session: M0–M2.
+#   claude_e2e(TP_E2E_CLAUDE)  — real daemon + real `claude -p` PRINT session: M0–M4.
+#   claude_m5 (TP_E2E_CLAUDE_M5)— real daemon + real INTERACTIVE claude: all M0–M5.
+# Each higher mode implies the ones below it (claude_m5 ⊃ claude_e2e ⊃ real_e2e).
+
+# parse_e2e_gates — read TP_E2E_* env into the globals E2E_REAL / E2E_CLAUDE /
+# E2E_CLAUDE_M5 ("yes" or ""). Same precedence the iOS path used inline.
+E2E_REAL="" E2E_CLAUDE="" E2E_CLAUDE_M5=""
+parse_e2e_gates() {
+  E2E_REAL="" E2E_CLAUDE="" E2E_CLAUDE_M5=""
+  [ "${TP_E2E_REAL:-}" = "1" ] && E2E_REAL="yes"
+  [ "${TP_E2E_CLAUDE:-}" = "1" ] && { E2E_REAL="yes"; E2E_CLAUDE="yes"; }
+  [ "${TP_E2E_CLAUDE_M5:-}" = "1" ] && { E2E_REAL="yes"; E2E_CLAUDE="yes"; E2E_CLAUDE_M5="yes"; }
+  # Force success: the script runs under `set -e`, and the last `[ … ] && …` short-
+  # circuits to exit 1 when the gate is unset (the common loopback case). Without this
+  # the function would return 1 and abort its caller. (This bit cmd_smoke_macos.)
+  return 0
+}
+
+# extract_claude_oauth_token — when $E2E_CLAUDE, refresh + extract the real Claude
+# Code OAuth token from the macOS keychain and export CLAUDE_CODE_OAUTH_TOKEN. The
+# isolated daemon runs under a temp HOME with no credentials of its own, so this env
+# is the ONLY auth vector for the spawned claude. Keychain service =
+# `Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>`. No-op when not in claude
+# mode. (Host-side — same for every platform, since the daemon always runs on the host.)
+extract_claude_oauth_token() {
+  [ -n "$E2E_CLAUDE" ] || return 0
+  require claude
+  local real_cfg svc
+  real_cfg="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+  svc="Claude Code-credentials-$(printf %s "$real_cfg" | shasum -a 256 | cut -c1-8)"
+  # Refresh the OAuth token BEFORE extracting it. The keychain access token expires
+  # (~8h); a stale one yields a 401 in the spawned session (claude reaches the REPL,
+  # the prompt submits, but the API call fails → StopFailure, never Stop → M4/M5 fail).
+  # Running real claude once in print mode against the real config dir refreshes the
+  # access token (via the stored refresh token) AND persists it back to the keychain,
+  # so the extraction below picks up a fresh one. Cheap, deterministic, idempotent.
+  log "refreshing Claude OAuth token (one print-mode call against CLAUDE_CONFIG_DIR=$real_cfg)…"
+  CLAUDE_CONFIG_DIR="$real_cfg" timeout 60 claude -p "Reply with exactly: OK" \
+    --dangerously-skip-permissions >/dev/null 2>&1 \
+    || log "WARN — token-refresh print call did not exit clean; proceeding with whatever is in the keychain"
+  local tok
+  tok="$(security find-generic-password -s "$svc" -w 2>/dev/null \
+    | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["claudeAiOauth"]["accessToken"])' 2>/dev/null || true)"
+  [ -n "$tok" ] \
+    || die "E2E_CLAUDE FAIL — could not extract OAuth token from keychain service '$svc' (is Claude Code logged in for CLAUDE_CONFIG_DIR=$real_cfg?)"
+  export CLAUDE_CODE_OAUTH_TOKEN="$tok"
+  log "extracted Claude OAuth token from keychain (service '$svc') — injecting into isolated daemon"
+}
+
+# setup_real_link — stand up the real daemon+relay (start_real_daemon_relay), then
+# re-point the golden marker IDs ($SMOKE_DAEMON_ID / $SMOKE_SESSION_ID) at the real
+# dynamic ones so the did= / sid= assertions match. Honors $E2E_CLAUDE / $E2E_CLAUDE_M5
+# for the spawn flags. Call ONLY when $E2E_REAL is set; loopback callers build a golden
+# link. After return the pairing deep link is in $REAL_PAIR_LINK — read it directly; do
+# NOT call this in a command-substitution subshell or the ID re-points won't propagate.
+setup_real_link() {
+  REAL_SPAWN_CLAUDE="$E2E_CLAUDE"
+  REAL_SPAWN_CLAUDE_M5="$E2E_CLAUDE_M5"
+  start_real_daemon_relay
+  SMOKE_DAEMON_ID="$REAL_DAEMON_ID"
+  if [ -n "$E2E_CLAUDE" ] && [ -n "${REAL_SESSION_SID:-}" ]; then
+    SMOKE_SESSION_ID="$REAL_SESSION_SID"
+    log "claude session sid=$SMOKE_SESSION_ID (M4 assertion re-pointed)"
+  fi
+  return 0  # never let a false trailing `if` return 1 under `set -e`
+}
+
+# prefer_sid — extract a sid-keyed marker (TP_SESSION_OK / TP_INPUT_OK) from a log
+# blob, preferring the line whose `sid=$SMOKE_SESSION_ID` matches, falling back to the
+# last OK|FAIL line. Without this, a unified-log window that still holds a PRIOR run's
+# same-marker line with a DIFFERENT sid (e.g. a real-mode `real-smoke-sess` line left
+# over before a loopback `sess-smoketest` run on the same sim) can shadow the current
+# run via a blind `tail -n1`, failing the assertion with "wrong sid". The fallback
+# preserves the old behavior when no sid match exists, so loopback-only/CI runs are
+# byte-identical. Args: <text> <ok-marker> <fail-marker>.
+prefer_sid() {
+  local hit; hit="$(printf '%s\n' "$1" | grep -E "$2 sid=$SMOKE_SESSION_ID( |$)" | tail -n1 || true)"
+  if [ -n "$hit" ]; then
+    # Trim to the marker token run (strip any trailing quote/garbage), matching the
+    # grep -Eo shape used by the non-sid callers.
+    printf '%s' "$hit" | grep -Eo "$2[^\"]*" | tail -n1 || true
+  else
+    printf '%s\n' "$1" | grep -Eo "$2[^\"]*|$3[^\"]*" | tail -n1 || true
+  fi
 }
 
 # ── start_real_daemon_relay (TP_E2E_REAL=1) ─────────────────────────────────────

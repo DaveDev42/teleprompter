@@ -210,7 +210,12 @@ ChatItem 렌더" 전 체인을 증명한다 (loopback 의 합성 Stop 이 아니
   IPC `input {sid, data:base64("\r")}` 를 보내 default 강조 옵션 1("Yes, I trust")을 수락한다. daemon 의
   command-dispatcher(`input` case, `findRunnerBySid`)가 runner PTY 로 라우팅 → 세션이 REPL idle 로 진입.
 - **입력 = 앱의 auto-probe** (the genuine app path, SMOKE-ONLY): holder 가 REPL 을 idle 로 만든 *뒤*, 앱이
-  attach + backfill 후 `maybeSendProbe` 로 `in.chat "tp-input-probe"` 를 relay 로 보낸다. **이 auto-probe 는
+  세션의 **첫 렌더 이벤트**가 도착하면 `maybeSendProbe` 로 `in.chat "tp-input-probe"` 를 relay 로 보낸다. 그
+  첫 이벤트는 resume **backfill 배치**(`RelayClient.onBatch`)로 올 수도, **라이브 rec**(`onRec`)로 올 수도
+  있어 `maybeSendProbe` 는 **두 경로 모두**에서 호출된다 (idempotent — `inputProbe[sid] == nil` guard 로 세션당
+  정확히 한 번 송신). iOS Simulator 는 backfill 배치로 첫 이벤트를 받아 `onBatch` 가 probe 를 쏘지만,
+  macOS-native 는 첫 이벤트가 라이브 rec 로 와 `onBatch` 가 안 타므로 `onRec` 에도 probe 송신을 둬야 M5 가
+  fire 한다 (이게 없으면 macOS 가 M0–M4 통과 후 M5 만 결정론적으로 빠지는 갭이 난다). **이 auto-probe 는
   스모크 전용** (`RelayClient.isSmokeMode` — iOS/visionOS/watchOS 는 `--tp-smoke-url`, macOS 는 bare
   `--tp-smoke` 런치 인자로 감지) — 실 세션엔 절대 안 쏜다 (안 그러면 유저 claude 에 `tp-input-probe` 가 chat
   으로 주입됨). daemon relay-manager 가 chat 입력에 **`\r`(carriage return)** 을 붙여(`relay-manager.ts`

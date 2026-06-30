@@ -671,6 +671,20 @@ ${daemons
     return { daemonsOnline, sessionsTotal, attachedTotal };
   }
 
+  /**
+   * Is this frontend WebSocket still deliverable RIGHT NOW? Used by handlePush
+   * to re-validate a "ws" delivery verdict after the unseal/sendOrDeliver
+   * awaits, since the socket can close mid-flight (TOCTOU). Both checks matter:
+   * `readyState === 1` (OPEN) catches a socket already transitioning to closed,
+   * and presence in `this.clients` catches the case where handleClose has
+   * already deregistered it (Bun may not have flipped readyState yet). A null
+   * target (frontend was never connected) is trivially not live.
+   */
+  private isFrontendWsLive(ws: ServerWebSocket | null): boolean {
+    if (!ws) return false;
+    return ws.readyState === 1 && this.clients.has(ws);
+  }
+
   private send(ws: ServerWebSocket, msg: RelayServerMessage) {
     // Slow consumer guard: if the per-socket send buffer is already past the
     // threshold, the peer is not draining and additional frames would just
@@ -1563,7 +1577,7 @@ ${daemons
       return;
     }
 
-    const result = await this.pushService.sendOrDeliver({
+    let result = await this.pushService.sendOrDeliver({
       frontendId: msg.frontendId,
       daemonId: client.daemonId,
       token: plaintextToken,
@@ -1573,6 +1587,32 @@ ${daemons
       interruptionLevel: msg.interruptionLevel,
       data: msg.data,
     });
+
+    // TOCTOU guard: `isFrontendConnected` was sampled BEFORE the unseal/
+    // sendOrDeliver awaits above. During those awaits the target frontend's
+    // WebSocket can close — handleClose removes it from this.clients, but our
+    // local `targetFrontendWs` stays non-null. If we trust the stale "ws"
+    // verdict and this.send() to a now-closed socket, send() no-ops on
+    // readyState !== OPEN and the push vanishes with no APNs fallback (the
+    // daemon gets no error, so it never retries). Re-check liveness now: if the
+    // socket died mid-flight, re-deliver via APNs. sendOrDeliver returns "ws"
+    // BEFORE making any dedup/rate-limit reservation (push.ts step 1), so the
+    // second call with isFrontendConnected:false double-counts nothing.
+    if (result === "ws" && !this.isFrontendWsLive(targetFrontendWs)) {
+      log.info(
+        `frontend ${msg.frontendId} disconnected during push handling — falling back to APNs`,
+      );
+      result = await this.pushService.sendOrDeliver({
+        frontendId: msg.frontendId,
+        daemonId: client.daemonId,
+        token: plaintextToken,
+        title: msg.title,
+        body: msg.body,
+        isFrontendConnected: false,
+        interruptionLevel: msg.interruptionLevel,
+        data: msg.data,
+      });
+    }
 
     // Exhaustive switch over DeliveryResult — all variants are handled
     // explicitly so a future variant added to DeliveryResult becomes a

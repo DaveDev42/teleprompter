@@ -38,6 +38,16 @@
 // genuine app→relay→daemon→PTY pipeline, then the harness asserts the file claude
 // wrote + the 2-turn session-DB shape. Proves actual remote-controlled coding, not a
 // canned PONG. See spawnClaudeSessionCoding for the full sequence + assertions.
+//
+// --emit-push-notification (TP_E2E_PUSH=1): after a session DB exists (paired with
+// --spawn-claude print mode so `real-smoke-sess` exists) AND the app has registered
+// its synthetic push token (--tp-push-smoke), inject a synthetic `Notification` hook
+// event over the IPC socket (`rec` frame). The daemon's PushNotifier sees a
+// notify-eligible event with tokenCount>0 → sends `relay.push` → the relay delivers
+// it in-band as `relay.notification` to the live app → `RelayClient.onNotification`
+// emits TP_PUSH_NOTIFY_RECEIVED. Proves the production in-band push RECEIVE path
+// without any real APNs (device entitlement / .p8 creds stay Dave-gated). See
+// emitPushNotification.
 
 import { Database } from "bun:sqlite";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -51,6 +61,7 @@ import type {
   IpcInput,
   IpcMessage,
   IpcPairBegin,
+  IpcRec,
 } from "../packages/protocol/src/types/ipc";
 import { RelayServer } from "../packages/relay/src/relay-server";
 
@@ -315,6 +326,89 @@ async function waitForStopCount(
     await Bun.sleep(1_000);
   }
   return false;
+}
+
+// True once the per-session DB exists with its `records` table — i.e. the spawned
+// claude session has registered with the daemon. `handleRec` rejects a `rec` for an
+// unknown sid (`store.getSessionDb(sid)` is null), so the push injection must wait
+// for this before firing.
+function sessionDbReady(sid: string): boolean {
+  const dataHome =
+    process.env["XDG_DATA_HOME"] ??
+    join(process.env["HOME"] ?? REPO_ROOT, ".local", "share");
+  const dbPath = join(
+    dataHome,
+    "teleprompter",
+    "vault",
+    "sessions",
+    `${sid}.sqlite`,
+  );
+  let db: Database | undefined;
+  try {
+    db = new Database(dbPath, { readonly: true });
+    // Touch the table so a half-created DB (file present, schema not yet applied)
+    // doesn't read as ready.
+    db.prepare("SELECT 1 FROM records LIMIT 1").get();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    db?.close();
+  }
+}
+
+// --emit-push-notification (TP_E2E_PUSH=1): inject a synthetic `Notification` hook
+// event over IPC so the daemon's PushNotifier dispatches a push to the live app.
+// Drives the production in-band receive path (RelayClient.onNotification →
+// TP_PUSH_NOTIFY_RECEIVED) with no real APNs.
+//
+// Preconditions handled here:
+//   - the session DB must exist (handleRec rejects an unknown sid) → poll sessionDbReady.
+//   - the app must have registered its synthetic push token (--tp-push-smoke) so the
+//     daemon's `tokenCount > 0` gate is open. There is no holder-visible signal for
+//     that (the token lives in the daemon's vault, not the session DB), so we RE-SEND
+//     the event on a bounded loop: an injection that lands before the token registers
+//     simply finds tokenCount==0 and no-ops (push-notifier.ts:227), and the next
+//     re-send (after the app has authed + registered) succeeds. Each re-send is cheap
+//     and idempotent (a fresh notify-eligible event); the harness's assert_push_e2e
+//     polls the marker independently. The app stays connected through the smoke run,
+//     so once a push fires the relay delivers it in-band (DeliveryResult "ws").
+async function emitPushNotification(
+  sid: string,
+  ipc: IpcClient,
+): Promise<void> {
+  // Wait for the session DB so the daemon will accept the rec.
+  const dbDeadline = Date.now() + 60_000;
+  while (Date.now() < dbDeadline && !sessionDbReady(sid)) {
+    await Bun.sleep(500);
+  }
+  if (!sessionDbReady(sid)) {
+    log(`push: session DB ${sid} never appeared — skipping push injection`);
+    return;
+  }
+
+  const message =
+    process.env["TP_E2E_PUSH_MESSAGE"] ?? "QA push smoke — Claude needs you";
+  const payload = Buffer.from(JSON.stringify({ message })).toString("base64");
+
+  // Re-send a few times to absorb the token-registration race (above). 8 sends @ 3s
+  // covers the worst-case app auth+register latency without dragging the run out.
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    const rec: IpcRec = {
+      t: "rec",
+      sid,
+      kind: "event",
+      name: "Notification",
+      payload,
+      ts: Date.now(),
+    };
+    ipc.send(rec);
+    log(
+      `push: injected synthetic Notification event (sid=${sid}, attempt ${attempt})`,
+    );
+    await Bun.sleep(3_000);
+  }
+  log("push: finished injecting Notification events");
 }
 
 // --spawn-claude-coding (TP_E2E_CLAUDE_CODING=1): the strongest real-claude E2E. It
@@ -624,6 +718,19 @@ async function main(): Promise<void> {
 
   // 5. (claude session already spawned at step 3b — before pairing — so the app's
   //    hello already lists it. Nothing to do here.)
+
+  // 5b. PUSH E2E: inject a synthetic Notification event so the daemon pushes it to
+  //     the live app (in-band relay.notification → TP_PUSH_NOTIFY_RECEIVED). Detached
+  //     so it does not block the hold-open loop; the session DB it targets is created
+  //     by the --spawn-claude print session above.
+  if (process.argv.includes("--emit-push-notification")) {
+    const pushSid = process.env["TP_E2E_CLAUDE_SID"] ?? "real-smoke-sess";
+    void emitPushNotification(pushSid, ipc).catch((err: unknown) => {
+      log(
+        `push: emitPushNotification failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  }
 
   // 6. Stay alive — the relay + daemon must keep serving the app until the harness
   //    kills us. (The smoke run injects REAL_PAIR_URL and polls the app's markers.)

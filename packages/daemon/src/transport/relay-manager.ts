@@ -442,10 +442,16 @@ export class RelayConnectionManager {
   }
 
   /**
-   * Fan out a push notification to every active client. Each client forwards
-   * to the Expo Push API via its relay server connection; we broadcast
-   * because the caller (PushNotifier) doesn't know which relay owns the
-   * frontendId.
+   * Route a push notification to the ONE relay client that owns the sealed
+   * token. A token is sealed by a specific relay's PushSealer (`data.daemonId`
+   * records which one at registration time), so only that relay can unseal it;
+   * sending the blob to any other relay just earns a `relay.err
+   * PUSH_UNSEAL_FAILED` and, when two pairings point at the same relay URL,
+   * delivers a DUPLICATE APNs push. We therefore target by `daemonId`.
+   *
+   * Fallback: if `daemonId` is absent (legacy token rows predating it) or no
+   * connected client matches, fan out to every client — best-effort delivery
+   * preserves the old behaviour rather than silently dropping the push.
    *
    * `sealed` is an opaque blob from the relay ("tpps1.<v>.<b64>") or a legacy
    * plaintext token — the daemon passes it through opaquely.
@@ -458,7 +464,11 @@ export class RelayConnectionManager {
     interruptionLevel?: PushInterruptionLevel,
     data?: { sid: string; daemonId?: string; event: string },
   ): void {
-    for (const client of this.clients) {
+    const owner = data?.daemonId
+      ? this.clients.find((c) => c.daemonId === data.daemonId)
+      : undefined;
+    const targets = owner ? [owner] : this.clients;
+    for (const client of targets) {
       client.sendPush(frontendId, sealed, title, body, interruptionLevel, data);
     }
   }

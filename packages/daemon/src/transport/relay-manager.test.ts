@@ -354,7 +354,11 @@ describe("RelayConnectionManager", () => {
     expect(mgr.listDaemonIds()).toEqual([]);
   });
 
-  test("dispatchPush fans out to every active client", async () => {
+  function makeTwoClientMgr(): {
+    mgr: RelayConnectionManager;
+    stub1: StubClient;
+    stub2: StubClient;
+  } {
     const mgr = new RelayConnectionManager(makeDeps());
     const stub1 = makeStubClient("d1");
     const stub2 = makeStubClient("d2");
@@ -365,11 +369,51 @@ describe("RelayConnectionManager", () => {
       if (!s) throw new Error("factory exhausted");
       return s;
     });
+    return { mgr, stub1, stub2 };
+  }
 
+  test("dispatchPush routes to ONLY the client whose daemonId sealed the token", async () => {
+    // REGRESSION: dispatchPush used to fan out to EVERY client. A token is
+    // sealed by one relay's PushSealer, so the non-owning relay replies
+    // PUSH_UNSEAL_FAILED, and when two pairings share a relay URL the user gets
+    // a DUPLICATE APNs push. Route by data.daemonId so only the owner is hit.
+    const { mgr, stub1, stub2 } = makeTwoClientMgr();
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: undefined });
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d2", label: undefined });
+
+    mgr.dispatchPush("frontend-x", "tok", "hi", "body", undefined, {
+      sid: "s1",
+      event: "Notification",
+      daemonId: "d2",
+    });
+    expect(stub1.sendPush).toHaveBeenCalledTimes(0);
+    expect(stub2.sendPush).toHaveBeenCalledTimes(1);
+  });
+
+  test("dispatchPush falls back to fan-out when daemonId is absent (legacy token)", async () => {
+    // Legacy token rows predate the daemonId column; with no owner to target we
+    // fan out best-effort rather than silently drop the push.
+    const { mgr, stub1, stub2 } = makeTwoClientMgr();
     await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: undefined });
     await mgr.addClient({ ...BASE_CONFIG, daemonId: "d2", label: undefined });
 
     mgr.dispatchPush("frontend-x", "tok", "hi", "body");
+    expect(stub1.sendPush).toHaveBeenCalledTimes(1);
+    expect(stub2.sendPush).toHaveBeenCalledTimes(1);
+  });
+
+  test("dispatchPush falls back to fan-out when daemonId matches no connected client", async () => {
+    // The owning relay isn't currently connected (e.g. mid-reconnect); fan out
+    // so a still-connected relay that happens to hold the same pairing can try.
+    const { mgr, stub1, stub2 } = makeTwoClientMgr();
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d1", label: undefined });
+    await mgr.addClient({ ...BASE_CONFIG, daemonId: "d2", label: undefined });
+
+    mgr.dispatchPush("frontend-x", "tok", "hi", "body", undefined, {
+      sid: "s1",
+      event: "Notification",
+      daemonId: "d-not-connected",
+    });
     expect(stub1.sendPush).toHaveBeenCalledTimes(1);
     expect(stub2.sendPush).toHaveBeenCalledTimes(1);
   });

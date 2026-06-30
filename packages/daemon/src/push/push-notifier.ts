@@ -93,7 +93,10 @@ export interface PushNotifierDeps {
     title: string,
     body: string,
     interruptionLevel: PushInterruptionLevel,
-    data: { sid: string; event: string },
+    // `daemonId` identifies which relay sealed this token so the manager can
+    // route the push to that one client instead of fanning out to all of them
+    // (a token sealed by relay A cannot be unsealed by relay B).
+    data: { sid: string; event: string; daemonId: string },
   ) => void;
   /** Persist a newly registered sealed token to store for daemon-restart recovery. */
   persistToken: (
@@ -236,6 +239,7 @@ export class PushNotifier {
       this.deps.sendPush(frontendId, entry.sealed, msg.title, msg.body, level, {
         sid: rec.sid,
         event: rec.name,
+        daemonId: entry.daemonId,
       });
     }
   }

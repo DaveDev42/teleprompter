@@ -29,7 +29,17 @@
 // registers the session and broadcasts `state` over the relay → the app auto-
 // attaches and renders the Stop hook's last_assistant_message. Drives M3/M3'/M4.
 // Auth rides in via CLAUDE_CODE_OAUTH_TOKEN, inherited from the harness env.
+//
+// --spawn-claude-interactive (TP_E2E_CLAUDE_M5=1): interactive claude (live PTY) so
+// the app's relayed input probe can round-trip → M5/TP_INPUT_OK.
+//
+// --spawn-claude-coding (TP_E2E_CLAUDE_CODING=1): the strongest mode — drives real
+// interactive claude through MULTIPLE coding turns (Write + Bash tools) over the
+// genuine app→relay→daemon→PTY pipeline, then the harness asserts the file claude
+// wrote + the 2-turn session-DB shape. Proves actual remote-controlled coding, not a
+// canned PONG. See spawnClaudeSessionCoding for the full sequence + assertions.
 
+import { Database } from "bun:sqlite";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Subprocess, spawn } from "bun";
@@ -259,6 +269,236 @@ function spawnClaudeSessionInteractive(
   return runner;
 }
 
+// Count records of a given (kind, name) in the daemon's per-session DB. The daemon
+// writes records in WAL mode (schema.ts PRAGMAS), so a short-lived read-only opener
+// from THIS process sees committed writes without colliding with the writer. The
+// path layout is fixed by store/config.ts (`<XDG_DATA_HOME>/teleprompter/vault`) +
+// store.ts (`sessions/<sid>.sqlite`) — the same SoT the harness asserts on later.
+//
+// Returns 0 if the DB does not exist yet (session not registered) or any read error
+// (transient WAL race) — the caller polls, so a 0 just means "keep waiting".
+function countRecords(sid: string, kind: string, name: string): number {
+  const dataHome =
+    process.env["XDG_DATA_HOME"] ??
+    join(process.env["HOME"] ?? REPO_ROOT, ".local", "share");
+  const dbPath = join(
+    dataHome,
+    "teleprompter",
+    "vault",
+    "sessions",
+    `${sid}.sqlite`,
+  );
+  let db: Database | undefined;
+  try {
+    // readonly avoids creating the file if the session hasn't registered yet, and
+    // never takes a write lock against the daemon. WAL readers don't block.
+    db = new Database(dbPath, { readonly: true });
+    const row = db
+      .prepare("SELECT COUNT(*) AS c FROM records WHERE kind = ? AND name = ?")
+      .get(kind, name) as { c: number } | null;
+    return row?.c ?? 0;
+  } catch {
+    return 0;
+  } finally {
+    db?.close();
+  }
+}
+
+async function waitForStopCount(
+  sid: string,
+  target: number,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (countRecords(sid, "event", "Stop") >= target) return true;
+    await Bun.sleep(1_000);
+  }
+  return false;
+}
+
+// --spawn-claude-coding (TP_E2E_CLAUDE_CODING=1): the strongest real-claude E2E. It
+// drives a REAL interactive claude through ACTUAL CODING across MULTIPLE turns over
+// the genuine app→relay→daemon→PTY pipeline — not a canned "reply PONG". This proves
+// the controller can make Claude Code use the Write and Bash tools and observe the
+// results, which is the whole point of the product.
+//
+// Sequence (each turn = an `in.chat`-equivalent `input` frame the daemon appends `\r`
+// to → PTY → claude submits → UserPromptSubmit → … → Stop):
+//   trust  accept the trust-folder dialog (reuses the interactive `\r` ticks).
+//   turn 1 "Create a file tp_qa_marker.txt containing exactly QA-CODING-OK" → claude
+//          uses the Write tool (bypassPermissions = no approval dialog) → Stop #1.
+//   turn 2 (gated on Stop>=1) "run: cat tp_qa_marker.txt && echo BUILD-STEP-DONE" →
+//          claude uses the Bash tool, the file content + BUILD-STEP-DONE land in the
+//          PTY io records → Stop #2.
+//
+// The harness then asserts the deterministic structural facts (not exact model text):
+//   - the file exists on disk under the isolated cwd with body QA-CODING-OK
+//   - the session DB has UserPromptSubmit >= 2 and Stop >= 2 (two real turns landed)
+//   - the DB has a PostToolUse(Write) and a PostToolUse(Bash) hook event, both naming
+//     the marker file (claude used those tools on the controller's instructions — a
+//     structured event check, not a substring scan of the ANSI-laden io stream)
+// Turn-gating reads the SAME per-session DB the harness asserts on (countRecords).
+//
+// The app's M5 auto-probe is SUPPRESSED in this mode (harness launches the app with
+// --tp-no-input-probe): the holder owns input, and an interleaved probe on the same
+// REPL corrupts the coding turns (observed: the probe submitted a Skill(run) mid-turn,
+// so turn 1's Write never completed).
+//
+// Like the M5 interactive mode, daemon+relay+claude all run on the HOST; only the app
+// runs in the sim/native target. So this is the deepest proof the app pipeline can
+// give without a human at the keyboard. It is LOCAL-ONLY (real claude auth + credits)
+// and never runs in CI.
+function spawnClaudeSessionCoding(
+  socketPath: string,
+  ipc: IpcClient,
+): Subprocess {
+  const sid = process.env["TP_E2E_CLAUDE_SID"] ?? "real-smoke-sess";
+  const cwd =
+    process.env["TP_E2E_CLAUDE_CWD"] ?? process.env["HOME"] ?? REPO_ROOT;
+  mkdirSync(cwd, { recursive: true });
+
+  // Same trust + onboarding pre-seed as the interactive mode.
+  const home = process.env["HOME"];
+  if (home) {
+    try {
+      const seed = {
+        hasCompletedOnboarding: true,
+        projects: { [cwd]: { hasTrustDialogAccepted: true } },
+      };
+      writeFileSync(join(home, ".claude.json"), JSON.stringify(seed));
+    } catch (err) {
+      log(`WARN — could not seed ~/.claude.json: ${String(err)}`);
+    }
+  }
+
+  log(`spawning real claude session sid=${sid} cwd=${cwd} (CODING multi-turn)`);
+  const runner = spawn({
+    cmd: [
+      ...CLI,
+      "run",
+      "--sid",
+      sid,
+      "--cwd",
+      cwd,
+      "--socket-path",
+      socketPath,
+      "--",
+      "--permission-mode",
+      "bypassPermissions",
+    ],
+    env: { ...process.env },
+    stdout: "ignore",
+    stderr: "ignore",
+    stdin: "ignore",
+  });
+  process.stdout.write(`REAL_SESSION_SID=${sid}\n`);
+  log(`real coding claude runner spawned (pid ${runner.pid})`);
+
+  // Send raw bytes to the session over IPC (daemon routes by sid → PtyBun.write).
+  const sendRaw = (bytes: string, label: string): void => {
+    const msg: IpcInput = {
+      t: "input",
+      sid,
+      data: Buffer.from(bytes).toString("base64"),
+    };
+    try {
+      ipc.send(msg);
+      log(`sent ${label}`);
+    } catch (err) {
+      log(`WARN — failed to send ${label}: ${String(err)}`);
+    }
+  };
+  // A standalone carriage return — submits whatever is in claude's composer (and
+  // accepts the trust dialog's highlighted option). Claude's TUI treats a CR glued to
+  // the prompt text as part of the multi-line paste buffer, NOT a submit — so the text
+  // and the submit MUST be separate writes (empirically: a `text\r` single frame
+  // leaves the prompt sitting unsubmitted in the composer).
+  const sendSubmit = (label: string): void =>
+    sendRaw("\r", `submit (${label})`);
+
+  const marker = process.env["TP_E2E_CODING_MARKER"] ?? "QA-CODING-OK";
+  const fileName = process.env["TP_E2E_CODING_FILE"] ?? "tp_qa_marker.txt";
+  const turn1 = `Create a file named ${fileName} in the current directory containing exactly this text and nothing else: ${marker}`;
+  const turn2 = `Now run this shell command: cat ${fileName} && echo BUILD-STEP-DONE`;
+
+  // Drive one coding turn robustly: type the prompt text, then submit, then confirm the
+  // prompt actually registered (UserPromptSubmit count incremented) — resending the
+  // submit a few times if not, because claude's REPL drops keystrokes during its warmup
+  // window (the same fragility the M5 probe handles with retries). Resolves true once
+  // the turn's UserPromptSubmit AND its Stop are both observed.
+  const driveTurn = async (
+    text: string,
+    turnIndex: number,
+  ): Promise<boolean> => {
+    const upsBefore = countRecords(sid, "event", "UserPromptSubmit");
+    const stopsBefore = countRecords(sid, "event", "Stop");
+    // Type the text (no CR), let the composer settle, then submit.
+    sendRaw(text, `coding turn ${turnIndex} text (${text.length} chars)`);
+    await Bun.sleep(1_500);
+    sendSubmit(`turn ${turnIndex}`);
+    // Confirm the prompt registered; resend submit on warmup drops (up to ~5 tries).
+    let registered = false;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const deadline = Date.now() + 8_000;
+      while (Date.now() < deadline) {
+        if (countRecords(sid, "event", "UserPromptSubmit") > upsBefore) {
+          registered = true;
+          break;
+        }
+        await Bun.sleep(500);
+      }
+      if (registered) break;
+      log(
+        `turn ${turnIndex}: UserPromptSubmit not yet incremented (attempt ${attempt}) — resending submit`,
+      );
+      sendSubmit(`turn ${turnIndex} retry ${attempt}`);
+    }
+    if (!registered) {
+      log(
+        `WARN — turn ${turnIndex}: prompt never registered (UserPromptSubmit)`,
+      );
+      return false;
+    }
+    log(`turn ${turnIndex}: prompt registered; waiting for its Stop`);
+    const ok = await waitForStopCount(sid, stopsBefore + 1, 180_000);
+    log(
+      ok
+        ? `turn ${turnIndex}: Stop observed (turn complete)`
+        : `WARN — turn ${turnIndex}: Stop never observed within 180s`,
+    );
+    return ok;
+  };
+
+  // Drive the whole sequence on a detached async chain so the spawn returns immediately
+  // (the holder's pairing handshake runs concurrently, like the interactive mode). Any
+  // failure here is logged but never throws into the holder — the harness's marker/DB/
+  // file assertions are the real pass/fail signal.
+  void (async () => {
+    // 1. Trust-accept window: send Enter every 2s for ~26s. The trust dialog renders at
+    //    a cold-start-dependent time; an interval guarantees one lands once stdin raw
+    //    mode is attached. An extra Enter at the idle REPL submits an empty line (no
+    //    prompt → claude ignores it → no UserPromptSubmit), so over-sending is harmless.
+    //    Turn 1 is sent only AFTER this window closes so a coding prompt is never
+    //    interleaved with a stray trust Enter.
+    for (let i = 1; i <= 13; i++) {
+      sendSubmit(`trust tick ${i}`);
+      await Bun.sleep(2_000);
+    }
+
+    // 2. Turn 1 (create the file via Write) → its Stop.
+    await driveTurn(turn1, 1);
+    // 3. Turn 2 (cat + echo via Bash) — gated on turn 1's Stop inside driveTurn, so the
+    //    two turns are strictly ordered for a clean 2-turn session DB.
+    await driveTurn(turn2, 2);
+    log("coding turn driver finished (both turns attempted)");
+  })().catch((err: unknown) => {
+    log(`WARN — coding turn driver failed: ${String(err)}`);
+  });
+
+  return runner;
+}
+
 async function main(): Promise<void> {
   ensureIsolationDirs();
 
@@ -329,7 +569,12 @@ async function main(): Promise<void> {
   //     `tp run` connects to the daemon IPC directly (no relay), so the two are
   //     independent — we kick claude off here and let it run concurrently with the
   //     pairing handshake below.
-  if (process.argv.includes("--spawn-claude-interactive")) {
+  if (process.argv.includes("--spawn-claude-coding")) {
+    // Strongest mode: real interactive claude driven through MULTIPLE coding turns
+    // (Write + Bash tools) over the genuine pipeline. Reuses `ipc` to send the
+    // trust-accept Enter and each coding turn's input frame.
+    claudeRunner = spawnClaudeSessionCoding(socketPath, ipc);
+  } else if (process.argv.includes("--spawn-claude-interactive")) {
     // M5: interactive claude (live PTY) + trust-accept over IPC. Reuses `ipc` (the
     // same daemon IPC connection used for pairing) to send the trust-accept Enter.
     claudeRunner = spawnClaudeSessionInteractive(socketPath, ipc);

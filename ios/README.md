@@ -152,6 +152,8 @@ TP_JSON=1 scripts/ios.sh smoke           # 마지막 줄에 {"platform":…,"mar
 TP_E2E_REAL=1 scripts/ios.sh smoke       # FAKE loopback 대신 격리된 실 tp daemon+relay 로 M0-M2 페어링 E2E
 TP_E2E_CLAUDE=1 scripts/ios.sh smoke     # 위 + 실 claude -p PRINT 세션 spawn → M0-M4 (실 Stop 렌더). claude PATH 필수, 로컬 전용
 TP_E2E_CLAUDE_M5=1 scripts/ios.sh smoke  # 위 + 실 INTERACTIVE claude 세션 → 전 8마커 (M0-M5: 앱→relay→daemon→PTY→claude 입력 왕복). 로컬 전용
+TP_E2E_CLAUDE_CODING=1 scripts/ios.sh smoke  # M5 의 sibling. 실 INTERACTIVE claude 를 멀티턴으로 조작해 파일 생성/편집+빌드 → M0-M4 + 코딩 어서션 (PostToolUse Write/Bash, tp_qa_marker.txt). 로컬 전용
+TP_E2E_PUSH=1 scripts/ios.sh smoke       # PRINT(claude -p)의 sibling. 합성 Notification 주입 → in-band relay.notification → 앱 onNotification 수신(M6 TP_PUSH_NOTIFY_RECEIVED). 로컬 전용
 
 # TestFlight 배포 (ADR-0004 — iOS device 슬라이스 Release archive → 서명 → App Store .ipa export)
 TP_DEVELOPMENT_TEAM=ABCDE12345 TP_PLATFORM=ios scripts/ios.sh archive   # 실 Distribution 인증서+프로필 필요 (login keychain 또는 CI 일회용 keychain)
@@ -194,6 +196,18 @@ TP_DEVELOPMENT_TEAM=ABCDE12345 TP_PLATFORM=ios scripts/ios.sh archive   # 실 Di
   `\n` 붙여 PTY 제출 → claude 응답 → **새 assistant Stop** chat item 이 `TP_INPUT_OK proof=response` 를
   emit. 진짜 app→relay→daemon→PTY→claude 입력 경로의 E2E 증명. M4 도 포함하므로 dogfood 전엔 이 한 번이면
   충분. `claude` PATH 필수, **로컬 전용**.
+- `TP_E2E_CLAUDE_CODING=1` — `TP_E2E_CLAUDE_M5` 의 **sibling**(둘 중 하나만). M5 처럼 실 INTERACTIVE claude 를
+  spawn 하되, holder 가 **멀티턴**으로 조작해 claude 가 실제로 파일을 생성/편집하고 빌드를 돌리게 한다 → M0-M4
+  + **코딩 어서션**: `PostToolUse(Write)`+`PostToolUse(Bash)` 훅 이벤트가 둘 다 파일을 참조하고,
+  `UserPromptSubmit=2`/`Stop=2`(2턴), disk 에 `tp_qa_marker.txt`=`QA-CODING-OK` 가 남는다. M5 입력 probe 는
+  coding 모드에서 억제(`--tp-no-input-probe`)된다. `claude` PATH 필수, **로컬 전용**. 세부 = `.claude/rules/native-testing.md`.
+- `TP_E2E_PUSH=1` — `TP_E2E_CLAUDE`(print)의 **sibling**(E2E_REAL+E2E_CLAUDE imply). **푸시 RECEIVE 경로**를 실
+  relay/daemon 으로 증명: 앱이 `--tp-push-smoke` 하에 합성 push 토큰을 등록하고, holder 가 IPC `rec`
+  (`event/Notification`)을 주입 → daemon PushNotifier → relay **in-band** `relay.notification` → 앱
+  `onNotification` 이 **M6 `TP_PUSH_NOTIFY_RECEIVED`** 를 emit. 실 APNs 없이 가능한 유일한 leg(frontend 가
+  소켓에 live → relay 가 APNs 대신 in-band 전달). 정직한 범위: in-band 만 — 실 APNs 전달/디바이스 토큰
+  수신(`didRegister`)/tap→nav(`didReceive`)는 entitlement+실기기+.p8 필요(Dave-gated). M6 는 default 8/7
+  마커 셋에 없음(`TP_E2E_PUSH` 하에서만 assert). `claude` PATH 필수, **로컬 전용**. 세부 = `.claude/rules/native-testing.md`.
 - `TP_ARTIFACT_DIR` — smoke 가 마커 폴링 후 스크린샷(+선택 비디오)을 떨구는 디렉터리
   (기본 `/tmp/tp-artifacts`). UI 자동화가 불가한 watchOS/visionOS 에서도 스크린샷은 동작.
 

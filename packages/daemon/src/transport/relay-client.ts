@@ -851,7 +851,16 @@ export class RelayClient {
     body: string,
     interruptionLevel?: PushInterruptionLevel,
     data?: { sid: string; daemonId?: string; event: string },
-  ): void {
+  ): boolean {
+    // Only emit when fully authenticated, mirroring broadcastEncrypted. The bare
+    // `send()` check is `ws.readyState === OPEN`, which is already true in the
+    // reconnect window after `ws.onopen` but BEFORE `relay.auth.ok` lands
+    // (~50-200ms). A relay.push sent in that window reaches the relay before the
+    // daemon is registered as a "daemon" client, so the relay rejects it with
+    // `relay.err UNAUTHORIZED` — which the err handler does not retry or queue,
+    // silently losing the notification. Dropping here (false) lets the caller see
+    // it never went, instead of a frame the relay throws away.
+    if (!this.authenticated) return false;
     const msg: RelayClientMessage = {
       t: "relay.push",
       frontendId,
@@ -867,7 +876,7 @@ export class RelayClient {
           }
         : undefined,
     };
-    this.send(msg);
+    return this.send(msg);
   }
 
   subscribe(sid: string): void {

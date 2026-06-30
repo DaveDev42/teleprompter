@@ -36,7 +36,7 @@ function makeStubClient(daemonId: string, peers: string[] = []): StubClient {
     connect: mock(async () => {}),
     subscribe: mock(() => {}),
     listPeerFrontendIds: () => peers,
-    sendPush: mock(() => {}),
+    sendPush: mock(() => true),
     publishToPeer: mock(async () => {}),
   };
   const self = stub as StubClient;

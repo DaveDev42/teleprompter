@@ -1304,6 +1304,10 @@ describe("RelayClient.sendPush — wire field selection", () => {
         sent.push(JSON.parse(raw) as RelayClientMessage);
       },
     };
+    // sendPush now gates on `authenticated` (the realistic state when a push is
+    // emitted); mark it so the wire-field-selection tests below exercise the
+    // happy path. The auth-guard regression test constructs its own unauth case.
+    (client as unknown as { authenticated: boolean }).authenticated = true;
     return { client, sent };
   }
 
@@ -1326,6 +1330,39 @@ describe("RelayClient.sendPush — wire field selection", () => {
     const msg = sent[0] as RelayClientMessage & { t: "relay.push" };
     expect(msg.t).toBe("relay.push");
     expect(msg.sealed).toBe("aabbccddeeff1234");
+  });
+
+  test("drops the push when not yet authenticated (reconnect auth window)", () => {
+    // REGRESSION: sendPush used to call send() with only a readyState===OPEN
+    // check, which is already true in the reconnect window after ws.onopen but
+    // BEFORE relay.auth.ok lands. A relay.push emitted then reaches the relay
+    // before the daemon is registered as a "daemon" client → relay replies
+    // `relay.err UNAUTHORIZED`, which the err handler neither retries nor queues,
+    // silently losing the notification. sendPush now mirrors broadcastEncrypted's
+    // `if (!this.authenticated) return` guard.
+    const { client, sent } = captureSend();
+    // Reproduce the mid-reconnect window: socket OPEN, but not authenticated.
+    (client as unknown as { authenticated: boolean }).authenticated = false;
+    const delivered = client.sendPush(
+      "fe-1",
+      "tpps1.1.abc123",
+      "Title",
+      "Body",
+    );
+    expect(delivered).toBe(false);
+    expect(sent).toHaveLength(0);
+  });
+
+  test("returns true and sends when authenticated", () => {
+    const { client, sent } = captureSend();
+    const delivered = client.sendPush(
+      "fe-1",
+      "tpps1.1.abc123",
+      "Title",
+      "Body",
+    );
+    expect(delivered).toBe(true);
+    expect(sent).toHaveLength(1);
   });
 });
 

@@ -24,7 +24,7 @@ clap = { version = "4", features = ["derive"] }
 # CLI opens these DBs READ-ONLY with PRAGMA busy_timeout to coexist with the live
 # daemon writer (WAL). WRITES go through daemon IPC, never direct SQLite — the
 # daemon is the single writer (ADR-0003 Amendment 2 A2.4 decision).
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 # Minimal JSON parsing for `tp logs` event records (event.hook_event_name,
 # event.last_assistant_message, event.tool_name). No derive needed — we access
 # fields via Value indexing, keeping the dep surface small.

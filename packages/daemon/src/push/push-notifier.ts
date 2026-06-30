@@ -276,8 +276,13 @@ export function buildPushMessage(
       typeof payload?.["tool_name"] === "string" ? payload["tool_name"] : null;
     return {
       title: "Permission needed",
+      // Truncate the tool name like the sibling branches (an MCP server may
+      // register an arbitrarily long tool name). The body prefix "Approve " +
+      // " to continue" is ~20 chars, so a multi-KB tool name would otherwise
+      // push the APNs payload past its 4096-byte limit → silent 400 drop at the
+      // exact moment the user is blocked on a permission prompt.
       body: tool
-        ? `Approve ${tool} to continue`
+        ? `Approve ${truncate(tool, 160)} to continue`
         : "Tool permission approval required",
     };
   }

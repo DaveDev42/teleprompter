@@ -58,6 +58,12 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// in the terminal stream). Emitted once per session.
     static let inputOkMarker = "TP_INPUT_OK"
     static let inputFailMarker = "TP_INPUT_FAIL"
+    /// M6 marker (push E2E): an inbound `relay.notification` was received over the
+    /// live socket and handed to `NotificationService`. Proves the production push
+    /// RECEIVE path (`onNotification` → `scheduleLocal`) runs end-to-end over the
+    /// real relay — the relay's in-band delivery arm (frontend connected → no APNs),
+    /// which is the only push leg exercisable without device entitlements.
+    static let pushNotifyReceivedMarker = "TP_PUSH_NOTIFY_RECEIVED"
 
     private(set) var state: State = .idle {
         didSet { onStateChange?(state) }
@@ -201,6 +207,21 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// `--tp-no-input-probe` launch arg, the same way `--tp-smoke` is.
     private static let suppressInputProbe: Bool = {
         ProcessInfo.processInfo.arguments.contains("--tp-no-input-probe")
+    }()
+
+    /// True when the harness launched us in PUSH mode (TP_E2E_PUSH): on the
+    /// Simulator/macOS APNs registration never yields a usable device token
+    /// (`didFailToRegister`), so the daemon's push-token map stays empty and the
+    /// `PushNotifier` short-circuits before sending anything. To exercise the
+    /// production in-band receive path (`onNotification`), register a SYNTHETIC
+    /// token in `onAuthOk` so the daemon has a frontend to push to. The token is
+    /// never used for real APNs here — the frontend is live on the socket, so the
+    /// relay delivers in-band (`relay.notification`) rather than via APNs, and the
+    /// relay seals any opaque string. Gated so it can NEVER fire for real users or
+    /// perturb the M5 input-probe / coding runs. Passed as a bare `--tp-push-smoke`
+    /// launch arg, the same way `--tp-smoke` is.
+    private static let pushSmokeMode: Bool = {
+        ProcessInfo.processInfo.arguments.contains("--tp-push-smoke")
     }()
 
     // MARK: push registration (APNs token)
@@ -468,8 +489,12 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// `NotificationService` then turns it into an in-app toast (foreground) or an
     /// OS banner, and a tap deep-links to `data.sid` via `SessionNavigator`.
     private func onNotification(_ note: RelayNotification) {
+        // Emit the asserted push marker BEFORE the watchOS `#if` so it fires on
+        // every platform (`onNotification` itself runs on watchOS — only
+        // `scheduleLocal` is gated out there). `sid=` lets the harness confirm the
+        // notification routed to the driven session.
         log.notice(
-            "relay.notification title=\(note.title, privacy: .public) sid=\(note.data?.sid ?? "(none)", privacy: .public)"
+            "\(Self.pushNotifyReceivedMarker, privacy: .public) sid=\(note.data?.sid ?? "(none)", privacy: .public) title=\(note.title, privacy: .public)"
         )
         let title = note.title
         let body = note.body
@@ -511,6 +536,14 @@ final class RelayClient: NSObject, @unchecked Sendable {
         // that case `pushTokenDidChange` sends it when APNs delivers one.
         if let token = pushTokenHex {
             sendPushRegister(token: token)
+        } else if Self.pushSmokeMode {
+            // PUSH E2E: no real APNs token on Simulator/macOS, so register a
+            // synthetic one to open the daemon's `tokenCount > 0` push gate. Safe:
+            // the frontend is live here, so the relay delivers in-band and never
+            // hands this token to APNs. Smoke-mode only — never reached in a real
+            // run, where `pushTokenHex` is the real token (or stays nil with the
+            // push gate intentionally shut).
+            sendPushRegister(token: "tp-smoke-fake-token-\(pairing.frontendId)")
         }
     }
 

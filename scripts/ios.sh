@@ -110,6 +110,10 @@ SESSION_FAIL_MARKER="TP_SESSION_FAIL"
 # the probe bytes in the terminal stream and emits TP_INPUT_OK sid=<sid>.
 INPUT_OK_MARKER="TP_INPUT_OK"
 INPUT_FAIL_MARKER="TP_INPUT_FAIL"
+# M6 (push E2E, TP_E2E_PUSH): an inbound relay.notification was received by the app's
+# production RelayClient.onNotification and handed to NotificationService. Asserted only
+# under TP_E2E_PUSH — NOT part of the default smoke marker set.
+PUSH_NOTIFY_RECEIVED_MARKER="TP_PUSH_NOTIFY_RECEIVED"
 RELAY_LOOPBACK_PORT="${TP_RELAY_LOOPBACK_PORT:-7099}"
 RELAY_LOOPBACK_SCRIPT="$REPO_ROOT/scripts/local-relay-loopback.ts"
 XCFRAMEWORK="$REPO_ROOT/rust/target/TpCore.xcframework"
@@ -759,7 +763,7 @@ cmd_smoke_ios() {
   #                            claude_e2e (proves the genuine app→relay→daemon→PTY→claude
   #                            input path end to end). See native-testing.md.
   parse_e2e_gates
-  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING"
+  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING" claude_push="$E2E_PUSH"
 
   if [ -n "$claude_m5" ]; then
     # M0–M5: full input round-trip against an interactive real claude.
@@ -839,8 +843,11 @@ cmd_smoke_ios() {
   # or no-op. Retry a few times so a transient warmup miss doesn't fail the whole
   # smoke. Locally (already-warm sim) the first attempt succeeds immediately.
   # In CODING mode the holder owns input, so suppress the app's auto-probe (it would
-  # interleave with the holder's coding turns on the same REPL).
+  # interleave with the holder's coding turns on the same REPL). In PUSH mode tell the
+  # app to register a synthetic push token (--tp-push-smoke) so the daemon's push gate
+  # opens (no real APNs token on the Simulator).
   local probe_arg=(); [ -n "$claude_coding" ] && probe_arg=(--tp-no-input-probe)
+  [ -n "$claude_push" ] && probe_arg+=(--tp-push-smoke)
   local launch_ok="" attempt
   for attempt in 1 2 3 4 5; do
     if xcrun simctl launch "$udid" "$BUNDLE_ID" -- --tp-smoke-url "$link" "${probe_arg[@]}" >/dev/null 2>&1; then
@@ -1016,9 +1023,10 @@ cmd_smoke_ios() {
   # ($RELAY_LOOPBACK_PORT is not bound in real mode), so claude modes skip it too.
   if [ -n "$claude_e2e" ] && [ -z "$claude_m5" ]; then
     [ -n "$claude_coding" ] && assert_coding_e2e
+    [ -n "$claude_push" ] && assert_push_e2e "$udid"
     capture_sim_screenshot "$udid" "$TP_PLATFORM"
     tp_smoke_pass
-    log "✅ REAL-CLAUDE E2E PASS — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 input round-trip out of scope for print mode)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}"
+    log "✅ REAL-CLAUDE E2E PASS — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 input round-trip out of scope for print mode)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}${claude_push:+ + in-band PUSH receive verified}"
     return 0
   fi
 
@@ -1066,7 +1074,7 @@ cmd_smoke_macos() {
   # swap in a genuine tp daemon+relay (+ real claude session) on the HOST — the macOS
   # app under test connects to it through the real relay exactly as a phone would.
   parse_e2e_gates
-  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING"
+  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING" claude_push="$E2E_PUSH"
 
   # Marker set scales with reach: real_e2e (no session) → M0–M2; claude_e2e (print
   # session) → M0–M4; claude_m5 / loopback → all M0–M5.
@@ -1134,8 +1142,11 @@ cmd_smoke_macos() {
   # M5 input-probe auto-fires. macOS injects the pairing link as a deep link below
   # (not via --tp-smoke-url), so this bare marker is how the app knows it's a test.
   # In CODING mode the holder owns input, so suppress the app's auto-probe (it would
-  # interleave with the holder's coding turns on the same REPL).
+  # interleave with the holder's coding turns on the same REPL). In PUSH mode tell the
+  # app to register a synthetic push token (--tp-push-smoke) so the daemon's push gate
+  # opens (no real APNs token on macOS either).
   local probe_arg=(); [ -n "$claude_coding" ] && probe_arg=(--tp-no-input-probe)
+  [ -n "$claude_push" ] && probe_arg+=(--tp-push-smoke)
   open -gn "$app" --args --tp-smoke "${probe_arg[@]}"
   # `open` returns immediately; resolve the PID of the instance we just launched.
   local app_pid=""
@@ -1295,9 +1306,10 @@ cmd_smoke_macos() {
   # claude_m5, which continues below.
   if [ -n "$claude_e2e" ] && [ -z "$claude_m5" ]; then
     [ -n "$claude_coding" ] && assert_coding_e2e
+    [ -n "$claude_push" ] && assert_push_e2e ""
     capture_macos_screenshot "macos"
     tp_smoke_pass
-    log "✅ REAL-CLAUDE E2E PASS (macOS) — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 out of scope for print mode)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}"
+    log "✅ REAL-CLAUDE E2E PASS (macOS) — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 out of scope for print mode)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}${claude_push:+ + in-band PUSH receive verified}"
     return 0
   fi
 
@@ -1334,7 +1346,7 @@ cmd_smoke_visionos() {
   # the mode taxonomy). The daemon+relay (+ real claude) run on the HOST; only the
   # app runs in the visionOS Simulator and connects through the real relay.
   parse_e2e_gates
-  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING"
+  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING" claude_push="$E2E_PUSH"
 
   # Marker set scales with reach: real_e2e → M0–M2; claude_e2e → M0–M4; claude_m5 /
   # loopback → all M0–M5.
@@ -1419,8 +1431,10 @@ for devs in d["devices"].values():
 
   xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
   log "launching with --tp-smoke-url (visionOS M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
-  # In CODING mode the holder owns input, so suppress the app's auto-probe.
+  # In CODING mode the holder owns input, so suppress the app's auto-probe. In PUSH
+  # mode tell the app to register a synthetic push token (--tp-push-smoke).
   local probe_arg=(); [ -n "$claude_coding" ] && probe_arg=(--tp-no-input-probe)
+  [ -n "$claude_push" ] && probe_arg+=(--tp-push-smoke)
   xcrun simctl launch "$udid" "$BUNDLE_ID" -- --tp-smoke-url "$link" "${probe_arg[@]}" >/dev/null
 
   # Poll all markers in one loop. Real-daemon modes add connection latency + real
@@ -1532,9 +1546,10 @@ for devs in d["devices"].values():
   # real Stop hook's last_assistant_message. M5 needs an interactive claude (claude_m5).
   if [ -n "$claude_e2e" ] && [ -z "$claude_m5" ]; then
     [ -n "$claude_coding" ] && assert_coding_e2e
+    [ -n "$claude_push" ] && assert_push_e2e "$udid"
     capture_sim_screenshot "$udid" "visionos"
     tp_smoke_pass
-    log "✅ REAL-CLAUDE E2E PASS (visionOS) — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 out of scope for print mode)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}"
+    log "✅ REAL-CLAUDE E2E PASS (visionOS) — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 out of scope for print mode)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}${claude_push:+ + in-band PUSH receive verified}"
     return 0
   fi
 
@@ -1576,7 +1591,7 @@ cmd_smoke_watchos() {
   # the HOST; only the watch app runs in the Simulator and connects through the
   # real relay.
   parse_e2e_gates
-  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_coding="$E2E_CLAUDE_CODING"
+  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_coding="$E2E_CLAUDE_CODING" claude_push="$E2E_PUSH"
 
   # Marker set scales with reach: real_e2e → M0–M2 (4 markers); claude_e2e /
   # loopback → M0–M4 (7 markers). No M5 on watch in any mode.
@@ -1652,8 +1667,10 @@ for devs in d["devices"].values():
 
   xcrun simctl terminate "$udid" "$WATCH_BUNDLE_ID" >/dev/null 2>&1 || true
   log "launching with --tp-smoke-url (watchOS M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
-  # In CODING mode the holder owns input, so suppress the app's auto-probe.
+  # In CODING mode the holder owns input, so suppress the app's auto-probe. In PUSH
+  # mode tell the app to register a synthetic push token (--tp-push-smoke).
   local probe_arg=(); [ -n "$claude_coding" ] && probe_arg=(--tp-no-input-probe)
+  [ -n "$claude_push" ] && probe_arg+=(--tp-push-smoke)
   xcrun simctl launch "$udid" "$WATCH_BUNDLE_ID" -- --tp-smoke-url "$link" "${probe_arg[@]}" >/dev/null
 
   # Poll markers (no TP_INPUT_OK on watch — no terminal input per ADR-0002 §watchOS).
@@ -1766,9 +1783,10 @@ for devs in d["devices"].values():
   # no loopback relay to /health-poll, so finish here.
   if [ -n "$claude_e2e" ]; then
     [ -n "$claude_coding" ] && assert_coding_e2e
+    [ -n "$claude_push" ] && assert_push_e2e "$udid"
     capture_sim_screenshot "$udid" "watchos"
     tp_smoke_pass
-    log "✅ REAL-CLAUDE E2E PASS (watchOS) — 7/7 markers: boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude on $WATCH_SIM_NAME (M5 N/A on watch)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}"
+    log "✅ REAL-CLAUDE E2E PASS (watchOS) — 7/7 markers: boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude on $WATCH_SIM_NAME (M5 N/A on watch)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}${claude_push:+ + in-band PUSH receive verified}"
     return 0
   fi
 
@@ -1843,17 +1861,24 @@ start_loopback() {
 # gate. (Run them as two separate invocations for full M0–M5 + coding coverage.)
 E2E_REAL="" E2E_CLAUDE="" E2E_CLAUDE_M5="" E2E_CLAUDE_CODING=""
 parse_e2e_gates() {
-  E2E_REAL="" E2E_CLAUDE="" E2E_CLAUDE_M5="" E2E_CLAUDE_CODING=""
+  E2E_REAL="" E2E_CLAUDE="" E2E_CLAUDE_M5="" E2E_CLAUDE_CODING="" E2E_PUSH=""
   [ "${TP_E2E_REAL:-}" = "1" ] && E2E_REAL="yes"
   [ "${TP_E2E_CLAUDE:-}" = "1" ] && { E2E_REAL="yes"; E2E_CLAUDE="yes"; }
   [ "${TP_E2E_CLAUDE_M5:-}" = "1" ] && { E2E_REAL="yes"; E2E_CLAUDE="yes"; E2E_CLAUDE_M5="yes"; }
   [ "${TP_E2E_CLAUDE_CODING:-}" = "1" ] && { E2E_REAL="yes"; E2E_CLAUDE="yes"; E2E_CLAUDE_CODING="yes"; }
-  # CODING wins over M5 when both are requested (they're mutually exclusive over one
-  # session — coding suppresses the probe M5 depends on). Clearing E2E_CLAUDE_M5 here
-  # makes `claude_m5` empty downstream, so the marker set excludes TP_INPUT_OK, the M4
-  # early-return fires (running assert_coding_e2e), and there's no fall-through to the
-  # M5 assertion's hard `die` on a probe that was deliberately suppressed.
-  [ -n "$E2E_CLAUDE_CODING" ] && E2E_CLAUDE_M5=""
+  # PUSH (TP_E2E_PUSH): a SIBLING gate that implies a real daemon + a real claude PRINT
+  # session — it needs a session DB (so the injected `rec` has a target) and a live app
+  # on the socket (so the relay delivers the push in-band). Orthogonal to how the
+  # session is driven; the simplest first cut rides print-mode E2E_CLAUDE.
+  [ "${TP_E2E_PUSH:-}" = "1" ] && { E2E_REAL="yes"; E2E_CLAUDE="yes"; E2E_PUSH="yes"; }
+  # CODING and PUSH both win over M5 when co-requested (M5 is interactive; CODING and
+  # PUSH ride print-mode). Clearing E2E_CLAUDE_M5 makes `claude_m5` empty downstream, so
+  # the marker set excludes TP_INPUT_OK and the M4 early-return fires — which is the only
+  # place assert_coding_e2e / assert_push_e2e run. Without this, `TP_E2E_PUSH=1
+  # TP_E2E_CLAUDE_M5=1` would take the M5 path and SILENTLY skip the push assertion
+  # (registering the smoke token but never verifying receipt). Forcing print-mode here
+  # makes the push assertion always fire when TP_E2E_PUSH is set.
+  { [ -n "$E2E_CLAUDE_CODING" ] || [ -n "$E2E_PUSH" ]; } && E2E_CLAUDE_M5=""
   # Force success: the script runs under `set -e`, and the last `[ … ] && …` short-
   # circuits to exit 1 when the gate is unset (the common loopback case). Without this
   # the function would return 1 and abort its caller. (This bit cmd_smoke_macos.)
@@ -1901,6 +1926,7 @@ setup_real_link() {
   REAL_SPAWN_CLAUDE="$E2E_CLAUDE"
   REAL_SPAWN_CLAUDE_M5="$E2E_CLAUDE_M5"
   REAL_SPAWN_CLAUDE_CODING="$E2E_CLAUDE_CODING"
+  REAL_SPAWN_PUSH="$E2E_PUSH"
   start_real_daemon_relay
   SMOKE_DAEMON_ID="$REAL_DAEMON_ID"
   if [ -n "$E2E_CLAUDE" ] && [ -n "${REAL_SESSION_SID:-}" ]; then
@@ -1999,6 +2025,57 @@ assert_coding_e2e() {
   log "✅ CODING E2E PASS — real claude was remote-controlled through 2 coding turns (Write tool created the file, Bash tool read it back) over the genuine app→relay→daemon→PTY pipeline; all side effects verified on disk + in the session DB hook events"
 }
 
+# assert_push_e2e — the TP_E2E_PUSH assertion. After M0–M4 passed (real daemon + real
+# claude print session + live app), the holder injected a synthetic `Notification` hook
+# event over IPC; the daemon's PushNotifier dispatched it as a `relay.push`, and the
+# relay — seeing the app live on the socket — delivered it in-band as `relay.notification`.
+# The app's PRODUCTION receive code (RelayClient.onNotification) then emitted
+# TP_PUSH_NOTIFY_RECEIVED to the unified log. We poll that log (NOT the session DB — the
+# notification never lands in the DB; it is a transient push) for the marker bearing the
+# driven sid. That marker is the load-bearing proof: it can only fire if the entire chain
+# (PushNotifier detect → daemon sendPush → relay "ws" route → app decode) worked.
+#
+# Honest scope: this exercises the IN-BAND push path (frontend connected → no APNs). Real
+# APNs delivery (the "push" DeliveryResult arm), device-token receipt, and tap→navigation
+# remain Dave-gated (need aps-environment entitlement + a physical device + .p8 creds).
+#
+# Arg: $1 = udid (the booted simulator; ignored on the macOS-native path, which reads the
+# already-running `log stream` file via macos_log_snapshot). Dies on timeout.
+assert_push_e2e() {
+  local udid="$1"
+  local sid="${SMOKE_SESSION_ID:-real-smoke-sess}"
+  # The holder re-sends the event 8×@3s (~24s) to absorb the app token-registration
+  # race, and the app marker then lands shortly after. Give it a generous window.
+  local deadline=$(( $(date +%s) + 120 )) hit=""
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    local out
+    case "$TP_PLATFORM" in
+      macos) out="$(macos_log_snapshot)" ;;
+      *) out="$(ios_log_snapshot "$udid" 120)" ;;
+    esac
+    hit="$(printf '%s\n' "$out" | grep -E "$PUSH_NOTIFY_RECEIVED_MARKER sid=$sid( |$)" | tail -n1 || true)"
+    [ -n "$hit" ] && break
+    sleep 2
+  done
+  [ -n "$hit" ] || die "PUSH E2E FAIL — never saw '$PUSH_NOTIFY_RECEIVED_MARKER sid=$sid' in the unified log (in-band relay.notification did not reach the app's onNotification)"
+  log "push E2E — app receive OK: '$hit'"
+
+  # Secondary (best-effort) proof: the holder logged that it injected the event. This
+  # is diagnostic only — the app marker above already proves the full chain — so a miss
+  # here warns but does not fail. (The holder's log() writes to stderr, which the harness
+  # folds into $REAL_RP_OUT, so the line is normally present; keeping it non-fatal avoids
+  # coupling the gate to that capture detail.)
+  if [ -n "${REAL_RP_OUT:-}" ] && [ -f "$REAL_RP_OUT" ]; then
+    if grep -q "push: injected synthetic Notification" "$REAL_RP_OUT" 2>/dev/null; then
+      log "push E2E — holder OK: synthetic Notification injection logged by the holder"
+    else
+      log "push E2E — note: holder injection log not found in $REAL_RP_OUT (app marker already confirmed the chain)"
+    fi
+  fi
+
+  log "✅ PUSH E2E PASS — a synthetic Notification event drove the real daemon's PushNotifier → daemon relay.push → relay in-band delivery → the app's production RelayClient.onNotification (sid=$sid), all over the genuine app→relay→daemon pipeline; real-APNs delivery + tap-nav remain device-gated"
+}
+
 # ── start_real_daemon_relay (TP_E2E_REAL=1) ─────────────────────────────────────
 #
 # The REAL-daemon E2E path: instead of the fake scripted loopback, stand up a
@@ -2031,6 +2108,13 @@ REAL_SPAWN_CLAUDE_M5=""
 # precedence over M5 for the spawn flag (coding mode also accepts trust + keeps a live
 # REPL, so it's a strict superset of the interactive spawn's setup).
 REAL_SPAWN_CLAUDE_CODING=""
+# "yes" → the holder also injects a synthetic Notification event (TP_E2E_PUSH) via
+# --emit-push-notification, additive to the print-mode --spawn-claude session (it
+# needs that session's DB as the rec target). Implies REAL_SPAWN_CLAUDE.
+REAL_SPAWN_PUSH=""
+# Holder combined stdout+stderr log path (set in start_real_daemon_relay), read by
+# assert_push_e2e for the secondary "push: injected …" diagnostic check.
+REAL_RP_OUT=""
 start_real_daemon_relay() {
   require bun
   local script="$REPO_ROOT/scripts/real-daemon-pair.ts"
@@ -2068,8 +2152,18 @@ start_real_daemon_relay() {
     spawn_args+=("--spawn-claude")
     claude_sid="real-smoke-sess"
   fi
+  # Push (TP_E2E_PUSH): additive to the print-mode --spawn-claude above — the holder
+  # injects a synthetic Notification event into that session so the daemon pushes it
+  # to the live app in-band. Needs the session DB the --spawn-claude print session
+  # creates, so it composes with (does not replace) the spawn flag.
+  if [ -n "$REAL_SPAWN_PUSH" ]; then
+    spawn_args+=("--emit-push-notification")
+  fi
 
   local rp_out; rp_out="$(mktemp -t tp-realpair.XXXXXX)"
+  # Expose the holder's combined stdout+stderr log to assert_push_e2e (it greps the
+  # "push: injected …" diagnostics as a secondary proof the holder did its part).
+  REAL_RP_OUT="$rp_out"
   log "starting REAL daemon+relay (isolated under $REAL_E2E_DIR)${REAL_SPAWN_CLAUDE:+ + real claude session}"
   # Isolate via XDG_* (socket/store/config) + HOME so nothing leaks to ~/.
   # TP_E2E_CLAUDE_* configure the spawned session (sid/cwd); inherited by the script.

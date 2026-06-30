@@ -72,6 +72,8 @@ macOS 는 `log stream` 라이브 캡처, visionOS/watchOS 는 `simctl spawn … 
 | `TP_E2E_CLAUDE_CODING=1` | `TP_E2E_CLAUDE_M5` 의 **sibling** (superset 아님) — `TP_E2E_CLAUDE` 를 imply 하되, M5 의 입력-probe 대신 **holder 가 멀티턴 실코딩을 구동**한다. holder(`--spawn-claude-coding`)가 interactive bypassPermissions claude 를 띄우고 trust 를 `\r` 로 수락한 뒤, IPC `input` 프레임으로 **2개 코딩 턴**을 순차 전송한다. 각 턴은 **텍스트(CR 없이) → 별도 `\r`(제출)** 로 보내고(`text\r` 한 프레임은 claude TUI 의 paste 버퍼에 묻혀 제출 안 됨), `UserPromptSubmit` 증가로 등록을 확인하며 warmup keystroke-drop 시 제출을 재전송한다(bounded ≤5): 턴1 = "`tp_qa_marker.txt` 에 `QA-CODING-OK` 작성"(Write 툴), 턴2(턴1 Stop 게이트 후) = "`cat tp_qa_marker.txt && echo BUILD-STEP-DONE` 실행"(Bash 툴). 마커 폴은 M0–M4(첫 Stop)에서 멈추고, 그 다음 `assert_coding_e2e` 가 격리 dir 의 결정적 side-effect 를 검증한다 (모델 텍스트 아님): (1) claude 가 쓴 파일이 디스크에 존재 + body=`QA-CODING-OK`, (2) 세션 DB `UserPromptSubmit≥2` + `Stop≥2`(두 턴이 파이프라인으로 착지+완료), (3) `PostToolUse(Write)` + `PostToolUse(Bash)` 훅 이벤트가 둘 다 파일명을 참조(구조적 이벤트 체크 — ANSI io 스트림 substring 스캔은 타이핑된 명령 ECHO 에 false-positive 나므로 폐기). **앱을 통한 실제 원격-컨트롤 코딩**을 증명 — PONG 한 줄이 아니라. 턴 게이팅은 harness 가 assert 하는 동일 세션 DB(`countRecords`)를 읽는다. **앱의 M5 auto-probe 는 `--tp-no-input-probe` 로 억제**(holder 가 input 을 소유 — probe 가 같은 REPL 에서 턴과 interleave 하면 corruption). **iOS/iPadOS/macOS/visionOS/watchOS 전부 지원** (앱은 trigger 가 아니라 holder 가 구동하므로 watchOS 입력 부재와 무관 — M5 와 직교). **로컬 전용 (claude auth+credits, 절대 CI 아님)**. `TP_E2E_KEEP_DIR=1` 로 격리 dir 보존해 사후 검사 권장 |
 | `TP_E2E_CLAUDE_SID` / `TP_E2E_CLAUDE_CWD` / `TP_E2E_CLAUDE_PROMPT` | claude 세션 sid(기본 `real-smoke-sess`)/cwd(기본 격리 HOME 아래 `work`)/프롬프트(print 모드만; 기본 `Reply with exactly: PONG`) 오버라이드 |
 | `TP_E2E_CODING_MARKER` / `TP_E2E_CODING_FILE` | 코딩 E2E(`TP_E2E_CLAUDE_CODING`) 의 파일 body 마커(기본 `QA-CODING-OK`)/파일명(기본 `tp_qa_marker.txt`) 오버라이드. holder 와 `assert_coding_e2e` 가 동일 기본값을 공유 |
+| `TP_E2E_PUSH=1` | `TP_E2E_CLAUDE`(print) 의 **sibling** — 실 daemon + 실 claude PRINT 세션을 깔고(세션 DB 가 rec 타깃), 앱이 **합성 push 토큰**을 등록(`--tp-push-smoke`)한 뒤 holder(`--emit-push-notification`)가 IPC `rec` 프레임으로 **합성 `Notification` 훅 이벤트**를 주입한다. daemon `PushNotifier` 가 notify-eligible 이벤트(`NOTIFY_EVENTS`={Notification,PermissionRequest,Elicitation}) + tokenCount>0 게이트를 통과 → `relay.push` → relay 가 앱이 소켓에 *살아있으므로* APNs 대신 **in-band `relay.notification`** 으로 전달 → 앱의 **프로덕션** `RelayClient.onNotification` 이 `TP_PUSH_NOTIFY_RECEIVED sid=…` emit. `assert_push_e2e` 가 unified log 에서 그 마커(driven sid)를 폴해 in-band push RECEIVE 경로 전체를 증명. **정직한 범위**: 실 APNs 전달("push" arm)·디바이스 토큰 수신·tap→nav 는 device-gated (aps-environment entitlement + 실기기 + .p8). **iOS/iPadOS/macOS/visionOS/watchOS 전부** (`onNotification` 은 watchOS 에서도 도는 receive/decode 경로). **로컬 전용 (실 claude auth, 절대 CI 아님)** |
+| `TP_E2E_PUSH_MESSAGE` | 푸시 E2E(`TP_E2E_PUSH`) 가 주입하는 합성 `Notification` 이벤트의 `message` 필드(기본 `QA push smoke — Claude needs you`) 오버라이드. `buildPushMessage` 가 이를 push title/body 로 사용 |
 
 ## 서브커맨드
 
@@ -319,6 +321,40 @@ Claude Code 로 **실제 코딩**을 시킬 수 있는지는 증명하지 않는
 - **검증 (2026-07-01, macOS 네이티브)**: coding E2E PASS — `tp_qa_marker.txt`=`QA-CODING-OK` 디스크 존재,
   `UserPromptSubmit=2`/`Stop=2`, `PostToolUse(Write)`+`PostToolUse(Bash)` 둘 다 파일 참조. default loopback macOS
   smoke 8/8 유지(M5 probe 정상 — 억제는 coding 모드 한정, 회귀 없음).
+
+## 실 push E2E (`TP_E2E_PUSH=1`, iOS/iPadOS/macOS/visionOS/watchOS) — in-band push RECEIVE 증명
+
+앱의 푸시 RECEIVE 경로(`RelayClient.onNotification` → `NotificationService.scheduleLocal` → `willPresent` →
+`ToastCenter`)가 **실 relay/daemon 을 통해** 동작함을 증명한다. 실 APNs 없이 가능한 유일한 푸시 leg = relay 의
+**in-band 전달**(타깃 frontend 가 소켓에 살아있으면 relay 가 APNs 대신 `relay.notification` 으로 보냄).
+
+- **모드 위치**: `TP_E2E_CLAUDE`(print) 의 **sibling**. `E2E_REAL`+`E2E_CLAUDE` 를 imply 한다 — 주입할 `rec`
+  의 타깃 세션 DB(print claude 가 생성)와 in-band 전달 조건(앱이 소켓에 live)이 필요하기 때문. **print 모드라
+  M5(interactive)와 양립 불가** — `TP_E2E_PUSH` 와 `TP_E2E_CLAUDE_M5` 가 동시 set 되면 (coding 과 동일하게)
+  push 가 이겨 `E2E_CLAUDE_M5` 를 clear → print 경로로 내려가 push assertion 이 항상 발화한다 (그 clear 없으면
+  M5 경로가 토큰만 등록하고 push assertion 을 조용히 skip — `parse_e2e_gates`).
+- **왜 기존 E2E 로는 안 터지나 (둘 다 실측 확인)**: (1) `push-notifier.ts` `tokenCount===0` 게이트 — Sim/macOS 는
+  APNs 등록이 `didFailToRegister` 라 토큰이 daemon 에 안 들어감. (2) `NOTIFY_EVENTS`={Notification,
+  PermissionRequest,Elicitation} 에 `Stop` 이 없어 coding-E2E 의 Stop 도 push 를 안 띄움. → **토큰 등록 + Notification
+  이벤트 주입 둘 다** 필요.
+- **구동 (가장 충실한 경로)**: (a) **앱**이 `--tp-push-smoke` 하에 `onAuthOk` 에서 **합성 push 토큰**을
+  `sendPushRegister` — relay 가 임의 문자열을 seal 하고, frontend 가 live 라 "ws" arm 으로 가서 그 토큰을 실 APNs 로
+  절대 안 씀(안전). smoke 모드 전용 게이트 — 실유저/coding/M5 런에 영향 0. (b) **holder**(`--emit-push-notification`)가
+  세션 DB 가 준비되면 IPC `rec` 프레임(`kind:"event", name:"Notification", payload=base64({message})`)을 주입 →
+  실 `handleRec`→`onRecord`→`sendPush` 파이프라인. 토큰 등록 레이스를 흡수하려 8×@3s 재전송(토큰 전엔 tokenCount==0
+  no-op, 등록 후 성공).
+- **assert_push_e2e**: unified log 를 폴해 `TP_PUSH_NOTIFY_RECEIVED sid=<driven>` 마커를 확인(세션 DB 아님 — push 는
+  DB 에 안 남는 transient). 그 마커는 load-bearing proof — 전체 체인(detect→sendPush→relay "ws"→app decode)이
+  돌아야만 emit. 보조로 holder 의 "push: injected …" 로그를 grep(diagnostic, 실패시 warn 만 — 로그 라우팅 차이로
+  flake 금지). macOS = host `log stream` 파일, sim = `simctl spawn log show`.
+- **정직한 범위**: in-band push 만. **device-gated (자동화 불가)**: 실 APNs 전달("push" DeliveryResult arm),
+  디바이스 토큰 수신(`didRegister`), tap→nav(`didReceive`→`SessionNavigator` — 헤드리스 탭 스크립트 불가, 그래서
+  `TP_PUSH_NAV_OK` 마커는 의도적으로 미추가). aps-environment entitlement + 실기기 + .p8 필요.
+- **절대 CI 에서 안 돈다** (claude 인증/크레딧). **로컬 전용**: `TP_E2E_PUSH=1 [TP_PLATFORM=macos]
+  TP_E2E_KEEP_DIR=1 scripts/ios.sh smoke`.
+- **회귀 안전**: `TP_PUSH_NOTIFY_RECEIVED` 는 default 8/7 마커 셋에 없음(`TP_E2E_PUSH` 하에서만 assert). 합성 토큰
+  등록은 `--tp-push-smoke` 한정 opt-in — 없으면 안 터져 M5/coding 무영향. 토큰은 격리 `$REAL_E2E_DIR` store 에만
+  영속(mktemp, 정리됨) — dogfood store 절대 안 건드림.
 
 ## 공식 Apple Xcode MCP (`mcpbridge`) — 인터랙티브 전용
 

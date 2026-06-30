@@ -11,6 +11,7 @@ import type {
   RelayRegisterOk,
   RelayServerMessage,
 } from "@teleprompter/protocol";
+import type { DeliveryResult, PushRequest } from "./push";
 import { PushService } from "./push";
 import { PushSealer } from "./push-seal";
 import { RelayServer } from "./relay-server";
@@ -2071,5 +2072,144 @@ describe("Path X: relay.push.register → relay.push.token sealing", () => {
 
     attacker.close();
     daemon.close();
+  });
+});
+
+// ── TOCTOU: frontend disconnect during push handling ───────────────────────
+
+describe("relay.push TOCTOU: frontend disconnects mid-flight", () => {
+  /**
+   * A PushService whose first sendOrDeliver call (the live-frontend "ws"
+   * verdict) blocks on a gate the test controls, so the test can close the
+   * frontend WebSocket and let the server's handleClose deregister it BEFORE
+   * the verdict is returned — reproducing the exact TOCTOU window
+   * (isFrontendConnected sampled true, socket closed during the await).
+   */
+  class GatedPushService extends PushService {
+    readonly calls: PushRequest[] = [];
+    private release!: () => void;
+    readonly gate = new Promise<void>((r) => {
+      this.release = r;
+    });
+    openGate(): void {
+      this.release();
+    }
+    override async sendOrDeliver(req: PushRequest): Promise<DeliveryResult> {
+      this.calls.push(req);
+      if (this.calls.length === 1) {
+        // First call: frontend looked connected. Block until the test has
+        // closed the socket and confirmed deregistration, then honour the
+        // "ws" verdict the production code sampled.
+        await this.gate;
+        return "ws";
+      }
+      // Second call is the fix's APNs fallback (isFrontendConnected:false).
+      return "push";
+    }
+  }
+
+  // Poll /health until the relay reports exactly `want` connected clients, so
+  // the test deterministically waits for handleClose to run rather than racing
+  // on a fixed sleep.
+  async function waitForClientCount(
+    p: number,
+    want: number,
+    timeoutMs = 3000,
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const res = await fetch(`http://localhost:${p}/health`);
+      const body = (await res.json()) as { clients: number };
+      if (body.clients === want) return;
+      if (Date.now() > deadline) {
+        throw new Error(
+          `timed out waiting for clients=${want} (last=${body.clients})`,
+        );
+      }
+      await Bun.sleep(10);
+    }
+  }
+
+  test("falls back to APNs when the frontend WS closes during the unseal/sendOrDeliver await", async () => {
+    // REGRESSION: handlePush sampled isFrontendConnected BEFORE its awaits and
+    // trusted that stale "ws" verdict afterwards. If the frontend disconnected
+    // mid-flight, this.send() no-op'd on the closed socket and the push was
+    // lost — no in-band delivery AND no APNs fallback, with no error back to
+    // the daemon to trigger a retry. The fix re-checks liveness and re-delivers
+    // via APNs (isFrontendConnected:false) when the socket died.
+    const push = new GatedPushService();
+    const relay = new RelayServer({
+      pushSealSecret: PUSH_SEAL_SECRET,
+      pushService: push,
+    });
+    const port = relay.start(0);
+    relay.registerToken(PUSH_X_TOKEN, PUSH_X_DAEMON_ID);
+
+    const daemon = await connectWs(port);
+    daemon.send(
+      JSON.stringify({
+        t: "relay.auth",
+        role: "daemon",
+        daemonId: PUSH_X_DAEMON_ID,
+        token: PUSH_X_TOKEN,
+        v: 2,
+      }),
+    );
+    await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
+
+    const frontend = await connectWs(port);
+    frontend.send(
+      JSON.stringify({
+        t: "relay.auth",
+        role: "frontend",
+        daemonId: PUSH_X_DAEMON_ID,
+        token: PUSH_X_TOKEN,
+        v: 2,
+        frontendId: PUSH_X_FRONTEND_ID,
+      }),
+    );
+    await waitForMessage(frontend, (m) => m.t === "relay.auth.ok");
+    await waitForClientCount(port, 2); // daemon + frontend both registered
+
+    const sealer = new PushSealer({ secret: PUSH_SEAL_SECRET });
+    const sealed = await sealer.seal(
+      "aabbccddeeff001122334455aabbccddeeff001122334455",
+    );
+
+    daemon.send(
+      JSON.stringify({
+        t: "relay.push",
+        frontendId: PUSH_X_FRONTEND_ID,
+        sealed,
+        title: "Test",
+        body: "Hello",
+        data: { sid: "s1", daemonId: PUSH_X_DAEMON_ID, event: "Notification" },
+      }),
+    );
+
+    // Wait until handlePush is parked inside the gated first sendOrDeliver
+    // (frontend still looks connected at this point).
+    while (push.calls.length < 1) await Bun.sleep(5);
+
+    // Close the frontend and wait for the server to deregister it. This is the
+    // mid-flight disconnect the production code must survive.
+    frontend.close();
+    await waitForClientCount(port, 1); // only the daemon remains
+
+    // Release the parked verdict; the fix now re-checks liveness, finds the
+    // socket gone, and re-delivers via APNs.
+    push.openGate();
+
+    // The fallback APNs call must happen: a SECOND sendOrDeliver with
+    // isFrontendConnected:false. Without the fix only the first ("ws") call
+    // exists and the push is silently dropped.
+    const deadline = Date.now() + 3000;
+    while (push.calls.length < 2 && Date.now() < deadline) await Bun.sleep(5);
+    expect(push.calls.length).toBe(2);
+    expect(push.calls[0]?.isFrontendConnected).toBe(true);
+    expect(push.calls[1]?.isFrontendConnected).toBe(false);
+
+    daemon.close();
+    relay.stop();
   });
 });

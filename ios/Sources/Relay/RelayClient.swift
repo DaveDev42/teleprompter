@@ -191,6 +191,18 @@ final class RelayClient: NSObject, @unchecked Sendable {
         return args.contains("--tp-smoke-url") || args.contains("--tp-smoke")
     }()
 
+    /// True when the harness launched us in CODING mode (TP_E2E_CLAUDE_CODING): the
+    /// holder drives the interactive claude session through multiple coding turns over
+    /// IPC, so the app must NOT also inject its `tp-input-probe`. Both inputs share one
+    /// REPL — an auto-probe here interleaves with (and corrupts) the holder's coding
+    /// turns (observed: the probe submitted a `Skill(run)` mid-turn, so turn 1's Write
+    /// never completed). This flag keeps `isSmokeMode` true (boot markers + deep-link
+    /// routing unchanged) while turning the M5 auto-probe into a no-op. Passed as a bare
+    /// `--tp-no-input-probe` launch arg, the same way `--tp-smoke` is.
+    private static let suppressInputProbe: Bool = {
+        ProcessInfo.processInfo.arguments.contains("--tp-no-input-probe")
+    }()
+
     // MARK: push registration (APNs token)
 
     /// The most recent APNs device token (lowercase hex), pushed in from
@@ -1191,6 +1203,9 @@ final class RelayClient: NSObject, @unchecked Sendable {
     @MainActor
     private func maybeSendProbe(sid: String) {
         guard Self.isSmokeMode else { return }
+        // CODING mode owns input via the holder — never inject the probe (it would
+        // interleave with and corrupt the holder's coding turns on the same REPL).
+        guard !Self.suppressInputProbe else { return }
         guard inputProbe[sid] == nil else { return }
         inputProbe[sid] = Self.probeToken
         // Snapshot the assistant-response count NOW so the real-claude M5 path can

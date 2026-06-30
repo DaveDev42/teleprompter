@@ -959,8 +959,16 @@ final class RelayClient: NSObject, @unchecked Sendable {
     }
 
     /// A live record outside a batch (running session). Apply it, emit
-    /// `TP_SESSION_OK` if it's the first chat item, and (M5) check whether an io
-    /// record carried the echoed input probe.
+    /// `TP_SESSION_OK` if it's the first chat item, (M5) auto-send the input probe,
+    /// and check whether an io record carried the echoed probe.
+    ///
+    /// `maybeSendProbe` runs here too — not just in `onBatch` — because the first
+    /// rendered event for a session can arrive as a LIVE rec rather than inside the
+    /// resume backfill batch (observed on the macOS-native smoke path: M0–M4 pass
+    /// but M5 never fired because the probe was only wired into `onBatch`, while the
+    /// first chat item arrived via `onRec`). `maybeSendProbe` is idempotent
+    /// (`inputProbe[sid] == nil` guard), so firing it from both paths sends exactly
+    /// one probe regardless of which path delivers the session's first event.
     private func onRec(_ rec: SessionRec) {
         let store = sessionStore
         let sid = rec.sid
@@ -972,6 +980,7 @@ final class RelayClient: NSObject, @unchecked Sendable {
             }
             let count = store?.chatItems[sid]?.count ?? 0
             self.emitSessionOk(sid: sid, events: count)
+            self.maybeSendProbe(sid: sid)
             self.checkInputEcho(sid: sid)
         }
     }

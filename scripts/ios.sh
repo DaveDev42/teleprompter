@@ -1171,13 +1171,21 @@ cmd_smoke_macos() {
 
   local link
   link="$(smoke_pair_link "$SMOKE_DAEMON_ID" "ws://localhost:$RELAY_LOOPBACK_PORT" "golden")"
-  log "opening pairing deep link via 'open' (macOS LaunchServices)"
+  log "opening pairing deep link via 'open -a' (route to THIS dev build)"
   # Register the URL scheme handler first: macOS LaunchServices caches the
   # handler list and a freshly built app may not be registered yet. Reboot
   # of LaunchServices DB via lsregister forces registration.
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
     -f "$app" 2>/dev/null || true
-  open "$link"
+  # MUST target the dev build explicitly with `open -a "$app"`. A bare
+  # `open "$link"` lets LaunchServices pick the tp:// handler by priority, and a
+  # production app installed in /Applications (which outranks a DerivedData path)
+  # steals the deep link — that instance has NO `--tp-smoke` arg, so its
+  # RelayClient.isSmokeMode is false, the M5 auto-probe never fires, and the
+  # smoke fails at M5 deterministically (M0-M4 still pass on the wrong instance).
+  # `open -a "$app"` bypasses the handler-priority lookup and routes the URL to
+  # the freshly launched dev build that actually carries --tp-smoke.
+  open -a "$app" "$link"
 
   local pair_line="" auth_line="" kx_line="" frame_line="" session_line="" input_line=""
   for _ in $(seq 1 60); do

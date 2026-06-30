@@ -27,7 +27,8 @@
 #   scripts/ios.sh uitest       Run XCUITest UI-level E2E (TeleprompterUITests): launch with
 #                               --tp-smoke-url, tap session row → pane picker, assert the
 #                               rendered "Claude: smoke ok" bubble through the a11y tree.
-#                               iOS/iPad/macOS full, visionOS partial, watchOS unsupported.
+#                               Real-claude E2E (TP_E2E_*) on iOS/iPad/macOS/visionOS/watchOS;
+#                               watchOS caps at M0–M4 (M5 input N/A on watch, ADR-0002 §4).
 #   scripts/ios.sh test         Run the XCTest bundle on the Simulator (ios only; rust first)
 #   scripts/ios.sh boot         Boot the target iOS Simulator (idempotent; ios only)
 #
@@ -1554,10 +1555,33 @@ for devs in d["devices"].values():
 }
 
 cmd_smoke_watchos() {
-  # 7 markers — TP_INPUT_OK is intentionally absent on watchOS (ADR-0002 §watchOS).
-  tp_smoke_begin "watchos" \
-    "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
-    "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER"
+  # Real-claude E2E gating, same taxonomy as the iOS/macOS/visionOS paths (see
+  # cmd_smoke_ios), with ONE watch-specific cap: TP_INPUT_OK (M5) is never checked
+  # — the watch app is a read-mostly glance experience with no terminal input
+  # (ADR-0002 §watchOS). So watchOS tops out at M0–M4 (7 markers) in every mode;
+  # there is no 8-marker branch, and claude_m5 collapses onto claude_e2e here
+  # (TP_E2E_CLAUDE_M5 implies claude_e2e via parse_e2e_gates — the extra M5 reach
+  # is simply N/A on watch). The daemon+relay (+ real claude PRINT session) run on
+  # the HOST; only the watch app runs in the Simulator and connects through the
+  # real relay.
+  parse_e2e_gates
+  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE"
+
+  # Marker set scales with reach: real_e2e → M0–M2 (4 markers); claude_e2e /
+  # loopback → M0–M4 (7 markers). No M5 on watch in any mode.
+  if [ -n "$real_e2e" ] && [ -z "$claude_e2e" ]; then
+    tp_smoke_begin "watchos" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER"
+  else
+    tp_smoke_begin "watchos" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER"
+  fi
+
+  # In claude mode, extract the host keychain OAuth token before launching (the
+  # isolated daemon's only auth vector for the spawned claude). No-op otherwise.
+  extract_claude_oauth_token
+
   local udid; udid="$(watch_sim_udid)" || die "watchOS simulator not found: $WATCH_SIM_NAME (set TP_WATCH_SIM)"
   log "watchOS Simulator UDID: $udid"
 
@@ -1601,32 +1625,55 @@ for devs in d["devices"].values():
   log "installing"
   xcrun simctl install "$udid" "$app"
 
-  # M1+M2: bring loopback relay up BEFORE launching, then launch with --tp-smoke-url
-  # to bypass LaunchServices URL-scheme approval (same fix as iOS/visionOS path).
-  start_loopback
-
+  # M1+M2: bring the relay up BEFORE launching, then launch with --tp-smoke-url to
+  # bypass LaunchServices URL-scheme approval (same fix as iOS/visionOS path). Real
+  # mode swaps the loopback for a genuine host tp daemon+relay (+ real claude PRINT
+  # session) and re-points the marker ids; loopback mode uses the fake scripted
+  # daemon + golden ids.
   local link
-  link="$(smoke_pair_link "$SMOKE_DAEMON_ID" "ws://localhost:$RELAY_LOOPBACK_PORT" "golden")"
+  if [ -n "$real_e2e" ]; then
+    setup_real_link
+    link="$REAL_PAIR_LINK"
+  else
+    start_loopback
+    link="$(smoke_pair_link "$SMOKE_DAEMON_ID" "ws://localhost:$RELAY_LOOPBACK_PORT" "golden")"
+  fi
 
   xcrun simctl terminate "$udid" "$WATCH_BUNDLE_ID" >/dev/null 2>&1 || true
   log "launching with --tp-smoke-url (watchOS M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
   xcrun simctl launch "$udid" "$WATCH_BUNDLE_ID" -- --tp-smoke-url "$link" >/dev/null
 
-  # Poll 7 markers (no TP_INPUT_OK on watch — no terminal input per ADR-0002 §watchOS).
-  # Generous 120s poll loop: watchOS Simulator log delivery can lag behind iOS.
+  # Poll markers (no TP_INPUT_OK on watch — no terminal input per ADR-0002 §watchOS).
+  # Generous loop: watchOS Simulator log delivery can lag behind iOS. Real-daemon
+  # modes add connection latency + real claude cold-start, and a stale-resume *_FAIL
+  # can sit alongside the real *_OK in the same window — so widen the poll/log window
+  # and prefer an OK line over a co-present FAIL (mirrors the iOS/visionOS path).
+  local poll_iters=120 snap_secs=120
+  if [ -n "$real_e2e" ]; then poll_iters=240; snap_secs=240; fi
+  if [ -n "$claude_e2e" ]; then poll_iters=300; snap_secs=300; fi
+  prefer_ok() { # <text> <ok-marker> <fail-marker>
+    local ok; ok="$(printf '%s\n' "$1" | grep -Eo "$2[^\"]*" | tail -n1 || true)"
+    if [ -n "$ok" ]; then printf '%s' "$ok"; else
+      printf '%s\n' "$1" | grep -Eo "$2[^\"]*|$3[^\"]*" | tail -n1 || true
+    fi
+  }
   local boot_seen="" core_line="" pair_line="" auth_line="" kx_line="" frame_line="" session_line=""
-  for _ in $(seq 1 120); do
+  for _ in $(seq 1 "$poll_iters"); do
     local out
-    out="$(xcrun simctl spawn "$udid" log show --last 120s --style compact \
+    out="$(xcrun simctl spawn "$udid" log show --last "${snap_secs}s" --style compact \
       --predicate "subsystem == \"$BUNDLE_ID\"" 2>/dev/null || true)"
     case "$out" in *"$BOOT_MARKER"*) boot_seen="yes" ;; esac
-    core_line="$(printf '%s\n' "$out" | grep -Eo 'TP_CORE_(OK|FAIL)[^"]*' | tail -n1 || true)"
-    pair_line="$(printf '%s\n' "$out" | grep -Eo 'TP_PAIR_(OK|FAIL)[^"]*' | tail -n1 || true)"
-    auth_line="$(printf '%s\n' "$out" | grep -Eo "${RELAY_AUTH_OK_MARKER}[^\"]*|${RELAY_AUTH_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    kx_line="$(printf '%s\n' "$out" | grep -Eo "${KX_OK_MARKER}[^\"]*|${KX_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
+    core_line="$(prefer_ok "$out" 'TP_CORE_OK' 'TP_CORE_FAIL')"
+    pair_line="$(prefer_ok "$out" 'TP_PAIR_OK' 'TP_PAIR_FAIL')"
+    auth_line="$(prefer_ok "$out" "$RELAY_AUTH_OK_MARKER" "$RELAY_AUTH_FAIL_MARKER")"
+    kx_line="$(prefer_ok "$out" "$KX_OK_MARKER" "$KX_FAIL_MARKER")"
     frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
     session_line="$(prefer_sid "$out" "$SESSION_OK_MARKER" "$SESSION_FAIL_MARKER")"
-    if [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ]; then break; fi
+    if [ -n "$real_e2e" ] && [ -z "$claude_e2e" ]; then
+      [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && break
+    else
+      [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && break
+    fi
     sleep 1
   done
 
@@ -1654,6 +1701,15 @@ for devs in d["devices"].values():
     "$RELAY_AUTH_OK_MARKER"*) die "SMOKE FAIL (watchOS) — relay auth wrong daemon: $auth_line" ;;
     *) die "SMOKE FAIL (watchOS) — relay auth failed on-device: $auth_line" ;;
   esac
+
+  # REAL daemon E2E (no spawned session) stops at M2 — the real daemon has no session
+  # to push (kx/frame/session out of scope; see start_real_daemon_relay).
+  if [ -n "$real_e2e" ] && [ -z "$claude_e2e" ]; then
+    capture_sim_screenshot "$udid" "watchos"
+    tp_smoke_pass
+    log "✅ REAL-DAEMON E2E PASS (watchOS) — boot + core + pairing + relay-auth against a real tp daemon (id=$SMOKE_DAEMON_ID) + real relay (M3–M4 out of scope headless; M5 N/A on watch)"
+    return 0
+  fi
 
   # M3 assertion — in-band kx.
   [ -n "$kx_line" ] || die "SMOKE FAIL (watchOS) — relay auth OK but no '$KX_OK_MARKER'/'$KX_FAIL_MARKER' (kx never ran?)"
@@ -1688,8 +1744,19 @@ for devs in d["devices"].values():
     *) die "SMOKE FAIL (watchOS) — session attach/backfill failed on-device: $session_line" ;;
   esac
 
-  # NOTE: TP_INPUT_OK is intentionally NOT checked on watchOS. The watch app
-  # provides read-mostly glance experience — no terminal input (ADR-0002 §4).
+  # NOTE: TP_INPUT_OK (M5) is intentionally NOT checked on watchOS in ANY mode. The
+  # watch app provides a read-mostly glance experience — no terminal input
+  # (ADR-0002 §4). So watchOS caps at M4 even under TP_E2E_CLAUDE_M5.
+
+  # REAL claude PRINT E2E (TP_E2E_CLAUDE) stops at M4 — the watch rendered the real
+  # Stop hook's last_assistant_message over a genuine daemon+relay+claude. There is
+  # no loopback relay to /health-poll, so finish here.
+  if [ -n "$claude_e2e" ]; then
+    capture_sim_screenshot "$udid" "watchos"
+    tp_smoke_pass
+    log "✅ REAL-CLAUDE E2E PASS (watchOS) — 7/7 markers: boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude on $WATCH_SIM_NAME (M5 N/A on watch)"
+    return 0
+  fi
 
   local clients
   clients="$(curl -s "http://localhost:$RELAY_LOOPBACK_PORT/health" \

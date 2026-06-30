@@ -25,7 +25,7 @@ function makeSendPush() {
       _title: string,
       _body: string,
       _interruptionLevel: PushInterruptionLevel,
-      _data: { sid: string; event: string },
+      _data: { sid: string; event: string; daemonId: string },
     ) => {},
   );
 }
@@ -83,7 +83,7 @@ describe("PushNotifier", () => {
       "Response needed",
       "Claude is waiting for your answer",
       "time-sensitive",
-      { sid: "s1", event: "Elicitation" },
+      { sid: "s1", event: "Elicitation", daemonId: "d-1" },
     ]);
   });
 
@@ -102,7 +102,7 @@ describe("PushNotifier", () => {
       "Permission needed",
       "Tool permission approval required",
       "time-sensitive",
-      { sid: "s2", event: "PermissionRequest" },
+      { sid: "s2", event: "PermissionRequest", daemonId: "d-1" },
     ]);
   });
 

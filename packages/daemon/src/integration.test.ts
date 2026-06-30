@@ -263,7 +263,7 @@ describe("Integration", () => {
       title: string,
       body: string,
       interruptionLevel: string,
-      data: { sid: string; event: string },
+      data: { sid: string; event: string; daemonId: string },
     ) => {
       pushCalls.push([
         frontendId,
@@ -336,7 +336,7 @@ describe("Integration", () => {
     // Notification is attention-needed → must ride the time-sensitive level
     // so it breaks through Focus end-to-end through the daemon pipeline.
     expect(interruptionLevel).toBe("time-sensitive");
-    expect(data).toEqual({ sid, event: "Notification" });
+    expect(data).toEqual({ sid, event: "Notification", daemonId: "d-test" });
   });
 
   test("self-spawn: daemon.createSession() spawns stub runner via setRunnerCommand", async () => {

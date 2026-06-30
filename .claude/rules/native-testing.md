@@ -69,7 +69,9 @@ macOS 는 `log stream` 라이브 캡처, visionOS/watchOS 는 `simctl spawn … 
 | `TP_E2E_REAL=1` | 가짜 loopback 대신 **실 `tp` daemon+relay** 로 E2E (격리 XDG 디렉터리, 헤드리스 페어링, M0–M2 범위). **`TP_PLATFORM=ios`/`ipad`/`macos`/`visionos`/`watchos` 전부 지원** (daemon+relay+claude 는 항상 *호스트*에서 돌고, 앱만 sim/네이티브로 뜬다 — 그래서 visionOS/watchOS sim 도 실 claude 원격 컨트롤 가능) |
 | `TP_E2E_CLAUDE=1` | `TP_E2E_REAL` 의 strict superset — 페어링 *전* **실 `claude -p` PRINT 세션**을 격리 daemon 에 spawn (M0–M4 범위, 실 Stop `last_assistant_message` 렌더). `claude` PATH 필수, OAuth 토큰을 keychain 에서 (먼저 refresh 후) 추출해 주입. **iOS/iPadOS/macOS/visionOS/watchOS 전부 지원** — watchOS 는 여기서 캡 (M5 N/A). **로컬 전용 (절대 CI 아님)** |
 | `TP_E2E_CLAUDE_M5=1` | `TP_E2E_CLAUDE` 의 strict superset — 페어링 *전* **실 INTERACTIVE claude 세션**(`--permission-mode bypassPermissions`, no `-p`)을 spawn (M0–M5 **전 8마커**). holder 가 trust 프롬프트를 `\r` 로 수락 → claude REPL idle → 앱의 스모크 auto-probe `in.chat` → daemon 이 `\r` 붙여 제출 → claude `UserPromptSubmit` → `TP_INPUT_OK` emit (proof=echo: claude 가 입력을 io 로 렌더; 결정적 제출 증명은 세션 DB `UserPromptSubmit≥1`). 진짜 app→relay→daemon→PTY→claude 입력 경로를 E2E 증명. **iOS/iPadOS/macOS/visionOS 지원 — watchOS 는 입력 경로 부재로 N/A** (watchOS 에서 이 게이트는 claude_e2e 로 collapse, M0–M4 까지만). **로컬 전용** |
+| `TP_E2E_CLAUDE_CODING=1` | `TP_E2E_CLAUDE_M5` 의 **sibling** (superset 아님) — `TP_E2E_CLAUDE` 를 imply 하되, M5 의 입력-probe 대신 **holder 가 멀티턴 실코딩을 구동**한다. holder(`--spawn-claude-coding`)가 interactive bypassPermissions claude 를 띄우고 trust 를 `\r` 로 수락한 뒤, IPC `input` 프레임으로 **2개 코딩 턴**을 순차 전송한다. 각 턴은 **텍스트(CR 없이) → 별도 `\r`(제출)** 로 보내고(`text\r` 한 프레임은 claude TUI 의 paste 버퍼에 묻혀 제출 안 됨), `UserPromptSubmit` 증가로 등록을 확인하며 warmup keystroke-drop 시 제출을 재전송한다(bounded ≤5): 턴1 = "`tp_qa_marker.txt` 에 `QA-CODING-OK` 작성"(Write 툴), 턴2(턴1 Stop 게이트 후) = "`cat tp_qa_marker.txt && echo BUILD-STEP-DONE` 실행"(Bash 툴). 마커 폴은 M0–M4(첫 Stop)에서 멈추고, 그 다음 `assert_coding_e2e` 가 격리 dir 의 결정적 side-effect 를 검증한다 (모델 텍스트 아님): (1) claude 가 쓴 파일이 디스크에 존재 + body=`QA-CODING-OK`, (2) 세션 DB `UserPromptSubmit≥2` + `Stop≥2`(두 턴이 파이프라인으로 착지+완료), (3) `PostToolUse(Write)` + `PostToolUse(Bash)` 훅 이벤트가 둘 다 파일명을 참조(구조적 이벤트 체크 — ANSI io 스트림 substring 스캔은 타이핑된 명령 ECHO 에 false-positive 나므로 폐기). **앱을 통한 실제 원격-컨트롤 코딩**을 증명 — PONG 한 줄이 아니라. 턴 게이팅은 harness 가 assert 하는 동일 세션 DB(`countRecords`)를 읽는다. **앱의 M5 auto-probe 는 `--tp-no-input-probe` 로 억제**(holder 가 input 을 소유 — probe 가 같은 REPL 에서 턴과 interleave 하면 corruption). **iOS/iPadOS/macOS/visionOS/watchOS 전부 지원** (앱은 trigger 가 아니라 holder 가 구동하므로 watchOS 입력 부재와 무관 — M5 와 직교). **로컬 전용 (claude auth+credits, 절대 CI 아님)**. `TP_E2E_KEEP_DIR=1` 로 격리 dir 보존해 사후 검사 권장 |
 | `TP_E2E_CLAUDE_SID` / `TP_E2E_CLAUDE_CWD` / `TP_E2E_CLAUDE_PROMPT` | claude 세션 sid(기본 `real-smoke-sess`)/cwd(기본 격리 HOME 아래 `work`)/프롬프트(print 모드만; 기본 `Reply with exactly: PONG`) 오버라이드 |
+| `TP_E2E_CODING_MARKER` / `TP_E2E_CODING_FILE` | 코딩 E2E(`TP_E2E_CLAUDE_CODING`) 의 파일 body 마커(기본 `QA-CODING-OK`)/파일명(기본 `tp_qa_marker.txt`) 오버라이드. holder 와 `assert_coding_e2e` 가 동일 기본값을 공유 |
 
 ## 서브커맨드
 
@@ -156,7 +158,7 @@ stdout 으로 emit (그 뒤 relay+daemon 을 SIGTERM 까지 살려둠). `start_r
 해 링크 + 실 daemonId 를 잡고, 각 플랫폼 smoke 함수가 그 링크를 주입(iOS/visionOS/watchOS=`--tp-smoke-url`,
 macOS=`open -a "$app" "$link"`) + `$SMOKE_DAEMON_ID` 를 실 daemonId 로 재설정한다(did=/daemon= 어서션 매칭).
 
-> **공유 배선 (4 플랫폼 동일)**: `parse_e2e_gates`(TP_E2E_* → `E2E_REAL`/`E2E_CLAUDE`/`E2E_CLAUDE_M5` 게이트;
+> **공유 배선 (4 플랫폼 동일)**: `parse_e2e_gates`(TP_E2E_* → `E2E_REAL`/`E2E_CLAUDE`/`E2E_CLAUDE_M5`/`E2E_CLAUDE_CODING` 게이트;
 > `set -e` 아래에서 마지막 `[ … ] && …` 단락평가가 exit 1 을 내 caller 를 abort 시키므로 **반드시
 > `return 0` 으로 닫는다**) + `extract_claude_oauth_token`(claude 모드 시 호스트 keychain OAuth 추출) +
 > `setup_real_link`(`start_real_daemon_relay` 호출 후 `$SMOKE_DAEMON_ID`/`$SMOKE_SESSION_ID` 재설정;
@@ -276,6 +278,47 @@ ChatItem 렌더" 전 체인을 증명한다 (loopback 의 합성 Stop 이 아니
 > `TP_SESSION_OK`/`TP_INPUT_OK` 줄이 unified-log 윈도에 남아 blind `tail -n1` 을 shadow → "wrong sid" 오탐.
 > **`prefer_sid`** 헬퍼가 `sid=$SMOKE_SESSION_ID` 매칭 줄을 우선 선택(없으면 기존 tail 폴백 — loopback/CI 바이트
 > 동일)해 런 순서 독립성을 보장한다. CI 는 loopback 만(sid 항상 동일) 돌아 (2)에 절대 노출 안 됨.
+
+## 실 claude CODING E2E (`TP_E2E_CLAUDE_CODING=1`, iOS/iPadOS/macOS/visionOS/watchOS) — 실제 원격-컨트롤 코딩 증명
+
+M5(`TP_E2E_CLAUDE_M5`)는 입력 *왕복* 을 증명하지만, 앱이 보내는 건 고정 `tp-input-probe` 한 줄이다 — 컨트롤러가
+Claude Code 로 **실제 코딩**을 시킬 수 있는지는 증명하지 않는다. `TP_E2E_CLAUDE_CODING` 은 그 갭을 닫는다:
+**holder 가 멀티턴 실코딩을 구동**하고, harness 가 디스크 + 세션 DB 의 side-effect 를 어서션한다(모델 텍스트 아님).
+
+- **모드 위치**: `TP_E2E_CLAUDE_M5` 의 **sibling** (superset 아님). 둘 다 실 daemon + 실 claude(=`E2E_REAL`+
+  `E2E_CLAUDE`)를 imply 하지만 **직교**한다 — M5 는 앱의 입력 probe 를, CODING 은 holder 의 코딩 턴을 행사한다.
+  `start_real_daemon_relay` 의 spawn-flag 우선순위는 **coding > m5 > print**(`--spawn-claude-coding` →
+  `--spawn-claude-interactive` → `--spawn-claude`). **둘 다 켜면 coding 이 이긴다 — `parse_e2e_gates` 가
+  `E2E_CLAUDE_M5` 를 비운다.** 둘은 한 세션에서 상호배타적이다(coding 이 probe 를 억제하므로 `TP_INPUT_OK` 가 절대
+  못 뜸). M5 게이트를 비우지 않으면 8마커 셋에 `TP_INPUT_OK` 가 등록되고, M4 early-return 이 `[ -z "$claude_m5" ]`
+  로 막혀 `assert_coding_e2e` 를 건너뛴 채 M5 어서션의 hard `die` 로 떨어진다 — 그래서 비우는 게 필수다. 결과:
+  coding 의 M0–M4 + 코딩 어서션만 평가, M5 마커는 미등록. 전 M0–M5 + 코딩 커버리지는 **두 번의 별도 실행**으로.
+  보통은 한쪽만 켠다.
+- **holder (`scripts/real-daemon-pair.ts spawnClaudeSessionCoding`)**: interactive bypassPermissions claude 를 띄우고
+  (Write/Bash 승인 다이얼로그 0), trust 를 `\r` 반복으로 수락한 뒤 `driveTurn` 으로 2턴을 순차 구동.
+  - **`driveTurn` 의 핵심**: 프롬프트 텍스트(CR 없이) → **별도 `\r`(제출)**. `text\r` 한 프레임은 claude TUI 의
+    multi-line paste 버퍼에 묻혀 제출되지 않는다(실측: 프롬프트가 composer 에 남고 `UserPromptSubmit` 안 남). 제출 후
+    `UserPromptSubmit` 증가로 등록 확인, warmup keystroke-drop 시 제출 재전송(bounded ≤5), 그 다음 그 턴의 Stop 대기.
+    턴2 는 턴1 Stop 게이트 후 — 두 턴이 엄격히 순서대로 쌓여 깨끗한 2턴 DB.
+  - **턴 게이팅 = 세션 DB read** (`countRecords`, read-only `bun:sqlite` opener, WAL reader 라 daemon writer 안 막음).
+    경로는 harness 가 어서션하는 것과 동일(store/config.ts `<XDG_DATA_HOME>/teleprompter/vault` + store.ts
+    `sessions/<sid>.sqlite`). transient read 에러는 0 으로 degrade → "계속 폴링"(false pass/fail 아님).
+- **harness 어서션 (`assert_coding_e2e`, M0–M4 통과 후)**: 격리 dir 에서 결정적 side-effect 3종 — (1) `tp_qa_marker.txt`
+  가 디스크에 존재 + body=`QA-CODING-OK`(Write 툴이 우리 지시로 실행), (2) DB `UserPromptSubmit≥2` + `Stop≥2`(두 턴
+  착지+완료), (3) `PostToolUse(Write)` + `PostToolUse(Bash)` 훅 이벤트가 둘 다 파일명 참조. (3)은 **구조적 훅-이벤트
+  체크** — ANSI io substring 스캔은 타이핑된 명령 ECHO 에 false-positive(초기 구현이 이 함정에 걸려 명령 에코를
+  진짜 출력으로 오판)나므로 폐기.
+- **앱 변경 (`RelayClient.swift`)**: `--tp-no-input-probe` 가 M5 auto-probe 를 no-op 으로 만들되 `isSmokeMode` 는
+  true 유지(부트 마커 + 딥링크 라우팅 불변). coding 모드는 holder 가 input 을 소유 — probe 가 같은 REPL 에서 코딩 턴과
+  interleave 하면 corruption(실측: probe 가 턴 중간에 `Skill(run)` 을 제출 → 턴1 Write 미완). harness 는 coding 모드
+  4개 런치 사이트 전부에 이 플래그를 추가(loopback/print/m5 경로엔 안 붙음 — M5 probe 정상 발사).
+- **정직한 범위**: coding 모드는 **M0–M4 (앱이 실 Stop 렌더) + 코딩 side-effect 어서션**까지. M5 입력 probe 는 직교
+  하므로 평가 안 함. watchOS 도 지원(앱은 trigger 가 아니라 holder 가 구동 — watchOS 입력 부재 무관).
+- **절대 CI 에서 안 돈다** (M5 와 동일 이유 — claude 인증/크레딧/Keychain). **로컬 pre-merge 전용**:
+  `TP_E2E_CLAUDE_CODING=1 [TP_PLATFORM=macos] TP_E2E_KEEP_DIR=1 scripts/ios.sh smoke`.
+- **검증 (2026-07-01, macOS 네이티브)**: coding E2E PASS — `tp_qa_marker.txt`=`QA-CODING-OK` 디스크 존재,
+  `UserPromptSubmit=2`/`Stop=2`, `PostToolUse(Write)`+`PostToolUse(Bash)` 둘 다 파일 참조. default loopback macOS
+  smoke 8/8 유지(M5 probe 정상 — 억제는 coding 모드 한정, 회귀 없음).
 
 ## 공식 Apple Xcode MCP (`mcpbridge`) — 인터랙티브 전용
 

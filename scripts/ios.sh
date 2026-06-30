@@ -759,7 +759,7 @@ cmd_smoke_ios() {
   #                            claude_e2e (proves the genuine app→relay→daemon→PTY→claude
   #                            input path end to end). See native-testing.md.
   parse_e2e_gates
-  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5"
+  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING"
 
   if [ -n "$claude_m5" ]; then
     # M0–M5: full input round-trip against an interactive real claude.
@@ -838,9 +838,12 @@ cmd_smoke_ios() {
   # phase), and the first `simctl launch` can fail (FBSOpenApplicationService error)
   # or no-op. Retry a few times so a transient warmup miss doesn't fail the whole
   # smoke. Locally (already-warm sim) the first attempt succeeds immediately.
+  # In CODING mode the holder owns input, so suppress the app's auto-probe (it would
+  # interleave with the holder's coding turns on the same REPL).
+  local probe_arg=(); [ -n "$claude_coding" ] && probe_arg=(--tp-no-input-probe)
   local launch_ok="" attempt
   for attempt in 1 2 3 4 5; do
-    if xcrun simctl launch "$udid" "$BUNDLE_ID" -- --tp-smoke-url "$link" >/dev/null 2>&1; then
+    if xcrun simctl launch "$udid" "$BUNDLE_ID" -- --tp-smoke-url "$link" "${probe_arg[@]}" >/dev/null 2>&1; then
       launch_ok="yes"; break
     fi
     log "launch attempt $attempt failed (sim still warming?) — retrying in 3s"
@@ -1012,9 +1015,10 @@ cmd_smoke_ios() {
   # below. The loopback /health clients>=2 check further down is loopback-only
   # ($RELAY_LOOPBACK_PORT is not bound in real mode), so claude modes skip it too.
   if [ -n "$claude_e2e" ] && [ -z "$claude_m5" ]; then
+    [ -n "$claude_coding" ] && assert_coding_e2e
     capture_sim_screenshot "$udid" "$TP_PLATFORM"
     tp_smoke_pass
-    log "✅ REAL-CLAUDE E2E PASS — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 input round-trip out of scope for print mode)"
+    log "✅ REAL-CLAUDE E2E PASS — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 input round-trip out of scope for print mode)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}"
     return 0
   fi
 
@@ -1062,7 +1066,7 @@ cmd_smoke_macos() {
   # swap in a genuine tp daemon+relay (+ real claude session) on the HOST — the macOS
   # app under test connects to it through the real relay exactly as a phone would.
   parse_e2e_gates
-  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5"
+  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING"
 
   # Marker set scales with reach: real_e2e (no session) → M0–M2; claude_e2e (print
   # session) → M0–M4; claude_m5 / loopback → all M0–M5.
@@ -1129,7 +1133,10 @@ cmd_smoke_macos() {
   # `--args --tp-smoke` flags smoke mode to the app (RelayClient.isSmokeMode) so the
   # M5 input-probe auto-fires. macOS injects the pairing link as a deep link below
   # (not via --tp-smoke-url), so this bare marker is how the app knows it's a test.
-  open -gn "$app" --args --tp-smoke
+  # In CODING mode the holder owns input, so suppress the app's auto-probe (it would
+  # interleave with the holder's coding turns on the same REPL).
+  local probe_arg=(); [ -n "$claude_coding" ] && probe_arg=(--tp-no-input-probe)
+  open -gn "$app" --args --tp-smoke "${probe_arg[@]}"
   # `open` returns immediately; resolve the PID of the instance we just launched.
   local app_pid=""
   for _ in $(seq 1 20); do
@@ -1287,9 +1294,10 @@ cmd_smoke_macos() {
   # an interactive claude (print mode exits before the probe arrives) — that's
   # claude_m5, which continues below.
   if [ -n "$claude_e2e" ] && [ -z "$claude_m5" ]; then
+    [ -n "$claude_coding" ] && assert_coding_e2e
     capture_macos_screenshot "macos"
     tp_smoke_pass
-    log "✅ REAL-CLAUDE E2E PASS (macOS) — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 out of scope for print mode)"
+    log "✅ REAL-CLAUDE E2E PASS (macOS) — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 out of scope for print mode)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}"
     return 0
   fi
 
@@ -1326,7 +1334,7 @@ cmd_smoke_visionos() {
   # the mode taxonomy). The daemon+relay (+ real claude) run on the HOST; only the
   # app runs in the visionOS Simulator and connects through the real relay.
   parse_e2e_gates
-  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5"
+  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING"
 
   # Marker set scales with reach: real_e2e → M0–M2; claude_e2e → M0–M4; claude_m5 /
   # loopback → all M0–M5.
@@ -1411,7 +1419,9 @@ for devs in d["devices"].values():
 
   xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
   log "launching with --tp-smoke-url (visionOS M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
-  xcrun simctl launch "$udid" "$BUNDLE_ID" -- --tp-smoke-url "$link" >/dev/null
+  # In CODING mode the holder owns input, so suppress the app's auto-probe.
+  local probe_arg=(); [ -n "$claude_coding" ] && probe_arg=(--tp-no-input-probe)
+  xcrun simctl launch "$udid" "$BUNDLE_ID" -- --tp-smoke-url "$link" "${probe_arg[@]}" >/dev/null
 
   # Poll all markers in one loop. Real-daemon modes add connection latency + real
   # claude cold-start, and a stale-resume *_FAIL can sit alongside the real *_OK in
@@ -1521,9 +1531,10 @@ for devs in d["devices"].values():
   # REAL claude PRINT E2E (TP_E2E_CLAUDE, not M5) stops at M4 — the app rendered the
   # real Stop hook's last_assistant_message. M5 needs an interactive claude (claude_m5).
   if [ -n "$claude_e2e" ] && [ -z "$claude_m5" ]; then
+    [ -n "$claude_coding" ] && assert_coding_e2e
     capture_sim_screenshot "$udid" "visionos"
     tp_smoke_pass
-    log "✅ REAL-CLAUDE E2E PASS (visionOS) — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 out of scope for print mode)"
+    log "✅ REAL-CLAUDE E2E PASS (visionOS) — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 out of scope for print mode)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}"
     return 0
   fi
 
@@ -1565,7 +1576,7 @@ cmd_smoke_watchos() {
   # the HOST; only the watch app runs in the Simulator and connects through the
   # real relay.
   parse_e2e_gates
-  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE"
+  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_coding="$E2E_CLAUDE_CODING"
 
   # Marker set scales with reach: real_e2e → M0–M2 (4 markers); claude_e2e /
   # loopback → M0–M4 (7 markers). No M5 on watch in any mode.
@@ -1641,7 +1652,9 @@ for devs in d["devices"].values():
 
   xcrun simctl terminate "$udid" "$WATCH_BUNDLE_ID" >/dev/null 2>&1 || true
   log "launching with --tp-smoke-url (watchOS M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
-  xcrun simctl launch "$udid" "$WATCH_BUNDLE_ID" -- --tp-smoke-url "$link" >/dev/null
+  # In CODING mode the holder owns input, so suppress the app's auto-probe.
+  local probe_arg=(); [ -n "$claude_coding" ] && probe_arg=(--tp-no-input-probe)
+  xcrun simctl launch "$udid" "$WATCH_BUNDLE_ID" -- --tp-smoke-url "$link" "${probe_arg[@]}" >/dev/null
 
   # Poll markers (no TP_INPUT_OK on watch — no terminal input per ADR-0002 §watchOS).
   # Generous loop: watchOS Simulator log delivery can lag behind iOS. Real-daemon
@@ -1752,9 +1765,10 @@ for devs in d["devices"].values():
   # Stop hook's last_assistant_message over a genuine daemon+relay+claude. There is
   # no loopback relay to /health-poll, so finish here.
   if [ -n "$claude_e2e" ]; then
+    [ -n "$claude_coding" ] && assert_coding_e2e
     capture_sim_screenshot "$udid" "watchos"
     tp_smoke_pass
-    log "✅ REAL-CLAUDE E2E PASS (watchOS) — 7/7 markers: boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude on $WATCH_SIM_NAME (M5 N/A on watch)"
+    log "✅ REAL-CLAUDE E2E PASS (watchOS) — 7/7 markers: boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude on $WATCH_SIM_NAME (M5 N/A on watch)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}"
     return 0
   fi
 
@@ -1815,13 +1829,31 @@ start_loopback() {
 # Each higher mode implies the ones below it (claude_m5 ⊃ claude_e2e ⊃ real_e2e).
 
 # parse_e2e_gates — read TP_E2E_* env into the globals E2E_REAL / E2E_CLAUDE /
-# E2E_CLAUDE_M5 ("yes" or ""). Same precedence the iOS path used inline.
-E2E_REAL="" E2E_CLAUDE="" E2E_CLAUDE_M5=""
+# E2E_CLAUDE_M5 / E2E_CLAUDE_CODING ("yes" or ""). Same precedence the iOS path used inline.
+#
+# E2E_CLAUDE_CODING is a SIBLING of E2E_CLAUDE_M5, not a superset: both imply the real
+# daemon + a real claude session (so both imply E2E_REAL + E2E_CLAUDE), but they exercise
+# DIFFERENT, MUTUALLY-EXCLUSIVE reach over the same single session. M5 keeps the app's
+# input probe round-trip; CODING instead has the HOLDER drive multiple coding turns
+# (Write+Bash) and SUPPRESSES the app probe (--tp-no-input-probe) so it can't interleave
+# with the holder's turns on the shared REPL. The two cannot both run against one session:
+# the probe being suppressed means TP_INPUT_OK can never fire. So when BOTH gates are set,
+# CODING WINS — E2E_CLAUDE_M5 is cleared below, the M5 marker is not registered, and the
+# coding assertion (not the M5 assertion) runs. To exercise M5, run it WITHOUT the coding
+# gate. (Run them as two separate invocations for full M0–M5 + coding coverage.)
+E2E_REAL="" E2E_CLAUDE="" E2E_CLAUDE_M5="" E2E_CLAUDE_CODING=""
 parse_e2e_gates() {
-  E2E_REAL="" E2E_CLAUDE="" E2E_CLAUDE_M5=""
+  E2E_REAL="" E2E_CLAUDE="" E2E_CLAUDE_M5="" E2E_CLAUDE_CODING=""
   [ "${TP_E2E_REAL:-}" = "1" ] && E2E_REAL="yes"
   [ "${TP_E2E_CLAUDE:-}" = "1" ] && { E2E_REAL="yes"; E2E_CLAUDE="yes"; }
   [ "${TP_E2E_CLAUDE_M5:-}" = "1" ] && { E2E_REAL="yes"; E2E_CLAUDE="yes"; E2E_CLAUDE_M5="yes"; }
+  [ "${TP_E2E_CLAUDE_CODING:-}" = "1" ] && { E2E_REAL="yes"; E2E_CLAUDE="yes"; E2E_CLAUDE_CODING="yes"; }
+  # CODING wins over M5 when both are requested (they're mutually exclusive over one
+  # session — coding suppresses the probe M5 depends on). Clearing E2E_CLAUDE_M5 here
+  # makes `claude_m5` empty downstream, so the marker set excludes TP_INPUT_OK, the M4
+  # early-return fires (running assert_coding_e2e), and there's no fall-through to the
+  # M5 assertion's hard `die` on a probe that was deliberately suppressed.
+  [ -n "$E2E_CLAUDE_CODING" ] && E2E_CLAUDE_M5=""
   # Force success: the script runs under `set -e`, and the last `[ … ] && …` short-
   # circuits to exit 1 when the gate is unset (the common loopback case). Without this
   # the function would return 1 and abort its caller. (This bit cmd_smoke_macos.)
@@ -1868,6 +1900,7 @@ extract_claude_oauth_token() {
 setup_real_link() {
   REAL_SPAWN_CLAUDE="$E2E_CLAUDE"
   REAL_SPAWN_CLAUDE_M5="$E2E_CLAUDE_M5"
+  REAL_SPAWN_CLAUDE_CODING="$E2E_CLAUDE_CODING"
   start_real_daemon_relay
   SMOKE_DAEMON_ID="$REAL_DAEMON_ID"
   if [ -n "$E2E_CLAUDE" ] && [ -n "${REAL_SESSION_SID:-}" ]; then
@@ -1894,6 +1927,76 @@ prefer_sid() {
   else
     printf '%s\n' "$1" | grep -Eo "$2[^\"]*|$3[^\"]*" | tail -n1 || true
   fi
+}
+
+# assert_coding_e2e — the TP_E2E_CLAUDE_CODING assertion. After the app rendered the
+# real claude session (M0–M4 already passed), verify the HOLDER actually drove multiple
+# CODING turns through the genuine pipeline by checking the deterministic side effects in
+# the isolated dir ($REAL_E2E_DIR), NOT model text:
+#   1. the file claude was told to write exists under the isolated cwd and its body is
+#      exactly the marker (proves the Write tool ran with the controller's instruction)
+#   2. the per-session DB has UserPromptSubmit >= 2 (two app-pipeline turns landed) and
+#      Stop >= 2 (claude finished both turns)
+#   3. the DB has a PostToolUse event with tool_name=Write AND one with tool_name=Bash,
+#      both referencing the marker file (proves claude used those tools ON THE
+#      CONTROLLER'S INSTRUCTIONS — a structured hook-event check, not a substring scan
+#      of the ANSI-laden PTY io stream, which would false-positive on the command echo)
+# Reads the SAME DB path layout the holder's countRecords uses (store/config.ts +
+# store.ts). Call ONLY when $E2E_CLAUDE_CODING and after M4; dies on any failure.
+assert_coding_e2e() {
+  local sid="${SMOKE_SESSION_ID:-real-smoke-sess}"
+  local marker="${TP_E2E_CODING_MARKER:-QA-CODING-OK}"
+  local file="${TP_E2E_CODING_FILE:-tp_qa_marker.txt}"
+  [ -n "$REAL_E2E_DIR" ] || die "CODING E2E FAIL — REAL_E2E_DIR unset (real daemon not started?)"
+  local cwd="$REAL_E2E_DIR/home/work"
+  local db="$REAL_E2E_DIR/data/teleprompter/vault/sessions/$sid.sqlite"
+
+  # The holder gates turn 2 on Stop #1 and waits up to 180s for Stop #2, but the smoke
+  # marker poll may have observed M4 (the FIRST Stop) before turn 2 even started. So give
+  # the coding turns their own settle window here: poll the DB for the 2-turn shape +
+  # the on-disk file before asserting, rather than reading once and failing a live run.
+  [ -f "$db" ] || die "CODING E2E FAIL — session DB not found at $db"
+  local deadline=$(( $(date +%s) + 240 )) ups=0 stops=0
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    ups="$(sqlite3 "$db" "SELECT COUNT(*) FROM records WHERE kind='event' AND name='UserPromptSubmit';" 2>/dev/null || echo 0)"
+    stops="$(sqlite3 "$db" "SELECT COUNT(*) FROM records WHERE kind='event' AND name='Stop';" 2>/dev/null || echo 0)"
+    { [ "${ups:-0}" -ge 2 ] && [ "${stops:-0}" -ge 2 ] && [ -f "$cwd/$file" ]; } && break
+    sleep 2
+  done
+
+  # 1. the file claude wrote.
+  [ -f "$cwd/$file" ] || die "CODING E2E FAIL — claude never created $cwd/$file (Write tool turn 1 did not land)"
+  local body; body="$(cat "$cwd/$file" 2>/dev/null | tr -d '[:space:]')"
+  [ "$body" = "$marker" ] || die "CODING E2E FAIL — $file body is '$body' (expected '$marker')"
+  log "coding E2E — file OK: $cwd/$file contains '$marker' (Write tool ran)"
+
+  # 2. the 2-turn session-DB shape.
+  [ "${ups:-0}" -ge 2 ] || die "CODING E2E FAIL — UserPromptSubmit=$ups (expected >=2; two coding turns did not both land over the pipeline)"
+  [ "${stops:-0}" -ge 2 ] || die "CODING E2E FAIL — Stop=$stops (expected >=2; claude did not finish both turns)"
+  log "coding E2E — DB OK: UserPromptSubmit=$ups, Stop=$stops (two real turns landed + completed)"
+
+  # 3. Structured tool-use proof from the hook events. PostToolUse payloads carry
+  # "tool_name":"<Tool>" and the tool_input (which includes the filename) — a far
+  # stronger signal than scanning the ANSI-laden io stream (which would match the
+  # typed command's ECHO, a false positive). Require:
+  #   - a PostToolUse with tool_name=Write referencing the marker file (turn 1)
+  #   - a PostToolUse with tool_name=Bash referencing the marker file (turn 2)
+  # Both must name the file so the probe's unrelated tool calls can't satisfy them.
+  #
+  # The tool_name match is a constant LIKE pattern (no metachars). The FILENAME match
+  # uses instr() — a LITERAL substring search — NOT LIKE: a filename can contain LIKE
+  # wildcards ('_' is in the default `tp_qa_marker.txt`, and TP_E2E_CODING_FILE could
+  # carry '%'/'_'), which under LIKE would silently over-match (match the wrong rows).
+  # instr() has no wildcard semantics, so the filename is matched verbatim regardless.
+  local write_hits bash_hits
+  write_hits="$(sqlite3 "$db" "SELECT COUNT(*) FROM records WHERE kind='event' AND name='PostToolUse' AND CAST(payload AS TEXT) LIKE '%\"tool_name\":\"Write\"%' AND instr(CAST(payload AS TEXT), '$file') > 0;" 2>/dev/null || echo 0)"
+  [ "${write_hits:-0}" -ge 1 ] || die "CODING E2E FAIL — no PostToolUse(Write) referencing '$file' (claude did not use the Write tool on turn 1's instruction)"
+  log "coding E2E — Write tool OK: PostToolUse(Write) referencing '$file' ($write_hits)"
+  bash_hits="$(sqlite3 "$db" "SELECT COUNT(*) FROM records WHERE kind='event' AND name='PostToolUse' AND CAST(payload AS TEXT) LIKE '%\"tool_name\":\"Bash\"%' AND instr(CAST(payload AS TEXT), '$file') > 0;" 2>/dev/null || echo 0)"
+  [ "${bash_hits:-0}" -ge 1 ] || die "CODING E2E FAIL — no PostToolUse(Bash) referencing '$file' (claude did not run turn 2's shell command)"
+  log "coding E2E — Bash tool OK: PostToolUse(Bash) referencing '$file' ($bash_hits)"
+
+  log "✅ CODING E2E PASS — real claude was remote-controlled through 2 coding turns (Write tool created the file, Bash tool read it back) over the genuine app→relay→daemon→PTY pipeline; all side effects verified on disk + in the session DB hook events"
 }
 
 # ── start_real_daemon_relay (TP_E2E_REAL=1) ─────────────────────────────────────
@@ -1923,6 +2026,11 @@ REAL_SPAWN_CLAUDE=""
 # "yes" → the spawned claude session is INTERACTIVE (TP_E2E_CLAUDE_M5), not print mode,
 # so the input round-trip (M5) can be exercised. Implies REAL_SPAWN_CLAUDE.
 REAL_SPAWN_CLAUDE_M5=""
+# "yes" → the holder drives MULTIPLE coding turns (Write+Bash) over the pipeline
+# (TP_E2E_CLAUDE_CODING) via --spawn-claude-coding. Implies REAL_SPAWN_CLAUDE. Takes
+# precedence over M5 for the spawn flag (coding mode also accepts trust + keeps a live
+# REPL, so it's a strict superset of the interactive spawn's setup).
+REAL_SPAWN_CLAUDE_CODING=""
 start_real_daemon_relay() {
   require bun
   local script="$REPO_ROOT/scripts/real-daemon-pair.ts"
@@ -1947,8 +2055,13 @@ start_real_daemon_relay() {
   # --spawn-claude-interactive → real INTERACTIVE claude session (M5): the holder also
   #                        accepts the trust-folder prompt (one `\r` over IPC) so claude
   #                        sits idle at the REPL, ready for the app's relayed probe.
+  # --spawn-claude-coding → holder drives multi-turn coding (Write+Bash); precedence
+  #                         over M5 (it's a superset of the interactive spawn setup).
   local spawn_args=() claude_sid=""
-  if [ -n "$REAL_SPAWN_CLAUDE_M5" ]; then
+  if [ -n "$REAL_SPAWN_CLAUDE_CODING" ]; then
+    spawn_args+=("--spawn-claude-coding")
+    claude_sid="real-smoke-sess"
+  elif [ -n "$REAL_SPAWN_CLAUDE_M5" ]; then
     spawn_args+=("--spawn-claude-interactive")
     claude_sid="real-smoke-sess"
   elif [ -n "$REAL_SPAWN_CLAUDE" ]; then

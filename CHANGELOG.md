@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.52](https://github.com/DaveDev42/teleprompter/compare/v0.1.51...v0.1.52) (2026-06-30)
+
+
+### Bug Fixes
+
+* restore [#796](https://github.com/DaveDev42/teleprompter/issues/796)-[#814](https://github.com/DaveDev42/teleprompter/issues/814) work clobbered by [#818](https://github.com/DaveDev42/teleprompter/issues/818) stale-base squash + land real Settings buttonStyle fix ([#821](https://github.com/DaveDev42/teleprompter/issues/821)) ([54ecbc1](https://github.com/DaveDev42/teleprompter/commit/54ecbc1c80236d34d4cc103a7b5cf9840dd7ff71))
+
 ## [0.1.51](https://github.com/DaveDev42/teleprompter/compare/v0.1.50...v0.1.51) (2026-06-29)
 
 

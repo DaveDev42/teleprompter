@@ -14,7 +14,7 @@ use blake2::digest::generic_array::typenum::{U32, U64};
 use blake2::digest::FixedOutput;
 use blake2::Blake2b;
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
-use chacha20poly1305::{XChaCha20Poly1305, XNonce};
+use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::ZeroizeOnDrop;
 
@@ -80,7 +80,11 @@ fn aead_cipher(key: &[u8]) -> Result<XChaCha20Poly1305> {
             key.len()
         )));
     }
-    Ok(XChaCha20Poly1305::new(key.into()))
+    // chacha20poly1305 0.11 switched generic-array → hybrid-array: a `&[u8]` no
+    // longer implements `Into<&Key>`, so build the fixed-size `Key` explicitly.
+    // The length is already validated above, so `try_from` cannot fail here.
+    let key = Key::try_from(key).map_err(|_| TpError::Crypto("AEAD key length mismatch".into()))?;
+    Ok(XChaCha20Poly1305::new(&key))
 }
 
 /// Encrypt with an explicit nonce and optional AAD, returning the combined
@@ -94,13 +98,16 @@ fn aead_encrypt(plaintext: &[u8], aad: Option<&[u8]>, nonce: &[u8], key: &[u8]) 
         )));
     }
     let cipher = aead_cipher(key)?;
-    let xn = XNonce::from_slice(nonce);
+    // 0.11: `from_slice` is deprecated in favor of fallible `try_from`. Length is
+    // validated above, so this conversion is infallible in practice.
+    let xn =
+        XNonce::try_from(nonce).map_err(|_| TpError::Crypto("nonce length mismatch".into()))?;
     let payload = Payload {
         msg: plaintext,
         aad: aad.unwrap_or(&[]),
     };
     cipher
-        .encrypt(xn, payload)
+        .encrypt(&xn, payload)
         .map_err(|e| TpError::Crypto(format!("aead encrypt failed: {e}")))
 }
 
@@ -117,13 +124,16 @@ fn aead_decrypt(
         )));
     }
     let cipher = aead_cipher(key)?;
-    let xn = XNonce::from_slice(nonce);
+    // 0.11: `from_slice` is deprecated in favor of fallible `try_from`. Length is
+    // validated above, so this conversion is infallible in practice.
+    let xn =
+        XNonce::try_from(nonce).map_err(|_| TpError::Crypto("nonce length mismatch".into()))?;
     let payload = Payload {
         msg: ciphertext,
         aad: aad.unwrap_or(&[]),
     };
     cipher
-        .decrypt(xn, payload)
+        .decrypt(&xn, payload)
         .map_err(|_| TpError::Crypto("aead authentication failed".into()))
 }
 

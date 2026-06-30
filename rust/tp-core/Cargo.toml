@@ -18,7 +18,7 @@ name = "tp_core"
 #   - XChaCha20-Poly1305-IETF  (chacha20poly1305::XChaCha20Poly1305)
 #   - X25519 + crypto_kx KDF    (x25519-dalek + blake2 BLAKE2b-512 split)
 #   - BLAKE2b-256 generichash   (blake2::Blake2b with 32-byte output)
-chacha20poly1305 = "0.10"
+chacha20poly1305 = "0.11"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 blake2 = "0.10"
 # digest 0.10 traits used to drive blake2 with variable output (Blake2bVar).

@@ -401,6 +401,28 @@ describe("buildPushMessage", () => {
     }
   });
 
+  it("truncates an oversized PermissionRequest tool_name (APNs 4096-byte cap)", () => {
+    // REGRESSION: the PermissionRequest branch interpolated tool_name into the
+    // body WITHOUT truncating (unlike the Notification/Elicitation branches), so
+    // an MCP-registered tool with a multi-KB name produced a push body that
+    // blew past APNs's 4096-byte payload limit → silent HTTP 400 PayloadTooLarge,
+    // dropping the very notification the user needs while Claude is blocked.
+    const long = "T".repeat(4000);
+    const m = buildPushMessage("PermissionRequest", { tool_name: long });
+    expect(m.title).toBe("Permission needed");
+    expect(m.body.startsWith("Approve ")).toBe(true);
+    expect(m.body.endsWith(" to continue")).toBe(true);
+    expect(m.body.includes("…")).toBe(true);
+    // The whole body (prefix + truncated tool + suffix) stays well under the
+    // sibling 178 convention and far under the APNs byte limit.
+    expect(m.body.length).toBeLessThanOrEqual(200);
+  });
+
+  it("keeps a normal-length PermissionRequest tool_name verbatim", () => {
+    const m = buildPushMessage("PermissionRequest", { tool_name: "Bash" });
+    expect(m.body).toBe("Approve Bash to continue");
+  });
+
   it("Elicitation prefers `message` field, falls back to `question`", () => {
     expect(buildPushMessage("Elicitation", { message: "What now?" }).body).toBe(
       "What now?",

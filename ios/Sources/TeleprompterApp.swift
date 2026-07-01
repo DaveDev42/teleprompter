@@ -155,6 +155,15 @@ struct TeleprompterApp: App {
         #if os(macOS)
         .defaultSize(width: 980, height: 680)
         .windowResizability(.contentMinSize)
+        // Suppress SwiftUI's auto-generated File > New Window for the MAIN
+        // window. Without this, the system "New Window" command clones the
+        // main window (the app is single-instance by design — one sidebar +
+        // detail; a duplicate main window is the bug Dave hit). Per-session
+        // pop-outs go through the value-carrying "session" WindowGroup below
+        // instead. `.commandsRemoved()` only drops THIS group's default
+        // commands; our explicit `.commands { MacCommands }` menu bar is
+        // unaffected.
+        .commandsRemoved()
         .commands {
             MacCommands(
                 pairings: pairings, showShortcutHelp: $showShortcutHelp,
@@ -165,6 +174,27 @@ struct TeleprompterApp: App {
         // for the terminal column, tall enough for the tab bar and content. The
         // system may adjust for the user's environment; this is the initial size.
         .defaultSize(width: 960, height: 640)
+        #endif
+
+        // Per-session window (messenger-style pop-out, macOS). A VALUE-carrying
+        // WindowGroup, kept as a SEPARATE top-level Scene (not chained onto the
+        // main group's modifier list — a value-carrying WindowGroup can't be a
+        // continuation of another group's `.commands`/`.defaultSize` chain
+        // inside one `#if`, which the SceneBuilder rejects). `openWindow(id:
+        // "session", value: sid)` opens (or re-focuses — SwiftUI dedups by
+        // presentation value) a window bound to one session's sid, so a
+        // specific session lives in its own window instead of the main window
+        // being cloned. `sessionStore`/`pairings` are the same app-lifetime
+        // instances the main window uses, so records stream into both.
+        #if os(macOS)
+        WindowGroup(id: "session", for: String.self) { $sid in
+            if let sid {
+                SessionWindowView(
+                    sid: sid, sessionStore: sessionStore, pairings: pairings)
+            }
+        }
+        .defaultSize(width: 820, height: 620)
+        .windowResizability(.contentMinSize)
         #endif
     }
 }

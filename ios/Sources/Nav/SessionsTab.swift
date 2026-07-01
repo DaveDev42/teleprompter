@@ -198,6 +198,14 @@ struct SessionListView: View {
     @ObservedObject var sessionStore: SessionStore
     let pairings: PairingViewModel
 
+    // Per-session window pop-out (macOS). `openWindow(value: sid)` opens (or
+    // re-focuses — SwiftUI dedups by presentation value) the value-carrying
+    // `WindowGroup(id: "session", for: String.self)` in TeleprompterApp, giving
+    // a session its own window instead of cloning the main window.
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
+
     // MARK: - Edit mode
 
     @State private var isEditMode = false
@@ -481,6 +489,20 @@ struct SessionListView: View {
             .focusable()
             .focused($focusedSid, equals: meta.sid)
             .accessibilityIdentifier("session-\(meta.sid)")
+            // macOS: right-click → open this session in its own window
+            // (messenger-style pop-out) instead of navigating in-place. Opens
+            // the value-carrying per-session WindowGroup; in-place tap
+            // navigation is unchanged.
+            #if os(macOS)
+            .contextMenu {
+                Button {
+                    openWindow(id: "session", value: meta.sid)
+                } label: {
+                    Label("Open in New Window", systemImage: "macwindow.badge.plus")
+                }
+                .accessibilityIdentifier("session-open-window-\(meta.sid)")
+            }
+            #endif
         }
     }
 

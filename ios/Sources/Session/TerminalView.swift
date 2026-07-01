@@ -58,14 +58,14 @@ struct TerminalView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if resolvedSid == nil {
-                ContentUnavailableView(
-                    "No session",
-                    systemImage: "terminal",
-                    description: Text("Attach a running session to see its terminal."))
-            } else {
-                let sid = resolvedSid!
-
+            // TOCTOU-safe: bind `resolvedSid` ONCE. It is a computed property that
+            // reads `store.sessions.keys.sorted().first`, so evaluating it twice
+            // (nil-check then force-unwrap) had a crash window — a relay reconnect
+            // runs `replaceSessionsForDaemon` on the MainActor, emptying the dict
+            // between SwiftUI's two reads, so `resolvedSid == nil` was false but the
+            // subsequent `resolvedSid!` unwrapped nil → EXC_BAD_INSTRUCTION. A single
+            // `if let` binding closes the window: one evaluation, one value.
+            if let sid = resolvedSid {
                 // M3: Collapsible search bar.
                 if searchProxy.isVisible {
                     searchBar
@@ -109,6 +109,11 @@ struct TerminalView: View {
                     sendBytes: { bytes in store.terminalSendBytes?(sid, bytes) },
                     sessionStopped: sessionStopped(sid: sid)
                 )
+            } else {
+                ContentUnavailableView(
+                    "No session",
+                    systemImage: "terminal",
+                    description: Text("Attach a running session to see its terminal."))
             }
         }
         // L9: Reset and restart the settle timer whenever the resolved session changes.

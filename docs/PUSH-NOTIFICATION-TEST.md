@@ -1,6 +1,24 @@
 # Push Notification Manual Test Checklist
 
-> **Note:** The iOS app is being rewritten in Swift/SwiftUI (see `ios/` and ADR-0001). Push notification infrastructure has not yet been ported to the Swift app (Phase 0 is a boot-marker shell). This checklist documents the target behaviour for when push notifications are implemented in a later phase.
+> **Status (Swift app):** The push *software* path is implemented and exercised
+> end to end. The APNs token → `relay.push.register` → seal → daemon store leg
+> lives in `ios/Sources/App/PushRegistration.swift` (`PushTokenStore` +
+> iOS/visionOS `UIApplicationDelegate` and macOS `NSApplicationDelegate`
+> adaptors); the receive/decode leg lives in `RelayClient.onNotification` →
+> `NotificationService` → `ToastCenter`. The in-band delivery path (relay hands
+> the push to a *live* app socket via `relay.notification` instead of APNs) is
+> covered by the `TP_E2E_PUSH=1` local harness gate (see
+> `.claude/rules/native-testing.md` → "실 push E2E") and asserts the
+> `TP_PUSH_NOTIFY_RECEIVED` marker.
+>
+> What remains is **device-gated only** and is exactly what this checklist
+> covers: real APNs delivery, real device-token receipt (`didRegister…`), and
+> tap → navigation. Those require the `aps-environment` entitlement + a matching
+> push provisioning profile + a real device + the relay's `.p8` key — none of
+> which the Simulator or an ad-hoc build can provide (the entitlement is
+> intentionally not yet added because it breaks Simulator/ad-hoc signing without
+> a provisioning profile; see `PushRegistration.swift` and
+> `NotificationService.swift`).
 
 Push notifications require a real device — iOS Simulator cannot receive actual APNs push.
 

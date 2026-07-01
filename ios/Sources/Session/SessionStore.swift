@@ -110,6 +110,45 @@ final class SessionStore: ObservableObject {
     /// exactly the gap.
     func cursor(for sid: String) -> Int { cursors[sid] ?? 0 }
 
+    /// `true` when Claude is actively working a turn for `sid`: a prompt was
+    /// submitted and no matching `Stop`/`StopFailure` has closed it yet.
+    ///
+    /// This is the SoT for the Chat "typing" indicator, extracted from `ChatView`
+    /// so it can be unit-tested against synthetic event streams. The previous
+    /// implementation keyed off ONLY the trailing chat item's kind ("not a Stop ⇒
+    /// busy"), which was inverted in practice:
+    ///   - False-BUSY when idle: a session whose last event is a
+    ///     `PostToolUse`/`Notification`/`SubagentStop`/unknown (all non-Stop)
+    ///     showed the typing dots even though the turn was done.
+    ///   - False-IDLE when busy: live output streams as `io` records to the
+    ///     Terminal tab and never becomes a chat item, so a long working stretch
+    ///     with a stale trailing `Stop` (or empty chat) showed nothing.
+    ///
+    /// Fix: scan the event stream from the end for the most recent *turn-lifecycle*
+    /// event (`UserPromptSubmit` / `Stop` / `StopFailure`) — busy iff that event is
+    /// a `UserPromptSubmit`. Intermediate events (`PostToolUse`, `Notification`, …)
+    /// are not boundaries and never force "busy". Then AND-gate on the session
+    /// being alive (`state == "running"`): a stopped/errored/unknown session is
+    /// never "working", which also clears the false-busy first-screen for any dead
+    /// session. Aggregated (`sid == nil`) views are never "working".
+    func isWorking(sid: String?) -> Bool {
+        guard let sid else { return false }
+        // A non-running (stopped/errored/absent) session is never working.
+        guard sessions[sid]?.state == "running" else { return false }
+        // Walk from the end to the most recent turn-lifecycle event.
+        for item in (chatItems[sid] ?? []).reversed() {
+            switch item.hookEventName {
+            case "UserPromptSubmit":
+                return true  // a turn is open; no Stop has closed it yet
+            case "Stop", "StopFailure":
+                return false  // the last turn completed
+            default:
+                continue  // PostToolUse / Notification / etc. — not a boundary
+            }
+        }
+        return false  // no lifecycle event yet → idle
+    }
+
     /// Replace all sessions for one daemon with the list from a fresh `hello`.
     ///
     /// H3 fix: mirrors Expo `session-store.ts setSessions`. By replacing the

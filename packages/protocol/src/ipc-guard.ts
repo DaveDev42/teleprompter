@@ -463,6 +463,7 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
         relayUrl: string;
         connected: boolean;
         peerCount: number;
+        throttled?: boolean;
       }[] = [];
       for (const r of raw["relays"]) {
         if (!isObject(r)) return null;
@@ -470,11 +471,19 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
         if (!isString(r["relayUrl"])) return null;
         if (typeof r["connected"] !== "boolean") return null;
         if (!isNonNegativeInt(r["peerCount"])) return null;
+        // `throttled` is optional for wire back-compat: an older daemon omits
+        // it. Present → must be a real boolean; absent → left undefined (the
+        // CLI treats undefined as false).
+        if (r["throttled"] !== undefined && typeof r["throttled"] !== "boolean")
+          return null;
         relays.push({
           daemonId: r["daemonId"],
           relayUrl: r["relayUrl"],
           connected: r["connected"],
           peerCount: r["peerCount"],
+          ...(r["throttled"] !== undefined
+            ? { throttled: r["throttled"] }
+            : {}),
         });
       }
       return { t: "doctor.probe.ok", relays };

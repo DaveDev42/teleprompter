@@ -151,6 +151,7 @@ export class Daemon {
           relayUrl: c.relayUrl,
           connected: c.isConnected(),
           peerCount: c.getPeerCount(),
+          throttled: c.isThrottled(),
         })),
     });
   }

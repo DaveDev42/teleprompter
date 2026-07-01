@@ -272,11 +272,26 @@ async function checkRelayConnectivityViaIpc(): Promise<boolean> {
 
     let allOk = true;
     for (const relay of result.relays) {
-      const status = relay.connected
-        ? `connected (${relay.peerCount} peer${relay.peerCount !== 1 ? "s" : ""})`
-        : "disconnected (relay unreachable or auth failed)";
-      check(`Relay ${relay.relayUrl}`, status, relay.connected);
-      if (!relay.connected) allOk = false;
+      let status: string;
+      let passed: boolean;
+      if (relay.connected) {
+        status = `connected (${relay.peerCount} peer${relay.peerCount !== 1 ? "s" : ""})`;
+        passed = true;
+      } else if (relay.throttled) {
+        // Peerless reconnect throttle: the socket keeps reconnecting but no
+        // frontend has ever completed key exchange, so the client backed off to
+        // the 30-min interval. This is an IDLE pairing (closed tab / old app /
+        // never-scanned QR), NOT a relay outage or auth failure — do not count
+        // it as an issue, and do not print the misleading "unreachable" verdict.
+        status =
+          "idle — no frontend connected yet (dead-pairing backoff; not an outage)";
+        passed = true;
+      } else {
+        status = "disconnected (relay unreachable or auth failed)";
+        passed = false;
+      }
+      check(`Relay ${relay.relayUrl}`, status, passed);
+      if (!passed) allOk = false;
     }
     return allOk;
   } catch (err) {

@@ -205,5 +205,79 @@ describe("ApnsClient.send", () => {
         expect(result.deadToken).toBe(false);
       }
     });
+
+    test("a non-200 response whose BODY stalls is aborted at the deadline (deadline covers the body read, not just headers)", async () => {
+      // Regression guard for the body-read leak: `fetch()` resolves as soon as
+      // the status line + headers arrive. If the deadline timer is cleared at
+      // that point (the pre-fix behaviour), a non-200 response whose body never
+      // arrives leaves `await response.json()` hanging forever — an fd /
+      // async-task leak at 10k scale, since handlePush is fire-and-forget.
+      //
+      // This stub resolves the fetch IMMEDIATELY with a non-200 Response whose
+      // `.json()` NEVER settles on its own — it settles ONLY when the request
+      // signal aborts. With the fix (timer cleared in the OUTER finally, after
+      // the body read), the AbortController fires at requestTimeoutMs, the body
+      // read rejects, the inner catch treats it as an unparseable body, and
+      // send() returns a clean transient error. WITHOUT the fix (timer cleared
+      // right after fetch resolves), the body read is unbounded and this test
+      // times out — so it is a real regression guard, not a tautology.
+      let bodyReadSawAbort = false;
+      const headersThenStallFetch = ((
+        _input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        const signal = init?.signal;
+        // A Response-like object: headers are "here" (status 500) but the body
+        // read hangs until the signal aborts.
+        const stallingResponse = {
+          ok: false,
+          status: 500,
+          json: () =>
+            new Promise((_resolve, reject) => {
+              if (signal) {
+                signal.addEventListener("abort", () => {
+                  bodyReadSawAbort = true;
+                  reject(
+                    new DOMException(
+                      "The operation was aborted.",
+                      "AbortError",
+                    ),
+                  );
+                });
+              }
+              // No resolve path: only the abort above can settle the body read.
+            }),
+          body: { cancel: () => Promise.resolve() },
+        } as unknown as Response;
+        return Promise.resolve(stallingResponse);
+      }) as unknown as typeof fetch;
+
+      const client = new ApnsClient({
+        host: "api.sandbox.push.apple.com",
+        bundleId: "dev.test.app",
+        signer: makeTestSigner(),
+        fetchFn: headersThenStallFetch,
+        requestTimeoutMs: 50,
+      });
+
+      const start = Date.now();
+      const result = await client.send({
+        deviceToken: VALID_TOKEN,
+        title: "T",
+        body: "B",
+      });
+      const elapsed = Date.now() - start;
+
+      // The deadline covered the body read: the abort was observed DURING the
+      // body read (not before it), and the call settled near the deadline
+      // rather than hanging.
+      expect(bodyReadSawAbort).toBe(true);
+      expect(elapsed).toBeGreaterThanOrEqual(45);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        // A stalled body read is transient, NOT a dead token.
+        expect(result.deadToken).toBe(false);
+      }
+    });
   });
 });

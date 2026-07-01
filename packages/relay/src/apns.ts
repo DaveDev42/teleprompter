@@ -149,38 +149,51 @@ export class ApnsClient {
     // TCP keepalive fires (minutes-to-hours) — at 10k scale a single external
     // failure mode becomes an fd / async-task leak. The existing catch below
     // already converts the thrown AbortError into a clean {ok:false} result.
-    let response: Response;
+    //
+    // The deadline MUST cover the response BODY read, not just the headers.
+    // `fetch()` resolves as soon as the status line + headers arrive; the body
+    // (`response.json()` / `response.body?.cancel()`) is a SEPARATE network
+    // read. If we cleared the timer the moment `fetch()` resolved, a non-200
+    // response whose body streams slowly (or a half-open TCP connection that
+    // sent headers then stalled) would leave the body read unbounded — exactly
+    // the fd/async-task leak this deadline exists to prevent. So the timer is
+    // cleared only in the OUTER finally, after every body read has completed
+    // (or aborted). Aborting mid-body-read makes `response.json()` throw, which
+    // the inner catch already handles as an unparseable body.
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), this.requestTimeoutMs);
     try {
-      response = await this.fetchFn(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-        signal: ac.signal,
-      });
-    } catch (err) {
-      return { ok: false, deadToken: false, reason: String(err) };
+      let response: Response;
+      try {
+        response = await this.fetchFn(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          signal: ac.signal,
+        });
+      } catch (err) {
+        return { ok: false, deadToken: false, reason: String(err) };
+      }
+
+      if (response.ok) {
+        // 200 = accepted by APNs.
+        await response.body?.cancel();
+        return { ok: true };
+      }
+
+      // Non-200: parse APNs error body for the reason code.
+      let reason = `HTTP ${response.status}`;
+      try {
+        const json = (await response.json()) as { reason?: string };
+        if (json?.reason) reason = json.reason;
+      } catch {
+        await response.body?.cancel();
+      }
+
+      const isDead = APNS_DEAD_TOKEN_REASONS.has(reason);
+      return { ok: false, deadToken: isDead, reason };
     } finally {
       clearTimeout(timer);
     }
-
-    if (response.ok) {
-      // 200 = accepted by APNs.
-      await response.body?.cancel();
-      return { ok: true };
-    }
-
-    // Non-200: parse APNs error body for the reason code.
-    let reason = `HTTP ${response.status}`;
-    try {
-      const json = (await response.json()) as { reason?: string };
-      if (json?.reason) reason = json.reason;
-    } catch {
-      await response.body?.cancel();
-    }
-
-    const isDead = APNS_DEAD_TOKEN_REASONS.has(reason);
-    return { ok: false, deadToken: isDead, reason };
   }
 }

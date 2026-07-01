@@ -120,6 +120,8 @@ scripts/ios.sh rust    # TpCore.xcframework + Swift 바인딩 빌드 (rust/tp-co
 scripts/ios.sh build   # iOS Simulator 용 빌드만
 scripts/ios.sh run     # 설치 + 실행
 scripts/ios.sh test    # XCTest 번들을 Simulator 에서 실행 (xcframework 먼저)
+scripts/ios.sh uitest      # XCUITest UI E2E (단일 플랫폼; TP_PLATFORM 분기)
+scripts/ios.sh uitest-all  # XCUITest UI E2E 전 플랫폼 매트릭스 (iOS/iPad/macOS/visionOS 실행 + watchOS 자동 SKIP; PASS/SKIP/FAIL 표, exit=FAIL 있으면 nonzero)
 scripts/ios.sh gen     # project.yml → .xcodeproj 재생성
 scripts/ios.sh boot    # 대상 시뮬레이터 부팅 (idempotent)
 

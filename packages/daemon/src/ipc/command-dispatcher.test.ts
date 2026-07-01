@@ -299,6 +299,7 @@ function makeHarness(
         relayUrl: c.relayUrl,
         connected: c.isConnected(),
         peerCount: c.getPeerCount(),
+        throttled: c.isThrottled(),
       })),
   });
 
@@ -1038,6 +1039,7 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
       relayUrl: "wss://relay.example.com",
       isConnected: () => true,
       getPeerCount: () => 2,
+      isThrottled: () => false,
     } as unknown as RelayClient;
 
     const { dispatcher, calls } = makeHarness({ relayClients: [fakeClient] });
@@ -1053,6 +1055,40 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
             relayUrl: "wss://relay.example.com",
             connected: true,
             peerCount: 2,
+            throttled: false,
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("doctor.probe surfaces the throttled flag for a peerless (idle) pairing", () => {
+    // A dead/idle pairing: reconnecting but no frontend ever joined, so the
+    // client has backed off (isThrottled → true) and reports disconnected. The
+    // handler must carry `throttled: true` so the CLI can render this as idle
+    // rather than "relay unreachable or auth failed".
+    const idleClient = {
+      daemonId: "d-idle",
+      relayUrl: "wss://relay.example.com",
+      isConnected: () => false,
+      getPeerCount: () => 0,
+      isThrottled: () => true,
+    } as unknown as RelayClient;
+
+    const { dispatcher, calls } = makeHarness({ relayClients: [idleClient] });
+    const runner = makeRunner();
+    dispatcher.dispatchIpc(runner, { t: "doctor.probe" });
+
+    expect(calls.ipcSends).toEqual([
+      {
+        t: "doctor.probe.ok",
+        relays: [
+          {
+            daemonId: "d-idle",
+            relayUrl: "wss://relay.example.com",
+            connected: false,
+            peerCount: 0,
+            throttled: true,
           },
         ],
       },

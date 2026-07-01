@@ -288,7 +288,13 @@ targets:
   TeleprompterUITests:
     type: bundle.ui-testing
     platform: auto
-    supportedDestinations: [iOS, macOS]
+    # visionOS included: XCUIApplication exists on xrOS (unlike watchOS), so the
+    # UI-test runner CAN build+launch for the xrsimulator SDK. Without visionOS
+    # here the runner .app is never produced for Debug-xrsimulator and
+    # `TP_PLATFORM=visionos uitest` dies with "no file found ...-Runner.app".
+    # Reach is partial (element queries + flat-window taps; no spatial-gesture
+    # sim) — matches the ADR-0002 visionOS UI-automation scope.
+    supportedDestinations: [iOS, macOS, visionOS]
     sources:
       - path: UITests
     dependencies:

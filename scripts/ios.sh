@@ -29,6 +29,12 @@
 #                               rendered "Claude: smoke ok" bubble through the a11y tree.
 #                               Real-claude E2E (TP_E2E_*) on iOS/iPad/macOS/visionOS/watchOS;
 #                               watchOS caps at M0–M4 (M5 input N/A on watch, ADR-0002 §4).
+#   scripts/ios.sh uitest-all   Run XCUITest UI E2E on ALL supported platforms and print a
+#                               PASS/SKIP/FAIL matrix: iOS/iPadOS/macOS/visionOS run; watchOS
+#                               is always SKIP (no XCUIApplication — Apple hard limit); macOS
+#                               is SKIP when the TCC host-gate blocks the runner (set
+#                               TP_UITEST_STRICT=1 to make that a FAIL). Exits non-zero iff any
+#                               platform FAILs. (Single-platform: TP_PLATFORM=<p> uitest.)
 #   scripts/ios.sh test         Run the XCTest bundle on the Simulator (ios only; rust first)
 #   scripts/ios.sh boot         Boot the target iOS Simulator (idempotent; ios only)
 #
@@ -56,6 +62,9 @@
 #   TP_UITEST_STRICT Set to 1 to make the macOS XCUITest TCC host-gate a hard
 #                   failure instead of a non-fatal SKIP (use on authorized GUI/CI
 #                   runners; default SKIP emits a `TP_UITEST_SKIP` marker)
+#   TP_UITEST_JSON  Set to 1 (done internally by `uitest-all`) to emit a single-line
+#                   JSON result as the last stdout line of a uitest run
+#                   ({"platform","result","elapsed_s"}, result = PASS|SKIP|FAIL)
 
 set -euo pipefail
 
@@ -248,6 +257,26 @@ tp_smoke_emit() {
   TP_SMOKE_PLATFORM=""
 }
 tp_cleanup_add 'tp_smoke_emit'
+
+# ── uitest matrix result (parallel to the smoke emit above) ─────────────────────
+# uitest has no named markers to track, so instead of the full smoke framework it
+# carries a single three-valued result (PASS | SKIP | FAIL) that cmd_uitest_all
+# renders in its matrix. Namespaced under TP_UITEST_JSON (NOT TP_JSON) so the two
+# matrix formats stay independent — a `TP_JSON=1` run never triggers this emit and
+# vice-versa. Registered on the same EXIT trap so it fires on any exit path
+# (including `die`) once a uitest run has begun.
+TP_UITEST_RESULT=""
+TP_UITEST_START=0
+tp_uitest_emit() {
+  [ "${TP_UITEST_JSON:-}" = "1" ] || return 0
+  [ -n "$TP_UITEST_RESULT" ] || return 0
+  local elapsed=$(( $(tp_now) - TP_UITEST_START ))
+  printf '{"platform":"%s","result":"%s","elapsed_s":%d}\n' \
+    "$TP_PLATFORM" "$TP_UITEST_RESULT" "$elapsed"
+  # Clear so a re-entrant loop doesn't double-emit a stale result.
+  TP_UITEST_RESULT=""
+}
+tp_cleanup_add 'tp_uitest_emit'
 
 # Resolve the UDID for $SIM_NAME among available iOS Simulator devices.
 #
@@ -2263,6 +2292,83 @@ sys.exit(0 if r.get("passed") else 1)
   fi
 }
 
+# ── cmd_uitest_all — XCUITest UI-level E2E across every supported platform ───────
+#
+# Where `all` sweeps the marker `smoke` across all 5 platforms, THIS sweeps the
+# XCUITest UI-E2E (cmd_uitest) across every platform that can host an
+# XCUIApplication and prints a PASS / SKIP / FAIL matrix. This is the pragmatic
+# best-achievable "5-platform UI E2E": research confirms XCUITest is the ONLY tool
+# touching all of iOS/iPadOS/macOS/visionOS/watchOS, and even it can't drive
+# watchOS (no XCUIApplication — Apple hard limit) or visionOS spatial gestures.
+#
+# Three-way result per platform:
+#   PASS — UI assertions ran and passed through the real a11y tree.
+#   SKIP — expected, not a failure: watchOS (always, no XCUIApplication) or macOS
+#          when the TCC host-gate blocks the automation session (non-interactive /
+#          unauthorised run). TP_UITEST_STRICT=1 turns the macOS SKIP into FAIL.
+#   FAIL — a genuine assertion/build failure. Any FAIL makes the whole sweep exit
+#          non-zero.
+#
+# Single-platform `TP_PLATFORM=watchos uitest` still `die`s (an explicit request
+# for the impossible is an error); only the matrix skips watchOS gracefully.
+#
+# Mirrors cmd_all's fd/JSON-capture mechanics: `exec 3>&2` streams each subshell's
+# live stderr (xcodebuild/xcbeautify) to the operator while `tail -n1` captures
+# only the one-line JSON that tp_uitest_emit writes to stdout on the EXIT trap.
+cmd_uitest_all() {
+  exec 3>&2
+  local platforms=("ios" "ipad" "macos" "visionos" "watchos")
+  local -a results=()
+  local p json rc
+
+  for p in "${platforms[@]}"; do
+    if [ "$p" = "watchos" ]; then
+      # watchOS has no XCUIApplication (Apple hard limit) — synthesize a SKIP row
+      # without spawning a subshell (single-platform `uitest` on watchOS still
+      # dies; only the matrix skips it).
+      log "──────── cmd_uitest_all: $p — auto-SKIP (no XCUIApplication on watchOS) ────────"
+      results+=("{\"platform\":\"watchos\",\"result\":\"SKIP\",\"elapsed_s\":0}")
+      continue
+    fi
+
+    log "──────── cmd_uitest_all: $p ────────"
+    # Subshell: isolate TP_PLATFORM + this run's uitest trap state. Capture only
+    # the final stdout line (JSON); human logs (stderr) pass through fd3.
+    json="$( TP_PLATFORM="$p" TP_UITEST_JSON=1 bash "$0" uitest 2>&3 | tail -n1 )" \
+      && rc=0 || rc=$?
+    # Fallback: subshell died before emitting JSON (e.g. build failure before the
+    # emit could run) — synthesize a FAIL row.
+    case "$json" in
+      '{"platform"'*) : ;;
+      *) json="{\"platform\":\"$p\",\"result\":\"FAIL\",\"elapsed_s\":0}" ;;
+    esac
+    results+=("$json")
+  done
+
+  # Render the PASS / SKIP / FAIL matrix + compute overall pass/fail (SKIP is not
+  # a failure).
+  printf '\n'
+  printf '%-10s  %-6s  %s\n' "PLATFORM" "RESULT" "ELAPSED"
+  printf '%-10s  %-6s  %s\n' "--------" "------" "-------"
+  local overall=0 row
+  for row in "${results[@]}"; do
+    printf '%s\n' "$row" | /usr/bin/python3 -c '
+import json,sys
+r=json.load(sys.stdin)
+result=r.get("result","FAIL")
+print("%-10s  %-6s  %ds" % (r.get("platform","?"), result, r.get("elapsed_s",0)))
+# PASS and SKIP are both non-failures; only FAIL flips the overall exit.
+sys.exit(0 if result in ("PASS","SKIP") else 1)
+' || overall=1
+  done
+  printf '\n'
+  if [ "$overall" -eq 0 ]; then
+    log "✅ cmd_uitest_all: all platforms PASS or SKIP"
+  else
+    die "cmd_uitest_all: one or more platforms FAILED (see matrix above)"
+  fi
+}
+
 # ── cmd_uitest — XCUITest UI-level E2E (T3, #66) ────────────────────────────────
 #
 # Where `smoke` proves the wire/E2EE/kx bytes round-trip (markers polled from the
@@ -2285,6 +2391,16 @@ cmd_uitest() {
   if [ "$TP_PLATFORM" = "watchos" ]; then
     die "uitest unsupported on watchOS — watchOS has no XCUIApplication (Apple hard limit). watchOS verification is markers + screenshot only (scripts/ios.sh smoke)."
   fi
+
+  # Pessimistic default for the uitest-all matrix emit: any early exit (build
+  # failure, `die`) leaves the result FAIL. The PASS / SKIP paths below flip it
+  # explicitly before returning. Only armed under TP_UITEST_JSON so a normal
+  # single-platform `uitest` run is unaffected.
+  if [ "${TP_UITEST_JSON:-}" = "1" ]; then
+    TP_UITEST_RESULT="FAIL"
+    TP_UITEST_START="$(tp_now)"
+  fi
+
   ensure_xcframework
   ensure_project
 
@@ -2344,10 +2460,11 @@ cmd_uitest() {
     -derivedDataPath "$DERIVED" \
     $SIGN_FLAGS \
     "${extra_flags[@]}" \
-    test 2>&1 | tee "$uit_log" | xcbeautify_or_cat || rc="${PIPESTATUS[0]}"
+    test 2>&1 | tee "$uit_log" | xcbeautify_or_cat >&2 || rc="${PIPESTATUS[0]}"
 
   if [ "$rc" -eq 0 ]; then
     log "✅ UITEST PASS — session render + pane switch asserted through the a11y tree on $TP_PLATFORM"
+    TP_UITEST_RESULT="PASS"
     return 0
   fi
 
@@ -2379,9 +2496,12 @@ cmd_uitest() {
     log "    System Settings → Privacy & Security → Accessibility/Automation and"
     log "    re-run in a logged-in GUI session (or set TP_UITEST_STRICT=1 to fail"
     log "    instead of skip) for full macOS UI E2E."
+    TP_UITEST_RESULT="SKIP"
     return 0
   fi
 
+  # FAIL path: TP_UITEST_RESULT is already "FAIL" (pessimistic default set at
+  # entry under TP_UITEST_JSON), and the EXIT trap's tp_uitest_emit fires on die.
   die "UITEST FAIL on $TP_PLATFORM (see output above; xcresult under $DERIVED/Logs/Test)"
 }
 
@@ -2639,11 +2759,12 @@ main() {
     smoke) cmd_smoke ;;
     all)   cmd_all ;;
     uitest) cmd_uitest ;;
+    uitest-all) cmd_uitest_all ;;
     test)  cmd_test ;;
     archive) cmd_archive ;;
     fmt)   cmd_fmt ;;
     lint)  cmd_lint ;;
-    *) die "unknown subcommand: $sub (use: gen|rust|boot|build|run|smoke|all|uitest|test|archive|fmt|lint)" ;;
+    *) die "unknown subcommand: $sub (use: gen|rust|boot|build|run|smoke|all|uitest|uitest-all|test|archive|fmt|lint)" ;;
   esac
 }
 

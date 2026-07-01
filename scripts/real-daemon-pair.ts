@@ -593,6 +593,162 @@ function spawnClaudeSessionCoding(
   return runner;
 }
 
+// spawnClaudeSessionWebpage — TP_E2E_WEBPAGE sibling of spawnClaudeSessionCoding.
+//
+// Drives TWO turns building a real static HTML5 webpage in the isolated cwd:
+//   turn 1: instruct claude to CREATE an index.html (or $TP_E2E_WEBPAGE_FILE) that is a
+//            complete valid HTML5 document with DOCTYPE, <html>, <head>/<title>, <body>/<h1>
+//            containing a recognizable marker ($TP_E2E_WEBPAGE_MARKER, default TP-WEBPAGE-OK),
+//            and an inline <style> block with at least one CSS rule. Tells it to use Write.
+//   turn 2: instruct claude to run a shell command that validates the file —
+//            `grep -c "<!DOCTYPE html>" <file> && grep -c "<marker>" <file> && echo WEBPAGE-STEP-DONE`.
+//            Uses the Bash tool.
+//
+// Reuses driveTurn verbatim; only the turn prompts differ from the coding variant.
+// Local-only (real claude auth + credits); never CI.
+function spawnClaudeSessionWebpage(
+  socketPath: string,
+  ipc: IpcClient,
+): Subprocess {
+  const sid = process.env["TP_E2E_CLAUDE_SID"] ?? "real-smoke-sess";
+  const cwd =
+    process.env["TP_E2E_CLAUDE_CWD"] ?? process.env["HOME"] ?? REPO_ROOT;
+  mkdirSync(cwd, { recursive: true });
+
+  // Same trust + onboarding pre-seed as the coding mode.
+  const home = process.env["HOME"];
+  if (home) {
+    try {
+      const seed = {
+        hasCompletedOnboarding: true,
+        projects: { [cwd]: { hasTrustDialogAccepted: true } },
+      };
+      writeFileSync(join(home, ".claude.json"), JSON.stringify(seed));
+    } catch (err) {
+      log(`WARN — could not seed ~/.claude.json: ${String(err)}`);
+    }
+  }
+
+  log(
+    `spawning real claude session sid=${sid} cwd=${cwd} (WEBPAGE multi-turn)`,
+  );
+  const runner = spawn({
+    cmd: [
+      ...CLI,
+      "run",
+      "--sid",
+      sid,
+      "--cwd",
+      cwd,
+      "--socket-path",
+      socketPath,
+      "--",
+      "--permission-mode",
+      "bypassPermissions",
+    ],
+    env: { ...process.env },
+    stdout: "ignore",
+    stderr: "ignore",
+    stdin: "ignore",
+  });
+  process.stdout.write(`REAL_SESSION_SID=${sid}\n`);
+  log(`real webpage claude runner spawned (pid ${runner.pid})`);
+
+  // Send raw bytes to the session over IPC (daemon routes by sid → PtyBun.write).
+  const sendRaw = (bytes: string, label: string): void => {
+    const msg: IpcInput = {
+      t: "input",
+      sid,
+      data: Buffer.from(bytes).toString("base64"),
+    };
+    try {
+      ipc.send(msg);
+      log(`sent ${label}`);
+    } catch (err) {
+      log(`WARN — failed to send ${label}: ${String(err)}`);
+    }
+  };
+  const sendSubmit = (label: string): void =>
+    sendRaw("\r", `submit (${label})`);
+
+  const marker = process.env["TP_E2E_WEBPAGE_MARKER"] ?? "TP-WEBPAGE-OK";
+  const fileName = process.env["TP_E2E_WEBPAGE_FILE"] ?? "index.html";
+  const turn1 =
+    `Create a file named ${fileName} in the current directory using the Write tool. ` +
+    `The file must be a complete valid HTML5 document with: ` +
+    `a <!DOCTYPE html> declaration, an <html> element, a <head> element containing a <title>, ` +
+    `a <body> element containing an <h1> that includes the text "${marker}", ` +
+    `and an inline <style> block inside <head> with at least one CSS rule (e.g. body { font-family: sans-serif; }). ` +
+    `Do not truncate the file — write the complete document in one Write tool call.`;
+  const turn2 =
+    `Now run this shell command to validate the file you just created: ` +
+    `grep -c "<!DOCTYPE html>" ${fileName} && grep -c "${marker}" ${fileName} && echo WEBPAGE-STEP-DONE`;
+
+  // driveTurn — reused verbatim from the coding mode: type prompt text (no CR),
+  // wait 1.5s for composer, send separate \r submit, confirm UserPromptSubmit
+  // incremented (resend up to 5× on warmup keystroke-drops), wait for Stop.
+  const driveTurn = async (
+    text: string,
+    turnIndex: number,
+  ): Promise<boolean> => {
+    const upsBefore = countRecords(sid, "event", "UserPromptSubmit");
+    const stopsBefore = countRecords(sid, "event", "Stop");
+    sendRaw(text, `webpage turn ${turnIndex} text (${text.length} chars)`);
+    await Bun.sleep(1_500);
+    sendSubmit(`turn ${turnIndex}`);
+    let registered = false;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const deadline = Date.now() + 8_000;
+      while (Date.now() < deadline) {
+        if (countRecords(sid, "event", "UserPromptSubmit") > upsBefore) {
+          registered = true;
+          break;
+        }
+        await Bun.sleep(500);
+      }
+      if (registered) break;
+      log(
+        `turn ${turnIndex}: UserPromptSubmit not yet incremented (attempt ${attempt}) — resending submit`,
+      );
+      sendSubmit(`turn ${turnIndex} retry ${attempt}`);
+    }
+    if (!registered) {
+      log(
+        `WARN — turn ${turnIndex}: prompt never registered (UserPromptSubmit)`,
+      );
+      return false;
+    }
+    log(`turn ${turnIndex}: prompt registered; waiting for its Stop`);
+    const ok = await waitForStopCount(sid, stopsBefore + 1, 180_000);
+    log(
+      ok
+        ? `turn ${turnIndex}: Stop observed (turn complete)`
+        : `WARN — turn ${turnIndex}: Stop never observed within 180s`,
+    );
+    return ok;
+  };
+
+  // Detached async chain — returns immediately so the pairing handshake runs
+  // concurrently (same pattern as spawnClaudeSessionCoding).
+  void (async () => {
+    // Trust-accept window: send Enter every 2s for ~26s.
+    for (let i = 1; i <= 13; i++) {
+      sendSubmit(`trust tick ${i}`);
+      await Bun.sleep(2_000);
+    }
+
+    // Turn 1: create the HTML5 file via the Write tool.
+    await driveTurn(turn1, 1);
+    // Turn 2: validate the file via Bash (gated on turn 1's Stop via driveTurn).
+    await driveTurn(turn2, 2);
+    log("webpage turn driver finished (both turns attempted)");
+  })().catch((err: unknown) => {
+    log(`WARN — webpage turn driver failed: ${String(err)}`);
+  });
+
+  return runner;
+}
+
 async function main(): Promise<void> {
   ensureIsolationDirs();
 
@@ -663,7 +819,13 @@ async function main(): Promise<void> {
   //     `tp run` connects to the daemon IPC directly (no relay), so the two are
   //     independent — we kick claude off here and let it run concurrently with the
   //     pairing handshake below.
-  if (process.argv.includes("--spawn-claude-coding")) {
+  if (process.argv.includes("--spawn-claude-webpage")) {
+    // Webpage mode: real interactive claude driven through TWO webpage-building turns
+    // (Write an HTML5 file, then Bash-validate it) over the genuine pipeline.
+    // Takes highest precedence (over coding + interactive + print) — webpage and coding
+    // are mutually exclusive siblings; when both flags appear, webpage wins.
+    claudeRunner = spawnClaudeSessionWebpage(socketPath, ipc);
+  } else if (process.argv.includes("--spawn-claude-coding")) {
     // Strongest mode: real interactive claude driven through MULTIPLE coding turns
     // (Write + Bash tools) over the genuine pipeline. Reuses `ipc` to send the
     // trust-accept Enter and each coding turn's input frame.

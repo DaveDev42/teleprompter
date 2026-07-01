@@ -155,6 +155,7 @@ TP_E2E_REAL=1 scripts/ios.sh smoke       # FAKE loopback 대신 격리된 실 tp
 TP_E2E_CLAUDE=1 scripts/ios.sh smoke     # 위 + 실 claude -p PRINT 세션 spawn → M0-M4 (실 Stop 렌더). claude PATH 필수, 로컬 전용
 TP_E2E_CLAUDE_M5=1 scripts/ios.sh smoke  # 위 + 실 INTERACTIVE claude 세션 → 전 8마커 (M0-M5: 앱→relay→daemon→PTY→claude 입력 왕복). 로컬 전용
 TP_E2E_CLAUDE_CODING=1 scripts/ios.sh smoke  # M5 의 sibling. 실 INTERACTIVE claude 를 멀티턴으로 조작해 파일 생성/편집+빌드 → M0-M4 + 코딩 어서션 (PostToolUse Write/Bash, tp_qa_marker.txt). 로컬 전용
+TP_E2E_WEBPAGE=1 scripts/ios.sh smoke    # CODING 의 sibling. 실 INTERACTIVE claude 를 2턴으로 원격 조작해 완전한 HTML5 웹페이지(index.html) 빌드+Bash 검증 → M0-M4 + 웹페이지 어서션 (DOCTYPE/html/body/style/marker, PostToolUse Write/Bash). CODING 과 동시 set 시 WEBPAGE 우선. 로컬 전용
 TP_E2E_PUSH=1 scripts/ios.sh smoke       # PRINT(claude -p)의 sibling. 합성 Notification 주입 → in-band relay.notification → 앱 onNotification 수신(M6 TP_PUSH_NOTIFY_RECEIVED). 로컬 전용
 
 # TestFlight 배포 (ADR-0004 — iOS device 슬라이스 Release archive → 서명 → App Store .ipa export)
@@ -203,6 +204,12 @@ TP_DEVELOPMENT_TEAM=ABCDE12345 TP_PLATFORM=ios scripts/ios.sh archive   # 실 Di
   + **코딩 어서션**: `PostToolUse(Write)`+`PostToolUse(Bash)` 훅 이벤트가 둘 다 파일을 참조하고,
   `UserPromptSubmit=2`/`Stop=2`(2턴), disk 에 `tp_qa_marker.txt`=`QA-CODING-OK` 가 남는다. M5 입력 probe 는
   coding 모드에서 억제(`--tp-no-input-probe`)된다. `claude` PATH 필수, **로컬 전용**. 세부 = `.claude/rules/native-testing.md`.
+- `TP_E2E_WEBPAGE=1` — `TP_E2E_CLAUDE_CODING` 의 **sibling**. 동일한 holder+pipeline 로 실 INTERACTIVE claude 를
+  2턴 원격 조작해 **완전한 HTML5 정적 웹페이지**(`index.html`)를 빌드한다 → M0-M4 + **웹페이지 어서션**:
+  `<!DOCTYPE html>`·`<html`·`<body`·`</html>`·마커(`TP-WEBPAGE-OK`)·`<style` 전부 포함 확인,
+  `PostToolUse(Write)`+`PostToolUse(Bash)` 훅 이벤트 둘 다 파일 참조, `UserPromptSubmit=2`/`Stop=2`.
+  파일명/마커 = `TP_E2E_WEBPAGE_FILE`/`TP_E2E_WEBPAGE_MARKER` 로 오버라이드. CODING 과 동시 set 시 WEBPAGE 우선.
+  M5 probe 억제(`--tp-no-input-probe`). `claude` PATH 필수, **로컬 전용**. 세부 = `.claude/rules/native-testing.md`.
 - `TP_E2E_PUSH=1` — `TP_E2E_CLAUDE`(print)의 **sibling**(E2E_REAL+E2E_CLAUDE imply). **푸시 RECEIVE 경로**를 실
   relay/daemon 으로 증명: 앱이 `--tp-push-smoke` 하에 합성 push 토큰을 등록하고, holder 가 IPC `rec`
   (`event/Notification`)을 주입 → daemon PushNotifier → relay **in-band** `relay.notification` → 앱

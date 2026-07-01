@@ -67,6 +67,8 @@ interface DepsOverrides {
   updatePairingLabel?: (daemonId: string, label: Label) => void;
   findRunnerBySid?: (sid: string) => unknown;
   send?: (runner: unknown, msg: unknown) => void;
+  handleTokenDead?: (frontendId: string) => void;
+  handleUnsealFailed?: (frontendId: string) => void;
 }
 
 function makeDeps(overrides: DepsOverrides = {}): RelayConnectionManagerDeps {
@@ -88,7 +90,8 @@ function makeDeps(overrides: DepsOverrides = {}): RelayConnectionManagerDeps {
   };
   const fakePushNotifier = {
     registerSealedToken: () => {},
-    handleUnsealFailed: () => {},
+    handleUnsealFailed: overrides.handleUnsealFailed ?? (() => {}),
+    handleTokenDead: overrides.handleTokenDead ?? (() => {}),
   };
   const fakeDispatcher = {
     dispatchRelayControl: () => {},
@@ -561,6 +564,36 @@ describe("RelayConnectionManager", () => {
     const [, , helloMsg] = (stub.publishToPeer as ReturnType<typeof mock>).mock
       .calls[0] as [string, string, { t: string; d: { daemonLabel: Label } }];
     expect(helloMsg.d.daemonLabel).toEqual({ set: false });
+  });
+
+  test("buildEvents.onPushTokenDead evicts THAT frontend's token via handleTokenDead", () => {
+    // Regression (finding #1): the relay.err PUSH_TOKEN_DEAD frame now carries
+    // the owning frontendId, so the manager's onPushTokenDead handler must
+    // surgically evict exactly that frontend's dead APNs token. Before the fix
+    // it only logged — the dead token stayed in PushNotifier forever and every
+    // future hook event re-sent to it, spamming PUSH_TOKEN_DEAD until restart.
+    const dead: string[] = [];
+    const deps = makeDeps({ handleTokenDead: (fid) => dead.push(fid) });
+    const mgr = new RelayConnectionManager(deps);
+    const events = mgr.buildEvents(() => makeStubClient("d1"));
+
+    events.onPushTokenDead?.("frontend-dead-1");
+
+    expect(dead).toEqual(["frontend-dead-1"]);
+  });
+
+  test("buildEvents.onPushUnsealFailed evicts THAT frontend's token via handleUnsealFailed", () => {
+    // Sibling of the PUSH_TOKEN_DEAD path: a PUSH_UNSEAL_FAILED relay.err (seal
+    // key rotated out / tampered) now carries the frontendId, so the manager
+    // surgically drops that frontend's now-unusable sealed token.
+    const unseal: string[] = [];
+    const deps = makeDeps({ handleUnsealFailed: (fid) => unseal.push(fid) });
+    const mgr = new RelayConnectionManager(deps);
+    const events = mgr.buildEvents(() => makeStubClient("d1"));
+
+    events.onPushUnsealFailed?.("frontend-unseal-1");
+
+    expect(unseal).toEqual(["frontend-unseal-1"]);
   });
 
   test("addClient passes config.label to buildEvents (label flows to hello frame)", async () => {

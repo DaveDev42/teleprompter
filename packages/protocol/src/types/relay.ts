@@ -247,6 +247,15 @@ export interface RelayError {
   t: "relay.err";
   e: string;
   m?: string | undefined;
+  /**
+   * The frontend this error pertains to, when the error is frontend-scoped
+   * (currently the push errors PUSH_UNSEAL_FAILED / PUSH_TOKEN_DEAD, which the
+   * relay derives from the originating `relay.push`'s `frontendId`). Absent for
+   * connection-level errors (PARSE_ERROR, UNKNOWN_TYPE, UNAUTHORIZED, …) that
+   * have no single owning frontend. When present, the daemon uses it to evict
+   * exactly that frontend's dead/unusable push token instead of doing nothing.
+   */
+  frontendId?: string | undefined;
 }
 
 export interface RelayNotification {

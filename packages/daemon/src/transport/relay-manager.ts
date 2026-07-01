@@ -169,25 +169,27 @@ export class RelayConnectionManager {
           platform,
         );
       },
-      onPushUnsealFailed: () => {
+      onPushUnsealFailed: (frontendId) => {
         // The relay could not decrypt the sealed token (key rotated, tampered).
-        // `relay.err` carries NO frontendId, and PushNotifier.handleUnsealFailed
-        // evicts a single frontend's entry — so we cannot surgically evict here.
-        // No eviction is performed at this point; the self-heal is the app
-        // re-registering via relay.push.register on its next relay reconnect,
-        // which re-seals under the current key. Logged at warn so operators can
-        // correlate the event with a seal-key rotation.
+        // The relay.err frame now carries the owning frontendId, so we
+        // surgically evict that one frontend's now-unusable entry. The app
+        // re-registers via relay.push.register on its next relay reconnect,
+        // which re-seals under the current key.
         log.warn(
-          `PUSH_UNSEAL_FAILED from relay (daemonId=${daemonId}) — sealed push token rejected; no eviction here, app re-registers on next reconnect`,
+          `PUSH_UNSEAL_FAILED from relay (daemonId=${daemonId}, frontendId=${frontendId}) — evicting stale token; app re-registers on next reconnect`,
         );
+        this.deps.pushNotifier.handleUnsealFailed(frontendId);
       },
-      onPushTokenDead: () => {
-        // APNs returned 400/410 — the device token is permanently dead.
-        // `relay.err` carries no frontendId, so (as above) no eviction is done
-        // here; the app re-registers via relay.push.register on next reconnect.
+      onPushTokenDead: (frontendId) => {
+        // APNs returned 400/410 — the device token is permanently dead. The
+        // relay.err frame carries the owning frontendId, so we surgically evict
+        // that frontend's dead entry from push_tokens; future notification
+        // events then stop sending to the dead token. The app re-registers via
+        // relay.push.register on next reconnect.
         log.warn(
-          `PUSH_TOKEN_DEAD from relay (daemonId=${daemonId}) — APNs dead token; no eviction here, app re-registers on next reconnect`,
+          `PUSH_TOKEN_DEAD from relay (daemonId=${daemonId}, frontendId=${frontendId}) — evicting dead token; app re-registers on next reconnect`,
         );
+        this.deps.pushNotifier.handleTokenDead(frontendId);
       },
     };
   }

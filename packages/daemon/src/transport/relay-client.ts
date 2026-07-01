@@ -183,17 +183,18 @@ export interface RelayClientEvents {
   /**
    * Called when the relay replies PUSH_UNSEAL_FAILED — the sealed blob could
    * not be decrypted (key rotated out of the current/prev window, or tampered).
-   * The daemon should evict all push tokens and await re-registration from the
-   * app. No frontendId is available in the relay.err wire type.
+   * The relay.err frame now carries the owning `frontendId`, so the daemon
+   * evicts exactly that frontend's now-unusable entry and awaits its
+   * re-registration on the next relay reconnect.
    */
-  onPushUnsealFailed?: () => void;
+  onPushUnsealFailed?: (frontendId: string) => void;
   /**
    * Called when the relay replies PUSH_TOKEN_DEAD — APNs returned 400
-   * (BadDeviceToken) or 410 (Unregistered). The daemon should evict all push
-   * tokens for this pairing and await re-registration from the app.
-   * No frontendId is available in the relay.err wire type.
+   * (BadDeviceToken) or 410 (Unregistered). The relay.err frame carries the
+   * owning `frontendId`, so the daemon evicts exactly that frontend's dead
+   * entry from push_tokens and awaits its re-registration on the next reconnect.
    */
-  onPushTokenDead?: () => void;
+  onPushTokenDead?: (frontendId: string) => void;
 }
 
 export class RelayClient {
@@ -421,29 +422,43 @@ export class RelayClient {
         if (msg.e === "PUSH_UNSEAL_FAILED") {
           // The relay could not decrypt a real "tpps1." sealed token we sent
           // (its key was rotated out of the current/prev window, or the blob
-          // was tampered). The relay.err wire type does not carry a frontendId,
-          // so we cannot surgically evict the specific stale entry from
-          // PushNotifier here — that is a known v1 limitation. Self-heal path:
-          // the app re-registers via relay.push.register on every relay
-          // reconnect, which makes the relay re-seal under the current key and
-          // route a fresh relay.push.token to us. Log at warn so operators can
-          // correlate the event with a seal-key rotation.
-          log.warn(
-            `relay reported PUSH_UNSEAL_FAILED — sealed push token rejected by relay; app re-registers on next relay reconnect. relay: ${msg.m ?? "(no detail)"}`,
-          );
-          this.events.onPushUnsealFailed?.();
+          // was tampered). The relay.err frame carries the owning frontendId,
+          // so we surgically evict that frontend's now-unusable entry from
+          // PushNotifier. Self-heal path: the app re-registers via
+          // relay.push.register on every relay reconnect, which makes the relay
+          // re-seal under the current key and route a fresh relay.push.token to
+          // us. Log at warn so operators can correlate with a seal-key rotation.
+          if (msg.frontendId) {
+            log.warn(
+              `relay reported PUSH_UNSEAL_FAILED for frontend ${msg.frontendId} — evicting stale token; app re-registers on next relay reconnect. relay: ${msg.m ?? "(no detail)"}`,
+            );
+            this.events.onPushUnsealFailed?.(msg.frontendId);
+          } else {
+            // Legacy relay that does not populate frontendId — cannot evict by
+            // ID; fall back to the self-heal-on-reconnect behavior.
+            log.warn(
+              `relay reported PUSH_UNSEAL_FAILED without a frontendId (legacy relay) — no eviction; app re-registers on next relay reconnect. relay: ${msg.m ?? "(no detail)"}`,
+            );
+          }
         } else if (msg.e === "PUSH_TOKEN_DEAD") {
           // APNs returned 400 (BadDeviceToken) or 410 (Unregistered) — the
-          // device token is permanently dead. Signal the daemon to evict the
-          // stale entry from push_tokens so future notification events don't
-          // keep sending to a dead token. The relay.err wire type does not
-          // carry a frontendId, so we cannot surgically evict by ID — same v1
-          // limitation as PUSH_UNSEAL_FAILED. The app re-registers on next
-          // relay reconnect via relay.push.register.
-          log.warn(
-            `relay reported PUSH_TOKEN_DEAD — APNs device token permanently invalid; app re-registers on next relay reconnect. relay: ${msg.m ?? "(no detail)"}`,
-          );
-          this.events.onPushTokenDead?.();
+          // device token is permanently dead. The relay.err frame carries the
+          // owning frontendId, so we surgically evict that frontend's dead
+          // entry from push_tokens; future notification events then stop
+          // sending to the dead token. The app re-registers on next relay
+          // reconnect via relay.push.register.
+          if (msg.frontendId) {
+            log.warn(
+              `relay reported PUSH_TOKEN_DEAD for frontend ${msg.frontendId} — evicting dead token; app re-registers on next relay reconnect. relay: ${msg.m ?? "(no detail)"}`,
+            );
+            this.events.onPushTokenDead?.(msg.frontendId);
+          } else {
+            // Legacy relay without frontendId — cannot evict by ID; fall back to
+            // self-heal on the app's next reconnect.
+            log.warn(
+              `relay reported PUSH_TOKEN_DEAD without a frontendId (legacy relay) — no eviction; app re-registers on next relay reconnect. relay: ${msg.m ?? "(no detail)"}`,
+            );
+          }
         } else {
           log.error(`relay error: ${msg.m ?? msg.e}`);
         }

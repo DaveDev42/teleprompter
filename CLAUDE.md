@@ -114,7 +114,7 @@ fix-탐색 워크플로우는 가드가 구조에 박힌 `.claude/workflows/fact
 
 - **Backend/CLI (Bun, Tier 1–3)**: `bun:test`. 소스 옆 co-located 유닛/통합 테스트.
 - **Rust core (`tp-core`)**: `cargo test -p tp-core` — 유닛 + 와이어 골든벡터(TS 교차검증). 상세는 `rust/README.md`.
-- **App (Swift, multiplatform)**: `scripts/ios.sh test` (XCTest) + `smoke` (iOS/macOS/visionOS 8마커, watchOS 7마커), `TP_PLATFORM=ios`(기본, Simulator) / `TP_PLATFORM=macos`(네이티브, 호스트 로그) / `TP_PLATFORM=visionos`(xrOS Sim) / `TP_PLATFORM=watchos`(watchOS Sim, B3 ✅). 상세는 `ios/README.md`.
+- **App (Swift, multiplatform)**: `scripts/ios.sh test` (XCTest) + `smoke` (iOS/macOS/visionOS 8마커, watchOS 7마커) + `uitest`/`uitest-all` (XCUITest UI E2E — 단일/전 플랫폼 PASS/SKIP/FAIL 매트릭스, watchOS 자동 SKIP, 로컬 전용), `TP_PLATFORM=ios`(기본, Simulator) / `TP_PLATFORM=macos`(네이티브, 호스트 로그) / `TP_PLATFORM=visionos`(xrOS Sim) / `TP_PLATFORM=watchos`(watchOS Sim, B3 ✅). 상세는 `ios/README.md`.
 
 ### 명령어
 ```bash
@@ -357,6 +357,8 @@ scripts/ios.sh boot     # Simulator 부팅 (TP_SIM, default "iPhone 17 Pro"; iOS
 scripts/ios.sh build    # xcodebuild (iOS: Debug-iphonesimulator / macOS: platform=macOS / visionOS: Debug-xrsimulator / watchOS: Debug-watchsimulator)
 scripts/ios.sh run      # install + launch (macOS: open -n)
 scripts/ios.sh smoke    # rust→gen→build→launch + 마커 검증 (iOS/macOS/visionOS: 8마커, watchOS: 7마커)
+scripts/ios.sh uitest   # XCUITest UI E2E (단일 플랫폼; TP_PLATFORM 분기, watchOS는 die)
+scripts/ios.sh uitest-all  # XCUITest UI E2E 전 플랫폼 매트릭스 (iOS/iPad/macOS/visionOS + watchOS 자동 SKIP; PASS/SKIP/FAIL, 로컬 전용)
 scripts/ios.sh test     # XCTest (iOS Simulator; xcframework 먼저)
 ```
 

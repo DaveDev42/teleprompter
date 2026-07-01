@@ -120,6 +120,15 @@ LibraryIdentifier` 로 7개 확인.
 `session-pane-picker` → `"Claude: smoke ok"` 버블(loopback Stop `last_assistant_message`) →
 Terminal pane → `terminal-output`. 스크린샷을 `XCTAttachment` 으로 첨부.
 
+**두 번째 테스트 (macOS 전용, `testMacPerSessionWindowAndNoDuplicateMain`, `#if os(macOS)`)** 는
+메신저-스타일 per-session 창 팝아웃 + main-window single-instance 를 회귀 가드한다 (main `WindowGroup`
+이 value-less 라 SwiftUI 자동 File>New Window 가 main 을 복제하던 버그의 fix 를 잠금): (1) 신선 런치 =
+창 정확히 1개 (main 복제 없음), (2) File 메뉴에 auto "New Window" **부재** + MacCommands 의 "New
+Pairing…" **존재** (`.commandsRemoved()` 가 자동 커맨드만 제거, 우리 메뉴는 유지), (3) 세션 row
+`.rightClick()` → `session-open-window-<sid>` context-menu 클릭 → 창 2개 (value-carrying
+`WindowGroup(id:"session", for:String.self)` 팝아웃 동작). iOS/visionOS 엔 메뉴바/멀티윈도우 File 메뉴
+개념이 없어 macOS 한정. `.rightClick()`/`menuBars`/`windows.count` 는 macOS XCUIApplication 에만 존재.
+
 - **링크 주입**: 하니스가 loopback 띄우고 `smoke_pair_link` 골든 링크 만들어 `TEST_RUNNER_TP_SMOKE_URL` /
   `TEST_RUNNER_TP_SMOKE_SID` **env** 로 넘긴다 (xcodebuild 가 `TEST_RUNNER_` 접두어를 떼고 runner
   ProcessInfo.environment 에 주입 — KEY=VALUE 빌드세팅 인자로는 runner 에 **안 닿는다**).

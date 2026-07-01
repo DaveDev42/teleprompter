@@ -2216,3 +2216,126 @@ describe("relay.push TOCTOU: frontend disconnects mid-flight", () => {
     relay.stop();
   });
 });
+
+describe("relay.err push errors carry frontendId (finding #1)", () => {
+  // A PushService that immediately reports the APNs token as permanently dead
+  // (400 BadDeviceToken / 410 Unregistered), with no live-frontend "ws" arm.
+  class DeadTokenPushService extends PushService {
+    override async sendOrDeliver(_req: PushRequest): Promise<DeliveryResult> {
+      return "dead_token";
+    }
+  }
+
+  // A PushService whose unseal never runs because we feed a real "tpps1." blob
+  // sealed under a DIFFERENT secret — the relay's PushSealer.unseal() fails and
+  // the dead-token/unseal path fires before sendOrDeliver is reached. We reuse
+  // the dead-token service so the type matches; unseal failure short-circuits
+  // before sendOrDeliver anyway.
+
+  test("PUSH_TOKEN_DEAD relay.err carries the originating frontendId", async () => {
+    // REGRESSION (finding #1): before the fix the dead-token relay.err carried
+    // no frontendId, so the daemon's relay-client handler had nothing to route
+    // to handleTokenDead and the dead APNs token was never evicted — every
+    // future hook event re-sent to it. This asserts the relay now stamps the
+    // owning frontendId on the wire so the daemon can evict surgically.
+    const relay = new RelayServer({
+      pushSealSecret: PUSH_SEAL_SECRET,
+      pushService: new DeadTokenPushService(),
+    });
+    const port = relay.start(0);
+    relay.registerToken(PUSH_X_TOKEN, PUSH_X_DAEMON_ID);
+
+    const daemon = await connectWs(port);
+    daemon.send(
+      JSON.stringify({
+        t: "relay.auth",
+        role: "daemon",
+        daemonId: PUSH_X_DAEMON_ID,
+        token: PUSH_X_TOKEN,
+        v: 2,
+      }),
+    );
+    await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
+
+    const sealer = new PushSealer({ secret: PUSH_SEAL_SECRET });
+    const sealed = await sealer.seal(
+      "aabbccddeeff001122334455aabbccddeeff001122334455",
+    );
+
+    // No frontend connected → APNs path (isFrontendConnected:false) → the
+    // DeadTokenPushService returns "dead_token".
+    daemon.send(
+      JSON.stringify({
+        t: "relay.push",
+        frontendId: PUSH_X_FRONTEND_ID,
+        sealed,
+        title: "Test",
+        body: "Hello",
+        data: { sid: "s1", daemonId: PUSH_X_DAEMON_ID, event: "Notification" },
+      }),
+    );
+
+    const err = await waitForMessage(
+      daemon,
+      (m) => m.t === "relay.err" && m.e === "PUSH_TOKEN_DEAD",
+    );
+    expect((err as { frontendId?: string }).frontendId).toBe(
+      PUSH_X_FRONTEND_ID,
+    );
+
+    daemon.close();
+    relay.stop();
+  });
+
+  test("PUSH_UNSEAL_FAILED relay.err carries the originating frontendId", async () => {
+    // Sibling path: a "tpps1." blob sealed under a foreign secret can't be
+    // unsealed by this relay, so it emits PUSH_UNSEAL_FAILED — which must also
+    // carry the frontendId so the daemon drops that frontend's stale token.
+    const relay = new RelayServer({
+      pushSealSecret: PUSH_SEAL_SECRET,
+      pushService: new DeadTokenPushService(),
+    });
+    const port = relay.start(0);
+    relay.registerToken(PUSH_X_TOKEN, PUSH_X_DAEMON_ID);
+
+    const daemon = await connectWs(port);
+    daemon.send(
+      JSON.stringify({
+        t: "relay.auth",
+        role: "daemon",
+        daemonId: PUSH_X_DAEMON_ID,
+        token: PUSH_X_TOKEN,
+        v: 2,
+      }),
+    );
+    await waitForMessage(daemon, (m) => m.t === "relay.auth.ok");
+
+    // Seal under a DIFFERENT secret so this relay's PushSealer cannot unseal it.
+    const foreignSealer = new PushSealer({ secret: "y".repeat(32) });
+    const foreignSealed = await foreignSealer.seal(
+      "aabbccddeeff001122334455aabbccddeeff001122334455",
+    );
+
+    daemon.send(
+      JSON.stringify({
+        t: "relay.push",
+        frontendId: PUSH_X_FRONTEND_ID,
+        sealed: foreignSealed,
+        title: "Test",
+        body: "Hello",
+        data: { sid: "s1", daemonId: PUSH_X_DAEMON_ID, event: "Notification" },
+      }),
+    );
+
+    const err = await waitForMessage(
+      daemon,
+      (m) => m.t === "relay.err" && m.e === "PUSH_UNSEAL_FAILED",
+    );
+    expect((err as { frontendId?: string }).frontendId).toBe(
+      PUSH_X_FRONTEND_ID,
+    );
+
+    daemon.close();
+    relay.stop();
+  });
+});

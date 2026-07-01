@@ -200,10 +200,10 @@ export class PushNotifier {
    * don't keep sending to a permanently-dead APNs token. The app re-registers
    * on next connect.
    *
-   * NOTE: this evicts exactly one frontend's token. The `relay.err`
-   * PUSH_TOKEN_DEAD signal carries no frontendId (a known v1 limitation), so
-   * relay-manager cannot route a dead-token event to this method today — the
-   * self-heal is the app re-registering on its next relay reconnect.
+   * This evicts exactly one frontend's token. The `relay.err` PUSH_TOKEN_DEAD
+   * signal now carries the owning `frontendId`, so relay-manager routes the
+   * dead-token event straight here for surgical eviction (a legacy relay that
+   * omits frontendId falls back to self-heal on the app's next reconnect).
    */
   handleTokenDead(frontendId: string): void {
     if (!this.tokens.has(frontendId)) {

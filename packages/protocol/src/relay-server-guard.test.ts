@@ -244,10 +244,21 @@ describe("parseRelayServerMessage", () => {
     test("accepts without m", () => {
       expectAccepted({ t: "relay.err", e: "boom" });
     });
+    test("accepts with optional frontendId (push token recovery)", () => {
+      // finding #1: PUSH_TOKEN_DEAD / PUSH_UNSEAL_FAILED carry the owning
+      // frontendId so the daemon can evict exactly that frontend's token.
+      expectAccepted({
+        t: "relay.err",
+        e: "PUSH_TOKEN_DEAD",
+        m: "APNs device token is dead for frontendId fe-1",
+        frontendId: "fe-1",
+      });
+    });
     test.each<[string, unknown]>([
       ["missing e", { t: "relay.err" }],
       ["non-string e", { t: "relay.err", e: 1 }],
       ["non-string m", { t: "relay.err", e: "boom", m: 2 }],
+      ["non-string frontendId", { t: "relay.err", e: "boom", frontendId: 42 }],
     ])("rejects %s", (_l, m) => {
       expectRejected(m);
     });

@@ -262,19 +262,34 @@ describe("parseRelayClientMessage", () => {
   });
 
   describe("relay.push.register", () => {
+    // A well-formed APNs (iOS) device token: exactly 64 lowercase hex chars,
+    // matching what the Swift app emits (`String(format: "%02x", byte)`) and
+    // what the relay's APNs client requires.
+    const IOS_TOKEN = "a".repeat(64);
     const valid = {
       t: "relay.push.register",
       frontendId: "fe1",
-      token: "ExponentPushToken[abc]",
+      token: IOS_TOKEN,
       platform: "ios",
     };
 
     test("accepts well-formed ios", () => {
       expectAccepted(valid);
+      // A realistic mixed-hex token also passes.
+      expectAccepted({
+        ...valid,
+        token: "0123456789abcdef".repeat(4), // 64 hex chars
+      });
     });
 
     test("accepts well-formed android", () => {
-      expectAccepted({ ...valid, platform: "android" });
+      // Android tokens are opaque + variable-length; the ios hex shape does not
+      // apply, so an FCM-style token passes on the android path.
+      expectAccepted({
+        ...valid,
+        platform: "android",
+        token: "SoMeFcMtOkEn_-123".repeat(4),
+      });
     });
 
     test.each<[string, unknown]>([
@@ -287,22 +302,38 @@ describe("parseRelayClientMessage", () => {
       expectRejected(m);
     });
 
-    test("caps token length per platform before any seal/alloc", () => {
-      // Regression: token had no length cap, so the relay would call
-      // pushSealer.seal() on an arbitrarily large value at the zero-trust
-      // boundary (and before even checking a daemon is connected). The cap is
-      // platform-aware: APNs (ios) tokens are 64 hex chars → 128; FCM (android)
-      // tokens are opaque and far longer (~140–200+ chars) → 1024.
+    test("enforces the iOS APNs token format (64 lowercase hex) before seal/alloc", () => {
+      // Regression: the iOS path had NO format check — only a length cap (≤128).
+      // A malformed iOS token (empty / uppercase / wrong-length / non-hex) that
+      // slips through gets sealed + persisted in the daemon and then fails every
+      // push with a non-evicting `invalid-device-token` pre-check in perpetuity.
+      // The guard now requires exactly /^[0-9a-f]{64}$/ — the same contract the
+      // relay's APNs client (`apns.ts`) enforces downstream.
       const ios = { ...valid, platform: "ios" as const };
-      const android = { ...valid, platform: "android" as const };
 
-      // iOS: 128 accepted, 129 rejected.
-      expectAccepted({ ...ios, token: "a".repeat(128) });
-      expectRejected({ ...ios, token: "a".repeat(129) });
+      // Exactly 64 lowercase hex → accepted.
+      expectAccepted({ ...ios, token: "a".repeat(64) });
+      expectAccepted({ ...ios, token: "0123456789abcdef".repeat(4) });
+
+      // Wrong length → rejected (63, 65, empty, and the old 128-char "OK").
+      expectRejected({ ...ios, token: "a".repeat(63) });
+      expectRejected({ ...ios, token: "a".repeat(65) });
+      expectRejected({ ...ios, token: "" });
+      expectRejected({ ...ios, token: "a".repeat(128) });
       expectRejected({ ...ios, token: "a".repeat(10_000) });
 
-      // Android: a realistic ~180-char FCM token is accepted (it would have
-      // been wrongly rejected by a flat 128 cap); 1024 accepted, 1025 rejected.
+      // Wrong charset (still 64 chars) → rejected.
+      expectRejected({ ...ios, token: "A".repeat(64) }); // uppercase
+      expectRejected({ ...ios, token: `${"a".repeat(63)}z` }); // non-hex 'z'
+      expectRejected({ ...ios, token: `${"a".repeat(63)} ` }); // whitespace
+    });
+
+    test("caps opaque android token length before any seal/alloc", () => {
+      // Android (FCM) tokens are opaque + variable-length, so only a generous
+      // upper cap applies (bounds a large pushSealer.seal()/alloc at the
+      // zero-trust boundary): 1024 accepted, 1025 rejected. A realistic ~180-char
+      // FCM token is accepted (a flat 128 cap would have wrongly rejected it).
+      const android = { ...valid, platform: "android" as const };
       expectAccepted({ ...android, token: "a".repeat(180) });
       expectAccepted({ ...android, token: "a".repeat(1024) });
       expectRejected({ ...android, token: "a".repeat(1025) });

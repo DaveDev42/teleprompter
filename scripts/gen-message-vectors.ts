@@ -161,7 +161,8 @@ const relayClient: ParseCase[] = [
   parseCase(parseRelayClientMessage, "push-register", {
     t: "relay.push.register",
     frontendId: "f1",
-    token: "deadbeef",
+    // A well-formed APNs token: exactly 64 lowercase hex chars.
+    token: "a".repeat(64),
     platform: "ios",
   }),
   // rejects
@@ -241,20 +242,58 @@ const relayClient: ParseCase[] = [
     token: "t",
     platform: "web",
   }),
-  // Wire-boundary guard: platform-aware token length cap (PR #769 / Fix 1).
-  // iOS token length 129 → TS rejects (MAX_PUSH_TOKEN_LEN.ios = 128).
-  parseCase(parseRelayClientMessage, "push-register-token-too-long-ios", {
+  // Wire-boundary guard: iOS token must be EXACTLY 64 lowercase hex chars
+  // (IOS_APNS_TOKEN_RE = /^[0-9a-f]{64}$/), matching the relay's APNs client and
+  // the Swift app's %02x hex encoding. These reject cases prove TS↔Rust parity.
+  // 63 hex → too short → rejected.
+  parseCase(parseRelayClientMessage, "push-register-ios-token-too-short", {
     t: "relay.push.register",
     frontendId: "f",
-    token: "a".repeat(129),
+    token: "a".repeat(63),
+    platform: "ios",
+  }),
+  // 65 hex → too long → rejected.
+  parseCase(parseRelayClientMessage, "push-register-ios-token-too-long", {
+    t: "relay.push.register",
+    frontendId: "f",
+    token: "a".repeat(65),
+    platform: "ios",
+  }),
+  // Empty string → rejected (previously slipped through the length-only cap).
+  parseCase(parseRelayClientMessage, "push-register-ios-token-empty", {
+    t: "relay.push.register",
+    frontendId: "f",
+    token: "",
+    platform: "ios",
+  }),
+  // 64 uppercase hex → rejected (APNs + app emit lowercase only).
+  parseCase(parseRelayClientMessage, "push-register-ios-token-uppercase", {
+    t: "relay.push.register",
+    frontendId: "f",
+    token: "A".repeat(64),
+    platform: "ios",
+  }),
+  // 64 chars with a non-hex char → rejected.
+  parseCase(parseRelayClientMessage, "push-register-ios-token-nonhex", {
+    t: "relay.push.register",
+    frontendId: "f",
+    token: `${"a".repeat(63)}z`,
     platform: "ios",
   }),
   // Android token length ~200 → TS ACCEPTS (MAX_PUSH_TOKEN_LEN.android = 1024).
-  // This case proves platform-awareness: a flat 128-byte cap would wrongly reject.
+  // Android/FCM tokens are opaque + variable-length, so only the upper cap
+  // applies (no hex-format requirement) — this case proves platform-awareness.
   parseCase(parseRelayClientMessage, "push-register-token-ok-android", {
     t: "relay.push.register",
     frontendId: "f",
     token: "a".repeat(200),
+    platform: "android",
+  }),
+  // Android token over its own cap (1025) → rejected.
+  parseCase(parseRelayClientMessage, "push-register-android-token-too-long", {
+    t: "relay.push.register",
+    frontendId: "f",
+    token: "a".repeat(1025),
     platform: "android",
   }),
 ];

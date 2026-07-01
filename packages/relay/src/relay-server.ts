@@ -1573,6 +1573,9 @@ ${daemons
         t: "relay.err",
         e: "PUSH_UNSEAL_FAILED",
         m: `Push token unseal failed for frontendId ${msg.frontendId}`,
+        // Carry the owning frontendId so the daemon evicts exactly this
+        // frontend's now-unusable sealed token (push-notifier.handleUnsealFailed).
+        frontendId: msg.frontendId,
       });
       return;
     }
@@ -1667,6 +1670,11 @@ ${daemons
           t: "relay.err",
           e: "PUSH_TOKEN_DEAD",
           m: `APNs device token is dead for frontendId ${msg.frontendId}`,
+          // Carry the owning frontendId so the daemon evicts exactly this
+          // frontend's token (push-notifier.handleTokenDead). Without it the
+          // daemon can't surgically evict and the dead token spams a failed
+          // push on every future hook event until daemon restart.
+          frontendId: msg.frontendId,
         });
         break;
       default: {

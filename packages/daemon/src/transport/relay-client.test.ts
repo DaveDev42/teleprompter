@@ -1463,3 +1463,83 @@ describe("nextPeerlessReconnects (per-connection throttle signal)", () => {
     expect(computeReconnectPlan(3, counter).delay).toBe(PEERLESS_RECONNECT_MS);
   });
 });
+
+describe("RelayClient relay.err push-token recovery routing (finding #1)", () => {
+  // A RelayClient built but never connected: handleMessage is a pure dispatch
+  // over an already-decoded RelayServerMessage, so we can drive it directly
+  // (same-package private access, as in the sendPush describe above). This
+  // proves the relay.err handler extracts the wire frontendId and forwards it
+  // to the eviction callback — the load-bearing half of finding #1's fix.
+  function makeClient(events: {
+    onPushTokenDead?: (frontendId: string) => void;
+    onPushUnsealFailed?: (frontendId: string) => void;
+  }) {
+    const client = new RelayClient(
+      {
+        relayUrl: "ws://localhost:0",
+        daemonId: "d-test",
+        token: "tok",
+        registrationProof: "proof",
+        keyPair: {
+          publicKey: new Uint8Array(32),
+          secretKey: new Uint8Array(32),
+        },
+        pairingSecret: new Uint8Array(32),
+      },
+      events,
+    );
+    const invoke = (msg: RelayServerMessage) =>
+      (
+        client as unknown as {
+          handleMessage: (m: RelayServerMessage) => Promise<void>;
+        }
+      ).handleMessage(msg);
+    return { client, invoke };
+  }
+
+  test("PUSH_TOKEN_DEAD with frontendId → onPushTokenDead(frontendId)", async () => {
+    const dead: string[] = [];
+    const { client, invoke } = makeClient({
+      onPushTokenDead: (fid) => dead.push(fid),
+    });
+    await invoke({
+      t: "relay.err",
+      e: "PUSH_TOKEN_DEAD",
+      m: "APNs device token is dead for frontendId fe-dead",
+      frontendId: "fe-dead",
+    });
+    expect(dead).toEqual(["fe-dead"]);
+    client.dispose();
+  });
+
+  test("PUSH_UNSEAL_FAILED with frontendId → onPushUnsealFailed(frontendId)", async () => {
+    const unseal: string[] = [];
+    const { client, invoke } = makeClient({
+      onPushUnsealFailed: (fid) => unseal.push(fid),
+    });
+    await invoke({
+      t: "relay.err",
+      e: "PUSH_UNSEAL_FAILED",
+      m: "unseal failed for fe-stale",
+      frontendId: "fe-stale",
+    });
+    expect(unseal).toEqual(["fe-stale"]);
+    client.dispose();
+  });
+
+  test("legacy relay.err WITHOUT frontendId → callback NOT invoked (no eviction)", async () => {
+    // A legacy relay that omits frontendId must not trigger a mis-targeted
+    // eviction; the fix falls back to self-heal-on-reconnect.
+    const dead: string[] = [];
+    const unseal: string[] = [];
+    const { client, invoke } = makeClient({
+      onPushTokenDead: (fid) => dead.push(fid),
+      onPushUnsealFailed: (fid) => unseal.push(fid),
+    });
+    await invoke({ t: "relay.err", e: "PUSH_TOKEN_DEAD", m: "dead" });
+    await invoke({ t: "relay.err", e: "PUSH_UNSEAL_FAILED", m: "unseal" });
+    expect(dead).toEqual([]);
+    expect(unseal).toEqual([]);
+    client.dispose();
+  });
+});

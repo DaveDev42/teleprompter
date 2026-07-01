@@ -169,7 +169,15 @@ export function parseRelayServerMessage(
     case "relay.err": {
       if (!isString(raw["e"])) return null;
       if (!isOptionalString(raw["m"])) return null;
-      return { t: "relay.err", e: raw["e"], m: raw["m"] } satisfies RelayError;
+      // Optional: frontend-scoped errors (push unseal/dead-token) carry the
+      // owning frontendId so the daemon can evict that frontend's token.
+      if (!isOptionalString(raw["frontendId"])) return null;
+      return {
+        t: "relay.err",
+        e: raw["e"],
+        m: raw["m"],
+        frontendId: raw["frontendId"],
+      } satisfies RelayError;
     }
 
     case "relay.notification": {

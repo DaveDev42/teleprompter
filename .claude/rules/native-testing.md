@@ -355,6 +355,16 @@ Claude Code 로 **실제 코딩**을 시킬 수 있는지는 증명하지 않는
 - **회귀 안전**: `TP_PUSH_NOTIFY_RECEIVED` 는 default 8/7 마커 셋에 없음(`TP_E2E_PUSH` 하에서만 assert). 합성 토큰
   등록은 `--tp-push-smoke` 한정 opt-in — 없으면 안 터져 M5/coding 무영향. 토큰은 격리 `$REAL_E2E_DIR` store 에만
   영속(mktemp, 정리됨) — dogfood store 절대 안 건드림.
+- **flake caveat (in-band arm 은 앱-liveness 에 타이밍 의존 — FAIL≠production bug)**: 이 E2E 가 증명하는 유일한
+  leg 는 **in-band**(`result==="ws"`)다. print `claude -p` 세션은 첫 Stop 후 ~2–3s 안에 종료하고, 그 무렵 앱이
+  relay WS 를 tear down 하면 relay 는 `handlePush` 에서 타깃 frontend 를 더 이상 live 로 못 보고 **APNs arm** 으로
+  내려간다 — 격리 relay 엔 `APNS_*`/`.p8` 이 없어(sandbox 미설정) 그 push 는 조용히 drop 되고 `TP_PUSH_NOTIFY_RECEIVED`
+  가 안 뜬다. 이건 **하니스/타이밍 아티팩트지 프로덕션 버그가 아니다**: 프로덕션 relay 는 `relay-server.ts:1594-1618`
+  의 **TOCTOU guard** 로 정확히 이 케이스를 처리한다 — unseal/sendOrDeliver await 동안 소켓이 닫히면 stale `"ws"`
+  verdict 를 재검증(`isFrontendWsLive`)해 실 APNs 로 re-deliver 한다(회귀 가드: `relay-server.test.ts`). 따라서 이
+  E2E 가 간헐 FAIL 하면 **먼저 앱-liveness 타이밍(injection 이 앱 teardown 을 이겼는지)을 의심**하고, holder 의
+  8×@3s 재전송이 그 창을 흡수하도록 설계됐음을 상기하라. 결정적 재현이 필요하면 앱이 소켓에 확실히 살아있는
+  interactive 세션 위에서 주입하거나 격리 relay 에 실 `APNS_*` 를 붙여 APNs arm 까지 검증한다(후자는 실기기 gate).
 
 ## 공식 Apple Xcode MCP (`mcpbridge`) — 인터랙티브 전용
 

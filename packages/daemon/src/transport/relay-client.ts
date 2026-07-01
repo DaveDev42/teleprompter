@@ -1025,6 +1025,21 @@ export class RelayClient {
     return this.peers.size;
   }
 
+  /**
+   * `true` when this client is in the dead-pairing reconnect throttle
+   * (`peerlessReconnects >= PEERLESS_RECONNECT_THRESHOLD`): it has reconnected
+   * the threshold number of times without ANY frontend completing key exchange,
+   * so it has backed off to {@link PEERLESS_RECONNECT_MS} (30 min). In that
+   * state a `!isConnected()` snapshot is expected and healthy — the pairing is
+   * idle (closed tab / stale QR), not a relay outage. `doctor.probe` surfaces
+   * this so the CLI does not misreport an idle pairing as "relay unreachable or
+   * auth failed". Reset to 0 in {@link handleKxFrame} the moment a frontend
+   * joins, so a phone waking after days flips back to connected promptly.
+   */
+  isThrottled(): boolean {
+    return this.peerlessReconnects >= PEERLESS_RECONNECT_THRESHOLD;
+  }
+
   /** List frontendIds that have completed key exchange with this daemon. */
   listPeerFrontendIds(): string[] {
     return Array.from(this.peers.keys());

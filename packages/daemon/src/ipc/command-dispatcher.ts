@@ -103,6 +103,9 @@ export interface IpcCommandDispatcherDeps {
     relayUrl: string;
     connected: boolean;
     peerCount: number;
+    /** In the dead-pairing reconnect throttle (peerless backoff) — see
+     * RelayClient.isThrottled(). `connected: false` is expected here. */
+    throttled: boolean;
   }>;
 }
 

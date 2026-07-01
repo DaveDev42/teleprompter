@@ -268,6 +268,18 @@ export interface IpcDoctorRelayStatus {
   connected: boolean;
   /** Number of frontends that have completed key exchange. */
   peerCount: number;
+  /**
+   * `true` when this pairing is in the dead-pairing reconnect throttle
+   * (`peerlessReconnects >= PEERLESS_RECONNECT_THRESHOLD`): the socket keeps
+   * reconnecting but no frontend has ever completed key exchange, so the client
+   * has backed off to the long (30-min) interval. In that state
+   * `connected: false` is EXPECTED and healthy — the pairing is simply idle
+   * (closed tab / old app instance / never-scanned QR), NOT a relay outage or
+   * auth failure. `doctor` uses this to avoid the misleading "relay unreachable
+   * or auth failed" verdict. Optional for wire back-compat: an older daemon
+   * omits it (readers treat absent as `false`).
+   */
+  throttled?: boolean;
 }
 
 export interface IpcDoctorProbeOk {

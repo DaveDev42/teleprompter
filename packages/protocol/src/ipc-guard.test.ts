@@ -936,4 +936,85 @@ describe("parseIpcMessage", () => {
       ).toBeNull();
     });
   });
+
+  describe("doctor.probe.ok", () => {
+    test("accepts a relay status carrying throttled: true", () => {
+      const result = parseIpcMessage({
+        t: "doctor.probe.ok",
+        relays: [
+          {
+            daemonId: "d1",
+            relayUrl: "wss://relay.example.com",
+            connected: false,
+            peerCount: 0,
+            throttled: true,
+          },
+        ],
+      });
+      expect(result).toEqual({
+        t: "doctor.probe.ok",
+        relays: [
+          {
+            daemonId: "d1",
+            relayUrl: "wss://relay.example.com",
+            connected: false,
+            peerCount: 0,
+            throttled: true,
+          },
+        ],
+      });
+    });
+
+    test("omits throttled (wire back-compat with an older daemon)", () => {
+      // A daemon built before the throttled flag omits it; the guard must still
+      // accept the frame and simply leave `throttled` off (CLI treats it false).
+      const result = parseIpcMessage({
+        t: "doctor.probe.ok",
+        relays: [
+          {
+            daemonId: "d1",
+            relayUrl: "wss://relay.example.com",
+            connected: true,
+            peerCount: 2,
+          },
+        ],
+      });
+      expect(result).toEqual({
+        t: "doctor.probe.ok",
+        relays: [
+          {
+            daemonId: "d1",
+            relayUrl: "wss://relay.example.com",
+            connected: true,
+            peerCount: 2,
+          },
+        ],
+      });
+      // `throttled` must be genuinely absent (not `undefined` in the object),
+      // so it never widens into the wire snapshot.
+      expect(
+        Object.hasOwn(
+          (result as { relays: object[] }).relays[0] as object,
+          "throttled",
+        ),
+      ).toBe(false);
+    });
+
+    test("rejects a non-boolean throttled", () => {
+      expect(
+        parseIpcMessage({
+          t: "doctor.probe.ok",
+          relays: [
+            {
+              daemonId: "d1",
+              relayUrl: "wss://relay.example.com",
+              connected: false,
+              peerCount: 0,
+              throttled: "yes",
+            },
+          ],
+        }),
+      ).toBeNull();
+    });
+  });
 });

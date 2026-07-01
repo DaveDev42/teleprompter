@@ -1663,6 +1663,9 @@ const PUSH_X_TOKEN = "path-x-token";
 const PUSH_X_DAEMON_ID = "push-x-daemon";
 const PUSH_X_FRONTEND_ID = "push-x-frontend-1";
 const PUSH_SEAL_SECRET = "x".repeat(32);
+// A well-formed APNs (iOS) device token: exactly 64 lowercase hex chars, as the
+// zero-trust guard (relay-client-guard.ts `/^[0-9a-f]{64}$/`) now requires.
+const IOS_APNS_TOKEN = "0123456789abcdef".repeat(4);
 
 describe("Path X: relay.push.register → relay.push.token sealing", () => {
   let relay: RelayServer;
@@ -1755,7 +1758,7 @@ describe("Path X: relay.push.register → relay.push.token sealing", () => {
       JSON.stringify({
         t: "relay.push.register",
         frontendId: PUSH_X_FRONTEND_ID,
-        token: "ExponentPushToken[test-token-abc]",
+        token: IOS_APNS_TOKEN,
         platform: "ios",
       }),
     );
@@ -1772,7 +1775,7 @@ describe("Path X: relay.push.register → relay.push.token sealing", () => {
     const result = await sealer.unseal(ptMsg.sealed);
     expect(result).toEqual({
       ok: true,
-      token: "ExponentPushToken[test-token-abc]",
+      token: IOS_APNS_TOKEN,
     });
 
     frontend.close();
@@ -2059,7 +2062,7 @@ describe("Path X: relay.push.register → relay.push.token sealing", () => {
         t: "relay.push.register",
         // Spoofed: the attacker claims to be the victim.
         frontendId: "victim-frontend-2",
-        token: "ExponentPushToken[attacker-token]",
+        token: IOS_APNS_TOKEN,
         platform: "ios",
       }),
     );

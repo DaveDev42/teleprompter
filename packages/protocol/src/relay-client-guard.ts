@@ -57,6 +57,24 @@ const MAX_PUSH_TOKEN_LEN: Record<"ios" | "android", number> = {
 };
 
 /**
+ * Exact shape of a well-formed APNs (iOS) device token: 64 lowercase hex chars
+ * (a 32-byte token). This is the SAME contract the relay's own APNs client
+ * enforces before an HTTP/2 push (`apns.ts` `/^[0-9a-f]{64}$/`), and it matches
+ * exactly what the Swift app emits — it hex-encodes the raw `deviceToken` bytes
+ * with `String(format: "%02x", $0)` (lowercase, no separators).
+ *
+ * Enforcing it here, at the zero-trust wire boundary, rejects a malformed iOS
+ * token (empty string, uppercase, wrong length, non-hex) BEFORE the relay seals
+ * and the daemon persists it. Without this, such a token passes the guard, gets
+ * sealed + stored in daemon SQLite, and then fails every future push with a
+ * local `invalid-device-token` pre-check that returns `deadToken: false` — so it
+ * is never evicted and spams `PUSH_DELIVERY_ERROR` in perpetuity. The length cap
+ * above still applies to the (opaque, variable-length) Android/FCM path, which
+ * has no comparable fixed format.
+ */
+const IOS_APNS_TOKEN_RE = /^[0-9a-f]{64}$/;
+
+/**
  * Validate the optional `data` navigation payload on a relay.push. When
  * present it must be an object with three string fields — push-notifier reads
  * `data.sid` / `data.daemonId` / `data.event` unconditionally.
@@ -204,14 +222,19 @@ export function parseRelayClientMessage(
     case "relay.push.register": {
       if (!isString(raw["frontendId"])) return null;
       if (!isPlatform(raw["platform"])) return null;
-      // Cap the token length at the zero-trust boundary so an oversized value
-      // can't force a large pushSealer.seal()/alloc before any daemon-presence
-      // check. The bound is platform-aware: APNs (ios) tokens are 64 hex chars,
-      // but FCM (android) tokens are opaque and far longer (~140–200+ chars).
-      if (
-        !isString(raw["token"]) ||
-        raw["token"].length > MAX_PUSH_TOKEN_LEN[raw["platform"]]
-      ) {
+      if (!isString(raw["token"])) return null;
+      // Validate the token format at the zero-trust boundary, per platform:
+      //  - iOS (APNs): EXACT 64 lowercase hex chars — the same contract the
+      //    relay's APNs client enforces and exactly what the Swift app emits.
+      //    A malformed iOS token (empty/uppercase/wrong-length/non-hex) that
+      //    slips through here gets sealed + persisted and then fails every push
+      //    with a non-evicting `invalid-device-token` pre-check forever.
+      //  - Android (FCM): opaque + variable-length, so only a generous upper
+      //    length cap applies (bounds a large pushSealer.seal()/alloc before any
+      //    daemon-presence check).
+      if (raw["platform"] === "ios") {
+        if (!IOS_APNS_TOKEN_RE.test(raw["token"])) return null;
+      } else if (raw["token"].length > MAX_PUSH_TOKEN_LEN[raw["platform"]]) {
         return null;
       }
       return {

@@ -15,16 +15,27 @@ use crate::{is_non_negative_int, is_number, req_string};
 // relay-client-guard.ts `MAX_PUSH_TOKEN_LEN` (lines 54-57).
 // ---------------------------------------------------------------------------
 
-/// Maximum accepted byte-length for an APNs (iOS) push device token.
-/// iOS device tokens are fixed 64 hex chars; 128 is 2× headroom.
-/// Mirrors `MAX_PUSH_TOKEN_LEN.ios = 128` in relay-client-guard.ts.
-const MAX_PUSH_TOKEN_IOS: usize = 128;
-
 /// Maximum accepted byte-length for an FCM (Android) push device token.
 /// FCM tokens are opaque and typically ~140–200 chars (can be longer);
 /// 1024 covers current and future FCM tokens with margin.
 /// Mirrors `MAX_PUSH_TOKEN_LEN.android = 1024` in relay-client-guard.ts.
 const MAX_PUSH_TOKEN_ANDROID: usize = 1024;
+
+/// Exact APNs (iOS) device-token length in lowercase hex chars (a 32-byte token).
+/// Mirrors `IOS_APNS_TOKEN_RE = /^[0-9a-f]{64}$/` in relay-client-guard.ts.
+const IOS_APNS_TOKEN_HEX_LEN: usize = 64;
+
+/// True iff `s` is exactly 64 lowercase-hex chars — the byte-exact equivalent of
+/// the TS guard's `IOS_APNS_TOKEN_RE = /^[0-9a-f]{64}$/`. Kept regex-free (no new
+/// crate dep, and `unsafe_code = "forbid"` stays satisfied): a fixed-length scan
+/// over ASCII bytes is unambiguous for a hex charset (all single-byte). This is
+/// the same contract the relay's APNs client enforces and exactly what the Swift
+/// app emits (`String(format: "%02x", byte)`).
+fn is_ios_apns_token(s: &str) -> bool {
+    s.len() == IOS_APNS_TOKEN_HEX_LEN
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
 
 /// Relay connection role (`"daemon" | "frontend"`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -272,17 +283,17 @@ pub fn parse_relay_client_message(raw: &Value) -> Option<RelayClientMessage> {
             // legitimate android tokens (~140–200+ chars).
             let platform = Platform::from_str(obj.get("platform").and_then(Value::as_str)?)?;
             let token = req_string(obj, "token")?;
-            // Use byte-length (.len()) rather than Unicode scalar count
-            // (.chars().count()): push tokens are ASCII hex (iOS) or URL-safe
-            // base64 (Android), so every char is a single byte and the two counts
-            // are identical. This matches the precedent set by MAX_PAIRING_B64_LEN
-            // in tp-core/src/pairing.rs, and mirrors JS `.length` faithfully for
-            // ASCII-only token strings.
-            let max_len = match platform {
-                Platform::Ios => MAX_PUSH_TOKEN_IOS,
-                Platform::Android => MAX_PUSH_TOKEN_ANDROID,
+            // Validate the token format per platform (mirrors relay-client-guard.ts):
+            //  - iOS (APNs): EXACT 64 lowercase hex chars — the same contract the
+            //    relay's APNs client enforces and exactly what the Swift app emits.
+            //  - Android (FCM): opaque + variable-length, so only a generous upper
+            //    length cap applies. Byte-length (.len()) equals char count here
+            //    since FCM tokens are ASCII (matches JS `.length`).
+            let token_ok = match platform {
+                Platform::Ios => is_ios_apns_token(&token),
+                Platform::Android => token.len() <= MAX_PUSH_TOKEN_ANDROID,
             };
-            if token.len() > max_len {
+            if !token_ok {
                 return None;
             }
             Some(RelayClientMessage::PushRegister {
@@ -399,51 +410,39 @@ mod tests {
     }
 
     #[test]
-    fn push_register_token_length_cap_platform_aware() {
-        // iOS tokens are ASCII hex; APNs fixed shape is 64 hex chars.
-        // MAX_PUSH_TOKEN_IOS = 128 (2× headroom).
-        let ios_128 = "a".repeat(128);
-        let ios_129 = "a".repeat(129);
+    fn push_register_token_format_platform_aware() {
+        let reg = |token: &str, platform: &str| {
+            parse_relay_client_message(&serde_json::json!({
+                "t": "relay.push.register",
+                "frontendId": "f",
+                "token": token,
+                "platform": platform,
+            }))
+        };
 
-        // iOS token at boundary (128) → accepted.
-        assert!(parse_relay_client_message(&serde_json::json!({
-            "t": "relay.push.register",
-            "frontendId": "f",
-            "token": ios_128,
-            "platform": "ios"
-        }))
-        .is_some());
+        // iOS (APNs): EXACT 64 lowercase-hex chars — the byte-exact contract
+        // shared with relay-client-guard.ts's /^[0-9a-f]{64}$/ and apns.rs.
+        let ios_ok = "a".repeat(64); // 64 hex chars → accepted.
+        assert!(reg(&ios_ok, "ios").is_some());
+        // 63 hex (too short), 65 hex (too long) → rejected.
+        assert!(reg(&"a".repeat(63), "ios").is_none());
+        assert!(reg(&"a".repeat(65), "ios").is_none());
+        // Empty string → rejected (previously slipped through the length-only cap).
+        assert!(reg("", "ios").is_none());
+        // Uppercase hex (64 chars) → rejected: APNs/app emit lowercase only.
+        assert!(reg(&"A".repeat(64), "ios").is_none());
+        // Non-hex char within an otherwise 64-char token → rejected.
+        let ios_nonhex = format!("{}z", "a".repeat(63));
+        assert_eq!(ios_nonhex.len(), 64);
+        assert!(reg(&ios_nonhex, "ios").is_none());
 
-        // iOS token over boundary (129) → rejected.
-        assert!(parse_relay_client_message(&serde_json::json!({
-            "t": "relay.push.register",
-            "frontendId": "f",
-            "token": ios_129,
-            "platform": "ios"
-        }))
-        .is_none());
-
-        // Android token of ~200 chars → accepted (FCM tokens are ~140–200 chars;
-        // this would be WRONGLY rejected by a flat 128-byte cap — this test is
-        // the key regression guard for platform-awareness).
-        let android_200 = "a".repeat(200);
-        assert!(parse_relay_client_message(&serde_json::json!({
-            "t": "relay.push.register",
-            "frontendId": "f",
-            "token": android_200,
-            "platform": "android"
-        }))
-        .is_some());
-
-        // Android token over its own cap (1025) → rejected.
-        let android_1025 = "a".repeat(1025);
-        assert!(parse_relay_client_message(&serde_json::json!({
-            "t": "relay.push.register",
-            "frontendId": "f",
-            "token": android_1025,
-            "platform": "android"
-        }))
-        .is_none());
+        // Android (FCM): opaque + variable-length, only the upper cap applies.
+        // ~200 chars accepted (would be wrongly rejected by a flat 128 cap).
+        assert!(reg(&"a".repeat(200), "android").is_some());
+        // Mixed-case / non-hex is fine for FCM (opaque token).
+        assert!(reg("SoMeFcMtOkEn_-123", "android").is_some());
+        // Over its own cap (1025) → rejected.
+        assert!(reg(&"a".repeat(1025), "android").is_none());
     }
 
     #[test]

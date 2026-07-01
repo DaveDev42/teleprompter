@@ -64,13 +64,11 @@ struct ChatView: View {
         }
     }
 
-    /// `true` when the session is still running (last event is not a Stop).
+    /// `true` when Claude is actively working on a turn: a prompt was submitted
+    /// and no matching Stop has arrived yet. Delegates to `SessionStore.isWorking`
+    /// (the unit-tested SoT) — see that method for the inversion bug this fixes.
     private var isWorking: Bool {
-        guard let last = items.last else { return false }
-        switch ChatEventCardKind(item: last) {
-        case .assistant: return false
-        default: return true
-        }
+        store.isWorking(sid: sid)
     }
 
     /// `true` when the session's state is "stopped" (no more input accepted).

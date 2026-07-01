@@ -17,6 +17,23 @@ import XCTest
 final class ChatRenderTests: XCTestCase {
     private let sid = "sess-smoketest"
 
+    /// `SessionStore.persistKey` — mirrored here (it's private). `SessionStore.init`
+    /// hydrates `sessions` from this UserDefaults key, so a prior test that calls
+    /// `appendState` (which persists) would leak a running `sess-smoketest` into the
+    /// next test's fresh store. Clearing it per-test keeps `isWorking`'s
+    /// state == "running" AND-gate honest (esp. the "unknown session" case).
+    nonisolated private static let persistKey = "tp.sessions.v1"
+
+    override func setUp() {
+        super.setUp()
+        UserDefaults.standard.removeObject(forKey: Self.persistKey)
+    }
+
+    override func tearDown() {
+        UserDefaults.standard.removeObject(forKey: Self.persistKey)
+        super.tearDown()
+    }
+
     /// Build a wire-shaped event record whose base64 `d` decodes to the given
     /// hook-event JSON object — exactly how the daemon frames it.
     private func eventRec(seq: Int, json: [String: Any]) -> SessionRec {
@@ -276,6 +293,142 @@ final class ChatRenderTests: XCTestCase {
         } else {
             XCTFail("Expected .elicitation kind for Elicitation")
         }
+    }
+
+    // MARK: isWorking — turn-lifecycle scan (busy-indicator inversion fix)
+
+    /// Mark `sid` as a live (running) session so `isWorking` passes its AND-gate.
+    private func markRunning(_ store: SessionStore, seq: Int = 0) {
+        store.appendState(
+            SessionMeta(
+                sid: sid, state: "running", cwd: "/tmp/smoke",
+                createdAt: 1, updatedAt: 2, lastSeq: seq))
+    }
+
+    private func userPromptRec(seq: Int) -> SessionRec {
+        eventRec(
+            seq: seq,
+            json: [
+                "session_id": sid, "hook_event_name": "UserPromptSubmit",
+                "cwd": "/tmp/smoke", "user_prompt": "do a thing",
+            ])
+    }
+
+    private func stopRec(seq: Int) -> SessionRec {
+        eventRec(
+            seq: seq,
+            json: [
+                "session_id": sid, "hook_event_name": "Stop", "cwd": "/tmp/smoke",
+                "last_assistant_message": "done",
+            ])
+    }
+
+    private func postToolRec(seq: Int) -> SessionRec {
+        eventRec(
+            seq: seq,
+            json: [
+                "session_id": sid, "hook_event_name": "PostToolUse",
+                "cwd": "/tmp/smoke", "tool_name": "Bash",
+            ])
+    }
+
+    /// An aggregated (sid == nil) view is never "working".
+    func testIsWorkingNilSidIsNeverWorking() {
+        let store = SessionStore()
+        XCTAssertFalse(store.isWorking(sid: nil))
+    }
+
+    /// No lifecycle event yet (empty chat) on a running session → idle.
+    func testIsWorkingEmptyChatIsIdle() {
+        let store = SessionStore()
+        markRunning(store)
+        XCTAssertFalse(store.isWorking(sid: sid))
+    }
+
+    /// A submitted prompt with no closing Stop → busy.
+    func testIsWorkingOpenTurnIsBusy() {
+        let store = SessionStore()
+        markRunning(store)
+        store.appendRec(userPromptRec(seq: 1))
+        XCTAssertTrue(store.isWorking(sid: sid))
+    }
+
+    /// A completed turn (prompt → Stop) → idle.
+    func testIsWorkingClosedTurnIsIdle() {
+        let store = SessionStore()
+        markRunning(store)
+        store.appendRec(userPromptRec(seq: 1))
+        store.appendRec(stopRec(seq: 2))
+        XCTAssertFalse(store.isWorking(sid: sid))
+    }
+
+    /// REGRESSION (false-IDLE): an in-flight turn whose latest event is a
+    /// non-boundary `PostToolUse` (Claude is mid-tool, streaming io) is still
+    /// busy — the old trailing-item heuristic couldn't see past the tool event
+    /// to the open prompt, and worse, live io never becomes a chat item at all.
+    func testIsWorkingMidToolIsBusy() {
+        let store = SessionStore()
+        markRunning(store)
+        store.appendRec(userPromptRec(seq: 1))
+        store.appendRec(postToolRec(seq: 2))  // mid-turn, not a boundary
+        XCTAssertTrue(store.isWorking(sid: sid))
+    }
+
+    /// REGRESSION (false-BUSY): a finished session whose trailing event is a
+    /// non-`Stop` (`PostToolUse`) must read idle. The old heuristic returned
+    /// busy for any trailing item that wasn't `.assistant`, showing the typing
+    /// dots forever on an idle session.
+    func testIsWorkingTrailingPostToolAfterStopIsIdle() {
+        let store = SessionStore()
+        markRunning(store)
+        store.appendRec(userPromptRec(seq: 1))
+        store.appendRec(stopRec(seq: 2))
+        store.appendRec(postToolRec(seq: 3))  // a stray post-Stop tool event
+        XCTAssertFalse(store.isWorking(sid: sid))
+    }
+
+    /// A StopFailure also closes the turn → idle.
+    func testIsWorkingStopFailureClosesTurn() {
+        let store = SessionStore()
+        markRunning(store)
+        store.appendRec(userPromptRec(seq: 1))
+        store.appendRec(
+            eventRec(
+                seq: 2,
+                json: [
+                    "session_id": sid, "hook_event_name": "StopFailure",
+                    "cwd": "/tmp/smoke", "error": "boom",
+                ]))
+        XCTAssertFalse(store.isWorking(sid: sid))
+    }
+
+    /// A new turn after a completed one (prompt → Stop → prompt) → busy again.
+    func testIsWorkingNewTurnAfterStopIsBusy() {
+        let store = SessionStore()
+        markRunning(store)
+        store.appendRec(userPromptRec(seq: 1))
+        store.appendRec(stopRec(seq: 2))
+        store.appendRec(userPromptRec(seq: 3))  // second turn opens
+        XCTAssertTrue(store.isWorking(sid: sid))
+    }
+
+    /// AND-gate: an open turn on a NON-running (stopped) session is never busy —
+    /// a killed/finished process can't be "working" no matter what events remain.
+    func testIsWorkingStoppedSessionIsNeverBusy() {
+        let store = SessionStore()
+        store.appendState(
+            SessionMeta(
+                sid: sid, state: "stopped", cwd: "/tmp/smoke",
+                createdAt: 1, updatedAt: 2, lastSeq: 0))
+        store.appendRec(userPromptRec(seq: 1))  // an open turn…
+        XCTAssertFalse(store.isWorking(sid: sid))  // …but process is dead
+    }
+
+    /// AND-gate: unknown session (no state at all) is never busy.
+    func testIsWorkingUnknownSessionIsNeverBusy() {
+        let store = SessionStore()
+        store.appendRec(userPromptRec(seq: 1))
+        XCTAssertFalse(store.isWorking(sid: sid))  // no SessionMeta → not running
     }
 
     // MARK: session metadata

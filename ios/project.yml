@@ -16,7 +16,10 @@ options:
   bundleIdPrefix: dev.tpmt
   deploymentTarget:
     iOS: "17.0"
-    macOS: "14.0"
+    # macOS 15.0: SceneLaunchBehavior.suppressed (used on the session WindowGroup
+    # in TeleprompterApp.swift to stop SwiftUI auto-opening an empty 2nd window at
+    # launch) is macOS 15.0+. Raising the floor from 14.0 keeps the fix guard-free.
+    macOS: "15.0"
     visionOS: "2.0"
     watchOS: "10.0"
   createIntermediateGroups: true

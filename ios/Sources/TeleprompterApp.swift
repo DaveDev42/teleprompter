@@ -195,6 +195,16 @@ struct TeleprompterApp: App {
         }
         .defaultSize(width: 820, height: 620)
         .windowResizability(.contentMinSize)
+        // Do NOT auto-open a window for this scene at launch. On macOS SwiftUI
+        // instantiates one window per top-level Scene at startup; for a
+        // value-carrying WindowGroup(id:for:) that means an EMPTY window with a
+        // nil binding (the `if let sid` renders no content, but the NSWindow
+        // chrome still exists — a phantom 2nd window on every fresh launch,
+        // caught by testMacPerSessionWindowAndNoDuplicateMain). `.suppressed`
+        // keeps the scene registered so `openWindow(id:"session", value: sid)`
+        // still pops out a per-session window on demand, but nothing opens
+        // unbidden at launch. macOS 15+ (deployment floor raised to 15.0).
+        .defaultLaunchBehavior(.suppressed)
         #endif
     }
 }

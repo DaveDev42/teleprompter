@@ -50,11 +50,19 @@ struct SessionDetailView: View {
         return pairings.isOnline(did)
     }
 
+    /// BATCH F (#10/#15): the current disconnect/throttle cause for the
+    /// session's daemon, if any — same single-daemon convenience as
+    /// `daemonOnline` above.
+    private var connectionCause: String? {
+        guard let pairings, let did = pairings.daemonIds.first else { return nil }
+        return pairings.connectionCause(for: did)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // H9: Connection banner — shows "Disconnected" / "Reconnected" with
             // VoiceOver live-region announcements. Always present in the hierarchy.
-            ConnectionBanner(connected: daemonOnline)
+            ConnectionBanner(connected: daemonOnline, cause: connectionCause)
 
             // H9: Session-stopped banner — shows "Session ended — read-only view"
             // when the session state is "stopped". Always present.

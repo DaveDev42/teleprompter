@@ -364,4 +364,44 @@ final class RelayResilienceTests: XCTestCase {
         XCTAssertFalse(RelayClient.isAcceptableRelayScheme("relay.tpmt.dev"))  // no scheme
         XCTAssertFalse(RelayClient.isAcceptableRelayScheme(""))
     }
+
+    // MARK: - BATCH F (#10): close-code → human-readable cause mapping
+
+    /// Pure function, no live socket needed — mirrors the
+    /// `reconnectDelay`/`isAcceptableRelayScheme` static-helper test style
+    /// above. Codes are the relay's actual close reasons
+    /// (`packages/relay/src/relay-server.ts` / RFC 6455 §7.4.1).
+    func testConnectionCauseDescriptionMapsKnownCloseCodes() {
+        XCTAssertEqual(
+            RelayClient.connectionCauseDescription(forCloseCode: 1013),
+            "relay busy (backpressure)")
+        XCTAssertEqual(
+            RelayClient.connectionCauseDescription(forCloseCode: 1008),
+            "relay policy")
+        XCTAssertEqual(
+            RelayClient.connectionCauseDescription(forCloseCode: 1009),
+            "relay policy")
+        XCTAssertEqual(
+            RelayClient.connectionCauseDescription(forCloseCode: 1000),
+            "relay restarted")
+        XCTAssertEqual(
+            RelayClient.connectionCauseDescription(forCloseCode: 1001),
+            "relay restarted")
+    }
+
+    func testConnectionCauseDescriptionNoCodeMeansNetworkLost() {
+        // `nil` is what URLSession reports when the TCP connection dropped
+        // without ever receiving a close frame — that's a network blip, not
+        // a relay-initiated close.
+        XCTAssertEqual(
+            RelayClient.connectionCauseDescription(forCloseCode: nil), "network lost")
+    }
+
+    func testConnectionCauseDescriptionUnknownCodeFallsBackToGenericMessage() {
+        // Any close code the mapping doesn't special-case still yields an
+        // actionable (non-empty, non-crashing) string rather than silently
+        // falling through.
+        XCTAssertEqual(
+            RelayClient.connectionCauseDescription(forCloseCode: 4999), "relay disconnected")
+    }
 }

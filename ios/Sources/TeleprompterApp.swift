@@ -235,6 +235,13 @@ final class PairingViewModel {
     /// Keyed by daemonId; true = daemon is connected to relay & has signalled presence.
     /// Observable (NOT @ObservationIgnored) so status dots update reactively.
     private(set) var daemonOnline: [String: Bool] = [:]
+    /// BATCH F (#10/#15): per-daemon reason for the current disconnected/
+    /// degraded state (e.g. "relay busy (backpressure)", "network lost",
+    /// "sending too fast"), or absent when the connection is healthy. Mirrors
+    /// `daemonOnline`'s wiring — set from `RelayClient.onConnectionCauseChange`,
+    /// cleared automatically by the client on the next successful auth.
+    /// Observable so `ConnectionBanner` can render it reactively.
+    private(set) var connectionCause: [String: String] = [:]
 
     private let log = Logger(subsystem: "dev.tpmt.app", category: "pairing-vm")
 
@@ -270,6 +277,19 @@ final class PairingViewModel {
             }
         }
 
+        // BATCH F (#10/#15): wire connection-cause callback → observable
+        // connectionCause dict. `nil` means "clear the entry" (reconnected).
+        client.onConnectionCauseChange = { [weak self] cause in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let cause {
+                    self.connectionCause[daemonId] = cause
+                } else {
+                    self.connectionCause.removeValue(forKey: daemonId)
+                }
+            }
+        }
+
         // H7: inbound control.unpair from daemon → remove our side of the pairing.
         client.onUnpair = { [weak self] did, reason in
             Task { @MainActor [weak self] in
@@ -281,6 +301,7 @@ final class PairingViewModel {
                 self.clients[did]?.disconnect()
                 self.clients[did] = nil
                 self.daemonOnline.removeValue(forKey: did)
+                self.connectionCause.removeValue(forKey: did)
                 self.store.remove(daemonId: did)
                 self.reload()
             }
@@ -312,6 +333,7 @@ final class PairingViewModel {
         clients[daemonId]?.disconnect()
         clients[daemonId] = nil
         daemonOnline.removeValue(forKey: daemonId)
+        connectionCause.removeValue(forKey: daemonId)
         store.remove(daemonId: daemonId)
         reload()
     }
@@ -348,6 +370,14 @@ final class PairingViewModel {
     /// `true` only after the daemon signals presence AND kx is complete.
     func isOnline(_ daemonId: String) -> Bool {
         daemonOnline[daemonId] == true && isConnected(daemonId)
+    }
+
+    /// BATCH F (#10/#15): the current disconnect/throttle cause for a daemon,
+    /// or `nil` when there isn't one (healthy connection, or never observed a
+    /// close/throttle event yet). `ConnectionBanner` renders this instead of
+    /// a generic "Disconnected" string when available.
+    func connectionCause(for daemonId: String) -> String? {
+        connectionCause[daemonId]
     }
 
     // MARK: - M9: Observable label cache

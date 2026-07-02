@@ -167,7 +167,26 @@ export interface RelayClientEvents {
   onControlMessage?: (msg: RelayControlMessage, frontendId: string) => void;
   /** Called when relay connection state changes */
   onConnected?: () => void;
-  onDisconnected?: () => void;
+  /**
+   * Called when the relay WebSocket closes, with the CloseEvent's `code`/
+   * `reason` when available. `info` is `undefined` for callers that never
+   * observed a real close frame (e.g. a synthesized/forced teardown that
+   * never opened a socket) — treat that as "unknown cause", not "clean
+   * close". Known relay-side codes: 1013 (backpressure disconnect — slow
+   * consumer), 1008/1009 (policy/oversize), 1000/1001 (normal/going away).
+   */
+  onDisconnected?: (info?: { code?: number; reason?: string }) => void;
+  /**
+   * Called when the relay throttles this connection instead of only logging
+   * it — currently fired on a `relay.err RATE_LIMITED` reply (per-client or
+   * per-daemon-group budget exceeded). Purely additive signal surfacing; does
+   * NOT change the relay's throttle/backpressure behavior (a capacity
+   * invariant — see `.claude/rules/relay-capacity.md`).
+   */
+  onRelayThrottled?: (info: {
+    reason: "rate_limited";
+    detail?: string | undefined;
+  }) => void;
   /** Called when relay reports presence */
   onPresence?: (online: boolean, sessions?: string[]) => void;
   /** Called when a new frontend completes key exchange */
@@ -326,9 +345,19 @@ export class RelayClient {
       });
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       this.authenticated = false;
-      this.events.onDisconnected?.();
+      // `event` is Bun's CloseEvent (code/reason). Some internal teardown
+      // paths (e.g. a WebSocket ctor throw before a socket ever opens) can
+      // reach here without a real close frame, so guard for undefined rather
+      // than assume the shape — never let a malformed/absent event crash the
+      // reconnect loop. This is purely additive plumbing: the code/reason are
+      // now AVAILABLE to a listener; nothing currently changes reconnect
+      // timing/backoff based on them.
+      this.events.onDisconnected?.({
+        code: event?.code,
+        reason: event?.reason,
+      });
       this.scheduleReconnect();
     };
 
@@ -460,6 +489,19 @@ export class RelayClient {
               `relay reported PUSH_TOKEN_DEAD without a frontendId (legacy relay) — no eviction; app re-registers on next relay reconnect. relay: ${msg.m ?? "(no detail)"}`,
             );
           }
+        } else if (msg.e === "RATE_LIMITED") {
+          // Per-client or per-daemon-group budget exceeded (relay-server.ts
+          // checkRateLimit/checkDaemonGroupRateLimit). This is a
+          // connection-level error (no owning frontendId) — surface it to a
+          // listener in addition to logging so the app can eventually learn
+          // "you're sending too fast" instead of the daemon silently
+          // dropping the frame. Does NOT change relay-side throttle
+          // behavior — see .claude/rules/relay-capacity.md.
+          log.warn(`relay throttled us: ${msg.m ?? msg.e}`);
+          this.events.onRelayThrottled?.({
+            reason: "rate_limited",
+            detail: msg.m,
+          });
         } else {
           log.error(`relay error: ${msg.m ?? msg.e}`);
         }

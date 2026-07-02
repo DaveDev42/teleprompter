@@ -19,6 +19,13 @@ import UIKit
 /// content later, so AT observes the content change — not the container mount).
 struct ConnectionBanner: View {
     let connected: Bool
+    /// BATCH F (#10/#15): an optional short reason for the current
+    /// disconnected/degraded state (e.g. "relay busy (backpressure)",
+    /// "network lost", "sending too fast"), sourced from
+    /// `PairingViewModel.connectionCause(for:)`. `nil` falls back to the
+    /// original generic "Disconnected" copy — this parameter defaults to nil
+    /// so existing call sites keep compiling unchanged.
+    var cause: String? = nil
 
     private enum BannerState { case hidden, disconnected, reconnected }
 
@@ -39,9 +46,9 @@ struct ConnectionBanner: View {
 
             case .disconnected:
                 bannerRow(
-                    text: "Disconnected — messages will send after reconnect",
+                    text: disconnectedText,
                     dotColor: .secondary,
-                    accessibilityAnnouncement: "Disconnected. Messages will send after reconnect."
+                    accessibilityAnnouncement: disconnectedAnnouncement
                 )
 
             case .reconnected:
@@ -57,7 +64,7 @@ struct ConnectionBanner: View {
             if !isConnected {
                 hasBeenDisconnected = true
                 bannerState = .disconnected
-                postAccessibilityAnnouncement("Disconnected. Messages will send after reconnect.")
+                postAccessibilityAnnouncement(disconnectedAnnouncement)
             } else {
                 guard hasBeenDisconnected else {
                     bannerState = .hidden
@@ -72,6 +79,23 @@ struct ConnectionBanner: View {
                 }
             }
         }
+    }
+
+    /// BATCH F: disconnected banner copy, refined with `cause` when available.
+    /// Falls back to the original generic text when `cause` is nil (no close
+    /// event/relay.err observed yet, or the caller didn't pass one).
+    private var disconnectedText: String {
+        guard let cause else {
+            return "Disconnected — messages will send after reconnect"
+        }
+        return "Disconnected (\(cause)) — messages will send after reconnect"
+    }
+
+    private var disconnectedAnnouncement: String {
+        guard let cause else {
+            return "Disconnected. Messages will send after reconnect."
+        }
+        return "Disconnected: \(cause). Messages will send after reconnect."
     }
 
     @ViewBuilder

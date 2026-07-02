@@ -59,7 +59,11 @@ export class Runner {
         this.handleDaemonMessage(msg);
       },
       () => {
-        this.stop(-1);
+        // Socket teardown (queue overflow / IPC socket close) is a
+        // transport-level event, not claude's own process exit — reason
+        // "signal" so the daemon's handleBye always resolves this to
+        // "stopped" rather than misreading -1 as a genuine crash exit code.
+        this.stop(-1, "signal");
       },
     );
 
@@ -120,7 +124,11 @@ export class Runner {
           }
         },
         onExit: (exitCode) => {
-          this.stop(exitCode);
+          // This is claude's own PTY child exiting on its own — the ONLY
+          // call site that carries a meaningful process exit code. reason
+          // "exit" lets the daemon's handleBye trust exitCode to distinguish
+          // a clean exit from a genuine crash.
+          this.stop(exitCode, "exit");
         },
       });
 
@@ -158,11 +166,23 @@ export class Runner {
     }
   }
 
-  stop(exitCode: number): void {
+  /**
+   * @param exitCode Informational process/signal exit code included on the
+   *   bye frame.
+   * @param reason Why stop() was called. Defaults to `"exit"` (claude's own
+   *   process exiting) since that is the historical/primary call site.
+   *   Callers reached via a daemon/transport-initiated teardown (graceful
+   *   SIGTERM/SIGINT shutdown, IPC socket close) must pass `"signal"` so the
+   *   daemon does not misread a non-zero signal exit code as a genuine
+   *   claude crash. See `IpcBye.reason` for the full rationale.
+   */
+  stop(exitCode: number, reason: "signal" | "exit" = "exit"): void {
     if (this.state === "stopping" || this.state === "stopped") return;
     this.state = "stopping";
 
-    log.info(`stopping sid=${this.opts.sid} exitCode=${exitCode}`);
+    log.info(
+      `stopping sid=${this.opts.sid} exitCode=${exitCode} reason=${reason}`,
+    );
 
     // Send bye to daemon. Include this Runner's pid as a generation guard:
     // after `session.restart` kills this Runner (SIGTERM → stop()) and the
@@ -174,6 +194,7 @@ export class Runner {
       sid: this.opts.sid,
       exitCode,
       pid: process.pid,
+      reason,
     });
 
     // Cleanup. Kill the PTY child: stop() is reached not only from the PTY's

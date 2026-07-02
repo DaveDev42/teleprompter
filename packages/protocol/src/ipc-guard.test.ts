@@ -176,12 +176,13 @@ describe("parseIpcMessage", () => {
   });
 
   describe("bye", () => {
-    test("accepts valid bye (no pid — wire back-compat)", () => {
+    test("accepts valid bye (no pid, no reason — wire back-compat)", () => {
       expect(parseIpcMessage({ t: "bye", sid: "s", exitCode: 0 })).toEqual({
         t: "bye",
         sid: "s",
         exitCode: 0,
         pid: undefined,
+        reason: undefined,
       });
     });
 
@@ -193,6 +194,36 @@ describe("parseIpcMessage", () => {
         sid: "s",
         exitCode: 143,
         pid: 4242,
+        reason: undefined,
+      });
+    });
+
+    test("accepts bye with reason='signal'", () => {
+      expect(
+        parseIpcMessage({
+          t: "bye",
+          sid: "s",
+          exitCode: 143,
+          reason: "signal",
+        }),
+      ).toEqual({
+        t: "bye",
+        sid: "s",
+        exitCode: 143,
+        pid: undefined,
+        reason: "signal",
+      });
+    });
+
+    test("accepts bye with reason='exit'", () => {
+      expect(
+        parseIpcMessage({ t: "bye", sid: "s", exitCode: 0, reason: "exit" }),
+      ).toEqual({
+        t: "bye",
+        sid: "s",
+        exitCode: 0,
+        pid: undefined,
+        reason: "exit",
       });
     });
 
@@ -208,6 +239,17 @@ describe("parseIpcMessage", () => {
       ["pid=-3", { t: "bye", sid: "s", exitCode: 0, pid: -3 }],
       ["pid=1.5", { t: "bye", sid: "s", exitCode: 0, pid: 1.5 }],
       ["pid='1'", { t: "bye", sid: "s", exitCode: 0, pid: "1" }],
+    ])("rejects bye with invalid %s", (_l, m) => {
+      expect(parseIpcMessage(m)).toBeNull();
+    });
+
+    // reason is optional, but when present it must be exactly "signal" or
+    // "exit" — any other string (or non-string) is rejected.
+    test.each([
+      ["reason='other'", { t: "bye", sid: "s", exitCode: 0, reason: "other" }],
+      ["reason=1", { t: "bye", sid: "s", exitCode: 0, reason: 1 }],
+      ["reason=true", { t: "bye", sid: "s", exitCode: 0, reason: true }],
+      ["reason=''", { t: "bye", sid: "s", exitCode: 0, reason: "" }],
     ])("rejects bye with invalid %s", (_l, m) => {
       expect(parseIpcMessage(m)).toBeNull();
     });

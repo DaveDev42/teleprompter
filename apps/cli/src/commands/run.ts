@@ -56,7 +56,12 @@ export async function runCommand(argv: string[]): Promise<void> {
       process.exit(1);
     }
     stopping = true;
-    runner.stop(signal === "SIGINT" ? 130 : 143);
+    // SIGINT/SIGTERM here means the daemon (or the user) is stopping this
+    // Runner deliberately (e.g. `session.stop`/`session.restart` →
+    // killRunner), not claude's own process exiting — reason "signal" so the
+    // daemon's handleBye reports "stopped" rather than misreading the
+    // synthetic 130/143 exit code as an "error".
+    runner.stop(signal === "SIGINT" ? 130 : 143, "signal");
     await new Promise<void>((resolve) => setImmediate(resolve));
     process.exit(0);
   }

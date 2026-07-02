@@ -974,6 +974,45 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     expect(calls.storeUpdateState).toEqual([["s1", "error"]]);
   });
 
+  // Fix #2 regression: a user-initiated Stop/restart sends a non-zero
+  // synthetic exitCode (130/143 from SIGINT/SIGTERM, -1 from IPC socket
+  // teardown) that is NOT claude's real process exit status. Before this fix,
+  // handleBye read that as a crash and set state "error" (red dot in the
+  // app), even though the stop was fully expected. `reason: "signal"` must
+  // always win over exitCode.
+  test("bye with reason=signal and nonzero exitCode is 'stopped', not 'error'", () => {
+    const { dispatcher, calls } = makeHarness();
+    const bye: IpcBye = {
+      t: "bye",
+      sid: "s1",
+      exitCode: 143,
+      reason: "signal",
+    };
+    dispatcher.dispatchIpc(makeRunner(), bye);
+    expect(calls.storeUpdateState).toEqual([["s1", "stopped"]]);
+  });
+
+  test("bye with reason=exit and nonzero exitCode is still 'error' (genuine crash)", () => {
+    const { dispatcher, calls } = makeHarness();
+    const bye: IpcBye = { t: "bye", sid: "s1", exitCode: 1, reason: "exit" };
+    dispatcher.dispatchIpc(makeRunner(), bye);
+    expect(calls.storeUpdateState).toEqual([["s1", "error"]]);
+  });
+
+  test("bye with reason absent and nonzero exitCode falls back to 'error' (wire back-compat)", () => {
+    const { dispatcher, calls } = makeHarness();
+    const bye: IpcBye = { t: "bye", sid: "s1", exitCode: 1 };
+    dispatcher.dispatchIpc(makeRunner(), bye);
+    expect(calls.storeUpdateState).toEqual([["s1", "error"]]);
+  });
+
+  test("bye with reason absent and exitCode=0 is 'stopped' (wire back-compat)", () => {
+    const { dispatcher, calls } = makeHarness();
+    const bye: IpcBye = { t: "bye", sid: "s1", exitCode: 0 };
+    dispatcher.dispatchIpc(makeRunner(), bye);
+    expect(calls.storeUpdateState).toEqual([["s1", "stopped"]]);
+  });
+
   test("stale bye from the old runner does not corrupt a restarted session", () => {
     // session.restart kills the old Runner (pid=100) and spawns a new one
     // (pid=200) for the same sid. If the old Runner's SIGTERM bye (pid=100,
@@ -1428,6 +1467,74 @@ describe("IpcCommandDispatcher.dispatchRelayControl", () => {
     expect(calls.killRunner).toEqual([]);
     expect(calls.createSession).toEqual([]);
     expect((out[0]?.msg as { e?: string }).e).toBe("NOT_FOUND");
+  });
+
+  // Fix #6 regression: session.restart used to killRunner() (SIGTERM only,
+  // fire-and-forget) then IMMEDIATELY createSession() — the old claude PTY
+  // was often still alive when the new one spawned, racing on the same sid
+  // and hook socket. The fix awaits process exit before re-creating.
+  test("session.restart awaits process exit before re-creating (ordering)", async () => {
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const order: string[] = [];
+    const meta: SessionMeta = mkMeta("s1", "running", 1);
+    const { dispatcher, calls } = makeHarness({
+      sessionMeta: meta,
+      runners: [{ sid: "s1", hasProcess: true }],
+    });
+    // Wrap the harness's recorded calls to observe relative ordering: push
+    // markers into `order` as each call lands, on top of the existing
+    // `calls.*` arrays the harness already populates.
+    const originalWaitForExit = calls.waitForExit.push.bind(calls.waitForExit);
+    calls.waitForExit.push = (...items) => {
+      order.push("waitForExit");
+      return originalWaitForExit(...items);
+    };
+    const originalCreateSession = calls.createSession.push.bind(
+      calls.createSession,
+    );
+    calls.createSession.push = (...items) => {
+      order.push("createSession");
+      return originalCreateSession(...items);
+    };
+
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "session.restart", sid: "s1" },
+      "f1",
+    );
+    // The handler is `void this.handleRelaySessionRestart(...)` (fire and
+    // forget from the switch), which itself awaits `waitForExit` before
+    // `createSession` — flush enough microtasks for that chain to settle.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(calls.killRunner).toEqual(["s1"]);
+    expect(order).toEqual(["waitForExit", "createSession"]);
+    expect(calls.sessionUnregister).toEqual(["s1"]);
+  });
+
+  test("session.restart refuses a passthrough/registered-only session (no process handle)", async () => {
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const meta: SessionMeta = mkMeta("s1", "running", 1);
+    const { dispatcher, calls } = makeHarness({
+      sessionMeta: meta,
+      runners: [{ sid: "s1", hasProcess: false }],
+    });
+
+    dispatcher.dispatchRelayControl(
+      fakeRelay(out),
+      { t: "session.restart", sid: "s1" },
+      "f1",
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Refused before any kill/respawn attempt — the old PTY is left alone
+    // rather than double-spawned on top of.
+    expect(calls.killRunner).toEqual([]);
+    expect(calls.createSession).toEqual([]);
+    expect((out[0]?.msg as { e?: string }).e).toBe("SESSION_ERROR");
   });
 
   test("session.delete on unknown sid replies session.delete.err not-found", async () => {

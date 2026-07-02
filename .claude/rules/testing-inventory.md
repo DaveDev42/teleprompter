@@ -92,6 +92,7 @@ pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner)
 - `apps/cli/src/manifest-guards.test.ts` — react/react-dom version invariants
 - `apps/cli/src/commands/help.test.ts` — `tp --help` subcommand coverage
 - `apps/cli/src/commands/session-cleanup.test.ts` — non-TTY cleanup path
+- `apps/cli/src/commands/logs.test.ts` — `resolveLogsSid` exact/prefix/ambiguous/none resolution (mirrors `tp session delete`'s `matchSessions` UX)
 - `apps/cli/src/commands/relay.test.ts` — relay subcommand smoke
 - `apps/cli/src/lib/daemon-op.test.ts` — `requestDaemonOp` shared IPC helper (resolve, timeout, early-close, always-closes)
 - `apps/cli/src/lib/download.test.ts` — binary download + checksum

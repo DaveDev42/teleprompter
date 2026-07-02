@@ -56,11 +56,77 @@ describe("decideRoute", () => {
 
   test("unknown args fall through to passthrough", () => {
     // Claude flags like `-p`, `--model`, etc. — and any other unrecognized
-    // first arg — must route to passthrough so claude sees them unchanged.
+    // first arg that isn't a near-miss of a known name — must route to
+    // passthrough so claude sees them unchanged.
     expect(decideRoute("-p")).toEqual({ kind: "passthrough" });
     expect(decideRoute("--model")).toEqual({ kind: "passthrough" });
     expect(decideRoute("--print")).toEqual({ kind: "passthrough" });
     expect(decideRoute("hello")).toEqual({ kind: "passthrough" });
+  });
+
+  test("flags are never typo-checked even if close to a known name", () => {
+    // A `-`-prefixed token always belongs to claude, regardless of edit
+    // distance to a tp subcommand name.
+    expect(decideRoute("-pair")).toEqual({ kind: "passthrough" });
+    expect(decideRoute("--sesion")).toEqual({ kind: "passthrough" });
+  });
+
+  test("short barewords are never typo-checked (avoids false positives)", () => {
+    // Words shorter than the min-length guard sit within edit-distance 2 of
+    // several unrelated known names purely by being short ("up" vs "run",
+    // "ls" vs "logs") — they must still pass through untouched.
+    expect(decideRoute("up")).toEqual({ kind: "passthrough" });
+    expect(decideRoute("ls")).toEqual({ kind: "passthrough" });
+    expect(decideRoute("log")).toEqual({ kind: "passthrough" });
+  });
+
+  test("bareword close to a known tp subcommand routes to maybe-typo", () => {
+    expect(decideRoute("sesion")).toEqual({
+      kind: "maybe-typo",
+      name: "sesion",
+      suggestion: "session",
+    });
+    expect(decideRoute("dameon")).toEqual({
+      kind: "maybe-typo",
+      name: "dameon",
+      suggestion: "daemon",
+    });
+    expect(decideRoute("dcotor")).toEqual({
+      kind: "maybe-typo",
+      name: "dcotor",
+      suggestion: "doctor",
+    });
+    expect(decideRoute("uprade")).toEqual({
+      kind: "maybe-typo",
+      name: "uprade",
+      suggestion: "upgrade",
+    });
+  });
+
+  test("bareword close to a claude utility subcommand routes to maybe-typo", () => {
+    expect(decideRoute("isntall")).toEqual({
+      kind: "maybe-typo",
+      name: "isntall",
+      suggestion: "install",
+    });
+  });
+
+  test("a random english word (legitimate passthrough prompt) stays passthrough", () => {
+    // These must never be misdiagnosed as typos of a tp subcommand — they
+    // are exactly the "prompt handed to claude" use case the heuristic must
+    // not break.
+    for (const word of [
+      "hello",
+      "world",
+      "explain",
+      "summarize",
+      "review",
+      "commit",
+      "test",
+      "write",
+    ]) {
+      expect(decideRoute(word)).toEqual({ kind: "passthrough" });
+    }
   });
 });
 

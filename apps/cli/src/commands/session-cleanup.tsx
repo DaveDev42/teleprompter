@@ -6,11 +6,16 @@
  * to guarantee the user's shell does not get stuck in raw mode.
  *
  * Keyboard bindings inside the selection UI:
- *   Space / k / ↑ / j / ↓  — navigate + toggle / scroll
+ *   k / ↑                   — move cursor up
+ *   j / ↓                   — move cursor down
  *   Space                   — toggle selection on current row
  *   a                       — select / deselect all
  *   Enter                   — confirm (proceed to delete)
  *   Esc / Ctrl+C            — cancel (exit 130)
+ *
+ * Known limitation: the list is rendered in full with no viewport/scroll
+ * window — every session row is printed unconditionally. A very long
+ * session list can overflow the terminal height.
  */
 
 import { basename } from "node:path";

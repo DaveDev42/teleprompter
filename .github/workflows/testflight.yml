@@ -126,9 +126,21 @@ jobs:
 
       # The embedded-watch device slice in the iOS archive needs watchOS platform
       # support; without it the archive fails "watchOS NN.N must be installed in
-      # order to archive". Idempotent.
+      # order to archive". Idempotent. Apple's SDK CDN intermittently fails with
+      # exit 70 (transient asset error — run 28578680851 attempt 1 died here in
+      # 23s while the rerun passed in 13s), so retry with backoff instead of
+      # burning a whole runner provisioning on a single flaky download.
       - name: Download watchOS platform support
-        run: xcodebuild -downloadPlatform watchOS
+        run: |
+          for attempt in 1 2 3; do
+            xcodebuild -downloadPlatform watchOS && exit 0
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::xcodebuild -downloadPlatform watchOS failed (attempt ${attempt}/3); retrying in $((attempt * 30))s"
+              sleep $((attempt * 30))
+            fi
+          done
+          echo "::error::xcodebuild -downloadPlatform watchOS failed after 3 attempts"
+          exit 1
 
       # Import the Apple Distribution identity + BOTH provisioning profiles (the iOS
       # app AND the embedded companion watch app) into a dedicated, ephemeral

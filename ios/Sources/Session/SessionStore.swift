@@ -125,12 +125,21 @@ final class SessionStore: ObservableObject {
     ///     with a stale trailing `Stop` (or empty chat) showed nothing.
     ///
     /// Fix: scan the event stream from the end for the most recent *turn-lifecycle*
-    /// event (`UserPromptSubmit` / `Stop` / `StopFailure`) — busy iff that event is
-    /// a `UserPromptSubmit`. Intermediate events (`PostToolUse`, `Notification`, …)
-    /// are not boundaries and never force "busy". Then AND-gate on the session
-    /// being alive (`state == "running"`): a stopped/errored/unknown session is
-    /// never "working", which also clears the false-busy first-screen for any dead
-    /// session. Aggregated (`sid == nil`) views are never "working".
+    /// event (`UserPromptSubmit` / `Stop` / `StopFailure` / `PermissionRequest` /
+    /// `Elicitation`) — busy iff that event is a `UserPromptSubmit`. Intermediate
+    /// events (`PostToolUse`, `Notification`, …) are not boundaries and never
+    /// force "busy". Then AND-gate on the session being alive (`state ==
+    /// "running"`): a stopped/errored/unknown session is never "working", which
+    /// also clears the false-busy first-screen for any dead session. Aggregated
+    /// (`sid == nil`) views are never "working".
+    ///
+    /// FIX #5 (Batch C): `PermissionRequest`/`Elicitation` also close the turn for
+    /// the purposes of this signal — Claude is blocked waiting on the *user*, not
+    /// "thinking", so the typing indicator must not show while one of these cards
+    /// is the latest event. Without this, a permission prompt left the last
+    /// lifecycle event as `UserPromptSubmit` (still "open"), so `isWorking` stayed
+    /// true and the animated dots kept pulsing under a card that was actually
+    /// blocked on the user the whole time.
     func isWorking(sid: String?) -> Bool {
         guard let sid else { return false }
         // A non-running (stopped/errored/absent) session is never working.
@@ -142,6 +151,8 @@ final class SessionStore: ObservableObject {
                 return true  // a turn is open; no Stop has closed it yet
             case "Stop", "StopFailure":
                 return false  // the last turn completed
+            case "PermissionRequest", "Elicitation":
+                return false  // blocked on the user, not "thinking" — not busy
             default:
                 continue  // PostToolUse / Notification / etc. — not a boundary
             }

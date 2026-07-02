@@ -212,30 +212,81 @@ struct ToolChatCard: View {
 // MARK: - Permission card
 
 /// Renders a permission request card (`PermissionRequest` event, M5).
-/// Shown as a warning-style card with a lock icon and the tool name.
+/// Shown as a warning-style card with a lock icon, the tool name, and
+/// Approve/Deny buttons (FIX #1/#9, Batch C).
+///
+/// Claude's interactive permission prompt (PTY) expects a numeric-choice reply
+/// (`1` = yes / `2` = no, submitted with a trailing `\r` — see
+/// `.claude/rules/native-testing.md` "인터랙티브 claude TUI 는 `\r` 에만 프롬프트를
+/// submit"). Tapping a button routes through the exact same `onSend` channel
+/// the composer uses (`ChatComposer.sendIfReady` → `onSend(sid, text)` →
+/// `RelayClient.sendInput(sid:kind:.chat:)`), so the daemon appends the `\r`
+/// for us — the card only needs to send the bare digit.
 struct PermissionChatCard: View {
     let item: ChatItem
     let tool: String
+    /// `(sid, text)` — same channel `ChatComposer` uses. `nil` when no sid/onSend
+    /// is available (e.g. aggregated multi-session view), in which case the
+    /// buttons are omitted and the card falls back to the plain informational
+    /// rendering (still tappable-free, matching prior behavior).
+    var sid: String? = nil
+    var onSend: ((String, String) -> Void)? = nil
+
+    @State private var responded: String? = nil
+
+    private var canRespond: Bool { sid != nil && onSend != nil }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "lock.shield")
-                .foregroundStyle(.orange)
-                .font(.callout)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Permission requested")
-                    .font(.caption.bold())
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "lock.shield")
                     .foregroundStyle(.orange)
-                Text(tool)
-                    .font(.callout.monospaced())
-                    .foregroundStyle(.primary)
-                Text(formattedTime(item.ts))
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .font(.callout)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Permission requested")
+                        .font(.caption.bold())
+                        .foregroundStyle(.orange)
+                    Text(tool)
+                        .font(.callout.monospaced())
+                        .foregroundStyle(.primary)
+                    Text(formattedTime(item.ts))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
+                Spacer()
             }
 
-            Spacer()
+            if canRespond {
+                if let responded {
+                    Text("Sent: \(responded)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    HStack(spacing: 8) {
+                        Button {
+                            respond("1")
+                        } label: {
+                            Label("Approve", systemImage: "checkmark")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.green)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("permission-approve")
+
+                        Button {
+                            respond("2")
+                        } label: {
+                            Label("Deny", systemImage: "xmark")
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.red)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("permission-deny")
+                    }
+                }
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -247,41 +298,84 @@ struct PermissionChatCard: View {
                         .strokeBorder(Color.orange.opacity(0.3), lineWidth: 0.5)
                 )
         )
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Permission requested for \(tool)")
+    }
+
+    private func respond(_ text: String) {
+        guard let sid, let onSend, responded == nil else { return }
+        onSend(sid, text)
+        responded = text == "1" ? "Approve (1)" : "Deny (2)"
     }
 }
 
 // MARK: - Elicitation card
 
 /// Renders an elicitation / input-requested card (`Elicitation` event, M5).
-/// Shown as an info-style card indicating Claude is requesting user input.
+/// Shown as an info-style card indicating Claude is requesting user input,
+/// with an inline reply field wired into the same `onSend` channel the
+/// composer uses (FIX #1/#9, Batch C) — unlike `PermissionChatCard` an
+/// elicitation reply is free text, not a fixed digit, so this card carries
+/// its own small text field rather than fixed-label buttons.
 struct ElicitationChatCard: View {
     let item: ChatItem
     let message: String
+    /// `(sid, text)` — same channel `ChatComposer` uses. `nil` disables the
+    /// reply field, matching the prior read-only rendering.
+    var sid: String? = nil
+    var onSend: ((String, String) -> Void)? = nil
+
+    @State private var reply = ""
+    @State private var sent: String? = nil
+
+    private var canRespond: Bool { sid != nil && onSend != nil }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "text.bubble")
-                .foregroundStyle(Color.accentColor)
-                .font(.callout)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Input requested")
-                    .font(.caption.bold())
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "text.bubble")
                     .foregroundStyle(Color.accentColor)
-                if !message.isEmpty {
-                    Text(message)
-                        .font(.callout)
-                        .foregroundStyle(.primary)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    .font(.callout)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Input requested")
+                        .font(.caption.bold())
+                        .foregroundStyle(Color.accentColor)
+                    if !message.isEmpty {
+                        Text(message)
+                            .font(.callout)
+                            .foregroundStyle(.primary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Text(formattedTime(item.ts))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
-                Text(formattedTime(item.ts))
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+
+                Spacer()
             }
 
-            Spacer()
+            if canRespond {
+                if let sent {
+                    Text("Sent: \(sent)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    HStack(spacing: 8) {
+                        TextField("Reply…", text: $reply)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.callout)
+                            .accessibilityIdentifier("elicitation-reply-field")
+                            .onSubmit(respond)
+                        Button("Send", action: respond)
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .disabled(reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .accessibilityIdentifier("elicitation-reply-send")
+                    }
+                }
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -293,7 +387,16 @@ struct ElicitationChatCard: View {
                         .strokeBorder(.quaternary, lineWidth: 0.5)
                 )
         )
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Input requested: \(message)")
+    }
+
+    private func respond() {
+        let trimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let sid, let onSend, !trimmed.isEmpty, sent == nil else { return }
+        onSend(sid, trimmed)
+        sent = trimmed
+        reply = ""
     }
 }
 
@@ -372,6 +475,12 @@ struct AssistantWorkingIndicator: View {
 /// Top-level card dispatcher: picks the correct card view for a `ChatItem`.
 struct ChatItemCard: View {
     let item: ChatItem
+    /// `(sid, text)` — threaded down to `PermissionChatCard`/`ElicitationChatCard`
+    /// so their Approve/Deny/reply actions can send over the same channel the
+    /// composer uses (FIX #1/#9, Batch C). `nil` in the aggregated (no-sid)
+    /// view, where the cards fall back to their read-only rendering.
+    var sid: String? = nil
+    var onSend: ((String, String) -> Void)? = nil
 
     var body: some View {
         let kind = ChatEventCardKind(item: item)
@@ -386,9 +495,9 @@ struct ChatItemCard: View {
             case .toolDone(let name):
                 ToolChatCard(item: item, toolName: name, isDone: true)
             case .permission(let tool):
-                PermissionChatCard(item: item, tool: tool)
+                PermissionChatCard(item: item, tool: tool, sid: sid, onSend: onSend)
             case .elicitation(let message):
-                ElicitationChatCard(item: item, message: message)
+                ElicitationChatCard(item: item, message: message, sid: sid, onSend: onSend)
             case .system:
                 SystemChatCard(item: item)
             }

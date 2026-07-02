@@ -28,12 +28,19 @@ private struct SentinelOffsetKey: PreferenceKey {
 ///   - `Stop` / `StopFailure` → left-aligned assistant bubble with markdown
 ///   - `PreToolUse`         → tool-running card (orange dot)
 ///   - `PostToolUse`        → tool-done card (green dot)
-///   - `PermissionRequest`  → warning/lock card (M5)
-///   - `Elicitation`        → input-requested card (M5)
+///   - `PermissionRequest`  → warning/lock card with Approve/Deny buttons (M5,
+///                            actionable as of Batch C — replies over the same
+///                            channel the composer uses)
+///   - `Elicitation`        → input-requested card with an inline reply field
+///                            (M5, actionable as of Batch C)
 ///   - everything else      → centred system pill (e.g. `Notification`)
 ///
-/// When the session is still running (last event is not a Stop) an animated
-/// "working" indicator is shown below the last card.
+/// When the session is still running AND the latest event is an open turn
+/// (`UserPromptSubmit` with no closing `Stop`/`StopFailure` yet) an animated
+/// "working" indicator is shown below the last card. A pending
+/// `PermissionRequest`/`Elicitation` does NOT show the indicator — Claude is
+/// blocked on the user, not "thinking" (FIX #5, Batch C; see
+/// `SessionStore.isWorking`).
 ///
 /// When `sid` is provided (SessionDetailView), only that session's items are
 /// shown. When `sid` is nil, all sessions are flattened oldest-first.
@@ -46,6 +53,20 @@ struct ChatView: View {
     var sid: String? = nil
     /// `(sid, text)` — routes chat input to RelayClient.sendInput via the host.
     var onSend: ((String, String) -> Void)? = nil
+    /// Whether the daemon owning this session is currently reachable.
+    /// Defaults `true` (assume connected) so existing callers keep compiling
+    /// and behaving as before this param existed.
+    ///
+    /// TODO(Batch B follow-up): `SessionStore` itself carries no connectivity
+    /// signal (it's pure session/chat state) — that lives in `PairingViewModel`
+    /// (`daemonOnline`/`isOnline`, see `TeleprompterApp.swift`), which this file
+    /// intentionally does not import per this batch's file-scope constraint.
+    /// `SessionDetailView` already computes an equivalent `daemonOnline` for its
+    /// `ConnectionBanner` — wire that same value through to `ChatView(daemonOnline:)`
+    /// at the (single) call site in `SessionDetailView.swift` to make this gate
+    /// live. Until then this param is inert (always `true`) and the composer
+    /// gates on session state only (`stopped`/`error`), never on connectivity.
+    var daemonOnline: Bool = true
 
     // M6: track whether the user is near the bottom of the scroll view.
     // Starts true so the initial render scrolls to bottom on appear.
@@ -71,10 +92,37 @@ struct ChatView: View {
         store.isWorking(sid: sid)
     }
 
-    /// `true` when the session's state is "stopped" (no more input accepted).
-    private var sessionStopped: Bool {
+    /// `true` when the composer must refuse input: the session is stopped or
+    /// errored (both terminal — CLAUDE.md/protocol `SessionState` is exactly
+    /// `"running" | "stopped" | "error"`), OR the owning daemon is unreachable.
+    /// A `nil` sid (aggregated view, no composer) is never "stopped" — matches
+    /// the prior behavior since the composer never renders in that case anyway.
+    ///
+    /// FIX #3/#7 (Batch B): previously this only checked `state == "stopped"`,
+    /// so a crashed ("error") session left the composer enabled and a typed
+    /// message would silently vanish (fire-and-forget `onSend`, no ack — see
+    /// `sendIfReady`). Broadened to state-terminal OR offline.
+    ///
+    /// Internal (not `private`) so `ChatRenderTests` can exercise this pure
+    /// gate directly against fake `SessionStore` states without standing up
+    /// a SwiftUI render pass.
+    var sessionStopped: Bool {
         guard let sid else { return false }
-        return store.sessions[sid]?.state == "stopped"
+        let state = store.sessions[sid]?.state
+        return state == "stopped" || state == "error" || !daemonOnline
+    }
+
+    /// Short inline reason shown under the composer when it's disabled, so the
+    /// gate isn't a silent dead end. Not a promise of queuing/offline-send —
+    /// there is none (see CLAUDE.md `sendInput` fire-and-forget note).
+    /// Internal (not `private`) for the same testability reason as `sessionStopped`.
+    var disabledReason: String? {
+        guard let sid, sessionStopped else { return nil }
+        switch store.sessions[sid]?.state {
+        case "stopped": return "Session ended — read-only."
+        case "error": return "Session crashed — read-only."
+        default: return daemonOnline ? nil : "Daemon offline — can't send."
+        }
     }
 
     var body: some View {
@@ -94,7 +142,13 @@ struct ChatView: View {
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: 8) {
                                 ForEach(items) { item in
-                                    ChatItemCard(item: item)
+                                    // FIX #1/#9 (Batch C): thread sid/onSend so
+                                    // permission/elicitation cards can reply
+                                    // in-place over the same channel the
+                                    // composer uses. Both are nil in the
+                                    // aggregated (sid == nil) view, where the
+                                    // cards fall back to read-only rendering.
+                                    ChatItemCard(item: item, sid: sid, onSend: onSend)
                                         .padding(.horizontal, 12)
                                         .id(item.id)
                                 }
@@ -166,6 +220,14 @@ struct ChatView: View {
             // Chat composer — only shown when a sid is known and onSend is wired.
             // Pass `store` so the VoiceButton (Tranche G) can read terminal context.
             if let sid, let onSend {
+                if let disabledReason {
+                    Text(disabledReason)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 4)
+                        .accessibilityIdentifier("chat-composer-disabled-reason")
+                }
                 ChatComposer(
                     sid: sid,
                     onSend: onSend,

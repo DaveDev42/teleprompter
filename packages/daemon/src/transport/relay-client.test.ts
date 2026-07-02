@@ -1273,6 +1273,53 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     const state = relay.getDaemonState(DAEMON_ID);
     expect(state?.online ?? false).toBe(false);
   });
+
+  test("a real close CloseEvent reaches onDisconnected with its code+reason (BATCH F #10)", async () => {
+    // Drives the REAL ws.onclose handler (installed inside connect()) against
+    // a live relay so the close CloseEvent shape (Bun's `{code, reason}`) is
+    // exercised end-to-end, not just the pure handleMessage dispatch used by
+    // the relay.err describes below. We close the client's own live socket
+    // directly (same-package private access, mirroring the handleMessage
+    // access pattern above) with an explicit code — this is the honest
+    // "relay closed us for reason X" shape the fix is meant to capture,
+    // without needing to actually trigger relay-side backpressure (1013).
+    const daemonKp = await generateKeyPair();
+    const seen: Array<{ code?: number; reason?: string } | undefined> = [];
+    const client = new RelayClient(
+      {
+        relayUrl: `ws://localhost:${relayPort}`,
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        registrationProof,
+        keyPair: daemonKp,
+        pairingSecret,
+      },
+      {
+        onDisconnected: (info) => {
+          seen.push(info);
+        },
+      },
+    );
+
+    await client.connect();
+    await Bun.sleep(300);
+    expect(client.isConnected()).toBe(true);
+
+    (client as unknown as { ws: WebSocket | null }).ws?.close(
+      1013,
+      "Backpressure",
+    );
+    await Bun.sleep(300);
+
+    // Bun's local CloseEvent for a self-initiated close does not echo the
+    // reason string back (that's what we SENT, not what the peer replied
+    // with) — the load-bearing assertion is the code, which is exactly the
+    // signal ws.onclose used to discard entirely before this fix.
+    expect(seen.length).toBe(1);
+    expect(seen[0]?.code).toBe(1013);
+
+    client.dispose();
+  });
 });
 
 describe("RelayClient.sendPush — wire field selection", () => {
@@ -1540,6 +1587,67 @@ describe("RelayClient relay.err push-token recovery routing (finding #1)", () =>
     await invoke({ t: "relay.err", e: "PUSH_UNSEAL_FAILED", m: "unseal" });
     expect(dead).toEqual([]);
     expect(unseal).toEqual([]);
+    client.dispose();
+  });
+});
+
+describe("RelayClient relay.err RATE_LIMITED routing (BATCH F #15)", () => {
+  // Same pure-dispatch pattern as the push-token recovery describe above:
+  // handleMessage is driven directly (same-package private access) since it
+  // only needs an already-decoded RelayServerMessage.
+  function makeClient(events: {
+    onRelayThrottled?: (info: {
+      reason: "rate_limited";
+      detail?: string | undefined;
+    }) => void;
+  }) {
+    const client = new RelayClient(
+      {
+        relayUrl: "ws://localhost:0",
+        daemonId: "d-test",
+        token: "tok",
+        registrationProof: "proof",
+        keyPair: {
+          publicKey: new Uint8Array(32),
+          secretKey: new Uint8Array(32),
+        },
+        pairingSecret: new Uint8Array(32),
+      },
+      events,
+    );
+    const invoke = (msg: RelayServerMessage) =>
+      (
+        client as unknown as {
+          handleMessage: (m: RelayServerMessage) => Promise<void>;
+        }
+      ).handleMessage(msg);
+    return { client, invoke };
+  }
+
+  test("relay.err RATE_LIMITED invokes onRelayThrottled with reason+detail", async () => {
+    const throttled: Array<{ reason: string; detail?: string | undefined }> =
+      [];
+    const { client, invoke } = makeClient({
+      onRelayThrottled: (info) => throttled.push(info),
+    });
+    await invoke({
+      t: "relay.err",
+      e: "RATE_LIMITED",
+      m: "Too many messages. Slow down.",
+    });
+    expect(throttled).toEqual([
+      { reason: "rate_limited", detail: "Too many messages. Slow down." },
+    ]);
+    client.dispose();
+  });
+
+  test("other relay.err codes do NOT invoke onRelayThrottled", async () => {
+    const throttled: unknown[] = [];
+    const { client, invoke } = makeClient({
+      onRelayThrottled: (info) => throttled.push(info),
+    });
+    await invoke({ t: "relay.err", e: "UNAUTHORIZED", m: "bad token" });
+    expect(throttled).toEqual([]);
     client.dispose();
   });
 });

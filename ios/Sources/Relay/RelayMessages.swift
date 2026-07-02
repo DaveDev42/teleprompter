@@ -157,6 +157,19 @@ struct RelayPong: Decodable, Equatable {
     let ts: Double?
 }
 
+/// `relay.err` — a connection- or frontend-scoped error reply. `e` is a short
+/// machine code (`"RATE_LIMITED"`, `"UNAUTHORIZED"`, `"PUSH_TOKEN_DEAD"`, …);
+/// `m` is an optional human-readable detail. Verbatim from
+/// `packages/protocol/src/types/relay.ts` `RelayError`. BATCH F (#15): the
+/// frontend previously never decoded this frame at all — `RATE_LIMITED` is
+/// the first `e` value the app surfaces to the user (via
+/// `RelayClient.connectionCause`).
+struct RelayErrorFrame: Decodable, Equatable {
+    let t: String
+    let e: String
+    let m: String?
+}
+
 /// `relay.kx.frame` — the relay delivers a peer's `relay.kx` here. `from` is the
 /// originating role; the frontend only acts on `from == "daemon"` frames (mirror
 /// of `relay-client.ts:446`). `ct` is sealed with the kx-envelope key.

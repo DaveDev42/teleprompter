@@ -596,6 +596,36 @@ describe("RelayConnectionManager", () => {
     expect(unseal).toEqual(["frontend-unseal-1"]);
   });
 
+  test("buildEvents.onDisconnected is wired and callable with close-code info (BATCH F #10)", () => {
+    // Regression: onDisconnected used to have NO listener at all anywhere in
+    // the daemon (RelayClient.events.onDisconnected fired into the void).
+    // This proves buildEvents supplies a handler and that handler tolerates
+    // both a populated close-code payload and the `undefined` shape a
+    // synthesized/forced teardown may pass.
+    const mgr = new RelayConnectionManager(makeDeps());
+    const events = mgr.buildEvents(() => makeStubClient("d1"), undefined, "d1");
+
+    expect(() =>
+      events.onDisconnected?.({ code: 1013, reason: "Backpressure" }),
+    ).not.toThrow();
+    expect(() => events.onDisconnected?.(undefined)).not.toThrow();
+  });
+
+  test("buildEvents.onRelayThrottled is wired and callable (BATCH F #15)", () => {
+    // Regression: RATE_LIMITED relay.err used to fall into the generic
+    // `log.error` else-branch in RelayClient with no listener at all. This
+    // proves buildEvents supplies an onRelayThrottled handler.
+    const mgr = new RelayConnectionManager(makeDeps());
+    const events = mgr.buildEvents(() => makeStubClient("d1"), undefined, "d1");
+
+    expect(() =>
+      events.onRelayThrottled?.({
+        reason: "rate_limited",
+        detail: "Too many messages. Slow down.",
+      }),
+    ).not.toThrow();
+  });
+
   test("addClient passes config.label to buildEvents (label flows to hello frame)", async () => {
     // Verify that addClient wires the label from RelayClientConfig into
     // buildEvents so that subsequent onFrontendJoined calls include the label.

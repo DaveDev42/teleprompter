@@ -72,6 +72,54 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// Optional observer (UI). Invoked on the URLSession delegate queue.
     var onStateChange: ((State) -> Void)?
 
+    /// BATCH F (#10/#15): a short, human-readable reason for the current
+    /// disconnected/degraded state, or `nil` once reconnected/never
+    /// disconnected. Driven by the WebSocket close code (via
+    /// `URLSessionWebSocketDelegate.didCloseWith`) and by an inbound
+    /// `relay.err RATE_LIMITED` frame. Cleared on the next successful
+    /// `relay.auth.ok`. UI (e.g. `ConnectionBanner`) can render this instead
+    /// of a generic "Disconnected" string.
+    private(set) var connectionCause: String? {
+        didSet { onConnectionCauseChange?(connectionCause) }
+    }
+
+    /// Optional observer (UI) for `connectionCause` changes.
+    var onConnectionCauseChange: ((String?) -> Void)?
+
+    /// Pure mapping from a WebSocket close code to a short human-readable
+    /// cause string. Extracted as a static function (no instance state) so it
+    /// is unit-testable without a live socket — mirrors `reconnectDelay` /
+    /// `isAcceptableRelayScheme` above.
+    ///
+    /// Code buckets (from the relay's actual close reasons —
+    /// `packages/relay/src/relay-server.ts` / RFC 6455 §7.4.1):
+    ///   - `1013` → backpressure disconnect (relay-side slow-consumer close,
+    ///     `ws.close(1013, "Backpressure")`).
+    ///   - `1008`/`1009` → policy violation / message too big (relay-forced
+    ///     close, e.g. auth rejection or oversized frame).
+    ///   - `1000`/`1001` → normal closure / going away (clean shutdown, e.g.
+    ///     a relay restart or deploy).
+    ///   - `nil` (no code at all — `URLSessionWebSocketTask` reports this
+    ///     when the underlying TCP connection dropped before a close frame
+    ///     was ever received) → network loss, not a relay-initiated close.
+    ///   - any other code → a generic relay-closed message so the banner
+    ///     still reads as actionable rather than silently falling through.
+    static func connectionCauseDescription(forCloseCode code: Int?) -> String {
+        guard let code else {
+            return "network lost"
+        }
+        switch code {
+        case 1013:
+            return "relay busy (backpressure)"
+        case 1008, 1009:
+            return "relay policy"
+        case 1000, 1001:
+            return "relay restarted"
+        default:
+            return "relay disconnected"
+        }
+    }
+
     /// M8: Called when an inbound `control.presence` frame arrives. `online` is
     /// the daemon's current presence. Used to drive per-daemon status dots.
     var onPresence: ((_ daemonId: String, _ online: Bool) -> Void)?
@@ -98,7 +146,10 @@ final class RelayClient: NSObject, @unchecked Sendable {
     private var isResuming = false
 
     private let pairing: Pairing
-    private let session: URLSession
+    /// `var`, not `let`: when no session is injected, `init` swaps in a
+    /// delegate-backed session (`delegate: self`) right after `super.init()`
+    /// since `self` cannot be captured before that point.
+    private var session: URLSession
     private let log = Logger(subsystem: "dev.tpmt.app", category: "relay")
     private let pingInterval: TimeInterval
 
@@ -279,17 +330,33 @@ final class RelayClient: NSObject, @unchecked Sendable {
 
     /// - Parameters:
     ///   - pairing: the daemon pairing carrying relay URL, daemonId, secret, frontendId.
-    ///   - session: injectable for tests (default ephemeral, no cookies/cache).
+    ///   - session: injectable for tests (default nil — builds an ephemeral
+    ///     session with `self` as the `URLSessionWebSocketDelegate`, needed
+    ///     for `didCloseWith` close-code capture, BATCH F #10). A test that
+    ///     injects its own session opts out of delegate-based close capture
+    ///     (existing tests never open a real socket, so this is a no-op for
+    ///     them).
     ///   - pingInterval: keep-alive cadence; 30s matches the daemon + relay idle window.
     init(
         pairing: Pairing,
-        session: URLSession = .init(configuration: .ephemeral),
+        session: URLSession? = nil,
         pingInterval: TimeInterval = 30
     ) {
         self.pairing = pairing
-        self.session = session
         self.pingInterval = pingInterval
+        // `self` can't be captured as a delegate before `super.init()`, so
+        // build the delegate-backed default session AFTER super.init() when
+        // the caller didn't inject one.
+        if let session {
+            self.session = session
+        } else {
+            self.session = .init(configuration: .ephemeral)
+        }
         super.init()
+        if session == nil {
+            self.session = URLSession(
+                configuration: .ephemeral, delegate: self, delegateQueue: nil)
+        }
         // M7: Load persisted resume token so it survives backgrounding.
         let defaults = UserDefaults.standard
         resumeToken = defaults.string(forKey: resumeTokenDefaultsKey)
@@ -444,6 +511,10 @@ final class RelayClient: NSObject, @unchecked Sendable {
         case "relay.auth.err":
             let detail = (try? JSONDecoder().decode(RelayAuthErr.self, from: data))?.e ?? "unknown"
             onAuthErr(detail: detail)
+        case "relay.err":
+            if let err = try? JSONDecoder().decode(RelayErrorFrame.self, from: data) {
+                onRelayError(err)
+            }
         case "relay.presence":
             if let p = try? JSONDecoder().decode(RelayPresence.self, from: data) {
                 onPresenceFrame(p)
@@ -519,6 +590,10 @@ final class RelayClient: NSObject, @unchecked Sendable {
         isResuming = false
         reconnectAttempt = 0
         state = .authenticated(daemonId: ok.daemonId)
+        // BATCH F (#10/#15): a fresh successful auth means whatever caused
+        // the previous disconnect/throttle no longer applies — clear the
+        // cause so the banner doesn't keep showing a stale reason.
+        connectionCause = nil
         log.notice("\(Self.authOkMarker, privacy: .public) daemon=\(ok.daemonId, privacy: .public)")
         startPing()
         // Subscribe BEFORE sending relay.kx so we never miss the daemon's
@@ -574,6 +649,21 @@ final class RelayClient: NSObject, @unchecked Sendable {
     private func onPresenceFrame(_ p: RelayPresence) {
         log.notice("relay.presence daemon=\(p.daemonId, privacy: .public) online=\(p.online)")
         onPresence?(p.daemonId, p.online)
+    }
+
+    // MARK: BATCH F (#15) relay.err
+
+    /// Inbound `relay.err`. Today the only code surfaced to the UI is
+    /// `RATE_LIMITED` (per-client/per-daemon-group throttle from the relay —
+    /// see `.claude/rules/relay-capacity.md`); other codes are logged only,
+    /// mirroring the daemon-side `relay.err` switch
+    /// (`packages/daemon/src/transport/relay-client.ts`).
+    private func onRelayError(_ err: RelayErrorFrame) {
+        log.notice(
+            "relay.err e=\(err.e, privacy: .public) m=\(err.m ?? "(none)", privacy: .public)")
+        if err.e == "RATE_LIMITED" {
+            connectionCause = "sending too fast"
+        }
     }
 
     // MARK: kx (M3)
@@ -1476,6 +1566,42 @@ final class RelayClient: NSObject, @unchecked Sendable {
             defaults.removeObject(forKey: resumeTokenDefaultsKey)
             defaults.removeObject(forKey: resumeExpiresAtDefaultsKey)
         }
+    }
+}
+
+// MARK: - URLSessionWebSocketDelegate (BATCH F #10: close-code capture)
+
+extension RelayClient: URLSessionWebSocketDelegate {
+    /// The only place a WebSocket close CODE is ever available on Apple
+    /// platforms — `URLSessionWebSocketTask.receive`'s `.failure` case
+    /// (used by `receiveLoop`) only surfaces a generic `Error`, never the
+    /// close code/reason the peer sent. Before this conformance the app had
+    /// no way to distinguish "relay busy (1013 backpressure)" from "relay
+    /// restarted (1000/1001)" from "network dropped (no close frame at
+    /// all)" — this delegate callback is what makes that distinction
+    /// possible. Maps the code through the pure `connectionCauseDescription`
+    /// helper and republishes it as `connectionCause` for the UI.
+    ///
+    /// Runs on the session's delegate queue (not necessarily the main
+    /// actor); `connectionCause`'s `didSet` invokes `onConnectionCauseChange`
+    /// synchronously on this queue, matching `onStateChange`'s existing
+    /// contract (also invoked off-main from delegate callbacks).
+    nonisolated func urlSession(
+        _ session: URLSession,
+        webSocketTask: URLSessionWebSocketTask,
+        didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
+        reason: Data?
+    ) {
+        // `.invalid` is what URLSession reports when the socket died without
+        // ever receiving a close frame (network loss, forced task.cancel()) —
+        // treat it the same as "no code" in the pure mapping.
+        let code: Int? = closeCode == .invalid ? nil : closeCode.rawValue
+        let reasonString = reason.flatMap { String(data: $0, encoding: .utf8) }
+        let cause = Self.connectionCauseDescription(forCloseCode: code)
+        log.notice(
+            "relay: websocket closed code=\(String(describing: code), privacy: .public) reason=\(reasonString ?? "(none)", privacy: .public) cause=\(cause, privacy: .public)"
+        )
+        connectionCause = cause
     }
 }
 

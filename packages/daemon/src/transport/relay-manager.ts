@@ -206,6 +206,29 @@ export class RelayConnectionManager {
         );
         this.deps.pushNotifier.handleTokenDead(frontendId);
       },
+      onDisconnected: (info) => {
+        // BATCH F (#10): the close code distinguishes "relay went away
+        // cleanly" (1000/1001) from "backpressure disconnect" (1013) from
+        // "policy/oversize" (1008/1009) from "unknown" (no code — network
+        // blip). Purely observability today (log only) — reconnect
+        // timing/backoff is unchanged; this is the honest signal a future
+        // push-to-app surface can build on.
+        if (info?.code !== undefined) {
+          log.info(
+            `relay socket closed (daemonId=${daemonId}, code=${info.code}, reason=${info.reason || "(none)"})`,
+          );
+        } else {
+          log.info(`relay socket closed (daemonId=${daemonId}, code=unknown)`);
+        }
+      },
+      onRelayThrottled: (info) => {
+        // BATCH F (#15): surface the relay's RATE_LIMITED reply beyond a bare
+        // log line so operators/telemetry can correlate throttling with a
+        // specific pairing. Does not alter relay-side throttle behavior.
+        log.warn(
+          `relay throttled us (daemonId=${daemonId}, reason=${info.reason}): ${info.detail ?? "(no detail)"}`,
+        );
+      },
     };
   }
 

@@ -74,6 +74,21 @@ async function main(): Promise<void> {
       await passthroughCommand(process.argv.slice(2));
       break;
     }
+    case "maybe-typo": {
+      // A bareword close enough to a known tp subcommand / claude utility
+      // name that it's very likely a typo (`tp sesion list`) rather than a
+      // genuine claude passthrough prompt. Print a friendly hint (with an
+      // explicit escape hatch) and exit non-zero instead of silently handing
+      // it to claude.
+      console.error(
+        `tp: unknown subcommand '${route.name}' — did you mean '${route.suggestion}'?`,
+      );
+      console.error(
+        `  (or run \`tp -- ${route.name} ...\` to force passthrough)`,
+      );
+      process.exit(1);
+      break;
+    }
   }
 }
 

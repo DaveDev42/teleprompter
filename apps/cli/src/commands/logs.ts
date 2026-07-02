@@ -1,5 +1,53 @@
 import { Store } from "@teleprompter/daemon";
+import { dim, fail } from "../lib/colors";
 import { stripDangerousOsc } from "../lib/sanitize";
+import { matchSessions } from "./session";
+
+/**
+ * Resolve a sid fragment against the known session list, mirroring
+ * `tp session delete`'s exact-then-prefix UX (same `matchSessions` helper,
+ * same "No session matches" / "ambiguous" messaging).
+ *
+ * Pure/testable: takes the candidate list rather than opening a Store, so
+ * callers can unit-test resolution without a real daemon/store on disk.
+ * Returns the resolved sid, or `null` with the appropriate message(s)
+ * already printed to stderr by the caller-supplied `log` (defaults to
+ * `console.error`).
+ */
+export function resolveLogsSid(
+  candidates: readonly { sid: string }[],
+  fragment: string,
+  log: (msg: string) => void = console.error,
+): string | null {
+  const matches = matchSessions(candidates, fragment);
+  if (matches.length === 0) {
+    log(fail(`No session matches '${fragment}'.`));
+    if (candidates.length > 0) {
+      const MAX_HINT = 20;
+      const shown = candidates.slice(0, MAX_HINT);
+      log(dim("Known sids:"));
+      for (const c of shown) log(dim(`  ${c.sid}`));
+      if (candidates.length > MAX_HINT) {
+        log(
+          dim(
+            `  … ${candidates.length - MAX_HINT} more (run 'tp session list')`,
+          ),
+        );
+      }
+    }
+    return null;
+  }
+  if (matches.length > 1) {
+    log(fail(`Prefix '${fragment}' is ambiguous. Candidates:`));
+    for (const c of matches) log(`  ${c.sid}`);
+    return null;
+  }
+  const first = matches[0];
+  // matches.length === 1 already asserted above; narrows away the nullable
+  // for TS without a non-null assertion.
+  if (!first) return null;
+  return first.sid;
+}
 
 /**
  * tp logs [sid]
@@ -8,17 +56,17 @@ import { stripDangerousOsc } from "../lib/sanitize";
  * If no SID is given, prints the list of known sessions and exits.
  */
 export async function logsCommand(argv: string[]): Promise<void> {
-  let sid: string | undefined;
+  let fragment: string | undefined;
   for (const a of argv) {
     if (!a.startsWith("--")) {
-      sid = a;
+      fragment = a;
       break;
     }
   }
 
   const store = new Store();
 
-  if (!sid) {
+  if (!fragment) {
     const sessions = store.listSessions();
     if (sessions.length === 0) {
       console.error("No sessions found.");
@@ -35,8 +83,18 @@ export async function logsCommand(argv: string[]): Promise<void> {
     return;
   }
 
+  const candidates = store.listSessions().map((s) => ({ sid: s.sid }));
+  const sid = resolveLogsSid(candidates, fragment);
+  if (!sid) {
+    store.close();
+    process.exit(1);
+    return;
+  }
+
   const session = store.getSession(sid);
   if (!session) {
+    // Should not happen — sid was just resolved against a live candidate
+    // list — but guard anyway (e.g. TOCTOU delete between list and get).
     console.error(`Session ${sid} not found.`);
     store.close();
     process.exit(1);

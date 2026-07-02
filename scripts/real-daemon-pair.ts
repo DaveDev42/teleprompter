@@ -208,6 +208,14 @@ function spawnClaudeSessionInteractive(
     try {
       const seed = {
         hasCompletedOnboarding: true,
+        // Best-effort onboarding pre-seed. NOTE: neither key reliably SUPPRESSES the
+        // first-run dialogs when bypass is requested via the --permission-mode CLI flag —
+        // empirically (claude 2.1.198, through the real `tp run` PTY) the trust dialog AND
+        // the Bypass-mode disclaimer ("1. No, exit / 2. Yes, I accept", default = exit)
+        // still render. They are therefore dismissed LIVE by acceptTrustDialogs, which
+        // reads the PTY and sends the correct key per dialog. These keys stay only as
+        // harmless belt-and-suspenders should a future claude honour them from this file.
+        bypassPermissionsModeAccepted: true,
         projects: { [cwd]: { hasTrustDialogAccepted: true } },
       };
       writeFileSync(join(home, ".claude.json"), JSON.stringify(seed));
@@ -241,41 +249,30 @@ function spawnClaudeSessionInteractive(
 
   // Accept the trust-folder prompt: wait for the TUI to render it, then send Enter
   // (`\r`) over IPC. The daemon routes `input` to the runner by sid → PtyBun.write →
-  // claude advances past the trust dialog to the idle REPL. A single `\r` selects the
-  // default highlighted option 1 ("Yes, I trust this folder").
-  const sendEnter = (label: string): void => {
+  // claude advances past its first-run dialogs to the idle REPL. Send raw bytes over IPC
+  // (daemon routes by sid → PtyBun.write); acceptTrustDialogs picks the right key per
+  // dialog (a blind Enter quits on the Bypass-mode "No, exit" default — see its comment).
+  const sendRaw = (bytes: string, label: string): void => {
     const msg: IpcInput = {
       t: "input",
       sid,
-      data: Buffer.from("\r").toString("base64"),
+      data: Buffer.from(bytes).toString("base64"),
     };
     try {
       ipc.send(msg);
-      log(`sent trust-accept Enter to interactive claude (${label})`);
+      log(`sent ${label} to interactive claude`);
     } catch (err) {
-      log(`WARN — failed to send trust-accept (${label}): ${String(err)}`);
+      log(`WARN — failed to send ${label}: ${String(err)}`);
     }
   };
-  // Send Enter REPEATEDLY (every 2s, ~25s window) rather than at two fixed offsets.
-  // The trust prompt's render time varies with cold-start (warm vs cold caches, the
-  // isolated HOME, daemon connect latency), and claude's raw-mode stdin handler must
-  // be attached when the `\r` lands or it is swallowed as pre-prompt noise. A single
-  // mistimed Enter leaves claude stuck at the trust dialog, so the app's later probe
-  // is consumed as a trust-menu keystroke (no UserPromptSubmit → no Stop → M5 fails).
-  // Sending Enter on an interval guarantees one lands once the prompt is interactive;
-  // any extra Enter at the already-idle REPL just submits an empty line (no prompt →
-  // claude ignores it), and stops well before the app pairs+probes (~30s+), so there
-  // is no risk of an empty Enter racing the probe text. 13 sends × 2s ≈ 26s.
-  let trustTicks = 0;
-  const trustTimer = setInterval(() => {
-    trustTicks += 1;
-    sendEnter(`tick ${trustTicks}`);
-    if (trustTicks >= 13) clearInterval(trustTimer);
-  }, 2_000);
-  // Don't let the interval keep the event loop alive past the holder's lifetime.
-  if (typeof trustTimer === "object" && "unref" in trustTimer) {
-    (trustTimer as { unref: () => void }).unref();
-  }
+  // Content-aware trust accept, detached so the holder returns the runner immediately
+  // (the app pairs + probes concurrently). Reads live PTY io to send the correct key for
+  // whichever of the trust / bypass / settings-error dialogs is on screen, then resolves
+  // once claude reaches the REPL. This must finish before the app's probe so the probe
+  // text is never consumed as a dialog keystroke.
+  void acceptTrustDialogs(sid, sendRaw).catch((err: unknown) => {
+    log(`WARN — interactive trust-accept failed: ${String(err)}`);
+  });
 
   return runner;
 }
@@ -354,6 +351,99 @@ function sessionDbReady(sid: string): boolean {
     return false;
   } finally {
     db?.close();
+  }
+}
+
+// Concatenate the most recent `limit` io-record payloads (ANSI left intact — we only
+// substring-match on the human-readable option labels, which survive the escapes) so
+// the trust-accept driver can see WHICH first-run dialog claude is currently rendering.
+function readRecentIo(sid: string, limit = 6): string {
+  const dataHome =
+    process.env["XDG_DATA_HOME"] ??
+    join(process.env["HOME"] ?? REPO_ROOT, ".local", "share");
+  const dbPath = join(
+    dataHome,
+    "teleprompter",
+    "vault",
+    "sessions",
+    `${sid}.sqlite`,
+  );
+  let db: Database | undefined;
+  try {
+    db = new Database(dbPath, { readonly: true });
+    const rows = db
+      .prepare(
+        "SELECT payload FROM records WHERE kind = 'io' ORDER BY seq DESC LIMIT ?",
+      )
+      .all(limit) as Array<{ payload: Uint8Array }>;
+    // Rows come newest-first; join oldest-first so multi-record dialogs read in order.
+    return rows
+      .reverse()
+      .map((r) => Buffer.from(r.payload).toString("latin1"))
+      .join("");
+  } catch {
+    return "";
+  } finally {
+    db?.close();
+  }
+}
+
+// Deterministically accept claude's TWO first-run gates (interactive/bypassPermissions
+// mode in a fresh HOME) by reading the live PTY io and sending the CORRECT key for
+// whichever dialog is on screen — NOT a blind Enter. The two dialogs have OPPOSITE safe
+// options, which is exactly why the old blind `\r`×13 loop quit the session:
+//   • Dialog 1 "Is this a project you trust?": ❯ default = "1. Yes, I trust this folder".
+//     A bare Enter accepts. (option 2 = "No, exit")
+//   • Dialog 2 "Bypass Permissions mode" disclaimer: ❯ default = "1. No, exit".
+//     A bare Enter QUITS claude. The accept is option "2. Yes, I accept", reached by
+//     one Down-arrow then Enter (\x1b[B\r). Selecting by digit is avoided because "2"
+//     on dialog 1 means "No, exit".
+// Config seeds (hasTrustDialogAccepted / bypassPermissionsModeAccepted in ~/.claude.json)
+// do NOT suppress these dialogs when bypass is requested via the --permission-mode CLI
+// flag (empirically confirmed against claude 2.1.198 through the real `tp run` PTY), so
+// the accept must be driven live. Resolves once claude submits a real prompt
+// (UserPromptSubmit >= 1) or ~40s elapses.
+async function acceptTrustDialogs(
+  sid: string,
+  sendRaw: (bytes: string, label: string) => void,
+): Promise<void> {
+  const upsBaseline = countRecords(sid, "event", "UserPromptSubmit");
+  const deadline = Date.now() + 40_000;
+  let ticks = 0;
+  while (Date.now() < deadline) {
+    // Past the gates once claude accepts and processes a prompt.
+    if (countRecords(sid, "event", "UserPromptSubmit") > upsBaseline) return;
+    ticks += 1;
+    const io = readRecentIo(sid);
+    const onBypassDialog =
+      io.includes("Bypass Permissions mode") || io.includes("Yes, I accept");
+    const onTrustDialog = io.includes("Yes, I trust this folder");
+    // A third gate can appear when a settings.json claude reads (e.g. a personal/global
+    // one outside the isolated HOME) fails schema validation: "1. Fix with Claude /
+    // 2. Exit and fix manually / 3. Continue without these settings". Neither of the
+    // first two lets the session proceed unattended, so pick "3" to continue.
+    const onSettingsError =
+      io.includes("Continue without these settings") ||
+      (io.includes("Files with errors are skipped") &&
+        io.includes("Fix with Claude"));
+    if (onSettingsError) {
+      sendRaw("3", `settings-error continue (tick ${ticks})`);
+      await Bun.sleep(250);
+      sendRaw("\r", `settings-error confirm (tick ${ticks})`);
+    } else if (onBypassDialog) {
+      // Down-arrow to "Yes, I accept", then Enter to confirm. Never a bare Enter here.
+      sendRaw("\x1b[B", `bypass-dialog select (tick ${ticks})`);
+      await Bun.sleep(250);
+      sendRaw("\r", `bypass-dialog confirm (tick ${ticks})`);
+    } else if (onTrustDialog) {
+      // Default is already "Yes, I trust" — Enter accepts.
+      sendRaw("\r", `trust-dialog accept (tick ${ticks})`);
+    } else {
+      // Not on a recognizable dialog yet (cold start) or already at the REPL — a stray
+      // Enter is harmless (empty submit). Nudge in case the dialog render lagged the DB.
+      sendRaw("\r", `trust nudge (tick ${ticks})`);
+    }
+    await Bun.sleep(1_500);
   }
 }
 
@@ -458,6 +548,14 @@ function spawnClaudeSessionCoding(
     try {
       const seed = {
         hasCompletedOnboarding: true,
+        // Best-effort onboarding pre-seed. NOTE: neither key reliably SUPPRESSES the
+        // first-run dialogs when bypass is requested via the --permission-mode CLI flag —
+        // empirically (claude 2.1.198, through the real `tp run` PTY) the trust dialog AND
+        // the Bypass-mode disclaimer ("1. No, exit / 2. Yes, I accept", default = exit)
+        // still render. They are therefore dismissed LIVE by acceptTrustDialogs, which
+        // reads the PTY and sends the correct key per dialog. These keys stay only as
+        // harmless belt-and-suspenders should a future claude honour them from this file.
+        bypassPermissionsModeAccepted: true,
         projects: { [cwd]: { hasTrustDialogAccepted: true } },
       };
       writeFileSync(join(home, ".claude.json"), JSON.stringify(seed));
@@ -569,16 +667,12 @@ function spawnClaudeSessionCoding(
   // failure here is logged but never throws into the holder — the harness's marker/DB/
   // file assertions are the real pass/fail signal.
   void (async () => {
-    // 1. Trust-accept window: send Enter every 2s for ~26s. The trust dialog renders at
-    //    a cold-start-dependent time; an interval guarantees one lands once stdin raw
-    //    mode is attached. An extra Enter at the idle REPL submits an empty line (no
-    //    prompt → claude ignores it → no UserPromptSubmit), so over-sending is harmless.
-    //    Turn 1 is sent only AFTER this window closes so a coding prompt is never
-    //    interleaved with a stray trust Enter.
-    for (let i = 1; i <= 13; i++) {
-      sendSubmit(`trust tick ${i}`);
-      await Bun.sleep(2_000);
-    }
+    // 1. Trust-accept window: content-aware (sends the correct key per first-run dialog).
+    //    A blind Enter loop quits on the Bypass-mode dialog's "No, exit" default and
+    //    stalls on a settings-error dialog; acceptTrustDialogs handles all three. Turn 1
+    //    is sent only AFTER the gates clear so a coding prompt is never interleaved with
+    //    a dialog keystroke.
+    await acceptTrustDialogs(sid, sendRaw);
 
     // 2. Turn 1 (create the file via Write) → its Stop.
     await driveTurn(turn1, 1);
@@ -621,6 +715,14 @@ function spawnClaudeSessionWebpage(
     try {
       const seed = {
         hasCompletedOnboarding: true,
+        // Best-effort onboarding pre-seed. NOTE: neither key reliably SUPPRESSES the
+        // first-run dialogs when bypass is requested via the --permission-mode CLI flag —
+        // empirically (claude 2.1.198, through the real `tp run` PTY) the trust dialog AND
+        // the Bypass-mode disclaimer ("1. No, exit / 2. Yes, I accept", default = exit)
+        // still render. They are therefore dismissed LIVE by acceptTrustDialogs, which
+        // reads the PTY and sends the correct key per dialog. These keys stay only as
+        // harmless belt-and-suspenders should a future claude honour them from this file.
+        bypassPermissionsModeAccepted: true,
         projects: { [cwd]: { hasTrustDialogAccepted: true } },
       };
       writeFileSync(join(home, ".claude.json"), JSON.stringify(seed));
@@ -731,11 +833,9 @@ function spawnClaudeSessionWebpage(
   // Detached async chain — returns immediately so the pairing handshake runs
   // concurrently (same pattern as spawnClaudeSessionCoding).
   void (async () => {
-    // Trust-accept window: send Enter every 2s for ~26s.
-    for (let i = 1; i <= 13; i++) {
-      sendSubmit(`trust tick ${i}`);
-      await Bun.sleep(2_000);
-    }
+    // Trust-accept window: content-aware, sends the correct key per dialog (a blind
+    // Enter loop quits on the Bypass-mode dialog's "No, exit" default).
+    await acceptTrustDialogs(sid, sendRaw);
 
     // Turn 1: create the HTML5 file via the Write tool.
     await driveTurn(turn1, 1);

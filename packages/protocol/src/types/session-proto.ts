@@ -255,6 +255,23 @@ export interface SessionExported {
 }
 
 /**
+ * Daemon → frontend: a session was permanently removed (deleted or pruned),
+ * broadcast to every currently-subscribed relay client for `sid` — not just
+ * the frontend that requested the delete/prune. Without this, a frontend
+ * actively attached to `sid` (Chat/Terminal tab open) learns nothing until
+ * its next `hello` snapshot (on reconnect), leaving a ghost row/attach in
+ * place indefinitely. Mirrors `SessionWorktreeRemoved`'s shape and broadcast
+ * pattern exactly, but for a session (not a worktree) removal. `state`
+ * (`SessionState`) is intentionally left unchanged — removal is a distinct
+ * message, not a 4th state, matching how `worktree.removed` is separate from
+ * `state`.
+ */
+export interface SessionRemoved {
+  t: "session.removed";
+  sid: string;
+}
+
+/**
  * Synchronous acknowledgement that a `session.create` was accepted by the
  * daemon. Emitted on the originating frontend's peer channel immediately after
  * the runner is spawned and the relay is subscribed to the new sid — before the
@@ -281,4 +298,5 @@ export type SessionServerMessage =
   | SessionExported
   | SessionCreateOk
   | SessionDeleteOk
-  | SessionDeleteErr;
+  | SessionDeleteErr
+  | SessionRemoved;

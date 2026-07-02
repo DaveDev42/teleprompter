@@ -490,8 +490,12 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
       last_seq: 0,
     };
     const unsubscribed: string[] = [];
+    const removed: Array<{ sid: string; msg: unknown }> = [];
     const relay = {
       unsubscribe: (sid: string) => unsubscribed.push(sid),
+      publishRemoved: async (sid: string, msg: unknown) => {
+        removed.push({ sid, msg });
+      },
     } as unknown as RelayClient;
     const { dispatcher } = makeHarness({
       sessionMeta: meta,
@@ -504,6 +508,13 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(unsubscribed).toEqual(["s-stopped"]);
+    // A viewer currently attached to the deleted sid must be notified with a
+    // `session.removed` frame — not just have the relay subscription dropped
+    // (which alone leaves the frontend to discover the deletion only on its
+    // next `hello` snapshot).
+    expect(removed).toEqual([
+      { sid: "s-stopped", msg: { t: "session.removed", sid: "s-stopped" } },
+    ]);
   });
 
   test("session.prune unsubscribes each pruned sid from every relay client (rank 8)", async () => {
@@ -518,8 +529,12 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
       last_seq: 0,
     };
     const unsubscribed: string[] = [];
+    const removed: Array<{ sid: string; msg: unknown }> = [];
     const relay = {
       unsubscribe: (sid: string) => unsubscribed.push(sid),
+      publishRemoved: async (sid: string, msg: unknown) => {
+        removed.push({ sid, msg });
+      },
     } as unknown as RelayClient;
     const { dispatcher } = makeHarness({
       sessions: [old],
@@ -534,6 +549,9 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(unsubscribed).toEqual(["s-old"]);
+    expect(removed).toEqual([
+      { sid: "s-old", msg: { t: "session.removed", sid: "s-old" } },
+    ]);
   });
 
   test("session.delete on a running session kills the runner then deletes", async () => {
@@ -1555,8 +1573,12 @@ describe("IpcCommandDispatcher.dispatchRelayControl", () => {
 
   test("session.delete on a running session kills, unregisters, deletes, unsubscribes, and acks wasRunning=true", async () => {
     const seenUnsub: string[] = [];
+    const seenRemoved: Array<{ sid: string; msg: unknown }> = [];
     const relayClient = {
       unsubscribe: (sid: string) => seenUnsub.push(sid),
+      publishRemoved: async (sid: string, msg: unknown) => {
+        seenRemoved.push({ sid, msg });
+      },
     } as unknown as RelayClient;
     const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
     const { dispatcher, calls } = makeHarness({
@@ -1574,6 +1596,11 @@ describe("IpcCommandDispatcher.dispatchRelayControl", () => {
     expect(calls.sessionUnregister).toEqual(["s1"]);
     expect(calls.storeDeleteSession).toEqual(["s1"]);
     expect(seenUnsub).toEqual(["s1"]);
+    // A viewer attached to this sid on ANY relay client (not just the
+    // originating frontend's) must be notified via `session.removed`.
+    expect(seenRemoved).toEqual([
+      { sid: "s1", msg: { t: "session.removed", sid: "s1" } },
+    ]);
     const ok = out.find(
       (o) => (o.msg as { t?: string }).t === "session.delete.ok",
     );
@@ -2156,14 +2183,21 @@ describe("IpcCommandDispatcher.dispatchRelayControl", () => {
     expect(sent.cols).toBe(80);
   });
 
-  test("resize on unknown sid is a no-op", () => {
+  test("resize on unknown sid replies NO_RUNNER instead of silently dropping", async () => {
+    // A resize to a dead session must NACK — otherwise the frontend believes
+    // it landed. Mirrors session.stop's identical no-runner NACK.
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
     const { dispatcher, calls } = makeHarness();
     dispatcher.dispatchRelayControl(
-      fakeRelay([]),
+      fakeRelay(out),
       { t: "resize", sid: "absent", cols: 80, rows: 24 },
       "f1",
     );
+    await Promise.resolve();
     expect(calls.ipcSends).toEqual([]);
+    const m = out[0]?.msg as { t: string; e?: string; m?: string };
+    expect(m.t).toBe("err");
+    expect(m.e).toBe("NO_RUNNER");
   });
 
   test("detach is a no-op", () => {

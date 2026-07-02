@@ -102,6 +102,7 @@ export type {
   SessionPing,
   SessionPong,
   SessionRec,
+  SessionRemoved,
   SessionResize,
   SessionRestart,
   SessionResume,

@@ -26,6 +26,7 @@ import type {
   SessionDeleteOk,
   SessionExport,
   SessionRec,
+  SessionRemoved,
   SessionStateMsg,
 } from "@teleprompter/protocol";
 import {
@@ -334,6 +335,14 @@ export class IpcCommandDispatcher {
       this.deps.ipcServer.send(runner, err);
       return;
     }
+    // Notify any frontend currently attached to this sid BEFORE unsubscribing
+    // — unsubscribing first would mean the frame is published on a sid the
+    // relay clients (and thus the relay server) no longer consider
+    // subscribed, and it would be silently dropped. See
+    // `broadcastSessionRemoved` for why this is needed at all (a viewer
+    // otherwise gets no push and only drops the ghost row on its next
+    // `hello` snapshot).
+    this.broadcastSessionRemoved(msg.sid);
     // Drop the relay subscription for the deleted sid, mirroring the relay-plane
     // session.delete path (see :606). Without this, each RelayClient's
     // subscribedSessions Set keeps a stale entry for every CLI-deleted sid.
@@ -391,6 +400,9 @@ export class IpcCommandDispatcher {
           runningKilled++;
         }
         this.deps.store.deleteSession(s.sid);
+        // Notify any attached frontend BEFORE unsubscribing — same ordering
+        // rationale as handleSessionDelete above.
+        this.broadcastSessionRemoved(s.sid);
         // Drop the relay subscription for each pruned sid (mirrors the
         // relay-plane unsubscribe at :606 and handleSessionDelete above).
         for (const client of this.deps.getRelayClients()) {
@@ -515,6 +527,11 @@ export class IpcCommandDispatcher {
             cols: msg.cols,
             rows: msg.rows,
           });
+        } else {
+          // No live runner for this sid: the resize would otherwise be
+          // silently dropped and the frontend would believe it landed.
+          // Mirrors `session.stop`'s identical no-runner NACK below.
+          replyError(msg.sid, "NO_RUNNER", `No runner for session ${msg.sid}`);
         }
         break;
       }
@@ -580,12 +597,14 @@ export class IpcCommandDispatcher {
 
       case "session.delete": {
         // Relay-plane sibling of the CLI's IPC `session.delete`. Mirrors the
-        // same kill→unregister→deleteSession semantics, then unsubscribes the
-        // relay clients from the sid (symmetry with `session.create`'s
-        // immediate subscribe) and replies ok/err to the originating frontend.
-        // Other connected frontends drop the (now-ghost) row on their next
-        // `hello` snapshot (Store is the SoT — a deleted row is absent from the
-        // next session list), so no extra broadcast is required.
+        // same kill→unregister→deleteSession semantics, then broadcasts
+        // `session.removed` to every connected relay client (so a frontend
+        // currently attached to this sid — Chat/Terminal tab open — learns
+        // immediately, instead of only dropping the ghost row on its next
+        // `hello` snapshot, which may not happen until reconnect), THEN
+        // unsubscribes the relay clients from the sid (symmetry with
+        // `session.create`'s immediate subscribe) and replies ok/err to the
+        // originating frontend.
         const meta = this.deps.store.getSession(msg.sid);
         if (!meta) {
           reply(msg.sid, {
@@ -611,6 +630,10 @@ export class IpcCommandDispatcher {
           } satisfies SessionDeleteErr);
           break;
         }
+        // Broadcast BEFORE unsubscribing — see `broadcastSessionRemoved`'s
+        // doc comment for why the ordering matters (an early unsubscribe
+        // would make the relay drop the frame as unsubscribed-sid).
+        this.broadcastSessionRemoved(msg.sid);
         for (const client of this.deps.getRelayClients()) {
           client.unsubscribe(msg.sid);
         }
@@ -740,6 +763,27 @@ export class IpcCommandDispatcher {
     } satisfies SessionStateMsg;
     for (const relay of this.deps.getRelayClients()) {
       relay.publishState(RELAY_CHANNEL_META, stateMsg).catch(() => {});
+    }
+  }
+
+  /**
+   * Fan-out a `session.removed` notice to all connected relay clients so a
+   * frontend currently attached to `sid` (Chat/Terminal tab open) learns
+   * immediately that the session was deleted/pruned, instead of only
+   * dropping the ghost row on its next `hello` snapshot (which may not
+   * happen until reconnect). Mirrors `broadcastSessionState`'s shape;
+   * called from all three delete/prune sites (IPC delete, IPC prune,
+   * relay-plane delete) BEFORE the relay clients unsubscribe from `sid` —
+   * unsubscribing first would mean the frame is published on a sid no
+   * client is subscribed to and gets silently dropped by the relay.
+   */
+  private broadcastSessionRemoved(sid: string): void {
+    const removedMsg = {
+      t: "session.removed" as const,
+      sid,
+    } satisfies SessionRemoved;
+    for (const relay of this.deps.getRelayClients()) {
+      relay.publishRemoved(sid, removedMsg).catch(() => {});
     }
   }
 

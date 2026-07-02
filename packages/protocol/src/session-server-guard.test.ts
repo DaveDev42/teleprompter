@@ -348,6 +348,27 @@ describe("parseSessionServerMessage", () => {
     });
   });
 
+  describe("session.removed", () => {
+    test("accepts well-formed", () => {
+      expectAccepted({ t: "session.removed", sid: "s1" });
+    });
+    test.each<[string, unknown]>([
+      ["missing sid", { t: "session.removed" }],
+      ["non-string sid", { t: "session.removed", sid: 7 }],
+    ])("rejects %s", (_l, m) => {
+      expectRejected(m);
+    });
+    test("drops extra fields", () => {
+      expect(
+        parseSessionServerMessage({
+          t: "session.removed",
+          sid: "s1",
+          evil: 1,
+        }),
+      ).toEqual({ t: "session.removed", sid: "s1" });
+    });
+  });
+
   test("does not carry over extra fields onto the result", () => {
     // The guard reconstructs each object field-by-field, so attacker-supplied
     // extra keys (a spoofed flag, a __proto__ payload) are dropped rather than

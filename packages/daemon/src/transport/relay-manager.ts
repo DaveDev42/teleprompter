@@ -108,7 +108,7 @@ export class RelayConnectionManager {
     daemonId = "",
   ): RelayClientEvents {
     return {
-      onInput: (kind, sid, data) => {
+      onInput: (kind, sid, data, frontendId) => {
         const runner = this.deps.ipcServer.findRunnerBySid(sid);
         if (runner) {
           // Chat input targets the interactive claude TUI, which submits a
@@ -123,6 +123,21 @@ export class RelayConnectionManager {
               ? Buffer.from(`${data}\r`).toString("base64")
               : data;
           this.deps.ipcServer.send(runner, { t: "input", sid, data: payload });
+        } else if (frontendId) {
+          // No live runner for this sid: without a NACK the frontend believes
+          // the keystroke/prompt landed. Mirror `session.stop`'s NO_RUNNER
+          // reply (command-dispatcher.ts) on the same dead-runner condition.
+          // `frontendId` is the peer that sent the frame (decryptAndDispatch
+          // always supplies it on the real relay path — only test-only direct
+          // `onInput?.()` calls omit it); publish the NACK back to that peer
+          // on `sid` so it lands wherever the frontend is listening for this
+          // session's frames.
+          const c = getClient();
+          c?.publishToPeer(frontendId, sid, {
+            t: "err",
+            e: "NO_RUNNER",
+            m: `No runner for session ${sid}`,
+          }).catch(() => {});
         }
       },
       onControlMessage: (msg, frontendId) => {

@@ -19,6 +19,7 @@ import type {
   RelayServerMessage,
   SessionKeys,
   SessionRec,
+  SessionRemoved,
   SessionStateMsg,
 } from "@teleprompter/protocol";
 import {
@@ -754,6 +755,17 @@ export class RelayClient {
   /** Encrypt and publish a state update to all connected frontends via relay. */
   async publishState(sid: string, stateMsg: SessionStateMsg): Promise<void> {
     return this.broadcastEncrypted(sid, 0, stateMsg);
+  }
+
+  /**
+   * Encrypt and publish a `session.removed` notice to all connected frontends
+   * via relay. Used on session delete/prune so a frontend already attached to
+   * `sid` (Chat/Terminal tab open) learns immediately instead of only
+   * dropping the ghost row on its next `hello` snapshot. Mirrors
+   * `publishState`'s all-peers broadcast shape.
+   */
+  async publishRemoved(sid: string, msg: SessionRemoved): Promise<void> {
+    return this.broadcastEncrypted(sid, 0, msg);
   }
 
   /**

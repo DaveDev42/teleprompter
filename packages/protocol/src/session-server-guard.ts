@@ -49,6 +49,7 @@ import type {
   SessionMeta,
   SessionPong,
   SessionRec,
+  SessionRemoved,
   SessionServerMessage,
   SessionStateMsg,
   SessionWorktreeCreated,
@@ -275,6 +276,14 @@ export function parseSessionServerMessage(
         reason: raw["reason"],
         ...(raw["message"] !== undefined ? { message: raw["message"] } : {}),
       } satisfies SessionDeleteErr;
+    }
+
+    case "session.removed": {
+      if (!isString(raw["sid"])) return null;
+      return {
+        t: "session.removed",
+        sid: raw["sid"],
+      } satisfies SessionRemoved;
     }
 
     default:

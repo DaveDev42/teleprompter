@@ -431,6 +431,148 @@ final class ChatRenderTests: XCTestCase {
         XCTAssertFalse(store.isWorking(sid: sid))  // no SessionMeta → not running
     }
 
+    // MARK: isWorking — permission/elicitation are NOT "busy" (Batch C — FIX #5)
+    //
+    // A pending PermissionRequest/Elicitation means Claude is blocked on the
+    // *user*, not thinking — the animated "typing" dots must not show. Before
+    // this fix, the last turn-lifecycle event scanned by `isWorking` was still
+    // the open `UserPromptSubmit` (permission/elicitation events were treated
+    // as non-boundary, like PostToolUse), so the indicator kept pulsing under
+    // a card that was actually just waiting on the user to tap Approve/Deny
+    // or reply.
+
+    private func permissionRec(seq: Int) -> SessionRec {
+        eventRec(
+            seq: seq,
+            json: [
+                "session_id": sid, "hook_event_name": "PermissionRequest",
+                "cwd": "/tmp/smoke", "tool_name": "Bash",
+            ])
+    }
+
+    private func elicitationRec(seq: Int) -> SessionRec {
+        eventRec(
+            seq: seq,
+            json: [
+                "session_id": sid, "hook_event_name": "Elicitation",
+                "cwd": "/tmp/smoke", "message": "What is your name?",
+            ])
+    }
+
+    /// A pending PermissionRequest as the latest event → NOT busy (blocked on user).
+    func testIsWorkingPermissionRequestIsNotBusy() {
+        let store = SessionStore()
+        markRunning(store)
+        store.appendRec(userPromptRec(seq: 1))
+        store.appendRec(permissionRec(seq: 2))
+        XCTAssertFalse(store.isWorking(sid: sid))
+    }
+
+    /// A pending Elicitation as the latest event → NOT busy (blocked on user).
+    func testIsWorkingElicitationIsNotBusy() {
+        let store = SessionStore()
+        markRunning(store)
+        store.appendRec(userPromptRec(seq: 1))
+        store.appendRec(elicitationRec(seq: 2))
+        XCTAssertFalse(store.isWorking(sid: sid))
+    }
+
+    /// A PermissionRequest followed by more tool activity (still no Stop) stays
+    /// NOT busy — PermissionRequest is itself a boundary, so trailing
+    /// non-boundary events after it don't resurrect "busy" without a fresh
+    /// UserPromptSubmit.
+    func testIsWorkingPostToolAfterPermissionIsStillNotBusy() {
+        let store = SessionStore()
+        markRunning(store)
+        store.appendRec(userPromptRec(seq: 1))
+        store.appendRec(permissionRec(seq: 2))
+        store.appendRec(postToolRec(seq: 3))
+        XCTAssertFalse(store.isWorking(sid: sid))
+    }
+
+    /// A new turn after a permission prompt (prompt → PermissionRequest →
+    /// prompt) → busy again, same as the Stop case.
+    func testIsWorkingNewTurnAfterPermissionIsBusy() {
+        let store = SessionStore()
+        markRunning(store)
+        store.appendRec(userPromptRec(seq: 1))
+        store.appendRec(permissionRec(seq: 2))
+        store.appendRec(userPromptRec(seq: 3))
+        XCTAssertTrue(store.isWorking(sid: sid))
+    }
+
+    // MARK: composer honesty gate (Batch B — FIX #3/#4/#7)
+    //
+    // `ChatView.sessionStopped` is the disable-gate handed down to
+    // `ChatComposer`. Before this batch it only checked `state == "stopped"`,
+    // so a crashed ("error") session left the composer enabled and a typed
+    // message would silently vanish into the fire-and-forget `onSend` with no
+    // ack. These tests pin the broadened gate (state-terminal OR daemon
+    // offline) directly — no SwiftUI render pass needed since `sessionStopped`
+    // / `disabledReason` are pure computed properties over `SessionStore` +
+    // `daemonOnline`.
+
+    private func chatMeta(state: String) -> SessionMeta {
+        SessionMeta(
+            sid: sid, state: state, cwd: "/tmp/smoke",
+            createdAt: 1, updatedAt: 2, lastSeq: 0)
+    }
+
+    func testComposerEnabledWhenRunningAndOnline() {
+        let store = SessionStore()
+        store.appendState(chatMeta(state: "running"))
+        let view = ChatView(store: store, sid: sid, daemonOnline: true)
+        XCTAssertFalse(view.sessionStopped)
+        XCTAssertNil(view.disabledReason)
+    }
+
+    func testComposerDisabledWhenStopped() {
+        let store = SessionStore()
+        store.appendState(chatMeta(state: "stopped"))
+        let view = ChatView(store: store, sid: sid, daemonOnline: true)
+        XCTAssertTrue(view.sessionStopped)
+        XCTAssertEqual(view.disabledReason, "Session ended — read-only.")
+    }
+
+    /// FIX #3: an "error" (crashed) session must disable the composer too —
+    /// previously only "stopped" did, so a crashed session silently ate input.
+    func testComposerDisabledWhenErrored() {
+        let store = SessionStore()
+        store.appendState(chatMeta(state: "error"))
+        let view = ChatView(store: store, sid: sid, daemonOnline: true)
+        XCTAssertTrue(view.sessionStopped)
+        XCTAssertEqual(view.disabledReason, "Session crashed — read-only.")
+    }
+
+    /// FIX #7: a running session with the daemon offline must also disable
+    /// the composer — the gate previously ignored connectivity entirely.
+    func testComposerDisabledWhenRunningButDaemonOffline() {
+        let store = SessionStore()
+        store.appendState(chatMeta(state: "running"))
+        let view = ChatView(store: store, sid: sid, daemonOnline: false)
+        XCTAssertTrue(view.sessionStopped)
+        XCTAssertEqual(view.disabledReason, "Daemon offline — can't send.")
+    }
+
+    /// `daemonOnline` defaults to `true` (call sites that don't pass it keep
+    /// today's state-only gating) — see the TODO on `ChatView.daemonOnline`.
+    func testComposerDaemonOnlineDefaultsTrue() {
+        let store = SessionStore()
+        store.appendState(chatMeta(state: "running"))
+        let view = ChatView(store: store, sid: sid)
+        XCTAssertFalse(view.sessionStopped)
+    }
+
+    /// A nil sid (aggregated view) never renders a composer, so the gate is
+    /// vacuously "not stopped" regardless of any session's state.
+    func testComposerNilSidIsNeverStopped() {
+        let store = SessionStore()
+        store.appendState(chatMeta(state: "error"))
+        let view = ChatView(store: store, sid: nil, daemonOnline: false)
+        XCTAssertFalse(view.sessionStopped)
+        XCTAssertNil(view.disabledReason)
+    }
+
     // MARK: session metadata
 
     /// `appendState` upserts metadata without touching chat items or the cursor.

@@ -28,7 +28,12 @@ struct ChatComposer: View {
     /// Per-session voice store (created once, torn down with the view).
     @State private var voice = VoiceStore()
 
-    /// `true` when the session is no longer running. Disables input.
+    /// `true` when the composer must refuse input — despite the name, this is
+    /// really "cannot interact": the caller (`ChatView.sessionStopped`) sets it
+    /// whenever the session state is terminal (`stopped`/`error`) OR the owning
+    /// daemon is unreachable (see `ChatView` for the connectivity-wiring TODO).
+    /// Disables the text field, the send button (via `canSend`), and the voice
+    /// button — all three routes into `onSend`.
     var sessionStopped: Bool = false
 
     private var canSend: Bool {
@@ -49,7 +54,7 @@ struct ChatComposer: View {
                 field: {
                     // Multi-line text field — grows up to ~5 lines then scrolls.
                     TextField(
-                        sessionStopped ? "Session ended" : "Send a message…",
+                        sessionStopped ? "Can't send right now" : "Send a message…",
                         text: $draft,
                         axis: .vertical
                     )
@@ -74,13 +79,20 @@ struct ChatComposer: View {
             // Wire up VoiceStore dependencies.
             voice.sessionStore = sessionStore
             voice.activeSid = sid
+            // FIX #7 (Batch B): the voice button is visually disabled while
+            // `sessionStopped`, but a prompt can still arrive here from an
+            // in-flight recognition that started before the state flipped
+            // (e.g. daemon went offline mid-utterance). Re-check at delivery
+            // time so a stray prompt never fires into the void.
             voice.onPromptReady = { [sid] prompt in
+                guard !self.sessionStopped else { return }
                 onSend(sid, prompt)
             }
         }
         .onChange(of: sid) { _, newSid in
             voice.activeSid = newSid
             voice.onPromptReady = { prompt in
+                guard !self.sessionStopped else { return }
                 onSend(newSid, prompt)
             }
         }
@@ -96,6 +108,14 @@ struct ChatComposer: View {
         }
     }
 
+    /// FIX #4 (Batch B): `onSend` is fire-and-forget with no delivery ack (see
+    /// `RelayClient.sendInput` — it can drop silently before kx completes, or
+    /// on a network error, and only logs). We cannot detect *that* failure
+    /// here. What we CAN guarantee is that a send blocked by a gate we DO
+    /// know about (empty draft, or `sessionStopped` — stopped/errored session,
+    /// or offline daemon once wired) never loses the user's text: the guard
+    /// below returns before `onSend`/`draft = ""`, so the draft survives for
+    /// the user to retry once the session/connection recovers.
     private func sendIfReady() {
         let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !sessionStopped else { return }

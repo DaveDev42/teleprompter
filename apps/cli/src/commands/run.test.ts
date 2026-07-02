@@ -66,7 +66,9 @@ describe("run.ts NaN guard for cols/rows (idx-run-2)", () => {
 // ---------------------------------------------------------------------------
 
 describe("run.ts gracefulShutdown logic (idx-run-1)", () => {
-  function makeGracefulShutdown(runner: { stop: (code: number) => void }) {
+  function makeGracefulShutdown(runner: {
+    stop: (code: number, reason?: "signal" | "exit") => void;
+  }) {
     let stopping = false;
     const exits: number[] = [];
     const order: string[] = [];
@@ -81,7 +83,9 @@ describe("run.ts gracefulShutdown logic (idx-run-1)", () => {
         fakeExit(1);
       }
       stopping = true;
-      runner.stop(signal === "SIGINT" ? 130 : 143);
+      // SIGINT/SIGTERM is a daemon/transport-initiated stop, not claude's own
+      // process exit — reason "signal" (mirrors run.ts).
+      runner.stop(signal === "SIGINT" ? 130 : 143, "signal");
       // Mirror of run.ts: yield a macrotask so the queued bye frame flushes
       // before exit. Record the tick so tests can assert the ordering.
       await new Promise<void>((resolve) => setImmediate(resolve));
@@ -91,39 +95,39 @@ describe("run.ts gracefulShutdown logic (idx-run-1)", () => {
     return { gracefulShutdown, exits, order };
   }
 
-  test("SIGINT calls runner.stop(130) then exit(0)", async () => {
-    const stopCalls: number[] = [];
+  test("SIGINT calls runner.stop(130, 'signal') then exit(0)", async () => {
+    const stopCalls: Array<[number, "signal" | "exit" | undefined]> = [];
     const runner = {
-      stop: (code: number) => {
-        stopCalls.push(code);
+      stop: (code: number, reason?: "signal" | "exit") => {
+        stopCalls.push([code, reason]);
       },
     };
     const { gracefulShutdown, exits } = makeGracefulShutdown(runner);
 
     await expect(gracefulShutdown("SIGINT")).rejects.toThrow("exit(0)");
-    expect(stopCalls).toEqual([130]);
+    expect(stopCalls).toEqual([[130, "signal"]]);
     expect(exits).toEqual([0]);
   });
 
-  test("SIGTERM calls runner.stop(143) then exit(0)", async () => {
-    const stopCalls: number[] = [];
+  test("SIGTERM calls runner.stop(143, 'signal') then exit(0)", async () => {
+    const stopCalls: Array<[number, "signal" | "exit" | undefined]> = [];
     const runner = {
-      stop: (code: number) => {
-        stopCalls.push(code);
+      stop: (code: number, reason?: "signal" | "exit") => {
+        stopCalls.push([code, reason]);
       },
     };
     const { gracefulShutdown, exits } = makeGracefulShutdown(runner);
 
     await expect(gracefulShutdown("SIGTERM")).rejects.toThrow("exit(0)");
-    expect(stopCalls).toEqual([143]);
+    expect(stopCalls).toEqual([[143, "signal"]]);
     expect(exits).toEqual([0]);
   });
 
   test("second signal forces exit(1) without calling stop() again", async () => {
-    const stopCalls: number[] = [];
+    const stopCalls: Array<[number, "signal" | "exit" | undefined]> = [];
     const runner = {
-      stop: (code: number) => {
-        stopCalls.push(code);
+      stop: (code: number, reason?: "signal" | "exit") => {
+        stopCalls.push([code, reason]);
       },
     };
     const { gracefulShutdown, exits } = makeGracefulShutdown(runner);
@@ -135,19 +139,19 @@ describe("run.ts gracefulShutdown logic (idx-run-1)", () => {
     await expect(gracefulShutdown("SIGINT")).rejects.toThrow("exit(1)");
 
     // stop() was only called once
-    expect(stopCalls).toEqual([130]);
+    expect(stopCalls).toEqual([[130, "signal"]]);
     expect(exits).toEqual([0, 1]);
   });
 
   test("stop() runs, then the flush tick, then exit (run-1b ordering)", async () => {
     const order: string[] = [];
     const runner = {
-      stop: (_code: number) => {
+      stop: (_code: number, _reason?: "signal" | "exit") => {
         order.push("stop");
       },
     };
     const { gracefulShutdown, order: shutdownOrder } = makeGracefulShutdown({
-      stop: (code) => runner.stop(code),
+      stop: (code, reason) => runner.stop(code, reason),
     });
 
     try {

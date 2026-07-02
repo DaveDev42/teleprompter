@@ -574,24 +574,7 @@ export class IpcCommandDispatcher {
       }
 
       case "session.restart": {
-        const session = this.deps.store.getSession(msg.sid);
-        if (!session) {
-          replyError(msg.sid, "NOT_FOUND", `Session ${msg.sid} not found`);
-          break;
-        }
-        this.deps.sessionManager.killRunner(msg.sid);
-        try {
-          this.deps.createSession(msg.sid, session.cwd, {
-            worktreePath: session.worktree_path ?? undefined,
-          });
-          log.info(`restarted session ${msg.sid} via relay`);
-        } catch (err) {
-          replyError(
-            msg.sid,
-            "SESSION_ERROR",
-            err instanceof Error ? err.message : "Failed to restart session",
-          );
-        }
+        void this.handleRelaySessionRestart(replyError, msg.sid);
         break;
       }
 
@@ -670,6 +653,67 @@ export class IpcCommandDispatcher {
     }
   }
 
+  /**
+   * `session.restart`: kill the old Runner and spawn a fresh one for the
+   * same sid.
+   *
+   * Fix #6: the old implementation called `killRunner(sid)` (SIGTERM only —
+   * does not wait for the process to actually exit) and then IMMEDIATELY
+   * `createSession(sid, ...)`. The old claude PTY is still alive when the new
+   * one spawns, so both processes race on the same sid and hook socket
+   * (`HookReceiver.defaultSocketPath(sid)`), corrupting the session. Mirrors
+   * `handleRelayWorktreeRemove`'s force-kill path: `killRunner` →
+   * **await `waitForExit`** → `unregisterRunner` before touching anything
+   * else, so the old PTY is fully gone before `createSession` runs.
+   *
+   * For a passthrough/registered-only runner (registered via the IPC `hello`
+   * path without this daemon having spawned it — no tracked `Subprocess`),
+   * `killRunner` cannot signal it at all: it would silently no-op, and
+   * `createSession` would spawn a second `claude` right on top of the first,
+   * live, unkillable one. Refuse rather than double-spawn (mirrors
+   * `handleRelayWorktreeRemove`'s "unkillable blocker" refusal for
+   * force-remove).
+   */
+  private async handleRelaySessionRestart(
+    replyError: (sid: string, e: string, m: string) => void,
+    sid: string,
+  ): Promise<void> {
+    const session = this.deps.store.getSession(sid);
+    if (!session) {
+      replyError(sid, "NOT_FOUND", `Session ${sid} not found`);
+      return;
+    }
+
+    const runner = this.deps.sessionManager.getRunner(sid);
+    if (runner && !runner.process) {
+      replyError(
+        sid,
+        "SESSION_ERROR",
+        `Cannot restart session ${sid}: it is not managed by this daemon ` +
+          "(passthrough/registered-only) and cannot be safely killed before " +
+          "respawning.",
+      );
+      return;
+    }
+
+    this.deps.sessionManager.killRunner(sid);
+    await this.deps.sessionManager.waitForExit(sid);
+    this.deps.sessionManager.unregisterRunner(sid);
+
+    try {
+      this.deps.createSession(sid, session.cwd, {
+        worktreePath: session.worktree_path ?? undefined,
+      });
+      log.info(`restarted session ${sid} via relay`);
+    } catch (err) {
+      replyError(
+        sid,
+        "SESSION_ERROR",
+        err instanceof Error ? err.message : "Failed to restart session",
+      );
+    }
+  }
+
   // ---------------------------------------------------------------------
   // IPC handlers
   // ---------------------------------------------------------------------
@@ -678,8 +722,15 @@ export class IpcCommandDispatcher {
    * Fan-out a session-state update to all connected relay clients.
    * Shared by `handleHello` and `handleBye` so the broadcast shape is
    * defined once — any future protocol change only touches this method.
+   *
+   * Non-private (mirrors `dispatchIpc`/`handleRunnerDisconnect`): Daemon's
+   * `SessionManager.setOnRunnerExit` crash/kill-path callback also calls this
+   * directly, since that path updates the store but (unlike `handleBye`) has
+   * no other route to notify subscribed relay clients that the session died.
+   * Without this, a crashed/killed Runner update never reaches the app, and
+   * "Claude is responding…" hangs until the app's next manual refetch.
    */
-  private broadcastSessionState(sid: string): void {
+  broadcastSessionState(sid: string): void {
     const meta = this.deps.store.getSession(sid);
     if (!meta) return;
     const stateMsg = {
@@ -820,11 +871,25 @@ export class IpcCommandDispatcher {
       }
     }
 
-    const state = msg.exitCode === 0 ? "stopped" : "error";
+    // `reason: "signal"` means Runner.stop() was triggered by something
+    // OTHER than claude's own process exit (graceful SIGTERM/SIGINT shutdown,
+    // or IPC socket teardown) — e.g. the user tapping Stop, or
+    // `session.restart`'s killRunner. Those call sites pass a synthetic
+    // exitCode (130/143/-1) that is NOT claude's real exit status, so a
+    // signal-driven stop must always resolve to "stopped" regardless of that
+    // code. Only `reason: "exit"` (or its absence, for wire back-compat with
+    // an older Runner that only ever sent the real claude exit code) trusts
+    // exitCode to distinguish a clean exit from a genuine crash.
+    const state =
+      msg.reason === "signal"
+        ? "stopped"
+        : msg.exitCode === 0
+          ? "stopped"
+          : "error";
     this.deps.store.updateSessionState(msg.sid, state);
     this.deps.sessionManager.unregisterRunner(msg.sid);
     log.info(
-      `session ended sid=${msg.sid} exitCode=${msg.exitCode} state=${state}`,
+      `session ended sid=${msg.sid} exitCode=${msg.exitCode} reason=${msg.reason ?? "(none)"} state=${state}`,
     );
 
     // Notify relay of session state change

@@ -213,11 +213,23 @@ export function parseIpcMessage(raw: unknown): IpcMessage | null {
       // generation guard so a restarted session's old Runner bye cannot tear
       // down the freshly-registered new generation.
       if (raw["pid"] !== undefined && !isPositiveInt(raw["pid"])) return null;
+      // `reason` is optional for wire back-compat (an older Runner omits it).
+      // When present it must be exactly "signal" or "exit" — the daemon uses
+      // it to distinguish a daemon/transport-initiated stop (always
+      // "stopped") from claude's own process exit (exitCode-driven).
+      if (
+        raw["reason"] !== undefined &&
+        raw["reason"] !== "signal" &&
+        raw["reason"] !== "exit"
+      ) {
+        return null;
+      }
       return {
         t: "bye",
         sid: raw["sid"],
         exitCode: raw["exitCode"],
         pid: raw["pid"] as number | undefined,
+        reason: raw["reason"] as "signal" | "exit" | undefined,
       };
     }
 

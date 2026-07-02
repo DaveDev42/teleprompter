@@ -33,6 +33,19 @@ export interface IpcBye {
    * does not match the currently-registered Runner's pid, the bye is ignored.
    */
   pid?: number | undefined;
+  /**
+   * Why `Runner.stop()` was invoked. Optional for wire back-compat (an older
+   * Runner omits it — the daemon then falls back to exitCode-based state).
+   * `"signal"` means stop() was triggered by something OTHER than claude's
+   * own process exit (graceful SIGTERM/SIGINT shutdown, or the IPC socket
+   * being torn down) — these are daemon/transport-initiated stops (e.g. the
+   * user tapping Stop, or `session.restart`) and must always resolve to
+   * session state "stopped", regardless of the exitCode the shell reports for
+   * a signal-killed process. `"exit"` means claude's own process exited on
+   * its own (the PTY's `onExit` callback), so the real exitCode is
+   * meaningful and non-zero means "error".
+   */
+  reason?: "signal" | "exit" | undefined;
 }
 
 export interface IpcAck {

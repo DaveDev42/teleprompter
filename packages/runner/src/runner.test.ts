@@ -8,6 +8,8 @@
  * must not re-send a 'bye' message to the daemon.
  */
 import { describe, expect, test } from "bun:test";
+import type { IpcBye } from "@teleprompter/protocol";
+import { FrameDecoder } from "@teleprompter/protocol";
 import { existsSync } from "fs";
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
@@ -233,6 +235,130 @@ describe("Runner.stop() kills the PTY child", () => {
     expect(killCount).toBe(1);
 
     server.stop();
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fix #2 — bye `reason` threading. `stop()`'s ONLY call site that carries
+// claude's real process exit code is the PTY's own `onExit` callback
+// (reason "exit"). The socket-teardown/graceful-shutdown call sites pass a
+// synthetic code (queue-overflow -1, or SIGINT/SIGTERM 130/143 from
+// index.ts/run.ts) that must never be misread by the daemon as a crash exit
+// code — those call `stop(code, "signal")`. Regression: source-only revert of
+// runner.ts's reason threading makes this test read `reason: undefined` on
+// both frames.
+// ---------------------------------------------------------------------------
+
+describe("Runner.stop() bye reason threading — Fix #2 regression", () => {
+  function startDecodingServer(socketPath: string) {
+    const decoder = new FrameDecoder();
+    const messages: unknown[] = [];
+    const server = Bun.listen({
+      unix: socketPath,
+      socket: {
+        open() {},
+        data(_sock, data) {
+          for (const frame of decoder.decode(new Uint8Array(data))) {
+            messages.push(frame.data);
+          }
+        },
+        close() {},
+        error() {},
+      },
+    });
+    return { server, messages };
+  }
+
+  test("the claude-onExit path sends reason='exit'", async () => {
+    const { Runner } = await import("./runner");
+
+    const tmpDir = await mkdtemp(join(tmpdir(), "tp-runner-bye-exit-"));
+    const socketPath = join(tmpDir, "ipc-bye-exit.sock");
+    const { server, messages } = startDecodingServer(socketPath);
+
+    const runner = new Runner({
+      sid: "bye-exit-test",
+      cwd: tmpDir,
+      socketPath,
+    });
+
+    // Inject a fake PTY whose spawn() immediately fires the runner's own
+    // onExit callback — mirrors claude's process exiting on its own.
+    let onExitCb: ((exitCode: number) => void) | undefined;
+    (runner as unknown as Record<string, unknown>)["pty"] = {
+      spawn: (opts: { onExit: (exitCode: number) => void }) => {
+        onExitCb = opts.onExit;
+      },
+      write: () => {},
+      resize: () => {},
+      kill: () => {},
+      pid: 4242,
+    };
+
+    await runner.start();
+    // Fire the PTY's own exit, as Bun.spawn's exited-promise callback would.
+    onExitCb?.(0);
+    // Let the IPC QueuedWriter flush the enqueued bye frame.
+    await Bun.sleep(20);
+
+    const bye = messages.find((m): m is IpcBye => (m as IpcBye).t === "bye");
+    expect(bye?.reason).toBe("exit");
+    expect(bye?.exitCode).toBe(0);
+
+    server.stop();
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  test("the IPC onClose path (socket teardown) calls stop(-1, 'signal')", async () => {
+    // Unlike the onExit path, the bye frame from THIS path is not actually
+    // observable over the wire: by the time IpcClient's onClose callback
+    // fires, the transport is already torn down (Bun flips `state.connected`
+    // to false before invoking the callback), so `stop()`'s own `ipc.send()`
+    // for the bye is a no-op — this mirrors production (the daemon's
+    // `proc.exited` crash-path reconciliation, not a bye frame, is what
+    // handles a Runner that dies via socket teardown; see Fix #1). What IS
+    // testable and load-bearing here is the constructor's wiring: onClose
+    // must invoke `this.stop(-1, "signal")`, not the bare `this.stop(-1)` it
+    // used to call pre-fix (which defaults to reason "exit" and would have
+    // the daemon misread this transport teardown as a claude crash).
+    const { Runner } = await import("./runner");
+
+    const tmpDir = await mkdtemp(join(tmpdir(), "tp-runner-bye-signal-"));
+    const socketPath = join(tmpDir, "ipc-bye-signal.sock");
+    const { server } = startDecodingServer(socketPath);
+
+    const runner = new Runner({
+      sid: "bye-signal-test",
+      cwd: tmpDir,
+      socketPath,
+    });
+
+    (runner as unknown as Record<string, unknown>)["pty"] = {
+      spawn: () => {},
+      write: () => {},
+      resize: () => {},
+      kill: () => {},
+      pid: 4242,
+    };
+
+    const stopCalls: Array<[number, "signal" | "exit" | undefined]> = [];
+    const originalStop = runner.stop.bind(runner);
+    runner.stop = (exitCode: number, reason?: "signal" | "exit") => {
+      stopCalls.push([exitCode, reason]);
+      return originalStop(exitCode, reason);
+    };
+
+    await runner.start();
+
+    // Close the daemon-side (server) socket. Bun fires the client-side
+    // `close` handler on the runner's IpcClient, which the Runner
+    // constructor wired to call `this.stop(-1, "signal")`.
+    server.stop(true);
+    await Bun.sleep(50);
+
+    expect(stopCalls).toContainEqual([-1, "signal"]);
+
     await rm(tmpDir, { recursive: true, force: true });
   });
 });

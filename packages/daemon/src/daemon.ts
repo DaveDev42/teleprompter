@@ -66,14 +66,30 @@ export class Daemon {
     this.store = new Store(storeDir);
 
     // Reconcile session state when a Runner process exits for any reason. A
-    // clean shutdown already flips the row to "stopped" via handleBye; this
-    // covers the crash/kill path where no "bye" is sent, so a dead Runner
-    // never leaves a phantom "running" session. The store updates are
-    // idempotent, so the overlap with handleBye is harmless.
+    // clean shutdown already flips the row to "stopped" via handleBye (which
+    // also broadcasts to relay); this covers the crash/kill path where no
+    // "bye" is sent, so a dead Runner never leaves a phantom "running"
+    // session. The store updates are idempotent, so the overlap with
+    // handleBye is harmless.
+    //
+    // This callback is registered before `this.dispatcher` is assigned below,
+    // but it only ever RUNS later (on a spawned Runner's `proc.exited`), by
+    // which point construction has completed and `this.dispatcher` is set —
+    // referencing it here inside the closure body is safe.
+    //
+    // Broadcasting is the critical half of this fix: without it, subscribed
+    // frontends never learn a crashed/killed session died (no "bye" means no
+    // other notification path exists), so the app's "Claude is
+    // responding…" / busy state hangs until a manual refetch. The exit code
+    // is not threaded through from `proc.exited` to this callback without
+    // further plumbing, so state stays "stopped" here rather than trying to
+    // distinguish a genuine crash — a signal-kill (the common case on this
+    // path: `killRunner` SIGTERM) IS a stop.
     this.sessionManager.setOnRunnerExit((sid) => {
       const meta = this.store.getSession(sid);
       if (meta && meta.state === "running") {
         this.store.updateSessionState(sid, "stopped");
+        this.dispatcher.broadcastSessionState(sid);
       }
     });
 

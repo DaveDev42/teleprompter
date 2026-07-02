@@ -729,16 +729,39 @@ describe("RelayConnectionManager", () => {
       expect(frame).toBe(wireData);
     });
 
-    test("onInput is a no-op when no runner owns the sid", () => {
+    test("onInput NACKs the originating frontend with NO_RUNNER when no runner owns the sid", () => {
+      // A dead-runner input must not be silently dropped — the frontend would
+      // otherwise believe the keystroke/prompt landed. Mirrors session.stop's
+      // NO_RUNNER reply on the identical no-runner condition.
       const sends: unknown[] = [];
       const deps = makeDeps({
         findRunnerBySid: () => undefined,
         send: (...args) => sends.push(args),
       });
       const mgr = new RelayConnectionManager(deps);
-      const events = mgr.buildEvents(() => makeStubClient("d1"));
+      const stub = makeStubClient("d1");
+      const events = mgr.buildEvents(() => stub);
+      events.onInput?.("chat", "ghost-sid", "hi", "front-1");
+      expect(sends).toHaveLength(0);
+      expect(stub.publishToPeer).toHaveBeenCalledWith("front-1", "ghost-sid", {
+        t: "err",
+        e: "NO_RUNNER",
+        m: "No runner for session ghost-sid",
+      });
+    });
+
+    test("onInput stays a no-op when no runner owns the sid AND frontendId is absent (defensive — real relay path always supplies it)", () => {
+      const sends: unknown[] = [];
+      const deps = makeDeps({
+        findRunnerBySid: () => undefined,
+        send: (...args) => sends.push(args),
+      });
+      const mgr = new RelayConnectionManager(deps);
+      const stub = makeStubClient("d1");
+      const events = mgr.buildEvents(() => stub);
       events.onInput?.("chat", "ghost-sid", "hi");
       expect(sends).toHaveLength(0);
+      expect(stub.publishToPeer).not.toHaveBeenCalled();
     });
   });
 });

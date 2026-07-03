@@ -2,11 +2,14 @@ import { describe, expect, test } from "bun:test";
 import {
   decrypt,
   deriveKxKey,
+  deriveLegacyPairingId,
+  derivePairingConfirmationTag,
   derivePushSealKey,
   deriveRegistrationProof,
   deriveRelayToken,
   deriveSessionKeys,
   encrypt,
+  formatUuid,
   fromBase64,
   generateKeyPair,
   generatePairingSecret,
@@ -376,5 +379,121 @@ describe("derivePushSealKey", () => {
     const k2 = await derivePushSealKey(s2);
 
     expect(k1).not.toEqual(k2);
+  });
+});
+
+describe("formatUuid", () => {
+  test("formats 16 raw bytes as canonical 8-4-4-4-12 lowercase", () => {
+    const raw = new Uint8Array(16);
+    for (let i = 0; i < 16; i++) raw[i] = i; // 0x00..0x0f
+    expect(formatUuid(raw)).toBe("00010203-0405-0607-0809-0a0b0c0d0e0f");
+  });
+
+  test("zero-pads single-hex-digit bytes", () => {
+    const raw = new Uint8Array(16); // all zero
+    expect(formatUuid(raw)).toBe("00000000-0000-0000-0000-000000000000");
+  });
+
+  test("throws for fewer than 16 bytes", () => {
+    expect(() => formatUuid(new Uint8Array(15))).toThrow("16 bytes");
+  });
+});
+
+describe("derivePairingConfirmationTag", () => {
+  const base = {
+    pairingId: new Uint8Array(16).fill(0x0a),
+    daemonId: "daemon-abc123",
+    hostname: "my-macbook",
+    daemonPubKey: new Uint8Array(32).fill(0xaa),
+    frontendPubKey: new Uint8Array(32).fill(0xbb),
+  };
+
+  test("produces a 32-byte tag", async () => {
+    const tag = await derivePairingConfirmationTag({
+      ...base,
+      tx: new Uint8Array(32).fill(0x11),
+      rx: new Uint8Array(32).fill(0x22),
+    });
+    expect(tag.length).toBe(32);
+  });
+
+  test("is deterministic for identical inputs", async () => {
+    const args = {
+      ...base,
+      tx: new Uint8Array(32).fill(0x11),
+      rx: new Uint8Array(32).fill(0x22),
+    };
+    const a = await derivePairingConfirmationTag(args);
+    const b = await derivePairingConfirmationTag(args);
+    expect(await toHex(a)).toBe(await toHex(b));
+  });
+
+  test("is order-independent in tx/rx (min/max sort)", async () => {
+    const tx = new Uint8Array(32).fill(0x11);
+    const rx = new Uint8Array(32).fill(0x22);
+    const a = await derivePairingConfirmationTag({ ...base, tx, rx });
+    const b = await derivePairingConfirmationTag({ ...base, tx: rx, rx: tx });
+    expect(await toHex(a)).toBe(await toHex(b));
+  });
+
+  test("differs when the pairingId differs", async () => {
+    const tx = new Uint8Array(32).fill(0x11);
+    const rx = new Uint8Array(32).fill(0x22);
+    const a = await derivePairingConfirmationTag({ ...base, tx, rx });
+    const b = await derivePairingConfirmationTag({
+      ...base,
+      pairingId: new Uint8Array(16).fill(0x0b),
+      tx,
+      rx,
+    });
+    expect(await toHex(a)).not.toBe(await toHex(b));
+  });
+
+  test("rejects a pairingId that is not 16 bytes", async () => {
+    await expect(
+      derivePairingConfirmationTag({
+        ...base,
+        pairingId: new Uint8Array(15),
+        tx: new Uint8Array(32),
+        rx: new Uint8Array(32),
+      }),
+    ).rejects.toThrow("16 bytes");
+  });
+
+  test("rejects a session key that is not 32 bytes", async () => {
+    await expect(
+      derivePairingConfirmationTag({
+        ...base,
+        tx: new Uint8Array(31),
+        rx: new Uint8Array(32),
+      }),
+    ).rejects.toThrow("tx must be 32 bytes");
+  });
+});
+
+describe("deriveLegacyPairingId", () => {
+  test("is a valid canonical UUID string", async () => {
+    const id = await deriveLegacyPairingId("daemon-abc123");
+    expect(id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+  });
+
+  test("stamps the UUIDv8 version + RFC-4122 variant nibbles", async () => {
+    const id = await deriveLegacyPairingId("daemon-abc123");
+    // version nibble is the first char of the 3rd group (index 14 overall).
+    // charAt keeps the result `string` under noUncheckedIndexedAccess.
+    expect(id.charAt(14)).toBe("8");
+    // variant nibble is the first char of the 4th group (index 19 overall).
+    expect(["8", "9", "a", "b"]).toContain(id.charAt(19));
+  });
+
+  test("is deterministic and distinct per daemon id", async () => {
+    expect(await deriveLegacyPairingId("daemon-x")).toBe(
+      await deriveLegacyPairingId("daemon-x"),
+    );
+    expect(await deriveLegacyPairingId("daemon-x")).not.toBe(
+      await deriveLegacyPairingId("daemon-y"),
+    );
   });
 });

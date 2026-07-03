@@ -49,5 +49,51 @@
       }
     },
     "with_binary_hex": "00000020000000057b2274223a226672616d65222c22736964223a2273222c226b223a22696f227d0102030405"
+  },
+  "pairing": {
+    "_comment": "Cross vectors for PCT + legacy pairing-id + v4 QR encode. KATs computed independently (Python hashlib.blake2b digest_size=32 = libsodium crypto_generichash) and frozen in rust/tp-core/src/{crypto,pairing}.rs.",
+    "pct": {
+      "_comment": "tx>rx lexicographically → exercises min/max swap. pairingId = 0x00..0x0f raw.",
+      "pairingId_hex": "000102030405060708090a0b0c0d0e0f",
+      "daemonId": "daemon-abc123",
+      "hostname": "my-macbook",
+      "daemonPk_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "frontendPk_hex": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "tx_hex": "2222222222222222222222222222222222222222222222222222222222222222",
+      "rx_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "tag_hex": "b79d189afaab37980bf1ac62c4d3949f76a12e18badea52854aadb5f5661561c"
+    },
+    "pct_equal_keys": {
+      "_comment": "tx == rx (0x33): min == max path.",
+      "pairingId_hex": "000102030405060708090a0b0c0d0e0f",
+      "daemonId": "daemon-abc123",
+      "hostname": "my-macbook",
+      "daemonPk_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "frontendPk_hex": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "key_hex": "3333333333333333333333333333333333333333333333333333333333333333",
+      "tag_hex": "456cd9638cab506ff41e359a63cba24382ca00d312902ac17fa64494ec7892a1"
+    },
+    "legacyPairingId": {
+      "daemonId": "daemon-abc123",
+      "uuid": "713e132d-ea6f-81eb-874e-91f282aba04b"
+    },
+    "v4Encode": {
+      "_comment": "Byte-exact frozen v4 default-relay QR. ps=[1;32], pk=[2;32], relay=default (empty on wire), did=daemon-abc123, pairingId=0x00..0x0f, hostname=my-macbook.",
+      "ps_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "pk_hex": "0202020202020202020202020202020202020202020202020202020202020202",
+      "relay": "wss://relay.tpmt.dev",
+      "did": "daemon-abc123",
+      "pairingId": "00010203-0405-0607-0809-0a0b0c0d0e0f",
+      "hostname": "my-macbook",
+      "url": "tp://p?d=dHAEBmFiYzEyMwABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAAECAwQFBgcICQoLDA0ODwpteS1tYWNib29r"
+    },
+    "v3Decode": {
+      "_comment": "A v3 bundle (…|pk, no pairingId/hostname) still decodes; new fields come back empty.",
+      "url": "tp://p?d=dHADBmFiYzEyMwABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC",
+      "did": "daemon-abc123",
+      "ps_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+      "pk_hex": "0202020202020202020202020202020202020202020202020202020202020202",
+      "v": 3
+    }
   }
 }

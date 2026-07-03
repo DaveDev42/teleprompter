@@ -71,6 +71,108 @@ pub fn derive_registration_proof(pairing_secret: &[u8]) -> String {
     hex::encode(derive_blake2b(pairing_secret, "relay-register"))
 }
 
+// ── Pairing Confirmation Tag (PCT) + legacy pairing-id ──────────────────────
+
+/// Domain-separation tag for the PCT (`"tp-pairing-confirm"` + version byte).
+const PCT_DOMAIN: &[u8] = b"tp-pairing-confirm\x01";
+/// Domain-separation tag for the legacy pairing-id derivation.
+const LEGACY_PAIRING_ID_DOMAIN: &[u8] = b"tp-pairing-id-legacy\x01";
+
+/// Append a `u8`-length-prefixed byte string. Mirrors the QR wire convention
+/// used for `did`/`hostname` (single-byte length; caller guarantees ≤255).
+fn push_len_prefixed(buf: &mut Vec<u8>, bytes: &[u8]) {
+    debug_assert!(bytes.len() <= u8::MAX as usize);
+    buf.push(bytes.len() as u8);
+    buf.extend_from_slice(bytes);
+}
+
+/// Derive the **Pairing Confirmation Tag** — a device-local BLAKE2b-256 commit
+/// over the ECDH session keys and pairing identity, proving both peers reached
+/// the same key agreement. Byte-exact twin of the TS `derivePairingConfirmationTag`.
+///
+/// ```text
+/// PCT_INPUT := "tp-pairing-confirm\x01" (19 bytes)
+///   || pairing_id (16 raw UUID bytes)
+///   || u8_len(daemon_id) || daemon_id (utf-8)
+///   || u8_len(hostname)  || hostname  (utf-8)
+///   || daemon_pub_key (32) || frontend_pub_key (32)
+///   || k_sort0 (32) = min(tx, rx)  // lexicographic
+///   || k_sort1 (32) = max(tx, rx)
+/// PCT := generic_hash_32(PCT_INPUT)  // BLAKE2b-256, 32 bytes
+/// ```
+///
+/// `daemon_id`/`hostname` are truncated to 255 bytes defensively; callers pass
+/// values already bounded by the QR encoder's 255-byte guard.
+#[allow(clippy::too_many_arguments)]
+pub fn derive_pairing_confirmation_tag(
+    pairing_id: &[u8; 16],
+    daemon_id: &str,
+    hostname: &str,
+    daemon_pub_key: &[u8; 32],
+    frontend_pub_key: &[u8; 32],
+    tx: &[u8; 32],
+    rx: &[u8; 32],
+) -> [u8; 32] {
+    let did = daemon_id.as_bytes();
+    let host = hostname.as_bytes();
+    let (k_sort0, k_sort1) = if compare_bytes(tx, rx) != std::cmp::Ordering::Greater {
+        (tx, rx)
+    } else {
+        (rx, tx)
+    };
+
+    let mut input = Vec::with_capacity(
+        PCT_DOMAIN.len() + 16 + 1 + did.len() + 1 + host.len() + 32 + 32 + 32 + 32,
+    );
+    input.extend_from_slice(PCT_DOMAIN);
+    input.extend_from_slice(pairing_id);
+    push_len_prefixed(&mut input, &did[..did.len().min(u8::MAX as usize)]);
+    push_len_prefixed(&mut input, &host[..host.len().min(u8::MAX as usize)]);
+    input.extend_from_slice(daemon_pub_key);
+    input.extend_from_slice(frontend_pub_key);
+    input.extend_from_slice(k_sort0);
+    input.extend_from_slice(k_sort1);
+    generic_hash_32(&input)
+}
+
+/// Derive a stable legacy pairing-id from a daemon id, for records paired before
+/// the QR carried an explicit `pairingId`. Byte-exact twin of the TS
+/// `deriveLegacyPairingId`. Uses BLAKE2b (no UUIDv5/SHA-1 dependency), then
+/// stamps the UUIDv8 version/variant nibbles so the result is a valid RFC-4122
+/// UUID string.
+///
+/// ```text
+/// digest = generic_hash_32("tp-pairing-id-legacy\x01" || utf8(daemon_id))
+/// raw16  = digest[0..16]
+/// raw16[6] = (raw16[6] & 0x0F) | 0x80   // version 8
+/// raw16[8] = (raw16[8] & 0x3F) | 0x80   // RFC-4122 variant
+/// → canonical 8-4-4-4-12 hex string
+/// ```
+pub fn derive_legacy_pairing_id(daemon_id: &str) -> String {
+    let mut input = Vec::with_capacity(LEGACY_PAIRING_ID_DOMAIN.len() + daemon_id.len());
+    input.extend_from_slice(LEGACY_PAIRING_ID_DOMAIN);
+    input.extend_from_slice(daemon_id.as_bytes());
+    let digest = generic_hash_32(&input);
+    let mut raw = [0u8; 16];
+    raw.copy_from_slice(&digest[0..16]);
+    raw[6] = (raw[6] & 0x0F) | 0x80; // UUIDv8 version nibble
+    raw[8] = (raw[8] & 0x3F) | 0x80; // RFC-4122 variant bits
+    format_uuid(&raw)
+}
+
+/// Format 16 raw bytes as a canonical lowercase UUID (`8-4-4-4-12`).
+pub(crate) fn format_uuid(raw: &[u8; 16]) -> String {
+    let h = hex::encode(raw);
+    format!(
+        "{}-{}-{}-{}-{}",
+        &h[0..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..32]
+    )
+}
+
 // ── AEAD: XChaCha20-Poly1305-IETF ───────────────────────────────────────────
 
 fn aead_cipher(key: &[u8]) -> Result<XChaCha20Poly1305> {
@@ -383,5 +485,87 @@ mod tests {
         let fc = kx_client_session_keys(&f.public_key, &f.secret_key, &d.public_key);
         assert_eq!(ds.rx, fc.tx);
         assert_eq!(ds.tx, fc.rx);
+    }
+
+    // Known-answer vectors below are computed independently (Python
+    // hashlib.blake2b(digest_size=32) = libsodium crypto_generichash) and are
+    // the byte-exact contract the TS twin must reproduce (PR-2 cross vectors).
+
+    #[test]
+    fn pct_known_answer() {
+        let pairing_id: [u8; 16] = std::array::from_fn(|i| i as u8); // 0x00..0x0f
+        let daemon_pk = [0xAAu8; 32];
+        let frontend_pk = [0xBBu8; 32];
+        // tx > rx lexicographically → exercises the max/min swap.
+        let tx = [0x22u8; 32];
+        let rx = [0x11u8; 32];
+        let pct = derive_pairing_confirmation_tag(
+            &pairing_id,
+            "daemon-abc123",
+            "my-macbook",
+            &daemon_pk,
+            &frontend_pk,
+            &tx,
+            &rx,
+        );
+        assert_eq!(
+            hex::encode(pct),
+            "b79d189afaab37980bf1ac62c4d3949f76a12e18badea52854aadb5f5661561c"
+        );
+    }
+
+    #[test]
+    fn pct_sort_is_order_independent() {
+        // Swapping tx/rx must yield the identical PCT (kSort0=min, kSort1=max).
+        let pairing_id = [0u8; 16];
+        let dpk = [1u8; 32];
+        let fpk = [2u8; 32];
+        let a = [0x05u8; 32];
+        let b = [0x09u8; 32];
+        let p1 = derive_pairing_confirmation_tag(&pairing_id, "d", "h", &dpk, &fpk, &a, &b);
+        let p2 = derive_pairing_confirmation_tag(&pairing_id, "d", "h", &dpk, &fpk, &b, &a);
+        assert_eq!(p1, p2);
+    }
+
+    #[test]
+    fn pct_equal_keys_known_answer() {
+        let pairing_id: [u8; 16] = std::array::from_fn(|i| i as u8);
+        let k = [0x33u8; 32];
+        let pct = derive_pairing_confirmation_tag(
+            &pairing_id,
+            "daemon-abc123",
+            "my-macbook",
+            &[0xAAu8; 32],
+            &[0xBBu8; 32],
+            &k,
+            &k,
+        );
+        assert_eq!(
+            hex::encode(pct),
+            "456cd9638cab506ff41e359a63cba24382ca00d312902ac17fa64494ec7892a1"
+        );
+    }
+
+    #[test]
+    fn legacy_pairing_id_known_answer() {
+        let id = derive_legacy_pairing_id("daemon-abc123");
+        assert_eq!(id, "713e132d-ea6f-81eb-874e-91f282aba04b");
+        // Structural: valid UUIDv8 (version nibble 8, RFC-4122 variant 8..b).
+        let bytes = id.as_bytes();
+        assert_eq!(bytes.len(), 36);
+        assert_eq!(bytes[14], b'8'); // version nibble at position 14 (after "8-4-")
+        assert!(matches!(bytes[19], b'8' | b'9' | b'a' | b'b'));
+    }
+
+    #[test]
+    fn legacy_pairing_id_is_deterministic_and_distinct() {
+        assert_eq!(
+            derive_legacy_pairing_id("daemon-x"),
+            derive_legacy_pairing_id("daemon-x")
+        );
+        assert_ne!(
+            derive_legacy_pairing_id("daemon-x"),
+            derive_legacy_pairing_id("daemon-y")
+        );
     }
 }

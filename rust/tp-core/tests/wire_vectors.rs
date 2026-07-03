@@ -6,7 +6,7 @@
 //! format or KDF changes, and these tests will fail loudly if Rust diverges.
 
 use serde_json::Value;
-use tp_core::{codec, crypto, error};
+use tp_core::{codec, crypto, error, pairing};
 
 fn fixture() -> Value {
     let raw = include_str!("fixtures/wire-vectors.json");
@@ -161,4 +161,99 @@ fn error_variants_are_constructible() {
     // Compile-time check that the error surface is wired (used by Swift catch).
     let e = error::TpError::Crypto("x".into());
     assert!(format!("{e}").contains("crypto error"));
+}
+
+fn arr16(v: &Value) -> [u8; 16] {
+    hex_bytes(v).try_into().expect("16 bytes")
+}
+
+fn arr32(v: &Value) -> [u8; 32] {
+    hex_bytes(v).try_into().expect("32 bytes")
+}
+
+#[test]
+fn pct_matches_ts() {
+    let f = fixture();
+    let p = &f["pairing"]["pct"];
+    let tag = crypto::derive_pairing_confirmation_tag(
+        &arr16(&p["pairingId_hex"]),
+        s(&p["daemonId"]),
+        s(&p["hostname"]),
+        &arr32(&p["daemonPk_hex"]),
+        &arr32(&p["frontendPk_hex"]),
+        &arr32(&p["tx_hex"]),
+        &arr32(&p["rx_hex"]),
+    );
+    assert_eq!(hex::encode(tag), s(&p["tag_hex"]));
+}
+
+#[test]
+fn pct_equal_keys_matches_ts() {
+    let f = fixture();
+    let p = &f["pairing"]["pct_equal_keys"];
+    let k = arr32(&p["key_hex"]);
+    let tag = crypto::derive_pairing_confirmation_tag(
+        &arr16(&p["pairingId_hex"]),
+        s(&p["daemonId"]),
+        s(&p["hostname"]),
+        &arr32(&p["daemonPk_hex"]),
+        &arr32(&p["frontendPk_hex"]),
+        &k,
+        &k,
+    );
+    assert_eq!(hex::encode(tag), s(&p["tag_hex"]));
+}
+
+#[test]
+fn legacy_pairing_id_matches_ts() {
+    let f = fixture();
+    let p = &f["pairing"]["legacyPairingId"];
+    assert_eq!(
+        crypto::derive_legacy_pairing_id(s(&p["daemonId"])),
+        s(&p["uuid"])
+    );
+}
+
+#[test]
+fn v4_encode_matches_ts() {
+    let f = fixture();
+    let p = &f["pairing"]["v4Encode"];
+    let data = pairing::PairingData {
+        ps: base64_std(&hex_bytes(&p["ps_hex"])),
+        pk: base64_std(&hex_bytes(&p["pk_hex"])),
+        relay: s(&p["relay"]).to_string(),
+        did: s(&p["did"]).to_string(),
+        v: 4,
+        pairing_id: s(&p["pairingId"]).to_string(),
+        hostname: s(&p["hostname"]).to_string(),
+    };
+    let url = pairing::encode_pairing_data(&data).unwrap();
+    assert_eq!(url, s(&p["url"]));
+    // Round-trip: decoding the frozen URL restores every field.
+    let back = pairing::decode_pairing_data(&url).unwrap();
+    assert_eq!(back.did, data.did);
+    assert_eq!(back.pairing_id, data.pairing_id);
+    assert_eq!(back.hostname, data.hostname);
+    assert_eq!(back.v, 4);
+}
+
+#[test]
+fn v3_decode_matches_ts() {
+    let f = fixture();
+    let p = &f["pairing"]["v3Decode"];
+    let back = pairing::decode_pairing_data(s(&p["url"])).unwrap();
+    assert_eq!(back.v, 3);
+    assert_eq!(back.did, s(&p["did"]));
+    assert_eq!(back.ps, base64_std(&hex_bytes(&p["ps_hex"])));
+    assert_eq!(back.pk, base64_std(&hex_bytes(&p["pk_hex"])));
+    // v3 has no pairingId/hostname on the wire → empty.
+    assert_eq!(back.pairing_id, "");
+    assert_eq!(back.hostname, "");
+}
+
+/// Standard-alphabet base64 (matches the TS `toBase64`/Rust `b64_std_encode`
+/// used for `ps`/`pk` fields in `PairingData`).
+fn base64_std(bytes: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
 }

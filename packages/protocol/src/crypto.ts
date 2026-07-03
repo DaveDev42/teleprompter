@@ -320,6 +320,157 @@ export async function deriveRegistrationProof(
   return p.toHex(hash);
 }
 
+// ── Pairing Confirmation Tag (PCT) + legacy pairing-id ──
+
+/**
+ * Domain-separation prefixes for the PCT and the legacy pairing-id derivation.
+ * The trailing `\x01` is a version byte baked into the domain constant (not a
+ * separate field). Byte-exact with the Rust twin in `rust/tp-core/src/crypto.rs`
+ * (`PCT_DOMAIN` / `LEGACY_PAIRING_ID_DOMAIN`).
+ */
+const PCT_DOMAIN = "tp-pairing-confirm"; // 19 bytes
+const LEGACY_PAIRING_ID_DOMAIN = "tp-pairing-id-legacy"; // 21 bytes
+
+// Byte comparison reuses the module-level `compareBytes` above (defined for the
+// kx-key sort). It returns a value whose SIGN is the lexicographic ordering —
+// the PCT min/max sort only needs `<= 0`, so the exact magnitude is irrelevant.
+
+/** Append a `u8`-length-prefixed byte string (single-byte length; max 255). */
+function pushLenPrefixed(parts: number[], bytes: Uint8Array): void {
+  if (bytes.length > 255) {
+    throw new Error("pushLenPrefixed: length exceeds 255");
+  }
+  parts.push(bytes.length);
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i];
+    if (b === undefined)
+      throw new Error("pushLenPrefixed: index out of bounds");
+    parts.push(b);
+  }
+}
+
+/**
+ * Derive the **Pairing Confirmation Tag** — a device-local BLAKE2b-256 commit
+ * over the ECDH session keys and pairing identity, proving both peers reached
+ * the same key agreement. Byte-exact twin of the Rust
+ * `derive_pairing_confirmation_tag`.
+ *
+ * ```text
+ * PCT_INPUT := "tp-pairing-confirm\x01" (19 bytes)
+ *   || pairing_id (16 raw UUID bytes)
+ *   || u8_len(daemon_id) || daemon_id (utf-8)
+ *   || u8_len(hostname)  || hostname  (utf-8)
+ *   || daemon_pub_key (32) || frontend_pub_key (32)
+ *   || k_sort0 (32) = min(tx, rx)  // lexicographic
+ *   || k_sort1 (32) = max(tx, rx)
+ * PCT := genericHash32(PCT_INPUT)  // BLAKE2b-256, 32 bytes
+ * ```
+ *
+ * `daemonId`/`hostname` are defensively truncated to 255 bytes; callers pass
+ * values already bounded by the QR encoder's 255-byte guard.
+ */
+export async function derivePairingConfirmationTag(args: {
+  pairingId: Uint8Array; // 16 raw UUID bytes
+  daemonId: string;
+  hostname: string;
+  daemonPubKey: Uint8Array; // 32
+  frontendPubKey: Uint8Array; // 32
+  tx: Uint8Array; // 32
+  rx: Uint8Array; // 32
+}): Promise<Uint8Array> {
+  const p = await ensureSodium();
+  if (args.pairingId.length !== 16) {
+    throw new Error("pairingId must be 16 bytes");
+  }
+  for (const [name, v] of [
+    ["daemonPubKey", args.daemonPubKey],
+    ["frontendPubKey", args.frontendPubKey],
+    ["tx", args.tx],
+    ["rx", args.rx],
+  ] as const) {
+    if (v.length !== 32) throw new Error(`${name} must be 32 bytes`);
+  }
+
+  const did = p.fromString(args.daemonId);
+  const host = p.fromString(args.hostname);
+  const [kSort0, kSort1] =
+    compareBytes(args.tx, args.rx) <= 0
+      ? [args.tx, args.rx]
+      : [args.rx, args.tx];
+
+  const parts: number[] = [];
+  const domain = p.fromString(PCT_DOMAIN);
+  for (let i = 0; i < domain.length; i++) {
+    const b = domain[i];
+    if (b === undefined) throw new Error("PCT domain: index out of bounds");
+    parts.push(b);
+  }
+  for (let i = 0; i < 16; i++) {
+    const b = args.pairingId[i];
+    if (b === undefined) throw new Error("pairingId: index out of bounds");
+    parts.push(b);
+  }
+  pushLenPrefixed(parts, did.subarray(0, Math.min(did.length, 255)));
+  pushLenPrefixed(parts, host.subarray(0, Math.min(host.length, 255)));
+  const input = new Uint8Array(parts.length + 32 * 4);
+  input.set(parts, 0);
+  let o = parts.length;
+  input.set(args.daemonPubKey, o);
+  o += 32;
+  input.set(args.frontendPubKey, o);
+  o += 32;
+  input.set(kSort0, o);
+  o += 32;
+  input.set(kSort1, o);
+  return p.genericHash32(input);
+}
+
+/**
+ * Derive a stable legacy pairing-id from a daemon id, for records paired before
+ * the QR carried an explicit `pairingId`. Byte-exact twin of the Rust
+ * `derive_legacy_pairing_id`. Uses BLAKE2b (no UUIDv5/SHA-1 dependency), then
+ * stamps the UUIDv8 version/variant nibbles so the result is a valid RFC-4122
+ * UUID string.
+ *
+ * ```text
+ * digest = genericHash32("tp-pairing-id-legacy\x01" || utf8(daemon_id))
+ * raw16  = digest[0..16]
+ * raw16[6] = (raw16[6] & 0x0F) | 0x80   // version 8
+ * raw16[8] = (raw16[8] & 0x3F) | 0x80   // RFC-4122 variant
+ * → canonical 8-4-4-4-12 hex string
+ * ```
+ */
+export async function deriveLegacyPairingId(daemonId: string): Promise<string> {
+  const p = await ensureSodium();
+  const domain = p.fromString(LEGACY_PAIRING_ID_DOMAIN);
+  const did = p.fromString(daemonId);
+  const input = new Uint8Array(domain.length + did.length);
+  input.set(domain, 0);
+  input.set(did, domain.length);
+  const digest = p.genericHash32(input);
+  const raw = digest.slice(0, 16);
+  const b6 = raw[6];
+  const b8 = raw[8];
+  if (b6 === undefined || b8 === undefined) {
+    throw new Error("deriveLegacyPairingId: digest too short");
+  }
+  raw[6] = (b6 & 0x0f) | 0x80; // UUIDv8 version nibble
+  raw[8] = (b8 & 0x3f) | 0x80; // RFC-4122 variant bits
+  return formatUuid(raw);
+}
+
+/** Format 16 raw bytes as a canonical lowercase UUID (`8-4-4-4-12`). */
+export function formatUuid(raw: Uint8Array): string {
+  if (raw.length < 16) throw new Error("formatUuid requires 16 bytes");
+  let hex = "";
+  for (let i = 0; i < 16; i++) {
+    const b = raw[i];
+    if (b === undefined) throw new Error("formatUuid: index out of bounds");
+    hex += b.toString(16).padStart(2, "0");
+  }
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
 // ── Helpers ──
 
 export async function toBase64(data: Uint8Array): Promise<string> {

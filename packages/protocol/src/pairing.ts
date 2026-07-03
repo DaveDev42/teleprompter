@@ -21,6 +21,8 @@
 import {
   deriveRegistrationProof,
   deriveRelayToken,
+  ensureSodium,
+  formatUuid,
   fromBase64,
   generateKeyPair,
   generatePairingSecret,
@@ -35,12 +37,16 @@ const PAIRING_BINARY_MAGIC = "tp"; // 2 bytes
  *     did was stored verbatim (`daemon-…` prefix included).
  * v3: drops the label suffix entirely (label is delivered via `relay.kx`) and
  *     strips the `daemon-` prefix from the did. Decoder reattaches the prefix.
+ * v4: additive over v3 — appends `pairing_id(16 raw UUID)` then
+ *     `hostname_len(1) | hostname_bytes` after `pk(32)`. Carries the pairing's
+ *     stable id and the daemon's display hostname in the QR (PCT redesign).
  *
- * The encoder always emits v3. The decoder accepts both — v2 reads an
- * additional trailing label and treats the did as already-prefixed; v3 reads
- * no trailing label and reattaches the prefix.
+ * The encoder always emits v4. The decoder accepts v2/v3/v4 — v2 reads a
+ * trailing label and treats the did as already-prefixed; v3 stops at `pk` and
+ * reattaches the prefix; v4 reads pairingId + hostname (empty for v2/v3).
+ * Byte-exact with `rust/tp-core/src/pairing.rs`.
  */
-const PAIRING_BINARY_VERSION = 3;
+const PAIRING_BINARY_VERSION = 4;
 /**
  * Upper bound on the base64url pairing payload accepted by the decoder. A
  * legitimate v2/v3 bundle is ~772 chars; 2048 is far above any real payload
@@ -77,6 +83,13 @@ export interface PairingData {
   did: string;
   /** Protocol version */
   v: number;
+  /**
+   * Pairing id — canonical UUID string. Present from v4; empty for decoded
+   * v2/v3 bundles (the caller derives a legacy id from `did`).
+   */
+  pairingId: string;
+  /** Daemon hostname (display label). Present from v4; empty for v2/v3. */
+  hostname: string;
 }
 
 export interface PairingBundle {
@@ -99,16 +112,31 @@ export interface PairingBundle {
  * frontend in-band via `relay.kx`. The argument is accepted (and ignored
  * for QR purposes) for compatibility with the daemon's pairing setup which
  * still threads it through to the RelayClient config.
+ *
+ * `pairingId` is the stable canonical UUID for this pairing (carried in the QR
+ * v4 payload and used for PCT derivation). The daemon owns pairing-id
+ * generation (`tp pair new` → random UUID) and passes it explicitly; when
+ * omitted a fresh random UUID is generated here so the bundle is always a valid
+ * v4 QR. `hostname` is the daemon's display label (empty when unknown). Callers
+ * read the resolved values back from `bundle.qrData.pairingId` / `.hostname`.
  */
 export async function createPairingBundle(
   relayUrl: string,
   daemonId: string,
-  _opts?: { label?: string | undefined },
+  opts?: {
+    label?: string | undefined;
+    pairingId?: string | undefined;
+    hostname?: string | undefined;
+  },
 ): Promise<PairingBundle> {
+  const p = await ensureSodium();
   const keyPair = await generateKeyPair();
   const pairingSecret = await generatePairingSecret();
   const relayToken = await deriveRelayToken(pairingSecret);
   const registrationProof = await deriveRegistrationProof(pairingSecret);
+  // The daemon supplies a stable UUID; fall back to a fresh random UUID so a
+  // caller that omits it still emits a structurally valid v4 QR.
+  const pairingId = opts?.pairingId ?? formatUuid(p.randomBytes(16));
 
   const qrData: PairingData = {
     ps: await toBase64(pairingSecret),
@@ -116,6 +144,8 @@ export async function createPairingBundle(
     relay: relayUrl,
     did: daemonId,
     v: PAIRING_BINARY_VERSION,
+    pairingId,
+    hostname: opts?.hostname ?? "",
   };
 
   return { qrData, keyPair, pairingSecret, relayToken, registrationProof };
@@ -137,17 +167,36 @@ const NORMALIZED_DEFAULT_RELAY = normalizeRelayForDefaultMatch(
 );
 
 /**
+ * Parse a canonical UUID string (`8-4-4-4-12`, hyphens optional) into 16 raw
+ * bytes. Accepts upper/lowercase hex; rejects any other shape. Byte-exact twin
+ * of the Rust `parse_uuid_16`.
+ */
+function parseUuid16(s: string): Uint8Array {
+  const hexOnly = s.replace(/-/g, "");
+  if (hexOnly.length !== 32 || !/^[0-9a-fA-F]{32}$/.test(hexOnly)) {
+    throw new Error("pairing id must be a 16-byte UUID");
+  }
+  const out = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) {
+    out[i] = Number.parseInt(hexOnly.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+/**
  * Serialize pairing data to a QR-friendly deep-link string.
  *
  * Output: `tp://p?d=<base64url(binary)>`
  *
- * Binary layout (v3):
- *   magic(2) | version(1) |
+ * Binary layout (v4 — additive over v3):
+ *   magic(2) | version(1)=4 |
  *   did_len(1) | did_bytes (with `daemon-` prefix stripped) |
  *   relay_len(1) | relay_bytes |
- *   ps(32) | pk(32)
+ *   ps(32) | pk(32) |
+ *   pairing_id(16 raw UUID bytes) |
+ *   hostname_len(1) | hostname_bytes
  *
- * `did`/`relay` are utf-8 encoded, each capped at 255 bytes.
+ * `did`/`relay`/`hostname` are utf-8 encoded, each capped at 255 bytes.
  *
  * `relay_len = 0` is the wire signal for "default relay" — see
  * `DEFAULT_PAIRING_RELAY_URL`. Saves ~22 bytes on the most common case
@@ -155,7 +204,7 @@ const NORMALIZED_DEFAULT_RELAY = normalizeRelayForDefaultMatch(
  *
  * The encoder strips the canonical `daemon-` prefix from did and the decoder
  * reattaches it, saving 7 bytes per QR without changing the in-memory or
- * stored representation.
+ * stored representation. Byte-exact with `rust/tp-core/src/pairing.rs`.
  */
 export function encodePairingData(data: PairingData): string {
   const enc = new TextEncoder();
@@ -173,16 +222,30 @@ export function encodePairingData(data: PairingData): string {
   const relay = useDefaultRelay ? new Uint8Array(0) : enc.encode(data.relay);
   const ps = base64ToBytes(data.ps);
   const pk = base64ToBytes(data.pk);
+  const pairingId = parseUuid16(data.pairingId);
+  const hostname = enc.encode(data.hostname);
 
   if (did.length === 0) {
     throw new Error("daemon id suffix must not be empty");
   }
   if (did.length > 255) throw new Error("daemon id exceeds 255 bytes");
   if (relay.length > 255) throw new Error("relay url exceeds 255 bytes");
+  if (hostname.length > 255) throw new Error("hostname exceeds 255 bytes");
   if (ps.length !== 32) throw new Error("pairing secret must be 32 bytes");
   if (pk.length !== 32) throw new Error("daemon public key must be 32 bytes");
 
-  const totalLen = 2 + 1 + 1 + did.length + 1 + relay.length + 32 + 32;
+  const totalLen =
+    2 +
+    1 +
+    1 +
+    did.length +
+    1 +
+    relay.length +
+    32 +
+    32 +
+    16 +
+    1 +
+    hostname.length;
   const buf = new Uint8Array(totalLen);
   let o = 0;
   buf.set(enc.encode(PAIRING_BINARY_MAGIC), o);
@@ -197,6 +260,11 @@ export function encodePairingData(data: PairingData): string {
   buf.set(ps, o);
   o += 32;
   buf.set(pk, o);
+  o += 32;
+  buf.set(pairingId, o);
+  o += 16;
+  buf[o++] = hostname.length;
+  buf.set(hostname, o);
 
   return `${PAIRING_URL_SCHEME}?d=${bytesToBase64Url(buf)}`;
 }
@@ -257,7 +325,8 @@ function decodeBinaryPairing(b64: string): PairingData {
   }
   const version = buf[o++];
   if (version === undefined) throw new Error("Invalid pairing data format");
-  if (version !== 2 && version !== PAIRING_BINARY_VERSION) {
+  // Accept v2 (legacy trailing label), v3 (…|pk), and v4 (…|pk|pairingId|hostname).
+  if (version < 2 || version > PAIRING_BINARY_VERSION) {
     throw new Error("Invalid pairing data format");
   }
 
@@ -288,17 +357,37 @@ function decodeBinaryPairing(b64: string): PairingData {
   const pk = buf.subarray(o, o + 32);
   o += 32;
 
-  // v2 carried a trailing `label_len(1) | label_bytes`. We discard the label
-  // (it now arrives via relay.kx) but must still validate the length so a
-  // malformed v2 payload doesn't silently decode as if it were truncated.
+  // Trailing fields differ by version. v2/v3 leave pairingId/hostname empty so
+  // the caller can derive a legacy id; v4 reads them from the payload. Byte-exact
+  // with the Rust decoder's `match version` arms.
+  let pairingId = "";
+  let hostname = "";
   if (version === 2) {
+    // v2 carried a trailing `label_len(1) | label_bytes`. We discard the label
+    // (it now arrives via relay.kx) but must still validate the length so a
+    // malformed v2 payload doesn't silently decode as if it were truncated.
     if (o >= buf.length) throw new Error("Invalid pairing data format");
     const labelLen = buf[o++];
     if (labelLen === undefined) throw new Error("Invalid pairing data format");
     if (o + labelLen > buf.length) {
       throw new Error("Invalid pairing data format");
     }
+  } else if (version === 4) {
+    // v4 appends pairing_id(16 raw UUID) | hostname_len(1) | hostname.
+    if (o + 16 + 1 > buf.length) {
+      throw new Error("Invalid pairing data format");
+    }
+    pairingId = formatUuid(buf.subarray(o, o + 16));
+    o += 16;
+    const hostLen = buf[o++];
+    if (hostLen === undefined) throw new Error("Invalid pairing data format");
+    if (o + hostLen > buf.length) {
+      throw new Error("Invalid pairing data format");
+    }
+    hostname = decodeUtf8(buf.subarray(o, o + hostLen));
+    o += hostLen;
   }
+  // version === 3 stops at pk — nothing more to read.
 
   return {
     ps: bytesToBase64(ps),
@@ -306,6 +395,8 @@ function decodeBinaryPairing(b64: string): PairingData {
     relay,
     did,
     v: version,
+    pairingId,
+    hostname,
   };
 }
 
@@ -360,5 +451,9 @@ export async function parsePairingForFrontend(data: PairingData) {
     registrationProof,
     relayUrl: data.relay,
     daemonId: data.did,
+    // v4 carries these; empty for legacy v2/v3 bundles (caller derives a legacy
+    // pairing-id from `daemonId` in that case).
+    pairingId: data.pairingId,
+    hostname: data.hostname,
   };
 }

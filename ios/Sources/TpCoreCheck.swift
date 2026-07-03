@@ -66,16 +66,21 @@ enum TpCoreCheck {
             throw Failure(step: "aead", detail: "decrypt did not recover plaintext")
         }
 
-        // 4) Pairing: encode → decode a deep link, confirm fields survive.
+        // 4) Pairing: encode → decode a v4 deep link, confirm fields survive
+        //    (including the v4 pairingId/hostname tail added in the redesign).
         let pairing = FfiPairingData(
             ps: dataToB64(Data(repeating: 0x01, count: 32)),
             pk: dataToB64(Data(repeating: 0x02, count: 32)),
             relay: "wss://relay.tpmt.dev",
             did: "daemon-roundtrip",
-            v: 3)
+            v: 4,
+            pairingId: "00010203-0405-0607-0809-0a0b0c0d0e0f",
+            hostname: "my-macbook")
         let url = try encodePairingData(data: pairing)
         let back = try decodePairingData(raw: url)
-        guard back.did == "daemon-roundtrip", back.ps == pairing.ps else {
+        guard back.did == "daemon-roundtrip", back.ps == pairing.ps,
+            back.pairingId == pairing.pairingId, back.hostname == pairing.hostname
+        else {
             throw Failure(step: "pairing", detail: "pairing round-trip mismatch")
         }
 

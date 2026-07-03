@@ -19,7 +19,7 @@ rust/
       lib.rs               # UniFFI FFI 표면 (#[uniffi::export] 함수 + Record/Object)
       codec.rs             # framed JSON 코덱 (u32_be jsonLen + u32_be binLen + json + bin)
       crypto.rs            # XChaCha20-Poly1305 AEAD, BLAKE2b KDF, crypto_kx, ratchet
-      pairing.rs           # tp://p?d=<base64url> 페어링 v3 바이너리 레이아웃
+      pairing.rs           # tp://p?d=<base64url> 페어링 v4 바이너리 레이아웃 (v2/v3 하위호환 디코드)
       error.rs             # TpError (UniFFI flat_error)
       bin/uniffi-bindgen.rs
     tests/
@@ -62,8 +62,17 @@ rust/
   server 는 미러. 불변식: `daemon.rx == frontend.tx`, `daemon.tx == frontend.rx`.
 - **Ratchet**: base 키 canonical 정렬 → `k_a=H(min||sid||"a")`,
   `k_b=H(max||sid||"b")`; daemon tx=k_a/rx=k_b, frontend 는 미러.
-- **Pairing v3**: `magic("tp") + ver(3) + did_len + did + relay_len + relay + ps(32) + pk(32)`,
-  base64url 로 감싸 `tp://p?d=…`.
+- **Pairing v4**: `magic("tp") + ver(4) + did_len + did + relay_len + relay + ps(32) + pk(32)
+  + pairing_id(16 raw UUID) + hostname_len + hostname`, base64url 로 감싸 `tp://p?d=…`. 인코더는
+  항상 v4 를 emit; 디코더는 v2(trailing label)/v3(…|pk)/v4 를 모두 수용(하위호환). v2/v3 로 디코드된
+  번들은 `pairing_id`/`hostname` 이 빈 문자열(caller 가 legacy id 를 유도).
+- **PCT (Pairing Confirmation Tag)**: `generic_hash_32("tp-pairing-confirm\x01"(19) + pairing_id(16)
+  + u8_len(did)+did + u8_len(host)+host + daemon_pk(32) + frontend_pk(32) + min(tx,rx)(32)
+  + max(tx,rx)(32))` — ECDH 세션키 위의 device-local BLAKE2b-256 commit(양쪽이 같은 키 합의에
+  도달했음을 증명). tx/rx 를 lexicographic min/max 로 정렬해 role-독립.
+- **Legacy pairing-id**: `generic_hash_32("tp-pairing-id-legacy\x01"(21) + utf8(did))[0..16]`, byte6=
+  version 8 nibble / byte8=RFC-4122 variant → canonical UUIDv8 문자열. QR 가 `pairingId` 를 나르기
+  전 페어링된 레코드의 안정적 id.
 
 > 이 값들을 바꾸면 기존 daemon/relay 와 호환이 깨진다. 변경 시 `packages/protocol`,
 > `packages/relay` 의 TS 구현과 `tests/fixtures/wire-vectors.json` 골든벡터를 함께 고친다.

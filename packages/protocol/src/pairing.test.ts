@@ -15,11 +15,17 @@ describe("pairing", () => {
       "daemon-123",
     );
 
-    expect(bundle.qrData.v).toBe(3);
+    expect(bundle.qrData.v).toBe(4);
     expect(bundle.qrData.relay).toBe("wss://relay.example.com");
     expect(bundle.qrData.did).toBe("daemon-123");
     expect(bundle.qrData.ps).toBeTruthy();
     expect(bundle.qrData.pk).toBeTruthy();
+    // v4 auto-generates a canonical UUID pairing-id when none is supplied and
+    // defaults hostname to empty.
+    expect(bundle.qrData.pairingId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+    expect(bundle.qrData.hostname).toBe("");
     expect(bundle.keyPair.publicKey.length).toBe(32);
     expect(bundle.keyPair.secretKey.length).toBe(32);
     expect(bundle.pairingSecret.length).toBe(32);
@@ -35,7 +41,23 @@ describe("pairing", () => {
     expect(decoded.pk).toBe(bundle.qrData.pk);
     expect(decoded.relay).toBe(bundle.qrData.relay);
     expect(decoded.did).toBe(bundle.qrData.did);
-    expect(decoded.v).toBe(3);
+    expect(decoded.v).toBe(4);
+    expect(decoded.pairingId).toBe(bundle.qrData.pairingId);
+    expect(decoded.hostname).toBe(bundle.qrData.hostname);
+  });
+
+  test("createPairingBundle threads an explicit pairingId + hostname", async () => {
+    const bundle = await createPairingBundle("wss://relay.test", "daemon-p", {
+      pairingId: "00010203-0405-0607-0809-0a0b0c0d0e0f",
+      hostname: "my-macbook",
+    });
+    expect(bundle.qrData.pairingId).toBe(
+      "00010203-0405-0607-0809-0a0b0c0d0e0f",
+    );
+    expect(bundle.qrData.hostname).toBe("my-macbook");
+    const decoded = decodePairingData(encodePairingData(bundle.qrData));
+    expect(decoded.pairingId).toBe("00010203-0405-0607-0809-0a0b0c0d0e0f");
+    expect(decoded.hostname).toBe("my-macbook");
   });
 
   test("PairingData has no label field — label travels via relay.kx", async () => {
@@ -232,12 +254,16 @@ describe("pairing", () => {
     // relay_len=0 sentinel), daemon id 17 chars (daemon-mob73tr0xx —
     // `daemon-` prefix is stripped on the wire and restored on decode),
     // no label. Prefix is `tp://p?d=` (9 chars).
+    //
+    // v4 adds pairing_id(16) + hostname_len(1) over v3 (+~23 b64 chars); with an
+    // empty hostname a typical URL is ~137 chars. The bound is a QR-size
+    // regression guard, well under the MAX_PAIRING_B64_LEN (2048) invariant.
     const bundle = await createPairingBundle(
       "wss://relay.tpmt.dev",
       "daemon-mob73tr0xx",
     );
     const encoded = encodePairingData(bundle.qrData);
-    expect(encoded.length).toBeLessThan(130);
+    expect(encoded.length).toBeLessThan(160);
   });
 
   test("encoder strips daemon- prefix on wire and decoder restores it", async () => {

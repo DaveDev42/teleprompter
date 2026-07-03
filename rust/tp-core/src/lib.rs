@@ -69,6 +69,10 @@ pub struct FfiPairingData {
     pub relay: String,
     pub did: String,
     pub v: u8,
+    /// Pairing id (canonical UUID string). Present from v4; empty for v2/v3.
+    pub pairing_id: String,
+    /// Daemon hostname (display label). Present from v4; empty for v2/v3.
+    pub hostname: String,
 }
 
 impl From<pairing::PairingData> for FfiPairingData {
@@ -79,6 +83,8 @@ impl From<pairing::PairingData> for FfiPairingData {
             relay: d.relay,
             did: d.did,
             v: d.v,
+            pairing_id: d.pairing_id,
+            hostname: d.hostname,
         }
     }
 }
@@ -251,12 +257,49 @@ pub fn encode_pairing_data(data: FfiPairingData) -> Result<String> {
         relay: data.relay,
         did: data.did,
         v: data.v,
+        pairing_id: data.pairing_id,
+        hostname: data.hostname,
     })
 }
 
 #[uniffi::export]
 pub fn decode_pairing_data(raw: String) -> Result<FfiPairingData> {
     Ok(pairing::decode_pairing_data(&raw)?.into())
+}
+
+/// Derive the device-local **Pairing Confirmation Tag** (BLAKE2b-256 commit over
+/// the ECDH session keys + pairing identity). See
+/// [`crypto::derive_pairing_confirmation_tag`]. All byte-slice args are validated
+/// to the exact fixed lengths (16 / 32) and error otherwise.
+#[uniffi::export]
+pub fn derive_pairing_confirmation_tag(
+    pairing_id: Vec<u8>,
+    daemon_id: String,
+    hostname: String,
+    daemon_pub_key: Vec<u8>,
+    frontend_pub_key: Vec<u8>,
+    tx: Vec<u8>,
+    rx: Vec<u8>,
+) -> Result<Vec<u8>> {
+    let pid: [u8; 16] = pairing_id
+        .as_slice()
+        .try_into()
+        .map_err(|_| TpError::InvalidInput("pairing_id must be 16 bytes".into()))?;
+    let dpk = to_key32(&daemon_pub_key, "daemon_pub_key")?;
+    let fpk = to_key32(&frontend_pub_key, "frontend_pub_key")?;
+    let tx = to_key32(&tx, "tx")?;
+    let rx = to_key32(&rx, "rx")?;
+    Ok(
+        crypto::derive_pairing_confirmation_tag(&pid, &daemon_id, &hostname, &dpk, &fpk, &tx, &rx)
+            .to_vec(),
+    )
+}
+
+/// Derive the stable legacy pairing-id (canonical UUID string) from a daemon id,
+/// for records paired before the QR carried an explicit `pairingId`.
+#[uniffi::export]
+pub fn derive_legacy_pairing_id(daemon_id: String) -> String {
+    crypto::derive_legacy_pairing_id(&daemon_id)
 }
 
 // ── Build / version sentinel ──────────────────────────────────────────────────

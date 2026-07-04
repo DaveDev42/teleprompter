@@ -21,8 +21,25 @@ struct Pairing: Equatable {
     let daemonId: String
     /// Stable per-install identity; identical in `relay.auth` and the kx payload.
     let frontendId: String
-    /// Pairing wire version (2 or 3).
+    /// Pairing wire version (2, 3, or 4).
     let version: UInt8
+    /// Stable pairing identity (UUID string). Present from QR v4; for legacy v2/v3
+    /// bundles it is derived device-locally from `daemonId` (`deriveLegacyPairingId`)
+    /// so every pairing has one. This — never `daemonId` — is the comparison key for
+    /// promote / boot reconciliation / PCT verification (a re-pair reuses the daemon
+    /// but mints a new `pairingId`, so keying on `daemonId` would collide).
+    let pairingId: String
+    /// Daemon hostname for display. Present from QR v4; empty ("") for v2/v3.
+    let hostname: String
+}
+
+/// The result of ingesting a pairing bundle. A successful decode always lands in
+/// the **PENDING** namespace (device-local, never synced) — the pairing only
+/// becomes COMMITTED once its relay client completes the handshake and promotes
+/// (see `PairingViewModel.beginPending` / `promote`). Callers drive a relay
+/// connection from `.pending(pairingId:)`.
+enum IngestResult: Equatable {
+    case pending(pairingId: String)
 }
 
 /// Errors surfaced while ingesting or persisting a pairing.
@@ -73,9 +90,19 @@ final class PairingStore: @unchecked Sendable {
 
     private enum Key {
         static let frontendId = "tp.frontendId"
-        static let daemonIndex = "tp.pairings.index"  // [String] of daemon ids
+        static let daemonIndex = "tp.pairings.index"  // [String] of daemon ids (COMMITTED)
         static func meta(_ did: String) -> String { "tp.pairing.\(did).meta" }  // [String:String]
+
+        // PENDING namespace (device-local — never synced; a synced pending record
+        // would let an un-scanned device complete kx and pair, §1.3).
+        static let pendingIndex = "tp.pairings.pending.index"  // [String] of pairingIds
+        static func pendingMeta(_ pid: String) -> String { "tp.pairing.\(pid).pending" }
     }
+
+    /// Keychain account prefix for a PENDING pairing's secret. Namespaced so a
+    /// pending secret can never collide with the committed item (`account: daemonId`)
+    /// and so pending secrets are stored non-synchronizably (see `keychainSet`).
+    private static func pendingAccount(_ pairingId: String) -> String { "pending.\(pairingId)" }
 
     init(
         defaults: UserDefaults = .standard,
@@ -107,10 +134,24 @@ final class PairingStore: @unchecked Sendable {
 
     // MARK: ingestion
 
-    /// Decode a `tp://p?d=…` deep link into a `Pairing` and persist it.
-    /// Returns the persisted pairing. Throws `PairingError` on any failure.
+    /// Decode a `tp://p?d=…` deep link and persist it to the **PENDING** namespace.
+    /// Returns `.pending(pairingId:)`; the caller starts a relay client from it
+    /// (`beginPending`). Throws `PairingError` on any failure.
+    ///
+    /// Idempotent by `pairingId`: re-scanning the same QR overwrites the existing
+    /// pending record without duplicating the index (§1.6).
     @discardableResult
-    func ingest(deepLink: String) throws -> Pairing {
+    func ingest(deepLink: String) throws -> IngestResult {
+        let pairing = try decode(deepLink: deepLink)
+        try persistPending(pairing)
+        return .pending(pairingId: pairing.pairingId)
+    }
+
+    /// Decode a `tp://p?d=…` deep link into a `Pairing` without persisting.
+    /// Reads the QR v4 `pairingId`/`hostname` fields when present; for legacy
+    /// v2/v3 bundles it derives a stable `pairingId` from `daemonId` (so every
+    /// pairing has one identity key) and leaves `hostname` empty.
+    func decode(deepLink: String) throws -> Pairing {
         let ffi: FfiPairingData
         do {
             ffi = try decodePairingData(raw: deepLink)
@@ -131,26 +172,39 @@ final class PairingStore: @unchecked Sendable {
             throw PairingError.malformedSecret(field: "pk", bytes: daemonPk.count)
         }
 
-        let pairing = Pairing(
+        // QR v4 carries an explicit pairingId; legacy v2/v3 bundles do not, so we
+        // derive one device-locally from the daemonId (byte-exact with the daemon's
+        // own legacy backfill — same `derive_legacy_pairing_id` FFI).
+        let pairingId = ffi.pairingId.isEmpty
+            ? deriveLegacyPairingId(daemonId: ffi.did)
+            : ffi.pairingId
+
+        return Pairing(
             pairingSecret: secret,
             daemonPublicKey: daemonPk,
             relayURL: ffi.relay,
             daemonId: ffi.did,
             frontendId: frontendId(),
-            version: ffi.v)
-        try persist(pairing)
-        return pairing
+            version: ffi.v,
+            pairingId: pairingId,
+            hostname: ffi.hostname)
     }
 
     // MARK: persistence
 
     private func persist(_ p: Pairing) throws {
         try keychainSet(p.pairingSecret, account: p.daemonId)
+        // `pairingId`/`hostname` (from QR v4) are persisted so W7 boot
+        // reconciliation and §2.5 PCT re-verification have a stable comparison key
+        // (round-3 condition 5). Legacy records written before this schema lack the
+        // keys; `load` derives them on read (see below).
         let meta: [String: String] = [
             "pk": p.daemonPublicKey.base64EncodedString(),
             "relay": p.relayURL,
             "did": p.daemonId,
             "v": String(p.version),
+            "pairingId": p.pairingId,
+            "hostname": p.hostname,
         ]
         defaults.set(meta, forKey: Key.meta(p.daemonId))
         var index = daemonIds()
@@ -165,7 +219,13 @@ final class PairingStore: @unchecked Sendable {
         defaults.stringArray(forKey: Key.daemonIndex) ?? []
     }
 
-    /// Load a persisted pairing by daemon id, or throw `.notFound`.
+    /// Load a persisted (COMMITTED) pairing by daemon id, or throw `.notFound`.
+    ///
+    /// Tolerates legacy records: `pairingId`/`hostname` were added after the first
+    /// paired users existed, so a missing `pairingId` is backfilled by deriving it
+    /// from `daemonId` (`deriveLegacyPairingId`) and `hostname` defaults to "". This
+    /// must NOT hard-fail on the new keys — every already-paired daemon would
+    /// silently vanish (the guard feeds `connect`'s silent `else { return }`).
     func load(daemonId: String) throws -> Pairing {
         guard let meta = defaults.dictionary(forKey: Key.meta(daemonId)) as? [String: String],
             let pkB64 = meta["pk"], let daemonPk = Data(base64Encoded: pkB64),
@@ -173,9 +233,95 @@ final class PairingStore: @unchecked Sendable {
             let vStr = meta["v"], let v = UInt8(vStr)
         else { throw PairingError.notFound }
         let secret = try keychainGet(account: daemonId)
+        let pairingId = meta["pairingId"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? deriveLegacyPairingId(daemonId: did)
         return Pairing(
             pairingSecret: secret, daemonPublicKey: daemonPk,
-            relayURL: relay, daemonId: did, frontendId: frontendId(), version: v)
+            relayURL: relay, daemonId: did, frontendId: frontendId(), version: v,
+            pairingId: pairingId, hostname: meta["hostname"] ?? "")
+    }
+
+    // MARK: PENDING namespace (§1.4 — connect-on-pending lifecycle)
+
+    /// Persist a decoded pairing to the PENDING namespace. Idempotent by
+    /// `pairingId`: overwrites the meta/secret and appends to the index only once.
+    private func persistPending(_ p: Pairing) throws {
+        try keychainSetPending(p.pairingSecret, pairingId: p.pairingId)
+        let meta: [String: String] = [
+            "pk": p.daemonPublicKey.base64EncodedString(),
+            "relay": p.relayURL,
+            "did": p.daemonId,
+            "v": String(p.version),
+            "pairingId": p.pairingId,
+            "hostname": p.hostname,
+            // Milliseconds since 1970 as a string — the age cutoff for gcPending.
+            "createdAt": String(Int(Date().timeIntervalSince1970 * 1000)),
+        ]
+        defaults.set(meta, forKey: Key.pendingMeta(p.pairingId))
+        var index = pendingIds()
+        if !index.contains(p.pairingId) {
+            index.append(p.pairingId)
+            defaults.set(index, forKey: Key.pendingIndex)
+        }
+    }
+
+    /// All pending pairingIds, in insertion order.
+    func pendingIds() -> [String] {
+        defaults.stringArray(forKey: Key.pendingIndex) ?? []
+    }
+
+    /// Load a PENDING pairing by pairingId, or throw `.notFound`.
+    func loadPending(pairingId: String) throws -> Pairing {
+        guard let meta = defaults.dictionary(forKey: Key.pendingMeta(pairingId)) as? [String: String],
+            let pkB64 = meta["pk"], let daemonPk = Data(base64Encoded: pkB64),
+            let relay = meta["relay"], let did = meta["did"],
+            let vStr = meta["v"], let v = UInt8(vStr)
+        else { throw PairingError.notFound }
+        let secret = try keychainGet(account: Self.pendingAccount(pairingId))
+        return Pairing(
+            pairingSecret: secret, daemonPublicKey: daemonPk,
+            relayURL: relay, daemonId: did, frontendId: frontendId(), version: v,
+            pairingId: meta["pairingId"] ?? pairingId, hostname: meta["hostname"] ?? "")
+    }
+
+    /// Promote a PENDING pairing to COMMITTED (write committed record + drop the
+    /// pending one). **Idempotent** (§1.4/§1.6 W10): a re-entrant call after the
+    /// pending record is already gone is a silent no-op — it must never throw and
+    /// never resurrect a committed row it cannot build.
+    func promote(pairingId: String) throws {
+        let pairing: Pairing
+        do {
+            pairing = try loadPending(pairingId: pairingId)
+        } catch PairingError.notFound {
+            return  // already promoted / GC'd — idempotent no-op.
+        }
+        try persist(pairing)
+        removePending(pairingId: pairingId)
+    }
+
+    /// Remove a PENDING pairing (secret + meta + index entry). Idempotent.
+    func removePending(pairingId: String) {
+        keychainDelete(account: Self.pendingAccount(pairingId))
+        defaults.removeObject(forKey: Key.pendingMeta(pairingId))
+        defaults.set(pendingIds().filter { $0 != pairingId }, forKey: Key.pendingIndex)
+    }
+
+    /// Sweep PENDING records older than `maxAge`. Returns the swept pairingIds so
+    /// the caller can dispose their live relay clients (§1.6 — no record-less
+    /// zombie). Records without a parseable `createdAt` are treated as expired.
+    @discardableResult
+    func gcPending(olderThan maxAge: TimeInterval) -> [String] {
+        let nowMs = Date().timeIntervalSince1970 * 1000
+        let cutoffMs = nowMs - maxAge * 1000
+        var swept: [String] = []
+        for pid in pendingIds() {
+            let meta = defaults.dictionary(forKey: Key.pendingMeta(pid)) as? [String: String]
+            let createdMs = meta?["createdAt"].flatMap { Double($0) }
+            if let createdMs, createdMs >= cutoffMs { continue }
+            removePending(pairingId: pid)
+            swept.append(pid)
+        }
+        return swept
     }
 
     /// Remove a pairing (Keychain secret + metadata + label + index entry).
@@ -186,38 +332,54 @@ final class PairingStore: @unchecked Sendable {
         defaults.set(daemonIds().filter { $0 != daemonId }, forKey: Key.daemonIndex)
     }
 
-    // MARK: Keychain (generic password, keyed by daemon id)
+    // MARK: Keychain (generic password, keyed by account)
 
+    /// Persist a COMMITTED pairing secret. Synced via iCloud Keychain on iOS/iPadOS
+    /// so a user who pairs once on iPhone gets it on other devices without
+    /// re-pairing; never synced on macOS local/ad-hoc builds (no entitlement).
     private func keychainSet(_ data: Data, account: String) throws {
         // On macOS local/ad-hoc builds (no keychain-access-groups entitlement),
         // kSecAttrSynchronizable = true fails with errSecMissingEntitlement (-34018)
         // because iCloud Keychain sync requires the entitlement even for generic
         // passwords. Use non-synchronized storage on macOS for local dev builds.
-        // On iOS/iPadOS the pairing secret IS synchronized (iCloud Keychain) so a
-        // user who pairs once on iPhone gets it on other devices without re-pairing.
         #if os(macOS)
-        let syncValue: CFBoolean = kCFBooleanFalse!
+        try keychainWrite(data, account: account, synchronizable: false)
         #else
-        let syncValue: CFBoolean = kCFBooleanTrue!
+        // The committed pairing secret is a shared *group* credential (the
+        // kx-envelope key). Syncing it is orthogonal to the daemon↔frontend E2EE:
+        // each device still does its own kx with its own device-local `frontendId`,
+        // so synced secret + per-device frontendId is the correct multi-device combo.
+        try keychainWrite(data, account: account, synchronizable: true)
         #endif
-        let base: [String: Any] = [
+    }
+
+    /// Persist a PENDING pairing secret. **Never synced on any platform** (§1.3):
+    /// a pending record is a device-local, pre-confirmation credential — syncing it
+    /// would let a device that never scanned the QR complete kx and pair.
+    private func keychainSetPending(_ data: Data, pairingId: String) throws {
+        try keychainWrite(data, account: Self.pendingAccount(pairingId), synchronizable: false)
+    }
+
+    private func keychainWrite(_ data: Data, account: String, synchronizable: Bool) throws {
+        let syncValue: CFBoolean = synchronizable ? kCFBooleanTrue! : kCFBooleanFalse!
+        // Delete any prior item for this account (either sync variant) so the
+        // overwrite is idempotent even if a previous write used the other value.
+        SecItemDelete([
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccount as String: account,
-            // The pairing secret is a shared *group* credential (the kx-envelope
-            // key). Sync it via iCloud Keychain so a user who pairs once on iPhone
-            // gets it on Mac/Watch with no QR re-pair. This is orthogonal to the
-            // daemon↔frontend E2EE: each device still does its own kx with its own
-            // device-local `frontendId`, so synced secret + per-device frontendId
-            // is the correct multi-device combination (see `frontendId()`).
+            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
+        ] as CFDictionary)
+        let add: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: account,
             kSecAttrSynchronizable as String: syncValue,
+            kSecValueData as String: data,
+            // Synchronizable items must use a sync-compatible accessibility class;
+            // AfterFirstUnlock is the recommended one for background-reachable secrets.
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
         ]
-        SecItemDelete(base as CFDictionary)  // idempotent overwrite
-        var add = base
-        add[kSecValueData as String] = data
-        // Synchronizable items must use a sync-compatible accessibility class;
-        // AfterFirstUnlock is the recommended one for background-reachable secrets.
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         let status = SecItemAdd(add as CFDictionary, nil)
         guard status == errSecSuccess else { throw PairingError.keychain(status) }
     }

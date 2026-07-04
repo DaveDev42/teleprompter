@@ -29,7 +29,9 @@ final class RelayResilienceTests: XCTestCase {
             relayURL: "wss://relay.tpmt.dev",
             daemonId: daemonId,
             frontendId: frontendId,
-            version: 3)
+            version: 3,
+            pairingId: "pairing-test",
+            hostname: "")
     }
 
     // MARK: - H6: Exponential-backoff reconnect delay

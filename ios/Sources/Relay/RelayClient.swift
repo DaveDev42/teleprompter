@@ -133,6 +133,15 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// daemon. The new label should be persisted in PairingStore.
     var onRename: ((_ daemonId: String, _ label: String?) -> Void)?
 
+    /// PR-4 (connect-on-pending): fired once the kx session keys are established
+    /// (`TP_KX_OK`), carrying this pairing's `pairingId`. For a PENDING pairing the
+    /// viewmodel treats kx completion as the promotion signal (legacy semantics —
+    /// PCT verification lands in PR-5) and promotes PENDING → COMMITTED. Fired on
+    /// BOTH the first-kx and re-kx branches so a pending record whose first hello
+    /// was lost still promotes on re-exchange. No-op for already-committed pairings
+    /// (the viewmodel's handler guards on `pendingClients[pairingId]`).
+    var onPairingConfirmed: ((_ pairingId: String) -> Void)?
+
     /// Cached after `relay.auth.ok` for the M7 resume fast-path. Persisted to
     /// UserDefaults so it survives backgrounding (keyed by daemonId).
     private(set) var resumeToken: String? {
@@ -811,6 +820,10 @@ final class RelayClient: NSObject, @unchecked Sendable {
                 let keys = try kxClientSessionKeys(
                     pk: freshKp.publicKey, sk: freshKp.secretKey, peerPk: daemonPk)
                 sessionKeys = keys
+                // PR-4: a re-exchange re-establishes the session keys, so a still-
+                // pending pairing can promote on this epoch even if its first hello
+                // was lost. Idempotent downstream (guarded on pendingClients).
+                onPairingConfirmed?(pairing.pairingId)
             } else {
                 // First kx: derive session keys from the keypair we already sent.
                 // Frontend = CLIENT role → kxClientSessionKeys(own pub, own sec, daemon pub).
@@ -821,6 +834,8 @@ final class RelayClient: NSObject, @unchecked Sendable {
                 log.notice(
                     "\(Self.kxOkMarker, privacy: .public) daemon=\(self.pairing.daemonId, privacy: .public)"
                 )
+                // PR-4 (connect-on-pending): kx complete = promotion signal.
+                onPairingConfirmed?(pairing.pairingId)
             }
 
             // M10: Adopt the daemon's label if local label is unset.

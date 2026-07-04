@@ -31,7 +31,9 @@ final class RelayAuthTests: XCTestCase {
             relayURL: relay,
             daemonId: daemonId,
             frontendId: frontendId,
-            version: 3)
+            version: 3,
+            pairingId: "pairing-test",
+            hostname: "")
     }
 
     // MARK: token parity

@@ -80,11 +80,11 @@ struct TeleprompterApp: App {
             smokeLog.error("smoke url invalid: \(raw, privacy: .public)")
             return
         }
-        if case .paired(let daemonId) = DeepLinkHandler.handle(url) {
-            pairings.reload()
-            pairings.connect(daemonId: daemonId)
+        if case .pending(let pairingId) = DeepLinkHandler.handle(url) {
+            pairings.reloadPending()
+            pairings.beginPending(pairingId: pairingId)
         } else {
-            pairings.reload()
+            pairings.reloadPending()
         }
     }
 
@@ -116,13 +116,13 @@ struct TeleprompterApp: App {
             .onAppear { GamepadCoordinator.shared.activate() }
             .onOpenURL { url in
                 self.log.notice("onOpenURL url=\(url.absoluteString, privacy: .public)")
-                if case .paired(let daemonId) = DeepLinkHandler.handle(url) {
-                    pairings.reload()
+                if case .pending(let pairingId) = DeepLinkHandler.handle(url) {
+                    pairings.reloadPending()
                     // M2: connect to the relay as soon as a pairing lands so the
                     // auth round-trip happens on-device (emits TP_RELAY_AUTH_OK).
-                    pairings.connect(daemonId: daemonId)
+                    pairings.beginPending(pairingId: pairingId)
                 } else {
-                    pairings.reload()
+                    pairings.reloadPending()
                 }
             }
             // M13: toast overlay with session navigation wired up.
@@ -209,6 +209,21 @@ struct TeleprompterApp: App {
     }
 }
 
+/// A PENDING pairing surfaced to the UI as a "Confirming…" row (PR-4).
+///
+/// A pending pairing has decoded + persisted but not yet completed the kx
+/// handshake, so it has no COMMITTED daemon record. `daemonId`/`hostname` are for
+/// display only; the identity key is `pairingId`.
+struct PendingPairing: Identifiable, Equatable {
+    let pairingId: String
+    let daemonId: String
+    let hostname: String
+    /// Present when the last connection attempt surfaced an error (retryable).
+    var lastError: String?
+
+    var id: String { pairingId }
+}
+
 /// Observable list of paired daemons, backed by `PairingStore`.
 ///
 /// Also owns the live relay clients (M2): one per paired daemon, started on
@@ -231,6 +246,18 @@ final class PairingViewModel {
     /// Retained relay clients keyed by daemon id (kept out of observation —
     /// the socket lifecycle is not view state).
     @ObservationIgnored private var clients: [String: RelayClient] = [:]
+    /// PR-4 (connect-on-pending): retained relay clients for PENDING pairings,
+    /// keyed by **pairingId** (§1.6 — a re-pair reuses the daemon but mints a new
+    /// pairingId, so daemonId would collide). A pending client runs the full
+    /// connect→auth→kx handshake; on kx completion it promotes to `clients`.
+    @ObservationIgnored private var pendingClients: [String: RelayClient] = [:]
+    /// Age cutoff for GC'ing pending pairings that never completed kx (§1.3).
+    @ObservationIgnored private let pendingMaxAge: TimeInterval = 24 * 60 * 60
+
+    /// PR-4: observable list of PENDING pairings for the "Confirming…" UI rows.
+    /// Populated from `store.pendingIds()`; a row drops off when its pairing
+    /// promotes to COMMITTED or is GC'd.
+    private(set) var pendingPairings: [PendingPairing] = []
     /// M8: Per-daemon online presence, as observed by status dots.
     /// Keyed by daemonId; true = daemon is connected to relay & has signalled presence.
     /// Observable (NOT @ObservationIgnored) so status dots update reactively.
@@ -248,15 +275,39 @@ final class PairingViewModel {
     init(store: PairingStore = .shared, sessionStore: SessionStore) {
         self.store = store
         self.sessionStore = sessionStore
+        // Sweep pending pairings that never completed kx across prior sessions,
+        // disposing any leftover client for each (§1.6). Runs before we enumerate.
+        for pid in store.gcPending(olderThan: pendingMaxAge) {
+            pendingClients[pid]?.disconnect()
+            pendingClients.removeValue(forKey: pid)
+        }
         reload()
-        // Reconnect any pairing that survived a relaunch.
+        reloadPending()
+        // Reconnect any COMMITTED pairing that survived a relaunch.
         for did in daemonIds { connect(daemonId: did) }
+        // Resume connect-on-pending for every PENDING pairing (§1.5): while the app
+        // is up, a client-less PENDING cannot structurally exist — this closes the
+        // chicken-and-egg where a pending record could never reach kx.
+        for pid in store.pendingIds() { beginPending(pairingId: pid) }
     }
 
     func reload() {
         daemonIds = store.daemonIds()
         // M9: refresh observable label cache so DaemonRow re-renders after any rename.
         refreshLabels()
+    }
+
+    /// Refresh the observable `pendingPairings` list from the store, preserving any
+    /// `lastError` already surfaced for a still-pending row.
+    func reloadPending() {
+        let priorErrors = Dictionary(
+            pendingPairings.map { ($0.pairingId, $0.lastError) }, uniquingKeysWith: { a, _ in a })
+        pendingPairings = store.pendingIds().compactMap { pid in
+            guard let p = try? store.loadPending(pairingId: pid) else { return nil }
+            return PendingPairing(
+                pairingId: pid, daemonId: p.daemonId, hostname: p.hostname,
+                lastError: priorErrors[pid] ?? nil)
+        }
     }
 
     /// Open a relay connection for one daemon and authenticate.
@@ -323,6 +374,157 @@ final class PairingViewModel {
 
         clients[daemonId] = client
         client.connect()
+    }
+
+    /// Connect-on-pending (PR-4, §1.6): open a relay client for a PENDING pairing
+    /// and drive it through connect→auth→kx. On kx completion the pairing promotes
+    /// to COMMITTED (`promoteConfirmed`) — the SAME live client is re-keyed into
+    /// `clients`, never reconnected (the confirming kx epoch IS the confirmation).
+    ///
+    /// Idempotent: a second call for the same pairingId (double-scan / re-ingest of
+    /// the same QR) is a no-op while a client already exists, so we never run two
+    /// kx exchanges for one frontendId and clobber the daemon's peers map (§1.6).
+    func beginPending(pairingId: String) {
+        guard pendingClients[pairingId] == nil else { return }
+        guard let pairing = try? store.loadPending(pairingId: pairingId) else { return }
+        let client = RelayClient(pairing: pairing)
+        client.sessionStore = sessionStore
+
+        // Surface online/offline for the "Confirming…" row.
+        client.onPresence = { [weak self] _, online in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if online {
+                    self.clearPendingError(pairingId: pairingId)
+                }
+            }
+        }
+
+        // Backoff/auth failures keep the pairing PENDING; surface the reason.
+        client.onConnectionCauseChange = { [weak self] cause in
+            Task { @MainActor [weak self] in
+                self?.setPendingError(pairingId: pairingId, cause: cause)
+            }
+        }
+
+        // kx complete → promote PENDING → COMMITTED (legacy semantics; PCT
+        // verification is PR-5). Re-keys this client into `clients`.
+        client.onPairingConfirmed = { [weak self] pid in
+            Task { @MainActor [weak self] in
+                self?.promoteConfirmed(pairingId: pid)
+            }
+        }
+
+        pendingClients[pairingId] = client
+        client.connect()
+    }
+
+    /// Promote a confirmed PENDING pairing to COMMITTED, re-keying its live client
+    /// from `pendingClients` (by pairingId) into `clients` (by daemonId) WITHOUT
+    /// reconnecting (§1.6). Idempotent + safe against the GC race: if the pending
+    /// record is already gone, `store.promote` no-ops and we still dispose any
+    /// leftover client so no record-less zombie survives.
+    private func promoteConfirmed(pairingId: String) {
+        guard let client = pendingClients[pairingId] else { return }
+        // Recover the daemonId from the pending record BEFORE promote deletes it.
+        guard let pending = try? store.loadPending(pairingId: pairingId) else {
+            // Record vanished (GC) between kx and here — dispose the orphan client.
+            client.disconnect()
+            pendingClients.removeValue(forKey: pairingId)
+            return
+        }
+        let daemonId = pending.daemonId
+
+        do {
+            try store.promote(pairingId: pairingId)
+        } catch {
+            log.error(
+                "promote failed pairingId=\(pairingId, privacy: .public): \(String(describing: error), privacy: .public)"
+            )
+            return
+        }
+
+        // Re-key: move THIS client into the committed map. If a stale committed
+        // client for the same daemon exists (re-pair with a fresh pairingId),
+        // dispose it and drop the old committed record (unpair semantics, §1.6).
+        pendingClients.removeValue(forKey: pairingId)
+        if let stale = clients[daemonId], stale !== client {
+            stale.disconnect()
+        }
+        rewirePromotedClient(client, daemonId: daemonId)
+        clients[daemonId] = client
+
+        // Emit TP_PAIR_OK at promotion time — the marker moved here from ingest.
+        log.notice(
+            "\(DeepLinkHandler.pairMarker, privacy: .public) did=\(daemonId, privacy: .public)"
+        )
+
+        reload()
+        reloadPending()
+    }
+
+    /// Re-point a promoted pending client's daemonId-scoped callbacks (unpair /
+    /// rename / connection-cause) at the committed maps. The pending client was
+    /// wired with pairingId-scoped closures in `beginPending`; now that it is
+    /// committed it must behave like a `connect(daemonId:)` client.
+    private func rewirePromotedClient(_ client: RelayClient, daemonId: String) {
+        client.onPresence = { [weak self] did, online in
+            Task { @MainActor [weak self] in
+                self?.daemonOnline[did] = online
+            }
+        }
+        client.onConnectionCauseChange = { [weak self] cause in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let cause {
+                    self.connectionCause[daemonId] = cause
+                } else {
+                    self.connectionCause.removeValue(forKey: daemonId)
+                }
+            }
+        }
+        client.onUnpair = { [weak self] did, reason in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.log.notice(
+                    "control.unpair from daemon \(did, privacy: .public) reason=\(reason, privacy: .public) — removing pairing"
+                )
+                self.clients[did]?.disconnect()
+                self.clients[did] = nil
+                self.daemonOnline.removeValue(forKey: did)
+                self.connectionCause.removeValue(forKey: did)
+                self.store.remove(daemonId: did)
+                self.reload()
+            }
+        }
+        client.onRename = { [weak self] did, newLabel in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.store.setLabel(newLabel, for: did)
+                self.reload()
+            }
+        }
+        // A promoted pairing already has its keys; the confirm callback is spent.
+        client.onPairingConfirmed = nil
+    }
+
+    private func setPendingError(pairingId: String, cause: String?) {
+        guard let idx = pendingPairings.firstIndex(where: { $0.pairingId == pairingId }) else {
+            return
+        }
+        pendingPairings[idx].lastError = cause
+    }
+
+    private func clearPendingError(pairingId: String) {
+        setPendingError(pairingId: pairingId, cause: nil)
+    }
+
+    /// Cancel a PENDING pairing: dispose its client and drop the record.
+    func cancelPending(pairingId: String) {
+        pendingClients[pairingId]?.disconnect()
+        pendingClients.removeValue(forKey: pairingId)
+        store.removePending(pairingId: pairingId)
+        reloadPending()
     }
 
     func remove(_ daemonId: String) {

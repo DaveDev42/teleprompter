@@ -94,6 +94,13 @@ WATCH_BUNDLE_ID="dev.tpmt.app.watchkitapp"
 BOOT_MARKER="TP_BOOT_OK"
 CORE_MARKER="TP_CORE_OK"
 PAIR_MARKER="TP_PAIR_OK"
+# PR-4 (connect-on-pending): QR decode + PENDING persist emits TP_PAIR_PENDING at
+# ingest; TP_PAIR_OK now fires only after the pairing PROMOTES (kx complete). In
+# loopback kx is deterministic so TP_PAIR_OK reliably fires (M1 keeps asserting
+# it). In real-daemon E2E kx is out-of-scope/racy (M0–M2 honest scope), so those
+# modes assert M1 via TP_PAIR_PENDING (= the same "ingest succeeded" meaning M1
+# always had).
+PAIR_PENDING_MARKER="TP_PAIR_PENDING"
 # Deterministic pairing deep link injected during smoke (M1 offline ingestion).
 # Layout (pairing.rs v3): magic "tp" | ver 3 | did_len | did | relay_len(0=default)
 # | ps(32×0x01) | pk(32×0x02); base64url-wrapped as tp://p?d=…
@@ -801,24 +808,28 @@ cmd_smoke_ios() {
   #                            input path end to end). See native-testing.md.
   parse_e2e_gates
   local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING" claude_webpage="$E2E_WEBPAGE" claude_push="$E2E_PUSH"
+  # PR-4: M1 marker is mode-dependent. Real-daemon modes (kx out-of-scope/racy,
+  # honest M0–M2) assert ingest via TP_PAIR_PENDING; loopback (deterministic kx →
+  # promote) keeps TP_PAIR_OK.
+  local m1_marker; if [ -n "$real_e2e" ]; then m1_marker="$PAIR_PENDING_MARKER"; else m1_marker="$PAIR_MARKER"; fi
 
   if [ -n "$claude_m5" ]; then
     # M0–M5: full input round-trip against an interactive real claude.
     tp_smoke_begin "$TP_PLATFORM" \
-      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$m1_marker" "$RELAY_AUTH_OK_MARKER" \
       "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER" "$INPUT_OK_MARKER"
   elif [ -n "$claude_e2e" ]; then
     # M0–M4: boot+core, pairing, relay-auth, kx, first-frame, session-render.
     # No M5 (input round-trip) — print mode ends before input arrives (use M5 mode).
     tp_smoke_begin "$TP_PLATFORM" \
-      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$m1_marker" "$RELAY_AUTH_OK_MARKER" \
       "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER"
   elif [ -n "$real_e2e" ]; then
     tp_smoke_begin "$TP_PLATFORM" \
-      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER"
+      "$BOOT_MARKER" "$CORE_MARKER" "$m1_marker" "$RELAY_AUTH_OK_MARKER"
   else
     tp_smoke_begin "$TP_PLATFORM" \
-      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$m1_marker" "$RELAY_AUTH_OK_MARKER" \
       "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER" "$INPUT_OK_MARKER"
   fi
 
@@ -873,7 +884,7 @@ cmd_smoke_ios() {
 
   # Terminate any prior instance before launching with the URL arg.
   xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
-  log "launching with --tp-smoke-url (M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
+  log "launching with --tp-smoke-url (M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$m1_marker did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
   # Launch with retry: even after the device reports Booted, a cold CI sim may still
   # be warming SpringBoard/system apps (bootstatus's final "Waiting on System App"
   # phase), and the first `simctl launch` can fail (FBSOpenApplicationService error)
@@ -922,7 +933,7 @@ cmd_smoke_ios() {
     out="$(ios_log_snapshot "$udid" "$snap_secs")"
     case "$out" in *"$BOOT_MARKER"*) boot_seen="yes" ;; esac
     core_line="$(prefer_ok "$out" 'TP_CORE_OK' 'TP_CORE_FAIL')"
-    pair_line="$(prefer_ok "$out" 'TP_PAIR_OK' 'TP_PAIR_FAIL')"
+    pair_line="$(prefer_ok "$out" "$m1_marker" 'TP_PAIR_FAIL')"
     auth_line="$(prefer_ok "$out" "$RELAY_AUTH_OK_MARKER" "$RELAY_AUTH_FAIL_MARKER")"
     kx_line="$(prefer_ok "$out" "$KX_OK_MARKER" "$KX_FAIL_MARKER")"
     frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
@@ -979,10 +990,10 @@ cmd_smoke_ios() {
   esac
 
   # M1 assertion.
-  [ -n "$pair_line" ] || die "SMOKE FAIL — --tp-smoke-url injected but no '$PAIR_MARKER'/TP_PAIR_FAIL line (DeepLinkHandler.handle never ran?)"
+  [ -n "$pair_line" ] || die "SMOKE FAIL — --tp-smoke-url injected but no '$m1_marker'/TP_PAIR_FAIL line (DeepLinkHandler.handle never ran?)"
   case "$pair_line" in
-    "$PAIR_MARKER did=$SMOKE_DAEMON_ID"*) tp_mark "$PAIR_MARKER"; log "pairing OK (M1) — '$pair_line'" ;;
-    "$PAIR_MARKER"*) die "SMOKE FAIL — pairing wrong daemon id: $pair_line (want did=$SMOKE_DAEMON_ID)" ;;
+    "$m1_marker did=$SMOKE_DAEMON_ID"*) tp_mark "$m1_marker"; log "pairing OK (M1) — '$pair_line'" ;;
+    "$m1_marker"*) die "SMOKE FAIL — pairing wrong daemon id: $pair_line (want did=$SMOKE_DAEMON_ID)" ;;
     *) die "SMOKE FAIL — pairing ingestion failed on-device: $pair_line" ;;
   esac
 
@@ -1113,23 +1124,27 @@ cmd_smoke_macos() {
   # app under test connects to it through the real relay exactly as a phone would.
   parse_e2e_gates
   local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING" claude_webpage="$E2E_WEBPAGE" claude_push="$E2E_PUSH"
+  # PR-4: M1 marker is mode-dependent. Real-daemon modes (kx out-of-scope/racy,
+  # honest M0–M2) assert ingest via TP_PAIR_PENDING; loopback (deterministic kx →
+  # promote) keeps TP_PAIR_OK.
+  local m1_marker; if [ -n "$real_e2e" ]; then m1_marker="$PAIR_PENDING_MARKER"; else m1_marker="$PAIR_MARKER"; fi
 
   # Marker set scales with reach: real_e2e (no session) → M0–M2; claude_e2e (print
   # session) → M0–M4; claude_m5 / loopback → all M0–M5.
   if [ -n "$claude_m5" ]; then
     tp_smoke_begin "macos" \
-      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$m1_marker" "$RELAY_AUTH_OK_MARKER" \
       "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER" "$INPUT_OK_MARKER"
   elif [ -n "$claude_e2e" ]; then
     tp_smoke_begin "macos" \
-      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$m1_marker" "$RELAY_AUTH_OK_MARKER" \
       "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER"
   elif [ -n "$real_e2e" ]; then
     tp_smoke_begin "macos" \
-      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER"
+      "$BOOT_MARKER" "$CORE_MARKER" "$m1_marker" "$RELAY_AUTH_OK_MARKER"
   else
     tp_smoke_begin "macos" \
-      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$m1_marker" "$RELAY_AUTH_OK_MARKER" \
       "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER" "$INPUT_OK_MARKER"
   fi
 
@@ -1262,7 +1277,7 @@ cmd_smoke_macos() {
   for _ in $(seq 1 "$poll_iters"); do
     local out
     out="$(macos_log_snapshot)"
-    pair_line="$(prefer_ok "$out" 'TP_PAIR_OK' 'TP_PAIR_FAIL')"
+    pair_line="$(prefer_ok "$out" "$m1_marker" 'TP_PAIR_FAIL')"
     auth_line="$(prefer_ok "$out" "$RELAY_AUTH_OK_MARKER" "$RELAY_AUTH_FAIL_MARKER")"
     kx_line="$(prefer_ok "$out" "$KX_OK_MARKER" "$KX_FAIL_MARKER")"
     frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
@@ -1281,10 +1296,10 @@ cmd_smoke_macos() {
   done
 
   # M1 assertion.
-  [ -n "$pair_line" ] || die "SMOKE FAIL (macOS) — deep link opened but no '$PAIR_MARKER'/TP_PAIR_FAIL (URL not routed to app? try: lsregister -f $app)"
+  [ -n "$pair_line" ] || die "SMOKE FAIL (macOS) — deep link opened but no '$m1_marker'/TP_PAIR_FAIL (URL not routed to app? try: lsregister -f $app)"
   case "$pair_line" in
-    "$PAIR_MARKER did=$SMOKE_DAEMON_ID"*) tp_mark "$PAIR_MARKER"; log "pairing OK (macOS M1) — '$pair_line'" ;;
-    "$PAIR_MARKER"*) die "SMOKE FAIL (macOS) — pairing wrong daemon id: $pair_line" ;;
+    "$m1_marker did=$SMOKE_DAEMON_ID"*) tp_mark "$m1_marker"; log "pairing OK (macOS M1) — '$pair_line'" ;;
+    "$m1_marker"*) die "SMOKE FAIL (macOS) — pairing wrong daemon id: $pair_line" ;;
     *) die "SMOKE FAIL (macOS) — pairing ingestion failed: $pair_line" ;;
   esac
 
@@ -1386,23 +1401,27 @@ cmd_smoke_visionos() {
   # app runs in the visionOS Simulator and connects through the real relay.
   parse_e2e_gates
   local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING" claude_webpage="$E2E_WEBPAGE" claude_push="$E2E_PUSH"
+  # PR-4: M1 marker is mode-dependent. Real-daemon modes (kx out-of-scope/racy,
+  # honest M0–M2) assert ingest via TP_PAIR_PENDING; loopback (deterministic kx →
+  # promote) keeps TP_PAIR_OK.
+  local m1_marker; if [ -n "$real_e2e" ]; then m1_marker="$PAIR_PENDING_MARKER"; else m1_marker="$PAIR_MARKER"; fi
 
   # Marker set scales with reach: real_e2e → M0–M2; claude_e2e → M0–M4; claude_m5 /
   # loopback → all M0–M5.
   if [ -n "$claude_m5" ]; then
     tp_smoke_begin "visionos" \
-      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$m1_marker" "$RELAY_AUTH_OK_MARKER" \
       "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER" "$INPUT_OK_MARKER"
   elif [ -n "$claude_e2e" ]; then
     tp_smoke_begin "visionos" \
-      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$m1_marker" "$RELAY_AUTH_OK_MARKER" \
       "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER"
   elif [ -n "$real_e2e" ]; then
     tp_smoke_begin "visionos" \
-      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER"
+      "$BOOT_MARKER" "$CORE_MARKER" "$m1_marker" "$RELAY_AUTH_OK_MARKER"
   else
     tp_smoke_begin "visionos" \
-      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$m1_marker" "$RELAY_AUTH_OK_MARKER" \
       "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER" "$INPUT_OK_MARKER"
   fi
 
@@ -1469,7 +1488,7 @@ for devs in d["devices"].values():
   fi
 
   xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
-  log "launching with --tp-smoke-url (visionOS M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
+  log "launching with --tp-smoke-url (visionOS M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$m1_marker did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
   # In CODING/WEBPAGE mode the holder owns input, so suppress the app's auto-probe. In
   # PUSH mode tell the app to register a synthetic push token (--tp-push-smoke).
   local probe_arg=(); { [ -n "$claude_coding" ] || [ -n "$claude_webpage" ]; } && probe_arg=(--tp-no-input-probe)
@@ -1496,7 +1515,7 @@ for devs in d["devices"].values():
       --predicate "subsystem == \"$BUNDLE_ID\"" 2>/dev/null || true)"
     case "$out" in *"$BOOT_MARKER"*) boot_seen="yes" ;; esac
     core_line="$(prefer_ok "$out" 'TP_CORE_OK' 'TP_CORE_FAIL')"
-    pair_line="$(prefer_ok "$out" 'TP_PAIR_OK' 'TP_PAIR_FAIL')"
+    pair_line="$(prefer_ok "$out" "$m1_marker" 'TP_PAIR_FAIL')"
     auth_line="$(prefer_ok "$out" "$RELAY_AUTH_OK_MARKER" "$RELAY_AUTH_FAIL_MARKER")"
     kx_line="$(prefer_ok "$out" "$KX_OK_MARKER" "$KX_FAIL_MARKER")"
     frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
@@ -1524,10 +1543,10 @@ for devs in d["devices"].values():
   esac
 
   # M1 assertion.
-  [ -n "$pair_line" ] || die "SMOKE FAIL (visionOS) — --tp-smoke-url injected but no '$PAIR_MARKER'/TP_PAIR_FAIL (DeepLinkHandler.handle never ran?)"
+  [ -n "$pair_line" ] || die "SMOKE FAIL (visionOS) — --tp-smoke-url injected but no '$m1_marker'/TP_PAIR_FAIL (DeepLinkHandler.handle never ran?)"
   case "$pair_line" in
-    "$PAIR_MARKER did=$SMOKE_DAEMON_ID"*) tp_mark "$PAIR_MARKER"; log "pairing OK (visionOS M1) — '$pair_line'" ;;
-    "$PAIR_MARKER"*) die "SMOKE FAIL (visionOS) — pairing wrong daemon id: $pair_line (want did=$SMOKE_DAEMON_ID)" ;;
+    "$m1_marker did=$SMOKE_DAEMON_ID"*) tp_mark "$m1_marker"; log "pairing OK (visionOS M1) — '$pair_line'" ;;
+    "$m1_marker"*) die "SMOKE FAIL (visionOS) — pairing wrong daemon id: $pair_line (want did=$SMOKE_DAEMON_ID)" ;;
     *) die "SMOKE FAIL (visionOS) — pairing ingestion failed on-device: $pair_line" ;;
   esac
 
@@ -1632,15 +1651,17 @@ cmd_smoke_watchos() {
   # real relay.
   parse_e2e_gates
   local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_coding="$E2E_CLAUDE_CODING" claude_webpage="$E2E_WEBPAGE" claude_push="$E2E_PUSH"
+  # PR-4: M1 marker is mode-dependent (see cmd_smoke_ios).
+  local m1_marker; if [ -n "$real_e2e" ]; then m1_marker="$PAIR_PENDING_MARKER"; else m1_marker="$PAIR_MARKER"; fi
 
   # Marker set scales with reach: real_e2e → M0–M2 (4 markers); claude_e2e /
   # loopback → M0–M4 (7 markers). No M5 on watch in any mode.
   if [ -n "$real_e2e" ] && [ -z "$claude_e2e" ]; then
     tp_smoke_begin "watchos" \
-      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER"
+      "$BOOT_MARKER" "$CORE_MARKER" "$m1_marker" "$RELAY_AUTH_OK_MARKER"
   else
     tp_smoke_begin "watchos" \
-      "$BOOT_MARKER" "$CORE_MARKER" "$PAIR_MARKER" "$RELAY_AUTH_OK_MARKER" \
+      "$BOOT_MARKER" "$CORE_MARKER" "$m1_marker" "$RELAY_AUTH_OK_MARKER" \
       "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER"
   fi
 
@@ -1706,7 +1727,7 @@ for devs in d["devices"].values():
   fi
 
   xcrun simctl terminate "$udid" "$WATCH_BUNDLE_ID" >/dev/null 2>&1 || true
-  log "launching with --tp-smoke-url (watchOS M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$PAIR_MARKER did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
+  log "launching with --tp-smoke-url (watchOS M0+M1+M2) — want '$BOOT_MARKER' + '$CORE_MARKER' + '$m1_marker did=$SMOKE_DAEMON_ID' + '$RELAY_AUTH_OK_MARKER daemon=$SMOKE_DAEMON_ID'"
   # In CODING/WEBPAGE mode the holder owns input, so suppress the app's auto-probe. In
   # PUSH mode tell the app to register a synthetic push token (--tp-push-smoke).
   local probe_arg=(); { [ -n "$claude_coding" ] || [ -n "$claude_webpage" ]; } && probe_arg=(--tp-no-input-probe)
@@ -1734,7 +1755,7 @@ for devs in d["devices"].values():
       --predicate "subsystem == \"$BUNDLE_ID\"" 2>/dev/null || true)"
     case "$out" in *"$BOOT_MARKER"*) boot_seen="yes" ;; esac
     core_line="$(prefer_ok "$out" 'TP_CORE_OK' 'TP_CORE_FAIL')"
-    pair_line="$(prefer_ok "$out" 'TP_PAIR_OK' 'TP_PAIR_FAIL')"
+    pair_line="$(prefer_ok "$out" "$m1_marker" 'TP_PAIR_FAIL')"
     auth_line="$(prefer_ok "$out" "$RELAY_AUTH_OK_MARKER" "$RELAY_AUTH_FAIL_MARKER")"
     kx_line="$(prefer_ok "$out" "$KX_OK_MARKER" "$KX_FAIL_MARKER")"
     frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
@@ -1757,10 +1778,10 @@ for devs in d["devices"].values():
   esac
 
   # M1 assertion.
-  [ -n "$pair_line" ] || die "SMOKE FAIL (watchOS) — --tp-smoke-url injected but no '$PAIR_MARKER'/TP_PAIR_FAIL (DeepLinkHandler.handle never ran?)"
+  [ -n "$pair_line" ] || die "SMOKE FAIL (watchOS) — --tp-smoke-url injected but no '$m1_marker'/TP_PAIR_FAIL (DeepLinkHandler.handle never ran?)"
   case "$pair_line" in
-    "$PAIR_MARKER did=$SMOKE_DAEMON_ID"*) tp_mark "$PAIR_MARKER"; log "pairing OK (watchOS M1) — '$pair_line'" ;;
-    "$PAIR_MARKER"*) die "SMOKE FAIL (watchOS) — pairing wrong daemon id: $pair_line (want did=$SMOKE_DAEMON_ID)" ;;
+    "$m1_marker did=$SMOKE_DAEMON_ID"*) tp_mark "$m1_marker"; log "pairing OK (watchOS M1) — '$pair_line'" ;;
+    "$m1_marker"*) die "SMOKE FAIL (watchOS) — pairing wrong daemon id: $pair_line (want did=$SMOKE_DAEMON_ID)" ;;
     *) die "SMOKE FAIL (watchOS) — pairing ingestion failed on-device: $pair_line" ;;
   esac
 

@@ -484,12 +484,19 @@ export class IpcCommandDispatcher {
         // keep-current surface: `relay.label` is undefined when no label is set,
         // which the app decodes via `decodeKxLabelOrKeep` (absence = keep current).
         const daemonLabel = relay.label;
+        // `pct` mirrors the auto-hello in relay-manager's onFrontendJoined —
+        // BOTH hello builders must carry the tag, or an on-demand hello would
+        // downgrade the app's confirmed state. Read from the client's
+        // in-memory peer state (derived at kx time, never from the store);
+        // absent for legacy pairings without a pairingId.
+        const pctB64 = relay.peerPctB64(frontendId);
         reply(RELAY_CHANNEL_META, {
           t: "hello",
           v: 1,
           d: {
             sessions,
             ...(daemonLabel !== undefined ? { daemonLabel } : {}),
+            ...(pctB64 ? { pct: pctB64 } : {}),
           },
         });
         break;

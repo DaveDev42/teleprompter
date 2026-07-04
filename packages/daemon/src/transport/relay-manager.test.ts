@@ -36,6 +36,8 @@ function makeStubClient(daemonId: string, peers: string[] = []): StubClient {
     connect: mock(async () => {}),
     subscribe: mock(() => {}),
     listPeerFrontendIds: () => peers,
+    peerPct: () => undefined,
+    peerPctB64: () => undefined,
     sendPush: mock(() => true),
     publishToPeer: mock(async () => {}),
   };
@@ -63,6 +65,7 @@ interface DepsOverrides {
   listPairings?: () => unknown[];
   loadPairings?: () => unknown[];
   savePairing?: (data: unknown) => void;
+  savePairingConfirmation?: (data: unknown) => void;
   deletePairing?: (daemonId: string) => void;
   updatePairingLabel?: (daemonId: string, label: Label) => void;
   findRunnerBySid?: (sid: string) => unknown;
@@ -81,6 +84,7 @@ function makeDeps(overrides: DepsOverrides = {}): RelayConnectionManagerDeps {
     listPairings: overrides.listPairings ?? (() => []),
     loadPairings: overrides.loadPairings ?? (() => []),
     savePairing: overrides.savePairing ?? (() => {}),
+    savePairingConfirmation: overrides.savePairingConfirmation ?? (() => {}),
     deletePairing: overrides.deletePairing ?? (() => {}),
     updatePairingLabel: overrides.updatePairingLabel ?? (() => {}),
     savePushToken: () => {},
@@ -113,6 +117,8 @@ const BASE_CONFIG: Omit<RelayClientConfig, "daemonId" | "label"> = {
     secretKey: new Uint8Array(32),
   },
   pairingSecret: new Uint8Array(32),
+  pairingId: "",
+  hostname: "",
 };
 
 describe("RelayConnectionManager", () => {
@@ -564,6 +570,81 @@ describe("RelayConnectionManager", () => {
     const [, , helloMsg] = (stub.publishToPeer as ReturnType<typeof mock>).mock
       .calls[0] as [string, string, { t: string; d: { daemonLabel: Label } }];
     expect(helloMsg.d.daemonLabel).toEqual({ set: false });
+  });
+
+  test("buildEvents.onPeerConfirmed persists the PCT via store.savePairingConfirmation", () => {
+    const saved: Array<{
+      daemonId: string;
+      frontendId: string;
+      pct: Uint8Array;
+      frontendPk: Uint8Array;
+    }> = [];
+    const deps = makeDeps({
+      savePairingConfirmation: (data) =>
+        saved.push(
+          data as {
+            daemonId: string;
+            frontendId: string;
+            pct: Uint8Array;
+            frontendPk: Uint8Array;
+          },
+        ),
+    });
+    const mgr = new RelayConnectionManager(deps);
+    // daemonId MUST be threaded (3rd arg) or the empty-daemonId guard skips.
+    const events = mgr.buildEvents(() => makeStubClient("d1"), undefined, "d1");
+
+    const pct = new Uint8Array(32).fill(7);
+    const fpk = new Uint8Array(32).fill(9);
+    events.onPeerConfirmed?.("front-1", pct, fpk);
+
+    expect(saved).toHaveLength(1);
+    expect(saved[0]?.daemonId).toBe("d1");
+    expect(saved[0]?.frontendId).toBe("front-1");
+    expect(saved[0]?.pct).toEqual(pct);
+    expect(saved[0]?.frontendPk).toEqual(fpk);
+  });
+
+  test("buildEvents.onPeerConfirmed skips persist when daemonId is empty (corrupt-row guard)", () => {
+    const saved: unknown[] = [];
+    const deps = makeDeps({
+      savePairingConfirmation: (data) => saved.push(data),
+    });
+    const mgr = new RelayConnectionManager(deps);
+    // No daemonId threaded (defaults to "") — persisting would write a "" row,
+    // replaying the push-token corrupt-row incident.
+    const events = mgr.buildEvents(() => makeStubClient("d1"));
+
+    events.onPeerConfirmed?.("front-1", new Uint8Array(32), new Uint8Array(32));
+
+    expect(saved).toHaveLength(0);
+  });
+
+  test("buildEvents.onFrontendJoined includes pct in the hello frame when the peer is confirmed", () => {
+    const mgr = new RelayConnectionManager(makeDeps());
+    const stub = makeStubClient("d1");
+    // The client exposes the base64 PCT for the joined frontend.
+    stub.peerPctB64 = () => "cGN0LWJhc2U2NA==";
+    const events = mgr.buildEvents(() => stub);
+
+    events.onFrontendJoined?.("frontend-1");
+
+    const [, , helloMsg] = (stub.publishToPeer as ReturnType<typeof mock>).mock
+      .calls[0] as [string, string, { d: { pct?: string } }];
+    expect(helloMsg.d.pct).toBe("cGN0LWJhc2U2NA==");
+  });
+
+  test("buildEvents.onFrontendJoined omits pct for a legacy (unconfirmed) pairing", () => {
+    const mgr = new RelayConnectionManager(makeDeps());
+    const stub = makeStubClient("d1");
+    stub.peerPctB64 = () => undefined; // legacy pairing, no pairingId
+    const events = mgr.buildEvents(() => stub);
+
+    events.onFrontendJoined?.("frontend-1");
+
+    const [, , helloMsg] = (stub.publishToPeer as ReturnType<typeof mock>).mock
+      .calls[0] as [string, string, { d: { pct?: string } }];
+    expect("pct" in helloMsg.d).toBe(false);
   });
 
   test("buildEvents.onPushTokenDead evicts THAT frontend's token via handleTokenDead", () => {

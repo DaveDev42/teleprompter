@@ -4,6 +4,7 @@ import {
   CONTROL_UNPAIR,
   decrypt,
   deriveKxKey,
+  derivePairingConfirmationTag,
   deriveRegistrationProof,
   deriveRelayToken,
   deriveSessionKeys,
@@ -12,6 +13,7 @@ import {
   generatePairingSecret,
   type Label,
   makeLabel,
+  parseUuid16,
   RELAY_CHANNEL_CONTROL,
   type RelayClientMessage,
   type RelayServerMessage,
@@ -24,6 +26,9 @@ import {
   nextPeerlessReconnects,
   RelayClient,
 } from "./relay-client";
+
+// Fixed pairing identity for PCT-bearing configs (any valid RFC-4122 hex UUID).
+const TEST_PAIRING_ID = "0f9a1c2e-3b4d-4e5f-8a6b-7c8d9e0f1a2b";
 
 // Bound the WebSocket open handshake so a frontend socket that never opens
 // (e.g. a relay frame delayed or dropped under a constrained CI runner) fails
@@ -70,6 +75,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {
         onConnected: () => {
@@ -99,6 +106,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {},
     );
@@ -184,6 +193,160 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
     client.dispose();
   });
 
+  test("derives a per-frontend PCT at kx, exposes it, and fires onPeerConfirmed", async () => {
+    const daemonKp = await generateKeyPair();
+    const frontendKp = await generateKeyPair();
+    const frontendId = "pct-frontend-1";
+    const kxKey = await deriveKxKey(pairingSecret);
+
+    const confirmed: Array<{
+      frontendId: string;
+      pct: Uint8Array;
+      frontendPk: Uint8Array;
+    }> = [];
+    const client = new RelayClient(
+      {
+        relayUrl: `ws://localhost:${relayPort}`,
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        registrationProof,
+        keyPair: daemonKp,
+        pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "pct-host",
+      },
+      {
+        onPeerConfirmed: (fid, pct, fpk) =>
+          confirmed.push({ frontendId: fid, pct, frontendPk: fpk }),
+      },
+    );
+
+    await client.connect();
+    await Bun.sleep(300);
+
+    const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
+    await waitOpen(frontendWs);
+    frontendWs.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 2,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        frontendId,
+      }),
+    );
+    await Bun.sleep(100);
+
+    const kxPayload = JSON.stringify({
+      pk: await toBase64(frontendKp.publicKey),
+      frontendId,
+      role: "frontend",
+    });
+    const kxCt = await encrypt(new TextEncoder().encode(kxPayload), kxKey);
+    frontendWs.send(
+      JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }),
+    );
+    await Bun.sleep(300);
+
+    // Independently derive the tag from the frontend's vantage point: same
+    // pairing identity, same pubkeys, the frontend's own session keys. The
+    // {tx,rx} sort inside derivePairingConfirmationTag makes the direction
+    // (daemon vs frontend) irrelevant, so both ends MUST land on one value.
+    const frontendKeys = await deriveSessionKeys(
+      frontendKp,
+      daemonKp.publicKey,
+      "frontend",
+    );
+    const expectedPct = await derivePairingConfirmationTag({
+      pairingId: parseUuid16(TEST_PAIRING_ID),
+      daemonId: DAEMON_ID,
+      hostname: "pct-host",
+      daemonPubKey: daemonKp.publicKey,
+      frontendPubKey: frontendKp.publicKey,
+      tx: frontendKeys.tx,
+      rx: frontendKeys.rx,
+    });
+
+    // Daemon exposes the tag it derived, and it matches the frontend's.
+    const daemonPct = client.peerPct(frontendId);
+    expect(daemonPct).toBeDefined();
+    expect(daemonPct).toEqual(expectedPct);
+    expect(client.peerPctB64(frontendId)).toBe(await toBase64(expectedPct));
+
+    // onPeerConfirmed fired once with the matching tag + frontend pubkey.
+    expect(confirmed).toHaveLength(1);
+    expect(confirmed[0]?.frontendId).toBe(frontendId);
+    expect(confirmed[0]?.pct).toEqual(expectedPct);
+    expect(confirmed[0]?.frontendPk).toEqual(frontendKp.publicKey);
+
+    frontendWs.close();
+    client.dispose();
+  });
+
+  test("legacy pairing (no pairingId) derives no PCT and fires no onPeerConfirmed", async () => {
+    const daemonKp = await generateKeyPair();
+    const frontendKp = await generateKeyPair();
+    const frontendId = "legacy-frontend-1";
+    const kxKey = await deriveKxKey(pairingSecret);
+
+    let confirmedCount = 0;
+    const client = new RelayClient(
+      {
+        relayUrl: `ws://localhost:${relayPort}`,
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        registrationProof,
+        keyPair: daemonKp,
+        pairingSecret,
+        pairingId: "", // legacy pairing awaiting backfill
+        hostname: "",
+      },
+      {
+        onPeerConfirmed: () => {
+          confirmedCount++;
+        },
+      },
+    );
+
+    await client.connect();
+    await Bun.sleep(300);
+
+    const frontendWs = new WebSocket(`ws://localhost:${relayPort}`);
+    await waitOpen(frontendWs);
+    frontendWs.send(
+      JSON.stringify({
+        t: "relay.auth",
+        v: 2,
+        role: "frontend",
+        daemonId: DAEMON_ID,
+        token: relayToken,
+        frontendId,
+      }),
+    );
+    await Bun.sleep(100);
+
+    const kxPayload = JSON.stringify({
+      pk: await toBase64(frontendKp.publicKey),
+      frontendId,
+      role: "frontend",
+    });
+    const kxCt = await encrypt(new TextEncoder().encode(kxPayload), kxKey);
+    frontendWs.send(
+      JSON.stringify({ t: "relay.kx", ct: kxCt, role: "frontend" }),
+    );
+    await Bun.sleep(300);
+
+    // Peer joined (kx completed) but no PCT because there is no pairingId.
+    expect(client.getPeerCount()).toBe(1);
+    expect(client.peerPct(frontendId)).toBeUndefined();
+    expect(client.peerPctB64(frontendId)).toBeUndefined();
+    expect(confirmedCount).toBe(0);
+
+    frontendWs.close();
+    client.dispose();
+  });
+
   test("late-joining frontend gets a kx re-broadcast; second kx is suppressed", async () => {
     // Regression guard for the kx delivery race: the daemon broadcasts its pubkey
     // once at auth time, but the relay does NOT cache kx frames — a frontend that
@@ -204,6 +367,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {},
     );
@@ -287,6 +452,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {
         onInput: (kind, sid, data) => {
@@ -375,6 +542,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {},
     );
@@ -467,6 +636,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {},
     );
@@ -557,6 +728,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {},
     );
@@ -644,6 +817,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {},
     );
@@ -735,6 +910,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {},
     );
@@ -809,6 +986,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {},
     );
@@ -917,6 +1096,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {},
     );
@@ -1003,6 +1184,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {},
     );
@@ -1101,6 +1284,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {},
     );
@@ -1140,6 +1325,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {},
     );
@@ -1208,6 +1395,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {},
     );
@@ -1258,6 +1447,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {},
     );
@@ -1293,6 +1484,8 @@ describe("RelayClient v2 (Daemon → Relay → Frontend E2E)", () => {
         registrationProof,
         keyPair: daemonKp,
         pairingSecret,
+        pairingId: TEST_PAIRING_ID,
+        hostname: "test-host",
       },
       {
         onDisconnected: (info) => {
@@ -1341,6 +1534,8 @@ describe("RelayClient.sendPush — wire field selection", () => {
           secretKey: new Uint8Array(32),
         },
         pairingSecret: new Uint8Array(32),
+        pairingId: "",
+        hostname: "",
       },
       {},
     );
@@ -1532,6 +1727,8 @@ describe("RelayClient relay.err push-token recovery routing (finding #1)", () =>
           secretKey: new Uint8Array(32),
         },
         pairingSecret: new Uint8Array(32),
+        pairingId: "",
+        hostname: "",
       },
       events,
     );
@@ -1612,6 +1809,8 @@ describe("RelayClient relay.err RATE_LIMITED routing (BATCH F #15)", () => {
           secretKey: new Uint8Array(32),
         },
         pairingSecret: new Uint8Array(32),
+        pairingId: "",
+        hostname: "",
       },
       events,
     );

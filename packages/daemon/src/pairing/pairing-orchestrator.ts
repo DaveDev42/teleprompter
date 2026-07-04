@@ -1,3 +1,4 @@
+import { hostname as osHostname } from "node:os";
 import { createLogger, LABEL_UNSET, type Label } from "@teleprompter/protocol";
 import type { Store } from "../store";
 import { RelayClient, type RelayClientConfig } from "../transport/relay-client";
@@ -6,6 +7,22 @@ import { BeginPairingError } from "./begin-pairing-error";
 import { PendingPairing, type PendingPairingResult } from "./pending-pairing";
 
 const log = createLogger("PairingOrchestrator");
+
+/**
+ * The daemon's display hostname for the QR (v4). The QR encoder rejects a
+ * hostname over 255 UTF-8 bytes, and truncating at a byte boundary could
+ * split a multi-byte codepoint (the app's strict UTF-8 decoder would then
+ * reject the whole bundle) — so an oversized or unreadable hostname degrades
+ * to "" (unknown), which every PCT surface treats consistently.
+ */
+function safeHostname(): string {
+  try {
+    const h = osHostname();
+    return new TextEncoder().encode(h).length <= 255 ? h : "";
+  } catch {
+    return "";
+  }
+}
 
 /**
  * Dependencies injected into {@link PairingOrchestrator}.
@@ -90,6 +107,7 @@ export class PairingOrchestrator {
       relayUrl: args.relayUrl,
       daemonId,
       label: args.label ?? LABEL_UNSET,
+      hostname: safeHostname(),
       createRelayClient: (cfg) => {
         const factory = this.deps.relayManager.__getFactory();
         if (factory) {
@@ -179,6 +197,10 @@ export class PairingOrchestrator {
       secretKey: result.keyPair.secretKey,
       pairingSecret: result.pairingSecret,
       label: result.label,
+      // Persist the QR-minted identity verbatim — the app stored the exact
+      // same values from the scan, and the PCT both sides derive binds them.
+      pairingId: result.pairingId,
+      hostname: result.hostname,
     });
     const pp = this.pending;
     if (pp) {

@@ -170,8 +170,12 @@ const NORMALIZED_DEFAULT_RELAY = normalizeRelayForDefaultMatch(
  * Parse a canonical UUID string (`8-4-4-4-12`, hyphens optional) into 16 raw
  * bytes. Accepts upper/lowercase hex; rejects any other shape. Byte-exact twin
  * of the Rust `parse_uuid_16`.
+ *
+ * Exported so the daemon can convert a stored canonical `pairing_id` back to the
+ * 16 raw bytes `derivePairingConfirmationTag` requires (it takes `pairingId:
+ * Uint8Array`, not a string).
  */
-function parseUuid16(s: string): Uint8Array {
+export function parseUuid16(s: string): Uint8Array {
   const hexOnly = s.replace(/-/g, "");
   if (hexOnly.length !== 32 || !/^[0-9a-fA-F]{32}$/.test(hexOnly)) {
     throw new Error("pairing id must be a 16-byte UUID");

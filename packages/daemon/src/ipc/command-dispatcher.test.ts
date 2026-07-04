@@ -314,6 +314,7 @@ function fakeRelay(
     publishToPeer: async (frontendId: string, sid: string, msg: unknown) => {
       out.push({ frontendId, sid, msg });
     },
+    peerPctB64: () => undefined,
   } as unknown as RelayClient;
 }
 
@@ -1235,6 +1236,29 @@ describe("IpcCommandDispatcher.dispatchRelayControl", () => {
     expect(out.length).toBe(1);
     expect(out[0]?.frontendId).toBe("front-1");
     expect(out[0]?.sid).toBe("__meta__");
+    // Legacy pairing (peerPctB64 → undefined): the on-demand hello omits pct.
+    expect("pct" in (out[0]?.msg as { d: Record<string, unknown> }).d).toBe(
+      false,
+    );
+  });
+
+  test("on-demand hello carries the pct when the peer is confirmed", async () => {
+    // The on-demand `case \"hello\"` (relay-side) must mirror the auto-hello in
+    // relay-manager's onFrontendJoined — both builders carry the tag, or an
+    // on-demand hello would downgrade the app's confirmed state.
+    const out: Array<{ frontendId: string; sid: string; msg: unknown }> = [];
+    const { dispatcher } = makeHarness();
+    const relay = {
+      publishToPeer: async (frontendId: string, sid: string, msg: unknown) => {
+        out.push({ frontendId, sid, msg });
+      },
+      peerPctB64: (fid: string) =>
+        fid === "front-1" ? "cGN0LWJhc2U2NA==" : undefined,
+    } as unknown as RelayClient;
+    dispatcher.dispatchRelayControl(relay, { t: "hello", v: 1 }, "front-1");
+    await Promise.resolve();
+    const d = (out[0]?.msg as { d: { pct?: string } }).d;
+    expect(d.pct).toBe("cGN0LWJhc2U2NA==");
   });
 
   test("attach on known sid replies with state", async () => {

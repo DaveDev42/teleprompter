@@ -54,6 +54,37 @@ describe("parseStoredPairing", () => {
     expect(parsed?.label).toEqual({ set: false });
   });
 
+  test("defaults an absent pairing_id/hostname (pre-v4 row) to empty strings", () => {
+    // validRow() has neither column — a legacy row read back before the async
+    // backfill runs. The guard must NOT drop it (it still works; PCT emission
+    // is simply skipped) and must surface "" for both.
+    const parsed = parseStoredPairing(validRow());
+    expect(parsed).not.toBeNull();
+    expect(parsed?.pairingId).toBe("");
+    expect(parsed?.hostname).toBe("");
+  });
+
+  test("normalizes a NULL pairing_id/hostname to empty strings (does not drop)", () => {
+    const parsed = parseStoredPairing({
+      ...validRow(),
+      pairing_id: null,
+      hostname: null,
+    });
+    expect(parsed).not.toBeNull();
+    expect(parsed?.pairingId).toBe("");
+    expect(parsed?.hostname).toBe("");
+  });
+
+  test("round-trips a present pairing_id/hostname", () => {
+    const parsed = parseStoredPairing({
+      ...validRow(),
+      pairing_id: "0f9a1c2e-3b4d-4e5f-8a6b-7c8d9e0f1a2b",
+      hostname: "Dave-MBP16",
+    });
+    expect(parsed?.pairingId).toBe("0f9a1c2e-3b4d-4e5f-8a6b-7c8d9e0f1a2b");
+    expect(parsed?.hostname).toBe("Dave-MBP16");
+  });
+
   test("re-wraps key columns into a plain Uint8Array (not a Buffer)", () => {
     // Bun hands back a Buffer for BLOB columns; the guard must hand callers a
     // plain Uint8Array so no Buffer-pool slack leaks via .buffer.

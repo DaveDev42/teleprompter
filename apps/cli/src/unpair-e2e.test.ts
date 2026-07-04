@@ -66,6 +66,8 @@ describe("Unpair Notification E2E", () => {
       registrationProof: bundle.registrationProof,
       keyPair: bundle.keyPair,
       pairingSecret: bundle.pairingSecret,
+      pairingId: bundle.qrData.pairingId,
+      hostname: bundle.qrData.hostname,
     });
     await Bun.sleep(300);
 
@@ -154,6 +156,8 @@ describe("Unpair Notification E2E", () => {
       registrationProof: bundle.registrationProof,
       keyPair: bundle.keyPair,
       pairingSecret: bundle.pairingSecret,
+      pairingId: bundle.qrData.pairingId,
+      hostname: bundle.qrData.hostname,
     });
     await Bun.sleep(300);
 
@@ -253,6 +257,8 @@ describe("Unpair Notification E2E", () => {
       registrationProof: bundle.registrationProof,
       keyPair: bundle.keyPair,
       pairingSecret: bundle.pairingSecret,
+      pairingId: bundle.qrData.pairingId,
+      hostname: bundle.qrData.hostname,
     });
     await Bun.sleep(300);
 

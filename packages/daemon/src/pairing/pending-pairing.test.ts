@@ -18,6 +18,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
+      hostname: "test-host",
       label: makeLabel("test-host"),
       createRelayClient: () => relay as unknown as RelayClient,
     });
@@ -40,6 +41,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-label-test",
+      hostname: "test-host",
       label: makeLabel("web-qa-r3"),
       createRelayClient: (args) => {
         capturedLabel = args.label;
@@ -57,6 +59,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
+      hostname: "test-host",
       label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });
@@ -66,6 +69,39 @@ describe("PendingPairing", () => {
     pp.__markCompleted("frontend-abc");
     const result = await p;
     expect(result.kind).toBe("completed");
+    if (result.kind !== "completed") throw new Error("unreachable");
+    // The completed result carries the QR-minted identity for promote().
+    expect(result.pairingId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+    expect(result.hostname).toBe("test-host");
+    expect(result.frontendId).toBe("frontend-abc");
+  });
+
+  test("begin() threads hostname + minted pairingId into the createRelayClient config", async () => {
+    let capturedPairingId: string | undefined;
+    let capturedHostname: string | undefined;
+    const relay = makeFakeRelayClient();
+    const pp = new PendingPairing({
+      relayUrl: "wss://relay.test",
+      daemonId: "daemon-thread",
+      hostname: "Dave-MBP16",
+      label: { set: false },
+      createRelayClient: (args) => {
+        capturedPairingId = args.pairingId;
+        capturedHostname = args.hostname;
+        return relay as unknown as RelayClient;
+      },
+    });
+
+    const { pairingId } = await pp.begin();
+    // The client's pairingId is the WIRE UUID (from the QR), not the local
+    // pending-slot id — the first kx derives the PCT against it.
+    expect(capturedPairingId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+    expect(capturedPairingId).not.toBe(pairingId); // pairingId = pp-… slot id
+    expect(capturedHostname).toBe("Dave-MBP16");
   });
 
   test("cancel() resolves awaitCompletion with cancelled and disposes relay", async () => {
@@ -73,6 +109,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
+      hostname: "test-host",
       label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });
@@ -95,6 +132,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-zeroize",
+      hostname: "test-host",
       label: { set: false },
       createRelayClient: (args) => {
         capturedSecret = args.pairingSecret;
@@ -126,6 +164,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-cancel-race",
+      hostname: "test-host",
       label: { set: false },
       createRelayClient: () => {
         factoryCalls++;
@@ -150,6 +189,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-connect-cancel",
+      hostname: "test-host",
       label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });
@@ -178,6 +218,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
+      hostname: "test-host",
       label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });
@@ -192,6 +233,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
+      hostname: "test-host",
       label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });
@@ -205,6 +247,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
+      hostname: "test-host",
       label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });
@@ -222,6 +265,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
+      hostname: "test-host",
       label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });
@@ -236,6 +280,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
+      hostname: "test-host",
       label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });
@@ -249,6 +294,7 @@ describe("PendingPairing", () => {
     const pp = new PendingPairing({
       relayUrl: "wss://relay.test",
       daemonId: "daemon-test",
+      hostname: "test-host",
       label: { set: false },
       createRelayClient: () => relay as unknown as RelayClient,
     });

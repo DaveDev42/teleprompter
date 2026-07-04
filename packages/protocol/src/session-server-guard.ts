@@ -159,6 +159,11 @@ export function parseSessionServerMessage(
       // peer's string), so it rides through as-is and the reader normalizes the
       // shape. The single targeted cast is the field where the typed `Label`
       // and the legacy wire string diverge.
+      // `pct` is an additive-optional base64 confirmation tag (pairing
+      // redesign): a pre-PCT daemon omits it, so we never gate hello validity
+      // on it. Pass it through only when it is a string; any other shape is
+      // dropped so a malformed value can't reach the app's PCT comparison.
+      const rawPct = raw["d"]["pct"];
       return {
         t: "hello",
         v: raw["v"],
@@ -167,6 +172,7 @@ export function parseSessionServerMessage(
           ...(raw["d"]["daemonLabel"] !== undefined
             ? { daemonLabel: raw["d"]["daemonLabel"] as Label }
             : {}),
+          ...(isString(rawPct) ? { pct: rawPct } : {}),
         },
       } satisfies SessionHelloReply;
     }

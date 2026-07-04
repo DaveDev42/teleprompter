@@ -57,15 +57,33 @@ function makeFakeStore(initialPairings: Array<{ daemonId: string }> = []) {
       label: LABEL_UNSET as Label,
     })),
   ];
+  const savedIdentity: Array<{
+    daemonId: string;
+    pairingId: string;
+    hostname: string;
+  }> = [];
   return {
     listPairings: mock(() => pairings),
-    savePairing: mock((data: { daemonId: string; label?: Label }) => {
-      pairings.push({
-        daemonId: data.daemonId,
-        label: data.label ?? LABEL_UNSET,
-      });
-    }),
+    savePairing: mock(
+      (data: {
+        daemonId: string;
+        label?: Label;
+        pairingId?: string;
+        hostname?: string;
+      }) => {
+        pairings.push({
+          daemonId: data.daemonId,
+          label: data.label ?? LABEL_UNSET,
+        });
+        savedIdentity.push({
+          daemonId: data.daemonId,
+          pairingId: data.pairingId ?? "",
+          hostname: data.hostname ?? "",
+        });
+      },
+    ),
     __pairings: pairings,
+    __savedIdentity: savedIdentity,
   };
 }
 
@@ -220,6 +238,19 @@ describe("PairingOrchestrator", () => {
     expect(store.__pairings.some((p) => p.daemonId === "daemon-d1")).toBe(true);
     expect(manager.__registered).toContain(relay);
     expect(orch.hasPending).toBe(false);
+
+    // promote() persists the QR-minted identity verbatim. `begin()` injected
+    // os.hostname() into the PendingPairing, and the bundle minted a UUID —
+    // both must survive into the stored row for the app's PCT to match.
+    const saved = store.__savedIdentity.find((p) => p.daemonId === "daemon-d1");
+    expect(saved?.pairingId).toBe(result.pairingId);
+    expect(saved?.pairingId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+    // hostname is os.hostname() (non-empty on any real host, and === what the
+    // pending pairing carried into the completed result).
+    expect(saved?.hostname).toBe(result.hostname);
+    expect(saved?.hostname.length).toBeGreaterThan(0);
   });
 
   test("cancel() after completion is a no-op (promote still works)", async () => {

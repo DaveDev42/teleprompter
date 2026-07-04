@@ -47,6 +47,15 @@ export interface StoredPairing {
   secretKey: Uint8Array;
   pairingSecret: Uint8Array;
   label: Label;
+  /**
+   * Stable pairing UUID (QR v4). `""` = unknown — a legacy row whose async
+   * `migratePairingIds()` backfill hasn't run yet. Lenient on purpose: a
+   * missing id must not drop the row (the pairing still works; PCT emission
+   * is simply skipped until the backfill lands).
+   */
+  pairingId: string;
+  /** Daemon display hostname (QR v4). `""` for legacy rows. */
+  hostname: string;
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -95,12 +104,21 @@ export function parseStoredPairing(raw: unknown): StoredPairing | null {
   const pairingSecret = toKeyBytes(r["pairing_secret"], PAIRING_KEY_BYTES);
   if (!pairingSecret) return null;
 
-  // `label` is the only nullable column; `decodeWireLabel` normalizes NULL and
-  // a legacy "" both to `{ set: false }`, and accepts any string otherwise.
+  // `label` is nullable; `decodeWireLabel` normalizes NULL and a legacy ""
+  // both to `{ set: false }`, and accepts any string otherwise.
   const labelRaw = r["label"];
   const label: Label = decodeWireLabel(
     typeof labelRaw === "string" ? labelRaw : null,
   );
+
+  // `pairing_id`/`hostname` are nullable (pre-v4 rows; backfill is async and
+  // deferred to daemon boot). NULL or a non-string normalizes to "" — these
+  // must never cause the row to be dropped, or every legacy pairing would
+  // vanish on the first restart after upgrade.
+  const pairingIdRaw = r["pairing_id"];
+  const pairingId = typeof pairingIdRaw === "string" ? pairingIdRaw : "";
+  const hostnameRaw = r["hostname"];
+  const hostname = typeof hostnameRaw === "string" ? hostnameRaw : "";
 
   return {
     daemonId: r["daemon_id"],
@@ -111,5 +129,7 @@ export function parseStoredPairing(raw: unknown): StoredPairing | null {
     secretKey,
     pairingSecret,
     label,
+    pairingId,
+    hostname,
   } satisfies StoredPairing;
 }

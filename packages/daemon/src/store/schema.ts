@@ -32,13 +32,37 @@ CREATE TABLE IF NOT EXISTS pairings (
   secret_key BLOB NOT NULL,
   pairing_secret BLOB NOT NULL,
   created_at INTEGER NOT NULL,
-  label TEXT
+  label TEXT,
+  pairing_id TEXT,
+  hostname TEXT
 );
 `;
 
 export const PAIRINGS_MIGRATIONS: string[] = [
   `ALTER TABLE pairings ADD COLUMN label TEXT;`,
+  // QR v4 pairing identity (PCT redesign). Nullable: legacy rows are
+  // backfilled asynchronously by Store.migratePairingIds() at daemon boot.
+  `ALTER TABLE pairings ADD COLUMN pairing_id TEXT;`,
+  `ALTER TABLE pairings ADD COLUMN hostname TEXT;`,
 ];
+
+/**
+ * Per-frontend Pairing Confirmation Tags (PCT redesign). One row per
+ * (daemon_id, frontend_id) — a pairing serves N frontends and each frontend's
+ * ECDH session yields a distinct tag, so this is deliberately NOT a column on
+ * `pairings` (a single column would be a last-writer-wins artifact under N:N
+ * and would be clobbered on every reconnect).
+ */
+export const PAIRING_CONFIRMATIONS_DDL = `
+CREATE TABLE IF NOT EXISTS pairing_confirmations (
+  daemon_id TEXT NOT NULL,
+  frontend_id TEXT NOT NULL,
+  pct BLOB NOT NULL,
+  frontend_pk BLOB NOT NULL,
+  confirmed_at INTEGER NOT NULL,
+  PRIMARY KEY (daemon_id, frontend_id)
+);
+`;
 
 /**
  * Sealed push tokens persisted by the daemon after receiving relay.push.token.

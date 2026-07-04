@@ -31,7 +31,8 @@ final class RelayResilienceTests: XCTestCase {
             frontendId: frontendId,
             version: 3,
             pairingId: "pairing-test",
-            hostname: "")
+            hostname: "",
+            minAdvertisedV: 0)
     }
 
     // MARK: - H6: Exponential-backoff reconnect delay

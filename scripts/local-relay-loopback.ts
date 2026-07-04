@@ -29,12 +29,15 @@ import type { SessionKeys } from "../packages/protocol/src/crypto";
 import {
   decrypt,
   deriveKxKey,
+  deriveLegacyPairingId,
+  derivePairingConfirmationTag,
   deriveSessionKeys,
   encrypt,
   fromBase64,
   generateKeyPair,
   toBase64,
 } from "../packages/protocol/src/crypto";
+import { parseUuid16 } from "../packages/protocol/src/pairing";
 import { RelayServer } from "../packages/relay/src/relay-server";
 
 // derive_relay_token(0x00..0x1f) — must match the Swift FFI deriveRelayToken
@@ -96,6 +99,9 @@ async function startFakeDaemon(): Promise<void> {
   const kxKey = await deriveKxKey(GOLDEN_SECRET);
   const daemonKp = await generateKeyPair();
   let sessionKeys: SessionKeys | null = null;
+  // The frontend's kx pubkey, captured on `relay.kx.frame`. Needed (with the
+  // session keys) to derive the per-frontend PCT the hello carries (PR-5).
+  let frontendPub: Uint8Array | null = null;
   let metaSeq = 0;
   // io record seq counter — starts at 2 so echoed io recs sort AFTER the seq=1
   // synthetic event rec from the backfill batch (the app gates on seq > cursor).
@@ -117,7 +123,10 @@ async function startFakeDaemon(): Promise<void> {
     const payload = JSON.stringify({
       pk: await toBase64(daemonKp.publicKey),
       role: "daemon",
-      v: 2,
+      // PR-5: advertise WS protocol v3 (PCT-capable). The app raises its
+      // anti-downgrade floor to 3 on this, so a pct-absent hello would FAIL the
+      // §1.3 gate — the hello below therefore MUST carry a matching pct.
+      v: 3,
       label: { set: false },
     });
     const ct = await encrypt(new TextEncoder().encode(payload), kxKey);
@@ -168,7 +177,7 @@ async function startFakeDaemon(): Promise<void> {
             pk: string;
             frontendId: string;
           };
-          const frontendPub = await fromBase64(data.pk);
+          frontendPub = await fromBase64(data.pk);
           sessionKeys = await deriveSessionKeys(
             daemonKp,
             frontendPub,
@@ -245,16 +254,39 @@ async function startFakeDaemon(): Promise<void> {
   });
 
   async function pushHello(): Promise<void> {
-    if (!sessionKeys) return;
+    if (!sessionKeys || !frontendPub) return;
+    // PR-5: derive the per-frontend PCT this hello carries. Inputs mirror the app's
+    // `deriveEpochPct` exactly so the two tags converge byte-for-byte:
+    //   - pairingId: the smoke QR is v3 (no explicit pairingId), so the app derives
+    //     it locally from the daemonId (`deriveLegacyPairingId`) — we do the same;
+    //   - daemonId: the full `daemon-…`-prefixed id (both sides use prefixed);
+    //   - hostname: "" (legacy — v3 QR carries no hostname);
+    //   - daemonPubKey: our kx pubkey (the one we broadcast, NOT a bundle pubkey);
+    //   - frontendPubKey: the frontend's kx pubkey from `relay.kx.frame`;
+    //   - tx/rx: the derived session keys (the FFI sorts them).
+    const legacyPairingId = await deriveLegacyPairingId(DAEMON_ID);
+    const pct = await derivePairingConfirmationTag({
+      pairingId: parseUuid16(legacyPairingId),
+      daemonId: DAEMON_ID,
+      hostname: "",
+      daemonPubKey: daemonKp.publicKey,
+      frontendPubKey: frontendPub,
+      tx: sessionKeys.tx,
+      rx: sessionKeys.rx,
+    });
     const hello = JSON.stringify({
       t: "hello",
       v: 1,
-      d: { sessions: FAKE_SESSIONS, daemonLabel: { set: false } },
+      d: {
+        sessions: FAKE_SESSIONS,
+        daemonLabel: { set: false },
+        pct: await toBase64(pct),
+      },
     });
     const ct = await encrypt(new TextEncoder().encode(hello), sessionKeys.tx);
     sendJson({ t: "relay.pub", sid: "__meta__", ct, seq: metaSeq++ });
     console.log(
-      `[loopback:daemon] hello pushed sessions=${FAKE_SESSIONS.length}`,
+      `[loopback:daemon] hello pushed sessions=${FAKE_SESSIONS.length} (pct present)`,
     );
   }
 

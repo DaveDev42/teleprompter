@@ -97,6 +97,8 @@ final class WatchPairingViewModel {
     /// handshake and promotes to `clients` on kx completion.
     @ObservationIgnored private var pendingClients: [String: RelayClient] = [:]
     @ObservationIgnored private let pendingMaxAge: TimeInterval = 24 * 60 * 60
+    @ObservationIgnored private let log = Logger(
+        subsystem: "dev.tpmt.app", category: "pairing-vm")
 
     init(store: PairingStore = .shared, sessionStore: SessionStore) {
         self.store = store
@@ -126,19 +128,33 @@ final class WatchPairingViewModel {
         clients[daemonId]?.disconnect()
         let client = RelayClient(pairing: pairing)
         client.sessionStore = sessionStore
+        // PR-5 (§2.5): a committed pairing re-verifies conservatively — the client
+        // keeps the connection regardless of the PCT outcome. No pending-row UI on
+        // watch, so a mismatch is warn-only (logged inside the client).
+        client.setPairingPhase(pending: false)
         clients[daemonId] = client
         client.connect()
     }
 
-    /// Connect-on-pending (PR-4): drive a PENDING pairing through kx; on completion
-    /// promote it (re-keying the same live client into `clients`, no reconnect).
+    /// Connect-on-pending (PR-4): drive a PENDING pairing through kx; PR-5 gates the
+    /// promote on PCT verification (§1.3). On CONFIRMED (or genuine legacy) commit,
+    /// promote it (re-keying the same live client into `clients`, no reconnect); on
+    /// FAILED, keep the client alive — a re-kx is a fresh confirmation attempt.
     func beginPending(pairingId: String) {
         guard pendingClients[pairingId] == nil else { return }
         guard let pairing = try? store.loadPending(pairingId: pairingId) else { return }
         let client = RelayClient(pairing: pairing)
         client.sessionStore = sessionStore
-        client.onPairingConfirmed = { [weak self] pid in
+        client.setPairingPhase(pending: true)
+        client.onPairingConfirmed = { [weak self] pid, _ in
             Task { @MainActor [weak self] in self?.promoteConfirmed(pairingId: pid) }
+        }
+        client.onPairingConfirmFailed = { [weak self] _, reason in
+            Task { @MainActor [weak self] in
+                self?.log.error(
+                    "\(RelayClient.pairConfirmFailMarker, privacy: .public) pairingId=\(pairingId, privacy: .public) reason=\(reason, privacy: .public)"
+                )
+            }
         }
         pendingClients[pairingId] = client
         client.connect()
@@ -155,7 +171,18 @@ final class WatchPairingViewModel {
         do { try store.promote(pairingId: pairingId) } catch { return }
         pendingClients.removeValue(forKey: pairingId)
         if let stale = clients[daemonId], stale !== client { stale.disconnect() }
-        client.onPairingConfirmed = nil
+        // PR-5 (§2.5): the pairing is now COMMITTED — flip to the conservative
+        // committed phase; a future re-kx re-verifies (warn-only) rather than
+        // re-promoting. NOT nil'd (see the phone app's rewirePromotedClient).
+        client.setPairingPhase(pending: false)
+        client.onPairingConfirmed = { _, _ in }
+        client.onPairingConfirmFailed = { [weak self] _, reason in
+            Task { @MainActor [weak self] in
+                self?.log.error(
+                    "committed re-verification failed daemon=\(daemonId, privacy: .public) reason=\(reason, privacy: .public) — kept connection (§2.5)"
+                )
+            }
+        }
         clients[daemonId] = client
         reload()
     }

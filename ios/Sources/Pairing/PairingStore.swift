@@ -31,6 +31,14 @@ struct Pairing: Equatable {
     let pairingId: String
     /// Daemon hostname for display. Present from QR v4; empty ("") for v2/v3.
     let hostname: String
+    /// Monotonic anti-downgrade floor (PR-5, §1.3). The highest WS protocol version
+    /// this pairing has ever seen — raised on kx-advertised `v` or a PCT-carrying
+    /// hello, never lowered. A QR v4 ingest starts at 3 (a daemon that can emit a v4
+    /// QR is v≥3 by definition, so a fresh pairing can never take the legacy branch);
+    /// legacy v2/v3 records start at 0 (unknown). `effectiveV` = max(this epoch's
+    /// kx-advertised v, this floor) gates the promotion decision so a replayed v=2 kx
+    /// can never silently disable PCT verification on a pairing that has seen v≥3.
+    let minAdvertisedV: Int
 }
 
 /// The result of ingesting a pairing bundle. A successful decode always lands in
@@ -175,9 +183,15 @@ final class PairingStore: @unchecked Sendable {
         // QR v4 carries an explicit pairingId; legacy v2/v3 bundles do not, so we
         // derive one device-locally from the daemonId (byte-exact with the daemon's
         // own legacy backfill — same `derive_legacy_pairing_id` FFI).
-        let pairingId = ffi.pairingId.isEmpty
+        let pairingId =
+            ffi.pairingId.isEmpty
             ? deriveLegacyPairingId(daemonId: ffi.did)
             : ffi.pairingId
+
+        // Anti-downgrade floor initialization (§1.3): a v4 QR proves the daemon is
+        // v≥3, so a fresh v4 pairing starts at floor 3 and can never take the legacy
+        // (pct-less) promotion branch. Legacy v2/v3 bundles start at floor 0.
+        let floor = ffi.v >= 4 ? 3 : 0
 
         return Pairing(
             pairingSecret: secret,
@@ -187,7 +201,8 @@ final class PairingStore: @unchecked Sendable {
             frontendId: frontendId(),
             version: ffi.v,
             pairingId: pairingId,
-            hostname: ffi.hostname)
+            hostname: ffi.hostname,
+            minAdvertisedV: floor)
     }
 
     // MARK: persistence
@@ -197,7 +212,15 @@ final class PairingStore: @unchecked Sendable {
         // `pairingId`/`hostname` (from QR v4) are persisted so W7 boot
         // reconciliation and §2.5 PCT re-verification have a stable comparison key
         // (round-3 condition 5). Legacy records written before this schema lack the
-        // keys; `load` derives them on read (see below).
+        // keys; `load` derives them on read (see below). `minAdvertisedV` (PR-5) is
+        // the anti-downgrade floor — persisted so a promoted pairing keeps its
+        // "seen v≥3" evidence across relaunches. A promote from PENDING carries the
+        // pending floor forward via the loaded `Pairing`; `raiseFloor` bumps it
+        // afterwards on any higher signal. Preserve any already-persisted floor that
+        // is higher (a re-persist from a stale in-memory Pairing must never lower it).
+        let existingFloor =
+            (defaults.dictionary(forKey: Key.meta(p.daemonId)) as? [String: String])?["floor"]
+            .flatMap { Int($0) } ?? 0
         let meta: [String: String] = [
             "pk": p.daemonPublicKey.base64EncodedString(),
             "relay": p.relayURL,
@@ -205,6 +228,7 @@ final class PairingStore: @unchecked Sendable {
             "v": String(p.version),
             "pairingId": p.pairingId,
             "hostname": p.hostname,
+            "floor": String(max(p.minAdvertisedV, existingFloor)),
         ]
         defaults.set(meta, forKey: Key.meta(p.daemonId))
         var index = daemonIds()
@@ -233,12 +257,16 @@ final class PairingStore: @unchecked Sendable {
             let vStr = meta["v"], let v = UInt8(vStr)
         else { throw PairingError.notFound }
         let secret = try keychainGet(account: daemonId)
-        let pairingId = meta["pairingId"].flatMap { $0.isEmpty ? nil : $0 }
+        let pairingId =
+            meta["pairingId"].flatMap { $0.isEmpty ? nil : $0 }
             ?? deriveLegacyPairingId(daemonId: did)
+        // Legacy committed rows lack `floor`; default to 0 (unknown). A v4-derived
+        // record persisted its floor=3 at promote time.
+        let floor = meta["floor"].flatMap { Int($0) } ?? 0
         return Pairing(
             pairingSecret: secret, daemonPublicKey: daemonPk,
             relayURL: relay, daemonId: did, frontendId: frontendId(), version: v,
-            pairingId: pairingId, hostname: meta["hostname"] ?? "")
+            pairingId: pairingId, hostname: meta["hostname"] ?? "", minAdvertisedV: floor)
     }
 
     // MARK: PENDING namespace (§1.4 — connect-on-pending lifecycle)
@@ -254,6 +282,7 @@ final class PairingStore: @unchecked Sendable {
             "v": String(p.version),
             "pairingId": p.pairingId,
             "hostname": p.hostname,
+            "floor": String(p.minAdvertisedV),
             // Milliseconds since 1970 as a string — the age cutoff for gcPending.
             "createdAt": String(Int(Date().timeIntervalSince1970 * 1000)),
         ]
@@ -272,16 +301,19 @@ final class PairingStore: @unchecked Sendable {
 
     /// Load a PENDING pairing by pairingId, or throw `.notFound`.
     func loadPending(pairingId: String) throws -> Pairing {
-        guard let meta = defaults.dictionary(forKey: Key.pendingMeta(pairingId)) as? [String: String],
+        guard
+            let meta = defaults.dictionary(forKey: Key.pendingMeta(pairingId)) as? [String: String],
             let pkB64 = meta["pk"], let daemonPk = Data(base64Encoded: pkB64),
             let relay = meta["relay"], let did = meta["did"],
             let vStr = meta["v"], let v = UInt8(vStr)
         else { throw PairingError.notFound }
         let secret = try keychainGet(account: Self.pendingAccount(pairingId))
+        let floor = meta["floor"].flatMap { Int($0) } ?? 0
         return Pairing(
             pairingSecret: secret, daemonPublicKey: daemonPk,
             relayURL: relay, daemonId: did, frontendId: frontendId(), version: v,
-            pairingId: meta["pairingId"] ?? pairingId, hostname: meta["hostname"] ?? "")
+            pairingId: meta["pairingId"] ?? pairingId, hostname: meta["hostname"] ?? "",
+            minAdvertisedV: floor)
     }
 
     /// Promote a PENDING pairing to COMMITTED (write committed record + drop the
@@ -324,6 +356,68 @@ final class PairingStore: @unchecked Sendable {
         return swept
     }
 
+    // MARK: PCT verification state (PR-5 — §1.3 floor + §2.5 committed re-verify)
+
+    /// Raise the anti-downgrade floor for a PENDING pairing (§1.3 — monotonic).
+    /// A no-op if the observed version is not higher than the persisted floor.
+    /// Called from CONFIRMING when a higher `DaemonKxPayload.v` or a PCT-carrying
+    /// hello is observed, so a promote carries the raised floor into committed meta.
+    func raisePendingFloor(pairingId: String, observedV: Int) {
+        guard
+            var meta = defaults.dictionary(forKey: Key.pendingMeta(pairingId)) as? [String: String]
+        else { return }
+        let current = meta["floor"].flatMap { Int($0) } ?? 0
+        guard observedV > current else { return }
+        meta["floor"] = String(observedV)
+        defaults.set(meta, forKey: Key.pendingMeta(pairingId))
+    }
+
+    /// Raise the anti-downgrade floor for a COMMITTED pairing (§1.3 — monotonic).
+    /// A no-op if the observed version is not higher than the persisted floor.
+    /// Called during committed re-verification (§2.5) so a pairing that has ever
+    /// seen v≥3 can never be tricked back into the legacy branch by a replayed kx.
+    func raiseCommittedFloor(daemonId: String, observedV: Int) {
+        guard var meta = defaults.dictionary(forKey: Key.meta(daemonId)) as? [String: String]
+        else { return }
+        let current = meta["floor"].flatMap { Int($0) } ?? 0
+        guard observedV > current else { return }
+        meta["floor"] = String(observedV)
+        defaults.set(meta, forKey: Key.meta(daemonId))
+    }
+
+    /// Record the latest confirmed PCT for a COMMITTED pairing (§2.5). Stored in
+    /// the **device-local** committed meta (UserDefaults, never synced) — the PCT is
+    /// bound to this device's ephemeral kx keypair, so it is meaningless on any
+    /// other device and MUST NOT sync (it would create false mismatches, §2.5). Its
+    /// role is diagnostic (last mutual-confirmation time) and epoch-to-epoch change
+    /// observation; the live check always re-derives PCT_app from the fresh kx epoch
+    /// rather than replaying this stored value.
+    func recordConfirmedPct(daemonId: String, pctB64: String) {
+        guard var meta = defaults.dictionary(forKey: Key.meta(daemonId)) as? [String: String]
+        else { return }
+        meta["lastConfirmedPct"] = pctB64
+        meta["confirmedAt"] = String(Int(Date().timeIntervalSince1970 * 1000))
+        defaults.set(meta, forKey: Key.meta(daemonId))
+    }
+
+    /// The last confirmed PCT (base64) recorded for a COMMITTED pairing, or nil.
+    /// Diagnostic only — see `recordConfirmedPct`.
+    func lastConfirmedPct(daemonId: String) -> String? {
+        (defaults.dictionary(forKey: Key.meta(daemonId)) as? [String: String])?["lastConfirmedPct"]
+    }
+
+    /// Read the persisted anti-downgrade floor for a pairing (§1.3). Reads the
+    /// PENDING meta (by pairingId) or the COMMITTED meta (by daemonId) per `pending`.
+    /// Returns 0 (unknown) when the record or `floor` key is absent — so a legacy
+    /// row that predates this schema contributes no floor.
+    func floor(pairingId: String, daemonId: String, pending: Bool) -> Int {
+        let dict =
+            pending
+            ? defaults.dictionary(forKey: Key.pendingMeta(pairingId)) as? [String: String]
+            : defaults.dictionary(forKey: Key.meta(daemonId)) as? [String: String]
+        return dict?["floor"].flatMap { Int($0) } ?? 0
+    }
+
     /// Remove a pairing (Keychain secret + metadata + label + index entry).
     func remove(daemonId: String) {
         keychainDelete(account: daemonId)
@@ -364,12 +458,13 @@ final class PairingStore: @unchecked Sendable {
         let syncValue: CFBoolean = synchronizable ? kCFBooleanTrue! : kCFBooleanFalse!
         // Delete any prior item for this account (either sync variant) so the
         // overwrite is idempotent even if a previous write used the other value.
-        SecItemDelete([
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: account,
-            kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
-        ] as CFDictionary)
+        SecItemDelete(
+            [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: keychainService,
+                kSecAttrAccount as String: account,
+                kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
+            ] as CFDictionary)
         let add: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,

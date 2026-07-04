@@ -101,6 +101,17 @@ PAIR_MARKER="TP_PAIR_OK"
 # modes assert M1 via TP_PAIR_PENDING (= the same "ingest succeeded" meaning M1
 # always had).
 PAIR_PENDING_MARKER="TP_PAIR_PENDING"
+# PR-5 (PCT verification, §1.3): the loopback now advertises WS protocol v3 and its
+# hello carries a matching PCT, so the app's §1.3 gate resolves to CONFIRMED
+# (Cell 1 → TP_PAIR_CONFIRM_OK) and ONLY THEN promotes → TP_PAIR_OK. So in loopback
+# the existing M1 assertion ($PAIR_MARKER) is transitively fail-sensitive to the
+# PCT path: a regression to the legacy/mismatch branch would NOT call the promote,
+# TP_PAIR_OK would never fire, and M1 would fail. TP_PAIR_CONFIRM_OK is the app's
+# emitted confirm marker (RelayClient.pairConfirmOkMarker) — kept here as the SoT
+# name (asserted directly in the RelayClient PCT gate log; the loopback smoke gates
+# on the downstream TP_PAIR_OK so as not to change the documented marker counts).
+# This is the deterministic CI coverage for the PCT path (round-3 condition 12).
+PAIR_CONFIRM_OK_MARKER="TP_PAIR_CONFIRM_OK"
 # Deterministic pairing deep link injected during smoke (M1 offline ingestion).
 # Layout (pairing.rs v3): magic "tp" | ver 3 | did_len | did | relay_len(0=default)
 # | ps(32×0x01) | pk(32×0x02); base64url-wrapped as tp://p?d=…

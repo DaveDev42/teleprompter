@@ -64,6 +64,13 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// real relay — the relay's in-band delivery arm (frontend connected → no APNs),
     /// which is the only push leg exercisable without device entitlements.
     static let pushNotifyReceivedMarker = "TP_PUSH_NOTIFY_RECEIVED"
+    /// PR-5 markers (PCT verification, §1.3): the hello-time promotion decision.
+    /// `TP_PAIR_CONFIRM_OK` = hello `d.pct` matched the locally derived PCT_app (a
+    /// mutually-confirmed commit); `TP_PAIR_CONFIRM_FAIL` = pct mismatched, or was
+    /// absent while `effectiveV >= 3` (a downgrade/tamper signal). Emitted once per
+    /// resolving hello per pairing. Kept in sync with `scripts/ios.sh`.
+    static let pairConfirmOkMarker = "TP_PAIR_CONFIRM_OK"
+    static let pairConfirmFailMarker = "TP_PAIR_CONFIRM_FAIL"
 
     private(set) var state: State = .idle {
         didSet { onStateChange?(state) }
@@ -133,14 +140,24 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// daemon. The new label should be persisted in PairingStore.
     var onRename: ((_ daemonId: String, _ label: String?) -> Void)?
 
-    /// PR-4 (connect-on-pending): fired once the kx session keys are established
-    /// (`TP_KX_OK`), carrying this pairing's `pairingId`. For a PENDING pairing the
-    /// viewmodel treats kx completion as the promotion signal (legacy semantics —
-    /// PCT verification lands in PR-5) and promotes PENDING → COMMITTED. Fired on
-    /// BOTH the first-kx and re-kx branches so a pending record whose first hello
-    /// was lost still promotes on re-exchange. No-op for already-committed pairings
-    /// (the viewmodel's handler guards on `pendingClients[pairingId]`).
-    var onPairingConfirmed: ((_ pairingId: String) -> Void)?
+    /// PR-5 (PCT verification): fired when this pairing's promotion decision resolves
+    /// to COMMITTED (§1.3 promotion table). Carries the `pairingId` and whether the
+    /// commit was PCT-*confirmed* (`confirmed: true` — hello `d.pct` matched the
+    /// locally derived PCT_app) or a legacy commit (`confirmed: false` — the daemon
+    /// omitted `pct` and `effectiveV < 3`, a genuine old-daemon path). The viewmodel
+    /// promotes PENDING → COMMITTED on either. Fired on the hello handler once the
+    /// pct comparison runs, NOT at bare kx completion (PR-4 fired at kx; PR-5 gates on
+    /// pct). No-op for already-committed pairings (the viewmodel guards on
+    /// `pendingClients[pairingId]`).
+    var onPairingConfirmed: ((_ pairingId: String, _ confirmed: Bool) -> Void)?
+
+    /// PR-5 (PCT verification): fired when the promotion decision resolves to FAILED
+    /// (§1.3 — hello `d.pct` present but mismatched, OR `pct` absent while
+    /// `effectiveV >= 3`, i.e. a v≥3 daemon that should have sent a pct). Carries the
+    /// `pairingId` and a short machine reason. The viewmodel surfaces a retryable
+    /// failure on the pending row and keeps the pairing PENDING (a re-kx = a new epoch
+    /// = a fresh confirmation attempt). Never promotes.
+    var onPairingConfirmFailed: ((_ pairingId: String, _ reason: String) -> Void)?
 
     /// Cached after `relay.auth.ok` for the M7 resume fast-path. Persisted to
     /// UserDefaults so it survives backgrounding (keyed by daemonId).
@@ -182,6 +199,32 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// Sticky per-process flag: once `TP_FRAME_OK` is logged it stays true so a
     /// reconnect-triggered second successful `hello` never re-emits the marker.
     private var frameOkEmitted = false
+
+    // MARK: PCT verification epoch state (PR-5 — §1.3 promotion table)
+
+    /// True for a pairing that is still PENDING (connect-on-pending, PR-4). A pending
+    /// pairing applies the §1.3 table as a HARD gate: only a confirmed (or genuine
+    /// legacy) commit promotes it; a mismatch keeps it PENDING and surfaces a
+    /// retryable failure. A committed pairing (`false`) instead re-verifies
+    /// conservatively (§2.5): a mismatch keeps the connection + logs a warning +
+    /// records diagnostics, never tearing the live connection down. Set by the
+    /// viewmodel via `setPairingPhase` when it wires the client.
+    private var isPendingPhase = true
+
+    /// The PCT this frontend locally derived from the CURRENT kx epoch, base64. Set
+    /// after each successful key derivation (both first-kx and re-kx branches) from
+    /// the daemon's kx-frame pubkey + this epoch's ephemeral keypair + session keys.
+    /// nil before the first kx of a connection. The hello handler compares the
+    /// daemon-sent `d.pct` against this. Recomputed every epoch because the frontend
+    /// keypair is ephemeral (§0.3), so any stored PCT is stale after a re-kx.
+    private var epochPctB64: String?
+
+    /// The WS protocol version the daemon advertised in the CURRENT kx epoch
+    /// (`DaemonKxPayload.v`, absent ⇒ 1). PR-5 is the FIRST consumer of this field.
+    /// Combined with the persisted `minAdvertisedV` floor into `effectiveV`, it
+    /// decides whether a pct-absent hello is a legitimate legacy commit
+    /// (`effectiveV < 3`) or a downgrade/tamper failure (`effectiveV >= 3`).
+    private var epochAdvertisedV = 1
 
     // MARK: session attach / backfill (M4)
 
@@ -742,6 +785,74 @@ final class RelayClient: NSObject, @unchecked Sendable {
         }
     }
 
+    /// Declare whether this client's pairing is PENDING (hard promotion gate) or
+    /// COMMITTED (conservative §2.5 re-verification). The viewmodel calls this when
+    /// wiring the client — a pending client after a successful promote is re-keyed
+    /// into the committed map and flipped to `false` via `setPairingPhase(false)`.
+    func setPairingPhase(pending: Bool) { isPendingPhase = pending }
+
+    /// Raise the persisted anti-downgrade floor for this pairing to `observedV`
+    /// (§1.3, monotonic — a no-op if not higher). Routes to the pending or committed
+    /// meta by phase so the raised floor survives a relaunch and is carried into
+    /// committed meta at promote time.
+    private func raiseFloor(observedV: Int) {
+        if isPendingPhase {
+            PairingStore.shared.raisePendingFloor(
+                pairingId: pairing.pairingId, observedV: observedV)
+        } else {
+            PairingStore.shared.raiseCommittedFloor(
+                daemonId: pairing.daemonId, observedV: observedV)
+        }
+    }
+
+    /// Derive PCT_app for the CURRENT kx epoch and store it in `epochPctB64` (§1.3).
+    /// Inputs mirror the daemon's `handleKxFrame` derivation exactly so the two tags
+    /// converge byte-for-byte:
+    ///  - `pairingId` — 16 raw UUID bytes (QR v4 explicit, or legacy-derived);
+    ///  - `daemonId` — the full `daemon-…`-prefixed id (both sides use the prefixed form);
+    ///  - `hostname` — QR v4 value, or "" for legacy (daemon backfills NULL→"");
+    ///  - `daemonPubKey` — the daemon's kx-frame pubkey (NOT the QR bundle pubkey; the
+    ///    daemon derives its PCT with its *current* kx keypair pubkey, and a loopback/
+    ///    rotated daemon's real kx pubkey differs from the bundle's);
+    ///  - `frontendPubKey` — this epoch's ephemeral keypair pubkey;
+    ///  - `tx`/`rx` — this epoch's session keys (the FFI sorts them internally).
+    /// On any failure (bad UUID, FFI throw) `epochPctB64` is cleared so the hello
+    /// handler treats it as "no local PCT" rather than comparing against a stale one.
+    private func deriveEpochPct(daemonPk: Data, epochKeyPair kp: FfiKeyPair, keys: FfiSessionKeys) {
+        guard let pidBytes = Self.uuid16(pairing.pairingId) else {
+            epochPctB64 = nil
+            log.error("relay: PCT skip — pairingId not a 16-byte UUID")
+            return
+        }
+        do {
+            let tag = try derivePairingConfirmationTag(
+                pairingId: pidBytes,
+                daemonId: pairing.daemonId,
+                hostname: pairing.hostname,
+                daemonPubKey: daemonPk,
+                frontendPubKey: kp.publicKey,
+                tx: keys.tx,
+                rx: keys.rx)
+            epochPctB64 = tag.base64EncodedString()
+        } catch {
+            epochPctB64 = nil
+            log.error("relay: PCT derive failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Parse a UUID string into its 16 raw bytes (big-endian, standard UUID field
+    /// order — byte-exact with the daemon/TS `parseUuid16`). Returns nil on malformed
+    /// input. Uses `Foundation.UUID`, whose `.uuid` tuple is exactly the 16 bytes in
+    /// canonical order.
+    private static func uuid16(_ s: String) -> Data? {
+        guard let u = UUID(uuidString: s) else { return nil }
+        let b = u.uuid
+        return Data([
+            b.0, b.1, b.2, b.3, b.4, b.5, b.6, b.7,
+            b.8, b.9, b.10, b.11, b.12, b.13, b.14, b.15,
+        ])
+    }
+
     /// Generate the frontend's ephemeral keypair and send its pubkey + frontendId
     /// to the daemon (sealed with the kx-envelope key). Session keys are NOT
     /// derived here — they need the daemon's *current* pubkey, which arrives in
@@ -797,6 +908,13 @@ final class RelayClient: NSObject, @unchecked Sendable {
             }
             let alreadyKeyed = sessionKeys != nil
 
+            // PR-5: capture the version the daemon advertised this epoch (first
+            // consumer of `DaemonKxPayload.v`; absent ⇒ 1) and raise the persisted
+            // anti-downgrade floor if it is higher (§1.3, monotonic). A pct-carrying
+            // hello raises it further in the hello handler.
+            epochAdvertisedV = payload.v ?? 1
+            raiseFloor(observedV: epochAdvertisedV)
+
             if alreadyKeyed {
                 // H5 / Bug 1 fix: daemon restarted with a fresh kx broadcast — re-send
                 // our own kx so the daemon re-populates its peers map for our frontendId.
@@ -820,10 +938,11 @@ final class RelayClient: NSObject, @unchecked Sendable {
                 let keys = try kxClientSessionKeys(
                     pk: freshKp.publicKey, sk: freshKp.secretKey, peerPk: daemonPk)
                 sessionKeys = keys
-                // PR-4: a re-exchange re-establishes the session keys, so a still-
-                // pending pairing can promote on this epoch even if its first hello
-                // was lost. Idempotent downstream (guarded on pendingClients).
-                onPairingConfirmed?(pairing.pairingId)
+                // PR-5: derive PCT_app for this fresh epoch. The promotion decision
+                // is deferred to the hello handler (where `d.pct` is compared) — a
+                // re-exchange re-establishes keys so a still-pending pairing can
+                // still confirm on this epoch even if its first hello was lost.
+                deriveEpochPct(daemonPk: daemonPk, epochKeyPair: freshKp, keys: keys)
             } else {
                 // First kx: derive session keys from the keypair we already sent.
                 // Frontend = CLIENT role → kxClientSessionKeys(own pub, own sec, daemon pub).
@@ -834,8 +953,8 @@ final class RelayClient: NSObject, @unchecked Sendable {
                 log.notice(
                     "\(Self.kxOkMarker, privacy: .public) daemon=\(self.pairing.daemonId, privacy: .public)"
                 )
-                // PR-4 (connect-on-pending): kx complete = promotion signal.
-                onPairingConfirmed?(pairing.pairingId)
+                // PR-5: derive PCT_app; promotion resolves in the hello handler.
+                deriveEpochPct(daemonPk: daemonPk, epochKeyPair: kp, keys: keys)
             }
 
             // M10: Adopt the daemon's label if local label is unset.
@@ -884,6 +1003,81 @@ final class RelayClient: NSObject, @unchecked Sendable {
 
     private func kxFail(_ reason: String) {
         log.error("\(Self.kxFailMarker, privacy: .public) detail=\(reason, privacy: .public)")
+    }
+
+    /// Apply the §1.3 promotion decision table on a `hello`, comparing the daemon's
+    /// `d.pct` against the PCT this frontend derived for the current kx epoch.
+    ///
+    /// `effectiveV = max(this epoch's advertised v, persisted floor)`. The four cells:
+    ///  1. pct present & == PCT_app → COMMITTED (confirmed). Raise floor to ≥3
+    ///     (a pct is v≥3 evidence) and, for a committed pairing, record the confirmed
+    ///     tag (§2.5 diagnostics). Fire `onPairingConfirmed(confirmed: true)`.
+    ///  2. pct present & != PCT_app → FAILED (mismatch). Raise floor to ≥3 (the
+    ///     daemon IS a pct-daemon, so even a mismatch is v≥3 evidence — anti-downgrade).
+    ///     Pending: fire `onPairingConfirmFailed`, stay PENDING. Committed (§2.5):
+    ///     conservative — keep the connection, warn, do NOT tear down.
+    ///  3. pct absent & effectiveV < 3 → COMMITTED (legacy, confirmed=false). A
+    ///     genuine pre-PCT daemon; promote on kx-completion semantics (PR-4 legacy).
+    ///  4. pct absent & effectiveV >= 3 → FAILED (pct-missing). A daemon that has
+    ///     advertised v≥3 (this epoch or historically) MUST send a pct; its absence
+    ///     is a downgrade/tamper signal. NO legacy fall-through.
+    private func resolvePromotion(helloPct: String?) {
+        let pid = pairing.pairingId
+        let effectiveV = max(
+            epochAdvertisedV, pairing.minAdvertisedV,
+            PairingStore.shared.floor(
+                pairingId: pid, daemonId: pairing.daemonId,
+                pending: isPendingPhase))
+
+        if let helloPct {
+            // A pct-carrying hello is v≥3 evidence regardless of match — raise floor.
+            raiseFloor(observedV: max(effectiveV, 3))
+            if let localPct = epochPctB64, localPct == helloPct {
+                // Cell 1 — CONFIRMED.
+                if !isPendingPhase {
+                    PairingStore.shared.recordConfirmedPct(
+                        daemonId: pairing.daemonId, pctB64: helloPct)
+                }
+                log.notice(
+                    "\(Self.pairConfirmOkMarker, privacy: .public) pairingId=\(pid, privacy: .public)"
+                )
+                onPairingConfirmed?(pid, true)
+            } else {
+                // Cell 2 — MISMATCH.
+                let detail = epochPctB64 == nil ? "no-local-pct" : "pct-mismatch"
+                log.error(
+                    "\(Self.pairConfirmFailMarker, privacy: .public) pairingId=\(pid, privacy: .public) detail=\(detail, privacy: .public)"
+                )
+                if isPendingPhase {
+                    onPairingConfirmFailed?(pid, detail)
+                } else {
+                    // §2.5: committed re-verification is conservative — keep the live
+                    // connection, warn only. A hard FAILED here would tear down a
+                    // working committed pairing on a benign key-rotation race.
+                    log.error(
+                        "relay: committed re-verification mismatch (kept connection, §2.5) daemon=\(self.pairing.daemonId, privacy: .public)"
+                    )
+                }
+            }
+        } else if effectiveV < 3 {
+            // Cell 3 — LEGACY COMMIT (genuine pre-PCT daemon).
+            log.notice(
+                "relay: legacy commit (no pct, effectiveV=\(effectiveV, privacy: .public)) pairingId=\(pid, privacy: .public)"
+            )
+            onPairingConfirmed?(pid, false)
+        } else {
+            // Cell 4 — PCT MISSING on a v≥3 daemon (downgrade/tamper).
+            log.error(
+                "\(Self.pairConfirmFailMarker, privacy: .public) pairingId=\(pid, privacy: .public) detail=pct-missing effectiveV=\(effectiveV, privacy: .public)"
+            )
+            if isPendingPhase {
+                onPairingConfirmFailed?(pid, "pct-missing")
+            } else {
+                log.error(
+                    "relay: committed re-verification pct-missing on v≥3 daemon (kept connection, §2.5) daemon=\(self.pairing.daemonId, privacy: .public)"
+                )
+            }
+        }
     }
 
     // MARK: first decrypted frame (M3) + session render (M4)
@@ -996,6 +1190,9 @@ final class RelayClient: NSObject, @unchecked Sendable {
                         "\(Self.frameOkMarker, privacy: .public) sessions=\(reply.d.sessions.count, privacy: .public)"
                     )
                 }
+                // PR-5: resolve the §1.3 promotion decision from the hello's `d.pct`
+                // against the locally derived PCT_app for this kx epoch.
+                resolvePromotion(helloPct: reply.d.pct)
                 onHello(reply.d.sessions)
             case "state":
                 let msg = try JSONDecoder().decode(SessionStateMsg.self, from: plaintext)

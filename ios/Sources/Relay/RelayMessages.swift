@@ -255,6 +255,13 @@ struct SessionHelloReply: Decodable, Equatable {
 
     struct HelloData: Decodable, Equatable {
         let sessions: [SessionMeta]
+        /// The daemon's Pairing Confirmation Tag for THIS frontend (base64 of the
+        /// 32-byte BLAKE2b-256 commit over the kx session keys — PR-5). Additive-
+        /// optional: a pre-PCT daemon omits it and this field decodes to nil, so it
+        /// never gates hello validity. The app compares it against its own locally
+        /// derived PCT to confirm both sides share the same ECDH session (§1.3).
+        /// Only present from a PCT-capable daemon (effective WS protocol v≥3).
+        let pct: String?
     }
 }
 

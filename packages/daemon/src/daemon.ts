@@ -241,6 +241,13 @@ export class Daemon {
       if (swept > 0) {
         log.info(`swept ${swept} orphaned WAL/SHM sidecar file(s)`);
       }
+      // Self-heal confirmation rows whose pairing no longer exists (a pending
+      // pairing that completed kx but crashed before promote never gets the
+      // deletePairing cascade). Same startup pattern as the sidecar sweep.
+      const orphanedPcts = this.store.sweepOrphanedConfirmations();
+      if (orphanedPcts > 0) {
+        log.info(`swept ${orphanedPcts} orphaned pairing confirmation row(s)`);
+      }
     } catch (err) {
       log.error(`startup auto-cleanup failed (continuing): ${String(err)}`);
     }
@@ -441,9 +448,22 @@ export class Daemon {
    * Reconnect to all saved relay pairings from store. Called on daemon
    * startup to restore relay connections.
    *
+   * Backfills legacy `pairing_id`s first: every bootstrap path (service
+   * daemon, `tp daemon start`, passthrough auto-start) converges here before
+   * any RelayClient is constructed, and the reconnect path is exactly the
+   * consumer that needs `pairing_id` present (it threads the identity into
+   * `RelayClientConfig` for PCT derivation). The derivation is deterministic
+   * (BLAKE2b of daemonId), so a failure just retries on the next startup —
+   * never block reconnection on it.
+   *
    * Thin delegate to {@link RelayConnectionManager.reconnectSaved}.
    */
   async reconnectSavedRelays(): Promise<number> {
+    try {
+      await this.store.migratePairingIds();
+    } catch (err) {
+      log.warn(`pairing_id backfill failed (continuing): ${String(err)}`);
+    }
     return this.relayManager.reconnectSaved();
   }
 

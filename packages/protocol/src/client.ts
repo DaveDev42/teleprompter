@@ -41,6 +41,7 @@ export {
   decodePairingData,
   encodePairingData,
   parsePairingForFrontend,
+  parseUuid16,
 } from "./pairing";
 export { parseRelayServerMessage } from "./relay-server-guard";
 export { parseSessionServerMessage } from "./session-server-guard";

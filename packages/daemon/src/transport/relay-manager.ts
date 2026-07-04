@@ -35,6 +35,7 @@ export interface RelayConnectionManagerDeps {
     | "listSessions"
     | "listPairings"
     | "savePairing"
+    | "savePairingConfirmation"
     | "updatePairingLabel"
     | "deletePairing"
     | "loadPairings"
@@ -145,6 +146,34 @@ export class RelayConnectionManager {
         if (c)
           this.deps.getDispatcher().dispatchRelayControl(c, msg, frontendId);
       },
+      onPeerConfirmed: (frontendId, pct, frontendPk) => {
+        // Persist the per-frontend Pairing Confirmation Tag. Guard the empty
+        // daemonId default — a "" row would replay the push-token corrupt-row
+        // incident (buildEvents' daemonId defaults to "" for callers that
+        // don't thread it; the pairing/addClient paths always do).
+        if (!daemonId) {
+          log.warn(
+            `onPeerConfirmed with empty daemonId (frontendId=${frontendId}) — skipping persist`,
+          );
+          return;
+        }
+        try {
+          this.deps.store.savePairingConfirmation({
+            daemonId,
+            frontendId,
+            pct,
+            frontendPk,
+            confirmedAt: Date.now(),
+          });
+        } catch (err) {
+          // Persistence is best-effort evidence: the tag is recomputed on
+          // every kx, so a transient SQLite error self-heals on the next
+          // reconnect and must not disturb the join path.
+          log.warn(
+            `failed to persist pairing confirmation (daemonId=${daemonId}, frontendId=${frontendId}): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      },
       onFrontendJoined: (frontendId) => {
         const c = getClient();
         if (!c) return;
@@ -155,10 +184,20 @@ export class RelayConnectionManager {
         // means no label set — the frontend reads this surface with
         // keep-current semantics (`decodeKxLabelOrKeep`) and keeps its
         // existing fallback.
+        //
+        // `pct` (base64) is this frontend's Pairing Confirmation Tag, read
+        // from the client's in-memory peer state (derived at kx time — never
+        // from the store). Omitted for legacy pairings without a pairingId;
+        // the app treats absence as unconfirmed-but-working.
+        const pctB64 = c.peerPctB64(frontendId);
         const helloMsg = {
           t: "hello",
           v: 1,
-          d: { sessions, daemonLabel: label ?? LABEL_UNSET },
+          d: {
+            sessions,
+            daemonLabel: label ?? LABEL_UNSET,
+            ...(pctB64 ? { pct: pctB64 } : {}),
+          },
         };
         c.publishToPeer(frontendId, RELAY_CHANNEL_META, helloMsg).catch(
           () => {},
@@ -328,6 +367,11 @@ export class RelayConnectionManager {
         secretKey: config.keyPair.secretKey,
         pairingSecret: config.pairingSecret,
         label: config.label ?? existingLabel,
+        // Threading rule (PCT redesign): every savePairing caller passes the
+        // identity it knows; savePairing stores "" as NULL and COALESCEs on
+        // conflict, so an unknowing caller can never clobber a persisted id.
+        pairingId: config.pairingId,
+        hostname: config.hostname,
       });
     } catch (err) {
       client.dispose();
@@ -365,6 +409,8 @@ export class RelayConnectionManager {
           keyPair: { publicKey: p.publicKey, secretKey: p.secretKey },
           pairingSecret: p.pairingSecret,
           label: p.label,
+          pairingId: p.pairingId,
+          hostname: p.hostname,
         });
         log.info(`reconnected to relay ${p.relayUrl} (daemon ${p.daemonId})`);
       }),

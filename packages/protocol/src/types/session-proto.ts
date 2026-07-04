@@ -183,6 +183,16 @@ export interface SessionHelloReply {
      * (which also accepts the legacy `string` shape from an older daemon).
      */
     daemonLabel?: Label;
+    /**
+     * The daemon's Pairing Confirmation Tag for the receiving frontend
+     * (base64 of the 32-byte BLAKE2b-256 commit over the kx session keys —
+     * `derivePairingConfirmationTag`). Additive-optional: a pre-PCT daemon
+     * omits it and a pre-PCT app ignores it, so the field never gates hello
+     * validity. The app compares it against its own locally-derived PCT to
+     * confirm both sides share the same ECDH session (pairing redesign). Only
+     * present from a PCT-capable daemon (effective WS protocol v≥3).
+     */
+    pct?: string;
   };
 }
 

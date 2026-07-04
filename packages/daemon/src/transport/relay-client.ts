@@ -28,12 +28,14 @@ import {
   createLogger,
   decrypt,
   deriveKxKey,
+  derivePairingConfirmationTag,
   deriveSessionKeys,
   encrypt,
   fromBase64,
   parseControlMessage,
   parseRelayControlMessage,
   parseRelayServerMessage,
+  parseUuid16,
   RELAY_CHANNEL_CONTROL,
   toBase64,
   WS_PROTOCOL_VERSION,
@@ -136,6 +138,16 @@ interface FrontendPeer {
    * the Label union is always sent unconditionally (ADR-0003 A1).
    */
   protocolVersion: number;
+  /**
+   * Pairing Confirmation Tag for THIS frontend's ECDH session (32 bytes),
+   * derived locally right after key agreement. Absent when the pairing has no
+   * `pairingId` yet (legacy row awaiting backfill) or the derivation failed —
+   * the hello then simply omits `pct` and the app treats the pairing as
+   * unconfirmed-but-working.
+   */
+  pct?: Uint8Array | undefined;
+  /** `pct` pre-encoded as base64 for the (sync) hello builders. */
+  pctB64?: string | undefined;
 }
 
 export interface RelayClientConfig {
@@ -153,6 +165,13 @@ export interface RelayClientConfig {
   pairingSecret: Uint8Array;
   /** Human-readable label for this pairing as a tagged union. */
   label?: Label | undefined;
+  /**
+   * Stable pairing UUID (QR v4). `""` = unknown (legacy pairing whose async
+   * backfill hasn't landed) — PCT derivation is skipped, nothing else changes.
+   */
+  pairingId: string;
+  /** Daemon display hostname bound into the PCT. `""` for legacy pairings. */
+  hostname: string;
 }
 
 export interface RelayClientEvents {
@@ -191,6 +210,18 @@ export interface RelayClientEvents {
   onPresence?: (online: boolean, sessions?: string[]) => void;
   /** Called when a new frontend completes key exchange */
   onFrontendJoined?: (frontendId: string) => void;
+  /**
+   * Called when a Pairing Confirmation Tag has been derived for a frontend's
+   * completed key exchange — the persistence hook (PCT redesign). Fires on
+   * every kx (reconnects recompute the identical tag; the INSERT OR REPLACE
+   * write is a harmless refresh). Not fired for legacy pairings without a
+   * `pairingId`.
+   */
+  onPeerConfirmed?: (
+    frontendId: string,
+    pct: Uint8Array,
+    frontendPk: Uint8Array,
+  ) => void;
   /**
    * Called when the relay routes a relay.push.token to us (Path X).
    * `sealed` is the opaque blob ("tpps1.<v>.<b64>") sealed by the relay.
@@ -606,11 +637,42 @@ export class RelayClient {
       // Capture first-join BEFORE the set below — drives the kx re-broadcast guard.
       const isNewPeer = !this.peers.has(data.frontendId);
 
+      // Derive this frontend's Pairing Confirmation Tag — a device-local
+      // BLAKE2b commit over the pairing identity and the just-agreed ECDH
+      // session keys, proving both sides reached the same key agreement.
+      // Skipped for legacy pairings without a pairingId (backfill pending);
+      // a derivation failure is contained — the peer still functions, the
+      // hello just omits `pct`.
+      let pct: Uint8Array | undefined;
+      let pctB64: string | undefined;
+      if (this.config.pairingId) {
+        try {
+          pct = await derivePairingConfirmationTag({
+            pairingId: parseUuid16(this.config.pairingId),
+            daemonId: this.config.daemonId,
+            hostname: this.config.hostname,
+            daemonPubKey: this.config.keyPair.publicKey,
+            frontendPubKey,
+            tx: sessionKeys.tx,
+            rx: sessionKeys.rx,
+          });
+          pctB64 = await toBase64(pct);
+        } catch (err) {
+          log.warn(
+            `PCT derivation failed for frontend ${data.frontendId}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          pct = undefined;
+          pctB64 = undefined;
+        }
+      }
+
       this.peers.set(data.frontendId, {
         frontendId: data.frontendId,
         publicKey: frontendPubKey,
         sessionKeys,
         protocolVersion,
+        pct,
+        pctB64,
       });
 
       // A real frontend just joined: this pairing is alive. Clear the
@@ -638,6 +700,20 @@ export class RelayClient {
       // `peers`, so we suppress and the exchange terminates after one round-trip.
       if (isNewPeer) {
         await this.broadcastDaemonPublicKey();
+      }
+
+      // Persist the confirmation BEFORE announcing the join, so the hello
+      // built inside onFrontendJoined observes a store that already holds the
+      // evidence it is about to advertise. Guarded: a store hiccup must not
+      // block the hello/subscribe path (the tag is recomputed on every kx).
+      if (pct) {
+        try {
+          this.events.onPeerConfirmed?.(data.frontendId, pct, frontendPubKey);
+        } catch (err) {
+          log.warn(
+            `onPeerConfirmed handler threw for ${data.frontendId}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
 
       this.events.onFrontendJoined?.(data.frontendId);
@@ -1097,6 +1173,21 @@ export class RelayClient {
   /** List frontendIds that have completed key exchange with this daemon. */
   listPeerFrontendIds(): string[] {
     return Array.from(this.peers.keys());
+  }
+
+  /**
+   * The Pairing Confirmation Tag derived for a joined frontend's live ECDH
+   * session, or `undefined` when the frontend hasn't joined / the pairing has
+   * no pairingId yet. In-memory only — hello builders must read this, never
+   * the store (the tag is session evidence, not synced state).
+   */
+  peerPct(frontendId: string): Uint8Array | undefined {
+    return this.peers.get(frontendId)?.pct;
+  }
+
+  /** {@link peerPct} pre-encoded as base64 — for the sync hello builders. */
+  peerPctB64(frontendId: string): string | undefined {
+    return this.peers.get(frontendId)?.pctB64;
   }
 
   /** The daemonId this client is registered as on the relay. */

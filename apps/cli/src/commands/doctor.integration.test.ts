@@ -320,6 +320,8 @@ describe("doctorCommand relay check when daemon is down and pairing exists", () 
         relayUrl: "wss://relay.example.com",
         relayToken: "test-token",
         registrationProof: "test-proof",
+        pairingId: "",
+        hostname: "",
         publicKey: new Uint8Array(32).fill(1),
         secretKey: new Uint8Array(32).fill(2),
         pairingSecret: new Uint8Array(32).fill(3),

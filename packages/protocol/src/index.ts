@@ -44,6 +44,7 @@ export {
   decodePairingData,
   encodePairingData,
   parsePairingForFrontend,
+  parseUuid16,
 } from "./pairing";
 export { QueuedWriter } from "./queued-writer";
 export { parseRelayClientMessage } from "./relay-client-guard";

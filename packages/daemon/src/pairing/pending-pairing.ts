@@ -25,6 +25,12 @@ export interface PendingPairingOptions {
   daemonId: string;
   /** Pairing label as a tagged union; `{ set: false }` means "no label". */
   label: Label;
+  /**
+   * Daemon display hostname, carried in the QR (v4) and bound into the PCT.
+   * The orchestrator injects `os.hostname()`; PendingPairing itself stays
+   * side-effect free.
+   */
+  hostname: string;
   createRelayClient: (args: {
     relayUrl: string;
     daemonId: string;
@@ -33,6 +39,8 @@ export interface PendingPairingOptions {
     keyPair: KeyPair;
     pairingSecret: Uint8Array;
     label: Label;
+    pairingId: string;
+    hostname: string;
   }) => RelayClient;
 }
 
@@ -53,6 +61,10 @@ export type PendingPairingResult =
       keyPair: KeyPair;
       pairingSecret: Uint8Array;
       label: Label;
+      /** Wire pairing UUID minted by the bundle (QR v4) — persisted at promote. */
+      pairingId: string;
+      /** Hostname as emitted in the QR (may be "" when unknown). */
+      hostname: string;
     }
   | { kind: "cancelled" };
 
@@ -72,6 +84,14 @@ export class PendingPairing {
   private relayToken = "";
   private registrationProof = "";
   private qrString = "";
+  /**
+   * Wire pairing UUID + hostname exactly as minted into the QR by
+   * `createPairingBundle` (the bundle generates the UUID when not supplied).
+   * Distinct from `this.pairingId`, which is the daemon-local pending-slot id
+   * (`pp-…`) used only for CLI cancel routing.
+   */
+  private wirePairingId = "";
+  private wireHostname = "";
   private settle: ((r: PendingPairingResult) => void) | null = null;
   private settled = false;
   private resolved: PendingPairingResult | null = null;
@@ -93,11 +113,19 @@ export class PendingPairing {
       this.opts.daemonId,
       // `createPairingBundle` ignores `label` (it travels via relay.kx, not the
       // QR) but the opt is still string-shaped; collapse the union for it.
-      { label: labelToNullable(this.opts.label) ?? undefined },
+      // `pairingId` is deliberately omitted — the bundle mints a fresh UUID;
+      // we read the resolved identity back from `bundle.qrData` below so the
+      // persisted values are byte-identical to what the app scanned.
+      {
+        label: labelToNullable(this.opts.label) ?? undefined,
+        hostname: this.opts.hostname,
+      },
     );
     this.keyPair = bundle.keyPair;
     this.pairingSecret = bundle.pairingSecret;
     this.relayToken = bundle.relayToken;
+    this.wirePairingId = bundle.qrData.pairingId;
+    this.wireHostname = bundle.qrData.hostname;
     this.registrationProof = await deriveRegistrationProof(
       bundle.pairingSecret,
     );
@@ -121,6 +149,10 @@ export class PendingPairing {
       keyPair: this.keyPair,
       pairingSecret: this.pairingSecret,
       label: this.opts.label,
+      // The pending client must already know the pairing identity: the very
+      // first kx (the one that completes this pairing) derives the PCT.
+      pairingId: this.wirePairingId,
+      hostname: this.wireHostname,
     });
 
     await this.relay.connect();
@@ -175,6 +207,8 @@ export class PendingPairing {
       keyPair: this.keyPair,
       pairingSecret: this.pairingSecret,
       label: this.opts.label,
+      pairingId: this.wirePairingId,
+      hostname: this.wireHostname,
     };
     this.settle?.(this.resolved);
   }

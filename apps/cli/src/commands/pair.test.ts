@@ -278,6 +278,8 @@ describe("tp pair list/delete", () => {
         relayUrl: p.relay,
         relayToken: "t",
         registrationProof: "proof",
+        pairingId: "",
+        hostname: "",
         publicKey: new Uint8Array(32),
         secretKey: new Uint8Array(32),
         pairingSecret: new Uint8Array(32),

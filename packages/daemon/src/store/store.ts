@@ -3,6 +3,7 @@ import {
   assertSafeSid,
   createLogger,
   decodeWireLabel,
+  deriveLegacyPairingId,
   type Label,
   labelToNullable,
   type SessionState,
@@ -13,6 +14,7 @@ import { join } from "path";
 import { getStoreDir } from "./config";
 import { parseStoredPairing, type StoredPairing } from "./pairing-row-guard";
 import {
+  PAIRING_CONFIRMATIONS_DDL,
   PAIRINGS_DDL,
   PAIRINGS_MIGRATIONS,
   PRAGMAS,
@@ -97,6 +99,7 @@ export class Store {
     this.metaDb.run(SESSIONS_DDL);
     this.metaDb.run(PAIRINGS_DDL);
     this.metaDb.run(PUSH_TOKENS_DDL);
+    this.metaDb.run(PAIRING_CONFIRMATIONS_DDL);
     // Probe the current schema and only run ALTER when columns are missing.
     // Fresh DBs already have `label` from PAIRINGS_DDL; this is strictly for
     // upgrading pre-label databases.
@@ -380,6 +383,8 @@ export class Store {
     secretKey: Uint8Array;
     pairingSecret: Uint8Array;
     label?: Label;
+    pairingId: string;
+    hostname: string;
   }): void {
     // `reconnectSaved → addClient → savePairing` runs for every stored pairing
     // on every daemon startup. A plain INSERT OR REPLACE would delete+reinsert
@@ -387,11 +392,17 @@ export class Store {
     // `loadPairings() ORDER BY created_at ASC` reconnect priority and loses the
     // original pairing time. Use an upsert that, on conflict, refreshes only the
     // mutable fields and leaves `created_at` intact (mirrors the sessions fix).
+    //
+    // `pairing_id`/`hostname` are pairing identity, not mutable state: an
+    // empty string means "unknown" (a legacy row whose async backfill hasn't
+    // run yet) and is stored as NULL, and the upsert COALESCEs so a caller
+    // that doesn't know the identity can never clobber a value already
+    // persisted (e.g. a reconnect racing the migratePairingIds backfill).
     this.metaDb
       .prepare(
         `INSERT INTO pairings
-         (daemon_id, relay_url, relay_token, registration_proof, public_key, secret_key, pairing_secret, created_at, label)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         (daemon_id, relay_url, relay_token, registration_proof, public_key, secret_key, pairing_secret, created_at, label, pairing_id, hostname)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(daemon_id) DO UPDATE SET
            relay_url = excluded.relay_url,
            relay_token = excluded.relay_token,
@@ -399,7 +410,9 @@ export class Store {
            public_key = excluded.public_key,
            secret_key = excluded.secret_key,
            pairing_secret = excluded.pairing_secret,
-           label = excluded.label`,
+           label = excluded.label,
+           pairing_id = COALESCE(excluded.pairing_id, pairings.pairing_id),
+           hostname = COALESCE(excluded.hostname, pairings.hostname)`,
       )
       .run(
         data.daemonId,
@@ -411,6 +424,8 @@ export class Store {
         data.pairingSecret,
         Date.now(),
         data.label ? labelToSql(data.label) : null,
+        data.pairingId || null,
+        data.hostname || null,
       );
   }
 
@@ -450,14 +465,127 @@ export class Store {
   }
 
   deletePairing(daemonId: string): void {
-    // Both deletes must commit atomically. As two autocommit statements, a
+    // All deletes must commit atomically. As separate autocommit statements, a
     // crash/SIGKILL/power-loss in the window between them would delete the
     // push tokens but leave the pairing — on next start the pairing reconnects
     // but push delivery is permanently broken for it. Wrap in a transaction.
     this.metaDb.transaction(() => {
       this.deletePushTokensForDaemon(daemonId);
+      this.metaDb.run("DELETE FROM pairing_confirmations WHERE daemon_id = ?", [
+        daemonId,
+      ]);
       this.metaDb.run("DELETE FROM pairings WHERE daemon_id = ?", [daemonId]);
     })();
+  }
+
+  // ── Pairing Confirmations (PCT) ──
+
+  /**
+   * Persist a per-frontend Pairing Confirmation Tag. One row per
+   * (daemonId, frontendId); a reconnect from the same frontend recomputes the
+   * same tag (same ECDH keys), so INSERT OR REPLACE is a harmless refresh.
+   */
+  savePairingConfirmation(data: {
+    daemonId: string;
+    frontendId: string;
+    pct: Uint8Array;
+    frontendPk: Uint8Array;
+    confirmedAt: number;
+  }): void {
+    this.metaDb
+      .prepare(
+        `INSERT OR REPLACE INTO pairing_confirmations
+         (daemon_id, frontend_id, pct, frontend_pk, confirmed_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        data.daemonId,
+        data.frontendId,
+        data.pct,
+        data.frontendPk,
+        data.confirmedAt,
+      );
+  }
+
+  getPairingConfirmation(
+    daemonId: string,
+    frontendId: string,
+  ): {
+    daemonId: string;
+    frontendId: string;
+    pct: Uint8Array;
+    frontendPk: Uint8Array;
+    confirmedAt: number;
+  } | null {
+    const row = this.metaDb
+      .prepare(
+        "SELECT * FROM pairing_confirmations WHERE daemon_id = ? AND frontend_id = ?",
+      )
+      .get(daemonId, frontendId) as {
+      daemon_id: string;
+      frontend_id: string;
+      pct: Uint8Array;
+      frontend_pk: Uint8Array;
+      confirmed_at: number;
+    } | null;
+    if (!row) return null;
+    return {
+      daemonId: row.daemon_id,
+      frontendId: row.frontend_id,
+      pct: new Uint8Array(row.pct),
+      frontendPk: new Uint8Array(row.frontend_pk),
+      confirmedAt: row.confirmed_at,
+    };
+  }
+
+  /** Confirmation count for a pairing (diagnostics: `tp pair list`). */
+  countPairingConfirmations(daemonId: string): number {
+    const row = this.metaDb
+      .prepare(
+        "SELECT COUNT(*) AS n FROM pairing_confirmations WHERE daemon_id = ?",
+      )
+      .get(daemonId) as { n: number };
+    return row.n;
+  }
+
+  /**
+   * Remove confirmation rows whose pairing no longer exists. A pending
+   * pairing that completes kx but is never promoted (daemon crash in the
+   * window) can leave a confirmation row with no matching pairings row —
+   * deletePairing cascades only for promoted pairings. Swept once at startup
+   * (same self-heal pattern as sweepOrphanedSidecars / push-token purge).
+   */
+  sweepOrphanedConfirmations(): number {
+    return this.metaDb.run(
+      "DELETE FROM pairing_confirmations WHERE daemon_id NOT IN (SELECT daemon_id FROM pairings)",
+    ).changes;
+  }
+
+  /**
+   * Backfill `pairing_id` for rows paired before the QR carried an explicit
+   * pairingId, using the deterministic legacy derivation (BLAKE2b → UUIDv8 —
+   * identical on the app side, so both ends of a legacy pairing converge on
+   * the same id without any wire exchange). Async because the derivation
+   * needs sodium init; the Store constructor is sync, so the daemon bootstrap
+   * awaits this before reconnecting saved pairings.
+   */
+  async migratePairingIds(): Promise<number> {
+    const rows = this.metaDb
+      .prepare(
+        "SELECT daemon_id FROM pairings WHERE pairing_id IS NULL OR pairing_id = ''",
+      )
+      .all() as { daemon_id: string }[];
+    for (const { daemon_id } of rows) {
+      const pairingId = await deriveLegacyPairingId(daemon_id);
+      this.metaDb.run(
+        "UPDATE pairings SET pairing_id = ? WHERE daemon_id = ?",
+        [pairingId, daemon_id],
+      );
+    }
+    if (rows.length > 0) {
+      log.info(`backfilled legacy pairing_id for ${rows.length} pairing(s)`);
+    }
+    return rows.length;
   }
 
   // ── Push Token Persistence (Path X) ──
@@ -604,6 +732,7 @@ export class Store {
     this.metaDb.run("DELETE FROM sessions");
     this.metaDb.run("DELETE FROM pairings");
     this.metaDb.run("DELETE FROM push_tokens");
+    this.metaDb.run("DELETE FROM pairing_confirmations");
     // Sweep per-session files so later tests cannot observe stale data via
     // getSessionDb(sid) reopening an on-disk leftover.
     const sessionsDir = join(this.storeDir, "sessions");

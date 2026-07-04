@@ -156,6 +156,8 @@ describe("Store (shared fixture)", () => {
       relayUrl: "wss://r",
       relayToken: "t",
       registrationProof: "p",
+      pairingId: "",
+      hostname: "",
       publicKey: Buffer.from([1]),
       secretKey: Buffer.from([2]),
       pairingSecret: Buffer.from([3]),
@@ -179,6 +181,8 @@ describe("Store (shared fixture)", () => {
       relayUrl: "wss://first",
       relayToken: "t1",
       registrationProof: "p1",
+      pairingId: "",
+      hostname: "",
       publicKey: Buffer.from([1]),
       secretKey: Buffer.from([2]),
       pairingSecret: Buffer.from([3]),
@@ -196,6 +200,8 @@ describe("Store (shared fixture)", () => {
       relayUrl: "wss://second",
       relayToken: "t2",
       registrationProof: "p2",
+      pairingId: "",
+      hostname: "",
       publicKey: Buffer.from([4]),
       secretKey: Buffer.from([5]),
       pairingSecret: Buffer.from([6]),
@@ -217,6 +223,8 @@ describe("Store (shared fixture)", () => {
       relayUrl: "wss://r",
       relayToken: "t",
       registrationProof: "p",
+      pairingId: "",
+      hostname: "",
       publicKey: Buffer.from([1]),
       secretKey: Buffer.from([2]),
       pairingSecret: Buffer.from([3]),
@@ -236,6 +244,8 @@ describe("Store (shared fixture)", () => {
       relayUrl: "wss://r",
       relayToken: "t",
       registrationProof: "p",
+      pairingId: "",
+      hostname: "",
       publicKey: Buffer.from([1]),
       secretKey: Buffer.from([2]),
       pairingSecret: Buffer.from([3]),
@@ -258,6 +268,8 @@ describe("Store (shared fixture)", () => {
       relayUrl: "wss://r",
       relayToken: "t",
       registrationProof: "p",
+      pairingId: "",
+      hostname: "",
       publicKey: key32(1),
       secretKey: key32(2),
       pairingSecret: key32(3),
@@ -267,6 +279,8 @@ describe("Store (shared fixture)", () => {
       relayUrl: "wss://r",
       relayToken: "t",
       registrationProof: "p",
+      pairingId: "",
+      hostname: "",
       publicKey: key32(4),
       secretKey: key32(5),
       pairingSecret: key32(6),
@@ -378,6 +392,8 @@ describe("Store (shared fixture)", () => {
       relayUrl: "wss://relay.example.com",
       relayToken: "tok",
       registrationProof: "proof",
+      pairingId: "",
+      hostname: "",
       publicKey: new Uint8Array(32),
       secretKey: new Uint8Array(32),
       pairingSecret: new Uint8Array(32),
@@ -612,5 +628,201 @@ describe("Store push_tokens — isolated tests", () => {
     const second = store.loadPushTokens();
     expect(second).toHaveLength(1);
     expect(rawPushTokenCount(store)).toBe(1);
+  });
+});
+
+describe("Store pairing identity (QR v4) — isolated tests", () => {
+  let storeDir: string;
+  let store: Store;
+
+  beforeAll(() => {
+    storeDir = mkdtempSync(join(tmpdir(), "tp-pairing-id-"));
+    store = new Store(storeDir);
+  });
+
+  afterEach(() => {
+    store.resetForTest();
+  });
+
+  afterAll(() => {
+    store.close();
+    rmRetry(storeDir);
+  });
+
+  const key32 = (fill: number) => new Uint8Array(32).fill(fill);
+  const savePairing = (over: Partial<Parameters<Store["savePairing"]>[0]>) =>
+    store.savePairing({
+      daemonId: "d1",
+      relayUrl: "wss://r",
+      relayToken: "t",
+      registrationProof: "p",
+      publicKey: key32(1),
+      secretKey: key32(2),
+      pairingSecret: key32(3),
+      label: { set: false },
+      pairingId: "",
+      hostname: "",
+      ...over,
+    });
+
+  const rawPairing = (daemonId: string) => {
+    const db = (store as unknown as { metaDb: import("bun:sqlite").Database })
+      .metaDb;
+    return db
+      .query("SELECT pairing_id, hostname FROM pairings WHERE daemon_id = ?")
+      .get(daemonId) as { pairing_id: string | null; hostname: string | null };
+  };
+
+  test("empty pairingId/hostname store as NULL; a value round-trips", () => {
+    savePairing({ daemonId: "d-empty" });
+    expect(rawPairing("d-empty")).toEqual({
+      pairing_id: null,
+      hostname: null,
+    });
+
+    savePairing({
+      daemonId: "d-full",
+      pairingId: "0f9a1c2e-3b4d-4e5f-8a6b-7c8d9e0f1a2b",
+      hostname: "Dave-MBP16",
+    });
+    expect(rawPairing("d-full")).toEqual({
+      pairing_id: "0f9a1c2e-3b4d-4e5f-8a6b-7c8d9e0f1a2b",
+      hostname: "Dave-MBP16",
+    });
+
+    // loadPairings surfaces both back as "" (empty) and the concrete value.
+    const rows = store.loadPairings();
+    const empty = rows.find((r) => r.daemonId === "d-empty");
+    const full = rows.find((r) => r.daemonId === "d-full");
+    expect(empty?.pairingId).toBe("");
+    expect(empty?.hostname).toBe("");
+    expect(full?.pairingId).toBe("0f9a1c2e-3b4d-4e5f-8a6b-7c8d9e0f1a2b");
+    expect(full?.hostname).toBe("Dave-MBP16");
+  });
+
+  test("COALESCE: a later save with empty identity does NOT clobber a stored value", () => {
+    // First save carries the identity (promote path).
+    savePairing({
+      daemonId: "d-coalesce",
+      pairingId: "0f9a1c2e-3b4d-4e5f-8a6b-7c8d9e0f1a2b",
+      hostname: "First-Host",
+    });
+    // A reconnect that doesn't know the identity (e.g. racing the backfill)
+    // must not wipe it — the COALESCE in the upsert keeps the stored value.
+    savePairing({ daemonId: "d-coalesce", pairingId: "", hostname: "" });
+    expect(rawPairing("d-coalesce")).toEqual({
+      pairing_id: "0f9a1c2e-3b4d-4e5f-8a6b-7c8d9e0f1a2b",
+      hostname: "First-Host",
+    });
+  });
+
+  test("migratePairingIds backfills only NULL/empty rows, deterministically", async () => {
+    savePairing({ daemonId: "d-legacy-a" });
+    savePairing({ daemonId: "d-legacy-b" });
+    savePairing({
+      daemonId: "d-modern",
+      pairingId: "0f9a1c2e-3b4d-4e5f-8a6b-7c8d9e0f1a2b",
+      hostname: "Modern",
+    });
+
+    const n = await store.migratePairingIds();
+    expect(n).toBe(2); // only the two legacy rows
+
+    const a1 = rawPairing("d-legacy-a").pairing_id;
+    const b1 = rawPairing("d-legacy-b").pairing_id;
+    expect(a1).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(b1).not.toBe(a1); // different daemonId → different id
+    // The modern row is untouched.
+    expect(rawPairing("d-modern").pairing_id).toBe(
+      "0f9a1c2e-3b4d-4e5f-8a6b-7c8d9e0f1a2b",
+    );
+
+    // Idempotent + deterministic: a second pass backfills nothing and the
+    // derived id is stable across runs.
+    const n2 = await store.migratePairingIds();
+    expect(n2).toBe(0);
+    expect(rawPairing("d-legacy-a").pairing_id).toBe(a1);
+  });
+
+  test("pairing confirmations: save/get round-trip + N:N per frontend", () => {
+    const pctA = key32(10);
+    const pctB = key32(20);
+    savePairing({ daemonId: "d-conf" });
+    store.savePairingConfirmation({
+      daemonId: "d-conf",
+      frontendId: "front-a",
+      pct: pctA,
+      frontendPk: key32(11),
+      confirmedAt: 1000,
+    });
+    store.savePairingConfirmation({
+      daemonId: "d-conf",
+      frontendId: "front-b",
+      pct: pctB,
+      frontendPk: key32(21),
+      confirmedAt: 2000,
+    });
+
+    const a = store.getPairingConfirmation("d-conf", "front-a");
+    const b = store.getPairingConfirmation("d-conf", "front-b");
+    expect(a?.pct).toEqual(pctA);
+    expect(b?.pct).toEqual(pctB);
+    expect(a?.confirmedAt).toBe(1000);
+    expect(store.countPairingConfirmations("d-conf")).toBe(2);
+    expect(store.getPairingConfirmation("d-conf", "nobody")).toBeNull();
+
+    // Re-confirm (reconnect) is a harmless refresh, not a duplicate.
+    store.savePairingConfirmation({
+      daemonId: "d-conf",
+      frontendId: "front-a",
+      pct: pctA,
+      frontendPk: key32(11),
+      confirmedAt: 3000,
+    });
+    expect(store.countPairingConfirmations("d-conf")).toBe(2);
+    expect(store.getPairingConfirmation("d-conf", "front-a")?.confirmedAt).toBe(
+      3000,
+    );
+  });
+
+  test("deletePairing cascades to pairing_confirmations", () => {
+    savePairing({ daemonId: "d-cascade" });
+    store.savePairingConfirmation({
+      daemonId: "d-cascade",
+      frontendId: "f1",
+      pct: key32(1),
+      frontendPk: key32(2),
+      confirmedAt: 1,
+    });
+    expect(store.countPairingConfirmations("d-cascade")).toBe(1);
+    store.deletePairing("d-cascade");
+    expect(store.countPairingConfirmations("d-cascade")).toBe(0);
+  });
+
+  test("sweepOrphanedConfirmations removes rows with no matching pairing", () => {
+    // Confirmation for a promoted pairing (kept) + one for a pairing that was
+    // never promoted (a crash between kx and promote → orphan, swept).
+    savePairing({ daemonId: "d-alive" });
+    store.savePairingConfirmation({
+      daemonId: "d-alive",
+      frontendId: "f1",
+      pct: key32(1),
+      frontendPk: key32(2),
+      confirmedAt: 1,
+    });
+    store.savePairingConfirmation({
+      daemonId: "d-ghost",
+      frontendId: "f2",
+      pct: key32(3),
+      frontendPk: key32(4),
+      confirmedAt: 2,
+    });
+
+    const swept = store.sweepOrphanedConfirmations();
+    expect(swept).toBe(1);
+    expect(store.countPairingConfirmations("d-alive")).toBe(1);
+    expect(store.countPairingConfirmations("d-ghost")).toBe(0);
   });
 });

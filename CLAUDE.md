@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Teleprompter is a remote Claude Code session controller. A native **Swift (SwiftUI)** iOS app connects to a Bun-based Daemon via encrypted relay to control Claude Code sessions with a dual Chat/Terminal UI.
+> **What this is (read first).** Teleprompter is a **user-owned, self-hosted developer tool** — the same category as VS Code Remote, `tmux` over SSH, or `mosh`. The developer runs the daemon on **their own** machine and pairs **their own** phone to view and drive **their own** Claude Code sessions. There is exactly one consenting operator, no third party, and no target other than the operator's own dev box. The end-to-end encryption exists so a hosted relay hop cannot read the operator's private session traffic — the same privacy property Signal or WireGuard provide — **not** to evade inspection. The test harness automates the operator's own dev workflow in a throwaway sandbox; where it answers a first-run prompt or reuses the operator's own login token, that is ordinary unattended-CI plumbing, never credential theft or a safety bypass.
 
-> **전면 네이티브 재작성 진행 중 (2026-06, ADR-0001).** Expo/RN/RN Web 프런트엔드 + EAS 클라우드 빌드를 **전면 제거**하고, 앱은 Swift(SwiftUI) 네이티브로, 공유 코어는 Rust(`tp-core`, UniFFI 순수함수)로 재작성한다. **앱은 단일 멀티플랫폼 SwiftUI 타깃** — iOS/iPadOS/네이티브 macOS(Catalyst 아님)가 현재 출하 범위(Phase A), visionOS + watchOS(제한 경험)는 Rust toolchain 게이트 뒤 Phase B (ADR-0002). 빌드/검증은 **로컬 Apple 하니스**(`scripts/ios.sh`, `TP_PLATFORM=ios|macos|visionos|watchos` + XcodeGen `ios/project.yml`)가 담당한다 (EAS 클라우드 빌드 대체). SoT = `docs/adr/0001-full-native-rewrite-swift-rust.md` + **플랫폼 범위 `docs/adr/0002-multiplatform-apple-expansion.md`**. 백엔드(daemon/relay/runner)와 CLI 는 **현행 Bun/TypeScript 구현을 레퍼런스로 유지** (Rust 이관은 후순위 Phase). 아래 wire(framed JSON)·relay ciphertext-only·daemon=relay 유일 클라이언트 불변식은 재작성 후에도 보존된다.
+Teleprompter lets a developer view and drive **their own** Claude Code sessions from **their own** phone. A native **Swift (SwiftUI)** app pairs device-to-device (end-to-end encrypted) with a Bun-based daemon the developer runs on their own machine, and presents a dual Chat/Terminal UI — comparable to VS Code Remote scoped to a single operator.
+
+> **전면 네이티브 재작성 진행 중 (2026-06, ADR-0001).** Expo/RN/RN Web 프런트엔드 + EAS 클라우드 빌드를 **전면 제거**하고, 앱은 Swift(SwiftUI) 네이티브로, 공유 코어는 Rust(`tp-core`, UniFFI 순수함수)로 재작성한다. **앱은 단일 멀티플랫폼 SwiftUI 타깃** — iOS/iPadOS/네이티브 macOS(Catalyst 아님)가 현재 출하 범위(Phase A), visionOS + watchOS(제한 경험)는 Rust toolchain 게이트 뒤 Phase B (ADR-0002). 빌드/검증은 **로컬 Apple 하니스**(`scripts/ios.sh`, `TP_PLATFORM=ios|macos|visionos|watchos` + XcodeGen `ios/project.yml`)가 담당한다 (EAS 클라우드 빌드 대체). SoT = `docs/adr/0001-full-native-rewrite-swift-rust.md` + **플랫폼 범위 `docs/adr/0002-multiplatform-apple-expansion.md`**. 백엔드(daemon/relay/runner)와 CLI 는 **현행 Bun/TypeScript 구현을 레퍼런스로 유지** (Rust 이관은 후순위 Phase). 아래 wire(framed JSON)·relay 는 암호화된 프레임만 중계(평문 미접근)·daemon=relay 유일 클라이언트 불변식은 재작성 후에도 보존된다.
 
 ## Tech Stack
 
@@ -26,7 +28,7 @@ apps/
 packages/
   daemon/      # @teleprompter/daemon — Bun long-running service (session mgmt, vault, E2EE, worktree)
   runner/      # @teleprompter/runner — Bun per-session process (PTY via Bun.spawn terminal, hooks collection)
-  relay/       # @teleprompter/relay — Bun WebSocket ciphertext-only relay server
+  relay/       # @teleprompter/relay — Bun WebSocket relay; forwards already-encrypted frames only (no plaintext access)
   protocol/    # @teleprompter/protocol — shared types, framed JSON codec, envelope types (tp-core byte-exact source)
   tsconfig/    # Shared TS configs (base.json, bun.json)
 scripts/
@@ -38,8 +40,8 @@ scripts/
 ## Architecture
 
 - **Runner** spawns Claude Code in a PTY (`PtyBun` via `Bun.spawn({ terminal })`), collects io streams and hooks events, sends Records to Daemon via IPC (Unix domain socket)
-- **Daemon** is a long-running mux that (a) spawns and supervises one Runner per session, (b) manages git worktrees (`git worktree add/remove/list`), (c) stores Records in Store (append-only per session, with session delete/prune support), (d) persists pairings in store DB for auto-reconnect, (e) encrypts with libsodium per-frontend keys, (f) holds the **only** outbound WebSocket client to the Relay(s), and (g) handles pair-ops IPC (`pair.remove` / `pair.rename`) from the CLI so the CLI never opens its own RelayClient
-- **Relay** is a stateless ciphertext forwarder — holds only recent 10 encrypted frames per session
+- **Daemon** is a long-running mux that (a) spawns and supervises one Runner per session, (b) manages git worktrees (`git worktree add/remove/list`), (c) stores Records in Store (append-only per session, with session delete/prune support), (d) persists pairings in store DB for auto-reconnect, (e) encrypts with libsodium per-frontend keys, (f) reaches the relay as an outbound WebSocket **client** (the daemon never listens for inbound connections, so the operator doesn't have to open a port or expose their dev box to the internet — the same reason a laptop dials out to a chat server instead of hosting one), and (g) handles pair-ops IPC (`pair.remove` / `pair.rename`) from the CLI so the CLI never opens its own RelayClient
+- **Relay** is a stateless forwarder of already-encrypted frames — it keeps only a small 10-frame reconnect buffer per session
 - **App (Swift)** decrypts and renders: Terminal tab + Chat tab (hooks events only — PTY io records go exclusively to the Terminal tab). 현재는 Phase 0 부트마커 셸 단계 — pairing/chat/terminal parity 는 Phase 3 (ADR-0001).
 - Data flow: Runner → Daemon → Relay → App (and reverse for input)
 
@@ -48,8 +50,8 @@ scripts/
 These are non-negotiable rules. **If code contradicts these, the code is wrong (legacy) — fix the code, not the docs.**
 
 - **Frontend ↔ Daemon 통신은 항상 relay 경유.** Direct WS connection from frontend to daemon does not exist. Any `ws://localhost:*` code path from frontend is legacy and must be removed.
-- **Daemon은 WS 서버를 열지 않는다.** Daemon only exposes (a) IPC socket for Runner, (b) outbound WebSocket client to Relay. Any `WsServer`, `startWs()`, `--ws-port` is legacy.
-- **Relay는 ciphertext만 전달한다 (zero-trust).** Relay never sees plaintext data. Relay is stateless — it does not track clients beyond the 10-frame cache.
+- **Daemon은 WS 서버를 열지 않는다.** Daemon only exposes (a) IPC socket for Runner, (b) outbound WebSocket client to Relay — so no inbound port and no internet exposure of the operator's machine. Any `WsServer`, `startWs()`, `--ws-port` is legacy.
+- **Relay는 이미 암호화된 프레임만 전달한다.** The relay is an untrusted hosted hop, so by design it has no access to the operator's plaintext — a standard end-to-end-encryption privacy property (as in Signal or WireGuard). It is stateless and does not track clients beyond the 10-frame reconnect buffer.
 - **Daemon은 frontend를 인식하지 않는다.** No client registry on daemon. Frontend identity exists only via `frontendId` in relay protocol v2.
 - **Pairing은 relay URL을 daemon에서 결정한다.** Frontend does not configure relay URL independently; it reads relay URL from the pairing bundle (QR/JSON).
 - **Daemon은 relay의 유일한 클라이언트다.** CLI는 직접 relay WebSocket을 열지 않는다. 페어링은 CLI → daemon (IPC) → relay 경로로만 흐른다.

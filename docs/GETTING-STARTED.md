@@ -1,7 +1,8 @@
 # Getting Started with Teleprompter
 
-Teleprompter (`tp`) lets you control Claude Code sessions remotely from your phone or browser,
-with end-to-end encryption, a dual Chat/Terminal UI, and voice input.
+Teleprompter (`tp`) lets you view and drive **your own** Claude Code sessions from your own
+phone or browser — a self-hosted developer tool, like VS Code Remote or `tmux` over SSH, scoped
+to a single operator. It uses end-to-end encryption, a dual Chat/Terminal UI, and voice input.
 
 This guide walks you through installation, your first session, and connecting the mobile app.
 
@@ -93,8 +94,9 @@ This outputs a QR code and **blocks** until the mobile app completes the ECDH ke
 
 > **Note:** The iOS app (Swift/SwiftUI, in `ios/`) is currently at Phase 0 of the native rewrite (ADR-0001) — a boot-marker shell. Full pairing UI is not yet implemented. The pairing flow described above will be wired up in a later phase.
 
-The connection is end-to-end encrypted (X25519 + XChaCha20-Poly1305). The relay server
-never sees your plaintext data.
+The connection is end-to-end encrypted (X25519 + XChaCha20-Poly1305), so the relay — an
+untrusted hosted hop between your own devices — has no access to your plaintext (the same
+privacy property Signal or WireGuard provide).
 
 ## Step 4: Auto-start the Daemon
 

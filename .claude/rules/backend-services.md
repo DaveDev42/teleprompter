@@ -60,7 +60,7 @@ paths:
 - **`Runner.stop()` 은 PTY child 를 kill 한다 (orphan 방지)**: `stop()` 은 PTY 자신의 `onExit`(child 이미 죽음 → `kill()` no-op) 뿐 아니라 **graceful SIGTERM/SIGINT 경로**(`run.ts` → daemon `killRunner` 가 runner 프로세스에 SIGTERM → `gracefulShutdown` → `runner.stop(143)`)와 **IPC `onClose` 경로**(QueuedWriter overflow / socket teardown → `this.stop(-1)`)에서도 호출된다. 뒤 두 경우 claude child 는 아직 살아있어, `stop()` 이 `this.pty.kill()` 을 안 하면 runner 프로세스가 exit 하며 claude 를 init 으로 orphan 시켜 프로세스(+cwd/worktree hold)를 누수한다. `start()` 의 에러 cleanup 이 이미 `this.pty.kill()` 을 하므로 `stop()` 도 대칭으로 호출 — `PtyBun.kill` 은 `this.proc?.kill()` 이라 exited/unspawned proc 에 idempotent(모든 call path 안전). 회귀 가드: `runner.test.ts` "Runner.stop() kills the PTY child" (fake pty 의 kill count 0→1→1, source-only revert 로 genuine 입증).
 
 ## Relay
-- Stateless: ciphertext 전달만 — 복호화 불가 (zero-trust)
+- Stateless: 이미 암호화된 프레임만 중계 — untrusted hosted hop 이라 설계상 평문에 접근하지 않음 (표준 E2EE privacy 속성, Signal/WireGuard 와 동일)
 - Protocol v2: `relay.register` (self-registration), `relay.kx` (in-band key exchange)
 - Caching: 최근 N frames per session (default 10, override via `TP_RELAY_CACHE_SIZE` env)
 

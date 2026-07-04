@@ -43,7 +43,7 @@ ADR-0001 은 "앱 = Swift, 공유 코어 = Rust(`tp-core`), 백엔드(daemon/rel
 ADR-0001 §3 및 `.claude/rules/{protocol,relay-capacity}.md` SoT 와 일치 — 포트가 위반하면 포트가 틀린 것:
 
 - **wire = framed JSON** (`u32_be jsonLen + u32_be binLen + JSON + binary`, header 8B, max 64 MiB). IPC(runner↔daemon, cli↔daemon)·relay framing 공유. `tp-core` codec 이 이미 byte-exact.
-- **relay = ciphertext-only / stateless / zero-trust.** `ct` 절대 복호화 안 함. 10-frame ring buffer 가 유일한 durability. (push-seal 은 좁은 예외 — APNs device token 만, 세션 데이터 아님.)
+- **relay = 이미 암호화된 프레임만 중계 / stateless / 평문 미접근** (untrusted hosted hop, 표준 E2EE privacy — Signal/WireGuard 와 동일). `ct` 절대 복호화 안 함. 10-frame ring buffer 가 유일한 durability. (push-seal 은 좁은 예외 — APNs device token 만, 세션 데이터 아님.)
 - **daemon 만이 relay 에 WS 클라이언트로 접속하며(페어링당 1 RelayClient 풀, `RelayConnectionManager.clients: RelayClient[]`) WS 서버를 열지 않는다.** CLI 는 직접 relay WS 를 열지 않는다 (pair-ops 는 cli→daemon IPC→relay).
 - **relay URL = 페어링 번들에서 결정** (frontend 가 독립 설정 안 함). → relay 를 second-port 로 dual-run 할 때 daemon/app 코드 변경 0.
 - **io record = binary sidecar** (`payload='' && binLen>0`). Rust 가 base64 인라인으로 바꾸면 daemon store + Swift terminal render 가 조용히 깨진다.

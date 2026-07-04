@@ -58,12 +58,18 @@ final class TpCoreTests: XCTestCase {
             pk: Data(repeating: 0x02, count: 32).base64EncodedString(),
             relay: "wss://relay.tpmt.dev",
             did: "daemon-test",
-            v: 3)
+            v: 4,
+            pairingId: "00000000-0000-4000-8000-000000000001",
+            hostname: "test-host")
         let url = try encodePairingData(data: data)
         XCTAssertTrue(url.hasPrefix("tp://p?d="))
         let back = try decodePairingData(raw: url)
         XCTAssertEqual(back.did, "daemon-test")
         XCTAssertEqual(back.relay, "wss://relay.tpmt.dev")
         XCTAssertEqual(back.ps, data.ps)
+        // QR v4 fields survive the round-trip.
+        XCTAssertEqual(back.v, 4)
+        XCTAssertEqual(back.pairingId, "00000000-0000-4000-8000-000000000001")
+        XCTAssertEqual(back.hostname, "test-host")
     }
 }

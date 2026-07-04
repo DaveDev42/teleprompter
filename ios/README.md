@@ -95,6 +95,17 @@ APNs 등록은 visionOS 에서 skip (Simulator 단계, 엔타이틀먼트 미설
 
 ### 딥링크 / Keychain (M1)
 
+> **PR-4 (connect-on-pending 라이프사이클).** ingest 는 이제 **PENDING** 네임스페이스
+> (`tp.pairings.pending.index` + `pending.<pairingId>` Keychain, **device-local — 절대 sync
+> 금지**)에만 쓰고 `TP_PAIR_PENDING` 마커를 emit 한다. `PairingViewModel.beginPending` 이 PENDING
+> 레코드마다 RelayClient 를 즉시 생성(connect-on-pending)해 connect→auth→kx 를 돌리고, **kx 완료
+> 시점에 promote** (PENDING→COMMITTED) 하며 그 살아있는 client 를 재연결 없이 committed 맵으로
+> re-key 하고 `TP_PAIR_OK` 를 emit 한다 (PCT 검증은 PR-5). 앱 기동 시 committed index 와 pending
+> index 를 모두 순회하므로 client 없는 PENDING 은 구조적으로 존재 불가. 24h GC 가 kx 에 못 도달한
+> 레코드를 수거(그 client 도 dispose). SoT = `docs/design/pairing-redesign-local-ecdh-commit-v3.md`
+> §1. committed meta 는 `pairingId`/`hostname` 을 영속(레거시 레코드는 `load` 가 `deriveLegacyPairingId`
+> 로 backfill).
+
 앱은 `tp://p?d=…` 페어링 딥링크를 받는다. 작동에 필요한 셋업 (전부 `project.yml` 에 박혀 있음):
 - **URL scheme**: `CFBundleURLTypes` 에 `tp` 등록 (Info.plist 명시 필요 — `INFOPLIST_KEY_*` 없음).
 - **Scene manifest**: `UIApplicationSceneManifest` 가 있어야 SwiftUI `.onOpenURL` 이 inbound URL
@@ -250,8 +261,11 @@ OSLog privacy: macOS native 빌드는 String 변수 보간을 기본 `<private>`
   마커 상수를 바꾸면 `scripts/ios.sh` 도 같이 바꾼다.
 - **페어링 마커 (M1)**: smoke 가 결정적 `tp://p?d=…` 딥링크를 `--tp-smoke-url` launch arg
   로 주입하면 앱 `onAppear` 에서 `handleSmokeURLIfPresent()` → `DeepLinkHandler.handle()` →
-  FFI `decodePairingData` → `PairingStore` → Keychain 왕복을 daemon 없이 end-to-end 검증.
-  `TP_PAIR_OK did=daemon-smoketest` 확인. 실패 시 `TP_PAIR_FAIL detail=…` 출력 후 실패.
+  FFI `decodePairingData` → `PairingStore` (PENDING) → Keychain 왕복을 daemon 없이 end-to-end 검증.
+  **PR-4**: ingest 는 `TP_PAIR_PENDING pairingId=…` 를 emit; loopback 은 kx 가 결정론적으로 완료돼
+  promote 시점에 `TP_PAIR_OK did=daemon-smoketest` 가 뜨므로 M1 을 그대로 어서션. real-daemon E2E
+  (`TP_E2E_REAL`/`TP_E2E_CLAUDE*`) 는 kx out-of-scope 라 M1 을 `TP_PAIR_PENDING` 으로 어서션
+  (하니스 `m1_marker` 분기). 실패 시 `TP_PAIR_FAIL detail=…` 출력 후 실패.
   링크는 `smoke_pair_link` (pairing.rs v3 레이아웃을 바이트 동일하게 Python 으로 생성).
   (이전: `xcrun simctl openurl` 사용 — iOS/visionOS 26.5 Simulator 에서 LS -10814 error 로
   URL 이 앱에 전달되지 않는 회귀 발견. launch arg 주입으로 LS 라우팅 우회.)
@@ -264,7 +278,7 @@ OSLog privacy: macOS native 빌드는 String 변수 보간을 기본 `<private>`
 - 새 마일스톤마다 `scripts/ios.sh smoke` + `scripts/ios.sh test` 를 돌려 회귀를 차단한다.
   (Rust 호스트 테스트 = `cd rust && cargo test -p tp-core`, 와이어 골든벡터 포함.)
   현재: smoke (iOS) = 8 마커 (boot+core+pairing+relay-auth+kx+frame+session+input),
-  smoke (macOS) = 8 마커 동일, XCTest 115/115 (iOS Simulator), Rust 호스트 20/20.
+  smoke (macOS) = 8 마커 동일, XCTest 157/157 (iOS Simulator), Rust 호스트 20/20.
 
 ## Swift strictness (Swift 6 language mode)
 

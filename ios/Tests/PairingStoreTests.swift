@@ -23,50 +23,96 @@ final class PairingStoreTests: XCTestCase {
         defaults = UserDefaults(suiteName: suiteName)
         defaults.removePersistentDomain(forName: suiteName)
         store = PairingStore(defaults: defaults, keychainService: keychainService)
-        // Purge any Keychain residue from a prior crashed run.
+        // Purge any Keychain residue (committed + pending) from a prior crashed run.
         store.remove(daemonId: "daemon-test")
+        store.removePending(pairingId: "00000000-0000-4000-8000-0000000000aa")
     }
 
     override func tearDownWithError() throws {
         store.remove(daemonId: "daemon-test")
+        store.removePending(pairingId: "00000000-0000-4000-8000-0000000000aa")
         defaults.removePersistentDomain(forName: suiteName)
     }
 
-    /// Build a real `tp://p?d=…` deep link via the Rust core.
-    private func makeDeepLink(did: String = "daemon-test") throws -> String {
+    /// Deterministic QR v4 pairingId. `encodePairingData` always emits v4 and
+    /// requires a valid 16-byte UUID here (an empty/derived id is only produced by
+    /// DECODING a genuine v2/v3 bundle — not reachable through the encoder).
+    private let testPairingId = "00000000-0000-4000-8000-0000000000aa"
+
+    /// Build a real `tp://p?d=…` deep link via the Rust core, carrying the QR v4
+    /// `pairingId`/`hostname` fields.
+    private func makeDeepLink(
+        did: String = "daemon-test", pairingId: String? = nil, hostname: String = "host-a"
+    ) throws -> String {
         let data = FfiPairingData(
             ps: secret.base64EncodedString(),
             pk: daemonPk.base64EncodedString(),
             relay: "wss://relay.tpmt.dev",
             did: did,
-            v: 3)
+            v: 4,
+            pairingId: pairingId ?? testPairingId,
+            hostname: hostname)
         return try encodePairingData(data: data)
     }
 
-    func testIngestDecodesAndPersists() throws {
-        let link = try makeDeepLink()
-        let p = try store.ingest(deepLink: link)
+    /// The pairingId a default `makeDeepLink()` will ingest under.
+    private func pairingIdFor(did: String) -> String { testPairingId }
 
+    func testIngestPersistsToPendingNamespace() throws {
+        let link = try makeDeepLink()
+        let result = try store.ingest(deepLink: link)
+        let pid = pairingIdFor(did: "daemon-test")
+        XCTAssertEqual(result, .pending(pairingId: pid))
+
+        // Lands in PENDING, NOT committed.
+        XCTAssertEqual(store.pendingIds(), [pid])
+        XCTAssertTrue(store.daemonIds().isEmpty)
+
+        let p = try store.loadPending(pairingId: pid)
         XCTAssertEqual(p.daemonId, "daemon-test")
         XCTAssertEqual(p.relayURL, "wss://relay.tpmt.dev")
-        XCTAssertEqual(p.version, 3)
+        XCTAssertEqual(p.version, 4)
+        XCTAssertEqual(p.hostname, "host-a")
+        XCTAssertEqual(p.pairingId, pid)
         // Secret + pubkey are decoded to raw 32-byte values, not left as base64.
         XCTAssertEqual(p.pairingSecret, secret)
-        XCTAssertEqual(p.pairingSecret.count, 32)
         XCTAssertEqual(p.daemonPublicKey, daemonPk)
-        XCTAssertEqual(p.daemonPublicKey.count, 32)
         XCTAssertFalse(p.frontendId.isEmpty)
+    }
 
-        // Index updated.
+    func testPromoteMovesPendingToCommitted() throws {
+        let link = try makeDeepLink(hostname: "host-b")
+        let pid = pairingIdFor(did: "daemon-test")
+        _ = try store.ingest(deepLink: link)
+
+        try store.promote(pairingId: pid)
+
+        // Pending drained; committed populated.
+        XCTAssertTrue(store.pendingIds().isEmpty)
+        XCTAssertEqual(store.daemonIds(), ["daemon-test"])
+
+        let committed = try store.load(daemonId: "daemon-test")
+        XCTAssertEqual(committed.pairingSecret, secret)  // secret survived the move
+        XCTAssertEqual(committed.pairingId, pid)  // pairingId persisted in committed meta
+        XCTAssertEqual(committed.hostname, "host-b")  // hostname persisted too
+        // The pending secret item is gone.
+        XCTAssertThrowsError(try store.loadPending(pairingId: pid))
+    }
+
+    func testPromoteIsIdempotent() throws {
+        let pid = pairingIdFor(did: "daemon-test")
+        _ = try store.ingest(deepLink: try makeDeepLink())
+        try store.promote(pairingId: pid)
+        // Second promote (record already gone) must be a silent no-op, not a throw.
+        XCTAssertNoThrow(try store.promote(pairingId: pid))
         XCTAssertEqual(store.daemonIds(), ["daemon-test"])
     }
 
-    func testLoadRoundTripsThroughKeychain() throws {
-        let link = try makeDeepLink()
-        let ingested = try store.ingest(deepLink: link)
-        let loaded = try store.load(daemonId: "daemon-test")
-        XCTAssertEqual(loaded, ingested)
-        // The secret really came back out of the Keychain.
+    func testLoadPendingRoundTripsThroughKeychain() throws {
+        let pid = pairingIdFor(did: "daemon-test")
+        _ = try store.ingest(deepLink: try makeDeepLink())
+        let loaded = try store.loadPending(pairingId: pid)
+        // The secret really came back out of the (non-synced) pending Keychain item.
         XCTAssertEqual(loaded.pairingSecret, secret)
     }
 
@@ -80,24 +126,36 @@ final class PairingStoreTests: XCTestCase {
         XCTAssertEqual(store2.frontendId(), a)
     }
 
-    func testIngestIsIdempotentNoDuplicateIndex() throws {
+    func testIngestIsIdempotentNoDuplicatePendingIndex() throws {
         let link = try makeDeepLink()
+        let pid = pairingIdFor(did: "daemon-test")
         _ = try store.ingest(deepLink: link)
         _ = try store.ingest(deepLink: link)
-        XCTAssertEqual(store.daemonIds(), ["daemon-test"])  // not duplicated
+        XCTAssertEqual(store.pendingIds(), [pid])  // not duplicated
     }
 
-    func testRemoveClearsEverything() throws {
+    func testRemovePendingClearsEverything() throws {
+        let pid = pairingIdFor(did: "daemon-test")
         _ = try store.ingest(deepLink: try makeDeepLink())
+        store.removePending(pairingId: pid)
+        XCTAssertTrue(store.pendingIds().isEmpty)
+        XCTAssertThrowsError(try store.loadPending(pairingId: pid))
+    }
+
+    func testRemoveClearsCommittedEverything() throws {
+        let pid = pairingIdFor(did: "daemon-test")
+        _ = try store.ingest(deepLink: try makeDeepLink())
+        try store.promote(pairingId: pid)
         store.remove(daemonId: "daemon-test")
         XCTAssertTrue(store.daemonIds().isEmpty)
         XCTAssertThrowsError(try store.load(daemonId: "daemon-test"))
     }
 
-    func testDeepLinkHandlerPairsValidLink() throws {
+    func testDeepLinkHandlerPendsValidLink() throws {
         let link = try makeDeepLink()
+        let pid = pairingIdFor(did: "daemon-test")
         let outcome = DeepLinkHandler.handle(URL(string: link)!, store: store)
-        XCTAssertEqual(outcome, .paired(daemonId: "daemon-test"))
+        XCTAssertEqual(outcome, .pending(pairingId: pid))
     }
 
     func testDeepLinkHandlerIgnoresForeignScheme() {
@@ -117,6 +175,7 @@ final class PairingStoreTests: XCTestCase {
 
     func testMarkerConstantsAreStable() {
         // The harness greps these; changing them requires a scripts/ios.sh edit.
+        XCTAssertEqual(DeepLinkHandler.pairPendingMarker, "TP_PAIR_PENDING")
         XCTAssertEqual(DeepLinkHandler.pairMarker, "TP_PAIR_OK")
         XCTAssertEqual(DeepLinkHandler.pairFailMarker, "TP_PAIR_FAIL")
     }

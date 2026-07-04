@@ -50,11 +50,11 @@ struct TeleprompterWatchApp: App {
             Self.smokeLog.error("smoke url invalid: \(raw, privacy: .public)")
             return
         }
-        if case .paired(let daemonId) = DeepLinkHandler.handle(url) {
-            pairings.reload()
-            pairings.connect(daemonId: daemonId)
+        if case .pending(let pairingId) = DeepLinkHandler.handle(url) {
+            pairings.reloadPending()
+            pairings.beginPending(pairingId: pairingId)
         } else {
-            pairings.reload()
+            pairings.reloadPending()
         }
     }
 
@@ -63,11 +63,11 @@ struct TeleprompterWatchApp: App {
             WatchRootView(sessionStore: sessionStore, pairings: pairings)
                 .onOpenURL { url in
                     Self.smokeLog.notice("onOpenURL url=\(url.absoluteString, privacy: .public)")
-                    if case .paired(let daemonId) = DeepLinkHandler.handle(url) {
-                        pairings.reload()
-                        pairings.connect(daemonId: daemonId)
+                    if case .pending(let pairingId) = DeepLinkHandler.handle(url) {
+                        pairings.reloadPending()
+                        pairings.beginPending(pairingId: pairingId)
                     } else {
-                        pairings.reload()
+                        pairings.reloadPending()
                     }
                 }
                 .onAppear {
@@ -85,24 +85,40 @@ struct TeleprompterWatchApp: App {
 /// without pulling in UIKit-only or macOS-only dependencies. The watch app is
 /// read-mostly (glance), so the full feature set (QR scan, rename, remove) is
 /// not needed here.
+@MainActor
 @Observable
 final class WatchPairingViewModel {
     private(set) var daemonIds: [String] = []
     private let store: PairingStore
     @ObservationIgnored private let sessionStore: SessionStore
     @ObservationIgnored private var clients: [String: RelayClient] = [:]
+    /// PR-4 (connect-on-pending): relay clients for PENDING pairings, keyed by
+    /// pairingId. Mirrors `PairingViewModel` — a pending client runs the full
+    /// handshake and promotes to `clients` on kx completion.
+    @ObservationIgnored private var pendingClients: [String: RelayClient] = [:]
+    @ObservationIgnored private let pendingMaxAge: TimeInterval = 24 * 60 * 60
 
     init(store: PairingStore = .shared, sessionStore: SessionStore) {
         self.store = store
         self.sessionStore = sessionStore
+        for pid in store.gcPending(olderThan: pendingMaxAge) {
+            pendingClients[pid]?.disconnect()
+            pendingClients.removeValue(forKey: pid)
+        }
         reload()
-        // Reconnect any pairing that survived a relaunch.
+        // Reconnect any committed pairing that survived a relaunch.
         for did in daemonIds { connect(daemonId: did) }
+        // Resume connect-on-pending for every pending pairing (§1.5).
+        for pid in store.pendingIds() { beginPending(pairingId: pid) }
     }
 
     func reload() {
         daemonIds = store.daemonIds()
     }
+
+    /// The watch glance has no pending-row UI; this exists so the ingest hooks can
+    /// call it symmetrically with the phone app (a no-op refresh).
+    func reloadPending() {}
 
     /// Open a relay connection for one daemon and authenticate.
     func connect(daemonId: String) {
@@ -112,6 +128,36 @@ final class WatchPairingViewModel {
         client.sessionStore = sessionStore
         clients[daemonId] = client
         client.connect()
+    }
+
+    /// Connect-on-pending (PR-4): drive a PENDING pairing through kx; on completion
+    /// promote it (re-keying the same live client into `clients`, no reconnect).
+    func beginPending(pairingId: String) {
+        guard pendingClients[pairingId] == nil else { return }
+        guard let pairing = try? store.loadPending(pairingId: pairingId) else { return }
+        let client = RelayClient(pairing: pairing)
+        client.sessionStore = sessionStore
+        client.onPairingConfirmed = { [weak self] pid in
+            Task { @MainActor [weak self] in self?.promoteConfirmed(pairingId: pid) }
+        }
+        pendingClients[pairingId] = client
+        client.connect()
+    }
+
+    private func promoteConfirmed(pairingId: String) {
+        guard let client = pendingClients[pairingId] else { return }
+        guard let pending = try? store.loadPending(pairingId: pairingId) else {
+            client.disconnect()
+            pendingClients.removeValue(forKey: pairingId)
+            return
+        }
+        let daemonId = pending.daemonId
+        do { try store.promote(pairingId: pairingId) } catch { return }
+        pendingClients.removeValue(forKey: pairingId)
+        if let stale = clients[daemonId], stale !== client { stale.disconnect() }
+        client.onPairingConfirmed = nil
+        clients[daemonId] = client
+        reload()
     }
 
     /// Connection readiness for a daemon — `true` once kx completes.

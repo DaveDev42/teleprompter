@@ -11,8 +11,9 @@ import SwiftUI
 /// - The camera is unavailable (Simulator, macOS).
 /// - The user taps "Enter code manually" from the QR scanner.
 struct ManualPairingView: View {
-    /// Called on a successful pairing with the new daemonId.
-    var onPaired: (String) -> Void
+    /// Called on a successful ingest with the new pairingId. The pairing is
+    /// PENDING until its relay client completes the handshake (PR-4).
+    var onPending: (String) -> Void
     /// Called to dismiss without pairing.
     var onCancel: () -> Void
 
@@ -146,7 +147,8 @@ struct ManualPairingView: View {
         }
     }
 
-    /// Full ingest: persist to Keychain + UserDefaults, then notify the caller.
+    /// Full ingest: persist to the PENDING namespace, then notify the caller so it
+    /// can start the relay client (`beginPending`).
     private func runIngest() {
         let raw = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return }
@@ -154,10 +156,13 @@ struct ManualPairingView: View {
         ingestError = nil
         DispatchQueue.global(qos: .userInitiated).async {
             do {
-                let pairing = try PairingStore.shared.ingest(deepLink: raw)
+                let result = try PairingStore.shared.ingest(deepLink: raw)
+                guard case .pending(let pairingId) = result else {
+                    throw PairingError.decode("unexpected ingest result")
+                }
                 DispatchQueue.main.async {
                     isProcessing = false
-                    onPaired(pairing.daemonId)
+                    onPending(pairingId)
                 }
             } catch {
                 let msg = "\(error)"
@@ -172,7 +177,7 @@ struct ManualPairingView: View {
 
 #Preview {
     ManualPairingView(
-        onPaired: { did in print("paired: \(did)") },
+        onPending: { pid in print("pending: \(pid)") },
         onCancel: { print("cancelled") }
     )
 }

@@ -50,7 +50,8 @@ golden 토큰 pre-seed, 합성 `sess-smoketest`)이 기본. **실 `tp` daemon+re
 |---|---|---|
 | M0 | `TP_BOOT_OK` | SwiftUI 부팅 + 보드 마운트 |
 | M0' | `TP_CORE_OK` | tp-core FFI 라운드트립 (encode→encrypt→decrypt→decode) — Rust 정적 라이브러리 링크+동작 증명 |
-| M1 | `TP_PAIR_OK` | pairing bundle ingest (`tp://p?d=…` 딥링크) |
+| M1 | `TP_PAIR_OK` | pairing PROMOTED to COMMITTED (kx 완료). **PR-4 (connect-on-pending)**: ingest 는 PENDING 에만 쓰고 `TP_PAIR_PENDING` 을 emit; `TP_PAIR_OK` 는 kx 완료 후 promote 시점에 emit. loopback 은 kx 결정론적이라 M1 = `TP_PAIR_OK` 그대로 어서션. **real-daemon E2E (`TP_E2E_REAL`/`TP_E2E_CLAUDE*`) 는 kx out-of-scope/racy 라 M1 = `TP_PAIR_PENDING`** (하니스가 `$real_e2e` 비어있지 않으면 `m1_marker=TP_PAIR_PENDING` 로 분기 — scrape/assert/marker-tally 전부). |
+| M1' | `TP_PAIR_PENDING` | QR decode + PENDING persist (ingest 성공, PR-4). committed 승격 전 device-local 상태. real-daemon E2E 의 M1 어서션 마커. |
 | M2 | `TP_RELAY_AUTH_OK` | relay `frontend auth` 성공 |
 | M3 | `TP_KX_OK` | in-band kx → per-frontend 세션키 |
 | M3' | `TP_FRAME_OK` | 첫 E2EE 프레임 복호 |

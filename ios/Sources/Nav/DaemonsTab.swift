@@ -59,10 +59,21 @@ struct DaemonsListView: View {
                     .accessibilityIdentifier("pairing-error-banner")
             }
 
-            if pairings.daemonIds.isEmpty {
+            if pairings.daemonIds.isEmpty && pairings.pendingPairings.isEmpty {
                 emptyState
             } else {
                 List {
+                    // PR-4: PENDING pairings (decoded, awaiting kx) render as
+                    // "Confirming…" rows above the committed daemons. They drop off
+                    // when the pairing promotes (kx complete) or is cancelled/GC'd.
+                    ForEach(pairings.pendingPairings) { pending in
+                        PendingDaemonRow(
+                            pending: pending,
+                            onCancel: { pairings.cancelPending(pairingId: pending.pairingId) }
+                        )
+                        .accessibilityIdentifier("pending-\(pending.pairingId)")
+                    }
+
                     ForEach(pairings.daemonIds, id: \.self) { did in
                         // M9: pass label from the observable `pairings.labels` dict
                         // so DaemonRow re-renders immediately after any rename (local
@@ -179,10 +190,10 @@ struct DaemonsListView: View {
 
         case .manual:
             ManualPairingView(
-                onPaired: { daemonId in
+                onPending: { pairingId in
                     activeSheet = nil
-                    pairings.reload()
-                    pairings.connect(daemonId: daemonId)
+                    pairings.reloadPending()
+                    pairings.beginPending(pairingId: pairingId)
                 },
                 onCancel: {
                     activeSheet = nil
@@ -249,16 +260,19 @@ struct DaemonsListView: View {
             outcome = DeepLinkHandler.handle(url)
         } else {
             do {
-                let pairing = try PairingStore.shared.ingest(deepLink: raw)
-                outcome = .paired(daemonId: pairing.daemonId)
+                let result = try PairingStore.shared.ingest(deepLink: raw)
+                guard case .pending(let pairingId) = result else {
+                    throw PairingError.decode("unexpected ingest result")
+                }
+                outcome = .pending(pairingId: pairingId)
             } catch {
                 outcome = .failed(reason: "\(error)")
             }
         }
         switch outcome {
-        case .paired(let daemonId):
-            pairings.reload()
-            pairings.connect(daemonId: daemonId)
+        case .pending(let pairingId):
+            pairings.reloadPending()
+            pairings.beginPending(pairingId: pairingId)
             pairingError = nil
         case .ignored(let reason):
             pairingError = "Not a pairing code (\(reason))"
@@ -352,6 +366,61 @@ private struct DaemonRow: View {
 
     private func loadRelayURL() -> String? {
         (try? PairingStore.shared.load(daemonId: daemonId))?.relayURL
+    }
+}
+
+// MARK: - Pending daemon row (PR-4)
+
+/// A PENDING pairing row: decoded + persisted, running the kx handshake but not
+/// yet COMMITTED. Shows a "Confirming…" state (or the last connection error) and
+/// a Cancel button. Promotes off the list automatically once kx completes.
+private struct PendingDaemonRow: View {
+    let pending: PendingPairing
+    var onCancel: () -> Void
+
+    private var displayName: String {
+        pending.hostname.isEmpty ? String(pending.daemonId.prefix(8)) : pending.hostname
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                if pending.lastError == nil {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel("Confirming")
+                } else {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .accessibilityLabel("Waiting")
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(displayName)
+                        .font(.headline)
+                        .accessibilityIdentifier("pending-name-\(pending.pairingId)")
+                    Text(pending.lastError == nil ? "Confirming…" : "Waiting to connect…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("pending-status-\(pending.pairingId)")
+                }
+                Spacer()
+                Button("Cancel") { onCancel() }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(.red)
+                    .accessibilityIdentifier("pending-cancel-\(pending.pairingId)")
+            }
+
+            if let err = pending.lastError {
+                Text(err)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .accessibilityIdentifier("pending-error-\(pending.pairingId)")
+            }
+        }
+        .padding(.vertical, 6)
     }
 }
 

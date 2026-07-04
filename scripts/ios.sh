@@ -825,7 +825,7 @@ cmd_smoke_ios() {
   # In claude mode, reuse the operator's own already-logged-in Claude Code token (read via
   # the standard macOS credential API) and export CLAUDE_CODE_OAUTH_TOKEN (the isolated
   # daemon's only auth vector). Token stays on the machine. Shared helper — no-op otherwise.
-  extract_claude_oauth_token
+  reuse_operator_claude_token
   local udid; udid="$(cmd_boot)"
   local app; app="$(ios_app_path)"
   # Uninstall first so each smoke run starts from a clean app container: this
@@ -1135,7 +1135,7 @@ cmd_smoke_macos() {
 
   # In claude mode, reuse the operator's own already-logged-in Claude token before launching
   # (read via the standard macOS credential API; the isolated daemon's only auth vector). No-op otherwise.
-  extract_claude_oauth_token
+  reuse_operator_claude_token
 
   local app; app="$(macos_app_path)"
 
@@ -1408,7 +1408,7 @@ cmd_smoke_visionos() {
 
   # In claude mode, reuse the operator's own already-logged-in Claude token before launching
   # (read via the standard macOS credential API; the isolated daemon's only auth vector). No-op otherwise.
-  extract_claude_oauth_token
+  reuse_operator_claude_token
 
   local udid; udid="$(vision_sim_udid)" || die "visionOS simulator not found: $VISION_SIM_NAME (set TP_VISION_SIM)"
   log "visionOS Simulator UDID: $udid"
@@ -1646,7 +1646,7 @@ cmd_smoke_watchos() {
 
   # In claude mode, reuse the operator's own already-logged-in Claude token before launching
   # (read via the standard macOS credential API; the isolated daemon's only auth vector). No-op otherwise.
-  extract_claude_oauth_token
+  reuse_operator_claude_token
 
   local udid; udid="$(watch_sim_udid)" || die "watchOS simulator not found: $WATCH_SIM_NAME (set TP_WATCH_SIM)"
   log "watchOS Simulator UDID: $udid"
@@ -1911,7 +1911,7 @@ parse_e2e_gates() {
   # (Write an HTML5 file, Bash-validate it) instead of the generic coding turns. Implies
   # E2E_REAL + E2E_CLAUDE exactly like CODING. Suppresses M5 probe for the same reason.
   # WEBPAGE wins over CODING when both are set (webpage checked first → clears coding) so
-  # only one multi-turn mode is active and --spawn-claude-webpage has clear precedence in
+  # only one multi-turn mode is active and --run-claude-webpage has clear precedence in
   # start_real_daemon_relay.
   [ "${TP_E2E_WEBPAGE:-}" = "1" ] && { E2E_REAL="yes"; E2E_CLAUDE="yes"; E2E_WEBPAGE="yes"; E2E_CLAUDE_CODING=""; }
   # PUSH (TP_E2E_PUSH): a SIBLING gate that implies a real daemon + a real claude PRINT
@@ -1930,7 +1930,7 @@ parse_e2e_gates() {
   return 0
 }
 
-# extract_claude_oauth_token — when $E2E_CLAUDE, REUSE THE OPERATOR'S OWN already-logged-in
+# reuse_operator_claude_token — when $E2E_CLAUDE, REUSE THE OPERATOR'S OWN already-logged-in
 # Claude Code OAuth token so the isolated test daemon can authenticate as the same user who
 # runs claude every day. It refreshes the token, then reads it via macOS's standard
 # credential API and exports CLAUDE_CODE_OAUTH_TOKEN. The token never leaves the machine.
@@ -1938,7 +1938,7 @@ parse_e2e_gates() {
 # the spawned claude. Keychain service = `Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>`.
 # No-op when not in claude mode. (Host-side — same for every platform, since the daemon
 # always runs on the host. Local-only; never runs in CI.)
-extract_claude_oauth_token() {
+reuse_operator_claude_token() {
   [ -n "$E2E_CLAUDE" ] || return 0
   require claude
   local real_cfg svc
@@ -1970,10 +1970,10 @@ extract_claude_oauth_token() {
 # link. After return the pairing deep link is in $REAL_PAIR_LINK — read it directly; do
 # NOT call this in a command-substitution subshell or the ID re-points won't propagate.
 setup_real_link() {
-  REAL_SPAWN_CLAUDE="$E2E_CLAUDE"
-  REAL_SPAWN_CLAUDE_M5="$E2E_CLAUDE_M5"
-  REAL_SPAWN_CLAUDE_CODING="$E2E_CLAUDE_CODING"
-  REAL_SPAWN_CLAUDE_WEBPAGE="$E2E_WEBPAGE"
+  REAL_RUN_CLAUDE="$E2E_CLAUDE"
+  REAL_RUN_CLAUDE_M5="$E2E_CLAUDE_M5"
+  REAL_RUN_CLAUDE_CODING="$E2E_CLAUDE_CODING"
+  REAL_RUN_CLAUDE_WEBPAGE="$E2E_WEBPAGE"
   REAL_SPAWN_PUSH="$E2E_PUSH"
   start_real_daemon_relay
   SMOKE_DAEMON_ID="$REAL_DAEMON_ID"
@@ -2220,23 +2220,23 @@ REAL_E2E_DIR=""
 REAL_SESSION_SID=""
 # Set by cmd_smoke_ios before calling us: "yes" → spawn a real claude session
 # (TP_E2E_CLAUDE). Empty → M0–M2-only real-daemon mode (unchanged behavior).
-REAL_SPAWN_CLAUDE=""
+REAL_RUN_CLAUDE=""
 # "yes" → the spawned claude session is INTERACTIVE (TP_E2E_CLAUDE_M5), not print mode,
-# so the input round-trip (M5) can be exercised. Implies REAL_SPAWN_CLAUDE.
-REAL_SPAWN_CLAUDE_M5=""
+# so the input round-trip (M5) can be exercised. Implies REAL_RUN_CLAUDE.
+REAL_RUN_CLAUDE_M5=""
 # "yes" → the holder drives MULTIPLE coding turns (Write+Bash) over the pipeline
-# (TP_E2E_CLAUDE_CODING) via --spawn-claude-coding. Implies REAL_SPAWN_CLAUDE. Takes
+# (TP_E2E_CLAUDE_CODING) via --run-claude-coding. Implies REAL_RUN_CLAUDE. Takes
 # precedence over M5 for the spawn flag (coding mode also accepts trust + keeps a live
 # REPL, so it's a strict superset of the interactive spawn's setup).
-REAL_SPAWN_CLAUDE_CODING=""
+REAL_RUN_CLAUDE_CODING=""
 # "yes" → the holder drives TWO webpage-building turns (Write HTML5 file + Bash validate)
-# via --spawn-claude-webpage. Implies REAL_SPAWN_CLAUDE. Takes HIGHEST precedence over
+# via --run-claude-webpage. Implies REAL_RUN_CLAUDE. Takes HIGHEST precedence over
 # coding/M5/print (webpage and coding are mutually exclusive siblings; parse_e2e_gates
 # clears CODING when WEBPAGE is set, so only one multi-turn mode is ever active).
-REAL_SPAWN_CLAUDE_WEBPAGE=""
+REAL_RUN_CLAUDE_WEBPAGE=""
 # "yes" → the holder also injects a synthetic Notification event (TP_E2E_PUSH) via
-# --emit-push-notification, additive to the print-mode --spawn-claude session (it
-# needs that session's DB as the rec target). Implies REAL_SPAWN_CLAUDE.
+# --emit-push-notification, additive to the print-mode --run-claude session (it
+# needs that session's DB as the rec target). Implies REAL_RUN_CLAUDE.
 REAL_SPAWN_PUSH=""
 # Holder combined stdout+stderr log path (set in start_real_daemon_relay), read by
 # assert_push_e2e for the secondary "push: injected …" diagnostic check.
@@ -2257,37 +2257,37 @@ start_real_daemon_relay() {
     tp_cleanup_add "rm -rf '$REAL_E2E_DIR' 2>/dev/null || true"
   fi
 
-  # In claude mode, pass --spawn-claude so the holder spawns a real `claude -p`
+  # In claude mode, pass --run-claude so the holder spawns a real `claude -p`
   # session after pairing. The fixed sid lets the M4 assertion key on it; the cwd is
   # a scratch dir under the isolated HOME. CLAUDE_CODE_OAUTH_TOKEN was exported by
   # cmd_smoke_ios (from the keychain) and is inherited here.
-  # --spawn-claude       → real `claude -p` PRINT session (M4).
-  # --spawn-claude-interactive → real INTERACTIVE claude session (M5): the holder also
+  # --run-claude       → real `claude -p` PRINT session (M4).
+  # --run-claude-interactive → real INTERACTIVE claude session (M5): the holder also
   #                        accepts the trust-folder prompt (one `\r` over IPC) so claude
   #                        sits idle at the REPL, ready for the app's relayed probe.
-  # --spawn-claude-coding → holder drives multi-turn coding (Write+Bash); precedence
+  # --run-claude-coding → holder drives multi-turn coding (Write+Bash); precedence
   #                         over M5 (it's a superset of the interactive spawn setup).
-  # --spawn-claude-webpage → holder drives two webpage-building turns (Write HTML5 +
+  # --run-claude-webpage → holder drives two webpage-building turns (Write HTML5 +
   #                          Bash validate); HIGHEST precedence (webpage > coding > m5 >
   #                          print). parse_e2e_gates already cleared CODING when WEBPAGE
   #                          is set, so this branch fires exclusively.
   local spawn_args=() claude_sid=""
-  if [ -n "$REAL_SPAWN_CLAUDE_WEBPAGE" ]; then
-    spawn_args+=("--spawn-claude-webpage")
+  if [ -n "$REAL_RUN_CLAUDE_WEBPAGE" ]; then
+    spawn_args+=("--run-claude-webpage")
     claude_sid="real-smoke-sess"
-  elif [ -n "$REAL_SPAWN_CLAUDE_CODING" ]; then
-    spawn_args+=("--spawn-claude-coding")
+  elif [ -n "$REAL_RUN_CLAUDE_CODING" ]; then
+    spawn_args+=("--run-claude-coding")
     claude_sid="real-smoke-sess"
-  elif [ -n "$REAL_SPAWN_CLAUDE_M5" ]; then
-    spawn_args+=("--spawn-claude-interactive")
+  elif [ -n "$REAL_RUN_CLAUDE_M5" ]; then
+    spawn_args+=("--run-claude-interactive")
     claude_sid="real-smoke-sess"
-  elif [ -n "$REAL_SPAWN_CLAUDE" ]; then
-    spawn_args+=("--spawn-claude")
+  elif [ -n "$REAL_RUN_CLAUDE" ]; then
+    spawn_args+=("--run-claude")
     claude_sid="real-smoke-sess"
   fi
-  # Push (TP_E2E_PUSH): additive to the print-mode --spawn-claude above — the holder
+  # Push (TP_E2E_PUSH): additive to the print-mode --run-claude above — the holder
   # injects a synthetic Notification event into that session so the daemon pushes it
-  # to the live app in-band. Needs the session DB the --spawn-claude print session
+  # to the live app in-band. Needs the session DB the --run-claude print session
   # creates, so it composes with (does not replace) the spawn flag.
   if [ -n "$REAL_SPAWN_PUSH" ]; then
     spawn_args+=("--emit-push-notification")
@@ -2297,7 +2297,7 @@ start_real_daemon_relay() {
   # Expose the holder's combined stdout+stderr log to assert_push_e2e (it greps the
   # "push: injected …" diagnostics as a secondary proof the holder did its part).
   REAL_RP_OUT="$rp_out"
-  log "starting REAL daemon+relay (isolated under $REAL_E2E_DIR)${REAL_SPAWN_CLAUDE:+ + real claude session}"
+  log "starting REAL daemon+relay (isolated under $REAL_E2E_DIR)${REAL_RUN_CLAUDE:+ + real claude session}"
   # Isolate via XDG_* (socket/store/config) + HOME so nothing leaks to ~/.
   # TP_E2E_CLAUDE_* configure the spawned session (sid/cwd); inherited by the script.
   XDG_RUNTIME_DIR="$REAL_E2E_DIR/run" \
@@ -2335,7 +2335,7 @@ start_real_daemon_relay() {
   # can't exist until the app pairs, app can't pair until we return). The sid is
   # deterministic, so just record it; the runner spawn + REAL_SESSION_SID= emission
   # happen later in the holder, and the marker poll observes the resulting session.
-  if [ -n "$REAL_SPAWN_CLAUDE" ]; then
+  if [ -n "$REAL_RUN_CLAUDE" ]; then
     REAL_SESSION_SID="$claude_sid"
     log "REAL daemon paired — id=$REAL_DAEMON_ID, session sid=$REAL_SESSION_SID (fixed; spawn deferred to post-pairing), link acquired"
   else

@@ -29,7 +29,7 @@
 //   XDG_DATA_HOME    → sessions/vault store     (store/config.ts)
 //   XDG_CONFIG_HOME  → pair.lock / hint file    (cli/lib/paths.ts)
 //
-// --spawn-claude (TP_E2E_CLAUDE=1): after pairing completes, spawn a REAL claude
+// --run-claude (TP_E2E_CLAUDE=1): after pairing completes, spawn a REAL claude
 // session against the SAME isolated daemon via `tp run --socket-path <isolated>`
 // (NOT session.create — that relay control message carries no claudeArgs/env). The
 // runner connects to the isolated daemon's IPC socket, sends hello → the daemon
@@ -37,17 +37,17 @@
 // attaches and renders the Stop hook's last_assistant_message. Drives M3/M3'/M4.
 // Auth rides in via CLAUDE_CODE_OAUTH_TOKEN, inherited from the harness env.
 //
-// --spawn-claude-interactive (TP_E2E_CLAUDE_M5=1): interactive claude (live PTY) so
+// --run-claude-interactive (TP_E2E_CLAUDE_M5=1): interactive claude (live PTY) so
 // the app's relayed input probe can round-trip → M5/TP_INPUT_OK.
 //
-// --spawn-claude-coding (TP_E2E_CLAUDE_CODING=1): the most thorough mode — drives real
+// --run-claude-coding (TP_E2E_CLAUDE_CODING=1): the most thorough mode — drives real
 // interactive claude through MULTIPLE coding turns (Write + Bash tools) over the
 // genuine app→relay→daemon→PTY pipeline, then the harness asserts the file claude
 // wrote + the 2-turn session-DB shape. Proves the pipeline carries real coding turns
-// end-to-end, not a canned PONG. See spawnClaudeSessionCoding for the full sequence.
+// end-to-end, not a canned PONG. See startClaudeSessionCoding for the full sequence.
 //
 // --emit-push-notification (TP_E2E_PUSH=1): after a session DB exists (paired with
-// --spawn-claude print mode so `real-smoke-sess` exists) AND the app has registered
+// --run-claude print mode so `real-smoke-sess` exists) AND the app has registered
 // its synthetic push token (--tp-push-smoke), inject a synthetic `Notification` hook
 // event over the IPC socket (`rec` frame). The daemon's PushNotifier sees a
 // notify-eligible event with tokenCount>0 → sends `relay.push` → the relay delivers
@@ -145,7 +145,7 @@ function parseRelayUrlArg(): string | undefined {
 //          isolated HOME has no credentials of its own, so this env is the only
 //          auth vector. Never set CLAUDE_CODE_SIMPLE=1 — simple mode skips hooks,
 //          so the Stop event never fires and M4 is impossible.
-function spawnClaudeSession(socketPath: string): Subprocess {
+function startClaudeSession(socketPath: string): Subprocess {
   const sid = process.env["TP_E2E_CLAUDE_SID"] ?? "real-smoke-sess";
   const cwd =
     process.env["TP_E2E_CLAUDE_CWD"] ?? process.env["HOME"] ?? REPO_ROOT;
@@ -181,7 +181,7 @@ function spawnClaudeSession(socketPath: string): Subprocess {
   return runner;
 }
 
-// --spawn-claude-interactive (TP_E2E_CLAUDE_M5=1): spawn a REAL *interactive* claude
+// --run-claude-interactive (TP_E2E_CLAUDE_M5=1): spawn a REAL *interactive* claude
 // session (no `-p` — a live REPL with a persistent PTY) so the input round-trip (M5)
 // can be exercised. Print mode (`-p`) ends after one Stop, before any input arrives;
 // only an interactive session keeps the PTY open for the app's relayed probe.
@@ -199,7 +199,7 @@ function spawnClaudeSession(socketPath: string): Subprocess {
 // After this returns claude is at the REPL: the APP then drives the genuine M5 input
 // (its auto-probe `in.chat` over the relay → daemon appends `\n` → PTY → claude submits
 // → responds → a NEW assistant Stop chat item → the app emits TP_INPUT_OK proof=response).
-function spawnClaudeSessionInteractive(
+function startClaudeSessionInteractive(
   socketPath: string,
   ipc: IpcClient,
 ): Subprocess {
@@ -219,7 +219,7 @@ function spawnClaudeSessionInteractive(
         // first-run dialogs when bypass is requested via the --permission-mode CLI flag —
         // empirically (claude 2.1.198, through the real `tp run` PTY) the trust dialog AND
         // the Bypass-mode disclaimer ("1. No, exit / 2. Yes, I accept", default = exit)
-        // still render. They are therefore dismissed LIVE by acceptTrustDialogs, which
+        // still render. They are therefore dismissed LIVE by answerFirstRunPrompts, which
         // reads the PTY and sends the correct key per dialog. These keys stay only as
         // harmless belt-and-suspenders should a future claude honour them from this file.
         bypassPermissionsModeAccepted: true,
@@ -257,7 +257,7 @@ function spawnClaudeSessionInteractive(
   // Accept the trust-folder prompt: wait for the TUI to render it, then send Enter
   // (`\r`) over IPC. The daemon routes `input` to the runner by sid → PtyBun.write →
   // claude advances past its first-run dialogs to the idle REPL. Send raw bytes over IPC
-  // (daemon routes by sid → PtyBun.write); acceptTrustDialogs picks the right key per
+  // (daemon routes by sid → PtyBun.write); answerFirstRunPrompts picks the right key per
   // prompt (a context-free Enter quits on the Bypass-mode "No, exit" default — see its comment).
   const sendRaw = (bytes: string, label: string): void => {
     const msg: IpcInput = {
@@ -277,7 +277,7 @@ function spawnClaudeSessionInteractive(
   // whichever of the trust / bypass / settings-error dialogs is on screen, then resolves
   // once claude reaches the REPL. This must finish before the app's probe so the probe
   // text is never consumed as a dialog keystroke.
-  void acceptTrustDialogs(sid, sendRaw).catch((err: unknown) => {
+  void answerFirstRunPrompts(sid, sendRaw).catch((err: unknown) => {
     log(`WARN — interactive trust-accept failed: ${String(err)}`);
   });
 
@@ -411,7 +411,7 @@ function readRecentIo(sid: string, limit = 6): string {
 // flag (empirically confirmed against claude 2.1.198 through the real `tp run` PTY), so
 // the accept must be driven live. Resolves once claude submits a real prompt
 // (UserPromptSubmit >= 1) or ~40s elapses.
-async function acceptTrustDialogs(
+async function answerFirstRunPrompts(
   sid: string,
   sendRaw: (bytes: string, label: string) => void,
 ): Promise<void> {
@@ -509,7 +509,7 @@ async function emitPushNotification(
   log("push: finished injecting Notification events");
 }
 
-// --spawn-claude-coding (TP_E2E_CLAUDE_CODING=1): the strongest real-claude E2E. It
+// --run-claude-coding (TP_E2E_CLAUDE_CODING=1): the strongest real-claude E2E. It
 // drives a REAL interactive claude through ACTUAL CODING across MULTIPLE turns over
 // the genuine app→relay→daemon→PTY pipeline — not a canned "reply PONG". This proves
 // the controller can make Claude Code use the Write and Bash tools and observe the
@@ -541,7 +541,7 @@ async function emitPushNotification(
 // runs in the sim/native target. So this is the deepest proof the app pipeline can
 // give without a human at the keyboard. It is LOCAL-ONLY (real claude auth + credits)
 // and never runs in CI.
-function spawnClaudeSessionCoding(
+function startClaudeSessionCoding(
   socketPath: string,
   ipc: IpcClient,
 ): Subprocess {
@@ -560,7 +560,7 @@ function spawnClaudeSessionCoding(
         // first-run dialogs when bypass is requested via the --permission-mode CLI flag —
         // empirically (claude 2.1.198, through the real `tp run` PTY) the trust dialog AND
         // the Bypass-mode disclaimer ("1. No, exit / 2. Yes, I accept", default = exit)
-        // still render. They are therefore dismissed LIVE by acceptTrustDialogs, which
+        // still render. They are therefore dismissed LIVE by answerFirstRunPrompts, which
         // reads the PTY and sends the correct key per dialog. These keys stay only as
         // harmless belt-and-suspenders should a future claude honour them from this file.
         bypassPermissionsModeAccepted: true,
@@ -627,7 +627,7 @@ function spawnClaudeSessionCoding(
   // submit a few times if not, because claude's REPL drops keystrokes during its warmup
   // window (the same fragility the M5 probe handles with retries). Resolves true once
   // the turn's UserPromptSubmit AND its Stop are both observed.
-  const driveTurn = async (
+  const sendTurn = async (
     text: string,
     turnIndex: number,
   ): Promise<boolean> => {
@@ -677,16 +677,16 @@ function spawnClaudeSessionCoding(
   void (async () => {
     // 1. First-run answer window: content-aware (sends the correct key per first-run prompt).
     //    A context-free Enter loop quits on the Bypass-mode prompt's "No, exit" default and
-    //    stalls on a settings-error dialog; acceptTrustDialogs handles all three. Turn 1
+    //    stalls on a settings-error dialog; answerFirstRunPrompts handles all three. Turn 1
     //    is sent only AFTER the gates clear so a coding prompt is never interleaved with
     //    a dialog keystroke.
-    await acceptTrustDialogs(sid, sendRaw);
+    await answerFirstRunPrompts(sid, sendRaw);
 
     // 2. Turn 1 (create the file via Write) → its Stop.
-    await driveTurn(turn1, 1);
-    // 3. Turn 2 (cat + echo via Bash) — gated on turn 1's Stop inside driveTurn, so the
+    await sendTurn(turn1, 1);
+    // 3. Turn 2 (cat + echo via Bash) — gated on turn 1's Stop inside sendTurn, so the
     //    two turns are strictly ordered for a clean 2-turn session DB.
-    await driveTurn(turn2, 2);
+    await sendTurn(turn2, 2);
     log("coding turn driver finished (both turns attempted)");
   })().catch((err: unknown) => {
     log(`WARN — coding turn driver failed: ${String(err)}`);
@@ -695,7 +695,7 @@ function spawnClaudeSessionCoding(
   return runner;
 }
 
-// spawnClaudeSessionWebpage — TP_E2E_WEBPAGE sibling of spawnClaudeSessionCoding.
+// startClaudeSessionWebpage — TP_E2E_WEBPAGE sibling of startClaudeSessionCoding.
 //
 // Drives TWO turns building a real static HTML5 webpage in the isolated cwd:
 //   turn 1: instruct claude to CREATE an index.html (or $TP_E2E_WEBPAGE_FILE) that is a
@@ -706,9 +706,9 @@ function spawnClaudeSessionCoding(
 //            `grep -c "<!DOCTYPE html>" <file> && grep -c "<marker>" <file> && echo WEBPAGE-STEP-DONE`.
 //            Uses the Bash tool.
 //
-// Reuses driveTurn verbatim; only the turn prompts differ from the coding variant.
+// Reuses sendTurn verbatim; only the turn prompts differ from the coding variant.
 // Local-only (real claude auth + credits); never CI.
-function spawnClaudeSessionWebpage(
+function startClaudeSessionWebpage(
   socketPath: string,
   ipc: IpcClient,
 ): Subprocess {
@@ -727,7 +727,7 @@ function spawnClaudeSessionWebpage(
         // first-run dialogs when bypass is requested via the --permission-mode CLI flag —
         // empirically (claude 2.1.198, through the real `tp run` PTY) the trust dialog AND
         // the Bypass-mode disclaimer ("1. No, exit / 2. Yes, I accept", default = exit)
-        // still render. They are therefore dismissed LIVE by acceptTrustDialogs, which
+        // still render. They are therefore dismissed LIVE by answerFirstRunPrompts, which
         // reads the PTY and sends the correct key per dialog. These keys stay only as
         // harmless belt-and-suspenders should a future claude honour them from this file.
         bypassPermissionsModeAccepted: true,
@@ -794,10 +794,10 @@ function spawnClaudeSessionWebpage(
     `Now run this shell command to validate the file you just created: ` +
     `grep -c "<!DOCTYPE html>" ${fileName} && grep -c "${marker}" ${fileName} && echo WEBPAGE-STEP-DONE`;
 
-  // driveTurn — reused verbatim from the coding mode: type prompt text (no CR),
+  // sendTurn — reused verbatim from the coding mode: type prompt text (no CR),
   // wait 1.5s for composer, send separate \r submit, confirm UserPromptSubmit
   // incremented (resend up to 5× on warmup keystroke-drops), wait for Stop.
-  const driveTurn = async (
+  const sendTurn = async (
     text: string,
     turnIndex: number,
   ): Promise<boolean> => {
@@ -839,16 +839,16 @@ function spawnClaudeSessionWebpage(
   };
 
   // Detached async chain — returns immediately so the pairing handshake runs
-  // concurrently (same pattern as spawnClaudeSessionCoding).
+  // concurrently (same pattern as startClaudeSessionCoding).
   void (async () => {
     // Trust-accept window: content-aware, sends the correct key per dialog (a blind
     // Enter loop quits on the Bypass-mode dialog's "No, exit" default).
-    await acceptTrustDialogs(sid, sendRaw);
+    await answerFirstRunPrompts(sid, sendRaw);
 
     // Turn 1: create the HTML5 file via the Write tool.
-    await driveTurn(turn1, 1);
-    // Turn 2: validate the file via Bash (gated on turn 1's Stop via driveTurn).
-    await driveTurn(turn2, 2);
+    await sendTurn(turn1, 1);
+    // Turn 2: validate the file via Bash (gated on turn 1's Stop via sendTurn).
+    await sendTurn(turn2, 2);
     log("webpage turn driver finished (both turns attempted)");
   })().catch((err: unknown) => {
     log(`WARN — webpage turn driver failed: ${String(err)}`);
@@ -887,7 +887,7 @@ async function main(): Promise<void> {
   });
   log(`daemon spawned (pid ${daemon.pid})`);
 
-  // Holds the optional real-claude runner (--spawn-claude). Declared before
+  // Holds the optional real-claude runner (--run-claude). Declared before
   // shutdown() so the signal handlers can tear it down too — otherwise the runner
   // (and its claude PTY) would outlive the daemon+relay on SIGTERM.
   let claudeRunner: Subprocess | undefined;
@@ -927,23 +927,23 @@ async function main(): Promise<void> {
   //     `tp run` connects to the daemon IPC directly (no relay), so the two are
   //     independent — we kick claude off here and let it run concurrently with the
   //     pairing handshake below.
-  if (process.argv.includes("--spawn-claude-webpage")) {
+  if (process.argv.includes("--run-claude-webpage")) {
     // Webpage mode: real interactive claude driven through TWO webpage-building turns
     // (Write an HTML5 file, then Bash-validate it) over the genuine pipeline.
     // Takes highest precedence (over coding + interactive + print) — webpage and coding
     // are mutually exclusive siblings; when both flags appear, webpage wins.
-    claudeRunner = spawnClaudeSessionWebpage(socketPath, ipc);
-  } else if (process.argv.includes("--spawn-claude-coding")) {
+    claudeRunner = startClaudeSessionWebpage(socketPath, ipc);
+  } else if (process.argv.includes("--run-claude-coding")) {
     // Strongest mode: real interactive claude driven through MULTIPLE coding turns
     // (Write + Bash tools) over the genuine pipeline. Reuses `ipc` to send the
     // trust-accept Enter and each coding turn's input frame.
-    claudeRunner = spawnClaudeSessionCoding(socketPath, ipc);
-  } else if (process.argv.includes("--spawn-claude-interactive")) {
+    claudeRunner = startClaudeSessionCoding(socketPath, ipc);
+  } else if (process.argv.includes("--run-claude-interactive")) {
     // M5: interactive claude (live PTY) + trust-accept over IPC. Reuses `ipc` (the
     // same daemon IPC connection used for pairing) to send the trust-accept Enter.
-    claudeRunner = spawnClaudeSessionInteractive(socketPath, ipc);
-  } else if (process.argv.includes("--spawn-claude")) {
-    claudeRunner = spawnClaudeSession(socketPath);
+    claudeRunner = startClaudeSessionInteractive(socketPath, ipc);
+  } else if (process.argv.includes("--run-claude")) {
+    claudeRunner = startClaudeSession(socketPath);
   }
 
   // 4. pair.begin → print URL on pair.begin.ok → resolve on pair.completed.
@@ -992,7 +992,7 @@ async function main(): Promise<void> {
   // 5b. PUSH E2E: inject a synthetic Notification event so the daemon pushes it to
   //     the live app (in-band relay.notification → TP_PUSH_NOTIFY_RECEIVED). Detached
   //     so it does not block the hold-open loop; the session DB it targets is created
-  //     by the --spawn-claude print session above.
+  //     by the --run-claude print session above.
   if (process.argv.includes("--emit-push-notification")) {
     const pushSid = process.env["TP_E2E_CLAUDE_SID"] ?? "real-smoke-sess";
     void emitPushNotification(pushSid, ipc).catch((err: unknown) => {

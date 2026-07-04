@@ -96,7 +96,7 @@ Yes. All communication is end-to-end encrypted (E2EE):
 - **Key exchange**: X25519 ECDH via QR-based pairing
 - **Encryption**: XChaCha20-Poly1305 AEAD per message
 - **Per-session key ratchet**: Keys rotate for forward secrecy
-- **Zero-trust relay**: The relay server sees only ciphertext and cannot decrypt anything
+- **Relay has no plaintext access**: The relay forwards only already-encrypted frames and cannot decrypt anything — the standard end-to-end-encryption privacy property (as in Signal or WireGuard)
 
 ---
 

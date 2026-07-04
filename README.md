@@ -4,7 +4,7 @@
 [![Deploy Relay](https://github.com/DaveDev42/teleprompter/actions/workflows/deploy-relay.yml/badge.svg)](https://github.com/DaveDev42/teleprompter/actions/workflows/deploy-relay.yml)
 [![License: BSD-2-Clause](https://img.shields.io/badge/License-BSD_2--Clause-blue.svg)](./LICENSE)
 
-Remote Claude Code session controller with E2EE relay, dual Chat/Terminal UI, and voice input. **Full native rewrite in progress** (Swift app + Rust core — see [ADR-0001](./docs/adr/0001-full-native-rewrite-swift-rust.md)). The Expo/RN app stack has been removed; the backend (Bun daemon/relay/runner) is retained as reference while the rewrite progresses.
+A self-hosted developer tool that lets you view and drive **your own** Claude Code sessions from **your own** phone — like VS Code Remote or `tmux` over SSH, scoped to a single operator. You run the daemon on your own machine and pair your own device (end-to-end encrypted); it gives you a dual Chat/Terminal UI plus voice input. **Full native rewrite in progress** (Swift app + Rust core — see [ADR-0001](./docs/adr/0001-full-native-rewrite-swift-rust.md)). The Expo/RN app stack has been removed; the backend (Bun daemon/relay/runner) is retained as reference while the rewrite progresses.
 
 ## Quick Start
 
@@ -110,7 +110,7 @@ Runner ──IPC──→ Daemon ──WSS (E2EE)──→ Relay ──WSS (E2EE
 
 - **Runner**: Spawns Claude Code in a PTY, collects io streams and hooks events, communicates with Daemon via IPC (Unix domain socket)
 - **Daemon**: Manages sessions, stores records, encrypts with libsodium per-frontend keys, connects to Relay(s) as a client
-- **Relay**: Stateless ciphertext forwarder (zero-trust, 10 encrypted frames cached per session). Never sees plaintext.
+- **Relay**: Stateless forwarder of already-encrypted frames (keeps only a 10-frame reconnect buffer per session). As an untrusted hosted hop it has no access to your plaintext — the same end-to-end-encryption privacy property Signal or WireGuard provide.
 - **App**: Swift (SwiftUI) iOS app — full native rewrite in progress (ADR-0001). Currently Phase-0 boot-marker shell; Chat + Terminal + Voice UI planned for Phase 3. Connects to paired daemon(s) via Relay only.
 
 **All frontend↔daemon traffic flows through the Relay with E2EE.** Daemon does not run a WebSocket server; the App does not connect directly to the Daemon. Pairing (QR/JSON) delivers the Daemon's public key and relay URL offline; frontend pubkey is exchanged in-band via `relay.kx`.
@@ -171,7 +171,7 @@ pnpm doctor
 - End-to-end encrypted (E2EE) communication
 - QR-based pairing with X25519 ECDH key exchange
 - Per-session ephemeral key ratchet
-- Relay sees only ciphertext (zero-trust)
+- Relay forwards only already-encrypted frames — as an untrusted hop it has no access to your plaintext (standard E2EE, as in Signal/WireGuard)
 - API keys stored in iOS Keychain (planned Phase 3)
 
 ## Documentation

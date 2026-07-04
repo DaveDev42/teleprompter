@@ -42,7 +42,7 @@ EAS 빌드 회귀 표면이 누적 비용이 됐다.
   키 32B, tag 16B. KDF = `BLAKE2b_32(secret || domain)` (domain: `relay-auth` /
   `kx-envelope` / `relay-register` / `relay-push-seal`). 세션키 ratchet = `crypto.ts:153`.
   X25519 `crypto_kx` (client/server session keys rx/tx). 상수 전체는 protocol 레퍼런스 참조.
-- **relay = ciphertext-only zero-trust, stateless** (10-frame 캐시만).
+- **relay = 이미 암호화된 프레임만 중계, 평문 미접근, stateless** (untrusted hosted hop — 표준 E2EE privacy; 10-frame 캐시만).
 - **daemon = relay 의 유일 클라이언트**, WS 서버 미오픈.
 - relay protocol v2 메시지 shape (register/auth/auth.resume/kx/pub/frame/presence/control) 유지.
 

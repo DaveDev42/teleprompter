@@ -372,6 +372,25 @@ final class PairingViewModel {
             }
         }
 
+        // PR-5 (§2.5): a committed pairing re-verifies conservatively. The client
+        // keeps the connection regardless of the PCT outcome (the hard-gate/teardown
+        // lives only in the pending phase); these callbacks are diagnostic — a
+        // confirmed re-verification records the tag + timestamp, a mismatch/pct-missing
+        // is already warned inside the client. Never promote (already committed).
+        client.setPairingPhase(pending: false)
+        client.onPairingConfirmed = { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                self?.reloadPending()  // no-op for committed; keeps VM state coherent.
+            }
+        }
+        client.onPairingConfirmFailed = { [weak self] did, reason in
+            Task { @MainActor [weak self] in
+                self?.log.error(
+                    "committed re-verification failed daemon=\(daemonId, privacy: .public) reason=\(reason, privacy: .public) — kept connection (§2.5) [\(did, privacy: .public)]"
+                )
+            }
+        }
+
         clients[daemonId] = client
         client.connect()
     }
@@ -407,11 +426,36 @@ final class PairingViewModel {
             }
         }
 
-        // kx complete → promote PENDING → COMMITTED (legacy semantics; PCT
-        // verification is PR-5). Re-keys this client into `clients`.
-        client.onPairingConfirmed = { [weak self] pid in
+        // PR-5: this is a PENDING pairing — the §1.3 table is a HARD gate.
+        client.setPairingPhase(pending: true)
+
+        // PCT verification passed (confirmed) OR a genuine legacy commit → promote
+        // PENDING → COMMITTED. Re-keys this client into `clients` (§1.6).
+        client.onPairingConfirmed = { [weak self] pid, confirmed in
             Task { @MainActor [weak self] in
-                self?.promoteConfirmed(pairingId: pid)
+                guard let self else { return }
+                if confirmed {
+                    self.log.notice(
+                        "\(RelayClient.pairConfirmOkMarker, privacy: .public) promoting pairingId=\(pid, privacy: .public)"
+                    )
+                } else {
+                    self.log.notice(
+                        "legacy commit (no pct) — promoting pairingId=\(pid, privacy: .public)")
+                }
+                self.promoteConfirmed(pairingId: pid)
+            }
+        }
+
+        // PR-5: PCT verification FAILED (mismatch, or pct-missing on a v≥3 daemon).
+        // Keep the pairing PENDING and the client ALIVE — a re-kx (new ephemeral
+        // epoch) is a fresh confirmation attempt. Surface the reason on the row.
+        client.onPairingConfirmFailed = { [weak self] _, reason in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.log.error(
+                    "\(RelayClient.pairConfirmFailMarker, privacy: .public) pairingId=\(pairingId, privacy: .public) reason=\(reason, privacy: .public)"
+                )
+                self.setPendingError(pairingId: pairingId, cause: "verification failed: \(reason)")
             }
         }
 
@@ -504,8 +548,24 @@ final class PairingViewModel {
                 self.reload()
             }
         }
-        // A promoted pairing already has its keys; the confirm callback is spent.
-        client.onPairingConfirmed = nil
+        // PR-5 (§2.5): the pairing is now COMMITTED — flip the client to the
+        // conservative committed phase and rewire its confirm/fail callbacks to the
+        // re-verification behavior. NOT nil'd: every future re-kx epoch (daemon
+        // restart, W8) re-derives PCT_app and re-verifies against the fresh hello,
+        // and a mismatch there must warn-only rather than fire the pending promote.
+        client.setPairingPhase(pending: false)
+        client.onPairingConfirmed = { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                self?.reloadPending()
+            }
+        }
+        client.onPairingConfirmFailed = { [weak self] did, reason in
+            Task { @MainActor [weak self] in
+                self?.log.error(
+                    "committed re-verification failed daemon=\(daemonId, privacy: .public) reason=\(reason, privacy: .public) — kept connection (§2.5) [\(did, privacy: .public)]"
+                )
+            }
+        }
     }
 
     private func setPendingError(pairingId: String, cause: String?) {

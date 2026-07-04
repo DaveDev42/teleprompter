@@ -179,4 +179,72 @@ final class PairingStoreTests: XCTestCase {
         XCTAssertEqual(DeepLinkHandler.pairMarker, "TP_PAIR_OK")
         XCTAssertEqual(DeepLinkHandler.pairFailMarker, "TP_PAIR_FAIL")
     }
+
+    func testPr5MarkerConstantsAreStable() {
+        // The harness greps these too (§1.3 promotion decision markers).
+        XCTAssertEqual(RelayClient.pairConfirmOkMarker, "TP_PAIR_CONFIRM_OK")
+        XCTAssertEqual(RelayClient.pairConfirmFailMarker, "TP_PAIR_CONFIRM_FAIL")
+    }
+
+    // MARK: PR-5 — anti-downgrade floor (§1.3) + committed re-verify (§2.5)
+
+    func testV4PairingInitializesFloorTo3() throws {
+        // A QR v4 bundle proves the daemon is v≥3, so the pending record starts at
+        // floor 3 — a pct-absent hello can never take the legacy branch.
+        let pid = pairingIdFor(did: "daemon-test")
+        _ = try store.ingest(deepLink: try makeDeepLink())
+        XCTAssertEqual(store.floor(pairingId: pid, daemonId: "daemon-test", pending: true), 3)
+        let pending = try store.loadPending(pairingId: pid)
+        XCTAssertEqual(pending.minAdvertisedV, 3)
+    }
+
+    func testFloorSurvivesPromoteIntoCommittedMeta() throws {
+        // The v4 pending floor (3) must carry into the committed meta so a relaunch
+        // still refuses a downgraded (v=2) kx.
+        let pid = pairingIdFor(did: "daemon-test")
+        _ = try store.ingest(deepLink: try makeDeepLink())
+        try store.promote(pairingId: pid)
+        XCTAssertEqual(store.floor(pairingId: pid, daemonId: "daemon-test", pending: false), 3)
+        let committed = try store.load(daemonId: "daemon-test")
+        XCTAssertEqual(committed.minAdvertisedV, 3)
+    }
+
+    func testRaisePendingFloorIsMonotonic() throws {
+        let pid = pairingIdFor(did: "daemon-test")
+        _ = try store.ingest(deepLink: try makeDeepLink())  // starts at 3
+        // A lower observed version is ignored (never lowered).
+        store.raisePendingFloor(pairingId: pid, observedV: 2)
+        XCTAssertEqual(store.floor(pairingId: pid, daemonId: "daemon-test", pending: true), 3)
+        // A higher one raises it.
+        store.raisePendingFloor(pairingId: pid, observedV: 5)
+        XCTAssertEqual(store.floor(pairingId: pid, daemonId: "daemon-test", pending: true), 5)
+    }
+
+    func testRaiseCommittedFloorIsMonotonicAndSurvivesRepersist() throws {
+        let pid = pairingIdFor(did: "daemon-test")
+        _ = try store.ingest(deepLink: try makeDeepLink())
+        try store.promote(pairingId: pid)  // committed floor = 3
+        store.raiseCommittedFloor(daemonId: "daemon-test", observedV: 4)
+        XCTAssertEqual(store.floor(pairingId: pid, daemonId: "daemon-test", pending: false), 4)
+        // load reflects the raised value; a re-persist of that Pairing keeps 4.
+        let loaded = try store.load(daemonId: "daemon-test")
+        XCTAssertEqual(loaded.minAdvertisedV, 4)
+    }
+
+    func testRecordAndReadConfirmedPct() throws {
+        let pid = pairingIdFor(did: "daemon-test")
+        _ = try store.ingest(deepLink: try makeDeepLink())
+        try store.promote(pairingId: pid)
+        XCTAssertNil(store.lastConfirmedPct(daemonId: "daemon-test"))
+        store.recordConfirmedPct(daemonId: "daemon-test", pctB64: "AAAA")
+        XCTAssertEqual(store.lastConfirmedPct(daemonId: "daemon-test"), "AAAA")
+    }
+
+    func testFloorAbsentDefaultsToZero() {
+        // A daemon/pairing with no record contributes no floor.
+        XCTAssertEqual(
+            store.floor(pairingId: "nope", daemonId: "daemon-missing", pending: true), 0)
+        XCTAssertEqual(
+            store.floor(pairingId: "nope", daemonId: "daemon-missing", pending: false), 0)
+    }
 }

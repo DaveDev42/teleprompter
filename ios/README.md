@@ -98,13 +98,22 @@ APNs 등록은 visionOS 에서 skip (Simulator 단계, 엔타이틀먼트 미설
 > **PR-4 (connect-on-pending 라이프사이클).** ingest 는 이제 **PENDING** 네임스페이스
 > (`tp.pairings.pending.index` + `pending.<pairingId>` Keychain, **device-local — 절대 sync
 > 금지**)에만 쓰고 `TP_PAIR_PENDING` 마커를 emit 한다. `PairingViewModel.beginPending` 이 PENDING
-> 레코드마다 RelayClient 를 즉시 생성(connect-on-pending)해 connect→auth→kx 를 돌리고, **kx 완료
-> 시점에 promote** (PENDING→COMMITTED) 하며 그 살아있는 client 를 재연결 없이 committed 맵으로
-> re-key 하고 `TP_PAIR_OK` 를 emit 한다 (PCT 검증은 PR-5). 앱 기동 시 committed index 와 pending
-> index 를 모두 순회하므로 client 없는 PENDING 은 구조적으로 존재 불가. 24h GC 가 kx 에 못 도달한
-> 레코드를 수거(그 client 도 dispose). SoT = `docs/design/pairing-redesign-local-ecdh-commit-v3.md`
-> §1. committed meta 는 `pairingId`/`hostname` 을 영속(레거시 레코드는 `load` 가 `deriveLegacyPairingId`
-> 로 backfill).
+> 레코드마다 RelayClient 를 즉시 생성(connect-on-pending)해 connect→auth→kx 를 돌린다. 앱 기동 시
+> committed index 와 pending index 를 모두 순회하므로 client 없는 PENDING 은 구조적으로 존재 불가.
+> 24h GC 가 kx 에 못 도달한 레코드를 수거(그 client 도 dispose). committed meta 는 `pairingId`/`hostname`
+> 을 영속(레거시 레코드는 `load` 가 `deriveLegacyPairingId` 로 backfill).
+>
+> **PR-5 (§1.3 PCT verification gate).** promote 는 이제 **kx 완료가 아니라 hello 의 PCT 검증**이
+> 게이트한다. kx 에폭마다 `RelayClient.deriveEpochPct` 가 kx-frame daemon pubkey + 그 에폭의 ephemeral
+> 키페어 + 세션키로 `PCT_app`(FFI `derivePairingConfirmationTag`)을 계산해 두고, hello 의 `d.pct` 가
+> 도착하면 `resolvePromotion` 이 §1.3 판정 표(4셀)로 결정한다: `pct==PCT_app`→**COMMITTED**(confirmed,
+> `TP_PAIR_CONFIRM_OK`+`TP_PAIR_OK`) · `pct!=PCT_app`→**FAILED**(pending: 하드, client 는 재시도 위해
+> alive 유지) · pct absent & `effectiveV<3`→**COMMITTED**(legacy) · pct absent & `effectiveV>=3`→
+> **FAILED**(pct-missing, 레거시 fall-through 금지). `effectiveV=max(에폭 kx-advertised v, 영속
+> `minAdvertisedV` floor)` 는 monotonic anti-downgrade floor(QR v4=3/레거시=0, 절대 안 내려감). committed
+> 재검증(§2.5)은 보수적 — mismatch/pct-missing 여도 연결을 끊지 않고 warn 만. `lastConfirmedPct`/`confirmedAt`
+> 는 device-local(**절대 sync 금지** — PCT 는 ephemeral frontend 키페어에 바인딩). SoT =
+> `docs/design/pairing-redesign-local-ecdh-commit-v3.md` §1.3/§2.5/§5(PR-5 행).
 
 앱은 `tp://p?d=…` 페어링 딥링크를 받는다. 작동에 필요한 셋업 (전부 `project.yml` 에 박혀 있음):
 - **URL scheme**: `CFBundleURLTypes` 에 `tp` 등록 (Info.plist 명시 필요 — `INFOPLIST_KEY_*` 없음).
@@ -262,10 +271,13 @@ OSLog privacy: macOS native 빌드는 String 변수 보간을 기본 `<private>`
 - **페어링 마커 (M1)**: smoke 가 결정적 `tp://p?d=…` 딥링크를 `--tp-smoke-url` launch arg
   로 주입하면 앱 `onAppear` 에서 `handleSmokeURLIfPresent()` → `DeepLinkHandler.handle()` →
   FFI `decodePairingData` → `PairingStore` (PENDING) → Keychain 왕복을 daemon 없이 end-to-end 검증.
-  **PR-4**: ingest 는 `TP_PAIR_PENDING pairingId=…` 를 emit; loopback 은 kx 가 결정론적으로 완료돼
-  promote 시점에 `TP_PAIR_OK did=daemon-smoketest` 가 뜨므로 M1 을 그대로 어서션. real-daemon E2E
-  (`TP_E2E_REAL`/`TP_E2E_CLAUDE*`) 는 kx out-of-scope 라 M1 을 `TP_PAIR_PENDING` 으로 어서션
-  (하니스 `m1_marker` 분기). 실패 시 `TP_PAIR_FAIL detail=…` 출력 후 실패.
+  **PR-4**: ingest 는 `TP_PAIR_PENDING pairingId=…` 를 emit. **PR-5 (§1.3 PCT gate)**: promote 는
+  kx 완료가 아니라 hello 의 PCT 검증이 게이트한다 — loopback 이 kx `v:3` advertise + hello `pct`(daemon-role
+  세션키로 계산, app frontend-role PCT 와 byte-exact 수렴)를 실어 **Cell 1(CONFIRMED)** 로만 승격시키므로
+  promote 시점의 `TP_PAIR_OK did=daemon-smoketest` = **PCT-confirm 을 transitively 게이트**(mismatch=Cell 2 는
+  promote 안 함, `v:3` 이라 legacy Cell 3 배제 → `TP_PAIR_OK` 관찰 = Cell 1 실행 증명; `TP_PAIR_CONFIRM_OK`
+  도 emit). real-daemon E2E (`TP_E2E_REAL`/`TP_E2E_CLAUDE*`) 는 kx out-of-scope 라 M1 을 `TP_PAIR_PENDING`
+  으로 어서션 (하니스 `m1_marker` 분기). 실패 시 `TP_PAIR_FAIL detail=…` 출력 후 실패.
   링크는 `smoke_pair_link` (pairing.rs v3 레이아웃을 바이트 동일하게 Python 으로 생성).
   (이전: `xcrun simctl openurl` 사용 — iOS/visionOS 26.5 Simulator 에서 LS -10814 error 로
   URL 이 앱에 전달되지 않는 회귀 발견. launch arg 주입으로 LS 라우팅 우회.)

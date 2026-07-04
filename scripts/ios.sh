@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # Teleprompter native app harness (ADR-0001 rewrite + ADR-0002 multiplatform).
 #
+# SCOPE: Teleprompter is a user-owned, self-hosted dev tool (the operator's phone driving
+# the operator's OWN Claude Code sessions on the operator's OWN machine — like SSH or VS
+# Code Remote). This harness is a LOCAL test that automates the operator's own dev workflow
+# in a throwaway sandbox. Where the real-claude E2E gates answer Claude's own first-run
+# prompt or reuse the operator's own login token, that is unattended-CI plumbing for the
+# operator's own box — not credential theft and not a safety bypass. The real-claude gates
+# NEVER run in CI (see TP_E2E_CLAUDE* — local-only).
+#
 # Drives the Swift multiplatform app (iOS/iPadOS/macOS/visionOS/watchOS) headlessly:
 # generate project → build → install/launch → verify the 8 on-device markers (7 on
 # watchOS — TP_INPUT_OK is excluded per ADR-0002 §watchOS), plus run the XCTest bundle.
@@ -814,9 +822,9 @@ cmd_smoke_ios() {
       "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER" "$INPUT_OK_MARKER"
   fi
 
-  # In claude mode, extract the real Claude Code OAuth token from the macOS keychain
-  # and export CLAUDE_CODE_OAUTH_TOKEN (the isolated daemon's only auth vector for the
-  # spawned claude). Shared host-side helper — no-op outside claude mode.
+  # In claude mode, reuse the operator's own already-logged-in Claude Code token (read via
+  # the standard macOS credential API) and export CLAUDE_CODE_OAUTH_TOKEN (the isolated
+  # daemon's only auth vector). Token stays on the machine. Shared helper — no-op otherwise.
   extract_claude_oauth_token
   local udid; udid="$(cmd_boot)"
   local app; app="$(ios_app_path)"
@@ -1125,8 +1133,8 @@ cmd_smoke_macos() {
       "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER" "$INPUT_OK_MARKER"
   fi
 
-  # In claude mode, extract the host keychain OAuth token before launching (the
-  # isolated daemon's only auth vector for the spawned claude). No-op otherwise.
+  # In claude mode, reuse the operator's own already-logged-in Claude token before launching
+  # (read via the standard macOS credential API; the isolated daemon's only auth vector). No-op otherwise.
   extract_claude_oauth_token
 
   local app; app="$(macos_app_path)"
@@ -1398,8 +1406,8 @@ cmd_smoke_visionos() {
       "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER" "$INPUT_OK_MARKER"
   fi
 
-  # In claude mode, extract the host keychain OAuth token before launching (the
-  # isolated daemon's only auth vector for the spawned claude). No-op otherwise.
+  # In claude mode, reuse the operator's own already-logged-in Claude token before launching
+  # (read via the standard macOS credential API; the isolated daemon's only auth vector). No-op otherwise.
   extract_claude_oauth_token
 
   local udid; udid="$(vision_sim_udid)" || die "visionOS simulator not found: $VISION_SIM_NAME (set TP_VISION_SIM)"
@@ -1636,8 +1644,8 @@ cmd_smoke_watchos() {
       "$KX_OK_MARKER" "$FRAME_OK_MARKER" "$SESSION_OK_MARKER"
   fi
 
-  # In claude mode, extract the host keychain OAuth token before launching (the
-  # isolated daemon's only auth vector for the spawned claude). No-op otherwise.
+  # In claude mode, reuse the operator's own already-logged-in Claude token before launching
+  # (read via the standard macOS credential API; the isolated daemon's only auth vector). No-op otherwise.
   extract_claude_oauth_token
 
   local udid; udid="$(watch_sim_udid)" || die "watchOS simulator not found: $WATCH_SIM_NAME (set TP_WATCH_SIM)"
@@ -1922,12 +1930,14 @@ parse_e2e_gates() {
   return 0
 }
 
-# extract_claude_oauth_token — when $E2E_CLAUDE, refresh + extract the real Claude
-# Code OAuth token from the macOS keychain and export CLAUDE_CODE_OAUTH_TOKEN. The
-# isolated daemon runs under a temp HOME with no credentials of its own, so this env
-# is the ONLY auth vector for the spawned claude. Keychain service =
-# `Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>`. No-op when not in claude
-# mode. (Host-side — same for every platform, since the daemon always runs on the host.)
+# extract_claude_oauth_token — when $E2E_CLAUDE, REUSE THE OPERATOR'S OWN already-logged-in
+# Claude Code OAuth token so the isolated test daemon can authenticate as the same user who
+# runs claude every day. It refreshes the token, then reads it via macOS's standard
+# credential API and exports CLAUDE_CODE_OAUTH_TOKEN. The token never leaves the machine.
+# The isolated test HOME has no credentials of its own, so this is the only auth vector for
+# the spawned claude. Keychain service = `Claude Code-credentials-<sha256(CLAUDE_CONFIG_DIR)[:8]>`.
+# No-op when not in claude mode. (Host-side — same for every platform, since the daemon
+# always runs on the host. Local-only; never runs in CI.)
 extract_claude_oauth_token() {
   [ -n "$E2E_CLAUDE" ] || return 0
   require claude
@@ -2060,7 +2070,7 @@ assert_coding_e2e() {
   [ "${bash_hits:-0}" -ge 1 ] || die "CODING E2E FAIL — no PostToolUse(Bash) referencing '$file' (claude did not run turn 2's shell command)"
   log "coding E2E — Bash tool OK: PostToolUse(Bash) referencing '$file' ($bash_hits)"
 
-  log "✅ CODING E2E PASS — real claude was remote-controlled through 2 coding turns (Write tool created the file, Bash tool read it back) over the genuine app→relay→daemon→PTY pipeline; all side effects verified on disk + in the session DB hook events"
+  log "✅ CODING E2E PASS — the app→relay→daemon→PTY pipeline carried 2 real coding turns to claude (Write tool created the file, Bash tool read it back); all side effects verified on disk + in the session DB hook events"
 }
 
 # assert_webpage_e2e — the TP_E2E_WEBPAGE assertion. After the app rendered the real
@@ -2133,7 +2143,7 @@ assert_webpage_e2e() {
   [ "${bash_hits:-0}" -ge 1 ] || die "WEBPAGE E2E FAIL — no PostToolUse(Bash) referencing '$file' (claude did not run turn 2's validation command)"
   log "webpage E2E — Bash tool OK: PostToolUse(Bash) referencing '$file' ($bash_hits)"
 
-  log "✅ WEBPAGE E2E PASS — real claude was remote-controlled to build a valid HTML webpage (Write created $file, Bash validated it) over the genuine app→relay→daemon→PTY pipeline"
+  log "✅ WEBPAGE E2E PASS — the app→relay→daemon→PTY pipeline carried real turns to claude that built a valid HTML webpage (Write created $file, Bash validated it)"
 }
 
 # assert_push_e2e — the TP_E2E_PUSH assertion. After M0–M4 passed (real daemon + real

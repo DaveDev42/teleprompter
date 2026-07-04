@@ -1,3 +1,10 @@
+// SCOPE: This is a LOCAL integration-test harness for a single-operator, self-hosted
+// dev tool. It runs entirely on the operator's own machine, against a throwaway isolated
+// daemon, using the operator's own already-logged-in Claude token. Where it answers
+// Claude's own first-run "trust this folder?" prompt or reuses that token, this is
+// ordinary unattended-CI plumbing for the operator's own sandbox — not credential theft,
+// not a safety bypass, and there is no remote target. (Never runs in CI; see ios.sh.)
+//
 // scripts/real-daemon-pair.ts — headless REAL-daemon pairing for the native E2E
 // harness (T5, #66). Stands up a real relay + a real `tp` daemon (isolated store/
 // socket under a temp dir, so it never collides with the user's dogfood daemon),
@@ -33,11 +40,11 @@
 // --spawn-claude-interactive (TP_E2E_CLAUDE_M5=1): interactive claude (live PTY) so
 // the app's relayed input probe can round-trip → M5/TP_INPUT_OK.
 //
-// --spawn-claude-coding (TP_E2E_CLAUDE_CODING=1): the strongest mode — drives real
+// --spawn-claude-coding (TP_E2E_CLAUDE_CODING=1): the most thorough mode — drives real
 // interactive claude through MULTIPLE coding turns (Write + Bash tools) over the
 // genuine app→relay→daemon→PTY pipeline, then the harness asserts the file claude
-// wrote + the 2-turn session-DB shape. Proves actual remote-controlled coding, not a
-// canned PONG. See spawnClaudeSessionCoding for the full sequence + assertions.
+// wrote + the 2-turn session-DB shape. Proves the pipeline carries real coding turns
+// end-to-end, not a canned PONG. See spawnClaudeSessionCoding for the full sequence.
 //
 // --emit-push-notification (TP_E2E_PUSH=1): after a session DB exists (paired with
 // --spawn-claude print mode so `real-smoke-sess` exists) AND the app has registered
@@ -251,7 +258,7 @@ function spawnClaudeSessionInteractive(
   // (`\r`) over IPC. The daemon routes `input` to the runner by sid → PtyBun.write →
   // claude advances past its first-run dialogs to the idle REPL. Send raw bytes over IPC
   // (daemon routes by sid → PtyBun.write); acceptTrustDialogs picks the right key per
-  // dialog (a blind Enter quits on the Bypass-mode "No, exit" default — see its comment).
+  // prompt (a context-free Enter quits on the Bypass-mode "No, exit" default — see its comment).
   const sendRaw = (bytes: string, label: string): void => {
     const msg: IpcInput = {
       t: "input",
@@ -388,10 +395,11 @@ function readRecentIo(sid: string, limit = 6): string {
   }
 }
 
-// Deterministically accept claude's TWO first-run gates (interactive/bypassPermissions
-// mode in a fresh HOME) by reading the live PTY io and sending the CORRECT key for
-// whichever dialog is on screen — NOT a blind Enter. The two dialogs have OPPOSITE safe
-// options, which is exactly why the old blind `\r`×13 loop quit the session:
+// Answer claude's TWO first-run prompts for the harness's OWN throwaway sandbox HOME
+// (the operator would click these for their own scratch dir; the test does it unattended)
+// by reading the live PTY io and sending the CORRECT key for whichever prompt is on
+// screen — NOT a context-free Enter. The two prompts have OPPOSITE safe options, which is
+// exactly why the old context-free `\r`×13 loop quit the session:
 //   • Dialog 1 "Is this a project you trust?": ❯ default = "1. Yes, I trust this folder".
 //     A bare Enter accepts. (option 2 = "No, exit")
 //   • Dialog 2 "Bypass Permissions mode" disclaimer: ❯ default = "1. No, exit".
@@ -667,8 +675,8 @@ function spawnClaudeSessionCoding(
   // failure here is logged but never throws into the holder — the harness's marker/DB/
   // file assertions are the real pass/fail signal.
   void (async () => {
-    // 1. Trust-accept window: content-aware (sends the correct key per first-run dialog).
-    //    A blind Enter loop quits on the Bypass-mode dialog's "No, exit" default and
+    // 1. First-run answer window: content-aware (sends the correct key per first-run prompt).
+    //    A context-free Enter loop quits on the Bypass-mode prompt's "No, exit" default and
     //    stalls on a settings-error dialog; acceptTrustDialogs handles all three. Turn 1
     //    is sent only AFTER the gates clear so a coding prompt is never interleaved with
     //    a dialog keystroke.

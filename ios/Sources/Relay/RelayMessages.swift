@@ -7,10 +7,14 @@ import Foundation
 /// *frontend* sends or receives during connect+auth live here; kx/data frames
 /// arrive in M3.
 ///
-/// The current protocol version is 2 (`WS_PROTOCOL_VERSION`,
-/// `packages/protocol/src/compat.ts`).
+/// The current protocol version is 3 (`WS_PROTOCOL_VERSION`,
+/// `packages/protocol/src/compat.ts`). v3 = pairing confirmation (PCT) + QR v4
+/// (pairing redesign #49): the app advertises this in its `KxPayload.v` and the
+/// daemon advertises the matching `WS_PROTOCOL_VERSION` in its kx broadcast, which
+/// the app reads into `effectiveV` to drive the §1.3 promotion table. Must stay in
+/// lockstep with the TS `WS_PROTOCOL_VERSION` — both are the advertised `v`.
 enum RelayProtocol {
-    static let version = 2
+    static let version = 3
 }
 
 /// Well-known sid channels (not real sessions). The daemon publishes the session

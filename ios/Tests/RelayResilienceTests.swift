@@ -73,7 +73,7 @@ final class RelayResilienceTests: XCTestCase {
         XCTAssertEqual(Set(obj.keys), ["t", "token", "v"])
         XCTAssertEqual(obj["t"] as? String, "relay.auth.resume")
         XCTAssertEqual(obj["token"] as? String, "abc-token-xyz")
-        XCTAssertEqual(obj["v"] as? Int, 2)
+        XCTAssertEqual(obj["v"] as? Int, 3)  // WS_PROTOCOL_VERSION (v3 = PCT/QR-v4, #49)
     }
 
     // MARK: - M11: KxPayload includes `v`
@@ -84,7 +84,10 @@ final class RelayResilienceTests: XCTestCase {
         let obj = try XCTUnwrap(
             JSONSerialization.jsonObject(with: data) as? [String: Any])
 
-        XCTAssertEqual(obj["v"] as? Int, 2, "KxPayload must include v=2 for Label union gating")
+        // v tracks WS_PROTOCOL_VERSION (now 3: PCT/QR-v4, #49). It is the app's
+        // advertised protocol version the daemon reads into effectiveV (§1.3), and
+        // still carries Label-union gating semantics from v2.
+        XCTAssertEqual(obj["v"] as? Int, 3, "KxPayload must advertise WS_PROTOCOL_VERSION")
         XCTAssertEqual(obj["pk"] as? String, "base64pk==")
         XCTAssertEqual(obj["frontendId"] as? String, "fe-123")
         XCTAssertEqual(obj["role"] as? String, "frontend")

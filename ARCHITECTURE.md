@@ -288,7 +288,8 @@ Daemon                     Relay                     Frontend
   ├── kxKey 파생              │                          │
   │                          │                          │
   ├── QR 표시 ◀──────────────┼────────────────────────── QR 스캔 (offline)
-  │   {secret, pk, relay, id}│                          │
+  │   {secret, pk, relay, id,│                          │  (QR v4: +pairingId, +hostname)
+  │    pairingId, hostname}   │                          │
   │                          │                          ├── X25519 keypair 생성
   │                          │                          ├── frontendId 생성
   │                          │                          ├── relay token 파생 (동일)
@@ -343,6 +344,33 @@ Daemon                     Relay                     Frontend
 libsodium의 `xchacha20poly1305_ietf_encrypt`는 ciphertext에 auth tag를 concatenate하여 반환한다.
 전체가 base64로 인코딩되어 Envelope의 필드로 전달된다.
 Relay는 이 암호화된 blob만 중계한다. 내용을 알 수 없다.
+
+### 5.6 Pairing Confirmation (PCT) + 버전 게이트 (WS v3 / QR v4, #49)
+
+`relay.kx` 는 정적 `pairingSecret` 파생 kxKey 로만 복호되므로 그 자체엔 freshness binding 이
+없다 — hostile relay 가 캐시한 옛 kx broadcast 를 재생하면 앱이 잘못된 daemon 으로 오인할 수 있다.
+**Pairing Confirmation Tag (PCT)** 는 이 kx epoch 이 실제로 살아있는 상대와 성립했음을 증명한다:
+
+- **PCT 계산**: kx 완료 후 확립된 **per-frontend 세션키**에 도메인 분리 BLAKE2b 를 적용
+  (`derive_pairing_confirmation_tag`, `rust/tp-core/src/crypto.rs` — TS/Swift 와 byte-exact
+  골든벡터 교차검증). daemon 은 frontend-role 세션키로, 앱은 자기 세션키로 각각 계산 → 동일 tag 로 수렴.
+- **전달**: daemon 이 `hello` 프레임에 per-frontend `pct` (base64) 를 실어 보낸다 (auto-hello +
+  on-demand `case "hello"` 두 빌더 모두). 앱은 자기 PCT_app 과 대조한다.
+- **승격 판정 (§1.3 4셀)**: 입력 = `hello.d.pct` (present/absent) + `effectiveV = max(이번
+  epoch 의 kx-advertised v, 저장된 `minAdvertisedV` floor)`.
+  1. `pct` 일치 → **COMMITTED (confirmed)**.
+  2. `pct` 불일치 → **FAILED** (tamper/replay).
+  3. `pct` 부재 & `effectiveV < 3` → **COMMITTED (legacy, confirmed=false)** — 진짜 구 daemon.
+  4. `pct` 부재 & `effectiveV ≥ 3` → **FAILED** (v≥3 daemon 이 pct 를 빠뜨림 = downgrade 신호).
+- **`minAdvertisedV` floor**: v≥3 증거를 한 번이라도 본 페어링은 device-local floor 를 3 이상으로
+  올려, 재생된 v=2 kx 로도 `effectiveV < 3` 이 될 수 없게 한다 (wire 무변경 replay 방어).
+
+**버전 게이트 의미론**: `WS_PROTOCOL_VERSION` 은 daemon(`broadcastDaemonPublicKey`)과
+앱(`RelayProtocol.version`)이 kx 페이로드 `v` 로 광고하는 값이다. **v3** 부터 위 PCT + QR v4 를 뜻한다.
+`pct` 는 additive-optional 이므로 (구 앱은 무시, 구 daemon 은 미발신) **강한 handshake 게이트는 없다** —
+위 §1.3 승격 판정 표(`effectiveV` + floor)가 유일한 판별 지점이다. QR **v4** 번들은 랜덤 UUID
+`pairingId` (재페어 시 새 값) + `hostname` (표시 라벨)을 추가한다; 디코더는 v2/v3/v4 를 모두 수용하고,
+legacy(v2/v3)는 `pairingId` 를 daemonId 파생 결정론 UUID(`derive_legacy_pairing_id`)로 채운다.
 
 ## 6. Runner PTY 관리
 

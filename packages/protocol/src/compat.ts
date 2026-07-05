@@ -38,9 +38,22 @@ export const IPC_PROTOCOL_VERSION = 2;
  * `Label` tagged union. Daemons and apps advertise this version in the
  * relay.kx payload (`v`). As of ADR-0003 Amendment 1 (A1.3#1) the per-peer
  * label version-gate has been removed: ControlRename always emits the union
- * object. The `v` field is retained for future gating of new message types.
+ * object.
+ *
+ * v3: pairing confirmation (PCT) + QR v4 (pairing redesign #49). A v3 daemon
+ * carries a per-frontend `pct` on the `hello` frame and QR bundles gain a
+ * random-UUID `pairingId` + `hostname` (wire v4). The app reads the advertised
+ * `v` into `effectiveV = max(this epoch's v, persisted minAdvertisedV floor)`
+ * and drives the §1.3 promotion table: v≥3 + matching `pct` → confirmed commit;
+ * v≥3 + absent/mismatched `pct` → FAILED; effectiveV<3 → legacy commit. No hard
+ * handshake gate is needed — `pct` is additive-optional (old apps ignore it, old
+ * daemons omit it) and the promotion table (effectiveV + floor) is the sole
+ * discriminator (design v3 §5 / §G). Both the daemon (`relay-client.ts`
+ * `broadcastDaemonPublicKey`) and the app (`RelayProtocol.version`) advertise
+ * this value; bumping it here is what flips the advertised `v` to 3 and, on a
+ * new-daemon+new-app pair, turns on the confirm path.
  */
-export const WS_PROTOCOL_VERSION = 2;
+export const WS_PROTOCOL_VERSION = 3;
 
 /**
  * Parse a semver-like version string into components.

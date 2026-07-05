@@ -66,21 +66,22 @@ final class RelayAuthTests: XCTestCase {
         // Exactly these six keys — nothing extra leaks onto the wire.
         XCTAssertEqual(Set(obj.keys), ["t", "v", "role", "daemonId", "token", "frontendId"])
         XCTAssertEqual(obj["t"] as? String, "relay.auth")
-        XCTAssertEqual(obj["v"] as? Int, 2)
+        XCTAssertEqual(obj["v"] as? Int, 3)  // WS_PROTOCOL_VERSION (v3 = PCT/QR-v4, #49)
         XCTAssertEqual(obj["role"] as? String, "frontend")
         XCTAssertEqual(obj["daemonId"] as? String, "daemon-multi")
         XCTAssertEqual(obj["token"] as? String, goldenRelayToken)
         XCTAssertEqual(obj["frontendId"] as? String, "frontend-A")
     }
 
-    /// `v` is the integer 2 (not a string) — the wire guard requires a number.
-    func testProtocolVersionIsIntegerTwo() throws {
-        XCTAssertEqual(RelayProtocol.version, 2)
+    /// `v` is a bare integer (not a string) — the wire guard requires a number —
+    /// and tracks `WS_PROTOCOL_VERSION` (currently 3: PCT/QR-v4, pairing redesign #49).
+    func testProtocolVersionIsBareInteger() throws {
+        XCTAssertEqual(RelayProtocol.version, 3)
         let data = try JSONEncoder().encode(
             RelayAuth(
                 daemonId: "d", token: "t", frontendId: "f"))
         let json = String(decoding: data, as: UTF8.self)
-        XCTAssertTrue(json.contains("\"v\":2"), "v must serialize as a bare number, got: \(json)")
+        XCTAssertTrue(json.contains("\"v\":3"), "v must serialize as a bare number, got: \(json)")
     }
 
     // MARK: server message decoding

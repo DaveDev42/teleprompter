@@ -186,6 +186,37 @@ final class RelayResilienceTests: XCTestCase {
             "after reload() the adopted hostname label must surface (no daemon-m fallback)")
     }
 
+    // MARK: - PR-7 local-hide vs unpair (view-model)
+
+    /// `PairingViewModel.hideLocally(_:)` (PR-7) drops a daemon from the observable
+    /// `daemonIds` list WITHOUT sending `control.unpair` and WITHOUT deleting the
+    /// synced record — the credential stays valid. Contrast with `remove(_:)`
+    /// (Unpair), which is a revocation. This pins the VM wiring of the split action
+    /// (the store-level blob-retention differential lives in PairingRecordStoreTests).
+    @MainActor
+    func testViewModelHideLocallyDropsDaemonWithoutRevoking() {
+        let (store, defaults, suiteName) = makeIsolatedStore()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let did = "daemon-hidetest"
+        let pid = "00000000-0000-4000-8000-0000000000dd"
+        // Register in the PR-6 pointer index (no Keychain blob needed — an empty
+        // enumeration is uncorroborated and preserves the pointer index).
+        defaults.set([did: pid], forKey: "tp.pairings.ptr")
+        defaults.set([did], forKey: "tp.pairings.ptr.order")
+
+        let vm = PairingViewModel(store: store, sessionStore: SessionStore())
+        vm.reload()
+        XCTAssertTrue(vm.daemonIds.contains(did), "precondition: daemon is listed")
+
+        // Local hide: the daemon leaves the list and is tombstoned (no client exists,
+        // so no control.unpair can be sent — the VM path skips sendControlUnpair by
+        // construction), but the pairing is NOT revoked.
+        vm.hideLocally(did)
+        XCTAssertFalse(vm.daemonIds.contains(did), "hidden daemon leaves the observable list")
+        XCTAssertTrue(store.isLocallyHidden(pairingId: pid), "tombstone set for the pairingId")
+    }
+
     // MARK: - H7: inbound control.unpair decoding
 
     func testControlUnpairInboundDecodes() throws {

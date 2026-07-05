@@ -309,6 +309,148 @@ final class PairingRecordStoreTests: XCTestCase {
         XCTAssertTrue(store.daemonIds().isEmpty)  // pointer index cleared
     }
 
+    // MARK: - PR-7 local-hide tombstone ("Remove from this device")
+
+    /// Local-hide removes the daemon from `daemonIds()` but KEEPS the synced blob
+    /// (the credential is not revoked) — the core distinction from Unpair.
+    func testHideLocallyKeepsBlobWhileUnpairDeletesIt() throws {
+        try ingestAndPromote(did: "daemon-1", pairingId: pidA)
+        try ingestAndPromote(did: "daemon-2", pairingId: pidB)
+
+        store.hideLocally(daemonId: "daemon-1")
+        XCTAssertFalse(store.daemonIds().contains("daemon-1"))  // hidden here
+        XCTAssertTrue(store.daemonIds().contains("daemon-2"))
+        XCTAssertNotNil(records.blobs[pidA])  // synced blob NOT deleted — still valid + syncing
+        XCTAssertTrue(store.isLocallyHidden(pairingId: pidA))
+        // A hidden daemon's pointer is dropped → load throws.
+        XCTAssertThrowsError(try store.load(daemonId: "daemon-1"))
+
+        // Contrast: unpair (remove) DOES delete the blob (revocation).
+        store.remove(daemonId: "daemon-2")
+        XCTAssertNil(records.blobs[pidB])  // blob gone
+        XCTAssertFalse(store.daemonIds().contains("daemon-2"))
+    }
+
+    /// A hidden daemon stays hidden across repeated reconciliation passes and a
+    /// transient partial-sync absence — the tombstone (not enumeration presence) is
+    /// the sole suppressor, so two successive `daemonIds()` both exclude it.
+    func testHideSurvivesReconcileAndTransientAbsence() throws {
+        try ingestAndPromote(did: "daemon-1", pairingId: pidA)
+        store.hideLocally(daemonId: "daemon-1")
+
+        XCTAssertFalse(store.daemonIds().contains("daemon-1"))  // pass 1
+        XCTAssertFalse(store.daemonIds().contains("daemon-1"))  // pass 2 (blob still present)
+        XCTAssertNotNil(records.blobs[pidA])  // blob kept throughout
+    }
+
+    /// THE ts-race guard (review HIGH, sync-convergence): after a device hides P1
+    /// and re-pairs to a NEW pairingId P2, a peer re-syncs the OLD blob P1 back.
+    /// Reconciliation must NOT let hidden P1 win the latest-`ts` race and delete the
+    /// live P2 — the hidden blob is filtered out BEFORE the loser sweep.
+    func testHiddenBlobNeverSweepsLiveRepairEvenIfNewerTs() throws {
+        // Device hid daemon-1 at pairingId P1, then re-paired → P2 (fresh, surfaces).
+        try ingestAndPromote(did: "daemon-1", pairingId: pidA)  // P1
+        store.hideLocally(daemonId: "daemon-1")
+        try ingestAndPromote(did: "daemon-1", pairingId: pidB)  // P2 re-pair (un-hides)
+        XCTAssertTrue(store.daemonIds().contains("daemon-1"))
+        XCTAssertFalse(store.isLocallyHidden(pairingId: pidB))  // P2 not hidden
+
+        // Re-hide P2, then a peer re-syncs the OLD P1 blob back with a NEWER ts.
+        store.hideLocally(daemonId: "daemon-1")  // hides P2
+        // Re-pair AGAIN to a third live pairingId, so there is a live blob to protect.
+        let pidC = "00000000-0000-4000-8000-0000000000c3"
+        try ingestAndPromote(did: "daemon-1", pairingId: pidC)  // live, surfaces
+        // Peer resurrects the hidden P2 with a strictly newer ts than P2 had.
+        records.seed(makeBlob(did: "daemon-1", pairingId: pidB, ts: 9_999_999))
+
+        // Reconcile: hidden P2 is filtered up front → it can neither win the ts race
+        // nor push the live pidC into the loser set. pidC survives; daemon shows.
+        XCTAssertEqual(store.daemonIds(), ["daemon-1"])
+        XCTAssertNotNil(records.blobs[pidC])  // live re-pair NOT destroyed
+        XCTAssertEqual(try store.load(daemonId: "daemon-1").pairingId, pidC)
+    }
+
+    /// A fresh QR v4 re-pair mints a NEW pairingId → surfaces (not in hidden set).
+    func testV4RepairUnhidesViaNewPairingId() throws {
+        try ingestAndPromote(did: "daemon-1", pairingId: pidA)
+        store.hideLocally(daemonId: "daemon-1")
+        XCTAssertFalse(store.daemonIds().contains("daemon-1"))
+
+        // Re-pair with a fresh v4 pairingId — surfaces; old tombstone is bounded away
+        // (persist swept the old blob and cleared its tombstone).
+        try ingestAndPromote(did: "daemon-1", pairingId: pidB)
+        XCTAssertTrue(store.daemonIds().contains("daemon-1"))
+        XCTAssertEqual(try store.load(daemonId: "daemon-1").pairingId, pidB)
+        XCTAssertFalse(store.isLocallyHidden(pairingId: pidA))  // old tombstone cleared
+    }
+
+    /// THE deterministic-legacy collision (review NEEDS-DECISION → correctness fix):
+    /// `deriveLegacyPairingId` is a pure function of daemonId, so re-scanning a hidden
+    /// LEGACY (v2/v3) daemon re-mints the SAME pairingId. A commit / re-ingest for the
+    /// daemon MUST un-hide that deterministic id — otherwise the re-pair lands
+    /// invisibly behind the stale tombstone forever.
+    ///
+    /// The FFI encoder only emits v4 links (a legacy wire cannot be constructed in a
+    /// test), so we exercise the collision at its root: a committed pairing whose
+    /// pairingId equals `deriveLegacyPairingId(daemonId)` (as a real legacy pairing
+    /// would have), hidden, then a fresh pairing action for the same daemon. Both
+    /// `unhideForDaemon` triggers (persist-on-commit AND ingest) clear the
+    /// legacy-derived id, so the daemon un-hides.
+    func testLegacyDerivedPairingIdUnhidesOnRecommit() throws {
+        let did = "daemon-legacy"
+        let legacyId = deriveLegacyPairingId(daemonId: did)
+        // Seed a committed blob keyed by the deterministic legacy id + point at it.
+        try ingestAndPromote(did: did, pairingId: legacyId)
+        XCTAssertTrue(store.daemonIds().contains(did))
+
+        store.hideLocally(daemonId: did)
+        XCTAssertFalse(store.daemonIds().contains(did))
+        XCTAssertTrue(store.isLocallyHidden(pairingId: legacyId))
+
+        // A deliberate re-pair for the SAME daemon re-derives the SAME legacy id.
+        // persist()'s unhideForDaemon clears deriveLegacyPairingId(did) → un-hidden.
+        try ingestAndPromote(did: did, pairingId: legacyId)
+        XCTAssertFalse(store.isLocallyHidden(pairingId: legacyId))
+        XCTAssertTrue(store.daemonIds().contains(did))  // resurfaced, not stuck
+    }
+
+    /// Unpair clears the tombstone for every pairingId it deletes (incl. the
+    /// legacy-derived id), so a hidden-then-unpaired daemon leaves no immortal entry.
+    func testUnpairClearsTombstone() throws {
+        try ingestAndPromote(did: "daemon-1", pairingId: pidA)
+        store.hideLocally(daemonId: "daemon-1")
+        XCTAssertTrue(store.isLocallyHidden(pairingId: pidA))
+
+        store.remove(daemonId: "daemon-1")  // unpair
+        XCTAssertFalse(store.isLocallyHidden(pairingId: pidA))  // tombstone cleared
+        XCTAssertTrue(store.hiddenPairingIds().isEmpty)
+    }
+
+    /// `wipeAllCommittedForSmoke` clears tombstones too — else a v3-derived smoke
+    /// re-ingest (same deterministic pairingId every run) would be suppressed → M1
+    /// regression on the 2nd consecutive run.
+    func testWipeForSmokeClearsTombstones() throws {
+        try ingestAndPromote(did: "daemon-1", pairingId: pidA)
+        store.hideLocally(daemonId: "daemon-1")
+        XCTAssertTrue(store.isLocallyHidden(pairingId: pidA))
+
+        store.wipeAllCommittedForSmoke()
+        XCTAssertFalse(store.isLocallyHidden(pairingId: pidA))
+        XCTAssertTrue(store.hiddenPairingIds().isEmpty)
+    }
+
+    /// Hiding preserves the device-local sidecar floor (anti-downgrade evidence must
+    /// stay consistent with the surviving blob — no reset-to-0 downgrade window).
+    func testHidePreservesSidecarFloor() throws {
+        // A v4 ingest starts the floor at 3.
+        try ingestAndPromote(did: "daemon-1", pairingId: pidA)
+        XCTAssertEqual(store.floor(pairingId: pidA, daemonId: "daemon-1", pending: false), 3)
+
+        store.hideLocally(daemonId: "daemon-1")
+        // Sidecar (floor) survives the hide — the blob is still there.
+        XCTAssertEqual(store.floor(pairingId: pidA, daemonId: "daemon-1", pending: false), 3)
+    }
+
     // MARK: helpers
 
     private func makeBlob(did: String, pairingId: String, ts: Int) -> PairingBlob {

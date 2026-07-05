@@ -1197,6 +1197,11 @@ cmd_smoke_macos() {
   defaults delete dev.tpmt.app tp.pairings.ptr 2>/dev/null || true
   defaults delete dev.tpmt.app tp.pairings.ptr.order 2>/dev/null || true
   defaults delete dev.tpmt.app tp.pairings.migrated.v2 2>/dev/null || true
+  # PR-7 local-hide tombstone index (PLURAL key — the singular-prefix loop below
+  # catches the per-pairing "tp.pairing.<pid>.localHidden" flags but not this index).
+  # A surviving tombstone would filter the deterministic v3-derived smoke pairingId
+  # out of daemonIds() and suppress TP_PAIR_OK (M1) on the next macOS smoke run.
+  defaults delete dev.tpmt.app tp.pairings.hidden 2>/dev/null || true
   # Delete all tp.pairing.* keys (the pairing meta stored by PairingStore).
   for key in $(defaults read dev.tpmt.app 2>/dev/null | grep '"tp\.pairing\.' | awk -F'"' '{print $2}'); do
     defaults delete dev.tpmt.app "$key" 2>/dev/null || true

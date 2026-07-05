@@ -644,6 +644,29 @@ final class PairingViewModel {
         reload()
     }
 
+    /// "Remove from this device" (PR-7, design v2 §E.2) — LOCAL hide, NOT revocation.
+    ///
+    /// Unlike `remove(_:)` (Unpair): does NOT send `control.unpair` and does NOT
+    /// delete the synced blob — the pairing stays valid and keeps syncing to the
+    /// user's other devices; it is merely hidden on THIS install. Tears down the
+    /// local relay client + presence/cause state, tombstones the daemon in the store
+    /// so it drops out of `daemonIds()`, and disposes any in-flight PENDING client
+    /// for the daemon (returned by `store.hideLocally`) so a concurrent kx can't
+    /// re-surface it. Install-scoped: a reinstall re-adopts the synced blob (the
+    /// credential was never revoked) — the confirmation copy says so.
+    func hideLocally(_ daemonId: String) {
+        clients[daemonId]?.disconnect()  // NB: no sendControlUnpair — hide is non-revoking
+        clients[daemonId] = nil
+        daemonOnline.removeValue(forKey: daemonId)
+        connectionCause.removeValue(forKey: daemonId)
+        for pid in store.hideLocally(daemonId: daemonId) {
+            pendingClients[pid]?.disconnect()
+            pendingClients.removeValue(forKey: pid)
+        }
+        reload()
+        reloadPending()
+    }
+
     /// Rename a daemon's local label and notify the peer (`control.rename`).
     /// The label is persisted by the caller (`PairingStore.setLabel`); this only
     /// pushes the change to the connected daemon. Pass `nil` to clear.

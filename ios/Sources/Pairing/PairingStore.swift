@@ -129,6 +129,19 @@ final class PairingStore: @unchecked Sendable {
         /// One-shot flag: legacy committed records migrated to Option A blobs.
         static let migratedV2 = "tp.pairings.migrated.v2"
 
+        /// PR-7 local-hide tombstone index: the set of pairingIds hidden on THIS
+        /// device via "Remove from this device". Device-local, **never synced** —
+        /// a synced tombstone would wrongly hide the pairing on the user's other
+        /// devices too (the whole point of local-hide vs Unpair is that it is
+        /// install-scoped and non-revoking). Mirrors `pointerMap`: a plural index
+        /// array plus a per-pairingId bool flag (`localHidden(_:)`) so
+        /// `reconciledPointers` can filter in O(1) via a Set. **Install-scoped**:
+        /// UserDefaults is wiped by an app reinstall while the synchronizable blob
+        /// survives (iCloud re-adoption), so a reinstall re-surfaces a hidden
+        /// pairing — acceptable because local-hide never revoked the credential.
+        static let hiddenIndex = "tp.pairings.hidden"
+        static func localHidden(_ pid: String) -> String { "tp.pairing.\(pid).localHidden" }
+
         // PENDING namespace (device-local — never synced; a synced pending record
         // would let an un-scanned device complete kx and pair, §1.3).
         static let pendingIndex = "tp.pairings.pending.index"  // [String] of pairingIds
@@ -198,6 +211,12 @@ final class PairingStore: @unchecked Sendable {
     @discardableResult
     func ingest(deepLink: String) throws -> IngestResult {
         let pairing = try decode(deepLink: deepLink)
+        // PR-7: re-scanning a hidden daemon's QR is a deliberate re-pair — un-hide it
+        // on this device immediately (before kx/promote completes) so the user sees
+        // the daemon reappear the moment they scan, not only after confirmation.
+        // Clears both the incoming pairingId and the legacy-derived id (deterministic
+        // → a legacy re-scan re-mints the same id the tombstone names).
+        unhideForDaemon(daemonId: pairing.daemonId, pairingId: pairing.pairingId)
         try persistPending(pairing)
         return .pending(pairingId: pairing.pairingId)
     }
@@ -281,11 +300,22 @@ final class PairingStore: @unchecked Sendable {
             ts: Int(Date().timeIntervalSince1970 * 1000))
         try records.save(blob)
         setPointer(daemonId: p.daemonId, pairingId: p.pairingId)
+        // PR-7: a deliberate (re)commit UN-HIDES the daemon on this device — a fresh
+        // pairing action must never land invisibly behind an old tombstone. Clear the
+        // incoming pairingId AND the legacy-derived id: `deriveLegacyPairingId` is
+        // deterministic from daemonId, so re-pairing a hidden LEGACY (v2/v3) daemon
+        // re-mints the SAME pairingId that the tombstone still names (design §6's
+        // "new pairingId on re-pair" holds only for QR v4).
+        unhideForDaemon(daemonId: p.daemonId, pairingId: p.pairingId)
         // Now the new blob is durable — drop any committed blob(s) for this daemon
         // under a stale pairingId (a re-pair mints a new pairingId; leaving the old
-        // one would leak an orphan and break the ≤1-blob-per-did invariant).
+        // one would leak an orphan and break the ≤1-blob-per-did invariant). Clear
+        // each swept pairingId's tombstone too — its blob is gone from this device as
+        // part of a deliberate re-pair, so the tombstone can never be needed again
+        // (bounds the hidden index to currently-hidden-and-live pairings).
         for old in pairingIds(forDaemon: p.daemonId) where old != p.pairingId {
             records.remove(pairingId: old)
+            clearLocalHide(pairingId: old)
         }
 
         // Sidecar floor (device-local, never synced). Preserve a higher existing
@@ -353,6 +383,11 @@ final class PairingStore: @unchecked Sendable {
             for b in blobs { records.remove(pairingId: b.pairingId) }
         }
         writePointers(Pointers(order: [], map: [:]))
+        // PR-7: clear every local-hide tombstone too. The golden smoke link is wire
+        // v3, so its committed pairingId is deriveLegacyPairingId(SMOKE_DAEMON_ID) —
+        // the SAME id every run. A surviving tombstone would filter the fresh ingest's
+        // pairingId out of daemonIds() and suppress TP_PAIR_OK (M1) on the 2nd run.
+        clearAllTombstonesForSmoke()
     }
 
     // MARK: pointer map + Keychain reconciliation (design §3.2)
@@ -427,16 +462,31 @@ final class PairingStore: @unchecked Sendable {
     ///   genuinely-unpaired daemon is dropped only by explicit `remove(daemonId:)`
     ///   (revocation) or the PR-7 local-hide tombstone — never inferred from absence.
     ///   Losing same-did blobs (concurrent re-pair) are swept to hold ≤1-per-did.
+    ///
+    /// PR-7: a locally-hidden pairingId's blob is dropped from the working set at
+    /// the **very top**, before the loser sweep and before building currentByDid.
+    /// This is load-bearing: if it were filtered only at the final-pointer level, a
+    /// resurrected hidden P1 (a peer still holds the blob after this device re-paired
+    /// to P2) could win the per-did latest-`ts` race against the live P2 and push P2
+    /// into `losers` → `records.remove(pairingId: P2)` — a synced delete that revokes
+    /// a good re-pair mesh-wide. Dropping hidden blobs first means P1 can never enter
+    /// currentByDid nor the loser set: the retained-but-hidden blob keeps syncing
+    /// (correct device-local hide), and a live re-pair is never destroyed.
     private func reconciledPointers() -> Pointers {
-        let blobs: [PairingBlob]
+        let allBlobs: [PairingBlob]
         do {
-            blobs = try records.loadAll()
+            allBlobs = try records.loadAll()
         } catch {
             pointerLock.lock()
             let lastGood = lastGoodPointers
             pointerLock.unlock()
             return lastGood ?? pointers()
         }
+        // PR-7: filter hidden pairingIds up front so they are never repointed,
+        // appended as arrivals, NOR swept as ts-losers. A hidden blob is left on
+        // disk (still synced) — only its surfacing here is suppressed.
+        let hidden = hiddenPairingIds()
+        let blobs = hidden.isEmpty ? allBlobs : allBlobs.filter { !hidden.contains($0.pairingId) }
         let current = pointers()
         if blobs.isEmpty {
             if current.isEmpty { return current }
@@ -461,15 +511,27 @@ final class PairingStore: @unchecked Sendable {
             }
             currentByDid[b.did] = b
         }
-        for pid in losers { records.remove(pairingId: pid) }
+        // Sweep losing blobs; clear any tombstone for a swept pairingId (its blob is
+        // gone locally, so the tombstone is dead weight — PR-7 index-bounding).
+        for pid in losers {
+            records.remove(pairingId: pid)
+            clearLocalHide(pairingId: pid)
+        }
 
         var order: [String] = []
         var map: [String: String] = [:]
         for did in current.order {  // survivors + transiently-absent both keep order
-            order.append(did)
             // Present this pass → repoint to the latest blob; absent → PRESERVE the
             // existing pointer (partial-sync window, not an unpair).
-            map[did] = currentByDid[did]?.pairingId ?? current.map[did]
+            let resolved = currentByDid[did]?.pairingId ?? current.map[did]
+            // PR-7 defense-in-depth: `hideLocally` drops the pointer, so a hidden did
+            // normally isn't in `current.order`. But if a stale pointer still resolves
+            // to a hidden pairingId (write-ordering race, or a future path that
+            // tombstones without dropping the pointer), do NOT re-emit it — else the
+            // preserve-on-absence fallback would resurface a hidden daemon.
+            if let resolved, hidden.contains(resolved) { continue }
+            order.append(did)
+            map[did] = resolved
         }
         for did in currentByDid.keys.sorted() where map[did] == nil {  // arrivals (stable order)
             order.append(did)
@@ -478,6 +540,116 @@ final class PairingStore: @unchecked Sendable {
         let reconciled = Pointers(order: order, map: map)
         writePointers(reconciled)
         return reconciled
+    }
+
+    // MARK: PR-7 local-hide tombstone ("Remove from this device")
+
+    /// The set of pairingIds hidden on THIS device (device-local, never synced).
+    /// Read once per `reconciledPointers` pass so filtering is O(1) per blob.
+    func hiddenPairingIds() -> Set<String> {
+        Set(defaults.stringArray(forKey: Key.hiddenIndex) ?? [])
+    }
+
+    /// Whether a specific pairingId is locally hidden.
+    func isLocallyHidden(pairingId: String) -> Bool {
+        defaults.bool(forKey: Key.localHidden(pairingId))
+    }
+
+    /// Mark a pairingId hidden on this device (idempotent): set the per-pairing
+    /// flag and append to the index. Does NOT touch the synced blob, the legacy
+    /// secret, the sidecar, or the label — those must survive so a re-pair/unhide
+    /// reads consistent state (and so `remove`/unpair remains the only revocation).
+    private func setLocalHidden(pairingId: String) {
+        defaults.set(true, forKey: Key.localHidden(pairingId))
+        var index = defaults.stringArray(forKey: Key.hiddenIndex) ?? []
+        if !index.contains(pairingId) {
+            index.append(pairingId)
+            defaults.set(index, forKey: Key.hiddenIndex)
+        }
+    }
+
+    /// Clear a pairingId's tombstone (flag + index entry). The ONLY legitimate
+    /// clear-triggers are (i) a deliberate (re)commit of that pairingId (`persist`
+    /// / `ingest`) — a fresh pairing action un-hides the daemon on this device —
+    /// and (ii) a hard delete of that pairingId's blob (`remove`/unpair, or a
+    /// re-pair/loser sweep that deletes an old blob). **Never** cleared by
+    /// enumeration-absence: a hidden blob keeps syncing from a peer, and its
+    /// transient absence during partial iCloud sync must not be read as "safe to
+    /// GC the tombstone" (that would resurface the daemon).
+    private func clearLocalHide(pairingId: String) {
+        guard !pairingId.isEmpty else { return }
+        defaults.removeObject(forKey: Key.localHidden(pairingId))
+        let index = defaults.stringArray(forKey: Key.hiddenIndex) ?? []
+        if index.contains(pairingId) {
+            defaults.set(index.filter { $0 != pairingId }, forKey: Key.hiddenIndex)
+        }
+    }
+
+    /// Hide (LOCAL, non-revoking) a committed pairing on THIS device only.
+    ///
+    /// Unlike `remove(daemonId:)` (Unpair = revocation): does NOT delete the synced
+    /// Option A blob, does NOT delete the legacy secret, does NOT send
+    /// `control.unpair`, and does NOT touch the device-local sidecar/label. It only
+    /// (a) tombstones the daemon's current pairingId so `reconciledPointers` filters
+    /// it out of `daemonIds()` on this device, and (b) drops the pointer entry. The
+    /// synced blob keeps syncing to (and from) the user's other devices — the
+    /// pairing stays valid everywhere; it is merely hidden here (design v2 §E.2).
+    ///
+    /// The sidecar (`Key.meta`, anti-downgrade floor + PCT) is deliberately kept: the
+    /// blob survives, so its device-local floor evidence must stay consistent with it
+    /// (a reset-to-0 floor would open a PR-5 §1.3 downgrade window if the daemon is
+    /// ever re-paired/unhidden on this device). Non-throwing.
+    /// Returns the PENDING pairingIds swept so the caller (`PairingViewModel`) can
+    /// dispose their live relay clients — mirrors `gcPending`'s contract.
+    @discardableResult
+    func hideLocally(daemonId: String) -> [String] {
+        // Resolve the daemon's current committed pairingId(s) and tombstone them.
+        // Usually one; a partial-sync window could momentarily show two — hide all
+        // so none can surface.
+        for pid in pairingIds(forDaemon: daemonId) {
+            setLocalHidden(pairingId: pid)
+        }
+        dropPointer(daemonId: daemonId)
+        // Sweep any PENDING pairing for this daemon: an in-flight pending kx could
+        // otherwise promote() → persist() and resurface the daemon right after we
+        // hid it. Dropping the pending record (and returning its id so the VM
+        // disposes the client) closes that race. A subsequent deliberate re-scan
+        // re-ingests a fresh pending and un-hides via `ingest` (design §E.2).
+        var sweptPending: [String] = []
+        for pid in pendingIds() {
+            let meta = defaults.dictionary(forKey: Key.pendingMeta(pid)) as? [String: String]
+            if meta?["did"] == daemonId {
+                removePending(pairingId: pid)
+                sweptPending.append(pid)
+            }
+        }
+        return sweptPending
+    }
+
+    /// Clear tombstones for a daemon that is being deliberately (re)paired or
+    /// unpaired, so a hide never outlives the next intentional pairing action.
+    /// Clears BOTH the incoming/resolved pairingId AND the legacy-derived id
+    /// (`deriveLegacyPairingId(daemonId)`): because that derivation is deterministic
+    /// from daemonId, re-pairing a hidden LEGACY (v2/v3) daemon re-mints the SAME
+    /// pairingId, which would otherwise stay filtered — design §6's "re-pair mints a
+    /// new pairingId" premise holds only for QR v4.
+    private func unhideForDaemon(daemonId: String, pairingId: String) {
+        clearLocalHide(pairingId: pairingId)
+        clearLocalHide(pairingId: deriveLegacyPairingId(daemonId: daemonId))
+    }
+
+    /// Clear ALL local-hide tombstone state — smoke-harness isolation only.
+    /// The golden smoke deep link is wire v3 (no explicit pairingId), so its
+    /// committed pairingId is `deriveLegacyPairingId(SMOKE_DAEMON_ID)` — the SAME
+    /// value every run. A tombstone surviving from a prior run (the host cannot
+    /// reach the Simulator's UserDefaults on iOS) would filter the fresh ingest's
+    /// pairingId and suppress `TP_PAIR_OK` (M1). Called only from
+    /// `wipeAllCommittedForSmoke`. **Never in a normal launch.**
+    private func clearAllTombstonesForSmoke() {
+        for pid in defaults.stringArray(forKey: Key.hiddenIndex) ?? [] {
+            defaults.removeObject(forKey: Key.localHidden(pid))
+        }
+        defaults.removeObject(forKey: Key.hiddenIndex)
     }
 
     /// Migrate legacy split-storage committed records (Keychain secret keyed by
@@ -676,7 +848,11 @@ final class PairingStore: @unchecked Sendable {
     func remove(daemonId: String) {
         for pid in pairingIds(forDaemon: daemonId) {
             records.remove(pairingId: pid)
+            clearLocalHide(pairingId: pid)  // PR-7: blob revoked → tombstone is dead weight
         }
+        // PR-7: also clear the legacy-derived id so a hidden-then-unpaired legacy
+        // daemon leaves no immortal tombstone (its pairingId is deterministic).
+        clearLocalHide(pairingId: deriveLegacyPairingId(daemonId: daemonId))
         keychainDelete(account: daemonId)  // legacy synced secret — revoke everywhere
         defaults.removeObject(forKey: Key.meta(daemonId))
         defaults.removeObject(forKey: "tp.pairing.\(daemonId).label")

@@ -55,6 +55,14 @@ golden 토큰 pre-seed, 합성 `sess-smoketest`)이 기본. **실 `tp` daemon+re
 > -s dev.tpmt.app.pairing.v2` + `defaults delete … tp.pairings.ptr{,.order,.migrated.v2}` 로 host
 > Keychain/defaults 를 청소(iOS Simulator Keychain 은 host 에서 접근 불가라 (1)이 담당). 이게 없으면 **연속
 > smoke 두 번째 런부터** M3' 가 결정론적으로 깨진다.
+>
+> **PR-7 local-hide tombstone 정리 (같은 두 겹)**: PR-7 은 device-local·NON-synced `localHidden`
+> tombstone(`tp.pairing.<pid>.localHidden` bool + **plural** `tp.pairings.hidden` 인덱스, UserDefaults)을
+> 추가한다. 잔류 tombstone 이 결정론적 v3-derived smoke pairingId 를 `daemonIds()` 에서 필터하면
+> **M1(`TP_PAIR_OK`)** 이 2번째 런부터 억제된다. 두 겹: (1) app-side `wipeAllCommittedForSmoke()` 가
+> tombstone(플래그+인덱스)도 clear, (2) harness `defaults delete dev.tpmt.app tp.pairings.hidden`
+> (plural 인덱스는 명시 삭제 — 기존 singular-prefix 루프 `grep '"tp\.pairing\.'` 는 per-pairingId
+> `.localHidden` 플래그만 훑고 plural 인덱스는 못 잡는다).
 
 ## 마커 (8마커, os.Logger `subsystem == "dev.tpmt.app"`)
 

@@ -227,7 +227,12 @@ struct DaemonsListView: View {
             ConfirmUnpairView(
                 daemonId: did,
                 displayName: label,
-                onConfirm: {
+                onHideLocally: {
+                    activeSheet = nil
+                    // Local hide — no control.unpair, synced blob kept (PR-7 §E.2).
+                    pairings.hideLocally(did)
+                },
+                onUnpair: {
                     activeSheet = nil
                     // `remove` notifies the peer via control.unpair before disconnect.
                     pairings.remove(did)
@@ -424,44 +429,72 @@ private struct PendingDaemonRow: View {
     }
 }
 
-// MARK: - Confirm unpair sheet
+// MARK: - Confirm remove/unpair sheet
 
-/// Confirmation sheet before removing a pairing.
+/// Confirmation sheet offering the two distinct removal scopes (PR-7, design v2 §E):
+///
+/// - **Remove from this device** (non-destructive): hides the daemon on THIS install
+///   only. The pairing stays valid and keeps syncing to the user's other devices; no
+///   `control.unpair` is sent and the synced credential is NOT deleted. It reappears
+///   on a reinstall (the synced blob is re-adopted) — the copy says so. Normal styling
+///   — this must NOT read as a revocation.
+/// - **Unpair** (destructive, red): revokes the pairing everywhere — sends
+///   `control.unpair` to the daemon and deletes the synced record (propagates to all
+///   the user's devices). This is the only mesh-wide revocation.
 private struct ConfirmUnpairView: View {
     let daemonId: String
     let displayName: String
-    var onConfirm: () -> Void
+    var onHideLocally: () -> Void
+    var onUnpair: () -> Void
     var onCancel: () -> Void
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 20) {
+            VStack(spacing: 16) {
                 Spacer()
-                Image(systemName: "trash.circle.fill")
-                    .font(.system(size: 56))
-                    .foregroundStyle(.red)
+                Image(systemName: "minus.circle.fill")
+                    .font(.system(size: 52))
+                    .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
                 Text("Remove \(displayName)?")
                     .font(.title2.bold())
                     .multilineTextAlignment(.center)
                     .accessibilityIdentifier("unpair-confirm-title")
-                Text("You'll need to scan a new QR code from the daemon to reconnect.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
                 Text(daemonId)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("unpair-confirm-did")
                 Spacer()
-                Button(role: .destructive) {
-                    onConfirm()
-                } label: {
-                    Text("Remove Pairing")
-                        .frame(maxWidth: .infinity)
+
+                // Non-destructive: hide on this device only. Normal styling.
+                Button(action: onHideLocally) {
+                    VStack(spacing: 2) {
+                        Text("Remove from this device")
+                            .font(.body.weight(.semibold))
+                        Text("Stays paired — reappears if you reinstall")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.bordered)
+                .padding(.horizontal)
+                .accessibilityIdentifier("remove-local-btn")
+
+                // Destructive: revoke everywhere. Red.
+                Button(role: .destructive, action: onUnpair) {
+                    VStack(spacing: 2) {
+                        Text("Unpair")
+                            .font(.body.weight(.semibold))
+                        Text("Removes from all your devices")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+                }
+                .buttonStyle(.bordered)
                 .tint(.red)
                 .padding(.horizontal)
                 .accessibilityIdentifier("unpair-confirm-btn")
@@ -469,6 +502,7 @@ private struct ConfirmUnpairView: View {
                 Button("Cancel", action: onCancel)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("unpair-cancel-btn")
+                    .padding(.top, 4)
                     .padding(.bottom)
             }
             .padding()

@@ -2,6 +2,10 @@ import SwiftUI
 import UserNotifications
 import os
 
+#if canImport(UIKit)
+import UIKit
+#endif
+
 /// Entry point for the native Teleprompter iOS app (ADR-0001 rewrite).
 ///
 /// Boots on the iOS Simulator and routes inbound `tp://` deep links (pairing
@@ -253,6 +257,11 @@ final class PairingViewModel {
     @ObservationIgnored private var pendingClients: [String: RelayClient] = [:]
     /// Age cutoff for GC'ing pending pairings that never completed kx (§1.3).
     @ObservationIgnored private let pendingMaxAge: TimeInterval = 24 * 60 * 60
+    /// Token for the protected-data-available observer (retry-on-unlock). iOS-only —
+    /// macOS has no lock-protected data class that blocks the Keychain at cold boot.
+    /// `nonisolated(unsafe)`: written once in `init`, read once in the nonisolated
+    /// `deinit` — no concurrent access, so the manual reasoning is sound.
+    @ObservationIgnored nonisolated(unsafe) private var unlockObserver: NSObjectProtocol?
 
     /// PR-4: observable list of PENDING pairings for the "Confirming…" UI rows.
     /// Populated from `store.pendingIds()`; a row drops off when its pairing
@@ -275,6 +284,13 @@ final class PairingViewModel {
     init(store: PairingStore = .shared, sessionStore: SessionStore) {
         self.store = store
         self.sessionStore = sessionStore
+        // Smoke isolation: the harness cannot reach the Simulator Keychain, and PR-6's
+        // committed blobs are synchronizable → they survive `simctl uninstall`. Left in
+        // place, a stale blob boot-reconnects a committed client that races the fresh
+        // pending client re-ingested each run (same frontendId → daemon peer-key
+        // clobber → frame-decrypt aead failure). Wipe committed state before the
+        // reconnect loop. No-op in any normal (non-`--tp-smoke*`) launch.
+        if RelayClient.isSmokeMode { store.wipeAllCommittedForSmoke() }
         // Sweep pending pairings that never completed kx across prior sessions,
         // disposing any leftover client for each (§1.6). Runs before we enumerate.
         for pid in store.gcPending(olderThan: pendingMaxAge) {
@@ -283,7 +299,35 @@ final class PairingViewModel {
         }
         reload()
         reloadPending()
-        // Reconnect any COMMITTED pairing that survived a relaunch.
+        // Reconnect any COMMITTED pairing that survived a relaunch, and resume
+        // connect-on-pending for every PENDING pairing (§1.5).
+        reconnectAll()
+        // Retry-on-unlock (design §3.6 cond 2 / pr6-design-v2.md line 54): a
+        // cold-launch before first unlock makes the Keychain enumeration `.locked`
+        // and `store.load(daemonId:)` return nil, so the init reconnect pass builds
+        // no clients. Without this, the app never reconnects until it is force-quit
+        // and relaunched. Re-run the reconnect pass once protected data becomes
+        // available; `connect`/`beginPending` are idempotent (they tear down any
+        // existing client first), so a spurious fire is harmless. iOS-only — macOS
+        // has no lock-protected data class that blocks the Keychain at cold boot.
+        #if canImport(UIKit)
+        unlockObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.protectedDataDidBecomeAvailableNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reconnectAll() }
+        }
+        #endif
+    }
+
+    deinit {
+        if let unlockObserver { NotificationCenter.default.removeObserver(unlockObserver) }
+    }
+
+    /// Reconnect every COMMITTED pairing and resume connect-on-pending for every
+    /// PENDING pairing. Idempotent — safe to call at init and again on unlock.
+    private func reconnectAll() {
+        reload()
         for did in daemonIds { connect(daemonId: did) }
         // Resume connect-on-pending for every PENDING pairing (§1.5): while the app
         // is up, a client-less PENDING cannot structurally exist — this closes the

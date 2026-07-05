@@ -44,6 +44,18 @@ golden 토큰 pre-seed, 합성 `sess-smoketest`)이 기본. **실 `tp` daemon+re
 > **`TP_INPUT_OK` 가 watchOS 에서 빠지는 이유**: ADR-0002 §4 — watchOS 는 제한 경험(입력 송신 미구현).
 > 그래서 watchOS smoke 는 M0–M4 (7마커) 만 어서션한다.
 
+> **Smoke Keychain 격리 (PR-6 Option A)**: PR-6 은 커밋 페어링 인덱스를 `simctl uninstall` 이 지우는
+> UserDefaults 에서 **synchronizable Keychain blob**(`<base>.v2` service)로 옮겼다 — 이건 uninstall 을
+> 살아남는다(iCloud sync 의 요점). smoke 는 매 런 fresh 페어링을 re-ingest 하므로, 잔류 committed blob 이
+> 부팅 시 committed `RelayClient` 를 재연결시켜 그 런의 pending client 와 **같은 frontendId 로 경합** →
+> daemon per-frontend 세션키 clobber → frame-decrypt `aead authentication failed`(M3' fail)를 낸다. 두
+> 겹 방어: (1) **app-side** — `PairingViewModel.init` 이 `RelayClient.isSmokeMode`(`--tp-smoke*` launch
+> arg)일 때 `store.wipeAllCommittedForSmoke()` 로 committed blob+pointer 를 부팅 즉시 wipe(프로덕션 런은
+> no-op). (2) **harness-side** — `scripts/ios.sh` 의 macOS 정리 블록이 `security delete-generic-password
+> -s dev.tpmt.app.pairing.v2` + `defaults delete … tp.pairings.ptr{,.order,.migrated.v2}` 로 host
+> Keychain/defaults 를 청소(iOS Simulator Keychain 은 host 에서 접근 불가라 (1)이 담당). 이게 없으면 **연속
+> smoke 두 번째 런부터** M3' 가 결정론적으로 깨진다.
+
 ## 마커 (8마커, os.Logger `subsystem == "dev.tpmt.app"`)
 
 | # | 마커 | 의미 |

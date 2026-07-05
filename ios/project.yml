@@ -333,6 +333,10 @@ targets:
       # "cannot find 'onWorktreeList' in scope".
       - path: Sources/Relay/RelayWorktreeOps.swift
       - path: Sources/Pairing/PairingStore.swift
+      # PairingStore's committed-record seam + Option A blob type (PR-6).
+      # Platform-neutral (Foundation + Security + os); the macOS-only sync probe
+      # is behind #if os(macOS), so watchOS takes the always-true #else path.
+      - path: Sources/Pairing/PairingRecordStore.swift
       - path: Sources/Pairing/DeepLinkHandler.swift
       - path: Sources/Pairing/PairingRelayOps.swift
       - path: Sources/Session/SessionStore.swift

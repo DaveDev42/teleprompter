@@ -70,19 +70,26 @@ enum PairingError: Error, CustomStringConvertible {
 
 /// Persists pairings and the stable `frontendId`.
 ///
-/// Secret material (the 32-byte pairing secret) lives in the Keychain, keyed by
-/// daemon id. Non-secret fields and the install's `frontendId` live in
-/// `UserDefaults`. The index of known daemon ids is kept in `UserDefaults` so we
-/// can enumerate pairings without scanning the Keychain.
+/// **COMMITTED pairings (PR-6, design §3.2 "Option A")** live as one
+/// per-pairing **synchronizable Keychain blob** keyed by `pairingId`, behind the
+/// `PairingRecordStore` seam. That per-item keying is what lets iCloud Keychain
+/// merge multi-device adds losslessly (item-granular LWW, no shared conflict
+/// unit). Enumerating that service IS the committed index — the Keychain is the
+/// source of truth for *which* pairings exist. A device-local **pointer map**
+/// (`tp.pairings.ptr`: daemonId→current pairingId, UserDefaults) records this
+/// device's current pairingId per daemon so `remove`/`load` resolve the blob
+/// without a (throwable) enumeration, and so a locked/empty enumeration never
+/// wipes the visible set. A device-local **sidecar** (`Key.meta`, UserDefaults,
+/// keyed by daemonId) holds the never-synced fields: the anti-downgrade `floor`
+/// (§1.3), `lastConfirmedPct`/`confirmedAt` (§2.5). Labels stay device-local
+/// (`PairingRelayOps`), `frontendId` install-wide. PENDING pairings are
+/// unchanged: device-local UserDefaults meta + a non-synced Keychain secret.
 ///
-/// `@unchecked Sendable`: every stored property is a `let` (no mutable in-memory
-/// state), and the two non-`Sendable`-typed ones — `defaults: UserDefaults` and
-/// the Keychain accessed via `keychainService: String` — wrap system APIs that
-/// Apple documents as thread-safe. `UserDefaults` is not annotated `Sendable` by
-/// the stdlib, so the compiler can't prove this; `@unchecked` records the
-/// author-verified guarantee. Instances are therefore shared safely across
-/// isolation domains — the main actor (SwiftUI views) AND `RelayClient`'s
-/// off-main URLSession receive loop (`RelayClient.swift` `onKeyExchangeFrame`).
+/// `@unchecked Sendable`: `defaults`, `keychainService`, and `records` wrap
+/// system/thread-safe APIs; the only mutable in-memory state (`lastGoodPointers`)
+/// is guarded by `pointerLock`. `UserDefaults` is not `Sendable` in the stdlib,
+/// so `@unchecked` records the author-verified guarantee. Instances are shared
+/// across the main actor (SwiftUI) AND `RelayClient`'s off-main receive loop.
 final class PairingStore: @unchecked Sendable {
     static let shared = PairingStore()
 
@@ -93,13 +100,34 @@ final class PairingStore: @unchecked Sendable {
     /// `.standard` (the machine-global defaults), which both breaks test
     /// isolation and is inconsistent with how meta/index/frontendId persist.
     let defaults: UserDefaults
+    /// Base Keychain service for the legacy committed secret + PENDING secrets.
     private let keychainService: String
+    /// Committed-record persistence seam (Option A synced blob). `internal` for
+    /// test injection of an in-memory double.
+    let records: PairingRecordStore
     private let log = Logger(subsystem: "dev.tpmt.app", category: "pairing")
+
+    /// Last successful enumeration's pointer index. Returned when a later
+    /// enumeration throws `.locked` so a transient keychain window can't blank the
+    /// pairing list (design §3.6 cond 2). Guarded by `pointerLock`.
+    private var lastGoodPointers: Pointers?
+    private let pointerLock = NSLock()
 
     private enum Key {
         static let frontendId = "tp.frontendId"
-        static let daemonIndex = "tp.pairings.index"  // [String] of daemon ids (COMMITTED)
+        static let daemonIndex = "tp.pairings.index"  // legacy [String] of daemon ids
         static func meta(_ did: String) -> String { "tp.pairing.\(did).meta" }  // [String:String]
+
+        /// Device-local pointer map: daemonId → its current committed pairingId.
+        /// Ordered membership + order cache for `daemonIds()`; the committed
+        /// Keychain blobs are the source of truth, this is the ordering/last-good
+        /// overlay (design §3.2 "UserDefaults index 는 캐시로 강등").
+        static let pointerMap = "tp.pairings.ptr"
+        /// Companion to `pointerMap`: the stable daemonId order (a dict's own key
+        /// order is unspecified, so `daemonIds()` reads this array).
+        static let pointerOrder = "tp.pairings.ptr.order"
+        /// One-shot flag: legacy committed records migrated to Option A blobs.
+        static let migratedV2 = "tp.pairings.migrated.v2"
 
         // PENDING namespace (device-local — never synced; a synced pending record
         // would let an un-scanned device complete kx and pair, §1.3).
@@ -108,16 +136,35 @@ final class PairingStore: @unchecked Sendable {
     }
 
     /// Keychain account prefix for a PENDING pairing's secret. Namespaced so a
-    /// pending secret can never collide with the committed item (`account: daemonId`)
-    /// and so pending secrets are stored non-synchronizably (see `keychainSet`).
+    /// pending secret can never collide with the legacy committed item
+    /// (`account: daemonId`) and so pending secrets are stored non-synchronizably.
     private static func pendingAccount(_ pairingId: String) -> String { "pending.\(pairingId)" }
 
-    init(
+    convenience init(
         defaults: UserDefaults = .standard,
         keychainService: String = "dev.tpmt.app.pairing"
     ) {
+        // The committed blob lives under a DEDICATED service (`<base>.v2`) so
+        // migration writes never collide with the legacy secret's `<base>` items.
+        // macOS decides synchronizability at runtime (a signed build syncs; an
+        // ad-hoc smoke build degrades to local-only) — see `PairingSyncProbe`.
+        let blobService = keychainService + ".v2"
+        let sync = PairingSyncProbe.syncAvailable(service: blobService)
+        self.init(
+            defaults: defaults, keychainService: keychainService,
+            records: KeychainRecordStore(service: blobService, synchronizable: sync))
+    }
+
+    /// Designated init — injectable `records` seam for tests.
+    init(
+        defaults: UserDefaults,
+        keychainService: String,
+        records: PairingRecordStore
+    ) {
         self.defaults = defaults
         self.keychainService = keychainService
+        self.records = records
+        migrateLegacyCommittedRecords()
     }
 
     // MARK: frontendId
@@ -207,66 +254,263 @@ final class PairingStore: @unchecked Sendable {
 
     // MARK: persistence
 
+    /// Write one COMMITTED pairing as an Option A synced blob (keyed by
+    /// `pairingId`), enforce the **≤1 blob per did** invariant by removing any
+    /// prior blob for the same daemon under a *different* pairingId (a re-pair
+    /// mints a new pairingId — leaving the old one would leak an orphan and make
+    /// `load`'s "current" ambiguous, design §3.2/§3.7 item 5), point the map at
+    /// the new pairingId, and ensure the device-local sidecar floor exists.
+    ///
+    /// `pairingId`/`hostname`/`v` ride in the blob so W7 boot reconciliation and
+    /// §2.5 PCT re-verification have a stable comparison key. `floor` (PR-5,
+    /// anti-downgrade §1.3) is the ONLY committed field kept device-local (in the
+    /// sidecar, never synced) — persisted so a promoted pairing keeps its "seen
+    /// v≥3" evidence across relaunches. A re-persist from a stale in-memory
+    /// `Pairing` must never lower it, so we max against the existing sidecar value.
     private func persist(_ p: Pairing) throws {
-        try keychainSet(p.pairingSecret, account: p.daemonId)
-        // `pairingId`/`hostname` (from QR v4) are persisted so W7 boot
-        // reconciliation and §2.5 PCT re-verification have a stable comparison key
-        // (round-3 condition 5). Legacy records written before this schema lack the
-        // keys; `load` derives them on read (see below). `minAdvertisedV` (PR-5) is
-        // the anti-downgrade floor — persisted so a promoted pairing keeps its
-        // "seen v≥3" evidence across relaunches. A promote from PENDING carries the
-        // pending floor forward via the loaded `Pairing`; `raiseFloor` bumps it
-        // afterwards on any higher signal. Preserve any already-persisted floor that
-        // is higher (a re-persist from a stale in-memory Pairing must never lower it).
-        let existingFloor =
-            (defaults.dictionary(forKey: Key.meta(p.daemonId)) as? [String: String])?["floor"]
-            .flatMap { Int($0) } ?? 0
-        let meta: [String: String] = [
-            "pk": p.daemonPublicKey.base64EncodedString(),
-            "relay": p.relayURL,
-            "did": p.daemonId,
-            "v": String(p.version),
-            "pairingId": p.pairingId,
-            "hostname": p.hostname,
-            "floor": String(max(p.minAdvertisedV, existingFloor)),
-        ]
-        defaults.set(meta, forKey: Key.meta(p.daemonId))
-        var index = daemonIds()
-        if !index.contains(p.daemonId) {
-            index.append(p.daemonId)
-            defaults.set(index, forKey: Key.daemonIndex)
+        // Durability ordering: SAVE the new blob (and repoint) BEFORE sweeping the
+        // old same-did orphans. If `save` throws (transient SecItemAdd failure —
+        // device relock, disk pressure, entitlement hiccup), the prior committed
+        // blob is still intact, so a re-pair never leaves the daemon with zero
+        // committed blobs + a dangling pointer (a permanently-stuck phantom row).
+        let blob = PairingBlob(
+            ps: p.pairingSecret.base64EncodedString(),
+            pk: p.daemonPublicKey.base64EncodedString(),
+            relay: p.relayURL, did: p.daemonId, v: p.version,
+            pairingId: p.pairingId, hostname: p.hostname,
+            ts: Int(Date().timeIntervalSince1970 * 1000))
+        try records.save(blob)
+        setPointer(daemonId: p.daemonId, pairingId: p.pairingId)
+        // Now the new blob is durable — drop any committed blob(s) for this daemon
+        // under a stale pairingId (a re-pair mints a new pairingId; leaving the old
+        // one would leak an orphan and break the ≤1-blob-per-did invariant).
+        for old in pairingIds(forDaemon: p.daemonId) where old != p.pairingId {
+            records.remove(pairingId: old)
         }
+
+        // Sidecar floor (device-local, never synced). Preserve a higher existing
+        // floor (a re-persist must never lower it); create the dict if absent.
+        var meta = (defaults.dictionary(forKey: Key.meta(p.daemonId)) as? [String: String]) ?? [:]
+        let existingFloor = meta["floor"].flatMap { Int($0) } ?? 0
+        meta["floor"] = String(max(p.minAdvertisedV, existingFloor))
+        defaults.set(meta, forKey: Key.meta(p.daemonId))
     }
 
-    /// All known daemon ids, in insertion order.
+    /// All known committed daemon ids, in a stable order (surviving entries keep
+    /// their prior order; peer-synced arrivals append). Reconciles the pointer map
+    /// against the Keychain (source of truth) first. Non-throwing: on a locked
+    /// keychain it returns the last-good order, so a transient window never blanks
+    /// the list (design §3.6 cond 2).
     func daemonIds() -> [String] {
-        defaults.stringArray(forKey: Key.daemonIndex) ?? []
+        reconciledPointers().order
     }
 
     /// Load a persisted (COMMITTED) pairing by daemon id, or throw `.notFound`.
     ///
-    /// Tolerates legacy records: `pairingId`/`hostname` were added after the first
-    /// paired users existed, so a missing `pairingId` is backfilled by deriving it
-    /// from `daemonId` (`deriveLegacyPairingId`) and `hostname` defaults to "". This
-    /// must NOT hard-fail on the new keys — every already-paired daemon would
-    /// silently vanish (the guard feeds `connect`'s silent `else { return }`).
+    /// Resolves the daemon's *current* committed `pairingId` via the pointer map,
+    /// so a re-pair (new pairingId) or a lingering orphan blob can never surface a
+    /// stale record. Merges the device-local sidecar `floor` (legacy/absent → 0).
     func load(daemonId: String) throws -> Pairing {
-        guard let meta = defaults.dictionary(forKey: Key.meta(daemonId)) as? [String: String],
-            let pkB64 = meta["pk"], let daemonPk = Data(base64Encoded: pkB64),
-            let relay = meta["relay"], let did = meta["did"],
-            let vStr = meta["v"], let v = UInt8(vStr)
+        let pointers = reconciledPointers()
+        guard let pid = pointers[daemonId] else { throw PairingError.notFound }
+        let blob: PairingBlob
+        do {
+            guard let found = try records.loadAll().first(where: { $0.pairingId == pid })
+            else { throw PairingError.notFound }
+            blob = found
+        } catch let e as RecordStoreError {
+            throw PairingError.keychain(e.status)
+        }
+        guard let daemonPk = Data(base64Encoded: blob.pk),
+            let secret = Data(base64Encoded: blob.ps)
         else { throw PairingError.notFound }
-        let secret = try keychainGet(account: daemonId)
-        let pairingId =
-            meta["pairingId"].flatMap { $0.isEmpty ? nil : $0 }
-            ?? deriveLegacyPairingId(daemonId: did)
-        // Legacy committed rows lack `floor`; default to 0 (unknown). A v4-derived
-        // record persisted its floor=3 at promote time.
-        let floor = meta["floor"].flatMap { Int($0) } ?? 0
+        let floor =
+            (defaults.dictionary(forKey: Key.meta(daemonId)) as? [String: String])?["floor"]
+            .flatMap { Int($0) } ?? 0
         return Pairing(
             pairingSecret: secret, daemonPublicKey: daemonPk,
-            relayURL: relay, daemonId: did, frontendId: frontendId(), version: v,
-            pairingId: pairingId, hostname: meta["hostname"] ?? "", minAdvertisedV: floor)
+            relayURL: blob.relay, daemonId: blob.did, frontendId: frontendId(), version: blob.v,
+            pairingId: blob.pairingId, hostname: blob.hostname, minAdvertisedV: floor)
+    }
+
+    /// Remove EVERY committed pairing (blobs + legacy secrets + sidecars + pointer
+    /// index). **Smoke-harness isolation only** (native-testing.md §ship-gate note):
+    /// PR-6 moved the committed index from UserDefaults (which `simctl uninstall`
+    /// clears) into the synchronizable Keychain, which survives an uninstall *by
+    /// design* — that is the whole point of iCloud sync. But the iOS smoke re-ingests
+    /// a *fresh* pairing for the same daemon each run; a surviving committed blob then
+    /// boot-reconnects a second `RelayClient` under the same `frontendId`, clobbering
+    /// the daemon's per-frontend session keys and failing frame decrypt (`aead
+    /// authentication failed`). The macOS harness clears its Keychain from the host
+    /// (`security delete-generic-password`), but nothing on the host can reach the
+    /// Simulator's Keychain — so the app wipes committed state itself when launched in
+    /// smoke mode. **Never called in a normal (non-`--tp-smoke*`) launch.**
+    func wipeAllCommittedForSmoke() {
+        for did in daemonIds() { remove(daemonId: did) }
+        // Belt-and-suspenders: drop any blob whose did the pointer map missed
+        // (e.g. a peer-synced arrival not yet reconciled into the map).
+        if let blobs = try? records.loadAll() {
+            for b in blobs { records.remove(pairingId: b.pairingId) }
+        }
+        writePointers(Pointers(order: [], map: [:]))
+    }
+
+    // MARK: pointer map + Keychain reconciliation (design §3.2)
+
+    /// The device-local daemonId→pairingId pointer index, order-preserving.
+    /// `order` is the stable daemonId sequence for `daemonIds()` (SwiftUI rows);
+    /// `map` resolves a daemonId to its current committed pairingId. Persisted as
+    /// two UserDefaults keys (a dict, whose own key order is unstable, plus an
+    /// explicit order array).
+    private struct Pointers: Equatable {
+        var order: [String]
+        var map: [String: String]
+        var isEmpty: Bool { order.isEmpty }
+        subscript(_ did: String) -> String? { map[did] }
+    }
+
+    private func pointers() -> Pointers {
+        let map = (defaults.dictionary(forKey: Key.pointerMap) as? [String: String]) ?? [:]
+        // Order = persisted order filtered to present keys, then any map keys not
+        // yet in the order (defensive — e.g. an older on-disk shape).
+        var order = (defaults.stringArray(forKey: Key.pointerOrder) ?? []).filter { map[$0] != nil }
+        for did in map.keys where !order.contains(did) { order.append(did) }
+        return Pointers(order: order, map: map)
+    }
+
+    private func writePointers(_ p: Pointers) {
+        defaults.set(p.map, forKey: Key.pointerMap)
+        defaults.set(p.order, forKey: Key.pointerOrder)
+        pointerLock.lock()
+        lastGoodPointers = p
+        pointerLock.unlock()
+    }
+
+    private func setPointer(daemonId: String, pairingId: String) {
+        var p = pointers()
+        if p.map[daemonId] == nil { p.order.append(daemonId) }
+        p.map[daemonId] = pairingId
+        writePointers(p)
+    }
+
+    private func dropPointer(daemonId: String) {
+        var p = pointers()
+        p.map.removeValue(forKey: daemonId)
+        p.order.removeAll { $0 == daemonId }
+        writePointers(p)
+    }
+
+    /// The committed pairingIds currently in the Keychain for a daemon (usually
+    /// ≤1 — used to sweep stale re-pair orphans). Best-effort: an enumeration
+    /// error yields the pointer-map entry (if any) so `persist` still cleans up.
+    private func pairingIds(forDaemon did: String) -> [String] {
+        if let blobs = try? records.loadAll() {
+            let fromKeychain = blobs.filter { $0.did == did }.map { $0.pairingId }
+            if !fromKeychain.isEmpty { return fromKeychain }
+        }
+        return pointers()[did].map { [$0] } ?? []
+    }
+
+    /// Reconcile the pointer index against the committed Keychain blobs and return
+    /// it. Design §3.6 cond 2 + the cache-preservation rule generalized per-did:
+    /// a Keychain enumeration can be **partial** mid-sync (iCloud propagates a blob's
+    /// delete and its replacement add as two unordered writes), so an enumeration
+    /// that omits a did we already point at is NOT proof the daemon was unpaired.
+    ///
+    /// - enumeration throws `.locked` → return the last-good index, don't mutate.
+    /// - enumeration empty AND index non-empty → UNCORROBORATED empty: keep it (a
+    ///   single cold-launch empty must never nuke a populated index).
+    /// - enumeration non-empty → REPOINT each present did to its latest-`ts` blob,
+    ///   APPEND peer-synced arrivals, and **PRESERVE (do not prune)** the pointer for
+    ///   any did with no blob this pass (transient partial-sync absence — else a
+    ///   re-paired peer's daemon vanishes from the UI until its new blob syncs). A
+    ///   genuinely-unpaired daemon is dropped only by explicit `remove(daemonId:)`
+    ///   (revocation) or the PR-7 local-hide tombstone — never inferred from absence.
+    ///   Losing same-did blobs (concurrent re-pair) are swept to hold ≤1-per-did.
+    private func reconciledPointers() -> Pointers {
+        let blobs: [PairingBlob]
+        do {
+            blobs = try records.loadAll()
+        } catch {
+            pointerLock.lock()
+            let lastGood = lastGoodPointers
+            pointerLock.unlock()
+            return lastGood ?? pointers()
+        }
+        let current = pointers()
+        if blobs.isEmpty {
+            if current.isEmpty { return current }
+            // Uncorroborated empty — keep the existing index (do not prune to empty).
+            pointerLock.lock()
+            lastGoodPointers = current
+            pointerLock.unlock()
+            return current
+        }
+        // Latest-ts-wins per did, tracking the losers so we can sweep them: two blobs
+        // for one did means a concurrent re-pair (each device minted its own
+        // pairingId). Keep the newest, delete the rest to restore ≤1-per-did.
+        var currentByDid: [String: PairingBlob] = [:]
+        var losers: [String] = []
+        for b in blobs {
+            if let existing = currentByDid[b.did] {
+                if existing.ts >= b.ts {
+                    losers.append(b.pairingId)  // b is older/tied → orphan
+                    continue
+                }
+                losers.append(existing.pairingId)  // existing is older → orphan
+            }
+            currentByDid[b.did] = b
+        }
+        for pid in losers { records.remove(pairingId: pid) }
+
+        var order: [String] = []
+        var map: [String: String] = [:]
+        for did in current.order {  // survivors + transiently-absent both keep order
+            order.append(did)
+            // Present this pass → repoint to the latest blob; absent → PRESERVE the
+            // existing pointer (partial-sync window, not an unpair).
+            map[did] = currentByDid[did]?.pairingId ?? current.map[did]
+        }
+        for did in currentByDid.keys.sorted() where map[did] == nil {  // arrivals (stable order)
+            order.append(did)
+            map[did] = currentByDid[did]?.pairingId
+        }
+        let reconciled = Pointers(order: order, map: map)
+        writePointers(reconciled)
+        return reconciled
+    }
+
+    /// Migrate legacy split-storage committed records (Keychain secret keyed by
+    /// daemonId + UserDefaults meta) to Option A blobs. Runs once (done-flagged);
+    /// post-PR-6 every committed write goes to the `.v2` service, so no legacy
+    /// write can occur after this. **Never deletes the legacy secret** — a synced
+    /// delete would propagate via iCloud and silently unpair older-app peers still
+    /// reading it (design §3.6 cond 3). Idempotent (delete-then-add blob write).
+    private func migrateLegacyCommittedRecords() {
+        guard !defaults.bool(forKey: Key.migratedV2) else { return }
+        defer { defaults.set(true, forKey: Key.migratedV2) }
+        let legacyDids = defaults.stringArray(forKey: Key.daemonIndex) ?? []
+        for did in legacyDids {
+            guard let meta = defaults.dictionary(forKey: Key.meta(did)) as? [String: String],
+                let pkB64 = meta["pk"], let relay = meta["relay"],
+                let vStr = meta["v"], let v = UInt8(vStr)
+            else { continue }
+            guard let secret = try? keychainGet(account: did) else { continue }
+            let pid =
+                meta["pairingId"].flatMap { $0.isEmpty ? nil : $0 }
+                ?? deriveLegacyPairingId(daemonId: did)
+            let blob = PairingBlob(
+                ps: secret.base64EncodedString(), pk: pkB64, relay: relay,
+                did: did, v: v, pairingId: pid, hostname: meta["hostname"] ?? "",
+                ts: Int(Date().timeIntervalSince1970 * 1000))
+            do {
+                try records.save(blob)
+                setPointer(daemonId: did, pairingId: pid)
+            } catch {
+                log.error("legacy migration failed for did=\(did, privacy: .public): \(error)")
+            }
+            // NB: legacy secret + meta are intentionally NOT deleted (peers + sidecar).
+        }
     }
 
     // MARK: PENDING namespace (§1.4 — connect-on-pending lifecycle)
@@ -316,10 +560,12 @@ final class PairingStore: @unchecked Sendable {
             minAdvertisedV: floor)
     }
 
-    /// Promote a PENDING pairing to COMMITTED (write committed record + drop the
-    /// pending one). **Idempotent** (§1.4/§1.6 W10): a re-entrant call after the
-    /// pending record is already gone is a silent no-op — it must never throw and
-    /// never resurrect a committed row it cannot build.
+    /// Promote a PENDING pairing to COMMITTED (write the Option A blob + drop the
+    /// pending one). `persist` sweeps any prior committed blob for the same daemon
+    /// under a stale pairingId, so a re-pair leaves exactly one blob per daemon
+    /// (design §3.2 ≤1-per-did invariant). **Idempotent** (§1.4/§1.6 W10): a
+    /// re-entrant call after the pending record is already gone is a silent no-op —
+    /// it must never throw and never resurrect a committed row it cannot build.
     func promote(pairingId: String) throws {
         let pairing: Pairing
         do {
@@ -418,34 +664,31 @@ final class PairingStore: @unchecked Sendable {
         return dict?["floor"].flatMap { Int($0) } ?? 0
     }
 
-    /// Remove a pairing (Keychain secret + metadata + label + index entry).
+    /// Remove (UNPAIR) a committed pairing everywhere it lives. Non-throwing.
+    ///
+    /// Deletes the Option A blob (all blobs for this daemon, sweeping any re-pair
+    /// orphan), the device-local sidecar + label + pointer entry, AND — unlike
+    /// migration — the **legacy synced secret** (base service, account=daemonId).
+    /// Unpair is a *revocation*: it must propagate via iCloud so the pairing
+    /// disappears on the user's other devices too (design §3.7 item 4), matching
+    /// pre-PR-6 behavior. (Migration keeps the legacy secret; unpair removes it —
+    /// two deliberately distinct lifetimes for the same item, design §3.6 cond 3.)
     func remove(daemonId: String) {
-        keychainDelete(account: daemonId)
+        for pid in pairingIds(forDaemon: daemonId) {
+            records.remove(pairingId: pid)
+        }
+        keychainDelete(account: daemonId)  // legacy synced secret — revoke everywhere
         defaults.removeObject(forKey: Key.meta(daemonId))
         defaults.removeObject(forKey: "tp.pairing.\(daemonId).label")
-        defaults.set(daemonIds().filter { $0 != daemonId }, forKey: Key.daemonIndex)
+        dropPointer(daemonId: daemonId)
     }
 
     // MARK: Keychain (generic password, keyed by account)
-
-    /// Persist a COMMITTED pairing secret. Synced via iCloud Keychain on iOS/iPadOS
-    /// so a user who pairs once on iPhone gets it on other devices without
-    /// re-pairing; never synced on macOS local/ad-hoc builds (no entitlement).
-    private func keychainSet(_ data: Data, account: String) throws {
-        // On macOS local/ad-hoc builds (no keychain-access-groups entitlement),
-        // kSecAttrSynchronizable = true fails with errSecMissingEntitlement (-34018)
-        // because iCloud Keychain sync requires the entitlement even for generic
-        // passwords. Use non-synchronized storage on macOS for local dev builds.
-        #if os(macOS)
-        try keychainWrite(data, account: account, synchronizable: false)
-        #else
-        // The committed pairing secret is a shared *group* credential (the
-        // kx-envelope key). Syncing it is orthogonal to the daemon↔frontend E2EE:
-        // each device still does its own kx with its own device-local `frontendId`,
-        // so synced secret + per-device frontendId is the correct multi-device combo.
-        try keychainWrite(data, account: account, synchronizable: true)
-        #endif
-    }
+    //
+    // COMMITTED pairing secrets now live in Option A blobs (`PairingRecordStore`);
+    // these helpers back only the PENDING secret (`keychainSetPending`), the legacy
+    // committed secret READ during migration (`keychainGet`), and its deletion on
+    // unpair (`keychainDelete`).
 
     /// Persist a PENDING pairing secret. **Never synced on any platform** (§1.3):
     /// a pending record is a device-local, pre-confirmation credential — syncing it

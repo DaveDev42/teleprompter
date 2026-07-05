@@ -951,11 +951,12 @@ cmd_smoke_ios() {
     session_line="$(prefer_sid "$out" "$SESSION_OK_MARKER" "$SESSION_FAIL_MARKER")"
     input_line="$(prefer_sid "$out" "$INPUT_OK_MARKER" "$INPUT_FAIL_MARKER")"
     if [ -n "$claude_m5" ]; then
-      # Real daemon + a real INTERACTIVE claude session: reach M5 (all 8 markers).
-      # The app's relayed probe submits a prompt to the idle REPL, claude responds,
-      # and a NEW assistant Stop chat item drives TP_INPUT_OK. Must wait for the
-      # input line too — otherwise the loop breaks at M4 before M5 can fire.
-      if [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && [ -n "$input_line" ]; then break; fi
+      # Real daemon + a real INTERACTIVE claude session (all 8 markers). Break at M4:
+      # M5's proof is NOT the (warmup-racy) log marker — assert_m5_input polls the isolated
+      # session DB (UserPromptSubmit>=1) on its own 180s window after this loop (#877).
+      # Gating the scrape loop on $input_line here would just stall until timeout while the
+      # app's probe retries converge, then risk grabbing a stale foreign-sid line.
+      if [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ]; then break; fi
     elif [ -n "$claude_e2e" ]; then
       # Real daemon + a real claude print-mode session: reach M4 (boot + core +
       # pairing + relay-auth + kx + first-frame + session-render). The spawned
@@ -1090,21 +1091,14 @@ cmd_smoke_ios() {
     return 0
   fi
 
-  # M5 assertion — input round-trip.
+  # M5 assertion — input round-trip (shared helper).
   #   loopback : the app auto-sent an in.chat probe, the loopback daemon echoed it back
   #              as an io record, and the app saw the probe bytes in the terminal stream
-  #              (TP_INPUT_OK proof=echo).
+  #              (TP_INPUT_OK proof=echo) — deterministic same-sid marker.
   #   claude_m5: the app's relayed probe submitted a real prompt to the interactive
-  #              claude (the holder accepted the trust prompt), claude responded, and a
-  #              NEW assistant Stop chat item appeared (TP_INPUT_OK proof=response). Same
-  #              marker, same sid assertion — proves the genuine app→relay→daemon→PTY→
-  #              claude input path end to end.
-  [ -n "$input_line" ] || die "SMOKE FAIL — session OK but no '$INPUT_OK_MARKER'/'$INPUT_FAIL_MARKER' line (input never sent/echoed?)"
-  case "$input_line" in
-    "$INPUT_OK_MARKER sid=$SMOKE_SESSION_ID"*) tp_mark "$INPUT_OK_MARKER"; log "input OK (M5) — '$input_line'" ;;
-    "$INPUT_OK_MARKER"*) die "SMOKE FAIL — input round-trip wrong sid: $input_line (want sid=$SMOKE_SESSION_ID)" ;;
-    *) die "SMOKE FAIL — input send/echo failed on-device: $input_line" ;;
-  esac
+  #              claude; the proof is the isolated session DB's UserPromptSubmit>=1, not the
+  #              warmup-racy log marker (#877).
+  assert_m5_input "ios" "$input_line" "$claude_m5"
 
   # claude_m5 has no loopback /health to check (real relay), so finish here with the
   # full 8-marker pass once M5 is confirmed.
@@ -1309,7 +1303,9 @@ cmd_smoke_macos() {
     session_line="$(prefer_sid "$out" "$SESSION_OK_MARKER" "$SESSION_FAIL_MARKER")"
     input_line="$(prefer_sid "$out" "$INPUT_OK_MARKER" "$INPUT_FAIL_MARKER")"
     if [ -n "$claude_m5" ]; then
-      [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && [ -n "$input_line" ] && break
+      # Break at M4 — M5's proof is the session-DB poll in assert_m5_input, not the
+      # warmup-racy log marker (#877). Gating on $input_line would stall until timeout.
+      [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && break
     elif [ -n "$claude_e2e" ]; then
       [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && break
     elif [ -n "$real_e2e" ]; then
@@ -1392,13 +1388,8 @@ cmd_smoke_macos() {
     return 0
   fi
 
-  # M5 assertion.
-  [ -n "$input_line" ] || die "SMOKE FAIL (macOS) — session OK but no '$INPUT_OK_MARKER'/'$INPUT_FAIL_MARKER'"
-  case "$input_line" in
-    "$INPUT_OK_MARKER sid=$SMOKE_SESSION_ID"*) tp_mark "$INPUT_OK_MARKER"; log "input OK (macOS M5) — '$input_line'" ;;
-    "$INPUT_OK_MARKER"*) die "SMOKE FAIL (macOS) — input round-trip wrong sid: $input_line" ;;
-    *) die "SMOKE FAIL (macOS) — input send/echo failed: $input_line" ;;
-  esac
+  # M5 assertion (shared helper — loopback = same-sid echo marker, claude_m5 = DB SoT, #877).
+  assert_m5_input "macOS" "$input_line" "$claude_m5"
 
   # claude_m5 uses a real relay (no loopback /health to poll), so finish here with
   # the full 8-marker pass once M5 is confirmed.
@@ -1547,7 +1538,9 @@ for devs in d["devices"].values():
     session_line="$(prefer_sid "$out" "$SESSION_OK_MARKER" "$SESSION_FAIL_MARKER")"
     input_line="$(prefer_sid "$out" "$INPUT_OK_MARKER" "$INPUT_FAIL_MARKER")"
     if [ -n "$claude_m5" ]; then
-      [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && [ -n "$input_line" ] && break
+      # Break at M4 — M5's proof is the session-DB poll in assert_m5_input, not the
+      # warmup-racy log marker (#877). Gating on $input_line would stall until timeout.
+      [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && break
     elif [ -n "$claude_e2e" ]; then
       [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && [ -n "$kx_line" ] && [ -n "$frame_line" ] && [ -n "$session_line" ] && break
     elif [ -n "$real_e2e" ]; then
@@ -1637,13 +1630,8 @@ for devs in d["devices"].values():
     return 0
   fi
 
-  # M5 assertion — input round-trip.
-  [ -n "$input_line" ] || die "SMOKE FAIL (visionOS) — session OK but no '$INPUT_OK_MARKER'/'$INPUT_FAIL_MARKER' (input never sent/echoed?)"
-  case "$input_line" in
-    "$INPUT_OK_MARKER sid=$SMOKE_SESSION_ID"*) tp_mark "$INPUT_OK_MARKER"; log "input OK (visionOS M5) — '$input_line'" ;;
-    "$INPUT_OK_MARKER"*) die "SMOKE FAIL (visionOS) — input round-trip wrong sid: $input_line (want sid=$SMOKE_SESSION_ID)" ;;
-    *) die "SMOKE FAIL (visionOS) — input send/echo failed on-device: $input_line" ;;
-  esac
+  # M5 assertion (shared helper — loopback = same-sid echo marker, claude_m5 = DB SoT, #877).
+  assert_m5_input "visionOS" "$input_line" "$claude_m5"
 
   # claude_m5 uses a real relay (no loopback /health to poll), so finish here.
   if [ -n "$claude_m5" ]; then
@@ -2047,6 +2035,67 @@ prefer_sid() {
   else
     printf '%s\n' "$1" | grep -Eo "$2[^\"]*|$3[^\"]*" | tail -n1 || true
   fi
+}
+
+# assert_m5_input — the M5 (input round-trip) assertion, shared by the iOS/macOS/visionOS
+# smoke paths (#877). Behavior splits by arm because the two modes have a different SoT for
+# "input actually submitted":
+#
+#   loopback : the fake daemon byte-echoes the app's probe, so a same-sid TP_INPUT_OK
+#              (proof=echo) is deterministic and IS the proof. Keep the exact old check.
+#
+#   claude_m5: against a REAL interactive claude the log marker is UNRELIABLE — claude
+#              drops keystrokes during its warmup window, so the app's echo/response probe
+#              may not fire inside the poll window even though the pipeline is healthy, and
+#              a blind fallback to the newest TP_INPUT_OK line would grab a STALE
+#              foreign-sid loopback line (sess-smoketest) left in the unified-log window by
+#              a prior run — reporting a timing miss as "wrong sid", or worse passing on a
+#              foreign line. The authoritative proof (per .claude/rules/native-testing.md)
+#              is UserPromptSubmit>=1 in the isolated session DB — the same SoT
+#              assert_coding_e2e uses. So: poll the DB (settle window covering >=2 app probe
+#              cycles) and PASS on the DB submit OR a strictly same-sid TP_INPUT_OK line;
+#              NEVER accept a foreign-sid line. On timeout, fail honestly naming THIS run's
+#              sid + the DB count.
+#
+# Args: <platform-tag> <input_line-from-prefer_sid> <claude_m5-flag>. Emits TP_INPUT_OK on
+# success; dies on failure. The caller has already scraped $input_line with prefer_sid.
+assert_m5_input() {
+  local tag="$1" input_line="$2" claude_m5="$3"
+
+  if [ -z "$claude_m5" ]; then
+    # Loopback: unchanged — same-sid TP_INPUT_OK (proof=echo) is deterministic.
+    [ -n "$input_line" ] || die "SMOKE FAIL ($tag) — session OK but no '$INPUT_OK_MARKER'/'$INPUT_FAIL_MARKER' line (input never sent/echoed?)"
+    case "$input_line" in
+      "$INPUT_OK_MARKER sid=$SMOKE_SESSION_ID"*) tp_mark "$INPUT_OK_MARKER"; log "input OK (M5, $tag) — '$input_line'" ;;
+      "$INPUT_OK_MARKER"*) die "SMOKE FAIL ($tag) — input round-trip wrong sid: $input_line (want sid=$SMOKE_SESSION_ID)" ;;
+      *) die "SMOKE FAIL ($tag) — input send/echo failed on-device: $input_line" ;;
+    esac
+    return 0
+  fi
+
+  # claude_m5: a same-sid log marker (if it fired) is an immediate PASS; otherwise poll the
+  # session-DB SoT (UserPromptSubmit) in the isolated dir.
+  case "$input_line" in
+    "$INPUT_OK_MARKER sid=$SMOKE_SESSION_ID"*)
+      tp_mark "$INPUT_OK_MARKER"; log "input OK (M5, $tag) — '$input_line' (same-sid marker)"; return 0 ;;
+  esac
+
+  [ -n "$REAL_E2E_DIR" ] || die "M5 E2E FAIL ($tag) — REAL_E2E_DIR unset (real daemon not started?)"
+  local sid="${SMOKE_SESSION_ID:-real-smoke-sess}"
+  local db="$REAL_E2E_DIR/data/teleprompter/vault/sessions/$sid.sqlite"
+  # >=2 full app probe cycles (probeMaxAttempts=12 x probeRetryInterval=4s ~= 48s each) so
+  # a cold claude's warmup keystroke-drop is absorbed before we give up (#877 root cause 1).
+  local deadline=$(( $(date +%s) + 180 )) ups=0
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    if [ -f "$db" ]; then
+      ups="$(sqlite3 "$db" "SELECT COUNT(*) FROM records WHERE kind='event' AND name='UserPromptSubmit';" 2>/dev/null || echo 0)"
+      [ "${ups:-0}" -ge 1 ] && break
+    fi
+    sleep 3
+  done
+  [ "${ups:-0}" -ge 1 ] || die "M5 E2E FAIL ($tag) — this run's session ($sid) never registered UserPromptSubmit (DB=$db, count=$ups) after 180s: the app's relayed probe did not submit a prompt to the real interactive claude. A stale foreign-sid TP_INPUT_OK line is intentionally NOT accepted (#877)."
+  tp_mark "$INPUT_OK_MARKER"; log "input OK (M5, $tag) — DB proof: $sid UserPromptSubmit=$ups (app->relay->daemon->PTY->claude submit landed)"
+  return 0
 }
 
 # assert_coding_e2e — the TP_E2E_CLAUDE_CODING assertion. After the app rendered the

@@ -295,7 +295,7 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// `simctl launch --`; macOS passes a bare `--tp-smoke` marker via
     /// `open -gn "$app" --args` (it injects the pairing link as a `tp://` deep link
     /// instead of the launch arg). Either argument means "harness-launched".
-    private static let isSmokeMode: Bool = {
+    static let isSmokeMode: Bool = {
         let args = ProcessInfo.processInfo.arguments
         return args.contains("--tp-smoke-url") || args.contains("--tp-smoke")
     }()

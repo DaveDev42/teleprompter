@@ -1184,10 +1184,19 @@ cmd_smoke_macos() {
   # (Analogous to `xcrun simctl uninstall` clearing UserDefaults/Keychain on iOS.)
   log "cleaning macOS Keychain entries from prior smoke runs"
   security delete-generic-password -s "dev.tpmt.app.pairing" 2>/dev/null || true
+  # PR-6 (Option A): committed pairings now live as synchronizable blobs under a
+  # dedicated ".v2" service (account = pairingId). Clear those too, else a stale
+  # blob from a prior rebuild triggers the same code-signature ACL prompt.
+  security delete-generic-password -s "dev.tpmt.app.pairing.v2" 2>/dev/null || true
   # Also clear the UserDefaults tp.pairings.index and tp.pairing.*.meta keys so the
   # app doesn't try to reconnect to a stale pairing on boot (which would block kx).
   defaults delete dev.tpmt.app tp.pairings.index 2>/dev/null || true
   defaults delete dev.tpmt.app tp.frontendId 2>/dev/null || true
+  # PR-6 pointer index + migration flag (note the PLURAL "tp.pairings.*" — the
+  # loop below only matches the singular "tp.pairing.*" label/meta keys).
+  defaults delete dev.tpmt.app tp.pairings.ptr 2>/dev/null || true
+  defaults delete dev.tpmt.app tp.pairings.ptr.order 2>/dev/null || true
+  defaults delete dev.tpmt.app tp.pairings.migrated.v2 2>/dev/null || true
   # Delete all tp.pairing.* keys (the pairing meta stored by PairingStore).
   for key in $(defaults read dev.tpmt.app 2>/dev/null | grep '"tp\.pairing\.' | awk -F'"' '{print $2}'); do
     defaults delete dev.tpmt.app "$key" 2>/dev/null || true

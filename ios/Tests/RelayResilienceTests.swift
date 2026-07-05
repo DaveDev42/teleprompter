@@ -158,9 +158,12 @@ final class RelayResilienceTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let did = "daemon-mqyu8qqz"
-        // Register the daemon in the index (no Keychain secret needed for the
-        // label cache path) and refresh the cache while it is unlabeled.
-        defaults.set([did], forKey: "tp.pairings.index")
+        // Register the daemon in the PR-6 pointer index (daemonId→pairingId map +
+        // order) so `daemonIds()` surfaces it for the label cache path — no
+        // Keychain blob needed (an empty enumeration is uncorroborated and leaves
+        // a populated pointer index intact, so `daemonIds()` still returns [did]).
+        defaults.set([did: "00000000-0000-4000-8000-0000000000cc"], forKey: "tp.pairings.ptr")
+        defaults.set([did], forKey: "tp.pairings.ptr.order")
 
         let vm = PairingViewModel(store: store, sessionStore: SessionStore())
         // Empty-on-construct then registered: reload to pick up the index entry.

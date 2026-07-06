@@ -53,7 +53,11 @@ pub struct PtyOptions {
 /// thread join handle.
 pub struct Pty {
     master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn std::io::Write + Send>,
+    // Interior-mutable so `write`/`write_shared` work through `&self` — the
+    // Runner select loop holds the Pty by shared ref (it also resizes/kills
+    // through `&self`), so a `&mut self` writer would force threading `&mut`
+    // through the loop. A Mutex serialises the (infrequent) input writes.
+    writer: Mutex<Box<dyn std::io::Write + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     exited: Arc<AtomicBool>,
     pid: Option<u32>,
@@ -144,7 +148,7 @@ impl Pty {
 
         Ok(Pty {
             master: pair.master,
-            writer,
+            writer: Mutex::new(writer),
             killer: Mutex::new(killer),
             exited,
             pid,
@@ -153,12 +157,24 @@ impl Pty {
         })
     }
 
-    /// Write bytes to the PTY (child stdin). Surfaces write/flush errors — after
-    /// a successful spawn the writer is always present (unlike the Bun no-op on
-    /// an unspawned proc, which cannot occur here).
-    pub fn write(&mut self, data: &[u8]) -> std::io::Result<()> {
-        self.writer.write_all(data)?;
-        self.writer.flush()
+    /// Write bytes to the PTY (child stdin) through `&self`. Surfaces write/flush
+    /// errors — after a successful spawn the writer is always present (unlike the
+    /// Bun no-op on an unspawned proc, which cannot occur here).
+    pub fn write(&self, data: &[u8]) -> std::io::Result<()> {
+        let mut w = self
+            .writer
+            .lock()
+            .map_err(|_| std::io::Error::other("pty writer poisoned"))?;
+        w.write_all(data)?;
+        w.flush()
+    }
+
+    /// Write bytes, swallowing errors — convenience for the Runner select loop's
+    /// `input` handler, where a write failure to a dying PTY is not actionable
+    /// (the exit branch will fire and drive teardown). Mirrors the Bun
+    /// `terminal.write` no-op-on-dead-proc behaviour.
+    pub fn write_shared(&self, data: &[u8]) {
+        let _ = self.write(data);
     }
 
     /// Resize the PTY window. Matches `PtyBun.resize`.

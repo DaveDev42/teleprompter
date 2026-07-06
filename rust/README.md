@@ -47,13 +47,20 @@ rust/
       commands/
         version.rs         # `tp version` — tp + claude 버전 (byte-parity vs Bun, NO_COLOR gate)
   tp-runner/               # ADR-0003 Stage 4 — 네이티브 runner (host-only). packages/runner 포팅 진행 중 (dual-run, cutover 없음)
-    Cargo.toml             # [lib] tp_runner + [[bin]] tp-runner; deps: serde/serde_json, tp-core, tp-proto, base64, portable-pty
+    Cargo.toml             # [lib] tp_runner + [[bin]] tp-runner; deps: serde/serde_json, tp-core, tp-proto, base64, portable-pty, tokio, rustix
     src/
       lib.rs               # 모듈 선언 + 크레이트 doc (dual-run seam TP_RUNNER_BIN, io-record 바이너리 사이드카 parity gate)
       settings.rs          # byte-exact capture_hook_command(golden) + build_settings(hook 머지, 16 HOOK_EVENTS)
       collector.rs         # io_record(바이너리 사이드카 payload="") / event_record(base64 payload, ns="claude")
-      pty.rs               # PtyManager over portable-pty (ADR §6.1 spike 해소; reader-thread hop, spawn/write/resize/kill)
-      main.rs              # 엔트리 (증분 1 = 미결선, 비-제로 exit; async 오케스트레이션은 증분 2)
+      pty.rs               # Pty over portable-pty (ADR §6.1 spike 해소; reader-thread hop, spawn/write/resize/kill, Mutex writer)
+      socket.rs            # 런타임 dir(XDG/run-user/tmp writer-semantics) + daemon/hook 소켓 경로(sid traversal 가드)
+      wire.rs              # hello/bye 아웃바운드 구조체(pid 생성 가드 + reason signal/exit, TS key-order byte-exact)
+      ipc.rs               # 비동기 IPC 클라이언트(into_split writer/reader task, decode-throw teardown, inbound allowlist, overflow→close)
+      hooks.rs             # HookReceiver(UnixListener, per-conn accumulate + 1 MiB UTF-8 바이트 cap, mode-0700 parent, atomic stale-socket 제거)
+      runner.rs            # run() select! 루프(io/hook→rec, ack/input/resize, PTY exit/IPC close/SIGINT·SIGTERM→bye, graceful bye-flush)
+      main.rs              # 엔트리 (argv 파싱 + tokio 단일스레드 런타임 + tokio::signal 130/143 매핑 → runner::run)
+    tests/
+      run_e2e.rs           # E2E: 스텁 daemon + TP_RUNNER_CLAUDE_BIN 가짜 claude → hello→io rec(binary sidecar)→bye reason=exit
 ```
 
 ## 와이어 불변식 (TS 와 바이트 동일 — 절대 깨지 않음)
@@ -92,7 +99,7 @@ cd rust
 cargo test -p tp-core      # 12 단위 테스트 + 8 골든벡터 (TS 교차검증)
 cargo test -p tp-proto     # 22 단위 + 4 골든벡터 (메시지 타입 parity, ADR-0003 Stage 0)
 cargo test -p tp-relay     # 핫패스 lib + http surface + 10 loopback integration
-cargo test -p tp-runner    # settings byte-exact(golden) + collector + portable-pty PTY spike (12 테스트)
+cargo test -p tp-runner    # settings/collector/wire byte-exact + PTY + async ipc/hooks/runner + argv + E2E (27 테스트)
 ```
 
 ## `tp-relay` 바이너리 (ADR-0003 Stage 1 Step 8a)

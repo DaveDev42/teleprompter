@@ -3013,9 +3013,11 @@ version = "0.0.1"
 dependencies = [
  "base64",
  "portable-pty",
+ "rustix",
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
  "tp-core",
  "tp-proto",
 ]

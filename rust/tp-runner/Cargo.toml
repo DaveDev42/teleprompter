@@ -46,6 +46,16 @@ base64 = "0.22"
 # thread forwards bytes to the async loop over a channel — the "reader-task
 # hop"). Cross-platform (macOS/Linux), zero unsafe in our code.
 portable-pty = "0.8"
+# Async runtime for the IPC client (framed-JSON UnixStream to the daemon) and the
+# hook receiver (UnixListener). `net` = UnixStream/UnixListener, `io-util` =
+# AsyncReadExt/AsyncWriteExt, `sync` = mpsc between the PTY reader thread and the
+# writer task, `rt`/`macros` = the single-threaded runtime + #[tokio::main],
+# `signal` = SIGINT/SIGTERM graceful shutdown, `time` = bounded flush on stop.
+tokio = { version = "1", features = ["net", "io-util", "sync", "rt", "macros", "signal", "time"] }
+# Safe (no `unsafe` — `unsafe_code = "forbid"`) `getuid()` for the runtime-dir
+# derivation (`/run/user/<uid>` and `/tmp/teleprompter-<uid>`). Must byte-match
+# the daemon's `process.getuid()`; mirrors tp-cli's socket.rs. `process` only.
+rustix = { version = "1.1", features = ["process"] }
 
 [dev-dependencies]
 # Hermetic temp dirs for the settings-builder tests (write a fake

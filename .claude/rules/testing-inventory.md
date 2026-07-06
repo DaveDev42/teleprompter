@@ -48,7 +48,8 @@ pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner)
 - `packages/protocol/src/control.test.ts` — control.unpair/control.rename 타입 상수 및 discriminated union shape
 - `packages/protocol/src/test-utils.test.ts` — `rmRetry` 디렉터리 삭제 헬퍼 (EBUSY 재시도)
 - `packages/daemon/src/store/store.test.ts` — append-only Record 저장
-- `packages/daemon/src/session/session-manager.test.ts` — register/unregister, spawn, kill
+- `packages/daemon/src/session/session-manager.test.ts` — register/unregister, spawn, kill, 단일-요소 Rust-runner baseCmd argv shape
+- `packages/daemon/src/session/runner-parity.test.ts` — **Bun↔Rust `tp-runner` differential wire-parity 게이트** (같은 fake claude 로 두 runner 구동 → `FrameDecoder` 로 hello/io/bye 캡처 → pid/ts 제외 byte-equal + JSON 키순서 + io 사이드카 byte-stream equal; Rust 바이너리 미빌드 시 SKIP). `TP_RUNNER_BIN` dual-run seam 의 byte-exactness gate.
 - `packages/daemon/src/ipc/server.test.ts` — connection lifecycle, framed messaging, findBySid
 - `packages/daemon/src/index.test.ts` — daemon entry point이 legacy `--ws-port`/`startWs`를 import하지 않는지 소스 검증
 - `packages/daemon/src/daemon-passthrough-helpers.test.ts` — `Daemon.onRecord` 콜백, passthrough 세션 helper 동작

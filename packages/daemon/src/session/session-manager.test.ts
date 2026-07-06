@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { SessionManager } from "./session-manager";
 
 // Cross-platform no-op command: Bun itself with --version exits instantly.
@@ -122,6 +122,30 @@ describe("SessionManager", () => {
     });
     expect(proc.pid).toBeGreaterThan(0);
     proc.kill();
+  });
+
+  test("single-element Rust-runner baseCmd yields [bin,--sid,...] with no bun/run prefix", () => {
+    // The TP_RUNNER_BIN dual-run seam installs a single-element command
+    // (the Rust tp-runner path). spawnRunner must append --sid/--cwd/... with
+    // NO "bun"/"run" shim, matching main.rs's no-subcommand argv parser.
+    const rustBin = process.execPath; // any executable stands in for tp-runner
+    SessionManager.setRunnerCommand([rustBin]);
+    const spy = spyOn(Bun, "spawn").mockImplementation(
+      () => ({ pid: 4242, exited: Promise.resolve(0), kill() {} }) as never,
+    );
+    try {
+      sm.spawnRunner("argv-sid", "/work", { cols: 80, rows: 24 });
+      const args = spy.mock.calls[0]?.[0] as string[];
+      expect(args[0]).toBe(rustBin);
+      expect(args).not.toContain("bun");
+      expect(args.slice(1, 5)).toEqual(["--sid", "argv-sid", "--cwd", "/work"]);
+      expect(args).toContain("--cols");
+      expect(args).toContain("--rows");
+      // No stray "run" subcommand between the binary and the flags.
+      expect(args[1]).not.toBe("run");
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   test("process exit fires onRunnerExit and unregisters (crash path)", async () => {

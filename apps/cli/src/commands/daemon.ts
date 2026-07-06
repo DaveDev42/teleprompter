@@ -8,7 +8,7 @@ import { setLogLevel } from "@teleprompter/protocol";
 import { parseArgs } from "util";
 import { isDaemonRunning } from "../lib/ensure-daemon";
 import { messageOf } from "../lib/format";
-import { resolveRunnerCommand } from "../spawn";
+import { resolveRunnerCommandWithOverride } from "../spawn";
 
 /**
  * Mutable ref box shared across restarts so signal/crash handlers can always
@@ -132,8 +132,16 @@ export async function daemonCommand(argv: string[]): Promise<void> {
   if (values.verbose) setLogLevel("debug");
   else if (values.quiet) setLogLevel("error");
 
-  // Inject self-spawn runner command so SessionManager uses `tp run` instead of relative path
-  SessionManager.setRunnerCommand(resolveRunnerCommand());
+  // Inject self-spawn runner command so SessionManager uses `tp run` instead of
+  // a relative path. Honors the opt-in TP_RUNNER_BIN dual-run seam; an invalid
+  // override is a loud, contained exit here rather than an uncaught throw when a
+  // session is later spawned.
+  try {
+    SessionManager.setRunnerCommand(resolveRunnerCommandWithOverride());
+  } catch (err) {
+    console.error(messageOf(err));
+    process.exit(1);
+  }
 
   // Fast path: check pid lock before the slower IPC socket probe.
   // The authoritative singleton guard is in packages/daemon/src/index.ts which

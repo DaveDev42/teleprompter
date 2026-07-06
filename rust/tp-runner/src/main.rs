@@ -9,12 +9,15 @@
 //!
 //! # Dual-run, no cutover
 //!
-//! The binary is fully wired, but the daemon still spawns the Bun runner
-//! (`tpd run`) by default — the dual-run seam (`TP_RUNNER_BIN`) has not been cut
-//! over to this binary. That daemon-side change (pick this binary per-session)
-//! is the next step; landing it lets a single session run on the Rust runner
-//! while the rest stay on Bun, with the io-record binary sidecar as the parity
-//! gate.
+//! The binary is fully wired AND selectable: setting `TP_RUNNER_BIN` to this
+//! binary's absolute path makes the daemon's CLI (`resolveRunnerCommandWithOverride`)
+//! spawn it per-session instead of the Bun runner. The **default** is still the
+//! Bun runner (`tpd run`) — the opt-in seam does not flip it. A differential
+//! wire-parity gate (`packages/daemon/src/session/runner-parity.test.ts`) drives
+//! both runners with the same fake claude (via `TP_RUNNER_CLAUDE_BIN`) and asserts
+//! byte-identical hello/io/bye frames, with the io-record binary sidecar as the
+//! load-bearing check. Cutting the default over to this binary is the next step
+//! (increment 4), gated on dogfood parity.
 
 use std::path::PathBuf;
 use std::process::ExitCode;

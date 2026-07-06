@@ -312,15 +312,20 @@ ChatItem 렌더" 전 체인을 증명한다 (loopback 의 합성 Stop 이 아니
   키스트로크를 흘리므로 one-shot probe 는 불안정하다. `sendProbeAttempt` 가 probe 를 타이머로 재전송한다
   (최대 `probeMaxAttempts`=12 회, `probeRetryInterval`=4s) — `TP_INPUT_OK` 가 fire 하면 self-cancel. loopback
   은 첫 echo 가 즉시 이기므로 재시도는 한 틱 뒤 취소된다.
-- **M5 어서션 = 이중 증명 (echo OR 새 Stop)**: `RelayClient.checkInputEcho` 는 **둘 중 하나**면 `TP_INPUT_OK`
-  를 emit: (1) terminalOutput 에 probe 가 echo 됨(`proof=echo`) — loopback 의 byte-echo 뿐 아니라 **인터랙티브
-  claude 가 타이핑된 입력을 자기 입력 박스에 렌더하면 그 io 스트림에도 probe 텍스트가 나타나므로** 실 claude
-  도 보통 이 경로로 통과한다, 또는 (2) probe 전송 시점 baseline 을 **넘는 새 assistant `Stop`**(`proof=response`).
-  실 claude M5 의 결정적 증명은 마커가 아니라 **세션 DB 의 `UserPromptSubmit≥1`** (=`\r` 가 실제로 프롬프트를
-  제출했다는 직접 증거) — `TP_E2E_KEEP_DIR=1` 로 dir 보존 후
-  `sqlite3 …/real-smoke-sess.sqlite "SELECT name,COUNT(*) FROM records WHERE kind='event' GROUP BY name"`
-  로 확인. (`Stop` 은 claude 응답 완료 타이밍에 따라 마커 캡처 시점엔 아직 안 왔을 수 있다 — `UserPromptSubmit`
-  이 제출 증명의 SoT.)
+- **M5 어서션 = 세션 DB SoT (`assert_m5_input`, #877)**: app-side `RelayClient.checkInputEcho` 는 여전히 두
+  경로 중 하나로 `TP_INPUT_OK` 를 emit — (1) terminalOutput 에 probe echo(`proof=echo`) 또는 (2) baseline 을
+  넘는 새 assistant `Stop`(`proof=response`) — **그러나 harness 는 이 로그 마커를 real-claude M5 의 SoT 로
+  신뢰하지 않는다.** 실 인터랙티브 claude 는 warmup window 에서 키스트로크를 흘려 마커가 poll 창 안에 안 뜰 수
+  있고, 마커의 blind fallback 은 같은 sim 의 이전 loopback 런이 남긴 **stale `sess-smoketest` 라인**을 잡아
+  "wrong sid" 오진(또는 foreign-sid false-pass)을 냈다. 그래서 공유 헬퍼 `assert_m5_input`(iOS/macOS/visionOS)
+  이 arm 별로 분기한다: **loopback** = 기존 same-sid `TP_INPUT_OK`(proof=echo) 그대로(byte-identical);
+  **claude_m5** = 격리 세션 DB 의 **`UserPromptSubmit≥1`** 을 authoritative proof 로 180s settle 창(≥2 probe
+  사이클, cold-warmup 흡수)에 걸쳐 폴 — same-sid 마커가 떴으면 즉시 pass, 아니면 DB submit 으로 pass, **foreign-sid
+  라인은 절대 미수락**, timeout 시 이 런의 sid + DB count 를 명시해 정직하게 die. `claude_m5` scrape 루프는
+  이제 M4 에서 break 하고(더는 racy `$input_line` 에 게이트 안 함) M5 는 루프 뒤 DB 폴이 독립 증명한다.
+  `Stop` 은 응답 완료 타이밍에 따라 캡처 시점에 아직 안 왔을 수 있어 `UserPromptSubmit` 이 제출 증명의 SoT.
+  수동 확인: `TP_E2E_KEEP_DIR=1` 후 `sqlite3 …/real-smoke-sess.sqlite "SELECT name,COUNT(*) FROM records
+  WHERE kind='event' GROUP BY name"`.
 
 > **정직한 범위 — print 모드(`TP_E2E_CLAUDE`)는 M0–M4 (7마커)**, **인터랙티브 모드(`TP_E2E_CLAUDE_M5`)는
 > M0–M5 (전 8마커)**. M4/M5 는 단일 세션에서 상호배타적(print 는 입력 전에 종료, interactive 는 입력을 받음)

@@ -46,10 +46,10 @@ rust/
       main.rs              # THIN clap 라우터 (11 서브커맨드 선언; 미포팅은 loud-fail stub)
       commands/
         version.rs         # `tp version` — tp + claude 버전 (byte-parity vs Bun, NO_COLOR gate)
-  tp-runner/               # ADR-0003 Stage 4 — 네이티브 runner (host-only). packages/runner 포팅 진행 중 (dual-run, cutover 없음)
+  tp-runner/               # ADR-0003 Stage 4 — 네이티브 runner (host-only). packages/runner 포팅 진행 중 (dual-run seam TP_RUNNER_BIN 선택 가능 + wire-parity 게이트 통과, 기본 cutover 없음)
     Cargo.toml             # [lib] tp_runner + [[bin]] tp-runner; deps: serde/serde_json, tp-core, tp-proto, base64, portable-pty, tokio, rustix
     src/
-      lib.rs               # 모듈 선언 + 크레이트 doc (dual-run seam TP_RUNNER_BIN, io-record 바이너리 사이드카 parity gate)
+      lib.rs               # 모듈 선언 + 크레이트 doc (dual-run seam TP_RUNNER_BIN, io-record 바이너리 사이드카 parity gate). CLI-side seam = apps/cli resolveRunnerBinOverride; differential wire-parity gate = packages/daemon runner-parity.test.ts (Bun↔Rust hello/io/bye byte-exact)
       settings.rs          # byte-exact capture_hook_command(golden) + build_settings(hook 머지, 16 HOOK_EVENTS)
       collector.rs         # io_record(바이너리 사이드카 payload="") / event_record(base64 payload, ns="claude")
       pty.rs               # Pty over portable-pty (ADR §6.1 spike 해소; reader-thread hop, spawn/write/resize/kill, Mutex writer)

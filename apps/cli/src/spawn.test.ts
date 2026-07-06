@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "fs";
-import { resolveRunnerCommand } from "./spawn";
+import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import {
+  resolveRunnerCommand,
+  resolveRunnerCommandWithOverride,
+} from "./spawn";
 
 describe("resolveRunnerCommand", () => {
   test("returns array with 'run' subcommand", () => {
@@ -33,5 +38,40 @@ describe("resolveRunnerCommand", () => {
     if (cmd0 === undefined) throw new Error("expected cmd[0]");
     const which = Bun.spawnSync(["which", cmd0]);
     expect(which.exitCode).toBe(0);
+  });
+});
+
+describe("resolveRunnerCommandWithOverride", () => {
+  test("absent TP_RUNNER_BIN is byte-identical to the Bun default", () => {
+    // The opt-in is off → must deep-equal the untouched default resolution.
+    expect(resolveRunnerCommandWithOverride({})).toEqual(
+      resolveRunnerCommand(),
+    );
+  });
+
+  test("empty TP_RUNNER_BIN falls through to the Bun default", () => {
+    expect(resolveRunnerCommandWithOverride({ TP_RUNNER_BIN: "" })).toEqual(
+      resolveRunnerCommand(),
+    );
+  });
+
+  test("valid TP_RUNNER_BIN → single-element [path] with no 'run' shim", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tp-runner-override-"));
+    const bin = join(dir, "tp-runner");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    const cmd = resolveRunnerCommandWithOverride({ TP_RUNNER_BIN: bin });
+    expect(cmd).toEqual([bin]);
+    // The Rust binary takes --sid/--cwd/... directly — no subcommand.
+    expect(cmd).not.toContain("run");
+    expect(cmd).not.toContain("bun");
+  });
+
+  test("invalid TP_RUNNER_BIN throws (never silent Bun fallback)", () => {
+    expect(() =>
+      resolveRunnerCommandWithOverride({
+        TP_RUNNER_BIN: join(tmpdir(), "nope-not-here-xyz"),
+      }),
+    ).toThrow(/TP_RUNNER_BIN/);
   });
 });

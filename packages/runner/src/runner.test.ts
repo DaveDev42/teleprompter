@@ -240,6 +240,58 @@ describe("Runner.stop() kills the PTY child", () => {
 });
 
 // ---------------------------------------------------------------------------
+// TP_RUNNER_CLAUDE_BIN seam (inc3) — the Bun runner spawns `claude` by default
+// but honors TP_RUNNER_CLAUDE_BIN, mirroring the identical env on the Rust
+// runner. This is the enabler that lets the differential wire-parity harness
+// drive both runners with the same faked-claude program.
+// ---------------------------------------------------------------------------
+
+describe("Runner TP_RUNNER_CLAUDE_BIN seam", () => {
+  test("spawns the TP_RUNNER_CLAUDE_BIN override instead of the 'claude' literal", async () => {
+    const { Runner } = await import("./runner");
+
+    const tmpDir = await mkdtemp(join(tmpdir(), "tp-runner-claudebin-"));
+    const socketPath = join(tmpDir, "ipc-claudebin.sock");
+    const server = Bun.listen({
+      unix: socketPath,
+      socket: { open() {}, data() {}, close() {}, error() {} },
+    });
+
+    const runner = new Runner({
+      sid: "claudebin-test",
+      cwd: tmpDir,
+      socketPath,
+    });
+
+    // Capture the command the runner hands to pty.spawn().
+    let spawnedCommand: string[] | undefined;
+    (runner as unknown as Record<string, unknown>)["pty"] = {
+      spawn: (opts: { command: string[] }) => {
+        spawnedCommand = opts.command;
+      },
+      write: () => {},
+      resize: () => {},
+      kill: () => {},
+      pid: 4242,
+    };
+
+    const prev = process.env["TP_RUNNER_CLAUDE_BIN"];
+    process.env["TP_RUNNER_CLAUDE_BIN"] = "/opt/fake/claude-shim";
+    try {
+      await runner.start();
+      expect(spawnedCommand?.[0]).toBe("/opt/fake/claude-shim");
+      expect(spawnedCommand?.[1]).toBe("--settings");
+    } finally {
+      if (prev === undefined) delete process.env["TP_RUNNER_CLAUDE_BIN"];
+      else process.env["TP_RUNNER_CLAUDE_BIN"] = prev;
+      runner.stop(143);
+      server.stop();
+      await rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Fix #2 — bye `reason` threading. `stop()`'s ONLY call site that carries
 // claude's real process exit code is the PTY's own `onExit` callback
 // (reason "exit"). The socket-teardown/graceful-shutdown call sites pass a

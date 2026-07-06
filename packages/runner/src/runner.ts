@@ -104,9 +104,13 @@ export class Runner {
       // Build settings with hook capture commands
       const settingsJson = buildSettings(hookSocketPath, this.opts.cwd);
 
-      // Spawn Claude Code in PTY
+      // Spawn Claude Code in PTY. The program is `claude` in production;
+      // TP_RUNNER_CLAUDE_BIN overrides it (a test/debug seam, unset in
+      // production → "claude"). Mirrors the identical env on the Rust runner
+      // (rust/tp-runner/src/runner.rs) so the differential wire-parity harness
+      // can drive both runners with the same faked-claude program.
       const claudeCmd = [
-        "claude",
+        process.env["TP_RUNNER_CLAUDE_BIN"] || "claude",
         "--settings",
         settingsJson,
         ...(this.opts.claudeArgs ?? []),

@@ -12,7 +12,10 @@
 //! runner binary per-session via `TP_RUNNER_BIN`; the Bun runner (`tpd run`)
 //! stays the default until this port's byte-exactness is proven. The load-
 //! bearing parity gate is the **io record**: it carries its bytes as a binary
-//! sidecar (`payload="" && binLen>0`), never base64 in the JSON.
+//! sidecar (`payload="" && binLen>0`), never base64 in the JSON. That
+//! byte-exactness is now asserted by a differential wire-parity test
+//! (`packages/daemon/src/session/runner-parity.test.ts`), which drives both
+//! runners with the same fake claude and compares hello/io/bye frames.
 //!
 //! # Module map
 //!

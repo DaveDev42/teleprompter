@@ -34,7 +34,7 @@ import { isDaemonRunning } from "../lib/ensure-daemon";
 import { errorWithHints } from "../lib/format";
 import { connectIpcAsClient } from "../lib/ipc-client";
 import { getConfigDir } from "../lib/paths";
-import { resolveRunnerCommand } from "../spawn";
+import { resolveRunnerCommandWithOverride } from "../spawn";
 
 const CONFIG_DIR = getConfigDir();
 const INIT_MARKER = join(CONFIG_DIR, ".tp-initialized");
@@ -66,7 +66,17 @@ export async function passthroughCommand(argv: string[]): Promise<void> {
   process.env["LOG_LEVEL"] = "silent";
   setLogLevel("silent");
 
-  SessionManager.setRunnerCommand(resolveRunnerCommand());
+  // Honors the opt-in TP_RUNNER_BIN dual-run seam; an invalid override is a
+  // loud, contained exit here (the message is already errorWithHints-shaped)
+  // rather than an uncaught throw when the runner is spawned below.
+  try {
+    SessionManager.setRunnerCommand(resolveRunnerCommandWithOverride());
+  } catch (err) {
+    process.stderr.write(
+      `${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    process.exit(1);
+  }
 
   const serviceDaemonRunning = await isDaemonRunning();
 

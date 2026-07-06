@@ -1,3 +1,5 @@
+import { resolveRunnerBinOverride } from "./lib/runner-bin";
+
 /**
  * Resolves the command to spawn a Runner process.
  *
@@ -15,6 +17,26 @@ export function resolveRunnerCommand(): string[] {
   // Dev mode: resolve the CLI entry relative to this file
   const cliEntry = new URL("./index.ts", import.meta.url).pathname;
   return ["bun", "run", cliEntry, "run"];
+}
+
+/**
+ * Resolves the runner spawn command, honoring the opt-in `TP_RUNNER_BIN`
+ * dual-run seam (ADR-0003 Stage 4, increment 3). When `TP_RUNNER_BIN` is set
+ * (and valid), the Rust `tp-runner` binary is spawned directly as `[<path>]` —
+ * no `run` subcommand, since `main.rs`'s argv parser takes `--sid/--cwd/...`
+ * directly, with no subcommand.
+ *
+ * Absent the opt-in this delegates to {@link resolveRunnerCommand} unchanged, so
+ * the Bun runner stays the default and behavior is byte-identical to pre-inc3.
+ * An invalid override throws (see {@link resolveRunnerBinOverride}) — it never
+ * silently falls back to Bun.
+ */
+export function resolveRunnerCommandWithOverride(
+  env: Record<string, string | undefined> = process.env,
+): string[] {
+  const override = resolveRunnerBinOverride(env);
+  if (override) return [override];
+  return resolveRunnerCommand();
 }
 
 /**

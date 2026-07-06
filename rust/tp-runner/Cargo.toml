@@ -1,0 +1,57 @@
+[package]
+name = "tp-runner"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Native Rust runner (ADR-0003 Stage 4). Spawns Claude Code in a PTY, collects io/hooks, forwards Records to the daemon over IPC. Dual-run seam (TP_RUNNER_BIN) — no cutover; the Bun runner stays the default until byte-exactness is proven."
+
+# The per-session runner binary. The daemon SessionManager spawns one per
+# session. Dual-run: which binary (Bun `tpd run` vs this) is chosen per-session
+# via TP_RUNNER_BIN, so this ships alongside the Bun runner with no cutover.
+[[bin]]
+name = "tp-runner"
+path = "src/main.rs"
+
+[lib]
+name = "tp_runner"
+path = "src/lib.rs"
+
+[dependencies]
+# Message (de)serialisation for the hello/bye/rec frames the runner sends and
+# the ack/input/resize frames it receives. `derive` keeps the wire structs
+# declarative; field order in each struct is deliberately matched to the Bun
+# object-literal key order so the emitted JSON is byte-identical to the TS
+# runner's (the Stage 4 io-record parity gate).
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+# Frame codec (encode_frame / decode_frames / FrameStream) + the streaming
+# FrameDecoder — byte-exact with packages/protocol/src/codec.ts. The runner
+# uses encode_frame(json, binary) so io records carry their bytes as a binary
+# sidecar (payload="" + binLen>0), never base64 in the JSON. tp-core is a plain
+# Rust lib dep here (UniFFI is an additional export layer, not needed).
+tp-core = { path = "../tp-core" }
+# IpcMessage enum + parse_ipc_message — byte-exact port of parseIpcMessage
+# (packages/protocol/src/ipc-guard.ts). Used to decode inbound ack/input/resize
+# frames from the daemon without re-defining the wire shapes here.
+tp-proto = { path = "../tp-proto" }
+# STANDARD-alphabet base64 for the event-record payload (matches Bun
+# `Buffer.from(JSON.stringify(event)).toString("base64")`, collector.ts) and for
+# decoding the daemon's `input` frame data. No URL-safe, no line wrapping.
+base64 = "0.22"
+# PTY spawn + read/write/resize/kill. `portable-pty` (wezterm) is the ADR §6.1
+# choice over `pty-process`: its openpty → spawn_command → blocking reader model
+# maps cleanly onto the Bun `terminal:{ data() }` callback surface (a std reader
+# thread forwards bytes to the async loop over a channel — the "reader-task
+# hop"). Cross-platform (macOS/Linux), zero unsafe in our code.
+portable-pty = "0.8"
+
+[dev-dependencies]
+# Hermetic temp dirs for the settings-builder tests (write a fake
+# .claude/settings.local.json, assert the merge). `#[cfg(test)]` only — zero
+# production footprint. Same crate the rest of the workspace uses for tests.
+tempfile = "3"
+
+[lints]
+workspace = true

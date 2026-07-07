@@ -62,6 +62,17 @@ jobs:
           workspaces: rust
       - name: Build Rust tp-runner (parity-gate enabler)
         run: cargo build --release --bin tp-runner --manifest-path rust/Cargo.toml
+      # Build the Rust tp-daemon-probe so the bidirectional shared-file store
+      # parity gate (packages/daemon/src/store/store-rust-parity.test.ts) RUNS
+      # instead of SKIP-ing. That test drives the Bun Store AND the Rust
+      # tp-daemon store against one on-disk vault and asserts session/pairing/
+      # record rows + BLOBs are byte-identical either direction — the
+      # load-bearing byte-exactness gate for the daemon store port
+      # (ADR-0003 Phase 4 inc1). Same SKIP-when-unbuilt → always-on-backstop
+      # rationale as tp-runner above. The probe is a thin CLI over Store, NOT
+      # the shipping daemon bin (that is inc5).
+      - name: Build Rust tp-daemon-probe (store parity-gate enabler)
+        run: cargo build --release --bin tp-daemon-probe --manifest-path rust/Cargo.toml
       - name: Test with coverage
         run: bun test --coverage --timeout 30000 packages/protocol packages/daemon packages/runner apps/cli packages/relay
 

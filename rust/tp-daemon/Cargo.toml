@@ -1,0 +1,53 @@
+[package]
+name = "tp-daemon"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Native Rust daemon store layer (ADR-0003 Phase 4, increment 1). Ports packages/daemon/src/store/*.ts + daemon-lock.ts + export-formatter.ts to Rust on rusqlite (bundled). Opens the SAME on-disk sessions.sqlite / <sid>.sqlite the Bun daemon writes — byte-exact SQL text and PRAGMAs, verified by a differential parity gate. Lib only in increment 1 (no [[bin]], no runtime cutover)."
+
+[lib]
+name = "tp_daemon"
+path = "src/lib.rs"
+
+# Parity-gate probe ONLY (NOT the shipping daemon binary — that is increment 5).
+# A thin CLI over `Store` that lets the bidirectional shared-file parity gate
+# (packages/daemon/src/store/store-rust-parity.test.ts) drive the Rust store
+# against the same on-disk vault a Bun `Store` uses. Named `tp-daemon-probe`
+# (the file basename `probe` would otherwise be the bin name) so the test's
+# findProbe() locates rust/target/{release,debug}/tp-daemon-probe.
+[[bin]]
+name = "tp-daemon-probe"
+path = "src/bin/probe.rs"
+
+[dependencies]
+# Bundled SQLite (Dave's decision — vendors its own libsqlite3 so the daemon
+# never depends on the system's sqlite3 version). "bundled" feature compiles
+# the amalgamation from source via the `libsqlite3-sys` build script.
+# Pinned to 0.40 (not the brief's suggested 0.37) to match tp-cli's existing
+# rusqlite dependency — libsqlite3-sys sets `links = "sqlite3"`, and Cargo
+# allows only ONE version of a `links`-declaring crate in the whole dependency
+# graph, so tp-daemon and tp-cli must agree exactly or the workspace fails to
+# resolve.
+rusqlite = { version = "0.40", features = ["bundled"] }
+# Row parsing / Label wire-shape decode (tp_proto::decode_wire_label takes a
+# serde_json::Value).
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+# tp_core::derive_legacy_pairing_id (BLAKE2b → UUIDv8 legacy pairing-id
+# backfill) — byte-exact with packages/protocol/src/pairing.ts.
+tp-core = { path = "../tp-core" }
+# Label enum + decode_wire_label/label_to_nullable + assert_safe_sid (this
+# increment adds assert_safe_sid to tp-proto; see src/lib.rs there).
+tp-proto = { path = "../tp-proto" }
+# Safe (no `unsafe` — workspace forbids it) kill(pid, 0) liveness probe for
+# the daemon-lock pidfile singleton. `process` feature only.
+rustix = { version = "1.1", features = ["process"] }
+
+[dev-dependencies]
+# Hermetic temp dirs for store/session-db/daemon-lock tests.
+tempfile = "3"
+
+[lints]
+workspace = true

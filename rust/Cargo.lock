@@ -2981,6 +2981,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tokio",
  "tp-core",
  "tp-proto",
 ]
@@ -2990,6 +2991,7 @@ name = "tp-proto"
 version = "0.0.1"
 dependencies = [
  "rand_core 0.6.4",
+ "rustix",
  "serde",
  "serde_json",
  "x25519-dalek",

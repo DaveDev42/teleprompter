@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use tp_daemon::store::{SavePairingInput, Store};
+use tp_daemon::worktree::{WorktreeInfo, WorktreeManager};
 use tp_proto::label::decode_wire_label;
 
 /// serde_json::Value alias for the canonical, sorted-key object we emit.
@@ -69,6 +70,16 @@ fn main() -> ExitCode {
 fn run() -> Result<String, String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().ok_or("missing <cmd>")?.as_str();
+
+    // Worktree verbs take a <repoRoot> (NOT a vault) as arg[1] and never touch
+    // the store — dispatch them BEFORE Store::open so no spurious vault dir is
+    // created. They drive the differential worktree parity gate
+    // (packages/daemon/src/worktree/worktree-parity.test.ts), the same fixed
+    // line-oriented contract the store gate uses.
+    if let Some(out) = run_worktree(cmd, &args)? {
+        return Ok(out);
+    }
+
     let vault = args.get(1).ok_or("missing <vaultDir>")?;
     let vault_path = PathBuf::from(vault);
 
@@ -247,5 +258,71 @@ fn run() -> Result<String, String> {
             Ok(String::new())
         }
         other => Err(format!("unknown command: {other}")),
+    }
+}
+
+/// Serialize `WorktreeInfo[]` to canonical (sorted-key) JSON so the TS gate can
+/// compare byte-for-byte. `head` (a commit SHA) and absolute `path` are
+/// nondeterministic across machines/runs — the TS test normalizes them out
+/// before comparing (same discipline as the store gate's created_at/updated_at
+/// strip), so we emit them verbatim here.
+fn worktree_json(list: &[WorktreeInfo]) -> Result<String, String> {
+    let arr: Vec<Obj> = list
+        .iter()
+        .map(|w| {
+            let mut o = Obj::new();
+            o.insert("path".into(), w.path.clone().into());
+            o.insert(
+                "branch".into(),
+                w.branch.clone().map_or(serde_json::Value::Null, Into::into),
+            );
+            o.insert("head".into(), w.head.clone().into());
+            o.insert("is_main".into(), w.is_main.into());
+            o
+        })
+        .collect();
+    serde_json::to_string(&arr).map_err(|e| e.to_string())
+}
+
+/// Worktree-verb dispatch for the differential worktree parity gate. Returns
+/// `Ok(Some(output))` when `cmd` is a worktree verb, `Ok(None)` otherwise (so
+/// the caller falls through to the store-based commands). Uses `args[1]` as a
+/// `<repoRoot>`, never opening the store.
+///
+/// Contract (kept in lockstep with `worktree-parity.test.ts`):
+///   worktree-list   <repoRoot>                              → JSON WorktreeInfo[]
+///   worktree-add    <repoRoot> <path> <branch> <baseBranch|-> → JSON [WorktreeInfo]
+///   worktree-remove <repoRoot> <path> <force:0|1>            → "" (or error text)
+fn run_worktree(cmd: &str, args: &[String]) -> Result<Option<String>, String> {
+    // args[0] = cmd, args[1] = repoRoot, args[2..] = verb positionals.
+    let a = |i: usize| args.get(i + 2).map(String::as_str);
+    let repo_root = || -> Result<WorktreeManager, String> {
+        let root = args.get(1).ok_or("worktree: missing <repoRoot>")?;
+        WorktreeManager::new(std::path::Path::new(root))
+            .map_err(|e| format!("WorktreeManager::new: {e}"))
+    };
+    match cmd {
+        "worktree-list" => {
+            let wm = repo_root()?;
+            Ok(Some(worktree_json(&wm.list())?))
+        }
+        "worktree-add" => {
+            // worktree-add <repoRoot> <path> <branch> <baseBranch|->
+            let wm = repo_root()?;
+            let path = a(0).ok_or("worktree-add: missing path")?;
+            let branch = a(1).ok_or("worktree-add: missing branch")?;
+            let base = a(2).and_then(opt);
+            let info = wm.add(path, branch, base)?;
+            Ok(Some(worktree_json(std::slice::from_ref(&info))?))
+        }
+        "worktree-remove" => {
+            // worktree-remove <repoRoot> <path> <force:0|1>
+            let wm = repo_root()?;
+            let path = a(0).ok_or("worktree-remove: missing path")?;
+            let force = a(1).is_some_and(|f| f == "1");
+            wm.remove(path, force)?;
+            Ok(Some(String::new()))
+        }
+        _ => Ok(None),
     }
 }

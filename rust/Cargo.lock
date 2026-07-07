@@ -2982,17 +2982,22 @@ version = "0.0.1"
 dependencies = [
  "base64",
  "futures-util",
+ "hex",
+ "hostname",
  "rand_core 0.6.4",
  "rusqlite",
  "rustix",
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-tungstenite",
  "tp-core",
  "tp-proto",
  "tp-relay",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]

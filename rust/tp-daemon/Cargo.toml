@@ -79,6 +79,27 @@ base64 = "0.22"
 # nonce source). Same version/feature pin tp-relay/tp-proto already use for
 # the identical purpose (push-seal nonces, ephemeral X25519 keys).
 rand_core = { version = "0.6", features = ["getrandom"] }
+# Genuinely-random X25519 keypair generation for `PendingPairing::begin()`
+# (increment 4). `tp_core::crypto::kx_seed_keypair` is deterministic
+# (BLAKE2b-hash-then-basemult over a caller seed) — NOT equivalent to the real
+# libsodium `crypto_kx_keypair()` the TS daemon calls (raw random secret bytes,
+# no hashing step) that `createPairingBundle` needs. Same major version
+# tp-core already pins; `static_secrets` gives us `StaticSecret::random_from_rng`.
+# Lib-internal only — no FFI/UniFFI surface change.
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+# Format a random pairing UUID as hex (random_pairing_bundle). Same version
+# tp-core already pins.
+hex = "0.4"
+# OS hostname for the QR v4 `hostname` field (safe_hostname in
+# pairing/orchestrator.rs, mirrors `os.hostname()` in
+# pairing-orchestrator.ts). Same version tp-cli already pins.
+hostname = "0.4"
+# Zeroize the random pairing secret on drop (random_pairing_bundle) — same
+# version/feature tp-core/tp-proto already pin.
+zeroize = { version = "1", features = ["zeroize_derive"] }
+# `BeginPairingError` (pairing/orchestrator.rs) wire-reason enum with a
+# Display impl. Same major version tp-core already pins.
+thiserror = "2"
 
 [dev-dependencies]
 # Hermetic temp dirs for store/session-db/daemon-lock tests.

@@ -87,14 +87,22 @@ pub enum PushPlatform {
 }
 
 impl PushPlatform {
-    fn as_str(self) -> &'static str {
+    /// The wire string for this platform. Public (increment 4): the
+    /// relay-manager's `PushNotifierDeps` glue converts between
+    /// `push_notifier`'s `&str` platform (mirroring the TS `"ios" |
+    /// "android"` union at that layer) and this store-side typed enum.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
         match self {
             PushPlatform::Ios => "ios",
             PushPlatform::Android => "android",
         }
     }
 
-    fn parse(s: &str) -> Option<Self> {
+    /// Parse a wire platform string. Public (increment 4) for the same
+    /// reason as `as_str`.
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "ios" => Some(PushPlatform::Ios),
             "android" => Some(PushPlatform::Android),

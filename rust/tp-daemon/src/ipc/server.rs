@@ -90,6 +90,25 @@ impl ConnectedRunner {
         self.sid.lock().unwrap().clone()
     }
 
+    /// Test/probe-only constructor: a detached runner handle whose outbound
+    /// frames land in the returned receiver instead of a real socket. Lets
+    /// the command dispatcher's unit tests and the `tp-daemon-probe` parity
+    /// binary drive `dispatch_ipc` without binding a Unix socket. Hidden from
+    /// docs — it is NOT part of the ported server surface (the TS tests build
+    /// a plain object literal for the same purpose; Rust needs a constructor
+    /// because the fields are private).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn new_detached(sid: Option<String>) -> (Arc<ConnectedRunner>, mpsc::Receiver<Vec<u8>>) {
+        let (outbound_tx, outbound_rx) = mpsc::channel::<Vec<u8>>(OUTBOUND_CAPACITY);
+        let runner = Arc::new(ConnectedRunner {
+            id: NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed),
+            outbound: outbound_tx,
+            sid: Mutex::new(sid),
+        });
+        (runner, outbound_rx)
+    }
+
     /// A stable per-connection identity, distinct from `sid` (which is
     /// absent until the `hello` frame arrives, and — unlike a connection
     /// identity — is attacker-influenced wire input). Useful for a caller
@@ -123,12 +142,18 @@ pub struct IpcServerEvents {
 }
 
 /// The IPC server. Mirrors the `IpcServer` class (server.ts:40-258).
+///
+/// Task handles live behind `Mutex<Option<..>>` (interior mutability) so the
+/// whole lifecycle — `start`/`stop`/heal — works through `&self`. Increment 5
+/// needs this: the daemon holds `IpcServer` inside an `Arc<DaemonShared>`
+/// (shared with the relay manager via `RelayManagerDeps::ipc_server(&self)`),
+/// where no `&mut` is ever available.
 pub struct IpcServer {
     events: IpcServerEvents,
     runners: RunnerRegistry,
     bound_path: Arc<Mutex<Option<PathBuf>>>,
-    accept_task: Option<tokio::task::JoinHandle<()>>,
-    heal_task: Option<tokio::task::JoinHandle<()>>,
+    accept_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    heal_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     stopped: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -138,8 +163,8 @@ impl IpcServer {
             events,
             runners: Arc::new(Mutex::new(HashMap::new())),
             bound_path: Arc::new(Mutex::new(None)),
-            accept_task: None,
-            heal_task: None,
+            accept_task: Mutex::new(None),
+            heal_task: Mutex::new(None),
             stopped: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
@@ -150,7 +175,7 @@ impl IpcServer {
     ///
     /// # Errors
     /// Any bind failure (mirrors the TS `Bun.listen` throwing synchronously).
-    pub fn start(&mut self, socket_path: Option<PathBuf>) -> std::io::Result<PathBuf> {
+    pub fn start(&self, socket_path: Option<PathBuf>) -> std::io::Result<PathBuf> {
         let path = match socket_path {
             Some(p) => p,
             None => tp_proto::socket_path()?,
@@ -169,7 +194,7 @@ impl IpcServer {
     /// Re-binding creates a fresh listening socket + dirent;
     /// already-accepted runner connections live in the OS independent of the
     /// listener and are unaffected. Mirrors `listen()` (server.ts:69-165).
-    fn listen(&mut self, path: &Path) -> std::io::Result<()> {
+    fn listen(&self, path: &Path) -> std::io::Result<()> {
         // Clean up a stale socket file (ENOENT is fine — nothing to clean).
         match std::fs::remove_file(path) {
             Ok(()) => {}
@@ -183,7 +208,7 @@ impl IpcServer {
         // heal re-bind must not leave two accept loops racing on different
         // listeners (the old listener is already gone/replaced by this point
         // via the caller's `server.stop()` equivalent, but guard anyway).
-        if let Some(task) = self.accept_task.take() {
+        if let Some(task) = self.accept_task.lock().unwrap().take() {
             task.abort();
         }
 
@@ -192,7 +217,7 @@ impl IpcServer {
         let events_on_message = Arc::clone(&self.events.on_message);
         let events_on_disconnect = Arc::clone(&self.events.on_disconnect);
 
-        self.accept_task = Some(tokio::spawn(accept_loop(
+        *self.accept_task.lock().unwrap() = Some(tokio::spawn(accept_loop(
             listener,
             runners,
             events_on_connect,
@@ -222,19 +247,18 @@ impl IpcServer {
     /// `stop()` (checked each tick via `stopped`), the tokio analogue of the
     /// TS timer's `.unref()` — a stopped server's heal task does not keep
     /// the process alive or fire after teardown.
-    fn start_heal_timer(&mut self) {
-        if self.heal_task.is_some() {
+    fn start_heal_timer(&self) {
+        let mut heal_task = self.heal_task.lock().unwrap();
+        if heal_task.is_some() {
             return;
         }
         let bound_path = Arc::clone(&self.bound_path);
         let stopped = Arc::clone(&self.stopped);
-        // We cannot re-bind from inside this task without `&mut self`, so
-        // the heal task signals via a re-bind channel back to a driver that
-        // owns `&mut self`. To keep this self-contained (no extra plumbing
-        // exposed to callers), the heal task performs the re-bind itself
-        // using a raw std::fs remove + tokio UnixListener::bind + spawning a
-        // fresh accept loop, mirroring `listen()`'s body directly rather than
-        // calling back into `&mut self`.
+        // The heal task cannot borrow the server from inside its own spawned
+        // future, so it performs the re-bind itself via the free `rebind()`
+        // (a raw std::fs remove + tokio UnixListener::bind + fresh accept
+        // loop), mirroring `listen()`'s body directly rather than calling
+        // back into `&self`.
         let runners = Arc::clone(&self.runners);
         let events_on_connect = Arc::clone(&self.events.on_connect);
         let events_on_message = Arc::clone(&self.events.on_message);
@@ -242,7 +266,7 @@ impl IpcServer {
         let accept_task_slot: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>> =
             Arc::new(Mutex::new(None));
 
-        self.heal_task = Some(tokio::spawn(async move {
+        *heal_task = Some(tokio::spawn(async move {
             let mut interval =
                 tokio::time::interval(std::time::Duration::from_millis(SOCKET_HEAL_INTERVAL_MS));
             // The first tick fires immediately; skip it so we don't
@@ -307,12 +331,12 @@ impl IpcServer {
     }
 
     /// Byte-exact port of `stop()` (server.ts:233-243).
-    pub fn stop(&mut self) {
+    pub fn stop(&self) {
         self.stopped.store(true, Ordering::SeqCst);
-        if let Some(task) = self.heal_task.take() {
+        if let Some(task) = self.heal_task.lock().unwrap().take() {
             task.abort();
         }
-        if let Some(task) = self.accept_task.take() {
+        if let Some(task) = self.accept_task.lock().unwrap().take() {
             task.abort();
         }
         *self.bound_path.lock().unwrap() = None;
@@ -324,7 +348,7 @@ impl IpcServer {
     /// waiting for the 30s interval. Returns true if a re-bind occurred.
     /// Mirrors `__healNow()` (server.ts:250-257).
     #[cfg(test)]
-    pub async fn heal_now(&mut self) -> bool {
+    pub async fn heal_now(&self) -> bool {
         if self.stopped.load(Ordering::SeqCst) {
             return false;
         }
@@ -571,7 +595,7 @@ mod tests {
         let sock = dir.path().join("d.sock");
         let (events, connect_count, messages, disconnect_count) = test_events();
 
-        let mut server = IpcServer::new(events);
+        let server = IpcServer::new(events);
         let bound = server.start(Some(sock.clone())).unwrap();
         assert_eq!(bound, sock);
 
@@ -615,7 +639,7 @@ mod tests {
         let sock = dir.path().join("d.sock");
         let (events, _connect_count, _messages, disconnect_count) = test_events();
 
-        let mut server = IpcServer::new(events);
+        let server = IpcServer::new(events);
         server.start(Some(sock.clone())).unwrap();
 
         let mut client = UnixStream::connect(&sock).await.unwrap();
@@ -650,7 +674,7 @@ mod tests {
         let sock = dir.path().join("d.sock");
         let (events, _connect_count, _messages, _disconnect_count) = test_events();
 
-        let mut server = IpcServer::new(events);
+        let server = IpcServer::new(events);
         server.start(Some(sock.clone())).unwrap();
 
         // Healthy: no heal needed.
@@ -680,7 +704,7 @@ mod tests {
         let sock = dir.path().join("d.sock");
         let (events, _cc, _msgs, _dc) = test_events();
 
-        let mut server = IpcServer::new(events);
+        let server = IpcServer::new(events);
         server.start(Some(sock.clone())).unwrap();
         assert!(server.bound_path().is_some());
 
@@ -695,7 +719,7 @@ mod tests {
         let sock = dir.path().join("d.sock");
         let (events, _cc, _msgs, _dc) = test_events();
 
-        let mut server = IpcServer::new(events);
+        let server = IpcServer::new(events);
         server.start(Some(sock.clone())).unwrap();
 
         let mut client = UnixStream::connect(&sock).await.unwrap();

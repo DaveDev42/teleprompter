@@ -77,30 +77,44 @@ use crate::transport::relay_client::{
 use tp_proto::relay_client::Platform;
 
 /// Mirrors `RELAY_CHANNEL_META` (`packages/protocol/src/types/relay.ts:17`).
-const RELAY_CHANNEL_META: &str = "__meta__";
+/// `pub(crate)` since increment 5: the command dispatcher publishes on the
+/// same channels (hello/state on meta, worktree/pong frames on control).
+pub(crate) const RELAY_CHANNEL_META: &str = "__meta__";
 /// Mirrors `RELAY_CHANNEL_CONTROL` (`packages/protocol/src/types/relay.ts:19`).
-const RELAY_CHANNEL_CONTROL: &str = "__control__";
+pub(crate) const RELAY_CHANNEL_CONTROL: &str = "__control__";
 
 /// Wire-shape conversion for the `hello` frame's `sessions` array — byte-exact
 /// port of `toSessionMeta` (`packages/daemon/src/store/session-meta.ts`).
 /// Deliberately lives here (not in `crate::store`, see that module's doc
 /// comment) because the only consumer is the relay `hello` payload this
 /// module builds.
-fn to_wire_session_meta(meta: &SessionMeta) -> Value {
+pub(crate) fn to_wire_session_meta(meta: &SessionMeta) -> Value {
     let state = match meta.state.as_str() {
         "running" | "stopped" | "error" => meta.state.clone(),
         _ => "error".to_string(),
     };
-    serde_json::json!({
+    // TS `toSessionMeta` maps absent worktree/version to `undefined`, and
+    // `JSON.stringify` DROPS undefined-valued keys — so the reference wire
+    // OMITS these keys entirely when absent. An explicit `null` here would
+    // diverge from the Bun daemon's bytes on every hello/state/export frame
+    // (caught by packages/daemon/src/ipc/dispatcher-rust-parity.test.ts).
+    let mut wire = serde_json::json!({
         "sid": meta.sid,
         "state": state,
         "cwd": meta.cwd,
-        "worktreePath": meta.worktree_path,
-        "claudeVersion": meta.claude_version,
         "createdAt": meta.created_at,
         "updatedAt": meta.updated_at,
         "lastSeq": meta.last_seq,
-    })
+    });
+    if let Some(obj) = wire.as_object_mut() {
+        if let Some(wt) = &meta.worktree_path {
+            obj.insert("worktreePath".to_string(), serde_json::json!(wt));
+        }
+        if let Some(ver) = &meta.claude_version {
+            obj.insert("claudeVersion".to_string(), serde_json::json!(ver));
+        }
+    }
+    wire
 }
 
 /// Send an IPC `input` frame to a connected Runner. Mirrors the
@@ -130,8 +144,10 @@ pub trait RelayManagerDeps: Send + Sync {
 /// `(frontend_id, sealed, title, body, interruption_level, sid, event,
 /// daemon_id) -> ()` — factored into a named alias to keep clippy's
 /// `type_complexity` lint (deny under workspace `clippy::all`) happy, same
-/// pattern inc2/inc3 use.
-type DispatchSendPushFn =
+/// pattern inc2/inc3 use. `pub` since increment 5: the Daemon wiring
+/// constructs [`StorePushNotifierDeps`] itself (before any
+/// `RelayConnectionManager` exists) and needs to name this type.
+pub type DispatchSendPushFn =
     Arc<dyn Fn(&str, &str, &str, &str, InterruptionLevel, &str, &str, &str) + Send + Sync>;
 
 /// Test-injected fake `RelayClient` factory (mirrors the TS
@@ -153,6 +169,17 @@ pub struct StorePushNotifierDeps {
     /// access to the client pool; `RelayConnectionManager` supplies a
     /// closure over `Arc<Self>` instead (see `new`).
     dispatch: DispatchSendPushFn,
+}
+
+impl StorePushNotifierDeps {
+    /// Public constructor (added for increment 5): the TS `Daemon`
+    /// constructor builds its `PushNotifier` deps inline before the relay
+    /// manager exists (daemon.ts:96-112), so the Rust Daemon wiring needs to
+    /// construct this outside the module too.
+    #[must_use]
+    pub fn new(store: Arc<Mutex<Store>>, dispatch: DispatchSendPushFn) -> Self {
+        StorePushNotifierDeps { store, dispatch }
+    }
 }
 
 impl PushNotifierDeps for StorePushNotifierDeps {
@@ -743,6 +770,24 @@ impl<D: RelayManagerDeps + 'static> RelayConnectionManager<D> {
         *self.factory.lock().unwrap() = Some(factory);
     }
 
+    /// Current test-injected factory, if any. Mirrors `__getFactory()`
+    /// (relay-manager.ts) — added for increment 5 so the Daemon's
+    /// `OrchestratorDeps::factory` impl can delegate here (the TS
+    /// orchestrator reads `relayManager.__getFactory()` the same way).
+    #[must_use]
+    pub fn factory(&self) -> Option<RelayClientFactoryFn> {
+        self.factory.lock().unwrap().clone()
+    }
+
+    /// Snapshot of the live client pool. Mirrors `listClients()`
+    /// (relay-manager.ts) — added for increment 5: the command dispatcher's
+    /// `getRelayClients`/`getRelayHealth` deps read the pool through the
+    /// Daemon wiring (daemon.ts:163-171).
+    #[must_use]
+    pub fn list_clients(&self) -> Vec<Arc<RelayClient>> {
+        self.clients.lock().unwrap().clone()
+    }
+
     /// Dispose all active clients. Mirrors `stop` (relay-manager.ts) —
     /// called during daemon shutdown.
     pub async fn stop(&self) {
@@ -874,7 +919,9 @@ mod tests {
         assert_eq!(wire["sid"], "sess-1");
         assert_eq!(wire["state"], "running");
         assert_eq!(wire["worktreePath"], "/tmp/wt");
-        assert!(wire["claudeVersion"].is_null());
+        // Absent claude_version → key OMITTED (TS JSON.stringify drops the
+        // `undefined` from toSessionMeta) — not an explicit null.
+        assert!(!wire.as_object().unwrap().contains_key("claudeVersion"));
         assert_eq!(wire["createdAt"], 100);
         assert_eq!(wire["updatedAt"], 200);
         assert_eq!(wire["lastSeq"], 5);

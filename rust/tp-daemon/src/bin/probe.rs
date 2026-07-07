@@ -96,6 +96,16 @@ fn run() -> Result<String, String> {
         return Ok(out);
     }
 
+    // Dispatcher verbs (increment 5) drive the REAL `IpcCommandDispatcher`
+    // over a real `Store` (except `sanitize-sid`, which is pure) — the
+    // dispatcher-level parity gate
+    // (packages/daemon/src/ipc/dispatcher-rust-parity.test.ts). They manage
+    // their own Store::open (some verbs are pure), so dispatch before the
+    // shared open below.
+    if let Some(out) = run_dispatcher(cmd, &args)? {
+        return Ok(out);
+    }
+
     let vault = args.get(1).ok_or("missing <vaultDir>")?;
     let vault_path = PathBuf::from(vault);
 
@@ -430,6 +440,328 @@ fn run_worktree(cmd: &str, args: &[String]) -> Result<Option<String>, String> {
             wm.remove(path, force)?;
             Ok(Some(String::new()))
         }
+        _ => Ok(None),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher verbs (increment 5) — drive the REAL `IpcCommandDispatcher`
+// for the dispatcher-level parity gate
+// (packages/daemon/src/ipc/dispatcher-rust-parity.test.ts).
+//
+// HONEST GATE LEVEL: these verbs exercise the dispatcher seam directly (not a
+// live Unix socket) — the same seam the Bun side drives with its in-process
+// `IpcCommandDispatcher`. Relay publishes are captured by `ProbeLink`;
+// `create_session` is a recording stub returning Ok (the Bun twin injects the
+// same fake); everything else (store, session-manager, sid guards, export
+// formatting, bye truth table) is the real production code path.
+// ---------------------------------------------------------------------------
+
+mod dispatcher_probe {
+    use super::{opt, Obj};
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    use serde_json::{json, Value};
+    use tp_daemon::ipc::command_dispatcher::{
+        BoxFuture, IpcCommandDispatcher, IpcCommandDispatcherDeps, RelayLink,
+    };
+    use tp_daemon::ipc::server::{ConnectedRunner, IpcServer, IpcServerEvents};
+    use tp_daemon::push::PushNotifier;
+    use tp_daemon::session::manager::SessionManager;
+    use tp_daemon::store::Store;
+    use tp_daemon::transport::relay_manager::DispatchSendPushFn;
+    use tp_daemon::transport::StorePushNotifierDeps;
+    use tp_proto::ipc::{ByeReason, IpcMessage};
+    use tp_proto::label::Label;
+
+    /// Capture link — records every publish/subscribe the dispatcher emits
+    /// (probe twin of the Bun gate's fake relay client). Records
+    /// synchronously before returning the ready future, so recorded order ==
+    /// wire order.
+    #[derive(Default)]
+    pub struct ProbeLink {
+        pub peer_msgs: Mutex<Vec<Value>>,
+        pub subscribes: Mutex<Vec<String>>,
+    }
+
+    impl RelayLink for ProbeLink {
+        fn label(&self) -> Option<Label> {
+            None
+        }
+        fn peer_pct_b64(&self, _frontend_id: &str) -> BoxFuture<Option<String>> {
+            Box::pin(async { None })
+        }
+        fn publish_to_peer(&self, frontend_id: &str, sid: &str, msg: Value) -> BoxFuture<()> {
+            self.peer_msgs.lock().unwrap().push(json!({
+                "frontendId": frontend_id,
+                "sid": sid,
+                "msg": msg,
+            }));
+            Box::pin(async {})
+        }
+        fn publish_record(&self, _sid: &str, _seq: u64, _rec: Value) -> BoxFuture<()> {
+            Box::pin(async {})
+        }
+        fn publish_state(&self, _channel: &str, _msg: Value) -> BoxFuture<()> {
+            Box::pin(async {})
+        }
+        fn publish_removed(&self, _sid: &str, _msg: Value) -> BoxFuture<()> {
+            Box::pin(async {})
+        }
+        fn subscribe(&self, sid: &str) -> BoxFuture<()> {
+            self.subscribes.lock().unwrap().push(sid.to_string());
+            Box::pin(async {})
+        }
+        fn unsubscribe(&self, _sid: &str) -> BoxFuture<()> {
+            Box::pin(async {})
+        }
+    }
+
+    pub struct ProbeCtx {
+        pub store: Arc<Mutex<Store>>,
+        pub session_manager: Arc<SessionManager>,
+        pub link: Arc<ProbeLink>,
+        pub create_calls: Arc<Mutex<Vec<Value>>>,
+        pub dispatcher: Arc<IpcCommandDispatcher>,
+    }
+
+    /// Build the real dispatcher over a real store with recording fakes at
+    /// the same seams the Bun gate fakes (createSession, relay clients).
+    pub fn build(vault: PathBuf) -> Result<ProbeCtx, String> {
+        let store = Arc::new(Mutex::new(
+            Store::open(Some(vault), None).map_err(|e| format!("Store::open: {e}"))?,
+        ));
+        let session_manager = Arc::new(SessionManager::new());
+        let link = Arc::new(ProbeLink::default());
+        let create_calls: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+
+        let noop_push: DispatchSendPushFn = Arc::new(|_, _, _, _, _, _, _, _| {});
+        let push_notifier = Arc::new(Mutex::new(PushNotifier::new(StorePushNotifierDeps::new(
+            Arc::clone(&store),
+            noop_push,
+        ))));
+        let ipc_server = Arc::new(IpcServer::new(IpcServerEvents {
+            on_message: Arc::new(|_, _, _| {}),
+            on_connect: Arc::new(|_| {}),
+            on_disconnect: Arc::new(|_| {}),
+        }));
+
+        let link_dep = Arc::clone(&link);
+        let create_calls_dep = Arc::clone(&create_calls);
+        let dispatcher = IpcCommandDispatcher::new(IpcCommandDispatcherDeps {
+            ipc_server,
+            store: Arc::clone(&store),
+            session_manager: Arc::clone(&session_manager),
+            push_notifier,
+            get_worktree_manager: Arc::new(|| None),
+            create_session: Arc::new(move |sid, cwd, spawn_opts| {
+                create_calls_dep.lock().unwrap().push(json!({
+                    "sid": sid,
+                    "cwd": cwd,
+                    "worktreePath": spawn_opts.worktree_path,
+                }));
+                Ok(())
+            }),
+            on_pair_begin: Arc::new(|_, _| {}),
+            on_pair_cancel: Arc::new(|_, _| {}),
+            on_cli_disconnect: Arc::new(|_| {}),
+            remove_pairing: Arc::new(|_| Box::pin(async { Ok(0) })),
+            rename_pairing: Arc::new(|_, _| Box::pin(async { Ok(0) })),
+            get_on_record: Arc::new(|| None),
+            get_relay_clients: Arc::new(move || vec![Arc::clone(&link_dep) as Arc<dyn RelayLink>]),
+            get_relay_health: Arc::new(|| Box::pin(async { Vec::new() })),
+        });
+
+        Ok(ProbeCtx {
+            store,
+            session_manager,
+            link,
+            create_calls,
+            dispatcher,
+        })
+    }
+
+    fn rt() -> Result<tokio::runtime::Runtime, String> {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| format!("tokio runtime: {e}"))
+    }
+
+    /// `dispatch-bye <vault> <sid> <registeredPid|-> <byePid|-> <exitCode> <reason|->`
+    /// → `{"runnerRegistered": bool, "state": string|null}`. Pins the
+    /// stale-generation pid guard + the reason/exitCode truth table
+    /// (command-dispatcher.ts:904-948).
+    pub fn dispatch_bye(args: &[String]) -> Result<String, String> {
+        let vault = args.get(1).ok_or("dispatch-bye: missing <vaultDir>")?;
+        let sid = args.get(2).ok_or("dispatch-bye: missing <sid>")?.clone();
+        let registered_pid: Option<u32> = args
+            .get(3)
+            .map(String::as_str)
+            .and_then(opt)
+            .map(|s| s.parse().map_err(|e| format!("registeredPid: {e}")))
+            .transpose()?;
+        let bye_pid: Option<u64> = args
+            .get(4)
+            .map(String::as_str)
+            .and_then(opt)
+            .map(|s| s.parse().map_err(|e| format!("byePid: {e}")))
+            .transpose()?;
+        let exit_code: f64 = args
+            .get(5)
+            .ok_or("dispatch-bye: missing <exitCode>")?
+            .parse()
+            .map_err(|e| format!("exitCode: {e}"))?;
+        let reason = match args.get(6).map(String::as_str).and_then(opt) {
+            Some("signal") => Some(ByeReason::Signal),
+            Some("exit") => Some(ByeReason::Exit),
+            Some(other) => return Err(format!("dispatch-bye: bad reason {other:?}")),
+            None => None,
+        };
+
+        let ctx = build(PathBuf::from(vault))?;
+        if let Some(pid) = registered_pid {
+            ctx.session_manager
+                .register_runner(&sid, pid, "/tmp", None, None);
+        }
+        let rt = rt()?;
+        rt.block_on(async {
+            let (runner, _rx) = ConnectedRunner::new_detached(Some(sid.clone()));
+            ctx.dispatcher.dispatch_ipc(
+                &runner,
+                &IpcMessage::Bye {
+                    sid: sid.clone(),
+                    exit_code,
+                    pid: bye_pid,
+                    reason,
+                },
+                None,
+            );
+            // Let the spawned broadcast task settle (no-op publish here, but
+            // keeps the runtime teardown clean).
+            tokio::task::yield_now().await;
+        });
+
+        let state: Value = {
+            let store = ctx.store.lock().unwrap();
+            store
+                .get_session(&sid)
+                .map_err(|e| format!("get_session: {e}"))?
+                .map_or(Value::Null, |m| Value::String(m.state))
+        };
+        let mut out = Obj::new();
+        out.insert(
+            "runnerRegistered".to_string(),
+            json!(ctx.session_manager.get_runner(&sid).is_some()),
+        );
+        out.insert("state".to_string(), state);
+        serde_json::to_string(&out).map_err(|e| e.to_string())
+    }
+
+    /// `dispatch-create-sid <vault> <sid>` → `{"reply": frame|null,
+    /// "createCalls": [...], "subscribes": [...]}`. Pins the rank-3
+    /// path-traversal sid guard (reject BEFORE createSession/subscribe) and
+    /// the success reply shape.
+    pub fn dispatch_create_sid(args: &[String]) -> Result<String, String> {
+        let vault = args
+            .get(1)
+            .ok_or("dispatch-create-sid: missing <vaultDir>")?;
+        let sid = args
+            .get(2)
+            .ok_or("dispatch-create-sid: missing <sid>")?
+            .clone();
+
+        let ctx = build(PathBuf::from(vault))?;
+        let relay: Arc<dyn RelayLink> = Arc::clone(&ctx.link) as Arc<dyn RelayLink>;
+        let rt = rt()?;
+        rt.block_on(async {
+            ctx.dispatcher
+                .dispatch_relay_control(
+                    &relay,
+                    &json!({ "t": "session.create", "sid": sid, "cwd": "/tmp/w" }),
+                    "probe-fe",
+                )
+                .await;
+        });
+
+        let mut out = Obj::new();
+        let peer_msgs = ctx.link.peer_msgs.lock().unwrap().clone();
+        out.insert(
+            "reply".to_string(),
+            peer_msgs.first().cloned().unwrap_or(Value::Null),
+        );
+        out.insert(
+            "createCalls".to_string(),
+            Value::Array(ctx.create_calls.lock().unwrap().clone()),
+        );
+        out.insert(
+            "subscribes".to_string(),
+            json!(ctx.link.subscribes.lock().unwrap().clone()),
+        );
+        serde_json::to_string(&out).map_err(|e| e.to_string())
+    }
+
+    /// `dispatch-export <vault> <sid> <format> <limit|->` → `{"reply": frame}`.
+    /// Shared-file: the Bun gate seeds the vault, then both dispatchers export
+    /// the SAME rows — frames must match exactly (incl. the rank-4 exact-limit
+    /// truncated:false off-by-one and format_markdown output).
+    pub fn dispatch_export(args: &[String]) -> Result<String, String> {
+        let vault = args.get(1).ok_or("dispatch-export: missing <vaultDir>")?;
+        let sid = args.get(2).ok_or("dispatch-export: missing <sid>")?.clone();
+        let format = args
+            .get(3)
+            .ok_or("dispatch-export: missing <format>")?
+            .clone();
+        let limit: Option<i64> = args
+            .get(4)
+            .map(String::as_str)
+            .and_then(opt)
+            .map(|s| s.parse().map_err(|e| format!("limit: {e}")))
+            .transpose()?;
+
+        let ctx = build(PathBuf::from(vault))?;
+        let relay: Arc<dyn RelayLink> = Arc::clone(&ctx.link) as Arc<dyn RelayLink>;
+        let mut msg = json!({ "t": "session.export", "sid": sid, "format": format });
+        if let Some(limit) = limit {
+            msg["limit"] = json!(limit);
+        }
+        let rt = rt()?;
+        rt.block_on(async {
+            ctx.dispatcher
+                .dispatch_relay_control(&relay, &msg, "probe-fe")
+                .await;
+        });
+
+        let mut out = Obj::new();
+        let peer_msgs = ctx.link.peer_msgs.lock().unwrap().clone();
+        out.insert(
+            "reply".to_string(),
+            peer_msgs.first().cloned().unwrap_or(Value::Null),
+        );
+        serde_json::to_string(&out).map_err(|e| e.to_string())
+    }
+}
+
+fn run_dispatcher(cmd: &str, args: &[String]) -> Result<Option<String>, String> {
+    match cmd {
+        // sanitize-sid <label> — pure (no vault). Pins `sanitize_for_sid`
+        // (worktree-branch → sid derivation, tp-proto socket_path port of
+        // packages/protocol/src/socket-path.ts sanitizeForSid).
+        "sanitize-sid" => {
+            let label = args.get(1).ok_or("sanitize-sid: missing <label>")?;
+            let mut out = Obj::new();
+            out.insert(
+                "sid".to_string(),
+                serde_json::Value::String(tp_proto::socket_path::sanitize_for_sid(label)),
+            );
+            Ok(Some(
+                serde_json::to_string(&out).map_err(|e| e.to_string())?,
+            ))
+        }
+        "dispatch-bye" => dispatcher_probe::dispatch_bye(args).map(Some),
+        "dispatch-create-sid" => dispatcher_probe::dispatch_create_sid(args).map(Some),
+        "dispatch-export" => dispatcher_probe::dispatch_export(args).map(Some),
         _ => Ok(None),
     }
 }

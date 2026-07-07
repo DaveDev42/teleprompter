@@ -11,7 +11,17 @@ description = "Native Rust daemon store layer (ADR-0003 Phase 4, increment 1). P
 name = "tp_daemon"
 path = "src/lib.rs"
 
-# Parity-gate probe ONLY (NOT the shipping daemon binary — that is increment 5).
+# Shipping daemon binary (increment 5) — behavior-faithful port of the Bun
+# entrypoint packages/daemon/src/index.ts (pid-file singleton → Daemon::new →
+# start → auto-cleanup → reconnect saved relays → SIGINT/SIGTERM shutdown).
+# NOT the dogfood default: the CLI still spawns the Bun daemon; flipping the
+# default is a later increment gated on parity evidence.
+[[bin]]
+name = "tp-daemon"
+path = "src/bin/tp_daemon.rs"
+
+# Parity-gate probe ONLY (NOT the shipping daemon binary — that is the
+# `tp-daemon` bin above, increment 5).
 # A thin CLI over `Store` that lets the bidirectional shared-file parity gate
 # (packages/daemon/src/store/store-rust-parity.test.ts) drive the Rust store
 # against the same on-disk vault a Bun `Store` uses. Named `tp-daemon-probe`

@@ -112,6 +112,14 @@ str_enum!(IpcSessionPruneErrReason {
     Internal => "internal",
 });
 
+// `IpcBye.reason = "signal" | "exit"` (types/ipc.ts). Optional on the wire
+// for back-compat (an older Runner omits it); when present it must be exactly
+// one of the two literals (ipc-guard.ts "bye" arm).
+str_enum!(ByeReason {
+    Signal => "signal",
+    Exit => "exit",
+});
+
 /// `AgeFilter = { kind: "all" } | { kind: "olderThan"; ms }`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
@@ -162,6 +170,11 @@ pub struct DoctorRelayStatus {
     pub connected: bool,
     #[serde(rename = "peerCount")]
     pub peer_count: u64,
+    /// Optional for wire back-compat: an older daemon omits it. Present →
+    /// must be a real boolean; absent → `None` (the CLI treats undefined as
+    /// false). Mirrors ipc-guard.ts "doctor.probe.ok" arm.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub throttled: Option<bool>,
 }
 
 /// The Runner ↔ Daemon discriminated union.
@@ -196,6 +209,18 @@ pub enum IpcMessage {
         sid: String,
         #[serde(rename = "exitCode")]
         exit_code: f64,
+        /// Optional for wire back-compat (an older Runner omits it). When
+        /// present it must be a valid positive int; the daemon uses it as a
+        /// generation guard so a restarted session's old Runner bye cannot
+        /// tear down the freshly-registered new generation.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pid: Option<u64>,
+        /// Optional for wire back-compat (an older Runner omits it). When
+        /// present it must be exactly "signal" or "exit" — the daemon uses
+        /// it to distinguish a daemon/transport-initiated stop (always
+        /// "stopped") from claude's own process exit (exitCode-driven).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<ByeReason>,
     },
     #[serde(rename = "ack")]
     Ack { sid: String, seq: u64 },
@@ -382,7 +407,24 @@ pub fn parse_ipc_message(raw: &Value) -> Option<IpcMessage> {
         "bye" => {
             let sid = req_string(obj, "sid")?;
             let exit_code = is_number(obj.get("exitCode")?)?;
-            Some(IpcMessage::Bye { sid, exit_code })
+            // `pid` optional; present → must be a valid positive int (a null
+            // or malformed pid rejects the frame, same as the TS guard).
+            let pid = match obj.get("pid") {
+                None => None,
+                Some(v) => Some(is_positive_int(v)?),
+            };
+            // `reason` optional; present → must be exactly "signal"/"exit"
+            // (null/non-string/other strings reject the frame).
+            let reason = match obj.get("reason") {
+                None => None,
+                Some(v) => Some(ByeReason::from_str(v.as_str()?)?),
+            };
+            Some(IpcMessage::Bye {
+                sid,
+                exit_code,
+                pid,
+                reason,
+            })
         }
         "ack" => {
             let sid = req_string(obj, "sid")?;
@@ -577,11 +619,19 @@ pub fn parse_ipc_message(raw: &Value) -> Option<IpcMessage> {
                 let relay_url = req_string(ro, "relayUrl")?;
                 let connected = req_bool(ro, "connected")?;
                 let peer_count = is_non_negative_int(ro.get("peerCount")?)?;
+                // `throttled` optional for wire back-compat: absent → None;
+                // present-but-not-a-boolean rejects the whole frame.
+                let throttled = match ro.get("throttled") {
+                    None => None,
+                    Some(Value::Bool(b)) => Some(*b),
+                    Some(_) => return None,
+                };
                 relays.push(DoctorRelayStatus {
                     daemon_id,
                     relay_url,
                     connected,
                     peer_count,
+                    throttled,
                 });
             }
             Some(IpcMessage::DoctorProbeOk { relays })
@@ -655,14 +705,134 @@ mod tests {
     #[test]
     fn bye_exit_code_is_number_not_int() {
         // exitCode uses isNumber → a non-integer is accepted on the wire.
+        // Mirrors ipc-guard.test.ts "accepts valid bye (no pid, no reason —
+        // wire back-compat)".
         let ok = parse_ipc_message(&json!({"t": "bye", "sid": "s", "exitCode": -1.0}));
         assert_eq!(
             ok,
             Some(IpcMessage::Bye {
                 sid: "s".into(),
-                exit_code: -1.0
+                exit_code: -1.0,
+                pid: None,
+                reason: None,
             })
         );
+    }
+
+    #[test]
+    fn bye_optional_pid_and_reason() {
+        // Mirrors ipc-guard.test.ts "accepts bye with a valid pid (generation
+        // guard)" + "accepts bye with reason='signal'" + "accepts bye with
+        // reason='exit'" + "rejects bye missing fields".
+        assert_eq!(
+            parse_ipc_message(&json!({
+                "t": "bye", "sid": "s", "exitCode": 0, "pid": 42, "reason": "signal"
+            })),
+            Some(IpcMessage::Bye {
+                sid: "s".into(),
+                exit_code: 0.0,
+                pid: Some(42),
+                reason: Some(ByeReason::Signal),
+            })
+        );
+        assert_eq!(
+            parse_ipc_message(&json!({
+                "t": "bye", "sid": "s", "exitCode": 1, "reason": "exit"
+            })),
+            Some(IpcMessage::Bye {
+                sid: "s".into(),
+                exit_code: 1.0,
+                pid: None,
+                reason: Some(ByeReason::Exit),
+            })
+        );
+        // present-but-invalid pid rejects the frame (0, negative, non-int, null).
+        for bad in [json!(0), json!(-1), json!(1.5), Value::Null] {
+            assert!(parse_ipc_message(&json!({
+                "t": "bye", "sid": "s", "exitCode": 0, "pid": bad
+            }))
+            .is_none());
+        }
+        // present-but-invalid reason rejects the frame (unknown literal,
+        // null, non-string).
+        for bad in [json!("crash"), Value::Null, json!(1)] {
+            assert!(parse_ipc_message(&json!({
+                "t": "bye", "sid": "s", "exitCode": 0, "reason": bad
+            }))
+            .is_none());
+        }
+    }
+
+    #[test]
+    fn bye_serialized_key_order_and_omission() {
+        // Serialized key order t,sid,exitCode,pid,reason with absent
+        // optionals omitted (JSON.stringify drops undefined) — the wire the
+        // Bun daemon's guard re-parses.
+        let full = IpcMessage::Bye {
+            sid: "s".into(),
+            exit_code: 0.0,
+            pid: Some(7),
+            reason: Some(ByeReason::Signal),
+        };
+        assert_eq!(
+            serde_json::to_string(&full).unwrap(),
+            r#"{"t":"bye","sid":"s","exitCode":0.0,"pid":7,"reason":"signal"}"#
+        );
+        let bare = IpcMessage::Bye {
+            sid: "s".into(),
+            exit_code: 1.0,
+            pid: None,
+            reason: None,
+        };
+        assert_eq!(
+            serde_json::to_string(&bare).unwrap(),
+            r#"{"t":"bye","sid":"s","exitCode":1.0}"#
+        );
+    }
+
+    #[test]
+    fn doctor_probe_ok_throttled_semantics() {
+        // Mirrors ipc-guard.test.ts "accepts a relay status carrying
+        // throttled: true" + "omits throttled (wire back-compat with an older
+        // daemon)" + "rejects a non-boolean throttled".
+        let ok = parse_ipc_message(&json!({
+            "t": "doctor.probe.ok",
+            "relays": [{
+                "daemonId": "d", "relayUrl": "r", "connected": true,
+                "peerCount": 0, "throttled": true
+            }]
+        }));
+        assert_eq!(
+            ok,
+            Some(IpcMessage::DoctorProbeOk {
+                relays: vec![DoctorRelayStatus {
+                    daemon_id: "d".into(),
+                    relay_url: "r".into(),
+                    connected: true,
+                    peer_count: 0,
+                    throttled: Some(true),
+                }]
+            })
+        );
+        // absent → None, and re-serialization omits the key.
+        let absent = parse_ipc_message(&json!({
+            "t": "doctor.probe.ok",
+            "relays": [{"daemonId": "d", "relayUrl": "r", "connected": false, "peerCount": 1}]
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_string(&absent).unwrap(),
+            r#"{"t":"doctor.probe.ok","relays":[{"daemonId":"d","relayUrl":"r","connected":false,"peerCount":1}]}"#
+        );
+        // present-but-not-a-boolean rejects the whole frame.
+        assert!(parse_ipc_message(&json!({
+            "t": "doctor.probe.ok",
+            "relays": [{
+                "daemonId": "d", "relayUrl": "r", "connected": false,
+                "peerCount": 1, "throttled": "yes"
+            }]
+        }))
+        .is_none());
     }
 
     #[test]
@@ -803,7 +973,8 @@ mod tests {
                     daemon_id: "d1".into(),
                     relay_url: "wss://r".into(),
                     connected: true,
-                    peer_count: 2
+                    peer_count: 2,
+                    throttled: None,
                 }]
             }
         );

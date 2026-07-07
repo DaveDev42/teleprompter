@@ -88,6 +88,14 @@ fn run() -> Result<String, String> {
         return Ok(out);
     }
 
+    // Push-gate verb takes an event name + tokenCount + an optional payload JSON
+    // (NOT a vault) and calls the pure push-notifier decision — dispatch before
+    // Store::open. Drives the push-gate differential parity gate
+    // (packages/daemon/src/push/push-notifier-rust-parity.test.ts).
+    if let Some(out) = run_push_gate(cmd, &args)? {
+        return Ok(out);
+    }
+
     let vault = args.get(1).ok_or("missing <vaultDir>")?;
     let vault_path = PathBuf::from(vault);
 
@@ -327,6 +335,61 @@ fn run_reconnect(cmd: &str, args: &[String]) -> Result<Option<String>, String> {
         }
         _ => Ok(None),
     }
+}
+
+/// `push-gate <eventName> <tokenCount> [payloadJson]` — drives the pure
+/// push-notifier decision. Emits `{shouldNotify, level, title, body}`:
+///
+/// - `shouldNotify` = `is_notify_event(name) && tokenCount > 0` (the two-part
+///   `on_record` gate, push-notifier.ts:224-230).
+/// - `level` = wire string of `interruption_level_for(name)`.
+/// - `title`/`body` = `build_push_message(name, payload)` output.
+///
+/// Drives the push-gate differential parity gate
+/// (`packages/daemon/src/push/push-notifier-rust-parity.test.ts`).
+fn run_push_gate(cmd: &str, args: &[String]) -> Result<Option<String>, String> {
+    if cmd != "push-gate" {
+        return Ok(None);
+    }
+    let name = args
+        .get(1)
+        .ok_or("push-gate: missing <eventName>")?
+        .as_str();
+    let token_count: usize = args
+        .get(2)
+        .ok_or("push-gate: missing <tokenCount>")?
+        .parse()
+        .map_err(|e| format!("push-gate <tokenCount>: {e}"))?;
+    // Optional payload JSON — default to null (no payload) when absent.
+    let payload: serde_json::Value = match args.get(3) {
+        Some(raw) => serde_json::from_str(raw).map_err(|e| format!("push-gate <payload>: {e}"))?,
+        None => serde_json::Value::Null,
+    };
+
+    let should_notify = tp_daemon::push::is_notify_event(name) && token_count > 0;
+    let level = tp_daemon::push::interruption_level_for(name);
+    // `build_push_message` takes an object payload (or None). A null / non-object
+    // payload maps to None, matching the TS `payload?: Record<…>` optionality.
+    let payload_opt = if payload.is_object() {
+        Some(&payload)
+    } else {
+        None
+    };
+    let msg = tp_daemon::push::build_push_message(name, payload_opt);
+
+    let level_str = serde_json::to_value(level)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .ok_or("push-gate: interruption-level serialization")?;
+
+    let mut obj: Obj = BTreeMap::new();
+    obj.insert("shouldNotify".into(), should_notify.into());
+    obj.insert("level".into(), level_str.into());
+    obj.insert("title".into(), msg.title.into());
+    obj.insert("body".into(), msg.body.into());
+    Ok(Some(
+        serde_json::to_string(&obj).map_err(|e| e.to_string())?,
+    ))
 }
 
 /// `Ok(Some(output))` when `cmd` is a worktree verb, `Ok(None)` otherwise (so

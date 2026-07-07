@@ -46,6 +46,54 @@ pub fn assert_safe_sid(sid: &str) -> Result<(), String> {
     }
 }
 
+/// Collapse an arbitrary label (typically a git branch name) into a fragment
+/// that is guaranteed to satisfy [`assert_safe_sid`]'s `[A-Za-z0-9_-]+`
+/// allowlist. Byte-exact port of `sanitizeForSid` (socket-path.ts:117-123):
+///
+/// 1. every run of non-`[A-Za-z0-9_-]` characters → a single `-`,
+/// 2. collapse `-` runs,
+/// 3. trim leading/trailing `-`,
+/// 4. an emptied-out label degrades to `"wt"`.
+///
+/// The mapping is lossy and one-way — it is ONLY for deriving a local sid /
+/// default worktree directory name (no wire/schema/peer impact). The original
+/// branch name is always passed to git verbatim.
+///
+/// Note the TS regexes operate on UTF-16 code units; every character this
+/// replaces is replaced wholesale (a multi-byte codepoint is simply "not in
+/// the allowlist"), so a `char`-wise walk is behavior-identical.
+#[must_use]
+pub fn sanitize_for_sid(label: &str) -> String {
+    let mut cleaned = String::with_capacity(label.len());
+    for c in label.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+            cleaned.push(c);
+        } else if !cleaned.ends_with('-') {
+            // Non-allowlist run → single '-'; because a literal '-' also
+            // funnels through the ends_with guard below, `-` runs collapse
+            // here in the same pass (TS does it as a second replace — the
+            // composition is identical because both passes only ever
+            // shrink runs of '-').
+            cleaned.push('-');
+        }
+    }
+    // The pass above cannot collapse a run like "a--b" (literal hyphens are
+    // pushed unconditionally). Do the TS second pass explicitly.
+    let mut collapsed = String::with_capacity(cleaned.len());
+    for c in cleaned.chars() {
+        if c == '-' && collapsed.ends_with('-') {
+            continue;
+        }
+        collapsed.push(c);
+    }
+    let trimmed = collapsed.trim_matches('-');
+    if trimmed.is_empty() {
+        "wt".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// Resolve the per-user runtime directory that holds the daemon IPC socket
 /// (and, for the CLI's pid-file lock, `daemon.pid`). Byte-exact port of
 /// `resolveRuntimeDir` (socket-path.ts:15-68):
@@ -187,5 +235,66 @@ mod tests {
             dir.join("daemon.sock"),
             std::path::PathBuf::from("/run/user/1000/daemon.sock")
         );
+    }
+
+    #[test]
+    fn sanitize_flattens_slash_like_worktree_sid_derivation() {
+        // Mirrors socket-path.test.ts "flattens '/' the way the worktree sid
+        // derivation needs".
+        assert_eq!(sanitize_for_sid("feat/foo"), "feat-foo");
+        assert_eq!(sanitize_for_sid("a/b/c"), "a-b-c");
+    }
+
+    #[test]
+    fn sanitize_collapses_non_allowlist_branch_chars() {
+        // Mirrors socket-path.test.ts "collapses non-allowlist characters
+        // legal in a git branch".
+        assert_eq!(sanitize_for_sid("release-1.2"), "release-1-2");
+        assert_eq!(sanitize_for_sid("feat.x"), "feat-x");
+        assert_eq!(sanitize_for_sid("v2.0"), "v2-0");
+        assert_eq!(sanitize_for_sid("a+b"), "a-b");
+        assert_eq!(sanitize_for_sid("한글브랜치"), "wt");
+    }
+
+    #[test]
+    fn sanitize_collapses_runs_and_trims_edges() {
+        // Mirrors socket-path.test.ts "collapses runs and trims
+        // leading/trailing separators".
+        assert_eq!(sanitize_for_sid("a...b"), "a-b");
+        assert_eq!(sanitize_for_sid("--a--"), "a");
+        assert_eq!(sanitize_for_sid(".a."), "a");
+        assert_eq!(sanitize_for_sid("a.-b"), "a-b");
+    }
+
+    #[test]
+    fn sanitize_falls_back_to_wt_when_empty() {
+        // Mirrors socket-path.test.ts "falls back to 'wt' when the label
+        // reduces to empty".
+        assert_eq!(sanitize_for_sid(""), "wt");
+        assert_eq!(sanitize_for_sid("..."), "wt");
+        assert_eq!(sanitize_for_sid("///"), "wt");
+    }
+
+    #[test]
+    fn sanitize_output_always_passes_assert_safe_sid() {
+        // Mirrors socket-path.test.ts "output always passes assertSafeSid
+        // for branch-shaped inputs" — the invariant the worktree.create sid
+        // derivation depends on.
+        for label in [
+            "feat/foo",
+            "release-1.2",
+            "a b c",
+            "...",
+            "",
+            "브랜치/이름.v2",
+            "-x-",
+            "UPPER_case-09",
+        ] {
+            let out = sanitize_for_sid(label);
+            assert!(
+                assert_safe_sid(&out).is_ok(),
+                "sanitize_for_sid({label:?}) produced unsafe sid {out:?}"
+            );
+        }
     }
 }

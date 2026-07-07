@@ -104,9 +104,15 @@ async function captureRunnerFrames(
   );
 
   // The fake claude exits ~immediately; bound the wait so a hang fails loudly.
+  // The bound is generous (60s) because the Bun arm's `bun run <runner entry>`
+  // cold-transpiles the whole runner + protocol graph on first spawn, and on a
+  // contended 2-core CI runner (this test runs inside the full `bun test
+  // --coverage` suite) that plus PTY setup can take many seconds — locally the
+  // whole test is ~1.4s, but a 15s bound false-failed under CI load. A real hang
+  // still fails loudly, just later.
   const exit = await Promise.race([
     proc.exited,
-    new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 15000)),
+    new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 60000)),
   ]);
   if (exit === "timeout") {
     proc.kill();
@@ -262,7 +268,9 @@ describe("runner wire-parity (Bun vs Rust tp-runner)", () => {
         byType(rustFrames, "rec").filter((f) => f.json["kind"] === "event"),
       ).toHaveLength(0);
     },
-    30000,
+    // Two runner arms spawn sequentially, each bounded by the 60s inner race
+    // above; give the whole test enough room to absorb both under CI contention.
+    150000,
   );
 
   if (!rustBin) {

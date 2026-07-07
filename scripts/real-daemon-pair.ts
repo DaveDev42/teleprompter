@@ -80,6 +80,33 @@ function log(msg: string): void {
   process.stderr.write(`[real-daemon-pair] ${msg}\n`);
 }
 
+// Runner-parity gate (ADR-0003 Stage 4, increment 4): when TP_RUNNER_BIN names a
+// built Rust `tp-runner`, drive the real-claude sessions with THAT binary instead
+// of the Bun runner, so the E2E exercises the Rust port end-to-end. Empty/unset ⇒
+// the default Bun runner (`tp run …`), byte-identical to before.
+//
+// IMPORTANT — why this is here and NOT via the daemon's TP_RUNNER_BIN seam: these
+// E2E sessions are spawned by THIS script as standalone `tp run --socket-path …`
+// processes that connect to the isolated daemon's IPC socket; they are NOT created
+// by the daemon's SessionManager.spawnRunner (which is the only path the CLI's
+// resolveRunnerCommandWithOverride/TP_RUNNER_BIN seam controls). So to run the Rust
+// runner here we must build the runner command ourselves. The Rust `tp-runner`
+// takes the same `--sid/--cwd/--socket-path -- <claude args>` argv WITHOUT the `run`
+// subcommand (rust/tp-runner/src/main.rs), whereas the Bun runner is `tp run …`.
+const RUNNER_BIN = ((): string | undefined => {
+  const b = process.env["TP_RUNNER_BIN"];
+  return typeof b === "string" && b.length > 0 ? b : undefined;
+})();
+
+/**
+ * Build the argv for a real-claude runner session. `args` is everything after the
+ * runner selector: `["--sid", sid, "--cwd", cwd, "--socket-path", sock, "--", …]`.
+ * Bun runner ⇒ `bun run <cli> run <args>`; Rust runner ⇒ `<tp-runner> <args>`.
+ */
+function runnerCmd(args: string[]): string[] {
+  return RUNNER_BIN ? [RUNNER_BIN, ...args] : [...CLI, "run", ...args];
+}
+
 function die(msg: string): never {
   log(`FATAL: ${msg}`);
   process.exit(1);
@@ -154,9 +181,7 @@ function startClaudeSession(socketPath: string): Subprocess {
   mkdirSync(cwd, { recursive: true });
   log(`spawning real claude session sid=${sid} cwd=${cwd} (print mode)`);
   const runner = spawn({
-    cmd: [
-      ...CLI,
-      "run",
+    cmd: runnerCmd([
       "--sid",
       sid,
       "--cwd",
@@ -167,7 +192,7 @@ function startClaudeSession(socketPath: string): Subprocess {
       "-p",
       prompt,
       "--dangerously-skip-permissions",
-    ],
+    ]),
     // Inherit the full env (XDG_*, HOME, CLAUDE_CODE_OAUTH_TOKEN). The Runner's
     // PtyBun.spawn passes no `env:` of its own, so claude sees exactly this env.
     env: { ...process.env },
@@ -233,9 +258,7 @@ function startClaudeSessionInteractive(
 
   log(`spawning real claude session sid=${sid} cwd=${cwd} (INTERACTIVE)`);
   const runner = spawn({
-    cmd: [
-      ...CLI,
-      "run",
+    cmd: runnerCmd([
       "--sid",
       sid,
       "--cwd",
@@ -245,7 +268,7 @@ function startClaudeSessionInteractive(
       "--",
       "--permission-mode",
       "bypassPermissions",
-    ],
+    ]),
     env: { ...process.env },
     stdout: "ignore",
     stderr: "ignore",
@@ -574,9 +597,7 @@ function startClaudeSessionCoding(
 
   log(`spawning real claude session sid=${sid} cwd=${cwd} (CODING multi-turn)`);
   const runner = spawn({
-    cmd: [
-      ...CLI,
-      "run",
+    cmd: runnerCmd([
       "--sid",
       sid,
       "--cwd",
@@ -586,7 +607,7 @@ function startClaudeSessionCoding(
       "--",
       "--permission-mode",
       "bypassPermissions",
-    ],
+    ]),
     env: { ...process.env },
     stdout: "ignore",
     stderr: "ignore",
@@ -743,9 +764,7 @@ function startClaudeSessionWebpage(
     `spawning real claude session sid=${sid} cwd=${cwd} (WEBPAGE multi-turn)`,
   );
   const runner = spawn({
-    cmd: [
-      ...CLI,
-      "run",
+    cmd: runnerCmd([
       "--sid",
       sid,
       "--cwd",
@@ -755,7 +774,7 @@ function startClaudeSessionWebpage(
       "--",
       "--permission-mode",
       "bypassPermissions",
-    ],
+    ]),
     env: { ...process.env },
     stdout: "ignore",
     stderr: "ignore",
@@ -875,6 +894,26 @@ async function main(): Promise<void> {
     const relayPort = relay.start(0);
     relayUrl = `ws://localhost:${relayPort}`;
     log(`relay up on ${relayUrl}`);
+  }
+
+  // Runner-parity gate proof (ADR-0003 Stage 4, increment 4): when we selected the
+  // Rust tp-runner (RUNNER_BIN set from TP_RUNNER_BIN), emit a greppable line naming
+  // the exact binary that will serve every real-claude session below.
+  // `assert_runner_parity` greps the holder log ($REAL_RP_OUT) for
+  // `RUNNER_PARITY_BIN=<path>`. The proof lives here (not the daemon log) because
+  // these sessions are spawned by THIS script's runnerCmd() as standalone
+  // `tp run`/`tp-runner` processes — the daemon never spawns them, so its spawn log
+  // would show nothing.
+  //
+  // MUST go to STDOUT (not the stderr `log()` helper): the harness redirects the
+  // holder with `>"$rp_out" 2>>"$rp_out"` — stdout truncates while stderr appends, two
+  // fds with independent offsets on ONE file. An early stderr line races the stdout
+  // REAL_PAIR_URL/REAL_SESSION_SID writes and gets clobbered (empirically: the line
+  // vanished, and adjacent stderr lines were truncated mid-prefix). The durable,
+  // greppable lines (REAL_PAIR_URL, REAL_SESSION_SID) all use process.stdout.write for
+  // exactly this reason, so this proof line joins them. Off ⇒ no line, byte-identical.
+  if (RUNNER_BIN) {
+    process.stdout.write(`RUNNER_PARITY_BIN=${RUNNER_BIN}\n`);
   }
 
   // 2. Real daemon subprocess, isolated via the inherited XDG_* env.

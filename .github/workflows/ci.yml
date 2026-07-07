@@ -43,10 +43,25 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
+      # Build the Rust tp-runner so the differential wire-parity gate
+      # (packages/daemon/src/session/runner-parity.test.ts) RUNS instead of
+      # SKIP-ing. That test drives the Bun runner AND the Rust tp-runner against
+      # the same fake claude and asserts byte-identical hello/io/bye frames — the
+      # load-bearing byte-exactness gate for the runner port (ADR-0003 Stage 4).
+      # Without the binary present it degrades to SKIP, so building it here makes
+      # the parity check an always-on backstop in CI. Pin matches
+      # rust/rust-toolchain.toml (1.96.0).
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.96.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Build Rust tp-runner (parity-gate enabler)
+        run: cargo build --release --bin tp-runner --manifest-path rust/Cargo.toml
       - name: Test with coverage
         run: bun test --coverage --timeout 30000 packages/protocol packages/daemon packages/runner apps/cli packages/relay
 

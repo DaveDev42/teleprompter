@@ -79,6 +79,7 @@ pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner)
 - `packages/runner/src/collector.test.ts` — io/event/meta record creation
 - `packages/daemon/src/store/session-db.test.ts` — append, cursor, payloads
 - `packages/daemon/src/store/store-cleanup.test.ts` — deleteSession, pruneOldSessions
+- `packages/daemon/src/store/store-rust-parity.test.ts` — **Bun `Store` ↔ Rust `tp-daemon` 양방향 shared-file 파리티 게이트** (ADR-0003 Phase 4 daemon inc1). 같은 on-disk vault dir 에 Bun 이 쓰고 Rust probe(`tp-daemon-probe`)가 읽기 + 역방향 → session/pairing/record 행·BLOB byte-identical + WAL sidecar unlink + WAL-mode PRAGMA parity 검증. probe 는 고정 line-oriented CLI(write-session/dump-sessions/write-pairing/dump-pairings/append-rec/dump-recs/delete-session — plan 문서 §"inc1 parity-gate probe contract")로 driving 하므로 Rust 내부 메서드명과 decouple. **Rust probe 바이너리 미빌드 시 SKIP** (`cd rust && cargo build --bin tp-daemon-probe`; `runner-parity.test.ts` SKIP 선례). Rust store 가 Bun daemon 이 쓰는 바로 그 `sessions.sqlite` 를 교환 가능하게 여닫는다는 불변식의 byte-exactness gate.
 - `packages/daemon/src/auto-cleanup.test.ts` — daemon auto-cleanup on startup, periodic scheduler, TTL config
 - `packages/daemon/src/push/push-notifier.test.ts` — hook event detection, token registration, push dispatch
 - `packages/relay/src/push.test.ts` — Expo Push API client, rate limiting, dedup

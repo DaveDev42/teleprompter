@@ -2973,6 +2973,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tp-daemon"
+version = "0.0.1"
+dependencies = [
+ "rusqlite",
+ "rustix",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tp-core",
+ "tp-proto",
+]
+
+[[package]]
 name = "tp-proto"
 version = "0.0.1"
 dependencies = [

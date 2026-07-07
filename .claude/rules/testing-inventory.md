@@ -141,7 +141,8 @@ pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner)
 - `apps/cli/src/commands/doctor.integration.test.ts` — `doctorCommand` tool probe (node/pnpm/claude/git present vs missing), daemon-down path, claude-doctor invocation; Bun.spawnSync/spawn mocked (un-rooted invocations push pipe fds past Darwin `OPEN_MAX` → 자식 stdout 소실 — 위 "macOS rooted paths" 참조)
 - `apps/cli/src/lib/colors.test.ts` — ANSI color wrapper (NO_COLOR honor)
 - `apps/cli/src/lib/e2ee-verify.test.ts` — `verifyE2EECrypto` 자가검증 (daemon↔frontend, relay isolation)
-- `apps/cli/src/lib/ensure-daemon.test.ts` — `isDaemonRunning` / install prompt 결정 / yes-no 파싱
+- `apps/cli/src/lib/daemon-bin.test.ts` — `TP_DAEMON_BIN` opt-in Rust-daemon override 해석 (unset/empty → null, 실행파일 X_OK 검증, missing/non-exec → cargo-hint 와 함께 throw — 조용한 Bun fallback 금지; `runner-bin.test.ts` 미러, ADR-0003 Phase 4 inc6)
+- `apps/cli/src/lib/ensure-daemon.test.ts` — `isDaemonRunning` / install prompt 결정 / yes-no 파싱 / `resolveDaemonSpawnCommand` (`TP_DAEMON_BIN` seam argv shape — absent==pre-inc6 default byte-identical, override → `[bin, []]` no `daemon start` subcommand, invalid throws)
 - `apps/cli/src/lib/format.test.ts` — `errorWithHints` 에러 메시지 포매터
 - `apps/cli/src/lib/ipc-client.test.ts` — `connectIpcAsClient` framed JSON 송수신 (POSIX unix socket 경로)
 - `apps/cli/src/lib/daemon-lock.test.ts` — `acquireDaemonLock`/`releaseDaemonLock`/`checkDaemonLockAlive` pid-file singleton (via `@teleprompter/daemon` re-export)

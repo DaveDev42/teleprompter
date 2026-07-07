@@ -135,7 +135,14 @@ export class SessionManager {
       process: proc,
     });
 
-    log.info(`spawned runner sid=${sid} pid=${proc.pid}`);
+    // Log the resolved runner argv[0] so an operator can see WHICH runner binary
+    // served a daemon-spawned session — the Bun blob (`tpd`/`bun`) vs an explicit
+    // `TP_RUNNER_BIN` override (Rust `tp-runner`, ADR-0003 Stage 4). Without this
+    // the spawn is opaque and a silent Bun fallback is indistinguishable from a
+    // real Rust-runner run.
+    log.info(
+      `spawned runner sid=${sid} pid=${proc.pid} bin=${baseCmd[0] ?? "?"}`,
+    );
 
     // Monitor exit. A Runner can die without sending a clean "bye" (crash,
     // OOM-kill, kill -9), which previously left the session row stuck at

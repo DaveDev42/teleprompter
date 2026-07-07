@@ -818,7 +818,7 @@ cmd_smoke_ios() {
   #                            claude_e2e (proves the genuine app→relay→daemon→PTY→claude
   #                            input path end to end). See native-testing.md.
   parse_e2e_gates
-  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING" claude_webpage="$E2E_WEBPAGE" claude_push="$E2E_PUSH"
+  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING" claude_webpage="$E2E_WEBPAGE" claude_push="$E2E_PUSH" runner_parity="$E2E_RUNNER_BIN"
   # PR-4: M1 marker is mode-dependent. Real-daemon modes (kx out-of-scope/racy,
   # honest M0–M2) assert ingest via TP_PAIR_PENDING; loopback (deterministic kx →
   # promote) keeps TP_PAIR_OK.
@@ -1085,9 +1085,10 @@ cmd_smoke_ios() {
     [ -n "$claude_coding" ] && assert_coding_e2e
     [ -n "$claude_webpage" ] && assert_webpage_e2e
     [ -n "$claude_push" ] && assert_push_e2e "$udid"
+    [ -n "$runner_parity" ] && assert_runner_parity
     capture_sim_screenshot "$udid" "$TP_PLATFORM"
     tp_smoke_pass
-    log "✅ REAL-CLAUDE E2E PASS — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 input round-trip out of scope for print mode)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}${claude_webpage:+ + WEBPAGE (Write HTML5+Bash validate) verified}${claude_push:+ + in-band PUSH receive verified}"
+    log "✅ REAL-CLAUDE E2E PASS — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 input round-trip out of scope for print mode)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}${claude_webpage:+ + WEBPAGE (Write HTML5+Bash validate) verified}${claude_push:+ + in-band PUSH receive verified}${runner_parity:+ + RUST-RUNNER PARITY verified}"
     return 0
   fi
 
@@ -1103,9 +1104,10 @@ cmd_smoke_ios() {
   # claude_m5 has no loopback /health to check (real relay), so finish here with the
   # full 8-marker pass once M5 is confirmed.
   if [ -n "$claude_m5" ]; then
+    [ -n "$runner_parity" ] && assert_runner_parity
     capture_sim_screenshot "$udid" "$TP_PLATFORM"
     tp_smoke_pass
-    log "✅ REAL-CLAUDE M5 E2E PASS — all 8 markers (M0–M5) against a real tp daemon + real INTERACTIVE claude: input round-trip (app→relay→daemon→PTY→claude→Stop→ChatItem) proven on-device (sid=$SMOKE_SESSION_ID)"
+    log "✅ REAL-CLAUDE M5 E2E PASS — all 8 markers (M0–M5) against a real tp daemon + real INTERACTIVE claude: input round-trip (app→relay→daemon→PTY→claude→Stop→ChatItem) proven on-device (sid=$SMOKE_SESSION_ID)${runner_parity:+ + RUST-RUNNER PARITY verified}"
     return 0
   fi
 
@@ -1128,7 +1130,7 @@ cmd_smoke_macos() {
   # swap in a genuine tp daemon+relay (+ real claude session) on the HOST — the macOS
   # app under test connects to it through the real relay exactly as a phone would.
   parse_e2e_gates
-  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING" claude_webpage="$E2E_WEBPAGE" claude_push="$E2E_PUSH"
+  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING" claude_webpage="$E2E_WEBPAGE" claude_push="$E2E_PUSH" runner_parity="$E2E_RUNNER_BIN"
   # PR-4: M1 marker is mode-dependent. Real-daemon modes (kx out-of-scope/racy,
   # honest M0–M2) assert ingest via TP_PAIR_PENDING; loopback (deterministic kx →
   # promote) keeps TP_PAIR_OK.
@@ -1382,9 +1384,10 @@ cmd_smoke_macos() {
     [ -n "$claude_coding" ] && assert_coding_e2e
     [ -n "$claude_webpage" ] && assert_webpage_e2e
     [ -n "$claude_push" ] && assert_push_e2e ""
+    [ -n "$runner_parity" ] && assert_runner_parity
     capture_macos_screenshot "macos"
     tp_smoke_pass
-    log "✅ REAL-CLAUDE E2E PASS (macOS) — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 out of scope for print mode)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}${claude_webpage:+ + WEBPAGE (Write HTML5+Bash validate) verified}${claude_push:+ + in-band PUSH receive verified}"
+    log "✅ REAL-CLAUDE E2E PASS (macOS) — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 out of scope for print mode)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}${claude_webpage:+ + WEBPAGE (Write HTML5+Bash validate) verified}${claude_push:+ + in-band PUSH receive verified}${runner_parity:+ + RUST-RUNNER PARITY verified}"
     return 0
   fi
 
@@ -1394,9 +1397,10 @@ cmd_smoke_macos() {
   # claude_m5 uses a real relay (no loopback /health to poll), so finish here with
   # the full 8-marker pass once M5 is confirmed.
   if [ -n "$claude_m5" ]; then
+    [ -n "$runner_parity" ] && assert_runner_parity
     capture_macos_screenshot "macos"
     tp_smoke_pass
-    log "✅ REAL-CLAUDE M5 E2E PASS (macOS) — all 8 markers (M0–M5) against a real tp daemon + real INTERACTIVE claude: input round-trip (app→relay→daemon→PTY→claude→Stop→ChatItem) proven (sid=$SMOKE_SESSION_ID)"
+    log "✅ REAL-CLAUDE M5 E2E PASS (macOS) — all 8 markers (M0–M5) against a real tp daemon + real INTERACTIVE claude: input round-trip (app→relay→daemon→PTY→claude→Stop→ChatItem) proven (sid=$SMOKE_SESSION_ID)${runner_parity:+ + RUST-RUNNER PARITY verified}"
     return 0
   fi
 
@@ -1416,7 +1420,7 @@ cmd_smoke_visionos() {
   # the mode taxonomy). The daemon+relay (+ real claude) run on the HOST; only the
   # app runs in the visionOS Simulator and connects through the real relay.
   parse_e2e_gates
-  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING" claude_webpage="$E2E_WEBPAGE" claude_push="$E2E_PUSH"
+  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING" claude_webpage="$E2E_WEBPAGE" claude_push="$E2E_PUSH" runner_parity="$E2E_RUNNER_BIN"
   # PR-4: M1 marker is mode-dependent. Real-daemon modes (kx out-of-scope/racy,
   # honest M0–M2) assert ingest via TP_PAIR_PENDING; loopback (deterministic kx →
   # promote) keeps TP_PAIR_OK.
@@ -1624,9 +1628,10 @@ for devs in d["devices"].values():
     [ -n "$claude_coding" ] && assert_coding_e2e
     [ -n "$claude_webpage" ] && assert_webpage_e2e
     [ -n "$claude_push" ] && assert_push_e2e "$udid"
+    [ -n "$runner_parity" ] && assert_runner_parity
     capture_sim_screenshot "$udid" "visionos"
     tp_smoke_pass
-    log "✅ REAL-CLAUDE E2E PASS (visionOS) — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 out of scope for print mode)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}${claude_webpage:+ + WEBPAGE (Write HTML5+Bash validate) verified}${claude_push:+ + in-band PUSH receive verified}"
+    log "✅ REAL-CLAUDE E2E PASS (visionOS) — boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude (M5 out of scope for print mode)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}${claude_webpage:+ + WEBPAGE (Write HTML5+Bash validate) verified}${claude_push:+ + in-band PUSH receive verified}${runner_parity:+ + RUST-RUNNER PARITY verified}"
     return 0
   fi
 
@@ -1635,9 +1640,10 @@ for devs in d["devices"].values():
 
   # claude_m5 uses a real relay (no loopback /health to poll), so finish here.
   if [ -n "$claude_m5" ]; then
+    [ -n "$runner_parity" ] && assert_runner_parity
     capture_sim_screenshot "$udid" "visionos"
     tp_smoke_pass
-    log "✅ REAL-CLAUDE M5 E2E PASS (visionOS) — all 8 markers (M0–M5) against a real tp daemon + real INTERACTIVE claude: input round-trip (app→relay→daemon→PTY→claude→Stop→ChatItem) proven on $VISION_SIM_NAME (sid=$SMOKE_SESSION_ID)"
+    log "✅ REAL-CLAUDE M5 E2E PASS (visionOS) — all 8 markers (M0–M5) against a real tp daemon + real INTERACTIVE claude: input round-trip (app→relay→daemon→PTY→claude→Stop→ChatItem) proven on $VISION_SIM_NAME (sid=$SMOKE_SESSION_ID)${runner_parity:+ + RUST-RUNNER PARITY verified}"
     return 0
   fi
 
@@ -1663,7 +1669,7 @@ cmd_smoke_watchos() {
   # the HOST; only the watch app runs in the Simulator and connects through the
   # real relay.
   parse_e2e_gates
-  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_coding="$E2E_CLAUDE_CODING" claude_webpage="$E2E_WEBPAGE" claude_push="$E2E_PUSH"
+  local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_coding="$E2E_CLAUDE_CODING" claude_webpage="$E2E_WEBPAGE" claude_push="$E2E_PUSH" runner_parity="$E2E_RUNNER_BIN"
   # PR-4: M1 marker is mode-dependent (see cmd_smoke_ios).
   local m1_marker; if [ -n "$real_e2e" ]; then m1_marker="$PAIR_PENDING_MARKER"; else m1_marker="$PAIR_MARKER"; fi
 
@@ -1859,9 +1865,10 @@ for devs in d["devices"].values():
     [ -n "$claude_coding" ] && assert_coding_e2e
     [ -n "$claude_webpage" ] && assert_webpage_e2e
     [ -n "$claude_push" ] && assert_push_e2e "$udid"
+    [ -n "$runner_parity" ] && assert_runner_parity
     capture_sim_screenshot "$udid" "watchos"
     tp_smoke_pass
-    log "✅ REAL-CLAUDE E2E PASS (watchOS) — 7/7 markers: boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude on $WATCH_SIM_NAME (M5 N/A on watch)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}${claude_webpage:+ + WEBPAGE (Write HTML5+Bash validate) verified}${claude_push:+ + in-band PUSH receive verified}"
+    log "✅ REAL-CLAUDE E2E PASS (watchOS) — 7/7 markers: boot + core + pairing + relay-auth + kx + first-frame + real-Stop session-render (sid=$SMOKE_SESSION_ID) against a real tp daemon + real claude on $WATCH_SIM_NAME (M5 N/A on watch)${claude_coding:+ + multi-turn CODING (Write+Bash) verified}${claude_webpage:+ + WEBPAGE (Write HTML5+Bash validate) verified}${claude_push:+ + in-band PUSH receive verified}${runner_parity:+ + RUST-RUNNER PARITY verified}"
     return 0
   fi
 
@@ -1935,8 +1942,16 @@ start_loopback() {
 # coding assertion (not the M5 assertion) runs. To exercise M5, run it WITHOUT the coding
 # gate. (Run them as two separate invocations for full M0–M5 + coding coverage.)
 E2E_REAL="" E2E_CLAUDE="" E2E_CLAUDE_M5="" E2E_CLAUDE_CODING="" E2E_WEBPAGE=""
+# E2E_RUNNER_BIN (TP_E2E_RUNNER_BIN=1) is ORTHOGONAL to every claude-driving gate above:
+# it selects which RUNNER BINARY the isolated daemon spawns (the Rust tp-runner via the
+# already-merged inc3 TP_RUNNER_BIN seam) — NOT how claude is driven. So it neither implies
+# nor clears any other gate; it composes with CODING/WEBPAGE/M5 to run the same real-claude
+# assertions against the Rust runner and prove byte-and-behavior parity with the Bun default
+# (ADR-0003 Stage 4, increment 4). Local-only; never CI (rides the real-claude harness).
+E2E_RUNNER_BIN=""
 parse_e2e_gates() {
   E2E_REAL="" E2E_CLAUDE="" E2E_CLAUDE_M5="" E2E_CLAUDE_CODING="" E2E_WEBPAGE="" E2E_PUSH=""
+  E2E_RUNNER_BIN=""
   [ "${TP_E2E_REAL:-}" = "1" ] && E2E_REAL="yes"
   [ "${TP_E2E_CLAUDE:-}" = "1" ] && { E2E_REAL="yes"; E2E_CLAUDE="yes"; }
   [ "${TP_E2E_CLAUDE_M5:-}" = "1" ] && { E2E_REAL="yes"; E2E_CLAUDE="yes"; E2E_CLAUDE_M5="yes"; }
@@ -1958,6 +1973,11 @@ parse_e2e_gates() {
   # `claude_m5` empty downstream, so the marker set excludes TP_INPUT_OK and the M4
   # early-return fires — which is the only place the coding/webpage/push assertions run.
   { [ -n "$E2E_CLAUDE_CODING" ] || [ -n "$E2E_WEBPAGE" ] || [ -n "$E2E_PUSH" ]; } && E2E_CLAUDE_M5=""
+  # RUNNER_BIN gate — orthogonal, sets no other gate. It requires a real daemon (the seam
+  # only takes effect inside `tp daemon start`), so it implies E2E_REAL, but does NOT imply
+  # E2E_CLAUDE — the caller pairs it with a claude-driving gate (CODING/WEBPAGE/M5) to get a
+  # session to diff. On its own it just makes the isolated daemon prefer the Rust runner.
+  [ "${TP_E2E_RUNNER_BIN:-}" = "1" ] && { E2E_REAL="yes"; E2E_RUNNER_BIN="yes"; }
   # Force success: the script runs under `set -e`, and the last `[ … ] && …` short-
   # circuits to exit 1 when the gate is unset (the common loopback case). Without this
   # the function would return 1 and abort its caller. (This bit cmd_smoke_macos.)
@@ -2241,6 +2261,53 @@ assert_webpage_e2e() {
   log "✅ WEBPAGE E2E PASS — the app→relay→daemon→PTY pipeline carried real turns to claude that built a valid HTML webpage (Write created $file, Bash validated it)"
 }
 
+# assert_runner_parity — the TP_E2E_RUNNER_BIN assertion (ADR-0003 Stage 4, increment 4).
+# It does NOT re-drive claude: the coding/webpage/M5 gate the caller combined RUNNER_BIN with
+# already exercised the full app→relay→daemon→PTY→claude pipeline AND its own side-effect
+# asserts (assert_coding_e2e / assert_webpage_e2e / assert_m5_input) against the SAME session.
+# Those asserts are runner-agnostic — they read the isolated session DB, which is byte-for-byte
+# the same wire whichever runner produced it (that byte-exactness is the whole premise). This
+# assert adds the two things those cannot: (1) POSITIVE PROOF the Rust tp-runner actually served
+# the session — without it a silent Bun fallback would let every runner-agnostic assert PASS and
+# the gate would be a no-op — and (2) a structural io-record sanity check (the io binary sidecar
+# is the load-bearing parity surface; runner-parity.test.ts proves it byte-exact against Bun with
+# a fake claude, this proves it is non-empty with the REAL claude the Rust runner just drove).
+# Call ONLY when $E2E_RUNNER_BIN, after the runner-agnostic assert(s) have passed.
+assert_runner_parity() {
+  local sid="${SMOKE_SESSION_ID:-real-smoke-sess}"
+  [ -n "$REAL_E2E_DIR" ] || die "RUNNER PARITY FAIL — REAL_E2E_DIR unset (real daemon not started?)"
+  [ -n "$REAL_RUNNER_BIN" ] || die "RUNNER PARITY FAIL — REAL_RUNNER_BIN unset (build_rust_runner_bin did not run?)"
+  [ -n "${REAL_RP_OUT:-}" ] || die "RUNNER PARITY FAIL — REAL_RP_OUT unset (holder log not captured?)"
+  local db="$REAL_E2E_DIR/data/teleprompter/vault/sessions/$sid.sqlite"
+
+  # 1. POSITIVE PROOF the Rust runner served these sessions. The holder
+  #    (real-daemon-pair.ts) spawns every real-claude session itself as a standalone
+  #    `tp run`/`tp-runner` process (NOT via the daemon's SessionManager), so its own
+  #    runnerCmd() is what selects the binary from TP_RUNNER_BIN. When it selected the
+  #    Rust runner it writes `RUNNER_PARITY_BIN=<abs path>` to STDOUT (a durable line
+  #    alongside REAL_PAIR_URL/REAL_SESSION_SID — NOT the stderr log() helper, which
+  #    races and gets clobbered under the holder's `>rp_out 2>>rp_out` shared-fd
+  #    redirect), which the harness captured to $REAL_RP_OUT. Match the exact absolute
+  #    path we injected (grep -F: literal, not a loose 'tp-runner' substring — the Bun
+  #    blob could live in a path containing that token). Silent Bun fallback = NO line → die.
+  local sel_line
+  sel_line="$(grep -F "RUNNER_PARITY_BIN=$REAL_RUNNER_BIN" "$REAL_RP_OUT" 2>/dev/null | tail -n1 || true)"
+  [ -n "$sel_line" ] || die "RUNNER PARITY FAIL — no 'RUNNER_PARITY_BIN=$REAL_RUNNER_BIN' line in holder log $REAL_RP_OUT. The holder did NOT drive sessions with the Rust runner (silent Bun fallback? is TP_RUNNER_BIN propagating to real-daemon-pair.ts?). Holder RUNNER_PARITY lines: $(grep -F 'RUNNER_PARITY_BIN=' "$REAL_RP_OUT" 2>/dev/null | tr '\n' '|' || echo '<none>')"
+  log "runner parity — Rust runner CONFIRMED drives real-claude sessions: ${sel_line#*] }"
+
+  # 2. Structural io-record check: the Rust runner must have emitted io records (the binary
+  #    sidecar carrying the real claude PTY bytes). runner-parity.test.ts already proved these
+  #    are byte-exact vs Bun under a fake claude; here we only confirm the REAL claude session
+  #    produced a non-empty io stream through the Rust runner (kind='io' rows > 0).
+  [ -f "$db" ] || die "RUNNER PARITY FAIL — session DB not found at $db (sid=$sid)"
+  local io_rows
+  io_rows="$(sqlite3 "$db" "SELECT COUNT(*) FROM records WHERE kind='io';" 2>/dev/null || echo 0)"
+  [ "${io_rows:-0}" -ge 1 ] || die "RUNNER PARITY FAIL — session DB has io rows=$io_rows (expected >=1; the Rust runner produced no PTY io — did claude render anything?)"
+  log "runner parity — io records OK: kind='io' rows=$io_rows (Rust runner emitted the PTY byte stream)"
+
+  log "✅ RUNNER PARITY PASS — the Rust tp-runner (bin=$REAL_RUNNER_BIN) served the real claude session end-to-end and the runner-agnostic assertion(s) above verified byte-identical behavior to the Bun runner"
+}
+
 # assert_push_e2e — the TP_E2E_PUSH assertion. After M0–M4 passed (real daemon + real
 # claude print session + live app), the holder injected a synthetic `Notification` hook
 # event over IPC; the daemon's PushNotifier dispatched it as a `relay.push`, and the
@@ -2336,10 +2403,47 @@ REAL_SPAWN_PUSH=""
 # Holder combined stdout+stderr log path (set in start_real_daemon_relay), read by
 # assert_push_e2e for the secondary "push: injected …" diagnostic check.
 REAL_RP_OUT=""
+# Absolute path to the built Rust tp-runner (set by build_rust_runner_bin when
+# E2E_RUNNER_BIN=yes), injected as TP_RUNNER_BIN into the isolated daemon's env so the
+# inc3 seam makes it spawn the Rust runner per-session. Empty ⇒ default Bun runner.
+REAL_RUNNER_BIN=""
+
+# build_rust_runner_bin — build (release) + locate the Rust tp-runner and set
+# REAL_RUNNER_BIN. Only invoked when E2E_RUNNER_BIN=yes; keeps this cost off the default
+# smoke/CI path (NOT in ensure_xcframework). Mirrors the freshness sequence's rustup-shim
+# workaround (real toolchain bin ahead of the shim, which mis-parses cargo args) and
+# findRustRunner()'s release→debug fallback (runner-parity.test.ts). Fails LOUD if the
+# binary can't be produced — never silently drops back to Bun (the whole point is to prove
+# the Rust runner). Logs the profile + mtime so a stale build can't false-pass unnoticed.
+build_rust_runner_bin() {
+  [ "$E2E_RUNNER_BIN" = "yes" ] || return 0
+  require cargo
+  local tc_bin
+  tc_bin="$(dirname "$(cd "$REPO_ROOT/rust" && rustup which cargo 2>/dev/null)")" \
+    || die "TP_E2E_RUNNER_BIN FAIL — could not resolve the Rust toolchain bin via rustup"
+  log "building Rust tp-runner (release) for the parity gate…"
+  ( cd "$REPO_ROOT/rust" && PATH="$tc_bin:$PATH" cargo build --release --bin tp-runner ) \
+    || die "TP_E2E_RUNNER_BIN FAIL — 'cargo build --release --bin tp-runner' failed"
+  local rel="$REPO_ROOT/rust/target/release/tp-runner"
+  local dbg="$REPO_ROOT/rust/target/debug/tp-runner"
+  if [ -x "$rel" ]; then
+    REAL_RUNNER_BIN="$rel"
+  elif [ -x "$dbg" ]; then
+    REAL_RUNNER_BIN="$dbg"
+  else
+    die "TP_E2E_RUNNER_BIN FAIL — tp-runner not found after build (looked at $rel, $dbg). Build it: (cd rust && cargo build --release --bin tp-runner)"
+  fi
+  # mtime (portable: try GNU then BSD stat) so a stale binary is visible in the log.
+  local mt; mt="$(stat -c %y "$REAL_RUNNER_BIN" 2>/dev/null || stat -f %Sm "$REAL_RUNNER_BIN" 2>/dev/null || echo '?')"
+  log "tp-runner selected: $REAL_RUNNER_BIN (built $mt) — injecting as TP_RUNNER_BIN"
+}
 start_real_daemon_relay() {
   require bun
   local script="$REPO_ROOT/scripts/real-daemon-pair.ts"
   [ -f "$script" ] || die "E2E_REAL FAIL — missing $script"
+
+  # Build+locate the Rust runner if the parity gate is on (sets REAL_RUNNER_BIN, or dies).
+  build_rust_runner_bin
 
   # Per-run isolated XDG dirs so the real daemon never collides with the user's
   # dogfood daemon (separate socket, store, config). Cleaned up on exit (LIFO).
@@ -2395,12 +2499,20 @@ start_real_daemon_relay() {
   log "starting REAL daemon+relay (isolated under $REAL_E2E_DIR)${REAL_RUN_CLAUDE:+ + real claude session}"
   # Isolate via XDG_* (socket/store/config) + HOME so nothing leaks to ~/.
   # TP_E2E_CLAUDE_* configure the spawned session (sid/cwd); inherited by the script.
+  # TP_RUNNER_BIN is a LITERAL env-prefix assignment (not a ${VAR:+…} expansion —
+  # bash only parses a *literal* `NAME=value` prefix as an assignment; a parameter-
+  # expanded one is word-split and mis-run as a command). REAL_RUNNER_BIN is "" unless
+  # E2E_RUNNER_BIN=yes, and resolveRunnerBinOverride treats an EMPTY TP_RUNNER_BIN as
+  # unset → the default Bun runner (runner-bin.ts: `if (!raw) return null`). So passing
+  # it unconditionally is behavior-identical to today when off, and selects the Rust
+  # tp-runner (inc3 seam) when set.
   XDG_RUNTIME_DIR="$REAL_E2E_DIR/run" \
   XDG_DATA_HOME="$REAL_E2E_DIR/data" \
   XDG_CONFIG_HOME="$REAL_E2E_DIR/cfg" \
   HOME="$REAL_E2E_DIR/home" \
   TP_E2E_CLAUDE_SID="$claude_sid" \
   TP_E2E_CLAUDE_CWD="$REAL_E2E_DIR/home/work" \
+  TP_RUNNER_BIN="$REAL_RUNNER_BIN" \
   bun run "$script" "${spawn_args[@]}" >"$rp_out" 2>>"$rp_out" &
   local rp_pid=$!
   # SIGTERM the holder on cleanup (it tears down the daemon + relay + claude runner).

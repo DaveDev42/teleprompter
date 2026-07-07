@@ -67,6 +67,20 @@ async function captureRunnerFrames(
   const frames: CapturedFrame[] = [];
   const decoder = new FrameDecoder();
 
+  // Resolve as soon as the runner sends its terminal `bye` frame (the last one
+  // it emits — after hello + all io). We deliberately do NOT wait for the runner
+  // *process* to exit: on Linux with Bun 1.3.13 a `terminal:` PTY leaves a stuck
+  // event-loop handle after the child exits, so a runner that relies on natural
+  // loop-drain to terminate never self-exits there (empirically confirmed: bye
+  // is sent, socket closed, yet the process hangs; even proc.kill()/unref() do
+  // not release the handle — only an explicit process.exit would, which we won't
+  // force on the runner just for a test). On macOS the handle is released and it
+  // exits promptly. Waiting on the bye frame is byte-for-byte what the parity
+  // assertions need and is immune to that platform quirk.
+  let onBye: () => void = () => {};
+  const byeSeen = new Promise<void>((resolve) => {
+    onBye = resolve;
+  });
   const server = Bun.listen({
     unix: sock,
     socket: {
@@ -76,6 +90,9 @@ async function captureRunnerFrames(
             json: f.data as Record<string, unknown>,
             binary: f.binary,
           });
+          if (f.data && (f.data as Record<string, unknown>)["t"] === "bye") {
+            onBye();
+          }
         }
       },
       open() {},
@@ -103,18 +120,24 @@ async function captureRunnerFrames(
     },
   );
 
-  // The fake claude exits ~immediately; bound the wait so a hang fails loudly.
-  const exit = await Promise.race([
-    proc.exited,
-    new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 15000)),
+  // Bound the wait so a genuine hang (no bye ever) fails loudly. The bound is
+  // generous (60s) because the Bun arm's `bun run <runner entry>` cold-transpiles
+  // the whole runner + protocol graph on first spawn, and on a contended 2-core
+  // CI runner (this test runs inside the full `bun test --coverage` suite) that
+  // plus PTY setup can take many seconds — locally the whole test is ~1.4s.
+  const outcome = await Promise.race([
+    byeSeen.then(() => "bye" as const),
+    new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 60000)),
   ]);
-  if (exit === "timeout") {
-    proc.kill();
+  // Kill the runner regardless: on Linux it may not self-exit (see byeSeen note),
+  // and we already have every frame we assert on. kill() is a no-op if it exited.
+  proc.kill();
+  if (outcome === "timeout") {
     server.stop();
-    throw new Error(`runner did not exit in time: ${runnerCmd.join(" ")}`);
+    throw new Error(`runner sent no bye in time: ${runnerCmd.join(" ")}`);
   }
 
-  // Give the listener a tick to drain the final (bye) frame before stopping.
+  // Give the listener a tick to drain anything queued behind the bye before stop.
   await new Promise((r) => setTimeout(r, 100));
   server.stop();
   return frames;
@@ -262,7 +285,9 @@ describe("runner wire-parity (Bun vs Rust tp-runner)", () => {
         byType(rustFrames, "rec").filter((f) => f.json["kind"] === "event"),
       ).toHaveLength(0);
     },
-    30000,
+    // Two runner arms spawn sequentially, each bounded by the 60s inner race
+    // above; give the whole test enough room to absorb both under CI contention.
+    150000,
   );
 
   if (!rustBin) {

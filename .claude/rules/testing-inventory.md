@@ -37,6 +37,24 @@ pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner)
 > 자식 env 의 `GIT_*` 제거 (`gitEnv()`/`gitTestEnv()`), `cwd` 를 authoritative 하게 만든다. 검증:
 > `GIT_DIR` export 하에서도 15 pass / 0 fail + HEAD·config clean.
 
+### Bun `terminal:` PTY 가 Linux 에서 프로세스를 안 죽이는 함정 (`runner-parity.test.ts`)
+
+> **Bun 1.3.13 Linux 에서 `terminal:`(PTY) 로 spawn 한 자식이 종료해도 event-loop 핸들이 안 풀려
+> 부모 Bun 프로세스가 자연 종료(loop-drain)로 절대 안 끝난다.** WSL Ubuntu(=CI 와 동일 OS)에서 Bun
+> 1.3.13/1.3.14 양쪽으로 재현 검증: fake claude(`printf; exit 7`)를 `terminal:` PTY 로 띄우면 자식
+> `.exited` 는 ~1ms 에 resolve 하지만, 그 뒤 부모가 IPC 소켓을 `.end()` 하고 `bye` 를 보낸 뒤에도
+> **프로세스가 안 죽는다**(25s 풀 hang, rc=124). `proc.kill()`(=`Runner.stop()` 의 `pty.kill()`)·`unref()`
+> 로도 핸들이 안 풀리고, **오직 명시적 `process.exit()`** 만 종료시킨다(16ms). macOS(로컬 1.3.14)는 핸들이
+> 풀려 자연 종료 → 그래서 로컬은 통과, CI(Linux 1.3.13)만 hang. **프로덕션 무영향**: daemon 은 독립적
+> `proc.exited` 모니터(`session-manager.ts:151`)로 세션을 강제 settle 하고, dogfood 는 macOS 전용.
+>
+> `runner-parity.test.ts` 의 `captureRunnerFrames` 는 이 때문에 **runner *프로세스* exit 을 기다리지
+> 않는다** — 대신 runner 가 마지막에 보내는 **`bye` *프레임*이 캡처되면**(hello+io 다음, hang 전에 항상
+> 도착) resolve 하고 `proc.kill()` 한다. 파리티 어서션(hello/io/bye)은 전부 유지되고 Bun-Linux 핸들
+> 함정에 면역이다. 검증: 로컬 macOS 830ms pass, WSL Linux 1.3.13 에서 bye-대기 14ms resolve + clean exit.
+> **runner 프로덕션 종료 로직에 `process.exit()` 를 테스트만을 위해 넣지 말 것** — `bye` flush 를 끊을 수
+> 있고, SIGINT/SIGTERM 경로(`index.ts gracefulShutdown`)만 이미 신중한 `setImmediate` 로 다룬다.
+
 ## Tier 1: Unit Tests
 외부 의존성 없이 빠르게 실행.
 - `packages/protocol/src/codec.test.ts` — framed JSON encode/decode

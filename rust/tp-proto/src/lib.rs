@@ -37,7 +37,7 @@ pub mod label;
 pub mod relay_client;
 pub mod socket_path;
 
-pub use socket_path::assert_safe_sid;
+pub use socket_path::{assert_safe_sid, resolve_runtime_dir, socket_path};
 
 // ---------------------------------------------------------------------------
 // Shared primitive guards — the ONLY place numeric/string semantics live.

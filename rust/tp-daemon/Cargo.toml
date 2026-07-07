@@ -36,14 +36,25 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 # tp_core::derive_legacy_pairing_id (BLAKE2b → UUIDv8 legacy pairing-id
-# backfill) — byte-exact with packages/protocol/src/pairing.ts.
+# backfill) — byte-exact with packages/protocol/src/pairing.ts. Also the IPC
+# frame codec (FrameDecoder) — byte-exact with packages/protocol/src/codec.ts,
+# reused (not reimplemented) by the ipc::server accept loop.
 tp-core = { path = "../tp-core" }
-# Label enum + decode_wire_label/label_to_nullable + assert_safe_sid (this
-# increment adds assert_safe_sid to tp-proto; see src/lib.rs there).
+# Label enum + decode_wire_label/label_to_nullable + assert_safe_sid +
+# socket_path/resolve_runtime_dir (this increment adds the latter two to
+# tp-proto; see src/lib.rs there) + IpcMessage/parse_ipc_message for the IPC
+# server's inbound frame decode.
 tp-proto = { path = "../tp-proto" }
 # Safe (no `unsafe` — workspace forbids it) kill(pid, 0) liveness probe for
-# the daemon-lock pidfile singleton. `process` feature only.
+# the daemon-lock pidfile singleton, and (this increment) SIGTERM delivery for
+# SessionManager::kill_runner (tokio::process::Child has no SIGTERM helper —
+# `Child::kill` sends SIGKILL). `process` feature only.
 rustix = { version = "1.1", features = ["process"] }
+# Async runtime for the IPC listener (tokio::net::UnixListener accept loop,
+# same pattern as tp-runner's hooks.rs) and the session-manager's Runner
+# process supervision (tokio::process::Command/Child exit-await). Same
+# version/features tp-runner pins — do not diverge the workspace's tokio pin.
+tokio = { version = "1", features = ["net", "io-util", "sync", "rt", "macros", "signal", "time", "process", "fs"] }
 
 [dev-dependencies]
 # Hermetic temp dirs for store/session-db/daemon-lock tests.

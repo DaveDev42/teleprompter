@@ -22,6 +22,10 @@ x25519-dalek = { version = "2", features = ["static_secrets"] }
 # Secret-material hygiene: wipe the generated secret key on drop. Already in the
 # tree transitively via x25519-dalek; pin directly for the derive macro.
 zeroize = { version = "1", features = ["zeroize_derive"] }
+# Safe (no `unsafe` — workspace forbids it) `getuid()` for the daemon IPC
+# runtime-dir derivation (`/run/user/<uid>` / `/tmp/teleprompter-<uid>`), same
+# pin as tp-cli/tp-daemon/tp-runner. `process` feature only.
+rustix = { version = "1.1", features = ["process"] }
 
 [dev-dependencies]
 serde_json = "1"

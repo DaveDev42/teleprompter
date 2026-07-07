@@ -72,7 +72,7 @@ only its `resume_token.rs`/`push_seal.rs` value-formats cross-check).
 |---|---|---|---|---|
 | **1 ✅** | Scaffold `rust/tp-daemon` (lib only) + Tiers 0–1 (store on `rusqlite` 0.40 bundled) — **DONE** (branch `feat/tp-daemon-inc1-store`) | **store-DB bidirectional shared-file parity gate GREEN** (`store-rust-parity.test.ts`, 6 pass / 23 assert — Bun↔Rust interchangeable on the same on-disk SQLite: session/pairing/record BLOBs byte-identical, WAL sidecar unlink, WAL-mode PRAGMA parity; SKIP when `tp-daemon-probe` unbuilt) + `cargo test -p tp-daemon` 53 pass (LRU-32/cap-0/unlinkRetry/sweep/upsert-preserves-cursor) + `tp-proto` 39 pass (`assert_safe_sid`) | **L** | — |
 | **2 ✅** | Tier 2: `ipc/server` (tokio `UnixListener`) + `session-manager` (tokio `Child` + generation guard) + `worktree` (sync `std::process::Command` git shell-out) — **DONE** (branch `feat/tp-daemon-inc2-tier2`) | **worktree Bun↔Rust differential parity gate GREEN** (`worktree-rust-parity.test.ts`, 5 pass / 22 assert — same op sequence through both impls against sibling `git init` repos: add/list structure + main-first order identical, escape-path REJECTED identically in both `add` and `remove`; SKIP when `tp-daemon-probe` unbuilt) + `cargo test -p tp-daemon --lib` **78 pass** (ipc decode-teardown/heal-rebind, session generation-guard restart-race, worktree containment-reject/gitEnv-strip/porcelain-parse) + `tp-proto` 42 pass (`socket_path`/`resolve_runtime_dir`). Bun daemon suite 443 pass (no regression). | **L** | 1 |
-| **3** | Tier 3: `relay-client` (`tokio-tungstenite` + `tp-core` E2EE) | **relay-client dual-run gate** — real relay (`tp-relay` in-proc / `real-daemon-pair.ts --relay-url`), register→auth→kx→pub/sub→resume; **Bun frontend decrypts Rust-published frames** (E2EE cross-check); io `payload=''`; `computeReconnectPlan` unit parity | **XL** | 2 |
+| **3 ✅** | Tier 3: `relay-client` (`tokio-tungstenite` `connect_async` + `tp-core` E2EE) — **DONE** (branch `feat/tp-daemon-inc3-relay-client`). ~1400 LOC `transport/relay_client.rs`: tokio reader/writer split-task port of the callback-style WS client; full self-register→auth→kx→N:N E2EE pub/sub→reconnect/resume state machine. Crypto ALL reused from `tp-core` (`seal`/`open`/`kx_server_session_keys`/`derive_kx_key`/`derive_pairing_confirmation_tag`); msgs reused from `tp-proto::relay_client` (outbound) + `tp-relay` (inbound). All 9 load-bearing props preserved (compute_reconnect_plan/throttle/resume/kx-race-fix/send-bool/best-effort-fanout/dispose-race/frame-fallback/err-handling). | **reconnect-policy differential parity gate GREEN** (`relay-client-rust-parity.test.ts`, 3 pass / 86 assert — same (attempt × peerless) + (current × hadPeer) grid through Bun `computeReconnectPlan`/`nextPeerlessReconnects` AND Rust via `tp-daemon-probe` verbs `reconnect-plan`/`peerless-next`: backoff curve + 30s cap + MAX_ATTEMPT clamp + dead-pairing throttle + counter arm/reset byte-identical; SKIP when probe unbuilt) + `cargo test -p tp-daemon` **88 pass** (10 new: reconnect grid, throttle, base64/uuid16/seal-random-nonce). Bun daemon suite 446 pass (no regression). **Full E2EE relay dual-run** (Bun frontend decrypts a live Rust-published frame) deferred within inc3 scope — transitively covered: the Rust client calls the same golden-vector-verified `tp-core` `seal`/`kx_server_session_keys`, so byte-exactness is already proven; the WS interop harness lands with inc4/inc5 when the client is wired into an actual daemon. | **XL** | 2 |
 | **4** | Tier 4: pairing + push + relay-manager | pairing round-trip (begin→QR→fake-kx→complete→promote→persist row-match) + `NOTIFY_EVENTS`/token parity + `removePairing` store-first guard | **L** | 3 |
 | **5** | Tier 5: `command-dispatcher` + `daemon.ts` + `index`→`main.rs` + **`[[bin]] tp-daemon`** (THIN, same `daemon.sock`) | **IPC dispatcher differential gate** (`dispatcher-rust-parity.test.ts`, new) — same frame sequence into Bun + Rust sockets, reply frames byte-identical mod non-determinism; covers all guards; SKIP when unbuilt | **XL** | 4 |
 | **6** | **`TP_DAEMON_BIN` opt-in dual-run seam** (`apps/cli/src/lib/daemon-bin.ts` mirroring `runner-bin.ts` → `ensure-daemon.ts:114-124`; abs path, `X_OK`, throw-on-invalid, no silent Bun fallback; daemon-process-only trust boundary) | full `bun test ./packages/daemon` black-box vs Rust daemon (ADR §5 Stage-5 gate) + dogfood soak (real claude through pair→relay→session→store→push; verify io sidecar renders in Swift terminal); optional `TP_E2E_DAEMON_BIN=1` in `scripts/ios.sh` | **M** | 5 |
@@ -150,6 +150,52 @@ tp-daemon-probe <cmd> <vaultDir> [args...]
 The probe bin lives at `rust/tp-daemon/src/bin/probe.rs` (a `[[bin]]` name = `tp-daemon-probe`, added
 when the store lib API is final — NOT the shipping `tp-daemon` bin, which is inc5). It is a thin CLI over
 the `Store` lib. This keeps inc1 "lib only" for the daemon proper while still giving the gate an executable.
+
+## inc3 scoping (relay-client — the XL, gate-carrying increment)
+
+Scoped 2026-07-08 against HEAD (post-inc2). inc3 ports **`transport/relay-client.ts` (1208 LOC)** only —
+`relay-manager.ts` (593 LOC, the per-pairing `RelayClient` pool + `reconnectSaved`) is **inc4**, not inc3.
+
+**Two de-risking findings (both verified in-repo):**
+1. **The WS client transport is NOT novel here.** `tp-relay/tests/{soak_10k,server_integration}.rs`
+   already drive `tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream}` against a live
+   server. `tokio-tungstenite = "0.29"` is already a workspace dep. So the daemon's outbound WS client
+   is a *move-to-production* of a proven pattern, not a green-field transport. (tp-daemon must add the
+   dep to its own `Cargo.toml`; tp-relay's is server-scoped today.)
+2. **The E2EE surface is already complete in `tp-core` FFI.** Every crypto call `relay-client.ts`
+   makes is exposed: `derive_relay_token` / `derive_kx_key` / `derive_registration_proof`
+   (register+auth), `kx_client_session_keys` (ECDH from the frontend pubkey), `ratchet_session_keys`,
+   `seal`/`seal_with_aad` (E2EE data + control frames), `derive_pairing_confirmation_tag` (PCT / WS v3).
+   **inc3 is WS transport + reconnect/resume state machine + protocol framing — NOT crypto.**
+
+**Where the risk actually lives — the reconnect/resume/dispose state machine** (this is what the inc3
+gate must bite, mirroring inc1/inc2 discipline):
+- **`computeReconnectPlan(attempt, peerlessReconnects)` is PURE and exported** (`relay-client.ts:95`) —
+  port it as a free fn and pin it with a **parity UNIT test** (Bun table of (attempt, peerless) →
+  {delayMs, throttled} vs Rust), the cheapest highest-value gate. Covers exponential backoff
+  (`RECONNECT_BASE_MS * 2^n`, capped) AND the **dead-pairing peerless throttle**
+  (`PEERLESS_RECONNECT_THRESHOLD=3` → `PEERLESS_RECONNECT_MS=30min`; the branch leaves `attempt`
+  unchanged so a recovered pairing resumes fast backoff). Documented in backend-services.md
+  "Dead-pairing throttle" — a reconnect-storm safety property, do not drop it.
+- **resume fast-path** (`relay.auth.resume` w/ HMAC token, survives relay restart): `resumeToken` +
+  `resumeExpiresAt`, `resuming` flag so an `auth.err` on a resume attempt schedules a *fresh full-auth*
+  reconnect (`relay-client.ts:291-296`). Session keys persist across reconnects for this path.
+- **dispose-race guards** (all in backend-services.md "RelayClient dispose-race guards"): `if
+  (this.disposed) return` re-checks after the two await points (`deriveKxKey`, `broadcastDaemonPublicKey`);
+  `scheduleReconnect`'s timer callback MUST `.catch()` (a rejecting `connect()` else kills the reconnect
+  loop + leaks as `unhandledRejection`); `send()` returns a real transmitted-bool so `sendRename/UnpairNotice`
+  don't over-count `notified`; `broadcastEncrypted` is per-peer best-effort (one peer's `encrypt()` throw
+  must not abort the fan-out). Each has a source-only-revert regression test on the Bun side — the Rust
+  port must preserve the *observable* behavior each asserts.
+- **`isThrottled()` / `getRelayHealth`** surface the throttle state to `tp doctor` honestly (throttled ≠
+  outage). Wire-optional `IpcDoctorRelayStatus.throttled` — reader treats absent as false (cross-version).
+
+**inc3 gate = relay-client DUAL-RUN** (plan §2 inc3 row): a real relay (`tp-relay` in-proc, or
+`real-daemon-pair.ts --relay-url`) drives register→auth→kx→pub/sub→resume, and a **Bun frontend decrypts
+a Rust-published frame** (the E2EE cross-check — same shape as the runner wire-parity gate but over the
+relay plane). Plus the `computeReconnectPlan` parity unit. io records publish with `payload=''` (the
+sidecar-not-inline invariant). SKIP-when-unbuilt via the same `tp-daemon-probe` (add relay verbs) or a
+dedicated harness bin — decide when the relay-client lib API is final.
 
 ## Critical files for implementation
 - `packages/daemon/src/store/store.ts` · `store/schema.ts` (DDL+PRAGMA SoT)

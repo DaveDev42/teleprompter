@@ -55,6 +55,30 @@ rustix = { version = "1.1", features = ["process"] }
 # process supervision (tokio::process::Command/Child exit-await). Same
 # version/features tp-runner pins — do not diverge the workspace's tokio pin.
 tokio = { version = "1", features = ["net", "io-util", "sync", "rt", "macros", "signal", "time", "process", "fs"] }
+# Relay-client transport (increment 3): outbound WS client to the relay.
+# `RelayServerMessage`/`parse_relay_server_message` (inbound relay→daemon
+# frames) already exist in tp-relay (byte-exact port of relay-server-guard.ts)
+# — reused here rather than re-derived in tp-proto. tp-relay has no dependency
+# back on tp-daemon, so this does not create a workspace cycle.
+tp-relay = { path = "../tp-relay" }
+# WS client transport, same pin tp-relay's own dev-dependency (and its tests)
+# use. `rustls-tls-webpki-roots` so `wss://` (production relay URLs) works
+# without depending on the system OpenSSL/native-tls.
+tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
+# SinkExt/StreamExt for the WS read/write halves (same pattern tp-relay's
+# conn.rs server-side and tp-runner's ipc.rs client-side use).
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+# Base64 (STANDARD, padded) for the kx envelope's raw-pubkey field
+# (`toBase64`/`fromBase64` in the TS source) — the AEAD seal/open helpers in
+# tp-core encode/decode their own base64 internally but do not expose a public
+# helper, so this crate needs its own for the non-AEAD raw-bytes field. Same
+# major version tp-core/tp-relay already pin.
+base64 = "0.22"
+# OsRng for the AEAD nonce `tp_core::crypto::seal` requires the caller to
+# supply (tp-core has no rand dependency of its own — the caller picks the
+# nonce source). Same version/feature pin tp-relay/tp-proto already use for
+# the identical purpose (push-seal nonces, ephemeral X25519 keys).
+rand_core = { version = "0.6", features = ["getrandom"] }
 
 [dev-dependencies]
 # Hermetic temp dirs for store/session-db/daemon-lock tests.

@@ -80,6 +80,14 @@ fn run() -> Result<String, String> {
         return Ok(out);
     }
 
+    // Reconnect-plan verb takes two numeric args (NOT a vault) and calls the
+    // pure `compute_reconnect_plan` / `next_peerless_reconnects` — dispatch
+    // before Store::open so no vault dir is created. Drives the reconnect-plan
+    // differential parity gate (packages/daemon/.../relay-client-rust-parity.test.ts).
+    if let Some(out) = run_reconnect(cmd, &args)? {
+        return Ok(out);
+    }
+
     let vault = args.get(1).ok_or("missing <vaultDir>")?;
     let vault_path = PathBuf::from(vault);
 
@@ -285,6 +293,42 @@ fn worktree_json(list: &[WorktreeInfo]) -> Result<String, String> {
 }
 
 /// Worktree-verb dispatch for the differential worktree parity gate. Returns
+/// `Ok(Some(output))` when `cmd` is a reconnect verb, `Ok(None)` otherwise.
+/// Drives the pure reconnect-delay policy (`tp_daemon::transport`) for the
+/// differential parity gate — no vault/store, just numeric args.
+///
+/// Contract (kept in lockstep with `relay-client-rust-parity.test.ts`):
+///   reconnect-plan  <attempt> <peerlessReconnects> → JSON {delayMs, nextAttempt}
+///   peerless-next   <current> <hadPeer:0|1>        → JSON {value}
+fn run_reconnect(cmd: &str, args: &[String]) -> Result<Option<String>, String> {
+    let num = |i: usize| -> Result<u32, String> {
+        args.get(i)
+            .ok_or_else(|| format!("{cmd}: missing arg {i}"))?
+            .parse::<u32>()
+            .map_err(|e| format!("{cmd} arg {i}: {e}"))
+    };
+    match cmd {
+        "reconnect-plan" => {
+            let plan = tp_daemon::transport::compute_reconnect_plan(num(1)?, num(2)?);
+            let mut obj: Obj = BTreeMap::new();
+            obj.insert("delayMs".into(), plan.delay_ms.into());
+            obj.insert("nextAttempt".into(), plan.next_attempt.into());
+            Ok(Some(
+                serde_json::to_string(&obj).map_err(|e| e.to_string())?,
+            ))
+        }
+        "peerless-next" => {
+            let value = tp_daemon::transport::next_peerless_reconnects(num(1)?, num(2)? != 0);
+            let mut obj: Obj = BTreeMap::new();
+            obj.insert("value".into(), value.into());
+            Ok(Some(
+                serde_json::to_string(&obj).map_err(|e| e.to_string())?,
+            ))
+        }
+        _ => Ok(None),
+    }
+}
+
 /// `Ok(Some(output))` when `cmd` is a worktree verb, `Ok(None)` otherwise (so
 /// the caller falls through to the store-based commands). Uses `args[1]` as a
 /// `<repoRoot>`, never opening the store.

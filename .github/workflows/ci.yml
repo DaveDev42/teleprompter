@@ -102,15 +102,17 @@ jobs:
           mkdir -p /tmp/tp-prefix
           tar -xzf dist/bundles/tp-linux_x64.tar.gz -C /tmp/tp-prefix --strip-components=1
           # Assert the full prefix-tree layout exists before continuing:
-          # bin/tp + libexec/tp/{tpd, tp-daemon, tp-relay}. The tp-daemon and
-          # tp-relay members are shipped alongside tpd (build.ts) and resolved by
-          # locate_tp_daemon()/locate_tp_relay(); assert both so a dropped bundle
-          # member fails CI here rather than at runtime.
+          # bin/tp + libexec/tp/{tpd, tp-daemon, tp-relay, tp-runner}. The
+          # tp-daemon / tp-relay / tp-runner members are shipped alongside tpd
+          # (build.ts) and resolved by locate_tp_daemon()/locate_tp_relay()/
+          # locate_tp_runner(); assert all so a dropped bundle member fails CI
+          # here rather than at runtime.
           ls -la /tmp/tp-prefix/bin/tp
           ls -la /tmp/tp-prefix/libexec/tp/tpd
           ls -la /tmp/tp-prefix/libexec/tp/tp-daemon
           ls -la /tmp/tp-prefix/libexec/tp/tp-relay
-          echo "Layout OK: bin/tp + libexec/tp/{tpd,tp-daemon,tp-relay} present"
+          ls -la /tmp/tp-prefix/libexec/tp/tp-runner
+          echo "Layout OK: bin/tp + libexec/tp/{tpd,tp-daemon,tp-relay,tp-runner} present"
       - name: Bundle smoke — version + help (native Rust paths)
         run: |
           timeout 10 /tmp/tp-prefix/bin/tp version

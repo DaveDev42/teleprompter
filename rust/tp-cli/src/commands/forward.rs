@@ -82,16 +82,32 @@ pub fn exec_blob(_forward_args: &[String]) -> ExitCode {
 
 /// Classification returned by [`decide_route`].
 ///
-/// Mirrors `Route` in `apps/cli/src/router.ts` but collapsed to the two
-/// outcomes that matter for the pre-clap dispatch in `main()`:
-/// - `Forward` → call `exec_blob` with the original argv.
-/// - `Native`  → fall through to `Cli::parse()` + the existing match dispatch.
+/// Mirrors `Route` in `apps/cli/src/router.ts`, collapsed to the outcomes that
+/// matter for the pre-clap dispatch in `main()`:
+/// - `Forward`     → call `exec_blob` with the original argv (run / relay /
+///   claude-utility / `--` — the daemon-bypass or blob-dispatched routes).
+/// - `Native`      → fall through to `Cli::parse()` + the existing match dispatch.
+/// - `Passthrough` → the interactive claude REPL path (bare `tp`, `tp <claude
+///   args>`). Distinguished from `Forward` because task #17 replaces it with a
+///   native in-process `runner::run` (PR-4). Until then the dispatch treats it
+///   identically to `Forward` (execs the blob), so this split is behavior-
+///   preserving — it only tags which arm the native handler will later own.
+///
+/// Note `--` is `Forward`, NOT `Passthrough`: `tp -- <args>` forwards **directly**
+/// to claude (daemon-bypass, `index.ts:52` `forwardToClaudeCommand`), the same
+/// handler as the utility forwards — it does not go through the daemon+runner
+/// pipeline the way bare-`tp` passthrough does.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route {
-    /// Forward to the Bun blob (passthrough / run / relay / claude-utility / `--`).
+    /// Forward to the Bun blob (run / relay / claude-utility / `--`).
     Forward,
     /// Handle natively in the Rust CLI (clap parses the rest).
     Native,
+    /// Interactive claude passthrough (bare `tp`, `tp <claude args>`).
+    ///
+    /// Behaves like `Forward` today (execs the blob); PR-4 gives it a native
+    /// in-process `runner::run` handler.
+    Passthrough,
 }
 
 /// Known `tp` subcommands that the Rust CLI handles natively (clap-parsed).
@@ -139,19 +155,19 @@ const CLAUDE_UTILITY_SUBCOMMANDS: &[&str] = &[
 ///
 /// | `first` | Route |
 /// |---|---|
-/// | `None` (bare `tp`) | `Forward` — passthrough = claude REPL |
+/// | `None` (bare `tp`) | `Passthrough` — claude REPL |
 /// | `--help` / `-h` | `Native` — clap renders help |
 /// | `--version` / `-v` | `Native` — native version handler |
 /// | in `NATIVE_SUBCOMMANDS` | `Native` |
 /// | `run` / `relay` | `Forward` — blob dispatches these |
 /// | in `CLAUDE_UTILITY_SUBCOMMANDS` | `Forward` — blob forwards to `claude` |
-/// | `--` | `Forward` — blob double-dash passthrough |
-/// | anything else (unknown subcmd, flag like `-p`) | `Forward` — passthrough |
+/// | `--` | `Forward` — blob double-dash direct-forward (daemon-bypass) |
+/// | anything else (unknown subcmd, flag like `-p`) | `Passthrough` |
 pub fn decide_route(first: Option<&str>) -> Route {
     let Some(cmd) = first else {
-        // Bare `tp` → forward to blob (claude REPL passthrough).
+        // Bare `tp` → interactive claude REPL passthrough.
         // The Bun CLI's decideRoute:40 returns passthrough for undefined.
-        return Route::Forward;
+        return Route::Passthrough;
     };
 
     // --help / -h: native clap help.
@@ -169,23 +185,29 @@ pub fn decide_route(first: Option<&str>) -> Route {
         return Route::Native;
     }
 
-    // `run` and `relay` are in TP_SUBCOMMANDS but forward to blob.
-    // No explicit check needed here — they are intentionally excluded from
-    // NATIVE_SUBCOMMANDS, so they fall through to the Forward return below.
+    // `run` and `relay` are in TP_SUBCOMMANDS but forward to the blob (its
+    // `index.ts` dispatches `run`→`runCommand`, `relay`→`relayCommand`). They
+    // must be `Forward`, NOT the `Passthrough` catch-all below — an explicit
+    // check is now required because the catch-all changed from `Forward` to
+    // `Passthrough` (task #17 PR-2).
+    if cmd == "run" || cmd == "relay" {
+        return Route::Forward;
+    }
 
     // Claude utility forwards.
     if CLAUDE_UTILITY_SUBCOMMANDS.contains(&cmd) {
         return Route::Forward;
     }
 
-    // `--` double-dash: forward to blob.
+    // `--` double-dash: forward to blob (direct claude forward, daemon-bypass —
+    // NOT the daemon+runner passthrough pipeline, so it stays `Forward`).
     if cmd == "--" {
         return Route::Forward;
     }
 
     // Unknown subcommand, any unrecognised flag (e.g. `-p`), or bare
-    // passthrough args → forward (passthrough).
-    Route::Forward
+    // passthrough args → interactive claude passthrough.
+    Route::Passthrough
 }
 
 // ---------------------------------------------------------------------------
@@ -199,8 +221,8 @@ mod tests {
     // ── bare tp ─────────────────────────────────────────────────────────────
 
     #[test]
-    fn bare_tp_forwards() {
-        assert_eq!(decide_route(None), Route::Forward);
+    fn bare_tp_is_passthrough() {
+        assert_eq!(decide_route(None), Route::Passthrough);
     }
 
     // ── help / version flags stay native ────────────────────────────────────
@@ -341,19 +363,28 @@ mod tests {
     // ── unknown / unrecognised → passthrough ─────────────────────────────────
 
     #[test]
-    fn unknown_subcommand_forwards() {
-        assert_eq!(decide_route(Some("foobar")), Route::Forward);
+    fn unknown_subcommand_is_passthrough() {
+        assert_eq!(decide_route(Some("foobar")), Route::Passthrough);
     }
 
     #[test]
-    fn unknown_flag_forwards() {
-        // A bare -p flag (e.g. `tp -p hello`) must forward, not error.
-        assert_eq!(decide_route(Some("-p")), Route::Forward);
+    fn unknown_flag_is_passthrough() {
+        // A bare -p flag (e.g. `tp -p hello`) is passthrough, not an error.
+        assert_eq!(decide_route(Some("-p")), Route::Passthrough);
     }
 
     #[test]
-    fn another_unknown_flag_forwards() {
-        assert_eq!(decide_route(Some("--print")), Route::Forward);
+    fn another_unknown_flag_is_passthrough() {
+        assert_eq!(decide_route(Some("--print")), Route::Passthrough);
+    }
+
+    // ── `--` stays Forward (direct claude forward, NOT passthrough pipeline) ──
+
+    #[test]
+    fn double_dash_stays_forward_not_passthrough() {
+        // `tp -- <args>` forwards directly to claude (daemon-bypass); it must
+        // NOT be reclassified as Passthrough (the daemon+runner pipeline).
+        assert_eq!(decide_route(Some("--")), Route::Forward);
     }
 
     // ── exec_blob error-path (no exec, just locate failure) ──────────────────

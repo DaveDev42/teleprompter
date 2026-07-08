@@ -287,6 +287,12 @@ fn main() -> ExitCode {
             // longer trampolines through the Bun blob (de-trampolined path).
             return commands::passthrough::run(&args[1..]);
         }
+        commands::forward::Route::ForwardClaude => {
+            // Claude-utility subcommands (auth/mcp/…) + `tp -- <args>`: native
+            // direct `claude` exec, daemon-bypass. Task #17 PR-6 — no longer
+            // trampolines through the Bun blob. `run` strips a leading `--`.
+            return commands::forward_claude::run(&args[1..]);
+        }
         commands::forward::Route::Native => {
             // Fall through to Cli::parse() below.
         }

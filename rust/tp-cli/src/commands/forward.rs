@@ -3,10 +3,16 @@
 //! # Architecture
 //!
 //! Tranche 5 (ADR-0003 Amendment 2, A2.4 decision #1 — Option A thin forwarder).
-//! For `run`, `relay`, passthrough, claude-utility forwards, and `--`, the Rust
-//! `tp` does NOT reimplement the logic. It locates the bundled Bun SEA (`tpd`)
-//! via [`crate::locate::locate_bun_blob`] and **replaces its own process image**
-//! with the blob via `exec()`.
+//! For `run` and `relay` the Rust `tp` does NOT reimplement the logic: it locates
+//! the bundled Bun SEA (`tpd`) via [`crate::locate::locate_bun_blob`] and
+//! **replaces its own process image** with the blob via `exec()`. (De-trampolining
+//! these two is tracked by task #8 for the runner and #25 for the relay.)
+//!
+//! Passthrough (bare `tp` / `tp <claude args>`), the claude-utility forwards, and
+//! `tp -- <args>` are **no longer** blob forwards — they were de-trampolined to
+//! native Rust handlers (`commands::passthrough` in task #17 PR-4,
+//! `commands::forward_claude` in PR-6). `decide_route` routes them to
+//! `Route::Passthrough` / `Route::ForwardClaude`, not `Route::Forward`.
 //!
 //! # Why `exec()` instead of `.status()`
 //!
@@ -20,11 +26,10 @@
 //!
 //! # Architecture invariants (A2.4 #2 posture preserved)
 //!
-//! The forward path opens **zero** IPC sockets, relay WebSockets, or SQLite
-//! connections from Rust. The blob (Bun CLI) handles all of that:
-//! - `passthrough` / `run` → daemon IPC → Runner PTY
+//! The blob forward path (now only `run` / `relay`) opens **zero** IPC sockets,
+//! relay WebSockets, or SQLite connections from Rust. The blob (Bun CLI) handles:
+//! - `run` → daemon IPC → Runner PTY
 //! - `relay start` → `RelayServer` (Bun)
-//! - claude-utility forwards → `claude <subcmd>` subprocess
 //!
 //! # Windows note
 //!
@@ -43,13 +48,14 @@ use std::process::ExitCode;
 /// On failure (blob not found or exec syscall error) it prints a message to
 /// stderr and returns `ExitCode::FAILURE`.
 ///
-/// `forward_args` should be `std::env::args().skip(1).collect::<Vec<_>>()` —
-/// the FULL original argv after the binary name, verbatim:
-/// - `tp -p hello`      → `forward_args = ["-p", "hello"]`
-/// - `tp auth login`    → `forward_args = ["auth", "login"]`
-/// - `tp -- echo hi`    → `forward_args = ["--", "echo", "hi"]`
-/// - `tp run --tp-sid x`→ `forward_args = ["run", "--tp-sid", "x"]`
-/// - bare `tp`          → `forward_args = []`
+/// `forward_args` is the FULL original argv after the binary name, verbatim.
+/// After PR-4/PR-6 the only routes that still reach `exec_blob` are `run` and
+/// `relay` (`Route::Forward`):
+/// - `tp run --tp-sid x` → `forward_args = ["run", "--tp-sid", "x"]`
+/// - `tp relay start`    → `forward_args = ["relay", "start"]`
+///
+/// (`tp -p hello` / bare `tp` are now `Route::Passthrough`; `tp auth login` /
+/// `tp -- echo hi` are now `Route::ForwardClaude` — none reach `exec_blob`.)
 #[cfg(unix)]
 pub fn exec_blob(forward_args: &[String]) -> ExitCode {
     use std::os::unix::process::CommandExt;
@@ -84,30 +90,32 @@ pub fn exec_blob(_forward_args: &[String]) -> ExitCode {
 ///
 /// Mirrors `Route` in `apps/cli/src/router.ts`, collapsed to the outcomes that
 /// matter for the pre-clap dispatch in `main()`:
-/// - `Forward`     → call `exec_blob` with the original argv (run / relay /
-///   claude-utility / `--` — the daemon-bypass or blob-dispatched routes).
-/// - `Native`      → fall through to `Cli::parse()` + the existing match dispatch.
-/// - `Passthrough` → the interactive claude REPL path (bare `tp`, `tp <claude
-///   args>`). Distinguished from `Forward` because task #17 replaces it with a
-///   native in-process `runner::run` (PR-4). Until then the dispatch treats it
-///   identically to `Forward` (execs the blob), so this split is behavior-
-///   preserving — it only tags which arm the native handler will later own.
+/// - `Forward`      → call `exec_blob` with the original argv (`run` / `relay` —
+///   the remaining blob-dispatched routes; de-trampolined by tasks #8 / #25).
+/// - `Native`       → fall through to `Cli::parse()` + the existing match dispatch.
+/// - `Passthrough`  → the interactive claude REPL path (bare `tp`, `tp <claude
+///   args>`). Native terminal-proxy (`commands::passthrough::run`, task #17 PR-4).
+/// - `ForwardClaude`→ direct `claude` exec, daemon-bypass (claude-utility
+///   subcommands + `tp -- <args>`). Native (`commands::forward_claude::run`,
+///   task #17 PR-6) — no longer execs the blob.
 ///
-/// Note `--` is `Forward`, NOT `Passthrough`: `tp -- <args>` forwards **directly**
-/// to claude (daemon-bypass, `index.ts:52` `forwardToClaudeCommand`), the same
-/// handler as the utility forwards — it does not go through the daemon+runner
-/// pipeline the way bare-`tp` passthrough does.
+/// Note `--` is `ForwardClaude`, NOT `Passthrough`: `tp -- <args>` forwards
+/// **directly** to claude (daemon-bypass, the same handler as the utility
+/// forwards) — it does not go through the daemon+runner pipeline the way
+/// bare-`tp` passthrough does.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route {
-    /// Forward to the Bun blob (run / relay / claude-utility / `--`).
+    /// Forward to the Bun blob (`run` / `relay` — the last blob-dispatched
+    /// routes, pending tasks #8 / #25).
     Forward,
     /// Handle natively in the Rust CLI (clap parses the rest).
     Native,
-    /// Interactive claude passthrough (bare `tp`, `tp <claude args>`).
-    ///
-    /// Behaves like `Forward` today (execs the blob); PR-4 gives it a native
-    /// in-process `runner::run` handler.
+    /// Interactive claude passthrough (bare `tp`, `tp <claude args>`) — native
+    /// terminal-proxy (`commands::passthrough::run`, task #17 PR-4).
     Passthrough,
+    /// Direct `claude` exec, daemon-bypass (claude-utility subcommands +
+    /// `tp -- <args>`) — native (`commands::forward_claude::run`, task #17 PR-6).
+    ForwardClaude,
 }
 
 /// Known `tp` subcommands that the Rust CLI handles natively (clap-parsed).
@@ -128,7 +136,8 @@ const NATIVE_SUBCOMMANDS: &[&str] = &[
     "version",
 ];
 
-/// Claude-only utility subcommands forwarded to the blob unchanged.
+/// Claude-only utility subcommands — routed to `Route::ForwardClaude` (native
+/// `claude` exec, task #17 PR-6), no longer the blob.
 ///
 /// Mirrors `CLAUDE_UTILITY_SUBCOMMANDS` in
 /// `apps/cli/src/claude-subcommands.ts:5-15`.
@@ -160,8 +169,8 @@ const CLAUDE_UTILITY_SUBCOMMANDS: &[&str] = &[
 /// | `--version` / `-v` | `Native` — native version handler |
 /// | in `NATIVE_SUBCOMMANDS` | `Native` |
 /// | `run` / `relay` | `Forward` — blob dispatches these |
-/// | in `CLAUDE_UTILITY_SUBCOMMANDS` | `Forward` — blob forwards to `claude` |
-/// | `--` | `Forward` — blob double-dash direct-forward (daemon-bypass) |
+/// | in `CLAUDE_UTILITY_SUBCOMMANDS` | `ForwardClaude` — native `claude` exec |
+/// | `--` | `ForwardClaude` — native `claude` direct-forward (daemon-bypass) |
 /// | anything else (unknown subcmd, flag like `-p`) | `Passthrough` |
 pub fn decide_route(first: Option<&str>) -> Route {
     let Some(cmd) = first else {
@@ -194,15 +203,17 @@ pub fn decide_route(first: Option<&str>) -> Route {
         return Route::Forward;
     }
 
-    // Claude utility forwards.
+    // Claude utility forwards → native `claude <subcmd>` exec (task #17 PR-6).
+    // No longer execs the blob — these never needed the daemon or the pipeline.
     if CLAUDE_UTILITY_SUBCOMMANDS.contains(&cmd) {
-        return Route::Forward;
+        return Route::ForwardClaude;
     }
 
-    // `--` double-dash: forward to blob (direct claude forward, daemon-bypass —
-    // NOT the daemon+runner passthrough pipeline, so it stays `Forward`).
+    // `--` double-dash: direct claude forward, daemon-bypass — the same native
+    // `claude` exec as the utility forwards (NOT the daemon+runner passthrough
+    // pipeline), task #17 PR-6.
     if cmd == "--" {
-        return Route::Forward;
+        return Route::ForwardClaude;
     }
 
     // Unknown subcommand, any unrecognised flag (e.g. `-p`), or bare
@@ -306,58 +317,58 @@ mod tests {
         assert_eq!(decide_route(Some("relay")), Route::Forward);
     }
 
-    // ── claude utility subcommands forward ───────────────────────────────────
+    // ── claude utility subcommands → native claude exec (PR-6) ───────────────
 
     #[test]
     fn auth_forwards() {
-        assert_eq!(decide_route(Some("auth")), Route::Forward);
+        assert_eq!(decide_route(Some("auth")), Route::ForwardClaude);
     }
 
     #[test]
     fn mcp_forwards() {
-        assert_eq!(decide_route(Some("mcp")), Route::Forward);
+        assert_eq!(decide_route(Some("mcp")), Route::ForwardClaude);
     }
 
     #[test]
     fn install_forwards() {
-        assert_eq!(decide_route(Some("install")), Route::Forward);
+        assert_eq!(decide_route(Some("install")), Route::ForwardClaude);
     }
 
     #[test]
     fn update_forwards() {
-        assert_eq!(decide_route(Some("update")), Route::Forward);
+        assert_eq!(decide_route(Some("update")), Route::ForwardClaude);
     }
 
     #[test]
     fn agents_forwards() {
-        assert_eq!(decide_route(Some("agents")), Route::Forward);
+        assert_eq!(decide_route(Some("agents")), Route::ForwardClaude);
     }
 
     #[test]
     fn auto_mode_forwards() {
-        assert_eq!(decide_route(Some("auto-mode")), Route::Forward);
+        assert_eq!(decide_route(Some("auto-mode")), Route::ForwardClaude);
     }
 
     #[test]
     fn plugin_forwards() {
-        assert_eq!(decide_route(Some("plugin")), Route::Forward);
+        assert_eq!(decide_route(Some("plugin")), Route::ForwardClaude);
     }
 
     #[test]
     fn plugins_forwards() {
-        assert_eq!(decide_route(Some("plugins")), Route::Forward);
+        assert_eq!(decide_route(Some("plugins")), Route::ForwardClaude);
     }
 
     #[test]
     fn setup_token_forwards() {
-        assert_eq!(decide_route(Some("setup-token")), Route::Forward);
+        assert_eq!(decide_route(Some("setup-token")), Route::ForwardClaude);
     }
 
-    // ── double-dash forwards ─────────────────────────────────────────────────
+    // ── double-dash → native claude exec (PR-6) ──────────────────────────────
 
     #[test]
     fn double_dash_forwards() {
-        assert_eq!(decide_route(Some("--")), Route::Forward);
+        assert_eq!(decide_route(Some("--")), Route::ForwardClaude);
     }
 
     // ── unknown / unrecognised → passthrough ─────────────────────────────────
@@ -378,13 +389,13 @@ mod tests {
         assert_eq!(decide_route(Some("--print")), Route::Passthrough);
     }
 
-    // ── `--` stays Forward (direct claude forward, NOT passthrough pipeline) ──
+    // ── `--` is ForwardClaude (direct claude forward, NOT passthrough pipeline) ─
 
     #[test]
     fn double_dash_stays_forward_not_passthrough() {
         // `tp -- <args>` forwards directly to claude (daemon-bypass); it must
         // NOT be reclassified as Passthrough (the daemon+runner pipeline).
-        assert_eq!(decide_route(Some("--")), Route::Forward);
+        assert_eq!(decide_route(Some("--")), Route::ForwardClaude);
     }
 
     // ── exec_blob error-path (no exec, just locate failure) ──────────────────

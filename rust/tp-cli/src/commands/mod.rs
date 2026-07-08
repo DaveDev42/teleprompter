@@ -7,6 +7,7 @@ pub mod completions_install;
 pub mod daemon;
 pub mod doctor;
 pub mod forward;
+pub mod forward_claude;
 pub mod logs;
 pub mod pair;
 pub mod passthrough;

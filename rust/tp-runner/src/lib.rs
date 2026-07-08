@@ -29,6 +29,9 @@
 //!   forwards bytes over a channel (the "reader-task hop").
 //!
 //! Async orchestration (increment 2):
+//! - [`cli`] — runner argv parser (`parse_args`) + SIGINT/SIGTERM→exit-code
+//!   mapping (`wait_for_signal`), hoisted from `main.rs` so `tp-cli`'s native
+//!   passthrough can drive [`runner::run`] in-process (task #17).
 //! - [`socket`] — runtime-dir + daemon/hook socket-path derivation (byte-exact
 //!   port of the writer half of `socket-path.ts` + the sid traversal guard).
 //! - [`wire`] — outbound `hello`/`bye` structs (field order matched to the TS
@@ -45,6 +48,7 @@
 //! seam (`TP_RUNNER_BIN`) has not been cut over — the daemon still spawns the
 //! Bun runner (`tpd run`) by default.
 
+pub mod cli;
 pub mod collector;
 pub mod hooks;
 pub mod ipc;

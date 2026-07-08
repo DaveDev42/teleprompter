@@ -133,6 +133,132 @@ fn locate_bun_blob_inner(current_canon: Option<&Path>) -> Result<PathBuf, String
     ))
 }
 
+/// Resolve the shipped Rust `tp-daemon` binary for exec (ADR-0003 Phase 4 A1).
+///
+/// Structurally mirrors [`locate_bun_blob`], with two intentional divergences:
+/// the env override is `TP_DAEMON_BIN`, and the dev fallback is the cargo bin
+/// `<repo>/rust/target/release/tp-daemon` (NOT `dist/…`, which is a bundled Bun
+/// blob path — `tp-daemon` is an ordinary cargo binary).
+///
+/// # Resolution order (first match wins)
+/// 1. `$TP_DAEMON_BIN` — absolute-path override. This is the SAME env var the
+///    TS-side opt-in seam reads (`apps/cli/src/lib/daemon-bin.ts`
+///    `resolveDaemonBinOverride`). The two are COHERENT, not conflicting: the TS
+///    seam decides *whether* the Bun `tp` spawns the Rust daemon and hands the
+///    process a concrete argv `[<path>, []]`; this Rust-side locate answers
+///    "where is the shipped daemon" for the (future) native-`tp` flip path. Both
+///    honor a full path the operator/harness already built — a shared escape
+///    hatch, never a toggle. An operator who exports `TP_DAEMON_BIN` gets the
+///    same binary regardless of which `tp` (Bun or Rust) reads it.
+/// 2. `canonicalize(current_exe) → ../../libexec/tp/tp-daemon` — release prefix
+///    tree, alongside `tpd`.
+/// 3. Sibling `tp-daemon` next to the Rust `tp` binary — flat dogfood drop.
+/// 4. Dev fallback: walk up to the repo root and use
+///    `<repo>/rust/target/release/tp-daemon`.
+/// 5. Hard error.
+///
+/// Carries the same `is_self` infinite-loop guard as [`locate_bun_blob`].
+///
+/// NOTE (A1 scope): added but NOT yet wired into any exec path — the daemon
+/// default remains the Bun daemon (`resolveDaemonSpawnCommand` in
+/// ensure-daemon.ts). The daemon default-flip PR is the first real caller and
+/// removes the `#[allow(dead_code)]`.
+#[allow(dead_code)] // Wired by the daemon default-flip PR (ADR-0003 Phase 4).
+pub fn locate_tp_daemon() -> Result<PathBuf, String> {
+    let current_canon = std::env::current_exe()
+        .ok()
+        .and_then(|p| std::fs::canonicalize(&p).ok());
+
+    locate_tp_daemon_inner(current_canon.as_deref())
+}
+
+/// Inner implementation with injectable current-exe canonical path for testing.
+#[allow(dead_code)] // See locate_tp_daemon.
+fn locate_tp_daemon_inner(current_canon: Option<&Path>) -> Result<PathBuf, String> {
+    let is_self = |candidate: &Path| -> bool {
+        if let (Some(c), Some(me)) = (std::fs::canonicalize(candidate).ok(), current_canon) {
+            c == me
+        } else {
+            false
+        }
+    };
+
+    // ── 1. $TP_DAEMON_BIN override ────────────────────────────────────────────
+    if let Ok(bin) = std::env::var("TP_DAEMON_BIN") {
+        if !bin.is_empty() {
+            let p = PathBuf::from(&bin);
+            if is_self(&p) {
+                return Err(format!(
+                    "tp: TP_DAEMON_BIN resolves to the tp binary itself ({bin}); \
+                     infinite loop prevented. Set TP_DAEMON_BIN to the tp-daemon binary."
+                ));
+            }
+            if p.exists() {
+                return Ok(p);
+            }
+            return Err(format!(
+                "tp: TP_DAEMON_BIN is set to '{bin}' but that file does not exist."
+            ));
+        }
+    }
+
+    let exe_path = std::env::current_exe()
+        .map_err(|e| format!("tp: cannot determine current executable path: {e}"))?;
+
+    // ── 2. Release prefix tree: canonicalize → ../../libexec/tp/tp-daemon ─────
+    let candidate2 = std::fs::canonicalize(&exe_path).ok().and_then(|canon| {
+        canon
+            .parent()
+            .and_then(|bin| bin.parent())
+            .map(|prefix| prefix.join("libexec").join("tp").join("tp-daemon"))
+    });
+
+    if let Some(ref p) = candidate2 {
+        if !is_self(p) && p.exists() {
+            return Ok(p.clone());
+        }
+    }
+
+    // ── 3. Sibling tp-daemon next to the Rust binary ──────────────────────────
+    let candidate3 = exe_path.parent().map(|dir| dir.join("tp-daemon"));
+
+    if let Some(ref p) = candidate3 {
+        if !is_self(p) && p.exists() {
+            return Ok(p.clone());
+        }
+    }
+
+    // ── 4. Dev fallback: <repo>/rust/target/release/tp-daemon ─────────────────
+    let candidate4 = find_repo_root(&exe_path).map(|root| {
+        root.join("rust")
+            .join("target")
+            .join("release")
+            .join("tp-daemon")
+    });
+
+    if let Some(ref p) = candidate4 {
+        if !is_self(p) && p.exists() {
+            return Ok(p.clone());
+        }
+    }
+
+    // ── 5. Hard error ─────────────────────────────────────────────────────────
+    let searched: Vec<String> = [
+        candidate2.map(|p| p.to_string_lossy().into_owned()),
+        candidate3.map(|p| p.to_string_lossy().into_owned()),
+        candidate4.map(|p| p.to_string_lossy().into_owned()),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    Err(format!(
+        "tp: bundled tp-daemon not found (looked in {}). \
+         Reinstall tp or set TP_DAEMON_BIN.",
+        searched.join(", ")
+    ))
+}
+
 /// Walk up the filesystem from `start`, looking for a directory that contains
 /// `apps/cli/src/index.ts` — the repo root sentinel. Returns the first match.
 pub(crate) fn find_repo_root(start: &Path) -> Option<PathBuf> {
@@ -326,5 +452,66 @@ mod tests {
             !is_self(Path::new("/tmp/other")),
             "guard must not fire for a different path"
         );
+    }
+
+    // ── tp-daemon (A1): prefix tree path construction (pure geometry) ────────
+
+    #[test]
+    fn tp_daemon_prefix_tree_candidate_shape() {
+        // canon = /opt/tp/bin/tp → prefix = /opt/tp → tp-daemon at
+        // /opt/tp/libexec/tp/tp-daemon (alongside tpd).
+        let canon = PathBuf::from("/opt/tp/bin/tp");
+        let candidate = canon
+            .parent()
+            .and_then(|bin| bin.parent())
+            .map(|prefix| prefix.join("libexec").join("tp").join("tp-daemon"));
+        assert_eq!(
+            candidate,
+            Some(PathBuf::from("/opt/tp/libexec/tp/tp-daemon"))
+        );
+    }
+
+    // ── tp-daemon (A1): sibling candidate ────────────────────────────────────
+
+    #[test]
+    fn tp_daemon_sibling_candidate_shape() {
+        let exe = PathBuf::from("/usr/local/bin/tp");
+        let sibling = exe.parent().map(|d| d.join("tp-daemon"));
+        assert_eq!(sibling, Some(PathBuf::from("/usr/local/bin/tp-daemon")));
+    }
+
+    // ── tp-daemon (A1): dev fallback is rust/target/release, NOT dist/ ────────
+
+    #[test]
+    fn tp_daemon_dev_fallback_shape() {
+        // Unlike locate_bun_blob's dist/tp, the daemon dev fallback is the cargo
+        // bin path <repo>/rust/target/release/tp-daemon.
+        let root = PathBuf::from("/home/u/teleprompter");
+        let candidate = root
+            .join("rust")
+            .join("target")
+            .join("release")
+            .join("tp-daemon");
+        assert_eq!(
+            candidate,
+            PathBuf::from("/home/u/teleprompter/rust/target/release/tp-daemon")
+        );
+    }
+
+    // ── tp-daemon (A1): not-found error message ──────────────────────────────
+
+    #[test]
+    fn tp_daemon_not_found_error_mentions_reinstall_and_daemon_bin() {
+        // Exercises locate_tp_daemon_inner (also its only non-test caller path):
+        // a bogus current_canon so the guard never fires; if no candidate exists
+        // on this machine, the hard error must name TP_DAEMON_BIN + Reinstall.
+        let bogus_self = PathBuf::from("/tmp/tp-cli-bogus-self-daemon-xyz/tp");
+        if let Err(msg) = locate_tp_daemon_inner(Some(&bogus_self)) {
+            assert!(
+                msg.contains("tp-daemon not found") && msg.contains("TP_DAEMON_BIN"),
+                "error should mention TP_DAEMON_BIN: {msg}"
+            );
+            assert!(msg.contains("Reinstall"), "should mention Reinstall: {msg}");
+        }
     }
 }

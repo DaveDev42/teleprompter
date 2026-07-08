@@ -35,6 +35,7 @@ mod codec;
 mod colors;
 mod commands;
 mod config_dir;
+mod ensure_daemon;
 mod format;
 mod ipc_client;
 mod ipc_session;

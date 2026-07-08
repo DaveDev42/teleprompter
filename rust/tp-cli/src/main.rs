@@ -279,6 +279,13 @@ fn main() -> ExitCode {
             // exec_blob never returns on success — the blob takes over.
             return commands::forward::exec_blob(&args[1..]);
         }
+        commands::forward::Route::Passthrough => {
+            // Interactive claude passthrough (bare `tp`, `tp <claude args>`).
+            // Task #17 PR-4 replaces this with a native in-process `runner::run`;
+            // until then it is behavior-identical to `Forward` — exec the blob,
+            // whose `index.ts` launches claude through the daemon+runner pipeline.
+            return commands::forward::exec_blob(&args[1..]);
+        }
         commands::forward::Route::Native => {
             // Fall through to Cli::parse() below.
         }

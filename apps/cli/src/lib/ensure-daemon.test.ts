@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { getSocketPath } from "@teleprompter/protocol";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { createServer } from "net";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -10,6 +10,7 @@ import {
   isDaemonRunning,
   parseYesNoAnswer,
   readYesNoLine,
+  resolveDaemonSpawnCommand,
 } from "./ensure-daemon";
 
 describe("isDaemonRunning", () => {
@@ -307,5 +308,49 @@ describe("waitForDaemonReady check-then-sleep ordering (idx 65)", () => {
       else process.env["XDG_RUNTIME_DIR"] = origRuntime;
       rmSync(runtime, { recursive: true, force: true });
     }
+  });
+});
+
+describe("resolveDaemonSpawnCommand", () => {
+  test("absent TP_DAEMON_BIN is byte-identical to the Bun default", () => {
+    // The opt-in is off → must deep-equal the pre-inc6 inline selection.
+    // Under `bun test` isCompiled() is false, so the dev-mode branch applies;
+    // this file lives in the same dir as ensure-daemon.ts, so the URL-based
+    // entry resolution below yields the identical absolute path.
+    const entry = new URL("../index.ts", import.meta.url).pathname;
+    expect(resolveDaemonSpawnCommand({})).toEqual([
+      "bun",
+      ["run", entry, "daemon", "start"],
+    ]);
+    expect(existsSync(entry)).toBe(true);
+  });
+
+  test("empty TP_DAEMON_BIN falls through to the Bun default", () => {
+    expect(resolveDaemonSpawnCommand({ TP_DAEMON_BIN: "" })).toEqual(
+      resolveDaemonSpawnCommand({}),
+    );
+  });
+
+  test("valid TP_DAEMON_BIN → [path, []] with no 'daemon'/'start' subcommand", () => {
+    const dir = mkdtempSync(join(tmpdir(), "tp-daemon-override-"));
+    const bin = join(dir, "tp-daemon");
+    writeFileSync(bin, "#!/bin/sh\nexit 0\n");
+    chmodSync(bin, 0o755);
+    const [cmd, args] = resolveDaemonSpawnCommand({ TP_DAEMON_BIN: bin });
+    expect(cmd).toBe(bin);
+    // The Rust tp-daemon bin IS the daemon — no subcommand, no bun shim.
+    expect(args).toEqual([]);
+    const flat = [cmd, ...args];
+    expect(flat).not.toContain("daemon");
+    expect(flat).not.toContain("start");
+    expect(flat).not.toContain("bun");
+  });
+
+  test("invalid TP_DAEMON_BIN throws (never silent Bun fallback)", () => {
+    expect(() =>
+      resolveDaemonSpawnCommand({
+        TP_DAEMON_BIN: join(tmpdir(), "nope-not-here-xyz"),
+      }),
+    ).toThrow(/TP_DAEMON_BIN/);
   });
 });

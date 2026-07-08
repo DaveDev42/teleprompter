@@ -7,7 +7,8 @@ import { join } from "path";
 import { promptYesNo } from "../components/ink/yes-no-prompt";
 import { isCompiled } from "../spawn";
 import { dim, ok } from "./colors";
-import { errorWithHints } from "./format";
+import { resolveDaemonBinOverride } from "./daemon-bin";
+import { errorWithHints, messageOf } from "./format";
 import { getConfigDir } from "./paths";
 import { isServiceInstalled, startService } from "./service";
 import { spinner } from "./spinner";
@@ -87,6 +88,47 @@ async function waitForDaemonReady(timeoutMs = 10_000): Promise<boolean> {
 }
 
 /**
+ * Resolve the `[cmd, spawnArgs]` pair for the background daemon auto-spawn,
+ * honoring the opt-in `TP_DAEMON_BIN` dual-run seam (ADR-0003 Phase 4,
+ * increment 6). When `TP_DAEMON_BIN` is set (and valid), the Rust `tp-daemon`
+ * binary is spawned directly as `[<path>, []]` — NO `daemon start` subcommand,
+ * since the Rust bin IS the daemon (its `main()` does pid-lock →
+ * `Daemon::new/start` → auto-cleanup → reconnect → SIGINT/SIGTERM). Socket
+ * parity is automatic: both daemons bind `resolveRuntimeDir()/daemon.sock`
+ * (TS `getSocketPath()` ≡ Rust `tp-proto` `get_socket_path()`), so no
+ * `--socket-path` coordination is needed. Double-spawn stays a no-op exit-0
+ * via the Rust bin's own pid-file lock (same lock path as the Bun daemon).
+ *
+ * Absent the opt-in this returns the pre-inc6 selection byte-identical:
+ * compiled → `[process.execPath, ["daemon", "start"]]`; dev → bun against the
+ * CLI entry. Detection reuses the canonical `isCompiled()` (keyed on Bun's
+ * `$bunfs` marker) so it stays consistent with spawn.ts and doesn't drift if
+ * a user renames or shims `bun`. For dev mode, the CLI entry is resolved
+ * relative to this file — same URL-based pattern spawn.ts uses — so the path
+ * works regardless of cwd. An invalid override throws (see
+ * {@link resolveDaemonBinOverride}) — it never silently falls back to Bun.
+ *
+ * @internal Exported for unit tests; not part of the public CLI API.
+ */
+export function resolveDaemonSpawnCommand(
+  env: Record<string, string | undefined> = process.env,
+): [cmd: string, args: string[]] {
+  const override = resolveDaemonBinOverride(env);
+  if (override) return [override, []];
+  return isCompiled()
+    ? [process.execPath, ["daemon", "start"]]
+    : [
+        "bun",
+        [
+          "run",
+          new URL("../index.ts", import.meta.url).pathname,
+          "daemon",
+          "start",
+        ],
+      ];
+}
+
+/**
  * Ensure daemon is running. If not, try to start it:
  * 1. If OS service is installed → kickstart it
  * 2. Otherwise → spawn in background + show install hint once
@@ -106,22 +148,19 @@ export async function ensureDaemon(): Promise<boolean> {
     // fall through to manual spawn
   }
 
-  // Spawn daemon in background. Reuse the canonical `isCompiled()`
-  // (keyed on Bun's `$bunfs` marker) so detection stays consistent with
-  // spawn.ts and doesn't drift if a user renames or shims `bun`. For dev
-  // mode, resolve the CLI entry relative to this file — same URL-based
-  // pattern spawn.ts uses — so the path works regardless of cwd.
-  const [cmd, spawnArgs] = isCompiled()
-    ? [process.execPath, ["daemon", "start"]]
-    : [
-        "bun",
-        [
-          "run",
-          new URL("../index.ts", import.meta.url).pathname,
-          "daemon",
-          "start",
-        ],
-      ];
+  // Resolve the spawn argv, honoring the opt-in TP_DAEMON_BIN dual-run seam.
+  // An invalid override is a loud, contained exit here (the message is already
+  // errorWithHints-shaped) — never a silent fallback to the Bun daemon —
+  // mirroring how daemon.ts/passthrough.ts wrap resolveRunnerCommandWithOverride.
+  let resolved: [cmd: string, args: string[]];
+  try {
+    resolved = resolveDaemonSpawnCommand();
+  } catch (err) {
+    stop();
+    console.error(messageOf(err));
+    process.exit(1);
+  }
+  const [cmd, spawnArgs] = resolved;
 
   const proc = spawn(cmd, spawnArgs, {
     stdio: "ignore",

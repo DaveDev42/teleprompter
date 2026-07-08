@@ -88,9 +88,7 @@ pub fn split_args(argv: &[String]) -> Result<SplitResult, SplitError> {
             // and any `-`-prefixed token — see module doc / args.ts:38-43.
             let invalid = match value {
                 None => true,
-                Some(v) => {
-                    TP_VALUE_FLAGS.contains(&v.as_str()) || v == "--" || v.starts_with('-')
-                }
+                Some(v) => TP_VALUE_FLAGS.contains(&v.as_str()) || v == "--" || v.starts_with('-'),
             };
             if invalid {
                 return Err(SplitError { flag: arg.clone() });

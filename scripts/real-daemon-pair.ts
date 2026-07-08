@@ -107,6 +107,34 @@ function runnerCmd(args: string[]): string[] {
   return RUNNER_BIN ? [RUNNER_BIN, ...args] : [...CLI, "run", ...args];
 }
 
+// Daemon-parity gate (ADR-0003 Phase 4, flip-prep A2): when TP_DAEMON_BIN names a
+// built Rust `tp-daemon`, spawn the isolated E2E daemon with THAT binary instead
+// of the Bun daemon, so the real-claude soak exercises the Rust daemon port end to
+// end. Empty/unset ⇒ the default Bun daemon (`tp daemon start`), byte-identical.
+//
+// IMPORTANT — why this is here and NOT via the CLI's TP_DAEMON_BIN seam: this
+// script spawns the daemon directly (below), it is NOT reached through
+// `ensureDaemon()`'s background auto-spawn (the only path that consults
+// resolveDaemonBinOverride/resolveDaemonSpawnCommand in apps/cli/src/lib). The
+// foreground `tp daemon start` command constructs `new Daemon()` in-process and
+// never honors the override (daemon-rust-port-plan.md inc6 scope decision). So to
+// run the Rust daemon here we build the daemon command ourselves. The Rust
+// `tp-daemon` bin IS the daemon — it takes NO `daemon start` subcommand (its
+// main() does pid-lock → Daemon::new/start → signals; rust/tp-daemon/src/bin/
+// tp_daemon.rs), mirroring inc6's `[<tp-daemon>, []]` argv shape.
+const DAEMON_BIN = ((): string | undefined => {
+  const b = process.env["TP_DAEMON_BIN"];
+  return typeof b === "string" && b.length > 0 ? b : undefined;
+})();
+
+/**
+ * Build the argv that spawns the isolated E2E daemon. Rust daemon ⇒ `<tp-daemon>`
+ * (no subcommand); Bun daemon ⇒ `bun run <cli> daemon start`.
+ */
+function daemonCmd(): string[] {
+  return DAEMON_BIN ? [DAEMON_BIN] : [...CLI, "daemon", "start"];
+}
+
 function die(msg: string): never {
   log(`FATAL: ${msg}`);
   process.exit(1);
@@ -916,9 +944,23 @@ async function main(): Promise<void> {
     process.stdout.write(`RUNNER_PARITY_BIN=${RUNNER_BIN}\n`);
   }
 
-  // 2. Real daemon subprocess, isolated via the inherited XDG_* env.
+  // Daemon-parity gate proof (ADR-0003 Phase 4, flip-prep A2): when we selected the
+  // Rust tp-daemon (DAEMON_BIN set from TP_DAEMON_BIN), emit a greppable line naming
+  // the exact binary that will serve this run's isolated daemon. Because the Bun and
+  // Rust daemons are byte-identical on the wire/store BY DESIGN (the whole inc1-inc5
+  // parity premise), a substituted daemon leaves no distinctive session-DB
+  // fingerprint — so this line is the PRIMARY positive proof (not a secondary check
+  // like RUNNER_PARITY_BIN's io-row count), guarding against a silent Bun fallback
+  // making a daemon soak look like it exercised the Rust daemon when it did not.
+  // Same STDOUT discipline as RUNNER_PARITY_BIN above. Off ⇒ no line, byte-identical.
+  if (DAEMON_BIN) {
+    process.stdout.write(`DAEMON_PARITY_BIN=${DAEMON_BIN}\n`);
+  }
+
+  // 2. Real daemon subprocess, isolated via the inherited XDG_* env. daemonCmd()
+  //    picks the Rust tp-daemon when TP_DAEMON_BIN is set, else the Bun daemon.
   const daemon = spawn({
-    cmd: [...CLI, "daemon", "start"],
+    cmd: daemonCmd(),
     env: { ...process.env, LOG_LEVEL: "error", TP_NO_AUTO_INSTALL: "1" },
     stdout: "ignore",
     stderr: "ignore",

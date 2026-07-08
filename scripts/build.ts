@@ -20,6 +20,8 @@
  *                            ADR-0003 Phase 4 A1 — shipped + locatable, NOT the default)
  *   libexec/tp/tp-relay    ← Rust relay binary (cargo build --release --bin tp-relay;
  *                            task #17 #25 — `tp relay start` execs it; locate_tp_relay())
+ *   libexec/tp/tp-runner   ← Rust runner binary (cargo build --release --bin tp-runner;
+ *                            task #8 flip-prep — shipped + locatable, NOT the default)
  *
  * These tarballs are the release assets consumed by Homebrew and install.sh.
  * The live release pipeline (release.yml) uses `--bundle` for every target.
@@ -175,6 +177,29 @@ async function buildBundle(target: Target): Promise<void> {
   await $`cp ${relayBinPath} ${tpRelayDest}`;
   await $`chmod +x ${tpRelayDest}`;
 
+  // 2d. Build Rust tp-runner binary for this target (task #8 flip-prep: ship the
+  //     per-session runtime as a locatable release artifact — precondition for
+  //     the runner default-flip, changes NO default behavior). Like tp-daemon it
+  //     is an internal exec target (the daemon spawns it per session; not a
+  //     clap-parsed command), so it lands in libexec/tp alongside
+  //     tpd/tp-daemon/tp-relay; `locate_tp_runner()` resolves it there. Same
+  //     --manifest-path/--target flags → rust/target/${rustTarget}/release/tp-runner;
+  //     each target builds on its native runner in CI (no cross-linker).
+  const runnerBinPath = join(
+    "rust",
+    "target",
+    rustTarget,
+    "release",
+    "tp-runner",
+  );
+  const tpRunnerDest = join(libexecDir, "tp-runner");
+  console.log(
+    `  [bundle] Building Rust tp-runner (${rustTarget}) → ${tpRunnerDest}`,
+  );
+  await $`cargo build --release --manifest-path rust/Cargo.toml --bin tp-runner --target ${rustTarget}`;
+  await $`cp ${runnerBinPath} ${tpRunnerDest}`;
+  await $`chmod +x ${tpRunnerDest}`;
+
   // 3. Pack into tarball
   const tarball = join(OUT_DIR, "bundles", `tp-${suffix}.tar.gz`);
   console.log(`  [bundle] Packing → ${tarball}`);
@@ -182,7 +207,7 @@ async function buildBundle(target: Target): Promise<void> {
 
   console.log(`  [bundle] Done: ${tarball}`);
   console.log(
-    `          Tree: bin/tp + libexec/tp/{tpd,tp-daemon,tp-relay} in tp-${suffix}.tar.gz`,
+    `          Tree: bin/tp + libexec/tp/{tpd,tp-daemon,tp-relay,tp-runner} in tp-${suffix}.tar.gz`,
   );
 }
 

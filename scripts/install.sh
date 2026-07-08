@@ -79,7 +79,7 @@ if curl -fsSL --head "${TARBALL_URL}" -o /dev/null 2>/dev/null; then
   TMPDIR_EXTRACT=$(mktemp -d)
   curl -fsSL "${TARBALL_URL}" | tar -xz -C "${TMPDIR_EXTRACT}"
 
-  # The tarball unpacks to tp-${ASSET_SUFFIX}/bin/tp + tp-${ASSET_SUFFIX}/libexec/tp/{tpd,tp-daemon,tp-relay}
+  # The tarball unpacks to tp-${ASSET_SUFFIX}/bin/tp + tp-${ASSET_SUFFIX}/libexec/tp/{tpd,tp-daemon,tp-relay,tp-runner}
   EXTRACTED_DIR="${TMPDIR_EXTRACT}/${ASSET_NAME}"
   if [ ! -d "${EXTRACTED_DIR}" ]; then
     # Fallback: some tar layouts omit the outer dir
@@ -106,6 +106,14 @@ if curl -fsSL --head "${TARBALL_URL}" -o /dev/null 2>/dev/null; then
     cp "${EXTRACTED_DIR}/libexec/tp/tp-relay" "${TP_PREFIX}/libexec/tp/tp-relay"
     chmod +x "${TP_PREFIX}/libexec/tp/tp-relay"
   fi
+  # tp-runner (task #8 flip-prep): shipped alongside tpd/tp-daemon/tp-relay so the
+  # (future) native-`tp` flip can resolve the per-session runtime via
+  # locate_tp_runner. Same guard — a NEW install.sh against an OLD tarball lacking
+  # this member must not `set -e`-abort; every future tarball contains it.
+  if [ -f "${EXTRACTED_DIR}/libexec/tp/tp-runner" ]; then
+    cp "${EXTRACTED_DIR}/libexec/tp/tp-runner" "${TP_PREFIX}/libexec/tp/tp-runner"
+    chmod +x "${TP_PREFIX}/libexec/tp/tp-runner"
+  fi
   rm -rf "${TMPDIR_EXTRACT}"
 
   # Symlink INSTALL_DIR/tp → TP_PREFIX/bin/tp
@@ -123,6 +131,9 @@ if curl -fsSL --head "${TARBALL_URL}" -o /dev/null 2>/dev/null; then
   fi
   if [ -f "${TP_PREFIX}/libexec/tp/tp-relay" ]; then
     echo "         tp-relay at ${TP_PREFIX}/libexec/tp/tp-relay"
+  fi
+  if [ -f "${TP_PREFIX}/libexec/tp/tp-runner" ]; then
+    echo "         tp-runner at ${TP_PREFIX}/libexec/tp/tp-runner"
   fi
   BUNDLE_INSTALLED=1
 fi

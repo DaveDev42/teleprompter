@@ -293,6 +293,12 @@ fn main() -> ExitCode {
             // trampolines through the Bun blob. `run` strips a leading `--`.
             return commands::forward_claude::run(&args[1..]);
         }
+        commands::forward::Route::RelayNative => {
+            // `tp relay …`: native exec of the shipped Rust `tp-relay` binary
+            // (task #17 #25). `start` translates flags→argv/env; `ping`/usage are
+            // handled natively. No longer trampolines through the Bun blob.
+            return commands::relay::run(&args[1..]);
+        }
         commands::forward::Route::Native => {
             // Fall through to Cli::parse() below.
         }
@@ -396,19 +402,23 @@ fn main() -> ExitCode {
         // Run and Relay: intercepted by decide_route pre-clap; these arms are
         // belt-and-suspenders (they fire only if a future refactor bypasses
         // decide_route). Reconstruct the original argv from the parsed command
-        // name and forward to the blob.
+        // name and route it the same way decide_route would.
         Some(Command::Run) => {
             // `tp run [...]` — args after `run` are captured by clap's
             // trailing_var_arg. Since Run has no fields we can only forward
-            // the reconstructed argv. decide_route should have caught this.
+            // the reconstructed argv to the blob. decide_route should have
+            // caught this (Route::Forward → exec_blob).
             let mut fwd: Vec<String> = vec!["run".to_string()];
             fwd.extend(args.iter().skip(2).cloned());
             commands::forward::exec_blob(&fwd)
         }
         Some(Command::Relay) => {
+            // `tp relay [...]` → native tp-relay exec (#25). decide_route should
+            // have caught this (Route::RelayNative); reconstruct the `relay`-led
+            // argv commands::relay::run expects (args_after_tp[0] == "relay").
             let mut fwd: Vec<String> = vec!["relay".to_string()];
             fwd.extend(args.iter().skip(2).cloned());
-            commands::forward::exec_blob(&fwd)
+            commands::relay::run(&fwd)
         }
 
         // Bare `tp pair` (no action) is an alias for `tp pair new` in the Bun

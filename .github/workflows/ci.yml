@@ -101,10 +101,16 @@ jobs:
         run: |
           mkdir -p /tmp/tp-prefix
           tar -xzf dist/bundles/tp-linux_x64.tar.gz -C /tmp/tp-prefix --strip-components=1
-          # Assert the prefix-tree layout exists before continuing.
+          # Assert the full prefix-tree layout exists before continuing:
+          # bin/tp + libexec/tp/{tpd, tp-daemon, tp-relay}. The tp-daemon and
+          # tp-relay members are shipped alongside tpd (build.ts) and resolved by
+          # locate_tp_daemon()/locate_tp_relay(); assert both so a dropped bundle
+          # member fails CI here rather than at runtime.
           ls -la /tmp/tp-prefix/bin/tp
           ls -la /tmp/tp-prefix/libexec/tp/tpd
-          echo "Layout OK: bin/tp + libexec/tp/tpd present"
+          ls -la /tmp/tp-prefix/libexec/tp/tp-daemon
+          ls -la /tmp/tp-prefix/libexec/tp/tp-relay
+          echo "Layout OK: bin/tp + libexec/tp/{tpd,tp-daemon,tp-relay} present"
       - name: Bundle smoke — version + help (native Rust paths)
         run: |
           timeout 10 /tmp/tp-prefix/bin/tp version
@@ -116,12 +122,13 @@ jobs:
           # prints its arguments — no daemon, no claude, deterministic + non-hanging.
           printf '#!/bin/sh\necho "BLOB_GOT:" "$@"\n' > /tmp/fake-tpd
           chmod +x /tmp/fake-tpd
-          # tp run --sid x → pre-clap decide_route → Forward (run/relay) →
-          # exec_blob → fake-tpd. NOTE the probe route has migrated as passthrough
-          # was de-trampolined: `tp -p x` (PR-4 → Route::Passthrough) then
-          # `tp auth login` (PR-6 → Route::ForwardClaude, native claude exec) both
-          # left the blob seam. `run` / `relay` are the ONLY routes still on the
-          # blob (their native flips are tasks #8 / #25), so the probe uses `run`.
+          # tp run --sid x → pre-clap decide_route → Route::Forward →
+          # exec_blob → fake-tpd. NOTE the probe route has migrated as routes were
+          # de-trampolined: `tp -p x` (PR-4 → Route::Passthrough), `tp auth login`
+          # (PR-6 → Route::ForwardClaude, native claude exec), and `tp relay start`
+          # (#25 → Route::RelayNative, native tp-relay exec) all left the blob seam.
+          # `run` is now the ONLY route still on the blob (its native flip is task
+          # #8), so the probe uses `run`.
           GOT=$(timeout 10 env TP_BUN_BLOB=/tmp/fake-tpd /tmp/tp-prefix/bin/tp run --sid x 2>&1 || true)
           echo "Forward smoke output: ${GOT}"
           if echo "${GOT}" | grep -q 'BLOB_GOT: run --sid x'; then

@@ -3,16 +3,17 @@
 //! # Architecture
 //!
 //! Tranche 5 (ADR-0003 Amendment 2, A2.4 decision #1 — Option A thin forwarder).
-//! For `run` and `relay` the Rust `tp` does NOT reimplement the logic: it locates
-//! the bundled Bun SEA (`tpd`) via [`crate::locate::locate_bun_blob`] and
-//! **replaces its own process image** with the blob via `exec()`. (De-trampolining
-//! these two is tracked by task #8 for the runner and #25 for the relay.)
+//! For `run` the Rust `tp` does NOT reimplement the logic: it locates the bundled
+//! Bun SEA (`tpd`) via [`crate::locate::locate_bun_blob`] and **replaces its own
+//! process image** with the blob via `exec()`. (De-trampolining the runner is
+//! tracked by task #8 — `run` is the last route still on the blob.)
 //!
-//! Passthrough (bare `tp` / `tp <claude args>`), the claude-utility forwards, and
-//! `tp -- <args>` are **no longer** blob forwards — they were de-trampolined to
-//! native Rust handlers (`commands::passthrough` in task #17 PR-4,
-//! `commands::forward_claude` in PR-6). `decide_route` routes them to
-//! `Route::Passthrough` / `Route::ForwardClaude`, not `Route::Forward`.
+//! Passthrough (bare `tp` / `tp <claude args>`), the claude-utility forwards,
+//! `tp -- <args>`, and `tp relay …` are **no longer** blob forwards — they were
+//! de-trampolined to native Rust handlers (`commands::passthrough` in task #17
+//! PR-4, `commands::forward_claude` in PR-6, `commands::relay` in #25).
+//! `decide_route` routes them to `Route::Passthrough` / `Route::ForwardClaude` /
+//! `Route::RelayNative`, not `Route::Forward`.
 //!
 //! # Why `exec()` instead of `.status()`
 //!
@@ -26,10 +27,9 @@
 //!
 //! # Architecture invariants (A2.4 #2 posture preserved)
 //!
-//! The blob forward path (now only `run` / `relay`) opens **zero** IPC sockets,
-//! relay WebSockets, or SQLite connections from Rust. The blob (Bun CLI) handles:
+//! The blob forward path (now only `run`) opens **zero** IPC sockets, relay
+//! WebSockets, or SQLite connections from Rust. The blob (Bun CLI) handles:
 //! - `run` → daemon IPC → Runner PTY
-//! - `relay start` → `RelayServer` (Bun)
 //!
 //! # Windows note
 //!
@@ -49,13 +49,13 @@ use std::process::ExitCode;
 /// stderr and returns `ExitCode::FAILURE`.
 ///
 /// `forward_args` is the FULL original argv after the binary name, verbatim.
-/// After PR-4/PR-6 the only routes that still reach `exec_blob` are `run` and
-/// `relay` (`Route::Forward`):
+/// After PR-4 / PR-6 / #25 the ONLY route that still reaches `exec_blob` is `run`
+/// (`Route::Forward`):
 /// - `tp run --tp-sid x` → `forward_args = ["run", "--tp-sid", "x"]`
-/// - `tp relay start`    → `forward_args = ["relay", "start"]`
 ///
 /// (`tp -p hello` / bare `tp` are now `Route::Passthrough`; `tp auth login` /
-/// `tp -- echo hi` are now `Route::ForwardClaude` — none reach `exec_blob`.)
+/// `tp -- echo hi` are `Route::ForwardClaude`; `tp relay …` is `Route::RelayNative`
+/// — none reach `exec_blob`.)
 #[cfg(unix)]
 pub fn exec_blob(forward_args: &[String]) -> ExitCode {
     use std::os::unix::process::CommandExt;
@@ -79,7 +79,7 @@ pub fn exec_blob(forward_args: &[String]) -> ExitCode {
 #[cfg(not(unix))]
 pub fn exec_blob(_forward_args: &[String]) -> ExitCode {
     eprintln!(
-        "tp: passthrough and run/relay forwarding require a POSIX system. \
+        "tp: passthrough and run forwarding require a POSIX system. \
          tp does not support native Windows — run inside WSL (Ubuntu/Debian) \
          with the Linux build."
     );
@@ -90,14 +90,16 @@ pub fn exec_blob(_forward_args: &[String]) -> ExitCode {
 ///
 /// Mirrors `Route` in `apps/cli/src/router.ts`, collapsed to the outcomes that
 /// matter for the pre-clap dispatch in `main()`:
-/// - `Forward`      → call `exec_blob` with the original argv (`run` / `relay` —
-///   the remaining blob-dispatched routes; de-trampolined by tasks #8 / #25).
+/// - `Forward`      → call `exec_blob` with the original argv (`run` only — the
+///   last blob-dispatched route; de-trampolined by task #8).
 /// - `Native`       → fall through to `Cli::parse()` + the existing match dispatch.
 /// - `Passthrough`  → the interactive claude REPL path (bare `tp`, `tp <claude
 ///   args>`). Native terminal-proxy (`commands::passthrough::run`, task #17 PR-4).
 /// - `ForwardClaude`→ direct `claude` exec, daemon-bypass (claude-utility
 ///   subcommands + `tp -- <args>`). Native (`commands::forward_claude::run`,
 ///   task #17 PR-6) — no longer execs the blob.
+/// - `RelayNative`  → native `tp-relay` exec (`tp relay …`). Native
+///   (`commands::relay::run`, task #17 #25) — no longer execs the blob.
 ///
 /// Note `--` is `ForwardClaude`, NOT `Passthrough`: `tp -- <args>` forwards
 /// **directly** to claude (daemon-bypass, the same handler as the utility
@@ -105,8 +107,8 @@ pub fn exec_blob(_forward_args: &[String]) -> ExitCode {
 /// bare-`tp` passthrough does.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route {
-    /// Forward to the Bun blob (`run` / `relay` — the last blob-dispatched
-    /// routes, pending tasks #8 / #25).
+    /// Forward to the Bun blob (`run` only — the last blob-dispatched route,
+    /// pending task #8).
     Forward,
     /// Handle natively in the Rust CLI (clap parses the rest).
     Native,
@@ -116,14 +118,19 @@ pub enum Route {
     /// Direct `claude` exec, daemon-bypass (claude-utility subcommands +
     /// `tp -- <args>`) — native (`commands::forward_claude::run`, task #17 PR-6).
     ForwardClaude,
+    /// Native `tp-relay` exec (`tp relay …`) — native (`commands::relay::run`,
+    /// task #17 #25). No longer execs the blob.
+    RelayNative,
 }
 
-/// Known `tp` subcommands that the Rust CLI handles natively (clap-parsed).
+/// Known `tp` subcommands that the Rust CLI handles natively **via clap** (the
+/// Cli::parse path). This list drives the `Route::Native` classification.
 ///
 /// Mirrors `TP_SUBCOMMANDS` in `apps/cli/src/router.ts:19-31` MINUS `run` and
-/// `relay` — those two are in the Bun set but the Rust thin-forwarder execs the
-/// blob for them (the blob's `index.ts` dispatches `run`→`runCommand`,
-/// `relay`→`relayCommand`).
+/// `relay`: `run` still execs the blob (`Route::Forward`, task #8), and `relay`
+/// is handled by a dedicated native exec path (`Route::RelayNative` →
+/// `commands::relay::run`, #25) rather than clap — so neither belongs in this
+/// clap-parsed set.
 const NATIVE_SUBCOMMANDS: &[&str] = &[
     "daemon",
     "pair",
@@ -168,7 +175,8 @@ const CLAUDE_UTILITY_SUBCOMMANDS: &[&str] = &[
 /// | `--help` / `-h` | `Native` — clap renders help |
 /// | `--version` / `-v` | `Native` — native version handler |
 /// | in `NATIVE_SUBCOMMANDS` | `Native` |
-/// | `run` / `relay` | `Forward` — blob dispatches these |
+/// | `relay` | `RelayNative` — native `tp-relay` exec |
+/// | `run` | `Forward` — blob dispatches this (last blob route, task #8) |
 /// | in `CLAUDE_UTILITY_SUBCOMMANDS` | `ForwardClaude` — native `claude` exec |
 /// | `--` | `ForwardClaude` — native `claude` direct-forward (daemon-bypass) |
 /// | anything else (unknown subcmd, flag like `-p`) | `Passthrough` |
@@ -194,12 +202,18 @@ pub fn decide_route(first: Option<&str>) -> Route {
         return Route::Native;
     }
 
-    // `run` and `relay` are in TP_SUBCOMMANDS but forward to the blob (its
-    // `index.ts` dispatches `run`→`runCommand`, `relay`→`relayCommand`). They
-    // must be `Forward`, NOT the `Passthrough` catch-all below — an explicit
-    // check is now required because the catch-all changed from `Forward` to
-    // `Passthrough` (task #17 PR-2).
-    if cmd == "run" || cmd == "relay" {
+    // `relay` → native Rust `tp-relay` (task #17 #25). `tp relay start` execs the
+    // shipped `tp-relay` binary directly (via `commands::relay::run` →
+    // `locate_tp_relay`); it no longer trampolines through the Bun blob.
+    if cmd == "relay" {
+        return Route::RelayNative;
+    }
+
+    // `run` is still in TP_SUBCOMMANDS and forwards to the blob (its `index.ts`
+    // dispatches `run`→`runCommand`). It must be `Forward`, NOT the
+    // `Passthrough` catch-all below (the catch-all changed Forward→Passthrough in
+    // task #17 PR-2). De-trampolining the runner is task #8.
+    if cmd == "run" {
         return Route::Forward;
     }
 
@@ -305,7 +319,7 @@ mod tests {
         assert_eq!(decide_route(Some("version")), Route::Native);
     }
 
-    // ── run / relay forward to blob ──────────────────────────────────────────
+    // ── run forwards to blob; relay is native (#25) ──────────────────────────
 
     #[test]
     fn run_forwards() {
@@ -313,8 +327,9 @@ mod tests {
     }
 
     #[test]
-    fn relay_forwards() {
-        assert_eq!(decide_route(Some("relay")), Route::Forward);
+    fn relay_is_native() {
+        // #25: relay no longer forwards to the blob — it execs native tp-relay.
+        assert_eq!(decide_route(Some("relay")), Route::RelayNative);
     }
 
     // ── claude utility subcommands → native claude exec (PR-6) ───────────────

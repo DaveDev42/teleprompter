@@ -79,7 +79,7 @@ if curl -fsSL --head "${TARBALL_URL}" -o /dev/null 2>/dev/null; then
   TMPDIR_EXTRACT=$(mktemp -d)
   curl -fsSL "${TARBALL_URL}" | tar -xz -C "${TMPDIR_EXTRACT}"
 
-  # The tarball unpacks to tp-${ASSET_SUFFIX}/bin/tp + tp-${ASSET_SUFFIX}/libexec/tp/tpd
+  # The tarball unpacks to tp-${ASSET_SUFFIX}/bin/tp + tp-${ASSET_SUFFIX}/libexec/tp/{tpd,tp-daemon,tp-relay}
   EXTRACTED_DIR="${TMPDIR_EXTRACT}/${ASSET_NAME}"
   if [ ! -d "${EXTRACTED_DIR}" ]; then
     # Fallback: some tar layouts omit the outer dir
@@ -98,6 +98,14 @@ if curl -fsSL --head "${TARBALL_URL}" -o /dev/null 2>/dev/null; then
     cp "${EXTRACTED_DIR}/libexec/tp/tp-daemon" "${TP_PREFIX}/libexec/tp/tp-daemon"
     chmod +x "${TP_PREFIX}/libexec/tp/tp-daemon"
   fi
+  # tp-relay (task #17 #25): shipped alongside tpd/tp-daemon so a locally-run
+  # `tp relay start` execs the native binary (locate_tp_relay). Same guard as
+  # tp-daemon — a NEW install.sh against an OLD tarball lacking this member must
+  # not `set -e`-abort; every future tarball contains it (transitional insurance).
+  if [ -f "${EXTRACTED_DIR}/libexec/tp/tp-relay" ]; then
+    cp "${EXTRACTED_DIR}/libexec/tp/tp-relay" "${TP_PREFIX}/libexec/tp/tp-relay"
+    chmod +x "${TP_PREFIX}/libexec/tp/tp-relay"
+  fi
   rm -rf "${TMPDIR_EXTRACT}"
 
   # Symlink INSTALL_DIR/tp → TP_PREFIX/bin/tp
@@ -112,6 +120,9 @@ if curl -fsSL --head "${TARBALL_URL}" -o /dev/null 2>/dev/null; then
   echo "         tpd at ${TP_PREFIX}/libexec/tp/tpd"
   if [ -f "${TP_PREFIX}/libexec/tp/tp-daemon" ]; then
     echo "         tp-daemon at ${TP_PREFIX}/libexec/tp/tp-daemon"
+  fi
+  if [ -f "${TP_PREFIX}/libexec/tp/tp-relay" ]; then
+    echo "         tp-relay at ${TP_PREFIX}/libexec/tp/tp-relay"
   fi
   BUNDLE_INSTALLED=1
 fi

@@ -14,8 +14,10 @@
  * # Packaging layout (--bundle — the release and CI path as of #5 hard-swap)
  *
  * When `--bundle` is passed, build.ts emits per-platform tarballs with the tree:
- *   bin/tp              ← Rust CLI binary (cargo build --release for each target)
- *   libexec/tp/tpd      ← Bun SEA (bun build --compile apps/cli/src/index.ts)
+ *   bin/tp                 ← Rust CLI binary (cargo build --release for each target)
+ *   libexec/tp/tpd         ← Bun SEA (bun build --compile apps/cli/src/index.ts)
+ *   libexec/tp/tp-daemon   ← Rust daemon binary (cargo build --release --bin tp-daemon;
+ *                            ADR-0003 Phase 4 A1 — shipped + locatable, NOT the default)
  *
  * These tarballs are the release assets consumed by Homebrew and install.sh.
  * The live release pipeline (release.yml) uses `--bundle` for every target.
@@ -124,13 +126,38 @@ async function buildBundle(target: Target): Promise<void> {
   await $`cp ${rustBinPath} ${join(binDir, "tp")}`;
   await $`chmod +x ${join(binDir, "tp")} ${tpdPath}`;
 
+  // 2b. Build Rust tp-daemon binary for this target (ADR-0003 Phase 4 A1: ship
+  //     the daemon as a locatable release artifact — precondition for the
+  //     daemon default-flip, changes NO default behavior). It is an internal
+  //     exec target like tpd (not a user-facing command), so it lands in
+  //     libexec/tp alongside tpd; `locate_tp_daemon()` resolves it there. Same
+  //     --manifest-path/--target flags as the tp build above → output at
+  //     rust/target/${rustTarget}/release/tp-daemon; each target builds on its
+  //     native runner in CI (no cross-linker).
+  const daemonBinPath = join(
+    "rust",
+    "target",
+    rustTarget,
+    "release",
+    "tp-daemon",
+  );
+  const tpDaemonDest = join(libexecDir, "tp-daemon");
+  console.log(
+    `  [bundle] Building Rust tp-daemon (${rustTarget}) → ${tpDaemonDest}`,
+  );
+  await $`cargo build --release --manifest-path rust/Cargo.toml --bin tp-daemon --target ${rustTarget}`;
+  await $`cp ${daemonBinPath} ${tpDaemonDest}`;
+  await $`chmod +x ${tpDaemonDest}`;
+
   // 3. Pack into tarball
   const tarball = join(OUT_DIR, "bundles", `tp-${suffix}.tar.gz`);
   console.log(`  [bundle] Packing → ${tarball}`);
   await $`tar -czf ${tarball} -C ${join(OUT_DIR, "bundles")} tp-${suffix}`;
 
   console.log(`  [bundle] Done: ${tarball}`);
-  console.log(`          Tree: bin/tp + libexec/tp/tpd in tp-${suffix}.tar.gz`);
+  console.log(
+    `          Tree: bin/tp + libexec/tp/{tpd,tp-daemon} in tp-${suffix}.tar.gz`,
+  );
 }
 
 // ─── Main dispatch ────────────────────────────────────────────────────────────

@@ -143,6 +143,7 @@ pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner)
 - `apps/cli/src/lib/e2ee-verify.test.ts` — `verifyE2EECrypto` 자가검증 (daemon↔frontend, relay isolation)
 - `apps/cli/src/lib/daemon-bin.test.ts` — `TP_DAEMON_BIN` opt-in Rust-daemon override 해석 (unset/empty → null, 실행파일 X_OK 검증, missing/non-exec → cargo-hint 와 함께 throw — 조용한 Bun fallback 금지; `runner-bin.test.ts` 미러, ADR-0003 Phase 4 inc6)
 - `apps/cli/src/lib/ensure-daemon.test.ts` — `isDaemonRunning` / install prompt 결정 / yes-no 파싱 / `resolveDaemonSpawnCommand` (`TP_DAEMON_BIN` seam argv shape — absent==pre-inc6 default byte-identical, override → `[bin, []]` no `daemon start` subcommand, invalid throws)
+- `rust/tp-cli/src/locate.rs` `#[cfg(test)] mod tests` (`cargo test -p tp-cli`) — `locate_bun_blob` (tpd) + `locate_tp_daemon` (ADR-0003 Phase 4 flip-prep A1) 리졸버 유닛. tp-daemon 케이스 4종: prefix-tree(`<prefix>/libexec/tp/tp-daemon`)·sibling·**dev-fallback 이 `dist/` 아닌 `rust/target/release/tp-daemon`**(cargo bin) geometry + not-found 에러가 `TP_DAEMON_BIN`+`Reinstall` 명시. `locate_tp_daemon()`은 A1 시점 `#[allow(dead_code)]` (flip PR 이 첫 실 caller — 그때 allow 제거). tp-daemon 아티팩트 라운드트립(tar 멤버 존재 + 실행가능 Mach-O)은 게이트 아닌 릴리즈 검증.
 - `apps/cli/src/lib/format.test.ts` — `errorWithHints` 에러 메시지 포매터
 - `apps/cli/src/lib/ipc-client.test.ts` — `connectIpcAsClient` framed JSON 송수신 (POSIX unix socket 경로)
 - `apps/cli/src/lib/daemon-lock.test.ts` — `acquireDaemonLock`/`releaseDaemonLock`/`checkDaemonLockAlive` pid-file singleton (via `@teleprompter/daemon` re-export)

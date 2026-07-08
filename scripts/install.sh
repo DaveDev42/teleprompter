@@ -90,6 +90,14 @@ if curl -fsSL --head "${TARBALL_URL}" -o /dev/null 2>/dev/null; then
   cp "${EXTRACTED_DIR}/bin/tp"          "${TP_PREFIX}/bin/tp"
   cp "${EXTRACTED_DIR}/libexec/tp/tpd"  "${TP_PREFIX}/libexec/tp/tpd"
   chmod +x "${TP_PREFIX}/bin/tp" "${TP_PREFIX}/libexec/tp/tpd"
+  # tp-daemon (ADR-0003 Phase 4 A1): shipped alongside tpd. Guarded so a NEW
+  # install.sh fetched at curl-time against an OLD (pre-A1) tarball that lacks
+  # this member does not `set -e`-abort the whole install — every future tarball
+  # contains it, so this is transitional insurance only.
+  if [ -f "${EXTRACTED_DIR}/libexec/tp/tp-daemon" ]; then
+    cp "${EXTRACTED_DIR}/libexec/tp/tp-daemon" "${TP_PREFIX}/libexec/tp/tp-daemon"
+    chmod +x "${TP_PREFIX}/libexec/tp/tp-daemon"
+  fi
   rm -rf "${TMPDIR_EXTRACT}"
 
   # Symlink INSTALL_DIR/tp → TP_PREFIX/bin/tp
@@ -102,6 +110,9 @@ if curl -fsSL --head "${TARBALL_URL}" -o /dev/null 2>/dev/null; then
   ln -sf "${TP_PREFIX}/bin/tp" "${INSTALL_DIR}/${BIN_NAME}"
   echo "Installed ${BIN_NAME} to ${INSTALL_DIR}/${BIN_NAME} (→ ${TP_PREFIX}/bin/tp)"
   echo "         tpd at ${TP_PREFIX}/libexec/tp/tpd"
+  if [ -f "${TP_PREFIX}/libexec/tp/tp-daemon" ]; then
+    echo "         tp-daemon at ${TP_PREFIX}/libexec/tp/tp-daemon"
+  fi
   BUNDLE_INSTALLED=1
 fi
 

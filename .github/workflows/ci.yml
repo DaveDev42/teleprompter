@@ -116,13 +116,18 @@ jobs:
           # prints its arguments — no daemon, no claude, deterministic + non-hanging.
           printf '#!/bin/sh\necho "BLOB_GOT:" "$@"\n' > /tmp/fake-tpd
           chmod +x /tmp/fake-tpd
-          # tp -p x → pre-clap decide_route → Forward → exec_blob → fake-tpd
-          GOT=$(timeout 10 env TP_BUN_BLOB=/tmp/fake-tpd /tmp/tp-prefix/bin/tp -p x 2>&1 || true)
+          # tp auth login → pre-clap decide_route → Forward (claude-utility) →
+          # exec_blob → fake-tpd. NOTE: `tp -p x` used to be this probe's Forward
+          # example, but task #17 PR-4 moved bare-flag/unknown-subcommand args
+          # (e.g. `-p x`) to Route::Passthrough (native terminal-proxy) — it no
+          # longer exercises exec_blob, so the probe uses a still-Forward route
+          # (claude-utility subcommand) instead.
+          GOT=$(timeout 10 env TP_BUN_BLOB=/tmp/fake-tpd /tmp/tp-prefix/bin/tp auth login 2>&1 || true)
           echo "Forward smoke output: ${GOT}"
-          if echo "${GOT}" | grep -q 'BLOB_GOT: -p x'; then
+          if echo "${GOT}" | grep -q 'BLOB_GOT: auth login'; then
             echo "Forward smoke PASS: Rust→blob seam works"
           else
-            echo "FATAL: Forward smoke FAIL — expected 'BLOB_GOT: -p x'"
+            echo "FATAL: Forward smoke FAIL — expected 'BLOB_GOT: auth login'"
             exit 1
           fi
 

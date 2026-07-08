@@ -105,6 +105,7 @@ macOS 는 `log stream` 라이브 캡처, visionOS/watchOS 는 `simctl spawn … 
 | `TP_E2E_PUSH=1` | `TP_E2E_CLAUDE`(print) 의 **sibling** — 실 daemon + 실 claude PRINT 세션을 깔고(세션 DB 가 rec 타깃), 앱이 **합성 push 토큰**을 등록(`--tp-push-smoke`)한 뒤 holder(`--emit-push-notification`)가 IPC `rec` 프레임으로 **합성 `Notification` 훅 이벤트**를 주입한다. daemon `PushNotifier` 가 notify-eligible 이벤트(`NOTIFY_EVENTS`={Notification,PermissionRequest,Elicitation}) + tokenCount>0 게이트를 통과 → `relay.push` → relay 가 앱이 소켓에 *살아있으므로* APNs 대신 **in-band `relay.notification`** 으로 전달 → 앱의 **프로덕션** `RelayClient.onNotification` 이 `TP_PUSH_NOTIFY_RECEIVED sid=…` emit. `assert_push_e2e` 가 unified log 에서 그 마커(driven sid)를 폴해 in-band push RECEIVE 경로 전체를 증명. **정직한 범위**: 실 APNs 전달("push" arm)·디바이스 토큰 수신·tap→nav 는 device-gated (aps-environment entitlement + 실기기 + .p8). **iOS/iPadOS/macOS/visionOS/watchOS 전부** (`onNotification` 은 watchOS 에서도 도는 receive/decode 경로). **로컬 전용 (실 claude auth, 절대 CI 아님)** |
 | `TP_E2E_PUSH_MESSAGE` | 푸시 E2E(`TP_E2E_PUSH`) 가 주입하는 합성 `Notification` 이벤트의 `message` 필드(기본 `QA push smoke — Claude needs you`) 오버라이드. `buildPushMessage` 가 이를 push title/body 로 사용 |
 | `TP_E2E_RUNNER_BIN=1` | **runner 파리티 게이트 (ADR-0003 Stage 4, increment 4)** — 다른 모든 claude 게이트와 **직교**. 실 claude 세션을 **Bun runner (`tp run`) 대신 Rust `tp-runner` 바이너리**로 구동한다. `parse_e2e_gates` 가 `E2E_REAL` 을 imply 하되(격리 daemon 이 rec 타깃) **`E2E_CLAUDE` 는 imply 안 함** — 호출자가 claude 구동 게이트(`TP_E2E_CLAUDE_CODING`/`TP_E2E_WEBPAGE`/`TP_E2E_CLAUDE_M5`)와 **조합**해 diff 할 세션을 만든다. `build_rust_runner_bin` 이 `cargo build --release --bin tp-runner`(rustup-shim-safe TC_BIN PATH) 후 release→debug fallback 으로 바이너리를 찾고(미빌드 시 loud die), `start_real_daemon_relay` 가 `TP_RUNNER_BIN="$REAL_RUNNER_BIN"` 을 holder(`real-daemon-pair.ts`) env 로 주입한다 — holder 가 이 세션들을 **standalone `tp run`/`tp-runner` 프로세스**로 직접 spawn 하므로(daemon 의 `SessionManager` 경유 아님) holder 의 `runnerCmd()` 가 seam 을 읽어 argv 를 `[tp-runner, …]` vs `[tp, run, …]` 로 고른다. `assert_runner_parity`(claude-agnostic assert 뒤 실행)가 **(1) holder 로그**(`$REAL_RP_OUT`)에서 `RUNNER_PARITY_BIN=<REAL_RUNNER_BIN>` 라인을 확인해 Rust runner 가 실제로 세션을 서빙했음을 **positive 증명**(silent Bun fallback false-pass 방지) + **(2) 세션 DB `kind='io'` rows≥1** 구조 체크(io 바이너리 사이드카가 load-bearing 파리티 surface — `runner-parity.test.ts` 가 fake claude 로 byte-exact 증명, 여기선 실 claude 로 non-empty 증명). **iOS/iPadOS/macOS/visionOS/watchOS 전부 지원**. **로컬 전용 (실 claude auth, 절대 CI 아님)**. `TP_E2E_KEEP_DIR=1` 권장. **기본 runner 는 여전히 Bun** — 이 게이트는 파리티를 *증명*만 하고 default flip 은 별도 후속 PR(build+ship+locate tp-runner). cf. `packages/daemon/src/session/runner-parity.test.ts`(결정론적 fake-claude 파리티, CI 상시) + `scripts/runner-parity-real-claude.ts`(`TP_RUNNER_PARITY_REAL_CLAUDE=1` 로컬 프레임 diff) |
+| `TP_E2E_DAEMON_BIN=1` | **daemon 파리티 게이트 (ADR-0003 Phase 4, flip-prep A2)** — `TP_E2E_RUNNER_BIN` 의 **daemon 쌍둥이**, 역시 모든 claude 게이트와 **직교**. 격리 E2E daemon 을 **Bun daemon (`tp daemon start`) 대신 Rust `tp-daemon` 바이너리**로 띄운다. `parse_e2e_gates` 가 `E2E_REAL` 만 imply(격리 daemon 필요), `E2E_CLAUDE` 는 안 함 — CODING/WEBPAGE/M5 와 **조합**해 exercise 할 세션을 만든다. `TP_E2E_RUNNER_BIN` 과도 조합 가능(한 런에서 Rust daemon + Rust runner). `build_rust_daemon_bin` 이 `cargo build --release --bin tp-daemon`(rustup-shim-safe TC_BIN PATH) 후 release→debug fallback(미빌드 시 loud die), `start_real_daemon_relay` 가 `TP_DAEMON_BIN="$REAL_DAEMON_BIN"` 을 holder env 로 주입한다 — **holder 가 daemon 을 직접 spawn** 하므로(`real-daemon-pair.ts` 의 단일 spawn 사이트, `ensureDaemon` 경유 아님 — foreground `tp daemon start` 는 inc6 scope 결정으로 override 미honor) holder 의 `daemonCmd()` 가 seam 을 읽어 `cmd` 를 `[tp-daemon]`(서브커맨드 없음 — Rust bin 이 곧 daemon) vs `[bun, run, <cli>, daemon, start]` 로 고른다. **positive 증명이 PRIMARY**: Bun↔Rust daemon 은 wire/store 가 **설계상 byte-identical**(inc1–inc5 파리티 전제)이라 치환된 daemon 이 고유 fingerprint 를 안 남긴다 → runner 처럼 io-row 를 독립 2차 체크로 못 씀. `assert_daemon_parity`(claude-agnostic assert 뒤)가 **(1) holder 로그에서 `DAEMON_PARITY_BIN=<REAL_DAEMON_BIN>` 라인**을 확인해 Rust daemon 이 실제로 서빙했음을 증명(silent Bun fallback 방지 — 이게 유일한 판별자) + **(2) 격리 store DB `records≥1`** 구조 체크(치환 daemon 이 세션을 실제 영속했는지). **iOS/iPadOS/macOS/visionOS/watchOS 전부 지원**. **로컬 전용 (실 claude auth, 절대 CI 아님)**. `TP_E2E_KEEP_DIR=1` 권장. **기본 daemon 은 여전히 Bun** — 이 게이트는 파리티를 *증명*만 하고 default flip 은 별도 후속 PR (N회 clean 실 claude E2E 게이트). cf. `packages/daemon/src/**/*-rust-parity.test.ts`(5 differential 게이트, CI 상시) |
 
 ## 서브커맨드
 
@@ -506,6 +507,47 @@ runner 포트의 load-bearing 불변식은 **daemon 이 어느 runner 가 세션
   `cargo build --release --bin tp-runner` 로 SKIP→RUN 전환). `scripts/runner-parity-real-claude.ts` —
   committed 로컬 전용 프레임 diff 하니스(`TP_RUNNER_PARITY_REAL_CLAUDE=1`, 실 claude 로 hello/bye byte-exact
   mod {pid,ts} + io 구조 diff).
+
+## 실 daemon-parity E2E (`TP_E2E_DAEMON_BIN=1`, iOS/iPadOS/macOS/visionOS/watchOS) — Rust `tp-daemon` 파리티 증명 (ADR-0003 Phase 4, flip-prep A2)
+
+runner-parity 게이트의 **daemon 쌍둥이**. daemon 포트(inc1–inc5)의 load-bearing 불변식은 **앱/relay/store 가
+어느 daemon 구현이 서빙하는지 구별 못 한다**는 것 — 다섯 개 `*-rust-parity.test.ts` differential 게이트(store/
+worktree/reconnect/push/dispatcher, CI 상시)가 이를 결정론적으로 증명한다면, 이 게이트는 **실 claude 세션**을
+Rust `tp-daemon` 으로 서빙해 그 파리티가 실전 full-path 에서도 성립함을 증명한다. **default flip 이 아니라 증명
+전용** — A1(ship+locate)에 이은 두 번째 flip-prep 이고, flip 자체는 N회 clean 실 claude E2E 뒤 별도 PR.
+
+- **모드 위치**: 모든 claude 구동 게이트(CODING/WEBPAGE/M5)와 **직교** — 세션을 *어떻게* 구동하느냐가 아니라
+  어느 **daemon 바이너리**가 서빙하느냐를 고른다. `parse_e2e_gates` 가 `E2E_REAL` 만 imply, `E2E_CLAUDE` 는 안
+  함. 그래서 claude 구동 게이트와 **조합**: `TP_E2E_CLAUDE_CODING=1 TP_E2E_DAEMON_BIN=1` 이면 코딩 턴을 Rust
+  daemon 위에서 돌려 CODING side-effect assert + daemon-parity assert 둘 다 평가. **`TP_E2E_RUNNER_BIN` 과도
+  조합** 가능(한 런에서 Rust daemon + Rust runner).
+- **왜 seam 이 아니라 holder 가 daemon 을 고르나**: 격리 E2E daemon 은 **holder(`real-daemon-pair.ts`)가 직접
+  spawn** 한다(단일 spawn 사이트). `ensureDaemon()` 의 백그라운드 auto-spawn(= `resolveDaemonBinOverride`/
+  `resolveDaemonSpawnCommand` 를 읽는 유일 경로)을 안 타고, foreground `tp daemon start` 는 in-process
+  `new Daemon()` 이라 override 를 안 honor 한다(inc6 scope 결정). 그래서 runner 처럼 holder 가 자체
+  `daemonCmd()` 로 `cmd` 를 고른다: `TP_DAEMON_BIN` 있으면 `[<tp-daemon>]`(서브커맨드 없음 — Rust bin 이 곧
+  daemon: pid-lock → `Daemon::new/start` → signals, `rust/tp-daemon/src/bin/tp_daemon.rs`), 없으면
+  `[bun, run, <cli>, daemon, start]`(Bun daemon).
+- **빌드+주입 (`start_real_daemon_relay`)**: `build_rust_daemon_bin` 이 `cargo build --release --bin
+  tp-daemon`(rustup shim 우회 `TC_BIN` PATH 앞) 후 `rust/target/{release,debug}/tp-daemon`(release 우선)을
+  찾아 `REAL_DAEMON_BIN` 에 담고(미빌드 시 loud die), env prefix `TP_DAEMON_BIN="$REAL_DAEMON_BIN"` 로 holder
+  에 주입. **리터럴 env-prefix** 필수(runner 와 동일 — `${VAR:+…}` 확장은 word-split 돼 오실행). `""`(게이트 off)
+  면 holder 의 `daemonCmd()` 가 empty→undefined 로 읽어 기본 Bun daemon — 오늘과 behavior-identical.
+- **positive 증명이 PRIMARY (`assert_daemon_parity`, claude-agnostic assert 뒤)**: runner 케이스는 io-row
+  count 가 독립 2차 체크지만, **Bun↔Rust daemon 은 wire/store 가 설계상 byte-identical** 이라 치환된 daemon 이
+  고유 fingerprint 를 안 남긴다 → `DAEMON_PARITY_BIN` 라인이 **유일한 판별자**다. holder 는 Rust daemon 을
+  골랐을 때 자기 STDOUT(=`$REAL_RP_OUT`)에 `DAEMON_PARITY_BIN=<REAL_DAEMON_BIN>` 를 찍고(REAL_PAIR_URL 옆
+  durable 라인 — stderr `log()` 는 holder 의 `>rp_out 2>>rp_out` shared-fd 에서 race/clobber), assert 가
+  `grep -F`(literal 경로)로 확인한다(silent Bun fallback = NO 라인 → die). + 보조로 격리 store DB
+  `records≥1`(치환 daemon 이 세션을 실제 영속 — 라인만 찍고 크래시한 게 아님을 확인).
+- **정직한 범위**: 파리티 **증명만**. 기본 daemon 은 여전히 Bun(`ensure-daemon.ts` `resolveDaemonSpawnCommand`
+  미변경). default flip(ensure-daemon + `locate_tp_daemon()` 를 tp-daemon 으로 기본 전환 + Bun tpd 퇴역)은
+  N회 clean 실 claude E2E 증거로 게이트된 **별도 후속 PR**.
+- **절대 CI 에서 안 돈다** (실 claude auth/credits/Keychain). **로컬 pre-merge 전용**:
+  `TP_E2E_CLAUDE_CODING=1 TP_E2E_DAEMON_BIN=1 [TP_PLATFORM=macos] TP_E2E_KEEP_DIR=1 scripts/ios.sh smoke`.
+- **관련 결정론 게이트 (별개 레이어)**: `packages/daemon/src/{store,worktree,transport,push,ipc}/*-rust-parity.test.ts`
+  — 다섯 개 Bun↔Rust differential 게이트(**CI 상시**: `test` job 의 `cargo build --release --bin
+  tp-daemon-probe` 가 전부 SKIP→RUN 전환).
 
 ## 공식 Apple Xcode MCP (`mcpbridge`) — 인터랙티브 전용
 

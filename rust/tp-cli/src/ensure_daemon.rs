@@ -29,12 +29,9 @@
 //! then the blob still owns the first-run prompt on the passthrough path (which
 //! still execs the blob through PR-4's dark landing), so no behavior is lost.
 
-// `ensure_daemon()` and its helpers land ahead of their only caller — the
-// native passthrough handler wired by task #17 PR-4. Until then they are
-// exercised only by the unit tests below (mirrors the `locate_tp_daemon()`
-// flip-prep A1 precedent + PR-2's `passthrough_split`). The `#[allow]` is
-// removed when PR-4 adds the first real caller.
-#![allow(dead_code)]
+// `ensure_daemon()` is wired into the native passthrough handler by task #17
+// PR-4 (`commands::passthrough::run`), which calls it to guarantee a service
+// daemon is up before spawning the runner (Path A only — no ephemeral fallback).
 
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};

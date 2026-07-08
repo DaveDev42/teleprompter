@@ -9,6 +9,7 @@ pub mod doctor;
 pub mod forward;
 pub mod logs;
 pub mod pair;
+pub mod passthrough;
 pub mod passthrough_split;
 pub mod session;
 pub mod status;

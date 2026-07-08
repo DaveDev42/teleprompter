@@ -281,10 +281,11 @@ fn main() -> ExitCode {
         }
         commands::forward::Route::Passthrough => {
             // Interactive claude passthrough (bare `tp`, `tp <claude args>`).
-            // Task #17 PR-4 replaces this with a native in-process `runner::run`;
-            // until then it is behavior-identical to `Forward` — exec the blob,
-            // whose `index.ts` launches claude through the daemon+runner pipeline.
-            return commands::forward::exec_blob(&args[1..]);
+            // Task #17 PR-4: native terminal-proxy — ensure a daemon is up, spawn
+            // a runner pointed at it, and proxy the local terminal (poll the
+            // session-db to stdout; forward stdin/resize over daemon IPC). No
+            // longer trampolines through the Bun blob (de-trampolined path).
+            return commands::passthrough::run(&args[1..]);
         }
         commands::forward::Route::Native => {
             // Fall through to Cli::parse() below.

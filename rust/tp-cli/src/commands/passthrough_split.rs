@@ -10,13 +10,9 @@
 //! is missing, another `--tp-*` flag, the bare `--` separator, or any
 //! `-`-prefixed token is a **usage error** — a real sid/cwd never starts with
 //! `-`, and `tp --tp-sid -- -p hello` must not silently bind `sid = "--"`.
-
-// The splitter lands ahead of its only caller: the native passthrough handler
-// wired by task #17 PR-4 (`Route::Passthrough` → in-process `runner::run`). Until
-// then these items are exercised only by the unit tests below, so suppress the
-// unused warnings (mirrors the `locate_tp_daemon()` flip-prep A1 precedent). The
-// `#[allow]` is removed when PR-4 adds the first real caller.
-#![allow(dead_code)]
+//!
+//! Wired into the native passthrough handler by task #17 PR-4
+//! (`commands::passthrough::run` → `Route::Passthrough`).
 
 /// Flags consumed by `tp` itself (each takes a value).
 const TP_VALUE_FLAGS: &[&str] = &["--tp-sid", "--tp-cwd"];

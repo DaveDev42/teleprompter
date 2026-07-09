@@ -9,7 +9,7 @@ import Foundation
 /// `NotificationService.swift`): a single shared `@Observable` instance used as
 /// a side-channel between code that is *outside* a given view's environment
 /// (Commands menu on macOS, hidden global shortcut buttons on iOS) and the
-/// views that consume the intents (`RootView` / `MacRootView` for tab selection,
+/// views that consume the intents (`RootView` / `SidebarRootView` for tab selection,
 /// `SessionDetailView` for pane switching, `SessionsTab` for prev/next + quick
 /// switch).
 ///

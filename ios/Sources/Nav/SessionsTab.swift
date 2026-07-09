@@ -198,13 +198,39 @@ struct SessionListView: View {
     @ObservedObject var sessionStore: SessionStore
     let pairings: PairingViewModel
 
-    // Per-session window pop-out (macOS). `openWindow(value: sid)` opens (or
-    // re-focuses — SwiftUI dedups by presentation value) the value-carrying
-    // `WindowGroup(id: "session", for: String.self)` in TeleprompterApp, giving
-    // a session its own window instead of cloning the main window.
-    #if os(macOS)
+    // Per-session window pop-out (macOS + iPadOS). `openWindow(id:"session",
+    // value: sid)` opens (or re-focuses — SwiftUI dedups by presentation value)
+    // the value-carrying `WindowGroup(id: "session", for: String.self)` in
+    // TeleprompterApp, giving a session its own window/scene instead of cloning
+    // the main window.
+    #if os(macOS) || os(iOS)
     @Environment(\.openWindow) private var openWindow
+    // Whether the platform supports a 2nd scene right now. On iOS this is false
+    // when `UIApplicationSupportsMultipleScenes` is off or the device can't
+    // multitask; on macOS it is always true. Combined with size class below so
+    // the pop-out affordance appears on iPad but never on iPhone.
+    @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
     #endif
+    #if os(iOS)
+    // Regular width = iPad (or iPhone in a large split view). Compact = iPhone,
+    // where the classic single-window push detail is the whole story.
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
+
+    /// Whether to offer the "Open in New Window" affordance for a session row.
+    /// macOS: always (a desktop app is inherently multi-window). iPad: only when
+    /// the scene system can actually spawn a second window AND we're in regular
+    /// width (an iPad, not an iPhone). iPhone therefore never sees it — a
+    /// long-press yields no pop-out item, and the tap-to-push flow is unchanged.
+    private var canPopOut: Bool {
+        #if os(macOS)
+        return true
+        #elseif os(iOS)
+        return supportsMultipleWindows && horizontalSizeClass == .regular
+        #else
+        return false
+        #endif
+    }
 
     // MARK: - Edit mode
 
@@ -489,18 +515,22 @@ struct SessionListView: View {
             .focusable()
             .focused($focusedSid, equals: meta.sid)
             .accessibilityIdentifier("session-\(meta.sid)")
-            // macOS: right-click → open this session in its own window
-            // (messenger-style pop-out) instead of navigating in-place. Opens
-            // the value-carrying per-session WindowGroup; in-place tap
-            // navigation is unchanged.
-            #if os(macOS)
+            // macOS right-click / iPad long-press → open this session in its own
+            // window (messenger-style pop-out) instead of navigating in-place.
+            // Opens the value-carrying per-session WindowGroup; in-place tap
+            // navigation is unchanged. The item is gated on `canPopOut` so it is
+            // present on macOS + iPad but absent on iPhone (a compact-width phone
+            // long-press yields an empty menu — no pop-out affordance).
+            #if os(macOS) || os(iOS)
             .contextMenu {
-                Button {
-                    openWindow(id: "session", value: meta.sid)
-                } label: {
-                    Label("Open in New Window", systemImage: "macwindow.badge.plus")
+                if canPopOut {
+                    Button {
+                        openWindow(id: "session", value: meta.sid)
+                    } label: {
+                        Label("Open in New Window", systemImage: "macwindow.badge.plus")
+                    }
+                    .accessibilityIdentifier("session-open-window-\(meta.sid)")
                 }
-                .accessibilityIdentifier("session-open-window-\(meta.sid)")
             }
             #endif
         }

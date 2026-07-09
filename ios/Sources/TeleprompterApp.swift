@@ -180,23 +180,34 @@ struct TeleprompterApp: App {
         .defaultSize(width: 960, height: 640)
         #endif
 
-        // Per-session window (messenger-style pop-out, macOS). A VALUE-carrying
-        // WindowGroup, kept as a SEPARATE top-level Scene (not chained onto the
-        // main group's modifier list — a value-carrying WindowGroup can't be a
-        // continuation of another group's `.commands`/`.defaultSize` chain
-        // inside one `#if`, which the SceneBuilder rejects). `openWindow(id:
-        // "session", value: sid)` opens (or re-focuses — SwiftUI dedups by
-        // presentation value) a window bound to one session's sid, so a
-        // specific session lives in its own window instead of the main window
-        // being cloned. `sessionStore`/`pairings` are the same app-lifetime
-        // instances the main window uses, so records stream into both.
-        #if os(macOS)
+        // Per-session window (messenger-style pop-out, macOS + iPadOS). A
+        // VALUE-carrying WindowGroup, kept as a SEPARATE top-level Scene (not
+        // chained onto the main group's modifier list — a value-carrying
+        // WindowGroup can't be a continuation of another group's
+        // `.commands`/`.defaultSize` chain inside one `#if`, which the
+        // SceneBuilder rejects). `openWindow(id: "session", value: sid)` opens
+        // (or re-focuses — SwiftUI dedups by presentation value) a window bound
+        // to one session's sid, so a specific session lives in its own window
+        // instead of the main window being cloned. `sessionStore`/`pairings`
+        // are the same app-lifetime instances the main window uses, so records
+        // stream into both.
+        //
+        // Available on iOS too (needs `UIApplicationSupportsMultipleScenes:true`
+        // in project.yml) so iPad can pop a session into its own scene. The call
+        // sites gate on `supportsMultipleWindows` + regular width, so iPhone
+        // never opens one. The three macOS-only window modifiers below are
+        // re-guarded — iOS's `WindowGroup(id:for:)` does NOT instantiate a
+        // phantom window at launch the way macOS does, so `.suppressed` is
+        // unneeded (and unavailable) there, and `.defaultSize`/
+        // `.windowResizability` are macOS-desktop concepts.
+        #if os(macOS) || os(iOS)
         WindowGroup(id: "session", for: String.self) { $sid in
             if let sid {
                 SessionWindowView(
                     sid: sid, sessionStore: sessionStore, pairings: pairings)
             }
         }
+        #if os(macOS)
         .defaultSize(width: 820, height: 620)
         .windowResizability(.contentMinSize)
         // Do NOT auto-open a window for this scene at launch. On macOS SwiftUI
@@ -209,6 +220,7 @@ struct TeleprompterApp: App {
         // still pops out a per-session window on demand, but nothing opens
         // unbidden at launch. macOS 15+ (deployment floor raised to 15.0).
         .defaultLaunchBehavior(.suppressed)
+        #endif
         #endif
     }
 }
@@ -801,6 +813,14 @@ struct RootView: View {
 
     @AppStorage("theme") private var theme: AppTheme = .system
 
+    // iPad vs iPhone shell selection (compile-time iOS only). Regular width =
+    // iPad (and iPhone landscape on the largest devices) → a macOS-style
+    // NavigationSplitView sidebar; compact width = iPhone → the bottom TabView.
+    // macOS/visionOS never read this — they pick their shell via `#if`.
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
+
     // Tab selection is now the single source of truth on AppNavigationModel, so
     // the macOS menu-bar (⌘1/2/3) and the iOS hidden shortcut buttons mutate the
     // same value the TabView/sidebar render. The local @State was removed.
@@ -855,7 +875,7 @@ struct RootView: View {
     @ViewBuilder
     private var content: some View {
         #if os(macOS)
-        MacRootView(
+        SidebarRootView(
             pairings: pairings, sessionStore: sessionStore, coreStatus: coreStatus,
             showShortcutHelp: $showShortcutHelp)
         #elseif os(visionOS)
@@ -877,17 +897,30 @@ struct RootView: View {
                     .tag(tab)
             }
         }
-        #else
-        // M13: bind selection so notification/toast taps can switch tabs.
-        TabView(
-            selection: Binding(
-                get: { nav.selectedTab },
-                set: { nav.selectedTab = $0 })
-        ) {
-            ForEach(AppTab.allCases) { tab in
-                tabContent(tab)
-                    .tabItem { Label(tab.title, systemImage: tab.systemImage) }
-                    .tag(tab)
+        #elseif os(iOS)
+        // iPad (regular width) gets the macOS-style sidebar so the main window
+        // is a stable Sessions/Daemons/Settings shell and individual sessions
+        // pop out into their own sub-windows (openWindow). iPhone (compact
+        // width) keeps the classic bottom TabView + push detail — multi-window
+        // is neither available nor desirable on a phone. The branch is runtime
+        // (size class), not compile-time, because both idioms share the iOS
+        // slice; a phone in an iPad-sized split view would follow the same rule.
+        if horizontalSizeClass == .regular {
+            SidebarRootView(
+                pairings: pairings, sessionStore: sessionStore, coreStatus: coreStatus,
+                showShortcutHelp: $showShortcutHelp)
+        } else {
+            // M13: bind selection so notification/toast taps can switch tabs.
+            TabView(
+                selection: Binding(
+                    get: { nav.selectedTab },
+                    set: { nav.selectedTab = $0 })
+            ) {
+                ForEach(AppTab.allCases) { tab in
+                    tabContent(tab)
+                        .tabItem { Label(tab.title, systemImage: tab.systemImage) }
+                        .tag(tab)
+                }
             }
         }
         #endif
@@ -908,12 +941,15 @@ struct RootView: View {
     }
 }
 
-#if os(macOS)
-/// macOS sidebar shell (A4). A `NavigationSplitView` with the three tabs in
-/// the sidebar and the selected tab's view in the detail pane. Selection is
-/// keyboard-navigable (↑/↓ in the sidebar `List`), satisfying the A4
-/// keyboard-first goal without bespoke key handling.
-struct MacRootView: View {
+/// Sidebar shell (A4) shared by native macOS AND iPadOS (regular width). A
+/// `NavigationSplitView` with the three tabs in the sidebar and the selected
+/// tab's view in the detail pane. Selection is keyboard-navigable (↑/↓ in the
+/// sidebar `List`), satisfying the A4 keyboard-first goal without bespoke key
+/// handling. Every modifier used here (`NavigationSplitView`,
+/// `.navigationSplitViewColumnWidth`, `.navigationTitle`) exists on both
+/// platforms, so the view is platform-neutral — macOS reaches it via `#if`,
+/// iPad via a runtime `horizontalSizeClass == .regular` branch in `RootView`.
+struct SidebarRootView: View {
     let pairings: PairingViewModel
     @ObservedObject var sessionStore: SessionStore
     let coreStatus: String
@@ -950,4 +986,3 @@ struct MacRootView: View {
         }
     }
 }
-#endif

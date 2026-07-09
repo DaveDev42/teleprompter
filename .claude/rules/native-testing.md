@@ -180,6 +180,22 @@ Pairing…" **존재** (`.commandsRemoved()` 가 자동 커맨드만 제거, 우
 `WindowGroup(id:"session", for:String.self)` 팝아웃 동작). iOS/visionOS 엔 메뉴바/멀티윈도우 File 메뉴
 개념이 없어 macOS 한정. `.rightClick()`/`menuBars`/`windows.count` 는 macOS XCUIApplication 에만 존재.
 
+> **창 모델 (메인 창 vs 세션 서브 창) — macOS + iPadOS.** 세션별 pop-out 은 이제 macOS 뿐 아니라
+> **iPadOS(regular width)**에도 있다: 메인 창 = `SidebarRootView`(NavigationSplitView, Sessions/Daemons/
+> Settings — macOS 와 iPad-regular 가 공유하는 플랫폼-중립 shell; iPhone 은 compact width 라 기존 하단
+> TabView 유지, `RootView` 가 `horizontalSizeClass` 로 런타임 분기), 서브 창 = 세션 하나만 담은
+> `WindowGroup(id:"session", for:String.self)` → `SessionWindowView`. iPad 진입 = 세션 row **롱프레스**
+> context-menu "Open in New Window"(`session-open-window-<sid>`) 또는 세션 상세 툴바의 pop-out 버튼
+> (`session-popout-<sid>`); 둘 다 `openWindow(id:"session", value: sid)` 를 부르고 `canPopOut`
+> (`supportsMultipleWindows && horizontalSizeClass == .regular`, macOS 는 항상 true)로 게이트돼 **iPhone
+> 엔 안 뜬다**. **멀티신 활성화** = `project.yml` `UIApplicationSupportsMultipleScenes: true`(iPad
+> WindowGroup 이 2번째 scene 을 실제로 spawn 하게; 앱은 openWindow 호출부 가드로 iPhone 에서 절대
+> 프로그램적 2번째 창을 안 연다). `testMacPerSessionWindowAndNoDuplicateMain` 은 여전히 macOS 전용
+> (`.rightClick`/`.menuBars`/`.windows.count` 가 macOS XCUIApplication 에만 존재) — iPad 등가 UI 어서션은
+> 미추가(향후), iPad 커버리지는 `TP_PLATFORM=ipad smoke`(8마커, split-view/sidebar 부팅+렌더)가 담당.
+> **알려진 한계**: nav 인텐트(⌘[/⌘] step, ⌃⌘C/⌘T pane)는 `AppNavigationModel.shared` 싱글톤이라 열린
+> 세션 창 전부가 공유 — macOS 에 이미 존재하던 특성을 iPad 로 parity 이식한 것(창별 격리는 out-of-scope).
+
 - **링크 주입**: 하니스가 loopback 띄우고 `smoke_pair_link` 골든 링크 만들어 `TEST_RUNNER_TP_SMOKE_URL` /
   `TEST_RUNNER_TP_SMOKE_SID` **env** 로 넘긴다 (xcodebuild 가 `TEST_RUNNER_` 접두어를 떼고 runner
   ProcessInfo.environment 에 주입 — KEY=VALUE 빌드세팅 인자로는 runner 에 **안 닿는다**).

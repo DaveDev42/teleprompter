@@ -191,8 +191,23 @@ Pairing…" **존재** (`.commandsRemoved()` 가 자동 커맨드만 제거, 우
 > 엔 안 뜬다**. **멀티신 활성화** = `project.yml` `UIApplicationSupportsMultipleScenes: true`(iPad
 > WindowGroup 이 2번째 scene 을 실제로 spawn 하게; 앱은 openWindow 호출부 가드로 iPhone 에서 절대
 > 프로그램적 2번째 창을 안 연다). `testMacPerSessionWindowAndNoDuplicateMain` 은 여전히 macOS 전용
-> (`.rightClick`/`.menuBars`/`.windows.count` 가 macOS XCUIApplication 에만 존재) — iPad 등가 UI 어서션은
-> 미추가(향후), iPad 커버리지는 `TP_PLATFORM=ipad smoke`(8마커, split-view/sidebar 부팅+렌더)가 담당.
+> (`.rightClick`/`.menuBars`/`.windows.count` 가 macOS XCUIApplication 에만 존재). **iPad 등가 UI 어서션은
+> 이제 있다** — `testSessionRenderPaneSwitchAndPopOut`(`#if os(iOS)` 헬퍼 `assertPadPopOut`)이 세션 상세
+> 툴바 pop-out(`session-popout-<sid>`)을 탭해 서브 창을 열고, 서브 창 루트에만 존재하는
+> `session-window-<sid>`(SessionWindowView) 의 등장으로 2번째 UIWindowScene 이 실제로 materialize 됐음을
+> 어서션한다(iOS 는 macOS 처럼 `windows.count` 로 scene 을 열거하지 못하므로 sub-window 전용 identifier
+> 로 증명). iPhone(compact) 브랜치는 `session-popout`/`session-open-window` 부재를 negative-guard 한다.
+> **단일-launch 설계 (isolation 핵심)**: 세션 렌더·pane 스위치·pop-out 을 **한 번의 `app.launch()`** 에서
+> 어서션한다 — iPad 는 `UIApplicationSupportsMultipleScenes: true` 라 열린 서브 창의 UISceneSession 을
+> UIKit 이 persist 하고 그게 프로세스 relaunch 를 살아남아(XCUIApplication.launch 는 프로세스만 죽이고
+> scene-session 상태는 안 지움), **두 테스트 메서드가 각각 launch 하면** pop-out 메서드가 연 서브 창이 다른
+> 메서드에서 frontmost 로 RESTORE 돼 세션 목록을 가린다(XCUITest 엔 driver-side scene-teardown API 가 없음).
+> 단일 launch = 프로세스 하나 = 메서드 간 restore 불가로 이 leak 을 구조적으로 제거한다. 하니스는 추가로
+> 매 `uitest` 런 전 `simctl uninstall` 로 런 간 잔류도 지운다. (이 설계 전에는 `--tp-uitest-reset-scenes`
+> launch-arg + in-app `requestSceneSessionDestruction` self-destruct 뷰로 leftover 를 사후 정리하려 했으나,
+> 서브 창을 여는 테스트와 정리하는 테스트가 launch-arg 로 상호배타라 순서 의존 + main-window `.onAppear`
+> 딥링크 주입이 restore 된 서브 창에 preempt 되는 취약점이 있어 폐기했다.) iPad 커버리지는 이 UI 어서션 +
+> `TP_PLATFORM=ipad smoke`(8마커, split-view/sidebar 부팅+렌더)가 함께 담당.
 > **알려진 한계**: nav 인텐트(⌘[/⌘] step, ⌃⌘C/⌘T pane)는 `AppNavigationModel.shared` 싱글톤이라 열린
 > 세션 창 전부가 공유 — macOS 에 이미 존재하던 특성을 iPad 로 parity 이식한 것(창별 격리는 out-of-scope).
 

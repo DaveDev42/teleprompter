@@ -148,10 +148,23 @@ struct TeleprompterApp: App {
                 handleSmokeURLIfPresent()
             }
             // A4: a desktop window must not collapse below a usable size. The
-            // sidebar (~220) + a readable terminal column needs ~640×480 floor.
-            // No-op on iOS/visionOS where the scene fills the device/space.
+            // sidebar (~220) + a readable terminal column needs a floor.
+            // - macOS: 640×480 (long-standing desktop floor).
+            // - iPadOS 26: the OS now opens apps in *resizable* windows that can
+            //   default to an iPhone-narrow ~402pt width, which trips
+            //   RootView's compact (TabView) branch instead of the sidebar. A
+            //   min-width floor ABOVE the ~834pt regular/compact breakpoint
+            //   keeps first-launch on the sidebar layout. Apple's
+            //   WindowResizability docs require this frame floor to be PAIRED
+            //   with the scene's `.windowResizability(.contentMinSize)` (below)
+            //   for it to act as an OS-level window constraint rather than mere
+            //   internal layout — hence both are applied for iOS.
+            // - iPhone: no-op — the scene fills the device (single fullscreen
+            //   UIWindowScene, not user-resizable), so the floor never binds.
             #if os(macOS)
             .frame(minWidth: 640, minHeight: 480)
+            #elseif os(iOS)
+            .frame(minWidth: 850, minHeight: 600)
             #endif
         }
         // A4 (macOS): open at a comfortable desktop size and clamp shrink to the
@@ -178,6 +191,23 @@ struct TeleprompterApp: App {
         // for the terminal column, tall enough for the tab bar and content. The
         // system may adjust for the user's environment; this is the initial size.
         .defaultSize(width: 960, height: 640)
+        #elseif os(iOS)
+        // iPadOS 26: nudge the initial windowed-mode size above the ~834pt
+        // regular/compact `horizontalSizeClass` breakpoint so the sidebar
+        // (SidebarRootView) is what the user sees on first launch, not the
+        // iPhone-narrow (~402pt) TabView default the OS would otherwise open.
+        // `.defaultSize`/`.windowResizability` have been iOS 17.0+/iPadOS 17.0+
+        // since introduction — they were simply inert before iPadOS 26 because
+        // iPad windows weren't user-resizable. Paired with the root view's
+        // `.frame(minWidth: 850)` (above), `.contentMinSize` makes the floor an
+        // OS-level window constraint per Apple's WindowResizability docs.
+        // BEST-EFFORT ONLY (the system/user can still resize narrower, and some
+        // Simulator configs ignore it) — so `RootView.content`'s
+        // `horizontalSizeClass`-driven SidebarRootView/TabView branch remains
+        // the authoritative fallback regardless of the window size actually
+        // granted. No-op on iPhone: one fixed fullscreen scene, nothing to size.
+        .defaultSize(width: 980, height: 680)
+        .windowResizability(.contentMinSize)
         #endif
 
         // Per-session window (messenger-style pop-out, macOS + iPadOS). A
@@ -195,11 +225,13 @@ struct TeleprompterApp: App {
         // Available on iOS too (needs `UIApplicationSupportsMultipleScenes:true`
         // in project.yml) so iPad can pop a session into its own scene. The call
         // sites gate on `supportsMultipleWindows` + regular width, so iPhone
-        // never opens one. The three macOS-only window modifiers below are
-        // re-guarded — iOS's `WindowGroup(id:for:)` does NOT instantiate a
-        // phantom window at launch the way macOS does, so `.suppressed` is
-        // unneeded (and unavailable) there, and `.defaultSize`/
-        // `.windowResizability` are macOS-desktop concepts.
+        // never opens one. `.defaultSize`/`.windowResizability` apply on iOS too
+        // (both iOS 17.0+/iPadOS 17.0+, load-bearing since iPadOS 26's resizable
+        // windows) so a popped-out session opens at a readable size on iPad, not
+        // an iPhone-narrow default. Only `.defaultLaunchBehavior(.suppressed)`
+        // stays macOS-only: iOS's `WindowGroup(id:for:)` does NOT instantiate a
+        // phantom window at launch the way macOS does, so it's both unneeded and
+        // unavailable there.
         #if os(macOS) || os(iOS)
         WindowGroup(id: "session", for: String.self) { $sid in
             if let sid {
@@ -207,9 +239,9 @@ struct TeleprompterApp: App {
                     sid: sid, sessionStore: sessionStore, pairings: pairings)
             }
         }
-        #if os(macOS)
         .defaultSize(width: 820, height: 620)
         .windowResizability(.contentMinSize)
+        #if os(macOS)
         // Do NOT auto-open a window for this scene at launch. On macOS SwiftUI
         // instantiates one window per top-level Scene at startup; for a
         // value-carrying WindowGroup(id:for:) that means an EMPTY window with a

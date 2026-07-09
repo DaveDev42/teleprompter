@@ -2838,6 +2838,13 @@ cmd_uitest() {
       # target its UDID (avoids the two-same-name-sims destination ambiguity).
       local udid; udid="$(cmd_boot)"
       dest="id=$udid"
+      # Uninstall first so no state persists into this run. On iPadOS the app opts
+      # into multiple scenes, and a session sub-window opened by a PRIOR uitest run
+      # is restored by UIKit on the next launch (scene-session records survive a
+      # process relaunch) — which would hide the session list the first test needs.
+      # xcodebuild reinstalls the freshly built .app, so the first test always
+      # starts from a clean, single-scene state. (Also clears any stale pairing.)
+      xcrun simctl uninstall "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
       ;;
   esac
 

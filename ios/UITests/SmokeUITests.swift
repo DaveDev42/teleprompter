@@ -38,8 +38,22 @@ final class SmokeUITests: XCTestCase {
     // XCUIApplication and the element-query APIs are @MainActor-isolated; the app
     // builds under Swift 6 strict concurrency (-swift-version 6), so the whole test
     // body must run on the main actor or every UI call is an isolation violation.
+    //
+    // SINGLE-LAUNCH by design: session render, pane switching, AND (on iOS) the
+    // per-session pop-out are all asserted from ONE `app.launch()`. This is not a
+    // convenience — it is the fix for a real isolation hazard. On iPadOS the app
+    // opts into multiple scenes (`UIApplicationSupportsMultipleScenes: true`) so a
+    // session can pop out into its own sub-window; UIKit then PERSISTS that
+    // UISceneSession to support state restoration, and it SURVIVES a process
+    // relaunch (`XCUIApplication.launch()` kills the process, not the scene-session
+    // state). Two separate test methods that each launch would let a sub-window
+    // opened by the pop-out method be RESTORED frontmost in the other method,
+    // hiding the session list — and XCUITest exposes no driver-side scene-teardown
+    // API. Collapsing to one launch removes the cross-method leak structurally:
+    // one process, so no restore ever happens between assertions. (The harness also
+    // `simctl uninstall`s before each `uitest` run, so nothing leaks across RUNS.)
     @MainActor
-    func testSessionRenderAndPaneSwitch() throws {
+    func testSessionRenderPaneSwitchAndPopOut() throws {
         let link = try XCTUnwrap(
             smokeURL,
             "TP_SMOKE_URL not set — run via `scripts/ios.sh uitest` (it starts the loopback "
@@ -50,6 +64,7 @@ final class SmokeUITests: XCTestCase {
         app.launchArguments = ["--tp-smoke-url", link]
         app.launch()
 
+        // ── Part 1: session render + pane switch ──────────────────────────────
         // M4 at the UI layer: the seeded session row must appear in the list. The row's
         // NavigationLink carries `.accessibilityIdentifier("session-<sid>")`
         // (Nav/SessionsTab.swift). A generous timeout covers connect + kx + hello backfill.
@@ -102,7 +117,127 @@ final class SmokeUITests: XCTestCase {
         shot.lifetime = .keepAlways
         shot.name = "uitest-session-render"
         add(shot)
+
+        // ── Part 2 (iOS only): per-session sub-window pop-out ─────────────────
+        // The macOS pop-out has its own dedicated test below (menu bar +
+        // windows.count APIs that only exist on macOS XCUIApplication).
+        #if os(iOS)
+        try assertPadPopOut(app: app, row: row)
+        #endif
     }
+
+    #if os(iOS)
+    /// iPad per-session sub-window pop-out (the iOS counterpart of the macOS test
+    /// below). iPad has no menu bar and no `windows.count` multi-scene enumeration
+    /// — a single `XCUIApplication` on iOS does not surface separate scenes as
+    /// `app.windows` the way macOS does. So instead of counting windows, this
+    /// asserts the pop-out by querying the identifier that exists ONLY inside the
+    /// session sub-window: `SessionWindowView`'s root carries
+    /// `.accessibilityIdentifier("session-window-<sid>")` (Nav/SessionWindowView.swift).
+    /// Its appearance proves `openWindow(id:"session", value: sid)` materialized a
+    /// second `UIWindowScene` rendering the session detail.
+    ///
+    /// Size-class gating (`canPopOut = supportsMultipleWindows && horizontalSizeClass
+    /// == .regular`) means the pop-out affordances exist on iPad but NOT on iPhone.
+    /// The helper detects the running device class at runtime from that very signal —
+    /// the context-menu button's presence — and splits:
+    ///   • iPad (regular): both entry points must open the sub-window.
+    ///   • iPhone (compact): the affordances must be ABSENT (a negative regression
+    ///     guard — iPhone keeps the single-window TabView + push detail unchanged).
+    ///
+    /// Runs inline in the single-launch test (see the class comment) so no restored
+    /// sub-window can ever leak into a subsequent launch. Entered with the session
+    /// detail ALREADY OPEN (Part 1 tapped the row), so on iPad-regular the detail
+    /// column is showing `SessionDetailView` with its toolbar visible. That toolbar
+    /// is the device-class discriminator: it carries `session-popout-<sid>` only
+    /// when `canPopOut` is true (iPad-regular), never on iPhone (compact). So we
+    /// read the running class straight off the already-visible detail toolbar —
+    /// no back-to-list navigation, which is fragile in a split view (the sidebar
+    /// `sidebar-sessions` label is an Image+Text pair that makes a bare `.tap()`
+    /// ambiguous, and there is no stable "collapse detail" gesture on iPad-regular).
+    @MainActor
+    private func assertPadPopOut(app: XCUIApplication, row: XCUIElement) throws {
+        // Part 1 left us on the session detail. Its toolbar pop-out button is the
+        // canPopOut discriminator: present on iPad-regular, absent on iPhone.
+        let toolbarPopout = app.descendants(matching: .any)["session-popout-\(smokeSid)"]
+        let isPad = toolbarPopout.waitForExistence(timeout: 5)
+
+        if !isPad {
+            // iPhone (compact width): the pop-out affordances must NOT exist. This is
+            // the negative regression guard for the "never on iPhone" invariant —
+            // canPopOut short-circuits BOTH the toolbar button (just checked absent)
+            // AND the row's context-menu item. Long-press the row (Part 1's push
+            // detail is on the same screen; on iPhone the list is still reachable)
+            // and confirm the context menu has no "Open in New Window".
+            //
+            // We're on the pushed detail; go back to the list to reach the row.
+            let backButton = app.navigationBars.buttons.firstMatch
+            if backButton.exists { backButton.tap() }
+            XCTAssertTrue(
+                row.waitForExistence(timeout: 10),
+                "session row 'session-\(smokeSid)' not reachable on iPhone after back-nav"
+            )
+            row.press(forDuration: 1.2)
+            let openInWindow = app.descendants(matching: .any)["session-open-window-\(smokeSid)"]
+            XCTAssertFalse(
+                openInWindow.waitForExistence(timeout: 3),
+                "iPhone (compact) must NOT offer 'Open in New Window' "
+                    + "('session-open-window-\(smokeSid)') — canPopOut should be false"
+            )
+            app.tap()  // dismiss the context menu
+            // Nothing more to prove on iPhone; the negative guards passed.
+            return
+        }
+
+        // ── iPad (regular width) ──────────────────────────────────────────────
+        // Entry point (b) — the session-detail toolbar pop-out button (already on
+        // screen). Tapping it opens a sub-window whose root carries
+        // `session-window-<sid>` — its appearance is the multi-scene-safe proof that
+        // `openWindow(id:"session", value: sid)` materialized a second UIWindowScene
+        // rendering the session detail (no windows.count needed on iOS).
+        toolbarPopout.tap()
+        let subWindow = app.descendants(matching: .any)["session-window-\(smokeSid)"]
+        XCTAssertTrue(
+            subWindow.waitForExistence(timeout: 10),
+            "iPad session sub-window 'session-window-\(smokeSid)' never appeared after "
+                + "tapping the detail toolbar pop-out — openWindow(id:\"session\") did not "
+                + "materialize a second scene"
+        )
+
+        // Capture the opened sub-window (the direct visual proof of the pop-out).
+        let subWindowShot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        subWindowShot.lifetime = .keepAlways
+        subWindowShot.name = "uitest-pad-subwindow-toolbar"
+        add(subWindowShot)
+
+        // Entry point (a) — the row's context-menu "Open in New Window". The
+        // sub-window we just opened IS a SessionDetailView, so its own toolbar and
+        // (long-pressable) content sit in a separate scene; the ORIGINAL main
+        // window still shows its own detail with the same row present in the list.
+        // Re-invoking openWindow with the same sid is harmless (SwiftUI dedups by
+        // presentation value → re-focuses), so exercising this second entry point
+        // must keep the sub-window present. The sub-window's SessionDetailView
+        // toolbar carries the SAME `session-popout-<sid>` identifier, proving the
+        // toolbar affordance is wired inside the popped-out scene too.
+        //
+        // We don't depend on navigating the main window back to the list (fragile in
+        // a split view). The load-bearing pop-out assertion is already satisfied
+        // above; this second tap confirms the deduped re-open keeps the scene alive.
+        let subWindowPopout = subWindow.descendants(matching: .any)["session-popout-\(smokeSid)"]
+        if subWindowPopout.waitForExistence(timeout: 5) {
+            subWindowPopout.tap()
+            XCTAssertTrue(
+                subWindow.exists,
+                "session sub-window disappeared after re-tapping the toolbar pop-out (dedup broke)"
+            )
+        }
+
+        let finalShot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        finalShot.lifetime = .keepAlways
+        finalShot.name = "uitest-pad-subwindow-contextmenu"
+        add(finalShot)
+    }
+    #endif
 
     #if os(macOS)
     /// Per-session window pop-out + main-window single-instance regression guard

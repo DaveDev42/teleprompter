@@ -222,8 +222,19 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # Multiple-scenes = true so iPadOS can spawn a per-session sub-window from
+        # SwiftUI's value-carrying `WindowGroup(id:"session", for:String.self)`
+        # (same messenger-style pop-out macOS already has). Without this flag
+        # `openWindow(id:"session", value: sid)` is inert on iPadOS — the scene
+        # never materializes. This does NOT auto-open windows: additional scenes
+        # only appear when the app explicitly calls `openWindow`, and every
+        # call site is guarded so it fires only on iPad (regular width +
+        # `supportsMultipleWindows`), never on iPhone — a compact-width phone
+        # gets the classic single-window TabView + push detail, unchanged. The
+        # flag is orthogonal to `.onOpenURL` deep-link delivery (the manifest's
+        # mere presence is what routes `tp://`, independent of this value).
         UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: false
+          UIApplicationSupportsMultipleScenes: true
           UISceneConfigurations:
             UIWindowSceneSessionRoleApplication:
               - UISceneConfigurationName: Default Configuration

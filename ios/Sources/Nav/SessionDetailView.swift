@@ -34,6 +34,32 @@ struct SessionDetailView: View {
     var pairings: PairingViewModel? = nil
     let onSend: (String, String) -> Void
 
+    // Per-session window pop-out (macOS + iPadOS). Same target scene the session
+    // list's context menu uses — `openWindow(id:"session", value: sid)`. Gated
+    // on `canPopOut` so the toolbar button appears on macOS + iPad but not on
+    // iPhone. Re-opening the current session's window is harmless: SwiftUI dedups
+    // by presentation value and just re-focuses the existing window.
+    #if os(macOS) || os(iOS)
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.supportsMultipleWindows) private var supportsMultipleWindows
+    #endif
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    #endif
+
+    /// Whether to offer the "Open in New Window" toolbar button. macOS: always.
+    /// iPad (regular width, multi-scene capable): yes. iPhone: never. Mirrors
+    /// `SessionListView.canPopOut` exactly.
+    private var canPopOut: Bool {
+        #if os(macOS)
+        return true
+        #elseif os(iOS)
+        return supportsMultipleWindows && horizontalSizeClass == .regular
+        #else
+        return false
+        #endif
+    }
+
     @State private var pane: SessionPane = .chat
 
     /// Shared app-wide navigation model (keyboard shortcuts, pane intents).
@@ -116,6 +142,23 @@ struct SessionDetailView: View {
                     .accessibilityIdentifier("session-stop")
                 }
             }
+            // Pop this session into its own window/scene (macOS + iPad). Independent
+            // of session state — always offered when the platform supports it. When
+            // this detail is ALREADY a session window, re-opening the same sid just
+            // re-focuses the existing window (SwiftUI dedups by presentation value),
+            // so no guard against "already popped out" is needed.
+            #if os(macOS) || os(iOS)
+            if canPopOut {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        openWindow(id: "session", value: sid)
+                    } label: {
+                        Label("Open in New Window", systemImage: "macwindow.badge.plus")
+                    }
+                    .accessibilityIdentifier("session-popout-\(sid)")
+                }
+            }
+            #endif
         }
         // FIX #5: gate macOS session commands — a detail screen is on-screen.
         // Depth-counted (detailAppeared/Disappeared) so the appear-before-

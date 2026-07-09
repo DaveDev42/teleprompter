@@ -21,7 +21,7 @@ import AppKit
 ///
 /// Navigation (ADR-0002 A4 keyboard nav): every keyboard-driven navigation
 /// action mutates the shared `AppNavigationModel` so the menu bar and the
-/// `MacRootView` sidebar/detail stay a single source of truth.
+/// `SidebarRootView` sidebar/detail stay a single source of truth.
 /// - **Tab nav** (⌘1/⌘2/⌘3): jump to Sessions / Daemons / Settings.
 /// - **Session screen** — two gating tiers (all also require `hasActiveDetail`,
 ///   FIX #5): pane switches (⌃⌘C Chat, ⌘T Terminal) gate on `composerHasFocus`
@@ -33,7 +33,7 @@ struct MacCommands: Commands {
     let pairings: PairingViewModel
     @Binding var showShortcutHelp: Bool
     /// Shared, app-wide navigation state (the single tab/pane/step source of
-    /// truth). The menu bar drives it; `MacRootView` and `SessionDetailView`
+    /// truth). The menu bar drives it; `SidebarRootView` and `SessionDetailView`
     /// consume it. See `AppNavigationModel`.
     let nav: AppNavigationModel
 

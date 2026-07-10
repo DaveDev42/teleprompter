@@ -1,5 +1,76 @@
 # Changelog
 
+## [0.1.53](https://github.com/DaveDev42/teleprompter/compare/v0.1.52...v0.1.53) (2026-07-10)
+
+
+### Features
+
+* **cli:** add TP_DAEMON_BIN opt-in dual-run seam (Phase 4 inc6) ([#897](https://github.com/DaveDev42/teleprompter/issues/897)) ([69cfe59](https://github.com/DaveDev42/teleprompter/commit/69cfe594a58b917cdef03528d6695953ebe9e947))
+* **cli:** ship tp-daemon as a release artifact + locate_tp_daemon() (flip-prep A1) ([#898](https://github.com/DaveDev42/teleprompter/issues/898)) ([158d0f2](https://github.com/DaveDev42/teleprompter/commit/158d0f2295f270063a1b0099174f080530aba790))
+* **daemon:** pairing_confirmations table + PCT wiring + QR v4 emit (PR-3) ([#867](https://github.com/DaveDev42/teleprompter/issues/867)) ([da3d667](https://github.com/DaveDev42/teleprompter/commit/da3d66710e7098680c6c8f551ac33b4b28e88535))
+* **daemon:** port command-dispatcher + daemon root + shipping bin to Rust (Phase 4 inc5) ([#896](https://github.com/DaveDev42/teleprompter/issues/896)) ([18552ec](https://github.com/DaveDev42/teleprompter/commit/18552ec499206dacf0b4e75f33e4b13fe26a6d6b))
+* **daemon:** port ipc/server + session-manager + worktree to Rust (Phase 4 inc2) ([#893](https://github.com/DaveDev42/teleprompter/issues/893)) ([9b35f9e](https://github.com/DaveDev42/teleprompter/commit/9b35f9e0062819b4fd8ded4f8667be28cd085820))
+* **daemon:** port pairing + push + relay-manager to Rust (Phase 4 inc4) ([#895](https://github.com/DaveDev42/teleprompter/issues/895)) ([c85f9dd](https://github.com/DaveDev42/teleprompter/commit/c85f9ddc8b11cbec762a6a154679a109b9555759))
+* **daemon:** port relay-client to Rust (tokio-tungstenite + tp-core E2EE) (Phase 4 inc3) ([#894](https://github.com/DaveDev42/teleprompter/issues/894)) ([3963575](https://github.com/DaveDev42/teleprompter/commit/3963575dae7322619138053c2c7c9f00bab2c5f7))
+* **daemon:** port store layer to Rust tp-daemon (Phase 4 inc1) ([#892](https://github.com/DaveDev42/teleprompter/issues/892)) ([dbdfb16](https://github.com/DaveDev42/teleprompter/commit/dbdfb16d9f5b540c91c5b390506228f3e081378d))
+* de-trampoline tp relay start → native Rust tp-relay ([#25](https://github.com/DaveDev42/teleprompter/issues/25)) ([#905](https://github.com/DaveDev42/teleprompter/issues/905)) ([363aa9e](https://github.com/DaveDev42/teleprompter/commit/363aa9ee8a16e0582c6a49924975a74b955cf376))
+* **harness:** add TP_E2E_DAEMON_BIN daemon-parity gate (flip-prep A2) ([#899](https://github.com/DaveDev42/teleprompter/issues/899)) ([a37d485](https://github.com/DaveDev42/teleprompter/commit/a37d485af21198f750f150f19115c4c4d396e3fc))
+* **ios:** add TP_E2E_WEBPAGE gate — drive real claude through the app→relay→daemon pipeline to build a webpage ([#851](https://github.com/DaveDev42/teleprompter/issues/851)) ([fea75f4](https://github.com/DaveDev42/teleprompter/commit/fea75f4608d3e8ee50bb57d0a78c95ef397828db))
+* **ios:** connect-on-pending pairing lifecycle (PR-4) ([#869](https://github.com/DaveDev42/teleprompter/issues/869)) ([fada343](https://github.com/DaveDev42/teleprompter/commit/fada3439fb17f3a6f0261baa57ba533ad831c047))
+* **ios:** PCT verification promote gate (PR-5) ([#871](https://github.com/DaveDev42/teleprompter/issues/871)) ([74325a8](https://github.com/DaveDev42/teleprompter/commit/74325a80e251c923e944ffbbb1114e39a53d84fc))
+* **ios:** PR-6 Option A synced pairing store (PairingRecordStore seam) ([#873](https://github.com/DaveDev42/teleprompter/issues/873)) ([1259440](https://github.com/DaveDev42/teleprompter/commit/12594403954aa63f9de4256e6eb5f213f4cfe2c9))
+* **ios:** real multi-turn coding E2E — app drives Claude through the pipeline (Write+Bash) ([#833](https://github.com/DaveDev42/teleprompter/issues/833)) ([44d48dd](https://github.com/DaveDev42/teleprompter/commit/44d48ddf143fc85a7da90e2f816109d5424fdbb3))
+* **ios:** real push-notification E2E — in-band relay.notification receive verified ([35a10be](https://github.com/DaveDev42/teleprompter/commit/35a10be03af0c5ecb69365a0c2f97eb0762c03fd))
+* **ios:** unpair vs "remove from this device" split (PR-7) ([#874](https://github.com/DaveDev42/teleprompter/issues/874)) ([0b08a10](https://github.com/DaveDev42/teleprompter/commit/0b08a107ea2bf9c5bb67ee780973a3c0a808e8e1)), closes [#49](https://github.com/DaveDev42/teleprompter/issues/49)
+* **ios:** wire real-claude E2E into macOS-native + visionOS smoke ([#830](https://github.com/DaveDev42/teleprompter/issues/830)) ([1c75f4b](https://github.com/DaveDev42/teleprompter/commit/1c75f4b84def39b24a2928a8a621b86768adce8e))
+* **ios:** wire real-claude E2E into watchOS smoke (M0-M4) ([#832](https://github.com/DaveDev42/teleprompter/issues/832)) ([b595072](https://github.com/DaveDev42/teleprompter/commit/b5950722b228fd4c742f175d75c68d8566b459a7))
+* native claude forwards for util subcommands and tp dash-dash (task [#17](https://github.com/DaveDev42/teleprompter/issues/17) PR-6) ([#904](https://github.com/DaveDev42/teleprompter/issues/904)) ([3490828](https://github.com/DaveDev42/teleprompter/commit/349082871ca382bd2c6137bdeb7ecd0c9620d3e8))
+* **protocol:** bump WS_PROTOCOL_VERSION 2→3 (PCT confirm + QR v4) (PR-8) ([#875](https://github.com/DaveDev42/teleprompter/issues/875)) ([955d04e](https://github.com/DaveDev42/teleprompter/commit/955d04e67bf7d859ef83329accbb5e47891e52dc)), closes [#49](https://github.com/DaveDev42/teleprompter/issues/49)
+* **protocol:** TS twin of PCT + legacy pairing-id + QR v4 (PR-2) ([#864](https://github.com/DaveDev42/teleprompter/issues/864)) ([688bb43](https://github.com/DaveDev42/teleprompter/commit/688bb43c9747d914fdceee847d36e7bc5e740221))
+* **runner:** daemon TP_RUNNER_BIN dual-run seam + Bun/Rust wire-parity gate ([#884](https://github.com/DaveDev42/teleprompter/issues/884)) ([1c85560](https://github.com/DaveDev42/teleprompter/commit/1c85560e05883dc8f94823053f871cf1956459e3))
+* **rust:** scaffold tp-runner crate + PTY spike (ADR-0003 Stage 4, increment 1) ([#882](https://github.com/DaveDev42/teleprompter/issues/882)) ([00d11b0](https://github.com/DaveDev42/teleprompter/commit/00d11b0c78e786654d434835312c60c68f9e6add))
+* **rust:** tp-runner increment 2 — tokio async orchestration ([#883](https://github.com/DaveDev42/teleprompter/issues/883)) ([ab7223f](https://github.com/DaveDev42/teleprompter/commit/ab7223fb971a928ec67e199f253743749cbbdbd4))
+* ship tp-runner as a release artifact + locate_tp_runner() (flip-prep for [#8](https://github.com/DaveDev42/teleprompter/issues/8)) ([#906](https://github.com/DaveDev42/teleprompter/issues/906)) ([d45ed35](https://github.com/DaveDev42/teleprompter/commit/d45ed35368c0e6cbb1bb810386b10ea3ab3cbc1f))
+* split main window from per-session sub-windows on iPadOS + macOS ([#907](https://github.com/DaveDev42/teleprompter/issues/907)) ([24bc2a3](https://github.com/DaveDev42/teleprompter/commit/24bc2a360cc3742828ba737dfd052804029d5c47))
+* **tp-cli:** add --tp-* splitter + Route::Passthrough (dark) ([#901](https://github.com/DaveDev42/teleprompter/issues/901)) ([e17498f](https://github.com/DaveDev42/teleprompter/commit/e17498fdfc6e305d3717a5e6680b7702d710502a))
+* **tp-cli:** add native ensure_daemon() (Passthrough prep, dark) ([#902](https://github.com/DaveDev42/teleprompter/issues/902)) ([86f995c](https://github.com/DaveDev42/teleprompter/commit/86f995c5e9e2fe5fe39cb3f334e81a82b88af6ca))
+* **tp-core:** add PCT + legacy pairing-id + QR v4 pairing layout ([#863](https://github.com/DaveDev42/teleprompter/issues/863)) ([2244e68](https://github.com/DaveDev42/teleprompter/commit/2244e68057edcb40137214a265c4c6fbf04057a2))
+* wire tp passthrough to native Rust terminal-proxy (task [#17](https://github.com/DaveDev42/teleprompter/issues/17) PR-4) ([#903](https://github.com/DaveDev42/teleprompter/issues/903)) ([6bce8a3](https://github.com/DaveDev42/teleprompter/commit/6bce8a34c370e6801fe907426ebc01dbbee57df6))
+
+
+### Bug Fixes
+
+* **ci:** retry watchOS platform download in TestFlight iOS job ([#860](https://github.com/DaveDev42/teleprompter/issues/860)) ([25fff8d](https://github.com/DaveDev42/teleprompter/commit/25fff8dfcff06aa8ce6a75e9d64d37c68c887710))
+* **cli:** hint on mistyped subcommands, prefix-match tp logs, fix cleanup keybinding doc ([#857](https://github.com/DaveDev42/teleprompter/issues/857)) ([d7d96f7](https://github.com/DaveDev42/teleprompter/commit/d7d96f73cf2788d56841d2a2cadb107f25b3aa0e))
+* **cli:** tp doctor stops misreporting a throttled idle pairing as relay-unreachable ([#843](https://github.com/DaveDev42/teleprompter/issues/843)) ([6501ba6](https://github.com/DaveDev42/teleprompter/commit/6501ba608c99a05eeda51ab7147bf80740223b4b))
+* **daemon:** broadcast session.removed to viewers and NACK input/resize on dead sessions ([#856](https://github.com/DaveDev42/teleprompter/issues/856)) ([d7c5bfc](https://github.com/DaveDev42/teleprompter/commit/d7c5bfcd385543769e713189d9afed4b61c7a8dc))
+* **daemon:** evict dead APNs push token by routing relay.err frontendId to the daemon ([#840](https://github.com/DaveDev42/teleprompter/issues/840)) ([cdd61f3](https://github.com/DaveDev42/teleprompter/commit/cdd61f31a1556a58e407e2dfc04b416987e933d3))
+* **daemon:** guard sendPush on authenticated to stop silent push loss mid-reconnect ([#836](https://github.com/DaveDev42/teleprompter/issues/836)) ([6fc29d1](https://github.com/DaveDev42/teleprompter/commit/6fc29d10954843b8a42de4fa68f6e8c6022858ae))
+* **daemon:** report user-stop as stopped, broadcast crash exits, and guard restart against double-spawn ([#854](https://github.com/DaveDev42/teleprompter/issues/854)) ([a5e46bc](https://github.com/DaveDev42/teleprompter/commit/a5e46bc12e830d25c3c45cf13eabd04ea679c508))
+* **daemon:** route push to the owning relay client by daemonId ([#837](https://github.com/DaveDev42/teleprompter/issues/837)) ([d7f8f9b](https://github.com/DaveDev42/teleprompter/commit/d7f8f9b2d1c46d2933d13a56288ea49eb7034d6d))
+* **daemon:** truncate oversized PermissionRequest tool_name in push body ([#835](https://github.com/DaveDev42/teleprompter/issues/835)) ([ecacc0a](https://github.com/DaveDev42/teleprompter/commit/ecacc0a42b873bf998da963631b7ef5834a06d11))
+* **harness:** make M5 real-claude E2E smoke deterministic via session-DB SoT ([#878](https://github.com/DaveDev42/teleprompter/issues/878)) ([b221335](https://github.com/DaveDev42/teleprompter/commit/b221335fc5f6bbbcb45998be6a52ecdcdc4fa5f1)), closes [#877](https://github.com/DaveDev42/teleprompter/issues/877)
+* **ios:** close TOCTOU crash in TerminalView resolvedSid force-unwrap ([#850](https://github.com/DaveDev42/teleprompter/issues/850)) ([9318592](https://github.com/DaveDev42/teleprompter/commit/931859234fdac3206b9d274dfc42def884800ac4))
+* **ios:** content-aware trust-dialog accept in real-claude E2E holders (2nd dialog "No, exit" default quit the session) ([#853](https://github.com/DaveDev42/teleprompter/issues/853)) ([2535abd](https://github.com/DaveDev42/teleprompter/commit/2535abd621aac4cd84a858eb3d406bf7fcec0e43))
+* **ios:** correct inverted Chat busy/typing indicator via turn-lifecycle scan ([#849](https://github.com/DaveDev42/teleprompter/issues/849)) ([df70eb2](https://github.com/DaveDev42/teleprompter/commit/df70eb2749ee427e04b48828562309803d527ea1))
+* **ios:** iPad windowed-mode sidebar floor + single-launch pop-out UITest ([#908](https://github.com/DaveDev42/teleprompter/issues/908)) ([bbda40b](https://github.com/DaveDev42/teleprompter/commit/bbda40b341c3094f4b4545713b0556e441e8c49a))
+* **ios:** keep chat composer honest on dead sessions and make permission cards actionable ([#855](https://github.com/DaveDev42/teleprompter/issues/855)) ([932a53e](https://github.com/DaveDev42/teleprompter/commit/932a53e5a2ac4ef9eef6ef5ef981eda4fa8e15cf))
+* **ios:** route macOS smoke deep link to the dev build with `open -a` ([#829](https://github.com/DaveDev42/teleprompter/issues/829)) ([53ca01e](https://github.com/DaveDev42/teleprompter/commit/53ca01e18d231ff57f381891d150182ccd7ab50f))
+* **ios:** send M5 input probe from onRec too, not just onBatch (macOS-native smoke gap) ([#827](https://github.com/DaveDev42/teleprompter/issues/827)) ([8b287bb](https://github.com/DaveDev42/teleprompter/commit/8b287bba084df3acec864eecd7dc2608b2c234f9))
+* **macos:** per-session window pop-out; stop main-window duplication ([#842](https://github.com/DaveDev42/teleprompter/issues/842)) ([e545688](https://github.com/DaveDev42/teleprompter/commit/e545688da94584786eddfa40aef859108460de95))
+* **macos:** stop AppKit restoration from duplicating the main window ([#909](https://github.com/DaveDev42/teleprompter/issues/909)) ([60d8321](https://github.com/DaveDev42/teleprompter/commit/60d8321eadb1f0d13eecce167157ed4b507f5d8e))
+* **macos:** suppress phantom 2nd window on fresh launch via .defaultLaunchBehavior(.suppressed) ([#848](https://github.com/DaveDev42/teleprompter/issues/848)) ([5f88c47](https://github.com/DaveDev42/teleprompter/commit/5f88c47115307ac117e4b0ae5a42b09e4133626c))
+* **protocol:** enforce exact 64-hex APNs token format on ([eb93686](https://github.com/DaveDev42/teleprompter/commit/eb936865c42b044011a5f47007aa057fb1071dc6))
+* **protocol:** enforce exact 64-hex APNs token format on relay.push.register ([#839](https://github.com/DaveDev42/teleprompter/issues/839)) ([eb93686](https://github.com/DaveDev42/teleprompter/commit/eb936865c42b044011a5f47007aa057fb1071dc6))
+* **relay:** bound APNs response body-read with the request deadline ([#841](https://github.com/DaveDev42/teleprompter/issues/841)) ([31654f9](https://github.com/DaveDev42/teleprompter/commit/31654f9288081a1367ff1dfcd1d71c2de7440a73))
+* **relay:** deliver push via APNs when the frontend WS closes mid-handling ([#838](https://github.com/DaveDev42/teleprompter/issues/838)) ([13e9305](https://github.com/DaveDev42/teleprompter/commit/13e93059c3448392511e185a652ff8d39842a86a))
+* **relay:** surface reconnect cause and throttle state to the app ([#858](https://github.com/DaveDev42/teleprompter/issues/858)) ([8f5b174](https://github.com/DaveDev42/teleprompter/commit/8f5b174a39e8d2556fc8684bd4d56307203d3f3f))
+
+
+### Refactor
+
+* **tp-runner:** hoist parse_args + wait_for_signal into lib (cli.rs) ([#900](https://github.com/DaveDev42/teleprompter/issues/900)) ([c1be9ac](https://github.com/DaveDev42/teleprompter/commit/c1be9ac356a6c35ee925183f086d44bbd9d2f8bc))
+
 ## [0.1.52](https://github.com/DaveDev42/teleprompter/compare/v0.1.51...v0.1.52) (2026-06-30)
 
 

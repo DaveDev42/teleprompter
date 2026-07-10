@@ -244,14 +244,25 @@ final class SmokeUITests: XCTestCase {
     /// (macOS only — iOS/visionOS have no menu bar and no multi-window File menu).
     ///
     /// This locks in the fix for the "duplicate main window" bug (Dave hit it
-    /// live): the main `WindowGroup` is value-less, so SwiftUI's auto-generated
-    /// File > New Window could only ever clone the main window. The fix
-    /// (`TeleprompterApp.swift`) is `.commandsRemoved()` on the main group +
-    /// a value-carrying `WindowGroup(id: "session", for: String.self)` reached
-    /// via a session row's "Open in New Window" context menu.
+    /// live — 11 identical "Sessions" windows at cascade offsets on a fresh
+    /// launch). The main `WindowGroup` is value-less, so duplicate main windows
+    /// can arise TWO ways, both fixed in `TeleprompterApp.swift`:
+    ///   - On-demand cloning via SwiftUI's auto-generated File > New Window —
+    ///     fixed by `.commandsRemoved()` on the main group (invariant 2 below).
+    ///   - Automatic AppKit secure-state restoration replaying every window that
+    ///     was open at last quit/crash (the actual source of the 11 windows) —
+    ///     fixed by `.restorationBehavior(.disabled)` on the main group. This is
+    ///     NOT covered by a File-menu assertion (restoration happens at launch,
+    ///     before any command runs); the headless `TP_MAC_WINDOW_COUNT` smoke
+    ///     marker asserts it in the deterministic (non-TCC-gated) smoke path,
+    ///     since this GUI XCUITest is a SKIP by default on unauthorized hosts.
+    /// Per-session pop-outs go through a value-carrying
+    /// `WindowGroup(id: "session", for: String.self)` reached via a session
+    /// row's "Open in New Window" context menu (invariant 3 below).
     ///
     /// Three invariants, each of which would have been violated by the bug:
-    ///   1. A fresh launch shows exactly ONE window (main is not cloned).
+    ///   1. A fresh launch shows exactly ONE window (main is not cloned or
+    ///      restored).
     ///   2. The File menu has NO "New Window" item (auto-command suppressed).
     ///   3. Right-click a session row → "Open in New Window" opens a SECOND
     ///      window (the per-session pop-out actually works).

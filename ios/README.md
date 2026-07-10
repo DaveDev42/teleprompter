@@ -114,6 +114,17 @@ APNs 등록은 visionOS 에서 skip (Simulator 단계, 엔타이틀먼트 미설
 - **멀티신 활성화** (`project.yml` `UIApplicationSupportsMultipleScenes: true`): iPad
   `WindowGroup(id:for:)` 가 2번째 scene 을 실제로 spawn 하게 하는 요건. 앱은 openWindow 호출부
   가드로 iPhone 에서 절대 프로그램적 2번째 창을 안 연다 (`.onOpenURL` 딥링크 배달과 직교).
+- **iPad windowed-mode floor 는 iPhone 에 걸면 안 된다** (`RootView.content` 위 메인 `WindowGroup`
+  콘텐츠의 `.frame(minWidth:minHeight:)` + scene `.windowResizability`): iPadOS 26 이 앱을
+  iPhone-narrow(~402pt)로 열어 sidebar 대신 compact TabView 브랜치로 빠지는 걸 막으려 `#908` 이
+  건 `.frame(minWidth: 850)` 은 **`os(iOS)` 라 iPhone 에도 적용**됐고, `.frame(minWidth:)` 는 창
+  리사이즈 가능 여부와 무관한 순수 SwiftUI 레이아웃 제약이라 402pt 고정 iPhone 창에서 콘텐츠를
+  850pt 로 강제 → 중앙정렬로 origin `x=-224`, nav back 버튼 화면 밖 → **네비게이션 soft-lock**.
+  그래서 floor 와 `.contentMinSize` 를 **`UIDevice.current.userInterfaceIdiom == .pad`** 로 게이트한다
+  (idiom = static 하드웨어 속성; `horizontalSizeClass` 의 mid-resolution 순환 회피 — floor 의 목적이
+  size class 를 regular 로 만드는 것이라 size class 로 게이팅하면 순환). iPad 만 850, iPhone 은
+  `minWidth:0`+`.automatic`. 회귀 가드 = `testSessionRenderPaneSwitchAndPopOut` iPhone 브랜치의
+  `.isHittable` back-button 어서션 (`native-testing.md`).
 - **메인 창 중복 방지 = 세 직교 lever (macOS)**: value-less 메인 `WindowGroup` 이 복제되는 경로가
   셋이라 각각 별개 modifier 로 막는다 — (1) **`.commandsRemoved()`**: 자동 File>New Window *커맨드*
   클론 제거. (2) **`.restorationBehavior(.disabled)`** (macOS 15+, `#if os(macOS)` — iOS 엔

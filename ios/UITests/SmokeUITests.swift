@@ -171,8 +171,19 @@ final class SmokeUITests: XCTestCase {
             // and confirm the context menu has no "Open in New Window".
             //
             // We're on the pushed detail; go back to the list to reach the row.
+            // Gate on `.isHittable`, NOT bare `.exists` — `.exists` is true even
+            // for an off-screen element, so if the pushed detail ever regresses
+            // to an off-screen frame again (see the `.frame(minWidth:)` iPhone
+            // soft-lock fixed in TeleprompterApp.swift) this asserts loudly at the
+            // back button rather than proceeding into an opaque hit-point failure.
             let backButton = app.navigationBars.buttons.firstMatch
-            if backButton.exists { backButton.tap() }
+            XCTAssertTrue(
+                backButton.isHittable,
+                "iPhone nav back button is not hittable — the pushed session detail "
+                    + "is likely off-screen (regression of the iPhone 850pt frame-floor "
+                    + "soft-lock). Check TeleprompterApp.swift's iOS `.frame(minWidth:)`."
+            )
+            backButton.tap()
             XCTAssertTrue(
                 row.waitForExistence(timeout: 10),
                 "session row 'session-\(smokeSid)' not reachable on iPhone after back-nav"

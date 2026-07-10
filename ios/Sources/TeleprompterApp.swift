@@ -195,13 +195,24 @@ struct TeleprompterApp: App {
             //   WindowResizability docs require this frame floor to be PAIRED
             //   with the scene's `.windowResizability(.contentMinSize)` (below)
             //   for it to act as an OS-level window constraint rather than mere
-            //   internal layout — hence both are applied for iOS.
-            // - iPhone: no-op — the scene fills the device (single fullscreen
-            //   UIWindowScene, not user-resizable), so the floor never binds.
+            //   internal layout — hence both are applied for iPad.
+            // - iPhone: the floor MUST be gated OFF. `.frame(minWidth: 850)` is a
+            //   plain SwiftUI layout constraint that binds regardless of whether
+            //   the OS grants window resizability — so on iPhone's fixed ~402pt
+            //   fullscreen scene it forces the whole (correctly compact) TabView
+            //   subtree to lay out at 850pt, which SwiftUI then centers, pushing
+            //   the content origin to x=(402-850)/2=-224 and the nav back button
+            //   off-screen (a real navigation soft-lock, not just a test
+            //   artifact). Gate on `userInterfaceIdiom == .pad` (a static
+            //   hardware property, unlike the mid-resolution `horizontalSizeClass`
+            //   trait) so the floor applies to iPad only — exactly the "iPadOS 26
+            //   windowed-mode" case it was introduced for.
             #if os(macOS)
             .frame(minWidth: 640, minHeight: 480)
             #elseif os(iOS)
-            .frame(minWidth: 850, minHeight: 600)
+            .frame(
+                minWidth: UIDevice.current.userInterfaceIdiom == .pad ? 850 : 0,
+                minHeight: UIDevice.current.userInterfaceIdiom == .pad ? 600 : 0)
             #endif
         }
         // A4 (macOS): open at a comfortable desktop size and clamp shrink to the
@@ -262,9 +273,13 @@ struct TeleprompterApp: App {
         // Simulator configs ignore it) — so `RootView.content`'s
         // `horizontalSizeClass`-driven SidebarRootView/TabView branch remains
         // the authoritative fallback regardless of the window size actually
-        // granted. No-op on iPhone: one fixed fullscreen scene, nothing to size.
+        // granted. Gate `.contentMinSize` on iPad idiom too (defense in depth
+        // paired with the frame floor above): promoting the 850pt floor to an
+        // OS-level window constraint must never touch an iPhone scene. iPhone
+        // keeps `.automatic` — one fixed fullscreen scene, nothing to clamp.
         .defaultSize(width: 980, height: 680)
-        .windowResizability(.contentMinSize)
+        .windowResizability(
+            UIDevice.current.userInterfaceIdiom == .pad ? .contentMinSize : .automatic)
         #endif
 
         // Per-session window (messenger-style pop-out, macOS + iPadOS). A

@@ -128,6 +128,21 @@ struct SwiftTermView {
         let view = SwiftTerm.TerminalView(frame: .zero)
         view.terminalDelegate = coordinator
         coordinator.attach(to: view)
+        // Under the smoke/UI-testing harness, force a STEADY (non-blinking) caret.
+        // SwiftTerm's default `.blinkBlock` drives an infinite
+        // `UIView.animate(options: [.autoreverse, .repeat])` in its caret view
+        // (SwiftTerm iOSCaretView), which keeps UIKit's animation-in-flight state
+        // true forever. XCUITest gates every synthetic `.tap()` on the app first
+        // reaching idle, so a perpetual caret animation makes the runner hang
+        // ("App animations complete notification not received") and then hit-test a
+        // still-mid-transition (off-screen) element — the deterministic
+        // `backButton.tap()` failure in SmokeUITests on iPhone. A steady caret never
+        // starts that repeat animation, so the app reaches idle and the push
+        // transition settles. Production is unaffected: `isSmokeMode` is only ever
+        // true for `--tp-smoke*` harness launches.
+        if RelayClient.isSmokeMode {
+            view.getTerminal().setCursorStyle(.steadyBlock)
+        }
         return view
     }
 

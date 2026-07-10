@@ -202,7 +202,21 @@ File-메뉴 어서션(2)로는 못 잡는다.
 > 툴바 pop-out(`session-popout-<sid>`)을 탭해 서브 창을 열고, 서브 창 루트에만 존재하는
 > `session-window-<sid>`(SessionWindowView) 의 등장으로 2번째 UIWindowScene 이 실제로 materialize 됐음을
 > 어서션한다(iOS 는 macOS 처럼 `windows.count` 로 scene 을 열거하지 못하므로 sub-window 전용 identifier
-> 로 증명). iPhone(compact) 브랜치는 `session-popout`/`session-open-window` 부재를 negative-guard 한다.
+> 로 증명). iPhone(compact) 브랜치는 `session-popout`/`session-open-window` 부재를 negative-guard 하고,
+> 리스트로 돌아가기 위해 nav back 버튼을 탭하기 **전에 `.isHittable` 을 어서션**한다(`.exists` 아님 —
+> off-screen 요소도 `.exists` 는 true). 이 가드는 **iPhone frame-floor soft-lock 회귀**를 조기에 잡는다:
+> `#908` 이 iPadOS 26 windowed-narrow-launch 를 sidebar 로 밀어올리려 `TeleprompterApp.swift` 의
+> 메인 `WindowGroup` 콘텐츠에 건 `.frame(minWidth: 850, minHeight: 600)`(+ scene `.contentMinSize`)가
+> `#elseif os(iOS)` 라 iPhone 에도 적용돼, 402pt 고정 창 안에서 (올바르게 compact 인) TabView 서브트리를
+> 850pt 로 강제 → SwiftUI 가 중앙정렬해 콘텐츠 origin 을 `x=(402-850)/2=-224` 로 밀고 nav back 버튼을
+> 화면 밖으로 보내 **실제 네비게이션 soft-lock**(테스트 아티팩트 아님, 실기 iPhone 유저도 피해)을 냈다.
+> Fix = frame floor 와 `.contentMinSize` 를 **`UIDevice.current.userInterfaceIdiom == .pad` 로 게이트**
+> (idiom 은 static 하드웨어 속성 — mid-resolution `horizontalSizeClass` trait 의 순환을 피함; iPad 만
+> floor 적용 = `#908` 의 원래 의도). iPad/visionOS 는 구조적으로 면제(iPad 는 850 을 실제로 원하고
+> visionOS 는 자기 `#elseif os(visionOS)` TabView 브랜치라 floor 미적용)라 회귀 없음. 별개로, SwiftTerm
+> 기본 `.blinkBlock` 커서가 도는 무한 `UIView.animate([.autoreverse,.repeat])`(iOSCaretView)는 XCUITest
+> 의 app-idle 대기를 영구히 막아 `.tap()` 을 60s 로 hang 시키므로, smoke 모드에서 `setCursorStyle(.steadyBlock)`
+> 로 억제한다(`SwiftTermView._make`, `RelayClient.isSmokeMode` 게이트 — 프로덕션 무영향).
 > **단일-launch 설계 (isolation 핵심)**: 세션 렌더·pane 스위치·pop-out 을 **한 번의 `app.launch()`** 에서
 > 어서션한다 — iPad 는 `UIApplicationSupportsMultipleScenes: true` 라 열린 서브 창의 UISceneSession 을
 > UIKit 이 persist 하고 그게 프로세스 relaunch 를 살아남아(XCUIApplication.launch 는 프로세스만 죽이고

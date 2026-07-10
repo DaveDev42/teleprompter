@@ -114,6 +114,16 @@ APNs 등록은 visionOS 에서 skip (Simulator 단계, 엔타이틀먼트 미설
 - **멀티신 활성화** (`project.yml` `UIApplicationSupportsMultipleScenes: true`): iPad
   `WindowGroup(id:for:)` 가 2번째 scene 을 실제로 spawn 하게 하는 요건. 앱은 openWindow 호출부
   가드로 iPhone 에서 절대 프로그램적 2번째 창을 안 연다 (`.onOpenURL` 딥링크 배달과 직교).
+- **메인 창 중복 방지 = 세 직교 lever (macOS)**: value-less 메인 `WindowGroup` 이 복제되는 경로가
+  셋이라 각각 별개 modifier 로 막는다 — (1) **`.commandsRemoved()`**: 자동 File>New Window *커맨드*
+  클론 제거. (2) **`.restorationBehavior(.disabled)`** (macOS 15+, `#if os(macOS)` — iOS 엔
+  unavailable): **AppKit secure-state restoration** 이 지난 종료 시 열려있던 창들을 launch 때 자동
+  재생성하는 걸 차단(프로덕션 sandboxed 빌드에서 여러 "Sessions" 창이 뜨던 실제 원인 — restoration 은
+  커맨드보다 먼저 launch 시 자동 발생해 (1)로는 못 막음; single-instance-by-design 이라 메인 창 frame
+  복원 상실은 desired). (3) 세션 pop-out 은 **별개 value-carrying `WindowGroup(id:"session")`** 이라
+  위 둘과 무관, live `openWindow` 로만 열림. **로컬 dogfood 빌드는 `CODE_SIGN_ENTITLEMENTS=""` 로
+  non-sandboxed** 라 saved-state 를 안 남겨 (2)의 restoration 이 안 일어나므로, 회귀는 headless
+  `TP_MAC_WINDOW_COUNT` smoke 마커(macOS smoke n=1 어서션)가 가드한다(상세 = `.claude/rules/native-testing.md`).
 - **알려진 한계**: nav 인텐트(⌘[/⌘] step, ⌃⌘C/⌘T pane)는 `AppNavigationModel.shared` 싱글톤이라
   열린 세션 창 전부가 공유 — macOS 에 이미 있던 특성을 iPad 로 parity 이식 (창별 격리는 out-of-scope).
 

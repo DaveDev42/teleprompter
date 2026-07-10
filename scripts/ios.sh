@@ -149,6 +149,13 @@ INPUT_FAIL_MARKER="TP_INPUT_FAIL"
 # production RelayClient.onNotification and handed to NotificationService. Asserted only
 # under TP_E2E_PUSH — NOT part of the default smoke marker set.
 PUSH_NOTIFY_RECEIVED_MARKER="TP_PUSH_NOTIFY_RECEIVED"
+# macOS window-count regression guard (duplicate-main-window bug): the app emits
+# TP_MAC_WINDOW_COUNT n=<count> shortly after launch (macOS + smoke mode only). The
+# loopback macOS smoke asserts n=1 — the deterministic, non-TCC-gated proof that
+# `.restorationBehavior(.disabled)` suppresses AppKit's restore-all-windows replay
+# (the GUI XCUITest that would otherwise catch this is a SKIP on unauthorized hosts).
+# NOT part of the default 8-marker set — asserted separately in cmd_smoke_macos.
+MAC_WINDOW_COUNT_MARKER="TP_MAC_WINDOW_COUNT"
 RELAY_LOOPBACK_PORT="${TP_RELAY_LOOPBACK_PORT:-7099}"
 RELAY_LOOPBACK_SCRIPT="$REPO_ROOT/scripts/local-relay-loopback.ts"
 XCFRAMEWORK="$REPO_ROOT/rust/target/TpCore.xcframework"
@@ -1414,9 +1421,28 @@ cmd_smoke_macos() {
   [ "${clients:-0}" -ge 2 ] || die "SMOKE FAIL (macOS) — relay /health reports clients=$clients (expected >=2)"
   log "relay /health confirms clients=$clients"
 
+  # Duplicate-main-window regression guard (headless, deterministic). The app emits
+  # TP_MAC_WINDOW_COUNT n=<count> ~1.5s after launch (macOS + smoke only). Exactly one
+  # top-level window must exist — >1 means AppKit's secure-state restoration is
+  # replaying stale windows (the 11-"Sessions"-windows bug) because
+  # `.restorationBehavior(.disabled)` regressed. This is the CI/dogfood-reachable guard
+  # for the invariant that the TCC-gated GUI XCUITest (testMacPerSessionWindowAndNo…)
+  # can only assert on an authorized host. Loopback-only (real/claude modes returned
+  # above); the marker is emitted regardless but only asserted here.
+  local wc_line=""
+  for _ in $(seq 1 20); do
+    wc_line="$(macos_log_snapshot | grep -Eo "${MAC_WINDOW_COUNT_MARKER} n=[0-9]+" | tail -n1 || true)"
+    [ -n "$wc_line" ] && break
+    sleep 0.5
+  done
+  [ -n "$wc_line" ] || die "SMOKE FAIL (macOS) — no '$MAC_WINDOW_COUNT_MARKER n=<count>' line (window-count probe never ran? app must be in smoke mode)"
+  local wc="${wc_line##*n=}"
+  [ "${wc:-0}" -eq 1 ] || die "SMOKE FAIL (macOS) — expected exactly 1 top-level window on fresh launch, got $wc ('$wc_line'). AppKit is restoring duplicate main windows — .restorationBehavior(.disabled) regressed."
+  log "window-count OK (macOS) — '$wc_line' (single main window, no restoration duplicates)"
+
   capture_macos_screenshot "macos"
   tp_smoke_pass
-  log "✅ SMOKE PASS (macOS) — all 8 markers observed"
+  log "✅ SMOKE PASS (macOS) — all 8 markers observed + single-window guard"
 }
 
 cmd_smoke_visionos() {

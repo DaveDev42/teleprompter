@@ -105,6 +105,40 @@ struct TeleprompterApp: App {
         }
     }
 
+    #if os(macOS)
+    /// SMOKE-ONLY headless regression guard for the duplicate-main-window bug.
+    ///
+    /// Emits `TP_MAC_WINDOW_COUNT n=<count>` to the unified log so the macOS
+    /// smoke path can assert exactly one top-level window at launch, WITHOUT a
+    /// TCC-gated GUI XCUITest (which is a SKIP by default on unauthorized hosts,
+    /// so the 11-window regression shipped through it). AppKit's secure-state
+    /// restoration recreates one NSWindow per window that was open at last quit
+    /// — for the value-less main group that means N duplicate windows unless
+    /// `.restorationBehavior(.disabled)` (above) suppresses it. This marker is
+    /// the deterministic proof that suppression holds.
+    ///
+    /// Gated on `RelayClient.isSmokeMode` (`--tp-smoke*` launch arg) so it is a
+    /// strict no-op in normal runs. Counts only visible, titled top-level
+    /// windows — the session pop-out (a separate WindowGroup) is
+    /// `.defaultLaunchBehavior(.suppressed)` so it never materializes at launch,
+    /// and AppKit's own hidden helper windows are excluded by the visibility +
+    /// title filter. Runs after a short delay so restoration (which happens
+    /// during launch bring-up) has settled before we count.
+    private func emitMacWindowCountIfSmoke() {
+        guard RelayClient.isSmokeMode else { return }
+        Task { @MainActor in
+            // Give AppKit's launch-time restoration a beat to materialize any
+            // windows it would recreate, then count. 1.5s comfortably covers the
+            // bring-up on both the headless smoke (`open -gn`) and a normal boot.
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            let count = NSApplication.shared.windows.filter { win in
+                win.isVisible && !win.title.isEmpty
+            }.count
+            Self.bootLog.notice("TP_MAC_WINDOW_COUNT n=\(count, privacy: .public)")
+        }
+    }
+    #endif
+
     /// Keyboard shortcut help sheet visibility (driven from Commands menu + ⌘/).
     @State private var showShortcutHelp = false
 
@@ -146,6 +180,9 @@ struct TeleprompterApp: App {
             .onAppear {
                 setupNotifications()
                 handleSmokeURLIfPresent()
+                #if os(macOS)
+                emitMacWindowCountIfSmoke()
+                #endif
             }
             // A4: a desktop window must not collapse below a usable size. The
             // sidebar (~220) + a readable terminal column needs a floor.
@@ -172,6 +209,26 @@ struct TeleprompterApp: App {
         #if os(macOS)
         .defaultSize(width: 980, height: 680)
         .windowResizability(.contentMinSize)
+        // Opt the MAIN (value-less) window group out of AppKit secure-state
+        // window restoration. Without this, a fresh macOS 15+ launch reopens one
+        // NSWindow per window that was open at last quit/crash — and because the
+        // main group is value-less, AppKit restores N *identical* "Sessions"
+        // windows at cascade offsets (Dave hit 11 on a fresh launch). This is a
+        // DIFFERENT mechanism from `.commandsRemoved()` below (which only
+        // suppresses the File > New Window *command* that clones the window on
+        // demand) — restoration replays windows automatically at launch, before
+        // any command runs. `.restorationBehavior(.disabled)` is the
+        // SwiftUI-native, per-Scene opt-out (macOS 15.0+, matching project.yml's
+        // deployment floor; `.disabled` is @available-unavailable on
+        // iOS/tvOS/watchOS, so it MUST stay inside this `#if os(macOS)` block).
+        // Scoped to ONLY this WindowGroup — the value-carrying "session"
+        // WindowGroup below keeps its default restoration + its own
+        // `.defaultLaunchBehavior(.suppressed)`, so `openWindow(id: "session",
+        // value:)` pop-outs (opened live by user action, never restored) are
+        // structurally unaffected. Trade-off: the main window no longer restores
+        // its frame/position across quits either — desired for a
+        // single-instance-by-design app (it always opens at `.defaultSize`).
+        .restorationBehavior(.disabled)
         // Suppress SwiftUI's auto-generated File > New Window for the MAIN
         // window. Without this, the system "New Window" command clones the
         // main window (the app is single-instance by design — one sidebar +

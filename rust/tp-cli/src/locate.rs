@@ -606,6 +606,33 @@ mod tests {
         assert!(find_repo_root(&p).is_none());
     }
 
+    // ── find_repo_root: pins WHICH sentinel file is recognized ──────────────
+
+    #[test]
+    fn find_repo_root_pins_new_sentinel_not_old() {
+        // In the real repo both the retired apps/cli/src/index.ts and the new
+        // rust/tp-cli/Cargo.toml resolve to the same root, so the tests above
+        // cannot detect a revert to the old sentinel until task #5 actually
+        // deletes apps/cli. This synthetic tree can: the old sentinel alone
+        // must NOT be recognized, the new one alone must be.
+        let tmp = tmpdir();
+        let root = tmp.path().join("repo");
+        let old_sentinel = root.join("apps").join("cli").join("src").join("index.ts");
+        fs::create_dir_all(old_sentinel.parent().unwrap()).unwrap();
+        fs::write(&old_sentinel, "// legacy sentinel").unwrap();
+        let start = root.join("rust").join("target").join("debug").join("tp");
+        fs::create_dir_all(start.parent().unwrap()).unwrap();
+        assert!(
+            find_repo_root(&start).is_none(),
+            "retired apps/cli sentinel alone must not mark a repo root"
+        );
+
+        let new_sentinel = root.join("rust").join("tp-cli").join("Cargo.toml");
+        fs::create_dir_all(new_sentinel.parent().unwrap()).unwrap();
+        fs::write(&new_sentinel, "[package]\nname = \"tp-cli\"\n").unwrap();
+        assert_eq!(find_repo_root(&start).as_deref(), Some(root.as_path()));
+    }
+
     // ── dev fallback: dist/tp exists under the repo root ────────────────────
 
     #[test]

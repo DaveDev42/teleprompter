@@ -44,9 +44,22 @@ worktree 상태: 메인 worktree 하나만. stash 없음, 로컬 브랜치 `main
 | # | 상태 | 요약 | 게이트/의존 |
 |---|---|---|---|
 | #17 | 🔨 진행 중 | de-trampoline tp-cli 마무리 — 코어 3종(relay #905 / util forwards+`tp --` #904 / native passthrough #903) + soft couplings(`locate.rs` repo-root sentinel → `rust/tp-cli/Cargo.toml`, `upgrade.rs` pgrep `tpd`+`tp-daemon` 병행 매칭) 머지 완료. 잔여 = PR-5(구 #23): native first-run 프롬프트 + `apps/cli` passthrough 삭제 | PR-5 는 N× clean 로컬 실 claude soak(사용자 구동); #5 앞단 게이트 |
-| #18 | ⏸️ 대기 | `packages/protocol` 삭제 전 최종 골든벡터 픽스처 재생성 (비가역) — #5 Stage 1 직전 실행 | #5 앞단 |
+| #18 | ⏸️ 대기 | `packages/protocol` 삭제 전 **`message-vectors.json` 만** 재생성 (`bun scripts/gen-message-vectors.ts` — 라이브 protocol 가드 import; `wire-vectors.json` 은 자동생성 대상 아님 = frozen KAT, 그대로 생존). #5 Stage 1 직전 실행. 사전검증 완료: 지금 재생성해도 byte-identical(idempotent), Rust/TS 양쪽 green — 아래 상세 | #5 앞단 |
 | #4 | ⏸️ 대기 | **default flip 통합(구 #8 흡수)**: daemon→`tp-daemon` + runner→`tp-runner`. ship+locate 완료(#898/A2, #906). 잔여 = flip 배선(`TP_RUNNER_BIN_DEFAULT`/launchd) + CLAUDE.md dogfood 3rd-file + homebrew-tap formula 선행 수정 | N× clean 실 claude E2E soak(사용자 구동) |
 | #5 | ⏸️ 대기 | **Bun 삭제 캐스케이드(구 #6/#7 흡수)**: Stage 1 backend 소스 삭제(`packages/*`+`apps/cli`) → Stage 2 Node/Bun toolchain 제거(Turborepo/pnpm/Biome-TS/CI 재배선) → Stage 3 문서 stale prose 정리 | #17/#18/#4 |
+
+## #18 — 골든벡터 재생성 범위 정정 + 사전검증 (2026-07-13)
+
+**정정**: 두 픽스처의 관리 방식이 다르다 — task 설명이 "gen 스크립트가 둘 다 생성"이라 적었으나 HEAD 실파일 확인 결과 **틀렸다**. `packages/protocol` 삭제로 재생성 불가가 되는 "비가역" 대상은 **`message-vectors.json` 하나뿐**이다.
+
+- **`rust/tp-proto/tests/fixtures/message-vectors.json`** ← `bun scripts/gen-message-vectors.ts` 가 **라이브 `@teleprompter/protocol` 가드**(`parseRelayClientMessage`/`parseIpcMessage`/`parseControlMessage`/`parseRelayServerMessage`/`decodeWireLabel`/`decodeKxLabelOrKeep`)를 import 해 accept/reject + 재직렬화 벡터를 뽑는다. **이것만이 protocol 삭제 시 재생성 foreclose 대상.**
+- **`rust/tp-core/tests/fixtures/wire-vectors.json`** ← **자동생성 스크립트 없음 = frozen KAT**. 값들은 독립 계산(Python `hashlib.blake2b(digest_size=32)` ≡ libsodium `crypto_generichash`)으로 박아둔 것이고, TS(`packages/protocol/src/pairing-vectors.test.ts`)와 Rust(`tp-core/tests/wire_vectors.rs`)가 **양쪽 다 같은 고정 픽스처에 assert** 하는 양방향 계약. `packages/protocol` 삭제와 무관하게 그대로 생존한다 (코드가 생성하는 게 아니므로 regen 개념 자체가 없음).
+
+**사전검증 결과 (2026-07-13, 커밋 없음 · idempotent 확인만)**:
+- `bun scripts/gen-message-vectors.ts` 재실행 → `message-vectors.json` **byte-identical** (sha256 `3effc9a9…` 전후 동일, git diff 0). checked-in 픽스처가 현 라이브 protocol 과 이미 동기.
+- `cargo test -p tp-proto` = 50 유닛 + 5 message-vector 골든벡터 pass. `cargo test -p tp-core` = 23 유닛 + 13 wire-vector 골든벡터 pass. TS `pairing-vectors.test.ts` = 6 pass (양방향 계약 성립).
+
+**#5 Stage 1 에서 할 일 (축소됨)**: `packages/protocol` delete 직전 `bun scripts/gen-message-vectors.ts` 한 번 → diff 가 여전히 비면 그대로 커밋(그 사이 가드가 바뀌었으면 diff 가 나며 그때 regen 이 실제 의미) → `packages/protocol` 삭제. `wire-vectors.json` 은 손댈 필요 없음.
 
 ## 완료된 앱 UX 작업 (히스토리)
 
@@ -365,7 +378,7 @@ keychain 항목 ACL 에 자신이 신뢰하는 apple-tool/apple 파티션을 등
    (native first-run 프롬프트 + `apps/cli` passthrough 삭제, 구 #23 흡수 — N× clean 로컬 실 claude
    soak 게이트, 사용자 구동)뿐.
 2. ⏸️ **#4 default flip (daemon+runner, 구 #8 흡수)** — ship+locate 완료(#898/#906), flip 배선만 남음.
-   실 claude E2E soak 로 게이트(사용자 구동). #18(골든벡터 최종 재생성, 비가역)은 #5 Stage 1 직전.
+   실 claude E2E soak 로 게이트(사용자 구동). #18(`message-vectors.json` 만 재생성, 비가역)은 #5 Stage 1 직전 — 사전검증 완료(idempotent), 위 #18 상세 참조.
 3. ⏸️ **#5 Bun 삭제 캐스케이드 (구 #6/#7 흡수)** — flip 확정 후 Stage 1 backend 소스 삭제 → Stage 2
    toolchain 제거 → Stage 3 문서 stale prose 정리.
 

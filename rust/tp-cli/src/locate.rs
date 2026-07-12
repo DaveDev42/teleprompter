@@ -12,7 +12,7 @@
 //! 3. Sibling `tpd` next to the Rust `tp` binary — flat dogfood drop
 //!    (`current_exe().parent()/tpd`).
 //! 4. Dev fallback: walk up from `current_exe()` (e.g. `target/debug/tp`) until
-//!    we find the repo root (a parent containing `apps/cli/src/index.ts`), then
+//!    we find the repo root (a parent containing `rust/tp-cli/Cargo.toml`), then
 //!    return `<repo>/dist/tp` if it exists (the `pnpm build:cli:local` / `bun
 //!    build` output — locate_bun_blob fallback #4 for non-installed dev).
 //! 5. Hard error → `ExitCode::FAILURE`.
@@ -506,7 +506,13 @@ fn locate_tp_runner_inner(current_canon: Option<&Path>) -> Result<PathBuf, Strin
 }
 
 /// Walk up the filesystem from `start`, looking for a directory that contains
-/// `apps/cli/src/index.ts` — the repo root sentinel. Returns the first match.
+/// `rust/tp-cli/Cargo.toml` — the repo root sentinel. Returns the first match.
+///
+/// Chosen over `apps/cli/src/index.ts` (task #5 deletes it) and over
+/// `rust/Cargo.lock` (committed, but a generic 2-segment workspace-convention
+/// path with higher false-positive risk). `rust/tp-cli/Cargo.toml` names this
+/// specific tp-cli crate (`name = "tp-cli"`), preserving the original
+/// sentinel's intent: identify the root of the tp CLI's own source tree.
 pub(crate) fn find_repo_root(start: &Path) -> Option<PathBuf> {
     let mut current = start.to_path_buf();
     for _ in 0..16 {
@@ -514,10 +520,9 @@ pub(crate) fn find_repo_root(start: &Path) -> Option<PathBuf> {
             break;
         }
         if current
-            .join("apps")
-            .join("cli")
-            .join("src")
-            .join("index.ts")
+            .join("rust")
+            .join("tp-cli")
+            .join("Cargo.toml")
             .exists()
         {
             return Some(current);
@@ -578,7 +583,7 @@ mod tests {
     #[test]
     fn find_repo_root_finds_this_repo() {
         // The test binary lives somewhere under rust/target/… — walking up should
-        // reach the repo root that contains apps/cli/src/index.ts.
+        // reach the repo root that contains rust/tp-cli/Cargo.toml.
         let exe = std::env::current_exe().unwrap();
         let root = find_repo_root(&exe);
         assert!(
@@ -587,12 +592,8 @@ mod tests {
         );
         let root = root.unwrap();
         assert!(
-            root.join("apps")
-                .join("cli")
-                .join("src")
-                .join("index.ts")
-                .exists(),
-            "repo root should contain apps/cli/src/index.ts: {root:?}"
+            root.join("rust").join("tp-cli").join("Cargo.toml").exists(),
+            "repo root should contain rust/tp-cli/Cargo.toml: {root:?}"
         );
     }
 

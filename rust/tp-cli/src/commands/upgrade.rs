@@ -32,11 +32,15 @@
 //!
 //! The Bun `restartDaemon` (upgrade.ts:552) greps for `pgrep -x "tp"`. In the
 //! Rust world the daemon process is `tpd` — the Bun SEA blob that `commands::daemon::start`
-//! exec's via `locate_bun_blob()` (see `locate.rs`). The Rust trampoline exec's
-//! `tpd` directly, so the running daemon appears as `tpd` in the process table,
-//! not `tp`. We match `tpd` here to preserve the *intent* of the check ("warn if
-//! an unmanaged daemon is running") while correctly targeting the actual process
-//! name. This is a behavior-PRESERVING divergence.
+//! exec's via `locate_bun_blob()` (see `locate.rs`) — today's default. We also
+//! check `tp-daemon`, the Rust daemon binary resolved via `locate_tp_daemon()`,
+//! reachable today via the `TP_DAEMON_BIN` dual-run seam and slated to become
+//! the default post-flip (task #4). The Rust trampoline exec's whichever blob
+//! is in play directly, so the running daemon appears as `tpd` or `tp-daemon`
+//! in the process table, never `tp`. We match both names here to preserve the
+//! *intent* of the check ("warn if an unmanaged daemon is running") while
+//! correctly targeting the actual process name, current and near-future. This
+//! is a behavior-PRESERVING divergence.
 //!
 //! ### run() always exits 0
 //!
@@ -740,13 +744,18 @@ pub fn extract_bundle_tarball(
 ///
 /// macOS: if the launchd plist exists, `launchctl kickstart -k gui/<uid>/dev.tpmt.daemon`.
 /// Linux: if the systemd unit exists, `systemctl --user restart teleprompter-daemon`.
-/// Neither service: `pgrep -x tpd` — if running, print a warn.
+/// Neither service: `pgrep -x tpd` and `pgrep -x tp-daemon` — if either is
+/// running, print a warn.
 ///
 /// **DIVERGENCE NOTE**: The Bun CLI greps for `tp` (upgrade.ts:552 —
-/// `pgrep -x "tp"`). In the Rust trampoline world the daemon blob is `tpd`
-/// (exec'd directly by `commands::daemon::start` via `locate_bun_blob()` in
-/// `locate.rs`). We match `tpd` to correctly identify the daemon process.
-/// Behavior intent is preserved: "warn if an unmanaged daemon is running."
+/// `pgrep -x "tp"`). In the Rust trampoline world the daemon process is either
+/// `tpd` (the Bun SEA blob, exec'd directly by `commands::daemon::start` via
+/// `locate_bun_blob()` in `locate.rs` — today's default) or `tp-daemon` (the
+/// Rust binary resolved via `locate_tp_daemon()`, reachable today via the
+/// `TP_DAEMON_BIN` dual-run seam and becoming the default post-flip, task #4).
+/// We match both to correctly identify the daemon process, current and
+/// near-future. Behavior intent is preserved: "warn if an unmanaged daemon is
+/// running."
 fn restart_daemon() {
     #[cfg(target_os = "macos")]
     {
@@ -816,21 +825,30 @@ fn restart_daemon() {
     }
 
     // No service installed — check for running daemon via pgrep.
-    // DIVERGENCE: match "tpd" (Bun SEA blob name) not "tp" (the Rust CLI name).
-    // The daemon process is `tpd` because commands::daemon::start exec's the
-    // Bun blob located by locate_bun_blob() (locate.rs). See module doc.
-    let pgrep = Command::new("pgrep").args(["-x", "tpd"]).output();
-    if let Ok(out) = pgrep {
-        let found = String::from_utf8_lossy(&out.stdout);
-        if !found.trim().is_empty() {
-            println!(
-                "{}",
-                warn(
-                    "Daemon is running but not managed by a system service. \
-                     Restart it manually: tp daemon start"
-                )
-            );
-        }
+    // DIVERGENCE: match "tpd" (Bun SEA blob name) and "tp-daemon" (Rust daemon
+    // binary name), not "tp" (the Rust CLI name). The daemon process is `tpd`
+    // when commands::daemon::start exec's the Bun blob located by
+    // locate_bun_blob() (locate.rs, today's default), or `tp-daemon` when
+    // running via the TP_DAEMON_BIN dual-run seam / post-flip default
+    // (locate_tp_daemon(), task #4). Two separate `pgrep -x` invocations
+    // (not a single alternation pattern) for BSD/GNU pgrep portability. See
+    // module doc.
+    let tpd_running = Command::new("pgrep")
+        .args(["-x", "tpd"])
+        .output()
+        .is_ok_and(|out| !String::from_utf8_lossy(&out.stdout).trim().is_empty());
+    let tp_daemon_running = Command::new("pgrep")
+        .args(["-x", "tp-daemon"])
+        .output()
+        .is_ok_and(|out| !String::from_utf8_lossy(&out.stdout).trim().is_empty());
+    if tpd_running || tp_daemon_running {
+        println!(
+            "{}",
+            warn(
+                "Daemon is running but not managed by a system service. \
+                 Restart it manually: tp daemon start"
+            )
+        );
     }
 }
 

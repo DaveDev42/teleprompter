@@ -43,7 +43,7 @@ worktree 상태: 메인 worktree 하나만. stash 없음, 로컬 브랜치 `main
 
 | # | 상태 | 요약 | 게이트/의존 |
 |---|---|---|---|
-| #17 | 🔨 진행 중 | de-trampoline tp-cli 마무리 — 코어 3종(relay #905 / util forwards+`tp --` #904 / native passthrough #903) + soft couplings(`locate.rs` repo-root sentinel → `rust/tp-cli/Cargo.toml`, `upgrade.rs` pgrep `tpd`+`tp-daemon` 병행 매칭) 머지 완료. 잔여 = PR-5(구 #23): native first-run 프롬프트 + `apps/cli` passthrough 삭제 | PR-5 는 N× clean 로컬 실 claude soak(사용자 구동); #5 앞단 게이트 |
+| #17 | 🔨 진행 중 | de-trampoline tp-cli 마무리 — 코어 3종(relay #905 / util forwards+`tp --` #904 / native passthrough #903) + soft couplings(`locate.rs` repo-root sentinel → `rust/tp-cli/Cargo.toml`, `upgrade.rs` pgrep `tpd`+`tp-daemon` 병행 매칭) 머지 완료. **PR-5 Part A(native first-run install 프롬프트) 구현 완료** — `showInstallHint` 를 `rust/tp-cli/src/ensure_daemon.rs` 로 포팅(TTY 프롬프트/non-TTY dim hint, `TP_NO_AUTO_INSTALL` 게이트, `.daemon-hint-shown` fire-once 마커, `install_darwin/linux` → `bool` 리팩터). 잔여 = PR-5 Part B: `apps/cli` passthrough 삭제(구 #23 흡수). 2번째 gap `showFirstRunPairing`(welcome+pair+install, `listPairings==0` 게이트)은 `ensureDaemon` 이 아니라 Bun `passthroughCommand` 소관 — native passthrough 자체 first-run 으로 별도 포팅(ensure_daemon 모듈 doc 에 기록, out-of-scope) | Part A = 리뷰 통과(3-lens adversarial, 0 confirmed); Part B 는 N× clean 로컬 실 claude soak(사용자 구동); #5 앞단 게이트 |
 | #18 | ⏸️ 대기 | `packages/protocol` 삭제 전 **`message-vectors.json` 만** 재생성 (`bun scripts/gen-message-vectors.ts` — 라이브 protocol 가드 import; `wire-vectors.json` 은 자동생성 대상 아님 = frozen KAT, 그대로 생존). #5 Stage 1 직전 실행. 사전검증 완료: 지금 재생성해도 byte-identical(idempotent), Rust/TS 양쪽 green — 아래 상세 | #5 앞단 |
 | #4 | ⏸️ 대기 | **default flip 통합(구 #8 흡수)**: daemon→`tp-daemon` + runner→`tp-runner`. ship+locate 완료(#898/A2, #906). 잔여 = flip 배선(`TP_RUNNER_BIN_DEFAULT`/launchd) + CLAUDE.md dogfood 3rd-file + homebrew-tap formula 선행 수정 | N× clean 실 claude E2E soak(사용자 구동) |
 | #5 | ⏸️ 대기 | **Bun 삭제 캐스케이드(구 #6/#7 흡수)**: Stage 1 backend 소스 삭제(`packages/*`+`apps/cli`) → Stage 2 Node/Bun toolchain 제거(Turborepo/pnpm/Biome-TS/CI 재배선) → Stage 3 문서 stale prose 정리 | #17/#18/#4 |
@@ -374,9 +374,10 @@ keychain 항목 ACL 에 자신이 신뢰하는 apple-tool/apple 파티션을 등
 로드맵**(백엔드 Rust 포팅 flip 사다리)뿐이며, 대부분 사용자의 로컬 실 claude E2E soak 로 게이트된다.
 
 1. 🔨 **#17 de-trampoline tp-cli 마무리** — 코어 3종(#903/#904/#905) + soft couplings(`locate.rs`
-   sentinel→`rust/tp-cli/Cargo.toml`, `upgrade.rs` pgrep `tpd`+`tp-daemon`) 머지 완료. 잔여 = PR-5
-   (native first-run 프롬프트 + `apps/cli` passthrough 삭제, 구 #23 흡수 — N× clean 로컬 실 claude
-   soak 게이트, 사용자 구동)뿐.
+   sentinel→`rust/tp-cli/Cargo.toml`, `upgrade.rs` pgrep `tpd`+`tp-daemon`) 머지 완료. **PR-5 Part A
+   (native first-run install 프롬프트 = `showInstallHint` → `ensure_daemon.rs`) 구현 완료**(3-lens
+   adversarial 리뷰 0 confirmed). 잔여 = PR-5 Part B(`apps/cli` passthrough 삭제, 구 #23 흡수 —
+   N× clean 로컬 실 claude soak 게이트, 사용자 구동)뿐.
 2. ⏸️ **#4 default flip (daemon+runner, 구 #8 흡수)** — ship+locate 완료(#898/#906), flip 배선만 남음.
    실 claude E2E soak 로 게이트(사용자 구동). #18(`message-vectors.json` 만 재생성, 비가역)은 #5 Stage 1 직전 — 사전검증 완료(idempotent), 위 #18 상세 참조.
 3. ⏸️ **#5 Bun 삭제 캐스케이드 (구 #6/#7 흡수)** — flip 확정 후 Stage 1 backend 소스 삭제 → Stage 2

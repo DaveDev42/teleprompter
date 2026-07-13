@@ -208,7 +208,16 @@ fn bootstrap_with_retry(
 /// are reproduced verbatim.
 ///
 /// `runner` is injectable for unit tests; production callers pass `&mut RealLaunchctl`.
-pub fn install_darwin(runner: &mut dyn LaunchctlRunner) -> ExitCode {
+///
+/// Returns `true` on success, `false` on any failure (dir/plist write error or
+/// a non-zero `launchctl bootstrap`). The CLI dispatch (`commands::daemon::
+/// install`) maps this to an `ExitCode`; the first-run prompt
+/// (`ensure_daemon::show_install_hint`) consumes the `bool` directly, since
+/// `std::process::ExitCode` is not comparable. Byte-exactness with
+/// `installDarwin` (service-darwin.ts) is preserved — only the return *type*
+/// changes (the TS fn returns `void` and signals failure by `process.exit(1)`
+/// at its own `install` boundary; here the boolean carries that signal).
+pub fn install_darwin(runner: &mut dyn LaunchctlRunner) -> bool {
     let tp_binary = crate::commands::daemon::resolve_tp_binary_pub();
     let log_dir_path = get_log_dir();
     let plist = plist_path();
@@ -220,21 +229,21 @@ pub fn install_darwin(runner: &mut dyn LaunchctlRunner) -> ExitCode {
             "[Service] failed to create log dir {}: {e}",
             log_dir_path.display()
         );
-        return ExitCode::FAILURE;
+        return false;
     }
 
     // 2. mkdir ~/Library/LaunchAgents (recursive) — service-darwin.ts:103-105
     let launch_agents = PathBuf::from(&home).join("Library").join("LaunchAgents");
     if let Err(e) = std::fs::create_dir_all(&launch_agents) {
         eprintln!("[Service] failed to create LaunchAgents dir: {e}");
-        return ExitCode::FAILURE;
+        return false;
     }
 
     // 3. Write plist — service-darwin.ts:108-109
     let plist_content = generate_plist(&tp_binary, &log_dir_path, &home);
     if let Err(e) = std::fs::write(&plist, plist_content) {
         eprintln!("[Service] failed to write plist {}: {e}", plist.display());
-        return ExitCode::FAILURE;
+        return false;
     }
 
     // 4. Derive uid/domain/serviceTarget — service-darwin.ts:112-114
@@ -251,7 +260,7 @@ pub fn install_darwin(runner: &mut dyn LaunchctlRunner) -> ExitCode {
     if result.exit_code != 0 {
         // service-darwin.ts:133: console.error(`[Service] launchctl bootstrap failed: ${stderr}`)
         eprintln!("[Service] launchctl bootstrap failed: {}", result.stderr);
-        return ExitCode::FAILURE;
+        return false;
     }
 
     // 7. kickstart -k — service-darwin.ts:139
@@ -269,7 +278,7 @@ pub fn install_darwin(runner: &mut dyn LaunchctlRunner) -> ExitCode {
     println!("\nThe daemon will start automatically on login.");
     println!("To check status: launchctl list {LABEL}");
 
-    ExitCode::SUCCESS
+    true
 }
 
 // ---------------------------------------------------------------------------

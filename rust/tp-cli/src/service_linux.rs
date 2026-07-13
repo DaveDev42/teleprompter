@@ -83,7 +83,12 @@ pub fn generate_unit(tp_binary: &str, home: &str) -> String {
 /// `tp daemon install` on Linux.
 ///
 /// Byte-exact port of `installLinux()` in `service-linux.ts:48-81`.
-pub fn install_linux() -> ExitCode {
+///
+/// Returns `true` on success, `false` on any failure (dir/unit write error or a
+/// non-zero `systemctl enable`). The CLI dispatch maps this to an `ExitCode`;
+/// the first-run prompt consumes the `bool` directly — see the `install_darwin`
+/// note for why the return type is `bool` rather than the opaque `ExitCode`.
+pub fn install_linux() -> bool {
     let tp_binary = crate::commands::daemon::resolve_tp_binary_pub();
     let unit_dir_path = unit_dir();
     let unit = unit_path();
@@ -95,14 +100,14 @@ pub fn install_linux() -> ExitCode {
             "[Service] failed to create unit dir {}: {e}",
             unit_dir_path.display()
         );
-        return ExitCode::FAILURE;
+        return false;
     }
 
     // 2. Write unit file — service-linux.ts:57-58
     let content = generate_unit(&tp_binary, &home);
     if let Err(e) = std::fs::write(&unit, &content) {
         eprintln!("[Service] failed to write unit {}: {e}", unit.display());
-        return ExitCode::FAILURE;
+        return false;
     }
 
     // 3. systemctl --user daemon-reload — service-linux.ts:61
@@ -124,7 +129,7 @@ pub fn install_linux() -> ExitCode {
     if !exit_ok {
         // service-linux.ts:70-73
         eprintln!("[Service] systemctl enable failed: {enable_stderr}");
-        return ExitCode::FAILURE;
+        return false;
     }
 
     // 5. Success output — service-linux.ts:76-80
@@ -134,7 +139,7 @@ pub fn install_linux() -> ExitCode {
     println!("\nThe daemon will start automatically on login.");
     println!("To check status: systemctl --user status {SERVICE_NAME}");
 
-    ExitCode::SUCCESS
+    true
 }
 
 // ---------------------------------------------------------------------------

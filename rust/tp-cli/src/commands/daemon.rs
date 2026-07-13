@@ -420,6 +420,24 @@ pub fn status() -> ExitCode {
 /// `service_linux::install_linux` (Linux). Architecture invariant: file
 /// write + launchctl/systemctl ONLY — no IPC, no socket open, no relay/WS.
 pub fn install() -> ExitCode {
+    if install_service_ok() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
+/// Install the OS service and report success as a `bool` (rather than the
+/// opaque `ExitCode` that `install()` returns for the CLI dispatch).
+///
+/// This is the shared dispatch core: `install()` wraps it for `tp daemon
+/// install`, and the first-run prompt (`ensure_daemon::show_install_hint`)
+/// calls it directly so it can print a manual-install hint on failure —
+/// `std::process::ExitCode` is not comparable, so a bool is the honest seam.
+/// Mirrors the Bun `installService()` (`service.ts:5-19`), which likewise
+/// dispatches by platform and (via a thrown error) signals failure to its
+/// caller.
+pub fn install_service_ok() -> bool {
     let os = std::env::consts::OS;
     if os == "macos" {
         crate::service_darwin::install_darwin(&mut crate::service_darwin::RealLaunchctl)
@@ -427,7 +445,7 @@ pub fn install() -> ExitCode {
         crate::service_linux::install_linux()
     } else {
         eprintln!("tp: `daemon install` is not supported on {os}");
-        ExitCode::FAILURE
+        false
     }
 }
 

@@ -187,7 +187,32 @@ pub async fn run(
             }
 
             // claude's PTY child exited on its own — meaningful exit code.
+            // Before treating this as terminal, drain any PTY output the reader
+            // thread already queued. Two independent races make this necessary:
+            //  * Layer 1 (pty.rs): reader/waiter are separate OS threads with no
+            //    ordering guarantee, so a final chunk can already be sitting in
+            //    pty_data_rx when the exit code arrives.
+            //  * Layer 2 (this select!): select! is unbiased, so this arm can win
+            //    even when the data arm is simultaneously ready.
+            // A clean child exit's final output is meaningful and must reach the
+            // daemon BEFORE bye. This is intentionally scoped to the Exit arm only —
+            // the Signal / IPC-close / hook / shutdown arms keep dropping in-flight
+            // io per the documented teardown-drop invariant (see module doc).
             Some(code) = pty_exit_rx.recv() => {
+                // `try_recv`'s `Err` covers both Empty (nothing more queued
+                // right now) and Disconnected (reader sender gone) — both mean
+                // stop draining, neither is an error (mirrors the data arm's
+                // implicit-close handling), so `while let Ok(..)` falling
+                // through on any `Err` is exactly the behaviour we want.
+                while let Ok(chunk) = pty_data_rx.try_recv() {
+                    let rec = collector.io_record(chunk, now_ms());
+                    let json = serde_json::to_vec(&rec.msg).expect("io rec serialises");
+                    if !ipc.handle.send(&json, Some(&rec.binary)) {
+                        // Transport going down anyway; stop draining and fall
+                        // through to bye (do NOT flip the reason).
+                        break;
+                    }
+                }
                 break (code, ByeReason::Exit);
             }
 

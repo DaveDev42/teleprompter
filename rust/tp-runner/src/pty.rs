@@ -39,6 +39,15 @@ use std::thread::JoinHandle;
 
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
 
+/// Bound on how long the waiter thread waits for the reader thread to finish
+/// draining trailing PTY output before forwarding the exit code regardless.
+/// Closes the Layer-1 race (reader/waiter are separate OS threads with no
+/// inherent ordering) in the common case, WITHOUT risking an unbounded hang
+/// when a grandchild inherits the PTY slave and keeps it open (reader never
+/// reaches EOF) — a bounded `recv_timeout`, never a thread join. See module doc
+/// + runner.rs exit-arm drain.
+const READER_DRAIN_GRACE: std::time::Duration = std::time::Duration::from_millis(200);
+
 /// Options for [`Pty::spawn`]. Mirrors the TS `PtyOptions` (minus the callbacks,
 /// which `spawn` takes as separate closures so their trait bounds are explicit).
 pub struct PtyOptions {
@@ -112,6 +121,11 @@ impl Pty {
         let reader = pair.master.try_clone_reader()?;
         let writer = pair.master.take_writer()?;
 
+        // 0-capacity rendezvous: carries no data, only the reader-done signal
+        // (presence or sender-disconnect). The waiter recv_timeouts on it so it can
+        // sequence on_exit strictly after the reader has flushed all bytes — bounded.
+        let (reader_done_tx, reader_done_rx) = std::sync::mpsc::sync_channel::<()>(0);
+
         // Reader thread: blocking reads → on_data. Ends on EOF (child exit) or
         // read error.
         let mut on_data = on_data;
@@ -128,6 +142,12 @@ impl Pty {
                         Err(_) => break,
                     }
                 }
+                // Reader done: every byte read from the master has already been passed
+                // to on_data (forwarded into pty_data_tx via try_send). Signal the
+                // waiter so it can sequence on_exit strictly after this point. If the
+                // waiter already timed out and dropped its receiver, this returns
+                // Err(SendError) and we simply exit — no block, no panic.
+                let _ = reader_done_tx.send(());
             })?;
 
         // Waiter thread: owns the child, blocks on wait(), forwards the exit
@@ -142,7 +162,20 @@ impl Pty {
                     Ok(status) => status.exit_code() as i32,
                     Err(_) => -1,
                 };
+                // Mark exited the instant the child is reaped — BEFORE the drain grace
+                // below — so a racing kill() stays a no-op on the (now-reaped, possibly
+                // OS-recycled) pid. This flag tracks child liveness, not output
+                // completeness, so it must not wait on the reader: sequencing it after
+                // the recv_timeout would widen the TOCTOU window to READER_DRAIN_GRACE
+                // and let a concurrent teardown-driven kill() signal a recycled pid.
                 exited_thread.store(true, Ordering::SeqCst);
+                // Bounded wait for the reader to drain trailing output already flushed
+                // to the kernel PTY buffer before we signal exit — this is what closes
+                // Layer 1. Ok(()) => reader finished, pty_data_tx already holds every
+                // trailing chunk. Err(Timeout) => reader hasn't finished (e.g. a
+                // grandchild still holds the PTY slave open) — proceed anyway so
+                // exit/bye is never blocked unboundedly (200ms hard ceiling).
+                let _ = reader_done_rx.recv_timeout(READER_DRAIN_GRACE);
                 on_exit(code);
             })?;
 

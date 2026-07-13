@@ -52,7 +52,7 @@ rust/
       lib.rs               # 모듈 선언 + 크레이트 doc (dual-run seam TP_RUNNER_BIN, io-record 바이너리 사이드카 parity gate). CLI-side seam = apps/cli resolveRunnerBinOverride; differential wire-parity gate = packages/daemon runner-parity.test.ts (Bun↔Rust hello/io/bye byte-exact)
       settings.rs          # byte-exact capture_hook_command(golden) + build_settings(hook 머지, 16 HOOK_EVENTS)
       collector.rs         # io_record(바이너리 사이드카 payload="") / event_record(base64 payload, ns="claude")
-      pty.rs               # Pty over portable-pty (ADR §6.1 spike 해소; reader-thread hop, spawn/write/resize/kill, Mutex writer)
+      pty.rs               # Pty over portable-pty (ADR §6.1 spike 해소; reader-thread hop, spawn/write/resize/kill, Mutex writer). 종료 시 waiter 스레드가 reader-done rendezvous 채널에 READER_DRAIN_GRACE=200ms 로 bounded-wait(recv_timeout — join 아님)해 reader/waiter 순서 레이스(Layer 1)를 닫는다: 정상 종료는 그 안에 EOF 로 남은 출력을 다 흘려보내고, grandchild 가 PTY 를 물고 있어도 200ms 안에 무조건 종료 신호를 보낸다
       socket.rs            # 런타임 dir(XDG/run-user/tmp writer-semantics) + daemon/hook 소켓 경로(sid traversal 가드)
       wire.rs              # hello/bye 아웃바운드 구조체(pid 생성 가드 + reason signal/exit, TS key-order byte-exact)
       ipc.rs               # 비동기 IPC 클라이언트(into_split writer/reader task, decode-throw teardown, inbound allowlist, overflow→close)

@@ -123,11 +123,37 @@ async fn run_sends_hello_then_bye_around_a_faked_claude() {
     // At least one io record should have carried the child's PTY output. io
     // records have kind="io" and an empty payload (bytes rode as a binary
     // sidecar — the Stage 4 parity gate).
-    let io = msgs.iter().find(|m| m["t"] == "rec" && m["kind"] == "io");
-    assert!(io.is_some(), "expected at least one io record from the PTY");
+    //
+    // This assertion used to be the flaky one: the child's PTY output and its
+    // exit code race across two independent layers (separate OS threads in
+    // pty.rs, then an unbiased select! in runner.rs), so on a slow CI box the
+    // exit arm could win before the data arm drained the queued chunk. The
+    // runner now drains any already-queued PTY output when the exit arm fires
+    // (before sending bye), which closes that race — this assertion is the
+    // regression lock for that fix (invariant (a): Exit-path drain).
+    let io_msgs: Vec<_> = msgs
+        .iter()
+        .filter(|m| m["t"] == "rec" && m["kind"] == "io")
+        .collect();
+    assert!(
+        !io_msgs.is_empty(),
+        "expected at least one io record from the PTY"
+    );
     assert_eq!(
-        io.unwrap()["payload"],
-        "",
+        io_msgs[0]["payload"], "",
         "io payload is empty (binary sidecar)"
+    );
+
+    // The io record(s) must be ordered strictly before bye — the drain sends
+    // into the same FIFO IPC outbound queue ahead of the post-loop bye send,
+    // so bye must remain the last frame observed by the daemon.
+    let bye_idx = msgs.len() - 1;
+    let last_io_idx = msgs
+        .iter()
+        .rposition(|m| m["t"] == "rec" && m["kind"] == "io")
+        .expect("an io record exists");
+    assert!(
+        last_io_idx < bye_idx,
+        "io records must be drained before bye, not after"
     );
 }

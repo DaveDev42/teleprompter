@@ -44,7 +44,7 @@ use portable_pty::{ChildKiller, CommandBuilder, MasterPty, NativePtySystem, PtyS
 /// Closes the Layer-1 race (reader/waiter are separate OS threads with no
 /// inherent ordering) in the common case, WITHOUT risking an unbounded hang
 /// when a grandchild inherits the PTY slave and keeps it open (reader never
-/// reaches EOF) — a bounded recv_timeout, never a thread join. See module doc
+/// reaches EOF) — a bounded `recv_timeout`, never a thread join. See module doc
 /// + runner.rs exit-arm drain.
 const READER_DRAIN_GRACE: std::time::Duration = std::time::Duration::from_millis(200);
 
@@ -162,6 +162,13 @@ impl Pty {
                     Ok(status) => status.exit_code() as i32,
                     Err(_) => -1,
                 };
+                // Mark exited the instant the child is reaped — BEFORE the drain grace
+                // below — so a racing kill() stays a no-op on the (now-reaped, possibly
+                // OS-recycled) pid. This flag tracks child liveness, not output
+                // completeness, so it must not wait on the reader: sequencing it after
+                // the recv_timeout would widen the TOCTOU window to READER_DRAIN_GRACE
+                // and let a concurrent teardown-driven kill() signal a recycled pid.
+                exited_thread.store(true, Ordering::SeqCst);
                 // Bounded wait for the reader to drain trailing output already flushed
                 // to the kernel PTY buffer before we signal exit — this is what closes
                 // Layer 1. Ok(()) => reader finished, pty_data_tx already holds every
@@ -169,7 +176,6 @@ impl Pty {
                 // grandchild still holds the PTY slave open) — proceed anyway so
                 // exit/bye is never blocked unboundedly (200ms hard ceiling).
                 let _ = reader_done_rx.recv_timeout(READER_DRAIN_GRACE);
-                exited_thread.store(true, Ordering::SeqCst);
                 on_exit(code);
             })?;
 

@@ -1163,9 +1163,10 @@ describe("IpcCommandDispatcher.dispatchIpc", () => {
   // CLI passthrough service-daemon path: input/resize forwarding
   // The dispatcher must forward `input` / `resize` messages from any IPC
   // connection (including a CLI passthrough client) to the runner identified
-  // by `msg.sid`. This is the mechanism that lets `passthroughViaServiceDaemon`
-  // relay local stdin and resize events to the runner without the CLI opening
-  // its own relay WebSocket (architecture invariant: only the daemon opens relay WS).
+  // by `msg.sid`. This is the mechanism that lets the native `tp` passthrough
+  // proxy (Rust Route::Passthrough) relay local stdin and resize events to the
+  // runner without the CLI opening its own relay WebSocket (architecture
+  // invariant: only the daemon opens relay WS).
   test("input message is forwarded to the runner for matching sid", () => {
     const { dispatcher, calls } = makeHarness();
     // "present" is the sid that makeHarness's findRunnerBySid resolves.

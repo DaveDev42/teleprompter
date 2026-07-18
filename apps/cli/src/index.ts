@@ -68,10 +68,17 @@ async function main(): Promise<void> {
     }
     case "passthrough": {
       // Bare `tp` (no args) and any unrecognized first arg both fall through
-      // to passthrough — claude is launched through the daemon+runner pipeline
-      // with whatever args (if any) the user provided.
-      const { passthroughCommand } = await import("./commands/passthrough");
-      await passthroughCommand(process.argv.slice(2));
+      // to passthrough. The daemon+runner+relay passthrough pipeline is now
+      // owned by the native Rust `tp` binary (Route::Passthrough →
+      // commands::passthrough::run), which is the production entrypoint. This
+      // Bun CLI is retained only as the behavioral reference until the #5
+      // Bun-deletion cascade; its passthrough route forwards straight to
+      // claude (daemon-bypass), the same as `tp -- <args>`, rather than
+      // re-running the pipeline the native binary drives.
+      const { forwardToClaudeCommand } = await import(
+        "./commands/forward-claude"
+      );
+      process.exit(await forwardToClaudeCommand(process.argv.slice(2)));
       break;
     }
     case "maybe-typo": {

@@ -7,17 +7,20 @@
 //!   2. else kickstart the OS service if installed, poll for readiness;
 //!   3. else spawn the daemon in the background (detached) + poll for readiness.
 //!
-//! # Why this spawns the Bun blob (flip-independent)
+//! # Why this spawns the Rust `tp-daemon` (post-flip, task #4)
 //!
-//! Today the native `tp daemon start` (`commands/daemon.rs:470`) is itself a
-//! trampoline: it locates the Bun SEA (`locate_bun_blob()`) and exec's
-//! `<blob> daemon start`. This `ensure_daemon()` spawns that same blob in the
-//! background, byte-for-byte the daemon the Bun `ensureDaemon()` compiled path
-//! spawns (`[process.execPath, ["daemon","start"]]`, where `execPath` IS the
-//! tpd blob). So the daemon the native passthrough ensures is identical to the
-//! one dogfood runs today — this is NOT gated on the Rust-daemon default flip
-//! (task #4). When the flip lands, this single spawn site swaps to
-//! `locate_tp_daemon()` (locate.rs:167) and nothing else here changes.
+//! The default daemon is now the Rust `tp-daemon` binary. `ensure_daemon()`
+//! locates it via `locate_tp_daemon()` (locate.rs) and spawns it in the
+//! background as a bare binary (no `daemon start` subcommand — the Rust
+//! `tp-daemon` main() IS the daemon: pid-lock → `Daemon::new/start` →
+//! auto-cleanup → reconnect → SIGINT/SIGTERM). This matches the foreground
+//! `tp daemon start` (`commands/daemon.rs::start`), which the #4 flip also
+//! swapped to exec `tp-daemon` — so background auto-spawn and installed
+//! launchd/systemd services (which bake `[<tp>, daemon, start]`) both run the
+//! same Rust daemon. Socket parity is automatic: the Rust daemon binds
+//! `resolve_runtime_dir()/daemon.sock`, the same path `is_daemon_running()`
+//! probes. Before the flip this spawned the Bun SEA `<blob> daemon start`;
+//! that path is retired (the Bun daemon is deleted in task #5).
 //!
 //! # First-run install prompt (PR-5, ported here)
 //!
@@ -155,25 +158,27 @@ fn wait_for_daemon_ready() -> bool {
 /// `LOG_LEVEL=error` (matching the TS `spawn(..., {stdio:"ignore", detached:true,
 /// env:{...,LOG_LEVEL:"error"}})` + `proc.unref()`).
 ///
-/// Spawns the located Bun SEA `<blob> daemon start` — see the module doc for why
-/// this is the flip-independent choice. Returns an error string if the blob can't
-/// be located or the spawn fails.
+/// Spawns the located Rust `tp-daemon` binary as a bare process (no subcommand —
+/// see the module doc). Returns an error string if the binary can't be located
+/// or the spawn fails.
 fn spawn_background_daemon() -> Result<(), String> {
-    let blob = crate::locate::locate_bun_blob()?;
+    let daemon_bin = crate::locate::locate_tp_daemon()?;
 
     // `Command` children are not process-group leaders and we never wait on the
     // handle, so dropping it detaches (the OS reparents to init) — the Rust
     // equivalent of `detached:true` + `unref()`. stdio null = `stdio:"ignore"`.
-    Command::new(&blob)
-        .arg("daemon")
-        .arg("start")
+    //
+    // No `daemon start` args: the Rust `tp-daemon` binary IS the daemon (its
+    // main() runs pid-lock → Daemon::new/start → signal loop), unlike the Bun
+    // trampoline which needed the `daemon start` subcommand.
+    Command::new(&daemon_bin)
         .env("LOG_LEVEL", "error")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .map(|_child| ())
-        .map_err(|e| format!("tp: failed to spawn daemon ({}): {e}", blob.display()))
+        .map_err(|e| format!("tp: failed to spawn daemon ({}): {e}", daemon_bin.display()))
 }
 
 /// Ensure the daemon is running, starting it if necessary. Returns `true` when

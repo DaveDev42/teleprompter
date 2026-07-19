@@ -34,9 +34,11 @@ pub mod control;
 pub mod ipc;
 pub mod keypair;
 pub mod label;
+pub mod locate;
 pub mod relay_client;
 pub mod socket_path;
 
+pub use locate::locate_tp_runner;
 pub use socket_path::{assert_safe_sid, resolve_runtime_dir, socket_path};
 
 // ---------------------------------------------------------------------------

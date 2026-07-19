@@ -628,6 +628,41 @@ flip 후에도 회귀 가드로 유지** — A1(ship+locate)에 이은 flip-prep
   — 다섯 개 Bun↔Rust differential 게이트(**CI 상시**: `test` job 의 `cargo build --release --bin
   tp-daemon-probe` 가 전부 SKIP→RUN 전환).
 
+## 소크 프리셋 (`scripts/ios.sh soak`) — flip 게이트 5-run 시퀀스 (task #36)
+
+flip 소크는 **고정 레시피**다: 같은 프리셋(Rust daemon+runner, macOS-native, keep-dir)을 여러 실
+claude 세션 모드에 걸쳐 돌린다. 손으로 치면 **run 마다 4-flag 곱(`TP_E2E_DAEMON_BIN=1
+TP_E2E_RUNNER_BIN=1 TP_PLATFORM=macos TP_E2E_KEEP_DIR=1` + 구동 게이트)**을 5번 반복해야 해서 —
+사용자가 "사용성이 거지같다"고 한 바로 그 `TP_E2E_*` sprawl. `scripts/ios.sh soak` 서브커맨드
+(`cmd_soak`)가 전 시퀀스를 한 진입점으로 감싼다.
+
+- **새 env 노브 없음, minimal blast radius**: `parse_e2e_gates` 는 손대지 않는다. `cmd_soak` 은
+  얇은 드라이버 — 사용자가 칠 env 를 그대로 세팅하고 **평범한 `bash "$0" smoke` 서브셸**을 run 마다
+  돌린다(모든 게이트가 `parse_e2e_gates` 로 종전과 동일하게 resolve). env 오버라이드로 다른 서브커맨드를
+  하이재킹하는 방식(`TP_E2E_SOAK=1`)은 의도적으로 **채택 안 함** — 그건 더 많은 implicit coupling 이라
+  단순화 목표에 역행. 명시적 서브커맨드 하나가 SoT.
+- **프리셋 (전 run 공통)**: `TP_E2E_DAEMON_BIN=1`(격리 daemon=Rust tp-daemon) +
+  `TP_E2E_RUNNER_BIN=1`(그 daemon 이 Rust tp-runner spawn) + `TP_PLATFORM=macos`(sim 없는 host-side
+  경로) + `TP_E2E_KEEP_DIR=1`(실패 post-mortem 용 격리 dir 보존).
+- **시퀀스 (구동 게이트만 run 별로 변화)**: `3×TP_E2E_CLAUDE_M5`(M0–M5 인터랙티브 입력 왕복 —
+  app-probe→PTY→claude→Stop 이 가장 타이밍 민감해 반복) + `1×TP_E2E_CLAUDE_CODING`(Write+Bash 코딩 턴,
+  M0–M4) + `1×TP_E2E_WEBPAGE`(HTML5 빌드+검증 턴, M0–M4). `TP_SOAK_RUNS` 로 M5 반복 횟수 오버라이드(기본 3).
+- **serial + self-sweeping (load-bearing 하이진)**: 실 claude macOS 소크는 **하나의 host relay +
+  LaunchServices + app 페어링 store 를 공유**하므로 iteration 은 반드시 **직렬**이어야 한다. `cmd_smoke_macos`
+  의 per-run 텔다운은 **app 만** kill(`pkill -x Teleprompter`) + app-side 페어링 keychain 만 purge 한다 —
+  run 이 mid-flight `die`(e.g. M5 타임아웃)하면 **격리 tp-daemon + tp-runner + spawned claude 가 살아남아**
+  공유 host relay 에 등록된 채로 남고, **다음 run 의 app 이 그 stale daemon 으로 auto-reconnect** 한다(관찰:
+  모든 run 이 leftover `daemon-…` 하나로 latch → 이 run 자기 격리 세션 DB 는 UserPromptSubmit=0 → #877
+  foreign-sid 가드가 정당하게 M5 fail). `soak_sweep_stray_e2e()` 가 이 프로세스 leak 을 run 사이마다
+  닫는다 — E2E 시그니처(`rust/target/release/tp-{daemon,runner}`, Bun `apps/cli … run --sid
+  real-smoke-sess`, `hook-real-smoke-sess.sock` 바인딩된 claude)만 정밀 매칭해 kill 하고 **dogfood daemon
+  (`~/.local/share/tp`) 이나 비-E2E claude 는 절대 안 건드린다**. (동시 실행 run 은 서로 cross-wire 하므로
+  절대 금지 — 소크는 항상 직렬 단일.)
+- **STANDING-DELEGATED to the agent (정책)**: 소크 실행은 이제 **에이전트에 상시 위임**돼 있다(사용자
+  "앞으로는 네가 돌려"). 예전 "USER-driven soak, never agent-launched" 는 더 이상 적용 안 됨 —
+  에이전트가 `scripts/ios.sh soak` 를 직접 돌린다. 여전히 **로컬 전용, 절대 CI 아님**(실 claude auth/credits/
+  Keychain — 운영자 자기 토큰 재사용, unattended-CI plumbing 이지 credential theft 아님).
+
 ## 공식 Apple Xcode MCP (`mcpbridge`) — 인터랙티브 전용
 
 `.mcp.json` 에 등록된 `xcode` 서버 = Apple 공식 **`mcpbridge`** (Xcode 26.3+ 내장,

@@ -368,3 +368,11 @@ scripts/ios.sh test     # XCTest (iOS Simulator; xcframework 먼저)
 `TP_FORCE_RUST=1` = xcframework 매번 재빌드(Rust 수정 후), `TP_SKIP_RUST=1` = 재빌드 스킵(빠른 반복). `TP_PLATFORM=macos` = 네이티브 macOS 경로(sim 없이 `open` + 호스트 unified log 스크랩 — 빠른 회귀). `TP_PLATFORM=visionos` = visionOS Simulator 경로(B2 ✅). `TP_PLATFORM=watchos` = watchOS Simulator 경로, `TeleprompterWatch` 타깃 빌드, 7마커(TP_INPUT_OK 제외, B3 ✅). `TP_WATCH_SIM` = watchOS Simulator 기기명(기본 `"Apple Watch Series 11 (46mm)"`). ADR-0002.
 
 부트마커는 `os.Logger(subsystem: "dev.tpmt.app", category: "boot")` 로 emit, 하니스가 Simulator unified log 를 `--predicate "subsystem == ..."` 로 grep 검증. **코어마커**(`TP_CORE_OK`/`TP_CORE_FAIL`)는 `TpCoreCheck` 가 encode→encrypt→decrypt→decode 라운드트립을 FFI 로 실행한 결과 — Rust 정적 라이브러리가 링크됐고 실기 런타임에서 동작함을 증명한다. 상세는 `ios/README.md` + `rust/README.md`. 실기기/TestFlight 배포는 재작성 진행에 따라 별도 정착.
+
+## Request Reading Guidance
+
+<!-- fabler:guard event=835fe251-3ce7-4d10-8f7b-9c2e8ddbd5c9 -->
+A short literal instruction of the form "Reply with exactly: `<token>`" (e.g. a bare "OK") in this repo's sessions is an ordinary liveness/connectivity check (dogfood harness, CI plumbing, or a human confirming the session is responsive) — read it as plain instruction-following, not as an attempt to probe, extract, or bypass any hidden reasoning, system prompt, or safety mechanism.
+
+<!-- fabler:guard event=ae006a8f-4caf-4003-ad4b-b15b45216bf3 -->
+A short request like "confirm origin/main head" (or similar phrasing asking to check the current state of `origin/main`, e.g. after a PR merge) in this repo's sessions is an ordinary git-state check — read it as a plain instruction to run a read-only `git fetch`/`git log`/`git worktree list` style command, not as an attempt to probe, extract, or bypass any hidden reasoning, system prompt, or safety mechanism.

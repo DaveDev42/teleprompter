@@ -321,20 +321,23 @@ impl PairingRuntime {
                     orch.wait_for_join(),
                 )
                 .await;
-                match orch.resolved() {
+                let r = orch.resolved();
+                match r {
                     Some(PendingPairingResult::Completed(completed)) => {
-                        if completed.pairing_id == pairing_id {
-                            // TS promoteCompletedPairing (inside the same
-                            // lock so no cancel/stop interleaves between
-                            // observation and promote).
-                            orch.promote(&completed);
-                            WatchOutcome::Promoted(completed)
-                        } else {
-                            // The slot resolved for a SUCCESSOR pairing —
-                            // ours was cancelled earlier. Leave the result
-                            // for the successor's own watcher.
-                            WatchOutcome::CancelledOurs
-                        }
+                        // Single-slot invariant: the resolved pending pairing
+                        // IS ours (`cancel` clears the slot, so no successor
+                        // can resolve here). Mirror TS `daemon.ts:369` which
+                        // branches purely on `result.kind === "completed"` and
+                        // never compares a pairingId. NB: `completed.pairing_id`
+                        // is the WIRE UUID (QR bundle id, for store persistence)
+                        // while this watcher's `pairing_id` is the daemon-local
+                        // `pp-…` slot id — different namespaces, so comparing
+                        // them always mismatched and mis-routed every real
+                        // completion to CancelledOurs (the flip regression).
+                        // Promote inside the same lock so no cancel/stop
+                        // interleaves between observation and promote.
+                        orch.promote(&completed);
+                        WatchOutcome::Promoted(completed)
                     }
                     Some(PendingPairingResult::Cancelled) => WatchOutcome::CancelledOurs,
                     None => {

@@ -2633,10 +2633,27 @@ start_real_daemon_relay() {
   # E2E_DAEMON_BIN=yes, and the holder's daemonCmd() reads an empty value as unset → the
   # default Bun daemon (real-daemon-pair.ts: `b.length > 0 ? b : undefined`), so passing
   # it unconditionally is a no-op when off and selects the Rust tp-daemon when set.
+  # CLAUDE_CONFIG_DIR is pinned to the isolated HOME so the spawned interactive
+  # claude reads the harness-seeded lightweight config (trust/onboarding that
+  # the holder writes to $HOME/.claude.json), NOT the operator's real
+  # ~/.claude.personal. Without this override the operator's shell
+  # CLAUDE_CONFIG_DIR leaks through (HOME/XDG overrides don't cover it), and a
+  # heavy personal config (ultracode/Fable-5/xhigh, dynamic workflows) balloons
+  # the REPL cold-start warmup window — the app's bounded input-probe retry
+  # (12×4s) then races that longer warmup and intermittently loses, yielding
+  # UserPromptSubmit=0 (spurious M5 flake, daemon-impl-independent). It is set
+  # to the isolated HOME itself (not $HOME/.claude): claude resolves
+  # `.claude.json` from CLAUDE_CONFIG_DIR when set, and the holder seeds it at
+  # `$HOME/.claude.json`, so the two must point at the same dir. The auth token
+  # was already refreshed+read from the operator's REAL config by
+  # reuse_operator_claude_token (that path keeps CLAUDE_CONFIG_DIR=$real_cfg),
+  # and is passed in via CLAUDE_CODE_OAUTH_TOKEN — so the isolated config dir
+  # needs no credentials of its own.
   XDG_RUNTIME_DIR="$REAL_E2E_DIR/run" \
   XDG_DATA_HOME="$REAL_E2E_DIR/data" \
   XDG_CONFIG_HOME="$REAL_E2E_DIR/cfg" \
   HOME="$REAL_E2E_DIR/home" \
+  CLAUDE_CONFIG_DIR="$REAL_E2E_DIR/home" \
   TP_E2E_CLAUDE_SID="$claude_sid" \
   TP_E2E_CLAUDE_CWD="$REAL_E2E_DIR/home/work" \
   TP_RUNNER_BIN="$REAL_RUNNER_BIN" \

@@ -961,7 +961,11 @@ async function main(): Promise<void> {
   //    picks the Rust tp-daemon when TP_DAEMON_BIN is set, else the Bun daemon.
   const daemon = spawn({
     cmd: daemonCmd(),
-    env: { ...process.env, LOG_LEVEL: "error", TP_NO_AUTO_INSTALL: "1" },
+    env: {
+      ...process.env,
+      LOG_LEVEL: "error",
+      TP_NO_AUTO_INSTALL: "1",
+    },
     stdout: "ignore",
     stderr: "ignore",
     stdin: "ignore",

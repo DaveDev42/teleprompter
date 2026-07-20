@@ -117,26 +117,33 @@ jobs:
         run: |
           timeout 10 /tmp/tp-prefix/bin/tp version
           timeout 10 /tmp/tp-prefix/bin/tp --help
-      - name: Bundle smoke — Rust→blob forward seam (TP_BUN_BLOB echo script)
+      - name: Bundle smoke — Rust→tp-runner native exec seam (TP_RUNNER_BIN echo script)
         run: |
-          # Prove the Rust→Bun blob forward seam without spawning a real daemon.
-          # TP_BUN_BLOB overrides locate_bun_blob() to use a tiny echo script that
-          # prints its arguments — no daemon, no claude, deterministic + non-hanging.
-          printf '#!/bin/sh\necho "BLOB_GOT:" "$@"\n' > /tmp/fake-tpd
-          chmod +x /tmp/fake-tpd
-          # tp run --sid x → pre-clap decide_route → Route::Forward →
-          # exec_blob → fake-tpd. NOTE the probe route has migrated as routes were
-          # de-trampolined: `tp -p x` (PR-4 → Route::Passthrough), `tp auth login`
-          # (PR-6 → Route::ForwardClaude, native claude exec), and `tp relay start`
-          # (#25 → Route::RelayNative, native tp-relay exec) all left the blob seam.
-          # `run` is now the ONLY route still on the blob (its native flip is task
-          # #8), so the probe uses `run`.
-          GOT=$(timeout 10 env TP_BUN_BLOB=/tmp/fake-tpd /tmp/tp-prefix/bin/tp run --sid x 2>&1 || true)
+          # Prove the Rust `tp run` → native tp-runner exec seam without spawning
+          # a real daemon. TP_RUNNER_BIN overrides locate_tp_runner() to use a
+          # tiny echo script that prints its arguments — no daemon, no claude,
+          # deterministic + non-hanging.
+          printf '#!/bin/sh\necho "RUNNER_GOT:" "$@"\n' > /tmp/fake-tp-runner
+          chmod +x /tmp/fake-tp-runner
+          # tp run --sid x → pre-clap decide_route → Route::RunNative →
+          # commands::run::run → exec_runner → fake-tp-runner. NOTE the probe
+          # route has migrated as routes were de-trampolined: `tp -p x` (PR-4 →
+          # Route::Passthrough), `tp auth login` (PR-6 → Route::ForwardClaude,
+          # native claude exec), `tp relay start` (#25 → Route::RelayNative,
+          # native tp-relay exec), and `tp run` (task #8 → Route::RunNative,
+          # native tp-runner exec) all left the Bun blob seam — the blob
+          # (`tpd`) is no longer exec'd by any route.
+          #
+          # commands::run::run strips the leading `run` token before forwarding
+          # to tp-runner (the daemon spawns tp-runner without a `run` subcommand
+          # token, and this exec must match that argv shape exactly), so the
+          # fake script only sees `--sid x`.
+          GOT=$(timeout 10 env TP_RUNNER_BIN=/tmp/fake-tp-runner /tmp/tp-prefix/bin/tp run --sid x 2>&1 || true)
           echo "Forward smoke output: ${GOT}"
-          if echo "${GOT}" | grep -q 'BLOB_GOT: run --sid x'; then
-            echo "Forward smoke PASS: Rust→blob seam works"
+          if echo "${GOT}" | grep -q 'RUNNER_GOT: --sid x'; then
+            echo "Forward smoke PASS: Rust→tp-runner native exec seam works"
           else
-            echo "FATAL: Forward smoke FAIL — expected 'BLOB_GOT: run --sid x'"
+            echo "FATAL: Forward smoke FAIL — expected 'RUNNER_GOT: --sid x'"
             exit 1
           fi
 

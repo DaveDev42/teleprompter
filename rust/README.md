@@ -46,10 +46,10 @@ rust/
       main.rs              # THIN clap 라우터 (11 서브커맨드 선언; 미포팅은 loud-fail stub)
       commands/
         version.rs         # `tp version` — tp + claude 버전 (byte-parity vs Bun, NO_COLOR gate)
-  tp-runner/               # ADR-0003 Stage 4 — 네이티브 runner (host-only). packages/runner 포팅 진행 중 (dual-run seam TP_RUNNER_BIN 선택 가능 + wire-parity 게이트 통과, 기본 cutover 없음)
+  tp-runner/               # ADR-0003 Stage 4 — 네이티브 runner (host-only). 출하 bin, 기본 cutover 완료 (task #4 — Rust tp-daemon 이 세션마다 tp-runner spawn)
     Cargo.toml             # [lib] tp_runner + [[bin]] tp-runner; deps: serde/serde_json, tp-core, tp-proto, base64, portable-pty, tokio, rustix
     src/
-      lib.rs               # 모듈 선언 + 크레이트 doc (dual-run seam TP_RUNNER_BIN, io-record 바이너리 사이드카 parity gate). CLI-side seam = apps/cli resolveRunnerBinOverride; differential wire-parity gate = packages/daemon runner-parity.test.ts (Bun↔Rust hello/io/bye byte-exact)
+      lib.rs               # 모듈 선언 + 크레이트 doc (io-record 바이너리 사이드카). CLI-side seam = apps/cli resolveRunnerBinOverride (TP_RUNNER_BIN). Bun↔Rust differential wire-parity 게이트(runner-parity.test.ts)는 PR4(#5 cascade)에서 삭제 — byte-exactness 는 이제 cargo test + tp-core 골든벡터가 커버
       settings.rs          # byte-exact capture_hook_command(golden) + build_settings(hook 머지, 16 HOOK_EVENTS)
       collector.rs         # io_record(바이너리 사이드카 payload="") / event_record(base64 payload, ns="claude")
       pty.rs               # Pty over portable-pty (ADR §6.1 spike 해소; reader-thread hop, spawn/write/resize/kill, Mutex writer). 종료 시 waiter 스레드가 reader-done rendezvous 채널에 READER_DRAIN_GRACE=200ms 로 bounded-wait(recv_timeout — join 아님)해 reader/waiter 순서 레이스(Layer 1)를 닫는다: 정상 종료는 그 안에 EOF 로 남은 출력을 다 흘려보내고, grandchild 가 PTY 를 물고 있어도 200ms 안에 무조건 종료 신호를 보낸다

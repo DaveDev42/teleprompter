@@ -20,16 +20,10 @@ path = "src/lib.rs"
 name = "tp-daemon"
 path = "src/bin/tp_daemon.rs"
 
-# Parity-gate probe ONLY (NOT the shipping daemon binary — that is the
-# `tp-daemon` bin above, increment 5).
-# A thin CLI over `Store` that lets the bidirectional shared-file parity gate
-# (packages/daemon/src/store/store-rust-parity.test.ts) drive the Rust store
-# against the same on-disk vault a Bun `Store` uses. Named `tp-daemon-probe`
-# (the file basename `probe` would otherwise be the bin name) so the test's
-# findProbe() locates rust/target/{release,debug}/tp-daemon-probe.
-[[bin]]
-name = "tp-daemon-probe"
-path = "src/bin/probe.rs"
+# The `tp-daemon-probe` bin was removed with the Bun-side differential parity
+# gates it existed to drive (Bun-deletion cascade #5, PR4). The Rust store /
+# worktree / transport / push / ipc layers it exercised are now covered solely
+# by the Rust workspace's own tests + the TS↔Rust golden vectors (`cargo test`).
 
 [dependencies]
 # Bundled SQLite (Dave's decision — vendors its own libsqlite3 so the daemon

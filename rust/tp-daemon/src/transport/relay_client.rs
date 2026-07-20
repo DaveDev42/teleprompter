@@ -1584,4 +1584,64 @@ mod tests {
         let plaintext = open(&ct, &key).unwrap();
         assert_eq!(plaintext, b"hello world");
     }
+
+    // ── wss:// TLS reachability (rustls CryptoProvider regression guard) ──
+    //
+    // The E2E soak connects over `ws://` loopback (no TLS), so it never
+    // exercises rustls's provider path — which is exactly how the flip
+    // shipped a `wss://`-only startup panic: rustls 0.23 cannot
+    // unambiguously auto-select a CryptoProvider in this crate's dependency
+    // graph, and panics the tokio worker while building the TLS ClientConfig.
+    // `bin/tp_daemon.rs` fixes it by installing aws-lc-rs at startup; this
+    // test proves that install lets the `wss://` handshake reach the TLS
+    // layer and fail GRACEFULLY (`Err`) instead of PANICKING.
+    //
+    // CRITICAL — the connection must get PAST TCP. tokio-tungstenite only
+    // builds the rustls `ClientConfig` (the panic site,
+    // `ClientConfig::builder()` in tls.rs) AFTER the TCP socket is
+    // established; a DNS/TCP failure short-circuits before ever touching the
+    // provider. So we stand up a real local TCP listener that accepts and
+    // immediately drops the connection: TCP succeeds → the client proceeds
+    // into the TLS handshake → ClientConfig is built (provider resolved) →
+    // handshake fails on the non-TLS peer, returning `Err`. Without the
+    // installed provider, that ClientConfig build panics the worker instead.
+    //
+    // `install_default` is process-global + idempotent, so calling it here
+    // mirrors main(). A panic (rather than the asserted `Err`) is the
+    // regression this guards against.
+    #[tokio::test]
+    async fn wss_connect_reaches_tls_without_crypto_provider_panic() {
+        use tokio::io::AsyncReadExt;
+        use tokio::net::TcpListener;
+
+        // Idempotent — harmless if another test already installed one.
+        rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .ok();
+
+        // Real local TCP listener so the client's TCP connect SUCCEEDS and
+        // it advances into the rustls TLS handshake (the actual panic site).
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            // Accept and immediately drop — a non-TLS peer. The client's
+            // ClientHello goes nowhere, so the handshake errors cleanly.
+            while let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = [0u8; 64];
+                let _ = sock.read(&mut buf).await;
+                // drop(sock) closes the connection.
+            }
+        });
+
+        let url = format!("wss://127.0.0.1:{}/", addr.port());
+        let result = connect_async(&url).await;
+
+        // The ONLY thing under test is "reached TLS, did not panic on the
+        // provider". The non-TLS peer makes the handshake fail — an `Err` is
+        // the expected, correct outcome; a panic is the regression.
+        assert!(
+            result.is_err(),
+            "expected a TLS handshake error against a non-TLS peer, not success"
+        );
+    }
 }

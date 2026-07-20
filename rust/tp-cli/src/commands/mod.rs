@@ -13,6 +13,7 @@ pub mod pair;
 pub mod passthrough;
 pub mod passthrough_split;
 pub mod relay;
+pub mod run;
 pub mod session;
 pub mod status;
 pub mod upgrade;

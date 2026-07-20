@@ -14,110 +14,105 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # Job NAME kept byte-identical (required context `lint`, Ruleset 14604664) — only
+  # the BODY swaps Bun→Rust (Bun-deletion cascade #5, PR3). Biome linted the TS
+  # backend that is being deleted; the surviving code is Rust, whose format/lint
+  # gate lives in the `rust` job (`cargo fmt --check` + clippy). This body is the
+  # Rust rustfmt check so the `lint` context still means "formatting is enforced".
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: rust
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup
-      - name: Lint & format check
-        run: pnpm exec biome ci .
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.96.0
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Format check (rustfmt)
+        run: cargo fmt --all -- --check
 
+  # Job NAME kept byte-identical (required context `type-check`, Ruleset 14604664) —
+  # only the BODY swaps Bun→Rust (Bun-deletion cascade #5, PR3). The 5 `tsc --noEmit`
+  # projects gated TS packages being deleted; the surviving type gate is Rust's own
+  # `cargo check`, which the compiler enforces. This keeps the `type-check` context
+  # meaning "the code type-checks" across the language flip.
   type-check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: rust
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup
-      - name: Type check
-        run: |
-          pids=()
-          npx tsc --noEmit -p packages/protocol/tsconfig.json & pids+=($!)
-          npx tsc --noEmit -p packages/daemon/tsconfig.json & pids+=($!)
-          npx tsc --noEmit -p apps/cli/tsconfig.json & pids+=($!)
-          npx tsc --noEmit -p packages/relay/tsconfig.json & pids+=($!)
-          npx tsc --noEmit -p packages/runner/tsconfig.json & pids+=($!)
-          fail=0
-          for pid in "${pids[@]}"; do wait "$pid" || fail=1; done
-          exit $fail
-
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup
-      # Build the Rust tp-runner so the differential wire-parity gate
-      # (packages/daemon/src/session/runner-parity.test.ts) RUNS instead of
-      # SKIP-ing. That test drives the Bun runner AND the Rust tp-runner against
-      # the same fake claude and asserts byte-identical hello/io/bye frames — the
-      # load-bearing byte-exactness gate for the runner port (ADR-0003 Stage 4).
-      # Without the binary present it degrades to SKIP, so building it here makes
-      # the parity check an always-on backstop in CI. Pin matches
-      # rust/rust-toolchain.toml (1.96.0).
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.96.0
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      - name: Build Rust tp-runner (parity-gate enabler)
-        run: cargo build --release --bin tp-runner --manifest-path rust/Cargo.toml
-      # Build the Rust tp-daemon-probe so the bidirectional shared-file store
-      # parity gate (packages/daemon/src/store/store-rust-parity.test.ts) RUNS
-      # instead of SKIP-ing. That test drives the Bun Store AND the Rust
-      # tp-daemon store against one on-disk vault and asserts session/pairing/
-      # record rows + BLOBs are byte-identical either direction — the
-      # load-bearing byte-exactness gate for the daemon store port
-      # (ADR-0003 Phase 4 inc1). Same SKIP-when-unbuilt → always-on-backstop
-      # rationale as tp-runner above. The probe is a thin CLI over Store, NOT
-      # the shipping daemon bin (that is inc5).
-      - name: Build Rust tp-daemon-probe (store parity-gate enabler)
-        run: cargo build --release --bin tp-daemon-probe --manifest-path rust/Cargo.toml
-      - name: Test with coverage
-        run: bun test --coverage --timeout 30000 packages/protocol packages/daemon packages/runner apps/cli packages/relay
+      - name: Type check (cargo check)
+        run: cargo check --workspace --all-targets
 
-  build-cli:
+  # Job NAME kept byte-identical (required context `test`, Ruleset 14604664) — only
+  # the BODY swaps Bun→Rust (Bun-deletion cascade #5, PR3). The old body ran
+  # `bun test` over the 5 TS packages AND built tp-runner/tp-daemon-probe solely to
+  # un-SKIP the Bun-side differential parity gates (runner-parity / store-parity /
+  # …). Those TS tests + their Rust enablers are deleted downstream (PR4 drops the
+  # *-rust-parity gates, PR6 the TS packages); the Rust workspace `cargo test`
+  # (which already carries the TS↔Rust golden vectors) is now the whole `test`
+  # gate. No `--manifest-path` needed — working-directory is `rust`.
+  test:
     runs-on: ubuntu-latest
-    # Rust release build (~1-3 min) + Bun SEA (~30s) + smoke. 15m is comfortable.
     timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: rust
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup
-      # Rust toolchain needed to build the Rust `tp` binary inside the bundle.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.96.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Test (cargo test --workspace)
+        run: cargo test --workspace
+
+  # Job NAME kept byte-identical (required context `build-cli`, Ruleset 14604664) —
+  # only the BODY swaps Bun→Rust (Bun-deletion cascade #5, PR3). The old body built
+  # the Rust `tp` + Bun `tpd` SEA into a tarball (`scripts/build.ts --bundle`) and
+  # smoke-verified the `tpd` blob seam. The `tpd` passthrough-fallback blob (the
+  # last Bun in the shipped artifact) is deleted downstream (PR6 with the TS
+  # backend). Here `build-cli` builds the native Rust `tp` and smokes it directly:
+  # `version`/`--help` + the `tp run`→tp-runner native exec seam (already Bun-free).
+  # No tarball, no `tpd`, no artifact upload (nothing downstream consumes one —
+  # release.yml builds independently).
+  build-cli:
+    runs-on: ubuntu-latest
+    # Rust release build (~1-3 min) + native smoke. 15m is comfortable.
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v7
       # Pin matches rust/rust-toolchain.toml (1.96.0) — no double-toolchain fetch.
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.96.0
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      # Build the bundle for the CI host (linux-x64 — ubuntu-latest is x86_64).
-      # This is now THE release/CI path: bin/tp (Rust) + libexec/tp/tpd (Bun SEA)
-      # packed into dist/bundles/tp-linux_x64.tar.gz.
-      - name: Build bundle (Rust tp + Bun tpd tarball)
-        run: bun run scripts/build.ts --bundle --target bun-linux-x64
-      # Bundle-aware smoke: extract the tarball, mirror what install.sh does,
-      # then verify the Rust→Bun blob seam without spawning a real daemon.
-      - name: Bundle smoke — extract and verify layout
+      - name: Build native Rust tp
+        run: cargo build --release --bin tp
+      - name: Smoke — version + help (native Rust paths)
         run: |
-          mkdir -p /tmp/tp-prefix
-          tar -xzf dist/bundles/tp-linux_x64.tar.gz -C /tmp/tp-prefix --strip-components=1
-          # Assert the full prefix-tree layout exists before continuing:
-          # bin/tp + libexec/tp/{tpd, tp-daemon, tp-relay, tp-runner}. The
-          # tp-daemon / tp-relay / tp-runner members are shipped alongside tpd
-          # (build.ts) and resolved by locate_tp_daemon()/locate_tp_relay()/
-          # locate_tp_runner(); assert all so a dropped bundle member fails CI
-          # here rather than at runtime.
-          ls -la /tmp/tp-prefix/bin/tp
-          ls -la /tmp/tp-prefix/libexec/tp/tpd
-          ls -la /tmp/tp-prefix/libexec/tp/tp-daemon
-          ls -la /tmp/tp-prefix/libexec/tp/tp-relay
-          ls -la /tmp/tp-prefix/libexec/tp/tp-runner
-          echo "Layout OK: bin/tp + libexec/tp/{tpd,tp-daemon,tp-relay,tp-runner} present"
-      - name: Bundle smoke — version + help (native Rust paths)
-        run: |
-          timeout 10 /tmp/tp-prefix/bin/tp version
-          timeout 10 /tmp/tp-prefix/bin/tp --help
-      - name: Bundle smoke — Rust→tp-runner native exec seam (TP_RUNNER_BIN echo script)
+          timeout 10 target/release/tp version
+          timeout 10 target/release/tp --help
+      - name: Smoke — Rust→tp-runner native exec seam (TP_RUNNER_BIN echo script)
         run: |
           # Prove the Rust `tp run` → native tp-runner exec seam without spawning
           # a real daemon. TP_RUNNER_BIN overrides locate_tp_runner() to use a
@@ -126,19 +121,15 @@ jobs:
           printf '#!/bin/sh\necho "RUNNER_GOT:" "$@"\n' > /tmp/fake-tp-runner
           chmod +x /tmp/fake-tp-runner
           # tp run --sid x → pre-clap decide_route → Route::RunNative →
-          # commands::run::run → exec_runner → fake-tp-runner. NOTE the probe
-          # route has migrated as routes were de-trampolined: `tp -p x` (PR-4 →
-          # Route::Passthrough), `tp auth login` (PR-6 → Route::ForwardClaude,
-          # native claude exec), `tp relay start` (#25 → Route::RelayNative,
-          # native tp-relay exec), and `tp run` (task #8 → Route::RunNative,
-          # native tp-runner exec) all left the Bun blob seam — the blob
-          # (`tpd`) is no longer exec'd by any route.
+          # commands::run::run → exec_runner → fake-tp-runner. All routes are now
+          # native Rust exec seams — the Bun blob (`tpd`) is no longer exec'd by
+          # any route.
           #
           # commands::run::run strips the leading `run` token before forwarding
           # to tp-runner (the daemon spawns tp-runner without a `run` subcommand
           # token, and this exec must match that argv shape exactly), so the
           # fake script only sees `--sid x`.
-          GOT=$(timeout 10 env TP_RUNNER_BIN=/tmp/fake-tp-runner /tmp/tp-prefix/bin/tp run --sid x 2>&1 || true)
+          GOT=$(timeout 10 env TP_RUNNER_BIN=/tmp/fake-tp-runner target/release/tp run --sid x 2>&1 || true)
           echo "Forward smoke output: ${GOT}"
           if echo "${GOT}" | grep -q 'RUNNER_GOT: --sid x'; then
             echo "Forward smoke PASS: Rust→tp-runner native exec seam works"
@@ -290,9 +281,11 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
-      # Backend deps (bun) for the loopback relay script. The setup action installs
-      # Node + Bun + pnpm and runs `pnpm install` so @teleprompter/* resolve.
-      - uses: ./.github/actions/setup
+      # No Bun setup: the loopback is now the self-contained Rust `tp-loopback`
+      # cargo bin (Bun-deletion cascade #5, PR3 — flipped via TP_RUST_LOOPBACK=1
+      # below). The Rust toolchain + rust-cache installed here build it on demand;
+      # the old `./.github/actions/setup` existed ONLY so the Bun loopback script's
+      # `@teleprompter/*` imports resolved, and is no longer needed.
       - name: Install Rust toolchain + Apple targets
         uses: dtolnay/rust-toolchain@1.96.0
         with:
@@ -311,5 +304,9 @@ jobs:
       # TP_SKIP_ARM64_32=1: arm64_32-apple-watchos (tier-3, nightly -Zbuild-std) is
       # only required for a watchOS device archive; the iOS Simulator smoke only
       # links the ios-sim slices, so arm64-only watchOS device is fine here.
+      # TP_RUST_LOOPBACK=1: use the self-contained Rust `tp-loopback` cargo bin
+      # (PR2a) instead of the Bun `local-relay-loopback.ts` script — same
+      # LOOPBACK_READY handshake, same 8 markers, no Bun (Bun-deletion cascade #5,
+      # PR3). start_loopback (scripts/ios.sh) builds tp-loopback on demand.
       - name: iOS Simulator smoke (8-marker loopback E2E)
-        run: TP_PLATFORM=ios TP_SIM="iPhone 17 Pro" TP_SKIP_ARM64_32=1 scripts/ios.sh smoke
+        run: TP_RUST_LOOPBACK=1 TP_PLATFORM=ios TP_SIM="iPhone 17 Pro" TP_SKIP_ARM64_32=1 scripts/ios.sh smoke

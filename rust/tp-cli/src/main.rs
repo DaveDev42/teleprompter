@@ -299,6 +299,14 @@ fn main() -> ExitCode {
             // handled natively. No longer trampolines through the Bun blob.
             return commands::relay::run(&args[1..]);
         }
+        commands::forward::Route::RunNative => {
+            // `tp run …`: native exec of the shipped Rust `tp-runner` binary
+            // (task #8) — the last route to leave the Bun blob. Forwards the
+            // caller's argv verbatim (the runner's argv contract is byte-for-byte
+            // what the daemon already spawns it with). exec() never returns on
+            // success — tp-runner takes over the process image.
+            return commands::run::run(&args[1..]);
+        }
         commands::forward::Route::Native => {
             // Fall through to Cli::parse() below.
         }

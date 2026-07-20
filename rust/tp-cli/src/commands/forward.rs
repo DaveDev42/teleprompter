@@ -107,8 +107,10 @@ pub fn exec_blob(_forward_args: &[String]) -> ExitCode {
 /// bare-`tp` passthrough does.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route {
-    /// Forward to the Bun blob (`run` only — the last blob-dispatched route,
-    /// pending task #8).
+    /// Forward to the Bun blob via [`exec_blob`]. **No producer** after task #8:
+    /// `decide_route` no longer returns this (the last route on the blob, `run`,
+    /// is now `RunNative`). Retained only for the belt-and-suspenders clap fall-
+    /// through in `main` and the passthrough fallback; removed with the blob.
     Forward,
     /// Handle natively in the Rust CLI (clap parses the rest).
     Native,
@@ -121,16 +123,20 @@ pub enum Route {
     /// Native `tp-relay` exec (`tp relay …`) — native (`commands::relay::run`,
     /// task #17 #25). No longer execs the blob.
     RelayNative,
+    /// Native `tp-runner` exec (`tp run …`) — native (`commands::run::run`,
+    /// task #8). De-trampolined from the Bun blob; forwards the caller's argv
+    /// verbatim to the shipped `tp-runner`.
+    RunNative,
 }
 
 /// Known `tp` subcommands that the Rust CLI handles natively **via clap** (the
 /// Cli::parse path). This list drives the `Route::Native` classification.
 ///
 /// Mirrors `TP_SUBCOMMANDS` in `apps/cli/src/router.ts:19-31` MINUS `run` and
-/// `relay`: `run` still execs the blob (`Route::Forward`, task #8), and `relay`
-/// is handled by a dedicated native exec path (`Route::RelayNative` →
-/// `commands::relay::run`, #25) rather than clap — so neither belongs in this
-/// clap-parsed set.
+/// `relay`: both are handled by dedicated native exec paths — `run` via
+/// `Route::RunNative` → `commands::run::run` (task #8), `relay` via
+/// `Route::RelayNative` → `commands::relay::run` (#25) — rather than clap, so
+/// neither belongs in this clap-parsed set.
 const NATIVE_SUBCOMMANDS: &[&str] = &[
     "daemon",
     "pair",
@@ -176,7 +182,7 @@ const CLAUDE_UTILITY_SUBCOMMANDS: &[&str] = &[
 /// | `--version` / `-v` | `Native` — native version handler |
 /// | in `NATIVE_SUBCOMMANDS` | `Native` |
 /// | `relay` | `RelayNative` — native `tp-relay` exec |
-/// | `run` | `Forward` — blob dispatches this (last blob route, task #8) |
+/// | `run` | `RunNative` — native `tp-runner` exec (task #8) |
 /// | in `CLAUDE_UTILITY_SUBCOMMANDS` | `ForwardClaude` — native `claude` exec |
 /// | `--` | `ForwardClaude` — native `claude` direct-forward (daemon-bypass) |
 /// | anything else (unknown subcmd, flag like `-p`) | `Passthrough` |
@@ -209,12 +215,13 @@ pub fn decide_route(first: Option<&str>) -> Route {
         return Route::RelayNative;
     }
 
-    // `run` is still in TP_SUBCOMMANDS and forwards to the blob (its `index.ts`
-    // dispatches `run`→`runCommand`). It must be `Forward`, NOT the
-    // `Passthrough` catch-all below (the catch-all changed Forward→Passthrough in
-    // task #17 PR-2). De-trampolining the runner is task #8.
+    // `run` → native Rust `tp-runner` (task #8). `tp run …` execs the shipped
+    // `tp-runner` binary directly (via `commands::run::run` → `locate_tp_runner`,
+    // same argv contract the daemon spawns it with); it no longer trampolines
+    // through the Bun blob. It must be `RunNative`, NOT the `Passthrough` catch-
+    // all below (the catch-all changed Forward→Passthrough in task #17 PR-2).
     if cmd == "run" {
-        return Route::Forward;
+        return Route::RunNative;
     }
 
     // Claude utility forwards → native `claude <subcmd>` exec (task #17 PR-6).
@@ -319,11 +326,13 @@ mod tests {
         assert_eq!(decide_route(Some("version")), Route::Native);
     }
 
-    // ── run forwards to blob; relay is native (#25) ──────────────────────────
+    // ── run + relay are native (task #8 / #25) ───────────────────────────────
 
     #[test]
-    fn run_forwards() {
-        assert_eq!(decide_route(Some("run")), Route::Forward);
+    fn run_is_native() {
+        // task #8: run no longer forwards to the blob — it execs native
+        // tp-runner (the last route to leave the Bun blob).
+        assert_eq!(decide_route(Some("run")), Route::RunNative);
     }
 
     #[test]

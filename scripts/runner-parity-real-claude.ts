@@ -3,12 +3,14 @@
 /**
  * Real-claude differential wire-parity harness (ADR-0003 Stage 4, increment 4).
  *
- * The committed `packages/daemon/src/session/runner-parity.test.ts` proves the
- * Bun runner and the Rust `tp-runner` emit byte-identical hello/io/bye frames
- * under a DETERMINISTIC fake claude (fixed stdout, fixed exit). That is the
- * load-bearing byte-exactness gate. This script is its real-world companion: it
- * drives BOTH runners against the operator's ACTUAL `claude` binary (print
- * mode) and diffs the frames each produces.
+ * A committed deterministic gate (`packages/daemon/src/session/runner-parity.test.ts`)
+ * once proved the Bun runner and the Rust `tp-runner` emit byte-identical
+ * hello/io/bye frames under a fake claude; it was removed in PR4 (#5 Bun-deletion
+ * cascade) once the Rust runner became the default. This LOCAL script is the
+ * surviving real-world differential check: it drives BOTH runners against the
+ * operator's ACTUAL `claude` binary (print mode) and diffs the frames each
+ * produces. (Deterministic byte-exactness is now held by `cargo test` +
+ * tp-core golden vectors.)
  *
  * What can and cannot be byte-compared with a LIVE model:
  *   - hello: fully deterministic (cwd/sid/protocol fields) → byte-equal mod
@@ -218,8 +220,7 @@ async function main(): Promise<void> {
 
   // One SHARED work dir → both runners emit the same deterministic `cwd` field.
   // Separate socket names isolate the two stub daemons; the socket path never
-  // appears in any frame JSON, so sharing the dir is safe (same rationale as
-  // runner-parity.test.ts).
+  // appears in any frame JSON, so sharing the dir is safe.
   const dir = mkdtempSync(join(tmpdir(), "tp-parity-real-"));
   log(`work dir: ${dir}`);
 
@@ -330,7 +331,7 @@ async function main(): Promise<void> {
     "\n✅ RUNNER PARITY (real claude) PASS — the Rust tp-runner and the Bun runner produced " +
       "byte-identical hello/bye frames (mod pid/ts, key order preserved) driving the SAME real claude, " +
       "and both emitted well-formed binary-sidecar io records. (io content is model-dependent, so its " +
-      "byte-exactness is locked by the deterministic fake-claude gate in runner-parity.test.ts.)\n",
+      "byte-exactness is locked by cargo test + the tp-core golden vectors.)\n",
   );
   process.exit(0);
 }

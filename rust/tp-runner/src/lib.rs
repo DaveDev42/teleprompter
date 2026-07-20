@@ -10,12 +10,13 @@
 //!
 //! Stage 4 does not switch the default. The daemon's SessionManager picks the
 //! runner binary per-session via `TP_RUNNER_BIN`; the Bun runner (`tpd run`)
-//! stays the default until this port's byte-exactness is proven. The load-
-//! bearing parity gate is the **io record**: it carries its bytes as a binary
-//! sidecar (`payload="" && binLen>0`), never base64 in the JSON. That
-//! byte-exactness is now asserted by a differential wire-parity test
-//! (`packages/daemon/src/session/runner-parity.test.ts`), which drives both
-//! runners with the same fake claude and compares hello/io/bye frames.
+//! is now the default (task #4 — Rust `tp-daemon` spawns this runner per
+//! session). The load-bearing wire surface is the **io record**: it carries
+//! its bytes as a binary sidecar (`payload="" && binLen>0`), never base64 in
+//! the JSON. The Bun↔Rust differential wire-parity test that proved this
+//! byte-exact was removed in PR4 (#5 cascade, once the Rust default landed);
+//! byte-exactness is now held by `cargo test` + the tp-core golden vectors,
+//! with the local `TP_E2E_RUNNER_BIN=1` real-claude gate as the E2E backstop.
 //!
 //! # Module map
 //!

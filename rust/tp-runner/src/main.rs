@@ -16,15 +16,15 @@
 //!
 //! # Dual-run, no cutover
 //!
-//! The binary is fully wired AND selectable: setting `TP_RUNNER_BIN` to this
-//! binary's absolute path makes the daemon's CLI (`resolveRunnerCommandWithOverride`)
-//! spawn it per-session instead of the Bun runner. The **default** is still the
-//! Bun runner (`tpd run`) — the opt-in seam does not flip it. A differential
-//! wire-parity gate (`packages/daemon/src/session/runner-parity.test.ts`) drives
-//! both runners with the same fake claude (via `TP_RUNNER_CLAUDE_BIN`) and asserts
-//! byte-identical hello/io/bye frames, with the io-record binary sidecar as the
-//! load-bearing check. Cutting the default over to this binary is the next step
-//! (increment 4), gated on dogfood parity.
+//! This binary is now the **default** runner: the Rust `tp-daemon` spawns it
+//! per-session via `tp_proto::locate_tp_runner()` (task #4 flip). The Bun
+//! daemon's opt-in `TP_RUNNER_BIN` seam (`resolveRunnerCommandWithOverride`)
+//! also still selects it while the Bun reference impl lives. The Bun↔Rust
+//! differential wire-parity gate that proved hello/io/bye byte-identical (with
+//! the io-record binary sidecar as the load-bearing check) was removed in PR4
+//! (#5 cascade); byte-exactness is now held by `cargo test` + the tp-core
+//! golden vectors, with the local `TP_E2E_RUNNER_BIN=1` real-claude gate as the
+//! E2E backstop.
 
 use std::process::ExitCode;
 

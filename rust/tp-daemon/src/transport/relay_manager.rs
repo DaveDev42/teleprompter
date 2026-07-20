@@ -96,8 +96,9 @@ pub(crate) fn to_wire_session_meta(meta: &SessionMeta) -> Value {
     // TS `toSessionMeta` maps absent worktree/version to `undefined`, and
     // `JSON.stringify` DROPS undefined-valued keys — so the reference wire
     // OMITS these keys entirely when absent. An explicit `null` here would
-    // diverge from the Bun daemon's bytes on every hello/state/export frame
-    // (caught by packages/daemon/src/ipc/dispatcher-rust-parity.test.ts).
+    // diverge on every hello/state/export frame. (The Bun↔Rust differential
+    // gate that first caught this was removed in PR4, #5 cascade; the omit
+    // invariant is now held by the wire-format golden vectors + cargo test.)
     let mut wire = serde_json::json!({
         "sid": meta.sid,
         "state": state,

@@ -149,38 +149,44 @@ TP_PLATFORM=watchos scripts/ios.sh smoke  # watchOS Simulator 7마커 스모크 
 
 **main 에 머지된 내 변경은 즉시 사용자의 로컬 `tp`/daemon 에 반영되어 있어야 한다.** 다음 시점마다 **묻지 말고** 재빌드/재설치:
 
-> **#5 hard-swap 이후 (ADR-0003 Amendment 2): dogfood `tp` 는 Rust 바이너리 + `tpd` 트램폴린 번들이다.** 출하 아티팩트 = `bin/tp`(Rust CLI, ~3MB) + `libexec/tp/tpd`(Bun SEA daemon/passthrough blob, ~66MB). `bun run scripts/build.ts` (no `--bundle`) 가 만드는 `dist/tp` 는 **Bun SEA = `tpd` 블롭**이지 entrypoint 가 **아니다** — 그걸 `~/.local/bin/tp` 로 깔면 퇴역한 레거시 Bun CLI 를 dogfood 하게 된다. 반드시 아래 prefix-tree 로 깐다 (`scripts/install.sh` 릴리즈 레이아웃과 동일).
+> **#4 flip 이후 (ADR-0003 Phase 4): dogfood `tp` 는 Rust CLI + Rust daemon/runner + `tpd` 트램폴린 번들이다.** 출하 아티팩트 = `bin/tp`(Rust CLI) + `libexec/tp/{tp-daemon, tp-runner, tp-relay, tpd}` (= `scripts/install.sh` 릴리즈 레이아웃과 동일). **daemon/runner 는 이제 Rust 바이너리**(#4 flip): `tp daemon start` → `locate_tp_daemon()`→`libexec/tp/tp-daemon`, daemon 이 세션마다 `locate_tp_runner()`→`libexec/tp/tp-runner` 스폰. `tpd`(Bun SEA, ~66MB)는 **passthrough fallback 전용 blob** 으로 남는다 — **`tpd` 만 깔면 `bundled tp-daemon not found` 로 daemon 이 안 뜬다**(#922 flip 직후 실제 P0). `bun run scripts/build.ts` (no `--bundle`) 의 `dist/tp` 는 **`tpd` 블롭**이지 entrypoint 가 **아니다** — 그걸 `~/.local/bin/tp` 로 깔면 퇴역한 레거시 Bun CLI 를 dogfood 하게 된다.
 
-1. **PR squash merge 직후** — `apps/cli/**`, `packages/{daemon,runner,protocol,relay}/**`, `rust/tp-cli/**` 중 하나라도 건드린 PR:
+1. **PR squash merge 직후** — `apps/cli/**`, `packages/{daemon,runner,protocol,relay}/**`, `rust/tp-cli/**`, **`rust/tp-daemon/**`, `rust/tp-runner/**`, `rust/tp-relay/**`, `rust/tp-proto/**`, `rust/tp-core/**`** 중 하나라도 건드린 PR:
    ```bash
-   # Rust tp (release) — rustup shim 이 cargo 인자를 mis-parse 하므로 real toolchain bin 을 PATH 앞에.
+   # Rust CLI + daemon + runner + relay (release) — rustup shim 이 cargo 인자를
+   # mis-parse 하므로 real toolchain bin 을 PATH 앞에.
    TC_BIN="$(dirname "$(cd rust && rustup which cargo)")"
-   ( cd rust && PATH="$TC_BIN:$PATH" cargo build --release --bin tp )   # → rust/target/release/tp
+   ( cd rust && PATH="$TC_BIN:$PATH" cargo build --release \
+       --bin tp --bin tp-daemon --bin tp-runner --bin tp-relay )      # → rust/target/release/{tp,tp-daemon,tp-runner,tp-relay}
    bun run scripts/build.ts                                            # Bun tpd SEA → dist/tp
-   # prefix-tree 조립 (install.sh 레이아웃)
+   # prefix-tree 조립 (install.sh 레이아웃 = bin/tp + libexec/tp/{tpd,tp-daemon,tp-relay,tp-runner})
    TP_PREFIX="$HOME/.local/share/tp"
    mkdir -p "$TP_PREFIX/bin" "$TP_PREFIX/libexec/tp"
-   cp rust/target/release/tp "$TP_PREFIX/bin/tp"
-   cp dist/tp                "$TP_PREFIX/libexec/tp/tpd"
-   chmod +x "$TP_PREFIX/bin/tp" "$TP_PREFIX/libexec/tp/tpd"
-   # cp 가 Bun SEA 의 adhoc,linker-signed 서명을 깨뜨려(`codesign -v` → "code or
-   # signature have been modified") Rust tp→tpd exec 가 AMFI 에 SIGKILL(exit 137)
-   # 당한다. 둘 다 adhoc 재서명해 서명을 일관되게 맞춘다 (libexec 만 재서명하면
-   # parent=linker-signed/child=adhoc 불일치로 여전히 kill — 반드시 둘 다).
-   codesign --force --sign - "$TP_PREFIX/libexec/tp/tpd"
-   codesign --force --sign - "$TP_PREFIX/bin/tp"
+   cp rust/target/release/tp        "$TP_PREFIX/bin/tp"
+   cp rust/target/release/tp-daemon "$TP_PREFIX/libexec/tp/tp-daemon"  # #4 flip: Rust daemon (필수)
+   cp rust/target/release/tp-runner "$TP_PREFIX/libexec/tp/tp-runner"  # #4 flip: Rust runner (필수)
+   cp rust/target/release/tp-relay  "$TP_PREFIX/libexec/tp/tp-relay"   # `tp relay start` 용 (install.sh parity)
+   cp dist/tp                       "$TP_PREFIX/libexec/tp/tpd"         # Bun SEA passthrough fallback blob
+   chmod +x "$TP_PREFIX/bin/tp" "$TP_PREFIX"/libexec/tp/{tp-daemon,tp-runner,tp-relay,tpd}
+   # cp 가 서명을 깨뜨려(`codesign -v` → "code or signature have been modified")
+   # Rust tp→{tp-daemon,tp-runner,tpd} exec 가 AMFI 에 SIGKILL(exit 137) 당한다.
+   # Rust tp 가 exec 하는 모든 자식 + parent(bin/tp) 를 전부 adhoc 재서명해 서명을
+   # 일관되게 맞춘다 (일부만 재서명하면 parent/child 불일치로 여전히 kill — 반드시 전부).
+   for b in libexec/tp/tp-daemon libexec/tp/tp-runner libexec/tp/tp-relay libexec/tp/tpd bin/tp; do
+     codesign --force --sign - "$TP_PREFIX/$b"
+   done
    ln -sf "$TP_PREFIX/bin/tp" ~/.local/bin/tp                          # dogfood symlink → Rust tp
-   ~/.local/bin/tp daemon install                                      # 재등록 (Rust tp → tpd 트램폴린)
+   ~/.local/bin/tp daemon install                                      # 재등록 (Rust tp → Rust tp-daemon)
    ```
 2. **로컬 dev 세션 시작 시** — 위 시퀀스 한 번 돌려 PATH `tp` + daemon 을 `origin/main` 최신에 맞춤.
 3. **"최신으로 깔아줘" 명시 요청 시** — 확인 없이 실행.
 
 세부:
 - **dogfood = `~/.local/bin/tp`(→ `~/.local/share/tp/bin/tp` Rust), brew(릴리즈) = `/opt/homebrew/bin/tp` 로 분리.** `~/.zprofile` 이 `~/.local/bin` 을 앞에 둬 `tp` 는 dogfood 를 가리킴. **brew symlink 를 절대 덮지 않는다** (덮으면 `brew upgrade` 무력화 — 복구는 `brew link --overwrite tp`). dogfood 끄려면 `rm ~/.local/bin/tp`.
-- **Rust `tp` 는 `locate_bun_blob()` 로 `canonicalize(current_exe())/../../libexec/tp/tpd` 를 찾는다** — 그래서 `bin/tp` + `libexec/tp/tpd` prefix-tree 레이아웃이 필수다 (symlink 만 깔고 `tpd` 가 없으면 daemon/passthrough 가 blob-not-found 로 실패). `dist/tp` 를 직접 `~/.local/bin/tp` 로 깔지 말 것 (그건 `tpd` 블롭이지 Rust entrypoint 가 아님).
-- `daemon install` 은 plist 바이너리 경로를 `which tp` 로 고르므로 **`~/.local/bin/tp` 로 직접 실행**. 새 로그인 셸 전이면 `PATH="$HOME/.local/bin:$PATH" ~/.local/bin/tp daemon install`. daemon 프로세스는 `tpd` 로 뜬다 (트램폴린 — `pgrep -fl tpd` 로 확인).
-- **adhoc 재서명은 dogfood 조립에서 필수** (macOS 로컬): `bun build --compile` 산출물(`dist/tp`=tpd 블롭)은 `adhoc,linker-signed` 서명을 갖는데, `cp` 가 SEA payload 레이아웃을 바꿔 그 linker-signed 해시를 무효화한다 (`codesign -v` → "code or signature have been modified"). 블롭을 **직접 실행**하면 통과하지만, Rust `tp` 가 trampoline 으로 **exec** 하면 AMFI 가 SIGKILL(exit 137, 간헐적으로 보이지만 실제로는 일관 실패) 한다. 해결 = `bin/tp`+`libexec/tp/tpd` **둘 다** `codesign --force --sign -` 로 plain-adhoc 재서명(서명 일관성 — child 만 재서명하면 parent=linker-signed 와 불일치로 여전히 kill). `install.sh` 릴리즈 경로는 macOS 러너에서 빌드+서명된 tarball 을 `tar` 추출하므로 이 문제가 없다(로컬 `cp` 조립에서만 발생). 재서명 후 `tp version` 으로 검증.
-- **재기동은 `tp daemon install` 한 번** (`pkill` 후 수동 재시작 금지 — 서비스 미등록 프로세스로 살아남아 OTA 안 됨). 재기동 후 `tp version` 으로 새 commit hash 확인.
+- **Rust `tp` 는 4개 자식 바이너리를 `canonicalize(current_exe())/../../libexec/tp/<name>` 로 찾는다**: `locate_tp_daemon()`→`tp-daemon`(daemon start), `locate_tp_runner()`→`tp-runner`(daemon 이 세션마다 스폰), `locate_tp_relay()`→`tp-relay`(`tp relay start`), `locate_bun_blob()`→`tpd`(passthrough fallback). 그래서 `bin/tp` + `libexec/tp/{tp-daemon,tp-runner,tp-relay,tpd}` prefix-tree 레이아웃이 필수다 — **symlink 만 깔고 `tp-daemon` 이 없으면 `tp daemon start` 가 `bundled tp-daemon not found` 로 실패**(#922 flip 직후 실제 P0), `tp-runner` 가 없으면 세션 스폰이 실패. `dist/tp` 를 직접 `~/.local/bin/tp` 로 깔지 말 것 (그건 `tpd` 블롭이지 Rust entrypoint 가 아님).
+- `daemon install` 은 plist 바이너리 경로를 `which tp` 로 고르므로 **`~/.local/bin/tp` 로 직접 실행**. 새 로그인 셸 전이면 `PATH="$HOME/.local/bin:$PATH" ~/.local/bin/tp daemon install`. #4 flip 이후 **daemon 프로세스는 `tp-daemon` 으로 뜬다** (Rust — `pgrep -fl tp-daemon` 로 확인; 옛 `tpd` 트램폴린 아님).
+- **adhoc 재서명은 dogfood 조립에서 필수** (macOS 로컬): `cargo build`/`bun build --compile` 산출물은 `adhoc`(Rust) / `adhoc,linker-signed`(Bun SEA) 서명을 갖는데, `cp` 가 payload 레이아웃/해시를 바꿔 그 서명을 무효화한다 (`codesign -v` → "code or signature have been modified"). 바이너리를 **직접 실행**하면 통과하지만, Rust `tp` 가 trampoline 으로 자식(`tp-daemon`/`tp-runner`/`tpd`)을 **exec** 하면 AMFI 가 SIGKILL(exit 137, 간헐적으로 보이지만 실제로는 일관 실패) 한다. 해결 = **`bin/tp` + Rust `tp` 가 exec 하는 모든 `libexec/tp/*` 자식(`tp-daemon`,`tp-runner`,`tp-relay`,`tpd`)을 전부** `codesign --force --sign -` 로 plain-adhoc 재서명(서명 일관성 — 일부만 재서명하면 parent/child 서명 불일치로 여전히 kill). `install.sh` 릴리즈 경로는 macOS 러너에서 빌드+서명된 tarball 을 `tar` 추출하므로 이 문제가 없다(로컬 `cp` 조립에서만 발생). 재서명 후 `tp version` + `tp status`(daemon running) 로 검증.
+- **재기동은 `tp daemon install` 한 번** (`pkill` 후 수동 재시작 금지 — 서비스 미등록 프로세스로 살아남아 OTA 안 됨). 재기동 후 `tp status` 로 daemon running 확인 + daemon.log 에서 `[RelayClient] authenticated to relay`(wss:// 연결 성공) 확인.
 - **Subagent worktree 가 active 인 동안 install 금지** — 모든 subagent 완료 알림 도착 + 메인 worktree `git status` clean 후 한꺼번에. 옛 `/usr/local/bin/tp` 잔재 발견 시 `rm`.
 
 ## Documentation Maintenance

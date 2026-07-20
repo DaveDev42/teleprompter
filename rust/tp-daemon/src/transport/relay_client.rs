@@ -109,7 +109,16 @@ const CONTROL_UNPAIR: &str = "control.unpair";
 const CONTROL_RENAME: &str = "control.rename";
 /// `WS_PROTOCOL_VERSION` (`packages/protocol/src/compat.ts:56`) — advertised
 /// by both peers in the kx payload `v`. v3 = PCT + QR v4.
-const WS_PROTOCOL_VERSION: f64 = 3.0;
+///
+/// MUST be an INTEGER type, not `f64`: `serde_json` serializes `3.0f64` as the
+/// JSON literal `3.0`, but the TS daemon emits the integer `3` (`WS_PROTOCOL_VERSION
+/// = 3`) and the Swift app decodes this field into `DaemonKxPayload.v: Int?`
+/// (`ios/Sources/Relay/RelayMessages.swift:200`). Foundation's `JSONDecoder` rejects
+/// a fractional-formatted number (`3.0`) into `Int` with a `typeMismatch`, so a `3.0`
+/// wire value makes `onKeyExchangeFrame`'s decode throw → `kxFail` → the app never
+/// derives session keys and `TP_KX_OK` never fires (the exact flip regression the M5
+/// soak caught: Bun daemon 8/8, Rust daemon stalled at kx). `u8` serializes as `3`.
+const WS_PROTOCOL_VERSION: u8 = 3;
 
 /// Current epoch milliseconds, `f64` (matches JS `Date.now()`'s type on the
 /// wire — every timestamp field in the protocol is a JSON number). The
@@ -485,14 +494,12 @@ impl RelayClient {
         }
 
         // Writer task: drain the outbound channel to the socket.
-        let this_writer = Arc::clone(self);
         let writer_task = tokio::spawn(async move {
             while let Some(msg) = out_rx.recv().await {
                 if ws_tx_half.send(msg).await.is_err() {
                     break;
                 }
             }
-            let _ = this_writer;
         });
 
         // Reader task: the read loop drives onopen/onmessage/onclose
@@ -1254,7 +1261,10 @@ impl RelayClient {
     /// all propagate so callers never overcount delivered frames.
     #[must_use]
     async fn send(self: &Arc<Self>, msg: RelayClientMessage) -> bool {
-        let tx = { self.state.lock().await.ws_tx.clone() };
+        let tx = {
+            let st = self.state.lock().await;
+            st.ws_tx.clone()
+        };
         let Some(tx) = tx else { return false };
         let Ok(text) = serde_json::to_string(&msg) else {
             return false;

@@ -2633,10 +2633,27 @@ start_real_daemon_relay() {
   # E2E_DAEMON_BIN=yes, and the holder's daemonCmd() reads an empty value as unset → the
   # default Bun daemon (real-daemon-pair.ts: `b.length > 0 ? b : undefined`), so passing
   # it unconditionally is a no-op when off and selects the Rust tp-daemon when set.
+  # CLAUDE_CONFIG_DIR is pinned to the isolated HOME so the spawned interactive
+  # claude reads the harness-seeded lightweight config (trust/onboarding that
+  # the holder writes to $HOME/.claude.json), NOT the operator's real
+  # ~/.claude.personal. Without this override the operator's shell
+  # CLAUDE_CONFIG_DIR leaks through (HOME/XDG overrides don't cover it), and a
+  # heavy personal config (ultracode/Fable-5/xhigh, dynamic workflows) balloons
+  # the REPL cold-start warmup window — the app's bounded input-probe retry
+  # (12×4s) then races that longer warmup and intermittently loses, yielding
+  # UserPromptSubmit=0 (spurious M5 flake, daemon-impl-independent). It is set
+  # to the isolated HOME itself (not $HOME/.claude): claude resolves
+  # `.claude.json` from CLAUDE_CONFIG_DIR when set, and the holder seeds it at
+  # `$HOME/.claude.json`, so the two must point at the same dir. The auth token
+  # was already refreshed+read from the operator's REAL config by
+  # reuse_operator_claude_token (that path keeps CLAUDE_CONFIG_DIR=$real_cfg),
+  # and is passed in via CLAUDE_CODE_OAUTH_TOKEN — so the isolated config dir
+  # needs no credentials of its own.
   XDG_RUNTIME_DIR="$REAL_E2E_DIR/run" \
   XDG_DATA_HOME="$REAL_E2E_DIR/data" \
   XDG_CONFIG_HOME="$REAL_E2E_DIR/cfg" \
   HOME="$REAL_E2E_DIR/home" \
+  CLAUDE_CONFIG_DIR="$REAL_E2E_DIR/home" \
   TP_E2E_CLAUDE_SID="$claude_sid" \
   TP_E2E_CLAUDE_CWD="$REAL_E2E_DIR/home/work" \
   TP_RUNNER_BIN="$REAL_RUNNER_BIN" \
@@ -2728,6 +2745,156 @@ sys.exit(0 if r.get("passed") else 1)
     log "✅ cmd_all: all platforms PASS"
   else
     die "cmd_all: one or more platforms FAILED (see matrix above)"
+  fi
+}
+
+# soak_sweep_stray_e2e — kill stray E2E daemons/runners + their claude children left
+# behind by a PRIOR run, so they can't contaminate the next one. This is the load-
+# bearing hygiene the per-run smoke teardown MISSES: `cmd_smoke_macos` kills only the
+# *app* (`pkill -x Teleprompter`) and purges the app-side pairing keychain, but a run
+# that `die`s mid-flight (e.g. an M5 timeout) leaves its ISOLATED tp-daemon + tp-runner
+# + spawned claude alive — and because they stay registered on the shared host relay,
+# the NEXT run's app can auto-reconnect to that stale daemon (observed: every run
+# latching onto a single leftover `daemon-…` id, so this run's own isolated session DB
+# gets 0 UserPromptSubmit and the #877 foreign-sid guard correctly fails M5). The real-
+# claude macOS smoke shares ONE host relay + LaunchServices + app pairing store, so soak
+# iterations MUST be serialized AND each must start from a daemon-clean host. cmd_soak
+# already serializes (sequential subshells); this closes the process-leak half.
+#
+# Scoped precisely to E2E artifacts — it never touches the operator's dogfood daemon
+# (~/.local/share/tp, launched via `tp daemon`) or any non-E2E claude: it matches only
+# the isolated-daemon signatures (rust/target/release/tp-{daemon,runner} that the parity
+# gate injects, the Bun `apps/cli … run --sid real-smoke-sess` runner, and claude bound
+# to a `hook-real-smoke-sess.sock` — all unique to the E2E harness).
+soak_sweep_stray_e2e() {
+  # E2E daemon/runner binaries the parity gate injects (TP_DAEMON_BIN/TP_RUNNER_BIN
+  # resolve to rust/target/release/*). The Bun-default runner rides apps/cli with the
+  # fixed E2E sid. claude children are bound to the per-run hook socket by that sid.
+  pkill -9 -f 'rust/target/release/tp-daemon' 2>/dev/null || true
+  pkill -9 -f 'rust/target/release/tp-runner' 2>/dev/null || true
+  pkill -9 -f 'apps/cli/src/index.ts run --sid real-smoke-sess' 2>/dev/null || true
+  pkill -9 -f 'hook-real-smoke-sess.sock' 2>/dev/null || true
+  # Any prior app instance too (the smoke does this itself, but doing it here means the
+  # host is fully quiescent before the next `bash "$0" smoke` even starts its own log
+  # stream — no half-dead app holding a relay frontendId).
+  pkill -9 -x Teleprompter 2>/dev/null || true
+}
+
+# ── cmd_soak — the Rust-default flip soak, one preset instead of an env-flag pile ─
+#
+# WHY THIS EXISTS (task #36): the flip soak is a fixed recipe — the SAME env preset
+# (Rust daemon + Rust runner, macOS-native, keep-dir for post-mortem) applied across
+# a SEQUENCE of real-claude session modes (interactive M5 ×3, coding, webpage). Typing
+# that recipe by hand means spelling out a 4-flag product PER RUN five times over — the
+# exact `TP_E2E_*` sprawl the operator called unusable. This wraps the whole sequence
+# behind a single `scripts/ios.sh soak` subcommand — no new env knob, one explicit entry
+# point (an env override that hijacked another subcommand would just be more implicit
+# coupling, the opposite of the goal). MINIMAL BLAST RADIUS: it does NOT
+# rename or fold any existing gate — parse_e2e_gates is untouched. cmd_soak is a thin
+# driver that sets the SAME env vars the operator would have typed, then reuses the
+# ordinary `smoke` path unchanged (each run is a real `bash "$0" smoke` subshell, so
+# every gate still resolves through parse_e2e_gates exactly as before).
+#
+# The soak preset (applied to every run):
+#   TP_E2E_DAEMON_BIN=1  — isolated daemon = Rust tp-daemon (the flip's daemon half)
+#   TP_E2E_RUNNER_BIN=1  — that daemon spawns the Rust tp-runner (the flip's runner half)
+#   TP_PLATFORM=macos    — native macOS path (no Simulator boot; the flip is host-side)
+#   TP_E2E_KEEP_DIR=1    — keep each run's isolated $HOME/vault for post-mortem on failure
+#
+# The sweep (the per-run session-driving gate is the ONLY thing that varies):
+#   1–3. TP_E2E_CLAUDE_M5=1      — full M0–M5 interactive input round-trip (run ×3 for
+#                                  flake-resistance: the app-probe → PTY → claude → Stop
+#                                  path is the most timing-sensitive, so it gets repeats)
+#   4.   TP_E2E_CLAUDE_CODING=1  — holder drives multi-turn Write+Bash coding (M0–M4)
+#   5.   TP_E2E_WEBPAGE=1        — holder drives HTML5 build+validate turns (M0–M4)
+#
+# LOCAL-ONLY, never CI: it rides the real-claude harness (reuses the operator's own
+# keychain Claude token via reuse_operator_claude_token) and needs a host macOS GUI
+# session for the `open`-launched app — exactly the credential-bearing, non-deterministic
+# path CI must never take. `cmd_all`'s fd/JSON-capture mechanics are mirrored: fd 3 =
+# parent stderr so each run's live [macos] logs stream through while `tail -n1` grabs
+# only its one-line JSON. TP_SOAK_RUNS overrides the M5 repeat count (default 3).
+cmd_soak() {
+  [ "$(uname -s)" = "Darwin" ] || die "soak is macOS-only (rides the native-macOS real-claude harness)"
+  require claude
+
+  # Build the run list: N×M5 then CODING then WEBPAGE. Each entry is "label|GATE_ENV".
+  local m5_runs="${TP_SOAK_RUNS:-3}"
+  case "$m5_runs" in ''|*[!0-9]*) die "TP_SOAK_RUNS must be a non-negative integer (got '$m5_runs')" ;; esac
+  local -a plan=()
+  local i
+  for (( i=1; i<=m5_runs; i++ )); do plan+=("m5-$i|TP_E2E_CLAUDE_M5"); done
+  plan+=("coding|TP_E2E_CLAUDE_CODING")
+  plan+=("webpage|TP_E2E_WEBPAGE")
+
+  log "──────── soak: ${#plan[@]} runs (Rust daemon+runner, macOS-native) ────────"
+  log "preset: TP_E2E_DAEMON_BIN=1 TP_E2E_RUNNER_BIN=1 TP_PLATFORM=macos TP_E2E_KEEP_DIR=1"
+
+  # Sweep any stray E2E daemon/runner/app left by an EARLIER (non-soak) invocation
+  # before the first run, so the soak starts from a daemon-clean host too.
+  soak_sweep_stray_e2e
+
+  exec 3>&2
+  local -a results=()
+  local entry label gate json rc
+  for entry in "${plan[@]}"; do
+    label="${entry%%|*}"; gate="${entry##*|}"
+    log "──────── soak run: $label ($gate=1) ────────"
+    # Subshell mirrors cmd_all: the soak preset + this run's single driving gate are
+    # exported for one `smoke`; TP_JSON=1 captures the EXIT-trap JSON on stdout while
+    # stderr (live progress) streams through fd 3. Failure is caught (die→exit) so one
+    # bad run doesn't abort the sweep — the matrix records it and cmd_soak exits non-zero.
+    # `env "$gate=1"` — the driving gate name is dynamic, so it can't be a bare
+    # NAME=value assignment word (the shell only recognizes those pre-expansion).
+    # `env` takes the expanded "TP_E2E_CLAUDE_M5=1" as a real assignment. The static
+    # preset vars stay bare assignments on the same simple command.
+    json="$( TP_PLATFORM=macos TP_JSON=1 \
+             TP_E2E_DAEMON_BIN=1 TP_E2E_RUNNER_BIN=1 TP_E2E_KEEP_DIR=1 \
+             env "$gate=1" bash "$0" smoke 2>&3 | tail -n1 )" && rc=0 || rc=$?
+    case "$json" in
+      '{"platform"'*) : ;;
+      *) json="{\"platform\":\"macos\",\"markers\":{},\"passed\":false,\"elapsed_s\":0}" ;;
+    esac
+    # Splice the run label into the JSON (the smoke JSON only knows "platform":"macos";
+    # the soak matrix needs to distinguish m5-1/m5-2/coding/webpage rows).
+    results+=("$label|$json")
+    # BETWEEN-RUN SWEEP (load-bearing): a run that `die`d leaves its isolated daemon +
+    # runner + claude alive (KEEP_DIR keeps the dir; the processes leak regardless). Kill
+    # them now so the NEXT run's app can't auto-reconnect to this run's stale daemon on
+    # the shared host relay (the exact contamination that made concurrent runs cross-wire
+    # onto one daemon id and fail the #877 foreign-sid M5 guard). A short settle lets the
+    # relay drop the disconnected frontendId before the next run registers.
+    soak_sweep_stray_e2e
+    sleep 1
+  done
+
+  # Render the matrix + compute overall pass/fail (label column replaces platform).
+  printf '\n'
+  printf '%-10s  %-7s  %-9s  %s\n' "RUN" "PASSED" "ELAPSED" "MARKERS"
+  printf '%-10s  %-7s  %-9s  %s\n' "---" "------" "-------" "-------"
+  local overall=0 row
+  for row in "${results[@]}"; do
+    label="${row%%|*}"; json="${row#*|}"
+    # Pass the run label as argv[1] (NOT an env var): the env would only reach the
+    # `printf` side of the pipe, not the `python3` process on the other side (separate
+    # processes), so os.environ would see nothing and the RUN column would print "?".
+    printf '%s\n' "$json" | /usr/bin/python3 -c '
+import json,sys
+label=sys.argv[1]
+r=json.load(sys.stdin)
+m=r.get("markers",{})
+seen=sum(1 for v in m.values() if v); total=len(m)
+passed="PASS" if r.get("passed") else "FAIL"
+print("%-10s  %-7s  %-9s  %d/%d" % (
+    label, passed, "%ds"%r.get("elapsed_s",0), seen, total))
+sys.exit(0 if r.get("passed") else 1)
+' "$label" || overall=1
+  done
+  printf '\n'
+  if [ "$overall" -eq 0 ]; then
+    log "✅ soak: all ${#plan[@]} runs PASS — flip is clean, PR mergeable"
+  else
+    die "soak: one or more runs FAILED (see matrix above; isolated vaults kept via TP_E2E_KEEP_DIR)"
   fi
 }
 
@@ -3204,13 +3371,14 @@ main() {
     run)   cmd_run ;;
     smoke) cmd_smoke ;;
     all)   cmd_all ;;
+    soak)  cmd_soak ;;
     uitest) cmd_uitest ;;
     uitest-all) cmd_uitest_all ;;
     test)  cmd_test ;;
     archive) cmd_archive ;;
     fmt)   cmd_fmt ;;
     lint)  cmd_lint ;;
-    *) die "unknown subcommand: $sub (use: gen|rust|boot|build|run|smoke|all|uitest|uitest-all|test|archive|fmt|lint)" ;;
+    *) die "unknown subcommand: $sub (use: gen|rust|boot|build|run|smoke|all|soak|uitest|uitest-all|test|archive|fmt|lint)" ;;
   esac
 }
 

@@ -8,7 +8,7 @@
 //!     No IPC, no SQLite write, no relay/WS.
 //!   - `install`   = file write + launchctl/systemctl ONLY. No IPC, no relay/WS.
 //!   - `uninstall` = file delete + launchctl/systemctl ONLY. No IPC, no relay/WS.
-//!   - `start`     = locate Bun blob + exec (foreground trampoline). Rust opens nothing.
+//!   - `start`     = locate Rust `tp-daemon` + exec (foreground trampoline). Rust opens nothing.
 //!
 //! Signal delivery uses `rustix::process::kill_process` (safe, `process` feature
 //! already in Cargo.toml) — avoids `libc` and satisfies `unsafe_code = "forbid"`.
@@ -465,28 +465,36 @@ pub fn uninstall() -> ExitCode {
 }
 
 // ---------------------------------------------------------------------------
-// `tp daemon start` — Bun trampoline
+// `tp daemon start` — Rust tp-daemon trampoline
 // ---------------------------------------------------------------------------
 
-/// `tp daemon start` — locate the bundled Bun SEA and exec it in the foreground.
+/// `tp daemon start` — locate the bundled Rust `tp-daemon` and exec it in the
+/// foreground.
 ///
-/// This is a TRAMPOLINE: the Rust binary locates the Bun blob via
-/// `locate_bun_blob()`, then runs:
-///   `Command::new(blob).arg("daemon").arg("start").args(forwarded)
+/// This is a TRAMPOLINE: the Rust `tp` binary locates the `tp-daemon` binary via
+/// `locate_tp_daemon()`, then runs:
+///   `Command::new(tp_daemon).args(forwarded)
 ///     .stdin/out/err(inherit).status()`
 ///
-/// The Bun blob handles all in-process daemon logic (Daemon constructor,
-/// signal handlers, --watch restart, `[Daemon] listening on …` / `press
-/// Ctrl+C to stop` / `[Daemon] shutting down…`). Rust only forwards stdio
-/// and propagates the exit code.
+/// No `daemon start` subcommand: the Rust `tp-daemon` binary IS the daemon — its
+/// main() runs the pid-lock, Daemon constructor, signal handlers, --watch
+/// restart, and the `[Daemon] listening on …` / `press Ctrl+C to stop` /
+/// `[Daemon] shutting down…` lifecycle. Rust `tp` only forwards stdio and
+/// propagates the exit code.
 ///
-/// `extra_args` = all argv after `daemon start` (forwarded verbatim).
+/// This is the seam that makes installed OS services (launchd/systemd) run the
+/// Rust daemon: their `ExecStart` bakes `[<tp>, daemon, start]`, so flipping
+/// this function is what carries the flip to the persistent production daemon —
+/// not just the ad-hoc background auto-spawn in `ensure_daemon.rs` (task #4).
 ///
-/// Architecture invariant: Rust opens nothing. No IPC, no relay/WS, no SQLite
-/// write. The Bun blob is exec'd DIRECTLY so `process.execPath` inside Bun
-/// equals the blob (not the Rust binary) — Bun-internal re-spawns stay Bun→Bun.
+/// `extra_args` = all argv after `daemon start` (forwarded verbatim). The Rust
+/// `tp-daemon` accepts the same forwarded flags the Bun daemon did (e.g.
+/// `--watch`), parsed by its own `main()`.
+///
+/// Architecture invariant: Rust `tp` opens nothing. No IPC, no relay/WS, no
+/// SQLite write. The `tp-daemon` binary is exec'd DIRECTLY.
 pub fn start(extra_args: &[String]) -> ExitCode {
-    let blob = match crate::locate::locate_bun_blob() {
+    let daemon_bin = match crate::locate::locate_tp_daemon() {
         Ok(p) => p,
         Err(msg) => {
             eprintln!("{msg}");
@@ -495,9 +503,7 @@ pub fn start(extra_args: &[String]) -> ExitCode {
     };
 
     use std::process::Stdio;
-    let status = std::process::Command::new(&blob)
-        .arg("daemon")
-        .arg("start")
+    let status = std::process::Command::new(&daemon_bin)
         .args(extra_args)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
@@ -515,7 +521,7 @@ pub fn start(extra_args: &[String]) -> ExitCode {
             }
         }
         Err(e) => {
-            eprintln!("tp: failed to exec {}: {e}", blob.display());
+            eprintln!("tp: failed to exec {}: {e}", daemon_bin.display());
             ExitCode::FAILURE
         }
     }

@@ -584,8 +584,45 @@ impl<D: RelayManagerDeps + 'static> RelayConnectionManager<D> {
     /// Register a pre-constructed `RelayClient` in the pool. Used by the
     /// pairing orchestrator's `promote` after a `PendingPairing` completes.
     /// Mirrors `registerClient` (relay-manager.ts).
-    pub fn register_client(&self, client: Arc<RelayClient>) {
-        self.clients.lock().unwrap().push(client);
+    ///
+    /// After adding the client to the pool, subscribe it to `__meta__`,
+    /// `__control__`, and **every existing session** (running OR stopped) —
+    /// exactly as `add_client` does for the reconnect path (the TS `try`
+    /// subscribe loop). The `PendingPairing` already subscribed the client
+    /// to `__meta__`/`__control__` at `begin`, but NOT to sessions that were
+    /// created before the pairing promoted. That gap is race-exposed by the
+    /// native `tp-runner` flip: the native runner's `hello` lands in <1s, so
+    /// a session (e.g. the real-claude E2E `real-smoke-sess`, deliberately
+    /// spawned before pairing) is created while `get_relay_clients()` is
+    /// still empty — the hello handler's per-session subscribe finds no
+    /// client, and `handle_frontend_joined`'s pool lookup also misses because
+    /// promote hasn't run yet. Without this loop the daemon never subscribes
+    /// to that sid, so the relay drops the app's relayed input frames
+    /// (`handlePublish` forwards only to subscribed peers) and M5 fails with
+    /// zero deliveries. Subscribing here closes the race for the
+    /// session-created-before-promote ordering; the hello handler still
+    /// covers the created-after-promote ordering (client now in the pool).
+    /// (The slower Bun runner masked this — its `hello` reliably arrived
+    /// after the ~30s pairing, so the pool was already populated.)
+    pub fn register_client(self: &Arc<Self>, client: Arc<RelayClient>) {
+        self.clients.lock().unwrap().push(Arc::clone(&client));
+        let this = Arc::clone(self);
+        tokio::spawn(async move {
+            client.subscribe(RELAY_CHANNEL_META).await;
+            client.subscribe(RELAY_CHANNEL_CONTROL).await;
+            let sids: Vec<String> = {
+                let store = this.deps.store().lock().unwrap();
+                store
+                    .list_sessions()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|s| s.sid)
+                    .collect()
+            };
+            for sid in &sids {
+                client.subscribe(sid).await;
+            }
+        });
     }
 
     /// Reconnect to all saved relay pairings from the store. Mirrors

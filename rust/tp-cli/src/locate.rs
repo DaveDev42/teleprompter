@@ -159,11 +159,10 @@ fn locate_bun_blob_inner(current_canon: Option<&Path>) -> Result<PathBuf, String
 ///
 /// Carries the same `is_self` infinite-loop guard as [`locate_bun_blob`].
 ///
-/// NOTE (A1 scope): added but NOT yet wired into any exec path — the daemon
-/// default remains the Bun daemon (`resolveDaemonSpawnCommand` in
-/// ensure-daemon.ts). The daemon default-flip PR is the first real caller and
-/// removes the `#[allow(dead_code)]`.
-#[allow(dead_code)] // Wired by the daemon default-flip PR (ADR-0003 Phase 4).
+/// Wired by the daemon default-flip (task #4): the real callers are
+/// `ensure_daemon.rs::spawn_background_daemon` (background auto-spawn) and
+/// `commands/daemon.rs::start` (foreground `tp daemon start` — the seam
+/// installed launchd/systemd services exec).
 pub fn locate_tp_daemon() -> Result<PathBuf, String> {
     let current_canon = std::env::current_exe()
         .ok()
@@ -173,7 +172,6 @@ pub fn locate_tp_daemon() -> Result<PathBuf, String> {
 }
 
 /// Inner implementation with injectable current-exe canonical path for testing.
-#[allow(dead_code)] // See locate_tp_daemon.
 fn locate_tp_daemon_inner(current_canon: Option<&Path>) -> Result<PathBuf, String> {
     let is_self = |candidate: &Path| -> bool {
         if let (Some(c), Some(me)) = (std::fs::canonicalize(candidate).ok(), current_canon) {
@@ -374,136 +372,15 @@ fn locate_tp_relay_inner(current_canon: Option<&Path>) -> Result<PathBuf, String
     ))
 }
 
-/// Resolve the shipped Rust `tp-runner` binary for exec (task #8 flip-prep — ship
-/// `tp-runner` as a locatable release artifact, the runner analog of A1's
-/// `locate_tp_daemon`).
-///
-/// Structurally identical to [`locate_tp_daemon`] with `tp-runner` in place of
-/// `tp-daemon` and the env override `TP_RUNNER_BIN`. `tp-runner` is an ordinary
-/// cargo binary (the per-session runtime, `rust/tp-runner`, which parses the
-/// `--sid/--cwd/[--socket-path]/… [-- <claude args>]` argv the daemon's
-/// `SessionManager` passes), so the dev fallback is
-/// `<repo>/rust/target/release/tp-runner` (NOT a Bun blob path).
-///
-/// # Resolution order (first match wins)
-/// 1. `$TP_RUNNER_BIN` — absolute-path override. This is the SAME env var the
-///    TS-side opt-in seam reads (`apps/cli/src/lib/runner-bin.ts`
-///    `resolveRunnerBinOverride`). The two are COHERENT, not conflicting: the TS
-///    seam decides *whether* the Bun daemon spawns the Rust runner per session
-///    (`resolveRunnerCommandWithOverride` → `[<path>]`); this Rust-side locate
-///    answers "where is the shipped runner" for the (future) native-`tp` flip
-///    path. Both honor a full path the operator/harness already built — a shared
-///    escape hatch, never a toggle.
-/// 2. `canonicalize(current_exe) → ../../libexec/tp/tp-runner` — release prefix
-///    tree, alongside `tpd` / `tp-daemon` / `tp-relay`.
-/// 3. Sibling `tp-runner` next to the Rust `tp` binary — flat dogfood drop.
-/// 4. Dev fallback: `<repo>/rust/target/release/tp-runner`.
-/// 5. Hard error.
-///
-/// Carries the same `is_self` infinite-loop guard as [`locate_bun_blob`].
-///
-/// NOTE (flip-prep scope): added but NOT yet wired into any exec path — the
-/// default runner remains the Bun runner (`resolveRunnerCommand` in
-/// `packages/daemon/src/session/spawn.ts`). The runner default-flip PR (task #8)
-/// is the first real caller and removes the `#[allow(dead_code)]`. This mirrors
-/// A1's `locate_tp_daemon` (shipped unwired), NOT #25's `locate_tp_relay` (wired
-/// the same PR): the runner flip is E2E-soak-gated, so shipping the artifact is
-/// deliberately split from flipping the default.
-#[allow(dead_code)] // Wired by the runner default-flip PR (task #8).
-pub fn locate_tp_runner() -> Result<PathBuf, String> {
-    let current_canon = std::env::current_exe()
-        .ok()
-        .and_then(|p| std::fs::canonicalize(&p).ok());
-
-    locate_tp_runner_inner(current_canon.as_deref())
-}
-
-/// Inner implementation with injectable current-exe canonical path for testing.
-#[allow(dead_code)] // See locate_tp_runner.
-fn locate_tp_runner_inner(current_canon: Option<&Path>) -> Result<PathBuf, String> {
-    let is_self = |candidate: &Path| -> bool {
-        if let (Some(c), Some(me)) = (std::fs::canonicalize(candidate).ok(), current_canon) {
-            c == me
-        } else {
-            false
-        }
-    };
-
-    // ── 1. $TP_RUNNER_BIN override ────────────────────────────────────────────
-    if let Ok(bin) = std::env::var("TP_RUNNER_BIN") {
-        if !bin.is_empty() {
-            let p = PathBuf::from(&bin);
-            if is_self(&p) {
-                return Err(format!(
-                    "tp: TP_RUNNER_BIN resolves to the tp binary itself ({bin}); \
-                     infinite loop prevented. Set TP_RUNNER_BIN to the tp-runner binary."
-                ));
-            }
-            if p.exists() {
-                return Ok(p);
-            }
-            return Err(format!(
-                "tp: TP_RUNNER_BIN is set to '{bin}' but that file does not exist."
-            ));
-        }
-    }
-
-    let exe_path = std::env::current_exe()
-        .map_err(|e| format!("tp: cannot determine current executable path: {e}"))?;
-
-    // ── 2. Release prefix tree: canonicalize → ../../libexec/tp/tp-runner ─────
-    let candidate2 = std::fs::canonicalize(&exe_path).ok().and_then(|canon| {
-        canon
-            .parent()
-            .and_then(|bin| bin.parent())
-            .map(|prefix| prefix.join("libexec").join("tp").join("tp-runner"))
-    });
-
-    if let Some(ref p) = candidate2 {
-        if !is_self(p) && p.exists() {
-            return Ok(p.clone());
-        }
-    }
-
-    // ── 3. Sibling tp-runner next to the Rust binary ──────────────────────────
-    let candidate3 = exe_path.parent().map(|dir| dir.join("tp-runner"));
-
-    if let Some(ref p) = candidate3 {
-        if !is_self(p) && p.exists() {
-            return Ok(p.clone());
-        }
-    }
-
-    // ── 4. Dev fallback: <repo>/rust/target/release/tp-runner ─────────────────
-    let candidate4 = find_repo_root(&exe_path).map(|root| {
-        root.join("rust")
-            .join("target")
-            .join("release")
-            .join("tp-runner")
-    });
-
-    if let Some(ref p) = candidate4 {
-        if !is_self(p) && p.exists() {
-            return Ok(p.clone());
-        }
-    }
-
-    // ── 5. Hard error ─────────────────────────────────────────────────────────
-    let searched: Vec<String> = [
-        candidate2.map(|p| p.to_string_lossy().into_owned()),
-        candidate3.map(|p| p.to_string_lossy().into_owned()),
-        candidate4.map(|p| p.to_string_lossy().into_owned()),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-
-    Err(format!(
-        "tp: bundled tp-runner not found (looked in {}). \
-         Reinstall tp or set TP_RUNNER_BIN.",
-        searched.join(", ")
-    ))
-}
+// NOTE: `locate_tp_runner` moved to `tp-proto::locate` (task #4 runner flip).
+// After the flip, both `tp-daemon` (per-session spawn via
+// `session::manager::default_runner_command`) and `tp-cli` need to resolve the
+// SAME `tp-runner`, and `tp-daemon` cannot depend on `tp-cli` (circular — the
+// CLI locates and spawns the daemon). The shared home is `tp-proto`, which both
+// crates already depend on and which already hosts sibling path-resolution
+// (`socket_path::resolve_runtime_dir`). The `locate_bun_blob` / `locate_tp_daemon`
+// / `locate_tp_relay` resolvers below STAY here — each has a single (CLI-only)
+// consumer, so no cross-crate agreement invariant applies to them.
 
 /// Walk up the filesystem from `start`, looking for a directory that contains
 /// `rust/tp-cli/Cargo.toml` — the repo root sentinel. Returns the first match.
@@ -845,59 +722,7 @@ mod tests {
         }
     }
 
-    // ── tp-runner (task #8 flip-prep): prefix-tree candidate ──────────────────
-
-    #[test]
-    fn tp_runner_prefix_tree_candidate_shape() {
-        // canon = /opt/tp/bin/tp → prefix = /opt/tp → tp-runner at
-        // /opt/tp/libexec/tp/tp-runner (alongside tpd / tp-daemon / tp-relay).
-        let canon = PathBuf::from("/opt/tp/bin/tp");
-        let candidate = canon
-            .parent()
-            .and_then(|bin| bin.parent())
-            .map(|prefix| prefix.join("libexec").join("tp").join("tp-runner"));
-        assert_eq!(
-            candidate,
-            Some(PathBuf::from("/opt/tp/libexec/tp/tp-runner"))
-        );
-    }
-
-    // ── tp-runner (task #8 flip-prep): sibling candidate ──────────────────────
-
-    #[test]
-    fn tp_runner_sibling_candidate_shape() {
-        let exe = PathBuf::from("/usr/local/bin/tp");
-        let sibling = exe.parent().map(|d| d.join("tp-runner"));
-        assert_eq!(sibling, Some(PathBuf::from("/usr/local/bin/tp-runner")));
-    }
-
-    // ── tp-runner (task #8 flip-prep): dev fallback is rust/target/release ────
-
-    #[test]
-    fn tp_runner_dev_fallback_shape() {
-        let root = PathBuf::from("/home/u/teleprompter");
-        let candidate = root
-            .join("rust")
-            .join("target")
-            .join("release")
-            .join("tp-runner");
-        assert_eq!(
-            candidate,
-            PathBuf::from("/home/u/teleprompter/rust/target/release/tp-runner")
-        );
-    }
-
-    // ── tp-runner (task #8 flip-prep): not-found error message ────────────────
-
-    #[test]
-    fn tp_runner_not_found_error_mentions_reinstall_and_runner_bin() {
-        let bogus_self = PathBuf::from("/tmp/tp-cli-bogus-self-runner-xyz/tp");
-        if let Err(msg) = locate_tp_runner_inner(Some(&bogus_self)) {
-            assert!(
-                msg.contains("tp-runner not found") && msg.contains("TP_RUNNER_BIN"),
-                "error should mention TP_RUNNER_BIN: {msg}"
-            );
-            assert!(msg.contains("Reinstall"), "should mention Reinstall: {msg}");
-        }
-    }
+    // NOTE: the tp-runner resolver + its geometry/error tests moved to
+    // `tp-proto::locate` (task #4 runner flip). The daemon/relay/blob resolver
+    // tests above stay here with their resolvers.
 }

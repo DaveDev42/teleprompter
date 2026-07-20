@@ -152,18 +152,33 @@ impl SessionManager {
         self.runners.lock().unwrap().len()
     }
 
-    /// Byte-exact port of `defaultRunnerCommand` (session-manager.ts:87-98).
-    /// The TS resolves a path relative to `import.meta.dir` into
-    /// `packages/runner/src/index.ts` and runs it via `["bun", "run",
-    /// <path>]`. Rust has no `import.meta.dir` analogue and no in-process
-    /// Bun runtime to `bun run` against, so this default is a placeholder —
-    /// **TODO(inc5)**: wire the real Rust runner-binary default here (dual-run
-    /// seam target, `TP_RUNNER_BIN`). For now this only matters when no
-    /// caller has called [`SessionManager::set_runner_command`] — every
-    /// production call path is expected to inject the command explicitly
-    /// (mirrors the CLI's `SessionManager.setRunnerCommand(["./tp","run"])`).
-    fn default_runner_command() -> Vec<String> {
-        vec!["bun".to_string(), "run".to_string()]
+    /// Default runner command when no caller injected one via
+    /// [`SessionManager::set_runner_command`].
+    ///
+    /// Post-flip (task #4) this resolves the shipped Rust `tp-runner` binary via
+    /// [`tp_proto::locate_tp_runner`] and returns it as a single-element base
+    /// command `[<tp-runner path>]` (the Rust `tp-runner` takes the daemon's
+    /// `--sid/--cwd/…` argv directly, no `run` subcommand). The resolver is
+    /// shared with `tp-cli` through `tp-proto` so the daemon and the CLI can
+    /// never locate different `tp-runner` binaries. Replaces the previous
+    /// `["bun","run"]` placeholder — the Bun runner is retired from the Rust
+    /// daemon path.
+    ///
+    /// This only fires when no caller injected a command: every production call
+    /// path that wants an explicit runner (the CLI, all E2E holder paths that
+    /// set `TP_RUNNER_BIN`) calls [`SessionManager::set_runner_command`] first
+    /// (mirrors the TS `SessionManager.setRunnerCommand(...)`); this default is
+    /// the fallback the Rust daemon's own `main()` relies on when spawning
+    /// sessions itself (it never injects a runner command).
+    ///
+    /// # Errors
+    /// Surfaces the `tp-runner` locate failure (binary not found / bad
+    /// `TP_RUNNER_BIN`) as an `io::Error` so `spawn_runner` fails loudly rather
+    /// than spawning a bogus argv.
+    fn default_runner_command() -> std::io::Result<Vec<String>> {
+        tp_proto::locate_tp_runner()
+            .map(|p| vec![p.to_string_lossy().into_owned()])
+            .map_err(std::io::Error::other)
     }
 
     /// Byte-exact port of `spawnRunner` (session-manager.ts:100-173): builds
@@ -186,11 +201,14 @@ impl SessionManager {
         opts: Option<SpawnRunnerOptions>,
     ) -> std::io::Result<u32> {
         let opts = opts.unwrap_or_default();
-        let base_cmd = RUNNER_COMMAND
-            .lock()
-            .unwrap()
-            .clone()
-            .unwrap_or_else(Self::default_runner_command);
+        // Prefer an injected runner command (CLI / E2E holder); otherwise resolve
+        // the shipped tp-runner. `default_runner_command()` is fallible (locate
+        // may fail), so propagate that as the spawn error rather than panicking.
+        let injected = RUNNER_COMMAND.lock().unwrap().clone();
+        let base_cmd = match injected {
+            Some(cmd) => cmd,
+            None => Self::default_runner_command()?,
+        };
 
         let mut args: Vec<String> = base_cmd.clone();
         args.push("--sid".to_string());
@@ -509,6 +527,65 @@ mod tests {
         }
         assert!(sm.get_runner(&sid).is_none());
 
+        SessionManager::clear_runner_command();
+    }
+
+    #[test]
+    fn default_runner_command_resolves_tp_runner_not_bun_placeholder() {
+        // Post-flip (task #4) the default runner is the located Rust `tp-runner`,
+        // NOT the retired `["bun","run"]` placeholder. This test does NOT mutate
+        // the shared `TP_RUNNER_BIN` env (that would race parallel tests); it
+        // relies only on the resolver's outcome shape.
+        //
+        // In the dev tree the resolver's repo-root fallback finds
+        // `rust/target/release/tp-runner` IF it has been built; if not, it
+        // returns a clean Err. Either way the load-bearing invariant is: the
+        // default is never `["bun","run"]` again.
+        match SessionManager::default_runner_command() {
+            Ok(cmd) => {
+                assert_eq!(
+                    cmd.len(),
+                    1,
+                    "base runner command is a single path: {cmd:?}"
+                );
+                assert!(
+                    cmd[0].ends_with("tp-runner"),
+                    "resolved runner must be tp-runner, got {cmd:?}"
+                );
+                assert_ne!(cmd, vec!["bun".to_string(), "run".to_string()]);
+            }
+            Err(e) => {
+                // Acceptable when tp-runner isn't built in this dev tree; the
+                // error must name the locate failure, not silently degrade.
+                let msg = e.to_string();
+                assert!(
+                    msg.contains("tp-runner") || msg.contains("TP_RUNNER_BIN"),
+                    "locate error should mention tp-runner/TP_RUNNER_BIN: {msg}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn spawn_runner_uses_injected_command_over_default() {
+        // Guards the primary production path: when a caller injected a runner
+        // command via set_runner_command, spawn_runner uses it verbatim and
+        // never falls through to default_runner_command() (the tp-runner
+        // resolver). Proven by injecting a harmless `sh -c 'sleep 30'` that
+        // spawns even if no tp-runner exists in this tree.
+        let sid = unique_sid("injected");
+        let sm = SessionManager::new();
+        SessionManager::set_runner_command(vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            "sleep 30".to_string(),
+        ]);
+        let pid = sm
+            .spawn_runner(&sid, "/tmp", None)
+            .expect("spawn uses injected cmd, never the resolver");
+        assert!(pid > 0);
+        assert!(sm.kill_runner(&sid));
+        sm.wait_for_exit(&sid).await;
         SessionManager::clear_runner_command();
     }
 

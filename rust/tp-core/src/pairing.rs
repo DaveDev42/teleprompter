@@ -87,7 +87,11 @@ fn b64url_decode(b64url: &str) -> Result<Vec<u8>> {
 
 /// Parse a canonical UUID string (`8-4-4-4-12`, hyphens optional) into 16 raw
 /// bytes. Accepts upper/lowercase hex; rejects any other shape.
-fn parse_uuid_16(s: &str) -> Result<[u8; 16]> {
+///
+/// Public so callers that need the 16-byte pairing-id (e.g. the smoke loopback
+/// deriving a PCT via [`crate::crypto::derive_pairing_confirmation_tag`]) can
+/// convert a canonical UUID string — byte-exact twin of the TS `parseUuid16`.
+pub fn parse_uuid_16(s: &str) -> Result<[u8; 16]> {
     let hex_only: String = s.chars().filter(|c| *c != '-').collect();
     if hex_only.len() != 32 {
         return Err(TpError::Pairing("pairing id must be a 16-byte UUID".into()));

@@ -158,6 +158,12 @@ PUSH_NOTIFY_RECEIVED_MARKER="TP_PUSH_NOTIFY_RECEIVED"
 MAC_WINDOW_COUNT_MARKER="TP_MAC_WINDOW_COUNT"
 RELAY_LOOPBACK_PORT="${TP_RELAY_LOOPBACK_PORT:-7099}"
 RELAY_LOOPBACK_SCRIPT="$REPO_ROOT/scripts/local-relay-loopback.ts"
+# TP_RUST_LOOPBACK=1 swaps the Bun `local-relay-loopback.ts` for the compiled
+# Rust `tp-loopback` binary (rust/tp-loopback) — same wire behaviour, same
+# LOOPBACK_READY handshake, but no Bun dependency (the #5 zero-Bun goal). During
+# rollout this is opt-in so both paths can be run and their 8/8 markers compared;
+# once proven at parity, the default flips and the TS script is deleted.
+TP_RUST_LOOPBACK="${TP_RUST_LOOPBACK:-}"
 XCFRAMEWORK="$REPO_ROOT/rust/target/TpCore.xcframework"
 # Ad-hoc sign Simulator/macOS local builds so entitlements embed —
 # the Simulator Keychain rejects SecItemAdd without an entitlement (-34018).
@@ -1916,21 +1922,59 @@ for devs in d["devices"].values():
   log "✅ SMOKE PASS (watchOS) — 7/7 markers: boot + core + pairing + relay-auth + kx + first-frame + session-render observed on $WATCH_SIM_NAME (TP_INPUT_OK intentionally absent)"
 }
 
+# build_rust_loopback_bin — build (release) + locate the Rust tp-loopback and set
+# RUST_LOOPBACK_BIN. Only invoked when TP_RUST_LOOPBACK=1. Same rustup-shim
+# workaround + release→debug fallback + LOUD-on-failure discipline as
+# build_rust_runner_bin (never silently drops back to the Bun script — the point
+# is to prove the Rust loopback).
+RUST_LOOPBACK_BIN=""
+build_rust_loopback_bin() {
+  require cargo
+  local tc_bin
+  tc_bin="$(dirname "$(cd "$REPO_ROOT/rust" && rustup which cargo 2>/dev/null)")" \
+    || die "TP_RUST_LOOPBACK FAIL — could not resolve the Rust toolchain bin via rustup"
+  log "building Rust tp-loopback (release)…"
+  ( cd "$REPO_ROOT/rust" && PATH="$tc_bin:$PATH" cargo build --release --bin tp-loopback ) \
+    || die "TP_RUST_LOOPBACK FAIL — 'cargo build --release --bin tp-loopback' failed"
+  local rel="$REPO_ROOT/rust/target/release/tp-loopback"
+  local dbg="$REPO_ROOT/rust/target/debug/tp-loopback"
+  if [ -x "$rel" ]; then
+    RUST_LOOPBACK_BIN="$rel"
+  elif [ -x "$dbg" ]; then
+    RUST_LOOPBACK_BIN="$dbg"
+  else
+    die "TP_RUST_LOOPBACK FAIL — tp-loopback not found after build (looked at $rel, $dbg)"
+  fi
+  local mt; mt="$(stat -c %y "$RUST_LOOPBACK_BIN" 2>/dev/null || stat -f %Sm "$RUST_LOOPBACK_BIN" 2>/dev/null || echo '?')"
+  log "tp-loopback selected: $RUST_LOOPBACK_BIN (built $mt)"
+}
+
 # start_loopback — bring up the local seeded relay used by the M2 auth check and
 # register cleanup so it always dies (RETURN is bypassed by `die`→exit, so trap
 # EXIT too). Sets $LOOPBACK_PID for callers that want it.
+#
+# Two backends, byte-identical on the wire (same LOOPBACK_READY handshake):
+#   default            — Bun `local-relay-loopback.ts` (needs `bun`).
+#   TP_RUST_LOOPBACK=1  — compiled Rust `tp-loopback` (no Bun; #5 zero-Bun goal).
 start_loopback() {
-  require bun
-  [ -f "$RELAY_LOOPBACK_SCRIPT" ] || die "SMOKE FAIL — missing $RELAY_LOOPBACK_SCRIPT"
-
   # Reap any orphan relay still holding the port (a prior run that died before
   # its cleanup ran) so we always start fresh.
   lsof -nP -iTCP:"$RELAY_LOOPBACK_PORT" -sTCP:LISTEN -t 2>/dev/null | xargs -r kill 2>/dev/null || true
 
   local lb_out; lb_out="$(mktemp -t tp-loopback.XXXXXX)"
-  log "starting loopback relay on ws://localhost:$RELAY_LOOPBACK_PORT"
-  RELAY_PORT="$RELAY_LOOPBACK_PORT" bun run "$RELAY_LOOPBACK_SCRIPT" >"$lb_out" 2>&1 &
-  local lb_pid=$!
+  local lb_pid
+  if [ -n "$TP_RUST_LOOPBACK" ]; then
+    build_rust_loopback_bin
+    log "starting Rust loopback relay on ws://localhost:$RELAY_LOOPBACK_PORT"
+    RELAY_PORT="$RELAY_LOOPBACK_PORT" "$RUST_LOOPBACK_BIN" >"$lb_out" 2>&1 &
+    lb_pid=$!
+  else
+    require bun
+    [ -f "$RELAY_LOOPBACK_SCRIPT" ] || die "SMOKE FAIL — missing $RELAY_LOOPBACK_SCRIPT"
+    log "starting loopback relay on ws://localhost:$RELAY_LOOPBACK_PORT"
+    RELAY_PORT="$RELAY_LOOPBACK_PORT" bun run "$RELAY_LOOPBACK_SCRIPT" >"$lb_out" 2>&1 &
+    lb_pid=$!
+  fi
   # Bake the local pid/path into the cleanup command now (they go out of scope when
   # this function returns). Registered on the shared accumulator so it coexists with
   # the macOS log-stream and app-kill cleanups instead of clobbering them.

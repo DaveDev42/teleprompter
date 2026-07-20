@@ -8,7 +8,7 @@
 # them through a UniFFI-generated FFI (see rust/README.md).
 [workspace]
 resolver = "2"
-members = ["tp-core", "tp-proto", "tp-relay", "tp-cli", "tp-runner", "tp-daemon"]
+members = ["tp-core", "tp-proto", "tp-relay", "tp-cli", "tp-runner", "tp-daemon", "tp-loopback"]
 
 [workspace.package]
 edition = "2021"

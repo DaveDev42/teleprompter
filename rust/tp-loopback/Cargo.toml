@@ -1,0 +1,45 @@
+# `tp-loopback` — the Rust-native smoke-test loopback (ADR-0001 Phase 3, #5).
+#
+# Replaces `scripts/local-relay-loopback.ts`: a real in-process `RelayServer`
+# with the deterministic smoke token pre-seeded PLUS a minimal fake daemon WS
+# peer that plays the kx handshake + hello push, driving the Simulator app
+# through TP_KX_OK / TP_FRAME_OK / TP_SESSION_OK / TP_INPUT_OK end to end WITHOUT
+# a real `tp` daemon (or Bun). `scripts/ios.sh` launches this binary (behind the
+# `TP_RUST_LOOPBACK=1` toggle during rollout) and waits for `LOOPBACK_READY`.
+#
+# It is a SEPARATE binary crate (not a `tp-relay` bin) so `tokio-tungstenite`
+# (a WS *client* — needed only to play the fake daemon) stays out of the shipped
+# `tp-relay` crate, which only ever runs the axum WS *server*.
+[package]
+name = "tp-loopback"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Rust-native smoke-test loopback — real RelayServer + fake daemon WS peer (replaces local-relay-loopback.ts)."
+
+[[bin]]
+name = "tp-loopback"
+path = "src/main.rs"
+
+[dependencies]
+tp-core = { path = "../tp-core" }
+tp-relay = { path = "../tp-relay" }
+serde_json = "1"
+# base64 for the io/event record payloads (same STANDARD engine tp-core uses).
+base64 = "0.22"
+# Random 24-byte AEAD nonces for `seal` (the loopback's ciphertexts are
+# ephemeral — decrypted live by the app — so a fresh random nonce per seal is
+# correct; this is NOT a golden-vector oracle).
+rand_core = { version = "0.6", features = ["getrandom"] }
+# Tokio multi-thread runtime + timers + signal (graceful shutdown) + net.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
+# axum server to serve the RelayServer router on a fixed loopback port.
+axum = { version = "0.8", features = ["ws"] }
+# WS CLIENT to play the fake daemon peer against our own in-process relay.
+tokio-tungstenite = "0.29"
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+
+[lints]
+workspace = true

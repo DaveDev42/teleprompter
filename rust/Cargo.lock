@@ -3002,6 +3002,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tp-loopback"
+version = "0.0.1"
+dependencies = [
+ "axum",
+ "base64",
+ "futures-util",
+ "rand_core 0.6.4",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+ "tp-core",
+ "tp-relay",
+]
+
+[[package]]
 name = "tp-proto"
 version = "0.0.1"
 dependencies = [

@@ -74,6 +74,24 @@ fn parse_args(argv: &[String]) -> Args {
 
 #[tokio::main]
 async fn main() {
+    // ── Install the rustls CryptoProvider (must precede any TLS) ─────────
+    // With this crate's dependency graph, rustls 0.23's
+    // `get_default_or_install_from_crate_features()` cannot unambiguously
+    // pick a process default, so the FIRST `wss://` handshake panics the
+    // tokio worker: "Could not automatically determine the process-level
+    // CryptoProvider from Rustls crate features". Reproduced verbatim against
+    // the real production relay by the merged-flip daemon; the E2E soak missed
+    // it because it uses a `ws://` loopback relay (no TLS → provider path never
+    // exercised). Install aws-lc-rs (rustls's own default provider) explicitly
+    // here — before the fire-and-forget `reconnect_saved_relays()` below can
+    // reach `connect_async` — which makes the choice deterministic (rustls's
+    // documented remedy). `.ok()`: install_default only errors if a provider
+    // is already installed, which is harmless/idempotent (test double, or a
+    // second in-process daemon).
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .ok();
+
     // ── Singleton guard (index.ts:12-21) ────────────────────────────────
     // Acquire the pid-file lock before starting the IPC server. If a live
     // daemon already holds the lock we exit 0 so launchd/systemd restarts

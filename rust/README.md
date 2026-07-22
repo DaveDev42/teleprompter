@@ -2,8 +2,9 @@
 
 ADR-0001 백엔드 트랙의 첫 조각. 와이어 프로토콜의 **순수함수 원시기능**(codec /
 KDF / AEAD / crypto_kx / ratchet / pairing)을 Rust 로 구현하고 [UniFFI] 로 Swift
-앱에 노출한다. TypeScript 구현(`packages/protocol`, `packages/relay`)과 **바이트 단위로
-동일**하다 — 그래야 Rust 코어로 만든 프레임을 기존 Bun daemon/relay 가 그대로 받는다.
+앱에 노출한다. 레퍼런스였던 TypeScript 구현(구 `packages/protocol`, `packages/relay` —
+**#5 PR6 에서 삭제**)과 **바이트 단위로 동일**하며, 그 byte-exactness 는 TS 시절 생성한
+`tests/fixtures/wire-vectors.json` 골든벡터가 계속 잠근다.
 
 [UniFFI]: https://mozilla.github.io/uniffi-rs/
 
@@ -49,7 +50,7 @@ rust/
   tp-runner/               # ADR-0003 Stage 4 — 네이티브 runner (host-only). 출하 bin, 기본 cutover 완료 (task #4 — Rust tp-daemon 이 세션마다 tp-runner spawn)
     Cargo.toml             # [lib] tp_runner + [[bin]] tp-runner; deps: serde/serde_json, tp-core, tp-proto, base64, portable-pty, tokio, rustix
     src/
-      lib.rs               # 모듈 선언 + 크레이트 doc (io-record 바이너리 사이드카). CLI-side seam = apps/cli resolveRunnerBinOverride (TP_RUNNER_BIN). Bun↔Rust differential wire-parity 게이트(runner-parity.test.ts)는 PR4(#5 cascade)에서 삭제 — byte-exactness 는 이제 cargo test + tp-core 골든벡터가 커버
+      lib.rs               # 모듈 선언 + 크레이트 doc (io-record 바이너리 사이드카). 스폰 seam = tp-proto::locate::locate_tp_runner (TP_RUNNER_BIN env override — E2E 하니스 주입용). Bun↔Rust differential wire-parity 게이트(runner-parity.test.ts)는 PR4(#5 cascade)에서 삭제 — byte-exactness 는 이제 cargo test + tp-core 골든벡터가 커버
       settings.rs          # byte-exact capture_hook_command(golden) + build_settings(hook 머지, 16 HOOK_EVENTS)
       collector.rs         # io_record(바이너리 사이드카 payload="") / event_record(base64 payload, ns="claude")
       pty.rs               # Pty over portable-pty (ADR §6.1 spike 해소; reader-thread hop, spawn/write/resize/kill, Mutex writer). 종료 시 waiter 스레드가 reader-done rendezvous 채널에 READER_DRAIN_GRACE=200ms 로 bounded-wait(recv_timeout — join 아님)해 reader/waiter 순서 레이스(Layer 1)를 닫는다: 정상 종료는 그 안에 EOF 로 남은 출력을 다 흘려보내고, grandchild 가 PTY 를 물고 있어도 200ms 안에 무조건 종료 신호를 보낸다
@@ -63,7 +64,7 @@ rust/
       run_e2e.rs           # E2E: 스텁 daemon + TP_RUNNER_CLAUDE_BIN 가짜 claude → hello→io rec(binary sidecar)→bye reason=exit
   tp-loopback/             # #5 zero-Bun — 스모크 loopback (host-only). scripts/local-relay-loopback.ts 대체
     Cargo.toml             # [[bin]] tp-loopback; deps: tp-core, tp-relay, tokio-tungstenite(WS client), base64, rand_core
-    src/main.rs            # 실 RelayServer(axum, 고정 포트 7099) + 가짜 daemon WS peer(auth→sub→kx v:3 broadcast→kx.frame→hello(PCT)/state/batch/io echo). LOOPBACK_READY 후 대기. scripts/ios.sh: TP_RUST_LOOPBACK=1 로 스폰(Bun script wire-identical, 8마커 교차검증)
+    src/main.rs            # 실 RelayServer(axum, 고정 포트 7099) + 가짜 daemon WS peer(auth→sub→kx v:3 broadcast→kx.frame→hello(PCT)/state/batch/io echo). LOOPBACK_READY 후 대기. scripts/ios.sh start_loopback 이 기본 스폰(PR6 에서 Bun script + TP_RUST_LOOPBACK opt-in seam 삭제 — 유일 구현; 삭제 전 wire-identical 8마커 교차검증 완료)
   tp-e2e-holder/           # #41 PR2b (#5 zero-Bun) — 실 daemon E2E holder (host-only, dev 전용). scripts/real-daemon-pair.ts 대체
     Cargo.toml             # [[bin]] tp-e2e-holder; deps: tp-relay(embedded), tp-proto, tokio, rusqlite(read-only), rustix(SIGTERM)
     src/
@@ -102,8 +103,9 @@ rust/
   version 8 nibble / byte8=RFC-4122 variant → canonical UUIDv8 문자열. QR 가 `pairingId` 를 나르기
   전 페어링된 레코드의 안정적 id.
 
-> 이 값들을 바꾸면 기존 daemon/relay 와 호환이 깨진다. 변경 시 `packages/protocol`,
-> `packages/relay` 의 TS 구현과 `tests/fixtures/wire-vectors.json` 골든벡터를 함께 고친다.
+> 이 값들을 바꾸면 기존 daemon/relay/앱과 호환이 깨진다. `tests/fixtures/wire-vectors.json`
+> 골든벡터가 이 상수들의 byte-exact SoT 다 (TS 레퍼런스 구현은 PR6 에서 삭제 — 벡터 재생성
+> 절차는 `scripts/gen-wire-vectors.ts` 를 삭제 전 마지막으로 검증한 PR5 #929 커밋 참조).
 
 ## 호스트 테스트
 
@@ -145,30 +147,18 @@ cargo build --release --bin tp-relay
 
 env knob SoT 는 `.claude/rules/relay-capacity.md` "Single-node knobs" 표.
 
-### 로컬 Rust-relay E2E (Step 8a 게이트)
+### 로컬 Rust-relay E2E (구 Step 8a 게이트 — PR6 에서 은퇴)
 
-`scripts/rust-relay-e2e.ts` 는 **실 `tp` daemon 이 LOCALLY-RUN Rust relay 바이너리에 페어링 +
-frontend-auth 완료**를 증명하는 fully-local 게이트다. production(relay.tpmt.dev / deploy /
-실 시크릿 / dogfood daemon)은 일절 건드리지 않는다.
+Step 8a 당시의 fully-local 게이트 `scripts/rust-relay-e2e.ts`(+ 그 페어링 드라이버
+`scripts/real-daemon-pair.ts`)는 **#5 PR6 에서 TS 소스와 함께 삭제**됐다. 그 커버리지는
+전부 Rust 쪽이 상회 승계한다:
 
-```bash
-bun run scripts/rust-relay-e2e.ts
-```
-
-순서: (1) `cargo build --release --bin tp-relay`, (2) free loopback 포트에 ephemeral
-`TP_RELAY_RESUME_SECRET` 로 바이너리 실행, (3) `/health` status=ok 대기, (4)
-`scripts/real-daemon-pair.ts --relay-url ws://127.0.0.1:PORT` 로 **격리 daemon**(자체 mktemp
-`XDG_RUNTIME_DIR`/`XDG_DATA_HOME`/`XDG_CONFIG_HOME`/`HOME` — dogfood store 와 절대 충돌 안 함)
-페어링, (5) `/health daemons>=1` + `/metrics relay_daemons_online>=1` 어서션(daemon register),
-(6) 페어링 deep link 에서 relayToken 을 유도해 frontend-role `relay.auth` → `relay.auth.ok`
-프로브, (7) teardown(orphan 0, 격리 tree 삭제).
-
-> **정직한 범위 — M0–M2 만.** register(M0) + frontend `relay.auth`→`relay.auth.ok`(M2) 를
-> 증명한다. 전체 kx(M3)/session frame(M4)/input(M5) 은 spawn 된 claude 세션이 필요해 8a 범위
-> 밖 — 8마커 loopback smoke(`scripts/ios.sh smoke`)가 담당. `real-daemon-pair.ts` 의 `--relay-url`
-> 플래그(이 작업에서 추가)가 in-process TS relay 를 띄우는 대신 외부(Rust) relay 로 페어링한다.
-> (하니스 쪽 실-daemon E2E holder 는 #41 PR2b 로 Rust `tp-e2e-holder` 가 대체 — 이 8a 게이트만
-> `real-daemon-pair.ts` 를 PR6(TS 삭제)까지 유지한다.)
+- **relay 자체**: `tp-relay` 의 loopback integration 테스트(`cargo test -p tp-relay`) —
+  auth/kx/frame/presence/resume 경로를 in-process 로 검증.
+- **실 daemon 페어링 + full-path**: `TP_E2E_REAL=1 scripts/ios.sh smoke` — Rust
+  `tp-e2e-holder` 가 실 `tp_relay::RelayServer`(또는 `--relay-url` 외부 relay) + 격리 XDG
+  디렉터리의 실 Rust `tp-daemon` 으로 헤드리스 페어링하고 앱이 8마커 왕복 (M0–M2 는 물론
+  구 8a 범위 밖이던 kx/M3+frames/M4 까지 증명). 상세는 `.claude/rules/native-testing.md`.
 
 ### Soak — 10k capacity gate (ADR-0003 §6.9)
 
@@ -194,18 +184,18 @@ TP_SOAK_CONNS=1500 TP_SOAK_SECS=20 \
 env 기본값: `TP_SOAK_CONNS=10000`, `TP_SOAK_SECS=60`. 차원·rate-knob caveat·불변식
 프로브 상세는 `.claude/rules/relay-capacity.md` "Soak harness" 섹션 (capacity SoT).
 
-골든벡터(`tests/fixtures/wire-vectors.json`)는 **라이브 TS 프로덕션 경로**(libsodium
+골든벡터(`tests/fixtures/wire-vectors.json`)는 당시 **라이브 TS 프로덕션 경로**(libsodium
 + 프로젝트 codec)에서 생성한 것이라, Rust 출력이 이와 일치하면 TS↔Rust 바이트 동일이
-증명된다.
+증명된다. `tp-proto` 의 `tests/fixtures/message-vectors.json` 도 같은 원리 — 당시 라이브
+`@teleprompter/protocol` 가드(`parseRelayClientMessage`/`parseIpcMessage`/
+`parseControlMessage`/`decodeWireLabel`)에서 `scripts/gen-message-vectors.ts` 가 뽑은
+accept/reject 벡터다.
 
-`tp-proto` 의 `tests/fixtures/message-vectors.json` 도 같은 원리 — **라이브
-`@teleprompter/protocol` 가드**(`parseRelayClientMessage`/`parseIpcMessage`/
-`parseControlMessage`/`decodeWireLabel`)를 `scripts/gen-message-vectors.ts` 가 import 해
-accept/reject 벡터를 뽑는다. Rust 파서가 같은 raw 입력에 대해 같은 accept/reject + 같은
-직렬화 출력을 내면 메시지-레벨 parity 가 증명된다. 가드 동작이 바뀌면 재생성:
-`bun scripts/gen-message-vectors.ts`. **이 크레이트는 host-only — 런타임 cutover 없음
-(Stage 0 = 골든벡터 gate 만).** TS 가드 또는 enum 을 바꾸면 fixture 재생성 + Rust 포트도
-함께 갱신.
+**PR6 이후 두 fixture 는 frozen wire-contract SoT 다** — 생성기 스크립트와 TS 구현이
+삭제됐으므로 재생성 경로가 없고, 재생성할 이유도 없다: 벡터는 "출하된 wire 포맷"을
+고정하는 계약이고, Rust 구현이 이를 계속 통과해야 기존 앱/daemon 과의 호환이 보존된다.
+wire 포맷을 *의도적으로* 바꾸는 날이 오면 그때의 Rust 구현에서 새 벡터를 뽑는 소형
+생성기를 추가한다 (PR5 #929 가 스크립트 삭제 직전 fixture idempotence 를 증명해 둠).
 
 ### 툴체인 주의 (rustup shim)
 

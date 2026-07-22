@@ -1,11 +1,16 @@
 ---
 paths:
-  - "packages/relay/**"
+  - "rust/tp-relay/**"
 ---
 
 # Relay Capacity Target
 
 **Always design and tune for ~10k concurrent connections (daemon + app combined) on a single relay node.** This is the standing capacity bar — every relay change must preserve it.
+
+> **PR6 note (#5 zero-Bun):** TS relay(`packages/relay`)는 삭제됐고 **Rust `tp-relay` 가 유일
+> 구현**이다. 본문의 `relay-server.ts`/`push.ts`/`*.test.ts` 인용은 그 invariant 가 태어난
+> TS 레퍼런스의 역사적 근거 — 각 항목의 "Rust 포트도 동일" 절과 `conn.rs`/`apns.rs` 회귀
+> 가드가 현행 SoT 다. 전체 prose 재작성 = PR8.
 
 ## Rust relay binary (`tp-relay`, ADR-0003 Stage 1 Step 8a)
 
@@ -17,9 +22,9 @@ cargo build --release --bin tp-relay        # rust/ 에서
 ./target/release/tp-relay --port 7090       # 또는 RELAY_PORT=7090 (flag wins)
 ```
 
-포트 우선순위: `--port` > `RELAY_PORT` env > 기본 `7090`. 시작 로그 `tp-relay listening on 0.0.0.0:<port> (buildSha=<sha>)`. 로컬 검증 게이트 = `bun run scripts/rust-relay-e2e.ts` (격리 tp daemon → Rust relay register + frontend-auth ok, production 무변경; 상세는 `rust/README.md`). 8b deploy 는 `x86_64-unknown-linux-gnu` cross-compile + systemd `ExecStart=/usr/local/bin/tp-relay`(별도 바이너리, `tp relay start` 아님). 아래 env 표가 두 구현(TS·Rust) 공통 SoT.
+포트 우선순위: `--port` > `RELAY_PORT` env > 기본 `7090`. 시작 로그 `tp-relay listening on 0.0.0.0:<port> (buildSha=<sha>)`. 로컬 검증 게이트 = `cargo test -p tp-relay`(loopback integration) + `TP_E2E_REAL=1 scripts/ios.sh smoke`(실 daemon 페어링 full-path; 구 `bun run scripts/rust-relay-e2e.ts` 게이트는 PR6 에서 은퇴 — `rust/README.md` 참조). 8b deploy 는 `x86_64-unknown-linux-gnu` cross-compile + systemd `ExecStart=/usr/local/bin/tp-relay`(별도 바이너리, `tp relay start` 아님). 아래 env 표가 SoT.
 
-## Single-node knobs (already wired in `packages/relay/src/relay-server.ts`)
+## Single-node knobs (wired in `rust/tp-relay` `SharedState::from_env()`)
 
 | Knob | Default | Env | 의미 |
 |------|---------|-----|------|
@@ -73,7 +78,7 @@ cargo build --release --bin tp-relay        # rust/ 에서
 |-----|------|------|
 | `TP_SOAK_CONNS` | `10_000` | dimension 당 frontend conn 수 (heavy=10k, CI light=1500) |
 | `TP_SOAK_SECS` | `60` | dimension 당 soft wall-clock 예산 (CI light=20) |
-| `TP_SOAK_JSON` | (off) | `=1` 이면 마지막 줄에 single-line JSON 요약 emit (`scripts/soak.ts` 정직성 미러) |
+| `TP_SOAK_JSON` | (off) | `=1` 이면 마지막 줄에 single-line JSON 요약 emit (`soak_10k.rs:27` — 구 Bun `scripts/soak.ts` 의 정직성-미러 규약 계승) |
 
 **세 부하 차원 (각각 명확한 sub-phase):**
 1. **PUB FAN-OUT** — daemon 1 + frontend N 이 모두 같은 sid 구독, daemon 이 M frame publish → 모든 frontend 가 M 전부 수신(0 drop) 어서션. 잘 drain 하는 well-behaved consumer 는 1013 backpressure close 당하면 안 됨. `/metrics framesOut` 이 fan-out 반영. **rate-knob 주의 (ADR caveat (b)):** daemon-publish fan-out 은 per-daemon-group GCRA(`rate_per_daemon`, 기본 5000/s)로 체크되므로 10k-wide publish burst 가 group limiter 를 trip 할 수 있다 — 이 phase 는 `SharedState` tweak 으로 `rate_per_client`/`rate_per_daemon` 을 effectively-unbounded 로 올려 *fan-out delivery* 만 격리 측정한다(rate-limit 자체는 `rate_limit_drops_frame_without_closing` 통합테스트가 담당). `outbox_cap` 도 frame 수에 맞춰 키워 well-behaved consumer 의 일시적 scheduling hiccup 을 slow-consumer 로 오인하지 않게 한다.

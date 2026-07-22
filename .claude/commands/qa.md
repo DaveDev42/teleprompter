@@ -47,10 +47,11 @@ daemon이 필요하지 않은 테스트(순수 앱 부팅/UI)면 이 단계 skip
   ```
   시나리오 기반 인터랙션 검증은 `uitest` (XCUITest) 로 한다 — a11y 식별자 쿼리로 세션 row tap →
   pane picker → chat bubble 어서션.
-- **백엔드(daemon/relay/runner/cli) 변경** → 단위/통합 테스트:
+- **백엔드(daemon/relay/runner/cli) 변경** → 단위/통합 테스트 (cwd = `rust/`,
+  rustup-shim-safe PATH — rust/README.md):
   ```bash
-  bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay
-  pnpm type-check:all
+  cargo test --workspace
+  cargo clippy --workspace --all-targets
   ```
 
 **Step 4: QA 결과 검증**
@@ -68,5 +69,5 @@ daemon이 필요하지 않은 테스트(순수 앱 부팅/UI)면 이 단계 skip
 1. `git diff --name-only main`으로 변경된 파일 확인
 2. 변경 영역 감지:
    - `ios/**` 변경 → Swift 하니스(`scripts/ios.sh smoke|uitest|test`, `TP_PLATFORM` 선택)
-   - `packages/**` / `apps/cli/**` 변경 → 백엔드 `bun test` + `pnpm type-check:all`
+   - `rust/**` 변경 → 백엔드 `cargo test --workspace` + `cargo clippy --workspace --all-targets`
    - 둘 다 변경 → 둘 다 실행

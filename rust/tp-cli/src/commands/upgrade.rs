@@ -4,20 +4,24 @@
 //!
 //! ## Key design decisions
 //!
-//! ### Asset shape — dual-mode: tarball bundle OR single binary
+//! ### Asset shape — tarball bundle only (single binary retired in PR6, #5)
 //!
-//! GitHub releases ship BOTH asset shapes per platform:
+//! Since PR6 of the #5 zero-Bun cascade, GitHub releases ship ONE asset shape
+//! per platform:
 //!
-//! * **Bundle (tarball)** `tp-<os>_<arch>.tar.gz` — the #5 hard-swap format
-//!   (ADR-0003 Amendment 2).  Contains a prefix tree:
-//!   `tp-<suffix>/bin/tp` (Rust CLI) + `tp-<suffix>/libexec/tp/tpd` (Bun SEA).
+//! * **Bundle (tarball)** `tp-<os>_<arch>.tar.gz` — a prefix tree:
+//!   `tp-<suffix>/bin/tp` (Rust CLI) + `tp-<suffix>/libexec/tp/{tp-daemon,
+//!   tp-relay,tp-runner}` (Rust sidecars) + a tiny `libexec/tp/tpd` sh STUB
+//!   (kept only because pre-PR6 revisions of this file hard-required that
+//!   member during unpack; rationale in scripts/build-bundle.sh).
 //!   Installed to `$TP_PREFIX` (`$HOME/.local/share/tp`) with a symlink
 //!   `$INSTALL_DIR/tp → $TP_PREFIX/bin/tp`.
 //!
-//! * **Single binary (legacy)** `tp-<os>_<arch>` — Bun SEA monolith, pre-#5.
-//!
-//! `upgrade_tp` detects which shape the *running* binary was installed as by
-//! calling `detect_install_shape()` and dispatches to the correct upgrade path.
+//! The legacy **single binary** `tp-<os>_<arch>` (Bun SEA monolith, pre-#5) is
+//! no longer published. `upgrade_tp` still detects the running install's shape
+//! via `detect_install_shape()`: Bundle installs take the tarball path; a
+//! residual SingleBinary install now 404s on the dropped asset and lands on
+//! the manual reinstall hint (install.sh) — the intended migration.
 //! Homebrew is already special-cased — `run()` handles it before calling here.
 //!
 //! ### `checkForUpdates` (24h startup check) — NOT ported here
@@ -30,17 +34,15 @@
 //!
 //! ### `pgrep` process name divergence
 //!
-//! The Bun `restartDaemon` (upgrade.ts:552) greps for `pgrep -x "tp"`. In the
-//! Rust world the daemon process is `tpd` — the Bun SEA blob that `commands::daemon::start`
-//! exec's via `locate_bun_blob()` (see `locate.rs`) — today's default. We also
-//! check `tp-daemon`, the Rust daemon binary resolved via `locate_tp_daemon()`,
-//! reachable today via the `TP_DAEMON_BIN` dual-run seam and slated to become
-//! the default post-flip (task #4). The Rust trampoline exec's whichever blob
-//! is in play directly, so the running daemon appears as `tpd` or `tp-daemon`
-//! in the process table, never `tp`. We match both names here to preserve the
-//! *intent* of the check ("warn if an unmanaged daemon is running") while
-//! correctly targeting the actual process name, current and near-future. This
-//! is a behavior-PRESERVING divergence.
+//! The Bun `restartDaemon` (upgrade.ts:552) grepped for `pgrep -x "tp"`. In
+//! the Rust world the daemon process is `tp-daemon` — the Rust binary that
+//! `commands::daemon::start` resolves via `locate_tp_daemon()` (the task #4
+//! flip default). We also still match `tpd`, the retired Bun SEA blob name,
+//! so an unmanaged daemon left running by a pre-PR6 install is still detected
+//! during the very upgrade that replaces it. The daemon never appears as `tp`
+//! in the process table. Behavior-PRESERVING divergence: the intent ("warn if
+//! an unmanaged daemon is running") targets the actual process names, past
+//! and present.
 //!
 //! ### run() always exits 0
 //!
@@ -587,10 +589,10 @@ pub fn resolve_current_binary_path() -> String {
 /// Which install shape is currently active.
 #[derive(Debug, PartialEq, Eq)]
 pub enum InstallShape {
-    /// Tarball bundle: `bin/tp` (Rust CLI) + `libexec/tp/tpd` (Bun SEA).
+    /// Tarball bundle: `bin/tp` (Rust CLI) + `libexec/tp/*` Rust sidecars.
     /// `prefix` is the `$TP_PREFIX` directory (parent of `bin/`).
     Bundle { prefix: PathBuf },
-    /// Legacy single-binary / Bun SEA monolith, or unknown.
+    /// Legacy single-binary install (pre-#5 Bun SEA monolith), or unknown.
     SingleBinary,
 }
 
@@ -599,21 +601,22 @@ pub enum InstallShape {
 ///
 /// **Heuristic**: a bundle install means `current_exe()` resolved to a path
 /// whose final two components are `bin/tp` AND whose sibling
-/// `../libexec/tp/tpd` exists on disk.  The layout is:
+/// `../libexec/tp/tp-daemon` (or the legacy `tpd`) exists on disk:
 ///
 /// ```text
 /// $TP_PREFIX/
-///   bin/tp          ← current_exe() after symlink resolution
-///   libexec/tp/tpd  ← sibling blob
+///   bin/tp                ← current_exe() after symlink resolution
+///   libexec/tp/tp-daemon  ← sibling sidecar (PR6+ sentinel)
+///   libexec/tp/tpd        ← legacy sentinel (pre-PR6 trees / current stub)
 /// ```
 ///
 /// This is robust because:
-/// * The `tpd` presence is a physical file check — it cannot be faked by a
+/// * The sentinel presence is a physical file check — it cannot be faked by a
 ///   stray symlink name.
 /// * Brew installs resolve through `/Cellar/tp/<ver>/bin/tp` — they never
-///   have `../libexec/tp/tpd` alongside, so they fall through to SingleBinary.
+///   have a `../libexec/tp/` sibling, so they fall through to SingleBinary.
 /// * A manual/dogfood single-binary install at `~/.local/bin/tp` also has no
-///   `tpd` sibling → SingleBinary.
+///   sidecar sibling → SingleBinary.
 ///
 /// `exe_path` should be the already-resolved path from `current_exe()` (or the
 /// fallback). Pass the *canonical* (symlink-resolved) path so the `../` parent
@@ -643,9 +646,12 @@ pub fn detect_install_shape(exe_path: &str) -> InstallShape {
         None => return InstallShape::SingleBinary,
     };
 
-    // Confirm `libexec/tp/tpd` exists.
-    let tpd = prefix.join("libexec").join("tp").join("tpd");
-    if tpd.exists() {
+    // Confirm the libexec sidecar tree exists. The PR6+ sentinel is the Rust
+    // `tp-daemon`; the legacy Bun `tpd` (a stub in current tarballs) is still
+    // accepted so detection keeps working on trees installed before AND after
+    // the stub is eventually dropped from the bundle.
+    let libexec_tp = prefix.join("libexec").join("tp");
+    if libexec_tp.join("tp-daemon").exists() || libexec_tp.join("tpd").exists() {
         InstallShape::Bundle { prefix }
     } else {
         InstallShape::SingleBinary
@@ -656,25 +662,38 @@ pub fn detect_install_shape(exe_path: &str) -> InstallShape {
 // Tarball extraction (safe)
 // ---------------------------------------------------------------------------
 
-/// Extract a `.tar.gz` archive to `dest_dir`, returning the paths of
-/// `bin/tp` and `libexec/tp/tpd` inside `dest_dir`.
+/// Extraction result: the mandatory CLI plus every `libexec/tp/*` member the
+/// tarball shipped.
+#[derive(Debug)]
+pub struct ExtractedBundle {
+    /// `bin/tp` — the only member every bundle MUST contain.
+    pub bin_tp: PathBuf,
+    /// `(file name, extracted path)` for each regular-file `libexec/tp/<name>`
+    /// member found (today: tp-daemon / tp-relay / tp-runner + the tpd stub).
+    /// Deliberately NOT individually hard-required: the pre-PR6 `found_tpd`
+    /// hard-require is exactly why release tarballs must still carry a tpd
+    /// stub — an upgrade installs whatever the (checksum-verified) tarball
+    /// ships instead of pinning today's member list onto future layouts.
+    pub libexec: Vec<(String, PathBuf)>,
+}
+
+/// Extract a `.tar.gz` archive to `dest_dir`, returning `bin/tp` plus all
+/// `libexec/tp/*` members found inside it.
 ///
 /// **Security**: rejects any entry whose path contains `..` or is absolute.
 /// The tarball layout is `tp-<suffix>/<...>` — entries outside the archive
 /// root are rejected with an error (path traversal protection).
-///
-/// Returns `(bin_tp_path, tpd_path)`.
 pub fn extract_bundle_tarball(
     tarball_path: &Path,
     dest_dir: &Path,
-) -> Result<(PathBuf, PathBuf), String> {
+) -> Result<ExtractedBundle, String> {
     let file = fs::File::open(tarball_path)
         .map_err(|e| format!("open tarball {}: {e}", tarball_path.display()))?;
     let gz = GzDecoder::new(file);
     let mut archive = tar::Archive::new(gz);
 
     let mut found_bin_tp: Option<PathBuf> = None;
-    let mut found_tpd: Option<PathBuf> = None;
+    let mut libexec: Vec<(String, PathBuf)> = Vec::new();
 
     for entry in archive
         .entries()
@@ -704,13 +723,14 @@ pub fn extract_bundle_tarball(
         }
 
         // Strip the outer `tp-<suffix>/` directory component so we get a
-        // clean relative path: `bin/tp`, `libexec/tp/tpd`, etc.
+        // clean relative path: `bin/tp`, `libexec/tp/tp-daemon`, etc.
         // (The tarball always has exactly one leading component.)
         let stripped: PathBuf = entry_path.components().skip(1).collect();
         if stripped.as_os_str().is_empty() {
             continue; // the outer dir entry itself
         }
 
+        let is_file = entry.header().entry_type().is_file();
         let dest = dest_dir.join(&stripped);
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent)
@@ -721,17 +741,23 @@ pub fn extract_bundle_tarball(
             .unpack(&dest)
             .map_err(|e| format!("unpack {} to {}: {e}", stripped.display(), dest.display()))?;
 
-        // Track the two files we care about.
+        // Track the members we install: bin/tp + direct children of libexec/tp/.
+        if !is_file {
+            continue;
+        }
         if stripped == Path::new("bin/tp") {
             found_bin_tp = Some(dest);
-        } else if stripped == Path::new("libexec/tp/tpd") {
-            found_tpd = Some(dest);
+        } else if let Ok(rest) = stripped.strip_prefix("libexec/tp") {
+            if let Some(name) = rest.to_str() {
+                if !name.is_empty() && !name.contains('/') {
+                    libexec.push((name.to_string(), dest));
+                }
+            }
         }
     }
 
     let bin_tp = found_bin_tp.ok_or("tarball did not contain bin/tp")?;
-    let tpd = found_tpd.ok_or("tarball did not contain libexec/tp/tpd")?;
-    Ok((bin_tp, tpd))
+    Ok(ExtractedBundle { bin_tp, libexec })
 }
 
 // ---------------------------------------------------------------------------
@@ -747,15 +773,12 @@ pub fn extract_bundle_tarball(
 /// Neither service: `pgrep -x tpd` and `pgrep -x tp-daemon` — if either is
 /// running, print a warn.
 ///
-/// **DIVERGENCE NOTE**: The Bun CLI greps for `tp` (upgrade.ts:552 —
-/// `pgrep -x "tp"`). In the Rust trampoline world the daemon process is either
-/// `tpd` (the Bun SEA blob, exec'd directly by `commands::daemon::start` via
-/// `locate_bun_blob()` in `locate.rs` — today's default) or `tp-daemon` (the
-/// Rust binary resolved via `locate_tp_daemon()`, reachable today via the
-/// `TP_DAEMON_BIN` dual-run seam and becoming the default post-flip, task #4).
-/// We match both to correctly identify the daemon process, current and
-/// near-future. Behavior intent is preserved: "warn if an unmanaged daemon is
-/// running."
+/// **DIVERGENCE NOTE**: The retired Bun CLI grepped for `tp` (upgrade.ts:552).
+/// The daemon process is `tp-daemon` — the Rust binary resolved via
+/// `locate_tp_daemon()` (the task #4 flip default). We also still match `tpd`
+/// (the retired Bun SEA blob name) so an unmanaged daemon left running by a
+/// pre-PR6 install is detected during the very upgrade that replaces it.
+/// Behavior intent is preserved: "warn if an unmanaged daemon is running."
 fn restart_daemon() {
     #[cfg(target_os = "macos")]
     {
@@ -825,14 +848,11 @@ fn restart_daemon() {
     }
 
     // No service installed — check for running daemon via pgrep.
-    // DIVERGENCE: match "tpd" (Bun SEA blob name) and "tp-daemon" (Rust daemon
-    // binary name), not "tp" (the Rust CLI name). The daemon process is `tpd`
-    // when commands::daemon::start exec's the Bun blob located by
-    // locate_bun_blob() (locate.rs, today's default), or `tp-daemon` when
-    // running via the TP_DAEMON_BIN dual-run seam / post-flip default
-    // (locate_tp_daemon(), task #4). Two separate `pgrep -x` invocations
-    // (not a single alternation pattern) for BSD/GNU pgrep portability. See
-    // module doc.
+    // DIVERGENCE: match "tp-daemon" (the Rust daemon, task #4 flip default)
+    // and "tpd" (the retired Bun SEA blob name — a pre-PR6 install's daemon
+    // may still be running while this upgrade replaces it), not "tp" (the
+    // Rust CLI name). Two separate `pgrep -x` invocations (not a single
+    // alternation pattern) for BSD/GNU pgrep portability. See module doc.
     let tpd_running = Command::new("pgrep")
         .args(["-x", "tpd"])
         .output()
@@ -928,15 +948,19 @@ fn atomic_replace(src: &Path, target: &Path) -> Result<(), String> {
 /// Upgrade the tarball-bundle install.
 ///
 /// Downloads `tp-<suffix>.tar.gz`, verifies SHA-256, extracts to a temp dir,
-/// then atomically replaces BOTH `$PREFIX/bin/tp` AND `$PREFIX/libexec/tp/tpd`.
-/// Both files are backed up before the swap; ANY failure restores BOTH.
+/// then atomically replaces `$PREFIX/bin/tp` AND every `libexec/tp/*` member
+/// the tarball shipped (tp-daemon / tp-relay / tp-runner + the tpd stub).
+/// All existing targets are backed up before the swap; ANY failure restores
+/// everything that was replaced. Members present in the INSTALL but absent
+/// from the tarball are left in place untouched (harmless-stale — e.g. a real
+/// pre-PR6 Bun `tpd` once future tarballs drop the stub; nothing execs it).
 fn upgrade_tp_bundle(tag: &str, prefix: &Path) {
     let asset = get_asset_name();
     let tarball_asset = format!("{asset}.tar.gz");
     let url = format!("https://github.com/{REPO}/releases/download/{tag}/{tarball_asset}");
 
     let bin_tp_target = prefix.join("bin").join("tp");
-    let tpd_target = prefix.join("libexec").join("tp").join("tpd");
+    let libexec_dir = prefix.join("libexec").join("tp");
 
     // Temp file for the downloaded tarball.
     let tmp_tarball =
@@ -948,7 +972,8 @@ fn upgrade_tp_bundle(tag: &str, prefix: &Path) {
     let mut tmp_tarball_opt: Option<PathBuf> = Some(tmp_tarball.clone());
     let mut tmp_extract_opt: Option<PathBuf> = Some(tmp_extract.clone());
     let mut bin_tp_bak_opt: Option<PathBuf> = None;
-    let mut tpd_bak_opt: Option<PathBuf> = None;
+    // (target, backup) pairs for every pre-existing libexec member we replace.
+    let mut libexec_baks: Vec<(PathBuf, PathBuf)> = Vec::new();
 
     let result = (|| -> Result<(), String> {
         // 1. Download tarball.
@@ -983,14 +1008,16 @@ fn upgrade_tp_bundle(tag: &str, prefix: &Path) {
         fs::create_dir_all(&tmp_extract)
             .map_err(|e| format!("create extract dir {}: {e}", tmp_extract.display()))?;
 
-        let (new_bin_tp, new_tpd) = extract_bundle_tarball(&tmp_tarball, &tmp_extract)
+        let bundle = extract_bundle_tarball(&tmp_tarball, &tmp_extract)
             .map_err(|e| format!("extract tarball: {e}"))?;
 
         // 4. chmod +x on the extracted binaries.
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            for p in [&new_bin_tp, &new_tpd] {
+            let mut extracted: Vec<&PathBuf> = vec![&bundle.bin_tp];
+            extracted.extend(bundle.libexec.iter().map(|(_, p)| p));
+            for p in extracted {
                 let mut perms = fs::metadata(p)
                     .map_err(|e| format!("stat {}: {e}", p.display()))?
                     .permissions();
@@ -1000,42 +1027,47 @@ fn upgrade_tp_bundle(tag: &str, prefix: &Path) {
             }
         }
 
-        // 5. Back up BOTH existing files before any swap.
+        // 5. Back up ALL existing targets before any swap.
         if bin_tp_target.exists() {
             let bak = backup_binary(&bin_tp_target).map_err(|e| format!("backup bin/tp: {e}"))?;
             bin_tp_bak_opt = Some(bak);
         }
-        if tpd_target.exists() {
-            let bak =
-                backup_binary(&tpd_target).map_err(|e| format!("backup libexec/tp/tpd: {e}"))?;
-            tpd_bak_opt = Some(bak);
+        for (name, _) in &bundle.libexec {
+            let target = libexec_dir.join(name);
+            if target.exists() {
+                let bak =
+                    backup_binary(&target).map_err(|e| format!("backup libexec/tp/{name}: {e}"))?;
+                libexec_baks.push((target, bak));
+            }
         }
 
         // 6. Ensure target directories exist (in case of a fresh install).
         if let Some(parent) = bin_tp_target.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
         }
-        if let Some(parent) = tpd_target.parent() {
-            fs::create_dir_all(parent).map_err(|e| format!("create {}: {e}", parent.display()))?;
-        }
+        fs::create_dir_all(&libexec_dir)
+            .map_err(|e| format!("create {}: {e}", libexec_dir.display()))?;
 
-        // 7. Atomically replace bin/tp first, then tpd.
-        //    If tpd swap fails, we restore bin/tp before returning the error.
-        atomic_replace(&new_bin_tp, &bin_tp_target).map_err(|e| format!("replace bin/tp: {e}"))?;
+        // 7. Atomically replace bin/tp first, then each libexec member.
+        //    If any member swap fails, restore bin/tp here (the outer error
+        //    handler restores the libexec members from libexec_baks — restoring
+        //    a not-yet-swapped target from its identical backup is a no-op).
+        atomic_replace(&bundle.bin_tp, &bin_tp_target)
+            .map_err(|e| format!("replace bin/tp: {e}"))?;
 
-        if let Err(e) = atomic_replace(&new_tpd, &tpd_target) {
-            // bin/tp was already swapped. Roll it back now so we restore
-            // consistently (the outer error handler will restore both, but
-            // bin/tp was already replaced — restore it explicitly here).
-            if let Some(ref bak) = bin_tp_bak_opt {
-                // Collapse: only clear the backup reference when restore succeeds.
-                // If restore_binary FAILED, leave bin_tp_bak_opt as Some so
-                // the outer rollback block can retry on a second attempt.
-                if bak.exists() && restore_binary(&bin_tp_target, bak).is_ok() {
-                    bin_tp_bak_opt = None;
+        for (name, new_path) in &bundle.libexec {
+            let target = libexec_dir.join(name);
+            if let Err(e) = atomic_replace(new_path, &target) {
+                if let Some(ref bak) = bin_tp_bak_opt {
+                    // Collapse: only clear the backup reference when restore
+                    // succeeds. If restore_binary FAILED, leave bin_tp_bak_opt
+                    // as Some so the outer rollback block can retry.
+                    if bak.exists() && restore_binary(&bin_tp_target, bak).is_ok() {
+                        bin_tp_bak_opt = None;
+                    }
                 }
+                return Err(format!("replace libexec/tp/{name}: {e}"));
             }
-            return Err(format!("replace libexec/tp/tpd: {e}"));
         }
 
         println!("Updated tp bundle at prefix {}", prefix.display());
@@ -1055,9 +1087,8 @@ fn upgrade_tp_bundle(tag: &str, prefix: &Path) {
             cleanup_backup(bak);
             bin_tp_bak_opt = None;
         }
-        if let Some(ref bak) = tpd_bak_opt {
-            cleanup_backup(bak);
-            tpd_bak_opt = None;
+        for (_, bak) in libexec_baks.drain(..) {
+            cleanup_backup(&bak);
         }
 
         // 10. Restart daemon.
@@ -1081,7 +1112,7 @@ fn upgrade_tp_bundle(tag: &str, prefix: &Path) {
     let _ = tmp_extract_opt.take();
 
     if let Err(ref err) = result {
-        // Rollback: restore BOTH files from backup if available.
+        // Rollback: restore ALL replaced files from backup if available.
         let mut restored_any = false;
         if let Some(ref bak) = bin_tp_bak_opt {
             if bak.exists() {
@@ -1102,16 +1133,10 @@ fn upgrade_tp_bundle(tag: &str, prefix: &Path) {
                 }
             }
         }
-        if let Some(ref bak) = tpd_bak_opt {
+        for (target, bak) in &libexec_baks {
             if bak.exists() {
-                if let Ok(()) = restore_binary(&tpd_target, bak) {
-                    println!(
-                        "{}",
-                        ok(&format!(
-                            "Rolled back libexec/tp/tpd at {}",
-                            tpd_target.display()
-                        ))
-                    );
+                if let Ok(()) = restore_binary(target, bak) {
+                    println!("{}", ok(&format!("Rolled back {}", target.display())));
                     restored_any = true;
                 }
             }
@@ -1931,9 +1956,28 @@ mod tests {
     }
 
     #[test]
-    fn detect_shape_single_binary_when_no_tpd() {
+    fn detect_shape_bundle_when_tp_daemon_exists_without_tpd() {
+        // PR6+ sentinel: a stub-less future tree (libexec/tp/tp-daemon, no tpd)
+        // must still be detected as a Bundle install.
         let dir = tempfile::TempDir::new().unwrap();
-        // Layout: bin/tp exists but NO libexec/tp/tpd.
+        let bin_dir = dir.path().join("bin");
+        let libexec_dir = dir.path().join("libexec").join("tp");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        std::fs::create_dir_all(&libexec_dir).unwrap();
+        let bin_tp = bin_dir.join("tp");
+        std::fs::write(&bin_tp, b"fake-tp-rust").unwrap();
+        std::fs::write(libexec_dir.join("tp-daemon"), b"fake-daemon").unwrap();
+        let path_str = bin_tp.to_string_lossy().into_owned();
+        match detect_install_shape(&path_str) {
+            InstallShape::Bundle { .. } => {}
+            InstallShape::SingleBinary => panic!("expected Bundle, got SingleBinary"),
+        }
+    }
+
+    #[test]
+    fn detect_shape_single_binary_when_no_sidecar_sentinel() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // Layout: bin/tp exists but NO libexec/tp/{tp-daemon,tpd}.
         let bin_dir = dir.path().join("bin");
         std::fs::create_dir_all(&bin_dir).unwrap();
         let bin_tp = bin_dir.join("tp");
@@ -1989,10 +2033,11 @@ mod tests {
 
         let outer = format!("tp-{suffix}");
 
-        // Add outer dir, bin/tp, libexec/tp/tpd.
+        // bin/tp + a representative libexec member set (Rust sidecar + tpd stub).
         let entries: &[(&str, &[u8])] = &[
             ("bin/tp", b"fake-tp-binary"),
             ("libexec/tp/tpd", b"fake-tpd-binary"),
+            ("libexec/tp/tp-daemon", b"fake-daemon-binary"),
         ];
         for (rel, content) in entries {
             let full = format!("{outer}/{rel}");
@@ -2012,11 +2057,17 @@ mod tests {
         let dest_dir = tempfile::TempDir::new().unwrap();
         let tarball = make_test_tarball(src_dir.path(), "darwin_arm64");
 
-        let (bin_tp, tpd) = extract_bundle_tarball(&tarball, dest_dir.path()).unwrap();
-        assert!(bin_tp.exists(), "bin/tp must be extracted");
-        assert!(tpd.exists(), "libexec/tp/tpd must be extracted");
-        assert_eq!(std::fs::read(&bin_tp).unwrap(), b"fake-tp-binary");
-        assert_eq!(std::fs::read(&tpd).unwrap(), b"fake-tpd-binary");
+        let bundle = extract_bundle_tarball(&tarball, dest_dir.path()).unwrap();
+        assert!(bundle.bin_tp.exists(), "bin/tp must be extracted");
+        assert_eq!(std::fs::read(&bundle.bin_tp).unwrap(), b"fake-tp-binary");
+
+        // Every libexec/tp/* member in the tarball must be collected.
+        let mut names: Vec<&str> = bundle.libexec.iter().map(|(n, _)| n.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(names, vec!["tp-daemon", "tpd"]);
+        for (name, path) in &bundle.libexec {
+            assert!(path.exists(), "libexec/tp/{name} must be extracted");
+        }
     }
 
     #[test]
@@ -2101,7 +2152,10 @@ mod tests {
     }
 
     #[test]
-    fn extract_bundle_tarball_rejects_missing_tpd() {
+    fn extract_bundle_tarball_tolerates_missing_tpd() {
+        // PR6 (#5): no libexec member is individually hard-required — the old
+        // `found_tpd` hard-require is exactly why release tarballs must still
+        // carry a tpd stub. A tarball with bin/tp only must extract cleanly.
         use flate2::write::GzEncoder;
         use flate2::Compression;
 
@@ -2109,7 +2163,6 @@ mod tests {
         let dest_dir = tempfile::TempDir::new().unwrap();
         let tarball_path = src_dir.path().join("no-tpd.tar.gz");
 
-        // Tarball with bin/tp but no tpd.
         let file = std::fs::File::create(&tarball_path).unwrap();
         let enc = GzEncoder::new(file, Compression::fast());
         let mut builder = tar::Builder::new(enc);
@@ -2122,11 +2175,11 @@ mod tests {
             .unwrap();
         builder.into_inner().unwrap().finish().unwrap();
 
-        let result = extract_bundle_tarball(&tarball_path, dest_dir.path());
-        assert!(result.is_err());
+        let bundle = extract_bundle_tarball(&tarball_path, dest_dir.path()).unwrap();
+        assert!(bundle.bin_tp.exists());
         assert!(
-            result.unwrap_err().contains("tpd"),
-            "error should mention missing tpd"
+            bundle.libexec.is_empty(),
+            "no libexec members shipped → none collected"
         );
     }
 

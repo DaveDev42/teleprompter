@@ -8,22 +8,23 @@ set -euo pipefail
 #
 # Packaging modes (auto-detected by asset name suffix):
 #
-#   Legacy (Bun single-binary, current releases):
+#   Bundle (the only release shape since #5 PR6):
+#     Asset: tp-darwin_arm64.tar.gz
+#     Tree:  bin/tp (Rust CLI) + libexec/tp/{tp-daemon,tp-relay,tp-runner}
+#            (+ libexec/tp/tpd — retired Bun blob: current tarballs carry a tiny
+#             stub member for pre-PR6 `tp upgrade` compat; may disappear later)
+#     Installs:
+#       PREFIX/bin/tp + PREFIX/libexec/tp/*   ← prefix tree
+#       INSTALL_DIR/tp                        ← symlink → PREFIX/bin/tp
+#     PREFIX = $TP_PREFIX or $HOME/.local/share/tp
+#
+#   Legacy (Bun single-binary — pre-#5 releases only):
 #     Asset: tp-darwin_arm64       (no .tar.gz)
 #     Installs: INSTALL_DIR/tp     (single executable, chmod +x)
 #
-#   Bundle (tranche 4d / #5, future releases):
-#     Asset: tp-darwin_arm64.tar.gz
-#     Tree:  bin/tp + libexec/tp/tpd
-#     Installs:
-#       PREFIX/bin/tp                ← Rust CLI binary
-#       PREFIX/libexec/tp/tpd        ← Bun SEA (tpd)
-#       INSTALL_DIR/tp               ← symlink → PREFIX/bin/tp
-#     PREFIX = $TP_PREFIX or $HOME/.local/share/tp
-#
 #   Compatibility: If the tarball asset is not found (404), falls back to the
-#   legacy single-binary asset. This allows the same install.sh to work against
-#   both release shapes during the #5 transition period.
+#   legacy single-binary asset — keeps `VERSION=v0.0.x` installs of old
+#   releases working with this install.sh.
 
 REPO="DaveDev42/teleprompter"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
@@ -87,9 +88,15 @@ if curl -fsSL --head "${TARBALL_URL}" -o /dev/null 2>/dev/null; then
   fi
 
   mkdir -p "${TP_PREFIX}/bin" "${TP_PREFIX}/libexec/tp"
-  cp "${EXTRACTED_DIR}/bin/tp"          "${TP_PREFIX}/bin/tp"
-  cp "${EXTRACTED_DIR}/libexec/tp/tpd"  "${TP_PREFIX}/libexec/tp/tpd"
-  chmod +x "${TP_PREFIX}/bin/tp" "${TP_PREFIX}/libexec/tp/tpd"
+  cp "${EXTRACTED_DIR}/bin/tp" "${TP_PREFIX}/bin/tp"
+  chmod +x "${TP_PREFIX}/bin/tp"
+  # tpd (retired in PR6, #5 zero-Bun): current tarballs ship a stub member for
+  # pre-PR6 `tp upgrade` compat; a future release may drop it entirely. Guarded
+  # so this install.sh works against tarballs with or without the member.
+  if [ -f "${EXTRACTED_DIR}/libexec/tp/tpd" ]; then
+    cp "${EXTRACTED_DIR}/libexec/tp/tpd" "${TP_PREFIX}/libexec/tp/tpd"
+    chmod +x "${TP_PREFIX}/libexec/tp/tpd"
+  fi
   # tp-daemon (ADR-0003 Phase 4 A1): shipped alongside tpd. Guarded so a NEW
   # install.sh fetched at curl-time against an OLD (pre-A1) tarball that lacks
   # this member does not `set -e`-abort the whole install — every future tarball
@@ -125,7 +132,6 @@ if curl -fsSL --head "${TARBALL_URL}" -o /dev/null 2>/dev/null; then
   fi
   ln -sf "${TP_PREFIX}/bin/tp" "${INSTALL_DIR}/${BIN_NAME}"
   echo "Installed ${BIN_NAME} to ${INSTALL_DIR}/${BIN_NAME} (→ ${TP_PREFIX}/bin/tp)"
-  echo "         tpd at ${TP_PREFIX}/libexec/tp/tpd"
   if [ -f "${TP_PREFIX}/libexec/tp/tp-daemon" ]; then
     echo "         tp-daemon at ${TP_PREFIX}/libexec/tp/tp-daemon"
   fi

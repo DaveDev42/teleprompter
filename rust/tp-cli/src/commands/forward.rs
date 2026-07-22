@@ -1,105 +1,32 @@
-//! Thin forwarder: exec the bundled Bun blob (`tpd`) with the caller's argv.
+//! Pre-clap router: classify the first CLI arg into a dispatch route.
 //!
 //! # Architecture
 //!
-//! Tranche 5 (ADR-0003 Amendment 2, A2.4 decision #1 — Option A thin forwarder).
-//! For `run` the Rust `tp` does NOT reimplement the logic: it locates the bundled
-//! Bun SEA (`tpd`) via [`crate::locate::locate_bun_blob`] and **replaces its own
-//! process image** with the blob via `exec()`. (De-trampolining the runner is
-//! tracked by task #8 — `run` is the last route still on the blob.)
-//!
-//! Passthrough (bare `tp` / `tp <claude args>`), the claude-utility forwards,
-//! `tp -- <args>`, and `tp relay …` are **no longer** blob forwards — they were
-//! de-trampolined to native Rust handlers (`commands::passthrough` in task #17
-//! PR-4, `commands::forward_claude` in PR-6, `commands::relay` in #25).
-//! `decide_route` routes them to `Route::Passthrough` / `Route::ForwardClaude` /
-//! `Route::RelayNative`, not `Route::Forward`.
-//!
-//! # Why `exec()` instead of `.status()`
-//!
-//! `CommandExt::exec()` is a **safe fn** (returns `io::Error`; never returns on
-//! success), so it satisfies `unsafe_code = "forbid"`. It gives true
-//! process-image replacement: the Bun blob inherits the controlling TTY, all
-//! signals (SIGINT / SIGWINCH for PTY resize), stdin/stdout/stderr, and its exit
-//! code becomes `tp`'s exit code. This is better than `.status()` for interactive
-//! `claude` passthrough sessions: there is no Rust parent process left in the
-//! signal path.
-//!
-//! # Architecture invariants (A2.4 #2 posture preserved)
-//!
-//! The blob forward path (now only `run`) opens **zero** IPC sockets, relay
-//! WebSockets, or SQLite connections from Rust. The blob (Bun CLI) handles:
-//! - `run` → daemon IPC → Runner PTY
-//!
-//! # Windows note
-//!
-//! `CommandExt::exec()` is POSIX-only (`#[cfg(unix)]`). `tp` is documented as
-//! POSIX-only (CLAUDE.md "Windows is unsupported natively"; `index.ts:8-14`
-//! mirrors this). The `#[cfg(not(unix))]` stub below provides a compile-time
-//! error rather than a silent runtime failure on Windows.
-
-use std::process::ExitCode;
-
-/// Exec the Bun blob with the given args (original argv after the binary name).
-///
-/// On success this function **never returns** — the blob takes over the process
-/// image entirely, inheriting stdio, the TTY, and signals.
-///
-/// On failure (blob not found or exec syscall error) it prints a message to
-/// stderr and returns `ExitCode::FAILURE`.
-///
-/// `forward_args` is the FULL original argv after the binary name, verbatim.
-/// After PR-4 / PR-6 / #25 the ONLY route that still reaches `exec_blob` is `run`
-/// (`Route::Forward`):
-/// - `tp run --tp-sid x` → `forward_args = ["run", "--tp-sid", "x"]`
-///
-/// (`tp -p hello` / bare `tp` are now `Route::Passthrough`; `tp auth login` /
-/// `tp -- echo hi` are `Route::ForwardClaude`; `tp relay …` is `Route::RelayNative`
-/// — none reach `exec_blob`.)
-#[cfg(unix)]
-pub fn exec_blob(forward_args: &[String]) -> ExitCode {
-    use std::os::unix::process::CommandExt;
-
-    let blob = match crate::locate::locate_bun_blob() {
-        Ok(p) => p,
-        Err(msg) => {
-            eprintln!("{msg}");
-            return ExitCode::FAILURE;
-        }
-    };
-
-    // exec() replaces the process image. The Bun blob inherits stdio + TTY.
-    // Returns only on error (exec syscall failed — e.g. EACCES, ENOEXEC).
-    let err = std::process::Command::new(&blob).args(forward_args).exec();
-    eprintln!("tp: failed to exec {}: {err}", blob.display());
-    ExitCode::FAILURE
-}
-
-/// Stub for non-Unix targets (tp is POSIX-only; see module doc).
-#[cfg(not(unix))]
-pub fn exec_blob(_forward_args: &[String]) -> ExitCode {
-    eprintln!(
-        "tp: passthrough and run forwarding require a POSIX system. \
-         tp does not support native Windows — run inside WSL (Ubuntu/Debian) \
-         with the Linux build."
-    );
-    ExitCode::FAILURE
-}
+//! Historically (tranche 5, ADR-0003 Amendment 2) this module was the "thin
+//! forwarder" that exec'd the bundled Bun blob (`tpd`) for not-yet-ported
+//! routes. Every route has since been de-trampolined to native Rust
+//! (`commands::passthrough` task #17 PR-4, `commands::forward_claude` PR-6,
+//! `commands::relay` #25, `commands::run` task #8), and PR6 of the #5 zero-Bun
+//! cascade deleted the blob itself together with `Route::Forward`/`exec_blob`/
+//! `locate_bun_blob`. What remains here is the routing table ([`decide_route`]
+//! and [`Route`]), consumed by `main()` BEFORE clap parses so unrecognised
+//! subcommands/flags reach the passthrough path instead of a clap error.
 
 /// Classification returned by [`decide_route`].
 ///
-/// Mirrors `Route` in `apps/cli/src/router.ts`, collapsed to the outcomes that
-/// matter for the pre-clap dispatch in `main()`:
-/// - `Forward`      → call `exec_blob` with the original argv (`run` only — the
-///   last blob-dispatched route; de-trampolined by task #8).
+/// Mirrors `Route` from the retired Bun CLI's `apps/cli/src/router.ts`
+/// (behavioral reference), collapsed to the outcomes that matter for the
+/// pre-clap dispatch in `main()`:
 /// - `Native`       → fall through to `Cli::parse()` + the existing match dispatch.
 /// - `Passthrough`  → the interactive claude REPL path (bare `tp`, `tp <claude
 ///   args>`). Native terminal-proxy (`commands::passthrough::run`, task #17 PR-4).
 /// - `ForwardClaude`→ direct `claude` exec, daemon-bypass (claude-utility
 ///   subcommands + `tp -- <args>`). Native (`commands::forward_claude::run`,
-///   task #17 PR-6) — no longer execs the blob.
-/// - `RelayNative`  → native `tp-relay` exec (`tp relay …`). Native
-///   (`commands::relay::run`, task #17 #25) — no longer execs the blob.
+///   task #17 PR-6).
+/// - `RelayNative`  → native `tp-relay` exec (`tp relay …`)
+///   (`commands::relay::run`, task #17 #25).
+/// - `RunNative`    → native `tp-runner` exec (`tp run …`)
+///   (`commands::run::run`, task #8).
 ///
 /// Note `--` is `ForwardClaude`, NOT `Passthrough`: `tp -- <args>` forwards
 /// **directly** to claude (daemon-bypass, the same handler as the utility
@@ -107,11 +34,6 @@ pub fn exec_blob(_forward_args: &[String]) -> ExitCode {
 /// bare-`tp` passthrough does.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route {
-    /// Forward to the Bun blob via [`exec_blob`]. **No producer** after task #8:
-    /// `decide_route` no longer returns this (the last route on the blob, `run`,
-    /// is now `RunNative`). Retained only for the belt-and-suspenders clap fall-
-    /// through in `main` and the passthrough fallback; removed with the blob.
-    Forward,
     /// Handle natively in the Rust CLI (clap parses the rest).
     Native,
     /// Interactive claude passthrough (bare `tp`, `tp <claude args>`) — native
@@ -420,26 +342,5 @@ mod tests {
         // `tp -- <args>` forwards directly to claude (daemon-bypass); it must
         // NOT be reclassified as Passthrough (the daemon+runner pipeline).
         assert_eq!(decide_route(Some("--")), Route::ForwardClaude);
-    }
-
-    // ── exec_blob error-path (no exec, just locate failure) ──────────────────
-    //
-    // We cannot test the exec() path in a unit test (it would replace the test
-    // process). Instead, verify that exec_blob returns FAILURE without panicking
-    // when TP_BUN_BLOB points to a nonexistent path.
-
-    #[test]
-    fn exec_blob_returns_failure_when_blob_missing() {
-        // Set TP_BUN_BLOB to a path that does not exist so locate_bun_blob
-        // returns an error before we reach exec().
-        // SAFETY: env vars are process-global; parallel tests could race.
-        // We rely on the test runner isolating this test (or accept the rare
-        // collision — the test only asserts ExitCode::FAILURE, which is
-        // idempotent).
-        std::env::set_var("TP_BUN_BLOB", "/nonexistent/fake-tpd-for-test");
-        let code = exec_blob(&[]);
-        // Restore to avoid leaking into sibling tests.
-        std::env::remove_var("TP_BUN_BLOB");
-        assert_eq!(code, ExitCode::FAILURE);
     }
 }

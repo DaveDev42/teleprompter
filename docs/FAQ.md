@@ -12,24 +12,24 @@ curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts
 
 This installs the `tp` binary to `~/.local/bin`. You can override the install location with `INSTALL_DIR`.
 
-**From source (macOS / Linux; Windows users build inside WSL):**
+**From source (macOS / Linux; Windows users build inside WSL; requires a Rust toolchain):**
 
 ```bash
 git clone https://github.com/DaveDev42/teleprompter.git
 cd teleprompter
-pnpm install
-pnpm build:cli:local    # builds for current platform → dist/tp
+# pick your platform suffix + rust target:
+scripts/build-bundle.sh darwin_arm64 aarch64-apple-darwin   # → dist/tp-darwin_arm64.tar.gz
 ```
 
 ### What platforms are supported?
 
 | Platform | Architecture | Status |
 |----------|-------------|--------|
-| macOS | arm64, x64 | Fully supported |
+| macOS | arm64 (Apple silicon) | Fully supported (release binaries); x64 = build from source |
 | Linux | arm64, x64 | Fully supported |
 | Windows | — | Not supported natively. Run the Linux build inside [WSL](https://learn.microsoft.com/windows/wsl/). |
 
-The mobile app is a Swift/SwiftUI app targeting iOS (in `ios/`). A full native rewrite is in progress per [ADR-0001](adr/0001-full-native-rewrite-swift-rust.md) — the Swift app is currently at Phase 0 (boot-marker shell). Android and Web are not targets for the rewrite.
+The app is a Swift/SwiftUI Apple-multiplatform app (in `ios/`) per [ADR-0001](adr/0001-full-native-rewrite-swift-rust.md)/ADR-0002 — iOS/iPadOS/macOS full experience, visionOS full, watchOS limited. Android and Web are not targets for the rewrite.
 
 ### Do I need Claude Code installed?
 
@@ -44,13 +44,15 @@ tp doctor
 ### What are the prerequisites?
 
 **Runtime (required):**
-- **Bun** v1.3.13+ (runtime for daemon, runner, relay)
 - **Claude Code** CLI (`claude` in PATH)
 - **Git** (for worktree features)
 
+`tp` and its daemon/runner/relay are self-contained native (Rust) binaries — no
+language runtime is needed.
+
 **Development only:**
-- **Node.js** 22+ (build tooling)
-- **pnpm** (monorepo package manager)
+- **Rust toolchain** (see `rust/rust-toolchain.toml`)
+- **Xcode + XcodeGen** (Swift app only)
 
 Run `tp doctor` to check all requirements at once.
 
@@ -238,49 +240,45 @@ The upgrade process creates a `.bak` backup of the current binary before replaci
 ```bash
 git clone https://github.com/DaveDev42/teleprompter.git
 cd teleprompter
-pnpm install
+# Backend/CLI: a Rust toolchain (rust/rust-toolchain.toml pins the version)
+# Swift app: Xcode + `brew install xcodegen`
 ```
 
 ### How do I run tests?
 
 ```bash
-# All unit + integration tests (keep the leading ./ — on macOS, un-rooted
-# paths trigger bun's filter mode, whose repo scan pushes subprocess pipe fds
-# past Darwin's OPEN_MAX and silently empties child stdout)
-bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay
+# Backend/CLI — full Rust workspace (unit + integration + golden vectors)
+( cd rust && cargo test --workspace )
 
-# Type checking
-pnpm type-check:all
+# Lint + format (severity SoT = [workspace.lints] in rust/Cargo.toml)
+( cd rust && cargo clippy --workspace --all-targets && cargo fmt --all -- --check )
 
-# iOS Simulator tests (Swift app — requires Xcode)
-bash ios/scripts/ios.sh test
-
-# Lint + format (Biome)
-pnpm lint
+# Swift app tests (requires Xcode)
+scripts/ios.sh test
 ```
 
-Backend tests use `bun:test` exclusively — no Jest or Vitest. Test files are co-located next to source files. Swift unit tests live under `ios/Tests/` and run via `xcodebuild test`.
+Backend tests are co-located `#[cfg(test)]` modules next to the source. Swift unit tests live under `ios/Tests/` and run via `xcodebuild test`.
 
 ### How do I build the CLI?
 
 ```bash
-pnpm build:cli:local    # current platform only
-pnpm build:cli          # every release target (see scripts/build.ts TARGETS)
+scripts/build-bundle.sh darwin_arm64 aarch64-apple-darwin   # → dist/tp-darwin_arm64.tar.gz
+# other targets: linux_x64 x86_64-unknown-linux-gnu / linux_arm64 aarch64-unknown-linux-gnu
 ```
 
-Builds use `bun build --compile` to produce standalone binaries.
+The bundle contains the native `tp` CLI plus the `tp-daemon` / `tp-relay` / `tp-runner`
+sidecar binaries in a `bin/` + `libexec/tp/` prefix tree.
 
 ### How do I run the iOS app locally?
 
-The app is a Swift/SwiftUI project in `ios/`. Build and launch it in the iOS Simulator with:
+The app is a Swift/SwiftUI project in `ios/`. Build and launch it with:
 
 ```bash
-bash ios/scripts/ios.sh build   # build with xcodebuild
-bash ios/scripts/ios.sh sim     # boot Simulator and install
-bash ios/scripts/ios.sh run     # build + install + launch
+scripts/ios.sh build   # xcodebuild (TP_PLATFORM=ios default; macos/visionos/watchos supported)
+scripts/ios.sh boot    # boot the Simulator
+scripts/ios.sh run     # build + install + launch
+scripts/ios.sh smoke   # full 8-marker E2E smoke against an in-process loopback relay
 ```
-
-The Swift app rewrite is in progress (ADR-0001). The current Phase 0 build is a boot-marker shell — full pairing/chat/terminal features are not yet implemented.
 
 ### How do I run a relay server locally?
 
@@ -308,9 +306,9 @@ tp completions fish >> ~/.config/fish/completions/tp.fish
 
 | Check | What it verifies | Fix |
 |-------|-----------------|-----|
-| Bun | Bun runtime installed | Install Bun: `curl -fsSL https://bun.sh/install \| bash` |
-| Node.js | Node.js available (dev only) | Install Node.js 22+ |
-| pnpm | pnpm package manager (dev only) | `npm i -g pnpm` |
+| tp | tp binary version | (informational) |
+| Node.js | Node.js available (legacy dev probe — no longer required) | Ignore, or install Node.js to silence |
+| pnpm | pnpm available (legacy dev probe — no longer required) | Ignore, or `npm i -g pnpm` to silence |
 | Claude CLI | `claude` in PATH | Install Claude Code |
 | Git | Git available | Install Git |
 | Daemon socket | Daemon is running | Run `tp daemon start`, or auto-starts on `tp pair` / passthrough runs (`tp <claude args>`). `tp status` and `tp logs` do **not** auto-start it. |

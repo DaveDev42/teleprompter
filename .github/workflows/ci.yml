@@ -257,8 +257,8 @@ jobs:
   # Deterministic iOS Simulator smoke E2E (B4 follow-up). Where `swift-build`
   # proves the app COMPILES, this proves it actually RUNS the full wire/E2EE path:
   # it boots a headless iOS Simulator, starts the in-process loopback relay +
-  # fake scripted daemon (`scripts/local-relay-loopback.ts` — NO real `tp` daemon,
-  # NO `claude`), launches the app with a golden `--tp-smoke-url` pairing link, and
+  # fake scripted daemon (the self-contained Rust `tp-loopback` cargo bin — NO real
+  # `tp` daemon, NO `claude`), launches the app with a golden `--tp-smoke-url` pairing link, and
   # polls the unified log for all 8 boot markers (TP_BOOT_OK → TP_INPUT_OK). The
   # fake daemon byte-echoes the app's input probe, so the M5 input round-trip is
   # deterministic without a PTY. This is fully reproducible and credential-free —
@@ -281,11 +281,10 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
-      # No Bun setup: the loopback is now the self-contained Rust `tp-loopback`
-      # cargo bin (Bun-deletion cascade #5, PR3 — flipped via TP_RUST_LOOPBACK=1
-      # below). The Rust toolchain + rust-cache installed here build it on demand;
-      # the old `./.github/actions/setup` existed ONLY so the Bun loopback script's
-      # `@teleprompter/*` imports resolved, and is no longer needed.
+      # No Bun setup: the loopback is the self-contained Rust `tp-loopback`
+      # cargo bin (Bun-deletion cascade #5 — opt-in via TP_RUST_LOOPBACK=1 in
+      # PR3, the only backend since PR6 deleted the Bun loopback script). The
+      # Rust toolchain + rust-cache installed here build it on demand.
       - name: Install Rust toolchain + Apple targets
         uses: dtolnay/rust-toolchain@1.96.0
         with:
@@ -304,9 +303,9 @@ jobs:
       # TP_SKIP_ARM64_32=1: arm64_32-apple-watchos (tier-3, nightly -Zbuild-std) is
       # only required for a watchOS device archive; the iOS Simulator smoke only
       # links the ios-sim slices, so arm64-only watchOS device is fine here.
-      # TP_RUST_LOOPBACK=1: use the self-contained Rust `tp-loopback` cargo bin
-      # (PR2a) instead of the Bun `local-relay-loopback.ts` script — same
-      # LOOPBACK_READY handshake, same 8 markers, no Bun (Bun-deletion cascade #5,
-      # PR3). start_loopback (scripts/ios.sh) builds tp-loopback on demand.
+      # The loopback backend is the Rust `tp-loopback` cargo bin (PR2a), the
+      # default since #5 PR6 deleted the Bun loopback script (the old
+      # TP_RUST_LOOPBACK=1 opt-in seam is gone — Rust is the only backend).
+      # start_loopback (scripts/ios.sh) builds tp-loopback on demand.
       - name: iOS Simulator smoke (8-marker loopback E2E)
-        run: TP_RUST_LOOPBACK=1 TP_PLATFORM=ios TP_SIM="iPhone 17 Pro" TP_SKIP_ARM64_32=1 scripts/ios.sh smoke
+        run: TP_PLATFORM=ios TP_SIM="iPhone 17 Pro" TP_SKIP_ARM64_32=1 scripts/ios.sh smoke

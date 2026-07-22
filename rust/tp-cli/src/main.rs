@@ -1,27 +1,24 @@
-//! `tp` — native Rust CLI (ADR-0003 full-CLI port).
+//! `tp` — native Rust CLI (ADR-0003 full-CLI port, fully native since PR6 #5).
 //!
 //! THIN entry point: classify the first arg via `decide_route` BEFORE clap
-//! parses, exec the Bun blob for forward routes, or fall through to the clap
-//! dispatch for native subcommands. The command tree mirrors the Bun CLI's
-//! `TP_SUBCOMMANDS` (`apps/cli/src/router.ts`) so the two binaries are
-//! drop-in compatible during the port.
+//! parses, dispatch the exec routes (passthrough / claude-forward / relay /
+//! run), or fall through to the clap dispatch for native subcommands. The
+//! command tree mirrors the retired Bun CLI's `TP_SUBCOMMANDS` (originally
+//! `apps/cli/src/router.ts`), which remains the behavioral reference.
 //!
-//! Port status (tranche 5): `version`, `status`, `session list`, `session
-//! delete`, `session prune`, `session cleanup`, `logs`, `completions` (emit),
-//! `pair list`, `pair delete`, `pair rename`, `pair new`, `doctor`,
-//! `daemon stop`, `daemon status`, `daemon install`, `daemon uninstall`,
-//! `daemon start`, and `upgrade` are implemented natively. `run`, `relay`,
-//! passthrough, claude-utility forwards, and `--` are forwarded to the Bun
-//! blob (`tpd`) via pre-clap dispatch + `exec()`. Bare `tp` now forwards to
-//! the blob (claude REPL passthrough); `tp --help`/`tp -h` is still native.
+//! Every route is native Rust: subcommands via clap handlers, bare `tp` /
+//! `tp <claude args>` via the terminal-proxy passthrough, claude-utility
+//! forwards + `tp --` via direct `claude` exec, `tp relay`/`tp run` via exec
+//! of the shipped `tp-relay`/`tp-runner`. The Bun blob (`tpd`) and its
+//! `Route::Forward`/`exec_blob` path were deleted in PR6 (#5 zero-Bun) —
+//! release bundles carry only a tpd stub for pre-PR6 self-update compat.
 //!
 //! # Pre-clap dispatch (tranche 5 key change)
 //!
 //! clap rejects unrecognised subcommands and flags, so passthrough args like
 //! `tp -p hello` or `tp foobar` would crash before reaching any handler.
 //! Solution: `decide_route(first_arg)` runs on raw `std::env::args()` FIRST.
-//! If the route is Forward, we `exec_blob` and never return. Only if the route
-//! is Native do we call `Cli::parse()`.
+//! Only if the route is Native do we call `Cli::parse()`.
 //!
 //! Architecture invariant (unchanged): this CLI talks ONLY to the daemon over
 //! its IPC unix socket. It never opens a relay WebSocket — pairing/relay flow
@@ -77,12 +74,12 @@ struct Cli {
     command: Option<Command>,
 }
 
-/// The subcommand tree. Order/names mirror `TP_SUBCOMMANDS` in
-/// `apps/cli/src/router.ts`. All subcommands are wired to real handlers.
-/// `Run` and `Relay` are declared here so `tp --help` lists them, but they
-/// are intercepted by the pre-clap dispatch and never reach these match arms
-/// in normal operation (the match arms below forward to exec_blob as a
-/// belt-and-suspenders measure).
+/// The subcommand tree. Order/names mirror `TP_SUBCOMMANDS` from the retired
+/// Bun CLI (`apps/cli/src/router.ts`, the behavioral reference). All
+/// subcommands are wired to real handlers. `Run` and `Relay` are declared here
+/// so `tp --help` lists them, but they are intercepted by the pre-clap
+/// dispatch and never reach these match arms in normal operation (the match
+/// arms below re-route natively as a belt-and-suspenders measure).
 #[derive(Subcommand)]
 enum Command {
     /// Print tp + claude versions.
@@ -138,19 +135,20 @@ enum Command {
         #[command(subcommand)]
         action: Option<DaemonAction>,
     },
-    /// Run claude through the tp pipeline (forwarded to tpd blob).
+    /// Run a per-session Runner (native tp-runner exec).
     ///
-    /// Note: `tp run` is intercepted by the pre-clap dispatch and forwarded to
-    /// the Bun blob before clap parses. This declaration exists so `tp --help`
-    /// lists the subcommand. The match arm below is a belt-and-suspenders
-    /// fallback (it would fire only if a future refactor bypasses decide_route).
+    /// Note: `tp run` is intercepted by the pre-clap dispatch
+    /// (`Route::RunNative` → `commands::run::run`) before clap parses. This
+    /// declaration exists so `tp --help` lists the subcommand. The match arm
+    /// below is a belt-and-suspenders fallback (it would fire only if a future
+    /// refactor bypasses decide_route).
     Run,
-    /// Relay server (forwarded to tpd blob).
+    /// Relay server (native tp-relay exec).
     ///
-    /// Note: `tp relay` is intercepted by the pre-clap dispatch and forwarded to
-    /// the Bun blob before clap parses. This declaration exists so `tp --help`
-    /// lists the subcommand. The match arm below is a belt-and-suspenders
-    /// fallback.
+    /// Note: `tp relay` is intercepted by the pre-clap dispatch
+    /// (`Route::RelayNative` → `commands::relay::run`) before clap parses. This
+    /// declaration exists so `tp --help` lists the subcommand. The match arm
+    /// below is a belt-and-suspenders fallback.
     Relay,
 }
 
@@ -243,9 +241,9 @@ enum SessionAction {
 /// are ported (tranche 4d).
 #[derive(Subcommand)]
 enum DaemonAction {
-    /// Start the daemon in the foreground (Bun trampoline).
+    /// Start the daemon in the foreground (native tp-daemon exec).
     Start {
-        /// All arguments forwarded verbatim to `tpd daemon start`.
+        /// All arguments forwarded verbatim to `tp-daemon`.
         /// Accepts: --watch, --repo-root, --prune-ttl, --no-prune, --verbose,
         /// --quiet, --spawn, --sid, --cwd, --worktree-path, and any future flags.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -270,15 +268,12 @@ fn main() -> ExitCode {
     // reaching a handler. We classify the first arg BEFORE clap parses.
     //
     // The full original argv after the binary name is passed verbatim to the
-    // blob: `tp auth login` → exec `tpd auth login`; `tp -p x` → `tpd -p x`.
+    // exec routes: `tp auth login` → exec `claude auth login`; `tp run --sid x`
+    // → exec `tp-runner --sid x`.
     let args: Vec<String> = std::env::args().collect();
     let first = args.get(1).map(String::as_str);
 
     match commands::forward::decide_route(first) {
-        commands::forward::Route::Forward => {
-            // exec_blob never returns on success — the blob takes over.
-            return commands::forward::exec_blob(&args[1..]);
-        }
         commands::forward::Route::Passthrough => {
             // Interactive claude passthrough (bare `tp`, `tp <claude args>`).
             // Task #17 PR-4: native terminal-proxy — ensure a daemon is up, spawn
@@ -412,13 +407,13 @@ fn main() -> ExitCode {
         // decide_route). Reconstruct the original argv from the parsed command
         // name and route it the same way decide_route would.
         Some(Command::Run) => {
-            // `tp run [...]` — args after `run` are captured by clap's
-            // trailing_var_arg. Since Run has no fields we can only forward
-            // the reconstructed argv to the blob. decide_route should have
-            // caught this (Route::Forward → exec_blob).
+            // `tp run [...]` → native tp-runner exec (task #8). decide_route
+            // should have caught this (Route::RunNative); reconstruct the
+            // `run`-led argv commands::run::run expects (args_after_tp[0] ==
+            // "run").
             let mut fwd: Vec<String> = vec!["run".to_string()];
             fwd.extend(args.iter().skip(2).cloned());
-            commands::forward::exec_blob(&fwd)
+            commands::run::run(&fwd)
         }
         Some(Command::Relay) => {
             // `tp relay [...]` → native tp-relay exec (#25). decide_route should

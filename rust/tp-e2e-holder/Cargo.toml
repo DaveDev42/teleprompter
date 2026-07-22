@@ -1,0 +1,58 @@
+# `tp-e2e-holder` — the Rust real-daemon E2E holder (Bun-deletion cascade #5, PR2b).
+#
+# Replaces `scripts/real-daemon-pair.ts`: starts a real in-process `RelayServer`
+# on a free port (or points at an external one via `--relay-url`), spawns the
+# REAL Rust `tp-daemon` into the harness's isolated XDG sandbox, drives the
+# `pair.begin` → `pair.begin.ok` → `pair.completed` IPC pairing handshake, and
+# optionally spawns/drives a REAL claude session (print / interactive M5 /
+# coding / webpage multi-turn) plus the synthetic push injection. `scripts/
+# ios.sh start_real_daemon_relay` launches this binary and greps its stdout
+# contract lines (REAL_PAIR_URL / REAL_PAIR_READY / REAL_SESSION_SID /
+# RUNNER_PARITY_BIN / DAEMON_PARITY_BIN / "pairing begun").
+#
+# It is a SEPARATE dev-only binary crate (not a second bin in `tp-loopback`) so
+# rusqlite (bundled sqlite, needed for the session-DB turn gating) stays out of
+# the loopback crate that CI builds with `cargo build --bin tp-loopback`, and so
+# the process name is distinct from every shipped binary for the soak sweep's
+# pkill scoping. LOCAL-ONLY: never runs in CI (real claude auth/credits).
+[package]
+name = "tp-e2e-holder"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Rust real-daemon E2E holder — embedded RelayServer + isolated tp-daemon + IPC pairing + real-claude session drivers (replaces scripts/real-daemon-pair.ts)."
+
+[[bin]]
+name = "tp-e2e-holder"
+path = "src/main.rs"
+
+[dependencies]
+# IpcMessage wire types + parse_ipc_message + socket_path() (the same resolver
+# the daemon binds — XDG_RUNTIME_DIR aware, so the isolated sandbox lines up).
+tp-proto = { path = "../tp-proto" }
+# Real RelayServer embedded in-process (same pattern as tp-loopback, minus the
+# golden-token pre-seed — the real daemon self-registers via relay.register).
+tp-relay = { path = "../tp-relay" }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+# base64 for IPC `input` data and the synthetic Notification `rec` payload
+# (STANDARD alphabet, matching Bun `Buffer.toString("base64")`).
+base64 = "0.22"
+# Tokio multi-thread runtime — ONLY for the embedded relay (axum::serve) and the
+# SIGINT/SIGTERM listener. All orchestration (socket wait, IPC, claude turn
+# driving, push injection) is blocking std threads, mirroring the tp-cli model.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
+# axum server to serve the RelayServer router on an ephemeral loopback port.
+axum = { version = "0.8", features = ["ws"] }
+# Read-only session-DB polls (turn gating / dialog detection / push readiness).
+# Same version+features as tp-daemon/tp-cli — libsqlite3-sys `links = "sqlite3"`
+# forces a single workspace-wide pin.
+rusqlite = { version = "0.40", features = ["bundled"] }
+# SIGTERM delivery to the spawned daemon/runner (std Child::kill is SIGKILL —
+# the runner must get SIGTERM so it tears down its claude PTY). Safe wrapper
+# (workspace forbids `unsafe`); same crate/version tp-daemon uses.
+rustix = { version = "1.1", features = ["process"] }
+
+[lints]
+workspace = true

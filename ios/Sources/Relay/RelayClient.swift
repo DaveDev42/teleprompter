@@ -665,12 +665,19 @@ final class RelayClient: NSObject, @unchecked Sendable {
             sendPushRegister(token: token)
         } else if Self.pushSmokeMode {
             // PUSH E2E: no real APNs token on Simulator/macOS, so register a
-            // synthetic one to open the daemon's `tokenCount > 0` push gate. Safe:
-            // the frontend is live here, so the relay delivers in-band and never
-            // hands this token to APNs. Smoke-mode only — never reached in a real
-            // run, where `pushTokenHex` is the real token (or stays nil with the
-            // push gate intentionally shut).
-            sendPushRegister(token: "tp-smoke-fake-token-\(pairing.frontendId)")
+            // synthetic one to open the daemon's `tokenCount > 0` push gate. Must
+            // be EXACTLY 64 lowercase hex chars: the relay's zero-trust wire guard
+            // (#839) validates iOS tokens against the APNs format and silently
+            // drops anything else — the previous "tp-smoke-fake-token-…" marker
+            // string never survived the guard, so the daemon's vault stayed empty
+            // and the PushNotifier never fired. Derived from frontendId (hex of
+            // its UTF-8 bytes, zero-padded/truncated to 64) so it stays
+            // deterministic per frontend. Safe: the frontend is live here, so the
+            // relay delivers in-band and never hands this token to APNs. Smoke-
+            // mode only — never reached in a real run, where `pushTokenHex` is
+            // the real token (or stays nil with the push gate intentionally shut).
+            let hex = pairing.frontendId.utf8.map { String(format: "%02x", $0) }.joined()
+            sendPushRegister(token: String((hex + String(repeating: "0", count: 64)).prefix(64)))
         }
     }
 

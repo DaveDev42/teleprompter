@@ -247,8 +247,11 @@ pub struct SharedState {
     /// `started_at.elapsed().as_secs()` (`Math.floor(process.uptime())` parity).
     pub started_at: Instant,
     /// APNs push orchestrator. `None` when APNs creds are absent from the env —
-    /// the `relay.push` send path then becomes a clean no-op (the daemon's push
-    /// is fire-and-forget, so silence is the correct unconfigured behaviour).
+    /// the APNs (offline) leg of `relay.push` then becomes a clean no-op (the
+    /// daemon's push is fire-and-forget, so silence is the correct unconfigured
+    /// behaviour). The in-band leg is independent of this: a connected frontend
+    /// still receives `relay.notification` (conn.rs `handle_push` None arm —
+    /// TS parity, push.ts step 1 "ws" needs no APNs).
     /// Wrapped in `Arc` (not `PushService` directly) so `#[derive(Clone)]` on
     /// `SharedState` holds — `PushService` is not `Clone`, but `Arc` is.
     pub push_service: Option<Arc<crate::push::PushService>>,

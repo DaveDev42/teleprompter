@@ -3002,6 +3002,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tp-e2e-holder"
+version = "0.0.1"
+dependencies = [
+ "axum",
+ "base64",
+ "rusqlite",
+ "rustix",
+ "serde_json",
+ "tokio",
+ "tp-proto",
+ "tp-relay",
+]
+
+[[package]]
 name = "tp-loopback"
 version = "0.0.1"
 dependencies = [

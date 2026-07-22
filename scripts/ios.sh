@@ -2020,18 +2020,20 @@ start_loopback() {
 # gate. (Run them as two separate invocations for full M0–M5 + coding coverage.)
 E2E_REAL="" E2E_CLAUDE="" E2E_CLAUDE_M5="" E2E_CLAUDE_CODING="" E2E_WEBPAGE=""
 # E2E_RUNNER_BIN (TP_E2E_RUNNER_BIN=1) is ORTHOGONAL to every claude-driving gate above:
-# it selects which RUNNER BINARY the isolated daemon spawns (the Rust tp-runner via the
-# already-merged inc3 TP_RUNNER_BIN seam) — NOT how claude is driven. So it neither implies
-# nor clears any other gate; it composes with CODING/WEBPAGE/M5 to run the same real-claude
-# assertions against the Rust runner and prove byte-and-behavior parity with the Bun default
-# (ADR-0003 Stage 4, increment 4). Local-only; never CI (rides the real-claude harness).
+# it enables the assert_runner_parity POSITIVE PROOF — NOT how claude is driven. Since
+# #41 PR2b the Rust tp-runner is ALWAYS the session runner (the Rust tp-e2e-holder has
+# no Bun fallback; the harness builds + injects TP_RUNNER_BIN unconditionally), so this
+# gate no longer *selects* a binary — it pins + positively proves the injected path
+# served the run (RUNNER_PARITY_BIN line + io-row check). It neither implies nor clears
+# any other gate; it composes with CODING/WEBPAGE/M5 (ADR-0003 Stage 4, increment 4 —
+# retained post-flip as a regression guard). Local-only; never CI.
 E2E_RUNNER_BIN=""
 # E2E_DAEMON_BIN (TP_E2E_DAEMON_BIN=1) is the DAEMON twin of E2E_RUNNER_BIN — also
-# orthogonal to every claude-driving gate: it selects which DAEMON BINARY the holder
-# spawns for the isolated E2E daemon (the Rust tp-daemon vs the Bun default). Implies
-# E2E_REAL (it needs a real daemon to substitute); composes with CODING/WEBPAGE/M5 to
-# run the real-claude assertions against the Rust daemon (ADR-0003 Phase 4, flip-prep
-# A2). Local-only; never CI. Default flip stays a separate later PR.
+# orthogonal to every claude-driving gate: it enables the assert_daemon_parity positive
+# proof (the Rust tp-daemon is ALWAYS the isolated daemon since #41 PR2b; this gate
+# pins + proves, it no longer selects). Implies E2E_REAL (it needs the real daemon to
+# prove against); composes with CODING/WEBPAGE/M5 (ADR-0003 Phase 4 — retained
+# post-flip as a regression guard). Local-only; never CI.
 E2E_DAEMON_BIN=""
 parse_e2e_gates() {
   E2E_REAL="" E2E_CLAUDE="" E2E_CLAUDE_M5="" E2E_CLAUDE_CODING="" E2E_WEBPAGE="" E2E_PUSH=""
@@ -2372,23 +2374,25 @@ assert_runner_parity() {
   local db="$REAL_E2E_DIR/data/teleprompter/vault/sessions/$sid.sqlite"
 
   # 1. POSITIVE PROOF the Rust runner served these sessions. The holder
-  #    (real-daemon-pair.ts) spawns every real-claude session itself as a standalone
-  #    `tp run`/`tp-runner` process (NOT via the daemon's SessionManager), so its own
-  #    runnerCmd() is what selects the binary from TP_RUNNER_BIN. When it selected the
-  #    Rust runner it writes `RUNNER_PARITY_BIN=<abs path>` to STDOUT (a durable line
+  #    (rust/tp-e2e-holder) spawns every real-claude session itself as a standalone
+  #    `tp-runner` process (NOT via the daemon's SessionManager), resolving the binary
+  #    from TP_RUNNER_BIN. When that env var is non-empty it writes
+  #    `RUNNER_PARITY_BIN=<verbatim value>` to STDOUT (a flushed contract line
   #    alongside REAL_PAIR_URL/REAL_SESSION_SID — NOT the stderr log() helper, which
-  #    races and gets clobbered under the holder's `>rp_out 2>>rp_out` shared-fd
-  #    redirect), which the harness captured to $REAL_RP_OUT. Match the exact absolute
-  #    path we injected (grep -F: literal, not a loose 'tp-runner' substring — the Bun
-  #    blob could live in a path containing that token). Silent Bun fallback = NO line → die.
+  #    races under the holder's `>rp_out 2>>rp_out` shared-fd redirect), which the
+  #    harness captured to $REAL_RP_OUT. Match the exact absolute path we injected
+  #    (grep -F: literal, not a loose 'tp-runner' substring — another binary could
+  #    live in a path containing that token). Env not propagated / sibling-probe
+  #    fallback = NO line → die.
   local sel_line
   sel_line="$(grep -F "RUNNER_PARITY_BIN=$REAL_RUNNER_BIN" "$REAL_RP_OUT" 2>/dev/null | tail -n1 || true)"
-  [ -n "$sel_line" ] || die "RUNNER PARITY FAIL — no 'RUNNER_PARITY_BIN=$REAL_RUNNER_BIN' line in holder log $REAL_RP_OUT. The holder did NOT drive sessions with the Rust runner (silent Bun fallback? is TP_RUNNER_BIN propagating to real-daemon-pair.ts?). Holder RUNNER_PARITY lines: $(grep -F 'RUNNER_PARITY_BIN=' "$REAL_RP_OUT" 2>/dev/null | tr '\n' '|' || echo '<none>')"
+  [ -n "$sel_line" ] || die "RUNNER PARITY FAIL — no 'RUNNER_PARITY_BIN=$REAL_RUNNER_BIN' line in holder log $REAL_RP_OUT. The holder did NOT drive sessions with the pinned Rust runner (is TP_RUNNER_BIN propagating to tp-e2e-holder?). Holder RUNNER_PARITY lines: $(grep -F 'RUNNER_PARITY_BIN=' "$REAL_RP_OUT" 2>/dev/null | tr '\n' '|' || echo '<none>')"
   log "runner parity — Rust runner CONFIRMED drives real-claude sessions: ${sel_line#*] }"
 
   # 2. Structural io-record check: the Rust runner must have emitted io records (the binary
-  #    sidecar carrying the real claude PTY bytes). runner-parity.test.ts already proved these
-  #    are byte-exact vs Bun under a fake claude; here we only confirm the REAL claude session
+  #    sidecar carrying the real claude PTY bytes). The PR4-deleted runner-parity.test.ts
+  #    once proved these byte-exact against the Bun reference under a fake claude (tp-core
+  #    golden vectors + cargo tests carry that now); here we confirm the REAL claude session
   #    produced a non-empty io stream through the Rust runner (kind='io' rows > 0).
   [ -f "$db" ] || die "RUNNER PARITY FAIL — session DB not found at $db (sid=$sid)"
   local io_rows
@@ -2396,7 +2400,7 @@ assert_runner_parity() {
   [ "${io_rows:-0}" -ge 1 ] || die "RUNNER PARITY FAIL — session DB has io rows=$io_rows (expected >=1; the Rust runner produced no PTY io — did claude render anything?)"
   log "runner parity — io records OK: kind='io' rows=$io_rows (Rust runner emitted the PTY byte stream)"
 
-  log "✅ RUNNER PARITY PASS — the Rust tp-runner (bin=$REAL_RUNNER_BIN) served the real claude session end-to-end and the runner-agnostic assertion(s) above verified byte-identical behavior to the Bun runner"
+  log "✅ RUNNER PARITY PASS — the Rust tp-runner (bin=$REAL_RUNNER_BIN) served the real claude session end-to-end and the runner-agnostic assertion(s) above verified its behavior"
 }
 
 # assert_daemon_parity — the TP_E2E_DAEMON_BIN assertion (ADR-0003 Phase 4, flip-prep A2),
@@ -2417,16 +2421,17 @@ assert_daemon_parity() {
   [ -n "$REAL_DAEMON_BIN" ] || die "DAEMON PARITY FAIL — REAL_DAEMON_BIN unset (build_rust_daemon_bin did not run?)"
   [ -n "${REAL_RP_OUT:-}" ] || die "DAEMON PARITY FAIL — REAL_RP_OUT unset (holder log not captured?)"
 
-  # 1. POSITIVE PROOF the Rust tp-daemon served this run. The holder (real-daemon-pair.ts)
-  #    spawns the isolated daemon itself via daemonCmd(), which selects the binary from
-  #    TP_DAEMON_BIN. When it selected the Rust daemon it writes `DAEMON_PARITY_BIN=<abs path>`
-  #    to STDOUT (a durable line alongside REAL_PAIR_URL — NOT the stderr log() helper, which
-  #    races under the holder's `>rp_out 2>>rp_out` shared-fd redirect), captured to
-  #    $REAL_RP_OUT. Match the exact absolute path we injected (grep -F: literal, not a loose
-  #    'tp-daemon' substring). Silent Bun fallback = NO line → die.
+  # 1. POSITIVE PROOF the Rust tp-daemon served this run. The holder (rust/tp-e2e-holder)
+  #    spawns the isolated daemon itself, resolving the binary from TP_DAEMON_BIN. When
+  #    that env var is non-empty it writes `DAEMON_PARITY_BIN=<verbatim value>` to STDOUT
+  #    (a flushed contract line alongside REAL_PAIR_URL — NOT the stderr log() helper,
+  #    which races under the holder's `>rp_out 2>>rp_out` shared-fd redirect), captured
+  #    to $REAL_RP_OUT. Match the exact absolute path we injected (grep -F: literal, not
+  #    a loose 'tp-daemon' substring). Env not propagated / sibling-probe fallback =
+  #    NO line → die.
   local sel_line
   sel_line="$(grep -F "DAEMON_PARITY_BIN=$REAL_DAEMON_BIN" "$REAL_RP_OUT" 2>/dev/null | tail -n1 || true)"
-  [ -n "$sel_line" ] || die "DAEMON PARITY FAIL — no 'DAEMON_PARITY_BIN=$REAL_DAEMON_BIN' line in holder log $REAL_RP_OUT. The holder did NOT spawn the Rust daemon (silent Bun fallback? is TP_DAEMON_BIN propagating to real-daemon-pair.ts?). Holder DAEMON_PARITY lines: $(grep -F 'DAEMON_PARITY_BIN=' "$REAL_RP_OUT" 2>/dev/null | tr '\n' '|' || echo '<none>')"
+  [ -n "$sel_line" ] || die "DAEMON PARITY FAIL — no 'DAEMON_PARITY_BIN=$REAL_DAEMON_BIN' line in holder log $REAL_RP_OUT. The holder did NOT spawn the pinned Rust daemon (is TP_DAEMON_BIN propagating to tp-e2e-holder?). Holder DAEMON_PARITY lines: $(grep -F 'DAEMON_PARITY_BIN=' "$REAL_RP_OUT" 2>/dev/null | tr '\n' '|' || echo '<none>')"
   log "daemon parity — Rust daemon CONFIRMED served this run: ${sel_line#*] }"
 
   # 2. Structural check: the substituted daemon must have created + populated the isolated
@@ -2440,7 +2445,7 @@ assert_daemon_parity() {
   [ "${rec_rows:-0}" -ge 1 ] || die "DAEMON PARITY FAIL — session DB has records=$rec_rows (expected >=1; the Rust daemon served the session but stored nothing?)"
   log "daemon parity — store OK: records=$rec_rows in $db (Rust daemon persisted the session)"
 
-  log "✅ DAEMON PARITY PASS — the Rust tp-daemon (bin=$REAL_DAEMON_BIN) served the real claude session end-to-end and the daemon-agnostic assertion(s) above verified byte-identical behavior to the Bun daemon"
+  log "✅ DAEMON PARITY PASS — the Rust tp-daemon (bin=$REAL_DAEMON_BIN) served the real claude session end-to-end and the daemon-agnostic assertion(s) above verified its behavior"
 }
 
 # assert_push_e2e — the TP_E2E_PUSH assertion. After M0–M4 passed (real daemon + real
@@ -2497,10 +2502,11 @@ assert_push_e2e() {
 # ── start_real_daemon_relay (TP_E2E_REAL=1) ─────────────────────────────────────
 #
 # The REAL-daemon E2E path: instead of the fake scripted loopback, stand up a
-# genuine `tp` relay + `tp` daemon (isolated store/socket under a temp dir) and
-# pair the frontend headlessly. scripts/real-daemon-pair.ts does the heavy lifting;
-# this wrapper backgrounds it, reads the emitted deep link, and records the REAL
-# (dynamic) daemonId so the marker assertions can target it.
+# genuine relay + Rust `tp-daemon` (isolated store/socket under a temp dir) and
+# pair the frontend headlessly. The Rust `tp-e2e-holder` binary (rust/tp-e2e-holder,
+# #41 PR2b — replaced scripts/real-daemon-pair.ts) does the heavy lifting; this
+# wrapper builds it, backgrounds it, reads the emitted deep link, and records the
+# REAL (dynamic) daemonId so the marker assertions can target it.
 #
 # Sets these globals for cmd_smoke_ios to consume:
 #   REAL_PAIR_LINK   the tp://p?d=… deep link the app ingests (--tp-smoke-url)
@@ -2538,31 +2544,36 @@ REAL_SPAWN_PUSH=""
 # Holder combined stdout+stderr log path (set in start_real_daemon_relay), read by
 # assert_push_e2e for the secondary "push: injected …" diagnostic check.
 REAL_RP_OUT=""
-# Absolute path to the built Rust tp-runner (set by build_rust_runner_bin when
-# E2E_RUNNER_BIN=yes), injected as TP_RUNNER_BIN into the isolated daemon's env so the
-# inc3 seam makes it spawn the Rust runner per-session. Empty ⇒ default Bun runner.
+# Absolute path to the built Rust tp-runner (ALWAYS set by build_rust_runner_bin —
+# the Rust tp-e2e-holder has no Bun runner fallback), injected as TP_RUNNER_BIN into
+# the holder's env so it spawns the Rust tp-runner per claude session. When
+# TP_E2E_RUNNER_BIN=1, assert_runner_parity additionally proves this exact path
+# served the run (RUNNER_PARITY_BIN stdout line + io-row check).
 REAL_RUNNER_BIN=""
-# Absolute path to the built Rust tp-daemon (set by build_rust_daemon_bin when
-# E2E_DAEMON_BIN=yes), injected as TP_DAEMON_BIN into the holder's env so its daemonCmd()
-# spawns the Rust daemon for this run. Empty ⇒ default Bun daemon.
+# Absolute path to the built Rust tp-daemon (ALWAYS set by build_rust_daemon_bin —
+# same no-Bun-fallback rule), injected as TP_DAEMON_BIN into the holder's env so it
+# spawns the Rust tp-daemon for this run. TP_E2E_DAEMON_BIN=1 adds the positive
+# parity proof (DAEMON_PARITY_BIN line + store-records check).
 REAL_DAEMON_BIN=""
 
 # build_rust_runner_bin — build (release) + locate the Rust tp-runner and set
-# REAL_RUNNER_BIN. Only invoked when E2E_RUNNER_BIN=yes; keeps this cost off the default
-# smoke/CI path (NOT in ensure_xcframework). Mirrors the freshness sequence's rustup-shim
-# workaround (real toolchain bin ahead of the shim, which mis-parses cargo args) and
-# findRustRunner()'s release→debug fallback (runner-parity.test.ts). Fails LOUD if the
-# binary can't be produced — never silently drops back to Bun (the whole point is to prove
-# the Rust runner). Logs the profile + mtime so a stale build can't false-pass unnoticed.
+# REAL_RUNNER_BIN. ALWAYS invoked by start_real_daemon_relay (#41 PR2b): the Rust
+# tp-e2e-holder has no Bun runner fallback, so every real-daemon E2E claude session is
+# served by the Rust tp-runner and the harness always builds + pins its path. The
+# TP_E2E_RUNNER_BIN gate no longer *selects* the binary — it only enables the
+# assert_runner_parity positive proof. Cost stays off the default smoke/CI path (only
+# real-daemon E2E calls this). Mirrors the freshness sequence's rustup-shim workaround
+# (real toolchain bin ahead of the shim, which mis-parses cargo args) with a
+# release→debug fallback. Fails LOUD — the E2E cannot run without it. Logs the
+# profile + mtime so a stale build can't false-pass unnoticed.
 build_rust_runner_bin() {
-  [ "$E2E_RUNNER_BIN" = "yes" ] || return 0
   require cargo
   local tc_bin
   tc_bin="$(dirname "$(cd "$REPO_ROOT/rust" && rustup which cargo 2>/dev/null)")" \
-    || die "TP_E2E_RUNNER_BIN FAIL — could not resolve the Rust toolchain bin via rustup"
-  log "building Rust tp-runner (release) for the parity gate…"
+    || die "E2E_REAL FAIL — could not resolve the Rust toolchain bin via rustup"
+  log "building Rust tp-runner (release) for the real-daemon E2E…"
   ( cd "$REPO_ROOT/rust" && PATH="$tc_bin:$PATH" cargo build --release --bin tp-runner ) \
-    || die "TP_E2E_RUNNER_BIN FAIL — 'cargo build --release --bin tp-runner' failed"
+    || die "E2E_REAL FAIL — 'cargo build --release --bin tp-runner' failed"
   local rel="$REPO_ROOT/rust/target/release/tp-runner"
   local dbg="$REPO_ROOT/rust/target/debug/tp-runner"
   if [ -x "$rel" ]; then
@@ -2570,7 +2581,7 @@ build_rust_runner_bin() {
   elif [ -x "$dbg" ]; then
     REAL_RUNNER_BIN="$dbg"
   else
-    die "TP_E2E_RUNNER_BIN FAIL — tp-runner not found after build (looked at $rel, $dbg). Build it: (cd rust && cargo build --release --bin tp-runner)"
+    die "E2E_REAL FAIL — tp-runner not found after build (looked at $rel, $dbg). Build it: (cd rust && cargo build --release --bin tp-runner)"
   fi
   # mtime (portable: try GNU then BSD stat) so a stale binary is visible in the log.
   local mt; mt="$(stat -c %y "$REAL_RUNNER_BIN" 2>/dev/null || stat -f %Sm "$REAL_RUNNER_BIN" 2>/dev/null || echo '?')"
@@ -2578,19 +2589,19 @@ build_rust_runner_bin() {
 }
 
 # build_rust_daemon_bin — the daemon twin of build_rust_runner_bin. Build (release) +
-# locate the Rust tp-daemon and set REAL_DAEMON_BIN. Only invoked when E2E_DAEMON_BIN=yes,
-# keeping the cost off the default path. Same rustup-shim workaround + release→debug
-# fallback + LOUD-on-failure discipline (never silently drops to the Bun daemon — the point
-# is to prove the Rust daemon). Logs profile + mtime so a stale build can't false-pass.
+# locate the Rust tp-daemon and set REAL_DAEMON_BIN. ALWAYS invoked by
+# start_real_daemon_relay (#41 PR2b — no Bun daemon fallback exists; TP_E2E_DAEMON_BIN
+# only enables the assert_daemon_parity positive proof). Same rustup-shim workaround +
+# release→debug fallback + LOUD-on-failure discipline. Logs profile + mtime so a
+# stale build can't false-pass.
 build_rust_daemon_bin() {
-  [ "$E2E_DAEMON_BIN" = "yes" ] || return 0
   require cargo
   local tc_bin
   tc_bin="$(dirname "$(cd "$REPO_ROOT/rust" && rustup which cargo 2>/dev/null)")" \
-    || die "TP_E2E_DAEMON_BIN FAIL — could not resolve the Rust toolchain bin via rustup"
-  log "building Rust tp-daemon (release) for the parity gate…"
+    || die "E2E_REAL FAIL — could not resolve the Rust toolchain bin via rustup"
+  log "building Rust tp-daemon (release) for the real-daemon E2E…"
   ( cd "$REPO_ROOT/rust" && PATH="$tc_bin:$PATH" cargo build --release --bin tp-daemon ) \
-    || die "TP_E2E_DAEMON_BIN FAIL — 'cargo build --release --bin tp-daemon' failed"
+    || die "E2E_REAL FAIL — 'cargo build --release --bin tp-daemon' failed"
   local rel="$REPO_ROOT/rust/target/release/tp-daemon"
   local dbg="$REPO_ROOT/rust/target/debug/tp-daemon"
   if [ -x "$rel" ]; then
@@ -2598,20 +2609,51 @@ build_rust_daemon_bin() {
   elif [ -x "$dbg" ]; then
     REAL_DAEMON_BIN="$dbg"
   else
-    die "TP_E2E_DAEMON_BIN FAIL — tp-daemon not found after build (looked at $rel, $dbg). Build it: (cd rust && cargo build --release --bin tp-daemon)"
+    die "E2E_REAL FAIL — tp-daemon not found after build (looked at $rel, $dbg). Build it: (cd rust && cargo build --release --bin tp-daemon)"
   fi
   local mt; mt="$(stat -c %y "$REAL_DAEMON_BIN" 2>/dev/null || stat -f %Sm "$REAL_DAEMON_BIN" 2>/dev/null || echo '?')"
   log "tp-daemon selected: $REAL_DAEMON_BIN (built $mt) — injecting as TP_DAEMON_BIN"
 }
-start_real_daemon_relay() {
-  require bun
-  local script="$REPO_ROOT/scripts/real-daemon-pair.ts"
-  [ -f "$script" ] || die "E2E_REAL FAIL — missing $script"
 
-  # Build+locate the Rust runner if the parity gate is on (sets REAL_RUNNER_BIN, or dies).
+# build_rust_holder_bin — build (release) + locate the Rust tp-e2e-holder and set
+# REAL_HOLDER_BIN. The holder (rust/tp-e2e-holder, #41 PR2b) replaced the Bun
+# scripts/real-daemon-pair.ts: it embeds the real RelayServer in-process, spawns the
+# Rust tp-daemon into the isolated sandbox, optionally spawns/drives real claude
+# sessions via the Rust tp-runner, performs the pair.begin IPC handshake, and emits
+# the same stdout contract this harness greps (RUNNER_PARITY_BIN=/DAEMON_PARITY_BIN=/
+# REAL_SESSION_SID=/`pairing begun …`/REAL_PAIR_URL=/REAL_PAIR_READY). Same
+# rustup-shim workaround + release→debug fallback + LOUD-on-failure discipline as the
+# runner/daemon builders above.
+REAL_HOLDER_BIN=""
+build_rust_holder_bin() {
+  require cargo
+  local tc_bin
+  tc_bin="$(dirname "$(cd "$REPO_ROOT/rust" && rustup which cargo 2>/dev/null)")" \
+    || die "E2E_REAL FAIL — could not resolve the Rust toolchain bin via rustup"
+  log "building Rust tp-e2e-holder (release)…"
+  ( cd "$REPO_ROOT/rust" && PATH="$tc_bin:$PATH" cargo build --release --bin tp-e2e-holder ) \
+    || die "E2E_REAL FAIL — 'cargo build --release --bin tp-e2e-holder' failed"
+  local rel="$REPO_ROOT/rust/target/release/tp-e2e-holder"
+  local dbg="$REPO_ROOT/rust/target/debug/tp-e2e-holder"
+  if [ -x "$rel" ]; then
+    REAL_HOLDER_BIN="$rel"
+  elif [ -x "$dbg" ]; then
+    REAL_HOLDER_BIN="$dbg"
+  else
+    die "E2E_REAL FAIL — tp-e2e-holder not found after build (looked at $rel, $dbg). Build it: (cd rust && cargo build --release --bin tp-e2e-holder)"
+  fi
+  local mt; mt="$(stat -c %y "$REAL_HOLDER_BIN" 2>/dev/null || stat -f %Sm "$REAL_HOLDER_BIN" 2>/dev/null || echo '?')"
+  log "tp-e2e-holder selected: $REAL_HOLDER_BIN (built $mt)"
+}
+start_real_daemon_relay() {
+  # Build+locate the Rust E2E binaries. ALL THREE are unconditional (#41 PR2b): the
+  # Rust tp-e2e-holder has no Bun daemon/runner fallback — tp-daemon serves the
+  # isolated daemon, tp-runner serves every claude session, and both paths are pinned
+  # via the TP_DAEMON_BIN/TP_RUNNER_BIN env below. The TP_E2E_{RUNNER,DAEMON}_BIN
+  # gates now only enable the positive parity asserts.
   build_rust_runner_bin
-  # Build+locate the Rust daemon if the daemon-parity gate is on (sets REAL_DAEMON_BIN, or dies).
   build_rust_daemon_bin
+  build_rust_holder_bin
 
   # Per-run isolated XDG dirs so the real daemon never collides with the user's
   # dogfood daemon (separate socket, store, config). Cleaned up on exit (LIFO).
@@ -2625,9 +2667,11 @@ start_real_daemon_relay() {
   fi
 
   # In claude mode, pass --run-claude so the holder spawns a real `claude -p`
-  # session after pairing. The fixed sid lets the M4 assertion key on it; the cwd is
-  # a scratch dir under the isolated HOME. CLAUDE_CODE_OAUTH_TOKEN was exported by
-  # cmd_smoke_ios (from the keychain) and is inherited here.
+  # session concurrently with pairing (before pair.begin — race-free: the session is
+  # in the store by the time the app's first hello arrives). The fixed sid lets the
+  # M4 assertion key on it; the cwd is a scratch dir under the isolated HOME.
+  # CLAUDE_CODE_OAUTH_TOKEN was exported by cmd_smoke_ios (from the keychain) and is
+  # inherited here.
   # --run-claude       → real `claude -p` PRINT session (M4).
   # --run-claude-interactive → real INTERACTIVE claude session (M5): the holder also
   #                        accepts the trust-folder prompt (one `\r` over IPC) so claude
@@ -2666,17 +2710,15 @@ start_real_daemon_relay() {
   REAL_RP_OUT="$rp_out"
   log "starting REAL daemon+relay (isolated under $REAL_E2E_DIR)${REAL_RUN_CLAUDE:+ + real claude session}"
   # Isolate via XDG_* (socket/store/config) + HOME so nothing leaks to ~/.
-  # TP_E2E_CLAUDE_* configure the spawned session (sid/cwd); inherited by the script.
-  # TP_RUNNER_BIN is a LITERAL env-prefix assignment (not a ${VAR:+…} expansion —
-  # bash only parses a *literal* `NAME=value` prefix as an assignment; a parameter-
-  # expanded one is word-split and mis-run as a command). REAL_RUNNER_BIN is "" unless
-  # E2E_RUNNER_BIN=yes, and resolveRunnerBinOverride treats an EMPTY TP_RUNNER_BIN as
-  # unset → the default Bun runner (runner-bin.ts: `if (!raw) return null`). So passing
-  # it unconditionally is behavior-identical to today when off, and selects the Rust
-  # tp-runner (inc3 seam) when set. TP_DAEMON_BIN follows the SAME rules: "" unless
-  # E2E_DAEMON_BIN=yes, and the holder's daemonCmd() reads an empty value as unset → the
-  # default Bun daemon (real-daemon-pair.ts: `b.length > 0 ? b : undefined`), so passing
-  # it unconditionally is a no-op when off and selects the Rust tp-daemon when set.
+  # TP_E2E_CLAUDE_* configure the spawned session (sid/cwd); inherited by the holder.
+  # TP_RUNNER_BIN/TP_DAEMON_BIN are LITERAL env-prefix assignments (not ${VAR:+…}
+  # expansions — bash only parses a *literal* `NAME=value` prefix as an assignment; a
+  # parameter-expanded one is word-split and mis-run as a command). The Rust holder
+  # (envcfg::env_nonempty) treats an EMPTY value as unset and would fall back to a
+  # sibling of its own binary, but the builders above guarantee both are non-empty
+  # here — injecting the exact paths makes the holder's RUNNER_PARITY_BIN=/
+  # DAEMON_PARITY_BIN= stdout lines (and the parity asserts that grep -F them) name
+  # the binaries that actually served this run.
   # CLAUDE_CONFIG_DIR is pinned to the isolated HOME so the spawned interactive
   # claude reads the harness-seeded lightweight config (trust/onboarding that
   # the holder writes to $HOME/.claude.json), NOT the operator's real
@@ -2702,7 +2744,7 @@ start_real_daemon_relay() {
   TP_E2E_CLAUDE_CWD="$REAL_E2E_DIR/home/work" \
   TP_RUNNER_BIN="$REAL_RUNNER_BIN" \
   TP_DAEMON_BIN="$REAL_DAEMON_BIN" \
-  bun run "$script" "${spawn_args[@]}" >"$rp_out" 2>>"$rp_out" &
+  "$REAL_HOLDER_BIN" "${spawn_args[@]}" >"$rp_out" 2>>"$rp_out" &
   local rp_pid=$!
   # SIGTERM the holder on cleanup (it tears down the daemon + relay + claude runner).
   tp_cleanup_add "kill '$rp_pid' 2>/dev/null || true; rm -f '$rp_out' 2>/dev/null || true"
@@ -2711,29 +2753,30 @@ start_real_daemon_relay() {
   # returned the deep link). pair.completed comes LATER (when the app finishes kx).
   local line=""
   for _ in $(seq 1 100); do
-    kill -0 "$rp_pid" 2>/dev/null || die "E2E_REAL FAIL — real-daemon-pair exited early: $(cat "$rp_out")"
+    kill -0 "$rp_pid" 2>/dev/null || die "E2E_REAL FAIL — tp-e2e-holder exited early: $(cat "$rp_out")"
     line="$(grep -Eo 'REAL_PAIR_URL=tp://[^[:space:]]+' "$rp_out" 2>/dev/null | tail -n1 || true)"
     [ -n "$line" ] && break
     sleep 0.2
   done
-  [ -n "$line" ] || die "E2E_REAL FAIL — real-daemon-pair never emitted REAL_PAIR_URL: $(cat "$rp_out")"
+  [ -n "$line" ] || die "E2E_REAL FAIL — tp-e2e-holder never emitted REAL_PAIR_URL: $(cat "$rp_out")"
   REAL_PAIR_LINK="${line#REAL_PAIR_URL=}"
 
-  # The daemon logs its id as "daemon daemon-<base36>"; capture it for did= asserts.
+  # The holder prints the daemon id as "pairing begun (id …, daemon daemon-<base36>)"
+  # on STDOUT, immediately BEFORE the REAL_PAIR_URL line (Rust holder contract — the
+  # Bun holder emitted it on stderr, which raced the two-fd rp_out redirect), so by
+  # the time the URL poll above succeeded the id is structurally present. Capture it
+  # for did= asserts.
   REAL_DAEMON_ID="$(grep -Eo 'daemon daemon-[a-z0-9]+' "$rp_out" 2>/dev/null | tail -n1 | awk '{print $2}' || true)"
   [ -n "$REAL_DAEMON_ID" ] || die "E2E_REAL FAIL — could not determine real daemon id from: $(cat "$rp_out")"
 
   # In claude mode, the spawned session uses a FIXED sid ($claude_sid, passed to the
-  # holder via TP_E2E_CLAUDE_SID) so the M4 assertion can key on it. We do NOT poll
-  # for REAL_SESSION_SID= here: the holder spawns claude only AFTER pair.completed,
-  # which fires after the APP finishes kx — and the app is launched by cmd_smoke_ios
-  # *after* this function returns. Blocking on the sid here would deadlock (session
-  # can't exist until the app pairs, app can't pair until we return). The sid is
-  # deterministic, so just record it; the runner spawn + REAL_SESSION_SID= emission
-  # happen later in the holder, and the marker poll observes the resulting session.
+  # holder via TP_E2E_CLAUDE_SID) so the M4 assertion can key on it. The holder
+  # spawns claude concurrently with pairing (step 3b, before pair.begin) and emits
+  # REAL_SESSION_SID= then; the sid is deterministic, so just record it here instead
+  # of polling — the marker poll observes the resulting session.
   if [ -n "$REAL_RUN_CLAUDE" ]; then
     REAL_SESSION_SID="$claude_sid"
-    log "REAL daemon paired — id=$REAL_DAEMON_ID, session sid=$REAL_SESSION_SID (fixed; spawn deferred to post-pairing), link acquired"
+    log "REAL daemon paired — id=$REAL_DAEMON_ID, session sid=$REAL_SESSION_SID (fixed; spawned concurrently with pairing), link acquired"
   else
     log "REAL daemon paired — id=$REAL_DAEMON_ID, link acquired"
   fi
@@ -2807,16 +2850,19 @@ sys.exit(0 if r.get("passed") else 1)
 #
 # Scoped precisely to E2E artifacts — it never touches the operator's dogfood daemon
 # (~/.local/share/tp, launched via `tp daemon`) or any non-E2E claude: it matches only
-# the isolated-daemon signatures (rust/target/release/tp-{daemon,runner} that the parity
-# gate injects, the Bun `apps/cli … run --sid real-smoke-sess` runner, and claude bound
-# to a `hook-real-smoke-sess.sock` — all unique to the E2E harness).
+# the isolated-daemon signatures (rust/target/* tp-{daemon,runner} that the harness
+# injects, the tp-e2e-holder itself, and claude bound to a `hook-real-smoke-sess.sock`
+# — all unique to the E2E harness).
 soak_sweep_stray_e2e() {
-  # E2E daemon/runner binaries the parity gate injects (TP_DAEMON_BIN/TP_RUNNER_BIN
-  # resolve to rust/target/release/*). The Bun-default runner rides apps/cli with the
-  # fixed E2E sid. claude children are bound to the per-run hook socket by that sid.
+  # E2E daemon/runner binaries the harness injects (TP_DAEMON_BIN/TP_RUNNER_BIN
+  # resolve to rust/target/release/*), plus the Rust tp-e2e-holder (release + debug
+  # fallback profiles — a leaked holder keeps its embedded relay + isolated daemon
+  # alive across runs). claude children are bound to the per-run hook socket by the
+  # fixed E2E sid.
   pkill -9 -f 'rust/target/release/tp-daemon' 2>/dev/null || true
   pkill -9 -f 'rust/target/release/tp-runner' 2>/dev/null || true
-  pkill -9 -f 'apps/cli/src/index.ts run --sid real-smoke-sess' 2>/dev/null || true
+  pkill -9 -f 'rust/target/release/tp-e2e-holder' 2>/dev/null || true
+  pkill -9 -f 'rust/target/debug/tp-e2e-holder' 2>/dev/null || true
   pkill -9 -f 'hook-real-smoke-sess.sock' 2>/dev/null || true
   # Any prior app instance too (the smoke does this itself, but doing it here means the
   # host is fully quiescent before the next `bash "$0" smoke` even starts its own log

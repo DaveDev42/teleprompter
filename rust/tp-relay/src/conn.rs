@@ -977,11 +977,32 @@ async fn handle_push(
         } => (daemon_id, token, frontend_conn, is_frontend_connected),
     };
 
-    // Graceful no-op when APNs creds are absent: the daemon's relay.push is
-    // fire-and-forget, so silence (no spawn, no error reply) is correct. The
-    // role gate + unseal parity replies above still fire regardless. The `?`
-    // returns `None` (the function's no-close result) when push_service is None.
-    let push_service: Arc<PushService> = state.push_service.clone()?;
+    // APNs creds absent → `push_service` is None, but that must only no-op the
+    // APNs (offline) leg. The TS reference always constructs its PushService and
+    // `sendOrDeliver` returns "ws" for a connected frontend BEFORE any APNs or
+    // dedup work (push.ts step 1: WebSocket takes priority), so a live frontend
+    // receives `relay.notification` even on a relay with no APNs config — the
+    // in-band path needs no push machinery at all. An early return here that
+    // also skips the in-band leg silently kills EVERY in-band notification on
+    // an unconfigured relay (all local/E2E relays; caught live by the
+    // TP_E2E_PUSH gate, #41 PR2b). Offline target + no APNs stays a clean
+    // silent no-op (no spawn, no error reply) — the daemon's push is
+    // fire-and-forget and there is nothing to deliver with.
+    let Some(push_service): Option<Arc<PushService>> = state.push_service.clone() else {
+        if is_frontend_connected {
+            let actions = map_delivery_result(
+                &DeliveryResult::Ws,
+                frontend_conn,
+                conn_id,
+                title.to_string(),
+                body.to_string(),
+                data.cloned(),
+                frontend_id,
+            );
+            deliver_actions(state, actions).await;
+        }
+        return None;
+    };
 
     // ── Async section (spawned, lock-free) ───────────────────────────────────
     let req = PushRequest {
@@ -1770,13 +1791,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn push_send_is_noop_when_push_service_unconfigured() {
-        // With APNS_* unset, SharedState::from_env() builds push_service == None.
-        // A valid (legacy-token) relay.push from a daemon with a connected
-        // frontend in its group must produce NO frame on either outbox — the
-        // happy-path intercept short-circuits to a clean no-op (no spawn, no
-        // panic, no error reply). This locks the flip-live-merge-safe behaviour:
-        // before creds, relay.push is silently dropped.
+    async fn push_without_apns_delivers_in_band_when_frontend_connected() {
+        // GENUINE GUARD (TS parity): with APNS_* unset, push_service is None,
+        // but the in-band leg must still run. The TS reference always has a
+        // PushService and `sendOrDeliver` returns "ws" for a connected frontend
+        // BEFORE any APNs/dedup work (push.ts step 1), so a live frontend gets
+        // `relay.notification` even on an APNs-less relay — this is the ONLY
+        // push leg exercisable on local/E2E relays, and the old early-return
+        // dropped it (caught live by the TP_E2E_PUSH gate, #41 PR2b). Reverting
+        // the handle_push None-arm fix makes this test fail.
         let state = SharedState::from_env();
         assert!(
             state.push_service.is_none(),
@@ -1788,7 +1811,44 @@ mod tests {
             insert_authed_state(&state, 2, Role::Frontend, "d", Some("fe-1".into()));
 
         // A legacy (no tpps1 prefix) token unseals to itself → reaches the
-        // push_service==None short-circuit (NOT the unseal-failure branch).
+        // push_service==None arm (NOT the unseal-failure branch).
+        let close = handle_inbound(&state, 1, &push_frame("legacy-plain-token")).await;
+        assert_eq!(close, None);
+
+        let msg = frontend_rx
+            .try_recv()
+            .expect("connected frontend must receive the in-band relay.notification");
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["t"], "relay.notification");
+        assert_eq!(json["title"], "hi");
+        assert_eq!(json["body"], "there");
+        assert!(
+            json.get("data").is_none(),
+            "push_frame carries no data — the notification must omit it: {json}"
+        );
+
+        assert!(
+            daemon_rx.try_recv().is_err(),
+            "the ws verdict sends nothing back to the daemon"
+        );
+    }
+
+    #[tokio::test]
+    async fn push_without_apns_is_noop_when_frontend_offline() {
+        // With APNS_* unset AND the target frontend not connected, relay.push is
+        // a clean silent no-op — no spawn, no error reply, no notification (the
+        // daemon's push is fire-and-forget and there is nothing to deliver
+        // with). Only the OFFLINE leg goes quiet; the connected-frontend twin
+        // above proves the in-band leg still fires.
+        let state = SharedState::from_env();
+        assert!(
+            state.push_service.is_none(),
+            "test env must leave push_service unconfigured (no APNS_* set)"
+        );
+
+        // Daemon only — "fe-1" is NOT connected in group "d".
+        let mut daemon_rx = insert_authed_state(&state, 1, Role::Daemon, "d", None);
+
         let close = handle_inbound(&state, 1, &push_frame("legacy-plain-token")).await;
         assert_eq!(close, None);
 
@@ -1797,11 +1857,7 @@ mod tests {
 
         assert!(
             daemon_rx.try_recv().is_err(),
-            "no reply should reach the daemon when push_service is None"
-        );
-        assert!(
-            frontend_rx.try_recv().is_err(),
-            "no notification should reach the frontend when push_service is None"
+            "no reply should reach the daemon when push_service is None and the frontend is offline"
         );
     }
 
@@ -1865,7 +1921,8 @@ mod tests {
         let drops_before = state.metrics.snapshot().rate_limited_drops;
 
         // First push: consumes the single GCRA cell. push_service is None in the
-        // test env, so this is a clean no-op (no reply on the outbox).
+        // test env AND no frontend is connected, so this is a clean no-op (no
+        // reply on the outbox).
         let close = handle_inbound(&state, 1, &push_frame("legacy-plain-token")).await;
         assert_eq!(close, None);
         assert!(

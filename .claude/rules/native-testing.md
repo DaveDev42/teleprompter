@@ -559,10 +559,11 @@ Claude Code 로 **실제 코딩**을 시킬 수 있는지는 증명하지 않는
   relay WS 를 tear down 하면 relay 는 `handlePush` 에서 타깃 frontend 를 더 이상 live 로 못 보고 **APNs arm** 으로
   내려간다 — 격리 relay 엔 `APNS_*`/`.p8` 이 없어(sandbox 미설정) 그 push 는 조용히 drop 되고 `TP_PUSH_NOTIFY_RECEIVED`
   가 안 뜬다. 이건 **하니스/타이밍 아티팩트다** — 앱 teardown 이 relay 의 liveness 샘플링보다 먼저면 정당하게 APNs arm
-  으로 가는 것. (참고: TS 레퍼런스는 `relay-server.ts:1594-1618` 의 **TOCTOU guard** 로 post-sample disconnect
-  케이스까지 재검증(`isFrontendWsLive`)해 APNs re-deliver 했는데 — TS 삭제(PR6) 시점 기준 **Rust `tp-relay` 는 이
-  재검증이 미이식**이다: `send_or_deliver` step 1 이 pre-sample 된 `is_frontend_connected` 로 즉시 `Ws` 를 반환.
-  spawn 직후 in-band 전달이라 창이 TS 보다 훨씬 작지만 0 은 아님 — 후속 parity 태스크, TODO.md 참조.) 따라서 이
+  으로 가는 것. (참고: TS 레퍼런스 `relay-server.ts:1594-1618` 의 **TOCTOU guard**(`isFrontendWsLive` 재검증 →
+  APNs re-deliver)는 이제 **Rust `tp-relay` 에 이식 완료** — `conn.rs` `finish_push_send` 가 stale `Ws` verdict 를
+  `frontend_conn_live` 로 재검증하고 죽었으면 APNs arm 으로 재진입한다(회귀 가드 5종, `.claude/rules/relay-capacity.md`
+  참조). 단 이 E2E 의 격리 relay 는 APNs 미설정이라 fallback arm 이 없어, 이 flake 양상 자체는 가드 이식과 무관하게
+  남는다 — 원인은 정당한 offline 판정이다.) 따라서 이
   E2E 가 간헐 FAIL 하면 **먼저 앱-liveness 타이밍(injection 이 앱 teardown 을 이겼는지)을 의심**하고, holder 의
   8×@3s 재전송이 그 창을 흡수하도록 설계됐음을 상기하라. 결정적 재현이 필요하면 앱이 소켓에 확실히 살아있는
   interactive 세션 위에서 주입하거나 격리 relay 에 실 `APNS_*` 를 붙여 APNs arm 까지 검증한다(후자는 실기기 gate).

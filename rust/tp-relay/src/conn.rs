@@ -998,6 +998,20 @@ async fn handle_push(
     // TP_E2E_PUSH gate, #41 PR2b). Offline target + no APNs stays a clean
     // silent no-op (no spawn, no error reply) — the daemon's push is
     // fire-and-forget and there is nothing to deliver with.
+    //
+    // TOCTOU note: unlike the spawned path (`finish_push_send`), this arm has
+    // NO liveness re-check — with no `PushService` there is no APNs arm to
+    // fall back into, so a frontend that disconnects between the
+    // `resolve_push_locked` sample and `deliver_actions`' own per-action
+    // re-resolve drops the notification silently (the window is sync-only, no
+    // `.await` in between). Accepted divergence: the TS reference always
+    // constructed a PushService, so its TOCTOU fallback would land in
+    // sendOrDeliver's no-apnsClient arm ("error") and reply
+    // PUSH_DELIVERY_ERROR to the daemon here. That reply is deliberately not
+    // reproduced — this arm's design is "unconfigured APNs = no push
+    // machinery at all" (an offline-target push is equally silent, see the
+    // early-return below), and the daemon's push is fire-and-forget either
+    // way.
     let Some(push_service): Option<Arc<PushService>> = state.push_service.clone() else {
         if is_frontend_connected {
             let actions = map_delivery_result(
@@ -1027,29 +1041,82 @@ async fn handle_push(
     };
 
     // Owned reply context for the spawned task (SharedState is Arc-backed Clone).
-    let state2 = state.clone();
-    let fid = frontend_id.to_string();
-    let notif_title = title.to_string();
-    let notif_body = body.to_string();
-    let notif_data = data.cloned();
-    let daemon_conn = conn_id;
-    let target_frontend = frontend_conn;
-
-    tokio::spawn(async move {
-        let result = push_service.send_or_deliver(&req).await;
-        let actions = map_delivery_result(
-            &result,
-            target_frontend,
-            daemon_conn,
-            notif_title,
-            notif_body,
-            notif_data,
-            &fid,
-        );
-        deliver_actions(&state2, actions).await;
-    });
+    tokio::spawn(finish_push_send(
+        state.clone(),
+        push_service,
+        req,
+        frontend_conn,
+        conn_id,
+        title.to_string(),
+        body.to_string(),
+        data.cloned(),
+    ));
 
     None
+}
+
+/// The spawned async tail of `relay.push`: run `send_or_deliver`, apply the
+/// post-await TOCTOU re-check on a `Ws` verdict, then map the result to reply
+/// actions and deliver them. Named (not a closure) so the guard is directly
+/// unit-testable with a hand-built stale/live conn table.
+///
+/// TOCTOU guard (parity: `relay-server.ts` 1594-1618): `req.is_frontend_connected`
+/// was sampled under the `resolve_push_locked` lock BEFORE this task was
+/// spawned. Between that sample and this task actually running (arbitrary
+/// scheduling delay under load), the target frontend's socket can close —
+/// `handle_close` removes it from `core.conns`, but the captured
+/// `target_frontend` stays `Some`. Trusting the stale `Ws` verdict would make
+/// `deliver_actions` `try_send` into a dropped outbox (silent no-op) and the
+/// push would vanish with no APNs fallback — the daemon gets no error, so it
+/// never retries. Re-check liveness now: if the conn died mid-flight, re-enter
+/// `send_or_deliver` with `is_frontend_connected: false` so the notification
+/// takes the APNs arm instead. `send_or_deliver` returns `Ws` BEFORE making any
+/// dedup/rate-limit reservation (push.rs step 1), so the second call
+/// double-counts nothing.
+#[allow(clippy::too_many_arguments)]
+async fn finish_push_send(
+    state: SharedState,
+    push_service: Arc<PushService>,
+    mut req: PushRequest,
+    target_frontend: Option<ConnId>,
+    daemon_conn: ConnId,
+    notif_title: String,
+    notif_body: String,
+    notif_data: Option<WirePushData>,
+) {
+    let fid = req.frontend_id.clone();
+    let mut result = push_service.send_or_deliver(&req).await;
+    if result == DeliveryResult::Ws && !frontend_conn_live(&state, target_frontend, &fid) {
+        req.is_frontend_connected = false;
+        result = push_service.send_or_deliver(&req).await;
+    }
+    let actions = map_delivery_result(
+        &result,
+        target_frontend,
+        daemon_conn,
+        notif_title,
+        notif_body,
+        notif_data,
+        &fid,
+    );
+    deliver_actions(&state, actions).await;
+}
+
+/// Post-await liveness re-check for the `Ws` push verdict — the Rust analogue
+/// of TS `isFrontendWsLive` (`relay-server.ts` 683-686: `readyState === 1 &&
+/// this.clients.has(ws)`). The sampled conn is live iff its handle is still
+/// registered in `core.conns` AND it is still the same authed frontend
+/// (role + `frontendId`). `ConnId`s come from a monotonic `AtomicU64` (never
+/// reused), so the auth re-check guards against the conn re-authing as a
+/// different peer, not id reuse.
+fn frontend_conn_live(state: &SharedState, conn: Option<ConnId>, frontend_id: &str) -> bool {
+    let Some(cid) = conn else { return false };
+    // LOCK: synchronous liveness probe — no `.await` under the guard.
+    let core = state.core.lock().expect("relay core mutex poisoned");
+    core.conns
+        .get(&cid)
+        .and_then(|h| h.auth.as_ref())
+        .is_some_and(|a| a.role == Role::Frontend && a.frontend_id.as_deref() == Some(frontend_id))
 }
 
 /// Convert the wire [`InterruptionLevel`] to the `Option<String>` form
@@ -1963,6 +2030,265 @@ mod tests {
             drops_before + 1,
             "rate_limited_drops must increment on the throttled push"
         );
+    }
+
+    // ── relay.push ws-verdict TOCTOU guard (relay-server.ts:1594-1618 parity) ──
+    //
+    // `is_frontend_connected` is sampled under the resolve_push_locked lock,
+    // but the send task runs later (tokio scheduling). If the frontend
+    // disconnects in between, the stale `Ws` verdict must NOT be trusted:
+    // `finish_push_send` re-checks liveness and re-enters `send_or_deliver`
+    // with `is_frontend_connected: false` so the notification takes the APNs
+    // arm instead of vanishing into a dropped outbox.
+
+    /// APNs transport stub that counts calls and replies with a fixed
+    /// status/body — lets these tests observe whether the APNs arm ran.
+    struct RecordingApnsTransport {
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+        status: u16,
+        body: Vec<u8>,
+    }
+
+    impl crate::apns::TransportDyn for RecordingApnsTransport {
+        fn post_dyn(
+            &self,
+            _req: crate::apns::TransportRequest,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<crate::apns::TransportResponse, String>>
+                    + Send,
+            >,
+        > {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let resp = crate::apns::TransportResponse {
+                status: self.status,
+                retry_after: None,
+                body: self.body.clone(),
+            };
+            Box::pin(async move { Ok(resp) })
+        }
+    }
+
+    /// A `PushService` wired to a [`RecordingApnsTransport`], plus the shared
+    /// call counter. Mirrors push.rs's test client construction.
+    fn recording_push_service(
+        status: u16,
+        body: Vec<u8>,
+    ) -> (Arc<PushService>, Arc<std::sync::atomic::AtomicUsize>) {
+        use p256::pkcs8::EncodePrivateKey;
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let sk = p256::ecdsa::SigningKey::random(&mut rand_core::OsRng);
+        let pem = sk
+            .to_pkcs8_pem(p256::pkcs8::LineEnding::LF)
+            .expect("p256 to_pkcs8_pem")
+            .to_string();
+        let signer = crate::apns_jwt::ApnsSigner::new(
+            crate::apns_jwt::ApnsKey::Pem(pem),
+            "KID123".into(),
+            "TEAM456".into(),
+        );
+        let client = Arc::new(crate::apns::ApnsClient::new(
+            crate::apns::ApnsClientConfig {
+                host: "api.push.apple.com".into(),
+                bundle_id: "dev.tpmt.app".into(),
+                max_retries: 0,
+                retry_base_ms: 1,
+                request_timeout_ms: 10_000,
+            },
+            signer,
+            Box::new(RecordingApnsTransport {
+                calls: Arc::clone(&calls),
+                status,
+                body,
+            }),
+            Box::new(crate::apns::tests::NoopSleeper::new()),
+        ));
+        let svc = Arc::new(PushService::new(crate::push::PushServiceConfig {
+            apns_client: Some(client),
+            ..Default::default()
+        }));
+        (svc, calls)
+    }
+
+    /// A push request whose `is_frontend_connected` was sampled `true` — the
+    /// pre-image of a `Ws` verdict. Token is 64 lowercase hex (valid APNs form).
+    fn sampled_connected_req() -> PushRequest {
+        PushRequest {
+            frontend_id: "fe-1".into(),
+            daemon_id: "d".into(),
+            token: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef".into(),
+            title: "hi".into(),
+            body: "there".into(),
+            is_frontend_connected: true,
+            interruption_level: None,
+            data: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn push_ws_verdict_stale_frontend_falls_back_to_apns() {
+        // GENUINE GUARD: the sampled target (conn 2) is NOT in core.conns — it
+        // disconnected after sampling. Without the re-check the Ws verdict
+        // try_sends into nothing and the push vanishes; with it, the fallback
+        // re-enters send_or_deliver and the APNs arm fires exactly once.
+        let state = SharedState::from_env();
+        let (svc, calls) = recording_push_service(200, vec![]);
+        let mut daemon_rx = insert_authed_state(&state, 1, Role::Daemon, "d", None);
+
+        finish_push_send(
+            state.clone(),
+            svc,
+            sampled_connected_req(),
+            Some(2),
+            1,
+            "hi".into(),
+            "there".into(),
+            None,
+        )
+        .await;
+
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "stale Ws verdict must re-deliver via APNs"
+        );
+        assert!(
+            daemon_rx.try_recv().is_err(),
+            "a successful APNs fallback replies nothing to the daemon"
+        );
+    }
+
+    #[tokio::test]
+    async fn push_ws_verdict_live_frontend_stays_in_band() {
+        // Control: the target is still live → in-band relay.notification, APNs
+        // untouched (the guard must not double-deliver or misroute).
+        let state = SharedState::from_env();
+        let (svc, calls) = recording_push_service(200, vec![]);
+        let mut daemon_rx = insert_authed_state(&state, 1, Role::Daemon, "d", None);
+        let mut fe_rx = insert_authed_state(&state, 2, Role::Frontend, "d", Some("fe-1".into()));
+
+        finish_push_send(
+            state.clone(),
+            svc,
+            sampled_connected_req(),
+            Some(2),
+            1,
+            "hi".into(),
+            "there".into(),
+            None,
+        )
+        .await;
+
+        let msg = fe_rx
+            .try_recv()
+            .expect("live frontend must receive the in-band relay.notification");
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["t"], "relay.notification");
+        assert_eq!(json["title"], "hi");
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "in-band delivery must not touch APNs"
+        );
+        assert!(daemon_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn push_ws_verdict_reauthed_conn_falls_back_and_never_misdelivers() {
+        // The conn id is live but no longer the sampled frontend (re-authed as
+        // fe-OTHER): liveness re-check must treat it as stale — fall back to
+        // APNs and, critically, never deliver fe-1's notification to fe-OTHER.
+        let state = SharedState::from_env();
+        let (svc, calls) = recording_push_service(200, vec![]);
+        let mut daemon_rx = insert_authed_state(&state, 1, Role::Daemon, "d", None);
+        let mut other_rx =
+            insert_authed_state(&state, 2, Role::Frontend, "d", Some("fe-OTHER".into()));
+
+        finish_push_send(
+            state.clone(),
+            svc,
+            sampled_connected_req(),
+            Some(2),
+            1,
+            "hi".into(),
+            "there".into(),
+            None,
+        )
+        .await;
+
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "mismatched frontend identity must fall back to APNs"
+        );
+        assert!(
+            other_rx.try_recv().is_err(),
+            "fe-1's notification must never reach a conn now authed as fe-OTHER"
+        );
+        assert!(daemon_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn push_ws_verdict_fallback_dead_token_reaches_daemon() {
+        // The fallback's DeliveryResult maps through the normal reply
+        // machinery: a dead-token verdict reaches the daemon as
+        // PUSH_TOKEN_DEAD with the structured frontendId (so the daemon can
+        // evict — silence was the bug this guard exists to fix).
+        let state = SharedState::from_env();
+        let (svc, calls) = recording_push_service(
+            400,
+            serde_json::to_vec(&serde_json::json!({ "reason": "BadDeviceToken" })).unwrap(),
+        );
+        let mut daemon_rx = insert_authed_state(&state, 1, Role::Daemon, "d", None);
+
+        finish_push_send(
+            state.clone(),
+            svc,
+            sampled_connected_req(),
+            Some(2),
+            1,
+            "hi".into(),
+            "there".into(),
+            None,
+        )
+        .await;
+
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let msg = daemon_rx
+            .try_recv()
+            .expect("dead-token fallback must reply to the daemon");
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["t"], "relay.err");
+        assert_eq!(json["e"], "PUSH_TOKEN_DEAD");
+        assert_eq!(json["frontendId"], "fe-1");
+    }
+
+    #[tokio::test]
+    async fn push_with_apns_configured_live_frontend_in_band_via_spawn() {
+        // Wiring regression: through the REAL handle_inbound → tokio::spawn →
+        // finish_push_send path (not a direct call), a live frontend still
+        // gets the in-band notification and APNs stays untouched.
+        let mut state = SharedState::from_env();
+        let (svc, calls) = recording_push_service(200, vec![]);
+        state.push_service = Some(svc);
+        let mut daemon_rx = insert_authed_state(&state, 1, Role::Daemon, "d", None);
+        let mut fe_rx = insert_authed_state(&state, 2, Role::Frontend, "d", Some("fe-1".into()));
+
+        let close = handle_inbound(&state, 1, &push_frame("legacy-plain-token")).await;
+        assert_eq!(close, None);
+
+        let msg = tokio::time::timeout(std::time::Duration::from_secs(5), fe_rx.recv())
+            .await
+            .expect("spawned push task must deliver within 5s")
+            .expect("frontend outbox must stay open");
+        let json = serde_json::to_value(&msg).unwrap();
+        assert_eq!(json["t"], "relay.notification");
+        assert_eq!(
+            calls.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "live in-band delivery must not touch APNs"
+        );
+        assert!(daemon_rx.try_recv().is_err());
     }
 
     // ── map_delivery_result reply-mapping parity (relay-server.ts:1425-1482) ──

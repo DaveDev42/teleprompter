@@ -2986,8 +2986,11 @@ sys.exit(0 if r.get("passed") else 1)
 # Three-way result per platform:
 #   PASS — UI assertions ran and passed through the real a11y tree.
 #   SKIP — expected, not a failure: watchOS (always, no XCUIApplication) or macOS
-#          when the TCC host-gate blocks the automation session (non-interactive /
-#          unauthorised run). TP_UITEST_STRICT=1 turns the macOS SKIP into FAIL.
+#          when a host gate fires — the TCC gate (automation session blocked in a
+#          non-interactive / unauthorised run) or the windowless-launch gate
+#          (Xcode 27 beta / macOS 27 beta regression: the app boots but its main
+#          window never materializes). TP_UITEST_STRICT=1 turns the macOS SKIPs
+#          into FAIL.
 #   FAIL — a genuine assertion/build failure. Any FAIL makes the whole sweep exit
 #          non-zero.
 #
@@ -3096,6 +3099,11 @@ cmd_uitest() {
     macos)
       dest="platform=macOS"
       extra_flags+=(CODE_SIGN_ENTITLEMENTS="")
+      # Live unified-log capture (same helper the macOS smoke uses). macOS
+      # `log show` retro-drops app Default-level lines, so the windowless-launch
+      # gate below can only see TP_BOOT_OK / the smoke-url injection line if a
+      # stream is already running BEFORE xcodebuild launches the app.
+      start_macos_log_stream
       ;;
     visionos)
       local vision_udid; vision_udid="$(vision_sim_udid)" \
@@ -3187,6 +3195,64 @@ cmd_uitest() {
     log "    instead of skip) for full macOS UI E2E."
     TP_UITEST_RESULT="SKIP"
     return 0
+  fi
+
+  # macOS-only host GATE #2 — windowless XCUITest launch (Xcode 27 beta / macOS
+  # 27 beta regression, diagnosed 2026-07-24): the XCUITest-launched app comes up
+  # ACTIVE (menu bar owned, App.init ran → TP_BOOT_OK in the unified log) but its
+  # main WindowGroup window NEVER materializes — the a11y tree contains zero
+  # Window elements, so the root content's `.onAppear` (which injects
+  # --tp-smoke-url) never fires and the session row can never exist. Not a code
+  # failure: the marker smoke (open-launched, same build) passes 8/8 incl. the
+  # single-window guard, and the identical XCUITest code passes on
+  # iOS/iPad/visionOS. Discriminate PRECISELY so a genuine render gap stays FAIL:
+  #   - the row-wait assertion fired ("never rendered" in the xcodebuild log),
+  #   - the app DID boot (TP_BOOT_OK in the live stream — a launch crash or a
+  #     build break must stay FAIL),
+  #   - but NO launch ever ran onAppear (zero "smoke url injection" lines).
+  # SCOPE (fail-closed by design): the stream file is one shared sink across
+  # BOTH test methods' app launches in the single `xcodebuild test` run, so the
+  # no-injection condition means NO launch injected — i.e. the gate only SKIPs a
+  # PURE windowless run (the observed deterministic mode). A rendered launch
+  # (which always logs the injection line) anywhere in the run keeps the run
+  # FAIL: that covers genuine rendered-but-row-missing failures, and it also
+  # means a MIXED run (one launch windowless, the other rendered) stays FAIL
+  # rather than SKIP — deliberate, because per-launch attribution is impossible
+  # in a shared stream and a count-based heuristic could false-SKIP a real
+  # render bug that coincides with a windowless launch. Mixed runs get a triage
+  # hint below instead. Same TP_UITEST_STRICT=1 escape hatch as the TCC gate.
+  if [ "$TP_PLATFORM" = "macos" ] \
+     && grep -q "never rendered" "$uit_log" 2>/dev/null \
+     && grep -q "TP_BOOT_OK" "${MACOS_LOG_FILE:-/dev/null}" 2>/dev/null \
+     && ! grep -q "smoke url injection" "${MACOS_LOG_FILE:-/dev/null}" 2>/dev/null; then
+    if [ "${TP_UITEST_STRICT:-}" = "1" ]; then
+      die "UITEST FAIL (macOS, TP_UITEST_STRICT=1) — windowless XCUITest launch: the app booted (TP_BOOT_OK) but its main window never materialized (no onAppear / --tp-smoke-url injection). Known Xcode 27 beta / macOS 27 beta regression; unset TP_UITEST_STRICT for a non-fatal SKIP."
+    fi
+    log "TP_UITEST_SKIP platform=macos reason=windowless-launch"
+    log "⏭️  UITEST SKIP (macOS windowless-launch gate) — the XCUITest-launched app"
+    log "    booted (TP_BOOT_OK) but never materialized its main window, so the"
+    log "    session row can't render (Xcode 27 beta / macOS 27 beta regression:"
+    log "    the a11y tree has no Window and .onAppear never runs). The macOS"
+    log "    marker smoke (open-launched) passes on the same build, and the same"
+    log "    UI assertions pass on iOS/iPad/visionOS. Re-test on the next"
+    log "    Xcode/macOS beta; set TP_UITEST_STRICT=1 to fail instead of skip."
+    TP_UITEST_RESULT="SKIP"
+    return 0
+  fi
+
+  # Triage hint (NOT a gate): a mixed run — more boots than injections while a
+  # row-wait failed — fails the windowless gate's no-injection condition by
+  # design (see SCOPE above). Surface the ambiguity so the operator knows the
+  # beta windowless regression may still be in play on the launch that failed.
+  if [ "$TP_PLATFORM" = "macos" ] \
+     && grep -q "never rendered" "$uit_log" 2>/dev/null \
+     && grep -q "smoke url injection" "${MACOS_LOG_FILE:-/dev/null}" 2>/dev/null; then
+    local boots injections
+    boots="$(grep -c "TP_BOOT_OK" "${MACOS_LOG_FILE:-/dev/null}" 2>/dev/null || true)"
+    injections="$(grep -c "smoke url injection" "${MACOS_LOG_FILE:-/dev/null}" 2>/dev/null || true)"
+    if [ "${boots:-0}" -gt "${injections:-0}" ]; then
+      log "note: mixed macOS launches (TP_BOOT_OK=${boots}, smoke-url injections=${injections}) — at least one launch never ran onAppear (possible windowless-launch beta regression on that launch). Leaving FAIL (fail-closed: the windowless gate only SKIPs when NO launch injected)."
+    fi
   fi
 
   # FAIL path: TP_UITEST_RESULT is already "FAIL" (pessimistic default set at

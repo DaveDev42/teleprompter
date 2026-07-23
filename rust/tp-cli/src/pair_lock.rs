@@ -2,9 +2,9 @@
 //!
 //! Two concurrent `tp pair new` invocations would each begin a `PendingPairing`
 //! and float two pairing identities at the relay simultaneously, corrupting
-//! identity state (see `.claude/rules/backend-services.md` — "`tp pair new`
-//! concurrency"). This lock makes the second invocation fail fast with a clear
-//! "already running" message.
+//! identity state — so no pair-related code path may ever skip this lock. It
+//! makes the second invocation fail fast with a clear "already running"
+//! message.
 //!
 //! ## Mechanism — flock(2) advisory lock (std `File::try_lock`)
 //!

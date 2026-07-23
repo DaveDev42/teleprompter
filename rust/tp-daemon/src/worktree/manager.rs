@@ -532,9 +532,10 @@ mod tests {
 
     /// Init a fresh git repo at `dir` with a `GIT_*`-stripped child env
     /// (mirrors the daemon's own gitEnv, avoiding the pre-push-hook
-    /// GIT_DIR-inheritance trap documented in
-    /// `.claude/rules/testing-inventory.md`), an initial commit on `main`,
-    /// and a fixed test identity.
+    /// GIT_DIR-inheritance trap: an exported `GIT_DIR` overrides both the
+    /// spawn `cwd` and `git -C`, so tests running inside a push hook would
+    /// mutate the caller's worktree instead of the tempdir repo — PR #796),
+    /// an initial commit on `main`, and a fixed test identity.
     ///
     /// `-c commit.gpgsign=false` is required on top of the `GIT_*` strip: a
     /// developer's global `~/.gitconfig` can set `commit.gpgsign=true`, and

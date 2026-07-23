@@ -14,17 +14,21 @@
 //! it drives [`runner::run`] in-process. This binary is just the runtime bootstrap
 //! around those helpers.
 //!
-//! # Dual-run, no cutover
+//! # Default runner
 //!
-//! This binary is now the **default** runner: the Rust `tp-daemon` spawns it
-//! per-session via `tp_proto::locate_tp_runner()` (task #4 flip). The Bun
-//! daemon's opt-in `TP_RUNNER_BIN` seam (`resolveRunnerCommandWithOverride`)
-//! also still selects it while the Bun reference impl lives. The Bun↔Rust
-//! differential wire-parity gate that proved hello/io/bye byte-identical (with
-//! the io-record binary sidecar as the load-bearing check) was removed in PR4
-//! (#5 cascade); byte-exactness is now held by `cargo test` + the tp-core
-//! golden vectors, with the local `TP_E2E_RUNNER_BIN=1` real-claude gate as the
-//! E2E backstop.
+//! This binary is the **default** runner: the Rust `tp-daemon` spawns it
+//! per-session via `tp_proto::locate_tp_runner()` (task #4 flip,
+//! `rust/tp-daemon/src/session/manager.rs` `default_runner_command`). The
+//! retired Bun daemon and Bun runner were deleted in the #5 zero-Bun cascade
+//! PR6 (#933) — this is now the sole implementation. A `TP_RUNNER_BIN` env
+//! seam still exists, but only in `rust/tp-e2e-holder/src/spawn.rs`, which
+//! pins an exact binary path for its own standalone runner spawns (E2E
+//! parity gates) and deliberately never calls `locate_tp_runner()`. The
+//! Bun↔Rust differential wire-parity gate that once proved hello/io/bye
+//! byte-identical (with the io-record binary sidecar as the load-bearing
+//! check) was removed in PR4 (#5 cascade); byte-exactness is now held by
+//! `cargo test` + the tp-core golden vectors, with the local
+//! `TP_E2E_RUNNER_BIN=1` real-claude gate as the E2E backstop.
 
 use std::process::ExitCode;
 

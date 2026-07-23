@@ -1,9 +1,11 @@
 //! Cross-implementation parity gate for `RelayServerMessage` (relay → client).
 //!
 //! The fixture `rust/tp-proto/tests/fixtures/message-vectors.json` is shared
-//! with `tp-proto`. The generator (`scripts/gen-message-vectors.ts`) appends a
-//! `"relayServer"` section whose cases are sourced from the live
-//! `parseRelayServerMessage` TS guard. This test:
+//! with `tp-proto`. The generator (`scripts/gen-message-vectors.ts`) appended a
+//! `"relayServer"` section whose cases were sourced from the live
+//! `parseRelayServerMessage` TS guard, before that generator was deleted in the
+//! "#5 zero-Bun cascade" PR6 (#933); the Bun/Node toolchain itself was removed
+//! in PR7 (#935). This test:
 //!
 //!   - For every **accept** case: parses the `raw` field with
 //!     `parse_relay_server_message`, serializes the result back to `serde_json::Value`,
@@ -12,9 +14,10 @@
 //!   - For every **reject** case: asserts `parse_relay_server_message` returns
 //!     `None` (mirrors the guard's `return null`).
 //!
-//! Regenerate the fixture (`bun scripts/gen-message-vectors.ts`) whenever a
-//! guard's acceptance changes; this test then fails loudly if the Rust port
-//! diverges.
+//! The checked-in vectors are now the frozen byte-exact source of truth — this
+//! test fails loudly if the Rust port diverges from them. To regenerate (only
+//! if a guard's acceptance changes), check out the pre-deletion commit from git
+//! history (last verified regeneration: PR5 #929) and rerun the script there.
 
 use serde_json::Value;
 use tp_relay::parse_relay_server_message;

@@ -1,8 +1,9 @@
 //! `tp session list`, `tp session delete`, `tp session prune`, and
 //! `tp session cleanup` — session management commands.
 //!
-//! Byte-exact ports of `apps/cli/src/commands/session.ts` and
-//! `apps/cli/src/commands/session-cleanup.tsx`:
+//! Byte-exact ports of the retired Bun CLI's `apps/cli/src/commands/
+//! session.ts` and `apps/cli/src/commands/session-cleanup.tsx` (both deleted
+//! in #5 PR6 #933 — visible in git history):
 //!   - `sessionList`    (session.ts:111-154): reads Store directly.
 //!   - `sessionDelete`  (session.ts:156-271): 2-tier prefix match, TTY/non-TTY
 //!     confirmation gate, IPC request via daemon. No SQLite-write fallback
@@ -12,15 +13,16 @@
 //!   - `sessionCleanup` (session-cleanup.tsx:209-336): interactive multi-select
 //!     TUI (crossterm raw mode) for bulk-deleting stopped sessions.
 //!
-//! # Daemon-up divergence from Bun (`session cleanup`)
+//! # Daemon-up divergence from the retired Bun CLI (`session cleanup`)
 //!
-//! The Bun reference (`session-cleanup.tsx:294-312`) has a daemon-less fallback:
-//! when the daemon is NOT running, it opens `SQLite` directly and calls
+//! The retired Bun reference (`session-cleanup.tsx:294-312`, deleted in #5 PR6
+//! #933 — visible in git history) had a daemon-less fallback: when the daemon
+//! was NOT running, it opened `SQLite` directly and called
 //! `store.deleteSession(sid)` per selected sid. This CLI port (ADR-0003 A2.4 #2)
 //! does NOT replicate that fallback — all session writes must go through the
 //! running daemon over IPC. If the daemon is down, `cleanup` errors out with the
 //! standard guidance. This divergence is intentional and documented here because
-//! it is the ONLY observable behavioral difference between the Bun and Rust
+//! it was the ONLY observable behavioral difference between the Bun and Rust
 //! implementations of this command.
 
 use std::cmp::Reverse;
@@ -733,8 +735,9 @@ fn pad_end_chars(s: &str, width: usize) -> String {
 ///
 /// # Non-interactive paths (byte-parity with Bun)
 ///
-/// The following output lines are byte-identical to the Bun reference (ANSI
-/// escapes included when `NO_COLOR` is not set):
+/// The following output lines are byte-identical to the retired Bun CLI's
+/// reference (ANSI escapes included when `NO_COLOR` is not set; the Bun
+/// implementation was deleted in #5 PR6 #933 — visible in git history):
 ///
 ///  - Non-TTY guard error → stderr + exit 1 (tsx:214-221)
 ///  - Empty session list → stdout "No stopped sessions to clean up." + exit 0 (tsx:241-244)
@@ -746,9 +749,9 @@ fn pad_end_chars(s: &str, width: usize) -> String {
 ///
 /// # Daemon-up divergence
 ///
-/// The Bun reference falls back to direct `SQLite` writes when the daemon is not
-/// running (tsx:300-312). This port requires the daemon to be up (A2.4 #2).
-/// See the module-level doc for the full rationale.
+/// The retired Bun reference fell back to direct `SQLite` writes when the
+/// daemon was not running (tsx:300-312). This port requires the daemon to be
+/// up (A2.4 #2). See the module-level doc for the full rationale.
 pub fn cleanup(yes: bool, preselect_all: bool) -> ExitCode {
     // Non-TTY guard (tsx:214-221): both stdin AND stdout must be TTYs.
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
@@ -1006,7 +1009,8 @@ pub fn cleanup(yes: bool, preselect_all: bool) -> ExitCode {
 /// Interactive y/N prompt. Returns `true` iff the user entered "y" or "yes"
 /// (case-insensitive). Default = No, matching `promptYesNo { defaultValue: false }`.
 ///
-/// Output mirrors the Bun Ink `YesNoPrompt` component (yes-no-prompt.tsx:105):
+/// Output mirrors the retired Bun CLI's Ink `YesNoPrompt` component
+/// (yes-no-prompt.tsx:105, deleted in #5 PR6 #933 — visible in git history):
 ///   `<question> [y/N] `   then reads one line.  No leading `? ` prefix.
 fn prompt_yes_no(question: &str) -> bool {
     print!("{question} [y/N] ");

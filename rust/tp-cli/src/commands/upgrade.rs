@@ -1345,9 +1345,10 @@ pub(crate) fn current_version() -> &'static str {
 
 /// `tp upgrade` entry point.
 ///
-/// Port of `upgradeCommand` (upgrade.ts:57-110). ALWAYS returns
-/// `ExitCode::SUCCESS` — errors are printed, not propagated (mirrors the Bun
-/// `upgradeCommand` which returns `void` and never throws to the process).
+/// Port of the retired `upgradeCommand` (upgrade.ts:57-110, deleted in #5 PR6
+/// #933 — visible in git history). ALWAYS returns `ExitCode::SUCCESS` — errors
+/// are printed, not propagated (mirrors the Bun `upgradeCommand`, which
+/// returned `void` and never threw to the process).
 pub fn run() -> ExitCode {
     println!("Teleprompter Upgrade\n");
 

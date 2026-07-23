@@ -725,20 +725,40 @@ impl RelayClient {
     async fn handle_relay_err(self: &Arc<Self>, e: &tp_relay::RelayErr) {
         match e.e.as_str() {
             "PUSH_UNSEAL_FAILED" => {
-                // The relay.err frame does not carry frontendId in this
-                // struct today (see tp-relay/src/messages.rs RelayErr — only
-                // `e`/`m`); when it does not, fall back to the self-heal-on-
-                // reconnect behavior, matching the TS "legacy relay" branch.
-                eprintln!(
-                    "[RelayClient] relay reported PUSH_UNSEAL_FAILED — no eviction (no frontendId on this frame); app re-registers on next relay reconnect. relay: {}",
-                    e.m.as_deref().unwrap_or("(no detail)")
-                );
+                // Modern relays carry the target frontendId as a structured
+                // additive-optional field; old relays omit it, in which case
+                // fall back to the self-heal-on-reconnect behavior, matching
+                // the TS "legacy relay" branch.
+                if let Some(fid) = e.frontend_id.as_deref() {
+                    eprintln!(
+                        "[RelayClient] relay reported PUSH_UNSEAL_FAILED for frontendId {fid} — evicting stored push token. relay: {}",
+                        e.m.as_deref().unwrap_or("(no detail)")
+                    );
+                    if let Some(cb) = &self.events.on_push_unseal_failed {
+                        cb(fid);
+                    }
+                } else {
+                    eprintln!(
+                        "[RelayClient] relay reported PUSH_UNSEAL_FAILED — no eviction (no frontendId on this frame); app re-registers on next relay reconnect. relay: {}",
+                        e.m.as_deref().unwrap_or("(no detail)")
+                    );
+                }
             }
             "PUSH_TOKEN_DEAD" => {
-                eprintln!(
-                    "[RelayClient] relay reported PUSH_TOKEN_DEAD — no eviction (no frontendId on this frame); app re-registers on next relay reconnect. relay: {}",
-                    e.m.as_deref().unwrap_or("(no detail)")
-                );
+                if let Some(fid) = e.frontend_id.as_deref() {
+                    eprintln!(
+                        "[RelayClient] relay reported PUSH_TOKEN_DEAD for frontendId {fid} — evicting stored push token. relay: {}",
+                        e.m.as_deref().unwrap_or("(no detail)")
+                    );
+                    if let Some(cb) = &self.events.on_push_token_dead {
+                        cb(fid);
+                    }
+                } else {
+                    eprintln!(
+                        "[RelayClient] relay reported PUSH_TOKEN_DEAD — no eviction (no frontendId on this frame); app re-registers on next relay reconnect. relay: {}",
+                        e.m.as_deref().unwrap_or("(no detail)")
+                    );
+                }
             }
             "RATE_LIMITED" => {
                 eprintln!(
@@ -1642,6 +1662,91 @@ mod tests {
         assert!(
             result.is_err(),
             "expected a TLS handshake error against a non-TLS peer, not success"
+        );
+    }
+
+    // ── relay.err push-token eviction ────────────────────────────────────
+
+    fn eviction_test_client(events: RelayClientEvents) -> Arc<RelayClient> {
+        RelayClient::new(
+            RelayClientConfig {
+                relay_url: "ws://127.0.0.1:1".to_string(),
+                daemon_id: "daemon-test".to_string(),
+                token: "tok".to_string(),
+                registration_proof: "proof".to_string(),
+                key_pair: tp_core::crypto::kx_seed_keypair(&[7u8; 32]).unwrap(),
+                pairing_secret: vec![0u8; 32],
+                label: None,
+                pairing_id: String::new(),
+                hostname: String::new(),
+            },
+            events,
+        )
+    }
+
+    #[tokio::test]
+    async fn relay_err_with_frontend_id_evicts_dead_and_unsealable_tokens() {
+        for (code, pick_log) in [("PUSH_TOKEN_DEAD", false), ("PUSH_UNSEAL_FAILED", true)] {
+            let evicted = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+            let sink = Arc::clone(&evicted);
+            let cb: Arc<dyn Fn(&str) + Send + Sync> =
+                Arc::new(move |fid| sink.lock().unwrap().push(fid.to_string()));
+            let events = if pick_log {
+                RelayClientEvents {
+                    on_push_unseal_failed: Some(cb),
+                    ..RelayClientEvents::default()
+                }
+            } else {
+                RelayClientEvents {
+                    on_push_token_dead: Some(cb),
+                    ..RelayClientEvents::default()
+                }
+            };
+            let client = eviction_test_client(events);
+            client
+                .handle_relay_err(&tp_relay::RelayErr {
+                    e: code.to_string(),
+                    m: Some(format!("token gone for frontendId fe-1 ({code})")),
+                    frontend_id: Some("fe-1".to_string()),
+                })
+                .await;
+            assert_eq!(
+                *evicted.lock().unwrap(),
+                vec!["fe-1".to_string()],
+                "{code} with a structured frontendId must evict exactly that frontend's token"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn relay_err_without_frontend_id_does_not_evict() {
+        // Old relays omit the additive frontendId field — the daemon must
+        // fall back to self-heal-on-reconnect, never guess an eviction
+        // target (e.g. by parsing the human-readable `m` string).
+        let evicted = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let dead_sink = Arc::clone(&evicted);
+        let unseal_sink = Arc::clone(&evicted);
+        let client = eviction_test_client(RelayClientEvents {
+            on_push_token_dead: Some(Arc::new(move |fid| {
+                dead_sink.lock().unwrap().push(fid.to_string());
+            })),
+            on_push_unseal_failed: Some(Arc::new(move |fid| {
+                unseal_sink.lock().unwrap().push(fid.to_string());
+            })),
+            ..RelayClientEvents::default()
+        });
+        for code in ["PUSH_TOKEN_DEAD", "PUSH_UNSEAL_FAILED"] {
+            client
+                .handle_relay_err(&tp_relay::RelayErr {
+                    e: code.to_string(),
+                    m: Some("token gone for frontendId fe-1".to_string()),
+                    frontend_id: None,
+                })
+                .await;
+        }
+        assert!(
+            evicted.lock().unwrap().is_empty(),
+            "legacy relay.err without frontendId must not trigger any eviction"
         );
     }
 }

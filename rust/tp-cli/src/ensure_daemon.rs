@@ -36,18 +36,19 @@
 //!
 //! # Out of scope: `showFirstRunPairing` (deliberately NOT ported here)
 //!
-//! The Bun CLI has a *second*, distinct first-run flow — `showFirstRunPairing`
-//! (`apps/cli/src/commands/passthrough.ts:332-370`) — that fires once ever
+//! The retired Bun CLI had a *second*, distinct first-run flow —
+//! `showFirstRunPairing` (`apps/cli/src/commands/passthrough.ts:332-370`,
+//! deleted in #5 PR6 #933 — visible in git history) — that fired once ever
 //! (gated on `store.listPairings().length === 0`, stamped by `.tp-initialized`)
-//! and runs a welcome banner + full `tp pair` QR pairing + service install. It
-//! is called from the Bun `passthroughCommand` entry (passthrough.ts:59), NOT
-//! from `ensureDaemon`. Porting it into `ensure_daemon()` would be a behavior
-//! change: `ensure_daemon()` runs on *every* daemon auto-spawn, so the welcome +
-//! pairing flow would fire far more often than "first ever passthrough". It also
-//! depends on a native interactive `tp pair` flow. This onboarding therefore
-//! belongs with the native passthrough's own first-run handling (a separate,
-//! larger port), not with the `showInstallHint` port here — recorded so the gap
-//! isn't mistaken for an omission.
+//! and ran a welcome banner + full `tp pair` QR pairing + service install. It
+//! was called from the Bun `passthroughCommand` entry (passthrough.ts:59), NOT
+//! from `ensureDaemon`. Porting it into `ensure_daemon()` would have been a
+//! behavior change: `ensure_daemon()` runs on *every* daemon auto-spawn, so the
+//! welcome + pairing flow would fire far more often than "first ever
+//! passthrough". It also depends on a native interactive `tp pair` flow. This
+//! onboarding therefore belongs with the native passthrough's own first-run
+//! handling (a separate, larger port), not with the `showInstallHint` port
+//! here — recorded so the gap isn't mistaken for an omission.
 
 // `ensure_daemon()` is wired into the native passthrough handler by task #17
 // PR-4 (`commands::passthrough::run`), which calls it to guarantee a service
@@ -323,9 +324,9 @@ fn read_yes_no_line() -> bool {
 fn mark_hinted() {
     let dir = config_dir();
     let _ = std::fs::create_dir_all(&dir);
-    // The Bun code writes `new Date().toISOString()`; the content is never read
-    // (only existence is checked), so a fixed marker byte is behaviorally
-    // identical and avoids the forbidden `Date::now()` surface.
+    // The retired Bun code wrote `new Date().toISOString()`; the content was
+    // never read (only existence is checked), so a fixed marker byte is
+    // behaviorally identical and avoids the forbidden `Date::now()` surface.
     let _ = std::fs::write(hint_file(), "shown\n");
 }
 

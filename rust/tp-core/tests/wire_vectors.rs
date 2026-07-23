@@ -1,9 +1,14 @@
 //! Cross-implementation equivalence: the Rust core must produce byte-identical
 //! output to the reference TypeScript implementation (libsodium-wrappers).
 //!
-//! The fixture `tests/fixtures/wire-vectors.json` is generated from the LIVE TS
-//! path (see scripts/gen-wire-vectors.ts). Regenerate it whenever the wire
-//! format or KDF changes, and these tests will fail loudly if Rust diverges.
+//! The fixture `tests/fixtures/wire-vectors.json` was generated from the live TS
+//! path (`scripts/gen-wire-vectors.ts`) before that generator was deleted in the
+//! "#5 zero-Bun cascade" PR6 (#933); the Bun/Node toolchain itself was removed in
+//! PR7 (#935). The checked-in vectors are now the frozen byte-exact source of
+//! truth — these tests fail loudly if Rust diverges from them. To regenerate
+//! (only if the wire format or KDF changes), check out the pre-deletion commit
+//! from git history (last verified regeneration: PR5 #929) and rerun the script
+//! there.
 
 use serde_json::Value;
 use tp_core::{codec, crypto, error, pairing};

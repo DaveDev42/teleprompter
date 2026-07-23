@@ -67,13 +67,16 @@ pub fn is_clipboard_support_likely() -> bool {
     true
 }
 
-/// Outcome of a clipboard copy attempt. Mirrors `ClipboardResult` (osc52.ts:61-64).
+/// Outcome of a clipboard copy attempt. Mirrors the retired Bun CLI's
+/// `ClipboardResult` (osc52.ts:61-64, deleted in #5 PR6 #933 — visible in git
+/// history).
 pub struct ClipboardResult {
     pub ok: bool,
     /// Why the copy was impossible (when `ok == false`). Mirrors the Bun field
     /// for API parity and diagnostics. The `pair new` caller only branches on
-    /// `ok` (like the Bun keypress handler, pair.ts:301-307), so this is not
-    /// read on the happy path — kept as part of the public contract.
+    /// `ok` (like the retired Bun CLI's keypress handler, pair.ts:301-307,
+    /// also deleted in #5 PR6), so this is not read on the happy path — kept
+    /// as part of the public contract.
     #[allow(dead_code)]
     pub reason: Option<String>,
 }

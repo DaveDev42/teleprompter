@@ -5,11 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Native Rust runner (ADR-0003 Stage 4). Spawns Claude Code in a PTY, collects io/hooks, forwards Records to the daemon over IPC. Dual-run seam (TP_RUNNER_BIN) — no cutover; the Bun runner stays the default until byte-exactness is proven."
+description = "Native Rust runner — the default per-session runner. Spawns Claude Code in a PTY, streams io records + hook events to the daemon over IPC."
 
-# The per-session runner binary. The daemon SessionManager spawns one per
-# session. Dual-run: which binary (Bun `tpd run` vs this) is chosen per-session
-# via TP_RUNNER_BIN, so this ships alongside the Bun runner with no cutover.
+# The per-session runner binary. The daemon's SessionManager spawns one per
+# session via tp_proto::locate_tp_runner() (task #4 flip). The retired Bun
+# runner (`tpd run`) was deleted in the #5 zero-Bun cascade PR6 (#933).
 [[bin]]
 name = "tp-runner"
 path = "src/main.rs"

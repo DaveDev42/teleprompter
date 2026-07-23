@@ -1,18 +1,15 @@
-//! `tp-daemon` — the shipping Rust daemon binary. Behavior-faithful port of
-//! the Bun daemon entrypoint `packages/daemon/src/index.ts` (ADR-0003 Phase 4,
-//! increment 5).
+//! `tp-daemon` — the shipping Rust daemon binary and the default daemon. The
+//! `tp` CLI spawns this binary via `locate_tp_daemon()` (both the background
+//! auto-spawn path and the foreground/OS-service trampoline) — the flip to
+//! Rust-as-default completed in task #4 / PR #922. The retired Bun daemon
+//! implementation was deleted in the #5 zero-Bun cascade PR6 (#933); this is
+//! now the sole implementation.
 //!
-//! Sequence (index.ts:12-75): singleton pid-file lock → argv parse (`--spawn`
-//! `--sid` `--cwd` `--worktree-path`, unknown args ignored like
-//! `parseArgs({strict:false})`) → `Daemon::new` + `start()` →
+//! Sequence: singleton pid-file lock → argv parse (`--spawn` `--sid` `--cwd`
+//! `--worktree-path`, unknown args ignored) → `Daemon::new` + `start()` →
 //! `start_auto_cleanup()` → fire-and-forget `reconnect_saved_relays()` →
 //! optional `--spawn` session → wait for SIGINT/SIGTERM → release lock +
 //! `stop()` + exit 0.
-//!
-//! NOTE (honest scope): this bin exists so the whole Rust daemon assembly is
-//! runnable end-to-end, but the **dogfood default daemon remains the Bun
-//! implementation** — nothing in the CLI is flipped to spawn this binary
-//! (that is a later increment, gated on parity evidence).
 
 use tp_daemon::daemon::Daemon;
 use tp_daemon::daemon_lock::{acquire_daemon_lock, release_daemon_lock};

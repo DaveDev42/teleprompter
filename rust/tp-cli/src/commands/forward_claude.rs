@@ -72,8 +72,9 @@ pub fn run(args_after_tp: &[String]) -> ExitCode {
     exec_claude(claude_args)
 }
 
-/// Whether `claude --version` runs successfully (PATH probe). Mirrors the Bun
-/// `Bun.spawnSync(["claude","--version"])` preflight (forward-claude.ts:18-26).
+/// Whether `claude --version` runs successfully (PATH probe). Mirrors the
+/// retired Bun CLI's `Bun.spawnSync(["claude","--version"])` preflight
+/// (forward-claude.ts:18-26, deleted in #5 PR6 #933 — visible in git history).
 fn claude_available() -> bool {
     std::process::Command::new("claude")
         .arg("--version")
@@ -112,8 +113,8 @@ mod tests {
     use super::*;
 
     /// The leading-`--` strip: `tp -- -p x` forwards only `["-p", "x"]` to
-    /// claude, mirroring the Bun `slice(3)`. A util subcommand slice (no leading
-    /// `--`) forwards verbatim, mirroring `slice(2)`.
+    /// claude, mirroring the retired Bun CLI's `slice(3)`. A util subcommand
+    /// slice (no leading `--`) forwards verbatim, mirroring `slice(2)`.
     fn strip_leading_dashdash(args: &[String]) -> &[String] {
         match args.first() {
             Some(first) if first == "--" => &args[1..],

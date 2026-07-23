@@ -1,9 +1,10 @@
 //! `tp doctor` — environment diagnostic + relay health + E2EE self-test.
 //!
-//! Byte-exact port of `apps/cli/src/commands/doctor.ts` (287 lines) and
-//! `apps/cli/src/lib/e2ee-verify.ts` (84 lines).  The check sequence, icon
+//! Byte-exact port of the retired Bun CLI's `apps/cli/src/commands/doctor.ts`
+//! (287 lines) and `apps/cli/src/lib/e2ee-verify.ts` (84 lines), both deleted
+//! in #5 PR6 #933 — visible in git history.  The check sequence, icon
 //! characters, message strings, and issues-counting rules are reproduced
-//! verbatim so the output structure is diff-comparable with the Bun CLI.
+//! verbatim, matching the output structure the Bun CLI produced.
 //!
 //! Architecture invariant enforced here: the relay check goes THROUGH the
 //! daemon via the `doctor.probe` IPC — the CLI never opens a relay WebSocket.
@@ -25,9 +26,9 @@ use crate::store::{list_pairings, store_dir};
 
 // ── Public entry point ───────────────────────────────────────────────────────
 
-/// Run `tp doctor`.  Mirrors `doctorCommand` in doctor.ts.  Returns
+/// Run `tp doctor`.  Mirrors the retired `doctorCommand` in doctor.ts.  Returns
 /// `ExitCode::SUCCESS` regardless of issues found (the summary line is how the
-/// user learns about problems — non-zero exit is not the Bun CLI's contract).
+/// user learns about problems — non-zero exit was not the Bun CLI's contract).
 pub fn run() -> ExitCode {
     println!("Teleprompter Doctor\n");
 

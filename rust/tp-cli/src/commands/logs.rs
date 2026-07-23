@@ -1,4 +1,9 @@
-//! `tp logs [sid]` — byte-exact port of `apps/cli/src/commands/logs.ts`.
+//! `tp logs [sid]` — byte-exact port of the retired Bun CLI's
+//! `apps/cli/src/commands/logs.ts` (deleted in #5 PR6 #933 — visible in git
+//! history). The behavioral notes and `logs.ts:*` line citations below
+//! describe that now-deleted file as it stood at port time; they are kept as
+//! historical provenance for the divergence rationale, not a claim that the
+//! file still exists.
 //!
 //! # Behaviour
 //!
@@ -39,8 +44,8 @@
 //!
 //! # SIGINT exit code
 //!
-//! Bun installs a `process.on("SIGINT", shutdown)` handler that calls
-//! `process.exit(0)` (`logs.ts:81-85`), producing exit code 0.
+//! The retired Bun CLI installed a `process.on("SIGINT", shutdown)` handler
+//! that called `process.exit(0)` (`logs.ts:81-85`), producing exit code 0.
 //!
 //! Rust's `unsafe_code = "forbid"` workspace lint prevents calling raw
 //! `libc::signal` / `sigaction`.  Adding a signal-handling crate (`ctrlc`,
@@ -49,7 +54,7 @@
 //! **130** (128 + SIGINT=2) when the user presses Ctrl+C.  This is the one
 //! documented acceptable divergence from the Bun reference.
 //!
-//! For SIGTERM the Bun handler also calls `process.exit(0)`; Rust exits with
+//! For SIGTERM the Bun handler also called `process.exit(0)`; Rust exits with
 //! OS code **143** (128 + SIGTERM=15).  Same documented divergence.
 //!
 //! # Event-field divergences (both unreachable with real records)
@@ -57,20 +62,22 @@
 //! Two further, deliberately-bounded divergences in the `event` formatting
 //! path, neither reachable with records the daemon actually writes:
 //!
-//! 1. **`last_assistant_message` coercion** (`logs.ts:63-66`). Bun guards with
-//!    JS truthiness (`if (event.last_assistant_message)`) then `String()`-coerces,
-//!    so a falsy value (`""`, `0`, `false`) is skipped and a truthy non-string
-//!    (number, object) is stringified. We use `.as_str()`, which yields `None`
+//! 1. **`last_assistant_message` coercion** (the retired `logs.ts:63-66`, #5
+//!    PR6 — visible in git history). The Bun CLI guarded with JS truthiness
+//!    (`if (event.last_assistant_message)`) then `String()`-coerced, so a
+//!    falsy value (`""`, `0`, `false`) was skipped and a truthy non-string
+//!    (number, object) was stringified. We use `.as_str()`, which yields `None`
 //!    for every non-string JSON value (skipping it) and `Some("")` for an empty
-//!    string (which would print a blank `  → ` line). The field is typed
-//!    `string?` (`packages/protocol/src/types/event.ts:28`) and is always a
-//!    non-empty string in practice, so neither edge is reachable.
+//!    string (which would print a blank `  → ` line). The field was typed
+//!    `string?` (the retired `packages/protocol/src/types/event.ts:28`, also
+//!    deleted in #5 PR6) and is always a non-empty string in practice, so
+//!    neither edge is reachable.
 //!
-//! 2. **Snippet truncation** (`logs.ts:65`). Bun's `.slice(0, 200)` counts
-//!    UTF-16 code units; our `.chars().take(200)` counts Unicode scalar values.
-//!    They diverge only for supplementary-plane characters (emoji), where Bun
-//!    counts a surrogate pair as 2 and we count it as 1. For BMP-only text —
-//!    effectively all Claude output — the two are identical.
+//! 2. **Snippet truncation** (the retired `logs.ts:65`). Bun's `.slice(0, 200)`
+//!    counted UTF-16 code units; our `.chars().take(200)` counts Unicode scalar
+//!    values. They diverge only for supplementary-plane characters (emoji),
+//!    where Bun counted a surrogate pair as 2 and we count it as 1. For
+//!    BMP-only text — effectively all Claude output — the two are identical.
 
 use std::{
     io::{self, Write},
@@ -128,12 +135,12 @@ pub fn run(sid: Option<&str>) -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    // Banner (logs.ts:45-46).
-    // Bun emits:
+    // Banner (mirrors the retired logs.ts:45-46).
+    // The retired Bun CLI emitted:
     //   console.error(`Tailing session: ${sid} (seq=${session.last_seq})`);
     //   console.error("Press Ctrl+C to stop.\n");
-    // The second console.error appends a newline itself (Node/Bun `console.error`
-    // always adds \n), and the string literal already ends in \n — giving two
+    // The second console.error appended a newline itself (Node/Bun `console.error`
+    // always adds \n), and the string literal already ended in \n — giving two
     // newlines total: one from the literal, one from console.error. We match
     // with eprintln! which adds one \n, and we embed one in the string.
     eprintln!(

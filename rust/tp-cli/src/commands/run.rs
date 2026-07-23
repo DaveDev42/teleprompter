@@ -8,17 +8,18 @@
 //! #5 PR6); this module execs the shipped Rust `tp-runner` natively,
 //! exactly mirroring the `tp relay` → `tp-relay` flip (`commands::relay`, #25).
 //!
-//! Unlike `relay`, **no flag translation is needed**: the Bun `run` argv contract
-//! (`--sid`/`--cwd`/`--worktree-path`/`--socket-path`/`--cols`/`--rows` +
-//! `-- <claude args>`, `apps/cli/src/commands/run.ts`) is byte-for-byte the argv
+//! Unlike `relay`, **no flag translation is needed**: the retired Bun `run`
+//! argv contract (`--sid`/`--cwd`/`--worktree-path`/`--socket-path`/`--cols`/
+//! `--rows` + `-- <claude args>`, `apps/cli/src/commands/run.ts`, deleted in
+//! #5 PR6 #933 — visible in git history) was byte-for-byte the argv
 //! `tp-runner` already parses (`rust/tp-runner/src/cli.rs::parse_args`) — it is
 //! the same argv the daemon spawns `tp-runner` with (`tp-daemon`
 //! `SessionManager::spawn_runner`). So `run` forwards the caller's remaining argv
 //! verbatim.
 //!
 //! Standalone `tp run` requires nothing the daemon-spawned runner path doesn't:
-//! there is no `ensureDaemon()` and no session-store write in the Bun `run`
-//! handler either — both assume a live daemon IPC socket and let the runner
+//! there was no `ensureDaemon()` and no session-store write in the Bun `run`
+//! handler either — both assumed a live daemon IPC socket and let the runner
 //! register the session on its `hello` frame. So this native exec has no missing
 //! prerequisite to backfill.
 //!

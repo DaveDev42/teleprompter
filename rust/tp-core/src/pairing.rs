@@ -404,4 +404,67 @@ mod tests {
         assert!(decode_pairing_data("not-a-pairing-url").is_err());
         assert!(decode_pairing_data("tp://p?d=@@@").is_err());
     }
+
+    /// The pre-decode cap (`MAX_PAIRING_B64_LEN`) must reject an oversized `d`
+    /// payload BEFORE any decode allocation — this bounds attacker-controlled
+    /// allocation from a hostile QR/deep link.
+    #[test]
+    fn rejects_over_cap_payload_before_decode() {
+        // A structurally valid link is far below the cap (headroom guard: if
+        // this ever creeps toward the cap, the cap needs revisiting).
+        let ok_len = encode_pairing_data(&sample())
+            .unwrap()
+            .strip_prefix("tp://p?d=")
+            .unwrap()
+            .len();
+        assert!(ok_len < MAX_PAIRING_B64_LEN / 2);
+
+        // One char over the cap → rejected (valid base64url alphabet, so only
+        // the length gate can be what rejects it).
+        let over = format!("tp://p?d={}", "A".repeat(MAX_PAIRING_B64_LEN + 1));
+        assert!(decode_pairing_data(&over).is_err());
+        // Grossly oversized → still rejected, no panic/alloc blowup.
+        let huge = format!("tp://p?d={}", "A".repeat(10 * MAX_PAIRING_B64_LEN));
+        assert!(decode_pairing_data(&huge).is_err());
+    }
+
+    fn link_from_raw(raw: &[u8]) -> String {
+        format!("tp://p?d={}", b64url_encode(raw))
+    }
+
+    /// Non-UTF-8 bytes in the did/relay/hostname fields must reject the whole
+    /// bundle (strict `from_utf8`, no lossy substitution).
+    #[test]
+    fn rejects_invalid_utf8_in_string_fields() {
+        let ps = [1u8; 32];
+        let pk = [2u8; 32];
+
+        // did = [0xff, 0xfe] (invalid UTF-8), v3 layout.
+        let mut bad_did = b"tp\x03\x02\xff\xfe\x00".to_vec();
+        bad_did.extend_from_slice(&ps);
+        bad_did.extend_from_slice(&pk);
+        assert!(decode_pairing_data(&link_from_raw(&bad_did)).is_err());
+
+        // relay = [0xff, 0xfe], v3 layout with did "a".
+        let mut bad_relay = b"tp\x03\x01a\x02\xff\xfe".to_vec();
+        bad_relay.extend_from_slice(&ps);
+        bad_relay.extend_from_slice(&pk);
+        assert!(decode_pairing_data(&link_from_raw(&bad_relay)).is_err());
+
+        // hostname = [0xff, 0xfe], v4 layout with did "a", default relay.
+        let mut bad_host = b"tp\x04\x01a\x00".to_vec();
+        bad_host.extend_from_slice(&ps);
+        bad_host.extend_from_slice(&pk);
+        bad_host.extend_from_slice(&[7u8; 16]); // pairingId (raw UUID)
+        bad_host.extend_from_slice(b"\x02\xff\xfe");
+        assert!(decode_pairing_data(&link_from_raw(&bad_host)).is_err());
+
+        // Control: the same v3 layout with VALID UTF-8 decodes fine, proving
+        // the rejections above come from the UTF-8 gate, not the layout.
+        let mut good = b"tp\x03\x02ab\x00".to_vec();
+        good.extend_from_slice(&ps);
+        good.extend_from_slice(&pk);
+        let back = decode_pairing_data(&link_from_raw(&good)).unwrap();
+        assert_eq!(back.did, "daemon-ab");
+    }
 }

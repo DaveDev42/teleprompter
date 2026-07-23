@@ -19,12 +19,13 @@ use std::path::PathBuf;
 /// Mirrors `getConfigDir` (`paths.ts:8-13`) exactly, including the `/tmp`
 /// fallback for a missing `$HOME`.
 pub fn config_dir() -> PathBuf {
-    // Bun uses `process.env["XDG_CONFIG_HOME"] ?? …` (nullish coalescing):
-    // an env var that is PRESENT but EMPTY (`XDG_CONFIG_HOME=""`) is kept
-    // verbatim (`join("", "teleprompter")` → relative `teleprompter`), only
-    // an ABSENT var falls back to `$HOME/.config`. `std::env::var` returns
+    // The retired Bun CLI used `process.env["XDG_CONFIG_HOME"] ?? …` (nullish
+    // coalescing): an env var that is PRESENT but EMPTY (`XDG_CONFIG_HOME=""`)
+    // was kept verbatim (`join("", "teleprompter")` → relative `teleprompter`),
+    // only an ABSENT var fell back to `$HOME/.config`. `std::env::var` returns
     // `Ok("")` for a present-but-empty var, so match on `Ok` regardless of
-    // emptiness to mirror `??` exactly. (paths.ts:9-11)
+    // emptiness to mirror `??` exactly. (paths.ts:9-11, deleted in #5 PR6 #933
+    // — visible in git history)
     let base = match std::env::var("XDG_CONFIG_HOME") {
         Ok(v) => PathBuf::from(v),
         Err(_) => {

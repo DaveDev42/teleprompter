@@ -1669,6 +1669,22 @@ impl IpcCommandDispatcher {
             .and_then(|tr| tr.get("to"))
             .and_then(Value::as_i64);
         let limit = msg.get("limit").and_then(Value::as_i64);
+        // A non-positive limit must be rejected here: `effective_limit + 1`
+        // would turn e.g. -2 into a SQLite `LIMIT -1`, which means UNLIMITED —
+        // silently bypassing the 50k export cap.
+        if let Some(l) = limit {
+            if l <= 0 {
+                self.reply_error(
+                    relay,
+                    frontend_id,
+                    &sid,
+                    "BAD_REQUEST",
+                    &format!("limit must be a positive integer, got {l}"),
+                )
+                .await;
+                return;
+            }
+        }
 
         let session = {
             let store = self.deps.store.lock().unwrap();
@@ -2922,6 +2938,41 @@ mod tests {
         let over_d: Value = serde_json::from_str(over["d"].as_str().unwrap()).unwrap();
         assert_eq!(over_d["truncated"], true);
         assert_eq!(over_d["records"].as_array().unwrap().len(), 2);
+    }
+
+    /// A non-positive `limit` must be rejected up front: `effective_limit + 1`
+    /// would map e.g. -2 to a SQLite `LIMIT -1` (= unlimited), silently
+    /// bypassing the 50k export cap.
+    #[tokio::test]
+    async fn relay_session_export_rejects_non_positive_limit() {
+        let ctx = make_ctx(CtxOpts::default());
+        seed_session(&ctx, "e3");
+        {
+            let mut store = ctx.store.lock().unwrap();
+            let db = store.get_session_db("e3").unwrap();
+            for i in 0..3 {
+                db.append("event", i, b"{}", None, Some("Stop")).unwrap();
+            }
+        }
+        let link = FakeLink::new();
+        for bad_limit in [-2, -1, 0] {
+            ctx.dispatcher
+                .dispatch_relay_control(
+                    &as_link(&link),
+                    &json!({ "t": "session.export", "sid": "e3", "format": "json", "limit": bad_limit }),
+                    "fe",
+                )
+                .await;
+        }
+        let calls = link.calls();
+        assert_eq!(calls.len(), 3);
+        for call in &calls {
+            let LinkCall::PublishToPeer { msg, .. } = call else {
+                panic!("expected a reply");
+            };
+            assert_eq!(msg["t"], "err", "non-positive limit must NOT export");
+            assert_eq!(msg["e"], "BAD_REQUEST");
+        }
     }
 
     /// Mirrors Bun test "session.export markdown format renders via the

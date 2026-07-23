@@ -548,6 +548,7 @@ pub fn route_subscribe(
                 m: Some(format!(
                     "Max {MAX_SUBSCRIPTIONS_PER_CLIENT} subscriptions per client"
                 )),
+                frontend_id: None,
             }),
         )];
     }

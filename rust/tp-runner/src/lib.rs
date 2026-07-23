@@ -1,22 +1,22 @@
-//! Native Rust runner (ADR-0003 Stage 4).
+//! Native Rust runner (ADR-0003 Stage 4) — the default per-session runner.
 //!
 //! Spawns Claude Code in a PTY, collects io + hook events, and forwards Records
-//! to the daemon over the framed-JSON IPC socket. This crate is a byte-exact
-//! port of `packages/runner` (Bun/TypeScript): the wire it emits must be
-//! indistinguishable from the Bun runner's so the daemon cannot tell which
-//! implementation produced a session.
+//! to the daemon over the framed-JSON IPC socket. The Rust `tp-daemon`'s
+//! SessionManager spawns this runner per session via `tp_proto::locate_tp_runner()`
+//! (task #4 flip, `rust/tp-daemon/src/session/manager.rs` `default_runner_command`).
+//! The retired Bun runner (`tpd run`) was deleted in the #5 zero-Bun cascade
+//! PR6 (#933); this crate is now the sole runner implementation. The wire it
+//! emits is still byte-exact with the retired Bun runner's, locked in by the
+//! TS-era golden vectors.
 //!
-//! # Dual-run, no cutover
+//! # Wire byte-exactness
 //!
-//! Stage 4 does not switch the default. The daemon's SessionManager picks the
-//! runner binary per-session via `TP_RUNNER_BIN`; the Bun runner (`tpd run`)
-//! is now the default (task #4 — Rust `tp-daemon` spawns this runner per
-//! session). The load-bearing wire surface is the **io record**: it carries
-//! its bytes as a binary sidecar (`payload="" && binLen>0`), never base64 in
-//! the JSON. The Bun↔Rust differential wire-parity test that proved this
-//! byte-exact was removed in PR4 (#5 cascade, once the Rust default landed);
-//! byte-exactness is now held by `cargo test` + the tp-core golden vectors,
-//! with the local `TP_E2E_RUNNER_BIN=1` real-claude gate as the E2E backstop.
+//! The load-bearing wire surface is the **io record**: it carries its bytes as
+//! a binary sidecar (`payload="" && binLen>0`), never base64 in the JSON. The
+//! Bun↔Rust differential wire-parity test that proved this byte-exact was
+//! removed in PR4 (#5 cascade, once the Rust default landed); byte-exactness
+//! is now held by `cargo test` + the tp-core golden vectors, with the local
+//! `TP_E2E_RUNNER_BIN=1` real-claude gate as the E2E backstop.
 //!
 //! # Module map
 //!
@@ -45,9 +45,9 @@
 //!   the lifecycle state machine (io-only-while-running, hooks-dropped-in-
 //!   teardown, bye pid/reason, kill-child-on-stop).
 //!
-//! Still on the Bun runner: `main.rs` argv wiring is present but the dual-run
-//! seam (`TP_RUNNER_BIN`) has not been cut over — the daemon still spawns the
-//! Bun runner (`tpd run`) by default.
+//! `main.rs` is the runtime bootstrap around the [`cli`] argv wiring — the
+//! daemon spawns this binary (not `tpd run`, which no longer exists) as the
+//! default runner for every session.
 
 pub mod cli;
 pub mod collector;

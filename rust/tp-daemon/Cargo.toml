@@ -5,17 +5,15 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Native Rust daemon store layer (ADR-0003 Phase 4, increment 1). Ports packages/daemon/src/store/*.ts + daemon-lock.ts + export-formatter.ts to Rust on rusqlite (bundled). Opens the SAME on-disk sessions.sqlite / <sid>.sqlite the Bun daemon writes — byte-exact SQL text and PRAGMAs, verified by a differential parity gate. Lib only in increment 1 (no [[bin]], no runtime cutover)."
+description = "Native Rust daemon — the default, shipping tp-daemon binary. Long-running session-management daemon: SessionManager, SQLite store, E2EE relay client, git worktree management."
 
 [lib]
 name = "tp_daemon"
 path = "src/lib.rs"
 
-# Shipping daemon binary (increment 5) — behavior-faithful port of the Bun
-# entrypoint packages/daemon/src/index.ts (pid-file singleton → Daemon::new →
-# start → auto-cleanup → reconnect saved relays → SIGINT/SIGTERM shutdown).
-# NOT the dogfood default: the CLI still spawns the Bun daemon; flipping the
-# default is a later increment gated on parity evidence.
+# Shipping daemon binary — the default daemon. The `tp` CLI spawns it via
+# locate_tp_daemon() (task #4 flip, PR #922). The retired Bun daemon
+# implementation was deleted in the #5 zero-Bun cascade PR6 (#933).
 [[bin]]
 name = "tp-daemon"
 path = "src/bin/tp_daemon.rs"

@@ -23,9 +23,9 @@
     "prepare": "lefthook install"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.1",
-    "lefthook": "^2.1.9",
-    "turbo": "^2.10.1",
+    "@biomejs/biome": "^2.5.5",
+    "lefthook": "^2.1.10",
+    "turbo": "^2.10.6",
     "typescript": "~6.0.3"
   },
   "version": "0.1.53"

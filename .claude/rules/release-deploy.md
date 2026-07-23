@@ -93,7 +93,9 @@ brew update && brew upgrade davedev42/tap/tp && tp version
 
 # Version Management
 
-- **NEVER bump versions** (package.json) unless the user explicitly requests it.
+- **NEVER bump versions** (`version.txt`) unless the user explicitly requests it.
 - Pre-1.0: only patch bumps (0.0.x).
 - Release Please handles version bumps automatically via Conventional Commits — `bump-patch-for-minor-pre-major` is enabled so `feat:` commits stay patch-level while pre-1.0.
-- Do not manually edit `version` fields in any package.json or `.release-please-manifest.json`.
+- Do not manually edit `version.txt` or `.release-please-manifest.json` — release-please owns both
+  (`release-type: simple`; `version.txt` replaced the root package.json `version` field in #5 PR7,
+  and `rust/tp-cli/build.rs` bakes it into the binary as `TP_CLI_VERSION`).

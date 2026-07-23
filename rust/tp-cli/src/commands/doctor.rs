@@ -39,25 +39,9 @@ pub fn run() -> ExitCode {
     let tp_ver = env!("CARGO_PKG_VERSION");
     print_check("tp", tp_ver, true);
 
-    // Node.js
-    match probe_version("node", &["--version"]) {
-        Some(v) => print_check("Node.js", &v, true),
-        None => {
-            print_check("Node.js", "not found", false);
-            issues += 1;
-        }
-    }
-
-    // pnpm
-    match probe_version("pnpm", &["--version"]) {
-        Some(v) => print_check("pnpm", &v, true),
-        None => {
-            print_check("pnpm", "not found", false);
-            issues += 1;
-        }
-    }
-
     // Claude CLI — `claude_found` gates the `claude doctor` section below.
+    // (The Node.js/pnpm probes the Bun CLI carried were legacy dev probes with
+    // no runtime consumer — dropped with the Node toolchain in #5 PR7.)
     let claude_found = match probe_version("claude", &["--version"]) {
         Some(v) => {
             print_check("Claude CLI", &v, true);
@@ -521,7 +505,7 @@ mod tests {
 
     // ── issues counting ──────────────────────────────────────────────────────
 
-    /// Node.js/pnpm/claude/git missing each contribute exactly 1 to issues.
+    /// claude/git missing each contribute exactly 1 to issues.
     /// Daemon socket missing, vault missing, and no pairings do NOT contribute.
     ///
     /// We test this via the counting logic (can't run the full `run()` without

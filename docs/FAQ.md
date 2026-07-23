@@ -307,8 +307,6 @@ tp completions fish >> ~/.config/fish/completions/tp.fish
 | Check | What it verifies | Fix |
 |-------|-----------------|-----|
 | tp | tp binary version | (informational) |
-| Node.js | Node.js available (legacy dev probe — no longer required) | Ignore, or install Node.js to silence |
-| pnpm | pnpm available (legacy dev probe — no longer required) | Ignore, or `npm i -g pnpm` to silence |
 | Claude CLI | `claude` in PATH | Install Claude Code |
 | Git | Git available | Install Git |
 | Daemon socket | Daemon is running | Run `tp daemon start`, or auto-starts on `tp pair` / passthrough runs (`tp <claude args>`). `tp status` and `tp logs` do **not** auto-start it. |

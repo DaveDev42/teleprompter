@@ -1,7 +1,7 @@
 {
   "packages": {
     ".": {
-      "release-type": "node",
+      "release-type": "simple",
       "include-component-in-tag": false,
       "bump-major-pre-major": false,
       "bump-minor-pre-major": false,

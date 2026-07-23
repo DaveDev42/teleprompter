@@ -61,8 +61,9 @@ this is the **target version**. All later steps reference it as
 
 ### Step 2 — Mergeability gate
 
-The release-please PR only edits `CHANGELOG.md`, `package.json`
-(version bump), and `.release-please-manifest.json`. `ci.yml` has
+The release-please PR only edits `CHANGELOG.md`, `version.txt`
+(version bump — `release-type: simple` since #5 PR7 removed the root
+`package.json`), and `.release-please-manifest.json`. `ci.yml` has
 **no path filters** and runs on all PRs, so lint / type-check / test /
 build-cli **do** run — and should pass cleanly on these changes.
 (The EAS gate and e2e jobs were removed in the ADR-0001 rewrite, so

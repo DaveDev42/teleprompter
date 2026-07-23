@@ -1,7 +1,0 @@
-[test]
-# Hard per-test backstop. A relay/WS integration test that awaits a frame which
-# never arrives (e.g. a delayed auth.ok under a constrained CI runner) must fail
-# fast with a timeout instead of hanging the whole `bun test` worker until the
-# 10-minute GitHub Actions job timeout kills it. 30s is generous for the slowest
-# integration test (pair-blocking ~15s) while still bounding any single hang.
-timeout = 30000

@@ -1,8 +1,9 @@
 # EditorConfig — https://editorconfig.org
-# Mirrors the formatters that actually gate CI: Biome (TS/JS, 2-space),
-# rustfmt (Rust, 4-space), swift-format (Swift, 4-space). This file only
-# helps editors that DON'T run those formatters; the formatters remain the
-# source of truth. Keep these stanzas in sync if a formatter config changes.
+# Mirrors the formatters that actually gate CI: rustfmt (Rust, 4-space) and
+# swift-format (Swift, 4-space). This file only helps editors that DON'T run
+# those formatters; the formatters remain the source of truth. Keep these
+# stanzas in sync if a formatter config changes. (The Biome TS/JS stanza died
+# with the Node toolchain in #5 PR7 — the [*] 2-space default covers JSON.)
 
 root = true
 
@@ -11,11 +12,6 @@ charset = utf-8
 end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
-indent_style = space
-indent_size = 2
-
-# TypeScript / JavaScript / JSON / JSONC — Biome (indentWidth 2, space)
-[*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc}]
 indent_style = space
 indent_size = 2
 

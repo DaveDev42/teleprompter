@@ -5,7 +5,7 @@ set -euo pipefail
 
 WORKTREE_DIR="${PWD}"
 
-# Kill any bun/node processes running from this worktree
+# Kill any processes running from this worktree
 pids=$(pgrep -f "${WORKTREE_DIR}" 2>/dev/null || true)
 if [ -n "$pids" ]; then
   echo "🧹 Killing processes running in ${WORKTREE_DIR}..."

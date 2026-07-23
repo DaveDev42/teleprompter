@@ -17,8 +17,7 @@ argument-hint: '[all | gate | smoke | uitest | test | matrix]'
 xcrun simctl list runtimes                 # iOS 런타임 ≥1
 xcodebuild -version                         # Xcode 설치됨
 which xcodegen                              # XcodeGen (brew install xcodegen)
-bun --version                              # Bun (백엔드 dogfood용)
-rustc --version                            # Rust (tp-core Phase 2)
+rustc --version                            # Rust (rust-toolchain.toml pin — 백엔드/tp-core)
 ```
 
 - 하나라도 실패 → 그 사유를 출력하고 **중단**.

@@ -1,35 +1,21 @@
 # Lefthook — local git hooks. https://lefthook.dev
 #
-# Opt-in: run `pnpm lefthook install` once (the `prepare` script does this
-# automatically on `pnpm install`). These hooks mirror CI's gates locally so
-# breakage is caught before push, not in CI. CI remains the source of truth —
-# hooks can be skipped with `LEFTHOOK=0 git commit` / `git push` in a pinch.
+# Opt-in: install the lefthook binary (`brew install lefthook` on macOS, or any
+# release binary — the npm devDependency route was removed with the Node
+# toolchain in #5 PR7), then run `lefthook install` once. These hooks mirror
+# CI's gates locally so breakage is caught before push, not in CI. CI remains
+# the source of truth — hooks can be skipped with `LEFTHOOK=0 git commit` /
+# `git push` in a pinch.
 #
-# Scope note: Swift/Rust are NOT in pre-commit (xcodebuild/cargo are too slow
-# for a commit hook and Swift isn't a CI gate). Rust fmt+clippy run in pre-push
-# only when rust/ files changed. Swift is validated by scripts/ios.sh locally.
-
-pre-commit:
-  parallel: true
-  commands:
-    # Biome format + lint on staged TS/JS/JSON only — fast, autofix-free check.
-    biome:
-      glob: "*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc}"
-      run: pnpm exec biome check --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+# Scope note: Swift is NOT hooked (xcodebuild is too slow for a hook and Swift
+# isn't a CI gate — it's validated by scripts/ios.sh locally). Rust fmt+clippy+
+# test run in pre-push only when rust/ files changed. There is no pre-commit
+# hook: the Biome staged-file check died with the TS backend (#5 PR6/PR7).
 
 pre-push:
   parallel: false
   commands:
-    # 1. Full Biome CI check (lint + format, error-level gates). Vestigial after
-    #    PR6 (#5 cascade) deleted all TS backend sources — biome now only sees
-    #    stray root-level JSON/JS; the block itself is removed with the rest of
-    #    the Node toolchain in PR7.
-    biome-ci:
-      run: pnpm exec biome ci .
-    # (PR6: the `type-check` and `test` blocks — tsc over packages/*+apps/cli and
-    #  `bun test` over the same five dirs — were deleted along with those sources.
-    #  Backend gating is now the `rust` block below + CI's cargo jobs.)
-    # 2. Rust fmt + clippy + test — only when rust/ files changed.
+    # Rust fmt + clippy + test — only when rust/ files changed.
     #    `cargo` on this machine is the Homebrew rustup shim, which mis-parses
     #    `cargo fmt --all` (the shim swallows `--all` instead of dispatching to
     #    cargo-fmt). Prepend the active toolchain's real bin dir — derived

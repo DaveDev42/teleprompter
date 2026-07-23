@@ -98,7 +98,7 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 # no hashing step) that `createPairingBundle` needs. Same major version
 # tp-core already pins; `static_secrets` gives us `StaticSecret::random_from_rng`.
 # Lib-internal only — no FFI/UniFFI surface change.
-x25519-dalek = { version = "2", features = ["static_secrets"] }
+x25519-dalek = { version = "3", features = ["static_secrets"] }
 # Format a random pairing UUID as hex (random_pairing_bundle). Same version
 # tp-core already pins.
 hex = "0.4"

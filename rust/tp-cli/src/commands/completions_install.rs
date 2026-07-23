@@ -461,9 +461,10 @@ Notes:
 ///
 /// `is_uninstall_subcommand`: `true` when the caller was `tp completions
 /// uninstall …`. Intent is the LOGICAL-OR of that and a `--uninstall` flag in
-/// `args`, mirroring the Bun reference exactly: the `uninstall` subcommand is
+/// `args`, mirroring the retired Bun CLI's reference behavior exactly (deleted
+/// in #5 PR6 #933 — visible in git history): the `uninstall` subcommand was
 /// dispatched as `runInstall(["--uninstall", …])` (completions.ts:102-104) and
-/// `runInstall` derives intent purely from `argv.includes("--uninstall")`
+/// `runInstall` derived intent purely from `argv.includes("--uninstall")`
 /// (completions.ts:140). So `tp completions install <shell> --uninstall`
 /// uninstalls — the advertised `--uninstall` flag works on the `install`
 /// subcommand too, not just as a no-op on the allowlist.
@@ -596,7 +597,10 @@ pub fn home_dir() -> Option<PathBuf> {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Tests — port of completions-install.test.ts (219 lines → all branches covered)
+// Tests — port of the retired Bun CLI's completions-install.test.ts (219 lines
+// → all branches covered; deleted in #5 PR6 #933 — visible in git history).
+// The `completions-install.test.ts:*` line citations below are historical
+// provenance for where each case came from, not a live reference.
 // ──────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

@@ -15,7 +15,8 @@
 //! `pairDelete`: 5-tier prefix match via `match_pairings`; non-TTY without
 //! `--yes` refuses; TTY prompts with default No; daemon-up gate (ADR-0003
 //! Amendment 2 A2.4 — no store-write fallback); sends `pair.remove` IPC and
-//! renders the ok/err response byte-identically to the Bun reference.
+//! renders the ok/err response byte-identically to the retired Bun reference
+//! (deleted in #5 PR6 #933; visible in git history).
 //!
 //! `pairRename`: 5-tier prefix match via `match_pairings`; label = remaining args
 //! joined and trimmed; no confirmation required (rename is non-destructive);
@@ -72,8 +73,9 @@ fn fail_prefix(msg: &str) -> String {
 /// Ask `question [y/N] ` on stdout, read one line from stdin.
 /// Returns `true` if the user typed `y` or `Y`; anything else (including
 /// empty / Enter) → false (default No).
-/// Mirrors `promptYesNo({ defaultValue: false })` in the Bun reference.
-/// Format matches yes-no-prompt.tsx: `{question} {hint}{" "}` (trailing space, no colon).
+/// Mirrors `promptYesNo({ defaultValue: false })` from the retired Bun
+/// reference. Format was ported from yes-no-prompt.tsx (deleted in #5 PR6):
+/// `{question} {hint}{" "}` (trailing space, no colon).
 fn prompt_yes_no(question: &str) -> bool {
     print!("{question} [y/N] ");
     let _ = io::stdout().flush();
@@ -110,13 +112,10 @@ pub fn list() -> ExitCode {
         .iter()
         .map(|p| Row {
             daemon_id: p.daemon_id.clone(),
-            // labelToNullable(...) ?? "" — None renders as empty string.
-            // NOTE: the peer-supplied label is printed RAW. The TS reference
-            // stripped ANSI/control chars at display time (lib/sanitize.ts);
-            // that display-only sanitization is not yet ported, so a hostile
-            // peer rename could inject terminal escapes here. Follow-up port
-            // is tracked in TODO.md.
-            label: p.label.clone().unwrap_or_default(),
+            // labelToNullable(...) ?? "" — None renders as empty string. The
+            // label is peer-renamable, so it is sanitized for display (ANSI/
+            // control-char strip); the stored value is untouched.
+            label: sanitize_label_for_display(p.label.as_deref().unwrap_or_default()),
             relay_url: p.relay_url.clone(),
             created: format_age(now - p.created_at, now),
         })
@@ -339,9 +338,10 @@ pub fn delete(args: &[String]) -> ExitCode {
 ///
 /// Prefix resolution via `match_pairings` (5-tier, same as delete).
 ///
-/// Daemon-up gate (ADR-0003 A2.4): unlike the Bun reference which falls back to
-/// a direct store write when the daemon is down, the Rust port requires the daemon
-/// to be running. If not running, print the daemon-down guidance and exit 1.
+/// Daemon-up gate (ADR-0003 A2.4): unlike the retired Bun reference, which fell
+/// back to a direct store write when the daemon was down, the Rust port requires
+/// the daemon to be running. If not running, print the daemon-down guidance and
+/// exit 1.
 ///
 /// IPC: `pair.rename` → `pair.rename.ok` | `pair.rename.err`.
 /// Success: `ok("Renamed <daemonId> → <echoed>")` where `echoed` is the label
@@ -481,7 +481,9 @@ pub fn rename(args: &[String]) -> ExitCode {
             let echoed = label_to_nullable(&returned_label);
             let label_display = match echoed {
                 None => "(cleared)".to_string(),
-                Some(v) => format!("\"{v}\""),
+                // The daemon round-trips the persisted label — sanitize the
+                // echo the same way `pair list` does before terminal output.
+                Some(v) => format!("\"{}\"", sanitize_label_for_display(v)),
             };
             println!(
                 "{}",
@@ -563,6 +565,63 @@ pub fn default_label() -> String {
         }
         Err(_) => "daemon".to_string(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Display sanitization for peer-supplied labels
+// ---------------------------------------------------------------------------
+
+/// Strip ANSI escape sequences and control characters for terminal display.
+///
+/// Labels can be renamed by a paired frontend (`control.rename`), so the value
+/// printed by `pair list`/`pair rename` is peer-supplied: without this a
+/// hostile peer could inject cursor movement, screen clears, or OSC title
+/// changes into the operator's terminal. Ports the display-time sanitization
+/// the retired TS CLI did in `lib/sanitize.ts` (deleted in #5 PR6). Display
+/// only — the stored label is never modified.
+fn sanitize_label_for_display(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\u{1b}' => match chars.peek() {
+                // CSI: `ESC [` params/intermediates, terminated by 0x40-0x7E.
+                Some('[') => {
+                    chars.next();
+                    while let Some(&n) = chars.peek() {
+                        chars.next();
+                        if ('\u{40}'..='\u{7e}').contains(&n) {
+                            break;
+                        }
+                    }
+                }
+                // OSC: `ESC ]` payload, terminated by BEL or ST (`ESC \`).
+                Some(']') => {
+                    chars.next();
+                    while let Some(n) = chars.next() {
+                        if n == '\u{07}' {
+                            break;
+                        }
+                        if n == '\u{1b}' {
+                            if chars.peek() == Some(&'\\') {
+                                chars.next();
+                            }
+                            break;
+                        }
+                    }
+                }
+                // Any other two-char escape (e.g. `ESC c` reset): drop both.
+                Some(_) => {
+                    chars.next();
+                }
+                None => {}
+            },
+            // C0/C1 controls + DEL (Unicode Cc) are dropped from display.
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -654,10 +713,10 @@ pub fn new(args: &[String]) -> ExitCode {
     };
 
     // ---- daemon-up gate (RESOLVED DECISION #1: gate, not auto-start) ----
-    // The Bun reference calls ensureDaemon() (auto-start). The native CLI does
-    // not yet port daemon lifecycle, so — consistent with pair delete/rename
-    // (A2.4) — we require the daemon to be running and emit the same friendly
-    // daemon-down error if it is not.
+    // The retired Bun reference called ensureDaemon() (auto-start). This path
+    // does not auto-start, so — consistent with pair delete/rename (A2.4) — we
+    // require the daemon to be running and emit the same friendly daemon-down
+    // error if it is not.
     if !is_daemon_running() {
         eprintln!("{}", fail_prefix(&IpcError::DaemonDown.to_string()));
         return ExitCode::FAILURE;
@@ -721,9 +780,10 @@ pub fn new(args: &[String]) -> ExitCode {
     // Every terminal frame (begin.err / completed / cancelled / error) `break`s
     // the loop immediately, so the `Err(Closed)` arm is only reached when the
     // daemon closes the socket BEFORE any terminal frame — i.e. the `settled`
-    // guard the Bun reference needs (pair.ts:148-153, because its onMessage and
-    // onClose callbacks race on the same event loop) is structurally guaranteed
-    // here by the single-threaded match-then-break loop. No flag required.
+    // guard the retired Bun reference needed (pair.ts:148-153, because its
+    // onMessage and onClose callbacks raced on the same event loop) is
+    // structurally guaranteed here by the single-threaded match-then-break
+    // loop. No flag required.
     //
     // `raw_guard` holds raw mode for the duration of the wait when `can_copy`
     // is true (see PairBeginOk arm). It is taken (set to None) before every
@@ -759,9 +819,9 @@ pub fn new(args: &[String]) -> ExitCode {
 
                 // canCopy gate (pair.ts:173). The native CLI mounts a raw-mode
                 // crossterm event loop on a side thread when copy is supported,
-                // mirroring ink's inherently-raw single-keypress detection in the
-                // Bun reference (pair.ts:283-325, `useInput` is raw mode). Either
-                // way the hint line is byte-exact.
+                // mirroring ink's inherently-raw single-keypress detection in
+                // the retired Bun reference (pair.ts:283-325, `useInput` was
+                // raw mode). Either way the hint line is byte-exact.
                 let can_copy = is_clipboard_support_likely() && io::stdin().is_terminal();
                 if can_copy {
                     // pair.ts:178-180 — the entire string is inside dim().
@@ -1000,4 +1060,50 @@ fn print_pair_usage() {
         "  tp pair delete <daemon-id> [-y]              Delete a pairing (prefix match allowed)"
     );
     println!();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_label_for_display;
+
+    #[test]
+    fn sanitize_passes_plain_and_unicode_labels_through() {
+        assert_eq!(sanitize_label_for_display("Dave-MBP16"), "Dave-MBP16");
+        assert_eq!(
+            sanitize_label_for_display("집 데스크탑 🖥️"),
+            "집 데스크탑 🖥️"
+        );
+        assert_eq!(sanitize_label_for_display(""), "");
+    }
+
+    #[test]
+    fn sanitize_strips_csi_sequences() {
+        // SGR color + cursor movement + display clear.
+        assert_eq!(sanitize_label_for_display("\x1b[31mred\x1b[0m"), "red");
+        assert_eq!(sanitize_label_for_display("a\x1b[2Jb\x1b[10;10Hc"), "abc");
+    }
+
+    #[test]
+    fn sanitize_strips_osc_sequences_with_both_terminators() {
+        // BEL-terminated and ST (`ESC \`)-terminated title changes.
+        assert_eq!(sanitize_label_for_display("\x1b]0;evil title\x07ok"), "ok");
+        assert_eq!(sanitize_label_for_display("\x1b]0;evil\x1b\\ok"), "ok");
+    }
+
+    #[test]
+    fn sanitize_strips_bare_controls_and_two_char_escapes() {
+        // C0 controls (newline/CR/tab/BEL) and DEL never reach the table.
+        assert_eq!(sanitize_label_for_display("a\r\nb\tc\x07d\x7fe"), "abcde");
+        // `ESC c` (full terminal reset) drops both chars.
+        assert_eq!(sanitize_label_for_display("x\x1bcy"), "xy");
+        // A trailing lone ESC is dropped, not panicked on.
+        assert_eq!(sanitize_label_for_display("tail\x1b"), "tail");
+    }
+
+    #[test]
+    fn sanitize_handles_unterminated_sequences() {
+        // Unterminated CSI/OSC swallow to end of string — nothing leaks.
+        assert_eq!(sanitize_label_for_display("a\x1b[31"), "a");
+        assert_eq!(sanitize_label_for_display("a\x1b]0;title"), "a");
+    }
 }

@@ -1,5 +1,17 @@
 # Phase 3 Implementation Plan — Native Swift Teleprompter Client (relay-as-frontend)
 
+> **[SUPERSEDED BY ADR-0003 / #5 zero-Bun cascade — 보존 목적 아카이브]**
+>
+> 이 문서는 Phase 3(2026-06-15 완료) 당시의 계획 스냅샷이다. 아래 "Backend stays
+> TypeScript — this phase is about the **app**, not porting the backend (that's
+> Phase 4)" 서술은 더 이상 사실이 아니다 — 백엔드는 **ADR-0003**(Phase 4 Rust
+> migration) 과 **#5 zero-Bun cascade**(PR6 에서 TS 소스 전체 삭제)를 거쳐 현재
+> 100% Rust(`rust/tp-daemon`/`tp-runner`/`tp-relay`/`tp-cli`)다.
+>
+> **이 문서를 보존하는 이유**: Phase 3 당시의 wire 시퀀스 설계/검증 근거를 역사
+> 기록으로 남긴다. 아래 본문(TS 파일 인용 포함)은 **원문 그대로 수정하지 않는다** —
+> 현재 구현은 CLAUDE.md + `rust/` 소스가 SoT.
+>
 > ADR-0001 Phase 3. SoT for the app track's next milestone. Grounded in live HEAD
 > file:line citations (verified, not hearsay). Backend stays TypeScript — this phase
 > is about the **app**, not porting the backend (that's Phase 4).

@@ -1,6 +1,7 @@
 //! `tp completions <bash|zsh|fish>` — emit a shell completion script.
 //!
-//! Byte-exact port of `apps/cli/src/commands/completions.ts:202-313`.
+//! Byte-exact port of the retired Bun CLI's `apps/cli/src/commands/
+//! completions.ts:202-313` (deleted in #5 PR6 #933 — visible in git history).
 //!
 //! Only the script-generation path is ported here (tranche 1). The
 //! `install` / `uninstall` sub-actions write to rc files (tranche 2) and
@@ -329,7 +330,9 @@ fn generate_fish() -> String {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Tests
+// Tests — the `completions.test.ts:*` comments below cite the retired Bun
+// CLI's test file (deleted in #5 PR6 #933 — visible in git history) as
+// historical provenance for where each case came from, not a live reference.
 // ──────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

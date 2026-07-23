@@ -1,8 +1,10 @@
 //! Native `tp <claude args>` passthrough (task #17 PR-4) — the de-trampolined
 //! interactive claude REPL path.
 //!
-//! Replaces the Bun `passthroughCommand` (`apps/cli/src/commands/passthrough.ts`)
-//! for the `Route::Passthrough` arm. Runs claude through a Runner connected to
+//! Replaces the retired Bun CLI's `passthroughCommand`
+//! (`apps/cli/src/commands/passthrough.ts`, deleted in #5 PR6 #933 — visible
+//! in git history) for the `Route::Passthrough` arm. Runs claude through a
+//! Runner connected to
 //! the daemon, proxying the local terminal: the Runner owns the claude PTY and
 //! streams io/hooks to the daemon (which fans them out to paired phones via its
 //! `RelayClient`); this process mirrors that PTY output to the local terminal by
@@ -28,16 +30,16 @@
 //! ported, `run` still trampolined to the Bun blob runner; task #8 flipped it
 //! native and #5 PR6 deleted the blob.)
 //!
-//! # Terminal proxy (mirror of passthrough.ts:101-217)
+//! # Terminal proxy (mirrors the retired passthrough.ts:101-217)
 //!
 //! - **stdout**: poll `sessions/<sid>.sqlite` every 50 ms (WAL, safe concurrent
 //!   read) via [`store::records_from`], write `kind=="io"` payloads to stdout.
 //! - **stdin**: raw mode; a reader thread forwards raw bytes as base64 in
 //!   `IpcMessage::Input` frames over the daemon IPC socket.
 //! - **resize**: the poll loop samples `crossterm::terminal::size()` and, when it
-//!   changes, sends an `IpcMessage::Resize` (dep-free equivalent of the Bun
-//!   `process.stdout.on("resize")` SIGWINCH handler — folded into the existing
-//!   poll cadence rather than adding a signal-hook dependency).
+//!   changes, sends an `IpcMessage::Resize` (dep-free equivalent of the retired
+//!   Bun CLI's `process.stdout.on("resize")` SIGWINCH handler — folded into the
+//!   existing poll cadence rather than adding a signal-hook dependency).
 //! - **exit**: wait for the Runner process, do a final drain poll so the last
 //!   output lines aren't lost in the 50 ms gap, restore the terminal, and exit
 //!   with the Runner's code.
@@ -63,12 +65,14 @@ use crate::tui::raw_mode::RawModeGuard;
 use crate::{store, util};
 
 /// Fallback terminal size when the local stdout is not a TTY (piped / non-
-/// interactive), matching the Bun `process.stdout.columns || 120` /
-/// `process.stdout.rows || 40` defaults (passthrough.ts:108-109).
+/// interactive), matching the retired Bun CLI's `process.stdout.columns || 120`
+/// / `process.stdout.rows || 40` defaults (passthrough.ts:108-109, deleted in
+/// #5 PR6 #933 — visible in git history).
 const DEFAULT_COLS: u16 = 120;
 const DEFAULT_ROWS: u16 = 40;
 
-/// io-record poll interval — the Bun `setInterval(poll, 50)` (passthrough.ts:189).
+/// io-record poll interval — mirrors the retired Bun CLI's `setInterval(poll,
+/// 50)` (passthrough.ts:189).
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Run the native passthrough for `argv` (the args after the `tp` binary name).
@@ -77,9 +81,10 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// `ExitCode::FAILURE` for a fatal setup error (claude missing, bad `--tp-cwd`,
 /// daemon un-startable).
 pub fn run(argv: &[String]) -> ExitCode {
-    // Preflight: claude must be on PATH (passthrough.ts:44-56). A missing claude
-    // is the single most common first-run failure, so surface it with a hint
-    // instead of a raw runner spawn error.
+    // Preflight: claude must be on PATH (mirrors the retired passthrough.ts:44-56,
+    // deleted in #5 PR6 #933 — visible in git history). A missing claude is the
+    // single most common first-run failure, so surface it with a hint instead of
+    // a raw runner spawn error.
     if !claude_available() {
         eprintln!(
             "{}",
@@ -95,7 +100,7 @@ pub fn run(argv: &[String]) -> ExitCode {
     }
 
     // Split off the --tp-* flags (PR-2). A usage error (missing/flag-like value)
-    // prints the same message the Bun CLI did and exits 1.
+    // prints the same message the retired Bun CLI did and exits 1.
     let split = match crate::commands::passthrough_split::split_args(argv) {
         Ok(s) => s,
         Err(e) => {
@@ -136,8 +141,9 @@ pub fn run(argv: &[String]) -> ExitCode {
     run_service_proxy(&sid, &cwd, &claude_args)
 }
 
-/// Whether `claude --version` runs successfully (PATH probe). Mirrors the Bun
-/// `Bun.spawnSync(["claude","--version"])` preflight (passthrough.ts:44-51).
+/// Whether `claude --version` runs successfully (PATH probe). Mirrors the
+/// retired Bun CLI's `Bun.spawnSync(["claude","--version"])` preflight
+/// (passthrough.ts:44-51, deleted in #5 PR6 #933 — visible in git history).
 fn claude_available() -> bool {
     Command::new("claude")
         .arg("--version")
@@ -148,8 +154,8 @@ fn claude_available() -> bool {
         .is_ok_and(|s| s.success())
 }
 
-/// Current terminal size, falling back to the Bun defaults when stdout is not a
-/// TTY.
+/// Current terminal size, falling back to the retired Bun CLI's defaults when
+/// stdout is not a TTY.
 fn terminal_size() -> (u16, u16) {
     if std::io::stdout().is_terminal() {
         crossterm::terminal::size().unwrap_or((DEFAULT_COLS, DEFAULT_ROWS))
@@ -158,16 +164,18 @@ fn terminal_size() -> (u16, u16) {
     }
 }
 
-/// The service-daemon proxy path (passthrough.ts:101-217): spawn the Runner
-/// pointed at the service daemon socket, then proxy stdout (poll) + stdin/resize
-/// (IPC) locally until the Runner exits.
+/// The service-daemon proxy path (mirrors the retired Bun CLI's
+/// passthrough.ts:101-217, deleted in #5 PR6 #933 — visible in git history):
+/// spawn the Runner pointed at the service daemon socket, then proxy stdout
+/// (poll) + stdin/resize (IPC) locally until the Runner exits.
 fn run_service_proxy(sid: &str, cwd: &str, claude_args: &[String]) -> ExitCode {
     let sock = socket_path();
     let (cols, rows) = terminal_size();
 
     // Spawn the runner as `<current_exe> run --sid … -- <claude args>`. Spawn
     // errors (e.g. ENOENT for a bad --tp-cwd) get a friendly hint, mirroring the
-    // Bun spawnRunner try/catch (passthrough.ts:117-134).
+    // retired Bun CLI's spawnRunner try/catch (passthrough.ts:117-134, deleted
+    // in #5 PR6 #933 — visible in git history).
     let mut runner = match spawn_runner(sid, cwd, &sock, cols, rows, claude_args) {
         Ok(child) => child,
         Err(e) => {
@@ -244,7 +252,8 @@ fn run_service_proxy(sid: &str, cwd: &str, claude_args: &[String]) -> ExitCode {
         match runner.try_wait() {
             Ok(Some(status)) => {
                 // Final drain so the last output lines aren't lost in the poll gap
-                // (passthrough.ts:213-215).
+                // (mirrors the retired Bun CLI's passthrough.ts:213-215, deleted
+                // in #5 PR6 #933 — visible in git history).
                 drain_io(sid, &mut last_seq);
                 // Signal the stdin reader to stop. It may still be parked in a
                 // blocking `read()`; we don't join it — the process is about to
@@ -307,8 +316,9 @@ fn spawn_runner(
 }
 
 /// Drain new io records since `last_seq` and write their raw payloads to stdout.
-/// Mirrors the Bun `poll()` (passthrough.ts:178-188): only `kind=="io"` records
-/// go to the local terminal (event records are the daemon/phone's concern).
+/// Mirrors the retired Bun CLI's `poll()` (passthrough.ts:178-188, deleted in
+/// #5 PR6 #933 — visible in git history): only `kind=="io"` records go to the
+/// local terminal (event records are the daemon/phone's concern).
 fn drain_io(sid: &str, last_seq: &mut i64) {
     let Some(conn) = store::open_session_db_readonly(sid) else {
         return; // runner hasn't sent hello / created the db yet
@@ -330,7 +340,8 @@ fn drain_io(sid: &str, last_seq: &mut i64) {
 
 /// Read raw stdin bytes and forward each chunk as a base64 `IpcMessage::Input`
 /// over the daemon IPC socket, until `done` is set or stdin hits EOF. Mirrors
-/// the Bun `process.stdin.on("data", …)` forwarding (passthrough.ts:194-200).
+/// the retired Bun CLI's `process.stdin.on("data", …)` forwarding
+/// (passthrough.ts:194-200, deleted in #5 PR6 #933 — visible in git history).
 ///
 /// Writes directly to the shared `Arc<Mutex<UnixStream>>` writer handle rather
 /// than holding the `IpcSession` (whose reader channel is `!Sync` and cannot
@@ -372,7 +383,8 @@ fn send_frame(writer: &Arc<Mutex<UnixStream>>, msg: &IpcMessage) -> std::io::Res
 }
 
 /// Map a `std::process::ExitStatus` to an `ExitCode`, propagating the child's
-/// numeric code (0-255) where available (passthrough.ts:217).
+/// numeric code (0-255) where available (mirrors the retired Bun CLI's
+/// passthrough.ts:217, deleted in #5 PR6 #933 — visible in git history).
 fn exit_code_of(status: std::process::ExitStatus) -> ExitCode {
     match status.code() {
         Some(code) => ExitCode::from(u8::try_from(code & 0xff).unwrap_or(1)),

@@ -1,15 +1,19 @@
 //! `tp daemon install` / `uninstall` — macOS launchd service management.
 //!
-//! Byte-exact port of `apps/cli/src/lib/service-darwin.ts` (167 lines).
+//! Byte-exact port of `apps/cli/src/lib/service-darwin.ts` (167 lines,
+//! deleted in #5 PR6 #933 — visible in git history).
 //!
 //! The plist template, key order, whitespace, and output strings are reproduced
-//! verbatim. See service.test.ts snapshot tests for the golden reference.
+//! verbatim. The retired Bun CLI's `service.test.ts` snapshot tests were the
+//! golden reference during the port (also deleted in #5 PR6).
 //!
 //! # Infinite-loop guard
 //!
 //! The binary path written into `ProgramArguments` is the RUST `tp` binary
-//! (via `resolve_tp_binary()`), NOT the Bun blob.  When launchd respawns it
-//! the Rust `tp daemon start` exec's the Bun blob — one hop, no loop.
+//! (via `resolve_tp_binary()`). When launchd respawns it, the Rust `tp daemon
+//! start` locates the bundled Rust `tp-daemon` via `locate_tp_daemon()` and
+//! execs it directly (`commands/daemon.rs::start`) — one hop, no loop. (The
+//! Bun blob and its exec path were deleted in #5 PR6.)
 //!
 //! # Injectable launchctl runner
 //!

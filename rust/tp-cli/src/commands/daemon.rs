@@ -434,8 +434,9 @@ pub fn install() -> ExitCode {
 /// install`, and the first-run prompt (`ensure_daemon::show_install_hint`)
 /// calls it directly so it can print a manual-install hint on failure —
 /// `std::process::ExitCode` is not comparable, so a bool is the honest seam.
-/// Mirrors the Bun `installService()` (`service.ts:5-19`), which likewise
-/// dispatches by platform and (via a thrown error) signals failure to its
+/// Mirrors the retired Bun CLI's `installService()` (`service.ts:5-19`,
+/// deleted in #5 PR6 #933 — visible in git history), which likewise
+/// dispatched by platform and (via a thrown error) signaled failure to its
 /// caller.
 pub fn install_service_ok() -> bool {
     let os = std::env::consts::OS;

@@ -3,8 +3,9 @@
 //! THIN entry point: classify the first arg via `decide_route` BEFORE clap
 //! parses, dispatch the exec routes (passthrough / claude-forward / relay /
 //! run), or fall through to the clap dispatch for native subcommands. The
-//! command tree mirrors the retired Bun CLI's `TP_SUBCOMMANDS` (originally
-//! `apps/cli/src/router.ts`), which remains the behavioral reference.
+//! command tree was ported from the retired Bun CLI's `TP_SUBCOMMANDS`
+//! (originally `apps/cli/src/router.ts`, deleted in #5 PR6 #933 — visible in
+//! git history), which was the behavioral reference during the port.
 //!
 //! Every route is native Rust: subcommands via clap handlers, bare `tp` /
 //! `tp <claude args>` via the terminal-proxy passthrough, claude-utility
@@ -75,7 +76,8 @@ struct Cli {
 }
 
 /// The subcommand tree. Order/names mirror `TP_SUBCOMMANDS` from the retired
-/// Bun CLI (`apps/cli/src/router.ts`, the behavioral reference). All
+/// Bun CLI (`apps/cli/src/router.ts`, deleted in #5 PR6 #933 — visible in git
+/// history), which was the behavioral reference during the port. All
 /// subcommands are wired to real handlers. `Run` and `Relay` are declared here
 /// so `tp --help` lists them, but they are intercepted by the pre-clap
 /// dispatch and never reach these match arms in normal operation (the match
@@ -424,8 +426,9 @@ fn main() -> ExitCode {
             commands::relay::run(&fwd)
         }
 
-        // Bare `tp pair` (no action) is an alias for `tp pair new` in the Bun
-        // CLI (pair.ts:59-62). List/New/Delete/Rename are all dispatched above.
+        // Bare `tp pair` (no action) is an alias for `tp pair new`, matching
+        // the retired Bun CLI (pair.ts:59-62, deleted in #5 PR6 #933 — visible
+        // in git history). List/New/Delete/Rename are all dispatched above.
         Some(Command::Pair { action: None }) => commands::pair::new(&[]),
         Some(Command::Session {
             action: Some(SessionAction::Cleanup { yes, all }),

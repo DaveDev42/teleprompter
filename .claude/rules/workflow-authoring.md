@@ -28,7 +28,7 @@ agent 는 독이 든 BRIEF 를 충실히 따랐을 뿐이다. 이후 on-device A
 
 ## 규칙
 
-1. **HEAD 워킹트리 + node_modules 실파일만 ground truth.** commit/PR body, CHANGELOG,
+1. **HEAD 워킹트리 실파일만 ground truth.** commit/PR body, CHANGELOG,
    "이전 세션이 그랬다"식 서술은 전부 hearsay. agent 가 인용하면 반드시 실파일
    file:line 으로 재확인하게 시킬 것.
 2. **과거 결론을 axiom 으로 주입 금지.** "이미 시도했고 실패함" / "이미 머지된

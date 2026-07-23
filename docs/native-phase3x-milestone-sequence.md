@@ -1,5 +1,17 @@
 # Phase 3.x — Unified Milestone Sequence (ANSI terminal × Multiplatform Apple)
 
+> **[SUPERSEDED — 보존 목적 아카이브]**
+>
+> 이 문서는 Phase 3.x(2026-06-15) 당시의 계획 스냅샷이다. 아래에서 toolchain-gated
+> "Phase B" 로 미뤄뒀던 **visionOS + watchOS 확장은 이후 출하됐다** —
+> **ADR-0002**(멀티플랫폼 Apple 확장) B2(visionOS)/B3(watchOS) 완료. 백엔드 관련
+> 서술(있다면)도 ADR-0003 / #5 zero-Bun cascade 로 대체됐다 (백엔드는 현재 100%
+> Rust).
+>
+> **이 문서를 보존하는 이유**: ANSI terminal × 멀티플랫폼 확장의 초기 설계 근거를
+> 역사 기록으로 남긴다. 아래 본문은 **원문 그대로 수정하지 않는다** — 현재 구현은
+> CLAUDE.md + ADR-0002 + `rust/`/`ios/` 소스가 SoT.
+>
 > Merge of two design workflows (2026-06-15): the **ANSI terminal milestone** (#42)
 > and the **multiplatform expansion** (#43, iOS/iPadOS/macOS/visionOS full + watchOS
 > limited). Both designs were independently grounded in live HEAD and adversarially

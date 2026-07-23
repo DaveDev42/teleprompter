@@ -132,9 +132,9 @@ impl Drop for IpcSession {
 
 /// Reader thread body: loop reading frames and forwarding parsed messages.
 ///
-/// Mirrors the Bun `onMessage` transport boundary: a frame that parses to an
-/// unknown discriminant (`parse_ipc_message` → `None`) is dropped silently
-/// (Bun's `if (!msg) continue`), never surfaced as an error.
+/// Mirrors the retired Bun CLI's `onMessage` transport boundary: a frame that
+/// parses to an unknown discriminant (`parse_ipc_message` → `None`) is dropped
+/// silently (Bun's `if (!msg) continue`), never surfaced as an error.
 ///
 /// Uses `read_frame_eof_aware` to distinguish a clean connection close (daemon
 /// shut down gracefully at a frame boundary → `IpcError::Closed`) from a

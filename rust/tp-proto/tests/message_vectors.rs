@@ -1,9 +1,11 @@
 //! Cross-implementation message-type parity (ADR-0003 Stage 0 gate).
 //!
-//! The fixture `tests/fixtures/message-vectors.json` is generated from the LIVE
-//! TS guards (`scripts/gen-message-vectors.ts` imports `@teleprompter/protocol`
-//! and records, per raw input, the guard's accept/reject verdict and — for
-//! accepts — the parsed object re-serialized through `JSON.stringify`).
+//! The fixture `tests/fixtures/message-vectors.json` was generated from the live
+//! TS guards (`scripts/gen-message-vectors.ts` imported `@teleprompter/protocol`
+//! and recorded, per raw input, the guard's accept/reject verdict and — for
+//! accepts — the parsed object re-serialized through `JSON.stringify`) before
+//! that generator was deleted in the "#5 zero-Bun cascade" PR6 (#933); the
+//! Bun/Node toolchain itself was removed in PR7 (#935).
 //!
 //! For every case this test:
 //!   - runs the corresponding Rust `parse_*` over the SAME `raw`, and
@@ -11,8 +13,10 @@
 //!   - on accept, asserts the Rust parsed value re-serializes to a JSON value
 //!     equal to the TS one.
 //!
-//! Regenerate the fixture (`bun scripts/gen-message-vectors.ts`) whenever a
-//! guard's acceptance changes; this test then fails loudly if the port diverges.
+//! The checked-in vectors are now the frozen byte-exact source of truth — this
+//! test fails loudly if the port diverges from them. To regenerate (only if a
+//! guard's acceptance changes), check out the pre-deletion commit from git
+//! history (last verified regeneration: PR5 #929) and rerun the script there.
 
 use serde_json::Value;
 use tp_proto::control::parse_control_message;

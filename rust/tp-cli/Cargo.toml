@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Native Rust `tp` CLI (ADR-0003 full-CLI port). Subcommand router + read-only commands first; retires the Bun CLI as commands land. Talks ONLY to the daemon IPC socket (never a relay WS — CLI-has-no-RelayClient invariant)."
+description = "Native Rust `tp` CLI — the sole implementation (the retired Bun CLI was deleted in the #5 zero-Bun cascade PR6, #933). Talks ONLY to the daemon IPC socket (never a relay WS — CLI-has-no-RelayClient invariant)."
 
 # The single user-facing binary. Installed at ~/.local/bin/tp (dogfood) and,
 # once the port is complete, shipped as the release `tp` (brew/curl).

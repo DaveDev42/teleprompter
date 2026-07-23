@@ -419,6 +419,7 @@ async fn handle_inbound(
                         "Frame size {size} exceeds limit of {} bytes",
                         state.max_frame_size
                     )),
+                    frontend_id: None,
                 }),
             )],
         )
@@ -464,6 +465,7 @@ async fn handle_inbound(
                 RelayServerMessage::Err(RelayErr {
                     e: "PARSE_ERROR".to_string(),
                     m: Some("Invalid JSON".to_string()),
+                    frontend_id: None,
                 }),
             )],
         )
@@ -487,6 +489,7 @@ async fn handle_inbound(
                 RelayServerMessage::Err(RelayErr {
                     e: "UNKNOWN_TYPE".to_string(),
                     m: Some(format!("Unknown or malformed message type: {t}")),
+                    frontend_id: None,
                 }),
             )],
         )
@@ -597,6 +600,7 @@ fn dispatch_locked(
                     RelayServerMessage::Err(RelayErr {
                         e: "RATE_LIMITED".to_string(),
                         m: Some("Too many messages. Slow down.".to_string()),
+                        frontend_id: None,
                     }),
                 )]);
             }
@@ -608,6 +612,7 @@ fn dispatch_locked(
                     RelayServerMessage::Err(RelayErr {
                         e: "RATE_LIMITED".to_string(),
                         m: Some("Daemon group budget exceeded. Slow down.".to_string()),
+                        frontend_id: None,
                     }),
                 )]);
             }
@@ -746,6 +751,7 @@ fn route_push_register(
             RelayServerMessage::Err(RelayErr {
                 e: "UNAUTHORIZED".to_string(),
                 m: Some("Only frontends can send relay.push.register".to_string()),
+                frontend_id: None,
             }),
         )]);
     }
@@ -848,6 +854,7 @@ fn resolve_push_locked(
                 RelayServerMessage::Err(RelayErr {
                     e: "UNAUTHORIZED".to_string(),
                     m: Some("Only daemons can send push requests".to_string()),
+                    frontend_id: None,
                 }),
             )]);
         }
@@ -893,6 +900,7 @@ fn resolve_push_locked(
                     m: Some(format!(
                         "Push token unseal failed for frontendId {frontend_id}"
                     )),
+                    frontend_id: Some(frontend_id.to_string()),
                 }),
             )])
         }
@@ -936,12 +944,14 @@ async fn handle_push(
                     Some(RelayServerMessage::Err(RelayErr {
                         e: "RATE_LIMITED".to_string(),
                         m: Some("Too many messages. Slow down.".to_string()),
+                        frontend_id: None,
                     }))
                 } else if !handle.group_limiter.as_ref().is_none_or(|g| g.check()) {
                     state.metrics.inc_daemon_rate_limited_drops();
                     Some(RelayServerMessage::Err(RelayErr {
                         e: "RATE_LIMITED".to_string(),
                         m: Some("Daemon group budget exceeded. Slow down.".to_string()),
+                        frontend_id: None,
                     }))
                 } else {
                     None
@@ -1100,6 +1110,7 @@ fn map_delivery_result(
             RelayServerMessage::Err(RelayErr {
                 e: "PUSH_RATE_LIMITED".to_string(),
                 m: Some(format!("Push rate limit exceeded for frontendId {fid}")),
+                frontend_id: Some(fid.to_string()),
             }),
         )],
         DeliveryResult::Error => vec![Action::Send(
@@ -1107,6 +1118,7 @@ fn map_delivery_result(
             RelayServerMessage::Err(RelayErr {
                 e: "PUSH_DELIVERY_ERROR".to_string(),
                 m: Some(format!("Push delivery failed for frontendId {fid}")),
+                frontend_id: Some(fid.to_string()),
             }),
         )],
         DeliveryResult::DeadToken => vec![Action::Send(
@@ -1114,6 +1126,7 @@ fn map_delivery_result(
             RelayServerMessage::Err(RelayErr {
                 e: "PUSH_TOKEN_DEAD".to_string(),
                 m: Some(format!("APNs device token is dead for frontendId {fid}")),
+                frontend_id: Some(fid.to_string()),
             }),
         )],
     }
@@ -1189,6 +1202,7 @@ fn not_authenticated(conn_id: ConnId, msg: Option<&'static str>) -> DispatchOutc
         RelayServerMessage::Err(RelayErr {
             e: "NOT_AUTHENTICATED".to_string(),
             m: msg.map(str::to_string),
+            frontend_id: None,
         }),
     )])
 }
@@ -1489,6 +1503,7 @@ mod tests {
         let msg = RelayServerMessage::Err(crate::messages::RelayErr {
             e: "FRAME_TOO_LARGE".to_string(),
             m: Some("Frame size 2 exceeds limit of 1 bytes".to_string()),
+            frontend_id: None,
         });
         let json = serde_json::to_value(&msg).unwrap();
         assert_eq!(json["t"], "relay.err");
@@ -2040,6 +2055,10 @@ mod tests {
             let json = serde_json::to_value(msg).unwrap();
             assert_eq!(json["t"], "relay.err");
             assert_eq!(json["e"], expected_e);
+            assert_eq!(
+                json["frontendId"], "fe-1",
+                "{result:?} relay.err carries the target frontendId as a structured field"
+            );
         }
     }
 

@@ -125,15 +125,28 @@ pub struct Pong {
     pub ts: Option<f64>,
 }
 
-/// Payload for `relay.err` (relay.ts:246-251).
+/// Payload for `relay.err`.
 ///
 /// `e` is a raw error-code string (e.g. `"PUSH_UNSEAL_FAILED"`). There is NO
 /// structured enum on the wire — it is always a plain `String`.
+///
+/// `frontend_id` is additive-optional (WS additive-field principle — old
+/// peers ignore it, old relays omit it): the relay populates it on the four
+/// push-scoped codes (`PUSH_UNSEAL_FAILED` / `PUSH_TOKEN_DEAD` /
+/// `PUSH_RATE_LIMITED` / `PUSH_DELIVERY_ERROR`) so the daemon can evict the
+/// affected frontend's dead push token instead of retrying it until the
+/// frontend happens to re-register on reconnect.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RelayErr {
     pub e: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub m: Option<String>,
+    #[serde(
+        rename = "frontendId",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub frontend_id: Option<String>,
 }
 
 /// Payload for `relay.notification` (relay.ts:252-270).
@@ -287,7 +300,9 @@ pub fn parse_relay_server_message(raw: &Value) -> Option<RelayServerMessage> {
         "relay.err" => {
             let e = req_string(obj, "e")?;
             let m = opt_string(obj, "m")?;
-            Some(RelayServerMessage::Err(RelayErr { e, m }))
+            // Additive-optional (absent on old relays) — never required.
+            let frontend_id = opt_string(obj, "frontendId")?;
+            Some(RelayServerMessage::Err(RelayErr { e, m, frontend_id }))
         }
         "relay.notification" => {
             let title = req_string(obj, "title")?;
@@ -623,6 +638,7 @@ mod tests {
             RelayServerMessage::Err(RelayErr {
                 e: "PUSH_UNSEAL_FAILED".into(),
                 m: Some("bad key".into()),
+                frontend_id: None,
             })
         );
         let without_m =
@@ -632,8 +648,48 @@ mod tests {
             RelayServerMessage::Err(RelayErr {
                 e: "UNKNOWN_TYPE".into(),
                 m: None,
+                frontend_id: None,
             })
         );
+    }
+
+    #[test]
+    fn relay_err_frontend_id_is_additive_optional() {
+        // Present → parsed into the structured field.
+        let with_fid = parse_relay_server_message(&json!({
+            "t": "relay.err", "e": "PUSH_TOKEN_DEAD",
+            "m": "APNs device token is dead for frontendId fe-1",
+            "frontendId": "fe-1"
+        }))
+        .unwrap();
+        assert_eq!(
+            with_fid,
+            RelayServerMessage::Err(RelayErr {
+                e: "PUSH_TOKEN_DEAD".into(),
+                m: Some("APNs device token is dead for frontendId fe-1".into()),
+                frontend_id: Some("fe-1".into()),
+            })
+        );
+        // Non-string frontendId → reject the frame (fail-closed guard).
+        assert!(parse_relay_server_message(
+            &json!({"t": "relay.err", "e": "PUSH_TOKEN_DEAD", "frontendId": 7})
+        )
+        .is_none());
+        // Serialization: None omits the key entirely; Some emits "frontendId".
+        let none = serde_json::to_value(RelayErr {
+            e: "X".into(),
+            m: None,
+            frontend_id: None,
+        })
+        .unwrap();
+        assert_eq!(none, json!({"e": "X"}));
+        let some = serde_json::to_value(RelayErr {
+            e: "PUSH_TOKEN_DEAD".into(),
+            m: None,
+            frontend_id: Some("fe-1".into()),
+        })
+        .unwrap();
+        assert_eq!(some, json!({"e": "PUSH_TOKEN_DEAD", "frontendId": "fe-1"}));
     }
 
     // ── relay.notification ───────────────────────────────────────────────────

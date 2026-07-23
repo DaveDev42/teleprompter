@@ -18,19 +18,22 @@
 //! there is NO stale-mtime TTL to manage. No external crate is needed (the
 //! `fs4` crate's trait method is shadowed by this inherent std method anyway).
 //!
-//! ## DIVERGENCE from the Bun CLI (accepted)
+//! ## DIVERGENCE from the retired Bun CLI (accepted)
 //!
-//! The Bun reference (`apps/cli/src/lib/pair-lock.ts`) uses `proper-lockfile`,
-//! which is a **mkdir-based lock DIRECTORY** (`pair.lock.lock/`) with a 10s
-//! stale-mtime sweep — NOT `flock(2)`. The Rust port uses `flock` instead.
-//! Consequence: a Rust `tp pair new` and a Bun `tp pair new` do NOT mutually
-//! exclude (they take different kinds of lock on different paths). This is
-//! ACCEPTED because the Bun CLI is being retired by this port and the two
-//! binaries are not run concurrently against the same machine afterward. The
-//! daemon-side `PendingPairing` + proof-based `relay.register` still prevent
+//! The retired Bun reference (`apps/cli/src/lib/pair-lock.ts`, deleted in #5
+//! PR6 #933 — visible in git history) used `proper-lockfile`, which is a
+//! **mkdir-based lock DIRECTORY** (`pair.lock.lock/`) with a 10s stale-mtime
+//! sweep — NOT `flock(2)`. The Rust port uses `flock` instead. Consequence: a
+//! Rust `tp pair new` and the old Bun `tp pair new` would not have mutually
+//! excluded (they took different kinds of lock on different paths). This was
+//! ACCEPTED because the Bun CLI has since been retired and deleted by this
+//! port (#5 PR6) — only the Rust binary exists now, so concurrent
+//! mixed-implementation locking cannot occur. The daemon-side
+//! `PendingPairing` + proof-based `relay.register` still prevent
 //! protocol-layer identity corruption regardless. The `flock` design is also
 //! strictly more robust for the single-implementation steady state: it
-//! auto-releases on SIGKILL, where the mkdir lock would leave a stale directory.
+//! auto-releases on SIGKILL, where the mkdir lock would leave a stale
+//! directory.
 
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::Path;

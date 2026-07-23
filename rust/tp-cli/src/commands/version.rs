@@ -2,8 +2,8 @@
 //!
 //! Byte-exact port of `apps/cli/src/commands/version.ts:15-35`. Two lines to
 //! stdout. Line 1 is always `tp v{version}` — version baked at build time by
-//! `build.rs` (reads the root `package.json`, the same field release-please
-//! bumps, so the native and Bun CLIs report identical versions). Line 2 is
+//! `build.rs` (reads the root `version.txt`, the same file release-please
+//! bumps since #5 PR7 replaced the root `package.json`). Line 2 is
 //! either `claude {version}` (the trimmed stdout of `claude --version`, when
 //! claude is on PATH and exits 0) or a dim `claude: not found on PATH` (when
 //! claude is missing or exits non-zero).
@@ -49,8 +49,8 @@ mod tests {
     #[test]
     fn tp_version_is_semver_shaped() {
         // build.rs must have resolved a non-empty x.y.z from the root
-        // package.json (or a fallback). The Bun CLI's version.test.ts asserts
-        // the first line matches `^tp v\d+\.\d+\.\d+$`.
+        // version.txt (or a fallback). The retired Bun CLI's version.test.ts
+        // asserted the first line matches `^tp v\d+\.\d+\.\d+$`.
         let parts: Vec<&str> = TP_VERSION.split('.').collect();
         assert_eq!(
             parts.len(),

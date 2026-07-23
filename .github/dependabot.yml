@@ -4,42 +4,13 @@
 # Grouped + weekly to keep PR volume low. PR titles use conventional-commit
 # prefixes so release-please treats dep bumps as `chore:`/`build:` (no version
 # escalation). All ecosystems present in this repo are covered:
-#   - npm        (pnpm workspace — root manifest drives the whole monorepo)
-#   - cargo      (rust/ workspace: tp-core, tp-proto)
-#   - github-actions (the 5 workflows under .github/workflows)
+#   - cargo      (rust/ workspace — the entire backend + CLI)
+#   - github-actions (workflow `uses:` pins under .github/workflows)
+# (The npm ecosystem block was removed with the Node toolchain in #5 PR7 —
+#  there is no JS/TS manifest left to update.)
 version: 2
 
 updates:
-  # ── JS/TS dependencies (pnpm workspace) ───────────────────────────────────
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "chore"
-      include: "scope"
-    groups:
-      # Batch dev tooling (biome/turbo/typescript/types) into one PR.
-      dev-tooling:
-        patterns:
-          - "@biomejs/*"
-          - "turbo"
-          - "typescript"
-          - "@types/*"
-          - "bun-types"
-      # Everything else (runtime deps) batched separately, minor+patch only.
-      runtime-minor-patch:
-        update-types:
-          - "minor"
-          - "patch"
-    ignore:
-      # React is pinned for Ink compatibility (apps/cli manifest-guards.test.ts
-      # asserts the version invariant) — never auto-bump.
-      - dependency-name: "react"
-      - dependency-name: "react-dom"
-
   # ── Rust dependencies (rust/ workspace) ───────────────────────────────────
   - package-ecosystem: "cargo"
     directory: "/rust"

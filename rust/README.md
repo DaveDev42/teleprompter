@@ -40,9 +40,9 @@ rust/
       fixtures/message-vectors.json   # scripts/gen-message-vectors.ts 산출 (relayClient/ipc/control/label)
   tp-relay/                # ADR-0003 Stage 1 — relay 서버 (host-only). [lib] tp_relay + [[bin]] tp-relay
     src/main.rs            # runnable 엔트리 (Step 8a); production = /usr/local/bin/tp-relay
-  tp-cli/                  # ADR-0003 Amendment 2 — 네이티브 `tp` CLI (host-only). Bun CLI 대체 진행 중
-    Cargo.toml             # [[bin]] tp; deps: clap. build.rs = root package.json version → TP_CLI_VERSION
-    build.rs               # 단일 버전 SoT (root package.json read; CARGO_PKG_VERSION fallback)
+  tp-cli/                  # ADR-0003 Amendment 2 — 네이티브 `tp` CLI (host-only). Bun CLI 는 #5 PR6 에서 퇴역
+    Cargo.toml             # [[bin]] tp; deps: clap. build.rs = root version.txt → TP_CLI_VERSION
+    build.rs               # 단일 버전 SoT (root version.txt read — release-please simple 이 bump; TP_CLI_VERSION env 오버라이드, CARGO_PKG_VERSION fallback)
     src/
       main.rs              # THIN clap 라우터 (11 서브커맨드 선언; 미포팅은 loud-fail stub)
       commands/

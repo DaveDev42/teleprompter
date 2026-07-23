@@ -8,8 +8,6 @@
 
 # Architecture-critical surfaces (called out explicitly so future contributors
 # see they touch protocol/crypto/relay invariants — same owner today).
-/packages/protocol/     @DaveDev42
-/packages/relay/        @DaveDev42
 /rust/                  @DaveDev42
 /docs/adr/              @DaveDev42
 /.github/               @DaveDev42

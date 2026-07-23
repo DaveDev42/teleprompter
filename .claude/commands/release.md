@@ -84,7 +84,7 @@ should pass since no application logic is changed. Branch protection has
 no required status checks configured, so mergeability is determined
 solely by the `mergeable`/`mergeStateStatus` fields.
 
-Do not run `bun test` / `pnpm type-check:all` locally
+Do not run `cargo test` / `cargo clippy` locally
 — `ci.yml` covers all of these on every PR, including release-please PRs.
 
 ### Step 3 — Merge

@@ -4,18 +4,20 @@ description: CI와 동일한 로컬 사전 검증
 
 ## Deploy Check
 
-CI와 동일한 검증을 로컬에서 순차 실행. 하나라도 실패 시 중단:
+CI(`ci.yml` — lint/type-check/test/build-cli/rust 5 job)와 동일한 검증을 로컬에서 순차 실행.
+하나라도 실패 시 중단. 전부 `cd rust` + rustup-shim-safe PATH
+(`TC_BIN="$(dirname "$(rustup which cargo)")"; PATH="$TC_BIN:$PATH"`) 에서:
 
-1. `pnpm exec biome ci .` — lint + format 검증
-2. `pnpm type-check:all` — 전체 타입 체크 (CI와 동일한 5개 tsconfig, 순차 실행)
-3. `bun test --coverage --timeout 30000 ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay` — Tier 1-3 테스트
-4. `bun test --coverage --timeout 30000 ./apps/app` — RN 앱 단위 테스트 (반드시 별도 invocation — `mock.module` 전역 누출이 타 패키지 crypto 테스트를 오염, CI test job과 동일한 분리)
-5. `bun run scripts/build.ts` — CLI 바이너리 빌드
-6. `./dist/tp version && ./dist/tp --help` — smoke test
-7. Runner-spawn smoke (CI `build-cli` job과 동일 — 번들 누락 모듈 감지):
+1. `cargo fmt --all -- --check` — 포맷 검증 (CI `lint` job)
+2. `cargo check --workspace --all-targets` — 타입/컴파일 체크 (CI `type-check` job)
+3. `cargo clippy --workspace --all-targets` — 린트 (CI `rust` job; 심각도는 `[workspace.lints]` 가 SoT — `-- -D warnings` 절대 금지)
+4. `cargo test --workspace` — 전체 테스트 + TS-era 골든벡터 (CI `test`/`rust` job)
+5. `cargo build --release --bin tp` — CLI 바이너리 빌드 (CI `build-cli` job)
+6. `target/release/tp version && target/release/tp --help` — smoke test
+7. Runner-exec seam smoke (CI `build-cli` job 과 동일):
    ```bash
-   timeout 10 ./dist/tp --dangerously-skip-permissions -p "test" 2>&1 | tee /tmp/tp-smoke.log || true
-   if grep -q 'Module not found' /tmp/tp-smoke.log; then echo "FATAL: runner bundle is missing a module"; exit 1; fi
+   TMP=$(mktemp -d) && printf '#!/bin/sh\necho "RUNNER_GOT: $@"\n' > "$TMP/tp-runner" && chmod +x "$TMP/tp-runner"
+   TP_RUNNER_BIN="$TMP/tp-runner" target/release/tp run --sid x | grep -q "RUNNER_GOT: --sid x" || { echo "FATAL: tp run → tp-runner exec seam broken"; exit 1; }
    ```
 
 각 단계 pass/fail 리포트. 전체 통과 시 push ready 보고.

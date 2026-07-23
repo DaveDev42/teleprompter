@@ -18,31 +18,32 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # Pin Bun so `bun build --compile --target …` only ever asks for a
-  # cross-compile target that's been published. setup-bun@v2 with no
-  # version grabs the newest release, and Bun ships the host binary
-  # before the cross-target downloads catch up — that gap broke the
-  # v0.1.35 release ("Target platform 'bun-linux-aarch64-v1.3.14' is
-  # not available for download"). Bump this deliberately when a newer
-  # Bun's targets are confirmed available — 1.3.14's darwin/linux ×
-  # arm64/x64 zips were all verified published before this bump.
-  # 1.3.14 also carries the macho code-signing fix (#29272, landed in
-  # 1.3.13) that 1.3.12 regressed, so compiled darwin binaries get a
-  # well-formed ad-hoc signature AMFI accepts instead of a SIGKILL.
-  BUN_VERSION: 1.3.14
 
 jobs:
+  # Rust-only bundles (#5 PR6): scripts/build-bundle.sh builds the 4 cargo bins
+  # and packs bin/tp + libexec/tp/{tp-daemon,tp-relay,tp-runner,tpd-stub} into
+  # dist/tp-<suffix>.tar.gz — the ONLY release asset shape. The legacy Bun
+  # single-binary asset (tp-<suffix>, no .tar.gz) is DROPPED: pre-tarball
+  # `tp upgrade` clients (ancient Bun-CLI installs) can no longer self-update
+  # and must reinstall via install.sh/brew. The tpd member is a tiny sh STUB
+  # kept only so pre-PR6 upgrade.rs unpack checks and old install.sh revisions
+  # (both hard-require the member) keep working — rationale in build-bundle.sh.
+  #
+  # NOTE: dispatching this workflow (which lives on main) against a tag cut
+  # BEFORE PR6 would fail — those trees lack scripts/build-bundle.sh. Same
+  # already-documented constraint as testflight.yml: we never re-release
+  # pre-cutover tags with the current workflow.
+  #
+  # No codesigning on darwin: cargo's darwin output carries a linker-signed
+  # ad-hoc signature and tar preserves the bytes; brew/curl install paths don't
+  # apply the com.apple.quarantine xattr, so Gatekeeper never fires on our
+  # distribution channels.
   build-darwin:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-      - uses: pnpm/action-setup@v6
-      - run: pnpm install --frozen-lockfile
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.96.0
       - uses: Swatinem/rust-cache@v2
@@ -51,65 +52,31 @@ jobs:
       # aarch64-apple-darwin is already the host target on the arm64 runner;
       # rustup target add is a no-op but harmless and ensures the target is listed.
       - run: rustup target add aarch64-apple-darwin
-      # Build BOTH the legacy single-binary (for tp upgrade self-update compatibility)
-      # AND the bundle tarball (for brew / install.sh tarball path).
-      # DUAL ASSET strategy: old `tp upgrade` downloads tp-darwin_arm64 (no .tar.gz);
-      # new brew/install.sh prefers tp-darwin_arm64.tar.gz. Both are uploaded so
-      # neither path breaks. A follow-up PR will migrate upgrade.rs to the tarball
-      # and drop the single binary from the release.
-      - name: Build single binary (legacy, for tp upgrade compat)
-        run: bun run scripts/build.ts --target bun-darwin-arm64
-      - name: Build bundle tarball (release path)
-        run: bun run scripts/build.ts --bundle --target bun-darwin-arm64
-      # Preserve Bun's native Developer ID signature on the compiled output.
-      # brew/curl install paths don't apply the com.apple.quarantine xattr,
-      # so Gatekeeper never fires on our distribution channels — re-signing
-      # with our own ad-hoc identity actively worsened UX on quarantined
-      # downloads (turned an "unidentified developer" warning into a hard
-      # "app is damaged" block).
-      #
-      # UPX note: UPX compresses a single ELF/Mach-O binary. The bundle asset
-      # is a .tar.gz containing TWO binaries (Rust tp + Bun tpd), so gzip
-      # already provides compression. Darwin UPX was excluded even before
-      # (Gatekeeper/Hardened Runtime SIGKILLs packed Mach-O). The single
-      # binary legacy asset also ships uncompressed here. Size tradeoff:
-      # ~26 MB tarball vs a future UPX-compressed inner binary; deferred.
-      #
-      # Flatten the tarball next to the single binary so BOTH live at the dist/
-      # top level. upload-artifact roots at the least-common-ancestor of all
-      # matched paths; if the tarball stayed under dist/bundles/ it would land
-      # in artifacts/bundles/ after download (NOT artifacts/), so the release
-      # job's `tp-*` checksum/upload globs and bump-tap's tarball URL would miss
-      # it. Single flat `dist/tp-*` glob then matches both tp-<suffix> and
-      # tp-<suffix>.tar.gz.
-      - name: Flatten bundle tarball into dist/
-        run: mv dist/bundles/tp-*.tar.gz dist/
+      - name: Build bundle tarball (Rust-only)
+        run: scripts/build-bundle.sh darwin_arm64 aarch64-apple-darwin
       - uses: actions/upload-artifact@v7
         with:
-          name: binary-bun-darwin-arm64
-          path: dist/tp-*
+          name: binary-darwin_arm64
+          path: dist/tp-*.tar.gz
 
+  # UPX note: the tarball contains FOUR Rust binaries, so gzip already provides
+  # asset-level compression; per-binary UPX inside the bundle is deferred.
   build-linux:
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: bun-linux-x64
+          - suffix: linux_x64
             runner: ubuntu-latest
             rust-target: x86_64-unknown-linux-gnu
-          - target: bun-linux-arm64
+          - suffix: linux_arm64
             runner: ubuntu-24.04-arm
             rust-target: aarch64-unknown-linux-gnu
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-      - uses: pnpm/action-setup@v6
-      - run: pnpm install --frozen-lockfile
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.96.0
       - uses: Swatinem/rust-cache@v2
@@ -117,27 +84,12 @@ jobs:
           workspaces: rust
       # Each linux target builds on its native runner — no cross-linker needed.
       - run: rustup target add ${{ matrix.rust-target }}
-      # Build BOTH the legacy single-binary (for tp upgrade self-update compatibility)
-      # AND the bundle tarball (for brew / install.sh tarball path). See dual-asset
-      # comment in build-darwin for rationale.
-      - name: Build single binary (legacy, for tp upgrade compat)
-        run: bun run scripts/build.ts --target ${{ matrix.target }}
-      - name: Build bundle tarball (release path)
-        run: bun run scripts/build.ts --bundle --target ${{ matrix.target }}
-      # UPX note: UPX compresses a single ELF binary. The bundle tarball now
-      # contains TWO binaries, so gzip already provides compression for the .tar.gz
-      # asset. The legacy single-binary asset ships uncompressed here for simplicity.
-      # Previously linux binaries were UPX-compressed (~55% size reduction); that
-      # optimization is deferred until the single binary is dropped post-#5 follow-up.
-      #
-      # Flatten the tarball next to the single binary (see build-darwin comment) so
-      # both land at artifacts/ top level after download — single `dist/tp-*` glob.
-      - name: Flatten bundle tarball into dist/
-        run: mv dist/bundles/tp-*.tar.gz dist/
+      - name: Build bundle tarball (Rust-only)
+        run: scripts/build-bundle.sh ${{ matrix.suffix }} ${{ matrix.rust-target }}
       - uses: actions/upload-artifact@v7
         with:
-          name: binary-${{ matrix.target }}
-          path: dist/tp-*
+          name: binary-${{ matrix.suffix }}
+          path: dist/tp-*.tar.gz
 
   release:
     needs: [build-darwin, build-linux]
@@ -147,19 +99,31 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
-      - name: Verify macOS signatures (best-effort)
+      # Hard gate: every bundle tarball must contain the exact member set that
+      # upgrade.rs / install.sh / the brew formula consume. Catches a broken
+      # build-bundle.sh before anything is published.
+      - name: Verify bundle tarball members
         run: |
+          set -euo pipefail
           cd artifacts
-          for f in tp-darwin_*; do
-            file "$f" || true
+          for f in tp-*.tar.gz; do
+            echo "== $f"
+            tar -tzf "$f"
+            suffix="${f#tp-}"; suffix="${suffix%.tar.gz}"
+            for member in bin/tp libexec/tp/tpd libexec/tp/tp-daemon libexec/tp/tp-relay libexec/tp/tp-runner; do
+              tar -tzf "$f" | grep -qx "tp-${suffix}/${member}" || {
+                echo "missing member: tp-${suffix}/${member}" >&2
+                exit 1
+              }
+            done
           done
       - uses: sigstore/cosign-installer@v3
       - name: Generate checksums
         run: |
           cd artifacts
-          # checksums cover BOTH the single binaries (tp-*) AND the bundle tarballs
-          # (tp-*.tar.gz). Old `tp upgrade` finds its single-binary checksum;
-          # brew/install.sh find the tarball checksum. All in one file.
+          # checksums cover the bundle tarballs (tp-*.tar.gz) — the only asset
+          # shape since PR6 (#5). upgrade.rs and brew/install.sh all verify
+          # against the tarball checksum here.
           sha256sum tp-* > checksums.txt
           cat checksums.txt
       - name: Sign checksums with cosign (keyless)
@@ -175,7 +139,7 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v4
         with:
-          # Attest BOTH single binaries and bundle tarballs.
+          # Attest the bundle tarballs (the only release assets since PR6).
           subject-path: "artifacts/tp-*"
       - uses: softprops/action-gh-release@v3
         with:

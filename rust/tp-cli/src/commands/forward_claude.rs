@@ -11,10 +11,10 @@
 //! - **`tp -- <args>`** — an explicit direct-forward to `claude`, daemon-bypass.
 //!
 //! Neither needs the daemon, the session-db, or the blob — they exec `claude`
-//! directly. This removes the last two blob dependencies that are pure
-//! claude-forwards (the remaining `Route::Forward` cases, `run`/`relay`, still
-//! dispatch through the blob and are de-trampolined by their own tasks: #8 for
-//! the runner, #25 for the relay).
+//! directly. This removed the last two blob dependencies that are pure
+//! claude-forwards. (The then-remaining blob routes, `run`/`relay`, were
+//! de-trampolined by #8 and #25, and the blob itself + its `Route::Forward`
+//! path were deleted in #5 PR6.)
 //!
 //! # argv shape
 //!
@@ -28,7 +28,8 @@
 //!
 //! # exec-replace
 //!
-//! Like [`exec_blob`](super::forward::exec_blob), this uses `exec()` to replace
+//! Like the other exec routes (`relay::exec_relay`, `run::exec_runner`), this
+//! uses `exec()` to replace
 //! the process image with `claude`, inheriting stdio, the TTY, and signals — so
 //! the exit code propagates naturally and there is no wait/relay layer. On any
 //! error before/at exec (claude missing, exec syscall failure) it prints a
@@ -99,7 +100,7 @@ fn exec_claude(claude_args: &[String]) -> ExitCode {
     ExitCode::FAILURE
 }
 
-/// Stub for non-Unix targets (tp is POSIX-only; see `forward::exec_blob`).
+/// Stub for non-Unix targets (tp is POSIX-only).
 #[cfg(not(unix))]
 fn exec_claude(_claude_args: &[String]) -> ExitCode {
     eprintln!("tp: claude forwarding is only supported on POSIX platforms");

@@ -4,7 +4,7 @@
 [![Deploy Relay](https://github.com/DaveDev42/teleprompter/actions/workflows/deploy-relay.yml/badge.svg)](https://github.com/DaveDev42/teleprompter/actions/workflows/deploy-relay.yml)
 [![License: BSD-2-Clause](https://img.shields.io/badge/License-BSD_2--Clause-blue.svg)](./LICENSE)
 
-A self-hosted developer tool that lets you view and drive **your own** Claude Code sessions from **your own** phone — like VS Code Remote or `tmux` over SSH, scoped to a single operator. You run the daemon on your own machine and pair your own device (end-to-end encrypted); it gives you a dual Chat/Terminal UI plus voice input. **Full native rewrite in progress** (Swift app + Rust core — see [ADR-0001](./docs/adr/0001-full-native-rewrite-swift-rust.md)). The Expo/RN app stack has been removed; the backend (Bun daemon/relay/runner) is retained as reference while the rewrite progresses.
+A self-hosted developer tool that lets you view and drive **your own** Claude Code sessions from **your own** phone — like VS Code Remote or `tmux` over SSH, scoped to a single operator. You run the daemon on your own machine and pair your own device (end-to-end encrypted); it gives you a dual Chat/Terminal UI plus voice input. **Full native stack** ([ADR-0001](./docs/adr/0001-full-native-rewrite-swift-rust.md)): the backend and CLI are pure Rust (the Bun/TS implementation has been removed), and the app is a Swift (SwiftUI) Apple-multiplatform target (iOS/iPadOS/macOS, plus visionOS and a limited watchOS experience).
 
 ## Quick Start
 
@@ -33,9 +33,12 @@ curl -fsSL https://raw.githubusercontent.com/DaveDev42/teleprompter/main/scripts
 ```bash
 git clone https://github.com/DaveDev42/teleprompter.git
 cd teleprompter
-pnpm install
-pnpm build:cli:local    # → dist/tp
+scripts/build-bundle.sh darwin_arm64 aarch64-apple-darwin   # → dist/tp-darwin_arm64.tar.gz
+# (pick your platform: linux_x64 x86_64-unknown-linux-gnu / linux_arm64 aarch64-unknown-linux-gnu)
 ```
+
+Requires a Rust toolchain (see `rust/rust-toolchain.toml`). The tarball unpacks to a
+`bin/tp` + `libexec/tp/{tp-daemon,tp-relay,tp-runner}` prefix tree.
 
 ## Usage
 
@@ -62,7 +65,7 @@ tp pair --relay wss://relay.example.com
 
 Scan the QR code with the Teleprompter app. The app connects to your daemon **through the relay** with end-to-end encryption — no direct local connection.
 
-> **Note:** The Expo/RN Web app and TestFlight/Android builds have been removed (full native rewrite in progress — ADR-0001). The Swift iOS app is currently a minimal Phase-0 shell; pairing UI and full feature parity are planned for Phase 3.
+> **Note:** The app is the native Swift (SwiftUI) multiplatform app (ADR-0001/0002) — iOS/iPadOS/macOS full experience, visionOS full, watchOS limited. The old Expo/RN Web app and Android builds were removed with the rewrite.
 
 ### Auto-start on Login
 
@@ -111,60 +114,52 @@ Runner ──IPC──→ Daemon ──WSS (E2EE)──→ Relay ──WSS (E2EE
 - **Runner**: Spawns Claude Code in a PTY, collects io streams and hooks events, communicates with Daemon via IPC (Unix domain socket)
 - **Daemon**: Manages sessions, stores records, encrypts with libsodium per-frontend keys, connects to Relay(s) as a client
 - **Relay**: Stateless forwarder of already-encrypted frames (keeps only a 10-frame reconnect buffer per session). As an untrusted hosted hop it has no access to your plaintext — the same end-to-end-encryption privacy property Signal or WireGuard provide.
-- **App**: Swift (SwiftUI) iOS app — full native rewrite in progress (ADR-0001). Currently Phase-0 boot-marker shell; Chat + Terminal + Voice UI planned for Phase 3. Connects to paired daemon(s) via Relay only.
+- **App**: Swift (SwiftUI) Apple-multiplatform app — iOS/iPadOS/macOS (+ visionOS, limited watchOS). Chat (hooks-only structured cards) + Terminal + Voice. Connects to paired daemon(s) via Relay only.
 
 **All frontend↔daemon traffic flows through the Relay with E2EE.** Daemon does not run a WebSocket server; the App does not connect directly to the Daemon. Pairing (QR/JSON) delivers the Daemon's public key and relay URL offline; frontend pubkey is exchanged in-band via `relay.kx`.
 
 ## Monorepo Structure
 
 ```
-apps/
-  cli/            # Unified `tp` binary
-ios/              # Swift app (SwiftUI — full native rewrite, Phase 0 done)
-  project.yml     # XcodeGen spec
+ios/              # Swift app (SwiftUI — single Apple-multiplatform target + watch target)
+  project.yml     # XcodeGen spec (SoT; .xcodeproj is generated)
   Sources/        # Swift source
   Tests/          # Swift tests
-packages/
-  daemon/         # Session management, Store, IPC server, Relay client
-  runner/         # PTY management, hooks collection
-  relay/          # WebSocket ciphertext relay
-  protocol/       # Shared types, codec, crypto, pairing
-  tsconfig/       # Shared TypeScript configs
+rust/             # Rust workspace — the entire backend + CLI
+  tp-core/        # wire codec + E2EE crypto + pairing (UniFFI → Swift)
+  tp-proto/       # framed JSON codec, envelope/IPC types, socket-path
+  tp-cli/         # `tp` binary (subcommand router + passthrough)
+  tp-daemon/      # long-running daemon (sessions, store, E2EE, relay client)
+  tp-runner/      # per-session runner (claude PTY, hooks)
+  tp-relay/       # WebSocket ciphertext relay
 scripts/
-  build.ts        # Multi-platform bun build --compile (tp CLI)
-  ios.sh          # iOS Simulator build/install/launch harness
+  build-bundle.sh # Release bundle assembly (cargo → tp-<platform>.tar.gz)
+  ios.sh          # Apple-platform build/install/launch/smoke/test harness
   install.sh      # curl-pipe-sh installer (macOS/Linux; Windows users run under WSL)
 ```
 
 ## Development
 
 ```bash
-pnpm install
+# Backend/CLI — Rust workspace
+( cd rust && cargo test --workspace )
+( cd rust && cargo clippy --workspace --all-targets && cargo fmt --all -- --check )
 
-# Run all bun:test suites across the workspace (unit + integration)
-pnpm test
-
-# Type check every workspace package
-pnpm type-check:all
-
-# Build CLI binary
-pnpm build:cli:local    # current platform
-pnpm build:cli          # every release target (see scripts/build.ts TARGETS)
-
-# Swift app — iOS Simulator build + install + launch
-bash scripts/ios.sh
+# Swift app — Simulator build + 8-marker smoke (TP_PLATFORM=ios|macos|visionos|watchos)
+scripts/ios.sh smoke
+scripts/ios.sh test
 
 # Environment diagnostics
-pnpm doctor
+tp doctor
 ```
 
 ## Key Technologies
 
-- **TypeScript + Bun** — backend stack (Runner, Daemon, Relay, CLI)
-- **Swift (SwiftUI)** — iOS app (full native rewrite — ADR-0001, Phase 0 done)
-- **Rust (`tp-core`)** — shared crypto/codec core via UniFFI FFI (Phase 2, not yet built)
-- **libsodium** — X25519 key exchange + XChaCha20-Poly1305 AEAD encryption
-- **OpenAI Realtime API** — voice input/output with STT + TTS (planned Phase 3)
+- **Rust** — entire backend + CLI (Runner, Daemon, Relay, CLI; single cargo workspace)
+- **Swift (SwiftUI)** — Apple-multiplatform app (ADR-0001/0002)
+- **Rust (`tp-core`)** — shared crypto/codec core, exposed to Swift via UniFFI FFI
+- **X25519 + XChaCha20-Poly1305** — E2EE key exchange + AEAD encryption
+- **Voice** — on-device (SFSpeechRecognizer + AVSpeechSynthesizer, no API key) or OpenAI Realtime API, selectable
 
 ## Security
 
@@ -190,8 +185,8 @@ All release binaries are built in GitHub Actions from tagged commits. You can ve
 ### 1. Checksum (basic)
 
 ```bash
-# Download the binary and checksums
-curl -fsSL -O https://github.com/DaveDev42/teleprompter/releases/download/vX.Y.Z/tp-linux_x64
+# Download the bundle tarball and checksums
+curl -fsSL -O https://github.com/DaveDev42/teleprompter/releases/download/vX.Y.Z/tp-linux_x64.tar.gz
 curl -fsSL -O https://github.com/DaveDev42/teleprompter/releases/download/vX.Y.Z/checksums.txt
 
 # Verify (Linux)
@@ -223,10 +218,10 @@ Expected: `Verified OK`. Then run the checksum check from step 1.
 
 ### 3. SLSA build provenance (advanced)
 
-Every binary has a GitHub-native attestation linking it to the exact commit and workflow run that built it. Requires [GitHub CLI](https://cli.github.com/).
+Every bundle tarball has a GitHub-native attestation linking it to the exact commit and workflow run that built it. Requires [GitHub CLI](https://cli.github.com/).
 
 ```bash
-gh attestation verify tp-linux_x64 --owner DaveDev42
+gh attestation verify tp-linux_x64.tar.gz --owner DaveDev42
 ```
 
 ## License

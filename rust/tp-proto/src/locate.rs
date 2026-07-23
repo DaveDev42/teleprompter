@@ -15,19 +15,18 @@
 //! Keeping the resolver here is a single source of truth, so the daemon and the
 //! CLI can never drift to different `tp-runner` binaries.
 //!
-//! The sibling resolvers `locate_tp_daemon` / `locate_tp_relay` / `locate_bun_blob`
-//! stay in `tp-cli::locate` — each has a single consumer (the CLI), so no
+//! The sibling resolvers `locate_tp_daemon` / `locate_tp_relay` stay in
+//! `tp-cli::locate` — each has a single consumer (the CLI), so no
 //! cross-crate agreement invariant applies to them; only `tp-runner` gained a
 //! second consumer at the flip.
 //!
 //! # Resolution order (first match wins)
 //!
-//! 1. `$TP_RUNNER_BIN` — absolute-path override. This is the SAME env var the
-//!    TS-side opt-in seam reads (`apps/cli/src/lib/runner-bin.ts`
-//!    `resolveRunnerBinOverride`) and the E2E parity harness injects — a shared
-//!    escape hatch the operator/harness already built, never a toggle.
+//! 1. `$TP_RUNNER_BIN` — absolute-path override, the env var the E2E parity
+//!    harness injects (and the retired TS-side seam read) — a shared escape
+//!    hatch the operator/harness already built, never a toggle.
 //! 2. `canonicalize(current_exe) → ../../libexec/tp/tp-runner` — release prefix
-//!    tree, alongside `tpd` / `tp-daemon` / `tp-relay`. When the exe is
+//!    tree, alongside `tp-daemon` / `tp-relay`. When the exe is
 //!    `<prefix>/bin/tp` (or the `tp-daemon` binary at `<prefix>/libexec/tp/tp-daemon`),
 //!    `canonicalize` + `../..` lands on `<prefix>`.
 //! 3. Sibling `tp-runner` next to the current binary — flat dogfood drop.
@@ -37,7 +36,7 @@
 //!
 //! # Infinite-loop guard
 //!
-//! Carries the same `is_self` guard as `tp-cli`'s `locate_bun_blob`: a candidate
+//! Carries the same `is_self` guard as `tp-cli`'s sidecar resolvers: a candidate
 //! that canonicalizes to the current executable is rejected so a
 //! misconfiguration cannot spawn the caller as its own runner.
 
@@ -153,8 +152,8 @@ fn locate_tp_runner_inner(current_canon: Option<&Path>) -> Result<PathBuf, Strin
 ///
 /// This is a scoped copy of `tp-cli::locate::find_repo_root` — a trivial
 /// directory-walk with a sentinel string, duplicated (rather than shared)
-/// because `tp-cli` retains three live callers of its own copy
-/// (`locate_bun_blob` / `locate_tp_daemon` / `locate_tp_relay`) and the walk
+/// because `tp-cli` retains live callers of its own copy
+/// (`locate_tp_daemon` / `locate_tp_relay`) and the walk
 /// carries no cross-crate agreement invariant (both copies key off the same
 /// committed sentinel path).
 pub(crate) fn find_repo_root(start: &Path) -> Option<PathBuf> {

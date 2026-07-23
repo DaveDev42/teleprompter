@@ -33,7 +33,7 @@
 //!
 //! # exec-replace
 //!
-//! Like [`super::forward::exec_blob`] / [`super::forward_claude`], the `start`
+//! Like [`super::forward_claude`] / [`super::run`], the `start`
 //! path uses `exec()` to replace the process image with `tp-relay`, inheriting
 //! stdio, the TTY, and signals (SIGINT for graceful shutdown), so `tp-relay`'s
 //! exit code becomes ours and no Rust parent is left in the signal path.
@@ -209,7 +209,7 @@ fn exec_relay(
     ExitCode::FAILURE
 }
 
-/// Stub for non-Unix targets (tp is POSIX-only; see `forward::exec_blob`).
+/// Stub for non-Unix targets (tp is POSIX-only).
 #[cfg(not(unix))]
 fn exec_relay(
     _bin: &std::path::Path,

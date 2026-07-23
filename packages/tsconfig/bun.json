@@ -1,7 +1,0 @@
-{
-  "extends": "./base.json",
-  "compilerOptions": {
-    "types": ["bun-types"],
-    "noEmit": true
-  }
-}

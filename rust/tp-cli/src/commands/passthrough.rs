@@ -19,13 +19,14 @@
 //! never embed a daemon in `tp-cli`, keeping the CLI decoupled from the daemon
 //! crate.
 //!
-//! # Runner spawn (still the blob runner — task #8's job to flip)
+//! # Runner spawn (native `tp-runner` since task #8)
 //!
 //! The Runner is spawned as `<current_exe> run --sid … --cwd … --socket-path …
-//! --cols … --rows … -- <claude args>`. `tp run` is a `Route::Forward` that
-//! trampolines to the Bun blob runner; that is intentional — de-trampolining the
-//! *runner* is task #8 (flip default runner to Rust `tp-runner`), out of scope
-//! here. This PR de-trampolines the passthrough *control logic*, not the runner.
+//! --cols … --rows … -- <claude args>`. `tp run` routes to `Route::RunNative`
+//! (`commands::run::run`), which execs the shipped Rust `tp-runner` — the same
+//! binary the daemon spawns per session. (When this passthrough was first
+//! ported, `run` still trampolined to the Bun blob runner; task #8 flipped it
+//! native and #5 PR6 deleted the blob.)
 //!
 //! # Terminal proxy (mirror of passthrough.ts:101-217)
 //!

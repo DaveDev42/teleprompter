@@ -4,8 +4,8 @@
 //!
 //! `tp run` starts a per-session Runner (opens a claude PTY, connects to the
 //! daemon over the IPC unix socket, streams io + hooks Records). Before task #8
-//! it trampolined through the Bun blob (`tpd`) via `forward::exec_blob`; this
-//! module de-trampolines it to a native exec of the shipped Rust `tp-runner`,
+//! it trampolined through the Bun blob (`tpd` — blob + forwarder deleted in
+//! #5 PR6); this module execs the shipped Rust `tp-runner` natively,
 //! exactly mirroring the `tp relay` → `tp-relay` flip (`commands::relay`, #25).
 //!
 //! Unlike `relay`, **no flag translation is needed**: the Bun `run` argv contract
@@ -24,7 +24,7 @@
 //!
 //! # Why `exec()` instead of `.status()`
 //!
-//! Same rationale as `forward::exec_blob` / `relay::exec_relay`:
+//! Same rationale as `relay::exec_relay` / `forward_claude`:
 //! `CommandExt::exec()` is a safe fn (returns `io::Error`, never returns on
 //! success), satisfying `unsafe_code = "forbid"`, and gives true process-image
 //! replacement — `tp-runner` inherits stdio, the controlling TTY, and all
@@ -89,7 +89,7 @@ fn exec_runner(bin: &std::path::Path, argv: &[String]) -> ExitCode {
     ExitCode::FAILURE
 }
 
-/// Stub for non-Unix targets (tp is POSIX-only; see `forward::exec_blob`).
+/// Stub for non-Unix targets (tp is POSIX-only).
 #[cfg(not(unix))]
 fn exec_runner(_bin: &std::path::Path, _argv: &[String]) -> ExitCode {
     eprintln!(

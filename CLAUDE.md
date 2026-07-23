@@ -6,40 +6,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > **What this is (read first).** Teleprompter is a **user-owned, self-hosted developer tool** — the same category as VS Code Remote, `tmux` over SSH, or `mosh`. The developer runs the daemon on **their own** machine and pairs **their own** phone to view and drive **their own** Claude Code sessions. There is exactly one consenting operator, no third party, and no target other than the operator's own dev box. The end-to-end encryption exists so a hosted relay hop cannot read the operator's private session traffic — the same privacy property Signal or WireGuard provide — **not** to evade inspection. The test harness automates the operator's own dev workflow in a throwaway sandbox; where it answers a first-run prompt or reuses the operator's own login token, that is ordinary unattended-CI plumbing, never credential theft or a safety bypass.
 
-Teleprompter lets a developer view and drive **their own** Claude Code sessions from **their own** phone. A native **Swift (SwiftUI)** app pairs device-to-device (end-to-end encrypted) with a Bun-based daemon the developer runs on their own machine, and presents a dual Chat/Terminal UI — comparable to VS Code Remote scoped to a single operator.
+Teleprompter lets a developer view and drive **their own** Claude Code sessions from **their own** phone. A native **Swift (SwiftUI)** app pairs device-to-device (end-to-end encrypted) with a Rust daemon the developer runs on their own machine, and presents a dual Chat/Terminal UI — comparable to VS Code Remote scoped to a single operator.
 
-> **전면 네이티브 재작성 진행 중 (2026-06, ADR-0001).** Expo/RN/RN Web 프런트엔드 + EAS 클라우드 빌드를 **전면 제거**하고, 앱은 Swift(SwiftUI) 네이티브로, 공유 코어는 Rust(`tp-core`, UniFFI 순수함수)로 재작성한다. **앱은 단일 멀티플랫폼 SwiftUI 타깃** — iOS/iPadOS/네이티브 macOS(Catalyst 아님)가 현재 출하 범위(Phase A), visionOS + watchOS(제한 경험)는 Rust toolchain 게이트 뒤 Phase B (ADR-0002). 빌드/검증은 **로컬 Apple 하니스**(`scripts/ios.sh`, `TP_PLATFORM=ios|macos|visionos|watchos` + XcodeGen `ios/project.yml`)가 담당한다 (EAS 클라우드 빌드 대체). SoT = `docs/adr/0001-full-native-rewrite-swift-rust.md` + **플랫폼 범위 `docs/adr/0002-multiplatform-apple-expansion.md`**. 백엔드(daemon/relay/runner)와 CLI 는 **현행 Bun/TypeScript 구현을 레퍼런스로 유지** (Rust 이관은 후순위 Phase). 아래 wire(framed JSON)·relay 는 암호화된 프레임만 중계(평문 미접근)·daemon=relay 유일 클라이언트 불변식은 재작성 후에도 보존된다.
+> **전면 네이티브 재작성 진행 중 (2026-06, ADR-0001).** Expo/RN/RN Web 프런트엔드 + EAS 클라우드 빌드를 **전면 제거**하고, 앱은 Swift(SwiftUI) 네이티브로, 공유 코어는 Rust(`tp-core`, UniFFI 순수함수)로 재작성한다. **앱은 단일 멀티플랫폼 SwiftUI 타깃** — iOS/iPadOS/네이티브 macOS(Catalyst 아님)가 현재 출하 범위(Phase A), visionOS + watchOS(제한 경험)는 Rust toolchain 게이트 뒤 Phase B (ADR-0002). 빌드/검증은 **로컬 Apple 하니스**(`scripts/ios.sh`, `TP_PLATFORM=ios|macos|visionos|watchos` + XcodeGen `ios/project.yml`)가 담당한다 (EAS 클라우드 빌드 대체). SoT = `docs/adr/0001-full-native-rewrite-swift-rust.md` + **플랫폼 범위 `docs/adr/0002-multiplatform-apple-expansion.md`**. 백엔드(daemon/relay/runner)와 CLI 는 **Rust 이관 완료** — #5 zero-Bun cascade PR6 에서 Bun/TS 소스를 삭제해 Rust 워크스페이스가 유일 구현이다. 아래 wire(framed JSON)·relay 는 암호화된 프레임만 중계(평문 미접근)·daemon=relay 유일 클라이언트 불변식은 재작성 후에도 보존된다.
 
 ## Tech Stack
 
 - **App (Apple multiplatform)**: Swift + SwiftUI, 단일 멀티플랫폼 타깃 + **별도 `TeleprompterWatch` 타깃(B3 ✅)**. 현재 출하 = iOS Simulator / iPadOS / 네이티브 macOS (Phase A) + **visionOS Simulator (B2 ✅)** + **watchOS Simulator 제한 경험 (B3 ✅)**. 빌드/검증 = 로컬 하니스 (`xcodebuild` + `xcrun simctl`(iOS/visionOS/watchOS) / `open` + 호스트 unified log(macOS), `scripts/ios.sh` + `TP_PLATFORM`). EAS 미사용.
 - **Shared core**: Rust (`rust/tp-core`) — wire codec + E2EE crypto(AEAD/KDF/crypto_kx/ratchet) + pairing. Swift 에 UniFFI FFI(순수 함수만)로 노출, TS 구현과 byte-exact (골든벡터 교차검증). xcframework = `rust/build-xcframework.sh` (= `scripts/ios.sh rust`). 상세 = `rust/README.md`. **(Phase 2 ✅ 구현 + Simulator 검증 완료)**
-- **Backend / CLI**: TypeScript on Bun v1.3.13+ (Runner, Daemon, Relay, CLI). 현행 구현 = 동작 레퍼런스 + dogfood 파이프라인. Turborepo + pnpm 모노레포.
-- **Encryption**: X25519 + XChaCha20-Poly1305 (libsodium on Bun; `tp-core` 가 순수 Rust crate 로 byte-exact 재현, 골든벡터 검증 완료).
+- **Backend / CLI**: Rust (`rust/` workspace — `tp-cli`, `tp-daemon`, `tp-runner`, `tp-relay`, `tp-proto`, `tp-core`). #5 zero-Bun cascade PR6 에서 Bun/TS 백엔드 소스(`packages/*`, `apps/cli`)와 `tpd` blob 을 삭제 — Rust 가 유일 구현이다. wire/E2EE byte-exactness 는 TS 시절 골든벡터(`wire_vectors.rs`/`message_vectors.rs`)가 잠근다.
+- **Encryption**: X25519 + XChaCha20-Poly1305 (`tp-core` 순수 Rust crate, 골든벡터 검증 완료).
 - **Voice**: selectable backend — **on-device (offline)** [SFSpeechRecognizer STT + Foundation Models refine/summarize (iOS 26+, availability-gated, raw-transcript fallback) + AVSpeechSynthesizer TTS, no API key] **or OpenAI Realtime API** [key required]. Settings toggle (Auto / On-device / OpenAI Realtime); default on-device when no key. Both backends drive one `VoiceConnectionStatus` state machine via the `VoiceBackend` protocol seam (`ios/Sources/Voice/`).
 
 ## Monorepo Layout
 
 ```
 ios/           # Swift (SwiftUI) Apple multiplatform app (iOS/iPadOS/macOS; dir name kept) — project.yml (XcodeGen SoT), Sources/, Tests/, Generated/ (UniFFI bindings, gitignored)
-rust/          # Rust workspace — tp-core crate (wire codec + E2EE + pairing), build-xcframework.sh, README.md
-apps/
-  cli/         # @teleprompter/cli — unified `tp` binary (subcommand router)
-packages/
-  daemon/      # @teleprompter/daemon — Bun long-running service (session mgmt, vault, E2EE, worktree)
-  runner/      # @teleprompter/runner — Bun per-session process (PTY via Bun.spawn terminal, hooks collection)
-  relay/       # @teleprompter/relay — Bun WebSocket relay; forwards already-encrypted frames only (no plaintext access)
-  protocol/    # @teleprompter/protocol — shared types, framed JSON codec, envelope types (tp-core byte-exact source)
-  tsconfig/    # Shared TS configs (base.json, bun.json)
+rust/          # Rust workspace (백엔드/CLI 전체 — #5 PR6 이후 유일 구현)
+  tp-core/     # wire codec + E2EE crypto + pairing (UniFFI → Swift, 골든벡터 SoT)
+  tp-proto/    # framed JSON codec, envelope/IPC 타입, socket-path/locate 공유 로직
+  tp-cli/      # `tp` binary — subcommand router + passthrough terminal-proxy
+  tp-daemon/   # long-running service (session mgmt, vault, E2EE, worktree)
+  tp-runner/   # per-session process (claude PTY, hooks collection)
+  tp-relay/    # WebSocket relay; forwards already-encrypted frames only (no plaintext access)
+  tp-loopback/ # smoke 하니스용 in-process relay + 가짜 daemon peer
+  tp-e2e-holder/ # 로컬 실-claude E2E holder (격리 daemon/relay/claude 구동)
 scripts/
   ios.sh       # Local iOS Simulator harness (rust→gen→build→install→launch→smoke/test)
-  build.ts     # Multi-platform `bun build --compile` script (tp binary)
+  build-bundle.sh  # release bundle 조립 (cargo 4 bins → tp-<suffix>.tar.gz; release.yml + 로컬 dry-run)
   install.sh   # curl-pipe-sh installer for GitHub Releases (macOS/Linux)
 ```
 
 ## Architecture
 
-- **Runner** spawns Claude Code in a PTY (`PtyBun` via `Bun.spawn({ terminal })`), collects io streams and hooks events, sends Records to Daemon via IPC (Unix domain socket)
+- **Runner** (`tp-runner`) spawns Claude Code in a PTY (portable-pty), collects io streams and hooks events, sends Records to Daemon via IPC (Unix domain socket)
 - **Daemon** is a long-running mux that (a) spawns and supervises one Runner per session, (b) manages git worktrees (`git worktree add/remove/list`), (c) stores Records in Store (append-only per session, with session delete/prune support), (d) persists pairings in store DB for auto-reconnect, (e) encrypts with libsodium per-frontend keys, (f) reaches the relay as an outbound WebSocket **client** (the daemon never listens for inbound connections, so the operator doesn't have to open a port or expose their dev box to the internet — the same reason a laptop dials out to a chat server instead of hosting one), and (g) handles pair-ops IPC (`pair.remove` / `pair.rename`) from the CLI so the CLI never opens its own RelayClient
 - **Relay** is a stateless forwarder of already-encrypted frames — it keeps only a small 10-frame reconnect buffer per session
 - **App (Swift)** decrypts and renders: Terminal tab + Chat tab (hooks events only — PTY io records go exclusively to the Terminal tab). 현재는 Phase 0 부트마커 셸 단계 — pairing/chat/terminal parity 는 Phase 3 (ADR-0001).
@@ -60,7 +60,7 @@ These are non-negotiable rules. **If code contradicts these, the code is wrong (
 
 ## Relay Capacity Target
 
-**Always design and tune for ~10k concurrent connections (daemon + app combined) on a single relay node.** 모든 relay 변경은 이 capacity bar 를 보존해야 한다. Single-node knobs (env 표), capacity invariants (2-layer rate limit, slow-consumer disconnect, idle close, /metrics SoT), scale-out 전략은 `.claude/rules/relay-capacity.md` (`packages/relay/**` 작업 시 자동 로드).
+**Always design and tune for ~10k concurrent connections (daemon + app combined) on a single relay node.** 모든 relay 변경은 이 capacity bar 를 보존해야 한다. Single-node knobs (env 표), capacity invariants (2-layer rate limit, slow-consumer disconnect, idle close, /metrics SoT), scale-out 전략은 `.claude/rules/relay-capacity.md` (`rust/tp-relay/**` 작업 시 자동 로드).
 
 ## Protocol
 
@@ -72,7 +72,7 @@ All components use the same framed JSON protocol: `u32_be length` + `utf-8 JSON 
 
 Connection flow: daemon `register → auth → broadcast pubkey via kx`; frontend `auth → send pubkey via kx → subscribe`.
 
-각 메시지의 wire 상세 (resume token 동작, `control.rename` Label tagged-union + cross-version compat/version-gating, `decodeWireLabel`/`decodeKxLabelOrKeep`) 는 `.claude/rules/protocol.md` (SoT, `packages/protocol/**` 작업 시 자동 로드).
+각 메시지의 wire 상세 (resume token 동작, `control.rename` Label tagged-union + cross-version compat/version-gating, `decodeWireLabel`/`decodeKxLabelOrKeep`) 는 `.claude/rules/protocol.md` (SoT, `rust/tp-proto/**`/`rust/tp-core/**` 작업 시 자동 로드).
 
 ## Key Design Decisions
 
@@ -81,15 +81,14 @@ Connection flow: daemon `register → auth → broadcast pubkey via kx`; fronten
 - E2EE pairing via QR code containing pairing secret + daemon pubkey + relay URL + daemon ID (+ **QR v4**: random-UUID `pairingId` + `hostname`). Daemon pubkey is delivered offline via QR; Frontend pubkey is exchanged in-band via `relay.kx` (encrypted with kxKey derived from pairing secret). Both sides perform ECDH (X25519 `crypto_kx`) → per-frontend session keys → XChaCha20-Poly1305 encryption. Relay token is self-registered via `relay.register` (proof-based, no pre-registration needed). N:N supported — one app connects to multiple daemons, one daemon serves multiple frontends, each with independent E2EE keys identified by `frontendId`.
 - **Pairing confirmation (PCT) — WS v3 (#49)**: because `relay.kx` has no freshness binding (a hostile relay could replay a cached kx broadcast), the daemon carries a per-frontend **Pairing Confirmation Tag** (domain-separated BLAKE2b over the established session keys, `tp-core` byte-exact) on the `hello` frame. The app compares it against its own PCT and drives the §1.3 promotion table: `pct` match → confirmed commit; `pct` mismatch → FAILED; `pct` absent with `effectiveV = max(kx-advertised v, persisted minAdvertisedV floor) < 3` → legacy commit; absent with `effectiveV ≥ 3` → FAILED (downgrade). `WS_PROTOCOL_VERSION` (advertised by both sides in the kx payload `v`) is **3** for PCT/QR-v4. No hard handshake gate — `pct` is additive-optional (old apps ignore it, old daemons omit it), so the promotion table (`effectiveV` + floor) is the sole discriminator. Device-local: PCT/floor/`frontendId`/label/`localHidden` are never synced. SoT = `docs/design/pairing-redesign-local-ecdh-commit-v3.md`.
 - Platform priority: Apple 멀티플랫폼 — iOS/iPadOS/네이티브 macOS 완전 경험 (Phase A, 출하), visionOS 완전 + watchOS 제한 경험은 toolchain 게이트 뒤 Phase B (ADR-0002). Web/Android 는 재작성 이후 강등 (ADR-0001 §6 확장 경로 유지).
-- Deployment: `bun build --compile` for `tp` binary (subcommands: daemon, run, relay).
+- Deployment: `scripts/build-bundle.sh` 가 cargo release 빌드 4종(`tp`/`tp-daemon`/`tp-runner`/`tp-relay`)을 `tp-<suffix>.tar.gz` 번들로 조립 (release.yml + 로컬 dry-run 공용).
 - Passthrough mode: `tp <claude args>` runs claude directly through tp pipeline. `--tp-*` flags are consumed by tp, rest forwarded to claude.
-- **Windows is unsupported natively.** `tp` exits at startup on `process.platform === "win32"` with a message pointing to WSL. Run inside WSL (Ubuntu/Debian) and install the Linux build.
+- **Windows is unsupported natively.** `tp` is POSIX-only (`#[cfg(unix)]` exec paths; non-unix builds print a WSL pointer). Run inside WSL (Ubuntu/Debian) and install the Linux build.
 - Pairing is completion-gated: `tp pair new` blocks until the frontend completes ECDH kx. Pending pairings live in daemon memory only; store DB holds completed pairings. `pairing.json`은 더 이상 존재하지 않는다. CLI는 daemon이 떠있지 않으면 자동으로 시작하며 (`ensureDaemon()`), pair lock (`proper-lockfile` on `pair.lock`)으로 동시 `tp pair new` 실행을 막는다.
 
 ## Coding Conventions (Summary)
 
-- TypeScript (backend/CLI): Files kebab-case. Types: PascalCase. No default exports. Import: `@teleprompter/protocol`. Type-only: `import type { ... }`. Import sort: Biome 위임.
-- Tests: `bun:test`, 소스 옆 co-located. Biome = lint + format (ESLint/Prettier 금지).
+- Rust (backend/CLI, `rust/`): rustfmt (edition 2021, max_width 100) + clippy — 심각도는 `rust/Cargo.toml` `[workspace.lints]` 가 SoT (`clippy::all=deny`, pedantic=warn; `-- -D warnings` 절대 금지). `unsafe_code = "forbid"`. Tests: `#[cfg(test)]` 소스 옆 co-located.
 - Swift (`ios/`): SwiftUI. 컨벤션은 재작성 진행에 따라 `ios/README.md` + 별도 rule 로 정착 예정.
 - 영역별 상세 컨벤션은 `.claude/rules/`에서 자동 로드됨.
 
@@ -102,7 +101,7 @@ frontmatter가 `model: inherit`이라 미명시 시 부모 Opus 상속.
 - **코드 작업/리뷰/구현**: `model: "sonnet"` (e.g., plugin review agents,
   `general-purpose`)
 - **어려운 설계/추론만 opus**: 명확히 필요할 때만
-- **QA**: 백엔드 회귀(`bun test`) = `haiku`. 앱 검증은 로컬 Swift 하니스
+- **QA**: 백엔드 회귀(`cargo test --workspace`) = `haiku`. 앱 검증은 로컬 Swift 하니스
   (`scripts/ios.sh build|smoke|test`, `TP_PLATFORM=ios|macos|visionos|watchos`)로 수행 — macOS-native smoke 는
   sim 부팅 없는 빠른 회귀 경로. RN Web/Playwright/Maestro/expo-mcp QA 는 재작성으로 제거됨.
 
@@ -115,31 +114,18 @@ fix-탐색 워크플로우는 가드가 구조에 박힌 `.claude/workflows/fact
 
 ## Testing Strategy
 
-- **Backend/CLI (Bun, Tier 1–3)**: `bun:test`. 소스 옆 co-located 유닛/통합 테스트.
-- **Rust core (`tp-core`)**: `cargo test -p tp-core` — 유닛 + 와이어 골든벡터(TS 교차검증). 상세는 `rust/README.md`.
+- **Backend/CLI (Rust)**: `cargo test --workspace` — 소스 옆 co-located `#[cfg(test)]` 유닛 + TS-era 골든벡터(`wire_vectors.rs`/`message_vectors.rs`, byte-exactness 잠금). 상세는 `rust/README.md`.
 - **App (Swift, multiplatform)**: `scripts/ios.sh test` (XCTest) + `smoke` (iOS/macOS/visionOS 8마커, watchOS 7마커) + `uitest`/`uitest-all` (XCUITest UI E2E — 단일/전 플랫폼 PASS/SKIP/FAIL 매트릭스, watchOS 자동 SKIP, 로컬 전용), `TP_PLATFORM=ios`(기본, Simulator) / `TP_PLATFORM=macos`(네이티브, 호스트 로그) / `TP_PLATFORM=visionos`(xrOS Sim) / `TP_PLATFORM=watchos`(watchOS Sim, B3 ✅). 상세는 `ios/README.md`.
 
 ### 명령어
 ```bash
-bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay  # 백엔드 전체
-pnpm type-check:all    # 전체 타입 체크 (daemon, cli, relay, runner)
-( cd rust && cargo test -p tp-core )   # Rust 코어 (호스트; rustup shim PATH 주의 — rust/README.md)
+( cd rust && cargo test --workspace )  # 백엔드 전체 (호스트; rustup shim PATH 주의 — rust/README.md)
+( cd rust && cargo clippy --workspace --all-targets && cargo fmt --all -- --check )  # 린트 (CI 와 동일 게이트)
 scripts/ios.sh test    # Swift 앱 XCTest (Simulator; tp-core FFI 포함)
 scripts/ios.sh smoke   # Swift 앱 빌드+설치+8마커 스모크 (TP_PLATFORM=ios 기본)
 TP_PLATFORM=macos scripts/ios.sh smoke   # 네이티브 macOS 스모크 (sim 없는 빠른 회귀 경로)
 TP_PLATFORM=watchos scripts/ios.sh smoke  # watchOS Simulator 7마커 스모크 (B3 ✅, TP_INPUT_OK 제외)
 ```
-
-> **macOS 로컬에서는 경로에 반드시 선행 `./` 를 붙인다.** un-rooted 경로(`bun test packages/daemon`)는
-> bun filter 모드로 repo 전체를 스캔하며 fd ~11.6k 를 쥐고, spawnSync pipe fd 가 Darwin
-> `OPEN_MAX`(10240)를 넘으면 자식 stdout 이 조용히 빈 값이 된다 (worktree-manager 6 fail 의
-> 실제 원인). 상세는 `.claude/rules/testing-inventory.md`.
-
-또는 슬래시 커맨드 사용 — 변경 파일 기반 자동 dispatch:
-- `/test [auto|protocol|daemon|runner|relay|cli|all]` — 변경 범위 감지 후 실행
-- `/deploy-check` — CI와 동일한 로컬 사전 검증
-
-백엔드 test 파일 인벤토리는 `.claude/rules/testing-inventory.md` 참조 — `*.test.ts` / `packages/**` / `apps/cli/**` 파일 작업 시 자동 로드됨.
 
 ## Dog-fooding (tp 백엔드 파이프라인)
 
@@ -149,30 +135,28 @@ TP_PLATFORM=watchos scripts/ios.sh smoke  # watchOS Simulator 7마커 스모크 
 
 **main 에 머지된 내 변경은 즉시 사용자의 로컬 `tp`/daemon 에 반영되어 있어야 한다.** 다음 시점마다 **묻지 말고** 재빌드/재설치:
 
-> **#4 flip 이후 (ADR-0003 Phase 4): dogfood `tp` 는 Rust CLI + Rust daemon/runner + `tpd` 트램폴린 번들이다.** 출하 아티팩트 = `bin/tp`(Rust CLI) + `libexec/tp/{tp-daemon, tp-runner, tp-relay, tpd}` (= `scripts/install.sh` 릴리즈 레이아웃과 동일). **daemon/runner 는 이제 Rust 바이너리**(#4 flip): `tp daemon start` → `locate_tp_daemon()`→`libexec/tp/tp-daemon`, daemon 이 세션마다 `locate_tp_runner()`→`libexec/tp/tp-runner` 스폰. `tpd`(Bun SEA, ~66MB)는 **passthrough fallback 전용 blob** 으로 남는다 — **`tpd` 만 깔면 `bundled tp-daemon not found` 로 daemon 이 안 뜬다**(#922 flip 직후 실제 P0). `bun run scripts/build.ts` (no `--bundle`) 의 `dist/tp` 는 **`tpd` 블롭**이지 entrypoint 가 **아니다** — 그걸 `~/.local/bin/tp` 로 깔면 퇴역한 레거시 Bun CLI 를 dogfood 하게 된다.
+> **#5 PR6 이후: dogfood `tp` 는 순수 Rust 번들이다.** 출하 아티팩트 = `bin/tp`(Rust CLI) + `libexec/tp/{tp-daemon, tp-runner, tp-relay}` (= `scripts/build-bundle.sh` 가 조립하는 릴리즈 레이아웃과 동일; 릴리즈 tarball 은 pre-PR6 `tp upgrade`/install.sh 호환용 **`tpd` sh stub** 을 추가로 실을 뿐 — Bun blob 은 삭제됐고 로컬 dogfood 조립엔 tpd 가 아예 불필요). `tp daemon start` → `locate_tp_daemon()`→`libexec/tp/tp-daemon`, daemon 이 세션마다 `locate_tp_runner()`→`libexec/tp/tp-runner` 스폰. **symlink 만 깔고 `tp-daemon` 이 없으면 `bundled tp-daemon not found` 로 daemon 이 안 뜬다**(#922 flip 직후 실제 P0).
 
-1. **PR squash merge 직후** — `apps/cli/**`, `packages/{daemon,runner,protocol,relay}/**`, `rust/tp-cli/**`, **`rust/tp-daemon/**`, `rust/tp-runner/**`, `rust/tp-relay/**`, `rust/tp-proto/**`, `rust/tp-core/**`** 중 하나라도 건드린 PR:
+1. **PR squash merge 직후** — `rust/tp-cli/**`, `rust/tp-daemon/**`, `rust/tp-runner/**`, `rust/tp-relay/**`, `rust/tp-proto/**`, `rust/tp-core/**` 중 하나라도 건드린 PR:
    ```bash
    # Rust CLI + daemon + runner + relay (release) — rustup shim 이 cargo 인자를
    # mis-parse 하므로 real toolchain bin 을 PATH 앞에.
    TC_BIN="$(dirname "$(cd rust && rustup which cargo)")"
    ( cd rust && PATH="$TC_BIN:$PATH" cargo build --release \
        --bin tp --bin tp-daemon --bin tp-runner --bin tp-relay )      # → rust/target/release/{tp,tp-daemon,tp-runner,tp-relay}
-   bun run scripts/build.ts                                            # Bun tpd SEA → dist/tp
-   # prefix-tree 조립 (install.sh 레이아웃 = bin/tp + libexec/tp/{tpd,tp-daemon,tp-relay,tp-runner})
+   # prefix-tree 조립 (레이아웃 = bin/tp + libexec/tp/{tp-daemon,tp-relay,tp-runner})
    TP_PREFIX="$HOME/.local/share/tp"
    mkdir -p "$TP_PREFIX/bin" "$TP_PREFIX/libexec/tp"
    cp rust/target/release/tp        "$TP_PREFIX/bin/tp"
-   cp rust/target/release/tp-daemon "$TP_PREFIX/libexec/tp/tp-daemon"  # #4 flip: Rust daemon (필수)
-   cp rust/target/release/tp-runner "$TP_PREFIX/libexec/tp/tp-runner"  # #4 flip: Rust runner (필수)
-   cp rust/target/release/tp-relay  "$TP_PREFIX/libexec/tp/tp-relay"   # `tp relay start` 용 (install.sh parity)
-   cp dist/tp                       "$TP_PREFIX/libexec/tp/tpd"         # Bun SEA passthrough fallback blob
-   chmod +x "$TP_PREFIX/bin/tp" "$TP_PREFIX"/libexec/tp/{tp-daemon,tp-runner,tp-relay,tpd}
+   cp rust/target/release/tp-daemon "$TP_PREFIX/libexec/tp/tp-daemon"  # 필수 (daemon)
+   cp rust/target/release/tp-runner "$TP_PREFIX/libexec/tp/tp-runner"  # 필수 (세션 스폰)
+   cp rust/target/release/tp-relay  "$TP_PREFIX/libexec/tp/tp-relay"   # `tp relay start` 용
+   chmod +x "$TP_PREFIX/bin/tp" "$TP_PREFIX"/libexec/tp/{tp-daemon,tp-runner,tp-relay}
    # cp 가 서명을 깨뜨려(`codesign -v` → "code or signature have been modified")
-   # Rust tp→{tp-daemon,tp-runner,tpd} exec 가 AMFI 에 SIGKILL(exit 137) 당한다.
+   # Rust tp→{tp-daemon,tp-runner} exec 가 AMFI 에 SIGKILL(exit 137) 당한다.
    # Rust tp 가 exec 하는 모든 자식 + parent(bin/tp) 를 전부 adhoc 재서명해 서명을
    # 일관되게 맞춘다 (일부만 재서명하면 parent/child 불일치로 여전히 kill — 반드시 전부).
-   for b in libexec/tp/tp-daemon libexec/tp/tp-runner libexec/tp/tp-relay libexec/tp/tpd bin/tp; do
+   for b in libexec/tp/tp-daemon libexec/tp/tp-runner libexec/tp/tp-relay bin/tp; do
      codesign --force --sign - "$TP_PREFIX/$b"
    done
    ln -sf "$TP_PREFIX/bin/tp" ~/.local/bin/tp                          # dogfood symlink → Rust tp
@@ -183,9 +167,9 @@ TP_PLATFORM=watchos scripts/ios.sh smoke  # watchOS Simulator 7마커 스모크 
 
 세부:
 - **dogfood = `~/.local/bin/tp`(→ `~/.local/share/tp/bin/tp` Rust), brew(릴리즈) = `/opt/homebrew/bin/tp` 로 분리.** `~/.zprofile` 이 `~/.local/bin` 을 앞에 둬 `tp` 는 dogfood 를 가리킴. **brew symlink 를 절대 덮지 않는다** (덮으면 `brew upgrade` 무력화 — 복구는 `brew link --overwrite tp`). dogfood 끄려면 `rm ~/.local/bin/tp`.
-- **Rust `tp` 는 4개 자식 바이너리를 `canonicalize(current_exe())/../../libexec/tp/<name>` 로 찾는다**: `locate_tp_daemon()`→`tp-daemon`(daemon start), `locate_tp_runner()`→`tp-runner`(daemon 이 세션마다 스폰), `locate_tp_relay()`→`tp-relay`(`tp relay start`), `locate_bun_blob()`→`tpd`(passthrough fallback). 그래서 `bin/tp` + `libexec/tp/{tp-daemon,tp-runner,tp-relay,tpd}` prefix-tree 레이아웃이 필수다 — **symlink 만 깔고 `tp-daemon` 이 없으면 `tp daemon start` 가 `bundled tp-daemon not found` 로 실패**(#922 flip 직후 실제 P0), `tp-runner` 가 없으면 세션 스폰이 실패. `dist/tp` 를 직접 `~/.local/bin/tp` 로 깔지 말 것 (그건 `tpd` 블롭이지 Rust entrypoint 가 아님).
+- **Rust `tp` 는 3개 자식 바이너리를 `canonicalize(current_exe())/../../libexec/tp/<name>` 로 찾는다**: `locate_tp_daemon()`→`tp-daemon`(daemon start), `locate_tp_runner()`→`tp-runner`(daemon 이 세션마다 스폰), `locate_tp_relay()`→`tp-relay`(`tp relay start`). (`locate_bun_blob()`→`tpd` passthrough fallback 은 #5 PR6 에서 삭제 — passthrough 는 native terminal-proxy.) 그래서 `bin/tp` + `libexec/tp/{tp-daemon,tp-runner,tp-relay}` prefix-tree 레이아웃이 필수다 — **symlink 만 깔고 `tp-daemon` 이 없으면 `tp daemon start` 가 `bundled tp-daemon not found` 로 실패**(#922 flip 직후 실제 P0), `tp-runner` 가 없으면 세션 스폰이 실패.
 - `daemon install` 은 plist 바이너리 경로를 `which tp` 로 고르므로 **`~/.local/bin/tp` 로 직접 실행**. 새 로그인 셸 전이면 `PATH="$HOME/.local/bin:$PATH" ~/.local/bin/tp daemon install`. #4 flip 이후 **daemon 프로세스는 `tp-daemon` 으로 뜬다** (Rust — `pgrep -fl tp-daemon` 로 확인; 옛 `tpd` 트램폴린 아님).
-- **adhoc 재서명은 dogfood 조립에서 필수** (macOS 로컬): `cargo build`/`bun build --compile` 산출물은 `adhoc`(Rust) / `adhoc,linker-signed`(Bun SEA) 서명을 갖는데, `cp` 가 payload 레이아웃/해시를 바꿔 그 서명을 무효화한다 (`codesign -v` → "code or signature have been modified"). 바이너리를 **직접 실행**하면 통과하지만, Rust `tp` 가 trampoline 으로 자식(`tp-daemon`/`tp-runner`/`tpd`)을 **exec** 하면 AMFI 가 SIGKILL(exit 137, 간헐적으로 보이지만 실제로는 일관 실패) 한다. 해결 = **`bin/tp` + Rust `tp` 가 exec 하는 모든 `libexec/tp/*` 자식(`tp-daemon`,`tp-runner`,`tp-relay`,`tpd`)을 전부** `codesign --force --sign -` 로 plain-adhoc 재서명(서명 일관성 — 일부만 재서명하면 parent/child 서명 불일치로 여전히 kill). `install.sh` 릴리즈 경로는 macOS 러너에서 빌드+서명된 tarball 을 `tar` 추출하므로 이 문제가 없다(로컬 `cp` 조립에서만 발생). 재서명 후 `tp version` + `tp status`(daemon running) 로 검증.
+- **adhoc 재서명은 dogfood 조립에서 필수** (macOS 로컬): `cargo build` 산출물은 linker-adhoc 서명을 갖는데, `cp` 가 payload 레이아웃/해시를 바꿔 그 서명을 무효화한다 (`codesign -v` → "code or signature have been modified"). 바이너리를 **직접 실행**하면 통과하지만, Rust `tp` 가 자식(`tp-daemon`/`tp-runner`/`tp-relay`)을 **exec** 하면 AMFI 가 SIGKILL(exit 137, 간헐적으로 보이지만 실제로는 일관 실패) 한다. 해결 = **`bin/tp` + Rust `tp` 가 exec 하는 모든 `libexec/tp/*` 자식을 전부** `codesign --force --sign -` 로 plain-adhoc 재서명(서명 일관성 — 일부만 재서명하면 parent/child 서명 불일치로 여전히 kill). `install.sh` 릴리즈 경로는 macOS 러너에서 빌드+서명된 tarball 을 `tar` 추출하므로 이 문제가 없다(로컬 `cp` 조립에서만 발생). 재서명 후 `tp version` + `tp status`(daemon running) 로 검증.
 - **재기동은 `tp daemon install` 한 번** (`pkill` 후 수동 재시작 금지 — 서비스 미등록 프로세스로 살아남아 OTA 안 됨). 재기동 후 `tp status` 로 daemon running 확인 + daemon.log 에서 `[RelayClient] authenticated to relay`(wss:// 연결 성공) 확인.
 - **Subagent worktree 가 active 인 동안 install 금지** — 모든 subagent 완료 알림 도착 + 메인 worktree `git status` clean 후 한꺼번에. 옛 `/usr/local/bin/tp` 잔재 발견 시 `rm`.
 
@@ -255,7 +239,7 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 
 ## Deployment Pipeline
 
-`tp` 바이너리 release 는 `/release` 슬래시 커맨드가 전 과정을 자동화 (release-please → multi-platform `bun build --compile` → GitHub Release → Homebrew tap). 전체 SoT (main push / v* tag / 수동 dispatch 표, 릴리즈 수동 절차, Infrastructure, GitHub Secrets) 는 `.claude/rules/release-deploy.md`. Apple 멀티플랫폼 앱(iOS/iPadOS/macOS/visionOS/watchOS)은 로컬 하니스(`scripts/ios.sh`, `TP_PLATFORM=ios|macos|visionos|watchos`)로 빌드/검증 — EAS 클라우드 빌드는 제거됨.
+`tp` 바이너리 release 는 `/release` 슬래시 커맨드가 전 과정을 자동화 (release-please → `scripts/build-bundle.sh` multi-platform Rust 번들 → GitHub Release → Homebrew tap). 전체 SoT (main push / v* tag / 수동 dispatch 표, 릴리즈 수동 절차, Infrastructure, GitHub Secrets) 는 `.claude/rules/release-deploy.md`. Apple 멀티플랫폼 앱(iOS/iPadOS/macOS/visionOS/watchOS)은 로컬 하니스(`scripts/ios.sh`, `TP_PLATFORM=ios|macos|visionos|watchos`)로 빌드/검증 — EAS 클라우드 빌드는 제거됨.
 
 ## CLI Commands
 

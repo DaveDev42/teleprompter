@@ -327,7 +327,7 @@ OSLog privacy: macOS native 빌드는 String 변수 보간을 기본 `<private>`
   (이전: `xcrun simctl openurl` 사용 — iOS/visionOS 26.5 Simulator 에서 LS -10814 error 로
   URL 이 앱에 전달되지 않는 회귀 발견. launch arg 주입으로 LS 라우팅 우회.)
 - **릴레이 인증 마커 (M2)**: M1 과 같은 딥링크 하나로 — smoke 가 로컬 loopback relay
-  (`scripts/local-relay-loopback.ts`, 골든 토큰 pre-seed) 를 띄우고, golden-secret +
+  (Rust `tp-loopback` 바이너리, 골든 토큰 pre-seed) 를 띄우고, golden-secret +
   `ws://localhost` 링크를 주입하면 앱이 인제스트 직후 자동 `relay.auth(role=frontend)` 를
   보낸다. `TP_RELAY_AUTH_OK daemon=daemon-smoketest` (앱) + relay `/health clients>=1`
   (릴레이) 양면 확인 — 실제 WS 왕복 = 첫 E2E 네트워크 신호. 실패 시

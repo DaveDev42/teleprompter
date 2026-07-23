@@ -20,21 +20,16 @@ pre-commit:
 pre-push:
   parallel: false
   commands:
-    # 1. Full Biome CI check (lint + format, error-level gates).
+    # 1. Full Biome CI check (lint + format, error-level gates). Vestigial after
+    #    PR6 (#5 cascade) deleted all TS backend sources — biome now only sees
+    #    stray root-level JSON/JS; the block itself is removed with the rest of
+    #    the Node toolchain in PR7.
     biome-ci:
       run: pnpm exec biome ci .
-    # 2. TypeScript type-check across all 5 packages (mirrors CI type-check job).
-    type-check:
-      run: |
-        pnpm exec tsc --noEmit -p packages/protocol/tsconfig.json &&
-        pnpm exec tsc --noEmit -p packages/daemon/tsconfig.json &&
-        pnpm exec tsc --noEmit -p packages/runner/tsconfig.json &&
-        pnpm exec tsc --noEmit -p packages/relay/tsconfig.json &&
-        pnpm exec tsc --noEmit -p apps/cli/tsconfig.json
-    # 3. Backend test suite (rooted paths — Darwin OPEN_MAX guard, see CLAUDE.md).
-    test:
-      run: bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay
-    # 4. Rust fmt + clippy + test — only when rust/ files changed.
+    # (PR6: the `type-check` and `test` blocks — tsc over packages/*+apps/cli and
+    #  `bun test` over the same five dirs — were deleted along with those sources.
+    #  Backend gating is now the `rust` block below + CI's cargo jobs.)
+    # 2. Rust fmt + clippy + test — only when rust/ files changed.
     #    `cargo` on this machine is the Homebrew rustup shim, which mis-parses
     #    `cargo fmt --all` (the shim swallows `--all` instead of dispatching to
     #    cargo-fmt). Prepend the active toolchain's real bin dir — derived

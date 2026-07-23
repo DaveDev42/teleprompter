@@ -23,34 +23,31 @@ EAS 클라우드 빌드, Maestro, expo-mcp 는 더 이상 사용하지 않는다
 |---|---|---|
 | Xcode + 시뮬레이터 런타임 | `xcrun simctl list runtimes` | iOS 런타임 1개 이상 설치 |
 | XcodeGen | `which xcodegen` | 설치됨 (`brew install xcodegen`) |
-| Bun (백엔드용) | `bun --version` | 1.3.13+ |
-| Rust + cargo | `cargo --version` | stable (UniFFI 빌드용, Phase 2 이후) |
+| Rust + cargo | `cargo --version` | `rust/rust-toolchain.toml` 핀 버전 (백엔드/CLI + UniFFI xcframework) |
 
 ### 검증 명령
 
 ```bash
-# iOS Simulator 하네스 전체 순서
-ios/scripts/ios.sh gen      # XcodeGen → .xcodeproj 생성
-ios/scripts/ios.sh boot     # Simulator 부팅
-ios/scripts/ios.sh build    # xcodebuild (Debug Simulator)
-ios/scripts/ios.sh run      # xcrun simctl install + launch
-ios/scripts/ios.sh smoke    # 부트 마커 확인 (Phase 0 smoke)
-ios/scripts/ios.sh test     # XCTest 실행
+# Apple 플랫폼 하네스 전체 순서 (TP_PLATFORM=ios 기본 / macos / visionos / watchos)
+scripts/ios.sh gen      # XcodeGen → .xcodeproj 생성
+scripts/ios.sh boot     # Simulator 부팅
+scripts/ios.sh build    # xcodebuild (Debug Simulator)
+scripts/ios.sh run      # install + launch
+scripts/ios.sh smoke    # 8마커 E2E smoke (Rust tp-loopback relay)
+scripts/ios.sh test     # XCTest 실행
 ```
 
 전체 절차와 각 스텝의 통과 기준은 **`ios/README.md`** 를 참고한다.
 
-### 현재 검증 상태 (Phase 0 — boot-marker shell)
+### 현재 검증 상태
 
-ADR-0001 Phase 0 기준: Swift 앱이 Simulator 에서 빌드·기동되고 부트 마커를 내보낸다.
-페어링, Chat, Terminal, E2EE, 음성 등의 기능은 Phase 2–3 에서 구현된다
-(현재 미구현 — ADR-0001 §Phase 참조).
-
-백엔드 (daemon / relay / runner) 검증은 이전과 동일하게 `bun test` 를 사용한다:
+앱은 페어링/Chat/Terminal/E2EE/음성까지 구현된 멀티플랫폼 빌드로, `scripts/ios.sh smoke`
+(8마커) + `test`(XCTest) + `uitest` 가 회귀 게이트다. 백엔드/CLI (Rust workspace — #5 PR6
+이후 유일 구현) 검증:
 
 ```bash
-bun test ./packages/protocol ./packages/daemon ./packages/runner ./apps/cli ./packages/relay
-pnpm type-check:all
+( cd rust && cargo test --workspace )
+( cd rust && cargo clippy --workspace --all-targets && cargo fmt --all -- --check )
 ```
 
 ### Q5. Linux daemon install — systemd 풀 사이클 (VM)
@@ -66,7 +63,7 @@ pnpm type-check:all
   # VM 재부팅 후
   systemctl --user status tp-daemon
   ```
-  코드 레퍼런스: `apps/cli/src/lib/service-linux.ts`.
+  코드 레퍼런스: `rust/tp-cli/src/service_linux.rs` (구 `apps/cli/src/lib/service-linux.ts` 의 byte-exact 포트).
 - **pass**: install 후 active(running), 재부팅 후 자동 기동.
 - **result**: PASS 2026-06-07 (Lima Ubuntu VM, systemd 257, aarch64, `tp-linux_arm64` v0.1.46).
 
@@ -74,7 +71,7 @@ pnpm type-check:all
 
 백엔드 전용 항목으로 여전히 유효하다.
 
-- **command**: `bun run scripts/soak.ts --minutes 60 --json`
+- **command** *(역사적 — Bun `scripts/soak.ts` 는 PR6 에서 삭제)*: 현행 soak = `cargo test -p tp-relay --test soak_10k`(relay 10k capacity gate) + real-claude E2E soak (`TP_E2E_CLAUDE*` 게이트, 로컬 전용)
 - **pass**: RSS 단조증가(누수) 없음, reconnect 전부 복구, latency p95 안정.
 - **result**: PASS 2026-06-07 (64GB M1 Max, `scripts/soak.ts --minutes 60 --json`,
   60 라운드 × {reconnect 100, rtt 100}: reconnect 6000/6000, rtt 6000/6000,

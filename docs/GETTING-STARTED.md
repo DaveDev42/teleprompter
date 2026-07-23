@@ -12,8 +12,7 @@ This guide walks you through installation, your first session, and connecting th
 |-------------|---------|-------|
 | **OS** | macOS or Linux (Windows: run under WSL) | `uname -s` |
 | **Claude Code CLI** | Latest | `claude --version` |
-| **pnpm** (build from source only) | Latest | `pnpm --version` |
-| **Bun** (build from source only) | 1.3.13+ | `bun --version` |
+| **Rust toolchain** (build from source only) | per `rust/rust-toolchain.toml` | `cargo --version` |
 
 > **Windows users:** native Windows is not supported. Install WSL (`wsl --install` in PowerShell as Administrator), then follow the Linux instructions below from inside your WSL distro.
 
@@ -43,9 +42,13 @@ tp version
 ```bash
 git clone https://github.com/DaveDev42/teleprompter.git
 cd teleprompter
-pnpm install
-pnpm build:cli:local    # outputs dist/tp for your platform
+# pick your platform: darwin_arm64 aarch64-apple-darwin /
+#   linux_x64 x86_64-unknown-linux-gnu / linux_arm64 aarch64-unknown-linux-gnu
+scripts/build-bundle.sh darwin_arm64 aarch64-apple-darwin   # → dist/tp-darwin_arm64.tar.gz
 ```
+
+The tarball unpacks to a `bin/tp` + `libexec/tp/{tp-daemon,tp-relay,tp-runner}` prefix
+tree — extract it and symlink `bin/tp` onto your `PATH` (this is what `install.sh` does).
 
 ## Step 1: Run Your First Session
 

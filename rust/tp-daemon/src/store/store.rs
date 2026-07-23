@@ -378,6 +378,15 @@ impl Store {
     /// Delete a session and its record database (main file + WAL/SHM
     /// sidecars).
     ///
+    /// KNOWN NON-ATOMIC (accepted, decision-gated): the metadata row is
+    /// DELETEd before the on-disk `.sqlite`/`-wal`/`-shm` unlinks. A crash
+    /// between the two steps leaks the base `.sqlite` file permanently —
+    /// `sweep_orphaned_sidecars` reclaims only orphaned WAL/SHM sidecars,
+    /// never a base file whose metadata row is gone. Reordering the steps
+    /// (or adding a row-less-base recovery sweep) changes crash semantics;
+    /// if this leak is observed in practice, surface it for a design
+    /// decision rather than silently reordering.
+    ///
     /// # Errors
     /// Returns the underlying `rusqlite::Error` on the metadata DELETE.
     /// Sidecar unlink failures are retried/logged internally (never

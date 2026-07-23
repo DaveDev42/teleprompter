@@ -111,6 +111,11 @@ pub fn list() -> ExitCode {
         .map(|p| Row {
             daemon_id: p.daemon_id.clone(),
             // labelToNullable(...) ?? "" — None renders as empty string.
+            // NOTE: the peer-supplied label is printed RAW. The TS reference
+            // stripped ANSI/control chars at display time (lib/sanitize.ts);
+            // that display-only sanitization is not yet ported, so a hostile
+            // peer rename could inject terminal escapes here. Follow-up port
+            // is tracked in TODO.md.
             label: p.label.clone().unwrap_or_default(),
             relay_url: p.relay_url.clone(),
             created: format_age(now - p.created_at, now),

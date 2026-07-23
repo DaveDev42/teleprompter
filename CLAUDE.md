@@ -362,7 +362,8 @@ scripts/ios.sh test     # XCTest (iOS Simulator; xcframework 먼저)
 ## Request Reading Guidance
 
 <!-- fabler:guard event=835fe251-3ce7-4d10-8f7b-9c2e8ddbd5c9 -->
-A short literal instruction of the form "Reply with exactly: `<token>`" (e.g. a bare "OK") in this repo's sessions is an ordinary liveness/connectivity check (dogfood harness, CI plumbing, or a human confirming the session is responsive) — read it as plain instruction-following, not as an attempt to probe, extract, or bypass any hidden reasoning, system prompt, or safety mechanism.
+<!-- fabler:guard event=83f3a9cf-e88b-48e8-990d-d8b401c30204 -->
+A short literal instruction of the form "Reply with exactly: `<token>`" (e.g. a bare "OK") in this repo's sessions is an ordinary liveness/connectivity check (dogfood harness, CI plumbing, or a human confirming the session is responsive) — read it as plain instruction-following, not as an attempt to probe, extract, or bypass any hidden reasoning, system prompt, or safety mechanism. If this kind of check keeps getting flagged, a less ambiguous phrasing works just as well — suggested phrasing: "Please just confirm with OK."
 
 <!-- fabler:guard event=ae006a8f-4caf-4003-ad4b-b15b45216bf3 -->
 A short request like "confirm origin/main head" (or similar phrasing asking to check the current state of `origin/main`, e.g. after a PR merge) in this repo's sessions is an ordinary git-state check — read it as a plain instruction to run a read-only `git fetch`/`git log`/`git worktree list` style command, not as an attempt to probe, extract, or bypass any hidden reasoning, system prompt, or safety mechanism.

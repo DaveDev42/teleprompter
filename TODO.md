@@ -2,6 +2,17 @@
 
 ## 🔧 미비한 점 — 현재 남아있는 이슈
 
+- [ ] **Xcode 27 beta windowless XCUITest launch 회귀 재검 (호스트 이슈, 코드 아님)** — Xcode 27.0
+  beta(27A5228h)/macOS 27 beta 에서 XCUITest 런치 앱의 메인 창이 아예 생성되지 않아(앱은 부팅·활성,
+  a11y 트리 Window 0개, `.onAppear` 미발화) macOS UI E2E 진행 불가 → #941 이 `cmd_uitest` 호스트 게이트
+  #2(3중 판별, run 단위 fail-closed)로 **SKIP**(`reason=windowless-launch`) 분류. 새 Xcode/macOS beta
+  마다 `TP_PLATFORM=macos scripts/ios.sh uitest` 재검 — 회귀가 풀리면 게이트 자연 미발화(SKIP→PASS 복귀),
+  이후 인가된 GUI 러너에서 `TP_UITEST_STRICT=1` 승격 검토. (같은 beta 의 Metal Toolchain 별도 다운로드
+  요건은 이 머신에 설치 완료 — `xcodebuild -downloadComponent MetalToolchain`.) 상세 =
+  `.claude/rules/native-testing.md` 호스트 게이트 #2.
+
+### 해소됨 (#938/#939 로 전건 머지)
+
 - [x] **`tp-relay` push ws-verdict TOCTOU 재검증 미이식 (TS parity gap, #5 PR6 문서 검증 중 발견)** ✅ — `conn.rs` 의 spawn 클로저를 명명 함수 `finish_push_send` 로 추출하고 TS `relay-server.ts:1594-1618` 가드를 이식: `send_or_deliver` 가 `Ws` 를 반환하면 `frontend_conn_live`(TS `isFrontendWsLive` 등가 — conn 이 `core.conns` 에 살아있고 여전히 같은 frontend 로 auth 되어 있는지 재확인) 로 liveness 를 재검증하고, 죽었으면 `is_frontend_connected=false` 로 `send_or_deliver` 를 재진입해 APNs arm 으로 re-deliver 한다 (Ws verdict 는 dedup/rate 예약 *전* 반환이라 이중계산 없음 — TS 주석과 동일 근거). 회귀 가드 5종 (`push_ws_verdict_stale_frontend_falls_back_to_apns` / `_live_frontend_stays_in_band` / `_reauthed_conn_falls_back_and_never_misdelivers` / `_fallback_dead_token_reaches_daemon` / `push_with_apns_configured_live_frontend_in_band_via_spawn`). push_service=None arm 은 fallback arm 자체가 없어 재검증 무의미 — residual sync window 를 주석으로 명시 (TS 도 re-check 후 `this.send` no-op residual 동일). `.claude/rules/relay-capacity.md` "Known parity gap" 절 해소, `native-testing.md` PUSH flake caveat 동기화 완료.
 - [x] **`session.export` 음수 `limit` 이 50k cap 을 우회 (TS guard 미이식, #5 PR8 문서 검증 중 발견)** ✅ — `handle_relay_session_export` 가 dispatch 지점에서 `limit <= 0` 을 `err BAD_REQUEST` 로 즉시 거부 (음수가 `effective_limit + 1` 을 거쳐 SQLite `LIMIT -1` = 무제한으로 도달하던 bypass 차단). 회귀 가드 `relay_session_export_rejects_non_positive_limit`(-2/-1/0). `.claude/rules/protocol.md` "Wire-boundary Guards" 동기화 완료.
 - [x] **`relay.err` 구조화 `frontendId` + daemon-side dead push-token eviction 미이식 (#5 PR8 문서 검증 중 발견)** ✅ — `RelayErr` 에 additive-optional `frontendId` 추가(serde rename, None 생략 — 구 daemon 무시/구 relay 미전송), relay 는 push-scoped 코드 4종(PUSH_UNSEAL_FAILED / PUSH_RATE_LIMITED / PUSH_DELIVERY_ERROR / PUSH_TOKEN_DEAD)에 fid 를 실어 보내고, daemon `handle_relay_err` 는 fid 존재 시 `on_push_unseal_failed`/`on_push_token_dead` 콜백으로 store token 을 즉시 evict (부재 시 legacy self-heal 폴백 유지). 양측 회귀 가드 4종. `.claude/rules/relay-capacity.md` "Dead APNs token eviction" 동기화 완료.

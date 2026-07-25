@@ -332,6 +332,7 @@ Fish는 완성 스크립트를 디스크에 기록하므로 `tp upgrade` 후 `tp
 - **NEVER bump versions** (`version.txt`, manifest) unless the user explicitly requests it.
 - Pre-1.0: only patch bumps (0.0.x). 0.1.0 은 App Store 공개 release 용으로 예약.
 - release-please 가 Conventional Commits 로 자동 bump (`bump-patch-for-minor-pre-major` → pre-1.0 에서 `feat:` 도 patch). `version` 필드 수동 편집 금지.
+- **앱 MARKETING_VERSION 은 0.1.20 고정 (사용자 명시 정책, 2026-07-25)** — iOS/iPadOS/macOS/visionOS + 임베드 watch 전부 (`ios/project.yml` settings.base 단일 지점). TestFlight 는 이 고정 버전에 빌드 번호(`TP_BUILD_NUMBER`)만 run 마다 증가시켜 출하. **사용자가 명시적으로 지시할 때만 변경.** CLI 버전(`version.txt`)과는 독립.
 
 릴리즈 설정·운영규칙·안티패턴은 `.claude/rules/release-deploy.md` (SoT).
 

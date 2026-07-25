@@ -32,7 +32,13 @@ packages:
 
 settings:
   base:
-    MARKETING_VERSION: "0.0.1"
+    # App marketing version is PINNED at 0.1.20 across all platforms
+    # (iOS/iPadOS/macOS/visionOS + embedded watch) by explicit user policy
+    # (2026-07-25): TestFlight ships this fixed version with only the build
+    # number (TP_BUILD_NUMBER -> CURRENT_PROJECT_VERSION) increasing per run.
+    # Do NOT bump without an explicit user instruction. Independent of the CLI
+    # version (version.txt, release-please).
+    MARKETING_VERSION: "0.1.20"
     CURRENT_PROJECT_VERSION: "1"
     # Swift 6 strictness — the full ladder, each rung verified clean locally
     # (macOS + iOS Simulator builds) before landing (see ios/README.md →

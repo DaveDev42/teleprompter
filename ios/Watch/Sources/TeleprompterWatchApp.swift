@@ -103,6 +103,13 @@ final class WatchPairingViewModel {
     init(store: PairingStore = .shared, sessionStore: SessionStore) {
         self.store = store
         self.sessionStore = sessionStore
+        // Smoke isolation — same defense as the phone's PairingViewModel.init:
+        // PR-6 committed blobs are synchronizable Keychain items that survive
+        // `simctl uninstall`, and a stale blob boot-reconnects a committed client
+        // that races the fresh pending client re-ingested each run (same
+        // frontendId → daemon peer-key clobber → frame-decrypt aead failure,
+        // M3' fail). No-op in any normal (non-`--tp-smoke*`) launch.
+        if RelayClient.isSmokeMode { store.wipeAllCommittedForSmoke() }
         for pid in store.gcPending(olderThan: pendingMaxAge) {
             pendingClients[pid]?.disconnect()
             pendingClients.removeValue(forKey: pid)
@@ -168,7 +175,14 @@ final class WatchPairingViewModel {
             return
         }
         let daemonId = pending.daemonId
-        do { try store.promote(pairingId: pairingId) } catch { return }
+        do {
+            try store.promote(pairingId: pairingId)
+        } catch {
+            log.error(
+                "promote failed pairingId=\(pairingId, privacy: .public): \(String(describing: error), privacy: .public)"
+            )
+            return
+        }
         pendingClients.removeValue(forKey: pairingId)
         if let stale = clients[daemonId], stale !== client { stale.disconnect() }
         // PR-5 (§2.5): the pairing is now COMMITTED — flip to the conservative
@@ -184,6 +198,16 @@ final class WatchPairingViewModel {
             }
         }
         clients[daemonId] = client
+
+        // Emit TP_PAIR_OK at promotion time — same contract as the phone app
+        // (TeleprompterApp.swift promoteConfirmed). PR-4 moved this marker from
+        // shared ingest code (DeepLinkHandler) into the phone's promote path,
+        // which silently deleted the watch's M1 emitter; the watchOS smoke
+        // asserts `TP_PAIR_OK did=…`, so the watch must emit it too.
+        log.notice(
+            "\(DeepLinkHandler.pairMarker, privacy: .public) did=\(daemonId, privacy: .public)"
+        )
+
         reload()
     }
 

@@ -16,6 +16,7 @@ ios/
                        # platform: auto + supportedDestinations: [iOS, macOS, visionOS] — 단일 소스, 4 대상
   Teleprompter.entitlements        # keychain-access-groups (iOS/iPadOS Simulator 용)
   Teleprompter-macOS.entitlements  # macOS 엔타이틀먼트 (keychain-access-groups; ad-hoc 로컬 빌드용)
+  TeleprompterWatch.entitlements   # watch 앱 — 컴패니언 keychain access group 공유 (synced 페어링 blob 열람에 필수)
   Sources/             # 앱 소스 (SwiftUI — iOS/iPadOS/macOS 공유, #if os(macOS) 조건부 분기)
     TeleprompterApp.swift  # @main + .onOpenURL 딥링크 라우팅 + RootView (페어링 목록)
     ContentView.swift  # 부팅 마커 TP_BOOT_OK + tp-core 라운드트립 결과(TP_CORE_OK) 방출
@@ -39,7 +40,7 @@ ios/
 
 `.xcodeproj`, `Generated/`, `Teleprompter-Info.plist` 는 체크인하지 않는다 (모두
 `project.yml` 에서 재생성). `project.yml` + `Teleprompter.entitlements` +
-`Teleprompter-macOS.entitlements` 가 SoT 이고, 프로젝트는 `scripts/ios.sh gen`
+`Teleprompter-macOS.entitlements` + `TeleprompterWatch.entitlements` 가 SoT 이고, 프로젝트는 `scripts/ios.sh gen`
 (= `xcodegen generate`), 바인딩은 `scripts/ios.sh rust` (= `../rust/build-xcframework.sh`)
 으로 재현 가능하게 생성한다. 앱 타깃은 `../rust/target/TpCore.xcframework`
 (정적 라이브러리, **7 슬라이스**: ios-device / ios-sim-fat / macos-fat / xros-device /
@@ -168,6 +169,16 @@ APNs 등록은 visionOS 에서 skip (Simulator 단계, 엔타이틀먼트 미설
 - **Keychain entitlement + ad-hoc 서명**: 미서명 Simulator 빌드는 entitlement 이 없어
   `SecItemAdd` 가 `-34018` (errSecMissingEntitlement) 로 실패. `Teleprompter.entitlements`
   (`keychain-access-groups`) + ad-hoc 서명 (`CODE_SIGN_IDENTITY=-`) 으로 해결.
+- **watch 앱은 컴패니언의 keychain access group 을 공유해야 한다**
+  (`TeleprompterWatch.entitlements`): Keychain 가시성은 service 문자열이 아니라 **access
+  group** 으로 격리된다. 워치 앱은 QR 스캐너가 없어 페어링이 도달하는 유일한 프로덕션 경로가
+  iOS 앱이 쓰는 synchronizable 페어링 blob(PR-6, iCloud Keychain sync)인데, entitlements 없는
+  워치 앱은 자기 기본 그룹(`….watchkitapp`)에 격리돼 그 blob 을 수신도 열람도 못 하고 영원히
+  "Offline / No sessions" 에 머문다. 그래서 워치 타깃은 `$(AppIdentifierPrefix)dev.tpmt.app`
+  **하나만** 선언(기본 그룹 = 컴패니언 그룹, 읽기·쓰기 정렬)한다 — watch App Store profile 의
+  `TEAM.*` 와일드카드가 허용, ad-hoc Simulator 빌드에선 prefix 가 빈 값으로 축약(메인 앱과 동일
+  패턴). **watchOS smoke (7마커) 는 이 갭을 못 잡는다** — smoke 는 `--tp-smoke-url` 딥링크로
+  페어링을 직접 주입해 Keychain-sync 경로를 타지 않는다; 실증은 실기기 게이트.
 
 **iOS/visionOS 26.5 Simulator URL scheme 라우팅 이슈**: iOS/visionOS 26.5 Simulator 에서
 `xcrun simctl openurl` 이 ad-hoc 서명된 sideload 앱에 대해 LaunchServices `-10814`

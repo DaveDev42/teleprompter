@@ -382,6 +382,14 @@ targets:
         # App icon for the watch target — generates CFBundleIconName in the watch
         # app's Info.plist (required by ASC, fixes error 90713).
         ASSETCATALOG_COMPILER_APPICON_NAME: WatchAppIcon
+        # Share the COMPANION's keychain access group. Without this the watch app
+        # is keychain-isolated in its own default group (….watchkitapp) and can
+        # never see the synchronizable pairing blobs the iOS app writes into
+        # $(AppIdentifierPrefix)dev.tpmt.app — its only production pairing path
+        # (no QR scanner on watch) — leaving it permanently "Offline/No sessions".
+        # Unconditional (Debug+Release) so Simulator smoke and the TestFlight
+        # archive stay on one keychain code path. See TeleprompterWatch.entitlements.
+        CODE_SIGN_ENTITLEMENTS: TeleprompterWatch.entitlements
         # Companion watch app embedded in the main iOS app (#123, ADR-0004 Amdt 2).
         # The watch app ships inside dev.tpmt.app's .ipa (one ASC record). Apple's
         # WatchKit layout requires the watch app id to be <companion-id>.watchkitapp,

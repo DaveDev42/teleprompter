@@ -10,6 +10,12 @@
   이후 인가된 GUI 러너에서 `TP_UITEST_STRICT=1` 승격 검토. (같은 beta 의 Metal Toolchain 별도 다운로드
   요건은 이 머신에 설치 완료 — `xcodebuild -downloadComponent MetalToolchain`.) 상세 =
   `.claude/rules/native-testing.md` 호스트 게이트 #2.
+- [ ] **watch 실기기: iCloud Keychain sync 페어링 도달 검증 (keychain access group 공유 fix 후속)** —
+  entitlements fix 로 워치 앱이 컴패니언 그룹(`TEAM.dev.tpmt.app`)의 synced 페어링 blob 을 읽을 수 *있게*
+  됐지만, Apple 이 서드파티 synchronizable Keychain 아이템을 실기기 watchOS 까지 실제로 전파하는지는
+  Simulator 로 증명 불가(실기기 게이트). 다음 TestFlight 빌드를 Apple Watch Ultra 1 에 설치해 iPhone 페어링이
+  워치 세션 리스트에 나타나는지 확인 — 안 나타나면 iPhone 컴패니언 앱에서 **WatchConnectivity**
+  (`transferUserInfo`/`updateApplicationContext`) 로 페어링을 전송하는 경로 구현 필요 (별도 설계).
 
 ### 해소됨 (#938/#939 로 전건 머지)
 

@@ -193,6 +193,19 @@ restoration** 이 지난 종료 시 열려있던 창들을 재생성한 것). �
 smoke 마커**다 (아래 참조) — restoration 은 launch 시 자동 발생해 어떤 메뉴 커맨드보다 먼저 일어나므로
 File-메뉴 어서션(2)로는 못 잡는다.
 
+**세 번째 테스트 (iOS/iPadOS 전용, `testPinAndDeleteSwipeActionsOnSessionRow`, `#if os(iOS)`)** 는
+세션 row 스와이프 액션을 가드한다: swipe-right → Pin(`session-swipe-pin-<sid>`) → 행의 pin 글리프
+(`session-pinned-<sid>`) 등장 → 한 번 더 swipe-right 로 Unpin(토글 양방향) → swipe-left 로
+Delete 버튼(`session-swipe-delete-<sid>`) **노출만** 확인(탭 안 함 — 세션을 살려둬야 다음 렌더 테스트가
+돈다; `allowsFullSwipe: false` 라 over-swipe 로도 안 터진다). 정렬·핀 상태 자체는 유닛
+(`ios/Tests/SessionPinOrderTests.swift`, `SessionStore.orderedSessions`)이 커버하고, 이 UI 테스트는
+**제스처가 실제 손가락이 닿는 row 에 배선됐는지**만 증명한다. **메서드 이름이 load-bearing** — XCTest 는
+알파벳순 실행이라 `testPin…` 이 `testSessionRender…` 보다 먼저 돌고, 그래서 sub-window 가 한 번도 열리지
+않은 상태에서 launch 한다(iPad 에서 pop-out 테스트 뒤에 돌면 UIKit 이 그 서브 창을 frontmost 로 restore 해
+리스트를 가린다 — 위 single-launch 근거와 동일 함정). 이름을 뒤로 정렬되게 바꾸지 말 것. 리딩 스와이프는
+full-swipe 허용이라 XCUITest `swipeRight()` 가 버튼 노출 대신 액션을 바로 실행할 수 있어, 테스트는 **둘 다
+허용**(버튼 뜨면 탭, 아니면 이미 토글됨)하고 최종 상태만 어서션한다.
+
 > **창 모델 (메인 창 vs 세션 서브 창) — macOS + iPadOS.** 세션별 pop-out 은 이제 macOS 뿐 아니라
 > **iPadOS(regular width)**에도 있다: 메인 창 = `SidebarRootView`(NavigationSplitView, Sessions/Daemons/
 > Settings — macOS 와 iPad-regular 가 공유하는 플랫폼-중립 shell; iPhone 은 compact width 라 기존 하단

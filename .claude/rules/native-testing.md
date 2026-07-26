@@ -43,7 +43,7 @@ Bun 스크립트+opt-in seam 삭제 — Rust 가 유일 구현이고 CI `swift-s
 | iPadOS | `ipad` | iOS Simulator, `$TP_SIM`=`iPad Pro 13-inch (M5)` | **8** | 풀 | iOS 경로 alias — 새 슬라이스 불필요 (`ios-arm64_x86_64-simulator` 공유). split-view/sidebar 실행. (M5 = iOS 26.5 런타임; M4 는 18.5 뿐이라 name 해석 모호) |
 | macOS | `macos` | `platform=macOS` (native, `open`) | **8** | **호스트 게이트 2종** — 빌드+서명 O. (1) TCC/LocalAuthentication: 비대화형/미인가 세션에선 runner init 실패 → **SKIP** (`reason=tcc-host-gate`). (2) **windowless-launch** (Xcode 27 beta / macOS 27 beta 회귀): XCUITest 런치 앱이 부팅은 되나(TP_BOOT_OK) 메인 창이 아예 생성 안 됨 → **SKIP** (`reason=windowless-launch`; `TP_BOOT_OK` 有 + `smoke url injection` 無 로 판별 — 진짜 렌더 실패는 FAIL 유지). 둘 다 exit 0, `TP_UITEST_SKIP` 마커 emit(PASS 와 혼동 금지), `TP_UITEST_STRICT=1` 이면 **hard-fail** | sim 없음. `screencapture -x` 아티팩트. `log stream` 폴링 |
 | visionOS | `visionos` | `id=$visionUDID` (xrOS sim) | **8** | **부분** — element 쿼리+flat-window tap O, 공간 제스처/eye-gaze sim **불가** | `TP_VISION_SIM`=`Apple Vision Pro` |
-| watchOS | `watchos` | `-target TeleprompterWatch -sdk watchsimulator` | **7** (no `TP_INPUT_OK`) | **없음** — watchOS 에 `XCUIApplication` 부재 (Apple hard limit) | `TP_WATCH_SIM`=`Apple Watch Series 11 (46mm)`. 마커+스크린샷만 |
+| watchOS | `watchos` | `-target TeleprompterWatch -sdk watchsimulator` (SDK 는 **unversioned** — 버전 핀은 Xcode 업그레이드 시 즉사) | **7** (no `TP_INPUT_OK`) | **없음** — watchOS 에 `XCUIApplication` 부재 (Apple hard limit) | `TP_WATCH_SIM`=`Apple Watch Series 11 (46mm)`. 마커+스크린샷만. **keychain-sync 페어링 경로는 smoke 미커버** — smoke 는 딥링크 주입이라, watch 가 iOS 앱의 synced 페어링 blob 을 읽는 프로덕션 경로(컴패니언 keychain access group 공유, `TeleprompterWatch.entitlements` 필수)는 실기기 게이트 |
 
 > **`TP_INPUT_OK` 가 watchOS 에서 빠지는 이유**: ADR-0002 §4 — watchOS 는 제한 경험(입력 송신 미구현).
 > 그래서 watchOS smoke 는 M0–M4 (7마커) 만 어서션한다.
@@ -53,7 +53,9 @@ Bun 스크립트+opt-in seam 삭제 — Rust 가 유일 구현이고 CI `swift-s
 > 살아남는다(iCloud sync 의 요점). smoke 는 매 런 fresh 페어링을 re-ingest 하므로, 잔류 committed blob 이
 > 부팅 시 committed `RelayClient` 를 재연결시켜 그 런의 pending client 와 **같은 frontendId 로 경합** →
 > daemon per-frontend 세션키 clobber → frame-decrypt `aead authentication failed`(M3' fail)를 낸다. 두
-> 겹 방어: (1) **app-side** — `PairingViewModel.init` 이 `RelayClient.isSmokeMode`(`--tp-smoke*` launch
+> 겹 방어: (1) **app-side** — `PairingViewModel.init` **과 watch 의 `WatchPairingViewModel.init` 둘 다**
+> (watch 쪽은 뒤늦게 발견·이식 — phone 에만 넣으면 watchOS smoke 두 번째 런부터 M3' 가 동일하게 깨진다) 가
+> `RelayClient.isSmokeMode`(`--tp-smoke*` launch
 > arg)일 때 `store.wipeAllCommittedForSmoke()` 로 committed blob+pointer 를 부팅 즉시 wipe(프로덕션 런은
 > no-op). (2) **harness-side** — `scripts/ios.sh` 의 macOS 정리 블록이 `security delete-generic-password
 > -s dev.tpmt.app.pairing.v2` + `defaults delete … tp.pairings.ptr{,.order,.migrated.v2}` 로 host
@@ -74,7 +76,7 @@ Bun 스크립트+opt-in seam 삭제 — Rust 가 유일 구현이고 CI `swift-s
 |---|---|---|
 | M0 | `TP_BOOT_OK` | SwiftUI 부팅 + 보드 마운트 |
 | M0' | `TP_CORE_OK` | tp-core FFI 라운드트립 (encode→encrypt→decrypt→decode) — Rust 정적 라이브러리 링크+동작 증명 |
-| M1 | `TP_PAIR_OK` | pairing PROMOTED to COMMITTED. **PR-4 (connect-on-pending)**: ingest 는 PENDING 에만 쓰고 `TP_PAIR_PENDING` 을 emit; `TP_PAIR_OK` 는 promote 시점에 emit. **PR-5 (§1.3 PCT verification gate)**: promote 는 이제 kx 완료가 아니라 **hello 의 PCT 검증**이 게이트한다. loopback 은 kx `v:3` 을 advertise + hello 에 `pct` 를 실어(daemon-role 세션키로 계산, app frontend-role PCT 와 byte-exact 수렴) **§1.3 Cell 1(CONFIRMED)** 로만 승격시키므로 M1 = `TP_PAIR_OK` 는 이제 **PCT-confirm 을 transitively 게이트**한다 (mismatch=Cell 2 는 promote 안 함, `v:3` 이라 legacy Cell 3 도 배제 → `TP_PAIR_OK` 관찰 = Cell 1 실행 증명; 별도 `TP_PAIR_CONFIRM_OK` 도 emit). 마커 카운트 불변(8/8/8/7). **real-daemon E2E (`TP_E2E_REAL`/`TP_E2E_CLAUDE*`) 는 kx out-of-scope/racy 라 M1 = `TP_PAIR_PENDING`** (하니스가 `$real_e2e` 비어있지 않으면 `m1_marker=TP_PAIR_PENDING` 로 분기 — scrape/assert/marker-tally 전부). |
+| M1 | `TP_PAIR_OK` | pairing PROMOTED to COMMITTED. **PR-4 (connect-on-pending)**: ingest 는 PENDING 에만 쓰고 `TP_PAIR_PENDING` 을 emit; `TP_PAIR_OK` 는 promote 시점에 emit — emit 지점은 **양쪽 view-model 모두** (phone `PairingViewModel.promoteConfirmed` + watch `WatchPairingViewModel.promoteConfirmed`): PR-4 가 emitter 를 shared ingest(DeepLinkHandler)에서 phone 전용 코드로 옮기며 watch emitter 를 삭제해 watchOS smoke M1 이 잠재 회귀했었다(뒤늦게 발견·복원). 새 마커 이동 시 watch 타깃 소스 포함 여부를 반드시 확인. **PR-5 (§1.3 PCT verification gate)**: promote 는 이제 kx 완료가 아니라 **hello 의 PCT 검증**이 게이트한다. loopback 은 kx `v:3` 을 advertise + hello 에 `pct` 를 실어(daemon-role 세션키로 계산, app frontend-role PCT 와 byte-exact 수렴) **§1.3 Cell 1(CONFIRMED)** 로만 승격시키므로 M1 = `TP_PAIR_OK` 는 이제 **PCT-confirm 을 transitively 게이트**한다 (mismatch=Cell 2 는 promote 안 함, `v:3` 이라 legacy Cell 3 도 배제 → `TP_PAIR_OK` 관찰 = Cell 1 실행 증명; 별도 `TP_PAIR_CONFIRM_OK` 도 emit). 마커 카운트 불변(8/8/8/7). **real-daemon E2E (`TP_E2E_REAL`/`TP_E2E_CLAUDE*`) 는 kx out-of-scope/racy 라 M1 = `TP_PAIR_PENDING`** (하니스가 `$real_e2e` 비어있지 않으면 `m1_marker=TP_PAIR_PENDING` 로 분기 — scrape/assert/marker-tally 전부). |
 | — | `TP_PAIR_CONFIRM_OK` / `TP_PAIR_CONFIRM_FAIL` | **PR-5 (§1.3)** PCT 검증 결과 진단 마커 (`RelayClient` statics). CONFIRM_OK = pct==PCT_app(Cell 1) 또는 legacy commit; CONFIRM_FAIL = mismatch(Cell 2)/pct-missing(Cell 4). default 8/7 마커 셋에는 **없음** — 진단·회귀 로그용이며 loopback smoke 는 M1 의 transitive 게이팅으로 이를 커버한다. |
 | M1' | `TP_PAIR_PENDING` | QR decode + PENDING persist (ingest 성공, PR-4). committed 승격 전 device-local 상태. real-daemon E2E 의 M1 어서션 마커. |
 | M2 | `TP_RELAY_AUTH_OK` | relay `frontend auth` 성공 |

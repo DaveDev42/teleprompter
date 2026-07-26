@@ -593,7 +593,11 @@ cmd_build() {
     # watchOS Simulator: use -target (not -scheme) with the watchsimulator SDK to
     # bypass destination-matching, which fails when a real watch is paired (Xcode
     # tries the device first and rejects it because watchOS 26.5 device software
-    # isn't installed). ARCHS=arm64 + ONLY_ACTIVE_ARCH=YES ensures the arm64
+    # isn't installed). The SDK name is deliberately UNVERSIONED — the canonical
+    # "watchsimulator" resolves to whatever SDK the selected Xcode ships. A pinned
+    # "watchsimulator26.5" broke the moment the host moved to the Xcode 27 beta
+    # (only SDK 27.0 present; sim RUNTIMES are versioned separately and unaffected).
+    # ARCHS=arm64 + ONLY_ACTIVE_ARCH=YES ensures the arm64
     # watchOS Simulator slice of TpCore.xcframework is linked (not x86_64).
     # -derivedDataPath cannot be used with -target; use SYMROOT/OBJROOT instead
     # to place build products in the same DerivedData tree as other platforms.
@@ -601,7 +605,7 @@ cmd_build() {
       -project "$PROJECT" \
       -target TeleprompterWatch \
       -configuration Debug \
-      -sdk watchsimulator26.5 \
+      -sdk watchsimulator \
       $SIGN_FLAGS \
       ARCHS=arm64 \
       ONLY_ACTIVE_ARCH=YES \
@@ -1798,18 +1802,24 @@ for devs in d["devices"].values():
       printf '%s\n' "$1" | grep -Eo "$2[^\"]*|$3[^\"]*" | tail -n1 || true
     fi
   }
-  local boot_seen="" core_line="" pair_line="" auth_line="" kx_line="" frame_line="" session_line=""
+  # Marker capture is STICKY (keep the last non-empty match): the poll reads a
+  # SLIDING `--last Ns` window, and the boot markers are emitted exactly once at
+  # launch — if one required marker never fires, the loop runs to its deadline and
+  # the window slides past ALL of them. Overwriting with the (now empty) window
+  # would erase already-seen evidence and misattribute the failure to the first
+  # asserted marker (observed: a missing TP_PAIR_OK reported as "no TP_CORE_OK").
+  local boot_seen="" core_line="" pair_line="" auth_line="" kx_line="" frame_line="" session_line="" ln=""
   for _ in $(seq 1 "$poll_iters"); do
     local out
     out="$(xcrun simctl spawn "$udid" log show --last "${snap_secs}s" --style compact \
       --predicate "subsystem == \"$BUNDLE_ID\"" 2>/dev/null || true)"
     case "$out" in *"$BOOT_MARKER"*) boot_seen="yes" ;; esac
-    core_line="$(prefer_ok "$out" 'TP_CORE_OK' 'TP_CORE_FAIL')"
-    pair_line="$(prefer_ok "$out" "$m1_marker" 'TP_PAIR_FAIL')"
-    auth_line="$(prefer_ok "$out" "$RELAY_AUTH_OK_MARKER" "$RELAY_AUTH_FAIL_MARKER")"
-    kx_line="$(prefer_ok "$out" "$KX_OK_MARKER" "$KX_FAIL_MARKER")"
-    frame_line="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"
-    session_line="$(prefer_sid "$out" "$SESSION_OK_MARKER" "$SESSION_FAIL_MARKER")"
+    ln="$(prefer_ok "$out" 'TP_CORE_OK' 'TP_CORE_FAIL')"; [ -n "$ln" ] && core_line="$ln"
+    ln="$(prefer_ok "$out" "$m1_marker" 'TP_PAIR_FAIL')"; [ -n "$ln" ] && pair_line="$ln"
+    ln="$(prefer_ok "$out" "$RELAY_AUTH_OK_MARKER" "$RELAY_AUTH_FAIL_MARKER")"; [ -n "$ln" ] && auth_line="$ln"
+    ln="$(prefer_ok "$out" "$KX_OK_MARKER" "$KX_FAIL_MARKER")"; [ -n "$ln" ] && kx_line="$ln"
+    ln="$(printf '%s\n' "$out" | grep -Eo "${FRAME_OK_MARKER}[^\"]*|${FRAME_FAIL_MARKER}[^\"]*" | tail -n1 || true)"; [ -n "$ln" ] && frame_line="$ln"
+    ln="$(prefer_sid "$out" "$SESSION_OK_MARKER" "$SESSION_FAIL_MARKER")"; [ -n "$ln" ] && session_line="$ln"
     if [ -n "$real_e2e" ] && [ -z "$claude_e2e" ]; then
       [ -n "$boot_seen" ] && [ -n "$core_line" ] && [ -n "$pair_line" ] && [ -n "$auth_line" ] && break
     else

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for the TeleprompterWatch companion app.
+
+  keychain-access-groups: the watch app has NO QR scanner — the only production
+  path for a pairing to reach the watch is the synchronizable Keychain blob the
+  iOS app writes (PR-6, service <base>.v2). Keychain visibility is scoped by
+  ACCESS GROUP, not by service string: the iOS app writes into its default group
+  $(AppIdentifierPrefix)dev.tpmt.app (Teleprompter.entitlements), while a watch
+  app without this file is isolated in its own default group
+  (…dev.tpmt.app.watchkitapp) and can neither receive nor read the synced
+  pairing items — leaving the watch permanently at "Offline / No sessions".
+  Declaring the companion's group here (and ONLY it, so it is also this app's
+  default group for reads AND writes) shares the pairing store across both apps.
+
+  The watch App Store profile permits it (keychain-access-groups: TEAM.*).
+  On ad-hoc-signed Simulator builds $(AppIdentifierPrefix) expands to empty, so
+  the group degrades to "dev.tpmt.app" — same behavior as the main app's
+  Simulator path (see Teleprompter.entitlements), keeping smoke and TestFlight
+  builds on one code path.
+-->
+<plist version="1.0">
+<dict>
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)dev.tpmt.app</string>
+    </array>
+</dict>
+</plist>

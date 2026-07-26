@@ -79,6 +79,23 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// Optional observer (UI). Invoked on the URLSession delegate queue.
     var onStateChange: ((State) -> Void)?
 
+    /// Optional observer fired whenever `isReady` flips — the ONLY exact
+    /// kx-readiness edge a consumer can see. `state`/`connectionCause` fire at
+    /// auth and close time, which is strictly earlier and strictly later than the
+    /// moment session keys exist.
+    ///
+    /// Needed because a consumer that learns about a pairing BEFORE its kx
+    /// completes has no other way to hear about the completion. The watch's
+    /// WatchConnectivity path is exactly that order (adopt a pairing → connect →
+    /// kx finishes seconds later), whereas every pre-existing path happened to
+    /// learn about the pairing only after kx had already succeeded.
+    ///
+    /// Invoked on the URLSession delegate queue, like `onStateChange`. May fire
+    /// redundantly with an unchanged value (`scheduleReconnect` clears an already
+    /// nil `sessionKeys`), so observers must recompute from ground truth rather
+    /// than treat each call as a transition.
+    var onReadyChange: ((Bool) -> Void)?
+
     /// BATCH F (#10/#15): a short, human-readable reason for the current
     /// disconnected/degraded state, or `nil` once reconnected/never
     /// disconnected. Driven by the WebSocket close code (via
@@ -190,7 +207,13 @@ final class RelayClient: NSObject, @unchecked Sendable {
     private var kxKeyPair: FfiKeyPair?
     /// The per-frontend session keys (`rx` decrypts inbound, `tx` encrypts
     /// outbound), derived once the frontend has both keypairs. Nil until kx.
-    private var sessionKeys: FfiSessionKeys?
+    ///
+    /// Assigned non-nil at kx completion and nil synchronously at
+    /// disconnect-detection, so `didSet` is a precise `isReady` edge — see
+    /// `onReadyChange`.
+    private var sessionKeys: FfiSessionKeys? {
+        didSet { onReadyChange?(sessionKeys != nil) }
+    }
     /// Set once the first `hello` frame is decrypted, so the on-demand fallback
     /// timer does not double-request after a successful auto-`hello`.
     /// Reset to false on normal reconnect so the fallback can fire again on the

@@ -10,12 +10,13 @@
   이후 인가된 GUI 러너에서 `TP_UITEST_STRICT=1` 승격 검토. (같은 beta 의 Metal Toolchain 별도 다운로드
   요건은 이 머신에 설치 완료 — `xcodebuild -downloadComponent MetalToolchain`.) 상세 =
   `.claude/rules/native-testing.md` 호스트 게이트 #2.
-- [ ] **watch 실기기: iCloud Keychain sync 페어링 도달 검증 (keychain access group 공유 fix 후속)** —
-  entitlements fix 로 워치 앱이 컴패니언 그룹(`TEAM.dev.tpmt.app`)의 synced 페어링 blob 을 읽을 수 *있게*
-  됐지만, Apple 이 서드파티 synchronizable Keychain 아이템을 실기기 watchOS 까지 실제로 전파하는지는
-  Simulator 로 증명 불가(실기기 게이트). 다음 TestFlight 빌드를 Apple Watch Ultra 1 에 설치해 iPhone 페어링이
-  워치 세션 리스트에 나타나는지 확인 — 안 나타나면 iPhone 컴패니언 앱에서 **WatchConnectivity**
-  (`transferUserInfo`/`updateApplicationContext`) 로 페어링을 전송하는 경로 구현 필요 (별도 설계).
+- [ ] **watch 실기기: WatchConnectivity 미러 전달 검증 (WC 구현 후속)** — 아래 keychain-sync 검증의
+  결론(전파 안 됨)으로 WC 미러를 구현했으나, **전송 자체는 자동 게이트가 하나도 없다**: `cmd_smoke_watchos`
+  는 iOS Simulator 를 아예 안 띄우고 `simctl pair` 도 없어 폰→워치 WC 를 구조적으로 못 돌리며, watchOS 는
+  `XCUIApplication` 부재로 UI 검증도 불가. 다음 TestFlight 빌드를 Ultra 1 에 설치해 확인할 것:
+  (1) 폰에서 페어링 후 워치 상태 행이 `Open Teleprompter on iPhone` → `Connecting…` → `Connected` 로
+  전이하는지, (2) 세션 리스트가 채워지는지, (3) 폰에서 unpair/local-hide 하면 워치에서 사라지는지,
+  (4) **폰의 페어링이 살아있는지** (워치가 synced delete 를 내지 않는다는 불변식의 실기기 확인).
 
 ### 해소됨 (#938/#939 로 전건 머지)
 

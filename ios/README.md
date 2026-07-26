@@ -201,6 +201,53 @@ sid**(마지막은 동률 jitter 방지 tiebreak). 리스트(`SessionListView.al
   `TEAM.*` 와일드카드가 허용, ad-hoc Simulator 빌드에선 prefix 가 빈 값으로 축약(메인 앱과 동일
   패턴). **watchOS smoke (7마커) 는 이 갭을 못 잡는다** — smoke 는 `--tp-smoke-url` 딥링크로
   페어링을 직접 주입해 Keychain-sync 경로를 타지 않는다; 실증은 실기기 게이트.
+- **…그리고 실기기 게이트의 답은 "전파 안 됨" 이었다 (Ultra 1, 빌드 0.1.20(2301)):** access group
+  공유 이후에도 워치는 페어링을 하나도 못 받았다 — **Apple 은 서드파티 synchronizable Keychain
+  아이템을 watchOS 로 전파하지 않는다.** entitlement 는 필요조건이었을 뿐 전송 수단이 아니다.
+  그래서 **WatchConnectivity 컴패니언 미러**(아래)가 워치가 페어링을 얻는 실제 경로다.
+
+**WatchConnectivity 컴패니언 미러 (폰 → 워치 페어링 전송)**: 위 실기기 결과의 결론.
+`PairingSyncBridge`(`Sources/Pairing/PairingSyncBridge.swift`)가 폰의 커밋된 페어링 집합을
+`WCSession.updateApplicationContext` **전체 스냅샷**으로 워치에 넘긴다.
+- **왜 전체 스냅샷인가**: application context 는 최신값 1슬롯이라 멱등하고, 놓친 갱신이 있어도
+  최신 상태만 맞으면 되며, 순번(sequence number)이 필요 없다. 폐기도 diff 로 해결된다.
+- **왜 단방향인가**: 워치엔 페어링 UI 가 없어 변경을 originate 할 일이 없고, 양방향이면 스토어의
+  latest-`ts`-wins 조정과 공존할 conflict rule 이 필요해진다.
+- **payload(`PairingSnapshot`)는 `PairingBlob` 을 그대로 싣는다** — 기기-로컬 4필드(`frontendId`,
+  `label`, PCT, floor)가 **구성상** 빠지므로 strip 할 것도 샐 것도 없다. PENDING 은 절대 안 보낸다.
+  예외는 `floors`: blob 이 §1.3 anti-downgrade floor 를 제외하므로 갓 adopt 한 페어링이 floor 0 으로
+  시작해 replay 된 `v=2` kx 가 PCT 검증을 끌 수 있다 — 그래서 floor 만 따로 실어 **monotone `max`** 로
+  머지한다(하한만 올라감, 악의적 sender 도 낮출 수 없음).
+- **⚠ 워치는 절대 Keychain delete 를 내지 않는다 (이 기능의 핵심 불변식).**
+  `PairingRecordStore.remove` 는 `kSecAttrSynchronizableAny` 삭제이고 워치는 폰과 access group 을
+  공유하므로, 워치의 삭제가 전파돼 **폰의 페어링을 파괴**할 수 있다. 스토어도 이를 금지한다 —
+  `reconciledPointers` 는 blob 이 안 잡힌 포인터를 보존하며 "unpair 는 명시적 `remove` 로만, 부재로
+  추론하지 않는다". 따라서 `applyPeerSnapshot` 의 폐기는 **`hideLocally`**(기기-로컬 tombstone,
+  비파괴, 되돌림 가능)다. 역할 분담: **WC = 저지연 미러, 실제 폐기 = 폰의 `remove`(synced delete)**.
+- **2-blob 조건을 만들지 않는다**: 같은 did 의 로컬 blob 이 더 최신이면 adopt 를 **건너뛴다**. 안 그러면
+  다음 `daemonIds()` 의 ts-loser sweep(`records.remove`)이 방금 adopt 한 폰의 살아있는 blob 을 지운다.
+  반대로 incoming 이 더 최신이면 adopt 하되 밀려난 로컬 blob 을 **삭제가 아니라 tombstone** 한다
+  (숨겨진 blob 은 loser 계산 *전에* 걸러지므로 영원히 sweep 대상이 안 된다).
+- **never-received vs 빈 스냅샷**: `receivedApplicationContext` 는 두 경우 모두 `[:]` 다. 오직
+  `pairings.v1` **키의 존재**만이 구분하므로, 키가 없으면 `applyPeerSnapshot` 을 **아예 호출하지 않는다**
+  (빈 스냅샷으로 호출하면 전 페어링이 숨겨진다). 디코드 실패도 동일하게 무시 — fail safe.
+- **키체인 잠김은 "페어링 0개"가 아니다**: 폰의 `committedSnapshot()` 은 열거 실패 시 `nil` 을 반환해
+  **발행 자체를 건너뛰고**, 워치의 `applyPeerSnapshot` 은 `.deferredLocked` 로 아무것도 안 바꾼다.
+- **smoke 2중 가드**: 브리지가 smoke 모드에서 `WCSession` 을 활성화하지 않고, `applyPeerSnapshot` 도
+  독립적으로 거부한다 — 둘 중 무엇이 먼저 도는지에 결과가 의존하지 않게.
+- **플랫폼 가드는 `#if os(iOS) || os(watchOS)`** — `canImport(WatchConnectivity)` 로는 부족하다.
+  visionOS 는 프레임워크를 갖고 있어 `canImport` 가 통과하지만 `WCSessionDelegate` 요구 멤버 집합이
+  달라 `does not conform` 으로 빌드가 깨진다 (실제로 겪음).
+- **상태 행이 3-state 가 됐다** (`WatchConnectionState`): `Open Teleprompter on iPhone`(회색) /
+  `Connecting…`(노랑) / `Connected`(초록). 기존 `anyConnected` Bool 은 `clients` 가
+  `@ObservationIgnored` 이고 `RelayClient` 가 observable 이 아니라 **`daemonIds` 가 바뀔 때만** 재평가됐다
+  — 기존 경로는 kx 완료 *후에* promote 해서 우연히 맞았지만, WC 는 순서가 반대(adopt → connect → 수 초 뒤
+  kx)라 **연결됐는데 영원히 Offline** 으로 보였을 것이다. `RelayClient.sessionKeys` 의 `didSet` →
+  `onReadyChange` 콜백이 정확한 readiness 엣지를 준다(additive-optional, 기존 소비자 영향 0).
+- **자동 검증 한계**: `applyPeerSnapshot`/`committedSnapshot`/`WatchConnectionState.derive` 는
+  `Sources/` 에 두어 폰 XCTest(`ios/Tests/PairingSnapshotTests.swift`, 17개)가 커버한다. 그러나
+  **전송 자체는 어떤 게이트도 못 잡는다** — `cmd_smoke_watchos` 는 iOS Simulator 를 안 띄우고
+  `simctl pair` 도 없다. 실기기 확인 항목은 `TODO.md`.
 
 **iOS/visionOS 26.5 Simulator URL scheme 라우팅 이슈**: iOS/visionOS 26.5 Simulator 에서
 `xcrun simctl openurl` 이 ad-hoc 서명된 sideload 앱에 대해 LaunchServices `-10814`

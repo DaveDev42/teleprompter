@@ -121,14 +121,26 @@
         // MARK: - Watch side
 
         #if os(watchOS)
-            /// Apply a received context if it carries a snapshot.
+            /// The snapshot payload inside a received context, or nil if it carries
+            /// none.
             ///
             /// A context without `contextKey` means "the phone has never sent" and is
-            /// ignored outright. A payload that fails to decode is likewise ignored —
+            /// dropped right here — deliberately at the boundary, so the
+            /// never-received case can never reach `applyPeerSnapshot` as an empty
+            /// set (which would read as "every pairing was revoked").
+            ///
+            /// Extracting here also keeps the non-`Sendable` `[String: Any]` from
+            /// crossing onto `queue` — only the `Data` does. Swift 6.0 (Xcode 26, the
+            /// CI runner) rejects that capture outright while 6.4 accepts it, so a
+            /// local-only build will not catch a regression here.
+            private static func snapshotPayload(in context: [String: Any]) -> Data? {
+                context[Self.contextKey] as? Data
+            }
+
+            /// Apply a received snapshot. A payload that fails to decode is ignored —
             /// failing safe, because the alternative (treating it as an empty set)
             /// would hide every pairing on the strength of a corrupt message.
-            private func ingest(_ context: [String: Any]) {
-                guard let data = context[Self.contextKey] as? Data else { return }
+            private func ingest(_ data: Data) {
                 guard let snapshot = try? JSONDecoder().decode(PairingSnapshot.self, from: data)
                 else {
                     log.error("ignoring undecodable pairing snapshot")
@@ -139,8 +151,12 @@
                     log.info("snapshot not applied: \(String(describing: result), privacy: .public)")
                     return
                 }
-                let hook = onSnapshotApplied
-                Task { @MainActor in hook?(sweptPending) }
+                // Read the hook on the main actor rather than capturing it here: the
+                // closure type is not `@Sendable`, so hoisting it into a local and
+                // capturing that is exactly the shape Swift 6.0 rejects. Capturing
+                // `self` (`@unchecked Sendable`) and `sweptPending` (`[String]`) is
+                // the same idiom `RelayClient` already uses throughout.
+                Task { @MainActor [weak self] in self?.onSnapshotApplied?(sweptPending) }
             }
         #endif
     }
@@ -166,14 +182,16 @@
                 // `receivedApplicationContext` — the delegate callback does NOT replay
                 // it, so activation must read it explicitly or a watch that launches
                 // after the phone published would never see the pairings.
-                let pending = session.receivedApplicationContext
+                guard let pending = Self.snapshotPayload(in: session.receivedApplicationContext)
+                else { return }
                 queue.async { [weak self] in self?.ingest(pending) }
             #endif
         }
 
         #if os(watchOS)
             func session(_ session: WCSession, didReceiveApplicationContext context: [String: Any]) {
-                queue.async { [weak self] in self?.ingest(context) }
+                guard let data = Self.snapshotPayload(in: context) else { return }
+                queue.async { [weak self] in self?.ingest(data) }
             }
         #endif
 

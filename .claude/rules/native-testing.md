@@ -331,6 +331,17 @@ full-swipe 허용이라 XCUITest `swipeRight()` 가 버튼 노출 대신 액션�
   힌트 로그를 남긴다). 앱 launch 실패(TP_BOOT_OK 부재)도 FAIL 유지. `TP_UITEST_STRICT=1` 이면
   hard-fail. 새 Xcode/macOS beta 마다 재검 — 회귀가 풀리면 이 게이트는 자연히 미발화(창이 뜨면 주입
   로그가 남아 3중 조건이 불성립).
+- **로컬 Xcode 가 CI 보다 *느슨*할 수 있다 — Swift 6.0 vs 6.4 Sendable 진단 (2026-07-26, PR #946
+  `swift-smoke-ios` fail 로 실측)**: 로컬 dev 머신이 Xcode 27 beta(Swift 6.4)면 CI `macos-26`
+  (Swift 6.0) 이 **error 로 거부하는 코드를 조용히 통과시킨다**. 실제 사례: `queue.async { self?.f(dict) }`
+  에서 `[String: Any]`(non-Sendable) 를 `@Sendable` 클로저로 캡처 — 6.4 는 region-based isolation 이
+  개선돼 허용, 6.0 은 `capture of 'x' with non-Sendable type … in a '@Sendable' closure` 로 **exit 65**.
+  같은 부류: 비-`@Sendable` 클로저 프로퍼티를 로컬로 hoist 해 `Task { }` 안에서 호출하는 패턴
+  (`let hook = onX; Task { @MainActor in hook?(…) }`). 회피형은 **값을 경계에서 Sendable 타입으로
+  좁히고**(dict → `Data`), 콜백은 hoist 하지 말고 `Task { @MainActor [weak self] in self?.onX?(…) }`
+  로 `self` 를 캡처해 main 에서 읽는 것 (`RelayClient` 전반의 기존 관용구). **로컬 5플랫폼 빌드 그린이
+  CI 그린을 함의하지 않는다** — 새 동시성 코드를 추가하면 CI `swift-smoke-ios`/`swift-build` 결과까지
+  보고 판단할 것.
 - **macOS deep-link 라우팅 함정**: `cmd_smoke_macos` 는 dev build 를 `open -gn "$app" --args --tp-smoke`
   로 띄운 뒤 페어링 `tp://` 링크를 **반드시 `open -a "$app" "$link"`** 로 그 dev build 에 명시 라우팅한다.
   bare `open "$link"` 를 쓰면 LaunchServices 가 `tp://` 핸들러를 **우선순위**로 고르는데, `/Applications`

@@ -52,6 +52,83 @@ final class SmokeUITests: XCTestCase {
     // API. Collapsing to one launch removes the cross-method leak structurally:
     // one process, so no restore ever happens between assertions. (The harness also
     // `simctl uninstall`s before each `uitest` run, so nothing leaks across RUNS.)
+    #if os(iOS)
+    /// Session-row swipe actions (iOS/iPadOS): swipe-right pins, swipe-left
+    /// reveals Delete. The unit tests (`SessionPinOrderTests`) cover the pin
+    /// state and the resulting order; only a UI test can prove the gestures are
+    /// actually wired to a row that a finger can reach.
+    ///
+    /// **Method name is load-bearing**: XCTest runs methods alphabetically, and
+    /// `testPin…` sorts BEFORE `testSessionRender…`, so this launches while no
+    /// sub-window has ever been opened. That ordering is what keeps it compatible
+    /// with the single-launch rationale above — on iPad, running after the
+    /// pop-out test would let UIKit restore that sub-window frontmost and hide
+    /// the list. Do not rename it to sort later.
+    ///
+    /// Deliberately NON-destructive: the trailing swipe only asserts the Delete
+    /// button is revealed and never taps it (`allowsFullSwipe: false` guarantees
+    /// an over-swipe can't fire it either), so the seeded session survives for
+    /// the render test that follows.
+    @MainActor
+    func testPinAndDeleteSwipeActionsOnSessionRow() throws {
+        let link = try XCTUnwrap(
+            smokeURL,
+            "TP_SMOKE_URL not set — run via `scripts/ios.sh uitest` (it starts the loopback "
+                + "relay and injects the golden pairing link). Standalone Xcode runs can't reach a relay."
+        )
+
+        let app = XCUIApplication()
+        app.launchArguments = ["--tp-smoke-url", link]
+        app.launch()
+
+        let row = app.descendants(matching: .any)["session-\(smokeSid)"]
+        XCTAssertTrue(
+            row.waitForExistence(timeout: 30),
+            "session row 'session-\(smokeSid)' never rendered — cannot exercise swipe actions"
+        )
+
+        // ── Swipe right → Pin ────────────────────────────────────────────────
+        // The leading action allows a full swipe, so `swipeRight()` may either
+        // reveal the button OR perform the pin outright depending on how far
+        // XCUITest drags. Handle both: tap the button when it appears, otherwise
+        // the full swipe already toggled it. Either way the row must end pinned.
+        let pinButton = app.buttons["session-swipe-pin-\(smokeSid)"]
+        row.swipeRight()
+        if pinButton.waitForExistence(timeout: 3) { pinButton.tap() }
+
+        let pinMarker = app.descendants(matching: .any)["session-pinned-\(smokeSid)"]
+        XCTAssertTrue(
+            pinMarker.waitForExistence(timeout: 5),
+            "pin marker 'session-pinned-\(smokeSid)' missing after swipe-right — the leading "
+                + "swipe action did not reach SessionStore.togglePin"
+        )
+
+        // ── Swipe right again → Unpin (proves the toggle flips both ways) ────
+        row.swipeRight()
+        if pinButton.waitForExistence(timeout: 3) { pinButton.tap() }
+        XCTAssertFalse(
+            pinMarker.waitForExistence(timeout: 3),
+            "pin marker still present after a second swipe-right — togglePin did not flip back"
+        )
+
+        // ── Swipe left → Delete revealed (never tapped) ──────────────────────
+        // Asserted last so the closing gesture (which may itself full-swipe the
+        // leading action) can't disturb an assertion after it.
+        let deleteButton = app.buttons["session-swipe-delete-\(smokeSid)"]
+        row.swipeLeft()
+        XCTAssertTrue(
+            deleteButton.waitForExistence(timeout: 5),
+            "delete button 'session-swipe-delete-\(smokeSid)' not revealed by swipe-left"
+        )
+        row.swipeRight()  // close the revealed action without firing it
+
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.lifetime = .keepAlways
+        shot.name = "uitest-session-swipe"
+        add(shot)
+    }
+    #endif
+
     @MainActor
     func testSessionRenderPaneSwitchAndPopOut() throws {
         let link = try XCTUnwrap(

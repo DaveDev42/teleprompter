@@ -94,6 +94,28 @@ TabView 스타일은 플랫폼 기본값(탭 바 ornament) — 별도 override �
 `#if os(iOS) || os(visionOS)` 로 UIKit `UIAccessibility` import 가드 추가 (LiveRegion).
 APNs 등록은 visionOS 에서 skip (Simulator 단계, 엔타이틀먼트 미설정 — `NotificationService.swift`).
 
+**세션 리스트 정렬 + 행 스와이프 (iOS/iPadOS)**: 세션 순서의 SoT 는
+**`SessionStore.orderedSessions`** 하나다 — **pinned → running → `updatedAt` desc →
+sid**(마지막은 동률 jitter 방지 tiebreak). 리스트(`SessionListView.allSorted`)·⌘[/⌘] 스텝
+(`SessionsTab.orderedSids`)·⌘K 퀵스위치(`QuickSwitcherSheet`)·**watch**(`WatchRootView`)가
+전부 이 하나를 읽는다 — 예전엔 같은 비교자가 4벌 복붙돼 있어 한쪽에 정렬 키를 더하면 키보드
+네비게이션이 화면과 조용히 어긋났다 (watch 사본은 `state` 불일치에서 short-circuit 해
+`stopped` vs `error` 가 `updatedAt` tiebreak 를 건너뛰는 버그도 있었다 — 이관으로 해소).
+- **swipe left → Delete** (`session-swipe-delete-<sid>`): `allowsFullSwipe: false` —
+  daemon-side 삭제는 세션 히스토리까지 영구 소멸이라 over-swipe 로 발화하면 안 된다. **stopped**
+  세션은 드러난 버튼 탭으로 즉시 삭제(제스처 자체가 이미 2단계), **running** 세션은 라이브 claude
+  프로세스가 죽으므로 기존 벌크 경로와 같은 `ConfirmDeleteSheet` 를 거친다. 실제 삭제는
+  `PairingViewModel.deleteSessions` → relay `session.delete` (편집모드 벌크 삭제와 동일 파이프라인 —
+  `performDelete` 하나로 합쳐 토스트/VoiceOver 안내까지 동일).
+- **swipe right → Pin/Unpin** (`session-swipe-pin-<sid>`, full-swipe 허용 — 되돌리기 쉬움):
+  핀은 **device-local, 절대 sync 안 됨** (`SessionStore.pinnedSids`, UserDefaults
+  `tp.sessions.pinned.v1` — `PairingStore` 의 `localHidden` tombstone 과 같은 규율). 세션이
+  실제 삭제될 때만 핀을 정리한다 — `hello` 는 **한 daemon** 의 목록만 나르므로 거기서 prune 하면
+  아직 hello 안 온 daemon 의 핀이 날아간다. 행에는 `pin.fill` 글리프(`session-pinned-<sid>`).
+- **플랫폼 스코프**: 스와이프는 `#if os(iOS)`(iOS/iPadOS) — macOS/visionOS 는 기존 탭 +
+  context-menu 유지(`.swipeActions` 에 대응하는 네이티브 제스처가 없음). watch 는 핀 UI 가 없어
+  pinned 집합이 항상 비어 정렬 결과가 기존과 동일하다.
+
 **창 모델 — 메인 창 vs 세션 서브 창 (macOS + iPadOS)**: 메인 창은 세션 목록·데몬
 목록·설정을 담고, 특정 세션은 자기 서브 창으로 pop-out 한다.
 - **메인 창 shell 선택** (`TeleprompterApp.swift` `RootView.content`): macOS = `SidebarRootView`

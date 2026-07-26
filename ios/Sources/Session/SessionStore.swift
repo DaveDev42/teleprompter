@@ -45,6 +45,15 @@ final class SessionStore: ObservableObject {
     @Published private(set) var terminalOutput: [String: String] = [:]
     /// sid → latest known metadata (from `hello` and `state` frames).
     @Published private(set) var sessions: [String: SessionMeta] = [:]
+    /// Sids the user pinned to the top of the session list (swipe-right on iOS).
+    ///
+    /// **Device-local, never synced** — the same discipline as `PairingStore`'s
+    /// `localHidden` tombstone: a pin is a per-device UI preference, not shared
+    /// session state, so it lives in plain `UserDefaults` (never the
+    /// synchronizable Keychain) and never crosses to another device or the
+    /// daemon. Keyed by bare `sid`, matching how the rest of the store treats
+    /// session identity (the flat `sessions` dict is sid-keyed too).
+    @Published private(set) var pinnedSids: Set<String> = []
 
     /// Per-daemon session buckets: daemonId → { sid → SessionMeta }.
     ///
@@ -69,6 +78,7 @@ final class SessionStore: ObservableObject {
     // MARK: - Persistence
 
     private static let persistKey = "tp.sessions.v1"
+    private static let pinnedKey = "tp.sessions.pinned.v1"
 
     /// Initialise the store and immediately hydrate from `UserDefaults` so the
     /// session list is populated before the first relay `hello` arrives. The
@@ -83,6 +93,8 @@ final class SessionStore: ObservableObject {
             // Hydrate before first render; relay hello will upsert on top.
             sessions = decoded
         }
+        // Pins are a plain string array (no JSON envelope) — a pin is just a sid.
+        pinnedSids = Set(UserDefaults.standard.stringArray(forKey: Self.pinnedKey) ?? [])
     }
 
     /// Load persisted sessions from UserDefaults. Called once at app init.
@@ -103,7 +115,57 @@ final class SessionStore: ObservableObject {
         UserDefaults.standard.set(data, forKey: Self.persistKey)
     }
 
+    /// Write the pinned sids to UserDefaults. Sorted so the stored array is
+    /// stable across writes (a `Set` has no order of its own).
+    private func persistPinned() {
+        UserDefaults.standard.set(pinnedSids.sorted(), forKey: Self.pinnedKey)
+    }
+
+    // MARK: - Pinning
+
+    /// Whether `sid` is pinned to the top of the session list.
+    func isPinned(_ sid: String) -> Bool { pinnedSids.contains(sid) }
+
+    /// Pin or unpin `sid` (device-local; see `pinnedSids`).
+    func setPinned(_ pinned: Bool, for sid: String) {
+        let changed = pinned ? pinnedSids.insert(sid).inserted : (pinnedSids.remove(sid) != nil)
+        guard changed else { return }
+        persistPinned()
+    }
+
+    /// Flip `sid`'s pinned state. Backs the leading swipe action on iOS.
+    func togglePin(_ sid: String) { setPinned(!isPinned(sid), for: sid) }
+
     // MARK: - Session CRUD
+
+    /// **The** canonical session ordering, shared by every list, stepper and
+    /// switcher in the app: **pinned first, then running, then `updatedAt`
+    /// descending**, with the sid as a final tiebreak so equal-timestamp rows
+    /// never jitter between renders.
+    ///
+    /// Running-before-stopped deliberately diverges from Expo (pure `updatedAt`
+    /// desc): the active session stays visible without scrolling past a pile of
+    /// stopped ones. Pinned outranks running because a pin is an explicit user
+    /// intent — "keep this one at the top" — and must not be overridden by a
+    /// session merely being alive.
+    ///
+    /// This lives on the store (rather than in each view) because the list order
+    /// and the ⌘[/⌘] stepping / ⌘K quick-switch orders MUST agree: when they
+    /// were three hand-copied comparators, adding a sort key to one silently
+    /// desynced keyboard navigation from what the user sees.
+    var orderedSessions: [SessionMeta] {
+        let pinned = pinnedSids
+        return sessions.values.sorted { a, b in
+            let aPinned = pinned.contains(a.sid)
+            let bPinned = pinned.contains(b.sid)
+            if aPinned != bPinned { return aPinned }
+            let aRunning = (a.state == "running")
+            let bRunning = (b.state == "running")
+            if aRunning != bRunning { return aRunning }
+            if a.updatedAt != b.updatedAt { return a.updatedAt > b.updatedAt }
+            return a.sid < b.sid
+        }
+    }
 
     /// The resume cursor for `sid`: the highest applied `seq`, or 0 if none.
     /// `resume { c }` returns records with `seq > c`, so passing this backfills
@@ -220,14 +282,9 @@ final class SessionStore: ObservableObject {
     /// and removes the sid from every daemon bucket so that the next
     /// `replaceSessionsForDaemon` call (for any daemon) does not re-insert it.
     func removeSession(_ sid: String) {
-        sessions.removeValue(forKey: sid)
-        chatItems.removeValue(forKey: sid)
-        terminalOutput.removeValue(forKey: sid)
-        cursors.removeValue(forKey: sid)
-        // Remove from all daemon buckets so a future replaceSessionsForDaemon
-        // (even for an unrelated daemon) does not resurrect this sid as a ghost row.
-        for key in sessionsByDaemon.keys { sessionsByDaemon[key]?.removeValue(forKey: sid) }
+        removeSessions(internal: sid)
         persistSessions()
+        persistPinned()
     }
 
     /// Remove multiple sessions from local state. Equivalent to calling
@@ -235,6 +292,7 @@ final class SessionStore: ObservableObject {
     func removeSessions(_ sids: [String]) {
         for sid in sids { removeSessions(internal: sid) }
         persistSessions()
+        persistPinned()
     }
 
     private func removeSessions(internal sid: String) {
@@ -242,8 +300,14 @@ final class SessionStore: ObservableObject {
         chatItems.removeValue(forKey: sid)
         terminalOutput.removeValue(forKey: sid)
         cursors.removeValue(forKey: sid)
+        // Drop the pin too: the session is gone for good (daemon-side delete), so
+        // keeping its sid would leak a pin that can never be surfaced or cleared.
+        // Deliberately NOT done in `replaceSessionsForDaemon` — a hello only
+        // carries ONE daemon's sessions, so pruning there would wipe pins for
+        // every session belonging to a daemon that hasn't hello'd yet.
+        pinnedSids.remove(sid)
         // Remove from all daemon buckets so a future replaceSessionsForDaemon
-        // does not resurrect this sid as a ghost row.
+        // (even for an unrelated daemon) does not resurrect this sid as a ghost row.
         for key in sessionsByDaemon.keys { sessionsByDaemon[key]?.removeValue(forKey: sid) }
     }
 

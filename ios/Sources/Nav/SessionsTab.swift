@@ -21,21 +21,14 @@ struct SessionsTab: View {
     /// because they mutate `navPath` (the controlled stack). See `orderedSids`.
     private let nav = AppNavigationModel.shared
 
-    /// Canonical session ordering for keyboard stepping / quick-switch: running
-    /// first, then by `updatedAt` descending. This deliberately mirrors
-    /// `SessionListView.allSorted` (the *unfiltered* order) rather than its
-    /// `filteredSessions`: stepping and quick-switch are global navigation intents
-    /// over every session, so they must not skip rows hidden by an ephemeral
-    /// in-list search query (which is private view state of `SessionListView`).
+    /// Session order for keyboard stepping / quick-switch: `SessionStore`'s
+    /// canonical order (pinned → running → updatedAt desc), the same order the
+    /// list renders. It is deliberately the *unfiltered* order rather than
+    /// `SessionListView.filteredSessions`: stepping and quick-switch are global
+    /// navigation intents over every session, so they must not skip rows hidden
+    /// by an ephemeral in-list search query (private view state of the list).
     private var orderedSids: [String] {
-        sessionStore.sessions.values
-            .sorted { a, b in
-                let aRunning = (a.state == "running")
-                let bRunning = (b.state == "running")
-                if aRunning != bRunning { return aRunning }
-                return a.updatedAt > b.updatedAt
-            }
-            .map(\.sid)
+        sessionStore.orderedSessions.map(\.sid)
     }
 
     var body: some View {
@@ -113,12 +106,7 @@ private struct QuickSwitcherSheet: View {
     @State private var query = ""
 
     private var sessions: [SessionMeta] {
-        let sorted = sessionStore.sessions.values.sorted { a, b in
-            let aRunning = (a.state == "running")
-            let bRunning = (b.state == "running")
-            if aRunning != bRunning { return aRunning }
-            return a.updatedAt > b.updatedAt
-        }
+        let sorted = sessionStore.orderedSessions
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return sorted }
         let q = trimmed.lowercased()
@@ -258,19 +246,11 @@ struct SessionListView: View {
 
     // MARK: - Sorted / filtered sessions
 
-    /// All sessions sorted: running first, then by updatedAt descending.
-    ///
-    /// L3 note: Expo sorted purely by updatedAt desc. We intentionally diverge —
-    /// pinning running sessions to the top provides better UX when there are many
-    /// stopped sessions (the active session stays visible without scrolling).
-    /// Within each group (running / not-running) ordering is still updatedAt desc.
+    /// All sessions in `SessionStore`'s canonical order (user-pinned first, then
+    /// running, then updatedAt descending) — see `SessionStore.orderedSessions`
+    /// for why the comparator lives on the store rather than here.
     private var allSorted: [SessionMeta] {
-        sessionStore.sessions.values.sorted { a, b in
-            let aRunning = (a.state == "running")
-            let bRunning = (b.state == "running")
-            if aRunning != bRunning { return aRunning }
-            return a.updatedAt > b.updatedAt
-        }
+        sessionStore.orderedSessions
     }
 
     /// Sessions after applying the search filter.
@@ -482,6 +462,7 @@ struct SessionListView: View {
     private func sessionRow(for meta: SessionMeta) -> some View {
         let isRunning = meta.state == "running"
         let isSelected = selectedSids.contains(meta.sid)
+        let isPinned = sessionStore.isPinned(meta.sid)
 
         if isEditMode {
             // Edit mode: stopped sessions are selectable; running are read-only.
@@ -492,7 +473,7 @@ struct SessionListView: View {
                         .font(.title3)
                         .onTapGesture { toggleSelect(meta.sid) }
                 }
-                SessionRow(meta: meta)
+                SessionRow(meta: meta, isPinned: isPinned)
                     .opacity(isRunning ? 0.6 : 1)
             }
             .contentShape(Rectangle())
@@ -510,11 +491,44 @@ struct SessionListView: View {
             // that's an accepted iOS limitation, not a logic gap. Keyboard /
             // VoiceOver focus is unaffected.
             NavigationLink(value: meta.sid) {
-                SessionRow(meta: meta)
+                SessionRow(meta: meta, isPinned: isPinned)
             }
             .focusable()
             .focused($focusedSid, equals: meta.sid)
             .accessibilityIdentifier("session-\(meta.sid)")
+            // Row swipe actions — iOS/iPadOS only (the requested platforms; on
+            // macOS/visionOS the list keeps its existing tap + context-menu
+            // affordances and `.swipeActions` has no native gesture there).
+            // Only in normal mode: edit mode already owns the row's gestures for
+            // multi-select, and a swipe there would fight the selection tap.
+            #if os(iOS)
+            // Swipe left → Delete. `allowsFullSwipe: false` deliberately: a
+            // daemon-side delete is irreversible (the session's stored history
+            // goes with it), so it must never fire from an over-swipe — the user
+            // has to land on the revealed button.
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button(role: .destructive) {
+                    swipeDelete(meta)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .accessibilityIdentifier("session-swipe-delete-\(meta.sid)")
+            }
+            // Swipe right → Pin/Unpin. Full swipe is allowed here: pinning is
+            // device-local and trivially reversible by swiping again.
+            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                Button {
+                    togglePin(meta)
+                } label: {
+                    Label(
+                        isPinned ? "Unpin" : "Pin",
+                        systemImage: isPinned ? "pin.slash.fill" : "pin.fill"
+                    )
+                }
+                .tint(.orange)
+                .accessibilityIdentifier("session-swipe-pin-\(meta.sid)")
+            }
+            #endif
             // macOS right-click / iPad long-press → open this session in its own
             // window (messenger-style pop-out) instead of navigating in-place.
             // Opens the value-carrying per-session WindowGroup; in-place tap
@@ -577,7 +591,15 @@ struct SessionListView: View {
 
     private func confirmDelete() {
         showConfirmDelete = false
-        let sids = selectedForDelete.map(\.sid)
+        performDelete(selectedForDelete.map(\.sid))
+        exitEditMode()
+    }
+
+    /// Daemon-side delete (`session.delete` over the relay) + local row removal +
+    /// user feedback. Shared by the edit-mode bulk path and the iOS swipe action
+    /// so both report identically.
+    private func performDelete(_ sids: [String]) {
+        guard !sids.isEmpty else { return }
         let count = sids.count
         Task { @MainActor in
             pairings.deleteSessions(sids, from: sessionStore)
@@ -589,15 +611,48 @@ struct SessionListView: View {
             UIAccessibility.post(notification: .announcement, argument: message)
             #endif
         }
-        exitEditMode()
+    }
+
+    // MARK: - Swipe actions (iOS/iPadOS)
+
+    /// Swipe-left delete for one row.
+    ///
+    /// A **stopped** session deletes straight away — revealing the button and
+    /// tapping it is already a two-step deliberate gesture, and the row is inert.
+    /// A **running** session instead routes through the same `ConfirmDeleteSheet`
+    /// the bulk path uses, because deleting it also kills a live Claude process;
+    /// that warning belongs in front of the user. Reusing `selectedSids` as the
+    /// sheet's input keeps a single delete pipeline (`confirmDelete` clears it),
+    /// rather than a parallel one that could drift.
+    private func swipeDelete(_ meta: SessionMeta) {
+        guard meta.state != "running" else {
+            selectedSids = [meta.sid]
+            showConfirmDelete = true
+            return
+        }
+        performDelete([meta.sid])
+    }
+
+    /// Swipe-right pin/unpin. Device-local (see `SessionStore.pinnedSids`); the
+    /// row re-sorts to the top immediately because the list reads the store's
+    /// canonical order.
+    private func togglePin(_ meta: SessionMeta) {
+        sessionStore.togglePin(meta.sid)
+        #if os(iOS) || os(visionOS)
+        // VoiceOver: the row just moved in the list, so say what happened.
+        let message = sessionStore.isPinned(meta.sid) ? "Session pinned" : "Session unpinned"
+        UIAccessibility.post(notification: .announcement, argument: message)
+        #endif
     }
 }
 
 // MARK: - SessionRow
 
-/// One row in the session list: status dot + cwd + sid + relative timestamp.
+/// One row in the session list: status dot + cwd + sid + relative timestamp,
+/// plus a pin glyph when the user pinned this session to the top.
 private struct SessionRow: View {
     let meta: SessionMeta
+    let isPinned: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -629,6 +684,17 @@ private struct SessionRow: View {
             }
 
             Spacer()
+
+            // Pin marker: the only on-row cue that this session is being held at
+            // the top (the sort itself is otherwise indistinguishable from a
+            // recently-updated session).
+            if isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel("Pinned")
+                    .accessibilityIdentifier("session-pinned-\(meta.sid)")
+            }
 
             Text(relativeTimestamp(meta.updatedAt))
                 .font(.caption2)

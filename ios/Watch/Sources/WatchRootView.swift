@@ -9,14 +9,16 @@ struct WatchRootView: View {
     @ObservedObject var sessionStore: SessionStore
     let pairings: WatchPairingViewModel
 
-    /// Sorted sessions: running ones first, then by most-recently-updated.
+    /// Sessions in `SessionStore`'s canonical order (running first, then
+    /// most-recently-updated), shared with the phone app so both stay in sync.
+    ///
+    /// The pinned-first key of that order is inert here: pinning is device-local
+    /// and the watch has no pin affordance, so its pin set is always empty.
+    /// Adopting the shared comparator also fixes a subtle local bug — the old
+    /// inline one short-circuited on `state` inequality, so a `stopped` row and
+    /// an `error` row compared as equal and skipped the `updatedAt` tiebreak.
     private var sortedSessions: [SessionMeta] {
-        sessionStore.sessions.values.sorted {
-            if $0.state != $1.state {
-                return $0.state == "running"  // running first
-            }
-            return $0.updatedAt > $1.updatedAt
-        }
+        sessionStore.orderedSessions
     }
 
     var body: some View {

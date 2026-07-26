@@ -37,6 +37,11 @@
 - [x] **Sessions 리스트가 resume-reconnect 후 stale** — PR #584로 해결.
 - [x] **Session row 제목이 cwd basename 만 표시** — PR #586로 해결 (`formatCwd` 로직).
 - [x] **Sessions Refresh 버튼이 in-flight 상태를 보조기기에 알리지 않음** — PR #588로 해결.
+- [x] **Sessions 행 스와이프 제스처 부재 (Swift 앱, 사용자 요청 2026-07-26)** — iOS/iPadOS 리스트 행에
+  swipe-left=Delete(`allowsFullSwipe:false`; stopped 즉시 / running 은 `ConfirmDeleteSheet` 경유 —
+  라이브 claude 프로세스 kill) + swipe-right=Pin/Unpin(device-local, `tp.sessions.pinned.v1`) 추가.
+  정렬 비교자 4벌(리스트/⌘[⌘]/⌘K/watch) 을 `SessionStore.orderedSessions` 하나로 통합
+  (pinned → running → updatedAt desc → sid). 상세 = `ios/README.md` "세션 리스트 정렬 + 행 스와이프".
 
 ### Voice (Expo 스택 완료 이력 — 재작성 대상)
 - [x] `VoiceButton` 네이티브 오디오 — Expo 스택에서 react-native-audio-api 0.12.2로 구현 (2026-06-11). Swift 재작성 시 AVFoundation/Swift Concurrency 기반으로 재구현 예정 (Phase 3).

@@ -17,6 +17,11 @@
   (1) 폰에서 페어링 후 워치 상태 행이 `Open Teleprompter on iPhone` → `Connecting…` → `Connected` 로
   전이하는지, (2) 세션 리스트가 채워지는지, (3) 폰에서 unpair/local-hide 하면 워치에서 사라지는지,
   (4) **폰의 페어링이 살아있는지** (워치가 synced delete 를 내지 않는다는 불변식의 실기기 확인).
+- [ ] **stale dependabot 5건 처분 결정 (미착수 — 어느 트랙에도 안 속함)** — #931(cargo-all 그룹 8건) ·
+  #920(tokio-tungstenite 0.29→0.30) · #889(uniffi 0.31.2→0.32.0) · #888(portable-pty 0.8.1→0.9.0) 은
+  전부 7/7 green 인 루틴 bump. **#887(x25519-dalek 2.0.1→3.0.0)만 3/7 FAIL** — E2EE 골든벡터 밑에 깔린
+  crate 의 major bump 라 머지가 아니라 실 포팅 작업이 필요하다. 착수하면 `rust/tp-core` 등이 바뀌므로
+  머지 직후 **dogfood refresh 필수**(`dogfood-refresh` 스킬).
 
 ### 해소됨 (#938/#939 로 전건 머지)
 

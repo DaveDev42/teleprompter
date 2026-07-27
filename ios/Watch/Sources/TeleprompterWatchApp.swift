@@ -30,6 +30,16 @@ struct TeleprompterWatchApp: App {
         Self.bootLog.notice("TP_BOOT_OK")
         let summary = TpCoreCheck.summary()
         Self.bootLog.notice("\(summary, privacy: .public)")
+
+        // Receive the companion iPhone's mirrored pairing set. This is the only
+        // channel that reaches watchOS — iCloud Keychain does not propagate
+        // third-party synchronizable items here, so without it the watch stays at
+        // "No Pairings" forever on real hardware. No-ops in smoke mode.
+        let vm = pairings
+        PairingSyncBridge.shared.onSnapshotApplied = { swept in
+            vm.applySyncedPairings(sweptPending: swept)
+        }
+        PairingSyncBridge.shared.activate()
     }
 
     // MARK: - Smoke harness deep-link injection
@@ -89,6 +99,11 @@ struct TeleprompterWatchApp: App {
 @Observable
 final class WatchPairingViewModel {
     private(set) var daemonIds: [String] = []
+    /// What the status row reports. A genuinely tracked property (NOT
+    /// `@ObservationIgnored`) — this is the whole point: `clients` is ignored and
+    /// `RelayClient` is not observable, so before this existed the status could
+    /// only ever refresh when `daemonIds` changed. See `WatchConnectionState`.
+    private(set) var connectionState: WatchConnectionState = .noPairings
     private let store: PairingStore
     @ObservationIgnored private let sessionStore: SessionStore
     @ObservationIgnored private var clients: [String: RelayClient] = [:]
@@ -119,10 +134,26 @@ final class WatchPairingViewModel {
         for did in daemonIds { connect(daemonId: did) }
         // Resume connect-on-pending for every pending pairing (§1.5).
         for pid in store.pendingIds() { beginPending(pairingId: pid) }
+        recomputeConnectionState()
     }
 
     func reload() {
         daemonIds = store.daemonIds()
+        recomputeConnectionState()
+    }
+
+    /// Recompute the published status from ground truth. Idempotent and
+    /// order-independent, so it is safe to call from any signal — which is the
+    /// point: no single callback is trusted to fire exactly once at the right time.
+    private func recomputeConnectionState() {
+        let next = WatchConnectionState.derive(
+            daemonIds: daemonIds,
+            pendingCount: pendingClients.count,
+            isReady: { [weak self] did in self?.clients[did]?.isReady ?? false }
+        )
+        guard next != connectionState else { return }
+        connectionState = next
+        log.info("connection state → \(String(describing: next), privacy: .public)")
     }
 
     /// The watch glance has no pending-row UI; this exists so the ingest hooks can
@@ -139,8 +170,16 @@ final class WatchPairingViewModel {
         // keeps the connection regardless of the PCT outcome. No pending-row UI on
         // watch, so a mismatch is warn-only (logged inside the client).
         client.setPairingPhase(pending: false)
+        // The kx-readiness edge. Without this the status row is stuck on whatever
+        // it read at connect time: `clients` is `@ObservationIgnored`, so nothing
+        // else tells SwiftUI that this client became ready. Fires on the URLSession
+        // delegate queue, hence the hop.
+        client.onReadyChange = { [weak self] _ in
+            Task { @MainActor [weak self] in self?.recomputeConnectionState() }
+        }
         clients[daemonId] = client
         client.connect()
+        recomputeConnectionState()
     }
 
     /// Connect-on-pending (PR-4): drive a PENDING pairing through kx; PR-5 gates the
@@ -163,8 +202,12 @@ final class WatchPairingViewModel {
                 )
             }
         }
+        client.onReadyChange = { [weak self] _ in
+            Task { @MainActor [weak self] in self?.recomputeConnectionState() }
+        }
         pendingClients[pairingId] = client
         client.connect()
+        recomputeConnectionState()
     }
 
     private func promoteConfirmed(pairingId: String) {
@@ -224,6 +267,29 @@ final class WatchPairingViewModel {
     /// Read-only: the first connected daemon id, if any.
     var firstDaemonId: String? { daemonIds.first }
 
-    /// Overall connection status (at least one daemon connected).
-    var anyConnected: Bool { daemonIds.contains { isConnected($0) } }
+    /// Overall connection status (at least one daemon connected). Now derived from
+    /// the published state so it can never disagree with what the status row shows.
+    var anyConnected: Bool { connectionState == .connected }
+
+    /// Adopt a pairing set mirrored from the companion iPhone.
+    ///
+    /// Called after `PairingStore.applyPeerSnapshot` has already written the
+    /// Keychain, so this only has to reconcile the live relay clients against the
+    /// new set: connect the arrivals, drop the departures, dispose any pending
+    /// clients whose records the hide swept.
+    func applySyncedPairings(sweptPending: [String]) {
+        let before = Set(daemonIds)
+        reload()
+        let after = Set(daemonIds)
+        for did in after.subtracting(before) { connect(daemonId: did) }
+        for did in before.subtracting(after) {
+            clients[did]?.disconnect()
+            clients.removeValue(forKey: did)
+        }
+        for pid in sweptPending {
+            pendingClients[pid]?.disconnect()
+            pendingClients.removeValue(forKey: pid)
+        }
+        recomputeConnectionState()
+    }
 }

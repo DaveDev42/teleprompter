@@ -113,6 +113,24 @@ final class PairingStore: @unchecked Sendable {
     private var lastGoodPointers: Pointers?
     private let pointerLock = NSLock()
 
+    /// Fired after any change to the COMMITTED set (commit, unpair, local-hide).
+    ///
+    /// Exists so the WatchConnectivity mirror re-publishes without the store
+    /// knowing what a watch is. Hooking here rather than at the call sites is
+    /// deliberate: there is no single choke point above this layer — `DaemonsTab`
+    /// writes labels straight from the view, and `RelayClient` writes to the store
+    /// from its own receive loop without ever touching a view model — so a
+    /// call-site hook would drift the moment a fourth writer appears.
+    ///
+    /// Assigned once during app init, before any concurrent use. Read-only
+    /// observers must not mutate the store from inside it (this fires *inside*
+    /// `persist`/`remove`/`hideLocally`); publishing a snapshot is a pure read.
+    var onCommittedSetChanged: (() -> Void)?
+
+    private func notifyCommittedSetChanged() {
+        onCommittedSetChanged?()
+    }
+
     private enum Key {
         static let frontendId = "tp.frontendId"
         static let daemonIndex = "tp.pairings.index"  // legacy [String] of daemon ids
@@ -324,6 +342,7 @@ final class PairingStore: @unchecked Sendable {
         let existingFloor = meta["floor"].flatMap { Int($0) } ?? 0
         meta["floor"] = String(max(p.minAdvertisedV, existingFloor))
         defaults.set(meta, forKey: Key.meta(p.daemonId))
+        notifyCommittedSetChanged()
     }
 
     /// All known committed daemon ids, in a stable order (surviving entries keep
@@ -623,6 +642,7 @@ final class PairingStore: @unchecked Sendable {
                 sweptPending.append(pid)
             }
         }
+        notifyCommittedSetChanged()
         return sweptPending
     }
 
@@ -650,6 +670,217 @@ final class PairingStore: @unchecked Sendable {
             defaults.removeObject(forKey: Key.localHidden(pid))
         }
         defaults.removeObject(forKey: Key.hiddenIndex)
+    }
+
+    // MARK: - WatchConnectivity companion mirror
+
+    /// Outcome of applying a peer snapshot. Every non-`.applied` case guarantees
+    /// **zero mutation** — the receiver either has nothing to learn or refuses to
+    /// act on input it cannot trust.
+    enum PeerSnapshotResult: Equatable {
+        /// Adopted `adopted` blobs, skipped `skippedStale`, hid `hidden` daemons.
+        /// `sweptPending` are pending pairingIds whose live relay clients the
+        /// caller must dispose (mirrors `hideLocally`'s contract).
+        case applied(adopted: Int, skippedStale: Int, hidden: Int, sweptPending: [String])
+        /// Smoke launch — the harness owns pairing state; never touch it.
+        case ignoredSmoke
+        /// Sender speaks a newer schema than this build understands.
+        case unsupportedSchema(Int)
+        /// Keychain could not be enumerated (locked / pre-first-unlock). Deferring
+        /// is mandatory: treating a locked enumeration as "zero local pairings"
+        /// would make every daemon look absent and hide the user's whole list.
+        case deferredLocked
+    }
+
+    /// The committed set this device would mirror to its companion watch: exactly
+    /// **what the user sees here**, one blob per daemon, plus each daemon's §1.3
+    /// floor.
+    ///
+    /// Returns `nil` — meaning *do not publish* — when the Keychain cannot be
+    /// enumerated. This is load-bearing, not defensive noise: publishing an empty
+    /// snapshot from a locked keychain would tell the watch that every pairing was
+    /// revoked.
+    ///
+    /// Locally-hidden pairings are excluded. That makes "Remove from this device"
+    /// on the phone the operator's only handle on the watch's list (the watch ships
+    /// no pairing-management UI at all), and it is safe to do *because* the watch
+    /// revokes by hiding rather than deleting — see `applyPeerSnapshot`.
+    func committedSnapshot() -> PairingSnapshot? {
+        guard let all = try? records.loadAll() else { return nil }
+        let hidden = hiddenPairingIds()
+        var newestByDid: [String: PairingBlob] = [:]
+        for b in all where !hidden.contains(b.pairingId) {
+            if let existing = newestByDid[b.did], !Self.isNewer(b, than: existing) { continue }
+            newestByDid[b.did] = b
+        }
+        var floors: [String: Int] = [:]
+        for did in newestByDid.keys {
+            let floor =
+                (defaults.dictionary(forKey: Key.meta(did)) as? [String: String])?["floor"]
+                .flatMap { Int($0) } ?? 0
+            if floor > 0 { floors[did] = floor }
+        }
+        // Sorted for a byte-stable payload: WatchConnectivity coalesces on the
+        // *slot*, not on content, but a stable encoding keeps diffing/logging sane.
+        return PairingSnapshot(
+            pairings: newestByDid.keys.sorted().compactMap { newestByDid[$0] }, floors: floors)
+    }
+
+    /// Total order on same-`did` blobs: newer `ts` wins, `pairingId` breaks ties so
+    /// two devices never disagree about which of two equal-`ts` blobs is "newest".
+    private static func isNewer(_ a: PairingBlob, than b: PairingBlob) -> Bool {
+        a.ts != b.ts ? a.ts > b.ts : a.pairingId > b.pairingId
+    }
+
+    /// Adopt a full snapshot mirrored from the companion iPhone.
+    ///
+    /// **This method never issues a synced delete, and that constraint shapes all
+    /// of it.** `records.remove` deletes with `kSecAttrSynchronizableAny` against
+    /// items written `synchronizable: true`, and since #944 the watch shares the
+    /// phone's keychain-access-group — so a delete here could propagate and destroy
+    /// the operator's pairing on the phone. The store also forbids the inference
+    /// outright: `reconciledPointers` preserves a pointer whose blob is absent
+    /// because "a genuinely-unpaired daemon is dropped only by explicit
+    /// `remove(daemonId:)` … never inferred from absence". Revocation on this side
+    /// is therefore `hideLocally` — device-local, non-revoking, reversible. The
+    /// division of labour: **WC is a low-latency mirror; the phone's `remove` (and
+    /// the synced blob delete it issues) remains the sole revocation channel.**
+    ///
+    /// `nonisolated` and lock-free by design. It calls the same primitives
+    /// (`records.save`, `defaults.set`) that `persist`/`promote`/`remove` already
+    /// call from three concurrent contexts today — the MainActor, `RelayClient`'s
+    /// URLSession delegate queue, and `ManualPairingView`'s global queue. A
+    /// WCSession delivery queue is a fourth caller of those same primitives, not a
+    /// new hazard class. Taking `pointerLock` here would in fact deadlock:
+    /// `writePointers` acquires that non-reentrant lock internally.
+    @discardableResult
+    func applyPeerSnapshot(_ snapshot: PairingSnapshot) -> PeerSnapshotResult {
+        // (0) Smoke isolation. The harness injects its own pairing via
+        // `--tp-smoke-url` and `wipeAllCommittedForSmoke` clears committed state at
+        // launch; a snapshot landing in that window would fight both. Guarding here
+        // (as well as at the bridge) makes the outcome independent of which runs
+        // first, so there is no ordering race to reason about.
+        guard !RelayClient.isSmokeMode else { return .ignoredSmoke }
+        // (1) Refuse a schema we do not understand rather than guessing at it.
+        guard snapshot.schemaVersion <= PairingSnapshot.currentSchemaVersion else {
+            log.error("peer snapshot schema \(snapshot.schemaVersion, privacy: .public) too new")
+            return .unsupportedSchema(snapshot.schemaVersion)
+        }
+        // (2) Collapse the incoming set to one blob per did (a well-formed sender
+        // sends one already; a mid-re-pair sender might briefly send two).
+        var incomingByDid: [String: PairingBlob] = [:]
+        for b in snapshot.pairings {
+            if let existing = incomingByDid[b.did], !Self.isNewer(b, than: existing) { continue }
+            incomingByDid[b.did] = b
+        }
+        // (3) Ground truth. A locked enumeration is NOT "zero pairings" — defer
+        // whole, mutating nothing, and wait for the next context delivery.
+        let local: [PairingBlob]
+        do {
+            local = try records.loadAll()
+        } catch {
+            log.error("peer snapshot deferred — keychain unavailable: \(error, privacy: .public)")
+            return .deferredLocked
+        }
+        var localByDid: [String: [PairingBlob]] = [:]
+        for b in local { localByDid[b.did, default: []].append(b) }
+
+        // (4) Adopt verbatim.
+        var adopted = 0
+        var skippedStale = 0
+        for (did, incoming) in incomingByDid {
+            let same = localByDid[did] ?? []
+            // Un-hide FIRST, for every daemon the phone still shows — including one
+            // whose blob needs no write. A daemon that was revoked (hidden) and then
+            // re-added arrives byte-identical to the copy we already hold, so an
+            // adopt-gated unhide would leave it tombstoned and permanently invisible.
+            // Also necessarily before the superseded-tombstoning below, since
+            // `unhideForDaemon` additionally clears `deriveLegacyPairingId(did)`,
+            // which may name one of those superseded ids.
+            unhideForDaemon(daemonId: did, pairingId: incoming.pairingId)
+            let superseded = same.filter { $0.pairingId != incoming.pairingId }
+            // Re-assert the superseded tombstones BEFORE any exit path, not just the
+            // adopt one. `unhideForDaemon` above also clears
+            // `deriveLegacyPairingId(did)`, which may name one of `superseded` — a
+            // blob an earlier adopt deliberately tombstoned. Resurrecting it while we
+            // also hold our own copy of `incoming` leaves TWO un-hidden blobs for one
+            // did, and that is precisely the condition step 6's `reconciledPointers`
+            // ts-loser sweep answers with `records.remove` — the synced delete this
+            // method must never issue. A re-sent unchanged snapshot is enough to
+            // trigger it: every watch launch re-applies `receivedApplicationContext`.
+            // Gated on our own copy being present, because with a single blob on disk
+            // there is no ts-loser to sweep and hiding it would strand a pairing we
+            // legitimately hold (the `skippedStale` case below).
+            if same.contains(where: { $0.pairingId == incoming.pairingId }) {
+                for old in superseded { setLocalHidden(pairingId: old.pairingId) }
+            }
+            if let mine = same.first(where: { $0.pairingId == incoming.pairingId }),
+                !Self.isNewer(incoming, than: mine)
+            {
+                continue  // byte-identical or older re-send of the same pairing — no-op.
+            }
+            // The two-blob guard. If a local blob for this daemon under a DIFFERENT
+            // pairingId is newer-or-tied, adopting would leave two same-did blobs on
+            // disk — and the very next `daemonIds()` would run `reconciledPointers`'s
+            // ts-loser sweep, which calls `records.remove`: a synced delete of the
+            // blob we just adopted (i.e. of the phone's live record). Refusing to
+            // delete inside this method is not enough; we must never create the
+            // condition. So: skip, and let the phone's own re-pair converge us.
+            if superseded.contains(where: { !Self.isNewer(incoming, than: $0) }) {
+                skippedStale += 1
+                continue
+            }
+            do {
+                // `save` is a keyed delete-then-add upsert on THIS pairingId only,
+                // and it re-encodes the blob unchanged — `ts` is never re-stamped, so
+                // our copy can never out-rank the sender's own record.
+                try records.save(incoming)
+            } catch {
+                // One blob failing is not fatal: each is an independently-keyed
+                // Keychain item and WC redelivers the whole context next time.
+                log.error("peer snapshot save failed did=\(did, privacy: .public)")
+                continue
+            }
+            setPointer(daemonId: did, pairingId: incoming.pairingId)
+            // Tombstone the blobs this one supersedes instead of deleting them.
+            // `reconciledPointers` filters hidden blobs out at the very top, before
+            // it computes ts-losers — so a tombstoned orphan can never be swept, and
+            // therefore never synced-deleted from this device.
+            for old in superseded { setLocalHidden(pairingId: old.pairingId) }
+            adopted += 1
+        }
+
+        // (5) Floor merge — monotone, and written inline rather than through
+        // `raiseCommittedFloor`, which `guard`s on an existing sidecar dict and so
+        // silently no-ops for exactly the case that matters here: a daemon adopted
+        // for the first time, which has no sidecar yet.
+        for (did, incomingFloor) in snapshot.floors where incomingByDid[did] != nil {
+            var meta = (defaults.dictionary(forKey: Key.meta(did)) as? [String: String]) ?? [:]
+            let existing = meta["floor"].flatMap { Int($0) } ?? 0
+            guard incomingFloor > existing else { continue }
+            meta["floor"] = String(incomingFloor)
+            defaults.set(meta, forKey: Key.meta(did))
+        }
+
+        // (6) Revoke = hide. A daemon absent from an authoritative snapshot is
+        // hidden on this device only; its blob keeps living (and syncing) so the
+        // phone stays the sole revoker. Reversible: a later snapshot re-including
+        // the daemon un-hides it in step (4).
+        var hiddenCount = 0
+        var sweptPending: [String] = []
+        for did in daemonIds() where incomingByDid[did] == nil {
+            sweptPending.append(contentsOf: hideLocally(daemonId: did))
+            hiddenCount += 1
+        }
+
+        log.info(
+            """
+            peer snapshot applied adopted=\(adopted, privacy: .public) \
+            skippedStale=\(skippedStale, privacy: .public) hidden=\(hiddenCount, privacy: .public)
+            """)
+        return .applied(
+            adopted: adopted, skippedStale: skippedStale, hidden: hiddenCount,
+            sweptPending: sweptPending)
     }
 
     /// Migrate legacy split-storage committed records (Keychain secret keyed by
@@ -857,6 +1088,7 @@ final class PairingStore: @unchecked Sendable {
         defaults.removeObject(forKey: Key.meta(daemonId))
         defaults.removeObject(forKey: "tp.pairing.\(daemonId).label")
         dropPointer(daemonId: daemonId)
+        notifyCommittedSetChanged()
     }
 
     // MARK: Keychain (generic password, keyed by account)

@@ -21,6 +21,26 @@ struct WatchRootView: View {
         sessionStore.orderedSessions
     }
 
+    /// The status row. Three states rather than a Connected/Offline binary,
+    /// because on a device with no pairing UI the most useful thing to say is
+    /// "the iPhone hasn't sent you anything yet" — which "Offline" hid. See
+    /// `WatchConnectionState`.
+    private var statusColor: Color {
+        switch pairings.connectionState {
+        case .noPairings: return .gray
+        case .connecting: return .yellow
+        case .connected: return .green
+        }
+    }
+
+    private var statusText: String {
+        switch pairings.connectionState {
+        case .noPairings: return "Open Teleprompter on iPhone"
+        case .connecting: return "Connecting…"
+        case .connected: return "Connected"
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -28,9 +48,9 @@ struct WatchRootView: View {
                 Section {
                     HStack(spacing: 8) {
                         Circle()
-                            .fill(pairings.anyConnected ? Color.green : Color.gray)
+                            .fill(statusColor)
                             .frame(width: 8, height: 8)
-                        Text(pairings.anyConnected ? "Connected" : "Offline")
+                        Text(statusText)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }

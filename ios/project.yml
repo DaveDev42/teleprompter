@@ -356,6 +356,17 @@ targets:
       - path: Sources/Pairing/PairingRecordStore.swift
       - path: Sources/Pairing/DeepLinkHandler.swift
       - path: Sources/Pairing/PairingRelayOps.swift
+      # WatchConnectivity companion mirror. iCloud Keychain does not deliver
+      # third-party synchronizable items to watchOS, so the phone hands its
+      # committed pairing set over directly. The bridge's whole body is behind
+      # `#if os(iOS) || os(watchOS)` — visionOS ships the framework (so `canImport`
+      # is NOT a sufficient guard) but requires a different WCSessionDelegate member
+      # set, and the multiplatform target builds visionOS too.
+      - path: Sources/Pairing/PairingSyncBridge.swift
+      # The watch status-row state machine. Lives under Sources/ (not Watch/) so
+      # the phone-only XCTest target compiles it — no test target builds watch
+      # code, so this is the only way any of it is covered automatically.
+      - path: Sources/Pairing/WatchConnectionState.swift
       - path: Sources/Session/SessionStore.swift
       # WorktreeStore backs onWorktree*/onControlErr (RelayWorktreeOps). Mirrors
       # SessionStore (@MainActor + ObservableObject, Foundation + os only — no

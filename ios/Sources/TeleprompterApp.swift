@@ -60,6 +60,18 @@ struct TeleprompterApp: App {
         let summary = TpCoreCheck.summary()
         Self.bootLog.notice("\(summary, privacy: .public)")
         coreStatus = summary
+
+        #if os(iOS)
+            // Mirror committed pairings to the companion watch (iCloud Keychain does
+            // not reach watchOS). Wired here because this is the only pre-window
+            // app-level hook — there is no scenePhase observer or app delegate
+            // lifecycle callback in this app to hang it on. Both the store hook and
+            // `activate()` no-op in smoke mode.
+            PairingStore.shared.onCommittedSetChanged = {
+                PairingSyncBridge.shared.publish()
+            }
+            PairingSyncBridge.shared.activate()
+        #endif
     }
 
     // MARK: - Smoke harness deep-link injection

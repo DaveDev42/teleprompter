@@ -205,6 +205,11 @@ round-3 조건 5·11 명시 2건: (1) 이 재검증의 PCT_app 재계산 입력 
 
 ## 3. CRITICAL-2 / req-3 — 페어링 iCloud sync: 두 메커니즘의 정직한 비교
 
+> **범위 각주 (사후 확인)**: 이 절 전체는 **iOS/iPadOS/macOS 기기 사이**의 sync 를 말한다.
+> **watchOS 는 여기에 포함되지 않는다** — 실기기 검증 결과 Apple 은 서드파티 synchronizable
+> Keychain 아이템을 워치로 전파하지 않는다 (컴패니언 keychain access group 을 공유해도 마찬가지).
+> 폰 → 워치 전달은 별도 전송로가 필요하며 **§8 (WatchConnectivity 컴패니언 미러)** 가 담당한다.
+
 ### 3.1 현실 재검증 (HEAD 직접 확인)
 
 req-3 ("기기 A 에서 페어링하면 iCloud 로 기기 B 에도 나타난다") 의 v2 전제는 **허위였음을 확인**:
@@ -412,6 +417,131 @@ v2 §B.7 의 나머지 행 (secret 유출 등 위협 시나리오) 은 라이프
 | L5 아키텍처 불변식 | relay 가 여전히 ciphertext-only/stateless 인지 (pct 는 hello 평문이 아니라 E2EE 프레임 내부 필드), capacity bar 영향 0 인지 | relay 코드 변경 필요성 발견, 또는 relay 가 pct 를 관찰 가능한 경로 발견 |
 | L6 마이그레이션 매트릭스 | {구 QR, 신 QR} × {구 daemon, 신 daemon} × {구 앱, 신 앱} 8칸 전수 — 각 칸에서 페어링 성립/실패가 명시적인지 | 어느 칸이든 조용한 실패(무한 대기·무마커) 또는 데이터 소실 발견 |
 | L7 PR 착지성 | PR-1~8 각각을 단독 merge 한 상태의 그린 여부 (특히 PR-4 의 "PCT 없는 pending 승격" 중간 상태) | 어떤 PR 이 후속 PR 없이는 기존 동작을 퇴행시키는 경우 |
+
+---
+
+## 8. 컴패니언 미러 — 폰 → 워치 페어링 전달 (WatchConnectivity, 사후 증축)
+
+> **왜 §3 (Option A) 만으로 부족했나.** §3 은 페어링 blob 을 synchronizable Keychain 아이템으로 옮겨
+> iCloud 가 기기 사이를 옮겨주게 했고, #944 는 워치 앱이 폰과 같은 keychain access group
+> (`$(AppIdentifierPrefix)dev.tpmt.app`)을 갖도록 entitlement 를 맞췄다. 그런데 실기기 검증
+> (Apple Watch Ultra 1, 빌드 0.1.20(2301)) 결과는 **"전파 안 됨"** 이었다 — 설치·기동은 정상인데
+> 페어링이 0. **Apple 은 서드파티 synchronizable Keychain 아이템을 watchOS 로 전달하지 않는다.**
+> entitlement 는 필요조건이었을 뿐 전송로가 아니었다. 폰 앱과 그 컴패니언 사이에 Apple 이 주는
+> 채널은 WatchConnectivity 뿐이므로, 폰이 커밋 집합을 직접 건넨다.
+
+### 8.1 스냅샷 형태 — 델타가 아니라 전체 (`PairingSnapshot`, `pairings.v1`)
+
+```
+PairingSnapshot { schemaVersion: Int, pairings: [PairingBlob], floors: [String: Int] }
+```
+
+- **전달 수단은 `updateApplicationContext`** — `transferUserInfo`/`sendMessage` 아님. 단일 coalesced
+  latest-wins 슬롯이라 (a) reachability 불필요(워치가 다음에 뜰 때 집어감), (b) 큐가 밀리지 않고,
+  (c) 중간 업데이트 유실이 무해하다(최신 집합만 의미가 있으므로). 전체 스냅샷이 정확히 이 슬롯이
+  모델링하는 것이다 — 시퀀스 번호도 ack 도 없다.
+- **`pairings` 는 `PairingBlob` 을 그대로 싣는다 (verbatim, `ts` 재스탬프 금지).** 이게 load-bearing:
+  `ts` 는 §3 reconciliation 의 latest-wins 판정 기준이고, 전달 시각으로 다시 찍으면 워치의 복사본이
+  폰의 원본보다 "새것" 이 되어 재페어링 수렴 규칙이 뒤집힌다. 재사용의 부수 효과로 device-local
+  필드(`localHidden` tombstone, PCT, floor 사이드카, `frontendId`, label)는 **구조적으로** 실릴 수
+  없다 — blob 에 애초에 없는 필드라 "빼먹지 않게 조심" 할 여지가 없다.
+- **pending 은 절대 싣지 않는다.** 미러는 커밋된 집합의 거울이고, PENDING 은 그 기기의 kx epoch 에
+  묶인 상태다 (§1.4).
+- **`floors` 는 daemonId → §1.3 anti-downgrade floor.** floor 가 없으면 워치는 PCT-less hello 를
+  legacy 로 오판해 downgrade 를 허용하게 된다 — 페어링만 옮기고 floor 를 두고 오면 미러가 보안
+  하향 벡터가 된다. 병합은 **monotone `max`** (아래 8.3-(5)).
+- **`ps` 는 비밀이다 — 스냅샷을 로그에 찍지 않는다.** 발행/수신 로그는 개수만 남긴다.
+- **v1 은 봉인하지 않는다.** 봉인하려면 폰↔워치 키 확립 프로토콜이 필요한데 그런 게 없다. WC 페이로드는
+  Apple 이 두 기기 사이에서 전달하며 디스크에는 각자의 보호 도메인 아래 놓인다 — 이 선택을 자백으로
+  남기고, 자체 키 확립이 생기면 그때 seal 한다.
+
+### 8.2 단방향, 폰이 authoritative
+
+워치는 **발행하지 않는다**. 워치엔 변경을 originate 할 페어링 UI 가 없고, 양방향이었다면 §3 의
+latest-`ts`-wins reconciliation 과 공존하는 충돌 규칙을 새로 정의해야 한다. 단방향이 그 문제군을
+통째로 제거한다.
+
+### 8.3 `applyPeerSnapshot` — 워치 쪽 적용 순서
+
+0. **smoke 가드** (`RelayClient.isSmokeMode`) → `.ignoredSmoke`. smoke 하니스가 페어링 상태를
+   end-to-end 로 소유하므로(부팅 시 committed wipe + 딥링크 주입) 미러가 경합하면 안 된다.
+   `PairingSyncBridge.activate()` 도 같은 조건으로 세션 자체를 안 띄운다 — **두 겹**이라 어느 쪽이
+   먼저 도는지에 결과가 의존하지 않는다.
+1. **`schemaVersion` 상한 초과 → `.unsupportedSchema` (무변이).** 미래 폰 + 구 워치 조합에서
+   해석 불가한 페이로드로 상태를 건드리지 않는다.
+2. **incoming 을 did 별로 dedupe** (latest-`ts`, 동률은 pairingId 사전순 — §3 과 같은 tie-break).
+3. **로컬 ground truth 는 Keychain 열거** (`records.loadAll()`), 포인터 맵이 아니다. 열거 실패
+   (잠금)는 `.deferredLocked` — **무변이 후 다음 전달에서 재시도**. 여기서 "비어 있음" 으로 진행하면
+   잠긴 창에서 전부 revoke 로 오독한다.
+4. **adopt.** 각 did 에 대해:
+   - **`unhideForDaemon(daemonId:pairingId:)` 를 루프 맨 앞에서 무조건 먼저 호출.** byte-identical
+     이라 쓰기가 필요 없는 경로에서도 실행돼야 한다 — 안 그러면 *revoke 됐다가 다시 추가된* daemon 이
+     "디스크의 복사본과 동일" 로 short-circuit 돼 tombstone 뒤에 영영 숨는다 (구현 중 실제로 만든
+     버그; `testReAddedDaemonIsUnhidden` 이 잠근다). `unhideForDaemon` 은 `deriveLegacyPairingId(did)`
+     도 함께 clear 하므로 superseded-tombstoning **보다도** 앞이어야 한다 (§3.7 legacy 결정론 각주).
+   - **superseded tombstone 재-어서션은 *모든* 탈출 경로 앞에** — 바로 위 `unhideForDaemon` 이
+     `deriveLegacyPairingId(did)` 도 clear 하는데, 그게 **앞선 adopt 가 일부러 tombstone 한
+     superseded blob 을 지목할 수 있다**(legacy 결정론). 그 tombstone 이 풀린 채 아래 멱등 skip 으로
+     빠지면 한 did 에 un-hidden blob 이 **2개** 남고, 그게 정확히 step 6 의 ts-loser sweep 이
+     `records.remove` 로 답하는 조건이다 — 이 메서드가 절대 발행하면 안 되는 synced delete. **변경
+     없는 스냅샷 재전송만으로 발화**한다(워치는 매 런치마다 `receivedApplicationContext` 를 재적용).
+     그래서 tombstone 을 `continue` 앞에서 다시 세우되, **내 쪽 incoming 사본이 실제로 있을 때만**
+     — 디스크에 blob 이 하나뿐이면 쓸어낼 ts-loser 자체가 없고, 거기서 숨기면 정당히 보유한 페어링을
+     stranded 시킨다(아래 `skippedStale` 케이스). (`testResentSnapshotDoesNotResurrectSupersededLegacyBlob`
+     / `testResentSnapshotNeverDeletesTheLivePairing` 이 잠근다 — 부활한 blob 이 더 새로우면
+     sweep 이 지우는 쪽은 **살아있는** blob 이었다.)
+   - 같은 pairingId 의 로컬 blob 이 incoming 보다 새것이거나 동률 → skip (멱등).
+   - **two-blob 가드**: 같은 did 의 *다른* pairingId 로컬 blob 이 incoming 보다 새것이거나 동률이면
+     **adopt 자체를 포기** (`skippedStale`). 그냥 쓰면 같은 did 의 blob 이 2개가 되고, 바로 다음
+     `daemonIds()` 의 `reconciledPointers` ts-loser sweep 이 `records.remove` 를 호출한다 — 그건
+     **synced delete** 라 폰의 살아있는 레코드를 지운다. "내 함수 안에서 안 지운다" 로는 부족하고,
+     **그 조건 자체를 만들지 않아야** 한다 (위 재-어서션이 같은 원칙의 두 번째 절반 — 가드는 *새로
+     만드는* 2-blob 을, 재-어서션은 *tombstone 이 풀려 되살아나는* 2-blob 을 막는다).
+   - 저장 성공 시 포인터를 incoming pairingId 로 갱신하고, 같은 did 의 옛 blob 은 **삭제가 아니라
+     tombstone** (`setLocalHidden`). `reconciledPointers` 는 hidden pairingId 를 ts-loser 계산
+     **이전에** 필터하므로 tombstone 된 orphan 은 sweep 대상이 될 수 없다.
+5. **floor 병합 — monotone `max`, adopt 된 did 에 대해서만.** `raiseCommittedFloor` 는 기존 사이드카
+   dict 존재를 `guard` 하므로 갓 adopt 한 daemon(정확히 중요한 그 경우)에 **조용히 no-op** 한다 —
+   그래서 인라인으로 `max()` 를 쓴다.
+6. **revocation = `hideLocally`, 삭제 아님.** incoming 에 없는 로컬 did 는 **device-local·NON-synced
+   tombstone** 으로 숨긴다. 워치가 `remove(daemonId:)` 를 호출하면 그건
+   `kSecAttrSynchronizableAny` `SecItemDelete` 이고, #944 이후 워치가 폰과 같은 access group 을
+   공유하므로 **폰의 페어링을 mesh 전체에서 파괴**한다. 역할 분담: 미러는 저지연 거울, revocation
+   채널은 여전히 폰의 `remove` 하나뿐. (숨김은 되돌릴 수 있고 `wipeAllCommittedForSmoke` 가 이미
+   clear 한다.)
+
+**불변식 한 줄**: *워치는 Keychain 삭제를 절대 발행하지 않는다.* `PairingSnapshotTests` 의 fake
+record store 가 `removeCount` 를 세어 이걸 어서션한다.
+
+### 8.4 never-received vs. 의도적 empty
+
+`WCSession.receivedApplicationContext` 는 **한 번도 못 받은 경우와 빈 집합을 받은 경우 모두 `[:]`**
+다. 둘을 가르는 유일한 신호는 `pairings.v1` 키의 존재이고, 그건 원본 dictionary 를 든 수신부만
+확인할 수 있다. 그래서 그 키가 없는 context 는 `applyPeerSnapshot` 을 **아예 호출하지 않는다**
+(빈 스냅샷으로 호출하지 않는다 — 그랬으면 첫 부팅에서 전부 revoke 로 읽힌다). 디코드 실패도 같은
+이유로 fail-safe: 손상된 메시지 하나로 모든 페어링을 숨기지 않는다.
+
+대칭으로 발행 쪽도: `committedSnapshot()` 이 nil(Keychain 열거 불가)이면 **발행하지 않는다** — 그 창에
+빈 집합을 보내면 워치에 "전부 revoke" 로 도착한다.
+
+### 8.5 준비 상태 신호 (`RelayClient.onReadyChange`)
+
+워치의 상태 행이 "Offline" 에 영구히 붙어 있던 이유: `clients` 는 `@ObservationIgnored` 이고
+`RelayClient` 는 관찰 가능 타입이 아니라, `anyConnected` 가 `daemonIds` 변경 시에만 재평가됐다.
+기존엔 우연히 동작했다 — 런치 후 유일한 변이(`promoteConfirmed`)가 kx 완료 **후** `reload()` 를
+불렀으니까. WC 경로는 순서가 반대다(adopt → connect → 수 초 뒤 kx). 그래서 명시적 edge 가 필요하다:
+`sessionKeys` 의 `didSet` (kx 완료 시 non-nil, disconnect 감지 시 동기적으로 nil — `isReady` 의 정의
+그 자체) 에 optional 콜백 하나. `RelayClient` 를 observable 로 만들지 않으며, 이미 있는 네 개의
+콜백과 같은 관용구다. 상태는 3-state (`noPairings` / `connecting` / `connected`) 로 유도한다.
+
+### 8.6 검증 경계
+
+자동 게이트는 **폰 타깃 XCTest** 뿐이다 — watch 타깃 코드를 컴파일하는 테스트 타깃이 없고
+(`TeleprompterTests` 는 `[iOS, macOS]`), watchOS 엔 `XCUIApplication` 이 없으며 (Apple hard limit),
+`cmd_smoke_watchos` 는 iOS Simulator 를 부팅하지도 `simctl pair` 를 하지도 않는다. 그래서 `WCSession`
+경계 **아래** 로직 전부(`committedSnapshot`, `applyPeerSnapshot`, `WatchConnectionState.derive`)를
+의도적으로 `ios/Sources/` 에 뒀다. 실제 전달 자체는 실기기 게이트로 남는다 (`TODO.md`) — 특히
+**폰의 페어링이 살아있는지** 확인하는 항목이 8.3-(6) 불변식의 실기기 확인이다.
 
 ---
 

@@ -30,6 +30,64 @@ struct PairingBlob: Codable, Equatable {
     let ts: Int
 }
 
+/// The payload the iPhone mirrors to its companion watch over WatchConnectivity.
+///
+/// **Why this exists.** iCloud Keychain does not propagate third-party
+/// synchronizable items to watchOS (confirmed on real hardware: an Ultra 1 with
+/// the companion keychain-access-group in place still saw zero pairings). So the
+/// watch cannot learn the user's pairings through the Option A synced blob alone;
+/// the phone hands them over directly.
+///
+/// **Shape: a full snapshot, not a delta.** `updateApplicationContext` keeps a
+/// single latest-wins slot, so a snapshot is idempotent, survives missed updates,
+/// and needs no sequence number. It also lets the watch reconcile its whole
+/// visible set in one pass rather than replaying an event log it may have missed
+/// the start of.
+///
+/// **What is NOT here, and why it can't be added.** `PairingBlob` is reused
+/// verbatim precisely so the four device-local fields are excluded *by
+/// construction* — there is nothing to strip and no way to leak them:
+/// `frontendId` (two devices sharing one would clobber each other's per-frontend
+/// E2EE session keys on the daemon), `lastConfirmedPct`/`confirmedAt` (bound to
+/// this device's ephemeral kx keypair), and `label`. PENDING pairings are also
+/// never carried — a pending record on an un-scanned device would let it complete
+/// kx and pair (§1.3), which is why they are non-synced in the Keychain too.
+///
+/// **`floors` is the one device-local field that DOES travel**, deliberately.
+/// `PairingBlob` excludes the §1.3 anti-downgrade floor, so a freshly-adopted
+/// pairing would start at 0 and a hostile relay replaying a cached `v=2` kx could
+/// push the watch's `effectiveV` below 3. Seeding the phone's earned floor closes
+/// that. The merge MUST be monotone (`max`), so a buggy or hostile sender can only
+/// ever raise it — see `PairingStore.applyPeerSnapshot`.
+///
+/// **Secrecy note.** `PairingBlob.ps` is the base64 32-byte pairing secret, so
+/// this struct is secret-bearing. WatchConnectivity queues it to a file in each
+/// app's container rather than the Keychain; that file carries iOS Data
+/// Protection at a class equivalent to the blob's own
+/// `kSecAttrAccessibleAfterFirstUnlock`, which is why v1 ships without a bespoke
+/// seal (sealing would need a phone↔watch key-establishment protocol that does
+/// not exist — the two are separate devices, so their shared keychain-access-group
+/// buys nothing here). Never log an instance of this type.
+struct PairingSnapshot: Codable, Equatable {
+    /// Bumped only for an incompatible reshape. A receiver refuses anything newer
+    /// than it understands rather than guessing (see `applyPeerSnapshot`).
+    static let currentSchemaVersion = 1
+
+    let schemaVersion: Int
+    /// Committed blobs **verbatim**, including each `ts`. Never re-stamped: the
+    /// receiver's copy must never be able to out-`ts` the sender's own record in
+    /// the latest-ts-wins sweep.
+    let pairings: [PairingBlob]
+    /// daemonId → §1.3 anti-downgrade floor. Merged with `max` on receipt.
+    let floors: [String: Int]
+
+    init(pairings: [PairingBlob], floors: [String: Int]) {
+        self.schemaVersion = Self.currentSchemaVersion
+        self.pairings = pairings
+        self.floors = floors
+    }
+}
+
 /// Errors from the committed-record persistence layer.
 enum RecordStoreError: Error, CustomStringConvertible {
     /// The Keychain could not be enumerated for a *transient* reason (not-found is

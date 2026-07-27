@@ -43,10 +43,30 @@ Bun 스크립트+opt-in seam 삭제 — Rust 가 유일 구현이고 CI `swift-s
 | iPadOS | `ipad` | iOS Simulator, `$TP_SIM`=`iPad Pro 13-inch (M5)` | **8** | 풀 | iOS 경로 alias — 새 슬라이스 불필요 (`ios-arm64_x86_64-simulator` 공유). split-view/sidebar 실행. (M5 = iOS 26.5 런타임; M4 는 18.5 뿐이라 name 해석 모호) |
 | macOS | `macos` | `platform=macOS` (native, `open`) | **8** | **호스트 게이트 2종** — 빌드+서명 O. (1) TCC/LocalAuthentication: 비대화형/미인가 세션에선 runner init 실패 → **SKIP** (`reason=tcc-host-gate`). (2) **windowless-launch** (Xcode 27 beta / macOS 27 beta 회귀): XCUITest 런치 앱이 부팅은 되나(TP_BOOT_OK) 메인 창이 아예 생성 안 됨 → **SKIP** (`reason=windowless-launch`; `TP_BOOT_OK` 有 + `smoke url injection` 無 로 판별 — 진짜 렌더 실패는 FAIL 유지). 둘 다 exit 0, `TP_UITEST_SKIP` 마커 emit(PASS 와 혼동 금지), `TP_UITEST_STRICT=1` 이면 **hard-fail** | sim 없음. `screencapture -x` 아티팩트. `log stream` 폴링 |
 | visionOS | `visionos` | `id=$visionUDID` (xrOS sim) | **8** | **부분** — element 쿼리+flat-window tap O, 공간 제스처/eye-gaze sim **불가** | `TP_VISION_SIM`=`Apple Vision Pro` |
-| watchOS | `watchos` | `-target TeleprompterWatch -sdk watchsimulator` (SDK 는 **unversioned** — 버전 핀은 Xcode 업그레이드 시 즉사) | **7** (no `TP_INPUT_OK`) | **없음** — watchOS 에 `XCUIApplication` 부재 (Apple hard limit) | `TP_WATCH_SIM`=`Apple Watch Series 11 (46mm)`. 마커+스크린샷만. **keychain-sync 페어링 경로는 smoke 미커버** — smoke 는 딥링크 주입이라, watch 가 iOS 앱의 synced 페어링 blob 을 읽는 프로덕션 경로(컴패니언 keychain access group 공유, `TeleprompterWatch.entitlements` 필수)는 실기기 게이트 |
+| watchOS | `watchos` | `-target TeleprompterWatch -sdk watchsimulator` (SDK 는 **unversioned** — 버전 핀은 Xcode 업그레이드 시 즉사) | **7** (no `TP_INPUT_OK`) | **없음** — watchOS 에 `XCUIApplication` 부재 (Apple hard limit) | `TP_WATCH_SIM`=`Apple Watch Series 11 (46mm)`. 마커+스크린샷만. **폰→워치 페어링 전달 경로는 smoke 미커버** (아래 참조) |
 
 > **`TP_INPUT_OK` 가 watchOS 에서 빠지는 이유**: ADR-0002 §4 — watchOS 는 제한 경험(입력 송신 미구현).
 > 그래서 watchOS smoke 는 M0–M4 (7마커) 만 어서션한다.
+
+> **폰→워치 페어링 전달은 자동 게이트가 없다 (실기기 전용).** watch 가 페어링을 어떻게 얻는지는
+> 두 번 바뀌었고, 두 경로 모두 smoke 로 못 잡는다:
+> 1. **iCloud Keychain sync — 실기기에서 반증됨.** #944 로 컴패니언 keychain access group
+>    (`$(AppIdentifierPrefix)dev.tpmt.app`, `TeleprompterWatch.entitlements`)을 공유시킨 뒤 실기기
+>    (Apple Watch Ultra 1, 빌드 0.1.20(2301))에서 확인한 결과 **Apple 은 서드파티 synchronizable
+>    Keychain 아이템을 watchOS 로 전파하지 않는다** — entitlement 는 필요조건이었을 뿐 전송로가 아니다.
+>    이 실기기 게이트의 답은 "전파 안 됨" 으로 이미 나왔다.
+> 2. **WatchConnectivity 컴패니언 미러 (현행 전송로)** — 폰이 `updateApplicationContext` 로 커밋된
+>    페어링 스냅샷을 넘긴다. **이것도 smoke 미커버**: `cmd_smoke_watchos` 는 iOS Simulator 를 아예
+>    부팅하지 않고 하니스에 `simctl pair` 도 없어서, 시뮬레이터에는 미러를 보낼 폰 자체가 없다
+>    (`WCSession.isPaired` false → `publish()` 가 조기 return). 그래서 **7마커 세트는 그대로**이고
+>    (미러는 마커를 추가하지 않는다), 전달 검증은 실기기 게이트로 남는다 (`TODO.md`).
+>
+> 자동 커버는 **폰 타깃 XCTest** 가 대신한다 — `WCSession` 경계 **아래** 로직(`committedSnapshot()`,
+> `applyPeerSnapshot()`, `WatchConnectionState.derive`)을 전부 `ios/Sources/` 에 둬서
+> `TeleprompterTests`(`[iOS, macOS]`)가 컴파일·실행한다 (`ios/Tests/PairingSnapshotTests.swift`).
+> watch 타깃 코드를 컴파일하는 테스트 타깃은 존재하지 않으므로, 로직을 watch 쪽에 두면 게이트가 0 이 된다.
+> smoke 자체는 두 겹으로 미러와 격리된다: `PairingSyncBridge.activate()` 가 `RelayClient.isSmokeMode`
+> 에서 세션을 아예 안 띄우고, `applyPeerSnapshot` 도 같은 조건으로 `.ignoredSmoke` 를 리턴한다.
 
 > **Smoke Keychain 격리 (PR-6 Option A)**: PR-6 은 커밋 페어링 인덱스를 `simctl uninstall` 이 지우는
 > UserDefaults 에서 **synchronizable Keychain blob**(`<base>.v2` service)로 옮겼다 — 이건 uninstall 을
@@ -311,6 +331,17 @@ full-swipe 허용이라 XCUITest `swipeRight()` 가 버튼 노출 대신 액션�
   힌트 로그를 남긴다). 앱 launch 실패(TP_BOOT_OK 부재)도 FAIL 유지. `TP_UITEST_STRICT=1` 이면
   hard-fail. 새 Xcode/macOS beta 마다 재검 — 회귀가 풀리면 이 게이트는 자연히 미발화(창이 뜨면 주입
   로그가 남아 3중 조건이 불성립).
+- **로컬 Xcode 가 CI 보다 *느슨*할 수 있다 — Swift 6.0 vs 6.4 Sendable 진단 (2026-07-26, PR #946
+  `swift-smoke-ios` fail 로 실측)**: 로컬 dev 머신이 Xcode 27 beta(Swift 6.4)면 CI `macos-26`
+  (Swift 6.0) 이 **error 로 거부하는 코드를 조용히 통과시킨다**. 실제 사례: `queue.async { self?.f(dict) }`
+  에서 `[String: Any]`(non-Sendable) 를 `@Sendable` 클로저로 캡처 — 6.4 는 region-based isolation 이
+  개선돼 허용, 6.0 은 `capture of 'x' with non-Sendable type … in a '@Sendable' closure` 로 **exit 65**.
+  같은 부류: 비-`@Sendable` 클로저 프로퍼티를 로컬로 hoist 해 `Task { }` 안에서 호출하는 패턴
+  (`let hook = onX; Task { @MainActor in hook?(…) }`). 회피형은 **값을 경계에서 Sendable 타입으로
+  좁히고**(dict → `Data`), 콜백은 hoist 하지 말고 `Task { @MainActor [weak self] in self?.onX?(…) }`
+  로 `self` 를 캡처해 main 에서 읽는 것 (`RelayClient` 전반의 기존 관용구). **로컬 5플랫폼 빌드 그린이
+  CI 그린을 함의하지 않는다** — 새 동시성 코드를 추가하면 CI `swift-smoke-ios`/`swift-build` 결과까지
+  보고 판단할 것.
 - **macOS deep-link 라우팅 함정**: `cmd_smoke_macos` 는 dev build 를 `open -gn "$app" --args --tp-smoke`
   로 띄운 뒤 페어링 `tp://` 링크를 **반드시 `open -a "$app" "$link"`** 로 그 dev build 에 명시 라우팅한다.
   bare `open "$link"` 를 쓰면 LaunchServices 가 `tp://` 핸들러를 **우선순위**로 고르는데, `/Applications`

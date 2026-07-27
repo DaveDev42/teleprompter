@@ -37,7 +37,7 @@ zeroize = { version = "1", features = ["zeroize_derive"] }
 # FFI binding generator. `cli` feature provides the `uniffi_bindgen_main`
 # entrypoint used by the in-crate binary (src/bin/uniffi-bindgen.rs).
 # Proc-macro mode (`uniffi::setup_scaffolding!()` in lib.rs) needs no build.rs.
-uniffi = { version = "0.31", features = ["cli"] }
+uniffi = { version = "0.32", features = ["cli"] }
 
 [dev-dependencies]
 serde_json = "1"

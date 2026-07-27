@@ -66,7 +66,7 @@ tp-relay = { path = "../tp-relay" }
 # WS client transport, same pin tp-relay's own dev-dependency (and its tests)
 # use. `rustls-tls-webpki-roots` so `wss://` (production relay URLs) works
 # without depending on the system OpenSSL/native-tls.
-tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 # rustls itself — needed ONLY to install a process-wide default CryptoProvider
 # at daemon startup (see bin/tp_daemon.rs). rustls 0.23 cannot unambiguously
 # auto-select a provider in this crate's dependency graph, so the first real

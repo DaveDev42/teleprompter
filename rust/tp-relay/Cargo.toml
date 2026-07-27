@@ -77,7 +77,7 @@ reqwest = { version = "0.13", default-features = false, features = ["http2", "ru
 serde_json = "1"
 # Integration-test WebSocket CLIENT only (the server uses axum's ws). Drives a
 # real loopback handshake/pub-sub/kx round-trip against the live RelayServer.
-tokio-tungstenite = "0.29"
+tokio-tungstenite = "0.30"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
 futures-util = "0.3"
 # Drive the axum Router directly (oneshot) for the /health + /metrics + /admin

@@ -45,7 +45,7 @@ base64 = "0.22"
 # maps cleanly onto the Bun `terminal:{ data() }` callback surface (a std reader
 # thread forwards bytes to the async loop over a channel — the "reader-task
 # hop"). Cross-platform (macOS/Linux), zero unsafe in our code.
-portable-pty = "0.8"
+portable-pty = "0.9"
 # Async runtime for the IPC client (framed-JSON UnixStream to the daemon) and the
 # hook receiver (UnixListener). `net` = UnixStream/UnixListener, `io-util` =
 # AsyncReadExt/AsyncWriteExt, `sync` = mpsc between the PTY reader thread and the

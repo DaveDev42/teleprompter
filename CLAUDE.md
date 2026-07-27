@@ -18,25 +18,6 @@ Teleprompter lets a developer view and drive **their own** Claude Code sessions 
 - **Encryption**: X25519 + XChaCha20-Poly1305 (`tp-core` 순수 Rust crate, 골든벡터 검증 완료).
 - **Voice**: selectable backend — **on-device (offline)** [SFSpeechRecognizer STT + Foundation Models refine/summarize (iOS 26+, availability-gated, raw-transcript fallback) + AVSpeechSynthesizer TTS, no API key] **or OpenAI Realtime API** [key required]. Settings toggle (Auto / On-device / OpenAI Realtime); default on-device when no key. Both backends drive one `VoiceConnectionStatus` state machine via the `VoiceBackend` protocol seam (`ios/Sources/Voice/`).
 
-## Monorepo Layout
-
-```
-ios/           # Swift (SwiftUI) Apple multiplatform app (iOS/iPadOS/macOS; dir name kept) — project.yml (XcodeGen SoT), Sources/, Tests/, Generated/ (UniFFI bindings, gitignored)
-rust/          # Rust workspace (백엔드/CLI 전체 — #5 PR6 이후 유일 구현)
-  tp-core/     # wire codec + E2EE crypto + pairing (UniFFI → Swift, 골든벡터 SoT)
-  tp-proto/    # framed JSON codec, envelope/IPC 타입, socket-path/locate 공유 로직
-  tp-cli/      # `tp` binary — subcommand router + passthrough terminal-proxy
-  tp-daemon/   # long-running service (session mgmt, vault, E2EE, worktree)
-  tp-runner/   # per-session process (claude PTY, hooks collection)
-  tp-relay/    # WebSocket relay; forwards already-encrypted frames only (no plaintext access)
-  tp-loopback/ # smoke 하니스용 in-process relay + 가짜 daemon peer
-  tp-e2e-holder/ # 로컬 실-claude E2E holder (격리 daemon/relay/claude 구동)
-scripts/
-  ios.sh       # Local iOS Simulator harness (rust→gen→build→install→launch→smoke/test)
-  build-bundle.sh  # release bundle 조립 (cargo 4 bins → tp-<suffix>.tar.gz; release.yml + 로컬 dry-run)
-  install.sh   # curl-pipe-sh installer for GitHub Releases (macOS/Linux)
-```
-
 ## Architecture
 
 - **Runner** (`tp-runner`) spawns Claude Code in a PTY (portable-pty), collects io streams and hooks events, sends Records to Daemon via IPC (Unix domain socket)
@@ -133,45 +114,21 @@ TP_PLATFORM=watchos scripts/ios.sh smoke  # watchOS Simulator 7마커 스모크 
 
 ### Local `tp` Binary Freshness (자동 룰)
 
-**main 에 머지된 내 변경은 즉시 사용자의 로컬 `tp`/daemon 에 반영되어 있어야 한다.** 다음 시점마다 **묻지 말고** 재빌드/재설치:
+**main 에 머지된 내 변경은 즉시 로컬 `tp`/daemon 에 반영돼 있어야 한다.** 절차는 `dogfood-refresh` skill 이 SoT — 다음 시점마다 **묻지 말고** 실행:
+1. **PR squash merge 직후** — `rust/tp-cli/**`, `rust/tp-daemon/**`, `rust/tp-runner/**`, `rust/tp-relay/**`, `rust/tp-proto/**`, `rust/tp-core/**` 중 하나라도 건드린 PR.
+2. **로컬 dev 세션 시작 시** — PATH `tp`/daemon 을 최신에 맞춤.
+3. **"최신으로 깔아줘" 요청 시** — 확인 없이.
 
-> **#5 PR6 이후: dogfood `tp` 는 순수 Rust 번들이다.** 출하 아티팩트 = `bin/tp`(Rust CLI) + `libexec/tp/{tp-daemon, tp-runner, tp-relay}` (= `scripts/build-bundle.sh` 가 조립하는 릴리즈 레이아웃과 동일; 릴리즈 tarball 은 pre-PR6 `tp upgrade`/install.sh 호환용 **`tpd` sh stub** 을 추가로 실을 뿐 — Bun blob 은 삭제됐고 로컬 dogfood 조립엔 tpd 가 아예 불필요). `tp daemon start` → `locate_tp_daemon()`→`libexec/tp/tp-daemon`, daemon 이 세션마다 `locate_tp_runner()`→`libexec/tp/tp-runner` 스폰. **symlink 만 깔고 `tp-daemon` 이 없으면 `bundled tp-daemon not found` 로 daemon 이 안 뜬다**(#922 flip 직후 실제 P0).
+**안전 규칙 (위반 금지):**
+- rustup shim 이 cargo 인자 mis-parse — real toolchain bin(`rustup which cargo` dirname) 을 PATH 우선.
+- `libexec/tp/{tp-daemon,tp-runner,tp-relay}` 필수 — 빠지면 `bundled tp-daemon not found` 로 daemon 미기동/세션 스폰 실패.
+- **`bin/tp`+`libexec/tp/*` 전부 adhoc 재서명** — 일부만 하면 parent/child 불일치로 AMFI 가 exec(`tp-daemon`/`tp-runner`) 를 SIGKILL(exit 137).
+- `daemon install` 은 plist 경로를 `which tp` 로 고름 — 반드시 **`~/.local/bin/tp daemon install`** 로 실행.
+- **재기동은 `tp daemon install` 한 번** — `pkill` 후 수동 재시작 금지 (서비스 미등록 프로세스로 살아남아 OTA 안 됨).
+- **brew symlink(`/opt/homebrew/bin/tp`) 절대 덮지 않는다** — dogfood 는 `~/.local/bin/tp` 만 (복구 = `brew link --overwrite tp`).
+- **subagent worktree active 중 install 금지** — 전부 완료 + 메인 worktree clean 후 한꺼번에.
 
-1. **PR squash merge 직후** — `rust/tp-cli/**`, `rust/tp-daemon/**`, `rust/tp-runner/**`, `rust/tp-relay/**`, `rust/tp-proto/**`, `rust/tp-core/**` 중 하나라도 건드린 PR:
-   ```bash
-   # Rust CLI + daemon + runner + relay (release) — rustup shim 이 cargo 인자를
-   # mis-parse 하므로 real toolchain bin 을 PATH 앞에.
-   TC_BIN="$(dirname "$(cd rust && rustup which cargo)")"
-   ( cd rust && PATH="$TC_BIN:$PATH" cargo build --release \
-       --bin tp --bin tp-daemon --bin tp-runner --bin tp-relay )      # → rust/target/release/{tp,tp-daemon,tp-runner,tp-relay}
-   # prefix-tree 조립 (레이아웃 = bin/tp + libexec/tp/{tp-daemon,tp-relay,tp-runner})
-   TP_PREFIX="$HOME/.local/share/tp"
-   mkdir -p "$TP_PREFIX/bin" "$TP_PREFIX/libexec/tp"
-   cp rust/target/release/tp        "$TP_PREFIX/bin/tp"
-   cp rust/target/release/tp-daemon "$TP_PREFIX/libexec/tp/tp-daemon"  # 필수 (daemon)
-   cp rust/target/release/tp-runner "$TP_PREFIX/libexec/tp/tp-runner"  # 필수 (세션 스폰)
-   cp rust/target/release/tp-relay  "$TP_PREFIX/libexec/tp/tp-relay"   # `tp relay start` 용
-   chmod +x "$TP_PREFIX/bin/tp" "$TP_PREFIX"/libexec/tp/{tp-daemon,tp-runner,tp-relay}
-   # cp 가 서명을 깨뜨려(`codesign -v` → "code or signature have been modified")
-   # Rust tp→{tp-daemon,tp-runner} exec 가 AMFI 에 SIGKILL(exit 137) 당한다.
-   # Rust tp 가 exec 하는 모든 자식 + parent(bin/tp) 를 전부 adhoc 재서명해 서명을
-   # 일관되게 맞춘다 (일부만 재서명하면 parent/child 불일치로 여전히 kill — 반드시 전부).
-   for b in libexec/tp/tp-daemon libexec/tp/tp-runner libexec/tp/tp-relay bin/tp; do
-     codesign --force --sign - "$TP_PREFIX/$b"
-   done
-   ln -sf "$TP_PREFIX/bin/tp" ~/.local/bin/tp                          # dogfood symlink → Rust tp
-   ~/.local/bin/tp daemon install                                      # 재등록 (Rust tp → Rust tp-daemon)
-   ```
-2. **로컬 dev 세션 시작 시** — 위 시퀀스 한 번 돌려 PATH `tp` + daemon 을 `origin/main` 최신에 맞춤.
-3. **"최신으로 깔아줘" 명시 요청 시** — 확인 없이 실행.
-
-세부:
-- **dogfood = `~/.local/bin/tp`(→ `~/.local/share/tp/bin/tp` Rust), brew(릴리즈) = `/opt/homebrew/bin/tp` 로 분리.** `~/.zprofile` 이 `~/.local/bin` 을 앞에 둬 `tp` 는 dogfood 를 가리킴. **brew symlink 를 절대 덮지 않는다** (덮으면 `brew upgrade` 무력화 — 복구는 `brew link --overwrite tp`). dogfood 끄려면 `rm ~/.local/bin/tp`.
-- **Rust `tp` 는 3개 자식 바이너리를 `canonicalize(current_exe())/../../libexec/tp/<name>` 로 찾는다**: `locate_tp_daemon()`→`tp-daemon`(daemon start), `locate_tp_runner()`→`tp-runner`(daemon 이 세션마다 스폰), `locate_tp_relay()`→`tp-relay`(`tp relay start`). (`locate_bun_blob()`→`tpd` passthrough fallback 은 #5 PR6 에서 삭제 — passthrough 는 native terminal-proxy.) 그래서 `bin/tp` + `libexec/tp/{tp-daemon,tp-runner,tp-relay}` prefix-tree 레이아웃이 필수다 — **symlink 만 깔고 `tp-daemon` 이 없으면 `tp daemon start` 가 `bundled tp-daemon not found` 로 실패**(#922 flip 직후 실제 P0), `tp-runner` 가 없으면 세션 스폰이 실패.
-- `daemon install` 은 plist 바이너리 경로를 `which tp` 로 고르므로 **`~/.local/bin/tp` 로 직접 실행**. 새 로그인 셸 전이면 `PATH="$HOME/.local/bin:$PATH" ~/.local/bin/tp daemon install`. #4 flip 이후 **daemon 프로세스는 `tp-daemon` 으로 뜬다** (Rust — `pgrep -fl tp-daemon` 로 확인; 옛 `tpd` 트램폴린 아님).
-- **adhoc 재서명은 dogfood 조립에서 필수** (macOS 로컬): `cargo build` 산출물은 linker-adhoc 서명을 갖는데, `cp` 가 payload 레이아웃/해시를 바꿔 그 서명을 무효화한다 (`codesign -v` → "code or signature have been modified"). 바이너리를 **직접 실행**하면 통과하지만, Rust `tp` 가 자식(`tp-daemon`/`tp-runner`/`tp-relay`)을 **exec** 하면 AMFI 가 SIGKILL(exit 137, 간헐적으로 보이지만 실제로는 일관 실패) 한다. 해결 = **`bin/tp` + Rust `tp` 가 exec 하는 모든 `libexec/tp/*` 자식을 전부** `codesign --force --sign -` 로 plain-adhoc 재서명(서명 일관성 — 일부만 재서명하면 parent/child 서명 불일치로 여전히 kill). `install.sh` 릴리즈 경로는 macOS 러너에서 빌드+서명된 tarball 을 `tar` 추출하므로 이 문제가 없다(로컬 `cp` 조립에서만 발생). 재서명 후 `tp version` + `tp status`(daemon running) 로 검증.
-- **재기동은 `tp daemon install` 한 번** (`pkill` 후 수동 재시작 금지 — 서비스 미등록 프로세스로 살아남아 OTA 안 됨). 재기동 후 `tp status` 로 daemon running 확인 + daemon.log 에서 `[RelayClient] authenticated to relay`(wss:// 연결 성공) 확인.
-- **Subagent worktree 가 active 인 동안 install 금지** — 모든 subagent 완료 알림 도착 + 메인 worktree `git status` clean 후 한꺼번에. 옛 `/usr/local/bin/tp` 잔재 발견 시 `rm`.
+전체 절차는 `.claude/skills/dogfood-refresh/SKILL.md`.
 
 ## Documentation Maintenance
 
@@ -230,75 +187,20 @@ gh api repos/DaveDev42/teleprompter/pulls/<number>/merge -X PUT -f merge_method=
 - **Manual major/minor bump**: when a major/minor release is explicitly requested, push a commit to `main` with a `Release-As: x.y.z` footer (release-please auto-detects it), or temporarily set `release-as` in `release-please-config.json` via a chore PR, then remove it in a follow-up chore PR after the release ships.
 - PR 브랜치 위 개별 commit messages는 conventional-commit 규칙을 따르지 않아도 된다 — squash merge가 합쳐서 PR title 하나로 main에 들어가므로 release-please는 PR title만 본다. 단, 커밋 본문에 `BREAKING CHANGE:` footer는 squash 시에도 main까지 따라가서 release-please가 잡으므로 절대 쓰지 말 것.
 
-## Git Merge Strategy
-
-- **Squash merge only.** PR 하나당 main 위에 단일 commit. GitHub repo 설정에서 squash 외 모든 merge 방식이 비활성화되어 있다.
-- **PR title = main commit subject**: squash 시 GitHub이 PR title을 그대로 commit subject로, PR body를 commit body로 쓴다. PR title을 작성/수정할 때 release-please / changelog 입력으로서의 무게를 의식할 것.
-- This repo often uses **git worktrees**. 로컬 `main`이 다른 worktree에 체크아웃되어 있을 수 있으므로 `gh pr merge` 대신 `gh api repos/DaveDev42/teleprompter/pulls/<n>/merge -X PUT -f merge_method=squash` 사용.
-- After merge, GitHub이 자동으로 remote branch를 삭제 (`delete_branch_on_merge=true`).
-
 ## Deployment Pipeline
 
 `tp` 바이너리 release 는 `/release` 슬래시 커맨드가 전 과정을 자동화 (release-please → `scripts/build-bundle.sh` multi-platform Rust 번들 → GitHub Release → Homebrew tap). 전체 SoT (main push / v* tag / 수동 dispatch 표, 릴리즈 수동 절차, Infrastructure, GitHub Secrets) 는 `.claude/rules/release-deploy.md`. Apple 멀티플랫폼 앱(iOS/iPadOS/macOS/visionOS/watchOS)은 로컬 하니스(`scripts/ios.sh`, `TP_PLATFORM=ios|macos|visionos|watchos`)로 빌드/검증 — EAS 클라우드 빌드는 제거됨.
 
 ## CLI Commands
 
-```bash
-tp                         # Claude REPL (인자 없이 실행하면 passthrough로 claude 인터랙티브 진입)
-tp [flags] [claude args]   # Claude를 tp를 통해 실행 (기본 모드 — 알 수 없는 첫 인자는 passthrough)
-tp --help, -h              # tp 자체 도움말 + claude --help 합쳐서 출력
-tp --version, -v           # tp 버전 + claude 버전 합쳐서 출력 (= `tp version`)
-tp pair [--relay URL] [--label NAME]   # QR 페어링 데이터 생성 (모바일 앱 연결) — 기본적으로 `pair new` 실행
-tp pair new [--relay URL] [--label NAME]  # 새 페어링 생성 (QR 출력, label 기본값 = hostname)
-tp pair list               # 등록된 페어링 목록 (label + daemon ID 표시)
-tp pair rename <id-prefix> <label...>  # 페어링 label 변경 (peer 알림)
-tp pair delete <id> [-y]   # 페어링 삭제 (daemon-id prefix 허용)
-tp session list            # 저장된 세션 목록 (running + stopped, cwd/updated 컬럼)
-tp session delete <sid> [-y]           # 세션 삭제 (sid prefix 허용, running 이면 Runner kill 후 삭제)
-tp session cleanup [-y] [--all]        # 대화형 multi-select 일괄 삭제 (stopped 세션만, TTY 필수)
-  --all                         # 모든 stopped 세션 미리 선택 (Enter로 확인)
-  -y, --yes                     # 선택 후 confirmation 생략
-tp session prune [options] # stopped 세션 일괄 삭제 (non-interactive)
-  --older-than <Nd|Nh|Nm|Ns>   # 나이 컷오프 (기본 7d)
-  --all                         # 모든 stopped 세션 (older-than 무시)
-  --running                     # running 도 포함 (위험 — 2중 confirmation)
-  --dry-run                     # 삭제 대상만 출력
-  -y, --yes                     # confirmation 생략
-tp status                  # 세션 & daemon 상태 확인 (자동 시작)
-tp logs [session]          # 세션 라이브 출력 tail
-tp doctor                  # 환경 진단 + relay 연결 + E2EE 검증, 끝에서 `claude doctor` 도 실행
-tp upgrade                 # tp 바이너리 업그레이드 후 `claude update` 도 실행
-tp version                 # tp + claude 버전 출력
-tp -- <claude args>        # claude에 직접 포워딩 (daemon 없이)
+`tp` 서브커맨드/플래그 전체 목록은 `tp --help` / `tp <sub> --help` 와 `rust/tp-cli/src/main.rs` clap 정의가 SoT — 여기 중복하지 않는다. `--help` 로 드러나지 **않는** 것만 기록:
 
-# Claude 유틸리티 서브커맨드 (daemon 없이 직접 포워딩)
-tp auth                    # claude auth
-tp mcp                     # claude mcp
-tp install                 # claude install
-tp update                  # claude update
-tp agents                  # claude agents
-tp auto-mode               # claude auto-mode
-tp plugin                  # claude plugin
-tp plugins                 # claude plugins (plural alias)
-tp setup-token             # claude setup-token
-
-# Daemon 관리
-tp daemon start [options]  # Daemon 포그라운드 실행
-tp daemon stop             # 실행 중인 daemon 정지
-tp daemon status           # daemon 실행 상태 확인
-tp daemon install          # OS 서비스 등록 (macOS: launchd, Linux: systemd)
-tp daemon uninstall        # OS 서비스 해제
-
-# 고급
-tp relay start [--port]    # Relay 서버 실행
-tp completions <bash|zsh|fish>              # 셸 자동완성 스크립트 출력
-tp completions install [shell]              # 현재 쉘에 완성 자동 등록 (--force, --dry-run)
-tp completions uninstall [shell]            # 설치된 완성 제거
-
-# Passthrough 플래그
---tp-sid <id>              # 세션 ID (기본: 자동 생성)
---tp-cwd <path>            # 작업 디렉토리 (기본: 현재)
-```
+- **맨 `tp pair` 는 `tp pair new` 로 라우팅된다** (`rust/tp-cli/src/main.rs:429-432`) — `tp pair --help` 출력에는 안 나온다.
+- **`session cleanup` 은 TTY 필수** (대화형 multi-select). non-interactive 일괄 삭제는 `session prune` (`--older-than` 기본 7d). `session delete` 는 running 세션이면 Runner 를 kill 한 뒤 삭제한다.
+- **daemon-up 게이팅**: `pair new/delete/rename` 과 `session delete/prune/cleanup` 은 daemon 이 떠 있지 않으면 진행을 거부한다 — store 직접 write fallback 없음 (ADR-0003 A2.4, `rust/tp-cli/src/commands/{pair,session}.rs`).
+- 알 수 없는 첫 인자는 daemon+runner 파이프라인을 타는 **passthrough** 로 가고, `auth`/`mcp`/`install`/`update`/`agents`/`auto-mode`/`plugin`/`plugins`/`setup-token` 과 **`tp -- <claude args>`** 는 daemon 을 우회해 claude 로 직접 exec 된다 (`Route::ForwardClaude` — passthrough 아님). 목록은 `forward.rs:79-89`, 라우팅 결정은 `decide_route()` (`forward.rs:111-165`).
+- **`--tp-sid <id>` / `--tp-cwd <path>`** (passthrough 전용 — 세션 ID / 작업 디렉토리)는 clap 에 등록되지 않고 pre-clap 커스텀 파서(`rust/tp-cli/src/commands/passthrough_split.rs:18`)가 처리한다 — 그래서 `tp --help` 에 **안 뜬다**.
+- 조합 출력은 `version`/`doctor`/`upgrade` 세 개뿐 — 각각 끝에서 `claude --version`/`claude doctor`/`claude update` 를 이어 실행한다. **`--help` 는 조합되지 않는다** (Bun CLI 시절 동작, Rust 포팅에서 미이관).
 
 Daemon은 자동 관리됨: passthrough/status/logs 실행 시 daemon이 없으면 자동 시작. OS 서비스 설치 시 서비스를 통해 kickstart. 최초 실행 시 TTY에서는 `Install daemon as an OS service ... [Y/n]` 프롬프트가 뜨고, 비-TTY(CI/파이프)에서는 한 번짜리 힌트만 표시.
 

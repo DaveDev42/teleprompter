@@ -335,7 +335,7 @@ E2EE 키 유도: kxKey = BLAKE2b(pairingSecret‖"kx-envelope"). 세션키 = X25
 
 10.5 tp CLI 명령 표면
 
-단일 `tp` 바이너리(subcommand 라우터)가 daemon/runner 파이프라인과 페어링·세션·진단을 모두 노출한다. 인자 없는 `tp` 또는 인식되지 않는 첫 인자는 모두 passthrough(claude를 daemon+runner 경유 실행)로 수렴한다. CLAUDE.md의 "CLI Commands" 섹션이 living SoT.
+단일 `tp` 바이너리(subcommand 라우터)가 daemon/runner 파이프라인과 페어링·세션·진단을 모두 노출한다. 인자 없는 `tp` 또는 인식되지 않는 첫 인자는 모두 passthrough(claude를 daemon+runner 경유 실행)로 수렴한다. `tp --help` / `tp <sub> --help` 와 `rust/tp-cli/src/main.rs` clap 정의가 living SoT — CLAUDE.md "CLI Commands" 섹션은 `--help` 로 드러나지 않는 동작만 기록한다.
 
 실행 / passthrough:
 	•	tp [flags] [claude args] — claude를 tp 파이프라인으로 실행 (기본 모드).

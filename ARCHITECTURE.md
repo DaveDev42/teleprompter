@@ -574,7 +574,7 @@ Runner, Daemon, Relay가 하나의 `tp` 바이너리로 통합된다. 서브커�
 Relay도 `tp relay start` 서브커맨드로 실행된다.
 
 ```bash
-# 서브커맨드 구조 (대표 예시 — 전체 surface는 CLAUDE.md "CLI Commands" 참조)
+# 서브커맨드 구조 (대표 예시 — 전체 surface는 `tp --help` / `rust/tp-cli/src/main.rs` clap 정의가 SoT)
 tp daemon start [--spawn --sid X --cwd Y]    # daemon 포그라운드 실행
 tp run --sid X --cwd Y [--socket-path P]     # daemon이 내부적으로 호출 (internal)
 tp relay start [--port 7090]                 # relay server

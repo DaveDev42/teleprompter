@@ -12,13 +12,12 @@
 //! libsodium generates the secret key from **raw random bytes** with no
 //! hashing step. `tp-core` has no true-random keypair generator exposed
 //! (it deliberately leaves nonce/randomness sourcing to the caller — see the
-//! `rand_core` dependency comment in `tp-daemon`'s `Cargo.toml`), so this
+//! `getrandom` dependency comment in `tp-daemon`'s `Cargo.toml`), so this
 //! module provides one directly via `x25519_dalek::StaticSecret`, mirroring
 //! the pattern `tp-core::crypto` itself uses internally.
 //!
 //! This stays lib-internal to `tp-daemon` — no FFI/UniFFI surface change.
 
-use rand_core::{OsRng, RngCore as _};
 use tp_core::crypto::{derive_relay_token, KxKeyPair};
 use tp_core::pairing::{encode_pairing_data, PairingData};
 use x25519_dalek::{PublicKey, StaticSecret};
@@ -28,7 +27,14 @@ use zeroize::Zeroizing;
 /// `crypto_kx_keypair()` (raw random secret bytes, X25519 base-mult for the
 /// public key; NO hashing step, unlike `tp_core::crypto::kx_seed_keypair`).
 fn kx_random_keypair() -> KxKeyPair {
-    let secret = StaticSecret::random_from_rng(OsRng);
+    // 32 raw bytes straight from the OS CSPRNG, stored UNCLAMPED — byte-shape
+    // identical to what `StaticSecret::random()` builds internally (it also
+    // calls `getrandom::fill` and keeps the bytes unclamped; the clamp happens
+    // inside `mul_base_clamped` on a working copy). Spelled out here rather
+    // than via `StaticSecret::random()` because we must keep the raw bytes.
+    let mut sk = [0u8; 32];
+    fill_os_random(&mut sk);
+    let secret = StaticSecret::from(sk);
     let public = PublicKey::from(&secret);
     KxKeyPair {
         public_key: *public.as_bytes(),
@@ -36,12 +42,22 @@ fn kx_random_keypair() -> KxKeyPair {
     }
 }
 
+/// Fill `dest` from the OS CSPRNG.
+///
+/// # Panics
+/// Panics if the OS CSPRNG is unavailable. Deliberate, and identical to what
+/// `x25519_dalek::StaticSecret::random()` does: pairing secrets, X25519 secret
+/// keys, and AEAD nonces must never fall back to a weaker entropy source.
+fn fill_os_random(dest: &mut [u8]) {
+    getrandom::fill(dest).expect("OS CSPRNG unavailable");
+}
+
 /// 32 genuinely-random bytes for the pairing secret (mirrors
 /// `generatePairingSecret()`, `packages/protocol/src/pairing.ts`, which is
 /// `p.randomBytes(32)` via libsodium). `Zeroizing` wipes on drop.
 fn random_pairing_secret() -> Zeroizing<Vec<u8>> {
     let mut bytes = vec![0u8; 32];
-    OsRng.fill_bytes(&mut bytes);
+    fill_os_random(&mut bytes);
     Zeroizing::new(bytes)
 }
 
@@ -54,7 +70,7 @@ fn random_pairing_secret() -> Zeroizing<Vec<u8>> {
 /// match what the TS bundle already does not enforce either.
 fn random_uuid_string() -> String {
     let mut bytes = [0u8; 16];
-    OsRng.fill_bytes(&mut bytes);
+    fill_os_random(&mut bytes);
     let hex = hex::encode(bytes);
     format!(
         "{}-{}-{}-{}-{}",

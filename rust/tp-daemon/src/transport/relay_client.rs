@@ -1419,9 +1419,11 @@ type WsReadHalf = futures_util::stream::SplitStream<Ws>;
 /// `crypto_aead_xchacha20poly1305_ietf_encrypt` binding does internally when
 /// no nonce is supplied.
 fn seal_random_nonce(plaintext: &[u8], key: &[u8; 32]) -> TpResult<String> {
-    use rand_core::{OsRng, RngCore};
     let mut nonce = [0u8; 24];
-    OsRng.fill_bytes(&mut nonce);
+    // OS CSPRNG. A nonce silently drawn from a seeded/deterministic RNG would
+    // be catastrophic for XChaCha20-Poly1305 (nonce reuse under the same key),
+    // so this panics rather than degrading if the OS CSPRNG is unavailable.
+    getrandom::fill(&mut nonce).expect("OS CSPRNG unavailable");
     seal(plaintext, key, &nonce)
 }
 

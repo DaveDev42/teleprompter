@@ -27,14 +27,14 @@ rust/
       wire_vectors.rs      # TS 라이브 구현에서 뽑은 골든벡터 교차검증 (8개)
       fixtures/wire-vectors.json
   tp-proto/                # ADR-0003 Stage 0 — 메시지 타입 parity (host-only rlib, xcframework 미포함)
-    Cargo.toml             # crate-type = lib (rlib); deps: serde/serde_json, rand_core(OsRng), x25519-dalek
+    Cargo.toml             # crate-type = lib (rlib); deps: serde/serde_json, getrandom(OS CSPRNG), x25519-dalek
     src/
       lib.rs               # 공유 guard 프리미티브 (is_number/is_non_negative_int/opt_string/…)
       label.rs             # Label tagged-union + decodeWireLabel/decodeKxLabelOrKeep (total/관대)
       control.rs           # parse_control_message (control.unpair/rename)
       ipc.rs               # parse_ipc_message (28 variant + AgeFilter + parse_label_field + reason enums)
       relay_client.rs      # parse_relay_client_message (10 variant + Role/Platform/InterruptionLevel/PushData)
-      keypair.rs           # generate_keypair (랜덤 OsRng — tp-core 의 결정적 kx_seed_keypair 보완)
+      keypair.rs           # generate_keypair (랜덤 getrandom::fill/OS CSPRNG — tp-core 의 결정적 kx_seed_keypair 보완)
     tests/
       message_vectors.rs   # 라이브 TS 가드 교차검증 (accept/reject + 직렬화 동등, 값기준 json_eq)
       fixtures/message-vectors.json   # scripts/gen-message-vectors.ts 산출 (relayClient/ipc/control/label)

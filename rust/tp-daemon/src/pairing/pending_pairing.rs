@@ -129,16 +129,20 @@ pub struct PendingPairing {
 }
 
 impl PendingPairing {
+    /// Build a fresh pending-pairing slot with a unique daemon-local id.
+    ///
+    /// # Panics
+    /// Panics if the OS CSPRNG is unavailable (`getrandom::u32` failure).
     #[must_use]
     pub fn new(opts: PendingPairingOptions) -> Self {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis())
             .unwrap_or(0);
-        let rand_suffix: u32 = {
-            use rand_core::RngCore as _;
-            rand_core::OsRng.next_u32()
-        };
+        // Collision-avoidance suffix only (never key material), but it still
+        // comes from the OS CSPRNG — same source as every other random draw in
+        // this crate now that x25519-dalek v3 dropped `rand_core::OsRng`.
+        let rand_suffix: u32 = getrandom::u32().expect("OS CSPRNG unavailable");
         let pairing_id = format!("pp-{now:x}-{rand_suffix:x}");
         PendingPairing {
             pairing_id,

@@ -19,7 +19,15 @@ name = "tp_core"
 #   - X25519 + crypto_kx KDF    (x25519-dalek + blake2 BLAKE2b-512 split)
 #   - BLAKE2b-256 generichash   (blake2::Blake2b with 32-byte output)
 chacha20poly1305 = "0.11"
-x25519-dalek = { version = "2", features = ["static_secrets"] }
+# v3 keeps the clamp-at-scalar-mult semantics this crate depends on, verified
+# against the 3.0.0 source: `StaticSecret` is a `[u8; 32]` newtype and its
+# `From<[u8; 32]>` stores the raw bytes UNCLAMPED; the clamp happens inside
+# `mul_base_clamped`/`mul_clamped` on a working copy (`clamp_integer` is
+# byte-identical in curve25519-dalek 4.1.3 and 5.0.0). That is the libsodium
+# shape, so `kx_seed_keypair`/`x25519_shared` stay byte-exact with the golden
+# vectors. This crate uses no RNG at all (every nonce/seed is caller-supplied),
+# so v3's rand_core 0.6 -> 0.10 migration has no surface here.
+x25519-dalek = { version = "3", features = ["static_secrets"] }
 blake2 = "0.10"
 # digest 0.10 traits used to drive blake2 with variable output (Blake2bVar).
 digest = "0.11"

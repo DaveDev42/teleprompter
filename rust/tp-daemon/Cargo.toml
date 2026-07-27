@@ -86,19 +86,25 @@ futures-util = { version = "0.3", default-features = false, features = ["sink", 
 # helper, so this crate needs its own for the non-AEAD raw-bytes field. Same
 # major version tp-core/tp-relay already pin.
 base64 = "0.22"
-# OsRng for the AEAD nonce `tp_core::crypto::seal` requires the caller to
-# supply (tp-core has no rand dependency of its own — the caller picks the
-# nonce source). Same version/feature pin tp-relay/tp-proto already use for
-# the identical purpose (push-seal nonces, ephemeral X25519 keys).
-rand_core = { version = "0.6", features = ["getrandom"] }
+# The single OS-CSPRNG source for this crate: the AEAD nonce
+# `tp_core::crypto::seal` requires the caller to supply (tp-core has no rand
+# dependency of its own — the caller picks the nonce source), plus the raw
+# pairing secret, the pairing UUID, and the X25519 secret key. x25519-dalek v3
+# moved to rand_core 0.10, which is traits ONLY and no longer ships an `OsRng`,
+# so every site here draws from `getrandom::fill` — the exact call
+# `StaticSecret::random()` makes internally, and the same getrandom major
+# x25519-dalek v3 pins. (tp-relay/tp-loopback still pin rand_core 0.6 for the
+# p256/ed25519 crates on that major; both majors in the graph is expected.)
+getrandom = "0.4"
 # Genuinely-random X25519 keypair generation for `PendingPairing::begin()`
 # (increment 4). `tp_core::crypto::kx_seed_keypair` is deterministic
 # (BLAKE2b-hash-then-basemult over a caller seed) — NOT equivalent to the real
 # libsodium `crypto_kx_keypair()` the TS daemon calls (raw random secret bytes,
-# no hashing step) that `createPairingBundle` needs. Same major version
-# tp-core already pins; `static_secrets` gives us `StaticSecret::random_from_rng`.
-# Lib-internal only — no FFI/UniFFI surface change.
-x25519-dalek = { version = "2", features = ["static_secrets"] }
+# no hashing step) that `createPairingBundle` needs. Same major version tp-core
+# already pins; `static_secrets` gives us `StaticSecret::from`, which stores the
+# raw secret UNCLAMPED (the clamp happens at scalar-mult time) — exactly the
+# libsodium shape. Lib-internal only — no FFI/UniFFI surface change.
+x25519-dalek = { version = "3", features = ["static_secrets"] }
 # Format a random pairing UUID as hex (random_pairing_bundle). Same version
 # tp-core already pins.
 hex = "0.4"

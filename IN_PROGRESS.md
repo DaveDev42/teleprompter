@@ -1,4 +1,4 @@
-# IN_PROGRESS — 후속 세션 인계 (2026-07-24 갱신 · rev24)
+# IN_PROGRESS — 후속 세션 인계 (2026-07-27 갱신 · rev25)
 
 이 문서는 진행 중이던 작업을 후속 세션이 그대로 이어받도록 정리한 것이다.
 **규율 상기**: 도구 호출은 구조화된 `tool_use` 블록으로만. squash merge only via
@@ -16,7 +16,15 @@ Agent 호출 시 항상 `model` 명시. 실 claude E2E 하니스는 로컬 전�
 
 ---
 
-## 상태 스냅샷 (origin/main = c252c928, 2026-07-24 rev24)
+## 상태 스냅샷 (origin/main = 1d394c13, 2026-07-27 rev25)
+
+> rev25 (2026-07-27): **워치 컴패니언 트랙 — iCloud Keychain sync 실기기 반증 → WatchConnectivity 미러로 전환. 전부 머지.**
+> - **#943 (`5b7c2865`)**: 앱 `MARKETING_VERSION` 을 **0.1.20 고정** (iOS/iPadOS/macOS/visionOS + 임베드 watch 전부, `ios/project.yml` `settings.base` 단일 지점). TestFlight 는 이 고정 버전에 빌드번호(`TP_BUILD_NUMBER`)만 run 마다 증가. **사용자 명시 정책 — 사용자가 명시적으로 지시할 때만 변경.** CLI 버전(`version.txt`)과는 독립.
+> - **#944 (`5cedd5c0`)**: 워치 앱에 컴패니언 keychain access group(`$(AppIdentifierPrefix)dev.tpmt.app`, `TeleprompterWatch.entitlements`) 공유 + **워치 M1 emitter/smoke wipe 복원**(PR-4 가 emitter 를 shared ingest 에서 phone 전용 코드로 옮기며 watch emitter 를 삭제해 watchOS smoke M1 이 잠재 회귀했던 것 — 뒤늦게 발견).
+> - **#945 (`989624c5`)**: Sessions 행 스와이프 액션 — swipe-left delete / swipe-right pin(토글). XCUITest 3번째 테스트 `testPinAndDeleteSwipeActionsOnSessionRow`(iOS/iPadOS 전용) 가 제스처 배선을 가드하고, 정렬·핀 상태 자체는 `SessionPinOrderTests` 유닛이 커버.
+> - **#946 (`a334d048`)**: **폰→워치 페어링 전달을 WatchConnectivity 미러로 전환** — #944 의 entitlement fix 후 실기기(Apple Watch Ultra 1, 빌드 0.1.20(2301))에서 확인한 결과 **Apple 은 서드파티 synchronizable Keychain 아이템을 watchOS 로 전파하지 않는다**(entitlement 는 필요조건이었을 뿐 전송로가 아님). 대체 전송로 = 폰이 `updateApplicationContext` 로 커밋된 페어링 **전체 스냅샷**(델타 아님)을 넘기는 단방향·멱등·latest-wins 미러. 상세 = design v3 **§8**. 아래 전용 섹션 참조.
+> - **#947 (`1d394c13`)**: CLAUDE.md 슬리밍 **36.9k→30.9k char**(자체 40k 한도 대비) — dogfood 재빌드/재설치 절차를 `.claude/skills/dogfood-refresh/` 스킬로 verbatim 이관(빌드+codesign 블록과 전 안전규칙 보존), `## Monorepo Layout`(ARCHITECTURE §2 중복)·`## Git Merge Strategy`(바로 위 Branch Strategy 중복)·verbatim CLI 목록 삭제. CLI 섹션은 **`--help` 로 드러나지 않는 것만** 남김(`tp pair` 라우팅, TTY-only `session cleanup`, daemon-up 게이팅, pre-clap `--tp-sid`/`--tp-cwd` 파서, `Route::ForwardClaude`). ARCHITECTURE.md:577 / PRD.md:338 의 stale SoT 포인터를 `tp --help`+clap 정의로 재지정.
+> - **dogfood tp 재빌드 불필요** — rev24 이후(`c252c928..1d394c13`) `rust/` 변경 0(전부 app/docs/harness). dogfood tp 는 v0.1.53 @ `c252c928` 그대로 유효.
 
 > rev24 (2026-07-24): **post-캐스케이드 하드닝 + 문서/하니스 유지보수 — 전부 머지, 백엔드 로드맵 완전 드레인.**
 > - **#938 (`cccc61f8`)**: PR8 문서 검증이 TODO.md 에 기록해둔 라이브 gap 4건 해소 — `session.export` 음수 limit 거부, `relay.err` 구조화 `frontendId` + daemon-side dead push-token eviction 이식, `pair list/rename` label ANSI display-sanitize, `pairing.rs` 하드닝 테스트 + 잔여 Bun trace purge.
@@ -39,9 +47,11 @@ Agent 호출 시 항상 `model` 명시. 실 claude E2E 하니스는 로컬 전�
 > - **daemon** inc1~6 머지(#892~#897) — store(rusqlite) → ipc/session/worktree → relay-client → pairing/push/relay-manager → dispatcher+shipping `[[bin]]` → `TP_DAEMON_BIN` seam. **flip-prep A1 머지(#898)**: `tp-daemon` release 아티팩트 ship + `locate_tp_daemon()`. **A2 머지**: `TP_E2E_DAEMON_BIN` daemon-parity 게이트(holder-side, `DAEMON_PARITY_BIN` positive 증명, 로컬 전용 실 claude). **#4 flip**: `ensure_daemon.rs` background + `commands/daemon.rs::start` foreground/service 둘 다 `locate_tp_daemon()` 배선 — persistent 프로덕션 daemon 이 Rust `tp-daemon`.
 > - **de-trampoline tp-cli(#17, ✅ 완료)**: 코어 3종(#903 native passthrough / #904 util forwards+`tp --` / #905 relay redirect) + soft couplings(`locate.rs` sentinel→`rust/tp-cli/Cargo.toml`, `upgrade.rs` pgrep `tpd`+`tp-daemon`) + **PR-5(native first-run install 프롬프트 #917 + apps/cli passthrough 삭제·index.ts 리와이어, 구 #23 흡수)** 완료. Part B 게이트 = 로컬 실 claude 두 증거체(네이티브 passthrough 직접 5/5 + substrate soak 5/5). **#4 flip 머지 완료(#922) → #5(Bun 삭제 캐스케이드) PR1–PR8 전부 머지 완료(PR8 = #936) — 캐스케이드 종료.**
 
-**현재 브랜치**: 없음 — main = `c252c928`(#941). #4 flip(#922) + #5 캐스케이드(PR8 #936) + post-캐스케이드 하드닝(#938/#939) 전부 종료. dogfood daemon 은 Rust `tp-daemon` 으로 구동, dogfood tp 는 main 최신(`c252c928`)에서 재빌드+재서명 완료(v0.1.53, Rust-only 번들).
+**현재 브랜치**: 없음 — main = `1d394c13`(#947). #4 flip(#922) + #5 캐스케이드(PR8 #936) + post-캐스케이드 하드닝(#938/#939) + 워치 컴패니언 트랙(#943~#946) + 문서 슬리밍(#947) 전부 종료. dogfood daemon 은 Rust `tp-daemon` 으로 구동, dogfood tp 는 `c252c928` 에서 재빌드+재서명한 v0.1.53 이 **여전히 최신**(rev25 구간 `rust/` 변경 0).
 
 worktree 상태: 메인 worktree 하나만. stash 없음.
+
+**열린 PR**: 내 작업 PR 0. **dependabot 5건이 stale 로 남아 있다** — #931(cargo-all 그룹 8건, 7/7 green) · #920(tokio-tungstenite 0.29→0.30, green) · #889(uniffi 0.31.2→0.32.0, green) · #888(portable-pty 0.8.1→0.9.0, green) · **#887(x25519-dalek 2.0.1→**3.0.0**, 3/7 FAIL)**. 앞 4건은 루틴이지만 #887 은 **E2EE 골든벡터 밑에 깔린 crate 의 major bump** 라 실제 포팅 작업이 필요하다(머지 아님). 다섯 건 모두 TODO.md/이 파일의 어느 트랙에도 속하지 않아 rev25 세션이 **의도적으로 손대지 않았다** — 착수 전 사용자 확인.
 
 ---
 
@@ -327,6 +337,55 @@ PR-5 구현의 SoT. subagent transcript 는 휘발성이므로 문서/PR diff �
 
 ---
 
+## 워치 컴패니언 페어링 전달 — Keychain sync 반증 → WC 미러 (#944 → #946, 완료)
+
+**배경**: PR-6 이 커밋 페어링을 **synchronizable Keychain blob** 으로 옮긴 뒤(위 #49 PR-6), 워치는
+"iCloud Keychain 이 알아서 실어다 준다" 는 전제 위에 있었다. #944 가 그 전제의 **필요조건**(컴패니언
+access group 공유)을 채웠고, 그 다음이 실기기 게이트였다.
+
+**실기기 결과 = 반증** (Apple Watch Ultra 1, 빌드 0.1.20(2301)): **Apple 은 서드파티 synchronizable
+Keychain 아이템을 watchOS 로 전파하지 않는다.** entitlement 는 필요조건이었을 뿐 전송로가 아니다 —
+이 게이트의 답은 "전파 안 됨" 으로 확정됐고, 이 경로는 닫혔다.
+
+**대체 전송로 (#946) = WatchConnectivity 컴패니언 미러**. SoT = design v3 **§8**.
+- **전체 스냅샷, 델타 아님** (`PairingSnapshot`, context key `pairings.v1`): 폰이 커밋된 페어링 전체를
+  `updateApplicationContext` 로 넘긴다. 단방향(폰이 authoritative), 멱등, coalesce latest-wins.
+  device-local 필드(`localHidden` tombstone / PCT / floor 사이드카 / `frontendId` / label)는 **구조적으로**
+  실릴 수 없다.
+- **never-received vs 의도적 empty**: `WCSession.receivedApplicationContext` 는 둘 다 `[:]` 라
+  `pairings.v1` 키의 존재만이 유일한 판별자 — 키가 없는 context 는 `applyPeerSnapshot` 을 **호출하지 않는다**.
+- **불변식 한 줄 — 워치는 Keychain 삭제를 절대 발행하지 않는다.** `PairingRecordStore.remove` 는
+  `kSecAttrSynchronizableAny` `SecItemDelete` 이고, #944 이후 워치가 폰과 access group 을 공유하므로
+  워치발 삭제 하나가 **폰의 페어링을 mesh 전체에서 파괴**한다. 그래서 미러의 revocation 은 삭제가 아니라
+  device-local tombstone(`hideLocally`)이고, `PairingSnapshotTests` 의 fake record store 가 `removeCount`
+  를 세어 어서션한다.
+
+**적대적 리뷰가 잡은 결함 1건 (같은 브랜치에서 수정 — 이게 이 트랙의 load-bearing 교훈)**:
+`applyPeerSnapshot` 루프 맨 앞의 `unhideForDaemon` 은 `deriveLegacyPairingId(did)` 도 clear 하는데,
+**legacy 결정론** 때문에 그게 *앞선 adopt 가 일부러 tombstone 한 blob* 을 지목할 수 있다. 그 상태로
+byte-identical `continue` 에 빠지면 한 did 에 un-hidden blob 이 **2개** 남고 — 정확히 step 6 ts-loser
+sweep 이 `records.remove` 로 답하는 조건, 즉 위 불변식이 금지한 synced delete. **변경 없는 스냅샷
+재전송만으로 발화하며, 워치는 매 런치마다 `receivedApplicationContext` 를 재적용하므로 상시다.**
+부활한 legacy blob 이 더 새로운 `ts` 를 들고 오면 sweep 이 지우는 쪽은 **살아있는** 페어링이다.
+수정 = `superseded` 를 모든 분기 위로 hoist + tombstone 을 `continue` **앞에서** 재-어서션하되
+**내 쪽 incoming 사본이 실존할 때만**(디스크에 blob 이 하나뿐이면 쓸어낼 ts-loser 가 없고, 거기서 숨기면
+정당히 보유한 페어링이 stranded — `skippedStale` 케이스). 회귀 가드 2종
+(`testResentSnapshotDoesNotResurrectSupersededLegacyBlob` / `testResentSnapshotNeverDeletesTheLivePairing`),
+둘 다 fix 없이 `removeCount 1 != 0` 로 실패함을 **sabotage 검증**.
+> 일반화된 교훈: "two-blob 조건 자체를 만들지 않는다" 는 **처음 adopt 하는 순간에만** 성립했다.
+> tombstone 을 푸는 코드가 위에 있으면, 그 tombstone 은 *모든* 탈출 경로에서 다시 세워져야 한다.
+
+**검증**: XCTest **214/214**(신규 2 포함) · CI **7/7 green**(required 5 + swift-build + swift-smoke-ios).
+**dogfood tp 재빌드 불필요**(app-only). **자동 게이트 없음 — 실기기 전용 잔여 항목**: `cmd_smoke_watchos`
+는 iOS Simulator 를 아예 부팅하지 않고 하니스에 `simctl pair` 도 없어 **미러를 보낼 폰 자체가 없다**
+(`WCSession.isPaired` false → `publish()` 조기 return). 그래서 watchOS 7마커 세트는 불변이고, 실제 전달
+검증은 TestFlight 빌드 + Ultra 1 로 남는다(TODO.md). 자동 커버는 **폰 타깃 XCTest** 가 대신한다 —
+`WCSession` 경계 *아래* 로직(`committedSnapshot()`/`applyPeerSnapshot()`/`WatchConnectionState.derive`)을
+전부 `ios/Sources/` 에 둬서 `TeleprompterTests`(`[iOS, macOS]`)가 컴파일·실행한다. **watch 타깃 코드를
+컴파일하는 테스트 타깃은 존재하지 않으므로, 로직을 watch 쪽에 두면 게이트가 0 이 된다.**
+
+---
+
 ## #51 — M5 하니스 결정론 개선 (완료 · #877→#878)
 
 **배경**: #49 종료 후, 유일하게 비결정론적이던 것은 real-claude M5 E2E 하니스 arm
@@ -382,18 +441,25 @@ keychain 항목 ACL 에 자신이 신뢰하는 apple-tool/apple 파티션을 등
 ## 즉시 다음 액션 (후속 세션 우선순위)
 
 백엔드 Rust 포팅 로드맵(#17/#18/#4/#5), 앱 UX 버그 보드(#44~#51 + #907~#912), post-캐스케이드
-하드닝(#938/#939)까지 **전부 드레인 — 열린 PR/이슈/피처 브랜치 0, worktree clean**. 능동 추진할
-코드 작업 없음. 남은 것은 아래 추적/결정 항목뿐:
+하드닝(#938/#939), 워치 컴패니언 트랙(#943~#946), 문서 슬리밍(#947)까지 **전부 드레인 — 내 작업
+PR/피처 브랜치 0, worktree clean**. 능동 추진할 코드 작업 없음. 남은 것은 아래 추적/결정 항목뿐:
 
 1. 🔭 **Xcode 27 beta windowless-launch 게이트 재검 (베타 업데이트마다)** — 새 Xcode/macOS beta 설치 시
    `TP_PLATFORM=macos scripts/ios.sh uitest` 재실행. 회귀가 풀리면 게이트는 자연 미발화(macos SKIP→PASS
    복귀), 그 뒤 인가된 GUI 러너에선 `TP_UITEST_STRICT=1` 승격 검토. 상세 = `.claude/rules/native-testing.md`
    호스트 게이트 #2 + TODO.md 추적 항목.
+   > **rev25 확인: 지금은 액션 없음** — 호스트가 여전히 Xcode `27A5228h` / macOS `26A5388g`, 즉 #941 이
+   > 게이트를 건 **바로 그 빌드**다. 호스트 beta 가 올라가기 전엔 재실행해도 결과가 안 바뀐다.
 2. ⏸️ **터미널 렌더러 결정 대기** (TODO.md, Dave 결정): libghostty vs SwiftTerm — 현 권고 = **SwiftTerm
    유지**(libghostty 임베딩 C API 불안정 + visionOS 슬라이스 부재 + 리모트-뷰 워크로드라 GPU 이점 희석).
-3. 🧹 (선택) stale plan 파일 `~/.claude.elyvian/plans/scalable-munching-panda.md` 삭제 — 내용이
+3. 📦 **stale dependabot 5건 처분 결정** (위 "열린 PR" 참조) — #931/#920/#889/#888 은 green 루틴,
+   **#887(x25519-dalek 3.0.0)만 3/7 FAIL** 이라 실 포팅 작업. 어느 트랙에도 안 속해 rev25 가 의도적으로
+   미착수. 착수 시 rust/tp-core 변경 → **dogfood refresh 필요**(`dogfood-refresh` 스킬).
+4. 🧹 (선택) stale plan 파일 `~/.claude.elyvian/plans/scalable-munching-panda.md` 삭제 — 내용이
    #907/#908/#909/#912 로 전부 출하 완료임을 항목별 검증으로 확인.
 
 **사용자 액션 전용(에이전트 대신 실행 금지, 리마인드만)**: **#50 keychain ACL 완화**(macOS keychain
-비밀번호 입력 필요 — 사용자 본인만), **#45 실기기 crash 로그**(USB 연결 시 Xcode Organizer 자동 sync 대기).
+비밀번호 입력 필요 — 사용자 본인만), **#45 실기기 crash 로그**(USB 연결 시 Xcode Organizer 자동 sync 대기),
+**워치 미러 실기기 전달 검증**(TestFlight 빌드 → Apple Watch Ultra 1 — Simulator 로는 구조적으로 불가,
+위 워치 섹션 참조).
 

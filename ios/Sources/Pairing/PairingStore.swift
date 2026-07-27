@@ -798,6 +798,22 @@ final class PairingStore: @unchecked Sendable {
             // `unhideForDaemon` additionally clears `deriveLegacyPairingId(did)`,
             // which may name one of those superseded ids.
             unhideForDaemon(daemonId: did, pairingId: incoming.pairingId)
+            let superseded = same.filter { $0.pairingId != incoming.pairingId }
+            // Re-assert the superseded tombstones BEFORE any exit path, not just the
+            // adopt one. `unhideForDaemon` above also clears
+            // `deriveLegacyPairingId(did)`, which may name one of `superseded` — a
+            // blob an earlier adopt deliberately tombstoned. Resurrecting it while we
+            // also hold our own copy of `incoming` leaves TWO un-hidden blobs for one
+            // did, and that is precisely the condition step 6's `reconciledPointers`
+            // ts-loser sweep answers with `records.remove` — the synced delete this
+            // method must never issue. A re-sent unchanged snapshot is enough to
+            // trigger it: every watch launch re-applies `receivedApplicationContext`.
+            // Gated on our own copy being present, because with a single blob on disk
+            // there is no ts-loser to sweep and hiding it would strand a pairing we
+            // legitimately hold (the `skippedStale` case below).
+            if same.contains(where: { $0.pairingId == incoming.pairingId }) {
+                for old in superseded { setLocalHidden(pairingId: old.pairingId) }
+            }
             if let mine = same.first(where: { $0.pairingId == incoming.pairingId }),
                 !Self.isNewer(incoming, than: mine)
             {
@@ -810,7 +826,6 @@ final class PairingStore: @unchecked Sendable {
             // blob we just adopted (i.e. of the phone's live record). Refusing to
             // delete inside this method is not enough; we must never create the
             // condition. So: skip, and let the phone's own re-pair converge us.
-            let superseded = same.filter { $0.pairingId != incoming.pairingId }
             if superseded.contains(where: { !Self.isNewer(incoming, than: $0) }) {
                 skippedStale += 1
                 continue

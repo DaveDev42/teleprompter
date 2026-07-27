@@ -156,6 +156,52 @@ final class PairingSnapshotTests: XCTestCase {
         XCTAssertEqual(records.removeCount, 0)
     }
 
+    /// The un-hide above is deliberately unconditional, and it also clears
+    /// `deriveLegacyPairingId(did)` — which, after a legacy→v4 re-pair, names the
+    /// blob the previous adopt tombstoned. Re-sending an UNCHANGED snapshot then
+    /// short-circuits before the adopt path's tombstoning, so without re-asserting
+    /// the tombstone the daemon ends up with two un-hidden blobs and the ts-loser
+    /// sweep inside the very same call issues `records.remove` — a synced delete
+    /// from the watch. This is not an exotic path: every watch launch re-applies
+    /// `WCSession.receivedApplicationContext`, so it fires routinely.
+    func testResentSnapshotDoesNotResurrectSupersededLegacyBlob() throws {
+        let legacyId = deriveLegacyPairingId(daemonId: "d1")
+        records.seed(blob(did: "d1", pairingId: legacyId, ts: 1000))
+        let current = blob(did: "d1", pairingId: "p-v4", ts: 2000)
+
+        _ = store.applyPeerSnapshot(snapshot([current]))
+        XCTAssertTrue(store.hiddenPairingIds().contains(legacyId))
+        XCTAssertEqual(records.removeCount, 0)
+
+        // Unchanged re-send — the byte-identical short-circuit path.
+        _ = store.applyPeerSnapshot(snapshot([current]))
+        XCTAssertEqual(records.removeCount, 0, "the watch must never issue a synced delete")
+        XCTAssertTrue(
+            store.hiddenPairingIds().contains(legacyId), "superseded blob must stay tombstoned")
+        XCTAssertEqual(store.daemonIds(), ["d1"])
+        XCTAssertEqual(try store.load(daemonId: "d1").pairingId, "p-v4")
+    }
+
+    /// The same defect's worse sibling. If the resurrected legacy blob carries a
+    /// NEWER `ts` than the pairing the phone actually published (replica clocks are
+    /// not comparable — design §3), the ts-loser sweep deletes the *live* record
+    /// rather than the dead one, destroying the operator's real pairing.
+    func testResentSnapshotNeverDeletesTheLivePairing() throws {
+        let legacyId = deriveLegacyPairingId(daemonId: "d1")
+        records.seed(blob(did: "d1", pairingId: legacyId, ts: 1000))
+        let current = blob(did: "d1", pairingId: "p-v4", ts: 2000)
+        _ = store.applyPeerSnapshot(snapshot([current]))
+
+        // A stale replica re-syncs the superseded blob back, now out-ranking `current`.
+        records.seed(blob(did: "d1", pairingId: legacyId, ts: 5000))
+
+        _ = store.applyPeerSnapshot(snapshot([current]))
+        XCTAssertEqual(records.removeCount, 0, "the watch must never issue a synced delete")
+        XCTAssertNotNil(records.blobs["p-v4"], "the live pairing must survive")
+        XCTAssertEqual(store.daemonIds(), ["d1"])
+        XCTAssertEqual(try store.load(daemonId: "d1").pairingId, "p-v4")
+    }
+
     // MARK: - Floor (§1.3 anti-downgrade)
 
     func testFloorIsSeededOnFirstAdoptWithNoSidecar() {

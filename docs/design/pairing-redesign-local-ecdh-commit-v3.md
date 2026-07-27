@@ -479,12 +479,24 @@ latest-`ts`-wins reconciliation 과 공존하는 충돌 규칙을 새로 정의�
      "디스크의 복사본과 동일" 로 short-circuit 돼 tombstone 뒤에 영영 숨는다 (구현 중 실제로 만든
      버그; `testReAddedDaemonIsUnhidden` 이 잠근다). `unhideForDaemon` 은 `deriveLegacyPairingId(did)`
      도 함께 clear 하므로 superseded-tombstoning **보다도** 앞이어야 한다 (§3.7 legacy 결정론 각주).
+   - **superseded tombstone 재-어서션은 *모든* 탈출 경로 앞에** — 바로 위 `unhideForDaemon` 이
+     `deriveLegacyPairingId(did)` 도 clear 하는데, 그게 **앞선 adopt 가 일부러 tombstone 한
+     superseded blob 을 지목할 수 있다**(legacy 결정론). 그 tombstone 이 풀린 채 아래 멱등 skip 으로
+     빠지면 한 did 에 un-hidden blob 이 **2개** 남고, 그게 정확히 step 6 의 ts-loser sweep 이
+     `records.remove` 로 답하는 조건이다 — 이 메서드가 절대 발행하면 안 되는 synced delete. **변경
+     없는 스냅샷 재전송만으로 발화**한다(워치는 매 런치마다 `receivedApplicationContext` 를 재적용).
+     그래서 tombstone 을 `continue` 앞에서 다시 세우되, **내 쪽 incoming 사본이 실제로 있을 때만**
+     — 디스크에 blob 이 하나뿐이면 쓸어낼 ts-loser 자체가 없고, 거기서 숨기면 정당히 보유한 페어링을
+     stranded 시킨다(아래 `skippedStale` 케이스). (`testResentSnapshotDoesNotResurrectSupersededLegacyBlob`
+     / `testResentSnapshotNeverDeletesTheLivePairing` 이 잠근다 — 부활한 blob 이 더 새로우면
+     sweep 이 지우는 쪽은 **살아있는** blob 이었다.)
    - 같은 pairingId 의 로컬 blob 이 incoming 보다 새것이거나 동률 → skip (멱등).
    - **two-blob 가드**: 같은 did 의 *다른* pairingId 로컬 blob 이 incoming 보다 새것이거나 동률이면
      **adopt 자체를 포기** (`skippedStale`). 그냥 쓰면 같은 did 의 blob 이 2개가 되고, 바로 다음
      `daemonIds()` 의 `reconciledPointers` ts-loser sweep 이 `records.remove` 를 호출한다 — 그건
      **synced delete** 라 폰의 살아있는 레코드를 지운다. "내 함수 안에서 안 지운다" 로는 부족하고,
-     **그 조건 자체를 만들지 않아야** 한다.
+     **그 조건 자체를 만들지 않아야** 한다 (위 재-어서션이 같은 원칙의 두 번째 절반 — 가드는 *새로
+     만드는* 2-blob 을, 재-어서션은 *tombstone 이 풀려 되살아나는* 2-blob 을 막는다).
    - 저장 성공 시 포인터를 incoming pairingId 로 갱신하고, 같은 did 의 옛 blob 은 **삭제가 아니라
      tombstone** (`setLocalHidden`). `reconciledPointers` 는 hidden pairingId 를 ts-loser 계산
      **이전에** 필터하므로 tombstone 된 orphan 은 sweep 대상이 될 수 없다.

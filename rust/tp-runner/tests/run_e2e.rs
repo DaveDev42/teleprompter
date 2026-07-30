@@ -51,6 +51,27 @@ async fn read_all_frames(mut conn: tokio::net::UnixStream) -> Vec<serde_json::Va
 
 #[tokio::test]
 async fn run_sends_hello_then_bye_around_a_faked_claude() {
+    // The hook socket path is derived ONLY from `sid` (see
+    // `tp_runner::socket::hook_socket_path`), joined under a per-USER runtime
+    // dir (`resolve_runtime_dir`) that is shared across every checkout/worktree
+    // of this repo on the machine — NOT scoped to this tempdir. A hardcoded sid
+    // here would let two concurrent `cargo test -p tp-runner` runs (e.g. two
+    // worktrees) collide on `hook-<sid>.sock`: worse than a loud bind failure,
+    // `HookReceiver::start` (`rust/tp-runner/src/hooks.rs`) unconditionally
+    // unlinks any stale socket at that path before binding, so the second run
+    // would silently steal the first run's live socket path and hook events
+    // from the first run's spawned child would connect to the second run's
+    // listener instead (cross-talk, not a clean error). Mix in the process id
+    // (unique per concurrent `cargo test` invocation) and a nanosecond
+    // timestamp (defensive against the same process ever invoking this test
+    // body more than once) to keep the sid — and therefore the socket path —
+    // unique per run.
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock should be after the epoch")
+        .as_nanos();
+    let sid = format!("e2e-sess-{}-{nonce}", std::process::id());
+
     let dir = tempfile::tempdir().unwrap();
     let daemon_sock = dir.path().join("daemon.sock");
     let listener = UnixListener::bind(&daemon_sock).unwrap();
@@ -80,7 +101,7 @@ async fn run_sends_hello_then_bye_around_a_faked_claude() {
     let never = std::future::pending::<i32>();
 
     let opts = RunnerOptions {
-        sid: "e2e-sess".into(),
+        sid: sid.clone(),
         cwd: dir.path().display().to_string(),
         worktree_path: None,
         socket_path: Some(daemon_sock.clone()),
@@ -106,13 +127,13 @@ async fn run_sends_hello_then_bye_around_a_faked_claude() {
     // First frame must be the hello.
     assert!(!msgs.is_empty(), "expected at least hello + bye");
     assert_eq!(msgs[0]["t"], "hello", "first frame is hello");
-    assert_eq!(msgs[0]["sid"], "e2e-sess");
+    assert_eq!(msgs[0]["sid"], sid);
     assert!(msgs[0]["pid"].is_number());
 
     // Last frame must be the bye with reason=exit and exitCode 0.
     let bye = msgs.last().unwrap();
     assert_eq!(bye["t"], "bye", "last frame is bye");
-    assert_eq!(bye["sid"], "e2e-sess");
+    assert_eq!(bye["sid"], sid);
     assert_eq!(bye["reason"], "exit", "child's own exit → reason=exit");
     assert_eq!(bye["exitCode"], 0);
     assert!(

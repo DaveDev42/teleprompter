@@ -94,8 +94,19 @@ async fn signal_path_still_drops_in_flight_io() {
         130
     };
 
+    // Same shared-runtime-dir collision guard as `run_e2e.rs`: the hook socket
+    // path derives solely from the sid under a per-USER runtime dir, and
+    // `HookReceiver::start` unlinks any existing socket before binding — so a
+    // fixed sid lets two concurrent checkouts silently steal each other's
+    // socket. Keep the sid unique per run.
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock should be after the epoch")
+        .as_nanos();
+    let sid = format!("e2e-signal-sess-{}-{nonce}", std::process::id());
+
     let opts = RunnerOptions {
-        sid: "e2e-signal-sess".into(),
+        sid: sid.clone(),
         cwd: dir.path().display().to_string(),
         worktree_path: None,
         socket_path: Some(daemon_sock.clone()),
@@ -124,7 +135,7 @@ async fn signal_path_still_drops_in_flight_io() {
     // exit code.
     let bye = msgs.last().unwrap();
     assert_eq!(bye["t"], "bye", "last frame is bye");
-    assert_eq!(bye["sid"], "e2e-signal-sess");
+    assert_eq!(bye["sid"], sid.as_str());
     assert_eq!(
         bye["reason"], "signal",
         "shutdown-driven teardown → reason=signal, NOT exit"

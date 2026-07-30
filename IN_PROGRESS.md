@@ -1,4 +1,4 @@
-# IN_PROGRESS — 후속 세션 인계 (2026-07-27 갱신 · rev25)
+# IN_PROGRESS — 후속 세션 인계 (2026-07-30 갱신 · rev26)
 
 이 문서는 진행 중이던 작업을 후속 세션이 그대로 이어받도록 정리한 것이다.
 **규율 상기**: 도구 호출은 구조화된 `tool_use` 블록으로만. squash merge only via
@@ -16,7 +16,14 @@ Agent 호출 시 항상 `model` 명시. 실 claude E2E 하니스는 로컬 전�
 
 ---
 
-## 상태 스냅샷 (origin/main = 1d394c13, 2026-07-27 rev25)
+## 상태 스냅샷 (origin/main = 6a6e10f6, 2026-07-30 rev26)
+
+> rev26 (2026-07-28~30): **stale dependabot 5건 전부 소진 (ultracode 병렬 스윕) + 후속 정리 3건 — 총 7 PR 머지.**
+> - **dependabot 4브랜치**: **#949 (`66b607c8`)** = dependabot #931(cargo-all 그룹 8건: serde/serde_json/thiserror/tokio/futures-util/http-body-util/clap/rustls) + #920(tokio-tungstenite 0.29→0.30, 소스 변경 0) 통합 · **#950 (`9237ebe2`)** = #888 portable-pty 0.8.1→0.9.0 · **#951 (`7e33e5ba`)** = #889 uniffi 0.31.2→0.32.0 (`bindings_contract_version=30`, 7-슬라이스 xcframework 재생성 + iOS 8/8 스모크 하드게이트) · **#952 (`556279df`)** = #887 **x25519-dalek 2.0.1→3.0.0 실포팅** (curve25519-dalek 5.0.0 동반, rand_core 0.10 은 traits-only 라 `OsRng` 소멸 → 6개 RNG 콜사이트를 `getrandom 0.4` 로 이관). 머지 순서 = lock 충돌 최소화 #949→#950→#951→#952 (x25519 마지막 — 골든벡터가 merged lock 에서 돌아야 검증이 유효).
+> - **#952 crypto 근거 (PR body 가 SoT — squash 는 PR_BODY 를 쓰므로)**: `StaticSecret::from` 은 v3 에서도 **unclamped 저장**(clamp 는 `mul_*_clamped` 작업본에서만 — libsodium 형태), curve25519-dalek 4.1.3→5.0.0 의 `clamp_integer` byte-identical, 2.0.1↔3.0.0 differential harness 2099 케이스 mismatch 0 (32-bit 백엔드 재실행 포함). **⚠️ 골든벡터는 clamp-on-store 를 게이트하지 않는다** (clamping 은 멱등 + tp-core 는 `StaticSecret` 에서 바이트를 회독하지 않음 — `From` 이 clamp 를 시작해도 벡터는 전부 green). 벡터가 게이트하는 것은 ECDH/KDF 수치 (`kx_session_keys_match_ts`/`ratchet_matches_ts`). 벡터/fixture 무편집.
+> - **후속 정리 3건**: **#953 (`6a6e10f6`)** = `build-xcframework.sh` 의 죽은 `initializationResult` sed 제거 (uniffi 0.32 는 `private let` 로 emit — `^private var` 앵커 영구 미매치) + `pty.rs` kill 주석 정정 (portable-pty killer 는 Unix 에서 **SIGHUP**, SIGKILL 아님 — 0.8.1 부터 동일, 원래부터 틀린 주석) + ios/README·ci-workflows.md stale uniffi 버전 문구. **#954 (`8629a74c`)** + **#955 (`c1425487`)** = `run_e2e`/`run_e2e_signal` 고정 sid → pid+nonce 고유화 — hook 소켓 경로가 sid 단독 유도 + per-user runtime dir 공유 + `HookReceiver::start` 가 unlink-before-bind 라 **동시 실행 시 조용한 소켓 탈취**(AlreadyExists 아님)였음.
+> - **검증 (merged main)**: `cargo test --workspace` green (`wire_vectors` 13 + `message_vectors` 5 무편집) · iOS 8/8 + watchOS 7/7 스모크 (**TP_FORCE_RUST=1**, uniffi 0.32 × x25519 v3 조합 lock — `arm64_32` 32-bit curve 백엔드 포함) · **real-daemon real-claude E2E PASS (macOS)**: 실 tp-daemon 페어링 → kx → 세션 렌더 + **코딩 2턴**(Write 로 marker 생성 + Bash 회독, 디스크·hook 이벤트 검증) + **RUNNER/DAEMON PARITY** (Rust 바이너리 파리티 양성 증명). 1차 코딩 게이트 실패는 **sonnet-5 주간 한도**(`Weekly limit reached · Retrying 9pm`) — 코드 아님, 21:05 재실행 PASS 로 확정.
+> - **운영 노트**: 1차 E2E 를 `TP_FORCE_RUST` 없이 돌렸다가 main worktree 의 stale `ios/Generated`(7/5 자, pre-0.32) 를 링크할 뻔함 — **#125 false-pass 패턴 실사례**, E2E 게이트도 `TP_FORCE_RUST=1` 필수. **dogfood refresh 2회** (556279df 중간 + 6a6e10f6 최종): tp v0.1.53 재빌드+전체 adhoc 재서명, daemon running + `[RelayClient] authenticated to relay`, brew symlink 무손상.
 
 > rev25 (2026-07-27): **워치 컴패니언 트랙 — iCloud Keychain sync 실기기 반증 → WatchConnectivity 미러로 전환. 전부 머지.**
 > - **#943 (`5b7c2865`)**: 앱 `MARKETING_VERSION` 을 **0.1.20 고정** (iOS/iPadOS/macOS/visionOS + 임베드 watch 전부, `ios/project.yml` `settings.base` 단일 지점). TestFlight 는 이 고정 버전에 빌드번호(`TP_BUILD_NUMBER`)만 run 마다 증가. **사용자 명시 정책 — 사용자가 명시적으로 지시할 때만 변경.** CLI 버전(`version.txt`)과는 독립.
@@ -47,11 +54,11 @@ Agent 호출 시 항상 `model` 명시. 실 claude E2E 하니스는 로컬 전�
 > - **daemon** inc1~6 머지(#892~#897) — store(rusqlite) → ipc/session/worktree → relay-client → pairing/push/relay-manager → dispatcher+shipping `[[bin]]` → `TP_DAEMON_BIN` seam. **flip-prep A1 머지(#898)**: `tp-daemon` release 아티팩트 ship + `locate_tp_daemon()`. **A2 머지**: `TP_E2E_DAEMON_BIN` daemon-parity 게이트(holder-side, `DAEMON_PARITY_BIN` positive 증명, 로컬 전용 실 claude). **#4 flip**: `ensure_daemon.rs` background + `commands/daemon.rs::start` foreground/service 둘 다 `locate_tp_daemon()` 배선 — persistent 프로덕션 daemon 이 Rust `tp-daemon`.
 > - **de-trampoline tp-cli(#17, ✅ 완료)**: 코어 3종(#903 native passthrough / #904 util forwards+`tp --` / #905 relay redirect) + soft couplings(`locate.rs` sentinel→`rust/tp-cli/Cargo.toml`, `upgrade.rs` pgrep `tpd`+`tp-daemon`) + **PR-5(native first-run install 프롬프트 #917 + apps/cli passthrough 삭제·index.ts 리와이어, 구 #23 흡수)** 완료. Part B 게이트 = 로컬 실 claude 두 증거체(네이티브 passthrough 직접 5/5 + substrate soak 5/5). **#4 flip 머지 완료(#922) → #5(Bun 삭제 캐스케이드) PR1–PR8 전부 머지 완료(PR8 = #936) — 캐스케이드 종료.**
 
-**현재 브랜치**: 없음 — main = `1d394c13`(#947). #4 flip(#922) + #5 캐스케이드(PR8 #936) + post-캐스케이드 하드닝(#938/#939) + 워치 컴패니언 트랙(#943~#946) + 문서 슬리밍(#947) 전부 종료. dogfood daemon 은 Rust `tp-daemon` 으로 구동, dogfood tp 는 `c252c928` 에서 재빌드+재서명한 v0.1.53 이 **여전히 최신**(rev25 구간 `rust/` 변경 0).
+**현재 브랜치**: 없음 — main = `6a6e10f6`(#953). rev26 에서 stale dependabot 5건(#931/#920/#889/#888/#887 → PR #949~#952) + 후속 정리 3건(#953~#955) 전부 머지. dogfood tp 는 `6a6e10f6` 에서 재빌드+재서명한 v0.1.53 이 최신 — daemon running + relay authenticated 확인.
 
 worktree 상태: 메인 worktree 하나만. stash 없음.
 
-**열린 PR**: 내 작업 PR 0. **dependabot 5건이 stale 로 남아 있다** — #931(cargo-all 그룹 8건, 7/7 green) · #920(tokio-tungstenite 0.29→0.30, green) · #889(uniffi 0.31.2→0.32.0, green) · #888(portable-pty 0.8.1→0.9.0, green) · **#887(x25519-dalek 2.0.1→**3.0.0**, 3/7 FAIL)**. 앞 4건은 루틴이지만 #887 은 **E2EE 골든벡터 밑에 깔린 crate 의 major bump** 라 실제 포팅 작업이 필요하다(머지 아님). 다섯 건 모두 TODO.md/이 파일의 어느 트랙에도 속하지 않아 rev25 세션이 **의도적으로 손대지 않았다** — 착수 전 사용자 확인.
+**열린 PR**: 내 작업 PR 0. dependabot stale 백로그 0 (rev26 에서 소진 — 위 rev26 블록 참조).
 
 ---
 
@@ -452,9 +459,8 @@ PR/피처 브랜치 0, worktree clean**. 능동 추진할 코드 작업 없음. 
    > 게이트를 건 **바로 그 빌드**다. 호스트 beta 가 올라가기 전엔 재실행해도 결과가 안 바뀐다.
 2. ⏸️ **터미널 렌더러 결정 대기** (TODO.md, Dave 결정): libghostty vs SwiftTerm — 현 권고 = **SwiftTerm
    유지**(libghostty 임베딩 C API 불안정 + visionOS 슬라이스 부재 + 리모트-뷰 워크로드라 GPU 이점 희석).
-3. 📦 **stale dependabot 5건 처분 결정** (위 "열린 PR" 참조) — #931/#920/#889/#888 은 green 루틴,
-   **#887(x25519-dalek 3.0.0)만 3/7 FAIL** 이라 실 포팅 작업. 어느 트랙에도 안 속해 rev25 가 의도적으로
-   미착수. 착수 시 rust/tp-core 변경 → **dogfood refresh 필요**(`dogfood-refresh` 스킬).
+3. ~~📦 stale dependabot 5건 처분 결정~~ — **rev26 에서 소진 완료** (#949~#952 + 후속 #953~#955,
+   dogfood refresh 포함. 상세 = 상태 스냅샷 rev26 블록).
 4. 🧹 (선택) stale plan 파일 `~/.claude.elyvian/plans/scalable-munching-panda.md` 삭제 — 내용이
    #907/#908/#909/#912 로 전부 출하 완료임을 항목별 검증으로 확인.
 

@@ -17,11 +17,17 @@
   (1) 폰에서 페어링 후 워치 상태 행이 `Open Teleprompter on iPhone` → `Connecting…` → `Connected` 로
   전이하는지, (2) 세션 리스트가 채워지는지, (3) 폰에서 unpair/local-hide 하면 워치에서 사라지는지,
   (4) **폰의 페어링이 살아있는지** (워치가 synced delete 를 내지 않는다는 불변식의 실기기 확인).
-- [ ] **stale dependabot 5건 처분 결정 (미착수 — 어느 트랙에도 안 속함)** — #931(cargo-all 그룹 8건) ·
-  #920(tokio-tungstenite 0.29→0.30) · #889(uniffi 0.31.2→0.32.0) · #888(portable-pty 0.8.1→0.9.0) 은
-  전부 7/7 green 인 루틴 bump. **#887(x25519-dalek 2.0.1→3.0.0)만 3/7 FAIL** — E2EE 골든벡터 밑에 깔린
-  crate 의 major bump 라 머지가 아니라 실 포팅 작업이 필요하다. 착수하면 `rust/tp-core` 등이 바뀌므로
-  머지 직후 **dogfood refresh 필수**(`dogfood-refresh` 스킬).
+### 해소됨 (dependabot 스윕 — #949~#955, 2026-07-30)
+
+- [x] **stale dependabot 5건 처분** ✅ — 4브랜치로 재구성해 전부 머지: **#949**(#931 cargo-all 8건 +
+  #920 tokio-tungstenite 0.30 통합) · **#950**(#888 portable-pty 0.9.0) · **#951**(#889 uniffi 0.32.0,
+  `TP_FORCE_RUST=1` 스모크 하드게이트) · **#952**(#887 **x25519-dalek 3.0.0 실포팅** — rand_core 0.10
+  traits-only 화로 6개 RNG 콜사이트를 getrandom 0.4 로 이관; clamping byte-exactness 근거는 PR #952
+  body 가 SoT — **골든벡터는 clamp-on-store 를 게이트하지 않음** 주의). 검증 = merged main 골든벡터
+  13+5 무편집 green + iOS 8/8·watchOS 7/7 스모크 + real-daemon real-claude E2E PASS(코딩 2턴 +
+  runner/daemon parity). dogfood refresh 완료(v0.1.53 @ `6a6e10f6`). 후속 정리 = **#953**(죽은 uniffi
+  sed 제거 + pty.rs SIGHUP 주석 정정 + stale 문서) · **#954/#955**(`run_e2e`/`run_e2e_signal` 고정 sid
+  → pid+nonce 고유화 — per-user runtime dir 공유 + unlink-before-bind 라 동시 실행 시 조용한 소켓 탈취).
 
 ### 해소됨 (#938/#939 로 전건 머지)
 

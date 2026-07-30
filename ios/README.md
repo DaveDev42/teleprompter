@@ -446,9 +446,12 @@ SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES" # 경고가 조용히 회귀하지 못함 
 - **deprecated API** (WAE 로 에러화): `onChange(of:perform:)`→2-param, `devices(for:)`→
   `DiscoverySession`, `requestRecordPermission`→`AVAudioApplication`(iOS17+ availability-gated),
   `allowBluetooth`→`allowBluetoothHFP`.
-- **생성물** `Generated/tp_core.swift`: UniFFI 0.28 의 `var initializationResult` 는
-  `rust/build-xcframework.sh` 의 post-gen `sed` 가 `nonisolated(unsafe)` 로 패치 (init-once 라
-  레이스 불가; uniffi 0.29 에서 upstream fix — 그때 패치 제거).
+- **생성물** `Generated/tp_core.swift`: 옛 UniFFI 0.28 은 `private var initializationResult` (mutable
+  global)를 emit해 Swift 6 concurrency checker 가 non-Sendable shared state 로 거부했었다 —
+  `rust/build-xcframework.sh` 의 post-gen `sed` 가 `nonisolated(unsafe)` 로 패치해 우회했었다. 현재
+  워크스페이스가 핀한 **uniffi 0.32** 는 이를 `private let initializationResult`(immutable, upstream
+  fix)로 emit해 그 패치가 죽은 코드가 됐다 — 삭제됨(`initializationResult` 자체는 여전히 있으나 `let` 이라
+  Sendable 문제가 없다).
 
 > Apple AVFoundation 류 아직-Sendable-아님 타입은 `@preconcurrency import` 로 처리
 > (`QRScannerView.swift`) — Apple 이 upstream 어노테이트하면 제거.

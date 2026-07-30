@@ -224,9 +224,11 @@ impl Pty {
 
     /// Kill the child. `_signal` is accepted for parity with
     /// `PtyBun.kill(signal)` (default 15 = SIGTERM); portable-pty's killer sends
-    /// SIGKILL on Unix, so the number is advisory — the daemon's graceful path
-    /// relies on the child exiting, not on a specific signal. Idempotent: a no-op
-    /// once the child has exited or if already killed.
+    /// SIGHUP on Unix (`ProcessSignaller::kill`, `libc::kill(pid, SIGHUP)`), so
+    /// the number is advisory — the default disposition kills the child unless
+    /// it installed a handler, but the daemon's graceful path still relies on
+    /// the child exiting, not on a specific signal. Idempotent: a no-op once
+    /// the child has exited or if already killed.
     pub fn kill(&self, _signal: Option<i32>) {
         if self.exited.load(Ordering::SeqCst) {
             return;

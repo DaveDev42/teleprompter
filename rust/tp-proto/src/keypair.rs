@@ -17,7 +17,6 @@
 //! unclamped-stored secret is the faithful shape. A future cutover can hand this
 //! secret to `tp-core`'s `kx_*_session_keys` unchanged.
 
-use rand_core::{OsRng, RngCore};
 use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::ZeroizeOnDrop;
 
@@ -50,11 +49,18 @@ impl std::fmt::Debug for KxKeyPair {
 ///
 /// Mirror of the TS provider's `kxKeypair()` (libsodium `crypto_kx_keypair`):
 /// raw random secret stored unclamped, public derived via X25519 base mult.
+///
+/// # Panics
+/// Panics if the OS CSPRNG is unavailable (`getrandom::fill` failure). This is
+/// deliberate and matches `x25519_dalek::StaticSecret::random()`: a secret key
+/// must never fall back to a weaker entropy source.
 pub fn generate_keypair() -> KxKeyPair {
     let mut sk = [0u8; 32];
-    OsRng.fill_bytes(&mut sk);
-    // StaticSecret::from clamps a working copy for the scalar mult but does not
-    // mutate `sk`; PublicKey::from runs the base mult on the clamped copy.
+    getrandom::fill(&mut sk).expect("OS CSPRNG unavailable");
+    // StaticSecret::from stores `sk` verbatim and UNCLAMPED (verified against
+    // the x25519-dalek 3.0.0 source: it is a `[u8; 32]` newtype). The clamp
+    // happens only inside PublicKey::from -> `mul_base_clamped`, on a working
+    // copy — so the secret we hand back is the raw libsodium-shaped one.
     let secret = StaticSecret::from(sk);
     let public = PublicKey::from(&secret);
     KxKeyPair {

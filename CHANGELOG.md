@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.1.54](https://github.com/DaveDev42/teleprompter/compare/v0.1.53...v0.1.54) (2026-07-31)
+
+
+### Features
+
+* **backend:** flip default daemon+runner to Rust (tp-daemon + tp-runner) ([#922](https://github.com/DaveDev42/teleprompter/issues/922)) ([74a00c7](https://github.com/DaveDev42/teleprompter/commit/74a00c70e18195594b4701af2e7e0121944cf047))
+* **cli:** port native first-run daemon-install prompt to Rust ([#17](https://github.com/DaveDev42/teleprompter/issues/17) PR-5 Part A) ([#917](https://github.com/DaveDev42/teleprompter/issues/917)) ([5e5b113](https://github.com/DaveDev42/teleprompter/commit/5e5b113ec52b876405898c26cf276de99eab50cd))
+* **harness:** port real-claude E2E holder to Rust tp-e2e-holder ([#41](https://github.com/DaveDev42/teleprompter/issues/41) PR2b) ([#932](https://github.com/DaveDev42/teleprompter/issues/932)) ([848f03a](https://github.com/DaveDev42/teleprompter/commit/848f03a6fdf6e264217941ecf2e35472dac64b81))
+* **rust:** Rust-native smoke loopback binary (tp-loopback) — PR2a ([#926](https://github.com/DaveDev42/teleprompter/issues/926)) ([93d7dca](https://github.com/DaveDev42/teleprompter/commit/93d7dca3bdd5b9c1062a81ec3e4c77ebd489c04c))
+
+
+### Bug Fixes
+
+* **cli:** durable repo-root sentinel + tp-daemon pgrep match ([#17](https://github.com/DaveDev42/teleprompter/issues/17) soft couplings) ([#914](https://github.com/DaveDev42/teleprompter/issues/914)) ([9389a41](https://github.com/DaveDev42/teleprompter/commit/9389a41d545ce296ad7a8746dbef371ed8cf2051))
+* **daemon:** install rustls CryptoProvider so tp-daemon can connect over wss:// ([#923](https://github.com/DaveDev42/teleprompter/issues/923)) ([8ca4576](https://github.com/DaveDev42/teleprompter/commit/8ca45768de1759912ad2bb508ad787bec106d456))
+* harden export/relay.err/label/pairing seams + purge remaining Bun traces ([#938](https://github.com/DaveDev42/teleprompter/issues/938)) ([cccc61f](https://github.com/DaveDev42/teleprompter/commit/cccc61f81789f0004b390a0f40359fb15fc1d977))
+* **ios:** SKIP macOS uitest on Xcode 27 beta windowless-launch regression ([#941](https://github.com/DaveDev42/teleprompter/issues/941)) ([c252c92](https://github.com/DaveDev42/teleprompter/commit/c252c92808f87c24260762cfff1a463c4b1e8360))
+* **ios:** stop iPhone 850pt frame-floor soft-lock; steady smoke caret ([#912](https://github.com/DaveDev42/teleprompter/issues/912)) ([e2b47d3](https://github.com/DaveDev42/teleprompter/commit/e2b47d37799a9cbad2af6a8d0d92676fd29e7d84))
+* **relay:** port push ws-verdict TOCTOU re-check from TS reference ([#939](https://github.com/DaveDev42/teleprompter/issues/939)) ([81a957b](https://github.com/DaveDev42/teleprompter/commit/81a957b83fb780fe2e9efc660a1df3b71889835b))
+* **runner:** stabilize run_e2e PTY io-record flake (two-layer race) ([#916](https://github.com/DaveDev42/teleprompter/issues/916)) ([0169ee0](https://github.com/DaveDev42/teleprompter/commit/0169ee0bc1734f16a76d88dd15c36b972226219d))
+
+
+### Refactor
+
+* **backend:** delete Bun/TS backend sources + retire tpd blob (PR6) ([#933](https://github.com/DaveDev42/teleprompter/issues/933)) ([b4be474](https://github.com/DaveDev42/teleprompter/commit/b4be4742a311be2c31fd08cf32d93cb7d8af95f7))
+* **ci:** swap CI job bodies Bun→Rust, keep names byte-identical (PR3) ([#927](https://github.com/DaveDev42/teleprompter/issues/927)) ([07dda95](https://github.com/DaveDev42/teleprompter/commit/07dda955a9b1121ab4c7efcde0613007d4d32de0))
+* **cli:** make `tp run` native — retire the last Bun-blob route ([#925](https://github.com/DaveDev42/teleprompter/issues/925)) ([0808c25](https://github.com/DaveDev42/teleprompter/commit/0808c25093dca4df099d37c5a4997ab287969b21))
+* **daemon:** delete Bun↔Rust differential parity gates + tp-daemon-probe (PR4) ([#928](https://github.com/DaveDev42/teleprompter/issues/928)) ([7d68c56](https://github.com/DaveDev42/teleprompter/commit/7d68c564d7a43361296e9bc2ee7873d8491cec00))
+* delete Bun passthrough command; native Rust tp owns Route::Passthrough (PR-5 Part B) ([#921](https://github.com/DaveDev42/teleprompter/issues/921)) ([dec80ab](https://github.com/DaveDev42/teleprompter/commit/dec80ab6aa4614494cb4d6df2449a9df0224b634))
+
 ## [0.1.53](https://github.com/DaveDev42/teleprompter/compare/v0.1.52...v0.1.53) (2026-07-10)
 
 

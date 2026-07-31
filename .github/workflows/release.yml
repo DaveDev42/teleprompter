@@ -160,11 +160,13 @@ jobs:
         run: |
           set -euo pipefail
           tag="${{ inputs.tag || github.ref_name }}"
-          # Tag-push edge case where release-please hasn't created the release.
-          if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --verify-tag --generate-notes
+          # -R everywhere: this job has no checkout, so gh cannot infer the
+          # repo from git ("failed to run git: not a git repository").
+          if ! gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Tag-push edge case where release-please hasn't created the release.
+            gh release create "$tag" -R "$GITHUB_REPOSITORY" --verify-tag --generate-notes
           fi
-          gh release upload "$tag" \
+          gh release upload "$tag" -R "$GITHUB_REPOSITORY" \
             artifacts/tp-*.tar.gz \
             artifacts/checksums.txt \
             artifacts/checksums.txt.sig \

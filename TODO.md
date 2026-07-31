@@ -10,13 +10,16 @@
   이후 인가된 GUI 러너에서 `TP_UITEST_STRICT=1` 승격 검토. (같은 beta 의 Metal Toolchain 별도 다운로드
   요건은 이 머신에 설치 완료 — `xcodebuild -downloadComponent MetalToolchain`.) 상세 =
   `.claude/rules/native-testing.md` 호스트 게이트 #2.
-- [ ] **watch 실기기: WatchConnectivity 미러 전달 검증 (WC 구현 후속)** — 아래 keychain-sync 검증의
-  결론(전파 안 됨)으로 WC 미러를 구현했으나, **전송 자체는 자동 게이트가 하나도 없다**: `cmd_smoke_watchos`
-  는 iOS Simulator 를 아예 안 띄우고 `simctl pair` 도 없어 폰→워치 WC 를 구조적으로 못 돌리며, watchOS 는
-  `XCUIApplication` 부재로 UI 검증도 불가. 다음 TestFlight 빌드를 Ultra 1 에 설치해 확인할 것:
-  (1) 폰에서 페어링 후 워치 상태 행이 `Open Teleprompter on iPhone` → `Connecting…` → `Connected` 로
-  전이하는지, (2) 세션 리스트가 채워지는지, (3) 폰에서 unpair/local-hide 하면 워치에서 사라지는지,
-  (4) **폰의 페어링이 살아있는지** (워치가 synced delete 를 내지 않는다는 불변식의 실기기 확인).
+- [ ] **watch 실기기: WatchConnectivity 미러 전달 검증 (WC 구현 후속, 범위 축소됨)** — 아래 keychain-sync
+  검증의 결론(전파 안 됨)으로 WC 미러를 구현했고, **자동 게이트는 여전히 없다**: `cmd_smoke_watchos` 는
+  iOS Simulator 를 아예 안 띄우고 `simctl pair` 도 없으며, watchOS 는 `XCUIApplication` 부재로 UI 검증도
+  불가. **단 수동 sim-레벨 검증은 2026-07-31 PASS** (26.5↔26.5 simctl pair — publish→adopt→멱등 재배달→
+  hide-not-delete→불변식 D 전부 관측; iOS 27.0 beta sim 런타임은 `appconduitd` 부재로 구조적 불가.
+  절차/함정 = `.claude/rules/native-testing.md`, 증거 = IN_PROGRESS.md rev27). 실기기(TestFlight
+  0.1.20(2401) → Ultra 1)에 남은 것은 **실기기 고유 요소**: (1) 실 BT 전송으로 워치 상태 행이
+  `Open Teleprompter on iPhone` → `Connecting…` → `Connected` 전이 + 세션 리스트 채움, (2) 백그라운드/
+  미실행 워치로의 전달(다음 실행 시 `receivedApplicationContext` 기기 영속 재적용 — sim 에선 미관측),
+  (3) 폰 unpair/local-hide 시 워치에서 사라짐, (4) **폰의 페어링이 살아있는지** (불변식 D 실기기 확인).
 ### 해소됨 (dependabot 스윕 — #949~#955, 2026-07-30)
 
 - [x] **stale dependabot 5건 처분** ✅ — 4브랜치로 재구성해 전부 머지: **#949**(#931 cargo-all 8건 +

@@ -1,4 +1,4 @@
-# IN_PROGRESS — 후속 세션 인계 (2026-07-30 갱신 · rev26)
+# IN_PROGRESS — 후속 세션 인계 (2026-07-31 갱신 · rev27)
 
 이 문서는 진행 중이던 작업을 후속 세션이 그대로 이어받도록 정리한 것이다.
 **규율 상기**: 도구 호출은 구조화된 `tool_use` 블록으로만. squash merge only via
@@ -16,7 +16,25 @@ Agent 호출 시 항상 `model` 명시. 실 claude E2E 하니스는 로컬 전�
 
 ---
 
-## 상태 스냅샷 (origin/main = 6a6e10f6, 2026-07-30 rev26)
+## 상태 스냅샷 (origin/main = c71ff166, 2026-07-31 rev27)
+
+> rev27 (2026-07-30~31): **TestFlight 전 플랫폼 업로드 + 워치 미러 sim-레벨 수동 검증 PASS (코드 변경 0, 검증/발견 세션).**
+> - **TestFlight 빌드 0.1.20 (2401)**: `gh workflow run testflight.yml --ref main` (run 30609199553, main `c71ff166`) —
+>   iOS(임베드 watch 동반)/macOS/visionOS 3개 archive-and-upload job 전부 success. #945(스와이프)/#946(WC 미러)가
+>   처음 실린 TestFlight 빌드 (직전 업로드는 7/26, 2301).
+> - **워치 미러 sim-레벨 수동 검증 PASS (2026-07-31)**: `simctl pair` 로 iOS 26.5 iPhone 17 Pro + watchOS 26.5
+>   Watch S11(46mm) 페어 → iOS smoke 로 loopback 페어링 커밋 → 임베드 watch 앱 설치 → 폰 앱 일반 재기동.
+>   증거: 폰 `published 1 pairing(s)` → 워치 `peer snapshot applied adopted=1` + 채택 페어링 relay 접속 시도 ·
+>   클린 재설치 후 Keychain 영속 + 빈 `receivedApplicationContext` 를 전부-해지로 오독 안 함 · 재배달 `adopted=0`
+>   멱등 + 스냅샷-부재 잔존 페어링 **hide**(삭제 아님) 재처리 · 워치 3회 재기동 후 폰 페어링 무손상(불변식 D).
+> - **발견 (root-cause 2건, `.claude/rules/native-testing.md` 에 기록)**: (1) **iOS 27.0 beta sim 런타임(24A5390f)엔
+>   `appconduitd` 가 없다** → `wcd` 셋업 영구 실패 → `isWatchAppInstalled` 절대 true 불가 → `publish()` 가드아웃 —
+>   27.0 sim 으론 미러 검증 구조적 불가 (26.5 런타임 23F77 은 정상). `sim_udid()` 가 최고 런타임 선호라 "iPhone 17
+>   Pro" 는 27.0 이 뽑힘 — 26.5 검증 시 rename+`TP_SIM` 필요. (2) `simctl unpair` 는 워치 컴패니언 앱을 제거하고
+>   신규 페어는 라이브 페어링 이벤트/재부팅 전까지 폰 wcd 가 세션 상태를 배달 안 할 수 있음.
+> - **잔여 실기기 게이트 (범위 축소됨)**: 실 BT 전송/백그라운드 전달/`receivedApplicationContext` 기기 영속만
+>   Ultra 1 + 0.1.20(2401) 로 확인하면 됨 (WC 전송·스냅샷 semantics 는 sim 에서 증명 완료).
+> - dogfood tp 재빌드 불필요 (rust/ 변경 0).
 
 > rev26 (2026-07-28~30): **stale dependabot 5건 전부 소진 (ultracode 병렬 스윕) + 후속 정리 3건 — 총 7 PR 머지.**
 > - **dependabot 4브랜치**: **#949 (`66b607c8`)** = dependabot #931(cargo-all 그룹 8건: serde/serde_json/thiserror/tokio/futures-util/http-body-util/clap/rustls) + #920(tokio-tungstenite 0.29→0.30, 소스 변경 0) 통합 · **#950 (`9237ebe2`)** = #888 portable-pty 0.8.1→0.9.0 · **#951 (`7e33e5ba`)** = #889 uniffi 0.31.2→0.32.0 (`bindings_contract_version=30`, 7-슬라이스 xcframework 재생성 + iOS 8/8 스모크 하드게이트) · **#952 (`556279df`)** = #887 **x25519-dalek 2.0.1→3.0.0 실포팅** (curve25519-dalek 5.0.0 동반, rand_core 0.10 은 traits-only 라 `OsRng` 소멸 → 6개 RNG 콜사이트를 `getrandom 0.4` 로 이관). 머지 순서 = lock 충돌 최소화 #949→#950→#951→#952 (x25519 마지막 — 골든벡터가 merged lock 에서 돌아야 검증이 유효).
@@ -54,11 +72,11 @@ Agent 호출 시 항상 `model` 명시. 실 claude E2E 하니스는 로컬 전�
 > - **daemon** inc1~6 머지(#892~#897) — store(rusqlite) → ipc/session/worktree → relay-client → pairing/push/relay-manager → dispatcher+shipping `[[bin]]` → `TP_DAEMON_BIN` seam. **flip-prep A1 머지(#898)**: `tp-daemon` release 아티팩트 ship + `locate_tp_daemon()`. **A2 머지**: `TP_E2E_DAEMON_BIN` daemon-parity 게이트(holder-side, `DAEMON_PARITY_BIN` positive 증명, 로컬 전용 실 claude). **#4 flip**: `ensure_daemon.rs` background + `commands/daemon.rs::start` foreground/service 둘 다 `locate_tp_daemon()` 배선 — persistent 프로덕션 daemon 이 Rust `tp-daemon`.
 > - **de-trampoline tp-cli(#17, ✅ 완료)**: 코어 3종(#903 native passthrough / #904 util forwards+`tp --` / #905 relay redirect) + soft couplings(`locate.rs` sentinel→`rust/tp-cli/Cargo.toml`, `upgrade.rs` pgrep `tpd`+`tp-daemon`) + **PR-5(native first-run install 프롬프트 #917 + apps/cli passthrough 삭제·index.ts 리와이어, 구 #23 흡수)** 완료. Part B 게이트 = 로컬 실 claude 두 증거체(네이티브 passthrough 직접 5/5 + substrate soak 5/5). **#4 flip 머지 완료(#922) → #5(Bun 삭제 캐스케이드) PR1–PR8 전부 머지 완료(PR8 = #936) — 캐스케이드 종료.**
 
-**현재 브랜치**: 없음 — main = `6a6e10f6`(#953). rev26 에서 stale dependabot 5건(#931/#920/#889/#888/#887 → PR #949~#952) + 후속 정리 3건(#953~#955) 전부 머지. dogfood tp 는 `6a6e10f6` 에서 재빌드+재서명한 v0.1.53 이 최신 — daemon running + relay authenticated 확인.
+**현재 브랜치**: 없음 — main = `c71ff166`(#956). rev27 은 코드 변경 0 (TestFlight 업로드 + 워치 미러 sim 검증). dogfood tp 는 `6a6e10f6` 에서 재빌드+재서명한 v0.1.53 이 최신 유효(이후 rust/ 변경 0) — daemon running + relay authenticated 확인.
 
 worktree 상태: 메인 worktree 하나만. stash 없음.
 
-**열린 PR**: 내 작업 PR 0. dependabot stale 백로그 0 (rev26 에서 소진 — 위 rev26 블록 참조).
+**열린 PR**: 내 작업 PR 0. dependabot stale 백로그 0 (rev26 에서 소진 — 위 rev26 블록 참조). TestFlight 최신 = 0.1.20 (2401), 전 플랫폼 업로드 완료 (rev27).
 
 ---
 
@@ -386,7 +404,9 @@ sweep 이 `records.remove` 로 답하는 조건, 즉 위 불변식이 금지한 
 **dogfood tp 재빌드 불필요**(app-only). **자동 게이트 없음 — 실기기 전용 잔여 항목**: `cmd_smoke_watchos`
 는 iOS Simulator 를 아예 부팅하지 않고 하니스에 `simctl pair` 도 없어 **미러를 보낼 폰 자체가 없다**
 (`WCSession.isPaired` false → `publish()` 조기 return). 그래서 watchOS 7마커 세트는 불변이고, 실제 전달
-검증은 TestFlight 빌드 + Ultra 1 로 남는다(TODO.md). 자동 커버는 **폰 타깃 XCTest** 가 대신한다 —
+검증은 TestFlight 빌드 + Ultra 1 로 남는다(TODO.md). **단, 수동 sim-레벨 검증은 26.5↔26.5 런타임 조합으로
+가능하며 2026-07-31 PASS 했다** (rev27 스냅샷 + `.claude/rules/native-testing.md` 절차/함정 4개 참조 — iOS
+27.0 beta sim 런타임은 `appconduitd` 부재로 구조적 불가). 자동 커버는 **폰 타깃 XCTest** 가 대신한다 —
 `WCSession` 경계 *아래* 로직(`committedSnapshot()`/`applyPeerSnapshot()`/`WatchConnectionState.derive`)을
 전부 `ios/Sources/` 에 둬서 `TeleprompterTests`(`[iOS, macOS]`)가 컴파일·실행한다. **watch 타깃 코드를
 컴파일하는 테스트 타깃은 존재하지 않으므로, 로직을 watch 쪽에 두면 게이트가 0 이 된다.**
@@ -466,6 +486,7 @@ PR/피처 브랜치 0, worktree clean**. 능동 추진할 코드 작업 없음. 
 
 **사용자 액션 전용(에이전트 대신 실행 금지, 리마인드만)**: **#50 keychain ACL 완화**(macOS keychain
 비밀번호 입력 필요 — 사용자 본인만), **#45 실기기 crash 로그**(USB 연결 시 Xcode Organizer 자동 sync 대기),
-**워치 미러 실기기 전달 검증**(TestFlight 빌드 → Apple Watch Ultra 1 — Simulator 로는 구조적으로 불가,
-위 워치 섹션 참조).
+**워치 미러 실기기 전달 검증**(TestFlight 0.1.20(2401) → Apple Watch Ultra 1 — WC 전송·스냅샷 semantics 는
+rev27 에서 sim-레벨 증명 완료, 실기기 고유 요소[실 BT 전송/백그라운드 전달/`receivedApplicationContext`
+기기 영속]만 잔여. 위 워치 섹션 참조).
 

@@ -1,4 +1,4 @@
-# IN_PROGRESS — 후속 세션 인계 (2026-07-31 갱신 · rev27)
+# IN_PROGRESS — 후속 세션 인계 (2026-08-01 갱신 · rev28)
 
 이 문서는 진행 중이던 작업을 후속 세션이 그대로 이어받도록 정리한 것이다.
 **규율 상기**: 도구 호출은 구조화된 `tool_use` 블록으로만. squash merge only via
@@ -16,7 +16,37 @@ Agent 호출 시 항상 `model` 명시. 실 claude E2E 하니스는 로컬 전�
 
 ---
 
-## 상태 스냅샷 (origin/main = c71ff166, 2026-07-31 rev27)
+## 상태 스냅샷 (origin/main = d53d69fb, 2026-08-01 rev28)
+
+> rev28 (2026-07-31~08-01): **v0.1.54 릴리즈 출하 + 릴리즈 파이프라인 잠복 결함 3건 root-cause & fix (#958~#962).**
+> - **v0.1.54 출하 완료**: release PR **#958**(`9c5a702b`) → tag `v0.1.54` → run 30646609026 all-green →
+>   GitHub Release 자산 6종(tp-{darwin_arm64,linux_x64,linux_arm64}.tar.gz + checksums.txt{,.sig,.pem}) →
+>   tap `4d2c8afc` "tp 0.1.54" → 로컬 `brew upgrade` 스모크 `/opt/homebrew/bin/tp` = **v0.1.54** 확인.
+>   v0.1.53 이후 releasable(#938~#946 feat/fix + #949~#952 dep 범프)이 처음 brew 로 나간 릴리즈.
+>   TestFlight CD 도 v0.1.54 태그로 자동 dispatch 확인 (run 30646751190, 게이트 아님).
+> - **릴리즈 파이프라인 결함 3건** (v0.1.53 이후 처음 실행된 경로들이라 이번에 일제히 발화):
+>   1. **#959 (`21c6a0b6`)**: #933 이 추가한 "Verify bundle tarball members" 게이트의 `tar -tzf | grep -qx`
+>      가 `pipefail` 아래서 **마지막 tar 엔트리가 아닌 멤버에 대해 결정적 거짓 실패** — `grep -q` 가 매치서
+>      조기 종료 → tar 가 잔여 라인에 EPIPE(`tar: stdout: write error`) → 파이프라인 비제로 → `|| missing member`
+>      오발동 (`bin/tp` 는 tar 마지막이라 통과, `tpd` 는 중간이라 2/2 동일 실패). 픽스 = 목록을
+>      `$RUNNER_TEMP/members.txt` 로 한 번 뽑아 파일 grep (파이프 제거).
+>   2. **#961 (`32db6eaf`)**: **GitHub 이 (07-10 이후 서버측 변경으로) GITHUB_TOKEN 의 release PATCH 에
+>      `target_commitish` 가 실리면 403** ("Resource not accessible by integration") — **변경 없는 같은 값을
+>      재전송하는 no-op 도 403** (throwaway `debug/release-perms` 브랜치에서 payload 이분탐색으로 확정:
+>      target_commitish 단독 403 / 그것만 뺀 전체 payload 200). softprops/action-gh-release 는 기존 release
+>      업데이트 시 이 필드를 **전 버전 무조건 포함** → 액션 자체가 release-please 조합에서 구조적으로 불능.
+>      중간의 **#960**(`a12c3859`, v3.0.1 SHA 핀)은 이 오진 단계의 산물 — 동일 실패로 무효 판명, #961 이
+>      스텝 교체로 핀째 제거. 픽스 = 액션 제거, `gh release upload --clobber` 로 자산만 POST (release-please
+>      가 changelog body 로 release 를 이미 만들므로 PATCH 자체가 불필요; tag-push 엣지만 `gh release create
+>      --verify-tag --generate-notes` fallback).
+>   3. **#962 (`d53d69fb`)**: release job 은 checkout 이 없어 `gh` 가 "not a git repository" 로 사망 —
+>      `gh release view/create/upload` 전부에 `-R "$GITHUB_REPOSITORY"` 명시.
+> - **운영 발견 2건 (release.md 에 반영)**: (a) release-please 가 만든 PR 의 CI 는 `action_required`
+>   (bot 생성 PR 워크플로우 승인 요구) — `gh api .../actions/runs/<id>/approve` 후에야 게이트 진행 가능.
+>   (b) 디버깅 기법: `workflow_dispatch` 는 기본 브랜치에 파일이 있는 워크플로우를 **임의 브랜치 ref 로**
+>   dispatch 하면 그 브랜치 버전 파일이 실행됨 — release.yml 을 throwaway 브랜치에서 프로브로 갈아끼워
+>   GITHUB_TOKEN 능력을 in-situ 이분탐색 (main 무접촉, 프로브가 건드린 release body 는 원복 확인).
+> - dogfood tp 재빌드 불필요 (rust/ 변경 0 — 전부 .github/workflows). brew 채널이 이제 v0.1.54.
 
 > rev27 (2026-07-30~31): **TestFlight 전 플랫폼 업로드 + 워치 미러 sim-레벨 수동 검증 PASS (코드 변경 0, 검증/발견 세션).**
 > - **TestFlight 빌드 0.1.20 (2401)**: `gh workflow run testflight.yml --ref main` (run 30609199553, main `c71ff166`) —
@@ -72,11 +102,11 @@ Agent 호출 시 항상 `model` 명시. 실 claude E2E 하니스는 로컬 전�
 > - **daemon** inc1~6 머지(#892~#897) — store(rusqlite) → ipc/session/worktree → relay-client → pairing/push/relay-manager → dispatcher+shipping `[[bin]]` → `TP_DAEMON_BIN` seam. **flip-prep A1 머지(#898)**: `tp-daemon` release 아티팩트 ship + `locate_tp_daemon()`. **A2 머지**: `TP_E2E_DAEMON_BIN` daemon-parity 게이트(holder-side, `DAEMON_PARITY_BIN` positive 증명, 로컬 전용 실 claude). **#4 flip**: `ensure_daemon.rs` background + `commands/daemon.rs::start` foreground/service 둘 다 `locate_tp_daemon()` 배선 — persistent 프로덕션 daemon 이 Rust `tp-daemon`.
 > - **de-trampoline tp-cli(#17, ✅ 완료)**: 코어 3종(#903 native passthrough / #904 util forwards+`tp --` / #905 relay redirect) + soft couplings(`locate.rs` sentinel→`rust/tp-cli/Cargo.toml`, `upgrade.rs` pgrep `tpd`+`tp-daemon`) + **PR-5(native first-run install 프롬프트 #917 + apps/cli passthrough 삭제·index.ts 리와이어, 구 #23 흡수)** 완료. Part B 게이트 = 로컬 실 claude 두 증거체(네이티브 passthrough 직접 5/5 + substrate soak 5/5). **#4 flip 머지 완료(#922) → #5(Bun 삭제 캐스케이드) PR1–PR8 전부 머지 완료(PR8 = #936) — 캐스케이드 종료.**
 
-**현재 브랜치**: 없음 — main = `c71ff166`(#956). rev27 은 코드 변경 0 (TestFlight 업로드 + 워치 미러 sim 검증). dogfood tp 는 `6a6e10f6` 에서 재빌드+재서명한 v0.1.53 이 최신 유효(이후 rust/ 변경 0) — daemon running + relay authenticated 확인.
+**현재 브랜치**: 없음 — main = `d53d69fb`(#962). rev28 코드 변경은 전부 `.github/workflows/release.yml` (릴리즈 파이프라인 픽스). dogfood tp 는 `6a6e10f6` 에서 재빌드+재서명한 v0.1.53 이 여전히 유효(이후 rust/ 변경 0 — v0.1.54 는 CLI 소스 동일, 버전 문자열만 상이). brew(`/opt/homebrew/bin/tp`) = v0.1.54.
 
 worktree 상태: 메인 worktree 하나만. stash 없음.
 
-**열린 PR**: 내 작업 PR 0. dependabot stale 백로그 0 (rev26 에서 소진 — 위 rev26 블록 참조). TestFlight 최신 = 0.1.20 (2401), 전 플랫폼 업로드 완료 (rev27).
+**열린 PR**: 내 작업 PR 0. dependabot stale 백로그 0 (rev26 에서 소진 — 위 rev26 블록 참조). TestFlight 최신 = 0.1.20 (2401) 전 플랫폼 (rev27) + v0.1.54 태그 CD run 30646751190 자동 dispatch (rev28).
 
 ---
 

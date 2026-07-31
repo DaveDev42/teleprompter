@@ -69,6 +69,17 @@ build-cli **do** run — and should pass cleanly on these changes.
 (The EAS gate and e2e jobs were removed in the ADR-0001 rewrite, so
 the PR check list is just those four jobs.)
 
+> **CI approval quirk (observed on v0.1.54):** the release PR is created by
+> github-actions[bot], so its CI run can land as `action_required` (workflow
+> approval required) — the rollup then sits at `BLOCKED` with an empty
+> `statusCheckRollup` forever. Approve the run first, then gate as below:
+>
+> ```sh
+> RUN_ID=$(gh run list --branch release-please--branches--main --limit 1 \
+>   --json databaseId --jq '.[0].databaseId')
+> gh api repos/DaveDev42/teleprompter/actions/runs/$RUN_ID/approve -X POST
+> ```
+
 Use the merge-state rollup as the definitive gate:
 
 ```sh
@@ -157,6 +168,19 @@ gh run watch "$RUN_ID" --exit-status
 > If `release.yml` *does* auto-fire from the tag push, you'll see a
 > `push`-event run sitting next to the manual dispatch. They build the
 > same tag, so harmlessly redundant — let both finish, then continue.
+
+> **Asset upload is `gh release upload`, not action-gh-release (since
+> #961/#962, v0.1.54):** GitHub now 403s GITHUB_TOKEN release PATCHes that
+> carry `target_commitish` ("Resource not accessible by integration") even
+> re-sending the unchanged value, and softprops/action-gh-release always
+> includes it when updating the existing release-please release — every
+> version, so pinning does not help. The workflow instead POSTs assets with
+> `gh release upload --clobber -R "$GITHUB_REPOSITORY"` (the release job has
+> no checkout, hence `-R`; release-please already created the release with
+> the changelog body, so no PATCH is needed). Relatedly, the "Verify bundle
+> tarball members" gate greps a listing file instead of `tar | grep -q`,
+> which false-failed under pipefail via EPIPE for any non-final member
+> (#959).
 
 - `--exit-status` fails the watch on any job failure. On non-zero exit:
 

@@ -61,6 +61,27 @@ Bun 스크립트+opt-in seam 삭제 — Rust 가 유일 구현이고 CI `swift-s
 >    (`WCSession.isPaired` false → `publish()` 가 조기 return). 그래서 **7마커 세트는 그대로**이고
 >    (미러는 마커를 추가하지 않는다), 전달 검증은 실기기 게이트로 남는다 (`TODO.md`).
 >
+> **수동 sim-레벨 검증은 가능하다 — 단 26.5↔26.5 런타임 한정 (2026-07-31 실측 PASS).** `simctl pair` 로
+> iOS 26.5 iPhone + watchOS 26.5 watch 를 페어링하고, iOS smoke 로 폰 앱에 loopback 페어링을 커밋한 뒤
+> 임베드 `TeleprompterWatch.app`(iOS 빌드 산출물 `Teleprompter.app/Watch/`)을 watch sim 에 `simctl install`
+> 하고 **폰 앱을 일반 모드로 재기동**하면 (`publish()` 는 activation 콜백에서만 발화) 전 경로가 돈다.
+> 관측된 증거: 폰 `published 1 pairing(s)` → 워치 `peer snapshot applied adopted=1` → 워치가 채택한
+> 페어링의 relay 로 접속 시도; 클린 재설치 후 Keychain 영속 + 빈 `receivedApplicationContext` 를 "전부
+> 해지"로 오독하지 않음(`pairings.v1` 키 가드); 재배달은 `adopted=0` 멱등 + 스냅샷에 없는 잔존 페어링은
+> **hide**(삭제 아님) 재처리; 워치 반복 재기동 후에도 폰 페어링 무손상(불변식 D). 함정 4개:
+> (1) **iOS 27.0 beta sim 런타임(24A5390f)엔 `appconduitd` 가 아예 없다** (LaunchDaemon plist/바이너리
+> 부재 — 26.5 런타임 23F77 엔 있음) → `wcd` 초기 셋업이 `com.apple.appconduitd.device-connection` XPC
+> "No such process" 로 영구 실패 → `isWatchAppInstalled` 가 절대 true 가 못 돼 `publish()` 가 (설계대로)
+> 조용히 guard-out — **27.0 sim 으론 이 검증이 구조적으로 불가능하다**. (2) `sim_udid()` 는 최고 런타임을
+> 선호하므로 "iPhone 17 Pro" 가 26.5/27.0 양쪽에 있으면 27.0 이 뽑힌다 — 26.5 폰을 `simctl rename` 으로
+> 유니크 이름을 주고 `TP_SIM` 으로 지정할 것. (3) `simctl unpair` 는 워치 쪽 컴패니언 앱을 제거하고, 신규
+> 페어는 라이브 페어링 이벤트/재부팅 전까지 폰 `wcd` 가 세션 상태를 배달 안 할 수 있다 (활성화 콜백 자체가
+> 안 옴 — 재현 시 양쪽 재부팅 또는 부팅 상태 재페어로 회복). (4) 워치 앱 설치가 폰 `wcd` 에 등록되기까지
+> 지연이 있고 `publish()` 트리거는 activation + committed-set 변경뿐이라, 워치 앱 설치·실행 **후** 폰 앱을
+> 한 번 더 재기동해야 `published` 가 뜬다. 실기기 고유 요소(실 BT 전송, 백그라운드 전달,
+> `receivedApplicationContext` 기기 영속 — sim 에선 워치 재기동 시 재적용 라인이 안 뜨는 것을 관측)는
+> 여전히 실기기 게이트.
+>
 > 자동 커버는 **폰 타깃 XCTest** 가 대신한다 — `WCSession` 경계 **아래** 로직(`committedSnapshot()`,
 > `applyPeerSnapshot()`, `WatchConnectionState.derive`)을 전부 `ios/Sources/` 에 둬서
 > `TeleprompterTests`(`[iOS, macOS]`)가 컴파일·실행한다 (`ios/Tests/PairingSnapshotTests.swift`).

@@ -145,7 +145,13 @@ jobs:
         with:
           # Attest the bundle tarballs (the only release assets since PR6).
           subject-path: "artifacts/tp-*"
-      - uses: softprops/action-gh-release@v3
+      # Pinned to the v3.0.1 SHA — v3.0.2 (current @v3) regresses
+      # workflow_dispatch runs that pass a tag_name input: updating the
+      # existing release-please release 403s with "Resource not accessible
+      # by integration" (its error path resolves the tag from GITHUB_REF,
+      # refs/heads/main). v3.0.1 is the exact SHA the v0.1.53 release
+      # shipped with. Re-evaluate the pin when a fixed v3.x lands.
+      - uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           generate_release_notes: true

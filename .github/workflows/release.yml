@@ -108,10 +108,14 @@ jobs:
           cd artifacts
           for f in tp-*.tar.gz; do
             echo "== $f"
-            tar -tzf "$f"
+            # List once into a file — `tar | grep -q` under pipefail fails on
+            # any member that is not the last tar entry (grep exits at the
+            # match, tar takes EPIPE on the remaining lines and exits non-zero).
+            tar -tzf "$f" > "$RUNNER_TEMP/members.txt"
+            cat "$RUNNER_TEMP/members.txt"
             suffix="${f#tp-}"; suffix="${suffix%.tar.gz}"
             for member in bin/tp libexec/tp/tpd libexec/tp/tp-daemon libexec/tp/tp-relay libexec/tp/tp-runner; do
-              tar -tzf "$f" | grep -qx "tp-${suffix}/${member}" || {
+              grep -qx "tp-${suffix}/${member}" "$RUNNER_TEMP/members.txt" || {
                 echo "missing member: tp-${suffix}/${member}" >&2
                 exit 1
               }

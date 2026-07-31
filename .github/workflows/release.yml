@@ -145,21 +145,31 @@ jobs:
         with:
           # Attest the bundle tarballs (the only release assets since PR6).
           subject-path: "artifacts/tp-*"
-      # Pinned to the v3.0.1 SHA — v3.0.2 (current @v3) regresses
-      # workflow_dispatch runs that pass a tag_name input: updating the
-      # existing release-please release 403s with "Resource not accessible
-      # by integration" (its error path resolves the tag from GITHUB_REF,
-      # refs/heads/main). v3.0.1 is the exact SHA the v0.1.53 release
-      # shipped with. Re-evaluate the pin when a fixed v3.x lands.
-      - uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
-        with:
-          tag_name: ${{ inputs.tag || github.ref_name }}
-          generate_release_notes: true
-          files: |
-            artifacts/tp-*
-            artifacts/checksums.txt
-            artifacts/checksums.txt.sig
-            artifacts/checksums.txt.pem
+      # release-please creates the GitHub Release (with the changelog body) at
+      # tag time; this step only attaches the build assets. gh CLI instead of
+      # softprops/action-gh-release: since ~2026-07 GitHub rejects GITHUB_TOKEN
+      # release PATCHes that carry target_commitish ("Resource not accessible
+      # by integration" — bisected: a target_commitish-only PATCH 403s even
+      # re-sending the unchanged value; the same payload without it is 200),
+      # and the action unconditionally includes it when updating an existing
+      # release, on every version. gh release upload only POSTs assets and
+      # never PATCHes the release.
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || github.ref_name }}"
+          # Tag-push edge case where release-please hasn't created the release.
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --verify-tag --generate-notes
+          fi
+          gh release upload "$tag" \
+            artifacts/tp-*.tar.gz \
+            artifacts/checksums.txt \
+            artifacts/checksums.txt.sig \
+            artifacts/checksums.txt.pem \
+            --clobber
 
   bump-tap:
     needs: release

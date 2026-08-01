@@ -131,15 +131,10 @@ macOS 는 `log stream` 라이브 캡처, visionOS/watchOS 는 `simctl spawn … 
 
 ## 환경 변수
 
+기본 플래그(`TP_PLATFORM`/`TP_SIM`/`TP_VISION_SIM`/`TP_WATCH_SIM`/`TP_SKIP_RUST`/`TP_FORCE_RUST`/`TP_JSON`/`TP_ARTIFACT_DIR`)의 기본값·설명은 `scripts/ios.sh` 사용법 헤더가 SoT — 여기서 반복하지 않는다.
+
 | Var | 효과 |
 |---|---|
-| `TP_PLATFORM` | `ios`(기본)`\|ipad\|macos\|visionos\|watchos` |
-| `TP_SIM` | iOS/iPad Simulator 기기명 (iOS 기본 `iPhone 17 Pro`; `ipad` 분기 기본 `iPad Pro 13-inch (M5)`) |
-| `TP_VISION_SIM` / `TP_WATCH_SIM` | visionOS/watchOS Simulator 기기명 |
-| `TP_SKIP_RUST=1` | xcframework 재빌드 스킵 (없으면 die) — 빠른 반복 |
-| `TP_FORCE_RUST=1` | xcframework 매번 재빌드 (Rust 수정 후) |
-| `TP_JSON=1` | smoke 가 마지막 줄에 single-line JSON 결과 emit (`{platform,markers,passed,elapsed_s}`) — 텍스트 출력 불변 |
-| `TP_ARTIFACT_DIR` | 스크린샷/비디오 출력 디렉터리 (기본 `/tmp/tp-artifacts`) |
 | `TP_UITEST_STRICT=1` | macOS XCUITest 호스트 게이트 2종(TCC 미인가 / Xcode 27 beta windowless-launch)을 non-fatal SKIP 대신 **hard-fail** 로 (인가된 GUI/CI 러너용; 기본 SKIP 은 `TP_UITEST_SKIP` 마커 emit) |
 | `TP_E2E_REAL=1` | 가짜 loopback 대신 **실 `tp` daemon+relay** 로 E2E (격리 XDG 디렉터리, 헤드리스 페어링, M0–M2 범위). **`TP_PLATFORM=ios`/`ipad`/`macos`/`visionos`/`watchos` 전부 지원** (daemon+relay+claude 는 항상 *호스트*에서 돌고, 앱만 sim/네이티브로 뜬다 — 그래서 visionOS/watchOS sim 에서도 실 claude 세션까지 왕복하는 full-path 통합 검증 가능) |
 | `TP_E2E_CLAUDE=1` | `TP_E2E_REAL` 의 strict superset — 페어링 *전* **실 `claude -p` PRINT 세션**을 격리 daemon 에 spawn (M0–M4 범위, 실 Stop `last_assistant_message` 렌더). `claude` PATH 필수. 격리 HOME 엔 자격증명이 없으므로 **개발자 본인의** 이미 로그인된 claude 토큰을 재사용한다 (표준 keychain API 로 읽어 먼저 refresh 후 격리 daemon 에 전달 — 머신 밖으로 나가지 않음). **iOS/iPadOS/macOS/visionOS/watchOS 전부 지원** — watchOS 는 여기서 캡 (M5 N/A). **로컬 전용 (절대 CI 아님)** |
@@ -156,18 +151,7 @@ macOS 는 `log stream` 라이브 캡처, visionOS/watchOS 는 `simctl spawn … 
 
 ## 서브커맨드
 
-```bash
-scripts/ios.sh rust     # TpCore.xcframework (7 슬라이스) + UniFFI 바인딩
-scripts/ios.sh gen      # xcodegen generate
-scripts/ios.sh boot     # Simulator 부팅 (sim 전용)
-scripts/ios.sh build    # xcodebuild
-scripts/ios.sh smoke    # 빌드+설치+런치+마커 검증 (TP_PLATFORM 분기)
-scripts/ios.sh uitest   # XCUITest UI-level E2E (iOS/iPad/macOS 풀, visionOS 부분, watchOS 미지원)
-scripts/ios.sh uitest-all  # XCUITest UI E2E 전 플랫폼 매트릭스 (PASS/SKIP/FAIL 표; watchOS=자동SKIP[XCUIApplication 없음], macOS=TCC미인가/windowless-launch 시 SKIP; exit=FAIL 있으면 nonzero)
-scripts/ios.sh test     # XCTest (iOS Simulator)
-scripts/ios.sh all      # 5플랫폼 smoke 매트릭스 (행=플랫폼, 종료코드=worst)
-scripts/ios.sh archive  # TestFlight: TP_PLATFORM 별 Release archive → 서명 → App Store .ipa export (ADR-0004 §7; 실 Distribution cert 필요)
-```
+`scripts/ios.sh` 서브커맨드(`rust`/`gen`/`boot`/`build`/`smoke`/`uitest`/`uitest-all`/`test`/`all`/`archive`) 목록·설명은 `scripts/ios.sh` 사용법 헤더 + `ios/README.md` 가 SoT — 여기서 반복하지 않는다.
 
 > **`archive` 는 검증이 아니라 *배포* 경로** — 마커/UI E2E 와 다른 레이어다. **ADR-0004 Amendment 1
 > 이후 `TP_PLATFORM` 으로 분기**(ios/ipad→`generic/platform=iOS` `.ipa`, macos→`generic/platform=macOS`
@@ -404,9 +388,6 @@ grep 해 링크 + 실 daemonId 를 잡고, 각 플랫폼 smoke 함수가 그 링
 > 브로드캐스트가 프론트엔드 자체 kx 완료와 레이스해 `relay.frame before kx — dropping` 이 날 수 있다(loopback
 > 은 `LOOPBACK_READY` 시퀀싱으로 이를 피함). 전체 M3–M5 검증은 loopback 모드(8마커) 가 담당. 실 M4/M5 를
 > 실 daemon 으로 보려면 spawn 된 세션 + PATH 의 `claude` 가 필요.
->
-> **아키텍처 불변식 전부 유지**: app→relay 전용, daemon outbound-WS only(실 daemon 이 `relay.register` 로
-> self-register → relay 의 유일 클라이언트), relay 는 이미 암호화된 프레임만 중계(평문 미접근).
 
 ## 실 claude PRINT E2E (`TP_E2E_CLAUDE=1`, iOS/iPadOS Sim · macOS 네이티브 · visionOS Sim · watchOS Sim) — 헤드라인 dogfood 증명 (M0–M4)
 

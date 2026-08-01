@@ -31,47 +31,7 @@ paths:
 
 ## 릴리즈 절차 (수동)
 
-```bash
-# 1. 개발: main에 Conventional Commits로 push.
-#    Relay (변경 시 `deploy-relay.yml`)는 main push 트리거로 자동 진행.
-
-# 2. Release PR 생성: release-please.yml dispatch (#1).
-gh workflow run release-please.yml --ref main
-# → "chore(main): release X.Y.Z" PR 생성. 이 PR 에는 main `ci.yml`
-#   의 path filter 가 안 맞아 lint/test/build-cli 가 붙지 않는다 —
-#   `gh pr view --json mergeable,mergeStateStatus` 로 MERGEABLE/CLEAN
-#   여부만 확인하면 된다.
-
-# 3. PR squash merge.
-gh api repos/DaveDev42/teleprompter/pulls/<num>/merge -X PUT \
-  -f merge_method=squash
-
-# 4. tag push: release-please.yml dispatch (#2).
-gh workflow run release-please.yml --ref main
-# → main 의 release commit 을 인식해 vX.Y.Z tag 을 push.
-#   (release-please.yml 은 workflow_dispatch only 이므로 자동 트리거 없음.
-#    한 번의 dispatch 가 PR 생성 또는 tag push 중 하나만 하므로 두 번 필요.)
-
-# 5. release.yml dispatch: 빌드 + GitHub Release + tap bump (+ TestFlight CD dispatch).
-gh workflow run release.yml -f tag=vX.Y.Z
-# → release.yml 은 `push: tags: [v*]` 트리거도 있지만 GitHub API
-#   tag-creation 이 push event 를 항상 firing 하지는 않으므로 (#172)
-#   manual dispatch 가 안전한 default.
-# → release + bump-tap 성공 후 `testflight` job 이 자동으로
-#   `testflight.yml` 을 같은 태그로 dispatch (CD — Task #122 첫 수동
-#   업로드 이후). 별도 run 이라 release run 자체는 TestFlight 결과와
-#   무관하게 green.
-
-# 5b. (선택, read-only) TestFlight CD dispatch 발화 확인:
-gh run list --workflow=testflight.yml --limit=3 \
-  --json databaseId,event,headBranch,status,conclusion,createdAt
-# → 가장 최근 run 의 event=workflow_dispatch + headBranch=vX.Y.Z 확인.
-#   시크릿 미설정이면 guard job 들이 clean-skip (::notice::) — red 아님.
-
-# 6. tap repo + brew 검증 (SLA 보장 step):
-gh api repos/DaveDev42/homebrew-tap/commits/main --jq '.commit.message'
-brew update && brew upgrade davedev42/tap/tp && tp version
-```
+절차는 `/release` 슬래시 커맨드(`.claude/commands/release.md`)가 SoT — 에러 핸들링과 CI `action_required` 승인 quirk 까지 포함해 그쪽이 더 완전하다. 여기서 반복하지 않는다.
 
 ## Infrastructure
 - **Relay**: Vultr Seoul `relay.tpmt.dev` (wss://, Caddy TLS + systemd: `tp-relay`). **Rust 바이너리** `/usr/local/bin/tp-relay`(ADR-0003 Stage 1 Step 8b 이후; base unit `ExecStart=/usr/local/bin/tp-relay`, 시크릿은 drop-in `/etc/systemd/system/tp-relay.service.d/secrets.conf` — `TP_RELAY_RESUME_SECRET`/`TP_RELAY_PUSH_SEAL_SECRET[_PREV]`/APNs, deploy 가 안 건드림). 구 TS `tp relay start` 경로는 퇴역.

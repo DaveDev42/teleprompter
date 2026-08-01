@@ -60,7 +60,7 @@ Connection flow: daemon `register → auth → broadcast pubkey via kx`; fronten
 - Chat UI is **hooks-only** (PTY-to-chat fallback removed in PR #457): hooks events render as structured message cards; the Stop event's `last_assistant_message` is the canonical response. PTY io records go exclusively to the Terminal tab.
 - Worktree management is done directly by Daemon (`git worktree add/remove/list`), no external tool dependency. N:1 relationship — multiple sessions per worktree allowed.
 - E2EE pairing via QR code containing pairing secret + daemon pubkey + relay URL + daemon ID (+ **QR v4**: random-UUID `pairingId` + `hostname`). Daemon pubkey is delivered offline via QR; Frontend pubkey is exchanged in-band via `relay.kx` (encrypted with kxKey derived from pairing secret). Both sides perform ECDH (X25519 `crypto_kx`) → per-frontend session keys → XChaCha20-Poly1305 encryption. Relay token is self-registered via `relay.register` (proof-based, no pre-registration needed). N:N supported — one app connects to multiple daemons, one daemon serves multiple frontends, each with independent E2EE keys identified by `frontendId`.
-- **Pairing confirmation (PCT) — WS v3 (#49)**: because `relay.kx` has no freshness binding (a hostile relay could replay a cached kx broadcast), the daemon carries a per-frontend **Pairing Confirmation Tag** (domain-separated BLAKE2b over the established session keys, `tp-core` byte-exact) on the `hello` frame. The app compares it against its own PCT and drives the §1.3 promotion table: `pct` match → confirmed commit; `pct` mismatch → FAILED; `pct` absent with `effectiveV = max(kx-advertised v, persisted minAdvertisedV floor) < 3` → legacy commit; absent with `effectiveV ≥ 3` → FAILED (downgrade). `WS_PROTOCOL_VERSION` (advertised by both sides in the kx payload `v`) is **3** for PCT/QR-v4. No hard handshake gate — `pct` is additive-optional (old apps ignore it, old daemons omit it), so the promotion table (`effectiveV` + floor) is the sole discriminator. Device-local: PCT/floor/`frontendId`/label/`localHidden` are never synced. SoT = `docs/design/pairing-redesign-local-ecdh-commit-v3.md`.
+- **Pairing confirmation (PCT) — WS v3 (#49)**: `relay.kx` 에 freshness binding 이 없어(적대적 relay 가 캐시된 kx broadcast 를 replay 가능) daemon 이 세션키 위 domain-separated BLAKE2b **PCT**(`tp-core` byte-exact)를 `hello` 프레임에 실어 보내고, 앱이 자기 PCT 와 비교해 §1.3 promotion table 로 confirmed/legacy/FAILED 를 판정한다 (`WS_PROTOCOL_VERSION` = 3, `pct` 는 additive-optional — old app/daemon 과 호환). promotion table 4분기·`effectiveV`/floor 규칙·device-local 필드 상세는 `.claude/rules/protocol.md`, SoT = `docs/design/pairing-redesign-local-ecdh-commit-v3.md`.
 - Platform priority: Apple 멀티플랫폼 — iOS/iPadOS/네이티브 macOS 완전 경험 (Phase A, 출하), visionOS 완전 + watchOS 제한 경험은 toolchain 게이트 뒤 Phase B (ADR-0002). Web/Android 는 재작성 이후 강등 (ADR-0001 §6 확장 경로 유지).
 - Deployment: `scripts/build-bundle.sh` 가 cargo release 빌드 4종(`tp`/`tp-daemon`/`tp-runner`/`tp-relay`)을 `tp-<suffix>.tar.gz` 번들로 조립 (release.yml + 로컬 dry-run 공용).
 - Passthrough mode: `tp <claude args>` runs claude directly through tp pipeline. `--tp-*` flags are consumed by tp, rest forwarded to claude.
@@ -75,13 +75,9 @@ Connection flow: daemon `register → auth → broadcast pubkey via kx`; fronten
 
 ## Subagent Dispatch
 
-Agent 호출 시 항상 `model` 명시. plugin agent 는
-frontmatter가 `model: inherit`이라 미명시 시 부모 Opus 상속.
-
-- **탐색/grep/짧은 요약**: `model: "haiku"` (e.g., `Explore`, file lookups)
-- **코드 작업/리뷰/구현**: `model: "sonnet"` (e.g., plugin review agents,
-  `general-purpose`)
-- **어려운 설계/추론만 opus**: 명확히 필요할 때만
+Agent 호출 시 항상 `model` 명시 — tier 기준(haiku/sonnet/opus/fable + effort 라우팅)은
+전역 CLAUDE.md 가 SoT. plugin agent 는 frontmatter가 `model: inherit`이라 미명시 시
+부모 Opus 상속.
 - **QA**: 백엔드 회귀(`cargo test --workspace`) = `haiku`. 앱 검증은 로컬 Swift 하니스
   (`scripts/ios.sh build|smoke|test`, `TP_PLATFORM=ios|macos|visionos|watchos`)로 수행 — macOS-native smoke 는
   sim 부팅 없는 빠른 회귀 경로. RN Web/Playwright/Maestro/expo-mcp QA 는 재작성으로 제거됨.
@@ -244,21 +240,7 @@ PRD and internal docs are written in Korean. Code, comments, and commit messages
 
 ## Native App Build (Multiplatform)
 
-**Apple 멀티플랫폼 앱(iOS/iPadOS/macOS/visionOS + watchOS 별도 타깃) 빌드/검증은 로컬 하니스가 담당한다 (EAS 클라우드 제거).** XcodeGen `ios/project.yml` 이 프로젝트 SoT — 멀티플랫폼 타깃 `platform: auto` + `supportedDestinations: [iOS, macOS, visionOS]` + 별도 `TeleprompterWatch` 타깃(`platform: watchOS`, B3 ✅) (`.xcodeproj` 는 생성물, gitignore; 디렉터리명은 `ios/` 유지, ADR-0002). **watch 는 메인 iOS 앱의 companion 으로 임베드 배포**(`Teleprompter` 타깃의 `- target: TeleprompterWatch / embed: true / destinationFilters: [iOS]` 의존성 — iOS 목적지로만 스코프, macOS/visionOS 슬라이스 미임베드)되, `WKRunsIndependentlyOfCompanionApp: YES` 로 standalone 구동 유지 (companion DISTRIBUTION + standalone RUNTIME, #123/ADR-0004 Amdt 2). 번들 ID = `dev.tpmt.app`(메인) + `dev.tpmt.app.watchkitapp`(watch). 하니스 = `scripts/ios.sh` (`TP_PLATFORM=ios` 기본 / `macos` / `visionos` / `watchos`):
-
-```bash
-scripts/ios.sh rust     # TpCore.xcframework (7 슬라이스: ios-arm64/ios-sim-fat/macos-fat/xros-arm64/xros-sim/watchos-arm64+arm64_32-fat/watchos-sim) + UniFFI 바인딩
-scripts/ios.sh gen      # xcodegen generate (.xcodeproj 재생성)
-scripts/ios.sh boot     # Simulator 부팅 (TP_SIM, default "iPhone 17 Pro"; iOS 전용)
-scripts/ios.sh build    # xcodebuild (iOS: Debug-iphonesimulator / macOS: platform=macOS / visionOS: Debug-xrsimulator / watchOS: Debug-watchsimulator)
-scripts/ios.sh run      # install + launch (macOS: open -n)
-scripts/ios.sh smoke    # rust→gen→build→launch + 마커 검증 (iOS/macOS/visionOS: 8마커, watchOS: 7마커)
-scripts/ios.sh uitest   # XCUITest UI E2E (단일 플랫폼; TP_PLATFORM 분기, watchOS는 die)
-scripts/ios.sh uitest-all  # XCUITest UI E2E 전 플랫폼 매트릭스 (iOS/iPad/macOS/visionOS + watchOS 자동 SKIP; PASS/SKIP/FAIL, 로컬 전용)
-scripts/ios.sh test     # XCTest (iOS Simulator; xcframework 먼저)
-```
-
-`TP_FORCE_RUST=1` = xcframework 매번 재빌드(Rust 수정 후), `TP_SKIP_RUST=1` = 재빌드 스킵(빠른 반복). `TP_PLATFORM=macos` = 네이티브 macOS 경로(sim 없이 `open` + 호스트 unified log 스크랩 — 빠른 회귀). `TP_PLATFORM=visionos` = visionOS Simulator 경로(B2 ✅). `TP_PLATFORM=watchos` = watchOS Simulator 경로, `TeleprompterWatch` 타깃 빌드, 7마커(TP_INPUT_OK 제외, B3 ✅). `TP_WATCH_SIM` = watchOS Simulator 기기명(기본 `"Apple Watch Series 11 (46mm)"`). ADR-0002.
+**Apple 멀티플랫폼 앱(iOS/iPadOS/macOS/visionOS + watchOS 별도 타깃) 빌드/검증은 로컬 하니스가 담당한다 (EAS 클라우드 제거).** XcodeGen `ios/project.yml` 이 프로젝트 SoT — 멀티플랫폼 타깃 `platform: auto` + `supportedDestinations: [iOS, macOS, visionOS]` + 별도 `TeleprompterWatch` 타깃(`platform: watchOS`, B3 ✅) (`.xcodeproj` 는 생성물, gitignore; 디렉터리명은 `ios/` 유지, ADR-0002). **watch 는 메인 iOS 앱의 companion 으로 임베드 배포**(`Teleprompter` 타깃의 `- target: TeleprompterWatch / embed: true / destinationFilters: [iOS]` 의존성 — iOS 목적지로만 스코프, macOS/visionOS 슬라이스 미임베드)되, `WKRunsIndependentlyOfCompanionApp: YES` 로 standalone 구동 유지 (companion DISTRIBUTION + standalone RUNTIME, #123/ADR-0004 Amdt 2). 번들 ID = `dev.tpmt.app`(메인) + `dev.tpmt.app.watchkitapp`(watch). 하니스 = `scripts/ios.sh` (`TP_PLATFORM=ios` 기본 / `macos` / `visionos` / `watchos`). 서브커맨드 목록(`rust`/`gen`/`boot`/`build`/`run`/`smoke`/`uitest`/`uitest-all`/`test`)과 env knob(`TP_FORCE_RUST`/`TP_SKIP_RUST`/`TP_SIM`/`TP_WATCH_SIM` 등) 상세는 `scripts/ios.sh` usage 헤더 + `.claude/rules/native-testing.md` (SoT, `ios/**`/`rust/**`/`scripts/ios.sh` 작업 시 자동 로드) 참조. ADR-0002.
 
 부트마커는 `os.Logger(subsystem: "dev.tpmt.app", category: "boot")` 로 emit, 하니스가 Simulator unified log 를 `--predicate "subsystem == ..."` 로 grep 검증. **코어마커**(`TP_CORE_OK`/`TP_CORE_FAIL`)는 `TpCoreCheck` 가 encode→encrypt→decrypt→decode 라운드트립을 FFI 로 실행한 결과 — Rust 정적 라이브러리가 링크됐고 실기 런타임에서 동작함을 증명한다. 상세는 `ios/README.md` + `rust/README.md`. 실기기/TestFlight 배포는 재작성 진행에 따라 별도 정착.
 

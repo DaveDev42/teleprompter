@@ -8,7 +8,7 @@
 > `NotificationService` → `ToastCenter`. The in-band delivery path (relay hands
 > the push to a *live* app socket via `relay.notification` instead of APNs) is
 > covered by the `TP_E2E_PUSH=1` local harness gate (see
-> `.claude/rules/native-testing.md` → "실 push E2E") and asserts the
+> `.claude/rules/native-e2e-gates.md` → "실 push E2E") and asserts the
 > `TP_PUSH_NOTIFY_RECEIVED` marker.
 >
 > What remains is **device-gated only** and is exactly what this checklist

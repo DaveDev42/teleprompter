@@ -132,8 +132,8 @@ targets:
         # must be baked here. Manual signing REQUIRES an explicit
         # PROVISIONING_PROFILE_SPECIFIER per (target, SDK); xcodebuild does NOT
         # auto-resolve a profile by bundle id in Manual mode. Profile NAMES (stable,
-        # the SoT) are created by scripts/setup-testflight-secrets.sh — iOS :423,
-        # visionOS :429, macOS :446. CODE_SIGN_IDENTITY "Apple Distribution"
+        # the SoT) are created by scripts/setup-testflight-secrets.sh — iOS :454,
+        # visionOS :460, macOS :477. CODE_SIGN_IDENTITY "Apple Distribution"
         # resolves the imported dist cert in the throwaway CI keychain.
         # DEVELOPMENT_TEAM is supplied at archive time (TP_DEVELOPMENT_TEAM, global
         # CLI override — correct since all targets share one team). Debug/Simulator
@@ -426,7 +426,7 @@ targets:
         "CODE_SIGNING_ALLOWED[config=Debug]": "YES"
         # Release/device archive: the embedded companion watch signs with the same
         # Apple Distribution cert + its OWN App Store profile (name from
-        # scripts/setup-testflight-secrets.sh:441). A per-target specifier is the
+        # scripts/setup-testflight-secrets.sh:472). A per-target specifier is the
         # ONLY way to map watch→its profile — one xcodebuild archive applies CLI
         # overrides globally and cannot differ per target.
         "CODE_SIGN_STYLE[config=Release]": Manual

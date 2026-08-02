@@ -349,20 +349,20 @@ TP_DEVELOPMENT_TEAM=ABCDE12345 TP_PLATFORM=ios scripts/ios.sh archive   # 실 Di
   spawn 하되, holder 가 **멀티턴**으로 구동해 claude 가 실제로 파일을 생성/편집하고 빌드를 돌리게 한다 → M0-M4
   + **코딩 어서션**: `PostToolUse(Write)`+`PostToolUse(Bash)` 훅 이벤트가 둘 다 파일을 참조하고,
   `UserPromptSubmit=2`/`Stop=2`(2턴), disk 에 `tp_qa_marker.txt`=`QA-CODING-OK` 가 남는다. M5 입력 probe 는
-  coding 모드에서 억제(`--tp-no-input-probe`)된다. `claude` PATH 필수, **로컬 전용**. 세부 = `.claude/rules/native-testing.md`.
+  coding 모드에서 억제(`--tp-no-input-probe`)된다. `claude` PATH 필수, **로컬 전용**. 세부 = `.claude/rules/native-e2e-gates.md`.
 - `TP_E2E_WEBPAGE=1` — `TP_E2E_CLAUDE_CODING` 의 **sibling**. 동일한 holder+pipeline 로 격리 sandbox 의 실 INTERACTIVE claude 를
   2턴 구동해 **완전한 HTML5 정적 웹페이지**(`index.html`)를 빌드한다 → M0-M4 + **웹페이지 어서션**:
   `<!DOCTYPE html>`·`<html`·`<body`·`</html>`·마커(`TP-WEBPAGE-OK`)·`<style` 전부 포함 확인,
   `PostToolUse(Write)`+`PostToolUse(Bash)` 훅 이벤트 둘 다 파일 참조, `UserPromptSubmit=2`/`Stop=2`.
   파일명/마커 = `TP_E2E_WEBPAGE_FILE`/`TP_E2E_WEBPAGE_MARKER` 로 오버라이드. CODING 과 동시 set 시 WEBPAGE 우선.
-  M5 probe 억제(`--tp-no-input-probe`). `claude` PATH 필수, **로컬 전용**. 세부 = `.claude/rules/native-testing.md`.
+  M5 probe 억제(`--tp-no-input-probe`). `claude` PATH 필수, **로컬 전용**. 세부 = `.claude/rules/native-e2e-gates.md`.
 - `TP_E2E_PUSH=1` — `TP_E2E_CLAUDE`(print)의 **sibling**(E2E_REAL+E2E_CLAUDE imply). **푸시 RECEIVE 경로**를 실
   relay/daemon 으로 증명: 앱이 `--tp-push-smoke` 하에 합성 push 토큰을 등록하고, holder 가 IPC `rec`
   (`event/Notification`)을 주입 → daemon PushNotifier → relay **in-band** `relay.notification` → 앱
   `onNotification` 이 **M6 `TP_PUSH_NOTIFY_RECEIVED`** 를 emit. 실 APNs 없이 가능한 유일한 leg(frontend 가
   소켓에 live → relay 가 APNs 대신 in-band 전달). 정직한 범위: in-band 만 — 실 APNs 전달/디바이스 토큰
   수신(`didRegister`)/tap→nav(`didReceive`)는 entitlement+실기기+.p8 필요(Dave-gated). M6 는 default 8/7
-  마커 셋에 없음(`TP_E2E_PUSH` 하에서만 assert). `claude` PATH 필수, **로컬 전용**. 세부 = `.claude/rules/native-testing.md`.
+  마커 셋에 없음(`TP_E2E_PUSH` 하에서만 assert). `claude` PATH 필수, **로컬 전용**. 세부 = `.claude/rules/native-e2e-gates.md`.
 - `TP_ARTIFACT_DIR` — smoke 가 마커 폴링 후 스크린샷(+선택 비디오)을 떨구는 디렉터리
   (기본 `/tmp/tp-artifacts`). UI 자동화가 불가한 watchOS/visionOS 에서도 스크린샷은 동작.
 

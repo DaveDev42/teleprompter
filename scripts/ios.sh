@@ -810,7 +810,7 @@ cmd_smoke_ios() {
   # M0–M2 (boot/core/pair/relay-auth) — the deterministic reach of a real headless
   # daemon E2E. kx/frame/session/input depend on a pre-seeded session + careful
   # daemon-side sequencing the fake loopback provides but a real daemon does not
-  # (see start_real_daemon_relay / native-testing.md).
+  # (see start_real_daemon_relay / native-e2e-gates.md).
   # Four modes, in increasing reach:
   #   loopback  (default)      — fake scripted daemon, all 8 markers (M0–M5).
   #   real_e2e  (TP_E2E_REAL)  — real tp daemon+relay, no session: M0–M2 (4 markers).
@@ -826,7 +826,7 @@ cmd_smoke_ios() {
   #                            submits a real prompt, claude responds, and a NEW assistant
   #                            Stop chat item drives TP_INPUT_OK. Strict superset of
   #                            claude_e2e (proves the genuine app→relay→daemon→PTY→claude
-  #                            input path end to end). See native-testing.md.
+  #                            input path end to end). See native-e2e-gates.md.
   parse_e2e_gates
   local real_e2e="$E2E_REAL" claude_e2e="$E2E_CLAUDE" claude_m5="$E2E_CLAUDE_M5" claude_coding="$E2E_CLAUDE_CODING" claude_webpage="$E2E_WEBPAGE" claude_push="$E2E_PUSH" runner_parity="$E2E_RUNNER_BIN" daemon_parity="$E2E_DAEMON_BIN"
   # PR-4: M1 marker is mode-dependent. Real-daemon modes (kx out-of-scope/racy,
@@ -2159,7 +2159,7 @@ prefer_sid() {
 #              a blind fallback to the newest TP_INPUT_OK line would grab a STALE
 #              foreign-sid loopback line (sess-smoketest) left in the unified-log window by
 #              a prior run — reporting a timing miss as "wrong sid", or worse passing on a
-#              foreign line. The authoritative proof (per .claude/rules/native-testing.md)
+#              foreign line. The authoritative proof (per .claude/rules/native-e2e-gates.md)
 #              is UserPromptSubmit>=1 in the isolated session DB — the same SoT
 #              assert_coding_e2e uses. So: poll the DB (settle window covering >=2 app probe
 #              cycles) and PASS on the DB submit OR a strictly same-sid TP_INPUT_OK line;
@@ -2512,7 +2512,7 @@ assert_push_e2e() {
 # empty `hello` (frame sessions=0) and never reaches M4/M5. This path therefore
 # asserts M0–M3 (boot + core + pairing + relay-auth + kx) — proof that the genuine
 # daemon→relay→app pipeline works end to end. Full M4/M5 needs a spawned session +
-# `claude` on PATH (see native-testing.md).
+# `claude` on PATH (see native-e2e-gates.md).
 REAL_PAIR_LINK=""
 REAL_DAEMON_ID=""
 REAL_E2E_DIR=""

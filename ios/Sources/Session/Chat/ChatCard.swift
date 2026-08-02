@@ -217,7 +217,7 @@ struct ToolChatCard: View {
 ///
 /// Claude's interactive permission prompt (PTY) expects a numeric-choice reply
 /// (`1` = yes / `2` = no, submitted with a trailing `\r` — see
-/// `.claude/rules/native-testing.md` "인터랙티브 claude TUI 는 `\r` 에만 프롬프트를
+/// `.claude/rules/native-e2e-gates.md` "인터랙티브 claude TUI 는 `\r` 에만 프롬프트를
 /// submit"). Tapping a button routes through the exact same `onSend` channel
 /// the composer uses (`ChatComposer.sendIfReady` → `onSend(sid, text)` →
 /// `RelayClient.sendInput(sid:kind:.chat:)`), so the daemon appends the `\r`

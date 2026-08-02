@@ -209,8 +209,8 @@ jobs:
   #
   # NOT a required check (ci-workflows.md): added non-required first so a flaky
   # macOS runner / SDK drift never wedges unrelated PRs. Promote to required only
-  # after it is reliably green on main. The required gate stays lint/type-check/
-  # test/build-cli.
+  # after it is reliably green on main. The required gate is lint/type-check/
+  # test/build-cli/rust.
   #
   # Runner is PINNED to macos-26 (NOT bare macos-latest, which is mid-migration
   # macos-15→macos-26). The app references the iOS/macOS 26 SDK + Swift 6.0 mode,
@@ -262,7 +262,7 @@ jobs:
   # polls the unified log for all 8 boot markers (TP_BOOT_OK → TP_INPUT_OK). The
   # fake daemon byte-echoes the app's input probe, so the M5 input round-trip is
   # deterministic without a PTY. This is fully reproducible and credential-free —
-  # the real-claude E2E modes (TP_E2E_CLAUDE*) stay LOCAL-only (native-testing.md).
+  # the real-claude E2E modes (TP_E2E_CLAUDE*) stay LOCAL-only (native-e2e-gates.md).
   #
   # NOT a required check (ci-workflows.md): added non-required so a flaky Simulator
   # boot / runner drift never wedges unrelated PRs. Promote to required only after

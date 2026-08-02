@@ -158,7 +158,7 @@ Step 8a 당시의 fully-local 게이트 `scripts/rust-relay-e2e.ts`(+ 그 페어
 - **실 daemon 페어링 + full-path**: `TP_E2E_REAL=1 scripts/ios.sh smoke` — Rust
   `tp-e2e-holder` 가 실 `tp_relay::RelayServer`(또는 `--relay-url` 외부 relay) + 격리 XDG
   디렉터리의 실 Rust `tp-daemon` 으로 헤드리스 페어링하고 앱이 8마커 왕복 (M0–M2 는 물론
-  구 8a 범위 밖이던 kx/M3+frames/M4 까지 증명). 상세는 `.claude/rules/native-testing.md`.
+  구 8a 범위 밖이던 kx/M3+frames/M4 까지 증명). 상세는 `.claude/rules/native-e2e-gates.md`.
 
 ### Soak — 10k capacity gate (ADR-0003 §6.9)
 

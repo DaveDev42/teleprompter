@@ -41,7 +41,5 @@
       }
     ]
   },
-  "enabledPlugins": {
-    "superpowers@claude-plugins-official": false
-  }
+  "enabledPlugins": {}
 }

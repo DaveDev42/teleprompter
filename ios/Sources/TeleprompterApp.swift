@@ -43,6 +43,14 @@ struct TeleprompterApp: App {
     private let coreStatus: String
     private let log = Logger(subsystem: "dev.tpmt.app", category: "deeplink")
     private static let bootLog = Logger(subsystem: "dev.tpmt.app", category: "boot")
+    /// Drives the foreground reconnect nudge (`.onChange` on the main window).
+    @Environment(\.scenePhase) private var scenePhase
+    /// True once the app has actually entered `.background` — gates the nudge
+    /// so transient `.inactive`→`.active` flips (Control Center, Face ID sheet,
+    /// system alert, share sheet) don't preempt in-flight reconnect backoff on
+    /// every glance: those never suspend the process, so any armed backoff
+    /// timer fires on its own schedule (adversarial-review finding).
+    @State private var didEnterBackground = false
 
     init() {
         let store = SessionStore()
@@ -63,10 +71,11 @@ struct TeleprompterApp: App {
 
         #if os(iOS)
             // Mirror committed pairings to the companion watch (iCloud Keychain does
-            // not reach watchOS). Wired here because this is the only pre-window
-            // app-level hook — there is no scenePhase observer or app delegate
-            // lifecycle callback in this app to hang it on. Both the store hook and
-            // `activate()` no-op in smoke mode.
+            // not reach watchOS). Wired here because this is the only PRE-window
+            // app-level hook — the scenePhase observer on the main WindowGroup
+            // (foreground reconnect nudge) only fires once a scene exists, too
+            // late for this. Both the store hook and `activate()` no-op in smoke
+            // mode.
             PairingStore.shared.onCommittedSetChanged = {
                 PairingSyncBridge.shared.publish()
             }
@@ -154,6 +163,27 @@ struct TeleprompterApp: App {
     /// Keyboard shortcut help sheet visibility (driven from Commands menu + ⌘/).
     @State private var showShortcutHelp = false
 
+    /// Shared foreground-reconnect-nudge handler, attached to BOTH WindowGroups
+    /// (main + session pop-out) so the observer survives the main window being
+    /// closed while a pop-out stays open (iPad/macOS — the main scene's
+    /// `.onChange` dies with its scene). `scenePhase` read on the App struct is
+    /// the cross-scene AGGREGATE, so both attachments observe the same value;
+    /// consuming `didEnterBackground` on the first `.active` fire makes the
+    /// double-attachment idempotent (the second observer sees it cleared).
+    private func handleScenePhaseChange(_ phase: ScenePhase) {
+        switch phase {
+        case .background:
+            didEnterBackground = true
+        case .active:
+            if didEnterBackground {
+                didEnterBackground = false
+                pairings.nudgeReconnectAll()
+            }
+        default:
+            break
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView(
@@ -195,6 +225,17 @@ struct TeleprompterApp: App {
                 #if os(macOS)
                 emitMacWindowCountIfSmoke()
                 #endif
+            }
+            // Foreground reconnect nudge: iOS suspends sockets AND timers in the
+            // background, so a client that failed (or sat mid-backoff) while
+            // suspended has no other wake-up signal — the app could sit visibly
+            // open with every relay client dead until force-quit (2026-08-04
+            // real-device finding). Gated on a REAL background→foreground
+            // return via `didEnterBackground`: cold launch (view-model init
+            // already connected) and transient `.inactive` interruptions (armed
+            // timers keep running) both correctly skip.
+            .onChange(of: scenePhase) { _, phase in
+                handleScenePhaseChange(phase)
             }
             // A4: a desktop window must not collapse below a usable size. The
             // sidebar (~220) + a readable terminal column needs a floor.
@@ -321,6 +362,17 @@ struct TeleprompterApp: App {
             if let sid {
                 SessionWindowView(
                     sid: sid, sessionStore: sessionStore, pairings: pairings)
+                    // Foreground reconnect nudge, second attachment: the main
+                    // window's observer dies with its scene if the user closes
+                    // the main window while a session pop-out stays open
+                    // (iPad/macOS) — this one keeps the nudge alive in that
+                    // state. Double-firing when both windows exist is safe:
+                    // `handleScenePhaseChange` consumes `didEnterBackground`,
+                    // so for one aggregate transition the first observer
+                    // nudges and the second sees the flag already cleared.
+                    .onChange(of: scenePhase) { _, phase in
+                        handleScenePhaseChange(phase)
+                    }
             }
         }
         .defaultSize(width: 820, height: 620)
@@ -461,6 +513,35 @@ final class PairingViewModel {
         // is up, a client-less PENDING cannot structurally exist — this closes the
         // chicken-and-egg where a pending record could never reach kx.
         for pid in store.pendingIds() { beginPending(pairingId: pid) }
+    }
+
+    /// Foreground nudge (real background→foreground return): the gentle
+    /// counterpart to `reconnectAll()`. Existing clients get an idempotent
+    /// `connect()` — a no-op while a live socket attempt exists, a fresh dial
+    /// otherwise (the client decides off SOCKET LIVENESS, not `state`, so a
+    /// mid-backoff client whose `state` still reads `.authenticated` after a
+    /// network drop re-dials too) — so a client that died while the app was
+    /// suspended comes back the moment the user returns. Only a daemon with NO
+    /// client at all gets a full rebuild: rebuilding live clients the way
+    /// `reconnectAll()` does would tear down healthy sockets and re-key kx on
+    /// every app switch.
+    func nudgeReconnectAll() {
+        reload()
+        for did in daemonIds {
+            if let client = clients[did] {
+                client.connect()
+            } else {
+                connect(daemonId: did)
+            }
+        }
+        reloadPending()
+        for pid in store.pendingIds() {
+            if let client = pendingClients[pid] {
+                client.connect()
+            } else {
+                beginPending(pairingId: pid)
+            }
+        }
     }
 
     func reload() {

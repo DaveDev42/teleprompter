@@ -41,6 +41,12 @@ import os
 //   let a MainActor rewire (`rewirePromotedClient` reassigns them on a LIVE
 //   client at pairing promotion) race the invoking read — the same
 //   over-release class as the timer bug above.
+//   Reconnect intent is `wantsConnection` (also stateQueue-confined): connect
+//   sets it, deliberate disconnect clears it, and `scheduleReconnect` is gated
+//   on it — so a torn-down client can never resurrect itself off its own
+//   cancelled socket's `.failure` completion. Failures split into TERMINAL
+//   (`failOnQueue` — config-shaped, stays down) and RECOVERABLE
+//   (`failRecoverableOnQueue` — surfaces `connectionCause` + backoff retry).
 // - All SessionStore / PairingStore / probe / RTT state hops to the main actor
 //   via `Task { @MainActor in }` (see onHello, onState, onBatch, onRec) or is
 //   `nonisolated(unsafe)` with a documented main-actor-only invariant.
@@ -242,6 +248,18 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// True while the current connection attempt is trying the resume fast-path.
     /// On `relay.auth.err` during resume: clear token + retry full auth.
     private var isResuming = false
+
+    /// True while the owner WANTS this client connected: set in `connectOnQueue`,
+    /// cleared by a deliberate `disconnectOnQueue` (which terminal `failOnQueue`
+    /// also routes through). `scheduleReconnect` refuses to arm while false.
+    /// Without this gate the cancelled socket's pending receive completion fires
+    /// `.failure` AFTER a deliberate teardown and unconditionally reschedules —
+    /// resurrecting every torn-down client (unpair, re-pair, promotion re-key,
+    /// `connect(daemonId:)` rebuild) as a ZOMBIE that reconnects with the SAME
+    /// frontendId as its replacement and clobbers the daemon's per-frontend
+    /// session key (aead decrypt failures → kx churn → relay rate-limit storm;
+    /// observed in the 2026-08-04 production daemon/relay logs).
+    private var wantsConnection = false
 
     private let pairing: Pairing
     /// `var`, not `let`: when no session is injected, `init` swaps in a
@@ -564,12 +582,25 @@ final class RelayClient: NSObject, @unchecked Sendable {
 
     /// `connect()` body. MUST run on `stateQueue`.
     private func connectOnQueue() {
-        switch state {
-        case .connecting, .authenticating, .authenticated:
-            return
-        case .idle, .failed:
-            break
-        }
+        // Re-assert intent BEFORE the liveness check: a `connect()` on an
+        // already-connecting client must still flip a stale false back to true.
+        wantsConnection = true
+        // Idempotency from GROUND TRUTH (socket liveness), not `state`: during
+        // a backoff window `state` keeps its pre-failure value (`.authenticated`
+        // after a network drop or ping timeout, `.authenticating` after a
+        // resume reject) — only the failRecoverable path passes through
+        // `.failed`. Gating on `state` here made the foreground nudge a silent
+        // no-op for 3 of the 4 backoff-entry paths (adversarial-review
+        // finding). `task` is nil exactly when there is no live attempt:
+        // `.idle`, terminal `.failed`, or mid-backoff (`scheduleReconnect`
+        // tears the task down when arming the timer).
+        guard task == nil else { return }
+        // Take over any pending backoff retry — this dial IS the retry. Leaving
+        // the timer armed would fire it mid-connection, force `.idle`, and open
+        // a SECOND socket. No-op on the timer's own path (the handler nils
+        // itself before calling here).
+        reconnectTimer?.cancel()
+        reconnectTimer = nil
         guard let url = URL(string: pairing.relayURL) else {
             failOnQueue("invalid relay URL")
             return
@@ -610,8 +641,12 @@ final class RelayClient: NSObject, @unchecked Sendable {
         stateQueue.async { [weak self] in self?.disconnectOnQueue() }
     }
 
-    /// `disconnect()` body. MUST run on `stateQueue`.
+    /// `disconnect()` body. MUST run on `stateQueue`. Sticky: clearing
+    /// `wantsConnection` first means the cancelled task's receive completion
+    /// (which arrives asynchronously as `.failure`) finds `scheduleReconnect`
+    /// gated shut — a deliberately disconnected client STAYS disconnected.
     private func disconnectOnQueue() {
+        wantsConnection = false
         reconnectTimer?.cancel()
         reconnectTimer = nil
         pingTimer?.cancel()
@@ -630,7 +665,7 @@ final class RelayClient: NSObject, @unchecked Sendable {
             state = .authenticating
             let resume = RelayAuthResume(token: token)
             send(resume) { [weak self] error in
-                if let error { self?.fail("auth.resume send: \(error)") }
+                if let error { self?.failRecoverable("auth.resume send: \(error)") }
             }
         } else {
             sendFullAuth()
@@ -644,7 +679,7 @@ final class RelayClient: NSObject, @unchecked Sendable {
             frontendId: pairing.frontendId)
         state = .authenticating
         send(auth) { [weak self] error in
-            if let error { self?.fail("auth send: \(error)") }
+            if let error { self?.failRecoverable("auth send: \(error)") }
         }
     }
 
@@ -858,7 +893,14 @@ final class RelayClient: NSObject, @unchecked Sendable {
             // entirely by letting scheduleReconnect() own teardown.
             scheduleReconnect()
         } else {
-            fail("relay.auth.err: \(detail)")
+            // Recoverable, not terminal: a full-auth reject is routinely transient
+            // (relay mid-restart hasn't seen the daemon's `relay.register` yet,
+            // secret rotation racing a re-pair). Terminal-failing here left the
+            // app PERMANENTLY offline — and silently so, since nothing rendered
+            // the `.failed` state (2026-08-04 real-device finding). Surface the
+            // cause and keep retrying with backoff instead. Already on
+            // `stateQueue` (called from `handle`).
+            failRecoverableOnQueue("relay.auth.err: \(detail)")
         }
     }
 
@@ -1854,13 +1896,42 @@ final class RelayClient: NSObject, @unchecked Sendable {
         stateQueue.async { [weak self] in self?.failOnQueue(reason) }
     }
 
-    /// `fail(_:)` body. MUST run on `stateQueue`.
+    /// `fail(_:)` body. MUST run on `stateQueue`. TERMINAL: no reconnect is
+    /// scheduled (and `disconnectOnQueue` clears `wantsConnection`, so a stray
+    /// receive completion can't resurrect the client either). Reserved for
+    /// config-shaped errors that retrying cannot fix (invalid relay URL /
+    /// non-WebSocket scheme). Transient errors go through
+    /// `failRecoverableOnQueue` instead.
     private func failOnQueue(_ reason: String) {
         // Never log the token or secret — `reason` is constructed from relay
         // error strings and URLError descriptions only.
         log.error("\(Self.authFailMarker, privacy: .public) detail=\(reason, privacy: .public)")
+        // Surface the reason to the UI (ConnectionBanner renders
+        // `connectionCause`). Historically only WS close codes fed the banner,
+        // so every fail() here was marker-log-only — invisible on a real phone.
+        connectionCause = reason
         state = .failed(reason: reason)
         disconnectOnQueue()
+    }
+
+    /// Hops onto `stateQueue`; safe to call from any thread (send completions
+    /// invoke it from URLSession callback threads).
+    private func failRecoverable(_ reason: String) {
+        stateQueue.async { [weak self] in self?.failRecoverableOnQueue(reason) }
+    }
+
+    /// Recoverable failure: surface the cause to the UI AND keep retrying with
+    /// backoff, instead of the terminal `failOnQueue`. Used for auth-time
+    /// failures that are routinely transient (relay/daemon mid-restart, network
+    /// flap mid-send). MUST run on `stateQueue`.
+    private func failRecoverableOnQueue(_ reason: String) {
+        // A deliberate disconnect() may have raced this completion (e.g. the
+        // auth send's error callback lands after teardown) — stay down.
+        guard wantsConnection else { return }
+        log.error("\(Self.authFailMarker, privacy: .public) detail=\(reason, privacy: .public)")
+        connectionCause = reason
+        state = .failed(reason: reason)
+        scheduleReconnect()
     }
 
     // MARK: H6 auto-reconnect
@@ -1878,6 +1949,13 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// be a cross-thread check-then-act, and two racing callers both passing it
     /// ran this teardown concurrently — the 2026-08-03 over-release crash.
     private func scheduleReconnect() {
+        // Zombie gate: only reconnect while the owner still wants this client
+        // connected. The receive loop calls this unconditionally on ANY socket
+        // failure — including the cancellation error produced by a deliberate
+        // `disconnectOnQueue` — and before this guard, every torn-down client
+        // came back ~1s later and fought its replacement for the daemon's
+        // per-frontend session key (see `wantsConnection` doc).
+        guard wantsConnection else { return }
         // Bug 2 fix: if a reconnect timer is already queued, don't create another.
         guard reconnectTimer == nil else { return }
         // Clear state so the reconnect starts fresh (kx, hello, probe).

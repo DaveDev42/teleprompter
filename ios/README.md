@@ -451,6 +451,22 @@ SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES" # 경고가 조용히 회귀하지 못함 
   per-instance queue-specific key 로 on-queue 감지 — same-queue sync 데드락 방지). bare `var` 로
   두면 pairing promotion 의 `rewirePromotedClient` 가 **라이브 클라이언트** 옵저버를 MainActor 에서
   재할당하며 invoke 중인 read 와 경합 — 타이머 버그와 동일 over-release class (적대적 리뷰가 발견).
+  **재접속 의도는 `wantsConnection`** (stateQueue-confined): connect 가 set, 의도적 disconnect 가
+  clear, `scheduleReconnect` 가 이 게이트로 막힌다 — 취소된 소켓의 receive `.failure` 완료가
+  teardown **후에** 도착해 무조건 재접속을 걸던 좀비 부활(교체된 클라이언트가 같은 frontendId 로
+  재접속 → daemon per-frontend 세션키 clobber → aead 실패 → kx churn → relay rate-limit 폭풍,
+  2026-08-04 프로덕션 로그) 차단. 실패는 TERMINAL(`failOnQueue` — config 형: invalid URL/scheme,
+  유지 다운) vs RECOVERABLE(`failRecoverableOnQueue` — auth-send 에러·비-resume `relay.auth.err`,
+  `connectionCause` 로 배너 표면화 + backoff 재시도) 로 이분화 — 예전엔 auth 실패가 marker 로그만
+  남기고 영구 침묵 오프라인이었다. foreground 복귀 시 scenePhase 훅이 `nudgeReconnectAll()`
+  (폰 `PairingViewModel` + watch — 기존 클라이언트는 멱등 `connect()` 재다이얼, 없을 때만 재빌드) 로
+  재접속을 nudge 한다. **적대적 리뷰 반영 2건**: (1) `connectOnQueue` 멱등성은 `state` 가 아니라
+  **소켓 실물(`task == nil`)** 로 판정 — backoff 중 `state` 는 4개 진입 경로 중 3개(네트워크 드랍/
+  ping timeout → `.authenticated` 유지, resume 거절 → `.authenticating`)에서 pre-failure 값에
+  머물러 state-스위치였다면 nudge 가 무동작했다. (2) nudge 는 **실제 `.background` 진입 후 복귀에만**
+  발화(`didEnterBackground` 게이트) — Control Center/Face ID 류 일시 `.inactive` 플립은 프로세스를
+  suspend 하지 않아 armed 타이머가 알아서 발화하므로, 무게이트였다면 glance 마다 지수 백오프가
+  리셋됐다. 회귀 가드 `RelayResilienceTests` (`testDeliberateDisconnectStaysDisconnected` 등 3종).
   시스템-스레드세이프 핸들만 보유한 스토어(`PairingStore`: `UserDefaults`/Keychain) →
   `@unchecked Sendable`.
 - **ObjC associated-object 키 토큰** (주소만 사용) → `nonisolated(unsafe) static var key = 0`.

@@ -79,8 +79,14 @@ ChatItem 렌더" 전 체인을 증명한다 (loopback 의 합성 Stop 이 아니
   직접 붙으므로 둘은 독립이다.
 - **요구된 production fix 2 건 (이 E2E 가 처음 노출)**: (1) **daemon kx 재브로드캐스트** —
   `handle_kx_frame`(`rust/tp-daemon/src/transport/relay_client.rs`, TS 시절 `relay-client.ts handleKxFrame`
-  포팅)이 frontend 의 first-join 시(`is_new_peer`) daemon pubkey 를 재브로드캐스트(릴레이는 kx
+  포팅)이 frontend 의 kx 수신 시 daemon pubkey 를 재브로드캐스트(릴레이는 kx
   프레임을 캐시하지 않아 auth-time 브로드캐스트를 놓친 late-join 앱이 영영 키를 못 받던 레이스; M3 unblock).
+  **후속 (실기기 dogfood 가 노출)**: 원래 first-join(`is_new_peer`) 한정이던 이 답례가 **재접속하는
+  committed-pairing frontend 를 굶겼다** — 앱은 매 connect 마다 kx 를 재송신하며 daemon pubkey 없이는
+  자기 쪽 세션키를 못 만들므로, 일상 사용 경로(이미 페어링된 앱의 재접속) 전부가 `relay.frame before kx —
+  dropping` 으로 빈 세션 목록에 갇혔다 (E2E 게이트는 전부 fresh-pairing 이라 이 경로를 못 봄). fix =
+  게이트 제거, **모든 frontend kx 수신에 무조건 답례** (idempotent; 회귀 가드
+  `kx_from_known_peer_still_rebroadcasts_daemon_public_key`).
   (2) **app subscribe-on-broadcast** — `RelayClient.swift onState` 가 resume 전에 `relay.sub` 를 보냄
   (브로드캐스트로 발견한 세션에 sub 없이 resume 하면 릴레이가 batch/rec 를 drop → chat item 0 → M4 영영 fail).
 - **Auth = 개발자 본인의 keychain 토큰 재사용 (refresh 후)**: 격리 HOME 엔 자격증명이 없으므로, `cmd_smoke_ios`

@@ -868,8 +868,6 @@ impl RelayClient {
             .filter(|v| v.is_finite())
             .unwrap_or(1.0);
 
-        let is_new_peer = { !self.peers.lock().await.contains_key(frontend_id) };
-
         // Derive this frontend's Pairing Confirmation Tag. Skipped for
         // legacy pairings without a pairingId; a derivation failure is
         // contained.
@@ -915,12 +913,16 @@ impl RelayClient {
 
         eprintln!("[RelayClient] key exchange completed with frontend {frontend_id}");
 
-        // kx delivery race fix: re-broadcast our pubkey on a frontend's
-        // FIRST join so a late-connecting app (after the auth-time
-        // broadcast) still receives it — the relay does not cache kx frames.
-        if is_new_peer {
-            self.broadcast_daemon_public_key().await;
-        }
+        // kx delivery fix: ALWAYS answer a frontend's kx with our pubkey.
+        // The relay does not cache kx frames, so the auth-time broadcast is
+        // lost to any frontend that connects later — and a RECONNECTING
+        // frontend (already in `peers`) is exactly as key-starved as a
+        // first-join one: it re-sends kx on every connect and cannot derive
+        // session keys until our pubkey arrives. Gating this on "new peer"
+        // left reconnecting apps unable to decrypt any frame (empty session
+        // list) until the daemon itself happened to re-auth to the relay.
+        // Idempotent app-side; cost is one small kx frame per frontend kx.
+        self.broadcast_daemon_public_key().await;
 
         if let Some(pct) = pct {
             if let Some(cb) = &self.events.on_peer_confirmed {
@@ -1718,6 +1720,65 @@ mod tests {
                 "{code} with a structured frontendId must evict exactly that frontend's token"
             );
         }
+    }
+
+    // ── kx re-broadcast on EVERY frontend kx (reconnect starvation) ──────
+
+    /// A frontend re-sends `relay.kx` on every (re)connect and cannot derive
+    /// session keys until the daemon's pubkey arrives; the relay caches no kx
+    /// frames. The daemon must therefore answer EVERY frontend kx with its
+    /// own pubkey broadcast — not just the first join. Gating on "new peer"
+    /// left every reconnecting (already-known) frontend unable to decrypt a
+    /// single frame until the daemon itself happened to re-auth.
+    #[tokio::test]
+    async fn kx_from_known_peer_still_rebroadcasts_daemon_public_key() {
+        let client = eviction_test_client(RelayClientEvents::default());
+
+        // Wire a fake outbound socket so `send()` lands in an observable
+        // channel, and install the kx key `connect()` would have derived.
+        let (tx, mut rx) = mpsc::channel::<Message>(16);
+        client.state.lock().await.ws_tx = Some(tx);
+        let kx_key = derive_kx_key(&client.config.pairing_secret);
+        *client.kx_key.lock().await = Some(kx_key);
+
+        let frontend_pk = tp_core::crypto::kx_seed_keypair(&[9u8; 32])
+            .unwrap()
+            .public_key;
+        let payload = serde_json::json!({
+            "pk": to_base64(&frontend_pk),
+            "frontendId": "fe-reconnect",
+            "v": 3.0,
+        });
+        let sealed = seal_random_nonce(payload.to_string().as_bytes(), &kx_key).unwrap();
+
+        fn drain_kx_broadcasts(rx: &mut mpsc::Receiver<Message>) -> usize {
+            let mut n = 0;
+            while let Ok(msg) = rx.try_recv() {
+                if let Message::Text(text) = msg {
+                    if text.contains("\"relay.kx\"") {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        }
+
+        for attempt in 1..=2 {
+            client
+                .handle_kx_frame(tp_relay::KeyExchangeFrame {
+                    ct: sealed.clone(),
+                    from: Role::Frontend,
+                })
+                .await;
+            assert_eq!(
+                drain_kx_broadcasts(&mut rx),
+                1,
+                "kx receipt #{attempt} must trigger exactly one daemon pubkey \
+                 re-broadcast (a reconnecting frontend is as key-starved as a \
+                 first-join one)"
+            );
+        }
+        assert_eq!(client.get_peer_count().await, 1);
     }
 
     #[tokio::test]

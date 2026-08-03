@@ -20,15 +20,35 @@ import os
 /// The auth token is the verbatim FFI `deriveRelayToken` output (lowercase hex of
 /// BLAKE2b-256(pairingSecret || "relay-auth")), byte-equal to the TS golden vector.
 // `@unchecked Sendable`: RelayClient uses a hand-rolled hybrid concurrency model
-// that the compiler cannot verify statically. Thread-safety is maintained manually:
-// - All SessionStore / PairingStore writes hop to the main actor via
-//   `Task { @MainActor in }` (see onHello, onState, onBatch, onRec,
-//   scheduleReconnect, startPing, sendManualPing).
-// - Mutable properties written from URLSession delegate / DispatchSource handlers
-//   are either guarded by those serial queues or are `nonisolated(unsafe)` with the
-//   documented invariant that all writes go through `Task { @MainActor in }`.
-// - The class is deliberately NOT @MainActor so URLSession callbacks run off-main
-//   on the session's queue and then hop to the main actor only for store mutations.
+// that the compiler cannot verify statically. Thread-safety is maintained manually
+// around TWO serialization islands:
+// - `stateQueue` (private SERIAL queue) confines ALL connection-lifecycle state:
+//   `state`, `task`, `pingTimer`, `reconnectTimer`, `sessionKeys`, `kxKeyPair`,
+//   the pong/backoff counters and resume tokens. Every writer funnels into it:
+//   receive-loop completions hop onto it, BOTH DispatchSource timers are created
+//   on it, and the mutating entry points (`connect`/`disconnect`/`send`/`fail`/
+//   the sealed senders) dispatch onto it. This is load-bearing: the timers used
+//   to run on `.global(qos: .utility)` — a CONCURRENT root queue — so a daemon
+//   restart raced the ping-timeout handler, the receive-failure path and the
+//   auth-err path through `scheduleReconnect`'s non-atomic idempotency guard,
+//   double-releasing the swapped-out strong references (real-device SIGSEGV in
+//   `_swift_release_dealloc`, 2026-08-03, build 2501).
+//   The observer-closure slots (`onStateChange`/`onReadyChange`/
+//   `onConnectionCauseChange`/`onPresence`/`onUnpair`/`onRename`/
+//   `onPairingConfirmed`/`onPairingConfirmFailed`) are invoked exclusively on
+//   `stateQueue`, so their SETTERS serialize onto it too (sync hop with an
+//   on-queue fast path — see `assignObserverOnStateQueue`). A bare `var` would
+//   let a MainActor rewire (`rewirePromotedClient` reassigns them on a LIVE
+//   client at pairing promotion) race the invoking read — the same
+//   over-release class as the timer bug above.
+// - All SessionStore / PairingStore / probe / RTT state hops to the main actor
+//   via `Task { @MainActor in }` (see onHello, onState, onBatch, onRec) or is
+//   `nonisolated(unsafe)` with a documented main-actor-only invariant.
+// - The class is deliberately NOT @MainActor so socket I/O and decrypt work run
+//   off-main; only store mutations hop to the main actor.
+// Known residual (pre-existing, lower-risk): a few SYNC readers cross islands —
+// `isReady`, `state` (DiagnosticsView) and `publishControl`'s key check read
+// connection state off-`stateQueue`. Full actor isolation is the endstate.
 // This assertion is intentional and correct — do not replace with `Sendable` without
 // first auditing all stored-property access patterns.
 final class RelayClient: NSObject, @unchecked Sendable {
@@ -76,8 +96,15 @@ final class RelayClient: NSObject, @unchecked Sendable {
         didSet { onStateChange?(state) }
     }
 
-    /// Optional observer (UI). Invoked on the URLSession delegate queue.
-    var onStateChange: ((State) -> Void)?
+    /// Optional observer (UI). Invoked on the client's internal serial state
+    /// queue (off-main) — observers hop to the main actor themselves.
+    /// The setter serializes onto that queue (see `assignObserverOnStateQueue`),
+    /// as do all the other observer slots below.
+    var onStateChange: ((State) -> Void)? {
+        get { _onStateChange }
+        set { assignObserverOnStateQueue(\._onStateChange, newValue) }
+    }
+    private var _onStateChange: ((State) -> Void)?
 
     /// Optional observer fired whenever `isReady` flips — the ONLY exact
     /// kx-readiness edge a consumer can see. `state`/`connectionCause` fire at
@@ -90,11 +117,15 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// kx finishes seconds later), whereas every pre-existing path happened to
     /// learn about the pairing only after kx had already succeeded.
     ///
-    /// Invoked on the URLSession delegate queue, like `onStateChange`. May fire
-    /// redundantly with an unchanged value (`scheduleReconnect` clears an already
-    /// nil `sessionKeys`), so observers must recompute from ground truth rather
-    /// than treat each call as a transition.
-    var onReadyChange: ((Bool) -> Void)?
+    /// Invoked on the client's internal serial state queue, like `onStateChange`.
+    /// May fire redundantly with an unchanged value (`scheduleReconnect` clears an
+    /// already nil `sessionKeys`), so observers must recompute from ground truth
+    /// rather than treat each call as a transition.
+    var onReadyChange: ((Bool) -> Void)? {
+        get { _onReadyChange }
+        set { assignObserverOnStateQueue(\._onReadyChange, newValue) }
+    }
+    private var _onReadyChange: ((Bool) -> Void)?
 
     /// BATCH F (#10/#15): a short, human-readable reason for the current
     /// disconnected/degraded state, or `nil` once reconnected/never
@@ -108,7 +139,11 @@ final class RelayClient: NSObject, @unchecked Sendable {
     }
 
     /// Optional observer (UI) for `connectionCause` changes.
-    var onConnectionCauseChange: ((String?) -> Void)?
+    var onConnectionCauseChange: ((String?) -> Void)? {
+        get { _onConnectionCauseChange }
+        set { assignObserverOnStateQueue(\._onConnectionCauseChange, newValue) }
+    }
+    private var _onConnectionCauseChange: ((String?) -> Void)?
 
     /// Pure mapping from a WebSocket close code to a short human-readable
     /// cause string. Extracted as a static function (no instance state) so it
@@ -146,16 +181,28 @@ final class RelayClient: NSObject, @unchecked Sendable {
 
     /// M8: Called when an inbound `control.presence` frame arrives. `online` is
     /// the daemon's current presence. Used to drive per-daemon status dots.
-    var onPresence: ((_ daemonId: String, _ online: Bool) -> Void)?
+    var onPresence: ((_ daemonId: String, _ online: Bool) -> Void)? {
+        get { _onPresence }
+        set { assignObserverOnStateQueue(\._onPresence, newValue) }
+    }
+    private var _onPresence: ((_ daemonId: String, _ online: Bool) -> Void)?
 
     /// H7: Called when an inbound `control.unpair` frame is received from the
     /// daemon. The app should remove the pairing from PairingStore and dismiss
     /// any UI associated with this daemon.
-    var onUnpair: ((_ daemonId: String, _ reason: String) -> Void)?
+    var onUnpair: ((_ daemonId: String, _ reason: String) -> Void)? {
+        get { _onUnpair }
+        set { assignObserverOnStateQueue(\._onUnpair, newValue) }
+    }
+    private var _onUnpair: ((_ daemonId: String, _ reason: String) -> Void)?
 
     /// H8: Called when an inbound `control.rename` frame is received from the
     /// daemon. The new label should be persisted in PairingStore.
-    var onRename: ((_ daemonId: String, _ label: String?) -> Void)?
+    var onRename: ((_ daemonId: String, _ label: String?) -> Void)? {
+        get { _onRename }
+        set { assignObserverOnStateQueue(\._onRename, newValue) }
+    }
+    private var _onRename: ((_ daemonId: String, _ label: String?) -> Void)?
 
     /// PR-5 (PCT verification): fired when this pairing's promotion decision resolves
     /// to COMMITTED (§1.3 promotion table). Carries the `pairingId` and whether the
@@ -166,7 +213,11 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// pct comparison runs, NOT at bare kx completion (PR-4 fired at kx; PR-5 gates on
     /// pct). No-op for already-committed pairings (the viewmodel guards on
     /// `pendingClients[pairingId]`).
-    var onPairingConfirmed: ((_ pairingId: String, _ confirmed: Bool) -> Void)?
+    var onPairingConfirmed: ((_ pairingId: String, _ confirmed: Bool) -> Void)? {
+        get { _onPairingConfirmed }
+        set { assignObserverOnStateQueue(\._onPairingConfirmed, newValue) }
+    }
+    private var _onPairingConfirmed: ((_ pairingId: String, _ confirmed: Bool) -> Void)?
 
     /// PR-5 (PCT verification): fired when the promotion decision resolves to FAILED
     /// (§1.3 — hello `d.pct` present but mismatched, OR `pct` absent while
@@ -174,7 +225,11 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// `pairingId` and a short machine reason. The viewmodel surfaces a retryable
     /// failure on the pending row and keeps the pairing PENDING (a re-kx = a new epoch
     /// = a fresh confirmation attempt). Never promotes.
-    var onPairingConfirmFailed: ((_ pairingId: String, _ reason: String) -> Void)?
+    var onPairingConfirmFailed: ((_ pairingId: String, _ reason: String) -> Void)? {
+        get { _onPairingConfirmFailed }
+        set { assignObserverOnStateQueue(\._onPairingConfirmFailed, newValue) }
+    }
+    private var _onPairingConfirmFailed: ((_ pairingId: String, _ reason: String) -> Void)?
 
     /// Cached after `relay.auth.ok` for the M7 resume fast-path. Persisted to
     /// UserDefaults so it survives backgrounding (keyed by daemonId).
@@ -195,6 +250,43 @@ final class RelayClient: NSObject, @unchecked Sendable {
     private var session: URLSession
     private let log = Logger(subsystem: "dev.tpmt.app", category: "relay")
     private let pingInterval: TimeInterval
+    /// The SERIAL queue confining all connection-lifecycle state (see the
+    /// `@unchecked Sendable` contract above). Both DispatchSource timers are
+    /// created on it; receive-loop completions and every mutating entry point
+    /// hop onto it. Functions suffixed `OnQueue` MUST only run here.
+    private let stateQueue = DispatchQueue(label: "dev.tpmt.app.relay.state")
+    /// Queue-specific tag identifying THIS instance's `stateQueue` (set in
+    /// `init` with `ObjectIdentifier(self)` — a shared Bool would also match
+    /// another client's stateQueue and skip serialization there). Lets the
+    /// observer setters detect an already-on-queue caller and assign directly
+    /// instead of deadlocking in a same-queue `sync`.
+    private static let stateQueueKey = DispatchSpecificKey<ObjectIdentifier>()
+
+    /// True when the current thread is executing a block on this instance's
+    /// `stateQueue`.
+    private var isOnStateQueue: Bool {
+        DispatchQueue.getSpecific(key: Self.stateQueueKey) == ObjectIdentifier(self)
+    }
+
+    /// Serializes an observer-closure assignment onto `stateQueue`. The
+    /// observer slots are read/invoked exclusively on `stateQueue`, so a bare
+    /// `var` store from the MainActor (`rewirePromotedClient` rewires them on
+    /// a LIVE client at pairing promotion) would be an unsynchronized
+    /// read/write of a strong reference — the same over-release class as the
+    /// 2026-08-03 timer crash this file's contract documents. The hop is
+    /// SYNCHRONOUS so callers keep assign-then-active semantics (an in-flight
+    /// frame enqueued behind the barrier sees the new closure), and `sync`'s
+    /// closure is non-`@Sendable`, which sidesteps Swift 6.0's stricter
+    /// Sendable-capture checking for the non-Sendable closure value.
+    private func assignObserverOnStateQueue<T>(
+        _ keyPath: ReferenceWritableKeyPath<RelayClient, T>, _ value: T
+    ) {
+        if isOnStateQueue {
+            self[keyPath: keyPath] = value
+        } else {
+            stateQueue.sync { self[keyPath: keyPath] = value }
+        }
+    }
 
     private var task: URLSessionWebSocketTask?
     private var pingTimer: DispatchSourceTimer?
@@ -428,6 +520,9 @@ final class RelayClient: NSObject, @unchecked Sendable {
             self.session = .init(configuration: .ephemeral)
         }
         super.init()
+        // Tag the queue with this instance's identity so the observer setters
+        // can detect already-on-queue callers (see `stateQueueKey`).
+        stateQueue.setSpecific(key: Self.stateQueueKey, value: ObjectIdentifier(self))
         if session == nil {
             self.session = URLSession(
                 configuration: .ephemeral, delegate: self, delegateQueue: nil)
@@ -440,7 +535,17 @@ final class RelayClient: NSObject, @unchecked Sendable {
         }
     }
 
-    deinit { disconnect() }
+    // Inline cancels, NOT `disconnect()`: dispatching onto `stateQueue` from
+    // deinit would capture `self` in an escaping closure mid-deallocation.
+    // By the time deinit runs no other thread holds a strong reference (the
+    // timer/receive handlers all capture `self` weakly and are no-ops once the
+    // refcount hits zero), so touching the properties directly is race-free,
+    // and `cancel()` on a DispatchSource / URLSession task is thread-safe.
+    deinit {
+        reconnectTimer?.cancel()
+        pingTimer?.cancel()
+        task?.cancel(with: .goingAway, reason: nil)
+    }
 
     /// The relay auth token: verbatim FFI output, used as-is in `relay.auth.token`.
     /// Computed here (not stored) so the secret is never retained beyond the call.
@@ -451,8 +556,14 @@ final class RelayClient: NSObject, @unchecked Sendable {
     // MARK: connect / auth
 
     /// Open the WebSocket and send auth. Idempotent against re-entry: a second
-    /// call while already connecting/authenticated is ignored.
+    /// call while already connecting/authenticated is ignored. Hops onto
+    /// `stateQueue`; safe to call from any thread.
     func connect() {
+        stateQueue.async { [weak self] in self?.connectOnQueue() }
+    }
+
+    /// `connect()` body. MUST run on `stateQueue`.
+    private func connectOnQueue() {
         switch state {
         case .connecting, .authenticating, .authenticated:
             return
@@ -460,7 +571,7 @@ final class RelayClient: NSObject, @unchecked Sendable {
             break
         }
         guard let url = URL(string: pairing.relayURL) else {
-            fail("invalid relay URL")
+            failOnQueue("invalid relay URL")
             return
         }
         // Defense-in-depth: the relay URL comes from the pairing bundle (QR/JSON,
@@ -469,7 +580,7 @@ final class RelayClient: NSObject, @unchecked Sendable {
         // can't trigger a transport downgrade or a wasted connect→reconnect storm.
         // Frames are E2EE regardless, so this is hardening, not a trust boundary.
         guard Self.isAcceptableRelayScheme(pairing.relayURL) else {
-            fail("relay URL must use ws:// or wss:// (got \(url.scheme ?? "no scheme"))")
+            failOnQueue("relay URL must use ws:// or wss:// (got \(url.scheme ?? "no scheme"))")
             return
         }
         state = .connecting
@@ -493,8 +604,14 @@ final class RelayClient: NSObject, @unchecked Sendable {
         #endif
     }
 
-    /// Tear down the socket and timers. Safe to call repeatedly.
+    /// Tear down the socket and timers. Safe to call repeatedly. Hops onto
+    /// `stateQueue`; safe to call from any thread.
     func disconnect() {
+        stateQueue.async { [weak self] in self?.disconnectOnQueue() }
+    }
+
+    /// `disconnect()` body. MUST run on `stateQueue`.
+    private func disconnectOnQueue() {
         reconnectTimer?.cancel()
         reconnectTimer = nil
         pingTimer?.cancel()
@@ -533,47 +650,66 @@ final class RelayClient: NSObject, @unchecked Sendable {
 
     // MARK: send
 
+    /// Encode on the caller's thread (a generic `T` need not be Sendable), then
+    /// hop onto `stateQueue` for the `task` read — so a send racing a teardown
+    /// (`task = nil` swap) can never observe a torn reference. Callable from any
+    /// thread; `completion` fires on `stateQueue` or a URLSession callback thread.
     private func send<T: Encodable>(_ message: T, completion: @escaping @Sendable (Error?) -> Void)
     {
-        guard let task else {
-            completion(URLError(.networkConnectionLost))
-            return
-        }
+        let json: String
         do {
             let data = try JSONEncoder().encode(message)
             // Send as text — the relay parses UTF-8 JSON, binary frames are reserved
             // for the framed-codec data path (M3+).
-            let json = String(decoding: data, as: UTF8.self)
-            task.send(.string(json)) { completion($0) }
+            json = String(decoding: data, as: UTF8.self)
         } catch {
             completion(error)
+            return
+        }
+        stateQueue.async { [weak self] in
+            guard let self, let task = self.task else {
+                completion(URLError(.networkConnectionLost))
+                return
+            }
+            task.send(.string(json)) { completion($0) }
         }
     }
 
     // MARK: receive loop
 
+    /// Arm the next receive. MUST be called on `stateQueue` (reads `task`). The
+    /// completion narrows the payload to Sendable `Data` on the URLSession
+    /// callback thread and hops back onto `stateQueue`, so ALL frame handling —
+    /// and the receive-failure → `scheduleReconnect` path — is serialized with
+    /// the timers and the other lifecycle writers.
     private func receiveLoop() {
         task?.receive { [weak self] result in
             guard let self else { return }
             switch result {
             case .success(let message):
-                self.handle(message)
-                self.receiveLoop()  // continue until the socket closes
+                let data: Data?
+                switch message {
+                case .string(let s): data = Data(s.utf8)
+                case .data(let d): data = d
+                @unknown default: data = nil
+                }
+                self.stateQueue.async {
+                    if let data { self.handle(data) }
+                    self.receiveLoop()  // continue until the socket closes
+                }
             case .failure(let error):
                 // H6: any receive failure → schedule reconnect.
-                self.log.notice("relay closed: \(error.localizedDescription, privacy: .public)")
-                self.scheduleReconnect()
+                let detail = error.localizedDescription
+                self.stateQueue.async {
+                    self.log.notice("relay closed: \(detail, privacy: .public)")
+                    self.scheduleReconnect()
+                }
             }
         }
     }
 
-    private func handle(_ message: URLSessionWebSocketTask.Message) {
-        let data: Data
-        switch message {
-        case .string(let s): data = Data(s.utf8)
-        case .data(let d): data = d
-        @unknown default: return
-        }
+    /// Decode + dispatch one inbound frame. MUST run on `stateQueue`.
+    private func handle(_ data: Data) {
         guard let envelope = try? JSONDecoder().decode(RelayServerEnvelope.self, from: data) else {
             log.notice("relay: undecodable frame")
             return
@@ -768,6 +904,13 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// means the reply is dropped. The daemon's `state` reply then triggers
     /// `resume` (`onState`).
     func attach(sid: String) {
+        // Hop onto `stateQueue`: callable from the main actor (UI) while the
+        // teardown path swaps `sessionKeys` on `stateQueue`.
+        stateQueue.async { [weak self] in self?.attachOnQueue(sid: sid) }
+    }
+
+    /// `attach(sid:)` body. MUST run on `stateQueue`.
+    private func attachOnQueue(sid: String) {
         guard let keys = sessionKeys else {
             log.notice("attach before kx — dropping sid=\(sid, privacy: .public)")
             return
@@ -794,6 +937,13 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// returns records with `seq > cursor`. Sealed with tx, published on the
     /// session sid; the daemon replies with a `batch` (`onBatch`).
     func sendResume(sid: String, cursor: Int) {
+        // Hop onto `stateQueue`: called from `onState`'s main-actor task while
+        // the teardown path swaps `sessionKeys` on `stateQueue`.
+        stateQueue.async { [weak self] in self?.sendResumeOnQueue(sid: sid, cursor: cursor) }
+    }
+
+    /// `sendResume(sid:cursor:)` body. MUST run on `stateQueue`.
+    private func sendResumeOnQueue(sid: String, cursor: Int) {
         guard let keys = sessionKeys else {
             log.notice("resume before kx — dropping sid=\(sid, privacy: .public)")
             return
@@ -819,7 +969,11 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// COMMITTED (conservative §2.5 re-verification). The viewmodel calls this when
     /// wiring the client — a pending client after a successful promote is re-keyed
     /// into the committed map and flipped to `false` via `setPairingPhase(false)`.
-    func setPairingPhase(pending: Bool) { isPendingPhase = pending }
+    /// Hops onto `stateQueue` (`isPendingPhase` is read by the hello/kx handlers
+    /// there); FIFO with a subsequent `connect()` from the same caller thread.
+    func setPairingPhase(pending: Bool) {
+        stateQueue.async { [weak self] in self?.isPendingPhase = pending }
+    }
 
     /// Raise the persisted anti-downgrade floor for this pairing to `observedV`
     /// (§1.3, monotonic — a no-op if not higher). Routes to the pending or committed
@@ -1269,6 +1423,13 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// replies with the current session list, which lands in `onHello` →
     /// `replaceSessionsForDaemon`. No-op if kx has not completed yet.
     func sendHello() {
+        // Hop onto `stateQueue`: callable from the main actor (pull-to-refresh)
+        // while the teardown path swaps `sessionKeys` on `stateQueue`.
+        stateQueue.async { [weak self] in self?.sendHelloOnQueue() }
+    }
+
+    /// `sendHello()` body. MUST run on `stateQueue`.
+    private func sendHelloOnQueue() {
         guard let keys = sessionKeys else {
             log.notice("sendHello before kx — no-op")
             return
@@ -1383,6 +1544,13 @@ final class RelayClient: NSObject, @unchecked Sendable {
     enum InputKind { case chat, term }
 
     func sendInput(sid: String, kind: InputKind, text: String) {
+        // Hop onto `stateQueue`: callable from the main actor (chat composer,
+        // terminal) while the teardown path swaps `sessionKeys` on `stateQueue`.
+        stateQueue.async { [weak self] in self?.sendInputOnQueue(sid: sid, kind: kind, text: text) }
+    }
+
+    /// `sendInput(sid:kind:text:)` body. MUST run on `stateQueue`.
+    private func sendInputOnQueue(sid: String, kind: InputKind, text: String) {
         guard let keys = sessionKeys else {
             log.notice("input before kx — dropping sid=\(sid, privacy: .public)")
             return
@@ -1417,6 +1585,15 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// `cols` and `rows` must be positive integers; values ≤ 0 are clamped to 1
     /// to satisfy the daemon's `isPositiveInt` guard.
     func sendResize(sid: String, cols: Int, rows: Int) {
+        // Hop onto `stateQueue`: callable from the main actor (TerminalView)
+        // while the teardown path swaps `sessionKeys` on `stateQueue`.
+        stateQueue.async { [weak self] in
+            self?.sendResizeOnQueue(sid: sid, cols: cols, rows: rows)
+        }
+    }
+
+    /// `sendResize(sid:cols:rows:)` body. MUST run on `stateQueue`.
+    private func sendResizeOnQueue(sid: String, cols: Int, rows: Int) {
         guard let keys = sessionKeys else {
             log.notice("resize before kx — dropping sid=\(sid, privacy: .public)")
             return
@@ -1638,7 +1815,9 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// arrives shortly after kx, request one on-demand (sealed with tx, published
     /// on `__meta__`; the daemon's command-dispatcher replies on `__meta__`).
     private func scheduleHelloFallback() {
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) { [weak self] in
+        // On `stateQueue` so the `helloReceived`/`sessionKeys` reads are
+        // serialized with their writers (was `.global(qos: .utility)`).
+        stateQueue.asyncAfter(deadline: .now() + 2) { [weak self] in
             guard let self, !self.helloReceived, let keys = self.sessionKeys else { return }
             do {
                 let req = try JSONEncoder().encode(HelloRequest())
@@ -1669,12 +1848,19 @@ final class RelayClient: NSObject, @unchecked Sendable {
         return bytes
     }
 
+    /// Hops onto `stateQueue`; safe to call from any thread (send completions
+    /// invoke it from URLSession callback threads).
     private func fail(_ reason: String) {
+        stateQueue.async { [weak self] in self?.failOnQueue(reason) }
+    }
+
+    /// `fail(_:)` body. MUST run on `stateQueue`.
+    private func failOnQueue(_ reason: String) {
         // Never log the token or secret — `reason` is constructed from relay
         // error strings and URLError descriptions only.
         log.error("\(Self.authFailMarker, privacy: .public) detail=\(reason, privacy: .public)")
         state = .failed(reason: reason)
-        disconnect()
+        disconnectOnQueue()
     }
 
     // MARK: H6 auto-reconnect
@@ -1685,6 +1871,12 @@ final class RelayClient: NSObject, @unchecked Sendable {
     /// no-op. This prevents the double-fire that occurs when `onAuthErr` cancels
     /// the task (causing a `.failure` in the receive loop) and both code paths
     /// call `scheduleReconnect()` — only the first call creates a timer (Bug 2 fix).
+    ///
+    /// MUST run on `stateQueue` — every caller already does (receive-failure hop,
+    /// `onAuthErr` via `handle`, the ping timer created on `stateQueue`), which is
+    /// what makes the `reconnectTimer == nil` idempotency guard sound: it used to
+    /// be a cross-thread check-then-act, and two racing callers both passing it
+    /// ran this teardown concurrently — the 2026-08-03 over-release crash.
     private func scheduleReconnect() {
         // Bug 2 fix: if a reconnect timer is already queued, don't create another.
         guard reconnectTimer == nil else { return }
@@ -1712,13 +1904,15 @@ final class RelayClient: NSObject, @unchecked Sendable {
             "relay: scheduling reconnect in \(delay, privacy: .public)s (attempt=\(self.reconnectAttempt, privacy: .public))"
         )
 
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        // On `stateQueue`, NOT `.global(qos:)`: a root queue is CONCURRENT, so a
+        // handler there raced the other lifecycle writers (the crash fix).
+        let timer = DispatchSource.makeTimerSource(queue: stateQueue)
         timer.schedule(deadline: .now() + delay)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             self.reconnectTimer = nil
             self.state = .idle
-            self.connect()
+            self.connectOnQueue()
         }
         timer.resume()
         reconnectTimer = timer
@@ -1743,10 +1937,12 @@ final class RelayClient: NSObject, @unchecked Sendable {
 
     // MARK: keep-alive + L5 missed-pong
 
+    /// MUST run on `stateQueue` (called from `onAuthOk` via `handle`).
     private func startPing() {
         pingTimer?.cancel()
         missedPongs = 0
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        // On `stateQueue`, NOT `.global(qos:)` — see `scheduleReconnect`.
+        let timer = DispatchSource.makeTimerSource(queue: stateQueue)
         timer.schedule(deadline: .now() + pingInterval, repeating: pingInterval)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
@@ -1825,9 +2021,9 @@ extension RelayClient: URLSessionWebSocketDelegate {
     /// helper and republishes it as `connectionCause` for the UI.
     ///
     /// Runs on the session's delegate queue (not necessarily the main
-    /// actor); `connectionCause`'s `didSet` invokes `onConnectionCauseChange`
-    /// synchronously on this queue, matching `onStateChange`'s existing
-    /// contract (also invoked off-main from delegate callbacks).
+    /// actor); the `connectionCause` write hops onto `stateQueue`, so its
+    /// `didSet` invokes `onConnectionCauseChange` there — matching
+    /// `onStateChange`'s contract (off-main; observers hop to main).
     nonisolated func urlSession(
         _ session: URLSession,
         webSocketTask: URLSessionWebSocketTask,
@@ -1843,7 +2039,10 @@ extension RelayClient: URLSessionWebSocketDelegate {
         log.notice(
             "relay: websocket closed code=\(String(describing: code), privacy: .public) reason=\(reasonString ?? "(none)", privacy: .public) cause=\(cause, privacy: .public)"
         )
-        connectionCause = cause
+        // Hop the write onto `stateQueue` — `connectionCause` is also written by
+        // `onAuthOk` / `onRelayError` there, and concurrent stores to a strong
+        // property are exactly the over-release class this fix eliminates.
+        stateQueue.async { [weak self] in self?.connectionCause = cause }
     }
 }
 

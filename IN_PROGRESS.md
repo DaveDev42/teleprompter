@@ -1,4 +1,4 @@
-# IN_PROGRESS — 후속 세션 인계 (2026-08-01 갱신 · rev28)
+# IN_PROGRESS — 후속 세션 인계 (2026-08-03 갱신 · rev29)
 
 이 문서는 진행 중이던 작업을 후속 세션이 그대로 이어받도록 정리한 것이다.
 **규율 상기**: 도구 호출은 구조화된 `tool_use` 블록으로만. squash merge only via
@@ -16,7 +16,33 @@ Agent 호출 시 항상 `model` 명시. 실 claude E2E 하니스는 로컬 전�
 
 ---
 
-## 상태 스냅샷 (origin/main = d53d69fb, 2026-08-01 rev28)
+## 상태 스냅샷 (2026-08-03 rev29)
+
+> rev29 (2026-08-03): **실기기 dogfood 가 잡은 P0 2건 root-cause & fix.**
+> - **#968 (`2b1692eb`) daemon kx 재브로드캐스트**: `handle_kx_frame` 이 `is_new_peer` 로 게이트돼
+>   **재접속하는 committed 프론트엔드**(일상 사용의 100%)가 daemon pubkey 를 영영 못 받아 앱측 kx
+>   미완 → 모든 E2EE 프레임 드랍(`relay.frame before kx — dropping`) → **세션 목록이 항상 빈** 버그.
+>   모든 자동 게이트(loopback smoke·TP_E2E_REAL/CLAUDE·sim watch 검증)가 fresh-pairing 이라 한 번도
+>   안 걸렸다 — first-join 만 동작했던 것. 픽스 = frontend kx 수신 시 **무조건** 응답(멱등, 프레임 1개
+>   비용). 회귀 가드 `kx_from_known_peer_still_rebroadcasts_daemon_public_key` (relay_client.rs).
+>   실기기 검증: dogfood 갱신 후 iPhone 앱 재접속 즉시 세션 목록 표시 확인. **후속 task #7** =
+>   committed-pairing 재접속 E2E 게이트 신설 (게이트 사각 제거).
+> - **RelayClient 재접속 데이터 레이스 (SIGSEGV, 실기기 크래시 2026-08-03 18:27, build 2501)**:
+>   위 daemon 재시작이 유발한 재접속 폭주에서 앱이 `_swift_release_dealloc` over-release 로 크래시.
+>   근인 = DispatchSource 타이머 2개(ping/reconnect)가 **concurrent** `.global(qos:.utility)` 루트 큐에
+>   걸려, receive-failure·auth-err·ping-timeout 3 경로가 `scheduleReconnect` 의 비원자 가드를 동시
+>   통과 → strong 프로퍼티(pingTimer/task/sessionKeys/…) 동시 teardown → 이중 release. 픽스 = 연결
+>   라이프사이클 상태 전체를 private serial `stateQueue` 로 confinement (타이머 2개 그 큐에 생성 +
+>   receive-loop 완료/mutating 진입점 전부 홉). 회귀 가드 `RelayReconnectRaceTests`. 크래시 아티팩트 =
+>   scratchpad `Teleprompter-crash.ips`. 출하 전 적대적 리뷰가 **동일 클래스 2차 결함**을 확정:
+>   옵저버 클로저 8개가 stateQueue 에서 invoke 되는데 `rewirePromotedClient` 가 **라이브 클라이언트**
+>   옵저버를 MainActor 에서 bare-var 재할당 (promotion 표준 경로 매번) — setter 를 sync 로 stateQueue
+>   직렬화 (`assignObserverOnStateQueue`, per-instance key 로 same-queue sync 데드락 방지) 하고 race
+>   테스트에 옵저버 rewire 해머 추가. **앱 픽스는 TestFlight 재업로드로 출하** (`gh workflow run
+>   testflight.yml --ref main`). **후속 task #8** = runner IPC reconnect (daemon 재시작이 세션을 죽이는
+>   구조 자체의 완화).
+
+## 이전 스냅샷 (origin/main = d53d69fb, 2026-08-01 rev28)
 
 > rev28 (2026-07-31~08-01): **v0.1.54 릴리즈 출하 + 릴리즈 파이프라인 잠복 결함 3건 root-cause & fix (#958~#962).**
 > - **v0.1.54 출하 완료**: release PR **#958**(`9c5a702b`) → tag `v0.1.54` → run 30646609026 all-green →

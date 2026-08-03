@@ -139,13 +139,18 @@ final class RelayAuthTests: XCTestCase {
         XCTAssertNil(client.resumeToken)
     }
 
-    /// An invalid relay URL fails fast without opening a socket.
+    /// An invalid relay URL fails fast without opening a socket. `connect()`
+    /// hops onto the client's serial state queue (reconnect-race fix), so the
+    /// `.failed` transition is observed via `onStateChange` rather than
+    /// asserted synchronously after the call.
     func testConnectFailsOnInvalidURL() {
         let client = RelayClient(pairing: makePairing(relay: ""))
-        client.connect()
-        guard case .failed = client.state else {
-            return XCTFail("expected .failed for empty relay URL, got \(client.state)")
+        let failed = expectation(description: "state becomes .failed")
+        client.onStateChange = { state in
+            if case .failed = state { failed.fulfill() }
         }
+        client.connect()
+        wait(for: [failed], timeout: 5)
     }
 
     func testMarkerConstantsAreStable() {

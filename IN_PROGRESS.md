@@ -1,4 +1,4 @@
-# IN_PROGRESS — 후속 세션 인계 (2026-08-03 갱신 · rev29)
+# IN_PROGRESS — 후속 세션 인계 (2026-08-04 갱신 · rev30)
 
 이 문서는 진행 중이던 작업을 후속 세션이 그대로 이어받도록 정리한 것이다.
 **규율 상기**: 도구 호출은 구조화된 `tool_use` 블록으로만. squash merge only via
@@ -16,7 +16,42 @@ Agent 호출 시 항상 `model` 명시. 실 claude E2E 하니스는 로컬 전�
 
 ---
 
-## 상태 스냅샷 (2026-08-03 rev29)
+## 상태 스냅샷 (2026-08-04 rev30)
+
+> rev30 (2026-08-04): **build 2601 실기기 검증이 잡은 3차 결함 클러스터 fix (task #10).**
+> #969 크래시 픽스는 검증됨(재접속 폭주 속에서 무크래시 생존) — 대신 앱이 "No messages yet" 로
+> **조용히 빈 화면**이 되는 별개 결함 클러스터가 드러났다 (사용자 지적: "auth 에러면 에러가 떠야지
+> 왜 silent fail?"). 3건 fix:
+> - **좀비 재접속 (폭풍의 근원)**: 의도적 `disconnect()` 가 sticky 하지 않았다 — 취소된 소켓의
+>   receive `.failure` 완료가 teardown 후 도착해 `scheduleReconnect` 를 무조건 호출, 교체·해제된
+>   클라이언트가 ~1s 뒤 좀비로 부활해 **같은 frontendId** 로 재접속 → daemon per-frontend 세션키
+>   clobber → aead 실패 → kx churn → relay rate-limit 폭풍 (metrics rateLimitedDrops=10737).
+>   픽스 = `wantsConnection` 의도 플래그 (connectOnQueue set / disconnectOnQueue clear,
+>   `scheduleReconnect` 게이트 — 모든 부활 벡터가 이 함수를 지나므로 구조적 차단) + connectOnQueue
+>   의 pending backoff 타이머 인수 (수동 connect 가 이중 소켓을 안 만들게).
+> - **silent auth fail**: `failOnQueue` 가 marker 로그만 남기고 `connectionCause`(ConnectionBanner
+>   소스) 미기록 + 무재시도 terminal — 실기기에서 auth 실패가 영구 침묵 오프라인이 됐다. 픽스 =
+>   TERMINAL(config 형: invalid URL/scheme, cause 표면화 + 유지 다운) vs RECOVERABLE
+>   (`failRecoverableOnQueue`: auth-send 에러 2곳 + 비-resume `relay.auth.err`, cause 표면화 +
+>   backoff 재시도) 이분화.
+> - **foreground 재접속 훅 부재**: scenePhase 옵저버가 없어 failed/backoff 클라이언트가 앱을
+>   force-quit 할 때까지 죽어 있었다. 픽스 = 메인 WindowGroup + watch 에 `.onChange(of: scenePhase)`
+>   `.active` → `nudgeReconnectAll()` (기존 클라이언트 멱등 `connect()` 재다이얼, 없을 때만 재빌드 —
+>   `reconnectAll()` 처럼 라이브 소켓을 찢지 않음).
+> 회귀 가드 = `RelayResilienceTests` 신규 3종 (`testDeliberateDisconnectStaysDisconnected` /
+> `testRecoverableAuthFailureSurfacesCauseAndKeepsRetrying` / `testTerminalFailureSurfacesConnectionCause`)
+> + mutation check (게이트 제거 시 좀비 테스트가 정확히 실패함을 실측). 출하 전 적대적 리뷰 (3-렌즈 →
+> per-finding 검증) 가 **major 2건 확정 → 반영**: (1) `connectOnQueue` 멱등성을 `state` 스위치에서
+> **소켓 실물(`task == nil`)** 판정으로 교체 — backoff 중 state 는 4개 진입 경로 중 3개에서
+> pre-failure 값(`.authenticated`/`.authenticating`)에 머물러 nudge 가 무동작했다. (2) nudge 를
+> `didEnterBackground` 게이트로 **실제 background→foreground 복귀에만** 발화 — 일시 `.inactive`
+> 플립(Control Center/Face ID)은 suspend 가 없어 armed 타이머가 알아서 발화하는데, 무게이트면
+> glance 마다 지수 백오프가 리셋됐다. stale-state mid-backoff nudge 의 유닛 커버는 라이브 서버가
+> 필요해 미확보 — task #7 (committed-pairing reconnect E2E) 범위로 이월.
+> **후속 (미착수)**: URLSession delegate retain 으로 좀비가 dealloc 안 되는 leak (invalidateAndCancel),
+> 대형 세션 history replay (seq=28841) vs relay rate-limit 로 인한 빈 컨텐츠.
+
+## 이전 스냅샷 (2026-08-03 rev29)
 
 > rev29 (2026-08-03): **실기기 dogfood 가 잡은 P0 2건 root-cause & fix.**
 > - **#968 (`2b1692eb`) daemon kx 재브로드캐스트**: `handle_kx_frame` 이 `is_new_peer` 로 게이트돼

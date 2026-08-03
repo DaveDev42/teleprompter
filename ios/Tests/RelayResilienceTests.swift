@@ -21,12 +21,13 @@ final class RelayResilienceTests: XCTestCase {
 
     private func makePairing(
         daemonId: String = "daemon-test",
-        frontendId: String = "frontend-A"
+        frontendId: String = "frontend-A",
+        relayURL: String = "wss://relay.tpmt.dev"
     ) -> Pairing {
         Pairing(
             pairingSecret: goldenSecret,
             daemonPublicKey: daemonPk,
-            relayURL: "wss://relay.tpmt.dev",
+            relayURL: relayURL,
             daemonId: daemonId,
             frontendId: frontendId,
             version: 3,
@@ -443,5 +444,71 @@ final class RelayResilienceTests: XCTestCase {
         // falling through.
         XCTAssertEqual(
             RelayClient.connectionCauseDescription(forCloseCode: 4999), "relay disconnected")
+    }
+
+    // MARK: - Zombie-reconnect gate + failure visibility (2026-08-04 storm fix)
+
+    /// A deliberate `disconnect()` must be STICKY. The cancelled socket's
+    /// pending receive completion fires `.failure` AFTER the teardown, and the
+    /// receive loop unconditionally calls `scheduleReconnect()` — before the
+    /// `wantsConnection` gate, that resurrected every torn-down client ~1s
+    /// later as a zombie that fought its replacement for the daemon's
+    /// per-frontend session key (aead failures → kx churn → relay rate-limit
+    /// storm on the 2026-08-04 production logs). The observer is assigned
+    /// AFTER connect+disconnect are enqueued (the setter serializes onto the
+    /// same queue), so it only ever sees post-disconnect transitions: any
+    /// `.connecting` it observes IS the zombie coming back.
+    func testDeliberateDisconnectStaysDisconnected() {
+        // Refused loopback port: the connect fails fast and its failure
+        // completion lands after the deliberate disconnect — the zombie window.
+        let client = RelayClient(pairing: makePairing(relayURL: "ws://127.0.0.1:1"))
+        let resurrection = expectation(description: "zombie reconnect after deliberate disconnect")
+        resurrection.isInverted = true
+        client.connect()
+        client.disconnect()
+        client.onStateChange = { state in
+            if case .connecting = state { resurrection.fulfill() }
+        }
+        // The un-gated reconnect timer fired at +1s (attempt 0); 3s covers it
+        // with margin either side.
+        wait(for: [resurrection], timeout: 3.0)
+    }
+
+    /// A recoverable connection-time failure (here: the auth send failing on a
+    /// refused socket) must (a) surface a reason through
+    /// `onConnectionCauseChange` — the ConnectionBanner source — instead of the
+    /// historical marker-log-only silent fail, and (b) keep retrying with
+    /// backoff rather than parking terminally in `.failed`.
+    func testRecoverableAuthFailureSurfacesCauseAndKeepsRetrying() {
+        let client = RelayClient(pairing: makePairing(relayURL: "ws://127.0.0.1:1"))
+        let causeSurfaced = expectation(description: "connectionCause surfaced to observer")
+        causeSurfaced.assertForOverFulfill = false
+        client.onConnectionCauseChange = { cause in
+            if cause != nil { causeSurfaced.fulfill() }
+        }
+        // Two `.connecting` transitions = the initial dial + at least one
+        // backoff re-dial (attempt 0 fires at +1s).
+        let redialed = expectation(description: "backoff re-dial after recoverable failure")
+        redialed.expectedFulfillmentCount = 2
+        redialed.assertForOverFulfill = false
+        client.onStateChange = { state in
+            if case .connecting = state { redialed.fulfill() }
+        }
+        client.connect()
+        wait(for: [causeSurfaced, redialed], timeout: 10.0)
+        client.disconnect()
+    }
+
+    /// A TERMINAL failure (config-shaped: non-WebSocket scheme) must also
+    /// surface its reason — `.failed` used to be invisible on-device because
+    /// only WS close codes fed the banner.
+    func testTerminalFailureSurfacesConnectionCause() {
+        let client = RelayClient(pairing: makePairing(relayURL: "https://relay.tpmt.dev"))
+        let causeSurfaced = expectation(description: "terminal failure surfaces cause")
+        client.onConnectionCauseChange = { cause in
+            if cause?.contains("ws://") == true { causeSurfaced.fulfill() }
+        }
+        client.connect()
+        wait(for: [causeSurfaced], timeout: 5.0)
     }
 }

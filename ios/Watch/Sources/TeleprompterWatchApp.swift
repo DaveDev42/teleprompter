@@ -68,6 +68,13 @@ struct TeleprompterWatchApp: App {
         }
     }
 
+    /// Drives the foreground reconnect nudge — mirrors the phone app's hook.
+    @Environment(\.scenePhase) private var scenePhase
+    /// Gates the nudge to REAL background→foreground returns — mirrors the
+    /// phone app's `didEnterBackground` (transient `.inactive` flips never
+    /// suspend the process, so armed backoff timers fire on their own).
+    @State private var didEnterBackground = false
+
     var body: some Scene {
         WindowGroup {
             WatchRootView(sessionStore: sessionStore, pairings: pairings)
@@ -82,6 +89,24 @@ struct TeleprompterWatchApp: App {
                 }
                 .onAppear {
                     handleSmokeURLIfPresent()
+                }
+                // Foreground reconnect nudge — watchOS suspends aggressively, so
+                // a return from background is exactly when a failed/backoff
+                // client must re-dial. No-op on healthy clients (idempotent
+                // `connect()`); gated like the phone so wrist-down `.inactive`
+                // flickers don't preempt armed backoff timers.
+                .onChange(of: scenePhase) { _, phase in
+                    switch phase {
+                    case .background:
+                        didEnterBackground = true
+                    case .active:
+                        if didEnterBackground {
+                            didEnterBackground = false
+                            pairings.nudgeReconnectAll()
+                        }
+                    default:
+                        break
+                    }
                 }
         }
     }
@@ -159,6 +184,30 @@ final class WatchPairingViewModel {
     /// The watch glance has no pending-row UI; this exists so the ingest hooks can
     /// call it symmetrically with the phone app (a no-op refresh).
     func reloadPending() {}
+
+    /// Foreground nudge (real background→foreground return) — mirrors the
+    /// phone's `PairingViewModel.nudgeReconnectAll`: idempotent `connect()` on
+    /// existing clients (re-dials whenever no live socket attempt exists —
+    /// including mid-backoff with stale `state`; no-op otherwise), full build
+    /// only where a client is missing entirely.
+    func nudgeReconnectAll() {
+        reload()
+        for did in daemonIds {
+            if let client = clients[did] {
+                client.connect()
+            } else {
+                connect(daemonId: did)
+            }
+        }
+        for pid in store.pendingIds() {
+            if let client = pendingClients[pid] {
+                client.connect()
+            } else {
+                beginPending(pairingId: pid)
+            }
+        }
+        recomputeConnectionState()
+    }
 
     /// Open a relay connection for one daemon and authenticate.
     func connect(daemonId: String) {

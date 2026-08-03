@@ -439,9 +439,20 @@ SWIFT_TREAT_WARNINGS_AS_ERRORS: "YES" # 경고가 조용히 회귀하지 못함 
 - **델리게이트 큐가 메인임이 보장된 동기 콜백** (`RealtimeClient`/`QRScannerCoordinator`의
   `queue: .main` 델리게이트) → `nonisolated` + `MainActor.assumeIsolated { … }` (억제가 아니라
   단언 — 보장이 깨지면 크래시).
-- **손으로 동기화한 클래스** (`RelayClient`: `Task{@MainActor}` 홉 + `nonisolated(unsafe)` 쓰기
-  규율) → `@unchecked Sendable`. 시스템-스레드세이프 핸들만 보유한 스토어(`PairingStore`:
-  `UserDefaults`/Keychain) → `@unchecked Sendable`.
+- **손으로 동기화한 클래스** (`RelayClient`: 연결 라이프사이클 상태 전체를 private **serial
+  `stateQueue`** 에 가둠 — 두 DispatchSource 타이머를 그 큐에 생성, receive-loop 완료·mutating
+  진입점(`connect`/`disconnect`/`send`/sealed sender)을 전부 그 큐로 홉 — + store/probe/RTT 는
+  `Task{@MainActor}` 홉 + `nonisolated(unsafe)` 쓰기 규율) → `@unchecked Sendable`. **타이머를
+  `.global(qos:)`(concurrent 루트 큐)에 걸면 안 된다**: 재접속 폭주 시 ping-timeout·receive-failure·
+  auth-err 3 경로가 `scheduleReconnect` 의 비원자 가드를 동시 통과해 strong 프로퍼티를 이중
+  release — 실기기 SIGSEGV (2026-08-03, build 2501; 회귀 가드 `RelayReconnectRaceTests`).
+  **옵저버 클로저 슬롯 8개(`onStateChange`…`onPairingConfirmFailed`)도 같은 규율**: 전부
+  stateQueue 에서 invoke 되므로 setter 가 sync 로 그 큐에 직렬화된다(`assignObserverOnStateQueue`,
+  per-instance queue-specific key 로 on-queue 감지 — same-queue sync 데드락 방지). bare `var` 로
+  두면 pairing promotion 의 `rewirePromotedClient` 가 **라이브 클라이언트** 옵저버를 MainActor 에서
+  재할당하며 invoke 중인 read 와 경합 — 타이머 버그와 동일 over-release class (적대적 리뷰가 발견).
+  시스템-스레드세이프 핸들만 보유한 스토어(`PairingStore`: `UserDefaults`/Keychain) →
+  `@unchecked Sendable`.
 - **ObjC associated-object 키 토큰** (주소만 사용) → `nonisolated(unsafe) static var key = 0`.
 - **deprecated API** (WAE 로 에러화): `onChange(of:perform:)`→2-param, `devices(for:)`→
   `DiscoverySession`, `requestRecordPermission`→`AVAudioApplication`(iOS17+ availability-gated),

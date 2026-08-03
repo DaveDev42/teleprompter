@@ -38,7 +38,7 @@ tp-relay = { path = "../tp-relay" }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 # base64 for IPC `input` data and the synthetic Notification `rec` payload
 # (STANDARD alphabet, matching Bun `Buffer.toString("base64")`).
-base64 = "0.22"
+base64 = "0.23"
 # Tokio multi-thread runtime — ONLY for the embedded relay (axum::serve) and the
 # SIGINT/SIGTERM listener. All orchestration (socket wait, IPC, claude turn
 # driving, push injection) is blocking std threads, mirroring the tp-cli model.

@@ -39,7 +39,7 @@ tp-proto = { path = "../tp-proto" }
 # STANDARD-alphabet base64 for the event-record payload (matches Bun
 # `Buffer.from(JSON.stringify(event)).toString("base64")`, collector.ts) and for
 # decoding the daemon's `input` frame data. No URL-safe, no line wrapping.
-base64 = "0.22"
+base64 = "0.23"
 # PTY spawn + read/write/resize/kill. `portable-pty` (wezterm) is the ADR §6.1
 # choice over `pty-process`: its openpty → spawn_command → blocking reader model
 # maps cleanly onto the Bun `terminal:{ data() }` callback surface (a std reader

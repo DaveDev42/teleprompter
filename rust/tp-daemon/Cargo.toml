@@ -85,7 +85,7 @@ futures-util = { version = "0.3", default-features = false, features = ["sink", 
 # tp-core encode/decode their own base64 internally but do not expose a public
 # helper, so this crate needs its own for the non-AEAD raw-bytes field. Same
 # major version tp-core/tp-relay already pin.
-base64 = "0.22"
+base64 = "0.23"
 # The single OS-CSPRNG source for this crate: the AEAD nonce
 # `tp_core::crypto::seal` requires the caller to supply (tp-core has no rand
 # dependency of its own — the caller picks the nonce source), plus the raw

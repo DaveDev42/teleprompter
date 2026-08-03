@@ -149,8 +149,10 @@ struct ToolChatCard: View {
     let item: ChatItem
     let toolName: String
     let isDone: Bool
-    /// Collapsed by default; per-card view state. The coalesced item keeps the
-    /// Pre's seq, so the running→done flip preserves this state (same identity).
+    /// Collapsed by default; per-card view state. Survives the running→done
+    /// flip because (a) the coalesced item keeps the Pre's seq (same ForEach
+    /// identity) and (b) `ChatItemCard` dispatches both tool states from ONE
+    /// switch branch (same structural identity) — see the dispatcher.
     @State private var rawExpanded = false
 
     var body: some View {
@@ -541,10 +543,13 @@ struct ChatItemCard: View {
                 UserChatCard(item: item, promptText: text)
             case .assistant(let text, let isFailure):
                 AssistantChatCard(item: item, isFailure: isFailure, text: text)
-            case .toolRunning(let name):
-                ToolChatCard(item: item, toolName: name, isDone: false)
-            case .toolDone(let name):
-                ToolChatCard(item: item, toolName: name, isDone: true)
+            case .toolRunning(let name), .toolDone(let name):
+                // ONE structural branch for both tool states: a separate case
+                // per state would give the running and done cards different
+                // structural identities, so SwiftUI would discard @State
+                // (rawExpanded) on the running→done flip (task #12 review
+                // finding).
+                ToolChatCard(item: item, toolName: name, isDone: kind.isToolDone)
             case .permission(let tool):
                 PermissionChatCard(item: item, tool: tool, sid: sid, onSend: onSend)
             case .elicitation(let message):

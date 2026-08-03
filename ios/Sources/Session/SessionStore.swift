@@ -74,6 +74,29 @@ final class SessionStore: ObservableObject {
     @Published private(set) var terminalOutput: [String: String] = [:]
     /// sid → latest known metadata (from `hello` and `state` frames).
     @Published private(set) var sessions: [String: SessionMeta] = [:]
+    /// Monotonic per-sid revision, bumped on every applied `event` record —
+    /// including a coalesced PostToolUse, which mutates an existing row without
+    /// changing `chatItems[sid].count`. ChatView keys its near-bottom
+    /// auto-scroll on this instead of the item count, so an in-place
+    /// running→done flip (which grows the card) still reveals the new content
+    /// (task #12 review finding).
+    @Published private(set) var chatRevision: [String: Int] = [:]
+
+    /// sid → tool_use_id → index of the still-pending PreToolUse row in
+    /// `chatItems[sid]` (task #12 coalescing). Indices are stable because chat
+    /// arrays are append-only: rows are replaced in place on coalesce, never
+    /// removed, until the whole sid is dropped (`removeSession`). If row
+    /// removal/trimming is ever added, these maps must be rebuilt or cleared
+    /// alongside it.
+    private var pendingPreById: [String: [String: Int]] = [:]
+
+    /// sid → tool name → FIFO of pending no-id PreToolUse row indices (TS-era
+    /// events without tool_use_id). FIFO matches call order — the oldest
+    /// pending same-name Pre completes first (task #12 review finding:
+    /// newest-first matching cross-wired the results of two same-name calls
+    /// in flight).
+    private var pendingPreNoIdByName: [String: [String: [Int]]] = [:]
+
     /// Sids the user pinned to the top of the session list (swipe-right on iOS).
     ///
     /// **Device-local, never synced** — the same discipline as `PairingStore`'s
@@ -327,6 +350,9 @@ final class SessionStore: ObservableObject {
     private func removeSessions(internal sid: String) {
         sessions.removeValue(forKey: sid)
         chatItems.removeValue(forKey: sid)
+        chatRevision.removeValue(forKey: sid)
+        pendingPreById.removeValue(forKey: sid)
+        pendingPreNoIdByName.removeValue(forKey: sid)
         terminalOutput.removeValue(forKey: sid)
         cursors.removeValue(forKey: sid)
         // Drop the pin too: the session is gone for good (daemon-side delete), so
@@ -365,20 +391,30 @@ final class SessionStore: ObservableObject {
             }
             // Task #12: a PostToolUse folds into its still-running PreToolUse
             // card (matched by tool_use_id; legacy no-id events fall back to
-            // the newest same-tool-name Pre). The merged item keeps the Pre's
-            // seq so SwiftUI updates the card in place (running → done)
-            // instead of rendering two rows. The cursor already advanced to
-            // the Post's seq above, so replay stays idempotent. An unmatched
-            // Post appends standalone (the isWorking tests rely on that).
+            // the OLDEST pending same-tool-name Pre — FIFO). The merged item
+            // keeps the Pre's seq so SwiftUI updates the card in place
+            // (running → done) instead of rendering two rows. The cursor
+            // already advanced to the Post's seq above, so replay stays
+            // idempotent. An unmatched Post appends standalone (the isWorking
+            // tests rely on that).
             var items = chatItems[rec.sid, default: []]
-            if item.hookEventName == "PostToolUse",
-                let idx = Self.pendingPreIndex(in: items, matching: item)
+            if item.hookEventName == "PreToolUse" {
+                if let id = item.toolUseId {
+                    pendingPreById[rec.sid, default: [:]][id] = items.count
+                } else if let name = item.toolName {
+                    pendingPreNoIdByName[rec.sid, default: [:]][name, default: []]
+                        .append(items.count)
+                }
+                items.append(item)
+            } else if item.hookEventName == "PostToolUse",
+                let idx = takePendingPre(sid: rec.sid, matching: item)
             {
                 items[idx] = item.adopting(seq: items[idx].seq)
             } else {
                 items.append(item)
             }
             chatItems[rec.sid] = items
+            chatRevision[rec.sid, default: 0] += 1
         case "io":
             guard let text = Self.ioText(from: rec) else {
                 log.error("io rec decode failed seq=\(rec.seq, privacy: .public)")
@@ -471,44 +507,38 @@ final class SessionStore: ObservableObject {
 
     // MARK: - Tool-card coalescing + summaries (task #12)
 
-    /// How far back `pendingPreIndex` scans for the matching PreToolUse.
-    /// Bounds the per-Post cost during full-history replay; even heavily
-    /// parallel tool bursts are far narrower than this.
-    private static let preScanWindow = 200
-
-    /// Index of the still-running `PreToolUse` card a `PostToolUse` should
-    /// fold into, or nil to append standalone. Matches by `tool_use_id` when
-    /// the Post carries one; otherwise (TS-era events without ids) falls back
-    /// to the newest same-tool-name Pre that also lacks an id — never crossing
-    /// the id/no-id boundary, so mixed streams can't mispair.
-    static func pendingPreIndex(in items: [ChatItem], matching post: ChatItem) -> Int? {
-        for (scanned, idx) in stride(from: items.count - 1, through: 0, by: -1).enumerated() {
-            if scanned >= preScanWindow { return nil }
-            let cand = items[idx]
-            guard cand.hookEventName == "PreToolUse" else { continue }
-            if let postId = post.toolUseId {
-                if cand.toolUseId == postId { return idx }
-            } else if cand.toolUseId == nil, cand.toolName == post.toolName {
-                return idx
-            }
+    /// Consume and return the pending-Pre row index a `PostToolUse` should
+    /// fold into, or nil to append standalone. O(1) regardless of history
+    /// depth: id-carrying Posts look up (and remove) their exact Pre; no-id
+    /// Posts take the OLDEST pending same-name no-id Pre (FIFO, call order).
+    /// The id/no-id boundary is never crossed, so mixed streams can't mispair.
+    private func takePendingPre(sid: String, matching post: ChatItem) -> Int? {
+        if let id = post.toolUseId {
+            return pendingPreById[sid]?.removeValue(forKey: id)
         }
-        return nil
+        guard let name = post.toolName,
+            var queue = pendingPreNoIdByName[sid]?[name], !queue.isEmpty
+        else { return nil }
+        let idx = queue.removeFirst()
+        pendingPreNoIdByName[sid]?[name] = queue
+        return idx
     }
 
     /// One readable line describing what the tool is doing, from the typed
     /// `tool_input` fields: an explicit human `description` (Bash/Agent) wins,
-    /// then the primary argument of the common built-in tools. nil → the card
-    /// has only the raw compact JSON (collapsed behind "Raw").
+    /// then the primary argument of the common built-in tools. Every branch
+    /// requires non-empty and runs through `firstLine`'s length cap. nil → the
+    /// card has only the raw compact JSON (collapsed behind "Raw").
     private static func toolSummary(input f: HookEventToolInput.Fields?) -> String? {
         guard let f else { return nil }
-        if let d = f.description, !d.isEmpty { return d }
-        if let c = f.command { return firstLine(c) }
-        if let p = f.file_path { return p }
-        if let p = f.pattern { return p }
-        if let u = f.url { return u }
-        if let q = f.query { return q }
-        if let s = f.skill { return "/" + s }
-        if let p = f.prompt { return firstLine(p) }
+        if let d = f.description, !d.isEmpty { return firstLine(d) }
+        if let c = f.command, !c.isEmpty { return firstLine(c) }
+        if let p = f.file_path, !p.isEmpty { return firstLine(p) }
+        if let p = f.pattern, !p.isEmpty { return firstLine(p) }
+        if let u = f.url, !u.isEmpty { return firstLine(u) }
+        if let q = f.query, !q.isEmpty { return firstLine(q) }
+        if let s = f.skill, !s.isEmpty { return "/" + firstLine(s) }
+        if let p = f.prompt, !p.isEmpty { return firstLine(p) }
         return nil
     }
 
@@ -533,11 +563,18 @@ final class SessionStore: ObservableObject {
         }
         guard let raw = fallbackRaw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty
         else { return nil }
-        return firstLine(String(raw.prefix(160)))
+        return firstLine(raw)
     }
 
+    /// First line of `s`, hard-capped at 200 characters. Summary lines feed
+    /// SwiftUI `Text` directly, and a single-line multi-megabyte stdout
+    /// (minified JSON, a base64 blob) must not become a multi-megabyte string
+    /// (task #12 review finding). The cap is applied BEFORE the newline scan
+    /// so a giant no-newline string is never walked in full.
     private static func firstLine(_ s: String) -> String {
-        String(s.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)[0])
+        let head = s.prefix(201)
+        let line = head.prefix(while: { $0 != "\n" })
+        return line.count > 200 ? String(line.prefix(200)) + "…" : String(line)
     }
 }
 

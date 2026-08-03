@@ -11,16 +11,45 @@ struct ChatItem: Identifiable, Equatable {
     let sid: String
     let hookEventName: String
     let toolName: String?  // PreToolUse/PostToolUse only
+    let toolUseId: String?  // pairs a PostToolUse with its PreToolUse (task #12)
     let lastAssistantMessage: String?  // Stop only (success)
     let errorText: String?  // StopFailure only (L6)
     let prompt: String?  // UserPromptSubmit only (H2)
-    let toolInput: String?  // PostToolUse compact JSON (I1)
+    let toolInput: String?  // PreToolUse/PostToolUse compact JSON (I1)
     let toolResult: String?  // PostToolUse compact JSON (I1)
+    let toolSummary: String?  // human-readable tool_input one-liner (task #12)
+    let toolResultSummary: String?  // human-readable result one-liner (task #12)
+    let durationMs: Double?  // PostToolUse duration_ms (task #12)
     let message: String?  // Elicitation message (M5)
     let permissionTool: String?  // PermissionRequest tool_name (M5)
     let ts: Double
 
     var id: Int { seq }
+
+    /// Copy of self with a different `seq`. Used when a `PostToolUse` folds
+    /// into its `PreToolUse` card: the merged item carries the Post's data but
+    /// keeps the Pre's seq, so SwiftUI sees the same identity and updates the
+    /// card in place (running → done) instead of removing and inserting rows.
+    func adopting(seq newSeq: Int) -> ChatItem {
+        ChatItem(
+            seq: newSeq,
+            sid: sid,
+            hookEventName: hookEventName,
+            toolName: toolName,
+            toolUseId: toolUseId,
+            lastAssistantMessage: lastAssistantMessage,
+            errorText: errorText,
+            prompt: prompt,
+            toolInput: toolInput,
+            toolResult: toolResult,
+            toolSummary: toolSummary,
+            toolResultSummary: toolResultSummary,
+            durationMs: durationMs,
+            message: message,
+            permissionTool: permissionTool,
+            ts: ts,
+        )
+    }
 }
 
 /// Holds decrypted session state for the UI: per-session metadata (`state`) and
@@ -334,7 +363,22 @@ final class SessionStore: ObservableObject {
                 log.error("event rec decode failed seq=\(rec.seq, privacy: .public)")
                 return
             }
-            chatItems[rec.sid, default: []].append(item)
+            // Task #12: a PostToolUse folds into its still-running PreToolUse
+            // card (matched by tool_use_id; legacy no-id events fall back to
+            // the newest same-tool-name Pre). The merged item keeps the Pre's
+            // seq so SwiftUI updates the card in place (running → done)
+            // instead of rendering two rows. The cursor already advanced to
+            // the Post's seq above, so replay stays idempotent. An unmatched
+            // Post appends standalone (the isWorking tests rely on that).
+            var items = chatItems[rec.sid, default: []]
+            if item.hookEventName == "PostToolUse",
+                let idx = Self.pendingPreIndex(in: items, matching: item)
+            {
+                items[idx] = item.adopting(seq: items[idx].seq)
+            } else {
+                items.append(item)
+            }
+            chatItems[rec.sid] = items
         case "io":
             guard let text = Self.ioText(from: rec) else {
                 log.error("io rec decode failed seq=\(rec.seq, privacy: .public)")
@@ -389,6 +433,8 @@ final class SessionStore: ObservableObject {
         let promptDec = try? decoder.decode(HookEventPrompt.self, from: data)
         let permDec = try? decoder.decode(HookEventPermission.self, from: data)
         let elicDec = try? decoder.decode(HookEventElicitation.self, from: data)
+        let inputDec = try? decoder.decode(HookEventToolInput.self, from: data)
+        let responseDec = try? decoder.decode(HookEventToolResponse.self, from: data)
 
         // H2: user prompt text — prefer `user_prompt`, fall back to `prompt`.
         let prompt = promptDec?.user_prompt ?? promptDec?.prompt
@@ -396,20 +442,102 @@ final class SessionStore: ObservableObject {
         // L6: StopFailure error text lives in `error` field, not last_assistant_message.
         let errorText = stopDec?.error
 
+        // Task #12: real Claude Code puts the result under `tool_response`;
+        // the TS-era shape used `tool_result`. Prefer the real key.
+        let rawResult = toolDec?.tool_response ?? toolDec?.tool_result
+
         return ChatItem(
             seq: rec.seq,
             sid: rec.sid,
             hookEventName: base.hook_event_name,
             toolName: toolDec?.tool_name,
+            toolUseId: toolDec?.tool_use_id,
             lastAssistantMessage: stopDec?.last_assistant_message,
             errorText: errorText,
             prompt: prompt,
             toolInput: toolDec?.tool_input?.displayValue,
-            toolResult: toolDec?.tool_result?.displayValue,
+            toolResult: rawResult?.displayValue,
+            toolSummary: toolSummary(input: inputDec?.tool_input),
+            toolResultSummary: toolResultSummary(
+                response: responseDec?.tool_response,
+                fallbackRaw: rawResult?.value,
+                isPost: base.hook_event_name == "PostToolUse"),
+            durationMs: toolDec?.duration_ms,
             message: elicDec?.message,
             permissionTool: permDec?.tool_name,
             ts: rec.ts,
         )
+    }
+
+    // MARK: - Tool-card coalescing + summaries (task #12)
+
+    /// How far back `pendingPreIndex` scans for the matching PreToolUse.
+    /// Bounds the per-Post cost during full-history replay; even heavily
+    /// parallel tool bursts are far narrower than this.
+    private static let preScanWindow = 200
+
+    /// Index of the still-running `PreToolUse` card a `PostToolUse` should
+    /// fold into, or nil to append standalone. Matches by `tool_use_id` when
+    /// the Post carries one; otherwise (TS-era events without ids) falls back
+    /// to the newest same-tool-name Pre that also lacks an id — never crossing
+    /// the id/no-id boundary, so mixed streams can't mispair.
+    static func pendingPreIndex(in items: [ChatItem], matching post: ChatItem) -> Int? {
+        for (scanned, idx) in stride(from: items.count - 1, through: 0, by: -1).enumerated() {
+            if scanned >= preScanWindow { return nil }
+            let cand = items[idx]
+            guard cand.hookEventName == "PreToolUse" else { continue }
+            if let postId = post.toolUseId {
+                if cand.toolUseId == postId { return idx }
+            } else if cand.toolUseId == nil, cand.toolName == post.toolName {
+                return idx
+            }
+        }
+        return nil
+    }
+
+    /// One readable line describing what the tool is doing, from the typed
+    /// `tool_input` fields: an explicit human `description` (Bash/Agent) wins,
+    /// then the primary argument of the common built-in tools. nil → the card
+    /// has only the raw compact JSON (collapsed behind "Raw").
+    private static func toolSummary(input f: HookEventToolInput.Fields?) -> String? {
+        guard let f else { return nil }
+        if let d = f.description, !d.isEmpty { return d }
+        if let c = f.command { return firstLine(c) }
+        if let p = f.file_path { return p }
+        if let p = f.pattern { return p }
+        if let u = f.url { return u }
+        if let q = f.query { return q }
+        if let s = f.skill { return "/" + s }
+        if let p = f.prompt { return firstLine(p) }
+        return nil
+    }
+
+    /// One readable line summarising a completed tool's result: Bash-shaped
+    /// stdout (or stderr) first line when decodable, else the first line of
+    /// the raw compact JSON. nil on PreToolUse and on empty results without a
+    /// Bash shape.
+    private static func toolResultSummary(
+        response f: HookEventToolResponse.Fields?, fallbackRaw: String?, isPost: Bool
+    ) -> String? {
+        guard isPost else { return nil }
+        if let f {
+            if let out = f.stdout?.trimmingCharacters(in: .whitespacesAndNewlines), !out.isEmpty {
+                return firstLine(out)
+            }
+            if let err = f.stderr?.trimmingCharacters(in: .whitespacesAndNewlines), !err.isEmpty {
+                return "stderr: " + firstLine(err)
+            }
+            // A Bash-shaped response whose streams are both empty is a real
+            // "ran fine, printed nothing" — say so instead of dumping JSON.
+            if f.stdout != nil || f.stderr != nil { return "(no output)" }
+        }
+        guard let raw = fallbackRaw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty
+        else { return nil }
+        return firstLine(String(raw.prefix(160)))
+    }
+
+    private static func firstLine(_ s: String) -> String {
+        String(s.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)[0])
     }
 }
 

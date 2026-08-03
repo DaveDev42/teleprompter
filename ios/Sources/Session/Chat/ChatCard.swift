@@ -139,29 +139,36 @@ struct AssistantChatCard: View {
 // MARK: - Tool card
 
 /// Renders a tool invocation card (`PreToolUse` / `PostToolUse`).
-/// For `PostToolUse`, shows a collapsed summary of `tool_input` and `tool_result`
-/// when available (I1).
+///
+/// Task #12: the store coalesces a Post into its Pre item, so ONE card flips
+/// running → done in place. The readable lines lead — `toolSummary` (what the
+/// tool is doing) always, `toolResultSummary` (first line of output) when done
+/// — and the raw `tool_input`/`tool_response` JSON is demoted to an opt-in
+/// "Raw" disclosure instead of being the first thing the user sees.
 struct ToolChatCard: View {
     let item: ChatItem
     let toolName: String
     let isDone: Bool
+    /// Collapsed by default; per-card view state. The coalesced item keeps the
+    /// Pre's seq, so the running→done flip preserves this state (same identity).
+    @State private var rawExpanded = false
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             // Status indicator dot
             Circle()
                 .fill(isDone ? Color.green : Color.orange)
                 .frame(width: 7, height: 7)
-                .padding(.top, 2)
+                .padding(.top, 5)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 4) {
                     Text(toolName)
                         .font(.callout.monospaced())
                         .foregroundStyle(.primary)
                     Spacer()
-                    // Status badge
-                    Text(isDone ? "Done" : "Running")
+                    // Status badge (+ duration when the daemon reported one)
+                    Text(statusText)
                         .font(.caption2.bold())
                         .foregroundStyle(isDone ? .green : .orange)
                         .padding(.horizontal, 6)
@@ -172,21 +179,54 @@ struct ToolChatCard: View {
                         )
                 }
 
-                // I1: Show tool_input/tool_result summary when available (PostToolUse only).
-                if isDone {
-                    if let input = item.toolInput, !input.isEmpty {
-                        Text("in: \(input)")
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .truncationMode(.tail)
+                // What the tool is doing — shown in both states so the card is
+                // meaningful while still running.
+                if let summary = item.toolSummary, !summary.isEmpty {
+                    Text(summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
+
+                // First line of the result once done.
+                if isDone, let result = item.toolResultSummary, !result.isEmpty {
+                    Text("→ \(result)")
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                }
+
+                // Raw JSON, opt-in (task #12 — this used to be the whole card).
+                if hasRaw {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) { rawExpanded.toggle() }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 8, weight: .bold))
+                                .rotationEffect(.degrees(rawExpanded ? 90 : 0))
+                            Text("Raw")
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                     }
-                    if let result = item.toolResult, !result.isEmpty {
-                        Text("out: \(result)")
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .truncationMode(.tail)
+                    .buttonStyle(.plain)
+
+                    if rawExpanded {
+                        if let input = item.toolInput, !input.isEmpty {
+                            Text("in: \(input)")
+                                .font(.system(.caption2, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                        if let result = item.toolResult, !result.isEmpty {
+                            Text("out: \(result)")
+                                .font(.system(.caption2, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
                     }
                 }
 
@@ -206,6 +246,17 @@ struct ToolChatCard: View {
                 )
         )
         .accessibilityLabel("Tool \(toolName), \(isDone ? "completed" : "running")")
+    }
+
+    private var statusText: String {
+        guard isDone else { return "Running" }
+        guard let ms = item.durationMs else { return "Done" }
+        let dur = ms < 1000 ? "\(Int(ms))ms" : String(format: "%.1fs", ms / 1000)
+        return "Done · \(dur)"
+    }
+
+    private var hasRaw: Bool {
+        !(item.toolInput ?? "").isEmpty || !(item.toolResult ?? "").isEmpty
     }
 }
 

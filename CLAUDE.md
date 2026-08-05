@@ -207,6 +207,21 @@ Daemon은 자동 관리됨: passthrough/status/logs 실행 시 daemon이 없으�
 | `TP_NO_UPDATE_CHECK=1` | Suppress the background "new version available" check on startup |
 | `TP_NO_AUTO_INSTALL=1` | Force first-run to skip the interactive "install daemon service?" prompt, even on a TTY; falls back to the dim hint line |
 
+### Claude Launch Command (`config.json`)
+
+`$XDG_CONFIG_HOME/teleprompter/config.json` (fallback `$HOME/.config/teleprompter/config.json`,
+same dir resolution as `config_dir()`) — `{"claudeCommand": ["<bin>", "<arg>", ...]}` lets a session
+spawn a wrapper (e.g. `csm`) instead of literal `claude`. Precedence: `TP_RUNNER_CLAUDE_BIN` env
+(test seam, single binary) > config `claudeCommand` > default `["claude"]`. Missing file/key →
+default; malformed JSON or a `claudeCommand` that isn't a non-empty array of non-empty strings is a
+**hard error** (fail closed) surfaced as a runner startup failure or `tp` passthrough preflight
+error, never a silent fallback to `claude`. Scope: session spawns (`tp-runner`) + the passthrough
+preflight (`tp doctor` reports the resolved command + source) only — `Route::ForwardClaude`
+(`tp auth`/`mcp`/etc., `tp -- <args>`) and the `version`/`doctor`/`upgrade` combo commands always exec
+literal `claude`. A bare (no `/`) configured binary resolves against launchd's fixed PATH for
+daemon-spawned sessions (`service_darwin.rs`), not your shell's — prefer an absolute path, e.g.
+`["/opt/homebrew/bin/csm","run","--profile","<name>","--"]`. Shared resolver: `rust/tp-proto/src/user_config.rs`.
+
 ## Shell Completions
 
 `tp completions install [shell]` 실행 시 shell 미지정이면 `$SHELL` (또는 `$ZSH_VERSION`/`$BASH_VERSION`/`$FISH_VERSION`) 을 기반으로 자동 감지.

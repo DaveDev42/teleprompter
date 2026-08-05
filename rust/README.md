@@ -35,6 +35,7 @@ rust/
       ipc.rs               # parse_ipc_message (28 variant + AgeFilter + parse_label_field + reason enums)
       relay_client.rs      # parse_relay_client_message (10 variant + Role/Platform/InterruptionLevel/PushData)
       keypair.rs           # generate_keypair (랜덤 getrandom::fill/OS CSPRNG — tp-core 의 결정적 kx_seed_keypair 보완)
+      user_config.rs       # config.json claudeCommand 해석 (env override > config > default "claude") — tp-cli(preflight/doctor)+tp-runner(spawn site) 공유, locate.rs 와 동일한 공유-리졸버 근거
     tests/
       message_vectors.rs   # 라이브 TS 가드 교차검증 (accept/reject + 직렬화 동등, 값기준 json_eq)
       fixtures/message-vectors.json   # scripts/gen-message-vectors.ts 산출 (relayClient/ipc/control/label)
@@ -62,6 +63,7 @@ rust/
       main.rs              # 엔트리 (argv 파싱 + tokio 단일스레드 런타임 + tokio::signal 130/143 매핑 → runner::run)
     tests/
       run_e2e.rs           # E2E: 스텁 daemon + TP_RUNNER_CLAUDE_BIN 가짜 claude → hello→io rec(binary sidecar)→bye reason=exit
+      run_e2e_config.rs    # E2E: config.json claudeCommand(XDG_CONFIG_HOME 임시 dir, TP_RUNNER_CLAUDE_BIN 없음) → hello→io→bye — 별도 프로세스(자체 test 바이너리)라 env mutation 안전
   tp-loopback/             # #5 zero-Bun — 스모크 loopback (host-only). scripts/local-relay-loopback.ts 대체
     Cargo.toml             # [[bin]] tp-loopback; deps: tp-core, tp-relay, tokio-tungstenite(WS client), base64, rand_core
     src/main.rs            # 실 RelayServer(axum, 고정 포트 7099) + 가짜 daemon WS peer(auth→sub→kx v:3 broadcast→kx.frame→hello(PCT)/state/batch/io echo). LOOPBACK_READY 후 대기. scripts/ios.sh start_loopback 이 기본 스폰(PR6 에서 Bun script + TP_RUST_LOOPBACK opt-in seam 삭제 — 유일 구현; 삭제 전 wire-identical 8마커 교차검증 완료)

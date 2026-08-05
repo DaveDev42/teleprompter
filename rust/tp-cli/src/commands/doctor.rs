@@ -59,6 +59,16 @@ pub fn run() -> ExitCode {
         }
     };
 
+    // Claude launch command — the actual command `tp-runner` will spawn for a
+    // session, independent of the `claude_found` PATH probe above (a
+    // configured wrapper is a different binary from literal `claude`, so a
+    // missing/broken bare `claude` is not necessarily a problem here). When
+    // the resolved command falls back to the default (`["claude"]`, no env
+    // override or config), a resolution failure is the exact same root cause
+    // the "Claude CLI" probe above already counted — pass `claude_found` so
+    // that case doesn't add a second issue for one problem.
+    check_claude_launch_command(&mut issues, claude_found);
+
     // Git — strip the "git version " prefix (doctor.ts:100).
     match probe_version("git", &["--version"]) {
         Some(v) => {
@@ -198,6 +208,86 @@ fn print_check(name: &str, value: &str, passed: bool) {
         yellow("!")
     };
     println!("  {icon} {name}: {value}");
+}
+
+// ── Claude launch command ────────────────────────────────────────────────────
+
+/// Report the claude command `tp-runner` will actually spawn for a session:
+/// the resolved tokens, their source (default | config | `TP_RUNNER_CLAUDE_BIN`),
+/// and whether the first token resolves to an executable. Mirrors the same
+/// precedence `tp-runner` uses (`tp_proto::user_config`) so this check can
+/// never drift from what a session spawn actually does.
+///
+/// `claude_found` is the result of the earlier bare `claude --version` PATH
+/// probe. When the resolved source is `Default` (no env override, no config
+/// — i.e. the resolved tokens are exactly `["claude"]`), a resolution
+/// failure here is the identical root cause already counted by that probe,
+/// so it must not add a second issue to the summary for one problem.
+fn check_claude_launch_command(issues: &mut u32, claude_found: bool) {
+    let env_override = std::env::var("TP_RUNNER_CLAUDE_BIN").ok();
+    let config_path = tp_proto::user_config::config_file_path();
+    match tp_proto::user_config::resolve_claude_command(env_override, &config_path) {
+        Err(msg) => {
+            print_check("Claude launch command", &msg, false);
+            *issues += 1;
+        }
+        Ok((tokens, source)) => {
+            let source_label = match source {
+                tp_proto::user_config::ClaudeCommandSource::Default => "default",
+                tp_proto::user_config::ClaudeCommandSource::EnvOverride => "TP_RUNNER_CLAUDE_BIN",
+                tp_proto::user_config::ClaudeCommandSource::Config => "config",
+            };
+            let resolves = tp_proto::user_config::command_resolves_to_executable(&tokens[0]);
+            let value = format!("{} (source: {source_label})", tokens.join(" "));
+            print_check("Claude launch command", &value, resolves);
+            if launch_command_failure_is_new_issue(source, resolves, claude_found) {
+                *issues += 1;
+            }
+
+            // Bare-name warning: launchd-spawned (daemon) sessions resolve
+            // PATH against the fixed launchd PATH
+            // (service_darwin.rs:106-107), not the operator's interactive
+            // shell PATH, so a bare name that resolves here may not resolve
+            // when the daemon spawns a session. Advisory only — matches the
+            // non-blocking style of the "Daemon socket"/"Pairing data"
+            // checks above (does not add to `issues`).
+            if matches!(source, tp_proto::user_config::ClaudeCommandSource::Config)
+                && !tokens[0].contains('/')
+            {
+                print_check(
+                    "Claude launch command (PATH warning)",
+                    &format!(
+                        "\"{}\" is a bare name \u{2014} daemon(launchd)-spawned sessions resolve \
+                         it against PATH \"/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin\", not \
+                         your shell's PATH \u{2014} recommend an absolute path in \
+                         \"claudeCommand\"",
+                        tokens[0]
+                    ),
+                    false,
+                );
+            }
+        }
+    }
+}
+
+/// Whether a non-resolving launch command should add a *new* issue on top of
+/// the earlier `claude_found` PATH probe (pure decision, factored out for
+/// unit testing). A `Default`-source failure is the exact same root cause as
+/// `claude_found == false` (both are "bare `claude` missing from PATH"), so
+/// it must not double-count. Any other source (env override / config) is an
+/// independent binary and always counts on its own resolution failure.
+fn launch_command_failure_is_new_issue(
+    source: tp_proto::user_config::ClaudeCommandSource,
+    resolves: bool,
+    claude_found: bool,
+) -> bool {
+    if resolves {
+        return false;
+    }
+    match source {
+        tp_proto::user_config::ClaudeCommandSource::Default => claude_found,
+        _ => true,
+    }
 }
 
 // ── Tool probe ───────────────────────────────────────────────────────────────
@@ -516,6 +606,76 @@ mod tests {
     fn missing_tool_adds_one_issue() {
         let v = probe_version("__tp_doctor_nonexistent__", &["--version"]);
         assert!(v.is_none(), "missing tool must return None → issues += 1");
+    }
+
+    /// Regression for the doctor.rs:46 double-count finding: when `claude` is
+    /// missing from PATH (`claude_found = false`) and the launch command
+    /// resolves from `Default` (no env/config override — i.e. the same bare
+    /// `claude`), the launch-command check must NOT add a second issue for
+    /// the identical root cause the "Claude CLI" probe already counted.
+    #[test]
+    fn default_source_failure_does_not_double_count_missing_claude() {
+        use tp_proto::user_config::ClaudeCommandSource;
+
+        assert!(
+            !launch_command_failure_is_new_issue(ClaudeCommandSource::Default, false, false),
+            "Default-source resolution failure with claude_found=false must not add a new issue"
+        );
+    }
+
+    /// A `Default`-source resolution failure while `claude --version` DID
+    /// succeed is a distinct condition (e.g. `claude` on PATH but its exec
+    /// bit check fails another way) — this must still count.
+    #[test]
+    fn default_source_failure_counts_when_claude_probe_succeeded() {
+        use tp_proto::user_config::ClaudeCommandSource;
+
+        assert!(launch_command_failure_is_new_issue(
+            ClaudeCommandSource::Default,
+            false,
+            true
+        ));
+    }
+
+    /// Non-default sources (env override / config wrapper) are independent
+    /// binaries from the bare `claude` PATH probe, so a resolution failure
+    /// always counts regardless of `claude_found`.
+    #[test]
+    fn non_default_source_failure_always_counts() {
+        use tp_proto::user_config::ClaudeCommandSource;
+
+        assert!(launch_command_failure_is_new_issue(
+            ClaudeCommandSource::EnvOverride,
+            false,
+            false
+        ));
+        assert!(launch_command_failure_is_new_issue(
+            ClaudeCommandSource::EnvOverride,
+            false,
+            true
+        ));
+        assert!(launch_command_failure_is_new_issue(
+            ClaudeCommandSource::Config,
+            false,
+            false
+        ));
+    }
+
+    /// A resolving command never adds an issue, regardless of source.
+    #[test]
+    fn resolving_command_never_adds_issue() {
+        use tp_proto::user_config::ClaudeCommandSource;
+
+        assert!(!launch_command_failure_is_new_issue(
+            ClaudeCommandSource::Default,
+            true,
+            false
+        ));
+        assert!(!launch_command_failure_is_new_issue(
+            ClaudeCommandSource::Config,
+            true,
+            true
+        ));
     }
 
     // ── E2EE self-test round-trip ────────────────────────────────────────────

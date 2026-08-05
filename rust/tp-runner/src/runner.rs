@@ -108,10 +108,22 @@ pub async fn run(
     );
 
     // ── Spawn claude in a PTY ────────────────────────────────────────────────
-    // The program is `claude` in production; `TP_RUNNER_CLAUDE_BIN` overrides it
-    // (a test/debug seam — unset in production, so this resolves to "claude").
-    let claude_bin = std::env::var("TP_RUNNER_CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string());
-    let mut command = vec![claude_bin, "--settings".to_string(), settings_json];
+    // Resolve the launch command: `TP_RUNNER_CLAUDE_BIN` env override (a
+    // test/debug seam — unset in production) → `config.json`'s
+    // `claudeCommand` (user-configurable wrapper, e.g. `csm`) → default
+    // `["claude"]`. See `tp_proto::user_config` for the full precedence +
+    // error semantics. A malformed config is a hard error surfaced through
+    // this function's `std::io::Result` — same channel `main.rs` already
+    // uses for every other runner startup failure (printed as `[Runner]
+    // fatal: …` and a non-zero exit), so a broken wrapper config fails loud
+    // instead of silently launching the wrong binary.
+    let env_override = std::env::var("TP_RUNNER_CLAUDE_BIN").ok();
+    let config_path = tp_proto::user_config::config_file_path();
+    let (mut command, _claude_command_source) =
+        tp_proto::user_config::resolve_claude_command(env_override, &config_path)
+            .map_err(std::io::Error::other)?;
+    command.push("--settings".to_string());
+    command.push(settings_json);
     command.extend(opts.claude_args.iter().cloned());
 
     // Bridge the PTY's thread callbacks into the async select loop over channels

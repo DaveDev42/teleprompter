@@ -81,21 +81,14 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// `ExitCode::FAILURE` for a fatal setup error (claude missing, bad `--tp-cwd`,
 /// daemon un-startable).
 pub fn run(argv: &[String]) -> ExitCode {
-    // Preflight: claude must be on PATH (mirrors the retired passthrough.ts:44-56,
-    // deleted in #5 PR6 #933 — visible in git history). A missing claude is the
-    // single most common first-run failure, so surface it with a hint instead of
-    // a raw runner spawn error.
-    if !claude_available() {
-        eprintln!(
-            "{}",
-            error_with_hints(
-                "claude command not found.",
-                &[
-                    "Install Claude Code: https://claude.com/product/claude-code",
-                    "Then re-run: tp",
-                ],
-            )
-        );
+    // Preflight: the resolved claude launch command must be available (mirrors
+    // the retired passthrough.ts:44-56, deleted in #5 PR6 #933 — visible in git
+    // history, extended to resolve `TP_RUNNER_CLAUDE_BIN` / config.json
+    // `claudeCommand` the same way `tp-runner` does — see `claude_available`).
+    // A missing claude is the single most common first-run failure, so surface
+    // it with a hint instead of a raw runner spawn error.
+    if let Err(msg) = claude_available() {
+        eprintln!("{msg}");
         return ExitCode::FAILURE;
     }
 
@@ -141,11 +134,73 @@ pub fn run(argv: &[String]) -> ExitCode {
     run_service_proxy(&sid, &cwd, &claude_args)
 }
 
-/// Whether `claude --version` runs successfully (PATH probe). Mirrors the
-/// retired Bun CLI's `Bun.spawnSync(["claude","--version"])` preflight
-/// (passthrough.ts:44-51, deleted in #5 PR6 #933 — visible in git history).
-fn claude_available() -> bool {
-    Command::new("claude")
+/// Resolve the claude launch command (env override → config.json
+/// `claudeCommand` → default `["claude"]`, same precedence `tp-runner` uses —
+/// `tp_proto::user_config`) and check it is available, returning a
+/// user-facing error message (already `error_with_hints`-formatted) on
+/// failure.
+///
+/// - **Default / `TP_RUNNER_CLAUDE_BIN` override**: mirrors the retired Bun
+///   CLI's `Bun.spawnSync(["claude","--version"])` preflight exactly
+///   (passthrough.ts:44-51, deleted in #5 PR6 #933 — visible in git
+///   history), generalised to whichever single binary was resolved (the
+///   default case always resolves to literal `"claude"`, so this is
+///   byte-identical to the pre-config behavior for that case).
+/// - **Configured `claudeCommand` (wrapper)**: NEVER spawned here — a
+///   `--version` probe on an arbitrary wrapper could launch a full
+///   interactive session if the wrapper doesn't recognise the flag. Instead
+///   only checks the first token resolves to an executable
+///   (`tp_proto::user_config::command_resolves_to_executable`).
+fn claude_available() -> Result<(), String> {
+    let env_override = std::env::var("TP_RUNNER_CLAUDE_BIN").ok();
+    let config_path = tp_proto::user_config::config_file_path();
+    let (tokens, source) =
+        tp_proto::user_config::resolve_claude_command(env_override, &config_path).map_err(
+            |msg| {
+                error_with_hints(
+            &msg,
+            &["Fix the \"claudeCommand\" entry, or remove the config file to use the default."],
+        )
+            },
+        )?;
+    let bin = &tokens[0];
+
+    let ok = match source {
+        tp_proto::user_config::ClaudeCommandSource::Config => {
+            tp_proto::user_config::command_resolves_to_executable(bin)
+        }
+        tp_proto::user_config::ClaudeCommandSource::Default
+        | tp_proto::user_config::ClaudeCommandSource::EnvOverride => probe_version(bin),
+    };
+    if ok {
+        return Ok(());
+    }
+
+    Err(match source {
+        tp_proto::user_config::ClaudeCommandSource::Config => error_with_hints(
+            &format!("configured claude command not found: \"{bin}\""),
+            &[
+                &format!("Configured in: {}", config_path.display()),
+                "Fix the \"claudeCommand\" entry, or remove it to use the default.",
+            ],
+        ),
+        tp_proto::user_config::ClaudeCommandSource::Default
+        | tp_proto::user_config::ClaudeCommandSource::EnvOverride => error_with_hints(
+            "claude command not found.",
+            &[
+                "Install Claude Code: https://claude.com/product/claude-code",
+                "Then re-run: tp",
+            ],
+        ),
+    })
+}
+
+/// Whether `<bin> --version` runs successfully (PATH probe). Safe only for a
+/// binary we already know behaves like `claude` (the default or the
+/// `TP_RUNNER_CLAUDE_BIN` test seam) — never for an arbitrary configured
+/// wrapper (see `claude_available`).
+fn probe_version(bin: &str) -> bool {
+    Command::new(bin)
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::null())

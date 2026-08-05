@@ -37,6 +37,7 @@ pub mod label;
 pub mod locate;
 pub mod relay_client;
 pub mod socket_path;
+pub mod user_config;
 
 pub use locate::locate_tp_runner;
 pub use socket_path::{assert_safe_sid, resolve_runtime_dir, socket_path};

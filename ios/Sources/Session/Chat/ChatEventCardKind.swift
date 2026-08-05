@@ -24,6 +24,14 @@ enum ChatEventCardKind {
     /// Catch-all for `Notification` and any other hook events.
     case system
 
+    /// `true` only for `.toolDone` — lets `ChatItemCard` render both tool
+    /// states from one structural switch branch, preserving the card's @State
+    /// across the running→done flip (task #12).
+    var isToolDone: Bool {
+        if case .toolDone = self { return true }
+        return false
+    }
+
     /// Derive the card kind from a `ChatItem`.
     init(item: ChatItem) {
         switch item.hookEventName {

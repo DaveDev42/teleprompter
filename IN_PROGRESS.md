@@ -1,4 +1,4 @@
-# IN_PROGRESS — 후속 세션 인계 (2026-08-04 갱신 · rev30)
+# IN_PROGRESS — 후속 세션 인계 (2026-08-04 갱신 · rev31)
 
 이 문서는 진행 중이던 작업을 후속 세션이 그대로 이어받도록 정리한 것이다.
 **규율 상기**: 도구 호출은 구조화된 `tool_use` 블록으로만. squash merge only via
@@ -15,6 +15,32 @@ Agent 호출 시 항상 `model` 명시. 실 claude E2E 하니스는 로컬 전�
 > 평범한 unattended-CI plumbing 이다.
 
 ---
+
+## 상태 스냅샷 (2026-08-04 rev31)
+
+> rev31 (2026-08-04): **build 2701 dogfood 피드백 1건 fix (task #12) + 터미널 결함 2건 (task
+> #13/#14) 파이프라인 맵 완료.**
+> - **task #12 (chat tool cards)**: PreToolUse/PostToolUse 가 각각 별도 카드로 렌더되고 done
+>   카드가 raw JSON 을 그대로 노출하던 문제. 픽스 = SessionStore.appendRec 에서 Post 를 매칭되는
+>   pending Pre 아이템에 **fold** (tool_use_id 매칭, TS-era no-id 이벤트는 같은 tool_name fallback
+>   — id/no-id 경계는 절대 안 넘음). 병합 아이템은 Pre 의 seq 를 유지(SwiftUI identity → in-place
+>   running→done 전환)하되 cursor 는 Post seq 로 전진(replay 멱등). **wire-key 결함 동시 수정**:
+>   실 Claude Code 는 결과를 `tool_response` 로 보내는데 앱은 TS-era `tool_result` 만 디코드해
+>   실세션에서 toolResult 가 항상 nil 이었다 (실 daemon records 로 검증, tool_use_id/duration_ms
+>   존재도 확인). 렌더 = 사람이 읽는 summary 라인 (description/command/file_path 등 typed 디코드)
+>   + done 시 stdout 첫 줄 요약 + raw JSON 은 "Raw" disclosure 로 강등. watch 는 SessionStore 를
+>   공유하므로 coalescing 자동 적용. ChatRenderTests 6건 추가 (224/224 green).
+> - **task #13/#14 (터미널)**: Explore 맵 완료 — (A) `in.term` 경로 **이중 base64 인코딩**
+>   (installTerminalCallbacks 가 인코드 + sendInputOnQueue .term 이 재인코드; runner 는 1회만
+>   디코드 → 키 입력·마우스 리포트 전부 base64 쓰레기로 PTY 도달; TP_INPUT_OK 는 .chat 전용이라
+>   미검출), (B) SwiftTermView 가 `allowMouseReporting`(기본 true) 미해제 → claude TUI 가 mouse
+>   tracking DECSET 하면 스크롤 드래그가 mouse-report escape 폭주로 입력됨 (panMouseHandler 가
+>   allowMouseReporting 로 게이트됨을 vendored 1.13.0 소스로 확인 — false 셋 한 줄이 유효한 픽스),
+>   (C) 3-way 크기 불일치: PTY 120×40 하드코드 스폰 (앱이 session.create cols/rows 미전달) vs
+>   로컬 SwiftTerm 80×25 기본 (frame .zero 에서 히스토리 replay가 레이아웃 전에 실행) vs 실제
+>   viewport ~45col (sizeChanged → sendResize 는 end-to-end 배선돼 있음). 픽스 순서: #13 =
+>   이중인코딩 제거 + allowMouseReporting=false, #14 = replay 를 첫 sizeChanged 이후로 지연 +
+>   createSession cols/rows 힌트.
 
 ## 상태 스냅샷 (2026-08-04 rev30)
 

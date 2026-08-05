@@ -95,6 +95,224 @@ final class ChatRenderTests: XCTestCase {
         XCTAssertNil(items[0].lastAssistantMessage)
     }
 
+    // MARK: - Tool-card coalescing (task #12)
+
+    /// A helper mirroring real Claude Code hook JSON (verified against live
+    /// daemon records 2026-08-04): Pre/Post pair share `tool_use_id`, the Post
+    /// carries the result under `tool_response` plus `duration_ms`.
+    private func preToolRec(seq: Int, tool: String = "Bash", id: String? = nil) -> SessionRec {
+        var json: [String: Any] = [
+            "session_id": sid, "hook_event_name": "PreToolUse", "cwd": "/tmp/smoke",
+            "tool_name": tool,
+            "tool_input": ["command": "ls -la", "description": "List files"],
+        ]
+        if let id { json["tool_use_id"] = id }
+        return eventRec(seq: seq, json: json)
+    }
+
+    private func postToolRecReal(
+        seq: Int, tool: String = "Bash", id: String? = nil, stdout: String = "file.txt"
+    ) -> SessionRec {
+        var json: [String: Any] = [
+            "session_id": sid, "hook_event_name": "PostToolUse", "cwd": "/tmp/smoke",
+            "tool_name": tool,
+            "tool_input": ["command": "ls -la", "description": "List files"],
+            "tool_response": ["stdout": stdout, "stderr": ""],
+            "duration_ms": 42,
+        ]
+        if let id { json["tool_use_id"] = id }
+        return eventRec(seq: seq, json: json)
+    }
+
+    /// The core coalescing contract: Pre then Post (same tool_use_id) yields
+    /// ONE item that kept the Pre's seq (SwiftUI identity → in-place update)
+    /// but carries the Post's data, and the cursor still advanced to the
+    /// Post's seq so replay stays idempotent.
+    func testPrePostCoalesceIntoSingleStatefulItem() {
+        let store = SessionStore()
+        store.appendRec(preToolRec(seq: 1, id: "toolu_A"))
+        store.appendRec(postToolRecReal(seq: 2, id: "toolu_A", stdout: "hello\nworld"))
+        let items = store.chatItems[sid] ?? []
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items[0].seq, 1)  // Pre's identity retained
+        XCTAssertEqual(items[0].hookEventName, "PostToolUse")  // Post's state
+        XCTAssertEqual(items[0].toolResultSummary, "hello")  // first stdout line
+        XCTAssertEqual(items[0].durationMs, 42)
+        XCTAssertEqual(store.cursor(for: sid), 2)  // cursor at Post's seq
+        // Replaying both records is a no-op (cursor gate).
+        store.appendRec(preToolRec(seq: 1, id: "toolu_A"))
+        store.appendRec(postToolRecReal(seq: 2, id: "toolu_A"))
+        XCTAssertEqual((store.chatItems[sid] ?? []).count, 1)
+    }
+
+    /// Interleaved parallel tools match by tool_use_id, not position: Posts
+    /// arriving in reverse order each fold into their own Pre.
+    func testParallelToolsCoalesceByToolUseId() {
+        let store = SessionStore()
+        store.appendRec(preToolRec(seq: 1, tool: "Bash", id: "toolu_A"))
+        store.appendRec(preToolRec(seq: 2, tool: "Read", id: "toolu_B"))
+        store.appendRec(postToolRecReal(seq: 3, tool: "Read", id: "toolu_B", stdout: "b-out"))
+        store.appendRec(postToolRecReal(seq: 4, tool: "Bash", id: "toolu_A", stdout: "a-out"))
+        let items = store.chatItems[sid] ?? []
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items[0].seq, 1)
+        XCTAssertEqual(items[0].toolName, "Bash")
+        XCTAssertEqual(items[0].toolResultSummary, "a-out")
+        XCTAssertEqual(items[1].seq, 2)
+        XCTAssertEqual(items[1].toolName, "Read")
+        XCTAssertEqual(items[1].toolResultSummary, "b-out")
+    }
+
+    /// A Post with no surviving Pre (e.g. history pruned) appends standalone —
+    /// the isWorking tests below depend on this shape too.
+    func testStandalonePostAppends() {
+        let store = SessionStore()
+        store.appendRec(postToolRecReal(seq: 5, id: "toolu_X"))
+        let items = store.chatItems[sid] ?? []
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items[0].seq, 5)
+        XCTAssertEqual(items[0].hookEventName, "PostToolUse")
+    }
+
+    /// TS-era events without tool_use_id fall back to newest-same-tool-name
+    /// matching, but never pair across the id/no-id boundary.
+    func testNoIdFallbackCoalescesByToolName() {
+        let store = SessionStore()
+        store.appendRec(preToolRec(seq: 1, tool: "Bash", id: nil))
+        store.appendRec(postToolRecReal(seq: 2, tool: "Bash", id: nil))
+        XCTAssertEqual((store.chatItems[sid] ?? []).count, 1)
+
+        // An id-carrying Post must NOT fold into a no-id Pre.
+        store.appendRec(preToolRec(seq: 3, tool: "Grep", id: nil))
+        store.appendRec(postToolRecReal(seq: 4, tool: "Grep", id: "toolu_Z"))
+        let items = store.chatItems[sid] ?? []
+        XCTAssertEqual(items.count, 3)  // coalesced Bash + pending Grep Pre + standalone Post
+    }
+
+    /// REGRESSION (wire-key mismatch): real Claude Code emits the result under
+    /// `tool_response`, not the TS-era `tool_result`. Both must decode into
+    /// `toolResult`, preferring `tool_response`.
+    func testToolResponseKeyDecodes() {
+        let store = SessionStore()
+        store.appendRec(postToolRecReal(seq: 1, id: "toolu_A", stdout: "real-key"))
+        let real = (store.chatItems[sid] ?? [])[0]
+        XCTAssertNotNil(real.toolResult)
+        XCTAssertTrue(real.toolResult!.contains("real-key"))
+
+        // TS-era key still decodes.
+        store.appendRec(
+            eventRec(
+                seq: 2,
+                json: [
+                    "session_id": sid, "hook_event_name": "PostToolUse", "cwd": "/tmp/smoke",
+                    "tool_name": "Bash", "tool_result": ["stdout": "legacy-key"],
+                ]))
+        let legacy = (store.chatItems[sid] ?? []).last!
+        XCTAssertNotNil(legacy.toolResult)
+        XCTAssertTrue(legacy.toolResult!.contains("legacy-key"))
+    }
+
+    /// REGRESSION (review): two same-name no-id calls in flight must resolve
+    /// FIFO — the first Post folds into the FIRST (oldest) pending Pre, not
+    /// the newest, or the two cards end up cross-wired with each other's
+    /// results.
+    func testNoIdConcurrentSameNameCallsResolveFifo() {
+        let store = SessionStore()
+        store.appendRec(preToolRec(seq: 1, tool: "Bash", id: nil))
+        store.appendRec(preToolRec(seq: 2, tool: "Bash", id: nil))
+        store.appendRec(postToolRecReal(seq: 3, tool: "Bash", id: nil, stdout: "first-out"))
+        store.appendRec(postToolRecReal(seq: 4, tool: "Bash", id: nil, stdout: "second-out"))
+        let items = store.chatItems[sid] ?? []
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items[0].seq, 1)
+        XCTAssertEqual(items[0].toolResultSummary, "first-out")  // oldest Pre got first Post
+        XCTAssertEqual(items[1].seq, 2)
+        XCTAssertEqual(items[1].toolResultSummary, "second-out")
+    }
+
+    /// REGRESSION (review): a Post arriving hundreds of items after its Pre
+    /// (long-running tool in a chatty turn) must still coalesce — the old
+    /// positional scan window orphaned the Pre as a permanent "Running" card.
+    func testCoalesceSurvivesDeepInterleaving() {
+        let store = SessionStore()
+        store.appendRec(preToolRec(seq: 1, id: "toolu_LONG"))
+        for i in 2...301 {
+            store.appendRec(
+                eventRec(
+                    seq: i,
+                    json: [
+                        "session_id": sid, "hook_event_name": "Notification",
+                        "cwd": "/tmp/smoke",
+                    ]))
+        }
+        store.appendRec(postToolRecReal(seq: 302, id: "toolu_LONG", stdout: "late"))
+        let items = store.chatItems[sid] ?? []
+        XCTAssertEqual(items.count, 301)  // 1 coalesced tool card + 300 notifications
+        XCTAssertEqual(items[0].seq, 1)
+        XCTAssertEqual(items[0].hookEventName, "PostToolUse")
+        XCTAssertEqual(items[0].toolResultSummary, "late")
+    }
+
+    /// REGRESSION (review): a coalesced Post must still bump the revision even
+    /// though the item count is unchanged — ChatView keys its near-bottom
+    /// auto-scroll on this.
+    func testChatRevisionBumpsOnCoalesce() {
+        let store = SessionStore()
+        store.appendRec(preToolRec(seq: 1, id: "toolu_A"))
+        XCTAssertEqual(store.chatRevision[sid], 1)
+        store.appendRec(postToolRecReal(seq: 2, id: "toolu_A"))
+        XCTAssertEqual((store.chatItems[sid] ?? []).count, 1)  // count did NOT change
+        XCTAssertEqual(store.chatRevision[sid], 2)  // revision DID
+    }
+
+    /// REGRESSION (review): summary lines are hard-capped — a single-line
+    /// multi-kilobyte stdout must not become the card's summary string.
+    func testResultSummaryCapsGiantSingleLine() {
+        let store = SessionStore()
+        let giant = String(repeating: "x", count: 10_000)
+        store.appendRec(postToolRecReal(seq: 1, id: "toolu_A", stdout: giant))
+        let summary = (store.chatItems[sid] ?? [])[0].toolResultSummary ?? ""
+        XCTAssertEqual(summary.count, 201)  // 200 chars + ellipsis
+        XCTAssertTrue(summary.hasSuffix("…"))
+    }
+
+    /// REGRESSION (review): an empty `command` must not short-circuit the
+    /// summary fallback chain — the next non-empty field wins.
+    func testEmptyCommandFallsThroughToNextField() {
+        let store = SessionStore()
+        store.appendRec(
+            eventRec(
+                seq: 1,
+                json: [
+                    "session_id": sid, "hook_event_name": "PreToolUse", "cwd": "/tmp/smoke",
+                    "tool_name": "Read", "tool_use_id": "toolu_R",
+                    "tool_input": ["command": "", "file_path": "/a/b.swift"],
+                ]))
+        XCTAssertEqual((store.chatItems[sid] ?? [])[0].toolSummary, "/a/b.swift")
+    }
+
+    /// The readable summary lines: `description` wins for the input line;
+    /// empty Bash streams read "(no output)" instead of raw JSON.
+    func testToolSummaryLines() {
+        let store = SessionStore()
+        store.appendRec(preToolRec(seq: 1, id: "toolu_A"))
+        XCTAssertEqual((store.chatItems[sid] ?? [])[0].toolSummary, "List files")
+
+        store.appendRec(
+            eventRec(
+                seq: 2,
+                json: [
+                    "session_id": sid, "hook_event_name": "PostToolUse", "cwd": "/tmp/smoke",
+                    "tool_name": "Bash", "tool_use_id": "toolu_A",
+                    "tool_input": ["command": "true"],
+                    "tool_response": ["stdout": "", "stderr": ""],
+                ]))
+        let item = (store.chatItems[sid] ?? [])[0]
+        XCTAssertEqual(item.toolResultSummary, "(no output)")
+        // No description → falls back to the command itself.
+        XCTAssertEqual(item.toolSummary, "true")
+    }
+
     // MARK: hooks-only / dedup / cursor
 
     /// PTY `io` records advance the cursor but never render as chat items.

@@ -92,6 +92,17 @@ struct ChatView: View {
         store.isWorking(sid: sid)
     }
 
+    /// Change signal for the near-bottom auto-scroll. `items.count` misses a
+    /// coalesced PostToolUse (task #12: the Post replaces its Pre row in place,
+    /// growing the card without changing the count), so key on the store's
+    /// per-sid revision instead — it bumps on every applied event record.
+    private var chatRevision: Int {
+        if let sid {
+            return store.chatRevision[sid] ?? 0
+        }
+        return store.chatRevision.values.reduce(0, +)
+    }
+
     /// `true` when the composer must refuse input: the session is stopped or
     /// errored (both terminal — CLAUDE.md/protocol `SessionState` is exactly
     /// `"running" | "stopped" | "error"`), OR the owning daemon is unreachable.
@@ -187,7 +198,7 @@ struct ChatView: View {
                             .padding(.vertical, 8)
                         }
                         // M6: only auto-scroll when the user is already at/near the bottom.
-                        .onChange(of: items.count) { _, _ in
+                        .onChange(of: chatRevision) { _, _ in
                             guard isNearBottom else { return }
                             withAnimation(.easeOut(duration: 0.2)) {
                                 proxy.scrollTo("__bottom__", anchor: .bottom)

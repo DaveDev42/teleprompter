@@ -505,10 +505,49 @@ struct HookEventStop: Decodable, Equatable {
 /// `PreToolUse`/`PostToolUse` extra field (`event.ts:31-42`). `tool_name` is
 /// required; `tool_input`/`tool_result` are open shapes decoded as compact JSON
 /// strings (I1 — capped at 500 chars for display).
+///
+/// `tool_use_id` pairs a `PostToolUse` with its `PreToolUse` so the store can
+/// fold both into one stateful card (task #12). Real Claude Code emits the
+/// result under `tool_response` (verified against live daemon records,
+/// 2026-08-04); the TS-era shape used `tool_result` — decode both, prefer
+/// `tool_response`. `duration_ms` is PostToolUse-only.
 struct HookEventTool: Decodable, Equatable {
     let tool_name: String
+    let tool_use_id: String?
     let tool_input: RawJSONString?
     let tool_result: RawJSONString?
+    let tool_response: RawJSONString?
+    let duration_ms: Double?
+}
+
+/// Narrow typed view of the nested `tool_input` object, for the human-readable
+/// tool-card summary line (task #12). Every field is optional — only the keys
+/// the given tool actually sent decode. Kept separate from `HookEventTool` so
+/// a `tool_input` that isn't an object (scalar/array) fails only this decode,
+/// never the raw `RawJSONString` capture.
+struct HookEventToolInput: Decodable, Equatable {
+    struct Fields: Decodable, Equatable {
+        let command: String?
+        let description: String?
+        let file_path: String?
+        let pattern: String?
+        let url: String?
+        let query: String?
+        let prompt: String?
+        let skill: String?
+    }
+    let tool_input: Fields?
+}
+
+/// Narrow typed view of the nested `tool_response` object (Bash-shaped
+/// stdout/stderr), for the tool-card result summary line (task #12). Separate
+/// struct for the same isolation reason as `HookEventToolInput`.
+struct HookEventToolResponse: Decodable, Equatable {
+    struct Fields: Decodable, Equatable {
+        let stdout: String?
+        let stderr: String?
+    }
+    let tool_response: Fields?
 }
 
 /// `UserPromptSubmit` extra field (H2). Expo ground truth (`chat-store.ts:107-109`):

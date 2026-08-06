@@ -28,7 +28,7 @@ tp-core = { path = "../tp-core" }
 tp-relay = { path = "../tp-relay" }
 serde_json = "1"
 # base64 for the io/event record payloads (same STANDARD engine tp-core uses).
-base64 = "0.22"
+base64 = "0.23"
 # Random 24-byte AEAD nonces for `seal` (the loopback's ciphertexts are
 # ephemeral — decrypted live by the app — so a fresh random nonce per seal is
 # correct; this is NOT a golden-vector oracle).
